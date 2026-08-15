@@ -1,0 +1,21 @@
+{
+  "question": "Does authorized or planned production differ from actual execution of an operation?",
+  "sources": [
+    {
+      "name": "ERPNext license.txt",
+      "locator": "https://github.com/frappe/erpnext/blob/1212a278c6a5fcad4bd67d27ec15c6af9d3e94b4/license.txt",
+      "path": "license.txt",
+      "ref": "develop",
+      "sha": "1212a278c6a5fcad4bd67d27ec15c6af9d3e94b4",
+      "license": "GPL-3.0",
+      "license_locator": "https://github.com/frappe/erpnext/blob/1212a278c6a5fcad4bd67d27ec15c6af9d3e94b4/license.txt",
+      "fetched": "2026-08-15"
+    }
+  ],
+  "evidence_class": "domain-evidence",
+  "decision_state": "hypothesis",
+  "extraction_mode": "concept",
+  "reuse_class": "copyleft-link-needs-decision",
+  "reuse_decision": "none",
+  "licensing_note": "Concepts and behavior only. No ERPNext implementation is copied."
+}

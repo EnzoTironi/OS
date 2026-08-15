@@ -68,6 +68,8 @@ Licensing note
 
 ## Clean-room posture
 
+Issue #69 process notes live in [`licensing/`](licensing/issue-69-clean-room-boundaries.md). Contributor steps are in [`docs/clean-room-research.md`](../docs/clean-room-research.md). Reviewers use [`docs/research-review-checklist.md`](../docs/research-review-checklist.md).
+
 OS is MIT licensed. Research into GPL/LGPL/other licensed projects should default to conceptual and behavioral analysis:
 
 - schemas as evidence of domain distinctions;
