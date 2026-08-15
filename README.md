@@ -31,6 +31,33 @@ A useful working rule is:
 
 > Code can be large. The semantic core should be small, orthogonal, and difficult to simplify further.
 
+## Agent stack
+
+Skills and plugins for Cursor agents, versioned in this repo so desktop and cloud agents share the same workflows.
+
+| Layer | For | Entry |
+| --- | --- | --- |
+| **pstack** | Rigorous execution: `/poteto-mode`, principles, how/why, architect, arena | `/poteto-mode` |
+| **cursor-team-kit** | Shipping: CI, PRs, `deslop`, `control-cli`, `control-ui`, `verify-this` | `/review-and-ship`, `/fix-ci`, `/deslop` |
+| **mattpocock/skills** | Discovery and spec: grill, wayfinder, tickets, implement | `/grill-with-docs`, `/setup-matt-pocock-skills` |
+
+These are not three copies of the same flow. pstack executes. team-kit ships. Matt aligns and slices the work.
+
+`tdd` and `teach` come from pstack. The Matt skills with those names were not copied, so `/poteto-mode` does not see duplicates.
+
+```
+.cursor/skills/     # what the agent loads (cloud included)
+.cursor/agents/     # poteto-agent, Comment Sicko, ci-watcher, thermo-nuclear
+.cursor/rules/      # pstack models + team-kit rules
+.cursor/settings.json
+pstack/             # full plugin (marketplace)
+cursor-team-kit/
+```
+
+Models: Grok 4.6 xhigh fast day-to-day; `gpt-5.6-sol-xhigh` only for `hardest tasks` and `architect runners`. See `.cursor/rules/pstack-models.mdc`.
+
+Start a new chat in this workspace, then `/poteto-mode` plus a done criterion. On a product repo, run `/setup-matt-pocock-skills` once (tracker, labels, `CONTEXT.md`). Upstream licenses: MIT (Lauren Tan / Cursor / Matt Pocock). See `SOURCES.md`.
+
 ## License and research hygiene
 
 OS is MIT licensed. Some important research references, including ERPNext and Odoo, use copyleft licenses. Research notes should extract concepts, behavior, invariants, scenarios, and references rather than transplanting implementation code into OS. Any reuse of implementation must be an explicit licensing decision, never an accidental outcome of research.
