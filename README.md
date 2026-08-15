@@ -13,10 +13,12 @@ This repository is intentionally **pre-architecture**. Nothing here should be re
 - [`docs/thesis.md`](docs/thesis.md) — the current thesis, explicitly provisional.
 - [`docs/hypothesis-history.md`](docs/hypothesis-history.md) — how the idea evolved during the initial research session, including hypotheses we considered and then weakened or abandoned.
 - [`docs/constitution.md`](docs/constitution.md) — rules for how we research and decide, not rules for how the final system must work.
+- [`docs/open-questions.md`](docs/open-questions.md) — cross-cutting questions that remain deliberately unresolved, including what would falsify the leading thesis.
 - [`docs/research-program.md`](docs/research-program.md) — the first research program across enterprise domains and reference systems.
 - [`rfcs/0001-metamodel-hypothesis.md`](rfcs/0001-metamodel-hypothesis.md) — a deliberately unstable metamodel hypothesis to attack.
 - [`scenarios/README.md`](scenarios/README.md) — adversarial business scenarios that candidate models must survive.
 - [`research/README.md`](research/README.md) — how evidence from ERPNext, Odoo, Moqui, Palantir, REA/ValueFlows, standards, and other systems should be recorded.
+- [`research/reference-landscape.md`](research/reference-landscape.md) — lessons, useful abstractions, and warnings from adjacent operational ontology / agentic enterprise projects.
 
 ## Current posture
 
