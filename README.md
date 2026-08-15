@@ -15,6 +15,7 @@ This repository is intentionally **pre-architecture**. Nothing here should be re
 - [`docs/constitution.md`](docs/constitution.md) — rules for how we research and decide, not rules for how the final system must work.
 - [`docs/open-questions.md`](docs/open-questions.md) — cross-cutting questions that remain deliberately unresolved, including what would falsify the leading thesis.
 - [`docs/research-program.md`](docs/research-program.md) — the first research program across enterprise domains and reference systems.
+- [`docs/swarm-research-backlog.md`](docs/swarm-research-backlog.md) — execution map for the research swarm, including workstreams, waves, output contracts, kill tests, and synthesis gates. GitHub issue #2 is the coordination epic.
 - [`rfcs/0001-metamodel-hypothesis.md`](rfcs/0001-metamodel-hypothesis.md) — a deliberately unstable metamodel hypothesis to attack.
 - [`scenarios/README.md`](scenarios/README.md) — adversarial business scenarios that candidate models must survive.
 - [`research/README.md`](research/README.md) — how evidence from ERPNext, Odoo, Moqui, Palantir, REA/ValueFlows, standards, and other systems should be recorded.
