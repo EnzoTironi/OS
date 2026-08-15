@@ -4,10 +4,15 @@ This directory is for **evidence**, not for prematurely defining OS.
 
 Research should extract domain meaning from mature systems, standards, formal ontologies, and real operational scenarios while keeping source-specific implementation details clearly separated from candidate OS semantics.
 
+All swarm research must follow the [swarm result contract](../docs/swarm-result-contract.md). That contract defines the required pre-read, artifact names, evidence grades, record templates, index shard, and completion gate. The evidence-note template below remains a working outline.
+
 ## Suggested structure
 
 ```text
 research/
+  notes/
+  index/
+  schema/
   erpnext/
   odoo/
   moqui/

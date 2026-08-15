@@ -154,7 +154,7 @@ Only after that should a runtime implementation be treated as more than an exper
 
 ## Agent output contract
 
-Until #74 refines this contract, every completed research issue should produce repository artifacts containing:
+All research issues follow `docs/swarm-result-contract.md`; the list below summarizes the required result:
 
 1. **Question** — what semantic uncertainty was investigated.
 2. **Sources** — exact repositories/files/commits/docs/standards used.

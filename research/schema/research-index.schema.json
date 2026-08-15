@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OS research index shard",
+  "description": "A merge-safe index shard for one OS research evidence note.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "entries"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "../schema/research-index.schema.json"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "entries": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "artifactId": {
+      "type": "string",
+      "pattern": "^issue-[0-9]{4,}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "recordRef": {
+      "type": "string",
+      "pattern": "^issue-[0-9]{4,}-[a-z0-9]+(?:-[a-z0-9]+)*#[CEILXDR]-[0-9]{3,}$"
+    },
+    "decisionState": {
+      "type": "string",
+      "enum": [
+        "hypothesis",
+        "supported",
+        "rejected",
+        "undetermined"
+      ]
+    },
+    "evidenceGrade": {
+      "type": "string",
+      "enum": [
+        "implemented-code",
+        "test",
+        "official-doc",
+        "design-claim",
+        "inference"
+      ]
+    },
+    "disagreement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "targets",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^D-[0-9]{3,}$"
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/recordRef"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "resolved"
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "artifact",
+        "issue",
+        "title",
+        "question",
+        "topics",
+        "source_keys",
+        "evidence_grades",
+        "decision_states",
+        "concepts",
+        "invariants",
+        "candidate_laws",
+        "counterexamples",
+        "runtime_consequences",
+        "disagreements",
+        "depends_on",
+        "related_issues"
+      ],
+      "properties": {
+        "artifact_id": {
+          "$ref": "#/$defs/artifactId"
+        },
+        "artifact": {
+          "type": "string",
+          "pattern": "^research/notes/issue-[0-9]{4,}-[a-z0-9]+(?:-[a-z0-9]+)*\\.md$"
+        },
+        "issue": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "topics": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/slug"
+          }
+        },
+        "source_keys": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/slug"
+          }
+        },
+        "evidence_grades": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/evidenceGrade"
+          }
+        },
+        "decision_states": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/decisionState"
+          }
+        },
+        "concepts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^C-[0-9]{3,}$"
+          }
+        },
+        "invariants": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^I-[0-9]{3,}$"
+          }
+        },
+        "candidate_laws": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^L-[0-9]{3,}$"
+          }
+        },
+        "counterexamples": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^X-[0-9]{3,}$"
+          }
+        },
+        "runtime_consequences": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^R-[0-9]{3,}$"
+          }
+        },
+        "disagreements": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/disagreement"
+          }
+        },
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/recordRef"
+          }
+        },
+        "related_issues": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}
