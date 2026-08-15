@@ -1,0 +1,116 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 1,
+  "entries": [
+    {
+      "artifact_id": "issue-0007-action-event-effect",
+      "artifact": "research/notes/issue-0007-action-event-effect.md",
+      "issue": 7,
+      "title": "Action, event, effect, and outcome boundaries",
+      "question": "What exact semantic boundaries separate an intended intervention, a committed internal state transition, an external side effect, and an observed outcome?",
+      "topics": [
+        "action",
+        "event",
+        "effect",
+        "outcome",
+        "unknown",
+        "reconciliation",
+        "idempotency",
+        "approval",
+        "compensation",
+        "reversal"
+      ],
+      "source_keys": [
+        "palantir-foundry",
+        "ontologiq",
+        "open-foundry",
+        "stripe",
+        "valueflows",
+        "erpnext",
+        "transactional-outbox"
+      ],
+      "evidence_grades": [
+        "implemented-code",
+        "official-doc"
+      ],
+      "decision_states": [
+        "hypothesis",
+        "supported",
+        "undetermined"
+      ],
+      "concepts": [
+        "C-001",
+        "C-002",
+        "C-003",
+        "C-004",
+        "C-005",
+        "C-006",
+        "C-007",
+        "C-008"
+      ],
+      "invariants": [
+        "I-001",
+        "I-002",
+        "I-003",
+        "I-004",
+        "I-005",
+        "I-006"
+      ],
+      "candidate_laws": [
+        "L-001",
+        "L-002",
+        "L-003",
+        "L-004",
+        "L-005",
+        "L-006",
+        "L-007",
+        "L-008"
+      ],
+      "counterexamples": [
+        "X-001",
+        "X-002",
+        "X-003",
+        "X-004",
+        "X-005",
+        "X-006",
+        "X-007",
+        "X-008"
+      ],
+      "runtime_consequences": [
+        "R-001",
+        "R-002",
+        "R-003",
+        "R-004",
+        "R-005"
+      ],
+      "disagreements": [
+        {
+          "id": "D-001",
+          "targets": [
+            "issue-0007-action-event-effect#C-001",
+            "issue-0007-action-event-effect#E-012"
+          ],
+          "status": "open"
+        },
+        {
+          "id": "D-002",
+          "targets": [
+            "issue-0007-action-event-effect#E-008",
+            "issue-0007-action-event-effect#L-002"
+          ],
+          "status": "open"
+        },
+        {
+          "id": "D-003",
+          "targets": [
+            "issue-0007-action-event-effect#E-003",
+            "issue-0007-action-event-effect#L-004"
+          ],
+          "status": "resolved"
+        }
+      ],
+      "depends_on": [],
+      "related_issues": [2, 7]
+    }
+  ]
+}
