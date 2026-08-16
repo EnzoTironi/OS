@@ -13,7 +13,7 @@
       "topics": ["ingestion", "entity-resolution", "identity", "provenance", "source-binding", "schema-drift", "observations", "authority"],
       "source_keys": ["palantir", "splink", "openrefine", "debezium", "w3c-prov", "hf-reality-check"],
       "evidence_kinds": ["official-doc", "formal-spec", "real-company-evidence", "inference"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0045-ingest-entity-resolution#L-I45-01", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0045-ingest-entity-resolution#L-I45-02", "kind": "candidate-law", "epistemic_state": "supported"},
@@ -38,7 +38,10 @@
         {"ref": "issue-0045-ingest-entity-resolution#Q-I45-10", "kind": "open-question", "epistemic_state": "undetermined"},
         {"ref": "issue-0045-ingest-entity-resolution#Q-I45-11", "kind": "open-question", "epistemic_state": "undetermined"},
         {"ref": "issue-0045-ingest-entity-resolution#Q-I45-12", "kind": "open-question", "epistemic_state": "undetermined"},
-        {"ref": "issue-0045-ingest-entity-resolution#Q-I45-14", "kind": "open-question", "epistemic_state": "undetermined"}
+        {"ref": "issue-0045-ingest-entity-resolution#Q-I45-14", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0045-ingest-entity-resolution#R-I45-01", "kind": "review-finding"},
+        {"ref": "issue-0045-ingest-entity-resolution#R-I45-02", "kind": "review-finding"},
+        {"ref": "issue-0045-ingest-entity-resolution#R-I45-03", "kind": "review-finding"}
       ],
       "disagreements": [],
       "depends_on": ["issue-0077-hf-reality-check", "research/reviews/wave-a-review-ledger.md"],
