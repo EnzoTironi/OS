@@ -1,0 +1,48 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0156-rulebinding-reduction",
+      "artifact": "research/kill/rulebinding-v2/README.md",
+      "issue": 156,
+      "title": "RuleBinding reduction kill test — proof-carrying refined Type candidate",
+      "question": "Can RuleBinding disappear from R5 without recreating its dispatcher under another name?",
+      "artifact_kind": "kill-test",
+      "topics": ["metamodel", "primitive-reduction", "rule-binding", "type-refinement", "capability", "authorization", "invariant", "proof", "state-basis", "anti-cheat"],
+      "source_keys": ["issue-8-logic", "issue-40-commit", "issue-41-effects", "issue-42-authorization", "issue-46-verification", "issue-56-primitives", "issue-70-metamodel", "rfc-0002"],
+      "evidence_kinds": ["reviewed-corpus", "test", "counterexample", "sensitivity", "synthesis"],
+      "review_status": "unreviewed",
+      "records": [
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-01", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-02", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-03", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-04", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-05", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-06", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-07", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-08", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-09", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-10", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-11", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-12", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-13", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-14", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-15", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-16", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-17", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-18", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-19", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0156-rulebinding-reduction#L-RB-20", "kind": "candidate-law", "epistemic_state": "supported"}
+      ],
+      "disagreements": [
+        {"topic": "rulebinding-base-sort", "state": "reopened", "note": "R5 keeps RuleBinding; #156 has a four-form proof-capability candidate with no locus/scope dispatcher in the bounded model."},
+        {"topic": "capability-type", "state": "rejected", "note": "Dedicated CapabilityType was rejected as possible primitive substitution; current candidate uses generic Type refinement plus a standard capability contract."},
+        {"topic": "proof-currentness", "state": "revised", "note": "Revision-only proof validity was falsified by context substitution; current candidate binds and seals the exact validated semantic context."}
+      ],
+      "depends_on": ["issue-0070-metamodel-synthesis", "issue-0040-commit-semantics", "issue-0041-external-effects", "issue-0042-authorization-delegation", "issue-0046-cross-ontology-verification", "issue-0056-metamodel-primitives"],
+      "related_issues": [8, 40, 41, 42, 46, 56, 70, 71, 157, 158]
+    }
+  ]
+}
