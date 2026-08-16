@@ -70,5 +70,7 @@ jobs:
           python-version: '3.12'
       - name: Install PostgreSQL driver
         run: python3 -m pip install 'psycopg[binary]>=3,<4'
-      - name: Run real PostgreSQL 18 semantic competency experiment
+      - name: Run real PostgreSQL 18 storage competency experiment
         run: python3 research/runtime/storage/experiments/postgres18/test_storage_contract.py
+      - name: Run real PostgreSQL 18 occurrence no-bypass experiment
+        run: python3 research/kill/occurrence-no-bypass/experiments/postgres18/test_no_bypass.py
