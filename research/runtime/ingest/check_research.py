@@ -77,19 +77,30 @@ def main() -> int:
         if name not in readme:
             fail(f"README does not link {name}")
 
-    # Guard the specific epistemic regression discovered in self-review. These
-    # phrases would imply that exact identity itself varies by consumer risk.
+    # Guard the semantic regression discovered in self-review without banning
+    # prose that *describes and rejects* the old mistake. We look for imperative
+    # or normative patterns that would again promote a fuzzy match to exact
+    # identity merely because a low-risk consumer tolerates it.
     contract_bundle = "\n".join(
         (HERE / name).read_text(encoding="utf-8")
         for name in ["README.md", "ingest-contract.md", "candidate-laws.md", "open-questions.md"]
     ).lower()
-    forbidden = [
-        "exact identity binding for analytics but not for payment",
-        "exact identity can be accepted for analytics",
+    forbidden_patterns = [
+        re.compile(r"\bbind\s+(?:it\s+)?as\s+sameexactentity\s+for\s+(?:low-risk\s+)?analytics\b"),
+        re.compile(r"\baccept\s+(?:an?\s+)?exact(?:-identity| identity)\s+binding\s+for\s+analytics\b"),
+        re.compile(r"\bexact identity\s+is\s+consumer[- ]relative\b"),
     ]
-    for phrase in forbidden:
-        if phrase in contract_bundle:
-            fail(f"identity/assurance regression detected: {phrase!r}")
+    for pattern in forbidden_patterns:
+        if pattern.search(contract_bundle):
+            fail(f"identity/assurance regression detected: {pattern.pattern!r}")
+
+    required_separation = [
+        "relation meaning != assurance != action admissibility",
+        "consumer/Action risk is **not** an identity-scope dimension".lower(),
+    ]
+    for phrase in required_separation:
+        if phrase not in contract_bundle:
+            fail(f"missing identity/assurance separation guard: {phrase!r}")
 
     print(f"ok: {len(laws)} candidate laws, {len(scenarios)} adversarial scenarios, index aligned")
     return 0
