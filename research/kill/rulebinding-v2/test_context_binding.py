@@ -33,11 +33,16 @@ def make_context_engine() -> ContextBoundEngine:
 
 class ContextBindingTests(unittest.TestCase):
     @staticmethod
-    def _identity() -> dict[str, str]:
+    def _execution_context() -> dict:
         return {
             "actor": "alice",
             "represented_principal": "org:buyer",
             "workload": "svc:purchasing",
+            "authority_context": {
+                "tenant": "tenant:a",
+                "environment": "prod",
+                "session": "session:1",
+            },
         }
 
     def _proofs(self, engine: ContextBoundEngine, *, amount: int, pending: dict[str, int]):
@@ -45,7 +50,7 @@ class ContextBindingTests(unittest.TestCase):
         common = {
             "target": "Purchase",
             "operation_id": "OP",
-            **self._identity(),
+            **self._execution_context(),
             "inputs": inputs,
             "pending_state": pending,
         }
@@ -61,7 +66,7 @@ class ContextBindingTests(unittest.TestCase):
         pending: dict[str, int],
         inputs: dict[str, int],
         proofs,
-        identity: dict[str, str] | None = None,
+        execution_context: dict | None = None,
     ) -> None:
         engine.authoritative_commit(
             operation_name="commit:Purchase",
@@ -70,7 +75,7 @@ class ContextBindingTests(unittest.TestCase):
             proposed_state=pending,
             inputs=inputs,
             proofs=proofs,
-            **(identity or self._identity()),
+            **(execution_context or self._execution_context()),
         )
 
     def test_valid_proofs_commit_exact_context(self) -> None:
@@ -84,6 +89,8 @@ class ContextBindingTests(unittest.TestCase):
         self.assertEqual(engine.audit[-1]["actor"], "alice")
         self.assertEqual(engine.audit[-1]["represented_principal"], "org:buyer")
         self.assertEqual(engine.audit[-1]["workload"], "svc:purchasing")
+        self.assertEqual(engine.audit[-1]["authority_context"]["tenant"], "tenant:a")
+        self.assertEqual(engine.audit[-1]["authority_context"]["environment"], "prod")
 
     def test_post_state_proof_cannot_be_reused_for_different_proposed_state(self) -> None:
         engine = make_context_engine()
@@ -107,26 +114,30 @@ class ContextBindingTests(unittest.TestCase):
             self._commit(engine, pending=pending, inputs={"amount": 500}, proofs=proofs)
         self.assertEqual(engine.state["debits"], 0)
 
-    def test_authority_proof_cannot_cross_actor_principal_or_workload_context(self) -> None:
+    def test_authority_proof_cannot_cross_actor_principal_workload_or_authority_domain(self) -> None:
         engine = make_context_engine()
         engine.state.update({"limit": 100, "debits": 0, "credits": 0})
         pending = {**engine.state, "debits": 4, "credits": 4}
         inputs, proofs = self._proofs(engine, amount=5, pending=pending)
+        base = self._execution_context()
 
         substitutions = [
-            {**self._identity(), "actor": "bob"},
-            {**self._identity(), "represented_principal": "org:other"},
-            {**self._identity(), "workload": "svc:untrusted"},
+            {**base, "actor": "bob"},
+            {**base, "represented_principal": "org:other"},
+            {**base, "workload": "svc:untrusted"},
+            {**base, "authority_context": {**base["authority_context"], "tenant": "tenant:b"}},
+            {**base, "authority_context": {**base["authority_context"], "environment": "sandbox"}},
+            {**base, "authority_context": {**base["authority_context"], "session": "session:2"}},
         ]
-        for identity in substitutions:
-            with self.subTest(identity=identity):
+        for execution_context in substitutions:
+            with self.subTest(execution_context=execution_context):
                 with self.assertRaises(ContextMismatch):
                     self._commit(
                         engine,
                         pending=pending,
                         inputs=inputs,
                         proofs=proofs,
-                        identity=identity,
+                        execution_context=execution_context,
                     )
                 self.assertEqual(engine.state["debits"], 0)
                 self.assertEqual(engine.state["credits"], 0)
@@ -137,10 +148,6 @@ class ContextBindingTests(unittest.TestCase):
         pending = {**engine.state, "debits": 2, "credits": 2}
         inputs, proofs = self._proofs(engine, amount=5, pending=pending)
 
-        # Keep the exact validated semantic/execution context unchanged and
-        # tamper only with a field protected by the runtime seal. Context
-        # validation should therefore pass, and the forged proof must fail
-        # specifically because its HMAC no longer matches the issued value.
         original = proofs["PostStateValid"]
         forged = replace(original, evidence=original.evidence + ("forged-evidence",))
         with self.assertRaises(ForgedProof):
