@@ -39,6 +39,10 @@ def main() -> int:
         "candidate-metamodel.json",
         "reference_model.py",
         "test_reductions.py",
+        "test_properties.py",
+        "test_relation_integrity.py",
+        "vertical-business-cycle.md",
+        "authoring-ir-runtime.md",
         "open-questions.md",
     ]
     missing = [name for name in required if not (HERE / name).exists()]
@@ -81,10 +85,19 @@ def main() -> int:
     if set(critical) != required_critical:
         fail(f"critical kill-test set drifted: {critical}")
 
-    test_text = (HERE / "test_reductions.py").read_text(encoding="utf-8")
+    test_reductions = (HERE / "test_reductions.py").read_text(encoding="utf-8")
     for mutant in ["TaggedEventEngine", "ComputationOnlyMutationEngine", "ActionLocalInvariantEngine", "BoolPolicyEngine"]:
-        if mutant not in test_text:
+        if mutant not in test_reductions:
             fail(f"verification sensitivity mutant lost from tests: {mutant}")
+
+    # This branch deliberately uses unittest discovery. As #46 proved, a
+    # module-level test function would silently be skipped and could create a
+    # false-green gate. Reject that shape in every synthesis test module.
+    for test_path in sorted(HERE.glob("test_*.py")):
+        text = test_path.read_text(encoding="utf-8")
+        undiscoverable = re.findall(r"^def (test_[A-Za-z0-9_]+)\(", text, re.MULTILINE)
+        if undiscoverable:
+            fail(f"unittest would skip module-level tests in {test_path.name}: {undiscoverable}")
 
     readme = normalized((HERE / "README.md").read_text(encoding="utf-8"))
     for phrase in [
@@ -99,6 +112,41 @@ def main() -> int:
     ]:
         if phrase not in readme:
             fail(f"README lost synthesis boundary phrase: {phrase}")
+
+    authoring_ir = normalized((HERE / "authoring-ir-runtime.md").read_text(encoding="utf-8"))
+    for phrase in [
+        "anti-cheat rule",
+        "canonical semantic ir",
+        "runtime capabilities / dispatch",
+        "minimum irreducible behavior with maximum explicit authoring semantics",
+    ]:
+        if phrase not in authoring_ir:
+            fail(f"authoring/IR/runtime boundary lost phrase: {phrase}")
+
+    vertical = normalized((HERE / "vertical-business-cycle.md").read_text(encoding="utf-8"))
+    for phrase in [
+        "salesorder",
+        "commitment",
+        "stockmovement",
+        "workorder",
+        "journalentry",
+        "the reduced kernel does not imply a reduced business ontology",
+    ]:
+        if phrase not in vertical:
+            fail(f"enterprise vertical lost synthesis coverage: {phrase}")
+
+    # Keep #70's reduced effect model subordinate to the reviewed #41 contract.
+    reference_model = (HERE / "reference_model.py").read_text(encoding="utf-8")
+    property_tests = (HERE / "test_properties.py").read_text(encoding="utf-8")
+    for phrase in ["CONTRADICTED", "attempts: list[str]", "_merge_effect_knowledge"]:
+        if phrase not in reference_model:
+            fail(f"R5 effect model lost conservative #41 semantics: {phrase}")
+    for phrase in [
+        "test_later_sent_no_response_cannot_degrade_known_pending",
+        "test_conflicting_terminal_effect_evidence_becomes_contradicted",
+    ]:
+        if phrase not in property_tests:
+            fail(f"R5 effect regression test disappeared: {phrase}")
 
     rfc = normalized(RFC.read_text(encoding="utf-8"))
     if "status: hypothesis" not in rfc or "decision: none" not in rfc:
@@ -126,7 +174,7 @@ def main() -> int:
 
     print(
         f"ok: R5={list(BASE_FORMS)}, {len(laws)} laws, {len(kills)} kill tests, "
-        f"RFC-0001 remains hypothesis, review={entry.get('review_status')}"
+        f"enterprise vertical present, RFC-0001 remains hypothesis, review={entry.get('review_status')}"
     )
     return 0
 
