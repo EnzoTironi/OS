@@ -1,0 +1,63 @@
+name: storage-research-ci
+
+on:
+  push:
+    branches:
+      - research/issue-39-storage-models
+  pull_request:
+    paths:
+      - 'research/runtime/storage/**'
+      - 'research/index/issue-0039-storage-models.json'
+      - '.github/workflows/storage-research-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  postgres18:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      STORAGE39_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL client driver
+        run: python3 -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Run PostgreSQL 18 competency experiment
+        run: python3 research/runtime/storage/experiments/postgres18/test_storage_contract.py
+
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate index JSON if present
+        shell: bash
+        run: |
+          if [ -f research/index/issue-0039-storage-models.json ]; then
+            python3 -m json.tool research/index/issue-0039-storage-models.json >/dev/null
+          fi
+      - name: Validate storage research artifacts if checker present
+        shell: bash
+        run: |
+          if [ -f research/runtime/storage/check_research.py ]; then
+            python3 research/runtime/storage/check_research.py
+          fi
