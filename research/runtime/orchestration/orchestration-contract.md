@@ -30,7 +30,7 @@ Examples:
 
 ```text
 execution X running
-run R2 active
+execution epoch R2 active, if backend exposes one
 step S completed
 waiting for signal key K
 runtime timer T scheduled for 17:00
@@ -56,9 +56,9 @@ Identifies one logical durable coordination instance.
 
 It should be possible to link it to one or more domain subjects/operations without making the IDs equal.
 
-## 2.3 ExecutionRunId / epoch
+## 2.3 Execution epoch / continuation evidence — backend-dependent role
 
-A logical orchestration instance can have several execution runs/epochs due to:
+Some backends expose a distinct execution run/epoch when a logical orchestration continues through:
 
 ```text
 Continue-As-New
@@ -70,11 +70,20 @@ runtime/backend migration
 manual repair
 ```
 
-The exact runtime may not call these `runs`, but OS observability needs to distinguish continuity of the coordination goal from one physical/history epoch when such rollover exists.
+Other backends may represent continuity with one execution ID plus redrive count, history markers, migrated definition metadata, fork lineage, or another native mechanism.
+
+OS does **not** require a synthetic `ExecutionRunId` on every backend. It requires enough durable evidence to answer, when applicable:
+
+```text
+Is this the same logical orchestration instance?
+Which execution/history epoch or recovery lineage produced this scheduling decision?
+Which definition revision did it execute under?
+What prior semantic operations/effects were already completed?
+```
 
 ## 2.4 DefinitionRevision
 
-Identifies the runtime program/process definition used by an execution/run.
+Identifies the runtime program/process definition used by an execution/epoch where applicable.
 
 It is distinct from:
 
@@ -118,7 +127,20 @@ until human task interaction arrives
 until child execution closes
 ```
 
-The runtime need not evaluate every business predicate continuously. It can wake on hints/events/timers and then re-read authoritative state.
+The runtime need not evaluate every business predicate continuously. It can wake on hints/events/timers and then evaluate the **declared semantic basis** of the pending operation.
+
+That basis comes from #40 and can be, for example:
+
+```text
+current/live predicate
+exact revision/version
+pinned proposal or ontology revision
+immutable quote/reference
+as-of snapshot
+other explicitly declared dependency
+```
+
+A wake-up never chooses the basis mode merely because it happened “now”.
 
 ## 3.1 Timer registration != domain deadline
 
@@ -134,15 +156,19 @@ The runtime may register:
 Timer(wakeAt=17:00, purpose=recheck commitment C)
 ```
 
-If `dueAt` changes to 18:00, or C is fulfilled at 16:55, an old 17:00 timer can still fire harmlessly. On wake, the orchestration re-reads the current/pinned domain basis required by the operation.
+If `dueAt` changes to 18:00, or C is fulfilled at 16:55, an old 17:00 timer can still fire harmlessly. On wake, the orchestration evaluates the declared #40/domain basis required for the next operation — current, pinned, immutable, as-of, or another supported form.
 
 The timer is therefore a **wake-up hint/guarantee**, not the truth of deadline breach.
+
+A timer may still be a one-to-one physical materialization of a domain deadline when the implementation can maintain that mapping safely. The semantic distinction remains because stale/duplicate timer firing cannot independently establish breach.
 
 ## 3.2 Early and duplicate signals
 
 Runtime input queues may buffer events/signals before a wait is active, duplicate them, or deliver them with engine-specific ordering.
 
 Inbound external data must retain #45 source identity/correlation. A runtime signal envelope can carry/correlate ObservationId; it cannot erase it.
+
+A signal can simultaneously support a domain Event **when an independent source/domain authority contract establishes that meaning**. The runtime envelope alone does not grant it.
 
 # 4. Semantic operation boundary
 
@@ -167,6 +193,8 @@ record/reconcile commit result
 ```
 
 If the orchestrator retries/replays the scheduling code, it must reuse the semantic operation identity when it is the same operation.
+
+The semantic and runtime state can still be **physically co-committed** when a backend/storage design can prove the required atomicity. Separation of meaning does not require distributed infrastructure.
 
 ## 4.1 Runtime replay must not duplicate semantic operations
 
@@ -254,7 +282,7 @@ Therefore:
 
 > completing a runtime human task is an input to a governed Approval Action, not universal Approval truth.
 
-For low-risk domains a composed Action can make the two transitions happen in one UX operation, while retaining the semantic distinction.
+For low-risk domains a composed Action can make the runtime-task transition and governed Approval happen in one UX/API operation, while retaining distinguishable meaning/evidence.
 
 # 7. Authorization over long waits
 
@@ -309,7 +337,7 @@ Cancellation races require reconciliation of in-flight operations/effects before
 
 `ExecutionCompleted` means:
 
-> this definition/run reached its runtime terminal condition and no further work is scheduled by it.
+> this definition/execution reached its runtime terminal condition and no further work is scheduled by it.
 
 ## 9.2 Business completion
 
@@ -322,11 +350,11 @@ required #41 external outcomes reconciled
 no blocking invariant/policy violation
 ```
 
-The domain can choose to emit/commit a `ProcessCompleted` Event/Action if that concept exists. The runtime terminal state can trigger evaluation but is not sufficient evidence by itself.
+The domain can choose to emit/commit a `ProcessCompleted` Event/Action if that concept exists. A final orchestration step can commit such an Action, making runtime and business completion occur together. What is forbidden is using the runtime terminal status **alone** as sufficient evidence.
 
 # 10. Versioning and migration
 
-At least four revisions can matter simultaneously:
+Several revisions can matter simultaneously:
 
 ```text
 execution definition revision
@@ -372,7 +400,7 @@ retry failed runtime task
 redrive from failure
 fork execution from checkpoint
 migrate active process element
-create a new run/history epoch
+create a new execution/history epoch when backend uses one
 ```
 
 Safety rule:
@@ -394,7 +422,9 @@ workflow X reserves last 7 units
 workflow Y reserves last 7 units
 ```
 
-Correctness belongs to #40 aggregate/predicate invariant enforcement, not `one worker per workflow`.
+Correctness belongs to #40 aggregate/predicate invariant enforcement, not merely `one worker per workflow`.
+
+A runtime serialization mechanism **can** physically implement a #40 concurrency contract when every competing mutation for the invariant is provably forced through the same serialization domain/key and no bypass path exists. It is insufficient for invariants spanning independently serialized keys or alternate mutation paths.
 
 Likewise, two workflows can race to fulfill the same Commitment. The winning business transition is determined by semantic commit, not scheduler arrival order.
 
@@ -410,7 +440,7 @@ SEFAZ authorizes document
 marketplace changes listing
 ```
 
-On recovery, the orchestrator must ingest/reconcile current evidence before replaying assumed pending work.
+On recovery, the orchestrator ingests/reconciles newly available source/effect evidence and then evaluates each pending semantic operation under its **declared basis**. Current-world rereading is required only where that contract is live/current; pinned/immutable/as-of semantics remain pinned/immutable/as-of.
 
 Therefore durable runtime state is **not** a complete source of current business state.
 
@@ -430,22 +460,21 @@ Do not force indefinite retention of all engine-internal events merely because s
 
 # 15. Generic runtime capability interface — hypothesis
 
-An implementation-neutral runtime could expose roles like:
+An implementation-neutral runtime could expose **roles/capabilities** like:
 
 ```text
-StartExecution(definitionRevision, semanticLinks, input)
-GetExecution(id)
-ScheduleWake(id, wakeSpec)
-DeliverInput(id, observationOrRuntimeMessageRef)
-RunDurableStep(id, stepIdentity, fn)
-RequestSemanticOperation(id, LocalOperationId, payload)
-RequestEffect(id, EffectRequestId)
-StartChildExecution(...)
-CancelExecution(...)
-MigrateOrReplaceExecution(...)
+start/identify execution under definition revision
+register durable wake/wait
+accept/correlate runtime input
+persist execution progress/checkpoint/journal evidence
+invoke/reuse stable semantic operation references
+invoke/reuse stable effect request references
+start/relate child execution
+cancel/repair/migrate/replace execution
+query operational status/history
 ```
 
-This is intentionally not an API specification. It shows that the runtime can be abstracted without making its internal `Workflow` type the business ontology.
+A code-first backend might expose these through durable function calls; BPMN/state-machine/checkpoint engines may represent them very differently. This list is intentionally **not** a target API and must not force deterministic-replay terminology on all backends.
 
 # 16. Minimum acceptance tests for a candidate backend
 
@@ -456,15 +485,15 @@ A backend fails #43 if OS cannot implement these without semantic leakage:
 3. timer fires after domain deadline changed -> no false breach;
 4. signal arrives twice/before wait -> no duplicate business Event/Approval;
 5. grant revoked during month-long wait -> #42 currentness rule still enforceable;
-6. workflow definition upgraded -> old run remains explainable under its actual revision;
+6. workflow definition upgraded -> old execution/epoch remains explainable under its actual revision;
 7. ontology revision changes independently -> next semantic operation handles compatibility explicitly;
 8. execution cancels after remote effect -> prior effect remains and compensation is explicit;
-9. orchestrator down while external world fulfills obligation -> recovery recognizes fulfillment;
-10. multiple execution runs/forks can coordinate one domain process without changing its identity;
+9. orchestrator down while external world fulfills obligation -> recovery recognizes fulfillment when the pending operation's declared basis requires current fulfillment evidence;
+10. replacement/rollover/fork executions can coordinate one domain process without changing its identity;
 11. one runtime execution can coordinate multiple domain subjects without merging their identities;
 12. runtime completion can coexist with unresolved domain effect and must not claim business completion;
 13. execution history rollover/retention does not delete required business evidence;
 14. test/replay environment cannot trigger production effects (#47);
-15. runtime serialization cannot substitute for cross-object #40 invariant enforcement.
+15. runtime serialization cannot substitute for #40 invariant enforcement outside a proven shared serialization domain.
 
 Passing these is stronger evidence than merely surviving worker crashes.
