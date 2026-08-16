@@ -25,7 +25,7 @@ ERP has one product/SKU. Two marketplace accounts each have their own listing ID
 
 A marketplace user created a listing manually but forgot the ERP product registration.
 
-**Required result:** listing evidence remains valid/unbound or bound to a candidate product; no fake ERP product is invented just to satisfy referential integrity.
+**Required result:** listing evidence remains valid/unbound or related to a candidate product; no fake ERP product is invented just to satisfy referential integrity.
 
 **Fails if:** ingest auto-creates a fully authoritative Product with guessed identity/attributes.
 
@@ -67,13 +67,13 @@ Source row A has `cost=0`; source row B has blank cost; source row C's cost fiel
 
 **Fails if:** they all become decimal 0.
 
-## S-I45-08 — low-confidence candidate accepted for analytics but not payment
+## S-I45-08 — weak relation usable for analytics, not exact identity for payment
 
-Probabilistic linkage scores a supplier candidate 0.94. This is sufficient for aggregate supplier-spend exploration but not for initiating payment or tax reporting.
+Probabilistic linkage gives two supplier records strong similarity but insufficient evidence to establish `sameExactEntity`. The relation is useful for exploratory supplier-spend analysis as `possibleSameSupplier` / `probableSameGroup`, but payment and tax reporting require an exact legal counterparty identity.
 
-**Required result:** binding/admission scope or action policy can distinguish low-risk analytics from high-risk operations.
+**Required result:** preserve the weaker relation kind and its assurance/evidence. Analytics may be authorized to consume it for approximate aggregation; the payment Action must require an exact-identity relation with stronger assurance. Consumer risk does not change what relation is semantically claimed.
 
-**Fails if:** one global canonical supplier ID automatically authorizes every downstream Action.
+**Fails if:** a fuzzy relation is promoted to one global canonical supplier identity merely because an analytics use case tolerates it, or if exact identity becomes “true for analytics but false for payment.”
 
 ## S-I45-09 — transitive cluster false merge
 
@@ -275,13 +275,13 @@ Two systems carry the same cryptographically/legally guaranteed global identifie
 
 **Purpose:** prevents overfitting the contract to messy-source cases.
 
-## S-I45-32 — analytics wants weak linkage, Action requires stronger linkage
+## S-I45-32 — analytics consumes approximate relation; Action requires exact identity
 
-Competitor intelligence can tolerate a fuzzy match linking two marketplace offers to a probable product family. A repricing Action must not use that weak relation to edit the company's own listing.
+Competitor intelligence can tolerate a fuzzy relation linking two marketplace offers to a probable product family. A repricing Action against the company's own listing requires an exact listing/product relation established by stronger evidence.
 
-**Required result:** candidate/binding scope/risk can differ by consumer/action.
+**Required result:** preserve both **relation kind** and **assurance**. The analytics query may consume `probableSameProductFamily`; the Action's policy requires `sameExactListing`/`sameExactEntity` at its required assurance. Exact identity itself is not consumer-relative.
 
-**Fails if:** one canonical link has universal semantics.
+**Fails if:** one canonical link erases the weaker semantics, or if consumer policy changes the meaning of the relation instead of deciding whether it is sufficient.
 
 ## S-I45-33 — source-local child arrives before parent
 
@@ -339,9 +339,9 @@ User/agent can see object identity but one source-backed property is hidden/reda
 
 **Fails if:** permission denial becomes a business `null` value.
 
-## S-I45-40 — a binding rule changes after a high-risk Action
+## S-I45-40 — an exact-identity binding rule changes after a high-risk Action
 
-Binding rule R1 maps bank counterparty text to Party A and an approved payment Action references that binding. Later rule R2 maps new evidence to Party B.
+Binding rule R1 establishes bank counterparty text as exact Party A and an approved payment Action references that binding. Later rule R2 plus new evidence concludes the prior exact binding was wrong and binds future evidence to Party B.
 
 **Required result:** do not retroactively claim the payment was made to Party B. Historical Action remains explained under R1; correction/reclassification, if legally/business required, is explicit.
 
@@ -353,13 +353,15 @@ An implementation/semantic-fuzz harness should tag these scenarios across:
 
 ```text
 source mode: snapshot / CDC / webhook / file / document / message
-identity: deterministic / probabilistic / unresolved / merge / split / rebind
+relation kind: exact identity / source alias / probable family / possible match / unresolved
+assurance: deterministic / reviewed / probabilistic / conflicting / unknown
+identity evolution: merge / split / rebind / source-key reuse
 source grain: entity / aggregate / measurement / report / mutation
 schema: stable / additive / rename / semantic change / missing history
 time: source time / valid time / capture time / absent
 missingness: zero / null / absent / parse fail / redacted / unknown
 lineage: independent / copied / transformed / aggregate
-risk: analytics / operational decision / financial/fiscal high-risk
+consumer risk: analytics / operational decision / financial/fiscal high-risk
 authority: observational / statement-scoped / lifecycle / OS-owned / external authority
 ```
 
