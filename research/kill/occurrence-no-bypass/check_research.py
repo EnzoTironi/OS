@@ -10,8 +10,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 MODEL = HERE / "reference_model.py"
+ATOMIC_MODEL = HERE / "atomic_model.py"
 COMPETITORS = HERE / "competitors.py"
 TESTS = HERE / "test_model.py"
+ATOMIC_TESTS = HERE / "test_atomic_hardening.py"
 COMPETITOR_TESTS = HERE / "test_competitors.py"
 README = HERE / "README.md"
 LAWS = HERE / "candidate-laws.md"
@@ -61,27 +63,39 @@ def semantic_identifiers(source: str) -> set[str]:
 
 
 def main() -> int:
-    for path in [MODEL, COMPETITORS, TESTS, COMPETITOR_TESTS, README, LAWS, SCENARIOS, PATHS, INDEX, RFC2]:
+    for path in [
+        MODEL, ATOMIC_MODEL, COMPETITORS, TESTS, ATOMIC_TESTS,
+        COMPETITOR_TESTS, README, LAWS, SCENARIOS, PATHS, INDEX, RFC2,
+    ]:
         if not path.exists():
             fail(f"missing {path.relative_to(ROOT)}")
 
     model = MODEL.read_text(encoding="utf-8")
+    atomic_model = ATOMIC_MODEL.read_text(encoding="utf-8")
     semantic_store = class_source(model, "SemanticStore")
-    identifiers = semantic_identifiers(semantic_store)
+    atomic_store = class_source(atomic_model, "AtomicSemanticStore")
+    identifiers = semantic_identifiers(semantic_store + "\n" + atomic_store)
     forbidden = {"event", "eventtype", "occurrence", "occurrencetype", "is_event", "is_occurrence"}
     leaked = identifiers.intersection(forbidden)
     if leaked:
-        fail(f"generic SemanticStore recreated Event/Occurrence interpreter identifiers: {sorted(leaked)}")
+        fail(f"generic candidate recreated Event/Occurrence interpreter identifiers: {sorted(leaked)}")
     for required in [
         "sealed_semantics", "replace_semantic_core", "redact_payload", "append_correction",
         "migrate_representation", "rebuild_projection", "issue_proof", "_verify_proof",
     ]:
         if required not in semantic_store:
             fail(f"generic lifecycle mechanism disappeared: {required}")
-    if "record.type_name in" in semantic_store:
+    for required in [
+        "AtomicSemanticStore", "_atomic_authority_operation", "attach_evidence",
+        "semantic_record_fingerprint",
+    ]:
+        if required not in atomic_model:
+            fail(f"post-green atomic/provenance hardening disappeared: {required}")
+    if "record.type_name in" in semantic_store + atomic_store:
         fail("generic candidate branches on concrete Type names")
 
     tests = TESTS.read_text(encoding="utf-8")
+    atomic_tests = ATOMIC_TESTS.read_text(encoding="utf-8")
     competitor_tests = COMPETITOR_TESTS.read_text(encoding="utf-8")
     required_tests = [
         "test_every_authoritative_write_path_cannot_replace_committed_semantic_core",
@@ -101,12 +115,21 @@ def main() -> int:
         if name not in tests:
             fail(f"required no-bypass regression missing: {name}")
     for name in [
+        "test_failed_conflicting_create_does_not_consume_operation_id",
+        "test_failed_correction_does_not_consume_operation_id",
+        "test_new_source_evidence_uses_explicit_envelope_operation",
+        "test_evidence_attachment_is_idempotent_and_mismatch_safe",
+    ]:
+        if name not in atomic_tests:
+            fail(f"required post-green atomic/provenance regression missing: {name}")
+    for name in [
         "test_physical_append_only_prevents_payload_erasure",
         "test_physical_append_only_prevents_representation_migration",
     ]:
         if name not in competitor_tests:
             fail(f"append-only competitor sensitivity missing: {name}")
     no_module_tests(TESTS)
+    no_module_tests(ATOMIC_TESTS)
     no_module_tests(COMPETITOR_TESTS)
 
     laws = LAW_RE.findall(LAWS.read_text(encoding="utf-8"))
@@ -158,8 +181,8 @@ def main() -> int:
         fail("R6 was accepted from #157 automatically")
 
     print(
-        "ok: generic sealed-semantic Type candidate has no Event/Occurrence interpreter; "
-        f"20 laws, 50 scenarios, no-bypass regressions and competitors present; review={entry.get('review_status')}"
+        "ok: generic sealed-semantic Type candidate + atomic authority hardening have no Event/Occurrence interpreter; "
+        f"20 laws, 50 scenarios, no-bypass/atomic/provenance regressions and competitors present; review={entry.get('review_status')}"
     )
     return 0
 
