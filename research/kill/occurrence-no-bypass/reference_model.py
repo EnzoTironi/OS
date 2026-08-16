@@ -134,6 +134,35 @@ class SemanticStore:
     def digest(cls, value: Any) -> str:
         return sha256(cls._stable(value).encode("utf-8")).hexdigest()
 
+    @classmethod
+    def semantic_record_fingerprint(
+        cls,
+        *,
+        record_id: str,
+        type_name: str,
+        type_revision: str,
+        semantic_core: dict[str, Any],
+        payload: dict[str, Any],
+        source_evidence: Iterable[str],
+    ) -> str:
+        """Identity/content fingerprint independent of the physical write attempt.
+
+        A restore/replay job may have a new technical operation id while still
+        reconstructing exactly the same semantic record. That is a no-op when the
+        record already exists, not a second occurrence. Conflicting meaning under
+        the same semantic record identity remains an error.
+        """
+        return cls.digest(
+            {
+                "record_id": record_id,
+                "type_name": type_name,
+                "type_revision": type_revision,
+                "semantic_core": semantic_core,
+                "payload": payload,
+                "source_evidence": tuple(source_evidence),
+            }
+        )
+
     def register_type(self, definition: TypeRevision, *, make_current: bool = True) -> None:
         key = (definition.type_name, definition.revision)
         self.type_revisions[key] = definition
@@ -199,6 +228,7 @@ class SemanticStore:
         revision = type_revision or self.current_type_revision[type_name]
         definition = self.type_def(type_name, revision)
         payload_value = dict(payload or {})
+        evidence_value = tuple(source_evidence)
         unknown_payload = set(payload_value) - set(definition.payload_fields)
         if unknown_payload:
             raise ModelError(f"payload fields not declared by Type: {sorted(unknown_payload)}")
@@ -208,24 +238,34 @@ class SemanticStore:
             "type_revision": revision,
             "semantic_core": semantic_core,
             "payload": payload_value,
-            "source_evidence": tuple(source_evidence),
+            "source_evidence": evidence_value,
         }
         self._verify_proof(proof, operation="create", path=path, target=record_id, context=context)
-        fingerprint = self.digest(context)
-        if not self._operation_once(operation_id, fingerprint):
+        record_fingerprint = self.semantic_record_fingerprint(
+            record_id=record_id,
+            type_name=type_name,
+            type_revision=revision,
+            semantic_core=semantic_core,
+            payload=payload_value,
+            source_evidence=evidence_value,
+        )
+        operation_fingerprint = self.digest({"operation": "create", "record": record_fingerprint})
+        if not self._operation_once(operation_id, operation_fingerprint):
             return
         if record_id in self._records:
             existing = self._records[record_id]
-            if self.digest(
-                {
-                    "type_name": existing.type_name,
-                    "type_revision": existing.type_revision,
-                    "semantic_core": existing.semantic_core,
-                    "payload": existing.payload,
-                    "source_evidence": existing.source_evidence,
-                }
-            ) != fingerprint:
+            existing_fingerprint = self.semantic_record_fingerprint(
+                record_id=existing.record_id,
+                type_name=existing.type_name,
+                type_revision=existing.type_revision,
+                semantic_core=existing.semantic_core,
+                payload=existing.payload,
+                source_evidence=existing.source_evidence,
+            )
+            if existing_fingerprint != record_fingerprint:
                 raise DuplicateConflict(f"record {record_id} already exists with different semantics")
+            # New physical restore/replay/import attempt reconstructed the same
+            # semantic record. It creates no second business occurrence/history.
             return
         self._records[record_id] = SemanticRecord(
             record_id=record_id,
@@ -233,7 +273,7 @@ class SemanticStore:
             type_revision=revision,
             semantic_core=deepcopy(semantic_core),
             payload=deepcopy(payload_value),
-            source_evidence=tuple(source_evidence),
+            source_evidence=evidence_value,
         )
         self.history.append(HistoryEntry(operation_id, "create", path, record_id))
 
@@ -317,13 +357,14 @@ class SemanticStore:
     ) -> None:
         if kind not in {"corrects", "supersedes", "reverses", "retracts-assertion"}:
             raise ModelError(f"unknown correction kind {kind}")
+        evidence_value = tuple(source_evidence)
         context = {
             "correction_id": correction_id,
             "original_id": original_id,
             "correction_type": correction_type,
             "correction_core": correction_core,
             "kind": kind,
-            "source_evidence": tuple(source_evidence),
+            "source_evidence": evidence_value,
         }
         self._verify_proof(proof, operation="append-correction", path=path, target=original_id, context=context)
         fingerprint = self.digest(context)
@@ -339,7 +380,7 @@ class SemanticStore:
             type_name=correction_type,
             type_revision=revision,
             semantic_core=deepcopy(correction_core),
-            source_evidence=tuple(source_evidence),
+            source_evidence=evidence_value,
         )
         self.corrections.append(CorrectionLink(correction_id, original_id, kind))
         self.history.append(HistoryEntry(operation_id, "append-correction", path, original_id, correction_id, kind))
