@@ -36,7 +36,7 @@ record determining evidence
 
 regardless of whether the stored record is called `Binding`, `Relation`, `Annotation`, `Decorator`, `Hook`, or `Constraint`.
 
-A real reduction must make at least one of those jobs disappear by deriving it from a generic mechanism already required for another independent reason.
+A real reduction must make at least one of those jobs disappear by deriving it from a generic mechanism already required for an independent reason.
 
 ## Competitors
 
@@ -44,64 +44,122 @@ A real reduction must make at least one of those jobs disappear by deriving it f
 
 Control. A binding registry is queried by locus/scope, evaluators run, outcomes are enforced.
 
-**State:** control, not re-evaluated as accepted.
-
 ### M1 — definition graph + binding dispatcher
 
-Bindings are ordinary Types/Relations:
+Bindings become ordinary Types/Relations but runtime still traverses them by phase/target.
 
-```text
-Rule --evaluatedBy--> Computation
-Rule --appliesTo--> Target
-Rule --locus--> Commit
-```
-
-Runtime traverses those relations at commit/read/effect/lifecycle time.
-
-**Expected verdict:** hidden recreation. Storage changed; semantic job did not.
+**Verdict:** hidden recreation.
 
 ### M2 — inline Action/Type contracts
 
-Actions and Types directly list evaluator names. Action code checks its own pre/post rules; Types list lifecycle/invariant checks.
+Actions and Types list local evaluators.
 
-**Expected pressure:** alternate mutation paths, read authority, effect attempts and cross-cutting global invariants either bypass enforcement or force every operation family to rebuild the same attachment protocol.
+**Verdict:** insufficient. The executable sensitivity model blocks an illegal Action while an independent admin path bypasses the invariant.
 
 ### M3 — generic executable Relation triggers
 
-`Relation` itself may carry trigger/locus/evaluator metadata.
+Relation gains trigger/phase/evaluator semantics.
 
-**Expected pressure:** either Relation becomes an overpowered RuleBinding super-form or runtime still dispatches relation records by semantic trigger role. The form count may fall while primitive complexity rises.
+**Verdict:** hidden recreation or primitive overloading. Runtime still needs trigger dispatch.
 
-### M4 — proof-carrying capability types
+### M4-v2 — proof-carrying refined Types + privileged operation signatures
 
-This is the strongest new candidate and the reason #156 exists.
+This is the strongest candidate.
 
-Operations are not told to "run bindings at locus L". Instead, every privileged operation has a typed signature requiring one or more ephemeral capability values:
+The first M4 shape called these **proof-carrying capability types**. That formulation was deliberately rejected as potentially replacing one primitive with another. The current candidate has no `CapabilityType` semantic class.
 
-```text
-preview(Action)      requires PreviewPermit<Action>
-commit(Action)       requires CommitPermit<Action>
-commitMutation(T)    requires PostStateValid<T>
-read(T)              requires ReadPermit<T>
-update(Occurrence)   requires UpdatePermit<Occurrence>
-effectAttempt(E)     requires EffectAttemptPermit<E>
-```
-
-A capability type is an ordinary `Type` under a standard capability/refinement contract. It names the Computation(s) that can validate/mint values of that type. Capability values carry operation/target, evidence and basis/revision. Operations only consume values of the types declared in their signatures.
-
-The runtime therefore needs a generic capability mint/verify mechanism for a reason independent of RuleBinding: `Computation` already must be unable to mutate authoritative state or perform external writes without privileged capabilities.
-
-Potential genuine reduction:
+Instead, one generic Type mechanism validates both ordinary business values and authority proofs:
 
 ```text
-RuleBinding scheduling by locus
-        ↓ remove
-operation signature requires CapabilityType
-        ↓
-generic capability mint validates Type refinements
+Type PositiveAmount
+  contract: value
+  refinement: Positive
+
+Type CommitPermit<Purchase>
+  contract: capability
+  refinement: AuthorizePurchaseCommit
+
+Type PostStateValid<Ledger>
+  contract: capability
+  refinement: BalancedPendingState
 ```
 
-The critical question is whether `CapabilityType + refinements + operation signature` is truly existing `Type/Relation/Computation/Action` semantics plus runtime authority, or whether it is RuleBinding decomposed into three fields and renamed.
+All use the same:
+
+```text
+TypeDef + refinements + construct()
+```
+
+Privileged operations declare the exact proof Types they require in ordinary typed signatures:
+
+```text
+preview:Purchase    requires PreviewPermit
+commit:Purchase     requires CommitPermit + PostStateValid
+admin:ledger        requires AdminPermit + PostStateValid
+read:Journal        requires ReadPermit
+effect-attempt      requires EffectAttemptPermit
+update:Occurrence   requires UpdatePermitOccurrence
+```
+
+There is **no locus field** and no scope/locus rule lookup in the M4 candidate.
+
+## Why the runtime capability boundary has an independent reason to exist
+
+Even with zero business Constraints, Policies or Invariants, ordinary Computations must not gain ambient authority to:
+
+- mutate accepted state;
+- use credentials;
+- dispatch external effects;
+- cross tenant/environment authority boundaries.
+
+That independent runtime reason matters. R6 tries to reuse an already-required authority boundary rather than invent a scheduler solely to replace RuleBinding.
+
+The malicious-refinement sensitivity test mutates authoritative state from a Computation; the engine restores state and refuses to mint the value.
+
+## M4-v1 was falsified after a green run
+
+The first generic-Type candidate bound proofs to:
+
+```text
+type
+target
+semantic operation
+current revision or pinned basis
+```
+
+That was not enough.
+
+A proof that validated balanced state `S1` could be reused for a different state `S2` in the same revision. Likewise authorization for one parameter set could be reused for changed Action inputs. This is a context-substitution / TOCTOU failure.
+
+The green run is intentionally retained in the evidence history as proof that revision freshness alone does not make an authority proof safe.
+
+## M4-v2 hardening — exact validated context
+
+The current candidate binds every operational proof to the exact semantic context it validated:
+
+```text
+target
+semantic operation identity
+inputs
+pending / proposed state
+pinned basis
+payload where relevant
+```
+
+The runtime also seals the issued proof over its Type, context digest, state basis, determining evidence and evaluator revisions.
+
+The concrete model uses HMAC-SHA256 only to make forgery testable. The semantic law is simpler:
+
+> an untrusted caller must not be able to mint, retarget or rewrite an authority proof outside the trusted runtime boundary.
+
+Permanent regressions now distinguish:
+
+```text
+changed validated context -> ContextMismatch
+same context + tampered sealed proof -> ForgedProof
+```
+
+The hardening did not reintroduce RuleBinding, `locus`, scope lookup or `CapabilityType`.
 
 ## Required semantic pressure
 
@@ -116,22 +174,52 @@ Every serious model must preserve:
 7. read authority;
 8. exact evaluator/model/ontology revision in explanation;
 9. evaluator error distinct from denial;
-10. no generic/admin bypass represented by the model.
+10. no generic/admin bypass represented by the model;
+11. exact-context proof binding, not revision-only freshness;
+12. runtime-issued/unforgeable operational authority.
 
-## What would make M4 a real reduction
+## What would make M4-v2 a real reduction
 
-M4 passes the anti-cheat test only if:
+M4-v2 passes the anti-cheat test only if:
 
-- there is no registry queried by locus/scope;
-- operation locus is represented by ordinary typed operation signatures, not a `locus` field interpreted by a rule dispatcher;
-- validation runs because a capability value is being constructed, exactly as any refined value is validated;
-- currentness/replay checks are generic properties of capability values, not RuleBinding metadata;
-- cross-cutting invariants are requirements of the single low-level authoritative commit capability, so Action and admin paths cannot omit them;
-- authorization combination can live inside a typed PDP Computation whose result/evidence is carried by the capability, rather than in generic binding combination metadata;
-- capability machinery remains useful even in a model with zero business rules, because it isolates Computation from mutation/external I/O.
+- no registry is queried by locus/scope;
+- operation phase is represented by typed operation identity/signature, not scheduler metadata;
+- Type refinement is generic value-construction semantics and remains useful outside capabilities;
+- current/pinned/dependency basis is proof-value validity, not a dynamic RuleBinding lookup;
+- cross-cutting invariants are requirements of the lowest authoritative commit signature;
+- authorization combination can remain in a typed/inspectable PDP Computation whose result/evidence constructs the proof;
+- capability machinery remains useful in a model with zero business rules because it isolates Computation from privileged runtime authority;
+- actor/workload/represented-principal come from trusted execution context rather than caller assertion;
+- exact semantic context can be bound without growing proof Types into arbitrary locus/scope/binding records.
 
 If those conditions fail, M4 is hidden recreation and R5 survives.
 
+## Current candidate
+
+If M4-v2 survives review and downstream falsification, the candidate core is:
+
+```text
+Type
+Relation
+Computation
+Action
+```
+
+This is provisionally called `R6-capability`. It is materially different from Wave A's rejected quartet because the Type/runtime model now carries generic refinements, explicit privileged-operation signatures and exact-context runtime-issued proof values.
+
+It is still only a candidate.
+
+## Promotion blockers
+
+#156 alone cannot update RFC-0002. At minimum:
+
+- #157 must attack no-bypass across admin/import/migration/privacy/repair paths;
+- #158 must attack Relation unification;
+- #71 must attack the same R6 semantics across the first cross-cycle acceptance vertical;
+- trusted execution identity and dependency-sensitive StateBasis must remain explicit runtime requirements.
+
 ## Epistemic rule
 
-Even if M4 passes the bounded model, the result is only a **candidate R6** until #157/#158 and a real implementation-neutral vertical attack the same mechanism. This folder must not edit RFC-0002 to `accepted` or claim universal minimality.
+`review-clean`, if reached, means only that #156 found no internal contradiction requiring R6-capability to be discarded before downstream falsification.
+
+It does **not** mean accepted architecture, proven minimality, production readiness, or permission to rewrite RFC-0002.
