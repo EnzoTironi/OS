@@ -9,6 +9,7 @@ control; superuser/physical compromise is an operational security boundary.
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 
@@ -44,7 +45,7 @@ def main() -> None:
                         type_name text NOT NULL,
                         sealed_semantics boolean NOT NULL,
                         semantic_core jsonb NOT NULL,
-                        payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+                        payload jsonb NOT NULL DEFAULT '{{}}'::jsonb,
                         representation_version integer NOT NULL DEFAULT 1
                     )
                     """
@@ -90,17 +91,19 @@ def main() -> None:
             cur.execute(
                 sql.SQL("GRANT SELECT, INSERT, UPDATE ON {}.semantic_record TO occ157_admin").format(sql.Identifier(SCHEMA))
             )
-            cur.execute(
-                sql.SQL(
-                    """
-                    INSERT INTO {}.semantic_record(record_id,type_name,sealed_semantics,semantic_core,payload)
-                    VALUES
-                      ('stock:1','StockMovement',true,'{"qty":10,"sku":"X"}','{"operator":"A"}'),
-                      ('definition:1','PublishedDefinition',true,'{"name":"Account","schema":1}','{}'),
-                      ('draft:1','MutableNote',false,'{"text":"draft"}','{}')
-                    """
-                ).format(sql.Identifier(SCHEMA))
-            )
+            insert = sql.SQL(
+                """
+                INSERT INTO {}.semantic_record(
+                    record_id,type_name,sealed_semantics,semantic_core,payload
+                ) VALUES (%s,%s,%s,%s::jsonb,%s::jsonb)
+                """
+            ).format(sql.Identifier(SCHEMA))
+            for row in [
+                ("stock:1", "StockMovement", True, {"qty": 10, "sku": "X"}, {"operator": "A"}),
+                ("definition:1", "PublishedDefinition", True, {"name": "Account", "schema": 1}, {}),
+                ("draft:1", "MutableNote", False, {"text": "draft"}, {}),
+            ]:
+                cur.execute(insert, (row[0], row[1], row[2], json.dumps(row[3]), json.dumps(row[4])))
 
     with psycopg.connect(DSN) as conn:
         with conn.cursor() as cur:
@@ -108,12 +111,14 @@ def main() -> None:
             cur.execute("SET ROLE occ157_app")
             expect_failure(
                 cur,
-                sql.SQL("UPDATE {}.semantic_record SET semantic_core='{{\"qty\":99,\"sku\":\"X\"}}' WHERE record_id='stock:1'")
+                sql.SQL("UPDATE {}.semantic_record SET semantic_core=%s::jsonb WHERE record_id='stock:1'")
                 .format(sql.Identifier(SCHEMA))
                 .as_string(cur),
+                (json.dumps({"qty": 99, "sku": "X"}),),
             )
             cur.execute(
-                sql.SQL("UPDATE {}.semantic_record SET payload='{{}}' WHERE record_id='stock:1'").format(sql.Identifier(SCHEMA))
+                sql.SQL("UPDATE {}.semantic_record SET payload=%s::jsonb WHERE record_id='stock:1'").format(sql.Identifier(SCHEMA)),
+                (json.dumps({}),),
             )
             cur.execute(
                 sql.SQL("UPDATE {}.semantic_record SET representation_version=2 WHERE record_id='stock:1'").format(sql.Identifier(SCHEMA))
@@ -125,21 +130,21 @@ def main() -> None:
             # non-event published definition. No Type name appears in trigger.
             cur.execute("SET ROLE occ157_admin")
             for record_id, replacement in [
-                ("stock:1", '{"qty":99,"sku":"X"}'),
-                ("definition:1", '{"name":"Account","schema":2}'),
+                ("stock:1", {"qty": 99, "sku": "X"}),
+                ("definition:1", {"name": "Account", "schema": 2}),
             ]:
                 expect_failure(
                     cur,
                     sql.SQL("UPDATE {}.semantic_record SET semantic_core=%s::jsonb WHERE record_id=%s")
                     .format(sql.Identifier(SCHEMA))
                     .as_string(cur),
-                    (replacement, record_id),
+                    (json.dumps(replacement), record_id),
                 )
 
             # Same generic mechanism permits a type whose semantics are not sealed.
             cur.execute(
-                sql.SQL("UPDATE {}.semantic_record SET semantic_core='{{\"text\":\"edited\"}}' WHERE record_id='draft:1'")
-                .format(sql.Identifier(SCHEMA))
+                sql.SQL("UPDATE {}.semantic_record SET semantic_core=%s::jsonb WHERE record_id='draft:1'").format(sql.Identifier(SCHEMA)),
+                (json.dumps({"text": "edited"}),),
             )
             cur.execute("RESET ROLE")
             conn.commit()
@@ -167,7 +172,10 @@ def main() -> None:
             cur.execute("DROP ROLE occ157_app")
             cur.execute("DROP ROLE occ157_admin")
 
-    print("ok: PostgreSQL 18 generic sealed-semantic boundary blocks occurrence + non-event semantic rewrites; payload/representation remain mutable")
+    print(
+        "ok: PostgreSQL 18 generic sealed-semantic boundary blocks occurrence + "
+        "non-event semantic rewrites; payload/representation remain mutable"
+    )
 
 
 if __name__ == "__main__":
