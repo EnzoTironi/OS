@@ -1,7 +1,19 @@
 # Adversarial review — issue #39 storage models
 
 **Date:** 2026-08-16  
-**Status:** pre-merge self-review.
+**Status:** `review-clean` after source comparison, adversarial review, structural checks and PostgreSQL 18 executable evidence.
+
+Validated CI before final review-status mutation:
+
+```text
+storage-research-ci run 31929101666
+job postgres18: success
+job research: success
+35 candidate laws
+55 competency questions
+70 adversarial scenarios
+PostgreSQL 18 executable competency subset green
+```
 
 # R-STO-01 — “PostgreSQL authority” must be scoped to local semantic authority
 
@@ -24,7 +36,7 @@ source artifact is authority for what bytes/document said
 
 PostgreSQL can be the **local authoritative commit store** for OS decisions, operation identities, admitted projections/bindings and locally governed state, while storing/referencing external evidence whose semantic authority remains external.
 
-Refinement:
+Refinement incorporated in the primary overview:
 
 > one writable semantic authority per statement/transition family, which may be OS-local or external; the local database is not metaphysical truth.
 
@@ -45,7 +57,7 @@ then durable object storage may be the authority for **artifact bytes** while Po
 
 This does not violate the one-authority rule because the two stores author different semantic roles.
 
-Required proof:
+Required downstream proof:
 
 - content hash/integrity;
 - versioning/immutability as needed;
@@ -80,7 +92,7 @@ The experiment proves write-skew protection, not production scalability.
 Hot SKU/account/aggregate predicates can produce:
 
 - serialization aborts;
-- predicate-lock memory pressure;
+- predicate-lock pressure;
 - long retry tails;
 - starvation under pathological contention.
 
@@ -243,23 +255,25 @@ Current ranking:
 
 This ranking is based on **evidence completeness and trusted-kernel size today**, not a permanent preference. Q-STO-10/11/12 can reorder it.
 
-# Pre-merge verdict
+# Final review verdict
 
-The core storage thesis survives:
+The core storage thesis survived primary-source comparison, 55 competency questions, 70 adversarial scenarios, structural regression checks and a real PostgreSQL 18 concurrency/contract experiment:
 
 ```text
 semantic authority boundaries first
 physical stores second
 ```
 
-and the current working architecture becomes more precise:
+The current working architecture is therefore more precise, not more frozen:
 
 ```text
-OS-local authoritative commit store (currently PostgreSQL-leading hypothesis)
+OS-local governed commit store (PostgreSQL-leading hypothesis)
   + external/source authorities represented as governed evidence
   + durable artifact-byte storage
   + rebuildable/freshness-aware search/graph/analytics projections
   + independent orchestration memory
 ```
 
-The PostgreSQL experiment materially strengthens H8 but does not close #39's final storage selection. The issue can still be merged as **reviewed foundation research** because it records the unresolved falsifiers explicitly rather than pretending the stack is chosen.
+`storage-research-ci` run `31929101666` confirmed both the research checker and the PostgreSQL 18 experiment on PR head `d2302193b12cc93a35adf9a613b05801787011d6`.
+
+The PostgreSQL experiment materially strengthens H8 but does **not** select it. Dynamic ontology layout, high-contention benchmarks and DR after external effects remain explicit falsifiers before storage selection and #70 synthesis.
