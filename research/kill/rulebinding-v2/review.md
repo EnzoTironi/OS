@@ -3,7 +3,7 @@
 **Status:** review-clean  
 **Architecture decision:** none  
 **Candidate:** `R6-capability` remains `hypothesis` and `not-accepted`.  
-**Exact-head evidence:** must be refreshed after the identity-binding hardening below.
+**Exact-head evidence:** must be refreshed after the authority-context hardening below.
 
 This review asks whether M4-v2 genuinely removes `RuleBinding` or merely redistributes the same semantic job into Type refinements, capability values, operation signatures, or trusted runtime code. `review-clean` does not make R6 the architecture and does not update RFC-0002.
 
@@ -55,9 +55,9 @@ The permanent forgery regression keeps semantic/execution context unchanged, mod
 
 This attack falsified M4-v1 **after a green run**.
 
-Revision, target and operation identity alone allowed a proof for proposed state S1 or input I1 to be reused for S2/I2 within the same revision. The first M4-v2 hardening bound inputs/state/payload but still omitted the execution identity that could have determined authorization.
+Revision, target and operation identity alone allowed a proof for proposed state S1 or input I1 to be reused for S2/I2 within the same revision. The first M4-v2 hardening bound inputs/state/payload but still omitted trusted execution context.
 
-That omission was another real transfer hole: a proof minted while `actor=alice`, `represented_principal=org:buyer`, `workload=svc:purchasing` could otherwise be presented under Bob/another principal/another workload when target/inputs/state were unchanged.
+That omission was another real transfer hole: a proof minted while `actor=alice`, `represented_principal=org:buyer`, `workload=svc:purchasing` could otherwise be presented under Bob/another principal/another workload when target/inputs/state were unchanged. Deep review then generalized the same class of attack to materially relevant authority-domain context: tenant, environment, session/task or equivalent dimensions must not be silently substitutable either.
 
 The current candidate therefore binds the proof context to:
 
@@ -67,25 +67,26 @@ semantic operation identity
 actor
 represented principal
 workload
+authority context (for example tenant/environment/session when material)
 inputs
 proposed/pending state
 pinned basis
 payload where relevant
 ```
 
-Permanent regressions now distinguish input/state substitution, actor substitution, represented-principal substitution, workload substitution and proof-field forgery.
+Permanent regressions now require `ContextMismatch` for changed inputs/state, actor, represented principal, workload, tenant, environment or session. Proof-field tampering under the same context remains a separate `ForgedProof` failure.
 
 **Verdict:** the discovered bounded substitution attacks are repaired without reintroducing RuleBinding.
 
-## Attack 6 — Actor/workload/represented-principal self-assertion and trusted origin
+## Attack 6 — Actor/workload/represented-principal self-assertion and trusted authority-domain origin
 
-Binding identity into the proof is necessary but not sufficient. If an untrusted business caller is allowed to choose `actor`, `represented_principal`, or `workload` for both proof minting and invocation, the runtime can still faithfully seal a lie.
+Binding execution/authority context into the proof is necessary but not sufficient. If an untrusted business caller is allowed to choose `actor`, `represented_principal`, `workload`, tenant/environment/session or equivalent authority-domain context for both proof minting and invocation, the runtime can still faithfully seal a lie.
 
-The bounded model passes those values explicitly so the transfer property is testable. Production semantics require the operation boundary to derive them from trusted session/workload identity; any `on behalf of` represented-principal edge must itself be authorized/evidenced.
+The bounded model passes these values explicitly so transfer/substitution is testable. Production semantics require the operation boundary to derive them from trusted session/workload/tenant/environment identity and delegation state; any `on behalf of` represented-principal edge must itself be authorized/evidenced.
 
-**Verdict:** proof **transfer** across identities is now closed in the bounded model. Trusted **origin** of those identities remains a runtime boundary for #71/#53/#42, not evidence for restoring RuleBinding.
+**Verdict:** proof **transfer** across the modeled trusted context is now closed in the bounded model. Trusted **origin** remains a runtime boundary for #71/#53/#42, not evidence for restoring RuleBinding.
 
-**Kill criterion:** if satisfying trusted identity origin requires a dynamic rule/locus dispatcher rather than an existing authentication/delegation capability boundary, R6 fails.
+**Kill criterion:** if satisfying trusted authority-context origin requires a dynamic rule/locus dispatcher rather than an existing authentication/delegation/runtime capability boundary, R6 fails.
 
 ## Attack 7 — Global revision is too coarse
 
@@ -137,7 +138,7 @@ Current M4-v2 runtime operations are only:
 
 ```text
 construct generic refined Type value
-verify runtime-issued proof against required Type + target + operation + trusted execution identity + basis + exact business context + seal
+verify runtime-issued proof against required Type + target + operation + trusted execution/authority context + basis + exact business context + seal
 invoke privileged operation when its typed signature is satisfied
 ```
 
@@ -154,8 +155,9 @@ The history matters more than a single green run:
 5. new regressions captured the flaw;
 6. forgery test initially conflated context mismatch with tampering and was isolated;
 7. a later deep review found actor/represented-principal/workload were still omitted from the context digest despite the review noting trusted identity as a production boundary;
-8. the model now binds trusted execution identity as part of exact context and has permanent cross-identity transfer regressions;
-9. the next exact-head CI run must pass #156 tests, cross-ontology regressions, reviewed runtime models and PostgreSQL 18 before merge.
+8. another pass generalized the same replay class to authority-domain context such as tenant/environment/session;
+9. the model now binds exact business + trusted execution/authority context and permanently tests cross-context transfer;
+10. the next exact-head CI run must pass #156 tests, cross-ontology regressions, reviewed runtime models and PostgreSQL 18 before merge.
 
 This demonstrates that the kill test can falsify its favored candidate. It does not prove production concurrency, identity-provider trust, distributed liveness, migration/privacy no-bypass or universal minimality.
 
@@ -165,7 +167,7 @@ The strongest conclusion justified by #156 remains:
 
 > `RuleBinding` is **not currently shown irreducible**. A materially different four-form candidate, `R6-capability = Type + Relation + Computation + Action`, survives the bounded attacks when Type supports generic refinements and privileged operations require runtime-issued, exact-context-bound, unforgeable proof values.
 
-“Exact context” now explicitly includes execution identity when identity affects authority; it is not limited to target/inputs/state.
+“Exact context” now explicitly includes the trusted execution/authority context whenever it can affect authority; it is not limited to target/inputs/state.
 
 This is stronger than “RuleBinding may reduce to data”: M1 proved data + dispatcher is fake reduction. R6 removes phase/scope rule discovery from the bounded candidate.
 
