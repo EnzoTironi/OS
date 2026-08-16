@@ -17,9 +17,13 @@ CONTEXT_TESTS = HERE / "test_context_binding.py"
 README = HERE / "README.md"
 MODELS = HERE / "models.md"
 LAWS = HERE / "candidate-laws.md"
+REVIEW = HERE / "review.md"
+EVIDENCE = HERE / "evidence-index.md"
 INDEX = ROOT / "research" / "index" / "issue-0156-rulebinding-reduction.json"
 RFC2 = ROOT / "rfcs" / "0002-executable-metamodel-hypothesis-v1.md"
 LAW_RE = re.compile(r"^## (L-RB-\d{2})\b", re.MULTILINE)
+INDEX_LAW_RE = re.compile(r"#(L-RB-\d{2})$")
+REVIEW_STATUS_RE = re.compile(r"^status:\s*(review-pending|review-clean)\s*$", re.MULTILINE)
 
 
 def fail(message: str) -> None:
@@ -55,21 +59,34 @@ def no_module_level_tests(path: Path) -> None:
 
 
 def main() -> int:
-    for path in [CANDIDATE, MODEL, CONTEXT_MODEL, TESTS, CONTEXT_TESTS, README, MODELS, LAWS, RFC2]:
+    for path in [
+        CANDIDATE, MODEL, CONTEXT_MODEL, TESTS, CONTEXT_TESTS, README, MODELS,
+        LAWS, REVIEW, EVIDENCE, INDEX, RFC2,
+    ]:
         if not path.exists():
             fail(f"missing {path.relative_to(ROOT)}")
 
     candidate = json.loads(CANDIDATE.read_text(encoding="utf-8"))
     if candidate.get("decision_state") != "hypothesis":
         fail("issue #156 must remain hypothesis")
-    if candidate.get("review_status") not in {"unreviewed", "review-clean"}:
-        fail("invalid review status")
+    candidate_review = candidate.get("review_status")
+    if candidate_review not in {"unreviewed", "review-clean"}:
+        fail("invalid candidate review status")
     if candidate["control"]["base_forms"] != ["Type", "Relation", "Computation", "Action", "RuleBinding"]:
         fail("R5 control drifted")
     if candidate["candidate"]["base_forms"] != ["Type", "Relation", "Computation", "Action"]:
         fail("R6-capability must remain the exact quartet under test")
     if candidate["candidate"]["architecture_state"] != "not-accepted":
         fail("R6-capability was promoted automatically")
+    required_blockers = {
+        "independent adversarial review",
+        "exact-head CI",
+        "Event no-bypass issue 157",
+        "Relation-vs-Property-Link issue 158",
+        "first semantic acceptance vertical issue 71",
+    }
+    if set(candidate.get("promotion_blockers", [])) != required_blockers:
+        fail("R6 promotion blockers drifted")
 
     source = MODEL.read_text(encoding="utf-8")
     context_source = CONTEXT_MODEL.read_text(encoding="utf-8")
@@ -88,32 +105,17 @@ def main() -> int:
     m4 = source.split(marker, 1)[0] + "\n" + context_source
     ids = {name.lower() for name in semantic_identifiers(m4)}
     forbidden_ids = {
-        "rulebinding",
-        "capabilitytype",
-        "capability_types",
-        "scope_kind",
-        "bindings_for",
-        "_bindings_for",
-        "_enforce",
-        "locus",
+        "rulebinding", "capabilitytype", "capability_types", "scope_kind",
+        "bindings_for", "_bindings_for", "_enforce", "locus",
     }
     leaked = forbidden_ids.intersection(ids)
     if leaked:
         fail(f"M4 candidate recreated a semantic/binding species as code identifiers: {sorted(leaked)}")
 
     for required in [
-        "TypeDef",
-        "RefinedValue",
-        "OperationSignature",
-        "construct(",
-        "_verify_signature",
-        "authoritative_commit",
-        "ComputationMutation",
-        "ContextBoundValue",
-        "semantic_context_digest",
-        "ContextMismatch",
-        "ForgedProof",
-        "_seal(",
+        "TypeDef", "RefinedValue", "OperationSignature", "construct(", "_verify_signature",
+        "authoritative_commit", "ComputationMutation", "ContextBoundValue",
+        "semantic_context_digest", "ContextMismatch", "ForgedProof", "_seal(",
     ]:
         if required not in m4:
             fail(f"M4 lost required refined-Type/context-bound mechanism: {required}")
@@ -147,7 +149,6 @@ def main() -> int:
     ]:
         if pressure not in context_tests:
             fail(f"required context-binding regression missing: {pressure}")
-
     no_module_level_tests(TESTS)
     no_module_level_tests(CONTEXT_TESTS)
 
@@ -159,9 +160,7 @@ def main() -> int:
     readme = norm(README.read_text(encoding="utf-8"))
     models = norm(MODELS.read_text(encoding="utf-8"))
     for phrase in [
-        "anti-cheat criterion",
-        "proof-carrying capability types",
-        "no locus field",
+        "anti-cheat criterion", "proof-carrying capability types", "no locus field",
         "independent runtime reason",
     ]:
         if phrase not in readme + "\n" + models:
@@ -170,30 +169,71 @@ def main() -> int:
         "m1 — definition graph plus special dispatcher",
         "m2 — inline contracts",
         "m3 — executable relation trigger",
-        "m4 — proof-carrying refined capabilities",
+        "m4 — proof-carrying refined types",
+        "m4-v1 falsified",
+        "m4-v2 hardening",
+        "context substitution",
     ]:
         if phrase not in models:
-            fail(f"competitor missing from models.md: {phrase}")
+            fail(f"competitor/history missing from models.md: {phrase}")
+
+    evidence = norm(EVIDENCE.read_text(encoding="utf-8"))
+    for issue in [8, 40, 41, 42, 46, 56, 70]:
+        if f"issue #{issue}" not in evidence:
+            fail(f"evidence index lost load-bearing issue #{issue}")
+    for phrase in [
+        "m4-v1", "m4-v2", "context substitution", "31949750222",
+        "trusted execution identity", "no raw authority path",
+    ]:
+        if phrase not in evidence:
+            fail(f"evidence index lost load-bearing history/pressure: {phrase}")
+
+    review = norm(REVIEW.read_text(encoding="utf-8"))
+    status_match = REVIEW_STATUS_RE.search(review)
+    if not status_match:
+        fail("review.md must declare Status: review-pending or review-clean")
+    review_status = status_match.group(1)
+    for phrase in [
+        "r6-capability remains hypothesis", "operation signature", "type refinements themselves rulebindings",
+        "actor/workload/represented-principal self-assertion", "global revision is too coarse",
+        "context substitution / toctou", "review-clean",
+    ]:
+        if phrase not in review:
+            fail(f"review lost adversarial boundary: {phrase}")
+
+    shard = json.loads(INDEX.read_text(encoding="utf-8"))
+    entries = shard.get("entries", [])
+    if shard.get("schema_version") != 2 or shard.get("kind") != "shard" or len(entries) != 1:
+        fail("issue #156 index must be one v2 shard")
+    entry = entries[0]
+    if entry.get("issue") != 156 or entry.get("artifact") != "research/kill/rulebinding-v2/README.md":
+        fail("issue #156 index locator drift")
+    shard_review = entry.get("review_status")
+    if shard_review != candidate_review:
+        fail("candidate/index review status drift")
+    if candidate_review == "unreviewed" and review_status != "review-pending":
+        fail("unreviewed candidate must keep review.md pending")
+    if candidate_review == "review-clean" and review_status != "review-clean":
+        fail("review-clean candidate requires review-clean review.md")
+
+    indexed_laws: list[str] = []
+    for record in entry.get("records", []):
+        match = INDEX_LAW_RE.search(record.get("ref", ""))
+        if match:
+            indexed_laws.append(match.group(1))
+    if sorted(indexed_laws) != sorted(laws):
+        fail(f"candidate-law index drift: {indexed_laws} != {laws}")
 
     rfc2 = norm(RFC2.read_text(encoding="utf-8"))
     if "status: hypothesis" not in rfc2 or "decision: none" not in rfc2 or "supersedes: nothing" not in rfc2:
         fail("RFC-0002 was promoted while #156 is still a kill test")
-
-    if INDEX.exists():
-        shard = json.loads(INDEX.read_text(encoding="utf-8"))
-        entries = shard.get("entries", [])
-        if shard.get("schema_version") != 2 or len(entries) != 1:
-            fail("issue #156 index must be one v2 shard")
-        entry = entries[0]
-        if entry.get("issue") != 156:
-            fail("issue #156 index locator drift")
-        if entry.get("review_status") != candidate.get("review_status"):
-            fail("candidate/index review status drift")
+    if "r6-capability" in rfc2:
+        fail("RFC-0002 was rewritten from unpromoted #156 candidate")
 
     print(
-        "ok: R5 control preserved; R6 quartet remains hypothesis; generic Type refinements cover value+capability; "
-        "proofs are exact-context-bound/unforgeable; M4 AST has no locus/scope/binding/CapabilityType dispatcher; "
-        "M1/M2/M3 sensitivity retained; RFC-0002 unchanged"
+        f"ok: R5 control preserved; R6 quartet remains hypothesis/not-accepted; "
+        f"generic Type refinements + exact-context unforgeable proofs; no hidden M4 dispatcher; "
+        f"20 laws indexed; review={candidate_review}/{review_status}; RFC-0002 unchanged"
     )
     return 0
 
