@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Executable post-R5 RuleBinding reduction model for issue #156.
 
-This is a bounded semantic model, not production architecture. The classes named
-CapabilityType/CapabilityToken are research conveniences for a proposed standard
-Type contract plus runtime capability values; their existence here is not itself
-a proposal for an additional semantic base form.
+This is a bounded semantic model, not production architecture. M4 deliberately
+uses one generic refined Type mechanism for ordinary values and proof-carrying
+capabilities. `capability` is a standard Type contract interpreted by privileged
+operation boundaries; it is not modeled as a sixth semantic base form.
 """
 
 from __future__ import annotations
@@ -20,25 +20,25 @@ class ModelError(RuntimeError):
     pass
 
 
-class CapabilityDenied(ModelError):
-    def __init__(self, capability_type: str, evidence: tuple[str, ...] = ()) -> None:
-        super().__init__(f"{capability_type}: denied")
-        self.capability_type = capability_type
+class RefinementDenied(ModelError):
+    def __init__(self, type_name: str, evidence: tuple[str, ...] = ()) -> None:
+        super().__init__(f"{type_name}: refinement denied")
+        self.type_name = type_name
         self.evidence = evidence
 
 
-class CapabilityEvaluationError(ModelError):
-    def __init__(self, capability_type: str, evidence: tuple[str, ...] = ()) -> None:
-        super().__init__(f"{capability_type}: evaluator error")
-        self.capability_type = capability_type
+class RefinementEvaluationError(ModelError):
+    def __init__(self, type_name: str, evidence: tuple[str, ...] = ()) -> None:
+        super().__init__(f"{type_name}: refinement evaluator error")
+        self.type_name = type_name
         self.evidence = evidence
 
 
-class StaleCapability(ModelError):
+class StaleProof(ModelError):
     pass
 
 
-class WrongCapability(ModelError):
+class WrongProof(ModelError):
     pass
 
 
@@ -60,7 +60,7 @@ class RuleResult:
 
 @dataclass(frozen=True)
 class EvaluationContext:
-    engine: "CapabilityEngine"
+    engine: "RefinedTypeEngine"
     target: str
     operation_id: str | None = None
     actor: str | None = None
@@ -95,23 +95,25 @@ class ComputationDef:
 
 
 @dataclass(frozen=True)
-class CapabilityType:
-    """Research encoding of a standard refined Type contract.
+class TypeDef:
+    """Generic Type definition with reusable refinement semantics.
 
-    `refinements` are checked whenever a value of this Type is minted. There is
-    deliberately no locus/scope field and no registry lookup by operation phase.
-    An operation signature simply demands a value of a particular Type.
+    `contracts` can include `value`, `capability`, or other standard contracts.
+    Refinements run whenever a value of the Type is constructed. Freshness is
+    generic proof/value validity metadata, not operation-phase scheduling.
     """
 
     name: str
     refinements: tuple[str, ...] = ()
+    contracts: frozenset[str] = frozenset()
     freshness: str = "none"  # none | current | pinned
 
 
 @dataclass(frozen=True)
-class CapabilityToken:
+class RefinedValue:
     type_name: str
     target: str
+    payload: Any
     operation_id: str | None
     basis_revision: int | None
     pinned_digest: str | None
@@ -122,17 +124,17 @@ class CapabilityToken:
 @dataclass(frozen=True)
 class OperationSignature:
     name: str
-    required_capabilities: tuple[str, ...]
+    required_types: tuple[str, ...]
 
 
-class CapabilityEngine:
-    """M4 candidate: proof-carrying operation signatures, no RuleBinding registry."""
+class RefinedTypeEngine:
+    """M4 candidate: refined Type values + typed privileged operation signatures."""
 
     def __init__(self) -> None:
         self.state: dict[str, Any] = {}
         self.revision = 0
         self.computations: dict[str, ComputationDef] = {}
-        self.capability_types: dict[str, CapabilityType] = {}
+        self.types: dict[str, TypeDef] = {}
         self.signatures: dict[str, OperationSignature] = {}
         self.audit: list[dict[str, Any]] = []
         self.effects_attempted: list[str] = []
@@ -141,16 +143,19 @@ class CapabilityEngine:
     def add_computation(self, definition: ComputationDef) -> None:
         self.computations[definition.name] = definition
 
-    def add_capability_type(self, definition: CapabilityType) -> None:
+    def add_type(self, definition: TypeDef) -> None:
         for name in definition.refinements:
             if name not in self.computations:
                 raise ModelError(f"undefined refinement {name}")
-        self.capability_types[definition.name] = definition
+        self.types[definition.name] = definition
 
     def add_signature(self, signature: OperationSignature) -> None:
-        for required in signature.required_capabilities:
-            if required not in self.capability_types:
-                raise ModelError(f"undefined capability type {required}")
+        for required in signature.required_types:
+            definition = self.types.get(required)
+            if definition is None:
+                raise ModelError(f"undefined required Type {required}")
+            if "capability" not in definition.contracts:
+                raise ModelError(f"operation authority Type {required} lacks capability contract")
         self.signatures[signature.name] = signature
 
     def _snapshot(self) -> tuple[Any, ...]:
@@ -183,11 +188,12 @@ class CapabilityEngine:
         canonical = repr(sorted(value.items())).encode("utf-8")
         return sha256(canonical).hexdigest()
 
-    def mint(
+    def construct(
         self,
-        capability_type: str,
+        type_name: str,
         *,
-        target: str,
+        target: str = "value",
+        payload: Any = None,
         operation_id: str | None = None,
         actor: str | None = None,
         represented_principal: str | None = None,
@@ -195,15 +201,13 @@ class CapabilityEngine:
         inputs: dict[str, Any] | None = None,
         pending_state: dict[str, Any] | None = None,
         pinned_state: dict[str, Any] | None = None,
-    ) -> CapabilityToken:
-        """Construct a refined capability value.
+    ) -> RefinedValue:
+        """Construct any refined Type value, capability or ordinary business value."""
 
-        Refinements are Type-value validation, not callbacks scheduled from a
-        scope/locus registry. Any DENY or ERROR prevents construction; ERROR is
-        kept distinguishable from DENY.
-        """
-
-        definition = self.capability_types[capability_type]
+        definition = self.types[type_name]
+        ctx_inputs = dict(inputs or {})
+        if payload is not None and "value" not in ctx_inputs:
+            ctx_inputs["value"] = payload
         ctx = EvaluationContext(
             engine=self,
             target=target,
@@ -211,7 +215,7 @@ class CapabilityEngine:
             actor=actor,
             represented_principal=represented_principal,
             workload=workload,
-            inputs=dict(inputs or {}),
+            inputs=ctx_inputs,
             pending_state=deepcopy(pending_state) if pending_state is not None else None,
             pinned_state=deepcopy(pinned_state) if pinned_state is not None else None,
         )
@@ -223,17 +227,18 @@ class CapabilityEngine:
             evidence.extend(outcome.evidence or (evaluator_name,))
             evaluator_revisions.append((evaluator_name, evaluator.revision))
             if outcome.decision is Decision.DENY:
-                raise CapabilityDenied(capability_type, tuple(evidence))
+                raise RefinementDenied(type_name, tuple(evidence))
             if outcome.decision is Decision.ERROR:
-                raise CapabilityEvaluationError(capability_type, tuple(evidence))
+                raise RefinementEvaluationError(type_name, tuple(evidence))
 
         basis_revision = self.revision if definition.freshness == "current" else None
         pinned_digest = self._digest(pinned_state) if definition.freshness == "pinned" else None
         if definition.freshness == "pinned" and pinned_digest is None:
-            raise ModelError(f"{capability_type} requires pinned state")
-        return CapabilityToken(
-            type_name=capability_type,
+            raise ModelError(f"{type_name} requires pinned state")
+        return RefinedValue(
+            type_name=type_name,
             target=target,
+            payload=deepcopy(payload),
             operation_id=operation_id,
             basis_revision=basis_revision,
             pinned_digest=pinned_digest,
@@ -241,52 +246,52 @@ class CapabilityEngine:
             evaluator_revisions=tuple(evaluator_revisions),
         )
 
-    def _verify_token(
+    def _verify_value(
         self,
-        token: CapabilityToken,
+        value: RefinedValue,
         expected_type: str,
         *,
         target: str,
         operation_id: str | None,
         pinned_state: dict[str, Any] | None = None,
     ) -> None:
-        if token.type_name != expected_type or token.target != target:
-            raise WrongCapability(f"need {expected_type} for {target}, got {token.type_name} for {token.target}")
-        if token.operation_id is not None and operation_id != token.operation_id:
-            raise WrongCapability("capability is bound to a different semantic operation")
-        definition = self.capability_types[expected_type]
-        if definition.freshness == "current" and token.basis_revision != self.revision:
-            raise StaleCapability(f"{expected_type} was minted at revision {token.basis_revision}, current {self.revision}")
-        if definition.freshness == "pinned" and token.pinned_digest != self._digest(pinned_state):
-            raise StaleCapability(f"{expected_type} pinned basis mismatch")
+        definition = self.types[expected_type]
+        if "capability" not in definition.contracts:
+            raise WrongProof(f"{expected_type} is not an authority capability Type")
+        if value.type_name != expected_type or value.target != target:
+            raise WrongProof(f"need {expected_type} for {target}, got {value.type_name} for {value.target}")
+        if value.operation_id is not None and operation_id != value.operation_id:
+            raise WrongProof("proof value is bound to a different semantic operation")
+        if definition.freshness == "current" and value.basis_revision != self.revision:
+            raise StaleProof(f"{expected_type} constructed at revision {value.basis_revision}, current {self.revision}")
+        if definition.freshness == "pinned" and value.pinned_digest != self._digest(pinned_state):
+            raise StaleProof(f"{expected_type} pinned basis mismatch")
 
     def _verify_signature(
         self,
         operation_name: str,
-        tokens: dict[str, CapabilityToken],
+        proofs: dict[str, RefinedValue],
         *,
         target: str,
         operation_id: str | None = None,
         pinned_state: dict[str, Any] | None = None,
     ) -> None:
         signature = self.signatures[operation_name]
-        if set(tokens) != set(signature.required_capabilities):
-            raise WrongCapability(
-                f"{operation_name} requires {signature.required_capabilities}, got {tuple(sorted(tokens))}"
-            )
-        for required in signature.required_capabilities:
-            self._verify_token(
-                tokens[required],
+        if set(proofs) != set(signature.required_types):
+            raise WrongProof(f"{operation_name} requires {signature.required_types}, got {tuple(sorted(proofs))}")
+        for required in signature.required_types:
+            self._verify_value(
+                proofs[required],
                 required,
                 target=target,
                 operation_id=operation_id,
                 pinned_state=pinned_state,
             )
 
-    def preview(self, action_name: str, token: CapabilityToken, *, operation_id: str | None = None) -> None:
+    def preview(self, action_name: str, proof: RefinedValue, *, operation_id: str | None = None) -> None:
         self._verify_signature(
             f"preview:{action_name}",
-            {token.type_name: token},
+            {proof.type_name: proof},
             target=action_name,
             operation_id=operation_id,
         )
@@ -298,13 +303,13 @@ class CapabilityEngine:
         target: str,
         operation_id: str,
         proposed_state: dict[str, Any],
-        tokens: dict[str, CapabilityToken],
+        proofs: dict[str, RefinedValue],
         pinned_state: dict[str, Any] | None = None,
     ) -> None:
         """Single low-level local authority boundary shared by Action/admin paths."""
         self._verify_signature(
             operation_name,
-            tokens,
+            proofs,
             target=target,
             operation_id=operation_id,
             pinned_state=pinned_state,
@@ -317,24 +322,20 @@ class CapabilityEngine:
                 "target": target,
                 "evidence": tuple(
                     evidence
-                    for required in self.signatures[operation_name].required_capabilities
-                    for evidence in tokens[required].evidence
+                    for required in self.signatures[operation_name].required_types
+                    for evidence in proofs[required].evidence
                 ),
                 "evaluator_revisions": tuple(
                     rev
-                    for required in self.signatures[operation_name].required_capabilities
-                    for rev in tokens[required].evaluator_revisions
+                    for required in self.signatures[operation_name].required_types
+                    for rev in proofs[required].evaluator_revisions
                 ),
             }
         )
         self.revision += 1
 
-    def read(self, type_name: str, token: CapabilityToken) -> dict[str, Any]:
-        self._verify_signature(
-            f"read:{type_name}",
-            {token.type_name: token},
-            target=type_name,
-        )
+    def read(self, type_name: str, proof: RefinedValue) -> dict[str, Any]:
+        self._verify_signature(f"read:{type_name}", {proof.type_name: proof}, target=type_name)
         return deepcopy(self.state)
 
     def create_occurrence(self, occurrence_id: str, payload: dict[str, Any]) -> None:
@@ -343,21 +344,13 @@ class CapabilityEngine:
         self.occurrences[occurrence_id] = deepcopy(payload)
         self.revision += 1
 
-    def update_occurrence(self, occurrence_id: str, changes: dict[str, Any], token: CapabilityToken) -> None:
-        self._verify_signature(
-            "update:Occurrence",
-            {token.type_name: token},
-            target="Occurrence",
-        )
+    def update_occurrence(self, occurrence_id: str, changes: dict[str, Any], proof: RefinedValue) -> None:
+        self._verify_signature("update:Occurrence", {proof.type_name: proof}, target="Occurrence")
         self.occurrences[occurrence_id].update(changes)
         self.revision += 1
 
-    def effect_attempt(self, effect_id: str, token: CapabilityToken) -> None:
-        self._verify_signature(
-            "effect-attempt",
-            {token.type_name: token},
-            target=effect_id,
-        )
+    def effect_attempt(self, effect_id: str, proof: RefinedValue) -> None:
+        self._verify_signature("effect-attempt", {proof.type_name: proof}, target=effect_id)
         self.effects_attempted.append(effect_id)
 
 
@@ -386,7 +379,7 @@ class DefinitionGraphDispatcher:
         for rule in self.rules:
             if rule.locus == locus and rule.target == target:
                 if not evaluators[rule.evaluator]():
-                    raise CapabilityDenied("graph-rule", (rule.rule_id,))
+                    raise RefinementDenied("graph-rule", (rule.rule_id,))
 
 
 class InlineContractEngine:
@@ -397,7 +390,7 @@ class InlineContractEngine:
 
     def post_action(self, debits: int, credits: int) -> None:
         if debits != credits:
-            raise CapabilityDenied("inline-balance", ("action-local",))
+            raise RefinementDenied("inline-balance", ("action-local",))
         self.state = {"debits": debits, "credits": credits}
 
     def admin_mutate(self, debits: int, credits: int) -> None:
@@ -423,7 +416,7 @@ class ExecutableRelationDispatcher:
         for relation in self.relations:
             if relation.trigger == trigger and relation.target == target:
                 if not evaluators[relation.evaluator]():
-                    raise CapabilityDenied("relation-trigger", (relation.evaluator,))
+                    raise RefinementDenied("relation-trigger", (relation.evaluator,))
 
 
 # ---------------------------------------------------------------------------
@@ -449,10 +442,7 @@ def balanced_pending(ctx: EvaluationContext) -> RuleResult:
 
 
 def actor_is_alice(ctx: EvaluationContext) -> RuleResult:
-    return RuleResult(
-        Decision.PERMIT if ctx.actor == "alice" else Decision.DENY,
-        (f"actor:{ctx.actor}",),
-    )
+    return RuleResult(Decision.PERMIT if ctx.actor == "alice" else Decision.DENY, (f"actor:{ctx.actor}",))
 
 
 def amount_under_limit(ctx: EvaluationContext) -> RuleResult:
@@ -462,3 +452,8 @@ def amount_under_limit(ctx: EvaluationContext) -> RuleResult:
         Decision.PERMIT if amount <= limit else Decision.DENY,
         (f"limit:{limit}", f"amount:{amount}"),
     )
+
+
+def positive_value(ctx: EvaluationContext) -> RuleResult:
+    value = int(ctx.inputs.get("value", 0))
+    return RuleResult(Decision.PERMIT if value > 0 else Decision.DENY, (f"positive:{value}",))
