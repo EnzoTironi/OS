@@ -129,26 +129,29 @@ Successful commit audit includes the exact evaluator revisions and determining e
 
 This does not settle Event demotion across privileged repair/privacy/migration paths. #157 is a mandatory dependency before promotion.
 
-## L-RB-18 — Operational proof values must be bound to the exact semantic context they validated and be unforgeable
+## L-RB-18 — Operational proof values must be bound to the exact semantic and execution context they validated and be unforgeable
 
 **State:** `supported` in the hardened bounded model.
 
-Target, Type, semantic operation identity and revision are necessary but not sufficient. A proof for `amount=5` must not authorize `amount=500`; a `PostStateValid` proof for a balanced proposed state must not authorize a different unbalanced state in the same revision.
+Target, Type, semantic operation identity and revision are necessary but not sufficient. A proof for `amount=5` must not authorize `amount=500`; a `PostStateValid` proof for a balanced proposed state must not authorize a different unbalanced state in the same revision; and an authority proof minted for one actor/principal/workload must not transfer to another merely because the business inputs are identical.
 
 The hardened model binds each authority proof to a digest of the exact validated context:
 
 ```text
 target
 operation identity
+actor
+represented principal
+workload
 inputs
 proposed/pending state
 pinned basis
 payload where relevant
 ```
 
-and runtime-seals the proof together with determining evidence and evaluator revisions. Context substitution raises `ContextMismatch`; caller rewriting of a sealed field raises `ForgedProof`.
+and runtime-seals the proof together with determining evidence and evaluator revisions. Input/state/identity substitution raises `ContextMismatch`; caller rewriting of a sealed field raises `ForgedProof`.
 
-Production need not use HMAC specifically, but callers must not be able to manufacture or retarget an authority proof outside the trusted runtime boundary.
+Production need not use HMAC specifically, but callers must not be able to manufacture or retarget an authority proof outside the trusted runtime boundary. The production operation boundary must derive actor/workload/representation from trusted execution context rather than accept self-asserted identity as ordinary business input.
 
 ## L-RB-19 — R6-capability is materially different from Wave A's rejected Type/Link/Function/Action quartet
 
