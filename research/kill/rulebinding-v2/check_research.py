@@ -116,6 +116,7 @@ def main() -> int:
         "TypeDef", "RefinedValue", "OperationSignature", "construct(", "_verify_signature",
         "authoritative_commit", "ComputationMutation", "ContextBoundValue",
         "semantic_context_digest", "ContextMismatch", "ForgedProof", "_seal(",
+        "authority_context",
     ]:
         if required not in m4:
             fail(f"M4 lost required refined-Type/context-bound mechanism: {required}")
@@ -144,6 +145,7 @@ def main() -> int:
         "test_valid_proofs_commit_exact_context",
         "test_post_state_proof_cannot_be_reused_for_different_proposed_state",
         "test_authorization_proof_cannot_be_reused_for_changed_inputs",
+        "test_authority_proof_cannot_cross_actor_principal_workload_or_authority_domain",
         "test_proof_payload_cannot_be_forged_without_runtime_seal",
         "test_context_bound_proof_is_still_invalidated_by_current_revision_change",
     ]:
