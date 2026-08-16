@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "REG-EFFECT-LAST-ATTEMPT-WINS",
+      "family": "effects",
+      "issue": 41,
+      "property": "effect uncertainty cannot be erased by later weaker attempt evidence",
+      "source_artifact": "research/runtime/effects/adversarial-cases.md",
+      "minimal_trace": [
+        {"op": "effect", "args": ["E1", "sent_no_response"]},
+        {"op": "effect", "args": ["E1", "definitely_not_sent"]}
+      ],
+      "naive_bug": "last attempt wins changes knowledge from indeterminate to not_attempted",
+      "expected_safe_result": "indeterminate",
+      "test_ref": "research/verification/test_harness.py::test_dependency_free_shrinker_finds_minimal_known_effect_counterexample"
+    },
+    {
+      "id": "REG-OPERATION-REPLAY-NEW-ID",
+      "family": "commit-orchestration",
+      "issue": 40,
+      "property": "runtime retry after lost checkpoint must reuse semantic operation identity",
+      "source_artifact": "research/runtime/orchestration/adversarial-cases.md",
+      "minimal_trace": [
+        {"op": "semantic", "args": ["O1", "charge:100"]},
+        {"op": "semantic", "args": ["O2", "charge:100"]}
+      ],
+      "naive_bug": "new semantic ID turns recovery into a second intentional-looking business operation",
+      "expected_safe_rule": "recovery reuses O1; O2 requires an independently justified new operation",
+      "test_ref": "research/runtime/orchestration/test_reference_model.py::test_same_runtime_step_with_new_semantic_id_can_duplicate_so_runtime_must_reuse_id"
+    },
+    {
+      "id": "REG-TIMER-AFTER-FULFILLMENT",
+      "family": "orchestration",
+      "issue": 43,
+      "property": "timer firing is not business deadline breach",
+      "source_artifact": "research/runtime/orchestration/adversarial-cases.md",
+      "minimal_trace": [
+        {"op": "fulfill", "args": ["C1"]},
+        {"op": "timer", "args": ["T1"]}
+      ],
+      "naive_bug": "timer branch marks already fulfilled commitment overdue",
+      "expected_safe_rule": "timer only wakes evaluation of the declared domain basis",
+      "test_ref": "research/runtime/orchestration/test_reference_model.py::test_timer_after_fulfillment_does_not_create_false_breach"
+    },
+    {
+      "id": "REG-DERIVED-DUAL-WRITE",
+      "family": "storage",
+      "issue": 39,
+      "property": "derived projection mutation cannot author authoritative state",
+      "source_artifact": "research/runtime/storage/adversarial-cases.md",
+      "minimal_trace": [
+        {"op": "authoritative", "args": ["price", 100]},
+        {"op": "derived", "args": ["price", 120]}
+      ],
+      "naive_bug": "consumer reads/writes derived store as if it were the semantic authority",
+      "expected_safe_rule": "authority remains 100 until a governed Action commits a change",
+      "test_ref": "research/verification/test_harness.py::test_derived_store_mutation_cannot_mutate_authoritative_value"
+    },
+    {
+      "id": "REG-SNAPSHOT-WRITE-SKEW",
+      "family": "storage-commit",
+      "issue": 39,
+      "property": "snapshot/repeatable-read isolation alone cannot protect cross-row aggregate invariant",
+      "source_artifact": "research/runtime/storage/experiments/postgres18/README.md",
+      "minimal_trace": [
+        {"tx": "T1", "read": "active_count=2", "write": "doctor1=false"},
+        {"tx": "T2", "read": "active_count=2", "write": "doctor2=false"}
+      ],
+      "naive_bug": "both disjoint writes commit under snapshot semantics and active_count becomes zero",
+      "expected_safe_rule": "Action uses SERIALIZABLE or another mechanism covering the aggregate dependency",
+      "test_ref": "research/runtime/storage/experiments/postgres18/test_storage_contract.py::test_isolation_levels",
+      "integration_evidence": "storage-research-ci run 31929101666 on PostgreSQL 18"
+    },
+    {
+      "id": "REG-DELEGATION-SCOPE-ESCALATION",
+      "family": "authorization",
+      "issue": 42,
+      "property": "child grant is subset of parent authority",
+      "source_artifact": "research/runtime/authorization/adversarial-cases.md",
+      "minimal_model": {
+        "parent_scopes": ["read"],
+        "child_scopes": ["read", "pay"]
+      },
+      "naive_bug": "child receives pay despite parent lacking pay",
+      "expected_safe_rule": "delegation rejected unless pay comes from an explicit independent authority source",
+      "test_ref": "research/verification/formal/authorization_z3.py::check_transitive_scope_non_escalation"
+    }
+  ]
+}
