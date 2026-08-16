@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
 import json
 import re
 import sys
@@ -24,6 +25,22 @@ def fail(message: str) -> None:
 
 def norm(text: str) -> str:
     return text.lower().replace("**", "").replace("`", "")
+
+
+def semantic_identifiers(source: str) -> set[str]:
+    """Return code identifiers while ignoring comments/docstrings/string prose."""
+    tree = ast.parse(source)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+    return names
 
 
 def main() -> int:
@@ -51,18 +68,18 @@ def main() -> int:
 
     # Inspect only the M4 candidate implementation. Competitor M1/M3 are
     # intentionally allowed to contain locus/trigger dispatch so tests can show
-    # why they are hidden recreation.
+    # why they are hidden recreation. AST identifiers avoid #46-style false
+    # negatives where explanatory prose contains the forbidden word in a
+    # sentence such as "there is no binding registry".
     marker = "# Weaker/alternative competitors"
     if marker not in source:
         fail("cannot isolate M4 candidate region")
     m4 = source.split(marker, 1)[0]
-    for forbidden in ["scope_kind", "_bindings_for", "_enforce(", "binding registry", "rulebinding"]:
-        if forbidden.lower() in m4.lower():
-            fail(f"M4 candidate recreated binding machinery: {forbidden}")
-    # `locus` is the most important anti-cheat signal: M4 operation phase must
-    # come from typed operation signatures, not scheduler metadata.
-    if re.search(r"\blocus\b", m4, re.IGNORECASE):
-        fail("M4 candidate contains a locus field/concept")
+    ids = {name.lower() for name in semantic_identifiers(m4)}
+    forbidden_ids = {"rulebinding", "scope_kind", "bindings_for", "_bindings_for", "_enforce", "locus"}
+    leaked = forbidden_ids.intersection(ids)
+    if leaked:
+        fail(f"M4 candidate recreated binding machinery as code identifiers: {sorted(leaked)}")
 
     for required in [
         "CapabilityType",
@@ -135,7 +152,7 @@ def main() -> int:
 
     print(
         "ok: R5 control preserved; R6-capability quartet remains hypothesis; "
-        "M4 has no locus/scope/binding dispatcher; M1/M2/M3 sensitivity retained; RFC-0002 unchanged"
+        "M4 AST has no locus/scope/binding dispatcher; M1/M2/M3 sensitivity retained; RFC-0002 unchanged"
     )
     return 0
 
