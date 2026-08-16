@@ -1,79 +1,70 @@
-# Failure archive
+# Hypothesis disposition and failure archive
 
 - Artifact ID: `issue-0081-failure-archive`
 - Issue: <https://github.com/EnzoTironi/OS/issues/81>
 - Parent: <https://github.com/EnzoTironi/OS/issues/2>
-- Track: ops
+- Track: research operations
 - Retrieved: 2026-08-16
-- Contract: Agent output contract in `docs/swarm-research-backlog.md`. `docs/swarm-result-contract.md` is absent on `origin/main` at `dc918a50e550d384d1e18a6f24424e6ed4595b9c`.
-- Decision states present: `hypothesis`, `supported`, `rejected`, `undetermined`
 
-This folder archives ideas that research has already marked `rejected`. It is not a new kill test. It does not invent rejections. It does not copy sibling trees. It does not edit `rfcs/0001-metamodel-hypothesis.md` or `docs/open-questions.md`.
+This folder exists so later agents do not rediscover abandoned ideas as if they were new. **It must not manufacture certainty retrospectively.**
 
-Each claim is tagged as one of domain evidence, source-system artifact, candidate law, counterexample, or runtime consequence. Decision state is never `accepted`.
+A hypothesis can leave the active design space for several different reasons:
+
+- `rejected/falsified`: evidence defeated the scoped claim;
+- `superseded`: another framing replaced it without proving it universally false;
+- `assumption-withdrawn`: OS stopped taking it as a starting assumption;
+- `not-promoted`: a proposed semantic primitive did not earn primitive status, while the mechanism/pattern may remain useful;
+- `scope-limited`: the idea remains live in a narrower context;
+- `undetermined`: evidence is insufficient.
+
+Only `rejected/falsified` is a strict failure. The other dispositions are still important historical information.
 
 ## Question
 
-Which hypotheses, primitives, architecture ideas, and domain models has OS already rejected, and what falsifying context must a later agent see before rediscovering them?
+Which hypotheses and architecture framings have actually been defeated, which merely lost priority or primitive status, and what evidence would be required to revisit them?
 
-Issue 81 asks for a durable archive so future agents stop treating attractive dead ends as fresh options. The seed list is the historical path in `docs/hypothesis-history.md`. Wave A kill and foundation notes that already mark a claim `rejected` are cited, not restated as new verdicts.
+## Historical result
 
-## Verdict
+`docs/hypothesis-history.md` supports the following minimum reading:
 
-**Folder decision state.** The six historical framings named in issue 81 are archived as `rejected` in the scopes those sources already used. Sibling Wave A notes add more `rejected` readings. Claims those notes left `hypothesis`, `supported`, or `undetermined` stay in those states. They are listed in [`undetermined.md`](undetermined.md) so synthesis does not promote them.
+- H0 ERP replacement: `rejected/falsified` as the top-level product framing.
+- H1 ERP + ontology: `assumption-withdrawn` as the ideal greenfield assumption; still `hypothesis/scope-limited` for brownfield integration.
+- H2 Pack: `not-promoted` as a semantic primitive; packaging/module architecture remains open.
+- H2 Compiler: `not-promoted` as a semantic primitive; compilation/generation remains open implementation architecture.
+- H2 separate deterministic semantic kernels: `assumption-withdrawn/not-promoted` as second business authorities; specialized physical evaluators remain live.
+- H3 Frappe/ERPNext foundation: `rejected/falsified` as the assumed greenfield foundation for the research program; ERPNext remains a primary corpus.
+- H4 executable ontology and H5 empirical-corpus method are not failures. H4 remains falsifiable.
 
-H0 is `rejected` as the top-level product. H1 is `rejected` as the greenfield architecture and remains `hypothesis` as brownfield integration. Pack, visible Compiler, and semantic Deterministic Kernel are `rejected` as ontology primitives. Frappe or ERPNext as the greenfield foundation is `rejected`. ERPNext stays a primary corpus.
+See [`cards/FA-historical-seeds.md`](cards/FA-historical-seeds.md) for the scoped records.
 
-The overreach "the executable-ontology thesis is dead" is itself `rejected` by issue 55. Archive that too. A later agent that reads only the kill-test titles can invent a stronger death than the evidence paid for.
+## Sibling Wave A verdicts
 
-## How to query this folder
+`cards/FA-sibling-rejections.md` preserves claims that sibling branches originally labeled `rejected`. Those labels are **inputs, not automatically archived truth**. Many sibling PRs underwent adversarial review after this archive was authored. Before a sibling claim enters the strict failure ledger, verify that:
 
-| File | Mode | What a synthesis agent should read it for |
-| --- | --- | --- |
-| [`ledger.md`](ledger.md) | reference | Every archived `rejected` claim, one row, with scope and revival |
-| [`cards/FA-historical-seeds.md`](cards/FA-historical-seeds.md) | explanation | Full records for H0, H1, Pack, Compiler, Kernel, Frappe |
-| [`cards/FA-sibling-rejections.md`](cards/FA-sibling-rejections.md) | explanation | Folder-level `rejected` claims already marked on sibling branches |
-| [`undetermined.md`](undetermined.md) | reference | Claims siblings left open. Do not treat these as archived kills |
-| [`sources.md`](sources.md) | reference | Exact `git show` locators and document paths |
+1. the exact scoped claim was defeated rather than merely unsupported or not promoted;
+2. the sibling artifact is review-clean or its challenge is represented explicitly;
+3. the rejection does not infer the truth of the opposite claim;
+4. a scope narrowing would not dissolve the apparent contradiction.
 
-Start at the ledger. Open a card only when you need the original support, the breaking evidence, or the revival condition. If a row is missing, the claim is not archived. Absence is not a new rejection.
+Until then, treat sibling entries as `proposed rejection under review`.
 
-## Kind key
+## Files
 
-- **domain evidence.** A distinction the world keeps forcing.
-- **source-system artifact.** A product, schema, or packaging choice.
-- **candidate law.** The smallest claim a source already marked `rejected` or `supported` against a dead end.
-- **counterexample.** The case that broke the attractive reading.
-- **runtime consequence.** What an engine must refuse if the rejection stands.
+| File | Meaning |
+| --- | --- |
+| [`ledger.md`](ledger.md) | disposition ledger; strict failures are separated from withdrawn/not-promoted hypotheses |
+| [`cards/FA-historical-seeds.md`](cards/FA-historical-seeds.md) | corrected H0-H5 history |
+| [`cards/FA-sibling-rejections.md`](cards/FA-sibling-rejections.md) | original sibling rejection candidates; not automatically endorsed |
+| [`undetermined.md`](undetermined.md) | open claims |
+| [`sources.md`](sources.md) | source locators |
 
-## What this folder will not do
+## Rules
 
-It will not answer `docs/open-questions.md`. Cite a research artifact or leave the question `undetermined`.
+- Preserve the original claim, its scope, the evidence that changed its status, and any surviving narrower form.
+- `not-promoted` is not `rejected`.
+- Failure to kill a thesis is not evidence that its negation is rejected.
+- A later architecture choice can supersede an older one without proving the older one impossible.
+- Draft kill-test verdicts do not enter the strict failure ledger until adversarial review is represented.
+- Never delete a prior disposition when evidence changes; append/revise with history.
 
-It will not promote H4 or H5 to `rejected`. Those remain the leading thesis and the favored method.
-
-It will not treat a kill-test attack card marked `supported` as a rejected OS primitive. Only claims a source already labeled `rejected` enter the ledger.
-
-It will not copy `research/kill/` or `research/foundation/` trees. Locators point at sibling commits.
-
-## Output contract
-
-1. **Question.** This README.
-2. **Sources.** [`sources.md`](sources.md).
-3. **Evidence.** The historical cards and the sibling cards. Evidence is quoted from sources already in the repo or from `git show` of named commits.
-4. **Source artifacts.** Marked on each card. Pack, Compiler, DocType, Workflow engine, and product names stay artifacts unless a source already treated them as domain meaning.
-5. **Convergence.** Independent sources that reject the same reading. See the ledger `cited from` column.
-6. **Divergence.** Scope splits. H1 is dead as greenfield and live as integration. Kernels are dead as a second business authority and live as physical evaluators.
-7. **Candidate laws.** Each card states the rejected claim as a law a later agent can try to revive.
-8. **Counterexamples.** Each card names the breaking evidence the source already used.
-9. **Runtime pressure.** Each card names what a runtime must refuse. No engine is selected.
-10. **Open questions.** [`undetermined.md`](undetermined.md).
-11. **Decision state.** Each card. Default for archived rows is `rejected` in a named scope.
-
-## Licensing
-
-OS is MIT. These notes extract concepts and documented research decisions. No copyleft implementation was pasted or translated.
-
-## RFC-0001
-
-Do not edit `rfcs/0001-metamodel-hypothesis.md`. The archive records pressure that already exists in hypothesis history and in sibling notes. Independent sources have not converged on a new primitive list in this pass.
+This is research history, not an architecture decision and not an edit to RFC-0001.
