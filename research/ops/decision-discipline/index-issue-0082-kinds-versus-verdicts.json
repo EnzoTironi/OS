@@ -1,0 +1,115 @@
+{
+  "artifact_id": "issue-0082-kinds-versus-verdicts",
+  "issue": 82,
+  "issue_url": "https://github.com/EnzoTironi/OS/issues/82",
+  "parent_issue": 2,
+  "origin_main": "dc918a50e550d384d1e18a6f24424e6ed4595b9c",
+  "folder_decision_state": "hypothesis",
+  "contract": {
+    "on_main": "docs/swarm-research-backlog.md Agent output contract",
+    "draft": {
+      "path": "docs/swarm-result-contract.md",
+      "branch": "origin/cursor/swarm-result-contract-cfd8",
+      "sha": "f076b311bc911e7f68027cc46c25c6cf5cf683c9",
+      "pr": "https://github.com/EnzoTironi/OS/pull/84"
+    }
+  },
+  "kinds_used": [
+    "domain evidence",
+    "source-system artifact",
+    "candidate law",
+    "counterexample",
+    "runtime consequence"
+  ],
+  "decision_states_used": [
+    "hypothesis",
+    "supported",
+    "rejected",
+    "undetermined"
+  ],
+  "open_questions_md": "not answered",
+  "rfc_0001": "unchanged",
+  "question": "Which issue 82 labels earn Wave A verdicts, and which are kinds or later document statuses?",
+  "topics": [
+    "decision-discipline",
+    "kinds-versus-verdicts",
+    "falsification"
+  ],
+  "source_keys": [
+    "os-docs",
+    "nygard-adr",
+    "ietf-rfc-2026",
+    "w3c-process",
+    "popper-sep"
+  ],
+  "concepts": [
+    "C-001",
+    "C-002",
+    "C-003",
+    "C-004"
+  ],
+  "invariants": [
+    "I-001",
+    "I-002",
+    "I-003"
+  ],
+  "candidate_laws": [
+    "L-001",
+    "L-002",
+    "L-003",
+    "L-004",
+    "L-005",
+    "L-006"
+  ],
+  "counterexamples": [
+    "X-001",
+    "X-002",
+    "X-003",
+    "X-004",
+    "X-005"
+  ],
+  "runtime_consequences": [
+    "R-001",
+    "R-002",
+    "R-003"
+  ],
+  "disagreements": [
+    {
+      "id": "D-001",
+      "targets": [
+        "issue-0082-kinds-versus-verdicts#L-002",
+        "issue-0082-kinds-versus-verdicts#L-006"
+      ],
+      "status": "open"
+    },
+    {
+      "id": "D-002",
+      "targets": [
+        "issue-0082-kinds-versus-verdicts#E-004",
+        "issue-0082-kinds-versus-verdicts#D-002"
+      ],
+      "status": "open"
+    }
+  ],
+  "depends_on": [
+    "draft-contract#decision-state-enum",
+    "issue-0076-information-gain#L-IG-05"
+  ],
+  "related_issues": [
+    2,
+    74,
+    75,
+    76,
+    80,
+    81,
+    82
+  ],
+  "accepted_forbidden_on_research_notes": true,
+  "files": [
+    "research/ops/decision-discipline/README.md",
+    "research/ops/decision-discipline/issue-0082-kinds-versus-verdicts.md",
+    "research/ops/decision-discipline/conventions.md",
+    "research/ops/decision-discipline/decision-record.schema.json",
+    "research/ops/decision-discipline/index-issue-0082-kinds-versus-verdicts.json"
+  ]
+}

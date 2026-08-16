@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OS research decision record",
+  "description": "Local schema for issue 82. Separates artifact kind from Wave A verdict. Not an OS runtime schema and not the issue 74 index schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind",
+    "decision_state",
+    "statement"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "$ref": "#/$defs/kind"
+    },
+    "decision_state": {
+      "$ref": "#/$defs/verdict"
+    },
+    "later_document_status": {
+      "$ref": "#/$defs/laterDocumentStatus"
+    },
+    "statement": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "falsification_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "revisit_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "supersedes": {
+      "type": "string"
+    },
+    "superseded_by": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "accepted-decision"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": [
+          "later_document_status",
+          "falsification_conditions",
+          "revisit_conditions",
+          "evidence"
+        ],
+        "properties": {
+          "later_document_status": {
+            "const": "accepted"
+          },
+          "falsification_conditions": {
+            "type": "array",
+            "minItems": 1
+          },
+          "revisit_conditions": {
+            "type": "array",
+            "minItems": 1
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "superseded-decision"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": ["later_document_status", "superseded_by"],
+        "properties": {
+          "later_document_status": {
+            "const": "superseded"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "hypothesis",
+        "supported",
+        "rejected",
+        "undetermined"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "observation",
+        "concept",
+        "invariant",
+        "candidate-law",
+        "counterexample",
+        "disagreement",
+        "runtime-consequence",
+        "candidate-model",
+        "experiment",
+        "proposed-decision",
+        "accepted-decision",
+        "superseded-decision"
+      ]
+    },
+    "laterDocumentStatus": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "accepted",
+        "superseded",
+        "investigating",
+        "challenged"
+      ]
+    },
+    "waveATransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "required_evidence"],
+      "properties": {
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/verdict"
+            },
+            {
+              "const": "none"
+            }
+          ]
+        },
+        "to": {
+          "$ref": "#/$defs/verdict"
+        },
+        "required_evidence": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
