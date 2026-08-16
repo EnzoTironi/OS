@@ -1,0 +1,36 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0042-authorization-delegation-review",
+      "artifact": "research/runtime/authorization/review.md",
+      "issue": 42,
+      "title": "Adversarial review — authorization and delegation semantics",
+      "question": "Which assumptions in the first issue-42 authority contract break under grant issuance, cumulative budgets, SoD, revocation consistency, and one-PDP counterexamples?",
+      "artifact_kind": "review",
+      "topics": ["authorization", "delegation", "agents", "sod", "revocation", "review"],
+      "source_keys": ["issue-42-authorization-delegation", "cedar", "openfga", "authzen", "spiffe"],
+      "evidence_kinds": ["official-doc", "test", "inference"],
+      "review_status": "review-clean",
+      "records": [
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-01", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-02", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-03", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-04", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-05", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-06", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-07", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-08", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-09", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-10", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-11", "kind": "review-finding"},
+        {"ref": "issue-0042-authorization-delegation-review#R-AUTH-12", "kind": "review-finding"}
+      ],
+      "disagreements": [],
+      "depends_on": ["issue-0042-authorization-delegation"],
+      "related_issues": [39, 40, 41, 42, 43, 46, 47, 49, 53, 63, 70]
+    }
+  ]
+}

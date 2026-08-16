@@ -1,0 +1,30 @@
+name: authorization-research-ci
+
+on:
+  push:
+    branches:
+      - research/issue-42-authorization-delegation
+  pull_request:
+    paths:
+      - 'research/runtime/authorization/**'
+      - 'research/index/issue-0042-authorization-delegation.json'
+      - '.github/workflows/authorization-research-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Structural research checks
+        run: python3 research/runtime/authorization/check_research.py
+      - name: Execute delegation and authorization litmus tests
+        working-directory: research/runtime/authorization
+        run: python3 -m unittest -v test_reference_model.py
+      - name: Validate index JSON
+        run: python3 -m json.tool research/index/issue-0042-authorization-delegation.json >/dev/null

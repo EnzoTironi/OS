@@ -1,0 +1,53 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0042-authorization-delegation",
+      "artifact": "research/runtime/authorization/README.md",
+      "issue": 42,
+      "title": "Authorization, delegation, agents, workloads, and authority context",
+      "question": "How should OS authorize humans, agents, services and workloads under scoped delegation, revocation, SoD and current operation context without collapsing their identities?",
+      "artifact_kind": "foundation-research",
+      "topics": ["authorization", "delegation", "agents", "workload-identity", "sod", "revocation", "policy", "grants"],
+      "source_keys": ["cedar", "openfga", "authzen", "spiffe", "wave-a", "issue-40-transactions", "issue-41-effects"],
+      "evidence_kinds": ["official-doc", "test", "inference"],
+      "review_status": "unreviewed",
+      "records": [
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-01", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-02", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-03", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-04", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-05", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-06", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-07", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-08", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-09", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-10", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-11", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-12", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-13", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-14", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-15", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-16", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-17", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-18", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-19", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-20", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-21", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-22", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-23", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-24", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0042-authorization-delegation#L-AUTH-25", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0042-authorization-delegation#Q-AUTH-10", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0042-authorization-delegation#Q-AUTH-11", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0042-authorization-delegation#Q-AUTH-12", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0042-authorization-delegation#Q-AUTH-14", "kind": "open-question", "epistemic_state": "undetermined"}
+      ],
+      "disagreements": [],
+      "depends_on": ["issue-0040-commit-semantics", "issue-0041-external-effects", "research/wave-a-2026-08-16"],
+      "related_issues": [11, 39, 40, 41, 43, 45, 46, 47, 49, 53, 60, 63, 67, 70]
+    }
+  ]
+}
