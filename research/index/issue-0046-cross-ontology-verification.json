@@ -13,7 +13,7 @@
       "topics": ["verification", "property-testing", "state-machine", "model-checking", "smt", "fuzzing", "shrinking", "counterexamples", "differential-testing", "formal-methods"],
       "source_keys": ["issue-45-ingest", "issue-40-commit", "issue-41-effects", "issue-42-authorization", "issue-43-orchestration", "issue-39-storage", "issue-51-fuzzing", "hypothesis", "z3", "tla-plus", "alloy"],
       "evidence_kinds": ["official-doc", "test", "formal-model", "integration-evidence", "inference"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0046-cross-ontology-verification#V46-P01", "kind": "concept", "epistemic_state": "supported"},
         {"ref": "issue-0046-cross-ontology-verification#V46-P02", "kind": "concept", "epistemic_state": "supported"},
