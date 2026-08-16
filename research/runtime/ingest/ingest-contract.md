@@ -4,7 +4,7 @@
 **Status:** Wave B hypothesis.  
 **Goal:** define the semantics an ingest/runtime implementation must preserve before selecting tools.
 
-This contract is intentionally written as **roles and obligations**, not a proposed OS metamodel. Terms such as `Capture`, `SourceRecord`, `MappingProposal`, `IdentityCandidate`, `BindingDecision`, and `AdmittedStatement` are names for jobs in the boundary. #70 must still ask whether each is an ordinary typed record/relationship or requires engine-native semantics.
+This contract is intentionally written as **roles and obligations**, not a proposed OS metamodel. Terms such as `Capture`, `SourceRecord`, `MappingProposal`, `IdentityCandidate`, `BindingDecision`, and `QualifiedStatement` are names for jobs in the boundary. #70 must still ask whether each is an ordinary typed record/relationship or requires engine-native semantics.
 
 # 1. Ingest is not one operation
 
@@ -31,12 +31,12 @@ IDENTITY RESOLUTION
   generate candidate relations + evidence/score/constraints
         │
         ▼
-ADJUDICATE / ADMIT
-  establish exact bindings when justified; admit statements under authority rules
+ADJUDICATE / QUALIFY FOR USE
+  establish exact bindings when justified; evaluate statement eligibility under authority rules
         │
         ▼
 PROJECT / QUERY / ACT
-  consumers declare which relation kinds + assurance are sufficient
+  consumers declare which statement kinds, relation kinds + assurance are sufficient
 ```
 
 A system can physically fuse stages for performance, but it must preserve enough metadata to explain the semantic boundaries.
@@ -224,7 +224,7 @@ The model/retrieval/prompt/extractor revision becomes provenance of the proposal
 
 # 5. Semantic statement proposal
 
-A proposed statement should make explicit **what kind of thing is being asserted** before deciding whether it is admitted as operational state.
+A proposed statement should make explicit **what kind of thing is being asserted** before deciding whether it is eligible to drive a particular operational use.
 
 Examples:
 
@@ -259,6 +259,31 @@ what extractor/mapping revision produced it?
 what time is explicit, inferred, or absent?
 what uncertainty/alternatives remain?
 ```
+
+## 5.1 Qualification for operational use is not truth election
+
+This contract deliberately avoids a generic `accepted fact` or `canonical truth` layer.
+
+A statement can be **qualified for a specific operational purpose** when an authority/policy contract says its kind, provenance, identity relation and assurance are sufficient for that use. This means:
+
+```text
+eligible to participate in projection/query/Action X under rule R
+```
+
+It does **not** mean:
+
+```text
+this proposition is now the metaphysically true value and rivals are false/deleted
+```
+
+Examples:
+
+- a marketplace API observation may be qualified as the operational source for *current marketplace listing status*;
+- a physical stock count may be qualified as evidence for a reconciliation Action without replacing the book ledger by mutation;
+- a planning cost approved by an authorized actor may drive planning projections while source cost observations remain inspectable;
+- a chat-derived requested date can be qualified as evidence of customer request but never silently promoted to supplier commitment.
+
+Qualification can be source-contract-driven, deterministic, or governed by an Action/Decision when ambiguity/risk requires it. Its scope belongs to the **statement use/authority contract**, not to the underlying identity relation.
 
 # 6. Identity resolution
 
@@ -468,7 +493,7 @@ evidence/candidate set seen
 assurance/basis
 identity scope/effectivity
 state/temporal basis
-when admitted
+when established
 supersedes/replaces which prior binding
 ```
 
@@ -645,7 +670,7 @@ Lineage-equivalent copies are not independent corroboration and must not be doub
 
 # 13. Quarantine and unresolved evidence
 
-An ingest pipeline should have a safe state for evidence that cannot yet be admitted:
+An ingest pipeline should have a safe state for evidence that cannot yet be admitted/qualified:
 
 ```text
 parse error
@@ -696,8 +721,8 @@ This contract currently requires generic capabilities, not ingest-specific engin
 8. query over unresolved and resolved evidence;
 9. temporal fields only when semantically available;
 10. source/version/revision identity;
-11. authorization over evidence, binding actions, and consumer reliance;
-12. projections/materializations that can elect operational current state without deleting the inputs;
+11. authorization over evidence, binding actions, qualification and consumer reliance;
+12. projections/materializations that can elect operational current state without deleting the inputs where retention/audit requires them;
 13. relation semantics and assurance metadata that remain distinct from Action policy.
 
 No evidence here requires the generic engine to understand `Excel`, `MercadoLivre`, `SKU`, `NF-e`, `Supplier`, or `Cost` by name.
@@ -723,6 +748,7 @@ CapturedArtifact : Type implementing provenance/evidence conventions
 MappingProposal  : ordinary Type
 CandidateRelation: ordinary typed relation + assurance metadata
 BindingDecision  : ordinary governed Action/Decision output when exact identity needs adjudication
+UseQualification : ordinary authority/policy decision or derivable relation for a scoped operational purpose
 ```
 
 **Benefit:** smaller metamodel, domain extensibility.  
@@ -753,12 +779,13 @@ A candidate runtime fails #45 if it cannot answer these without source-specific 
 8. Can a snapshot express current state without invented events?
 9. Can source deletion remain only source disappearance when source lacks business deletion authority?
 10. Can one business identity preserve rival source assertions?
-11. Can an operational projection select a current value without deleting rivals?
+11. Can an operational projection select a current value without deleting rivals where they remain required evidence?
 12. Can lineage-equivalent copies be detected/marked to prevent double-counting?
 13. Can schema drift quarantine or route to a new mapping revision instead of silently coercing?
-14. Can LLM/document extraction remain proposal/evidence until admitted under an explicit authority rule?
+14. Can LLM/document extraction remain proposal/evidence until qualified under an explicit authority rule?
 15. Can consumer policy require a stronger **relation kind/assurance** without changing the semantics of identity itself?
 16. Can later model improvements explain why historical bindings/actions used the older interpretation?
 17. Can deterministic trusted identifiers establish exact identity automatically without forcing pointless human review?
+18. Can a statement become eligible for one operational purpose without becoming a generic canonical truth or deleting competing evidence?
 
 If not, the implementation is cleaning data by destroying semantic evidence.
