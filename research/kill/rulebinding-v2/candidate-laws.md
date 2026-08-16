@@ -83,7 +83,7 @@ Issue #157 owns the stronger adversarial test over admin/import/migration/privac
 
 A current proof constructed at revision N is stale after an authoritative revision change. That handles coarse currentness, but the red-team found that revision/target/operation scoping alone still permits context substitution inside the same revision.
 
-The hardened candidate therefore combines freshness with L-RB-18's exact semantic-context binding. Production may use a dependency/StateBasis digest rather than one global revision to avoid unnecessary invalidation.
+The hardened candidate therefore combines freshness with L-RB-18's exact semantic/execution-context binding. Production may use a dependency/StateBasis digest rather than one global revision to avoid unnecessary invalidation.
 
 Falsifier: required currentness cannot be represented as proof-value validity without rebuilding RuleBinding scheduling semantics.
 
@@ -129,11 +129,11 @@ Successful commit audit includes the exact evaluator revisions and determining e
 
 This does not settle Event demotion across privileged repair/privacy/migration paths. #157 is a mandatory dependency before promotion.
 
-## L-RB-18 — Operational proof values must be bound to the exact semantic and execution context they validated and be unforgeable
+## L-RB-18 — Operational proof values must be bound to the exact semantic and trusted execution context they validated and be unforgeable
 
 **State:** `supported` in the hardened bounded model.
 
-Target, Type, semantic operation identity and revision are necessary but not sufficient. A proof for `amount=5` must not authorize `amount=500`; a `PostStateValid` proof for a balanced proposed state must not authorize a different unbalanced state in the same revision; and an authority proof minted for one actor/principal/workload must not transfer to another merely because the business inputs are identical.
+Target, Type, semantic operation identity and revision are necessary but not sufficient. A proof for `amount=5` must not authorize `amount=500`; a `PostStateValid` proof for a balanced proposed state must not authorize a different unbalanced state in the same revision; and an authority proof minted for one actor/principal/workload/authority-domain context must not transfer to another merely because the business inputs are identical.
 
 The hardened model binds each authority proof to a digest of the exact validated context:
 
@@ -143,15 +143,16 @@ operation identity
 actor
 represented principal
 workload
+authority context (for example tenant/environment/session when material)
 inputs
 proposed/pending state
 pinned basis
 payload where relevant
 ```
 
-and runtime-seals the proof together with determining evidence and evaluator revisions. Input/state/identity substitution raises `ContextMismatch`; caller rewriting of a sealed field raises `ForgedProof`.
+and runtime-seals the proof together with determining evidence and evaluator revisions. Input/state/identity/authority-domain substitution raises `ContextMismatch`; caller rewriting of a sealed field raises `ForgedProof`.
 
-Production need not use HMAC specifically, but callers must not be able to manufacture or retarget an authority proof outside the trusted runtime boundary. The production operation boundary must derive actor/workload/representation from trusted execution context rather than accept self-asserted identity as ordinary business input.
+Production need not use HMAC specifically, but callers must not be able to manufacture, retarget or transfer an authority proof outside the trusted runtime boundary. The production operation boundary must derive actor/workload/representation and material authority-domain context from trusted execution/session/delegation state rather than accept self-asserted values as ordinary business inputs.
 
 ## L-RB-19 — R6-capability is materially different from Wave A's rejected Type/Link/Function/Action quartet
 
