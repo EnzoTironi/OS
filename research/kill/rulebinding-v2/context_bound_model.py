@@ -2,10 +2,15 @@
 """Context-bound hardening for the issue #156 M4 refined-Type candidate.
 
 The first M4 pass bound proof values to target/operation/revision but not to the
-exact semantic context they validated. That permits a proof for one input or
-post-state to be substituted for another in the same revision. This module
-keeps the generic Type/refinement model and adds runtime-issued, context-bound,
-unforgeable proof values.
+exact semantic context they validated. M4-v2 also needs the trusted execution
+identity that determined authority; otherwise a proof minted for one actor,
+represented principal, or workload could be replayed by another while every
+business input remained identical.
+
+This is a bounded semantic model, not a production identity/session system.
+The invocation API receives actor/representation/workload explicitly so tests
+can model the value that a production runtime must derive from trusted execution
+context rather than from untrusted business parameters.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from hmac import compare_digest, new as hmac_new
 from secrets import token_bytes
 from typing import Any
 
-from reference_model import RefinedTypeEngine, RefinedValue, StaleProof, WrongProof
+from reference_model import RefinedTypeEngine, RefinedValue, WrongProof
 
 
 class ContextMismatch(WrongProof):
@@ -56,6 +61,9 @@ class ContextBoundEngine(RefinedTypeEngine):
         *,
         target: str,
         operation_id: str | None,
+        actor: str | None,
+        represented_principal: str | None,
+        workload: str | None,
         inputs: dict[str, Any] | None,
         pending_state: dict[str, Any] | None,
         pinned_state: dict[str, Any] | None,
@@ -65,6 +73,9 @@ class ContextBoundEngine(RefinedTypeEngine):
             {
                 "target": target,
                 "operation_id": operation_id,
+                "actor": actor,
+                "represented_principal": represented_principal,
+                "workload": workload,
                 "inputs": dict(inputs or {}),
                 "pending_state": pending_state,
                 "pinned_state": pinned_state,
@@ -118,6 +129,9 @@ class ContextBoundEngine(RefinedTypeEngine):
         digest = self.semantic_context_digest(
             target=target,
             operation_id=operation_id,
+            actor=actor,
+            represented_principal=represented_principal,
+            workload=workload,
             inputs=inputs,
             pending_state=pending_state,
             pinned_state=pinned_state,
@@ -143,6 +157,9 @@ class ContextBoundEngine(RefinedTypeEngine):
         *,
         target: str,
         operation_id: str | None,
+        actor: str | None = None,
+        represented_principal: str | None = None,
+        workload: str | None = None,
         inputs: dict[str, Any] | None = None,
         pending_state: dict[str, Any] | None = None,
         pinned_state: dict[str, Any] | None = None,
@@ -161,13 +178,16 @@ class ContextBoundEngine(RefinedTypeEngine):
         expected_context = self.semantic_context_digest(
             target=target,
             operation_id=operation_id,
+            actor=actor,
+            represented_principal=represented_principal,
+            workload=workload,
             inputs=inputs,
             pending_state=pending_state,
             pinned_state=pinned_state,
             payload=payload,
         )
         if value.context_digest != expected_context:
-            raise ContextMismatch(f"{expected_type} validated a different semantic context")
+            raise ContextMismatch(f"{expected_type} validated a different semantic/execution context")
 
     def _verify_signature(
         self,
@@ -176,6 +196,9 @@ class ContextBoundEngine(RefinedTypeEngine):
         *,
         target: str,
         operation_id: str | None = None,
+        actor: str | None = None,
+        represented_principal: str | None = None,
+        workload: str | None = None,
         inputs: dict[str, Any] | None = None,
         pending_state: dict[str, Any] | None = None,
         pinned_state: dict[str, Any] | None = None,
@@ -189,6 +212,9 @@ class ContextBoundEngine(RefinedTypeEngine):
                 required,
                 target=target,
                 operation_id=operation_id,
+                actor=actor,
+                represented_principal=represented_principal,
+                workload=workload,
                 inputs=inputs,
                 pending_state=pending_state,
                 pinned_state=pinned_state,
@@ -200,6 +226,9 @@ class ContextBoundEngine(RefinedTypeEngine):
         proof: ContextBoundValue,
         *,
         operation_id: str | None = None,
+        actor: str | None = None,
+        represented_principal: str | None = None,
+        workload: str | None = None,
         inputs: dict[str, Any] | None = None,
     ) -> None:
         self._verify_signature(
@@ -207,6 +236,9 @@ class ContextBoundEngine(RefinedTypeEngine):
             {proof.type_name: proof},
             target=action_name,
             operation_id=operation_id,
+            actor=actor,
+            represented_principal=represented_principal,
+            workload=workload,
             inputs=inputs,
         )
 
@@ -218,6 +250,9 @@ class ContextBoundEngine(RefinedTypeEngine):
         operation_id: str,
         proposed_state: dict[str, Any],
         proofs: dict[str, ContextBoundValue],
+        actor: str | None = None,
+        represented_principal: str | None = None,
+        workload: str | None = None,
         inputs: dict[str, Any] | None = None,
         pinned_state: dict[str, Any] | None = None,
     ) -> None:
@@ -226,6 +261,9 @@ class ContextBoundEngine(RefinedTypeEngine):
             proofs,
             target=target,
             operation_id=operation_id,
+            actor=actor,
+            represented_principal=represented_principal,
+            workload=workload,
             inputs=inputs,
             pending_state=proposed_state,
             pinned_state=pinned_state,
@@ -236,6 +274,9 @@ class ContextBoundEngine(RefinedTypeEngine):
                 "operation": operation_name,
                 "operation_id": operation_id,
                 "target": target,
+                "actor": actor,
+                "represented_principal": represented_principal,
+                "workload": workload,
                 "context_digest": next(iter(proofs.values())).context_digest if proofs else None,
                 "evidence": tuple(
                     evidence
@@ -251,15 +292,61 @@ class ContextBoundEngine(RefinedTypeEngine):
         )
         self.revision += 1
 
-    def read(self, type_name: str, proof: ContextBoundValue) -> dict[str, Any]:
-        self._verify_signature(f"read:{type_name}", {proof.type_name: proof}, target=type_name)
+    def read(
+        self,
+        type_name: str,
+        proof: ContextBoundValue,
+        *,
+        actor: str | None = None,
+        represented_principal: str | None = None,
+        workload: str | None = None,
+    ) -> dict[str, Any]:
+        self._verify_signature(
+            f"read:{type_name}",
+            {proof.type_name: proof},
+            target=type_name,
+            actor=actor,
+            represented_principal=represented_principal,
+            workload=workload,
+        )
         return dict(self.state)
 
-    def update_occurrence(self, occurrence_id: str, changes: dict[str, Any], proof: ContextBoundValue) -> None:
-        self._verify_signature("update:Occurrence", {proof.type_name: proof}, target="Occurrence")
+    def update_occurrence(
+        self,
+        occurrence_id: str,
+        changes: dict[str, Any],
+        proof: ContextBoundValue,
+        *,
+        actor: str | None = None,
+        represented_principal: str | None = None,
+        workload: str | None = None,
+    ) -> None:
+        self._verify_signature(
+            "update:Occurrence",
+            {proof.type_name: proof},
+            target="Occurrence",
+            actor=actor,
+            represented_principal=represented_principal,
+            workload=workload,
+        )
         self.occurrences[occurrence_id].update(changes)
         self.revision += 1
 
-    def effect_attempt(self, effect_id: str, proof: ContextBoundValue) -> None:
-        self._verify_signature("effect-attempt", {proof.type_name: proof}, target=effect_id)
+    def effect_attempt(
+        self,
+        effect_id: str,
+        proof: ContextBoundValue,
+        *,
+        actor: str | None = None,
+        represented_principal: str | None = None,
+        workload: str | None = None,
+    ) -> None:
+        self._verify_signature(
+            "effect-attempt",
+            {proof.type_name: proof},
+            target=effect_id,
+            actor=actor,
+            represented_principal=represented_principal,
+            workload=workload,
+        )
         self.effects_attempted.append(effect_id)
