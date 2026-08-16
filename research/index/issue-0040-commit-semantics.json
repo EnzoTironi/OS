@@ -13,7 +13,7 @@
       "topics": ["transactions", "commit", "concurrency", "idempotency", "approval", "state-basis", "serializability", "retries"],
       "source_keys": ["postgresql", "foundationdb", "etcd", "stripe", "palantir", "wave-a", "issue-45-ingest"],
       "evidence_kinds": ["official-doc", "test", "inference"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0040-commit-semantics#L-TX-01", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0040-commit-semantics#L-TX-02", "kind": "candidate-law", "epistemic_state": "supported"},
@@ -42,7 +42,13 @@
         {"ref": "issue-0040-commit-semantics#Q-TX-10", "kind": "open-question", "epistemic_state": "undetermined"},
         {"ref": "issue-0040-commit-semantics#Q-TX-11", "kind": "open-question", "epistemic_state": "undetermined"},
         {"ref": "issue-0040-commit-semantics#Q-TX-12", "kind": "open-question", "epistemic_state": "undetermined"},
-        {"ref": "issue-0040-commit-semantics#Q-TX-13", "kind": "open-question", "epistemic_state": "undetermined"}
+        {"ref": "issue-0040-commit-semantics#Q-TX-13", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0040-commit-semantics#R-TX-01", "kind": "review-finding"},
+        {"ref": "issue-0040-commit-semantics#R-TX-02", "kind": "review-finding"},
+        {"ref": "issue-0040-commit-semantics#R-TX-03", "kind": "review-finding"},
+        {"ref": "issue-0040-commit-semantics#R-TX-04", "kind": "review-finding"},
+        {"ref": "issue-0040-commit-semantics#R-TX-05", "kind": "review-finding"},
+        {"ref": "issue-0040-commit-semantics#R-TX-06", "kind": "review-finding"}
       ],
       "disagreements": [],
       "depends_on": ["issue-0045-ingest-entity-resolution", "research/wave-a-2026-08-16"],
