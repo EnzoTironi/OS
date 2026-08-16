@@ -1,0 +1,78 @@
+name: metamodel-synthesis-ci
+
+on:
+  push:
+    branches:
+      - research/issue-70-metamodel-synthesis
+  pull_request:
+    paths:
+      - 'research/synthesis/metamodel/**'
+      - 'research/index/issue-0070-metamodel-synthesis.json'
+      - 'research/verification/**'
+      - 'research/runtime/transactions/**'
+      - 'research/runtime/effects/**'
+      - 'research/runtime/authorization/**'
+      - 'research/runtime/orchestration/**'
+      - 'research/runtime/storage/**'
+      - 'rfcs/0001-metamodel-hypothesis.md'
+      - '.github/workflows/metamodel-synthesis-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthesis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python3 -m pip install 'hypothesis==6.165.9' 'z3-solver==4.16.0.0'
+      - name: Validate metamodel synthesis artifacts
+        run: |
+          python3 research/synthesis/metamodel/check_research.py
+          python3 -m json.tool research/synthesis/metamodel/candidate-metamodel.json >/dev/null
+          python3 -m json.tool research/index/issue-0070-metamodel-synthesis.json >/dev/null
+      - name: Run metamodel reduction kill tests
+        run: python3 -m unittest discover -s research/synthesis/metamodel -p 'test_*.py' -v
+      - name: Re-run cross-ontology verification gate
+        run: |
+          python3 research/verification/check_research.py
+          python3 -m unittest discover -s research/verification -p 'test_*.py' -v
+          python3 research/verification/modelcheck.py
+          python3 research/verification/formal/authorization_z3.py
+      - name: Re-run reviewed runtime reference models
+        run: |
+          python3 research/runtime/transactions/test_reference_model.py
+          python3 research/runtime/effects/test_reference_model.py
+          python3 research/runtime/orchestration/test_reference_model.py
+
+  postgres18-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      STORAGE39_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL driver
+        run: python3 -m pip install 'psycopg[binary]>=3,<4'
+      - name: Re-run PostgreSQL 18 semantic competency experiment
+        run: python3 research/runtime/storage/experiments/postgres18/test_storage_contract.py
