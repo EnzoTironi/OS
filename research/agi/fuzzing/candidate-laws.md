@@ -7,162 +7,99 @@ decision_state: hypothesis
 
 # Candidate fuzzing laws
 
-Smallest claims about the attack method. Each law names a falsifier. Decision state is never `accepted`.
+These are claims about the **research method**, not OS primitives. A review correction can narrow a law without erasing the original attack that motivated it.
 
-These are protocol laws. They are not RFC-0001 edits and not answers to `docs/open-questions.md`.
+## L-FUZ-01 — Happy paths are necessary but insufficient evidence
 
-## L-FUZ-01. A happy path is setup, not evidence
+**Decision:** `supported` in this limited form.
 
-**Claim.** A scenario that only completes the intended flow does not support a candidate law. Support requires an attack that could have broken the law and did not, or an attack that did break it.
+A happy path demonstrates basic representability/compatibility. It does not establish robustness or a universal semantic law. Strong support requires adversarial cases capable of falsifying the candidate distinction.
 
-**Kind.** candidate law  
-**Evidence.** E1. Constitution rule 13. S-SCEN principles.  
-**Decision state.** `supported`
+## L-FUZ-02 — Source systems are differential oracles, not semantic authorities
 
-**Falsifier.** A domain whose only production failures are already visible on the happy path, so adversarial generation never adds a distinction.
+**Decision:** `supported`.
 
-**Runtime consequence.** Do not score a fragment by green happy tests. Score it by M3 and M4.
+ERPNext, Odoo, Moqui and peers can disagree because of domain differences, product history, version, implementation accident or naming. Differential output produces a question; majority behavior does not automatically produce a law.
 
-## L-FUZ-02. A source system is a differential oracle, not the semantics
+## L-FUZ-03 — Attempt, occurrence and observation must remain separable in attack generation
 
-**Claim.** ERPNext, Odoo, Moqui, and peers are comparable programs in McKeeman's sense. A difference is a candidate question. Majority behavior is not a domain law.
+**Decision:** `supported` as research-method pressure; OS encoding `undetermined`.
 
-**Kind.** candidate law  
-**Evidence.** E7, E9, E10. Constitution rule 2 and rule 4. Issue 51 body.  
-**Decision state.** `supported`
+A generator that conflates `tried`, `happened`, and `source said it happened` cannot test stale approvals, ambiguous external outcomes, duplicate messages or contradictory evidence.
 
-**Falsifier.** A first-party argument that one mature ERP is already the correct ontology for a distinction, including after independent formal models disagree.
+## L-FUZ-04 — Shrink must preserve validity and the same semantic failure
 
-**Runtime consequence.** `oracle.kind = differential` cannot move a law to `supported`.
+**Decision:** `supported`.
 
-## L-FUZ-03. Attempt, occurrence, and observation are different steps
+The reducer must regenerate or otherwise validate a candidate so it remains a legal scenario and fails the **same semantic predicate**. A replayable choice stream is the current reference implementation, not a universal representation requirement. AST/solver/property-based shrinkers are equally valid if they preserve these properties.
 
-**Claim.** A generator that has only one "post document" step cannot attack stale approval, timeout, or contradictory claims.
+## L-FUZ-05 — Prefer exact oracles when the problem is fully specified; use relations/competency oracles when it is not
 
-**Kind.** candidate law  
-**Evidence.** E13, E14. Constitution rules 8 and 9. Seed S-003, S-004, S-011. RFC-0001 Action versus Event, read only.  
-**Decision state.** `supported` as a method split. `undetermined` as OS primitives
+**Decision:** `supported`.
 
-**Falsifier.** A fragment that answers S-003, S-004, and S-011 with a single step kind and no hidden extra fields.
+Tax, valuation and scheduling often have exact deterministic answers **after** method, facts, jurisdiction/rule revision and boundary conditions are specified. Metamorphic/competency oracles are appropriate when an attack deliberately varies those assumptions, admits several legal solutions, or tests a relational/historical property rather than one scalar result.
 
-**Runtime consequence.** The research schema keeps `Attempt`, `Occur`, and `Observe`. Wave B must not collapse them to one write API just to make a fuzzer easy.
+## L-FUZ-06 — Coverage should measure semantic pressure, not only case/statement count
 
-## L-FUZ-04. Shrink must stay inside the generator
+**Decision:** `supported` as methodology.
 
-**Claim.** Editing a dumped timeline, or shrinking by type, can change the failing law. Internal reduction on the choice sequence is the default. External `ddmin` is allowed only after re-validation.
+Useful coverage dimensions include candidate distinctions exercised, counterexamples attempted, cross-domain combinations, competency questions answered and failure classes reached. Raw number of generated examples is not enough.
 
-**Kind.** candidate law  
-**Evidence.** E3, E4, E5.  
-**Decision state.** `supported` for the validity requirement. `hypothesis` that Hypothesis-style choice sequences are the representation
+## L-FUZ-07 — Authoritative committed occurrences require governed correction semantics
 
-**Falsifier.** A measured run where type-based shrink of business scenarios never changes the failing law id, including even-like constraints such as "only reserved lots."
+**Decision:** `supported` in scope; encoding `hypothesis`.
 
-**Runtime consequence.** Do not check in minimized YAML that the generator could not have emitted.
+For authoritative committed/posting/fulfillment occurrences whose history matters, correction should preserve the fact that the original occurrence was recorded/recognized when applicable—through reversal, compensating occurrence, correction record or a legally governed replacement. This is **not** a universal no-delete rule for drafts, caches, privacy-governed data or disposable observations.
 
-## L-FUZ-05. When a single expected value is missing, use a relation
+## L-FUZ-08 — Rights, custody and location are independent attack axes when the domain allows them to diverge
 
-**Claim.** Backdating, valuation, and tax often have no unique correct number. The oracle is a metamorphic relation or a competency question.
+**Decision:** `supported` as a required adversarial family.
 
-**Kind.** candidate law  
-**Evidence.** E6, E8. Seed S-007. Sibling L-INV-08.  
-**Decision state.** `supported`
+Consignment, loan, goods in transit and third-party logistics demonstrate cases where ownership/right, custody and place differ. The generator should not force them into one party/location field.
 
-**Falsifier.** A complete expected-value oracle for late receipts that does not name valuation method, freeze, and known-then versus believed-then, yet still matches two independent families.
+## L-FUZ-09 — Message identity is not automatically occurrence identity
 
-**Runtime consequence.** Generators attach `metamorphic` and `competency` oracles by default on D-02, D-07, D-08.
+**Decision:** `supported` as integration pressure.
 
-## L-FUZ-06. Coverage is distinctions and questions, not statements
+Retries, reordering and duplicate delivery can produce several observations/messages about one occurrence. A generator must be able to represent that case without double-applying the economic/operational occurrence.
 
-**Claim.** M3, M4, and M7 are the scores that can shrink the design space. Statement coverage and raw case count cannot.
+## L-FUZ-10 — Approval binds an explicit proposal and state/temporal basis
 
-**Kind.** candidate law  
-**Evidence.** E8, E16. Gruninger on lookup-only questions. McKeeman on shallow random strings.  
-**Decision state.** `supported`
+**Decision:** `supported` that a bare sticky boolean is too weak; exact bind set `hypothesis`.
 
-**Falsifier.** A fragment that passes M1 and M2 at 100 percent and later needs a new primitive the attacks never touched.
+Approval should identify what was approved: parameters/intent plus the state or temporal assumptions the decision contract depends on. Commit validates against that declared basis. Some decisions require **live-at-commit** revalidation; others legitimately bind a **frozen snapshot** while still checking non-waivable current constraints. `Always reread current world` is therefore not a universal law.
 
-**Runtime consequence.** A Wave B fuzzer that reports only "N cases ran" has failed this issue's metric.
+## L-FUZ-11 — A fuzz failure must become a typed, falsifiable research question
 
-## L-FUZ-07. Cancellation after consequences is compensate or refuse, not delete
+**Decision:** `supported` as process discipline.
 
-**Claim.** Independent families keep history and add a reversal, a return, or a block. They do not erase the original occurrence.
+`implementation A != implementation B` is not enough. Minimized failures should say what distinction failed, whether the discrepancy is source/version artifact, domain ambiguity, authority/temporal issue or candidate-model insufficiency, and what evidence would resolve it.
 
-**Kind.** candidate law  
-**Evidence.** E9, E10. Seed S-010. Sibling S-O2C-07. ValueFlows correcting events in o2c notes.  
-**Decision state.** `supported` as "not delete." `hypothesis` as one preferred encoding
+## L-FUZ-12 — Reusable executable generators belong in the research toolchain, not the OS runtime
 
-**Falsifier.** A lawful production system that deletes posted fulfillment and still answers audit and valuation.
+**Decision:** `supported`.
 
-**Runtime consequence.** D-03 generators must emit the blocked-cancel case, not only the happy cancel.
+Issue #51 explicitly asks for reusable generators. [`generator.py`](generator.py) and [`test_generator.py`](test_generator.py) now provide a small executable reference. That does **not** make the fuzz DSL an OS language or select a runtime engine.
 
-## L-FUZ-08. Rights, custody, and location are independent generator axes
+The generator is allowed to be real software because AGI-era research should make semantic hypotheses executable and falsifiable. The boundary is semantic: research tooling must not silently become the production metamodel.
 
-**Claim.** A quantity with one party field cannot express consignment, loan, or FOB-in-transit. ValueFlows already names three actions.
+## L-FUZ-13 — Ontology revision is an adversarial dimension
 
-**Kind.** candidate law  
-**Evidence.** E11. Sibling L-INV-01, L-INV-13.  
-**Decision state.** `supported`
+**Decision:** `hypothesis`, with strong pressure from historical explainability.
 
-**Falsifier.** A mature domain where owner, custodian, and place are always the same party and place, including documented VMI.
+A decision/event performed under revision R must remain explainable after revision R+1. The generator should test revision identity, migration/reinterpretation and historical audit without assuming that replaying old executable code is the only implementation.
 
-**Runtime consequence.** D-05 is pairwise-combined with D-01 and D-06 by default.
+## Current executable coverage
 
-## L-FUZ-09. Duplicate messages are not duplicate occurrences
+The reference generator implements:
 
-**Claim.** Reorder and retry are observation problems. Occurrence identity is not message identity.
+- D-01 partial quantities
+- D-02 late/backdated evidence
+- D-04 duplicate/reordered observations
+- D-10 concurrent decisions
+- D-11 stale approval with explicit state basis
+- D-12 ambiguous external outcome
+- D-13 contradictory observations
+- D-14 ontology revision
 
-**Kind.** candidate law  
-**Evidence.** E6 as the relation "drop the second copy, quantity unchanged." Sibling S-INV-07. Seed future-family "duplicate external events."  
-**Decision state.** `hypothesis`
-
-**Falsifier.** A domain where every inbound payload is a new economic event and reconciliation is unnecessary.
-
-**Runtime consequence.** D-04 steps carry `idempotency` when the source is external.
-
-## L-FUZ-10. Approval binds a world, not a button
-
-**Claim.** An approval that does not pin parameters, assumed facts, and definition revision is stale by construction. Commit must re-read.
-
-**Kind.** candidate law  
-**Evidence.** E14. Seed S-003. `docs/open-questions.md` item 4, cited not answered.  
-**Decision state.** `hypothesis` as the exact bind set. `supported` that a boolean approved flag is too weak
-
-**Falsifier.** A production approval flow that never revalidates and never mis-executes after intervening receipts.
-
-**Runtime consequence.** D-11 and D-14 are one pairwise cell. Adversarial agents are the interleaving, not a new primitive. D-15.
-
-## L-FUZ-11. A fuzz failure becomes a typed question or it is discarded
-
-**Claim.** The output of a failing case is a research question with a contradiction type. It is not a closed issue comment and not an edit to `docs/open-questions.md`.
-
-**Kind.** candidate law  
-**Evidence.** E15. Induction L-IND-06 and L-IND-07. Standing orders 3 and 8.  
-**Decision state.** `supported`
-
-**Falsifier.** A measured process where untyped "X != Y" comments produce better later laws than typed cards.
-
-**Runtime consequence.** [dsl.md](dsl.md) `failure.question` is required on `failed`.
-
-## L-FUZ-12. This folder is not a fuzzer and not a runtime
-
-**Claim.** Issue 51 asked for methodology. Implementing a generator, picking an engine, or designing OS syntax would violate standing order 7 and the issue's own "not necessarily engine syntax" clause.
-
-**Kind.** candidate law  
-**Evidence.** E16. S-ISSUE-51.  
-**Decision state.** `supported` as a negative claim
-
-**Falsifier.** A later project decision that Wave A should have shipped executable tools. That decision does not exist in this folder.
-
-**Runtime consequence.** Wave B may implement `generate` against this schema. It may not treat this schema as the language.
-
-## L-FUZ-13. Ontology revision is an attack dimension, not a migration script
-
-**Claim.** A historical action must remain explainable under the revision that ran. Generators that only mutate current types miss S-012 and S-M01.
-
-**Kind.** candidate law  
-**Evidence.** Seed S-012. Manufacturing S-M01. `docs/open-questions.md` item 19, cited not answered.  
-**Decision state.** `hypothesis`
-
-**Falsifier.** An audit practice that always replays under current rules and is accepted as historical explanation by two independent families.
-
-**Runtime consequence.** D-14 steps are `ReviseOntology` plus a later competency question, not a schema-migration tool pick.
+Other recipes remain specified in `dimensions.md` and can be implemented as the acceptance suite grows.
