@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "families": [
+    {
+      "name": "ingest",
+      "issue": 45,
+      "scenario_prefix": "S-I45-",
+      "law_prefix": "L-I45-",
+      "scenario_source": "research/runtime/ingest/adversarial-cases.md",
+      "law_source": "research/runtime/ingest/candidate-laws.md",
+      "expected_scenarios": 40,
+      "expected_laws": 19,
+      "default_verification": ["property", "state-machine", "metamorphic"]
+    },
+    {
+      "name": "commit",
+      "issue": 40,
+      "scenario_prefix": "S-TX-",
+      "law_prefix": "L-TX-",
+      "scenario_source": "research/runtime/transactions/adversarial-cases.md",
+      "law_source": "research/runtime/transactions/candidate-laws.md",
+      "expected_scenarios": 50,
+      "expected_laws": 24,
+      "default_verification": ["reference-model", "state-machine", "model-check", "backend-concurrency"]
+    },
+    {
+      "name": "effects",
+      "issue": 41,
+      "scenario_prefix": "S-EFF-",
+      "law_prefix": "L-EFF-",
+      "scenario_source": "research/runtime/effects/adversarial-cases.md",
+      "law_source": "research/runtime/effects/candidate-laws.md",
+      "expected_scenarios": 70,
+      "expected_laws": 30,
+      "default_verification": ["state-machine", "model-check", "fault-injection"]
+    },
+    {
+      "name": "authorization",
+      "issue": 42,
+      "scenario_prefix": "S-AUTH-",
+      "law_prefix": "L-AUTH-",
+      "scenario_source": "research/runtime/authorization/adversarial-cases.md",
+      "law_source": "research/runtime/authorization/candidate-laws.md",
+      "expected_scenarios": 70,
+      "expected_laws": 25,
+      "default_verification": ["property", "state-machine", "smt", "model-check"]
+    },
+    {
+      "name": "orchestration",
+      "issue": 43,
+      "scenario_prefix": "S-ORCH-",
+      "law_prefix": "L-ORCH-",
+      "scenario_source": "research/runtime/orchestration/adversarial-cases.md",
+      "law_source": "research/runtime/orchestration/candidate-laws.md",
+      "expected_scenarios": 70,
+      "expected_laws": 30,
+      "default_verification": ["state-machine", "model-check", "fault-injection"]
+    },
+    {
+      "name": "storage",
+      "issue": 39,
+      "scenario_prefix": "S-STO-",
+      "law_prefix": "L-STO-",
+      "scenario_source": "research/runtime/storage/adversarial-cases.md",
+      "law_source": "research/runtime/storage/candidate-laws.md",
+      "expected_scenarios": 70,
+      "expected_laws": 35,
+      "default_verification": ["backend-concurrency", "fault-injection", "rebuild", "property"]
+    }
+  ],
+  "expected_total_scenarios": 370,
+  "expected_total_laws": 163,
+  "allowed_mechanisms": [
+    "static",
+    "reference-model",
+    "property",
+    "metamorphic",
+    "state-machine",
+    "backend-concurrency",
+    "fault-injection",
+    "rebuild",
+    "smt",
+    "model-check",
+    "differential",
+    "production-monitor"
+  ]
+}
