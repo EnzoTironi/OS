@@ -68,6 +68,14 @@ def main() -> int:
         if phrase not in readme:
             fail(f"README lost verification epistemic guard: {phrase}")
 
+    # The CI intentionally uses unittest discovery. Module-level test functions
+    # are not discovered by unittest, so reject that shape before it can create
+    # a green gate that silently skipped Hypothesis properties.
+    test_harness_text = (HERE / "test_harness.py").read_text(encoding="utf-8")
+    undiscoverable = re.findall(r"^def (test_[A-Za-z0-9_]+)\(", test_harness_text, re.MULTILINE)
+    if undiscoverable:
+        fail(f"unittest would skip module-level tests: {undiscoverable}")
+
     regressions = json.loads(REGRESSIONS.read_text(encoding="utf-8"))
     fixtures = regressions.get("fixtures", [])
     if len(fixtures) < 6:
