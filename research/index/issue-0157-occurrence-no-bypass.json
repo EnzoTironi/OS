@@ -13,7 +13,7 @@
       "topics": ["event", "occurrence", "lifecycle", "immutability", "privacy", "migration", "replay", "r6"],
       "source_keys": ["issue-0007-action-event-effect", "issue-0040-transaction-commit", "issue-0045-ingest", "issue-0046-verification", "issue-0070-metamodel", "issue-0156-rulebinding-reduction"],
       "evidence_kinds": ["test", "inference", "design-claim"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0157-occurrence-no-bypass#L-OCC-01", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0157-occurrence-no-bypass#L-OCC-02", "kind": "candidate-law", "epistemic_state": "supported"},
