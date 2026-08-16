@@ -19,13 +19,23 @@ class EffectSemanticsTests(unittest.TestCase):
     def protocol(self, *, idempotent=False, window=False, readback=False):
         return ProtocolContract("provider-v1", idempotent, window, readback)
 
-    def request(self, protocol=None):
+    def request(self, protocol=None, *, remote_dedup_key="client-key-1"):
         return EffectRequest(
             effect_request_id="E1",
             local_operation_id="O1",
             intent_digest=digest("pay 100"),
-            remote_operation_id="R1",
             protocol=protocol or self.protocol(),
+            remote_dedup_key=remote_dedup_key,
+        )
+
+    def obs(self, observation_id, knowledge, authoritative=True, *, key="client-key-1", receipt=None, seq=None):
+        return Observation(
+            observation_id=observation_id,
+            knowledge=knowledge,
+            authoritative_for_outcome=authoritative,
+            remote_dedup_key=key,
+            remote_receipt_id=receipt,
+            provider_sequence=seq,
         )
 
     def test_timeout_after_send_is_indeterminate_not_failure(self):
@@ -33,8 +43,8 @@ class EffectSemanticsTests(unittest.TestCase):
         effect.record_attempt(Attempt("A1", AttemptEvidence.SENT_NO_RESPONSE))
         self.assertEqual(effect.knowledge, Knowledge.INDETERMINATE)
 
-    def test_definitely_not_sent_can_retry(self):
-        effect = self.request()
+    def test_definitely_not_sent_can_retry_even_without_remote_dedup_key(self):
+        effect = self.request(remote_dedup_key=None)
         effect.record_attempt(Attempt("A1", AttemptEvidence.DEFINITELY_NOT_SENT))
         self.assertTrue(effect.can_retry_same_remote_operation()[0])
 
@@ -44,73 +54,89 @@ class EffectSemanticsTests(unittest.TestCase):
         effect.record_attempt(Attempt("A2", AttemptEvidence.DEFINITELY_NOT_SENT))
         self.assertEqual(effect.knowledge, Knowledge.INDETERMINATE)
 
-    def test_indeterminate_retry_requires_current_idempotency_contract(self):
-        unsafe = self.request(self.protocol(idempotent=False, window=False))
-        unsafe.record_attempt(Attempt("A1", AttemptEvidence.SENT_NO_RESPONSE))
-        self.assertFalse(unsafe.can_retry_same_remote_operation()[0])
+    def test_indeterminate_retry_requires_remote_key_plus_current_idempotency_contract(self):
+        no_key = self.request(self.protocol(idempotent=True, window=True), remote_dedup_key=None)
+        no_key.record_attempt(Attempt("A1", AttemptEvidence.SENT_NO_RESPONSE))
+        self.assertFalse(no_key.can_retry_same_remote_operation()[0])
+
+        no_contract = self.request(self.protocol(idempotent=False, window=False))
+        no_contract.record_attempt(Attempt("A1", AttemptEvidence.SENT_NO_RESPONSE))
+        self.assertFalse(no_contract.can_retry_same_remote_operation()[0])
 
         safe = self.request(self.protocol(idempotent=True, window=True))
         safe.record_attempt(Attempt("A1", AttemptEvidence.SENT_NO_RESPONSE))
         self.assertTrue(safe.can_retry_same_remote_operation()[0])
 
-    def test_async_acceptance_is_pending_and_should_not_resubmit(self):
-        effect = self.request(self.protocol(idempotent=True, window=True))
+    def test_async_acceptance_can_learn_remote_receipt_after_send(self):
+        effect = self.request(remote_dedup_key=None)
         effect.record_attempt(Attempt("A1", AttemptEvidence.ACCEPTED_PENDING, remote_receipt_id="job-1"))
         self.assertEqual(effect.knowledge, Knowledge.PENDING)
+        self.assertIn("job-1", effect.known_remote_receipts)
         self.assertFalse(effect.can_retry_same_remote_operation()[0])
 
-    def test_authoritative_observation_reconciles_pending_to_success(self):
-        effect = self.request()
-        effect.record_attempt(Attempt("A1", AttemptEvidence.ACCEPTED_PENDING))
-        changed = effect.reconcile(Observation("W1", "R1", Knowledge.CONFIRMED_SUCCEEDED, True, provider_sequence=2))
+    def test_authoritative_observation_can_correlate_by_learned_receipt(self):
+        effect = self.request(remote_dedup_key=None)
+        effect.record_attempt(Attempt("A1", AttemptEvidence.ACCEPTED_PENDING, remote_receipt_id="job-1"))
+        changed = effect.reconcile(
+            self.obs("W1", Knowledge.CONFIRMED_SUCCEEDED, key=None, receipt="job-1", seq=2)
+        )
         self.assertTrue(changed)
         self.assertEqual(effect.knowledge, Knowledge.CONFIRMED_SUCCEEDED)
 
     def test_duplicate_observation_does_not_apply_twice(self):
         effect = self.request()
-        obs = Observation("W1", "R1", Knowledge.CONFIRMED_SUCCEEDED, True, provider_sequence=2)
-        self.assertTrue(effect.reconcile(obs))
-        self.assertFalse(effect.reconcile(obs))
+        observation = self.obs("W1", Knowledge.CONFIRMED_SUCCEEDED, seq=2)
+        self.assertTrue(effect.reconcile(observation))
+        self.assertFalse(effect.reconcile(observation))
         self.assertEqual(len(effect.observations), 1)
 
     def test_out_of_order_provider_observation_does_not_regress(self):
         effect = self.request()
-        effect.reconcile(Observation("W2", "R1", Knowledge.CONFIRMED_SUCCEEDED, True, provider_sequence=20))
-        changed = effect.reconcile(Observation("W1", "R1", Knowledge.PENDING, True, provider_sequence=10))
+        effect.reconcile(self.obs("W2", Knowledge.CONFIRMED_SUCCEEDED, seq=20))
+        changed = effect.reconcile(self.obs("W1", Knowledge.PENDING, seq=10))
         self.assertFalse(changed)
         self.assertEqual(effect.knowledge, Knowledge.CONFIRMED_SUCCEEDED)
 
     def test_newer_incompatible_terminal_evidence_becomes_contradicted(self):
         effect = self.request()
-        effect.reconcile(Observation("W1", "R1", Knowledge.CONFIRMED_SUCCEEDED, True, provider_sequence=10))
-        changed = effect.reconcile(Observation("W2", "R1", Knowledge.CONFIRMED_REJECTED, True, provider_sequence=20))
+        effect.reconcile(self.obs("W1", Knowledge.CONFIRMED_SUCCEEDED, seq=10))
+        changed = effect.reconcile(self.obs("W2", Knowledge.CONFIRMED_REJECTED, seq=20))
         self.assertTrue(changed)
         self.assertEqual(effect.knowledge, Knowledge.CONTRADICTED)
 
     def test_non_authoritative_observation_is_preserved_but_does_not_confirm(self):
         effect = self.request()
         effect.record_attempt(Attempt("A1", AttemptEvidence.SENT_NO_RESPONSE))
-        changed = effect.reconcile(Observation("W1", "R1", Knowledge.CONFIRMED_SUCCEEDED, False))
+        changed = effect.reconcile(self.obs("W1", Knowledge.CONFIRMED_SUCCEEDED, authoritative=False))
         self.assertFalse(changed)
         self.assertEqual(effect.knowledge, Knowledge.INDETERMINATE)
         self.assertIn("W1", effect.observations)
 
-    def test_exact_correlation_is_required_by_toy_model(self):
-        effect = self.request()
+    def test_uncorrelated_observation_is_not_forced_into_effect(self):
+        effect = self.request(remote_dedup_key=None)
         with self.assertRaises(ValueError):
-            effect.reconcile(Observation("W1", "OTHER", Knowledge.CONFIRMED_SUCCEEDED, True))
+            effect.reconcile(self.obs("W1", Knowledge.CONFIRMED_SUCCEEDED, key=None, receipt="unknown"))
 
     def test_same_effect_id_cannot_be_reused_for_different_intent(self):
         book = EffectBook()
         book.create(self.request())
-        changed = EffectRequest("E1", "O1", digest("pay 1000"), "R1", self.protocol())
+        changed = EffectRequest(
+            "E1", "O1", digest("pay 1000"), self.protocol(), remote_dedup_key="client-key-1"
+        )
         with self.assertRaises(ValueError):
             book.create(changed)
 
-    def test_two_identical_payload_effects_can_be_intentional(self):
+    def test_same_effect_id_cannot_silently_change_provider_dedup_key(self):
         book = EffectBook()
-        e1 = self.request()
-        e2 = EffectRequest("E2", "O2", e1.intent_digest, "R2", self.protocol())
+        book.create(self.request())
+        changed = self.request(remote_dedup_key="other-key")
+        with self.assertRaises(ValueError):
+            book.create(changed)
+
+    def test_two_identical_payload_effects_can_be_intentional_without_remote_keys(self):
+        book = EffectBook()
+        e1 = self.request(remote_dedup_key=None)
+        e2 = EffectRequest("E2", "O2", e1.intent_digest, self.protocol(), remote_dedup_key=None)
         book.create(e1)
         book.create(e2)
         self.assertEqual(len(book.requests), 2)
@@ -137,8 +163,8 @@ class EffectSemanticsTests(unittest.TestCase):
             new_effect_id="E-refund",
             new_local_operation_id="O-refund",
             intent="refund 100",
-            remote_operation_id="R-refund",
             protocol=self.protocol(idempotent=True, window=True),
+            remote_dedup_key="refund-key",
         )
         self.assertEqual(original.knowledge, Knowledge.CONFIRMED_SUCCEEDED)
         self.assertEqual(compensation.knowledge, Knowledge.NOT_ATTEMPTED)
@@ -154,7 +180,6 @@ class EffectSemanticsTests(unittest.TestCase):
                 new_effect_id="E2",
                 new_local_operation_id="O2",
                 intent="refund 100",
-                remote_operation_id="R2",
                 protocol=self.protocol(),
             )
 

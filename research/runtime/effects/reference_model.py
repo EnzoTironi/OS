@@ -4,11 +4,14 @@
 NOT a connector runtime or target metamodel. The model makes these distinctions
 executable:
 
+* EffectRequestId is always local and stable;
+* a provider-side dedupe/correlation key may or may not exist before send;
+* a provider receipt/transaction id may only be learned after send;
 * one EffectRequest survives several transport Attempts;
 * request acceptance/pending differs from confirmed business outcome;
 * lost response after send produces indeterminate knowledge, not failure;
 * later attempt evidence cannot erase uncertainty created by an earlier attempt;
-* retry safety depends on remote idempotency evidence;
+* retry safety depends on actual remote idempotency evidence, not local identity;
 * duplicate/out-of-order observations do not create duplicate effects;
 * generic reconciliation refuses to guess protocol-specific terminal transitions;
 * compensation is a new EffectRequest and does not erase the original.
@@ -59,9 +62,10 @@ class Attempt:
 @dataclass(frozen=True)
 class Observation:
     observation_id: str
-    remote_operation_id: str
     knowledge: Knowledge
     authoritative_for_outcome: bool
+    remote_dedup_key: str | None = None
+    remote_receipt_id: str | None = None
     provider_sequence: int | None = None
 
 
@@ -78,10 +82,13 @@ class EffectRequest:
     effect_request_id: str
     local_operation_id: str
     intent_digest: str
-    remote_operation_id: str
     protocol: ProtocolContract
+    # Optional provider/client key known before send. This is not guaranteed to
+    # exist merely because the OS has a stable EffectRequestId.
+    remote_dedup_key: str | None = None
     attempts: list[Attempt] = field(default_factory=list)
     observations: dict[str, Observation] = field(default_factory=dict)
+    known_remote_receipts: set[str] = field(default_factory=set)
     knowledge: Knowledge = Knowledge.NOT_ATTEMPTED
     last_provider_sequence: int | None = None
     cancelled: bool = False
@@ -92,8 +99,10 @@ class EffectRequest:
         if any(existing.attempt_id == attempt.attempt_id for existing in self.attempts):
             return
         self.attempts.append(attempt)
+        if attempt.remote_receipt_id is not None:
+            self.known_remote_receipts.add(attempt.remote_receipt_id)
 
-        # Attempt evidence is accumulated conservatively. A later failed attempt
+        # Attempt evidence accumulates conservatively. A later failed attempt
         # cannot erase uncertainty/effect evidence created by an earlier attempt.
         if attempt.evidence == AttemptEvidence.DEFINITELY_NOT_SENT:
             return
@@ -135,27 +144,44 @@ class EffectRequest:
         if self.knowledge == Knowledge.NOT_ATTEMPTED:
             return True, "no evidence request reached remote mutation boundary"
         if self.knowledge == Knowledge.INDETERMINATE:
-            if self.protocol.idempotent_replay and self.protocol.idempotency_window_open:
-                return True, "same remote operation replay is contractually idempotent"
-            return False, "indeterminate remote outcome without adequate current idempotency guarantee"
+            if (
+                self.remote_dedup_key is not None
+                and self.protocol.idempotent_replay
+                and self.protocol.idempotency_window_open
+            ):
+                return True, "same provider dedupe key is contractually replay-safe"
+            return False, "indeterminate remote outcome without a usable current dedupe guarantee"
         return False, "retry not established safe"
+
+    def _correlates_exactly(self, observation: Observation) -> bool:
+        by_key = (
+            self.remote_dedup_key is not None
+            and observation.remote_dedup_key is not None
+            and observation.remote_dedup_key == self.remote_dedup_key
+        )
+        by_receipt = (
+            observation.remote_receipt_id is not None
+            and observation.remote_receipt_id in self.known_remote_receipts
+        )
+        return by_key or by_receipt
 
     def reconcile(self, observation: Observation) -> bool:
         """Return True when this observation changed effect knowledge.
 
-        The toy model requires exact correlation. Real #45 correlation can be a
-        candidate relation and must not auto-confirm until its assurance policy
-        permits it.
+        The toy model accepts only deterministic correlation by a provider/client
+        dedupe key or a receipt previously learned from an attempt. Real #45
+        correlation can remain probabilistic/candidate and must not auto-confirm
+        until its assurance policy permits it.
 
         This function intentionally does NOT encode one universal provider state
         machine. If two authoritative observations imply incompatible terminal or
-        effectful knowledge, the generic result becomes CONTRADICTED and the
-        connector/domain reconciliation policy must interpret the chronology.
+        effectful knowledge, generic knowledge becomes CONTRADICTED and the
+        connector/domain policy must interpret the chronology.
         """
         if observation.observation_id in self.observations:
             return False
-        if observation.remote_operation_id != self.remote_operation_id:
-            raise ValueError("observation belongs to another remote operation")
+        if not self._correlates_exactly(observation):
+            raise ValueError("observation is not deterministically correlated to this effect request")
         self.observations[observation.observation_id] = observation
 
         if not observation.authoritative_for_outcome:
@@ -172,8 +198,6 @@ class EffectRequest:
         if prior in TERMINAL_OR_EFFECTFUL and incoming != prior:
             self.knowledge = Knowledge.CONTRADICTED
         elif prior == Knowledge.PENDING and incoming == Knowledge.INDETERMINATE:
-            # Losing response/transport evidence after explicit acceptance cannot
-            # erase the known acceptance of the remote operation.
             self.knowledge = Knowledge.PENDING
         elif prior == Knowledge.CONTRADICTED:
             self.knowledge = Knowledge.CONTRADICTED
@@ -201,9 +225,10 @@ class EffectBook:
         if (
             existing.local_operation_id != request.local_operation_id
             or existing.intent_digest != request.intent_digest
-            or existing.remote_operation_id != request.remote_operation_id
+            or existing.remote_dedup_key != request.remote_dedup_key
+            or existing.protocol != request.protocol
         ):
-            raise ValueError("effect request identity reused for different semantic intent")
+            raise ValueError("effect request identity reused for different semantic intent/remote contract")
         return existing
 
     def compensate(
@@ -213,8 +238,8 @@ class EffectBook:
         new_effect_id: str,
         new_local_operation_id: str,
         intent: str,
-        remote_operation_id: str,
         protocol: ProtocolContract,
+        remote_dedup_key: str | None = None,
     ) -> EffectRequest:
         original = self.requests[original_effect_id]
         if original.knowledge not in {Knowledge.CONFIRMED_SUCCEEDED, Knowledge.PARTIAL}:
@@ -224,8 +249,8 @@ class EffectBook:
                 effect_request_id=new_effect_id,
                 local_operation_id=new_local_operation_id,
                 intent_digest=digest(intent),
-                remote_operation_id=remote_operation_id,
                 protocol=protocol,
+                remote_dedup_key=remote_dedup_key,
             )
         )
 
