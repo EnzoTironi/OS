@@ -1,0 +1,46 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0045-ingest-entity-resolution",
+      "artifact": "research/runtime/ingest/README.md",
+      "issue": 45,
+      "title": "Ingestion, source binding, schema discovery, and entity resolution",
+      "question": "How can heterogeneous source evidence be mapped and bound without copying source schemas or laundering ambiguity into business truth?",
+      "artifact_kind": "foundation-research",
+      "topics": ["ingestion", "entity-resolution", "identity", "provenance", "source-binding", "schema-drift", "observations", "authority"],
+      "source_keys": ["palantir", "splink", "openrefine", "debezium", "w3c-prov", "hf-reality-check"],
+      "evidence_kinds": ["official-doc", "formal-spec", "real-company-evidence", "inference"],
+      "review_status": "unreviewed",
+      "records": [
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-01", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-02", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-03", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-04", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-05", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-06", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-07", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-08", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-09", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-10", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-11", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-12", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-13", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-14", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-15", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-16", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-17", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-18", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#M-B", "kind": "concept", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0045-ingest-entity-resolution#Q-I45-10", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0045-ingest-entity-resolution#Q-I45-11", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0045-ingest-entity-resolution#Q-I45-12", "kind": "open-question", "epistemic_state": "undetermined"}
+      ],
+      "disagreements": [],
+      "depends_on": ["issue-0077-hf-reality-check", "research/reviews/wave-a-review-ledger.md"],
+      "related_issues": [4, 5, 6, 9, 39, 40, 41, 42, 46, 49, 51, 59, 63, 70, 77]
+    }
+  ]
+}
