@@ -29,11 +29,13 @@ LOCAL BUSINESS COMMIT
         │
         ▼
 EFFECT EXECUTION
-  one semantic remote operation identity R
+  stable local EffectRequestId E
+  + provider dedupe/correlation identity only if protocol supports it
         │
         ├── Attempt A1
-        │      request bytes / credentials / idempotency key
+        │      request bytes / credentials / optional client key
         │      transport response or failure evidence
+        │      optional receipt learned after send
         │
         ├── Attempt A2 ... only if protocol/reconciliation says safe
         │
@@ -44,6 +46,7 @@ REMOTE SYSTEM
   may complete before caller receives response
   may partially apply
   may expose authoritative state later
+  may expose no deterministic correlation identifier at all
         │
         ▼
 OBSERVATIONS / RECONCILIATION
@@ -58,7 +61,7 @@ KNOWLEDGE OF REMOTE OUTCOME
   contradiction/dispute/partial outcome where domain supports it
 ```
 
-`EffectRequest`, `Attempt`, `RemoteOperation`, `OutcomeEvidence`, and `Reconciliation` are **research roles**, not primitive declarations.
+`EffectRequest`, `Attempt`, remote dedupe/correlation identities, `OutcomeEvidence`, and `Reconciliation` are **research roles**, not primitive declarations.
 
 ## The key distinction: three things called “success”
 
@@ -83,15 +86,18 @@ Different protocols expose different stages. Rather than force every connector t
 EffectRequest state
   planned / cancelled-before-attempt / eligible
 
-Remote operation identity
-  target system + operation + idempotency/business key
+Remote correlation capabilities
+  optional client dedupe/correlation key before send
+  optional receipt/transaction id after send
+  optional business-key/read-back relation
+  or no deterministic remote identifier
 
 Attempt evidence
   attempt id, request digest, send/receive timestamps,
   credential/delegation context, transport result
 
 Remote acknowledgement
-  rejected-before-processing / accepted / queued / request-id-issued / absent
+  rejected-before-processing / accepted / queued / receipt-issued / absent
 
 Authoritative domain outcome
   protocol-specific: payment succeeded, listing active,
@@ -106,22 +112,28 @@ Reconciliation evidence
 
 A connector can project these into a simpler UI status, but the simplification must not destroy recovery semantics.
 
-## Stable identities
+## Stable identities — and which ones are optional
 
 Do not reuse one ID for everything merely for convenience.
 
-At minimum distinguish conceptually:
+Conceptually distinguish:
 
 ```text
-LocalOperationId     // #40 semantic business commit
-EffectRequestId      // one causal remote effect requested by that commit
-RemoteOperationId    // stable identity/idempotency key used with remote protocol
-AttemptId            // each network/client execution attempt
-RemoteReceiptId?     // remote request/transaction/protocol identity, when returned
-ObservationId        // webhook/CDC/readback evidence identity from #45
+LocalOperationId       // #40 semantic business commit; always local
+EffectRequestId        // one causal remote effect requested by that commit; always local
+RemoteDedupKey?        // provider/client key usable before send only when supported
+AttemptId              // each network/client execution attempt
+RemoteReceiptId?       // remote request/transaction/protocol identity, when returned
+ObservationId          // webhook/CDC/readback evidence identity from #45
 ```
 
-One local Action can create zero, one, or several external effects. One effect can require several transport attempts. A remote system can later emit many observations about one remote operation.
+The critical correction from adversarial review is:
+
+> a stable `EffectRequestId` does **not** imply the remote provider offers idempotency or even a stable remote operation identifier.
+
+A provider may support a caller-supplied key, may return only a receipt after acceptance, may expose only a business-key lookup, or may expose no deterministic identifier. The runtime must represent that absence rather than fabricate exactly-once semantics.
+
+One local Action can create zero, one, or several external effects. One effect can require several transport attempts. A remote system can later emit many observations about one requested effect.
 
 ## Retry is protocol-specific recovery, not a generic loop
 
@@ -129,19 +141,21 @@ A safe retry decision depends on what is known:
 
 ### Definitely not attempted / rejected before effect
 
-If the connector can prove the request did not reach a mutation boundary, a new attempt may be safe under the same EffectRequest.
+If the connector can prove the request did not reach a mutation boundary, a new attempt may be safe under the same EffectRequest — even when the provider has no idempotency support.
 
-### Stable remote idempotency contract
+### Stable provider idempotency contract
 
-If the remote API guarantees retries with the same idempotency identity are deduplicated for the required window/scope, retry can itself be the reconciliation technique.
+If the remote API accepts a stable client key and guarantees same-key retries are deduplicated for the required window/scope, retry can itself be the reconciliation technique.
+
+`EffectRequestId` is not enough unless that identity, or a derived key, is actually transmitted under such a provider contract.
 
 ### Outcome indeterminate and non-idempotent
 
-Query/read back before retry. If the remote system cannot answer and a duplicate would be harmful, remain unresolved/escalate rather than guess.
+Query/read back by receipt/business key when possible before retry. If the remote system cannot answer and a duplicate would be harmful, remain unresolved/escalate rather than guess.
 
 ### Accepted asynchronously
 
-Do not retry simply because final business success is not known. Poll/subscribe/reconcile using remote request identity.
+Do not retry simply because final business success is not known. Poll/subscribe/reconcile using the returned receipt/operation identity when available, or whatever correlation mechanism the protocol supports.
 
 ### Partial remote outcome
 
@@ -164,7 +178,7 @@ It does **not** give:
 remote effect E happened exactly once
 ```
 
-The external executor still needs effect-level idempotency, attempt history and reconciliation.
+The external executor still needs attempt history and whatever idempotency/correlation/reconciliation semantics the actual provider offers.
 
 ## Inbound observations reuse #45 semantics
 
@@ -173,8 +187,16 @@ A remote webhook, CDC record or API response is **evidence from the external sou
 Correlation can establish:
 
 ```text
-Observation W probably/definitively refers to RemoteOperation R / EffectRequest E
+Observation W definitively refers to EffectRequest E by client key/receipt
 ```
+
+or:
+
+```text
+Observation W is only a candidate relation to EffectRequest E
+```
+
+or remain unresolved when no adequate correlation evidence exists.
 
 Authority then asks whether that source/statement is sufficient to confirm the target outcome.
 
@@ -207,7 +229,7 @@ Cancellation before attempt is different from cancellation racing an in-flight a
 
 Temporal's current official patterns make write-side tool Activities idempotent because Activities have at-least-once execution semantics and can retry. Temporal also durably records Activity results so workflows resume rather than redoing already completed steps in normal replay.
 
-This is useful execution machinery, but it does not make a non-idempotent external API exactly-once. The Activity/connector must still supply the remote operation's idempotency/reconciliation semantics.
+This is useful execution machinery, but it does not make a non-idempotent external API exactly-once. The Activity/connector must still supply the remote operation's idempotency/reconciliation semantics where those exist.
 
 ## What this research refuses
 
@@ -216,6 +238,9 @@ HTTP 2xx -> business effect confirmed
 HTTP timeout -> business effect failed
 webhook received -> new business event by default
 same Action id -> same remote effect id for every effect
+EffectRequestId -> provider idempotency automatically
+every provider -> stable remote operation ID before first send
+provider receipt -> final success
 retry always creates a new business decision
 retry is always safe with same payload
 accepted async request -> final success
@@ -246,8 +271,9 @@ This research does **not** yet earn `Effect`/`EffectType` as an ontology root pr
 Strongest current hypothesis:
 
 - domain `Action`/operation commits a durable causal request/intention to interact with an external capability where needed;
-- effect request, attempts, observations, receipts and reconciliation are ordinary typed operational records/relationships;
-- generic runtime has a **first-class effect execution boundary/capability** for security, credentials, retries, idempotency, observability and network isolation;
+- effect request, attempts, optional remote keys/receipts, observations and reconciliation are ordinary typed operational records/relationships;
+- generic runtime has a **first-class effect execution boundary/capability** for security, credentials, retries, observability and network isolation;
+- provider protocol explicitly declares whether remote dedupe/correlation/read-back guarantees exist;
 - protocol/domain ontology defines what the remote outcome means and which evidence confirms it.
 
 This distinction matters: a native runtime effect system may be justified without making `Effect` a universal business ontology sort. #47/#70 must attack that boundary.
