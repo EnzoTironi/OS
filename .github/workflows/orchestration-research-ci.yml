@@ -1,0 +1,29 @@
+name: orchestration-research-ci
+
+on:
+  push:
+    branches:
+      - research/issue-43-durable-orchestration
+  pull_request:
+    paths:
+      - 'research/runtime/orchestration/**'
+      - 'research/index/issue-0043-durable-orchestration.json'
+      - '.github/workflows/orchestration-research-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate research artifacts
+        run: python3 research/runtime/orchestration/check_research.py
+      - name: Run executable orchestration litmus tests
+        run: python3 -m unittest discover -s research/runtime/orchestration -p 'test_reference_model.py' -v
+      - name: Validate index JSON
+        run: python3 -m json.tool research/index/issue-0043-durable-orchestration.json >/dev/null
