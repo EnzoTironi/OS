@@ -185,13 +185,19 @@ A proof for a balanced proposed state could be reused for a different proposed s
 
 The first green run is retained as evidence that **revision-only proof validity is too weak**.
 
-## M4-v2 hardening — exact semantic context + runtime issuance
+## M4-v2 hardening — exact semantic + trusted execution context
+
+The next candidate bound business inputs/state/payload but still omitted trusted execution identity. Deep review found that the proof could therefore transfer across actors, represented principals or workloads when the business context was unchanged. The same class of attack exists across authority domains such as tenant/environment/session when those dimensions affect permission.
 
 The current candidate binds each operational proof to a digest of the exact context it validated:
 
 ```text
 target
 semantic operation identity
+actor
+represented principal
+workload
+authority context (for example tenant/environment/session when material)
 inputs
 proposed/pending state
 pinned state/basis
@@ -208,14 +214,18 @@ determining evidence
 evaluator revisions
 ```
 
-The bounded model uses HMAC-SHA256 as a concrete anti-forgery mechanism. HMAC is not proposed as ontology semantics; the law is that an untrusted caller must not be able to mint, retarget or rewrite an authority proof outside the trusted runtime boundary.
+The bounded model uses HMAC-SHA256 as a concrete anti-forgery mechanism. HMAC is not proposed as ontology semantics; the law is that an untrusted caller must not be able to mint, retarget, transfer or rewrite an authority proof outside the trusted runtime boundary.
 
-Permanent regressions distinguish two failures:
+Permanent regressions distinguish:
 
-- **context substitution** -> `ContextMismatch`;
+- **business/execution context substitution** -> `ContextMismatch`;
 - **tampering with a sealed proof while keeping context unchanged** -> `ForgedProof`.
 
+The substitution suite now varies inputs, proposed state, actor, represented principal, workload, tenant, environment and session.
+
 This hardening required no RuleBinding/locus/scope dispatcher and no new `CapabilityType` form.
+
+Important production boundary: the toy API accepts execution context explicitly to make transfer attacks testable. A real operation boundary must derive actor/workload/tenant/environment/session from trusted runtime identity/context and authorize any represented-principal delegation. If the caller controls both proof-minting identity and invocation identity, sealing merely authenticates a lie.
 
 ### Currentness after hardening
 
@@ -238,10 +248,10 @@ M4 is not automatically a real reduction. It dies if any of these becomes necess
 5. currentness/dependency validity cannot be represented on proof values without a separate scheduler;
 6. the capability boundary has no independent purpose outside business rules;
 7. `capability` itself requires a new semantic Type species rather than a standard Type contract;
-8. trusted actor/workload/represented-principal context must be supplied by untrusted callers rather than runtime identity;
+8. trusted actor/workload/represented-principal/authority-domain context must be supplied by untrusted callers rather than runtime identity;
 9. exact-context binding cannot cover the semantics that determine authorization/invariant validity without reconstructing RuleBinding metadata.
 
-The bounded model currently avoids 1–7 and 9. Item 8 is a mandatory review boundary: the test API passes `actor="alice"` for convenience, but production authority must derive actor/workload/representation from trusted execution context.
+The bounded model currently avoids 1–7 and 9. Item 8 is a mandatory runtime boundary: the bounded API accepts execution context for testability, while production must derive it from trusted session/workload/delegation/tenant/environment context.
 
 ## Interim comparison
 
@@ -252,10 +262,11 @@ The bounded model currently avoids 1–7 and 9. Item 8 is a mandatory review bou
 | Preview != commit | explicit locus | explicit locus | duplicated | trigger value | distinct required Types |
 | Deny != evaluator Error | yes | possible | ad hoc | must add algebra | distinct construction failure |
 | Current-state freshness | binding basis | binding data | ad hoc | trigger metadata | proof validity |
-| Exact input/post-state binding | possible | possible | ad hoc | possible | **context digest** |
+| Exact business-context binding | possible | possible | ad hoc | possible | **context digest** |
+| Exact execution/authority-domain binding | possible | possible | often implicit | possible | **context digest** |
 | Pinned evidence | binding basis | binding data | ad hoc | trigger metadata | basis-bound proof |
 | Read/effect separation | loci | loci | duplicated | triggers | distinct signatures/Types |
-| Caller can forge authority | runtime dependent | runtime dependent | often implicit | runtime dependent | sealed runtime-issued proof |
+| Caller can forge/retarget authority | runtime dependent | runtime dependent | often implicit | runtime dependent | sealed runtime-issued proof |
 | Hidden dispatcher | explicit by design | **yes** | distributed | **yes** | not in bounded model |
 | Independent runtime reason | enforcement itself | no | no | no | Computation/credential/I/O isolation |
 
@@ -263,9 +274,9 @@ The bounded model currently avoids 1–7 and 9. Item 8 is a mandatory review bou
 
 M1, M2 and M3 do not beat R5.
 
-M4-v1 was falsified by context substitution. M4-v2 repaired that counterexample without recreating RuleBinding machinery.
+M4-v1 was falsified by context substitution. The first M4-v2 hardening fixed input/state substitution but deep review exposed cross-identity transfer; the current M4-v2 expands exact context to trusted execution/authority-domain context and adds permanent regressions.
 
-M4-v2 is therefore the first competitor in this pass that may constitute a **real** reduction rather than a rename. It revives a four-form candidate:
+M4-v2 is therefore still the first competitor in this pass that may constitute a **real** reduction rather than a rename. It revives a four-form candidate:
 
 ```text
 Type
@@ -276,4 +287,4 @@ Action
 
 but with a materially stronger Type/runtime-capability model than Wave A's rejected quartet.
 
-This candidate is provisionally called `R6-capability`. It is not an RFC update and not accepted. It must survive #156 adversarial review/exact-head CI and then #157/#158/#71 before any disposition of RFC-0002 changes.
+This candidate is provisionally called `R6-capability`. It is not an RFC update and not accepted. It must survive exact-head CI and then #157/#158/#71 before any disposition of RFC-0002 changes.
