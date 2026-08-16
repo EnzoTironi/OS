@@ -12,6 +12,7 @@ What software do large Chinese industrials and enterprises actually run, and wha
 
 | File | Contents |
 | --- | --- |
+| `names.md` | English names for every vendor and product in this folder |
 | `sources.md` | URLs opened this session, with what each page is |
 | `evidence.md` | Layered stack, vendor claims kept separate from state targets |
 | `candidate-laws.md` | Smallest claims this watch can state |
