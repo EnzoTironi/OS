@@ -1,0 +1,44 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0046-cross-ontology-verification",
+      "artifact": "research/verification/README.md",
+      "issue": 46,
+      "title": "Cross-ontology verification — counterexamples before architecture",
+      "question": "How should reviewed semantic laws and adversarial scenarios be converted into executable, formal, backend and production evidence without overstating what each technique proves?",
+      "artifact_kind": "foundation-research",
+      "topics": ["verification", "property-testing", "state-machine", "model-checking", "smt", "fuzzing", "shrinking", "counterexamples", "differential-testing", "formal-methods"],
+      "source_keys": ["issue-45-ingest", "issue-40-commit", "issue-41-effects", "issue-42-authorization", "issue-43-orchestration", "issue-39-storage", "issue-51-fuzzing", "hypothesis", "z3", "tla-plus", "alloy"],
+      "evidence_kinds": ["official-doc", "test", "formal-model", "integration-evidence", "inference"],
+      "review_status": "unreviewed",
+      "records": [
+        {"ref": "issue-0046-cross-ontology-verification#V46-P01", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#V46-P02", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#V46-P03", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#V46-P04", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#V46-P05", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#V46-P06", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#V46-P07", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#V46-P08", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#V46-P09", "kind": "concept", "epistemic_state": "supported"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-10", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-11", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-12", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-13", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-14", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-15", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-16", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-17", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-18", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-19", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0046-cross-ontology-verification#Q-V46-20", "kind": "open-question", "epistemic_state": "undetermined"}
+      ],
+      "disagreements": [],
+      "depends_on": ["issue-0045-ingest-entity-resolution", "issue-0040-commit-semantics", "issue-0041-external-effects", "issue-0042-authorization-delegation", "issue-0043-durable-orchestration", "issue-0039-storage-models"],
+      "related_issues": [39, 40, 41, 42, 43, 45, 47, 49, 51, 53, 63, 70]
+    }
+  ]
+}
