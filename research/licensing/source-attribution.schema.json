@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/EnzoTironi/OS/research/licensing/source-attribution.schema.json",
+  "title": "OS research source attribution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "question",
+    "sources",
+    "evidence_class",
+    "decision_state",
+    "extraction_mode",
+    "reuse_class",
+    "reuse_decision",
+    "licensing_note"
+  ],
+  "properties": {
+    "question": { "type": "string", "minLength": 1 },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "evidence_class": {
+      "type": "string",
+      "enum": [
+        "domain-evidence",
+        "source-artifact",
+        "candidate-law",
+        "counterexample",
+        "runtime-consequence"
+      ]
+    },
+    "decision_state": {
+      "type": "string",
+      "enum": ["hypothesis", "supported", "rejected", "undetermined"]
+    },
+    "extraction_mode": {
+      "type": "string",
+      "enum": [
+        "concept",
+        "behavior",
+        "invariant",
+        "scenario",
+        "quote",
+        "implementation"
+      ]
+    },
+    "reuse_class": {
+      "type": "string",
+      "enum": [
+        "cite-only",
+        "concept-ok",
+        "permissive-reuse-needs-decision",
+        "copyleft-link-needs-decision",
+        "share-alike-text-needs-decision",
+        "custom-additional-terms",
+        "standards-document",
+        "forbidden-without-counsel",
+        "undetermined"
+      ]
+    },
+    "reuse_decision": {
+      "type": "string",
+      "enum": ["none", "proposed", "approved", "rejected"]
+    },
+    "licensing_note": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "extraction_mode": { "const": "implementation" } }
+      },
+      "then": {
+        "not": {
+          "properties": { "reuse_decision": { "const": "none" } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "locator",
+        "license",
+        "license_locator",
+        "fetched"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "locator": { "type": "string", "minLength": 1 },
+        "path": { "type": ["string", "null"] },
+        "ref": { "type": ["string", "null"] },
+        "sha": { "type": ["string", "null"] },
+        "license": { "type": "string", "minLength": 1 },
+        "license_locator": { "type": "string", "minLength": 1 },
+        "fetched": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+      }
+    }
+  }
+}
