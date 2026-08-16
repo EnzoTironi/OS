@@ -16,7 +16,10 @@ TESTS = HERE / "test_model.py"
 ATOMIC_TESTS = HERE / "test_atomic_hardening.py"
 PRIVACY_TESTS = HERE / "test_privacy_policy.py"
 COMPETITOR_TESTS = HERE / "test_competitors.py"
+PG_EXPERIMENT = HERE / "experiments" / "postgres18" / "test_no_bypass.py"
 README = HERE / "README.md"
+HARDENING = HERE / "hardening.md"
+REVIEW = HERE / "review.md"
 LAWS = HERE / "candidate-laws.md"
 SCENARIOS = HERE / "scenarios.md"
 PATHS = HERE / "write-paths.md"
@@ -25,11 +28,16 @@ RFC2 = ROOT / "rfcs" / "0002-executable-metamodel-hypothesis-v1.md"
 
 LAW_RE = re.compile(r"^## (L-OCC-\d{2})\b", re.MULTILINE)
 SCENARIO_RE = re.compile(r"\*\*(S-OCC-\d{2})\*\*", re.MULTILINE)
+REVIEW_STATUS_RE = re.compile(r"^status:\s*(review-pending|review-clean)\s*$", re.MULTILINE)
 
 
 def fail(message: str) -> None:
     print(f"ERROR: {message}", file=sys.stderr)
     raise SystemExit(1)
+
+
+def norm(text: str) -> str:
+    return text.lower().replace("**", "").replace("`", "")
 
 
 def no_module_tests(path: Path) -> None:
@@ -66,7 +74,8 @@ def semantic_identifiers(source: str) -> set[str]:
 def main() -> int:
     for path in [
         MODEL, ATOMIC_MODEL, COMPETITORS, TESTS, ATOMIC_TESTS, PRIVACY_TESTS,
-        COMPETITOR_TESTS, README, LAWS, SCENARIOS, PATHS, INDEX, RFC2,
+        COMPETITOR_TESTS, PG_EXPERIMENT, README, HARDENING, REVIEW, LAWS,
+        SCENARIOS, PATHS, INDEX, RFC2,
     ]:
         if not path.exists():
             fail(f"missing {path.relative_to(ROOT)}")
@@ -140,6 +149,18 @@ def main() -> int:
     for path in [TESTS, ATOMIC_TESTS, PRIVACY_TESTS, COMPETITOR_TESTS]:
         no_module_tests(path)
 
+    pg = norm(PG_EXPERIMENT.read_text(encoding="utf-8"))
+    for phrase in [
+        "protect_sealed_semantics",
+        "publisheddefinition",
+        "mutablenote",
+        "occ157_app",
+        "occ157_admin",
+        "superuser/physical compromise is an operational security boundary",
+    ]:
+        if phrase not in pg:
+            fail(f"PostgreSQL no-bypass experiment lost boundary: {phrase}")
+
     laws = LAW_RE.findall(LAWS.read_text(encoding="utf-8"))
     expected_laws = [f"L-OCC-{i:02d}" for i in range(1, 21)]
     if laws != expected_laws:
@@ -149,8 +170,13 @@ def main() -> int:
     if scenarios != expected_scenarios:
         fail(f"expected contiguous S-OCC-01..50, got {scenarios}")
 
-    text = (README.read_text(encoding="utf-8") + "\n" + PATHS.read_text(encoding="utf-8")).lower()
-    text = text.replace("**", "").replace("`", "")
+    text = norm(
+        README.read_text(encoding="utf-8")
+        + "\n"
+        + PATHS.read_text(encoding="utf-8")
+        + "\n"
+        + HARDENING.read_text(encoding="utf-8")
+    )
     for phrase in [
         "action != occurrence",
         "sealed_semantics",
@@ -161,9 +187,27 @@ def main() -> int:
         "restore/replay",
         "architecture decision: none",
         "passing #157 does not make event",
+        "failed writes could consume idempotency markers",
+        "accepted record is not metaphysical truth",
+        "legal erasure of protected semantic core",
+        "raw database superuser / physical compromise",
     ]:
         if phrase not in text:
-            fail(f"research lost lifecycle/epistemic boundary: {phrase}")
+            fail(f"research lost lifecycle/epistemic hardening boundary: {phrase}")
+
+    review = norm(REVIEW.read_text(encoding="utf-8"))
+    status_match = REVIEW_STATUS_RE.search(review)
+    if not status_match:
+        fail("review.md must declare Status: review-pending or review-clean")
+    review_status = status_match.group(1)
+    for phrase in [
+        "accepted-record history, not metaphysical truth",
+        "full erasure of semantic core remains unresolved",
+        "physical superuser remains outside semantic proof",
+        "event demotion is narrower than event elimination",
+    ]:
+        if phrase not in review:
+            fail(f"review lost adversarial boundary: {phrase}")
 
     shard = json.loads(INDEX.read_text(encoding="utf-8"))
     entries = shard.get("entries", [])
@@ -172,8 +216,13 @@ def main() -> int:
     entry = entries[0]
     if entry.get("issue") != 157 or entry.get("artifact") != "research/kill/occurrence-no-bypass/README.md":
         fail("issue #157 index locator drift")
-    if entry.get("review_status") not in {"unreviewed", "review-clean"}:
+    shard_review = entry.get("review_status")
+    if shard_review not in {"unreviewed", "review-clean"}:
         fail("invalid issue #157 review status")
+    if shard_review == "unreviewed" and review_status != "review-pending":
+        fail("unreviewed #157 shard requires review-pending review")
+    if shard_review == "review-clean" and review_status != "review-clean":
+        fail("review-clean #157 shard requires review-clean review")
     indexed_laws = sorted(
         record["ref"].split("#")[-1]
         for record in entry.get("records", [])
@@ -182,15 +231,15 @@ def main() -> int:
     if indexed_laws != sorted(laws):
         fail("issue #157 candidate-law index drift")
 
-    rfc = RFC2.read_text(encoding="utf-8").lower().replace("`", "")
+    rfc = norm(RFC2.read_text(encoding="utf-8"))
     if "status: hypothesis" not in rfc or "decision: none" not in rfc:
         fail("RFC-0002 was promoted during Event kill test")
     if "r6-capability accepted" in rfc:
         fail("R6 was accepted from #157 automatically")
 
     print(
-        "ok: generic sealed-semantic Type candidate + atomic authority/provenance/current-privacy hardening have no Event/Occurrence interpreter; "
-        f"20 laws, 50 scenarios and required regressions/competitors present; review={entry.get('review_status')}"
+        "ok: generic sealed-semantic candidate + atomic/provenance/current-privacy hardening have no Event/Occurrence interpreter; "
+        f"20 laws, 50 scenarios, PostgreSQL experiment and reviewed boundaries present; review={shard_review}/{review_status}"
     )
     return 0
 
