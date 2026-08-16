@@ -1,7 +1,7 @@
 # Competing models — issue #156
 
 **Decision:** none  
-**Current candidate:** M4 / R6-capability remains `hypothesis`.
+**Current candidate:** M4-v2 / R6-capability remains `hypothesis`.
 
 ## Scoring rule
 
@@ -33,17 +33,9 @@ RuleBinding(
 
 Runtime selects bindings by scope/locus and evaluates them.
 
-### Strength
+**State:** control.
 
-Directly expresses the job the corpus repeatedly requires.
-
-### Cost
-
-The base form may be naming a scheduling/enforcement mechanism that could be derived from more primitive typed operation semantics. It also risks becoming a universal hook system.
-
-### State
-
-`control`.
+Its strength is directness. Its cost is that it may name a scheduling/enforcement mechanism that can be derived from smaller typed operation semantics and may otherwise grow into a universal hook system.
 
 ## M1 — definition graph plus special dispatcher
 
@@ -54,18 +46,16 @@ Relation appliesTo(Rule, Target)
 Relation locus(Rule, Commit)
 ```
 
-Runtime then performs:
+Runtime still performs:
 
 ```text
 for rule in graph where locus=commit and target=X:
     evaluate(rule)
 ```
 
-### Verdict
+**Verdict:** `rejected` as reduction.
 
-`rejected` as reduction.
-
-This is a storage/metamodel encoding of RuleBinding, not deletion of its semantic job. The executable model records a `dispatch_calls` witness precisely to make the hidden recreation visible.
+This is a storage/metamodel encoding of RuleBinding, not deletion of its semantic job. The executable model records a `dispatch_calls` witness so the hidden recreation is observable.
 
 ## M2 — inline contracts
 
@@ -82,13 +72,11 @@ Type Occurrence:
   onUpdate: deny
 ```
 
-### Verdict
+**Verdict:** `rejected` as sufficient.
 
-`rejected` as sufficient.
+The accounting sensitivity model blocks an unbalanced Action while an admin mutation creates the same illegal state. Extending every read/effect/admin/lifecycle operation with local rule lists only distributes the same attachment protocol.
 
-The accounting sensitivity model shows Action-local balance enforcement while an admin mutation creates an unbalanced state. Extending every read/effect/admin/lifecycle operation with local rule lists simply reconstructs the attachment protocol repeatedly.
-
-Inline authoring can remain ergonomic sugar if it normalizes to a stronger generic mechanism.
+Inline authoring can still be ergonomic sugar over a stronger generic mechanism.
 
 ## M3 — executable Relation trigger
 
@@ -102,24 +90,17 @@ Relation trigger(
 
 Runtime searches Relations by trigger semantics.
 
-### Verdict
+**Verdict:** `rejected` as reduction in the tested form.
 
-`rejected` as reduction in the tested form.
+It either recreates the dispatcher using Relation records or promotes Relation into a larger trigger super-form containing scheduling/failure/authority semantics. A lower form count with a less orthogonal primitive is not demonstrated to be simpler.
 
-It either:
-
-1. reintroduces the exact dispatcher using Relation records; or
-2. promotes Relation into a larger executable trigger super-form whose semantics now include scheduling, failure algebra and authority.
-
-A lower count with a more heterogeneous primitive is not demonstrated to be simpler or more orthogonal.
-
-## M4 — proof-carrying refined capabilities
+## M4 — proof-carrying refined Types
 
 ### Core move
 
 Remove runtime rule scheduling by locus.
 
-A privileged operation declares the capability values required by its **typed signature**:
+A privileged operation declares the proof values required by its typed signature:
 
 ```text
 preview:Purchase    : PreviewPermit<Purchase> -> Unit
@@ -132,39 +113,36 @@ effect-attempt      : EffectAttemptPermit<Request> -> Attempt
 update:Occurrence   : UpdatePermit<Occurrence> -> Unit
 ```
 
-Capability values are ephemeral values of ordinary refined Types under a standard contract:
+These are values of the same generic `TypeDef + refinements + construct()` system used for ordinary business values. There is no `CapabilityType` semantic species.
+
+Example:
 
 ```text
-Type CommitPermit<Purchase>
-  refinement: AuthorizePurchaseCommit
-  freshness: current
+Type PositiveAmount
+  contract: value
+  refinement: Positive
 
-Type PostStateValid<Ledger>
-  refinement: BalancedPendingState
+Type CommitPermit<Purchase>
+  contract: capability
+  refinement: AuthorizePurchaseCommit
   freshness: current
 ```
 
+Both are constructed through the same Type refinement mechanism. Only a Type carrying the standard `capability` contract can satisfy a privileged operation signature.
+
 ### No locus field
 
-`commit` is not metadata on a rule. The operation named `commit:Purchase` simply requires `CommitPermit` and `PostStateValid` in its type-level signature.
+`commit` is not metadata on a rule. The operation `commit:Purchase` simply requires `CommitPermit` and `PostStateValid` values.
 
-`preview` cannot accidentally authorize commit because it produces/requires a different capability type.
+`preview` cannot authorize commit because it is a different typed operation requiring a different proof Type.
 
 ### No scope lookup
 
-Rules are not discovered by asking which bindings apply to `Purchase`. A caller must construct values of the exact Types required by the operation. Construction validates the Type refinements.
-
-### Currentness
-
-A current capability value carries the authority-state revision at which it was minted. Generic value verification rejects it after the revision changes.
-
-A pinned capability carries a digest of its named basis. Unrelated current-state revision changes do not invalidate that evidence, but changing the pinned basis does.
-
-This is value validity, not a binding `basis` field evaluated later.
+Rules are not discovered by asking which bindings apply to a target. A caller must present values of the exact Types required by the operation signature. Construction evaluates the declared Type refinements.
 
 ### Authorization algebra
 
-The capability refinement can call one typed PDP Computation. That PDP owns combination semantics and returns:
+A proof refinement can invoke one typed PDP Computation. That PDP owns its policy combination semantics and returns:
 
 ```text
 Permit | Deny | Error
@@ -172,69 +150,122 @@ Permit | Deny | Error
 + evaluator/model revision
 ```
 
-Capability construction only accepts `Permit`. It preserves Deny vs Error as distinct failed-construction outcomes.
-
-This deliberately avoids making generic Type refinement responsible for Cedar/OpenFGA/OPA combination details.
+Generic Type construction accepts Permit and preserves Deny versus Error as distinct failed constructions. This does not force Cedar/OpenFGA/OPA combination details into generic Type refinement.
 
 ### Global invariants
 
-The single low-level authoritative local commit operation requires a post-state-valid capability. Both business Actions and admin operations must use the same boundary.
+The single low-level authoritative local commit operation requires a post-state-valid proof. Both business Actions and admin operations use this boundary.
 
-The invariant is therefore not scheduled because a RuleBinding matched `locus=commit`; the proposed state simply cannot be committed without a proof value of the required Type.
-
-### Occurrence lifecycle
-
-`update:Occurrence` requires `UpdatePermit<Occurrence>`. Under the tested contract no value of that capability type can be constructed.
-
-Whether this remains correct across migration/privacy/repair paths is **not** settled here; #157 owns that falsifier.
+The invariant is therefore not scheduled because a RuleBinding matched `locus=commit`; the proposed state cannot be committed without a value proving the required refined Type.
 
 ### External effects and reads
 
-The same signature idea separates `EffectAttemptPermit` and `ReadPermit`. A read token cannot authorize an effect attempt.
+The same signature mechanism separates `EffectAttemptPermit` and `ReadPermit`. A read proof cannot authorize an effect attempt.
 
 ### Why capability machinery is independently required
 
-Even if the business ontology had zero Constraints/Policies/Invariants, runtime still needs to prevent ordinary Computations from:
+Even with zero business Constraints/Policies/Invariants, runtime must prevent ordinary Computations from mutating authoritative state, using credentials, dispatching external effects, or crossing tenant/environment authority boundaries.
 
-- mutating authoritative state;
-- using credentials;
-- dispatching external effects;
-- crossing tenant/environment boundaries.
+A capability boundary therefore exists independently of RuleBinding. M4 reuses this authority boundary rather than introducing a second scheduler.
 
-A capability boundary therefore exists independently of RuleBinding. M4 tries to reuse that already-required mechanism rather than introduce another scheduler.
+## M4-v1 falsified — revision-bound proof is not context-bound proof
 
-## Hidden-recreation challenge against M4
+The first green M4 bound proof values to:
 
-M4 is **not** automatically a real reduction. The following would kill it:
+```text
+type
+target
+semantic operation
+current revision or pinned basis
+```
 
-1. capability Types grow arbitrary `locus`, `scope`, `timing`, `on_error`, `combine` fields until they are RuleBinding records;
-2. runtime starts searching capability declarations by operation phase rather than validating values demanded by signatures;
+That was insufficient.
+
+A proof for a balanced proposed state could be reused for a different proposed state inside the same revision. Likewise authorization for `amount=5` could be substituted into an attempt with changed inputs. This is a TOCTOU/context-substitution failure even though revision freshness is correct.
+
+The first green run is retained as evidence that **revision-only proof validity is too weak**.
+
+## M4-v2 hardening — exact semantic context + runtime issuance
+
+The current candidate binds each operational proof to a digest of the exact context it validated:
+
+```text
+target
+semantic operation identity
+inputs
+proposed/pending state
+pinned state/basis
+payload where relevant
+```
+
+The runtime also seals the proof over:
+
+```text
+type
+target/context digest
+basis revision / pinned digest
+determining evidence
+evaluator revisions
+```
+
+The bounded model uses HMAC-SHA256 as a concrete anti-forgery mechanism. HMAC is not proposed as ontology semantics; the law is that an untrusted caller must not be able to mint, retarget or rewrite an authority proof outside the trusted runtime boundary.
+
+Permanent regressions distinguish two failures:
+
+- **context substitution** -> `ContextMismatch`;
+- **tampering with a sealed proof while keeping context unchanged** -> `ForgedProof`.
+
+This hardening required no RuleBinding/locus/scope dispatcher and no new `CapabilityType` form.
+
+### Currentness after hardening
+
+Global revision is a deliberately conservative bounded model. Production may bind proof validity to a declared dependency/StateBasis digest so unrelated revisions do not invalidate everything.
+
+That refinement is allowed only if it remains proof-value validity. If it requires rediscovering and scheduling rules by locus/scope, R6 fails and R5 survives.
+
+### Occurrence lifecycle
+
+`update:Occurrence` requires an authority proof whose Type is intentionally uninhabited under the tested contract. This is not enough to settle repair/privacy/migration paths; #157 owns that falsifier.
+
+## Hidden-recreation challenge against M4-v2
+
+M4 is not automatically a real reduction. It dies if any of these becomes necessary:
+
+1. proof Types grow arbitrary `locus`, `scope`, `timing`, `on_error`, `combine` fields until they are RuleBinding records;
+2. runtime searches proof declarations by operation phase instead of checking values required by signatures;
 3. business-specific branches decide which refinements to run;
 4. cross-cutting invariants require an external registry because operation signatures cannot express them compositionally;
-5. authorization currentness cannot be represented as capability-value validity without a separate rule scheduler;
-6. capability minting only exists because of business rules, so the claimed independent runtime purpose is false.
+5. currentness/dependency validity cannot be represented on proof values without a separate scheduler;
+6. the capability boundary has no independent purpose outside business rules;
+7. `capability` itself requires a new semantic Type species rather than a standard Type contract;
+8. trusted actor/workload/represented-principal context must be supplied by untrusted callers rather than runtime identity;
+9. exact-context binding cannot cover the semantics that determine authorization/invariant validity without reconstructing RuleBinding metadata.
 
-The current bounded reference model avoids 1–5. Item 6 is supported conceptually by Computation/external-I/O isolation but still needs runtime architecture work.
+The bounded model currently avoids 1–7 and 9. Item 8 is a mandatory review boundary: the test API passes `actor="alice"` for convenience, but production authority must derive actor/workload/representation from trusted execution context.
 
 ## Interim comparison
 
-| Criterion | M0 RuleBinding | M1 graph | M2 inline | M3 Relation trigger | M4 capability |
+| Criterion | M0 RuleBinding | M1 graph | M2 inline | M3 Relation trigger | M4-v2 refined proof |
 | --- | --- | --- | --- | --- | --- |
 | Rule lookup by locus | yes | yes | duplicated locally | yes | **no** |
 | Alternate-path invariant | yes | yes | **fails** | yes if dispatcher complete | yes via commit signature |
-| Preview != commit | explicit locus | explicit locus | duplicated code | trigger value | distinct capability Types |
-| Deny != evaluator Error | yes | possible | ad hoc | must add algebra | distinct mint failure |
-| Current-state freshness | binding basis | binding data | ad hoc | trigger metadata | token validity |
-| Pinned evidence | binding basis | binding data | ad hoc | trigger metadata | basis-bound token |
-| Read/effect separation | loci | loci | duplicated | triggers | distinct signatures/types |
+| Preview != commit | explicit locus | explicit locus | duplicated | trigger value | distinct required Types |
+| Deny != evaluator Error | yes | possible | ad hoc | must add algebra | distinct construction failure |
+| Current-state freshness | binding basis | binding data | ad hoc | trigger metadata | proof validity |
+| Exact input/post-state binding | possible | possible | ad hoc | possible | **context digest** |
+| Pinned evidence | binding basis | binding data | ad hoc | trigger metadata | basis-bound proof |
+| Read/effect separation | loci | loci | duplicated | triggers | distinct signatures/Types |
+| Caller can forge authority | runtime dependent | runtime dependent | often implicit | runtime dependent | sealed runtime-issued proof |
 | Hidden dispatcher | explicit by design | **yes** | distributed | **yes** | not in bounded model |
-| Independent runtime reason | enforcement itself | no | no | no | capability isolation |
+| Independent runtime reason | enforcement itself | no | no | no | Computation/credential/I/O isolation |
 
 ## Interim verdict
 
 M1, M2 and M3 do not beat R5.
 
-M4 is the first competitor in this pass that may constitute a **real** reduction rather than a rename. It revives a four-form candidate:
+M4-v1 was falsified by context substitution. M4-v2 repaired that counterexample without recreating RuleBinding machinery.
+
+M4-v2 is therefore the first competitor in this pass that may constitute a **real** reduction rather than a rename. It revives a four-form candidate:
 
 ```text
 Type
@@ -243,6 +274,6 @@ Computation
 Action
 ```
 
-but with a materially stronger Type/runtime-capability story than Wave A's rejected M1 quartet.
+but with a materially stronger Type/runtime-capability model than Wave A's rejected quartet.
 
-That candidate is provisionally called `R6-capability`. It is not an RFC update and not accepted. It must survive the #156 executable/property tests, adversarial review, exact-head CI, and later pressure from #157/#158/#71 before any RFC-0002 disposition changes.
+This candidate is provisionally called `R6-capability`. It is not an RFC update and not accepted. It must survive #156 adversarial review/exact-head CI and then #157/#158/#71 before any disposition of RFC-0002 changes.
