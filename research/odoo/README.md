@@ -4,6 +4,8 @@
 **Decision.** none. This directory is evidence, not a foundation proposal.  
 **License posture.** Odoo Community is LGPL-3.0. Notes record concepts, behavior, tests, and public paths only. No implementation was copied.
 
+> **Adversarial review warning:** the Odoo archaeology is pinned to Community `18.0`, but the original ERPNext disagreement report used ERPNext `version-15`, while issue #32 independently pinned ERPNext `develop`. Therefore the direct cross-product disagreements are **preliminary/cross-generation** until revalidated against an aligned ERPNext pin. Read [`comparison-scope.md`](comparison-scope.md) before consuming `disagreement-erpnext.md` in synthesis.
+
 Query this folder. Do not treat model names as OS types.
 
 ## How to read
@@ -26,7 +28,8 @@ Decision state is `hypothesis`, `supported`, `rejected`, or `undetermined`. Neve
 - [`atlas.md`](atlas.md) maps party, sales, purchase, inventory, MRP, accounting, CRM, project, HR, maintenance, and the Community quality gap.
 - [`invariants.md`](invariants.md) is the invariant catalog.
 - [`edge-cases.md`](edge-cases.md) is the edge-case catalog from constraints, tests, and historical fixes.
-- [`disagreement-erpnext.md`](disagreement-erpnext.md) is the first ERPNext and Odoo disagreement report.
+- [`comparison-scope.md`](comparison-scope.md) records the pin mismatch discovered in adversarial review and the rules for using the comparison.
+- [`disagreement-erpnext.md`](disagreement-erpnext.md) is the original first ERPNext/Odoo disagreement report; its cross-product verdicts are preliminary until aligned-pin revalidation.
 
 ## Special-focus index
 
@@ -42,47 +45,41 @@ Decision state is `hypothesis`, `supported`, `rejected`, or `undetermined`. Neve
 
 ## Overview
 
-Odoo Community 18.0 encodes operational work as mutable records with named actions and per-model state machines. Inventory current quantity lives on `stock.quant`. Movement history lives on `stock.move` and `stock.move.line`. Accounting invoices and miscellaneous journals share `account.move`. A posted accounting move can often return to draft. A done stock move cannot. That split is the sharpest local finding.
+Within the pinned Odoo Community 18.0 source, operational work is encoded as mutable records with named actions and per-model state machines. Inventory current quantity lives on `stock.quant`; movement history lives on `stock.move` and `stock.move.line`; accounting invoices and miscellaneous journals share `account.move`. Those are **Odoo observations**, not OS laws.
 
-## Key concepts
+## Key concepts observed in Odoo
 
-- **Partner.** One `res.partner` record can be a customer, a supplier, an employee address, or a company.
-- **Quant.** On-hand quantity at a location, lot, package, and owner.
-- **Move.** An intended or completed quantity change between two locations.
-- **Move line.** The reservation and execution slice that actually touches a quant.
-- **Valuation layer.** A cost layer created from a done stock move. It may post an `account.move`.
-- **Manufacturing order.** Authorization and plan to produce. Its `state` is computed.
-- **Work order.** Execution of one operation at a work center. Its `state` is also computed.
+- **Partner.** One `res.partner` record can participate in customer/supplier/etc. contexts.
+- **Quant.** On-hand quantity at a location/lot/package/owner grain.
+- **Move.** An intended or completed quantity change between locations.
+- **Move line.** Reservation/execution slice touching quant identity.
+- **Valuation layer.** Cost-layer representation related to completed stock movement.
+- **Manufacturing order.** Odoo's production authorization/plan record.
+- **Work order.** Odoo's operation-execution record at a work center.
 
-## How it works
-
-A confirmed sales order creates stock moves, usually grouped into a picking. Assignment reserves quantity on quants through move lines. Validation of the picking marks moves done and updates quants. If perpetual valuation is on, a stock valuation layer is written and may post a journal entry. Billing creates another `account.move` with `move_type` set to a customer invoice. Payment reconciliation is a later `account.partial.reconcile`, not a field on the order.
-
-A confirmed manufacturing order creates component moves and finished-good moves. Work orders start and finish against that order. Closing the manufacturing order posts the stock moves. Partial output can split a backorder manufacturing order.
-
-## Where things live
-
-Pinned paths are under `https://github.com/odoo/odoo/blob/18.0/` at SHA `bca6e5d13118fc2dff99d7b81bd49860e743132a`. See [`corpus.md`](corpus.md).
+These names remain source-system terms. The domain distinctions must be cross-validated independently.
 
 ## Gotchas
 
-- Quotation and sales order are one model. RFQ and purchase order are one model. Lead and opportunity are one model. Invoice and journal entry are one model. Those collapses are product architecture, not proof that the real-world acts are the same.
-- Manufacturing order `state` and work order `state` are computed stored fields. Sales order `state` and account move `state` are written by actions.
-- Quality control models were not present in Community 18.0 addons. That gap is recorded, not filled from Enterprise.
+- Quotation/order, RFQ/purchase order, lead/opportunity, and invoice/journal are collapsed in various Odoo models. Model collapse is product architecture, not proof that the corresponding real-world acts have one identity.
+- Some `state` values are computed while others are written through named actions.
+- Quality control models were not present in the inspected Community 18.0 addon path. That is a scoped absence, not evidence about Enterprise or later releases.
+- Cross-version differences in `disagreement-erpnext.md` must not be counted as stable ERPNext/Odoo divergence without revalidation.
 
 ## What this corpus does not do
 
 It does not propose Odoo as the OS foundation.  
 It does not translate models into ontology types.  
-It does not answer `docs/open-questions.md`. Those stay undetermined unless a card cites independent evidence.  
-It does not edit `rfcs/0001-metamodel-hypothesis.md`.
+It does not answer `docs/open-questions.md`.  
+It does not edit `rfcs/0001-metamodel-hypothesis.md`.  
+It does not claim that an Odoo 18 vs ERPNext v15 difference is a current architectural divergence.
 
 ## Related OS docs
 
 - Issue [33](https://github.com/EnzoTironi/OS/issues/33)
-- `docs/thesis.md` (mature ERPs are evidence)
-- `docs/constitution.md` sections 2, 3, 8, 16
-- `docs/research-program.md` inventory and manufacturing questions
-- `docs/open-questions.md` sections 4 to 8 and 12 to 14
-- `docs/swarm-research-backlog.md` Agent output contract. `docs/swarm-result-contract.md` was not on `origin/main` at research time.
-- `rfcs/0001-metamodel-hypothesis.md` remains `hypothesis`.
+- `docs/thesis.md`
+- `docs/constitution.md`
+- `docs/research-program.md`
+- `docs/open-questions.md`
+- `docs/swarm-research-backlog.md`
+- `rfcs/0001-metamodel-hypothesis.md`
