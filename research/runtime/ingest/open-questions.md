@@ -19,7 +19,7 @@ Scores are model evidence. Deterministic/automatic binding can be valid when a g
 
 ## Q-I45-03 — must OS preserve unresolved evidence?
 
-**Answer:** yes for the ingest contract when evidence was accepted/captured and retention/security permits it.
+**Answer:** yes for the ingest contract while the evidence is retained and retention/security/legal policy permits it.
 
 Otherwise the system is forced to choose between fabricating a target or silently losing source information. A rejected/disposed record can later be removed under an explicit retention/privacy policy; that is different from pretending mapping succeeded.
 
@@ -43,7 +43,7 @@ The ingest boundary requires the **distinction** between source evidence/observa
 
 Current answer: `undetermined`; not earned.
 
-A source-to-business binding needs identity, provenance, scope, revision and correction history. Ordinary typed relation/relator/decision constructs may suffice. A primitive is justified only if generic enforcement cannot be composed safely.
+A source-to-business exact-identity binding needs identity, provenance, scope/effectivity, revision and correction history. Ordinary typed relation/relator/decision constructs may suffice. A primitive is justified only if generic enforcement cannot be composed safely.
 
 ## Q-I45-12 — should every admitted statement be represented as a first-class `Fact`?
 
@@ -55,11 +55,28 @@ Fact-oriented representation is attractive for epistemic plurality, but can over
 
 Depends on legal/privacy/security/operational policy.
 
-Required capability: preserve enough provenance to justify the statement/binding while the evidence is retained. Retention, erasure, crypto-erasure, redaction and legal exceptions are handled by #6/#73/#47/#49 and jurisdictional policy.
+Required capability: preserve enough provenance to justify the statement/binding while the evidence is retained. Retention, erasure, crypto-erasure, redaction and legal exceptions are handled by #6/#73/#47/#49 and jurisdictional policy. `Preserve provenance` is not a universal command to retain every raw byte forever.
 
-## Q-I45-14 — should a high-confidence binding be globally accepted or consumer-specific?
+## Q-I45-14 — how should relation semantics, assurance, and consumer risk interact?
 
-Strong hypothesis: acceptance can be scoped by risk/action/context. #42 should determine authorization semantics; #70 should determine whether the binding relation itself needs scope or whether consumers apply their own admissibility policies.
+**Corrected answer:** do not make exact identity consumer-relative.
+
+Separate:
+
+```text
+relation semantics
+  sameExactEntity | probableSameProductFamily | possibleMatch | sourceAlias | ...
+
+assurance/evidence
+  deterministic identifier, reviewed crosswalk, probabilistic score/model, conflicting evidence, etc.
+
+consumer/Action admissibility
+  what relation + assurance is sufficient for this operation?
+```
+
+A competitor-price analysis may use `probableSameProductFamily`; a payment Action may require `sameExactEntity` established by stronger evidence/review. That is not one exact-identity binding that is true for analytics and false for payment.
+
+#42 should determine authorization/operation policy over these relations. #70 should decide whether assurance/relation metadata belongs on ordinary links/relators, a binding object, or another compositional form.
 
 ## Q-I45-15 — what is a `source identity` when the source has no stable key?
 
@@ -73,14 +90,14 @@ We can pin model/config/prompt/retrieval/evidence, but exact stochastic replay m
 
 # Handoff to #40 — transaction and commit semantics
 
-#40 must define how a high-impact binding/admission decision commits.
+#40 must define how a high-impact exact-identity binding/admission decision commits.
 
 Questions:
 
 1. What exact evidence/candidate set/mapping revision is bound into the proposal?
 2. Does commit require candidate set to remain unchanged, or only certain assumptions?
 3. If new contradictory evidence arrives after approval but before commit, when is revalidation mandatory?
-4. Can a low-risk analytic auto-binding use a simpler commit contract than a payment-counterparty merge?
+4. Can deterministic exact binding use a simpler commit contract than an ambiguous reviewed merge without weakening the semantics?
 5. How are merge/split/rebind decisions made atomic with changes to operational projections/references?
 6. How does ontology revision affect a binding proposal in flight?
 
@@ -102,8 +119,8 @@ Questions:
 
 Questions:
 
-1. Who may accept/reject a candidate binding?
-2. Can policy auto-bind low-risk analytics but require two-person approval for legal-party merge?
+1. Who may accept/reject an exact-identity binding when adjudication is required?
+2. Which Actions may rely on weaker relations such as `probableSameProductFamily`, and which require exact identity plus stronger assurance?
 3. Can an agent propose a merge and a human approve it without the agent inheriting approval authority?
 4. Who may inspect raw/redacted evidence?
 5. How does source/datasource permissioning affect derived/projection visibility?
@@ -118,7 +135,8 @@ raw/source capture lineage
 schema/mapping revision
 unresolved evidence
 pairwise candidates + optional clusters
-binding history including split/rebind
+semantic relation kind + assurance/evidence
+exact-identity binding history including split/rebind
 statement/source authority metadata
 source positions/offsets for dedupe/replay
 observed snapshots without invented events
@@ -144,9 +162,9 @@ Metamorphic properties:
 
 1. **Source-copy invariance:** importing a known materialized copy of the same evidence should not create a second business occurrence.
 2. **Model-revision non-mutation:** rerunning with mapping M2 must not mutate the recorded output/basis of M1.
-3. **Threshold sensitivity transparency:** changing clustering threshold may change candidate clusters but must not silently rewrite committed identity bindings.
+3. **Threshold sensitivity transparency:** changing clustering threshold may change candidate clusters but must not silently rewrite committed exact-identity bindings.
 4. **Arrival-order invariance:** when source ordering/transaction metadata is sufficient, different network arrival order should produce the same source-state interpretation.
-5. **Risk monotonicity is not assumed:** a match acceptable for analytics need not be acceptable for payment.
+5. **Consumer-policy separation:** allowing an analytics query to use a weaker semantic relation must not promote that relation into exact identity or make it admissible for a high-risk Action.
 
 # Handoff to #49 — observability
 
@@ -156,7 +174,8 @@ Required explanations:
 Why does Product P currently have cost 105?
 Which source observations were alternatives?
 Which mapping/extractor version produced each statement?
-Why was source record X bound to P?
+Why was source record X bound exactly to P?
+What candidate/approximate relations existed and what assurance supported them?
 What candidates were rejected and by what rule/actor?
 Did this value come from a snapshot, source mutation, Action, or projection?
 Which historical Action used the older binding?
