@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Executable reduction model for issue #70.
 
-This is a semantic litmus model, not production architecture.  It intentionally
-contains a few unsafe reduced variants so the test suite can prove that the
-kill tests are sensitive to the distinctions under review.
+This is a semantic litmus model, not production architecture. It intentionally
+contains unsafe reduced variants so the test suite can prove that kill tests are
+sensitive to distinctions under review.
+
+Important scope rule: where #70 reuses a mature Wave-B contract (notably #41
+external effects), this model may implement only a small subset, but it must not
+contradict the reviewed contract merely to make the metamodel reduction simpler.
 """
 
 from __future__ import annotations
@@ -66,6 +70,7 @@ class EffectKnowledge(str, Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
     REJECTED = "rejected"
+    CONTRADICTED = "contradicted"
 
 
 @dataclass(frozen=True)
@@ -188,7 +193,7 @@ class EffectRequest:
     knowledge: EffectKnowledge = EffectKnowledge.NOT_ATTEMPTED
     remote_key: str | None = None
     remote_receipt: str | None = None
-    attempts: int = 0
+    attempts: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -206,7 +211,7 @@ class Materialization:
 
 
 class ReducedEngine:
-    """R5 interpreter with one authoritative mutation boundary."""
+    """R5 interpreter with one exported authoritative mutation boundary."""
 
     def __init__(self) -> None:
         self.types: dict[str, TypeDef] = {}
@@ -282,10 +287,9 @@ class ReducedEngine:
             raise TypeViolation(
                 f"relation {relation_name} source expects {definition.source_type}, got {source.type_name}"
             )
-        target_type = target.type_name
-        if target_type != definition.target_type:
+        if target.type_name != definition.target_type:
             raise TypeViolation(
-                f"relation {relation_name} target expects {definition.target_type}, got {target_type}"
+                f"relation {relation_name} target expects {definition.target_type}, got {target.type_name}"
             )
         if isinstance(target, EntityRef):
             if target.entity_id not in self.entities:
@@ -309,25 +313,37 @@ class ReducedEngine:
 
     # ---- computation / rule enforcement ----
 
+    def _authoritative_snapshot(self) -> tuple[Any, ...]:
+        return (
+            deepcopy(self.entities),
+            deepcopy(self.relations),
+            deepcopy(self.business_state),
+            deepcopy(self.operations),
+            deepcopy(self.effects),
+            deepcopy(self.runtime_timers_fired),
+            deepcopy(self.materializations),
+            self.revision,
+        )
+
+    def _restore_authoritative_snapshot(self, snapshot: tuple[Any, ...]) -> None:
+        (
+            self.entities,
+            self.relations,
+            self.business_state,
+            self.operations,
+            self.effects,
+            self.runtime_timers_fired,
+            self.materializations,
+            self.revision,
+        ) = deepcopy(snapshot)
+
     def run_computation(self, name: str, context: EvaluationContext) -> Any:
-        computation = self.computations[name]
-        before_state = deepcopy(self.business_state)
-        before_entities = deepcopy(self.entities)
-        before_relations = deepcopy(self.relations)
-        before_effects = deepcopy(self.effects)
-        result = computation.fn(context)
-        if (
-            self.business_state != before_state
-            or self.entities != before_entities
-            or self.relations != before_relations
-            or self.effects != before_effects
-        ):
-            # Restore before raising to make the capability boundary explicit.
-            self.business_state = before_state
-            self.entities = before_entities
-            self.relations = before_relations
-            self.effects = before_effects
-            raise CapabilityViolation(f"computation {name} attempted authoritative mutation")
+        before = self._authoritative_snapshot()
+        result = self.computations[name].fn(context)
+        after = self._authoritative_snapshot()
+        if after != before:
+            self._restore_authoritative_snapshot(before)
+            raise CapabilityViolation(f"computation {name} attempted authoritative/runtime mutation")
         return result
 
     def _bindings_for(
@@ -397,7 +413,7 @@ class ReducedEngine:
         self._enforce(bindings)
         del self.entities[entity_id]
         for key in list(self.relations):
-            relation_name, source_id = key
+            _, source_id = key
             if source_id == entity_id:
                 del self.relations[key]
                 continue
@@ -442,7 +458,7 @@ class ReducedEngine:
         if previous:
             if previous.intent_digest != intent_digest or previous.action_name != action_name:
                 raise IntentMismatch(f"operation {operation_id} reused with different intent")
-            return previous.result
+            return deepcopy(previous.result)
 
         action = self.actions[action_name]
         self._enforce(
@@ -464,7 +480,7 @@ class ReducedEngine:
         if not isinstance(plan, ActionPlan):
             raise ModelError(f"Action planner {action.planner} did not return ActionPlan")
 
-        snapshot = self._snapshot()
+        snapshot = self._authoritative_snapshot()
         try:
             for mutation in plan.mutations:
                 self._apply_mutation(mutation, parent_operation_id=operation_id)
@@ -476,10 +492,10 @@ class ReducedEngine:
                 pinned_state=pinned_state,
             )
         except Exception:
-            self._restore(snapshot)
+            self._restore_authoritative_snapshot(snapshot)
             raise
 
-        record = OperationRecord(
+        self.operations[operation_id] = OperationRecord(
             operation_id=operation_id,
             action_name=action_name,
             intent_digest=intent_digest,
@@ -488,7 +504,6 @@ class ReducedEngine:
             represented_principal=represented_principal,
             workload=workload,
         )
-        self.operations[operation_id] = record
         self.revision += 1
         return deepcopy(plan.result)
 
@@ -521,40 +536,56 @@ class ReducedEngine:
 
     # ---- safe external-effect runtime capability ----
 
+    @staticmethod
+    def _merge_effect_knowledge(prior: EffectKnowledge, evidence: str) -> EffectKnowledge:
+        """Conservatively merge the narrow attempt-evidence subset used by #70.
+
+        This mirrors the important monotonicity/contradiction behavior of the
+        reviewed #41 model. It intentionally does not pretend to define one
+        universal provider state machine.
+        """
+        if evidence == "definitely_not_sent":
+            return prior
+        if evidence == "sent_no_response":
+            return EffectKnowledge.INDETERMINATE if prior is EffectKnowledge.NOT_ATTEMPTED else prior
+        if evidence == "accepted_pending":
+            return EffectKnowledge.PENDING if prior in {EffectKnowledge.NOT_ATTEMPTED, EffectKnowledge.INDETERMINATE} else prior
+        if evidence == "confirmed":
+            if prior in {EffectKnowledge.REJECTED, EffectKnowledge.CONTRADICTED}:
+                return EffectKnowledge.CONTRADICTED
+            return EffectKnowledge.CONFIRMED
+        if evidence == "rejected":
+            if prior in {EffectKnowledge.CONFIRMED, EffectKnowledge.CONTRADICTED}:
+                return EffectKnowledge.CONTRADICTED
+            return EffectKnowledge.REJECTED
+        raise ModelError(f"unknown effect evidence {evidence}")
+
     def effect_attempt(self, effect_id: str, evidence: str, *, remote_key: str | None = None) -> EffectKnowledge:
         request = self.effects[effect_id]
-        request.attempts += 1
         if remote_key is not None:
             if request.remote_key is not None and request.remote_key != remote_key:
                 raise ModelError("remote idempotency key changed for same EffectRequest")
             request.remote_key = remote_key
-
-        if evidence == "definitely_not_sent":
-            return request.knowledge
-        if evidence == "sent_no_response":
-            if request.knowledge not in {EffectKnowledge.CONFIRMED, EffectKnowledge.REJECTED}:
-                request.knowledge = EffectKnowledge.INDETERMINATE
-        elif evidence == "accepted_pending":
-            if request.knowledge not in {EffectKnowledge.CONFIRMED, EffectKnowledge.REJECTED}:
-                request.knowledge = EffectKnowledge.PENDING
-        elif evidence == "confirmed":
-            request.knowledge = EffectKnowledge.CONFIRMED
-        elif evidence == "rejected":
-            request.knowledge = EffectKnowledge.REJECTED
-        else:
-            raise ModelError(f"unknown effect evidence {evidence}")
+        request.attempts.append(evidence)
+        request.knowledge = self._merge_effect_knowledge(request.knowledge, evidence)
         return request.knowledge
 
     def retry_effect(self, effect_id: str, *, protocol_has_safe_dedupe: bool) -> None:
         request = self.effects[effect_id]
-        if request.knowledge is EffectKnowledge.INDETERMINATE and not protocol_has_safe_dedupe:
-            raise UnsafeRetry(f"effect {effect_id} outcome unknown without safe remote dedupe")
+        if request.knowledge is EffectKnowledge.NOT_ATTEMPTED:
+            return
+        if request.knowledge is EffectKnowledge.INDETERMINATE and protocol_has_safe_dedupe:
+            return
+        raise UnsafeRetry(
+            f"effect {effect_id} cannot be generically retried from {request.knowledge.value} "
+            f"under the supplied protocol guarantee"
+        )
 
     def learn_remote_receipt(self, effect_id: str, receipt: str, *, confirmed: bool = True) -> None:
         request = self.effects[effect_id]
         request.remote_receipt = receipt
         if confirmed:
-            request.knowledge = EffectKnowledge.CONFIRMED
+            request.knowledge = self._merge_effect_knowledge(request.knowledge, "confirmed")
 
     # ---- runtime/query adjuncts ----
 
@@ -580,20 +611,6 @@ class ReducedEngine:
             if type_name in action.target_types
         }
         return contract.required_relations.issubset(relation_names) and contract.required_actions.issubset(action_names)
-
-    # ---- snapshot/rollback ----
-
-    def _snapshot(self) -> tuple[Any, ...]:
-        return (
-            deepcopy(self.entities),
-            deepcopy(self.relations),
-            deepcopy(self.business_state),
-            deepcopy(self.effects),
-            self.revision,
-        )
-
-    def _restore(self, snapshot: tuple[Any, ...]) -> None:
-        self.entities, self.relations, self.business_state, self.effects, self.revision = deepcopy(snapshot)
 
 
 # ---------------------------------------------------------------------------
