@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Atomic hardening for the issue #157 generic lifecycle candidate.
 
-The first green `SemanticStore` exposed two post-green problems during manual
-review:
+The first green `SemanticStore` exposed post-green problems during manual review:
 
 1. an operation id could be registered before a later validation failed, so a
    retry might become a false no-op;
 2. source evidence was entangled with semantic-record identity even though a
    second observation of the same occurrence should not create a second
-   occurrence.
+   occurrence;
+3. privacy erasure permission was frozen into the historical Type revision,
+   even though a current legal/policy rule can change what must/may be erased.
 
 This bounded model makes the authority operation atomic (state + operation
-marker succeed/fail together) and gives provenance/evidence an explicit
-non-semantic attachment operation. Production would rely on the real local
+marker succeed/fail together), gives provenance/evidence an explicit
+non-semantic attachment operation, and separates historical Type meaning from a
+current privacy-policy revision. Production would rely on the real local
 transaction boundary from #40/#39 rather than Python snapshots.
 """
 
@@ -26,11 +28,47 @@ from reference_model import (
     DuplicateConflict,
     HistoryEntry,
     ModelError,
+    RedactionViolation,
     SemanticStore,
+    TypeRevision,
 )
 
 
 class AtomicSemanticStore(SemanticStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self._privacy_policies: dict[str, tuple[str, frozenset[str]]] = {}
+
+    def register_type(self, definition: TypeRevision, *, make_current: bool = True) -> None:
+        super().register_type(definition, make_current=make_current)
+        # Treat a Type's original redactable-field declaration only as the
+        # initial policy seed. Later policy revisions are independent and do not
+        # rewrite historical Type meaning.
+        if definition.type_name not in self._privacy_policies:
+            self._privacy_policies[definition.type_name] = (
+                f"type-default:{definition.revision}",
+                frozenset(definition.redactable_payload_fields),
+            )
+
+    def set_privacy_policy(
+        self,
+        *,
+        type_name: str,
+        revision: str,
+        erasable_fields: Iterable[str],
+    ) -> None:
+        known_payload_fields = {
+            field
+            for (candidate_name, _), definition in self.type_revisions.items()
+            if candidate_name == type_name
+            for field in definition.payload_fields
+        }
+        requested = frozenset(erasable_fields)
+        unknown = requested - known_payload_fields
+        if unknown:
+            raise ModelError(f"privacy policy references unknown payload fields: {sorted(unknown)}")
+        self._privacy_policies[type_name] = (revision, requested)
+
     @classmethod
     def semantic_record_fingerprint(
         cls,
@@ -109,9 +147,59 @@ class AtomicSemanticStore(SemanticStore):
         with self._atomic_authority_operation():
             super().annotate(**kwargs)
 
-    def redact_payload(self, **kwargs) -> None:  # type: ignore[override]
+    def redact_payload(
+        self,
+        *,
+        operation_id: str,
+        path: str,
+        proof,
+        record_id: str,
+        fields: Iterable[str],
+        retain_digest: bool = False,
+    ) -> None:
+        if record_id not in self._records:
+            raise ModelError("cannot redact missing record")
+        record = self._records[record_id]
+        requested = set(fields)
+        policy_revision, erasable = self._privacy_policies.get(
+            record.type_name, ("none", frozenset())
+        )
+        if not requested.issubset(erasable):
+            raise RedactionViolation("current privacy policy does not authorize requested erasure")
+        context = {
+            "record_id": record_id,
+            "fields": sorted(requested),
+            "retain_digest": retain_digest,
+            "privacy_policy_revision": policy_revision,
+        }
+        self._verify_proof(
+            proof,
+            operation="redact",
+            path=path,
+            target=record_id,
+            context=context,
+        )
+        fingerprint = self.digest(context)
         with self._atomic_authority_operation():
-            super().redact_payload(**kwargs)
+            if not self._operation_once(operation_id, fingerprint):
+                return
+            for field_name in requested:
+                if field_name not in record.payload:
+                    continue
+                old = record.payload[field_name]
+                record.payload[field_name] = (
+                    {"redacted_digest": self.digest(old)} if retain_digest else None
+                )
+                record.redacted_fields.add(field_name)
+            self.history.append(
+                HistoryEntry(
+                    operation_id,
+                    "redact",
+                    path,
+                    record_id,
+                    note=f"privacy-policy={policy_revision}",
+                )
+            )
 
     def append_correction(self, **kwargs) -> None:  # type: ignore[override]
         # Validate record identities before the operation marker can be consumed.
