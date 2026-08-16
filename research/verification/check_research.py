@@ -34,6 +34,7 @@ def main() -> int:
         "regressions/known-counterexamples.json",
         "test_regressions.py",
         "open-questions.md",
+        "review.md",
     ]
     missing = [name for name in required if not (HERE / name).exists()]
     if missing or not INDEX.exists():
@@ -54,8 +55,6 @@ def main() -> int:
         if marker not in matrix:
             fail(f"verification matrix lost critical property {marker}")
 
-    # Normalize Markdown emphasis before checking epistemic guard phrases so
-    # presentation markup cannot create false negatives in the safety checker.
     readme = (HERE / "README.md").read_text(encoding="utf-8").lower().replace("**", "")
     for phrase in [
         "cheapest adequate verification mechanism",
@@ -75,6 +74,13 @@ def main() -> int:
     undiscoverable = re.findall(r"^def (test_[A-Za-z0-9_]+)\(", test_harness_text, re.MULTILINE)
     if undiscoverable:
         fail(f"unittest would skip module-level tests: {undiscoverable}")
+
+    review = (HERE / "review.md").read_text(encoding="utf-8").lower().replace("`", "")
+    if "status: review-clean" not in review:
+        fail("verification review is not marked review-clean")
+    for phrase in ["false-green", "bounded", "does not mean", "production/shadow monitoring"]:
+        if phrase not in review:
+            fail(f"review lost adversarial limitation: {phrase}")
 
     regressions = json.loads(REGRESSIONS.read_text(encoding="utf-8"))
     fixtures = regressions.get("fixtures", [])
@@ -107,6 +113,8 @@ def main() -> int:
     entry = entries[0]
     if entry.get("issue") != 46 or entry.get("artifact") != "research/verification/README.md":
         fail("verification index locator/issue mismatch")
+    if entry.get("review_status") != "review-clean":
+        fail("verification index is not review-clean")
 
     indexed_properties = {
         match.group(1)
@@ -119,7 +127,7 @@ def main() -> int:
 
     print(
         f"ok: {registry['scenario_count']} scenarios, {registry['law_count']} laws, "
-        f"{len(fixtures)} regressions, 9 critical verification properties"
+        f"{len(fixtures)} regressions, 9 critical verification properties, review-clean"
     )
     return 0
 
