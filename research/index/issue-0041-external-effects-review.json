@@ -1,0 +1,31 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0041-external-effects-review",
+      "artifact": "research/runtime/effects/review.md",
+      "issue": 41,
+      "title": "Adversarial review — external-effect semantics",
+      "question": "Which assumptions in the first issue-41 effect contract break under provider identity, retry, chronology, and primitive-reduction counterexamples?",
+      "artifact_kind": "review",
+      "topics": ["external-effects", "reconciliation", "remote-identity", "idempotency", "review"],
+      "source_keys": ["issue-41-external-effects", "temporal", "debezium", "stripe", "palantir", "brazil-fiscal"],
+      "evidence_kinds": ["official-doc", "test", "inference"],
+      "review_status": "review-clean",
+      "records": [
+        {"ref": "issue-0041-external-effects-review#R-EFF-01", "kind": "review-finding"},
+        {"ref": "issue-0041-external-effects-review#R-EFF-02", "kind": "review-finding"},
+        {"ref": "issue-0041-external-effects-review#R-EFF-03", "kind": "review-finding"},
+        {"ref": "issue-0041-external-effects-review#R-EFF-04", "kind": "review-finding"},
+        {"ref": "issue-0041-external-effects-review#R-EFF-05", "kind": "review-finding"},
+        {"ref": "issue-0041-external-effects-review#R-EFF-06", "kind": "review-finding"},
+        {"ref": "issue-0041-external-effects-review#R-EFF-07", "kind": "review-finding"}
+      ],
+      "disagreements": [],
+      "depends_on": ["issue-0041-external-effects"],
+      "related_issues": [40, 41, 42, 43, 45, 46, 47, 49, 70]
+    }
+  ]
+}
