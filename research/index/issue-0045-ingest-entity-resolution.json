@@ -33,10 +33,12 @@
         {"ref": "issue-0045-ingest-entity-resolution#L-I45-16", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0045-ingest-entity-resolution#L-I45-17", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0045-ingest-entity-resolution#L-I45-18", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0045-ingest-entity-resolution#L-I45-19", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0045-ingest-entity-resolution#M-B", "kind": "concept", "epistemic_state": "hypothesis"},
         {"ref": "issue-0045-ingest-entity-resolution#Q-I45-10", "kind": "open-question", "epistemic_state": "undetermined"},
         {"ref": "issue-0045-ingest-entity-resolution#Q-I45-11", "kind": "open-question", "epistemic_state": "undetermined"},
-        {"ref": "issue-0045-ingest-entity-resolution#Q-I45-12", "kind": "open-question", "epistemic_state": "undetermined"}
+        {"ref": "issue-0045-ingest-entity-resolution#Q-I45-12", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0045-ingest-entity-resolution#Q-I45-14", "kind": "open-question", "epistemic_state": "undetermined"}
       ],
       "disagreements": [],
       "depends_on": ["issue-0077-hf-reality-check", "research/reviews/wave-a-review-ledger.md"],
