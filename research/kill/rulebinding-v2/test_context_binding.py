@@ -98,30 +98,29 @@ class ContextBindingTests(unittest.TestCase):
             )
         self.assertEqual(engine.state["debits"], 0)
 
-    def test_proof_payload_cannot_be_forged_by_rewriting_context_digest(self) -> None:
+    def test_proof_payload_cannot_be_forged_without_runtime_seal(self) -> None:
         engine = make_context_engine()
         engine.state.update({"limit": 100, "debits": 0, "credits": 0})
         pending = {**engine.state, "debits": 2, "credits": 2}
         inputs, proofs = self._proofs(engine, amount=5, pending=pending)
-        unbalanced = {**engine.state, "debits": 2, "credits": 1}
-        forged_digest = engine.semantic_context_digest(
-            target="Purchase",
-            operation_id="OP",
-            inputs=inputs,
-            pending_state=unbalanced,
-            pinned_state=None,
-            payload=None,
-        )
-        forged = replace(proofs["PostStateValid"], context_digest=forged_digest)
+
+        # Keep the exact validated semantic context unchanged and tamper only
+        # with a field protected by the runtime seal. Context validation should
+        # therefore pass, and the forged proof must fail specifically because
+        # its HMAC no longer matches the issued value.
+        original = proofs["PostStateValid"]
+        forged = replace(original, evidence=original.evidence + ("forged-evidence",))
         with self.assertRaises(ForgedProof):
             engine.authoritative_commit(
                 operation_name="commit:Purchase",
                 target="Purchase",
                 operation_id="OP",
-                proposed_state=unbalanced,
+                proposed_state=pending,
                 inputs=inputs,
                 proofs={"CommitPermit": proofs["CommitPermit"], "PostStateValid": forged},
             )
+        self.assertEqual(engine.state["debits"], 0)
+        self.assertEqual(engine.state["credits"], 0)
 
     def test_context_bound_proof_is_still_invalidated_by_current_revision_change(self) -> None:
         engine = make_context_engine()
