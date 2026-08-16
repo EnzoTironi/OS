@@ -17,121 +17,123 @@ from harness import (
 )
 
 
-@settings(max_examples=200, deadline=None)
-@given(st.integers(min_value=0, max_value=2**32 - 1), st.integers(min_value=1, max_value=120))
-def test_seeded_generated_traces_preserve_cross_family_model_invariants(seed: int, length: int) -> None:
-    model = execute_trace(generated_trace(seed, length))
-    assert model.invariant_violations() == []
+class CrossOntologyPropertyTests(unittest.TestCase):
+    """Property and deterministic regressions that unittest discovery actually executes."""
 
+    @settings(max_examples=200, deadline=None)
+    @given(st.integers(min_value=0, max_value=2**32 - 1), st.integers(min_value=1, max_value=120))
+    def test_seeded_generated_traces_preserve_cross_family_model_invariants(self, seed: int, length: int) -> None:
+        model = execute_trace(generated_trace(seed, length))
+        self.assertEqual(model.invariant_violations(), [])
 
-@settings(max_examples=250, deadline=None)
-@given(
-    st.lists(
-        st.sampled_from(["OBS-A", "OBS-B", "OBS-C", "OBS-A"]),
-        min_size=0,
-        max_size=40,
+    @settings(max_examples=250, deadline=None)
+    @given(
+        st.lists(
+            st.sampled_from(["OBS-A", "OBS-B", "OBS-C", "OBS-A"]),
+            min_size=0,
+            max_size=40,
+        )
     )
-)
-def test_duplicate_delivery_never_creates_more_occurrences_than_unique_observations(deliveries: list[str]) -> None:
-    model = SafetyModel()
-    for observation_id in deliveries:
-        model.deliver_observation(observation_id)
-    assert model.business_occurrence_count == len(set(deliveries))
-    assert model.observations_seen == set(deliveries)
+    def test_duplicate_delivery_never_creates_more_occurrences_than_unique_observations(
+        self, deliveries: list[str]
+    ) -> None:
+        model = SafetyModel()
+        for observation_id in deliveries:
+            model.deliver_observation(observation_id)
+        self.assertEqual(model.business_occurrence_count, len(set(deliveries)))
+        self.assertEqual(model.observations_seen, set(deliveries))
 
+    @settings(max_examples=250, deadline=None)
+    @given(
+        st.text(min_size=1, max_size=20),
+        st.integers(min_value=-10_000, max_value=10_000),
+        st.integers(min_value=-10_000, max_value=10_000),
+    )
+    def test_derived_store_mutation_cannot_mutate_authoritative_value(
+        self, key: str, authoritative: int, derived: int
+    ) -> None:
+        model = SafetyModel(authoritative_values={key: authoritative})
+        model.mutate_derived(key, derived)
+        self.assertEqual(model.authoritative_values[key], authoritative)
+        self.assertEqual(model.derived_values[key], derived)
 
-@settings(max_examples=250, deadline=None)
-@given(
-    st.text(min_size=1, max_size=20),
-    st.integers(min_value=-10_000, max_value=10_000),
-    st.integers(min_value=-10_000, max_value=10_000),
-)
-def test_derived_store_mutation_cannot_mutate_authoritative_value(key: str, authoritative: int, derived: int) -> None:
-    model = SafetyModel(authoritative_values={key: authoritative})
-    model.mutate_derived(key, derived)
-    assert model.authoritative_values[key] == authoritative
-    assert model.derived_values[key] == derived
+    @settings(max_examples=250, deadline=None)
+    @given(
+        st.sets(st.sampled_from(["read", "write", "approve", "pay", "admin"]), min_size=0),
+        st.sets(st.sampled_from(["read", "write", "approve", "pay", "admin"]), min_size=0),
+    )
+    def test_delegation_never_broadens_parent_scope(
+        self, parent_scopes: set[str], child_scopes: set[str]
+    ) -> None:
+        model = SafetyModel()
+        model.grant_root("G0", "tenant-A", parent_scopes)
+        result = model.delegate("G0", "G1", "tenant-A", child_scopes)
+        if child_scopes.issubset(parent_scopes):
+            self.assertEqual(result, "delegated")
+            self.assertTrue(model.grants["G1"].scopes.issubset(model.grants["G0"].scopes))
+        else:
+            self.assertEqual(result, "scope_escalation")
+            self.assertNotIn("G1", model.grants)
 
+    def test_delegation_cannot_cross_tenant(self) -> None:
+        model = SafetyModel()
+        model.grant_root("G0", "tenant-A", {"read", "write"})
+        self.assertEqual(model.delegate("G0", "G1", "tenant-B", {"read"}), "tenant_violation")
+        self.assertNotIn("G1", model.grants)
 
-@settings(max_examples=250, deadline=None)
-@given(
-    st.sets(st.sampled_from(["read", "write", "approve", "pay", "admin"]), min_size=0),
-    st.sets(st.sampled_from(["read", "write", "approve", "pay", "admin"]), min_size=0),
-)
-def test_delegation_never_broadens_parent_scope(parent_scopes: set[str], child_scopes: set[str]) -> None:
-    model = SafetyModel()
-    model.grant_root("G0", "tenant-A", parent_scopes)
-    result = model.delegate("G0", "G1", "tenant-A", child_scopes)
-    if child_scopes.issubset(parent_scopes):
-        assert result == "delegated"
-        assert model.grants["G1"].scopes.issubset(model.grants["G0"].scopes)
-    else:
-        assert result == "scope_escalation"
-        assert "G1" not in model.grants
+    def test_effect_later_not_sent_cannot_erase_prior_sent_unknown(self) -> None:
+        model = SafetyModel()
+        self.assertEqual(model.effect_attempt("E1", "sent_no_response"), EffectKnowledge.INDETERMINATE)
+        self.assertEqual(model.effect_attempt("E1", "definitely_not_sent"), EffectKnowledge.INDETERMINATE)
 
+    def test_confirmed_external_effect_survives_local_restore_and_cancel(self) -> None:
+        model = SafetyModel(authoritative_values={"local": "before"})
+        model.effect_attempt("E1", "confirmed")
+        model.local_restore({"local": "restored-old"})
+        model.cancel_local_execution()
+        self.assertIn("E1", model.external_confirmed_effects)
+        self.assertEqual(model.effects["E1"], EffectKnowledge.CONFIRMED)
 
-def test_delegation_cannot_cross_tenant() -> None:
-    model = SafetyModel()
-    model.grant_root("G0", "tenant-A", {"read", "write"})
-    assert model.delegate("G0", "G1", "tenant-B", {"read"}) == "tenant_violation"
-    assert "G1" not in model.grants
+    def test_timer_fire_is_not_domain_fulfillment_or_breach_mutation(self) -> None:
+        model = SafetyModel(commitments_fulfilled={"C1": False})
+        model.fire_timer("T1")
+        self.assertIn("T1", model.timers_fired)
+        self.assertFalse(model.commitments_fulfilled["C1"])
 
+    def test_historical_revision_binding_does_not_follow_current_revision(self) -> None:
+        model = SafetyModel(current_ontology_revision="ont-1", current_policy_revision="pol-1")
+        self.assertEqual(model.apply_semantic_operation("O1", "pay:100"), "committed")
+        model.change_revisions("ont-2", "pol-2")
+        historical = model.historical_operations["O1"]
+        self.assertEqual(historical.ontology_revision, "ont-1")
+        self.assertEqual(historical.policy_revision, "pol-1")
 
-def test_effect_later_not_sent_cannot_erase_prior_sent_unknown() -> None:
-    model = SafetyModel()
-    assert model.effect_attempt("E1", "sent_no_response") == EffectKnowledge.INDETERMINATE
-    assert model.effect_attempt("E1", "definitely_not_sent") == EffectKnowledge.INDETERMINATE
+    def test_same_operation_same_intent_replays_and_changed_intent_mismatches(self) -> None:
+        model = SafetyModel()
+        self.assertEqual(model.apply_semantic_operation("O1", "intent-A", {"x": 1}), "committed")
+        self.assertEqual(model.apply_semantic_operation("O1", "intent-A", {"x": 2}), "replayed")
+        self.assertEqual(model.apply_semantic_operation("O1", "intent-B", {"x": 3}), "mismatch")
+        self.assertEqual(model.authoritative_values["x"], 1)
+        self.assertEqual(model.operation_apply_count["O1"], 1)
 
-
-def test_confirmed_external_effect_survives_local_restore_and_cancel() -> None:
-    model = SafetyModel(authoritative_values={"local": "before"})
-    model.effect_attempt("E1", "confirmed")
-    model.local_restore({"local": "restored-old"})
-    model.cancel_local_execution()
-    assert "E1" in model.external_confirmed_effects
-    assert model.effects["E1"] == EffectKnowledge.CONFIRMED
-
-
-def test_timer_fire_is_not_domain_fulfillment_or_breach_mutation() -> None:
-    model = SafetyModel(commitments_fulfilled={"C1": False})
-    model.fire_timer("T1")
-    assert "T1" in model.timers_fired
-    assert model.commitments_fulfilled["C1"] is False
-
-
-def test_historical_revision_binding_does_not_follow_current_revision() -> None:
-    model = SafetyModel(current_ontology_revision="ont-1", current_policy_revision="pol-1")
-    assert model.apply_semantic_operation("O1", "pay:100") == "committed"
-    model.change_revisions("ont-2", "pol-2")
-    historical = model.historical_operations["O1"]
-    assert historical.ontology_revision == "ont-1"
-    assert historical.policy_revision == "pol-1"
-
-
-def test_same_operation_same_intent_replays_and_changed_intent_mismatches() -> None:
-    model = SafetyModel()
-    assert model.apply_semantic_operation("O1", "intent-A", {"x": 1}) == "committed"
-    assert model.apply_semantic_operation("O1", "intent-A", {"x": 2}) == "replayed"
-    assert model.apply_semantic_operation("O1", "intent-B", {"x": 3}) == "mismatch"
-    assert model.authoritative_values["x"] == 1
-    assert model.operation_apply_count["O1"] == 1
-
-
-def test_dependency_free_shrinker_finds_minimal_known_effect_counterexample() -> None:
-    noisy = [
-        TraceOperation("timer", ("T1",)),
-        TraceOperation("effect", ("E1", "sent_no_response")),
-        TraceOperation("revision", ("ont-2", "pol-2")),
-        TraceOperation("derived", ("price", 123)),
-        TraceOperation("effect", ("E1", "definitely_not_sent")),
-        TraceOperation("cancel"),
-    ]
-    assert effect_uncertainty_erased(noisy)
-    minimal = ddmin(noisy, effect_uncertainty_erased)
-    assert minimal == [
-        TraceOperation("effect", ("E1", "sent_no_response")),
-        TraceOperation("effect", ("E1", "definitely_not_sent")),
-    ]
+    def test_dependency_free_shrinker_finds_minimal_known_effect_counterexample(self) -> None:
+        noisy = [
+            TraceOperation("timer", ("T1",)),
+            TraceOperation("effect", ("E1", "sent_no_response")),
+            TraceOperation("revision", ("ont-2", "pol-2")),
+            TraceOperation("derived", ("price", 123)),
+            TraceOperation("effect", ("E1", "definitely_not_sent")),
+            TraceOperation("cancel"),
+        ]
+        self.assertTrue(effect_uncertainty_erased(noisy))
+        minimal = ddmin(noisy, effect_uncertainty_erased)
+        self.assertEqual(
+            minimal,
+            [
+                TraceOperation("effect", ("E1", "sent_no_response")),
+                TraceOperation("effect", ("E1", "definitely_not_sent")),
+            ],
+        )
 
 
 class CrossOntologyStateMachine(RuleBasedStateMachine):
@@ -149,10 +151,8 @@ class CrossOntologyStateMachine(RuleBasedStateMachine):
     def semantic_operation(self, operation_id: str, intent: str) -> None:
         before = dict(self.model.authoritative_values)
         result = self.model.apply_semantic_operation(operation_id, intent, {operation_id: intent})
-        if result in {"replayed", "mismatch"}:
-            # Replays/mismatches cannot rewrite a previously committed value.
-            if operation_id in before:
-                assert self.model.authoritative_values[operation_id] == before[operation_id]
+        if result in {"replayed", "mismatch"} and operation_id in before:
+            assert self.model.authoritative_values[operation_id] == before[operation_id]
 
     @rule(observation_id=st.sampled_from(["OBS0", "OBS1", "OBS2"]))
     def observation(self, observation_id: str) -> None:
@@ -181,7 +181,7 @@ class CrossOntologyStateMachine(RuleBasedStateMachine):
 
     @rule(value=st.integers())
     def derived_write(self, value: int) -> None:
-        before = deepcopy_dict(self.model.authoritative_values)
+        before = dict(self.model.authoritative_values)
         self.model.mutate_derived("K", value)
         assert self.model.authoritative_values == before
 
@@ -196,12 +196,6 @@ class CrossOntologyStateMachine(RuleBasedStateMachine):
     @invariant()
     def semantic_invariants_hold(self) -> None:
         assert self.model.invariant_violations() == []
-
-
-def deepcopy_dict(value: dict[str, object]) -> dict[str, object]:
-    # Avoid importing copy in the state machine's hot path; values in this model
-    # are immutable scalars.
-    return dict(value)
 
 
 TestCrossOntologyStateMachine = CrossOntologyStateMachine.TestCase
