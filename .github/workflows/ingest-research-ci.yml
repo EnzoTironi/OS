@@ -1,0 +1,27 @@
+name: ingest-research-ci
+
+on:
+  push:
+    branches:
+      - research/issue-45-ingest-entity-resolution
+  pull_request:
+    paths:
+      - 'research/runtime/ingest/**'
+      - 'research/index/issue-0045-ingest-entity-resolution.json'
+      - '.github/workflows/ingest-research-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate research artifacts
+        run: python3 research/runtime/ingest/check_research.py
+      - name: Validate index JSON
+        run: python3 -m json.tool research/index/issue-0045-ingest-entity-resolution.json >/dev/null
