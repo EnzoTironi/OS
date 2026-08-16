@@ -68,7 +68,6 @@ def main() -> int:
     model = MODEL.read_text(encoding="utf-8")
     semantic_store = class_source(model, "SemanticStore")
     identifiers = semantic_identifiers(semantic_store)
-    # The generic candidate must not dispatch on a native Event/Occurrence sort.
     forbidden = {"event", "eventtype", "occurrence", "occurrencetype", "is_event", "is_occurrence"}
     leaked = identifiers.intersection(forbidden)
     if leaked:
@@ -120,6 +119,7 @@ def main() -> int:
         fail(f"expected contiguous S-OCC-01..50, got {scenarios}")
 
     text = (README.read_text(encoding="utf-8") + "\n" + PATHS.read_text(encoding="utf-8")).lower()
+    text = text.replace("**", "").replace("`", "")
     for phrase in [
         "action != occurrence",
         "sealed_semantics",
@@ -128,10 +128,11 @@ def main() -> int:
         "representation migration",
         "projection rebuild",
         "restore/replay",
-        "does not mean accepted architecture",
+        "architecture decision: none",
+        "passing #157 does not make event",
     ]:
         if phrase not in text:
-            fail(f"research lost lifecycle boundary: {phrase}")
+            fail(f"research lost lifecycle/epistemic boundary: {phrase}")
 
     shard = json.loads(INDEX.read_text(encoding="utf-8"))
     entries = shard.get("entries", [])
