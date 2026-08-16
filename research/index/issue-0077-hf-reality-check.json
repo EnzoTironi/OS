@@ -1,0 +1,34 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0077-hf-reality-check",
+      "artifact": "research/ops/reality-check/hf-wave-a.md",
+      "issue": 77,
+      "title": "Real-company reality check — HF operational evidence vs Wave A",
+      "question": "Which Wave A semantic assumptions survive, weaken, or break when confronted with HF's messy operational evidence?",
+      "artifact_kind": "research-ops",
+      "topics": ["real-company", "identity", "inventory", "sales", "pricing", "cost", "authority", "provenance", "observations"],
+      "source_keys": ["hf-source-truth-audit", "spreadsheets", "marketplaces", "erp", "reports", "process-notes"],
+      "evidence_kinds": ["real-company-evidence", "inference"],
+      "review_status": "review-clean",
+      "records": [
+        {"ref": "issue-0077-hf-reality-check#E-RC-001", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-002", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-003", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-004", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-005", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-006", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-007", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-008", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-009", "kind": "evidence", "evidence_status": "observed"},
+        {"ref": "issue-0077-hf-reality-check#E-RC-010", "kind": "evidence", "evidence_status": "observed"}
+      ],
+      "disagreements": [],
+      "depends_on": ["research/reviews/wave-a-review-ledger.md"],
+      "related_issues": [2, 3, 4, 5, 7, 12, 14, 15, 16, 18, 23, 32, 59, 60, 72, 70]
+    }
+  ]
+}
