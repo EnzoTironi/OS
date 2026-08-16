@@ -63,41 +63,53 @@ def main() -> int:
     source = MODEL.read_text(encoding="utf-8")
     if "class RuleBinding" in source:
         fail("reference model reintroduced RuleBinding class")
-    if "class CapabilityEngine" not in source or "class CapabilityType" not in source:
-        fail("M4 capability model disappeared")
+    if "class CapabilityType" in source:
+        fail("M4 replaced RuleBinding with a dedicated CapabilityType semantic class")
+    if "class RefinedTypeEngine" not in source or "class TypeDef" not in source or "class RefinedValue" not in source:
+        fail("M4 generic refined Type model disappeared")
 
     # Inspect only the M4 candidate implementation. Competitor M1/M3 are
     # intentionally allowed to contain locus/trigger dispatch so tests can show
     # why they are hidden recreation. AST identifiers avoid #46-style false
-    # negatives where explanatory prose contains the forbidden word in a
-    # sentence such as "there is no binding registry".
+    # negatives where explanatory prose contains forbidden words in negation.
     marker = "# Weaker/alternative competitors"
     if marker not in source:
         fail("cannot isolate M4 candidate region")
     m4 = source.split(marker, 1)[0]
     ids = {name.lower() for name in semantic_identifiers(m4)}
-    forbidden_ids = {"rulebinding", "scope_kind", "bindings_for", "_bindings_for", "_enforce", "locus"}
+    forbidden_ids = {
+        "rulebinding",
+        "capabilitytype",
+        "capability_types",
+        "scope_kind",
+        "bindings_for",
+        "_bindings_for",
+        "_enforce",
+        "locus",
+    }
     leaked = forbidden_ids.intersection(ids)
     if leaked:
-        fail(f"M4 candidate recreated binding machinery as code identifiers: {sorted(leaked)}")
+        fail(f"M4 candidate recreated a semantic/binding species as code identifiers: {sorted(leaked)}")
 
     for required in [
-        "CapabilityType",
-        "CapabilityToken",
+        "TypeDef",
+        "RefinedValue",
         "OperationSignature",
-        "mint(",
+        "construct(",
         "_verify_signature",
         "authoritative_commit",
         "ComputationMutation",
     ]:
         if required not in m4:
-            fail(f"M4 lost required capability mechanism: {required}")
+            fail(f"M4 lost required refined-Type/capability mechanism: {required}")
 
     tests = TESTS.read_text(encoding="utf-8")
     for mutant in ["DefinitionGraphDispatcher", "InlineContractEngine", "ExecutableRelationDispatcher"]:
         if mutant not in tests:
             fail(f"sensitivity competitor missing: {mutant}")
     for pressure in [
+        "test_same_refinement_mechanism_validates_non_capability_business_value",
+        "test_ordinary_refined_value_cannot_be_used_as_operation_authority",
         "test_global_post_state_invariant_covers_action_and_admin_paths",
         "test_authorization_deny_and_evaluator_error_remain_distinct",
         "test_preview_capability_cannot_authorize_commit",
@@ -151,8 +163,8 @@ def main() -> int:
             fail("candidate/index review status drift")
 
     print(
-        "ok: R5 control preserved; R6-capability quartet remains hypothesis; "
-        "M4 AST has no locus/scope/binding dispatcher; M1/M2/M3 sensitivity retained; RFC-0002 unchanged"
+        "ok: R5 control preserved; R6 quartet remains hypothesis; generic Type refinements cover value+capability; "
+        "M4 AST has no locus/scope/binding/CapabilityType dispatcher; M1/M2/M3 sensitivity retained; RFC-0002 unchanged"
     )
     return 0
 
