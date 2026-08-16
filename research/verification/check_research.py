@@ -21,6 +21,11 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def normalize_markdown_text(text: str) -> str:
+    """Normalize presentation-only Markdown that must not affect semantic guards."""
+    return text.lower().replace("**", "").replace("`", "")
+
+
 def main() -> int:
     required = [
         "README.md",
@@ -55,7 +60,7 @@ def main() -> int:
         if marker not in matrix:
             fail(f"verification matrix lost critical property {marker}")
 
-    readme = (HERE / "README.md").read_text(encoding="utf-8").lower().replace("**", "")
+    readme = normalize_markdown_text((HERE / "README.md").read_text(encoding="utf-8"))
     for phrase in [
         "cheapest adequate verification mechanism",
         "does not mean verified",
@@ -75,7 +80,7 @@ def main() -> int:
     if undiscoverable:
         fail(f"unittest would skip module-level tests: {undiscoverable}")
 
-    review = (HERE / "review.md").read_text(encoding="utf-8").lower().replace("`", "")
+    review = normalize_markdown_text((HERE / "review.md").read_text(encoding="utf-8"))
     if "status: review-clean" not in review:
         fail("verification review is not marked review-clean")
     for phrase in ["false-green", "bounded", "does not mean", "production/shadow monitoring"]:
