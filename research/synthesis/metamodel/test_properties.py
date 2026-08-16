@@ -32,7 +32,10 @@ class ReductionPropertyTests(unittest.TestCase):
         engine = ReducedEngine()
 
         def plan(ctx: EvaluationContext) -> ActionPlan:
-            return ActionPlan([Mutation("increment_state", (ctx.inputs["key"], ctx.inputs["delta"]))], result=ctx.inputs["delta"])
+            return ActionPlan(
+                [Mutation("increment_state", (ctx.inputs["key"], ctx.inputs["delta"]))],
+                result=ctx.inputs["delta"],
+            )
 
         engine.add_computation(ComputationDef("plan", plan, execution_class="planner"))
         engine.add_action(ActionDef("Increment", "plan"))
@@ -120,6 +123,31 @@ class ReductionPropertyTests(unittest.TestCase):
         with self.assertRaises(TypeViolation):
             engine.relate("property", "T", engine.ref("O"))
 
+    def _effect_engine(self) -> ReducedEngine:
+        engine = ReducedEngine()
+        engine.add_computation(
+            ComputationDef(
+                "plan",
+                lambda _: ActionPlan([Mutation("request_effect", ("E",))], result="committed"),
+                execution_class="planner",
+            )
+        )
+        engine.add_action(ActionDef("Remote", "plan"))
+        engine.invoke_action("Remote", "OP", "remote:E", {}, actor="A")
+        return engine
+
+    def test_later_sent_no_response_cannot_degrade_known_pending(self) -> None:
+        engine = self._effect_engine()
+        self.assertEqual(engine.effect_attempt("E", "accepted_pending"), EffectKnowledge.PENDING)
+        self.assertEqual(engine.effect_attempt("E", "sent_no_response"), EffectKnowledge.PENDING)
+        self.assertEqual(engine.effects["E"].attempts, ["accepted_pending", "sent_no_response"])
+
+    def test_conflicting_terminal_effect_evidence_becomes_contradicted(self) -> None:
+        engine = self._effect_engine()
+        self.assertEqual(engine.effect_attempt("E", "confirmed"), EffectKnowledge.CONFIRMED)
+        self.assertEqual(engine.effect_attempt("E", "rejected"), EffectKnowledge.CONTRADICTED)
+        self.assertEqual(engine.effect_attempt("E", "confirmed"), EffectKnowledge.CONTRADICTED)
+
 
 class EffectKnowledgeMachine(RuleBasedStateMachine):
     """Stateful attack on #41 semantics after Effect is demoted from the base forms."""
@@ -147,34 +175,53 @@ class EffectKnowledgeMachine(RuleBasedStateMachine):
     def sent_no_response(self) -> None:
         before = self.engine.effects["E"].knowledge
         after = self.engine.effect_attempt("E", "sent_no_response")
-        if before not in {EffectKnowledge.CONFIRMED, EffectKnowledge.REJECTED}:
-            self.assert_equal(after, EffectKnowledge.INDETERMINATE)
+        expected = EffectKnowledge.INDETERMINATE if before is EffectKnowledge.NOT_ATTEMPTED else before
+        self.assert_equal(after, expected)
 
     @rule()
     def accepted_pending(self) -> None:
         before = self.engine.effects["E"].knowledge
         after = self.engine.effect_attempt("E", "accepted_pending")
-        if before not in {EffectKnowledge.CONFIRMED, EffectKnowledge.REJECTED}:
-            self.assert_equal(after, EffectKnowledge.PENDING)
+        expected = (
+            EffectKnowledge.PENDING
+            if before in {EffectKnowledge.NOT_ATTEMPTED, EffectKnowledge.INDETERMINATE}
+            else before
+        )
+        self.assert_equal(after, expected)
 
     @rule()
     def confirmed(self) -> None:
-        self.engine.effect_attempt("E", "confirmed")
+        before = self.engine.effects["E"].knowledge
+        after = self.engine.effect_attempt("E", "confirmed")
+        expected = (
+            EffectKnowledge.CONTRADICTED
+            if before in {EffectKnowledge.REJECTED, EffectKnowledge.CONTRADICTED}
+            else EffectKnowledge.CONFIRMED
+        )
+        self.assert_equal(after, expected)
 
     @rule()
     def rejected(self) -> None:
-        self.engine.effect_attempt("E", "rejected")
+        before = self.engine.effects["E"].knowledge
+        after = self.engine.effect_attempt("E", "rejected")
+        expected = (
+            EffectKnowledge.CONTRADICTED
+            if before in {EffectKnowledge.CONFIRMED, EffectKnowledge.CONTRADICTED}
+            else EffectKnowledge.REJECTED
+        )
+        self.assert_equal(after, expected)
 
     @rule()
     def retry_without_remote_dedupe(self) -> None:
         knowledge = self.engine.effects["E"].knowledge
-        if knowledge is EffectKnowledge.INDETERMINATE:
-            try:
-                self.engine.retry_effect("E", protocol_has_safe_dedupe=False)
-            except UnsafeRetry:
-                return
-            raise AssertionError("indeterminate non-idempotent effect retry was unexpectedly allowed")
-        self.engine.retry_effect("E", protocol_has_safe_dedupe=False)
+        if knowledge is EffectKnowledge.NOT_ATTEMPTED:
+            self.engine.retry_effect("E", protocol_has_safe_dedupe=False)
+            return
+        try:
+            self.engine.retry_effect("E", protocol_has_safe_dedupe=False)
+        except UnsafeRetry:
+            return
+        raise AssertionError(f"generic retry unexpectedly allowed from {knowledge.value}")
 
     @invariant()
     def stable_local_identity_and_no_required_remote_key(self) -> None:
