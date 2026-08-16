@@ -82,9 +82,6 @@ def main() -> int:
     if "class ContextBoundEngine" not in context_source or "class ContextBoundValue" not in context_source:
         fail("context-bound hardening disappeared")
 
-    # Inspect only the M4 candidate implementation. Competitor M1/M3 are
-    # intentionally allowed to contain locus/trigger dispatch so tests can show
-    # why they are hidden recreation. AST identifiers avoid prose false alarms.
     marker = "# Weaker/alternative competitors"
     if marker not in source:
         fail("cannot isolate M4 candidate region")
@@ -145,7 +142,7 @@ def main() -> int:
         "test_valid_proofs_commit_exact_context",
         "test_post_state_proof_cannot_be_reused_for_different_proposed_state",
         "test_authorization_proof_cannot_be_reused_for_changed_inputs",
-        "test_proof_payload_cannot_be_forged_by_rewriting_context_digest",
+        "test_proof_payload_cannot_be_forged_without_runtime_seal",
         "test_context_bound_proof_is_still_invalidated_by_current_revision_change",
     ]:
         if pressure not in context_tests:
@@ -195,7 +192,7 @@ def main() -> int:
 
     print(
         "ok: R5 control preserved; R6 quartet remains hypothesis; generic Type refinements cover value+capability; "
-        "proofs are context-bound/unforgeable; M4 AST has no locus/scope/binding/CapabilityType dispatcher; "
+        "proofs are exact-context-bound/unforgeable; M4 AST has no locus/scope/binding/CapabilityType dispatcher; "
         "M1/M2/M3 sensitivity retained; RFC-0002 unchanged"
     )
     return 0
