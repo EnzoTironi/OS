@@ -77,7 +77,7 @@ Permanent regressions now distinguish input/state substitution, actor substituti
 
 **Verdict:** the discovered bounded substitution attacks are repaired without reintroducing RuleBinding.
 
-## Attack 6 — Who is allowed to supply execution identity?
+## Attack 6 — Actor/workload/represented-principal self-assertion and trusted origin
 
 Binding identity into the proof is necessary but not sufficient. If an untrusted business caller is allowed to choose `actor`, `represented_principal`, or `workload` for both proof minting and invocation, the runtime can still faithfully seal a lie.
 
@@ -171,4 +171,4 @@ This is stronger than “RuleBinding may reduce to data”: M1 proved data + dis
 
 #156 alone is insufficient to delete RuleBinding from RFC-0002. #157, #158 and #71 remain explicit promotion blockers. RFC-0002 stays unchanged.
 
-`review-clean` here means only that no contradiction inside #156 requires discarding R6-capability before those downstream falsifiers. It does not mean accepted architecture, proven minimality or production readiness.
+`review-clean` means only that no contradiction inside #156 requires discarding R6-capability before those downstream falsifiers. It does not mean accepted architecture, proven minimality or production readiness.
