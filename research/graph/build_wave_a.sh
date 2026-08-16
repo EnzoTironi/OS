@@ -19,9 +19,9 @@ if [[ "$ACTUAL" != "$SNAPSHOT_SHA" ]]; then
   exit 2
 fi
 
-# Review resolution overrides are Wave-B indexing metadata. They are copied into
-# the detached source worktree solely for graph derivation; the frozen branch is
-# never mutated.
+# Review resolution overrides are post-review indexing metadata. They are copied
+# into the detached source worktree solely for graph derivation; the frozen
+# branch is never mutated.
 mkdir -p "$WORKTREE/research/graph"
 cp "$ROOT/research/graph/review-overrides.json" "$WORKTREE/research/graph/review-overrides.json"
 
@@ -31,7 +31,11 @@ python3 "$ROOT/research/graph/build_graph.py" \
   --snapshot-commit "$SNAPSHOT_SHA" \
   --out "$OUTPUT"
 
-python3 "$ROOT/research/graph/validate_graph.py" "$OUTPUT" \
+python3 "$ROOT/research/graph/normalize_graph.py" "$OUTPUT" \
   --source-root "$WORKTREE"
+
+python3 "$ROOT/research/graph/validate_graph.py" "$OUTPUT" \
+  --source-root "$WORKTREE" \
+  --expected-snapshot "$SNAPSHOT_SHA"
 
 printf 'Wave A graph built from %s -> %s\n' "$SNAPSHOT_SHA" "$OUTPUT"
