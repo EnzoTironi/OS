@@ -1,7 +1,7 @@
 {
   "artifact_id": "issue-0156-rulebinding-reduction",
   "decision_state": "hypothesis",
-  "review_status": "unreviewed",
+  "review_status": "review-clean",
   "control": {
     "name": "R5",
     "base_forms": ["Type", "Relation", "Computation", "Action", "RuleBinding"]
