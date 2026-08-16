@@ -1,0 +1,153 @@
+{
+  "artifact_id": "issue-0076-information-gain",
+  "issue": 76,
+  "issue_url": "https://github.com/EnzoTironi/OS/issues/76",
+  "parent_issue": 2,
+  "snapshot_date": "2026-08-16",
+  "origin_main": "dc918a50e550d384d1e18a6f24424e6ed4595b9c",
+  "folder_decision_state": "hypothesis",
+  "contract": {
+    "on_main": "docs/swarm-research-backlog.md Agent output contract",
+    "draft": {
+      "path": "docs/swarm-result-contract.md",
+      "branch": "origin/cursor/swarm-result-contract-cfd8",
+      "sha": "f076b311bc911e7f68027cc46c25c6cf5cf683c9",
+      "pr": "https://github.com/EnzoTironi/OS/pull/84"
+    }
+  },
+  "kinds_used": [
+    "domain evidence",
+    "source-system artifact",
+    "candidate law",
+    "counterexample",
+    "runtime consequence"
+  ],
+  "decision_states_used": [
+    "hypothesis",
+    "supported",
+    "rejected",
+    "undetermined"
+  ],
+  "open_questions_md": "not answered",
+  "rfc_0001": "unchanged",
+  "review_gate": {
+    "source": "https://github.com/EnzoTironi/OS/issues/2#issuecomment-5305027316",
+    "prs_not_merge_ready": "84-119",
+    "later_drafts_seen": "120-134"
+  },
+  "next_actions": [
+    {
+      "rank": 1,
+      "action": "review-correct Wave A drafts",
+      "issues": [3, 4, 5, 7, 14, 55, 56, 59, 68],
+      "parallelism": "one_writer_per_existing_branch"
+    },
+    {
+      "rank": 2,
+      "action": "first kill on integration duplication",
+      "issues": [72],
+      "parallelism": "parallel_now"
+    },
+    {
+      "rank": 3,
+      "action": "stress #73 top cluster",
+      "issues": [79],
+      "parallelism": "parallel_now"
+    },
+    {
+      "rank": 4,
+      "action": "failure archive",
+      "issues": [81],
+      "parallelism": "parallel_now"
+    },
+    {
+      "rank": 5,
+      "action": "decision discipline",
+      "issues": [82],
+      "parallelism": "parallel_now"
+    },
+    {
+      "rank": 6,
+      "action": "literature watch",
+      "issues": [78],
+      "parallelism": "parallel_now"
+    },
+    {
+      "rank": 7,
+      "action": "land result contract",
+      "issues": [74],
+      "parallelism": "review_correction"
+    },
+    {
+      "rank": 8,
+      "action": "note-only leakage audit",
+      "issues": [83],
+      "parallelism": "parallel_now_notes_only"
+    },
+    {
+      "rank": 10,
+      "action": "real-company reality check",
+      "issues": [77],
+      "parallelism": "blocked_needs_data"
+    }
+  ],
+  "parked": {
+    "wave_b": [39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 52, 53, 54, 63, 64, 65, 66, 75],
+    "wave_c": [70, 71, 80]
+  },
+  "first_pass_present_on_remote": {
+    "foundation": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 62],
+    "domain": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 67],
+    "corpus": [32, 33, 34, 35, 36, 37, 38],
+    "agi": [50, 51],
+    "kill": [55, 56, 57, 58, 59, 60, 61, 68],
+    "ops": [69, 73]
+  },
+  "first_pass_absent": [72, 78, 79, 81, 82, 83],
+  "cited_remote_verdicts": [
+    {
+      "issue": 3,
+      "sha": "8b9ce1ee5e5a09e556f5442de826e6062c55abfa",
+      "claim": "native Relator",
+      "state": "undetermined"
+    },
+    {
+      "issue": 55,
+      "sha": "5f4233579cf3057783775126afa64c39ed631353",
+      "claim": "one enterprise vocabulary",
+      "state": "rejected"
+    },
+    {
+      "issue": 56,
+      "sha": "b44575d3d212c67258bee6ed0013e8409c530a5e",
+      "claim": "native Relator category",
+      "state": "rejected"
+    },
+    {
+      "issue": 59,
+      "sha": "4f7057cbc56abeb9c64e1d133ecb5eff584ed050",
+      "claim": "pervasive bitemporality and over-generalized Fact",
+      "state": "rejected"
+    },
+    {
+      "issue": 68,
+      "sha": "10314410ed1fddc252360ac9abff04b1b4c16956",
+      "claim": "inspected platform already satisfies the thesis",
+      "state": "rejected"
+    },
+    {
+      "issue": 77,
+      "claim": "can proceed without company data",
+      "state": "rejected"
+    }
+  ],
+  "files": [
+    "research/ops/prioritization/README.md",
+    "research/ops/prioritization/snapshot-2026-08-16.md",
+    "research/ops/prioritization/execution-order.md",
+    "research/ops/prioritization/dependency-edges.md",
+    "research/ops/prioritization/candidate-laws.md",
+    "research/ops/prioritization/sources.md",
+    "research/ops/prioritization/index-issue-0076-information-gain.json"
+  ]
+}
