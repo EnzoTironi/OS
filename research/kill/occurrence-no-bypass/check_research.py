@@ -14,6 +14,7 @@ ATOMIC_MODEL = HERE / "atomic_model.py"
 COMPETITORS = HERE / "competitors.py"
 TESTS = HERE / "test_model.py"
 ATOMIC_TESTS = HERE / "test_atomic_hardening.py"
+PRIVACY_TESTS = HERE / "test_privacy_policy.py"
 COMPETITOR_TESTS = HERE / "test_competitors.py"
 README = HERE / "README.md"
 LAWS = HERE / "candidate-laws.md"
@@ -64,7 +65,7 @@ def semantic_identifiers(source: str) -> set[str]:
 
 def main() -> int:
     for path in [
-        MODEL, ATOMIC_MODEL, COMPETITORS, TESTS, ATOMIC_TESTS,
+        MODEL, ATOMIC_MODEL, COMPETITORS, TESTS, ATOMIC_TESTS, PRIVACY_TESTS,
         COMPETITOR_TESTS, README, LAWS, SCENARIOS, PATHS, INDEX, RFC2,
     ]:
         if not path.exists():
@@ -87,15 +88,16 @@ def main() -> int:
             fail(f"generic lifecycle mechanism disappeared: {required}")
     for required in [
         "AtomicSemanticStore", "_atomic_authority_operation", "attach_evidence",
-        "semantic_record_fingerprint",
+        "semantic_record_fingerprint", "set_privacy_policy", "privacy_policy_revision",
     ]:
         if required not in atomic_model:
-            fail(f"post-green atomic/provenance hardening disappeared: {required}")
+            fail(f"post-green atomic/provenance/privacy hardening disappeared: {required}")
     if "record.type_name in" in semantic_store + atomic_store:
         fail("generic candidate branches on concrete Type names")
 
     tests = TESTS.read_text(encoding="utf-8")
     atomic_tests = ATOMIC_TESTS.read_text(encoding="utf-8")
+    privacy_tests = PRIVACY_TESTS.read_text(encoding="utf-8")
     competitor_tests = COMPETITOR_TESTS.read_text(encoding="utf-8")
     required_tests = [
         "test_every_authoritative_write_path_cannot_replace_committed_semantic_core",
@@ -123,14 +125,20 @@ def main() -> int:
         if name not in atomic_tests:
             fail(f"required post-green atomic/provenance regression missing: {name}")
     for name in [
+        "test_current_policy_can_make_old_payload_field_erasable_without_reinterpreting_record",
+        "test_historical_type_default_does_not_override_current_privacy_policy",
+        "test_proof_bound_to_old_privacy_revision_does_not_survive_policy_revision_change",
+    ]:
+        if name not in privacy_tests:
+            fail(f"required current-privacy-policy regression missing: {name}")
+    for name in [
         "test_physical_append_only_prevents_payload_erasure",
         "test_physical_append_only_prevents_representation_migration",
     ]:
         if name not in competitor_tests:
             fail(f"append-only competitor sensitivity missing: {name}")
-    no_module_tests(TESTS)
-    no_module_tests(ATOMIC_TESTS)
-    no_module_tests(COMPETITOR_TESTS)
+    for path in [TESTS, ATOMIC_TESTS, PRIVACY_TESTS, COMPETITOR_TESTS]:
+        no_module_tests(path)
 
     laws = LAW_RE.findall(LAWS.read_text(encoding="utf-8"))
     expected_laws = [f"L-OCC-{i:02d}" for i in range(1, 21)]
@@ -181,8 +189,8 @@ def main() -> int:
         fail("R6 was accepted from #157 automatically")
 
     print(
-        "ok: generic sealed-semantic Type candidate + atomic authority hardening have no Event/Occurrence interpreter; "
-        f"20 laws, 50 scenarios, no-bypass/atomic/provenance regressions and competitors present; review={entry.get('review_status')}"
+        "ok: generic sealed-semantic Type candidate + atomic authority/provenance/current-privacy hardening have no Event/Occurrence interpreter; "
+        f"20 laws, 50 scenarios and required regressions/competitors present; review={entry.get('review_status')}"
     )
     return 0
 
