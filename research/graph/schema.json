@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OS research graph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "snapshot", "generated_at", "nodes", "edges"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "commit"],
+      "properties": {
+        "branch": {"type": "string", "minLength": 1},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "generated_at": {"type": "string", "minLength": 1},
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "edges": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/edge"}
+    }
+  },
+  "$defs": {
+    "epistemicState": {"enum": ["hypothesis", "supported", "rejected", "undetermined"]},
+    "reviewStatus": {"enum": ["unreviewed", "raw-evidence-ok", "challenged", "blocked-factual", "blocked-deliverable", "review-clean"]},
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "label"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {
+          "enum": ["issue", "artifact", "evidence", "concept", "invariant", "candidate-law", "counterexample", "disagreement", "runtime-pressure", "experiment", "review", "open-question", "scenario", "source", "historical-disposition"]
+        },
+        "label": {"type": "string", "minLength": 1},
+        "issue": {"type": ["integer", "null"], "minimum": 1},
+        "artifact": {"type": ["string", "null"]},
+        "record": {"type": ["string", "null"]},
+        "topics": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "epistemic_state": {"anyOf": [{"$ref": "#/$defs/epistemicState"}, {"type": "null"}]},
+        "review_status": {"anyOf": [{"$ref": "#/$defs/reviewStatus"}, {"type": "null"}]},
+        "note": {"type": ["string", "null"]}
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target", "type"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "type": {
+          "enum": ["contains", "investigates", "supports", "challenges", "falsifies", "disagrees-with", "depends-on", "related-to", "observed-in", "requires", "reviews", "supersedes", "derived-from", "tests"]
+        },
+        "note": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

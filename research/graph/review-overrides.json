@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "snapshot_commit": "53235fc5b8fb723e84351435ccfad719e784d5ba",
+  "issue_overrides": {
+    "30": {
+      "review_status": "review-clean",
+      "note": "Brazil fiscal candidate laws were rechecked against current 2026 primary sources and narrowed; claims remain date-scoped research evidence."
+    },
+    "33": {
+      "review_status": "review-clean",
+      "note": "Odoo archaeology is usable at its pinned version; ERPNext-vs-Odoo disagreement cards remain preliminary when they depend on the mismatched ERPNext generation."
+    },
+    "51": {
+      "review_status": "review-clean",
+      "note": "Reusable generator and unit-test source were added; integration reviewer did not execute the tests because the shell could not resolve github.com."
+    },
+    "74": {
+      "review_status": "review-clean",
+      "note": "Original PR was superseded; research contribution contract v2 and index schema v2 were transplanted to the integrated corpus."
+    },
+    "77": {
+      "review_status": "review-clean",
+      "note": "De-identified HF reality-gap report landed; real-company observations come from the prior audited extraction/process evidence and are not misrepresented as a fresh byte-level rerun."
+    },
+    "81": {
+      "review_status": "review-clean",
+      "note": "Failure archive corrected to distinguish falsified, superseded, assumption-withdrawn, not-promoted, scope-limited and undetermined dispositions."
+    }
+  }
+}

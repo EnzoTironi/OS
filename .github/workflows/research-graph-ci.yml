@@ -1,0 +1,56 @@
+name: research-graph-ci
+
+on:
+  push:
+    branches:
+      - synthesis/issue-75-research-graph
+  pull_request:
+    paths:
+      - 'research/graph/**'
+
+permissions:
+  contents: read
+
+jobs:
+  graph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Regression tests
+        run: python3 -m unittest -v research/graph/test_graph.py
+
+      - name: Build and validate frozen Wave A graph
+        shell: bash
+        run: |
+          set +e
+          bash research/graph/build_wave_a.sh > /tmp/research-graph-build.log 2>&1
+          status=$?
+          cat /tmp/research-graph-build.log
+          if [[ $status -ne 0 ]]; then
+            # GitHub's REST check API exposes annotations even when full Actions
+            # logs are unavailable to an integration. Keep the diagnostic short
+            # enough to fit one annotation and escape line breaks.
+            diagnostic="$(tail -n 40 /tmp/research-graph-build.log)"
+            diagnostic="${diagnostic//'%'/'%25'}"
+            diagnostic="${diagnostic//$'\r'/'%0D'}"
+            diagnostic="${diagnostic//$'\n'/'%0A'}"
+            echo "::error file=research/graph/build_wave_a.sh,line=1,title=Wave A graph build failed::$diagnostic"
+            exit "$status"
+          fi
+
+      - name: Smoke-query challenged research
+        run: |
+          python3 research/graph/query.py reviews challenged >/tmp/challenged.jsonl
+          test -s /tmp/challenged.jsonl
+
+      - name: Validate JSON syntax
+        run: |
+          python3 -m json.tool research/graph/schema.json >/dev/null
+          python3 -m json.tool research/graph/generated/wave-a-graph.json >/dev/null
