@@ -13,7 +13,7 @@
       "topics": ["storage", "postgresql", "foundationdb", "xtdb", "datomic", "graph", "kafka", "iceberg", "clickhouse", "transactions", "temporal", "provenance", "restore"],
       "source_keys": ["postgresql-18", "foundationdb", "xtdb", "datomic", "typedb", "neo4j", "jena-tdb2", "kafka-4", "iceberg", "clickhouse", "issue-40", "issue-41", "issue-42", "issue-43", "issue-45"],
       "evidence_kinds": ["official-doc", "test", "inference"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0039-storage-models#L-STO-01", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0039-storage-models#L-STO-02", "kind": "candidate-law", "epistemic_state": "supported"},
