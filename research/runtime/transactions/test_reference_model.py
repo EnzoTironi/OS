@@ -71,7 +71,7 @@ class CommitSemanticsTests(unittest.TestCase):
         self.assertEqual(world.values["balance"], 150)
         self.assertEqual(world.revision, 1)
 
-    def test_exact_version_dependency_detects_stale_proposal(self):
+    def test_exact_version_dependency_reports_basis_not_satisfied(self):
         world = World()
         world.set_initial("order", "open", version=5)
         engine = ReferenceCommitEngine(world)
@@ -84,10 +84,10 @@ class CommitSemanticsTests(unittest.TestCase):
         world.versions["order"] = 6
 
         result = engine.commit(op)
-        self.assertEqual(result.outcome, Outcome.NEEDS_REPROPOSAL)
+        self.assertEqual(result.outcome, Outcome.BASIS_NOT_SATISFIED)
         self.assertEqual(world.values["order"], "open")
 
-    def test_live_predicate_is_checked_at_commit(self):
+    def test_live_predicate_reports_basis_not_satisfied(self):
         world = World()
         world.set_initial("available", 10)
         engine = ReferenceCommitEngine(world)
@@ -100,7 +100,7 @@ class CommitSemanticsTests(unittest.TestCase):
         world.values["available"] = 5
 
         result = engine.commit(op)
-        self.assertEqual(result.outcome, Outcome.NEEDS_REPROPOSAL)
+        self.assertEqual(result.outcome, Outcome.BASIS_NOT_SATISFIED)
         self.assertEqual(world.values["available"], 5)
 
     def test_frozen_immutable_reference_does_not_require_current_price_equality(self):
@@ -121,7 +121,7 @@ class CommitSemanticsTests(unittest.TestCase):
         self.assertEqual(world.values["accepted_price"], 100)
         self.assertEqual(world.values["current_price"], 130)
 
-    def test_approval_is_bound_to_intent_and_amount_limit(self):
+    def test_approval_mismatch_really_needs_reproposal(self):
         world = World()
         engine = ReferenceCommitEngine(world)
         approved_digest = digest("purchase supplier A")
