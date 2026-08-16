@@ -1,0 +1,30 @@
+name: effect-research-ci
+
+on:
+  push:
+    branches:
+      - research/issue-41-external-effects
+  pull_request:
+    paths:
+      - 'research/runtime/effects/**'
+      - 'research/index/issue-0041-external-effects.json'
+      - '.github/workflows/effect-research-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Structural research checks
+        run: python3 research/runtime/effects/check_research.py
+      - name: Execute effect semantic litmus tests
+        working-directory: research/runtime/effects
+        run: python3 -m unittest -v test_reference_model.py
+      - name: Validate index JSON
+        run: python3 -m json.tool research/index/issue-0041-external-effects.json >/dev/null
