@@ -3,78 +3,70 @@ issue: 51
 track: agi
 decision_state: hypothesis
 contract: docs/swarm-research-backlog.md Agent output contract
-swarm_result_contract: absent-on-origin-main
 fetched: 2026-08-16
 ---
 
 # Semantic fuzzing of candidate ontologies
 
-Query this directory for issue 51. Files follow the Wave A output contract in `docs/swarm-research-backlog.md`. `docs/swarm-result-contract.md` is not on `origin/main`.
+This folder is a **research attack toolchain**, not OS runtime syntax. It now contains both the methodology and a small executable reference generator so candidate semantic laws can be attacked with replayable/minimizable scenarios instead of prose-only examples.
 
-This folder does not answer `docs/open-questions.md`. It records a research attack method a synthesis agent can run. RFC-0001 is unread as an edit target. No OS schema is proposed. The DSL in [dsl.md](dsl.md) is a research scenario schema, not engine syntax.
+Nothing here edits RFC-0001 or accepts a primitive.
 
-Each claim is tagged as one of domain evidence, source-system artifact, candidate law, counterexample, or runtime consequence. Decision state is `hypothesis`, `supported`, `rejected`, or `undetermined`. Nothing here is silently accepted.
+## Deliverables
 
-The method is the artifact. No fuzzer was implemented. No runtime was picked. See [candidate-laws.md](candidate-laws.md) L-FUZ-12.
+Issue #51 asks for:
 
-## Question
+- scenario DSL/schema proposal;
+- reusable generators;
+- semantic coverage metrics;
+- shrinking/minimization;
+- conversion of failures into ontology research questions.
 
-How should a swarm attack ontology fragments with generated business scenarios, rather than only validating happy paths, so that a failure becomes a typed research question instead of a discarded test?
+Current files:
 
-Issue 51 names the generation dimensions, the use of source systems as differential oracles that are not assumed correct, and four deliverables. Those deliverables are a scenario DSL or schema proposal, reusable generators, semantic coverage metrics, shrink of failing scenarios, and a process that turns failures into ontology research questions.
+| File | Purpose |
+| --- | --- |
+| [`dsl.md`](dsl.md) | implementation-neutral research scenario shape |
+| [`dimensions.md`](dimensions.md) | reusable attack recipes/dimensions |
+| [`generator.py`](generator.py) | stdlib-only reference generator, pairwise composition and choice-stream shrinker |
+| [`test_generator.py`](test_generator.py) | replay, unknown-outcome, approval-basis, provenance and shrink regression tests |
+| [`candidate-laws.md`](candidate-laws.md) | method claims after adversarial narrowing |
+| [`scenarios.md`](scenarios.md) | human-readable adversarial cards |
+| [`evidence.md`](evidence.md) | source/evidence catalog |
+| [`sources.md`](sources.md) | source locators |
+| [`open-questions.md`](open-questions.md) | remaining uncertainty |
 
-## What this folder claims
+## Run the reference generator
 
-A later agent can generate scenarios across the named dimensions, score them against candidate laws and competency questions, shrink a failure through the same generator that produced it, and open a research card only after the contradiction is typed.
+From this directory:
 
-That claim is a `hypothesis`. First-party testing papers support the pieces. No first-party source validates the whole loop on enterprise ontologies. See [evidence.md](evidence.md) E1 through E16.
+```bash
+python3 generator.py --recipe D-01 --recipe D-12 --seed 7
+python3 generator.py --pairwise --recipe D-01 --recipe D-11 --recipe D-12 --seed 7
+python3 -m unittest -v test_generator.py
+```
 
-Source systems are useful oracles for disagreement. They are not the semantics. McKeeman's majority rule is a quality metric for compilers, not a law for inventory. See L-FUZ-02.
+The reference implementation currently covers D-01, D-02, D-04, D-10, D-11, D-12, D-13 and D-14. Remaining recipes are specifications for later expansion, not silently claimed as executable.
 
-## Files
+## Core research rules
 
-| File | Mode | Contents |
-| --- | --- | --- |
-| [sources.md](sources.md) | reference | URLs and sibling notes read this session |
-| [evidence.md](evidence.md) | reference | Labeled blocks E1 through E16 |
-| [dimensions.md](dimensions.md) | reference | Generator recipes for the issue dimensions |
-| [dsl.md](dsl.md) | reference | Research scenario schema. Not OS syntax |
-| [candidate-laws.md](candidate-laws.md) | explanation | Smallest method claims and falsifiers |
-| [scenarios.md](scenarios.md) | reference | Twenty-four attack cards |
-| [open-questions.md](open-questions.md) | reference | Residual uncertainty. No invented answers |
+- A source system is a differential oracle, not the semantics.
+- Happy paths show representability but are not sufficient evidence of semantic robustness.
+- `Attempt`, `Observe` and `Occur` remain distinct in the fuzz methodology so the generator can attack stale approval, message duplication and ambiguous outcomes; this does not prove three OS base sorts.
+- Shrinking must preserve both recipe validity and the **same semantic failure predicate**.
+- Use exact expected-value oracles when the problem is fully specified. Use metamorphic/competency relations when the attack intentionally leaves several valid results or tests history/relations rather than one number.
+- An approval binds an explicit proposal plus a declared state/temporal basis. Live-at-commit and frozen-snapshot approvals are both testable cases.
+- Transport timeout is not silently turned into business failure.
+- A fuzz failure becomes a typed, falsifiable research question; it does not edit the metamodel by itself.
 
-## Sibling notes, read only
+## What the code is not
 
-These paths exist on other branches. This folder cross-links them. It does not write them and does not treat their conclusions as this issue's findings.
+`generator.py` is research software. Its step kinds, field names, choice-stream representation and oracle vocabulary are not proposed as the OS authoring language or runtime. If a later implementation uses a solver, AST, property-based library or generated code instead, it only needs to preserve the semantic properties under test.
 
-- `research/agi/induction/` on `cursor/issue-50-agi-cfd8`. Protocol, roles, contradiction types, promotion gate.
-- `research/domain/o2c/` on `cursor/issue-16-domain-cfd8`. Partial ship, cancel after shipment, substitution.
-- `research/domain/inventory/` on `cursor/issue-18-domain-cfd8`. Ownership versus custody, backdating, lots, duplicate movement.
-- `research/domain/manufacturing/` on `cursor/issue-19-domain-cfd8`. Substitution, partial complete, specification revision.
-- `scenarios/README.md` on `origin/main`. Seed cards S-001 through S-012.
+## Relationship to induction
 
-Do not copy those folders. The attack cards cite them as already-mined targets.
-
-## Output contract
-
-1. **Question.** This README.
-2. **Sources.** `sources.md`.
-3. **Evidence.** `evidence.md`.
-4. **Source artifacts.** Marked in `evidence.md` and `dimensions.md`.
-5. **Convergence.** `candidate-laws.md` and `evidence.md`.
-6. **Divergence.** `evidence.md` and `scenarios.md`.
-7. **Candidate laws.** `candidate-laws.md`.
-8. **Counterexamples.** `scenarios.md`.
-9. **Runtime pressure.** Each law card. Wave B runtime picks wait.
-10. **Open questions.** `open-questions.md`.
-11. **Decision state.** Each card and this folder. Default is `hypothesis`. Never `accepted`.
-
-## How to read this
-
-Start with [dsl.md](dsl.md) if you need the scenario shape. Use [dimensions.md](dimensions.md) to pick a generator. Use [scenarios.md](scenarios.md) to see which distinctions the generators must be able to break. Use [candidate-laws.md](candidate-laws.md) when a later issue asks what would change the method.
-
-Induction on issue 50 writes laws. This folder attacks them. The adversary role in `research/agi/induction/roles.md` is the consumer of these generators. The two folders are not the same protocol.
+Issue #50 proposes ways to induce candidate distinctions from corpora. Issue #51 is the adversary: it generates cases intended to break those candidate laws. Neither protocol promotes a finding directly to `main`.
 
 ## Licensing
 
-OS is MIT. These notes extract concepts and documented behavior. No copyleft implementation was pasted or translated into the repo. ERPNext and Odoo were read as documentation of behavior. ValueFlows, GS1 EPCIS, PROV-O, and the testing papers were read the same way.
+OS is MIT. The generator is original research tooling. External ERP/standard sources are used as behavioral/documentary evidence; no copyleft implementation is copied into this tooling.
