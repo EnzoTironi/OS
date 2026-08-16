@@ -14,10 +14,12 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 INDEX = ROOT / "research" / "index" / "issue-0070-metamodel-synthesis.json"
 RFC = ROOT / "rfcs" / "0001-metamodel-hypothesis.md"
+PROPOSED_RFC = ROOT / "rfcs" / "0002-executable-metamodel-hypothesis-v1.md"
 
 LAW_RE = re.compile(r"^## (L-META-\d{2})\b", re.MULTILINE)
 KILL_RE = re.compile(r"^### (K70-\d{2})\b", re.MULTILINE)
 INDEX_LAW_RE = re.compile(r"#(L-META-\d{2})$")
+REVIEW_STATUS_RE = re.compile(r"^status:\s*(review-pending|review-clean)\s*$", re.MULTILINE)
 
 
 def fail(message: str) -> None:
@@ -44,6 +46,8 @@ def main() -> int:
         "vertical-business-cycle.md",
         "authoring-ir-runtime.md",
         "open-questions.md",
+        "review.md",
+        "evidence-index.md",
     ]
     missing = [name for name in required if not (HERE / name).exists()]
     if missing:
@@ -52,6 +56,8 @@ def main() -> int:
         fail(f"missing index shard {INDEX.relative_to(ROOT)}")
     if not RFC.exists():
         fail("RFC-0001 disappeared")
+    if not PROPOSED_RFC.exists():
+        fail("proposed RFC-0002 disappeared")
 
     laws = LAW_RE.findall((HERE / "candidate-laws.md").read_text(encoding="utf-8"))
     expected_laws = [f"L-META-{i:02d}" for i in range(1, 41)]
@@ -65,7 +71,7 @@ def main() -> int:
 
     candidate = json.loads((HERE / "candidate-metamodel.json").read_text(encoding="utf-8"))
     if candidate.get("decision_state") != "hypothesis" or candidate.get("candidate") != "R5":
-        fail("candidate metamodel must remain explicit R5 hypothesis before review")
+        fail("candidate metamodel must remain explicit R5 hypothesis")
     json_base = tuple(item["name"] for item in candidate.get("base_forms", []))
     if json_base != BASE_FORMS:
         fail(f"machine candidate/base model drift: {json_base} != {BASE_FORMS}")
@@ -84,6 +90,14 @@ def main() -> int:
     required_critical = {"K70-12", "K70-22", "K70-24", "K70-26", "K70-30", "K70-31", "K70-41", "K70-42", "K70-43"}
     if set(critical) != required_critical:
         fail(f"critical kill-test set drifted: {critical}")
+
+    rfc_marker = candidate.get("rfc_0001_update")
+    allowed_rfc_markers = {
+        "blocked-pending-review",
+        "replacement-rfc-0002-proposed-not-accepted",
+    }
+    if rfc_marker not in allowed_rfc_markers:
+        fail(f"invalid RFC disposition marker: {rfc_marker}")
 
     test_reductions = (HERE / "test_reductions.py").read_text(encoding="utf-8")
     for mutant in ["TaggedEventEngine", "ComputationOnlyMutationEngine", "ActionLocalInvariantEngine", "BoolPolicyEngine"]:
@@ -148,11 +162,62 @@ def main() -> int:
         if phrase not in property_tests:
             fail(f"R5 effect regression test disappeared: {phrase}")
 
+    # RFC-0001 must remain the untouched attack target. #70 publishes a new
+    # hypothesis rather than silently rewriting the old one.
     rfc = normalized(RFC.read_text(encoding="utf-8"))
     if "status: hypothesis" not in rfc or "decision: none" not in rfc:
         fail("RFC-0001 was promoted/rewritten before issue #70 convergence")
     if "working candidate: r5" in rfc or "rulebinding" in rfc:
-        fail("RFC-0001 appears to have been updated from unreviewed #70 synthesis")
+        fail("RFC-0001 appears to have been updated from #70 synthesis")
+
+    proposed_rfc = normalized(PROPOSED_RFC.read_text(encoding="utf-8"))
+    for phrase in [
+        "status: hypothesis",
+        "decision: none",
+        "supersedes: nothing",
+        "does not supersede rfc-0001",
+        "type\nrelation\ncomputation\naction\nrulebinding",
+        "action != occurrence",
+        "runtime capability",
+        "fact-only kernel is rejected",
+    ]:
+        if phrase not in proposed_rfc:
+            fail(f"proposed RFC-0002 lost epistemic/semantic boundary phrase: {phrase}")
+
+    review_raw = (HERE / "review.md").read_text(encoding="utf-8")
+    review = normalized(review_raw)
+    status_match = REVIEW_STATUS_RE.search(review)
+    if not status_match:
+        fail("review.md must declare Status: review-pending or review-clean")
+    review_status = status_match.group(1)
+    for phrase in [
+        "r5 remains hypothesis",
+        "review-clean does not mean accepted",
+        "anti-cheat rule",
+        "event / occurrence",
+        "critical falsifier",
+        "fact — unresolved",
+        "do not rewrite or mark rfc-0001 accepted",
+    ]:
+        if phrase not in review:
+            fail(f"review lost epistemic/adversarial guard: {phrase}")
+
+    evidence = normalized((HERE / "evidence-index.md").read_text(encoding="utf-8"))
+    for issue in [3, 4, 8, 10, 39, 40, 41, 42, 43, 45, 46, 56]:
+        if f"issue #{issue}" not in evidence:
+            fail(f"evidence index lost load-bearing issue #{issue}")
+    for phrase in [
+        "type",
+        "relation",
+        "computation",
+        "action",
+        "rulebinding",
+        "event / occurrence",
+        "fact / statement",
+        "current branch verification evidence",
+    ]:
+        if phrase not in evidence:
+            fail(f"evidence index lost synthesis coverage: {phrase}")
 
     shard = json.loads(INDEX.read_text(encoding="utf-8"))
     entries = shard.get("entries", [])
@@ -161,8 +226,22 @@ def main() -> int:
     entry = entries[0]
     if entry.get("issue") != 70 or entry.get("artifact") != "research/synthesis/metamodel/README.md":
         fail("index locator/issue mismatch")
-    if entry.get("review_status") not in {"unreviewed", "review-clean"}:
+    shard_review = entry.get("review_status")
+    if shard_review not in {"unreviewed", "review-clean"}:
         fail("invalid review_status")
+
+    # A clean shard is allowed only when the adversarial review itself is clean
+    # and the candidate records that RFC-0002 is proposed but not accepted.
+    if shard_review == "review-clean":
+        if review_status != "review-clean":
+            fail("index says review-clean while review.md is not clean")
+        if rfc_marker != "replacement-rfc-0002-proposed-not-accepted":
+            fail("review-clean shard must record RFC-0002 as proposed-not-accepted")
+    else:
+        if review_status != "review-pending":
+            fail("unreviewed shard must keep review.md pending")
+        if rfc_marker != "blocked-pending-review":
+            fail("unreviewed shard must keep RFC disposition blocked-pending-review")
 
     indexed = []
     for record in entry.get("records", []):
@@ -174,7 +253,8 @@ def main() -> int:
 
     print(
         f"ok: R5={list(BASE_FORMS)}, {len(laws)} laws, {len(kills)} kill tests, "
-        f"enterprise vertical present, RFC-0001 remains hypothesis, review={entry.get('review_status')}"
+        f"enterprise vertical + evidence + RFC-0002 present, RFC-0001 unchanged, "
+        f"review={shard_review}/{review_status}"
     )
     return 0
 
