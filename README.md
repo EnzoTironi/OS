@@ -45,13 +45,15 @@ These are not three copies of the same flow. pstack executes. team-kit ships. Ma
 
 `tdd` and `teach` come from pstack. The Matt skills with those names were not copied, so `/poteto-mode` does not see duplicates.
 
+The repo root is the OS research tree. Cursor plugins are not siblings of `docs/` and `research/`.
+
 ```
-.cursor/skills/     # what the agent loads (cloud included)
-.cursor/agents/     # poteto-agent, Comment Sicko, ci-watcher, thermo-nuclear
-.cursor/rules/      # pstack models + team-kit rules
-.cursor/settings.json
-pstack/             # full plugin (marketplace)
-cursor-team-kit/
+docs/ research/ rfcs/ scenarios/
+.cursor/skills/      # what the agent loads (cloud included)
+.cursor/agents/      # poteto-agent, Comment Sicko, ci-watcher, thermo-nuclear
+.cursor/rules/       # pstack models + team-kit rules
+.cursor/plugins/     # vendored marketplace packages
+.cursor-plugin/      # marketplace.json points at .cursor/plugins/
 ```
 
 Models: Grok 4.6 xhigh fast day-to-day; `gpt-5.6-sol-xhigh` only for `hardest tasks` and `architect runners`. See `.cursor/rules/pstack-models.mdc`.

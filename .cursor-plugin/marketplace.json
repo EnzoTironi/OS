@@ -10,12 +10,12 @@
   "plugins": [
     {
       "name": "pstack",
-      "source": "pstack",
+      "source": ".cursor/plugins/pstack",
       "description": "Rigorous agent workflows (poteto-mode and principles)"
     },
     {
       "name": "cursor-team-kit",
-      "source": "cursor-team-kit",
+      "source": ".cursor/plugins/cursor-team-kit",
       "description": "CI, review, shipping, control-cli, and control-ui"
     }
   ]
