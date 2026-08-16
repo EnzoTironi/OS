@@ -1,0 +1,27 @@
+# Component matrix
+
+**Kind:** reference.  
+**Decision:** per cell.  
+**Question set:** issue 61 reuse tests.
+
+Match means the candidate's native abstraction can express the desired OS distinction without renaming the distinction to fit the product. Adaptation means OS would have to change its meaning to use the product.
+
+| Component | Abstraction match | Second source of meaning | Replaceable later | Hard-to-recreate benefit | Inherited constraint | Folder decision |
+| --- | --- | --- | --- | --- | --- | --- |
+| ERPNext | Forces DocType, `docstatus`, form lifecycle. Domain laws are real. Schema is not. E-003, E-004 | Yes, if it remains the posting authority | No, if OS types are DocTypes. Yes, if used only as a corpus | Years of cancel graphs, stock ledger, manufacturing edge cases | GPL-3.0. Document-centric mutation. Python row machine | rejected as core. supported as corpus |
+| Frappe | Document plus controller hooks. Submit and cancel exist. Named Action does not. E-003 | Yes, if DocTypes are OS types | Partial. MIT framework could be a surface generator. Lifecycle still leaks | Metadata-driven forms and permissions, production hardened | Row-shaped Document. `on_change` via `db_set` | rejected as core. undetermined as a later surface toolkit |
+| Moqui / Mantle | Service verb plus noun is closer. Implicit CRUD and EECA remain. E-006, E-007 | Yes, if Mantle UDM is the ontology | No as a core. Yes as a mined service catalog | Independent SOA lineage. Party versus role. AssetDetail | Entity, Service, Screen. XML Actions. SECA | rejected as core. supported as corpus |
+| Open Foundry (`syzygyhack`) | Objects, links, actions match the cheap vocabulary. Commit-then-notify does not match S-004. E-008, E-020 | Yes, if it owns object writes and also talks to an ERP | Poor. YAML action packs become types | Little unique semantics. Young | Local commit before side effect. Compensation is a second story | rejected as core. pattern donor only |
+| ObjectStack | One Action, many surfaces. Script elevation breaks authority. E-010 | Yes, if metadata objects are business truth | Poor. Metadata runtime is the product | Generated UI, API, MCP from shared metadata | Trusted script bodies. ObjectOS commercial split | rejected as core |
+| Ontologiq | Best inspected propose, revalidate, `unknown`. State is a live warehouse view. E-009 | Yes, if the warehouse remains write-truth | Partial for the protocol. Poor for the product | Approval binding and unknown I/O, rare in open code | Alpha. No valid-time store. No owned writes | rejected as core. supported as protocol donor |
+| Temporal | Durability matches. Workflow Type, Event History, and Activity retry do not match Action, Event, Effect. E-011, E-012 | Yes, if Workflow variables are entity state | Yes as a worker if OS never names Workflow Types. No if it does | Replay, failover, multi-year executions | Deterministic Workflow code. Activity at-least-once execution. MIT | rejected as core. undetermined as durability worker |
+| Cedar | PARC matches Policy sketch. Skip-on-error does not match fail-closed. Schema unused at eval. E-013, E-019 | No, if OS supplies entities. Yes, if Cedar entities become Employment | Yes, if OS owns the request construction | Specified default deny and forbid-wins. Automated-reasoning story in first-party design notes | Skip-on-error. Application must wrap errors. Apache-2.0 | rejected as Policy primitive. hypothesis as evaluator |
+| OpenFGA | ReBAC tuples are not OS Relationships or Relators. E-014 | Yes, if tuples are written outside OS | Yes as a derived check API. No as the relationship store | Zanzibar-style expand and list-objects at scale | Stored authorization graph. Conditions are not OS Policy | rejected as core. hypothesis as projection |
+| XTDB | System time and valid time match the two temporal questions. Row validity is not Fact. E-015 | Yes, if tables are types and `ERASE` is allowed | Yes as a store if Fact mapping is OS-owned | Ubiquitous bitemporal indexes. SQL:2011-shaped queries | MPL-2.0 file-level copyleft. `ERASE`. Valid time is row-shaped | rejected as Fact primitive. undetermined as store |
+| Graph / query engines | Identity and traversal only. No Action, authority, or reconciliation. E-018 | Yes, if the graph is the ontology | Yes as an index | Mature traversal and constraint languages in some products | Storage shape becomes the model if adopted as core | rejected as core. undetermined as index |
+| TigerBeetle-class ledger | Immutable transfer and refuse-closed balance match posted-history laws. Built-in two-account schema does not match OS accounts. E-016 | Yes, if `ledger` and `code` are the chart of accounts | Yes if OS maps Functions onto transfers. No if TB accounts are ontology types | Append-only transfers. Deterministic timeouts. No silent UPDATE | Exactly one debit and one credit per transfer. License not pinned this session | rejected as AccountingKernel. hypothesis as physical store |
+| Planning / solver libraries | Not inspected first-party this session. Sibling issue 58 L-K-07 and L-K-08 say explosion is a Function and a solver proposes | Yes, if the solver writes work orders | Yes if it returns a candidate plan | Search over capacity is hard as a generic interpreter | Product-specific model files | undetermined as a product. rejected as semantic authority |
+
+## Reading rule
+
+A `rejected as core` cell can still be `hypothesis` as a worker. The kill test fails only when the component becomes a source of business meaning.
