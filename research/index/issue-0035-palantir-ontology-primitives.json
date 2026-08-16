@@ -1,0 +1,114 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 1,
+  "entries": [
+    {
+      "artifact_id": "issue-0035-palantir-ontology-primitives",
+      "artifact": "research/notes/issue-0035-palantir-ontology-primitives.md",
+      "issue": 35,
+      "title": "Palantir Ontology primitives, mutation, identity, time, and agent access",
+      "question": "Does Palantir's production Ontology treat Object Types, Links, Interfaces, Actions, Functions, Object Sets, and security as one semantic core, or as a product stack that mixes domain meaning with pipeline, UI, and compatibility mechanics?",
+      "topics": [
+        "palantir-ontology",
+        "object-type",
+        "interface",
+        "action",
+        "object-backed-link",
+        "object-set",
+        "security",
+        "identity",
+        "temporality",
+        "agent-access",
+        "rfc-0001-kill-tests"
+      ],
+      "source_keys": [
+        "palantir-foundry-docs",
+        "palantir-ontology-overview",
+        "palantir-action-types",
+        "palantir-interfaces",
+        "palantir-object-backend",
+        "palantir-ontology-anti-patterns"
+      ],
+      "evidence_grades": [
+        "official-doc",
+        "inference"
+      ],
+      "decision_states": [
+        "hypothesis",
+        "supported",
+        "undetermined"
+      ],
+      "concepts": [
+        "C-001",
+        "C-002",
+        "C-003",
+        "C-004",
+        "C-005",
+        "C-006",
+        "C-007",
+        "C-008",
+        "C-009"
+      ],
+      "invariants": [
+        "I-001",
+        "I-002",
+        "I-003",
+        "I-004",
+        "I-005"
+      ],
+      "candidate_laws": [
+        "L-001",
+        "L-002",
+        "L-003",
+        "L-004",
+        "L-005",
+        "L-006"
+      ],
+      "counterexamples": [
+        "X-001",
+        "X-002",
+        "X-003",
+        "X-004",
+        "X-005",
+        "X-006",
+        "X-007"
+      ],
+      "runtime_consequences": [
+        "R-001",
+        "R-002",
+        "R-003",
+        "R-004",
+        "R-005"
+      ],
+      "disagreements": [
+        {
+          "id": "D-001",
+          "targets": [
+            "issue-0035-palantir-ontology-primitives#E-010",
+            "issue-0035-palantir-ontology-primitives#E-018"
+          ],
+          "status": "open"
+        },
+        {
+          "id": "D-002",
+          "targets": [
+            "issue-0035-palantir-ontology-primitives#E-003",
+            "issue-0035-palantir-ontology-primitives#E-019"
+          ],
+          "status": "open"
+        }
+      ],
+      "depends_on": [],
+      "related_issues": [
+        2,
+        4,
+        6,
+        8,
+        11,
+        12,
+        36,
+        55
+      ]
+    }
+  ]
+}
