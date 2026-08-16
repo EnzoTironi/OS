@@ -25,7 +25,7 @@ State / invariant / policy / authority
 
 ORCHESTRATION / PROCESS MEMORY
 
-execution instance       run/epoch
+execution instance       execution epoch? / continuation evidence
 program/definition rev   execution cursor
 step/activity attempt    durable timer registration
 wait/subscription        buffered signal/message
@@ -35,19 +35,21 @@ worker/deployment rev    runtime cancellation state
 
 A runtime execution can coordinate business work. Its internal token/cursor/history is not automatically the business process itself.
 
+`execution epoch` above is a **conceptual role when a backend exposes or needs rollover/replacement identity**. Temporal may expose a Run ID; another backend may use redrive/fork/migration evidence or one stable execution identity. OS does not require every backend to manufacture the same `RunId` field.
+
 ## Core result
 
 The strongest current decomposition is:
 
 ```text
-Business semantic identity / commitments / current state
+Business semantic identity / commitments / declared state basis
         │
         │ determine what must be done and what counts as done
         ▼
 ORCHESTRATION PLAN / EXECUTION
   ExecutionInstance X
   DefinitionRevision DR
-  Run/Epoch R1
+  ExecutionEpoch R1?     // backend-specific when applicable
         │
         ├─ durable wait / timer / subscription
         ├─ compute / pure routing
@@ -58,13 +60,13 @@ ORCHESTRATION PLAN / EXECUTION
         └─ recover/replay/migrate as runtime mechanics require
         │
         ▼
-Run/Epoch R2?  // restart, continue-as-new, redrive, fork, migration
+ExecutionEpoch R2?       // continue-as-new, redrive, fork, migration, replacement when applicable
         │
         ▼
 execution can close
 ```
 
-Closure of `X/R` says the orchestrator has no more work under that execution definition. It does **not** prove, by itself, that a business Process/Commitment/Effect has succeeded.
+Closure of `X/R` says the orchestrator has no more work under that execution definition/epoch. It does **not** prove, by itself, that a business Process/Commitment/Effect has succeeded.
 
 ## The boundary law
 
@@ -113,10 +115,10 @@ See [`capability-matrix.md`](capability-matrix.md) and [`source-study.md`](sourc
 
 The full falsifiable set lives in [`candidate-laws.md`](candidate-laws.md). The most important current findings are:
 
-1. **Business process identity and orchestration execution identity must be separable.** One business process/commitment can outlive, migrate across, or be served by multiple execution runs.
+1. **Business process identity and orchestration execution identity must be separable.** One business process/commitment can outlive, migrate across, or be served by multiple execution epochs/instances where the backend architecture requires them.
 2. **Runtime history is execution evidence, not automatically business event history.** It proves what the runtime scheduled/observed according to its protocol.
-3. **Replay is not semantic re-execution.** Recovery must reuse stable #40 operation IDs/#41 effect IDs or re-read authoritative domain state before deciding new work.
-4. **Timers are triggers, not deadlines.** A timer firing tells the runtime to wake; the ontology/domain decides whether a deadline still exists or was breached.
+3. **Replay is not semantic re-execution.** Recovery must reuse stable #40 operation IDs/#41 effect IDs and evaluate the semantic operation's declared #40 basis — current, pinned, immutable, as-of, or another supported dependency form — rather than inventing a new operation or universally rereading “latest state”.
+4. **Timers are triggers, not deadlines.** A timer firing tells the runtime to wake; the ontology/domain decides whether a deadline still exists or was breached under the relevant declared basis.
 5. **Signals/messages are input evidence.** They inherit #45 correlation/authority/dedupe semantics before they can satisfy a business condition.
 6. **Human wait completion is not authorization/approval by position alone.** #42 actor/grant/SoD and #40 proposal/approval basis still apply.
 7. **Activity/step retry policy cannot overrule #41 external-effect safety.** A runtime may retry its unit of work only if the semantic operation/effect contract makes that retry safe.
