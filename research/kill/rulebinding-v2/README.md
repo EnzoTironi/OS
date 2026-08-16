@@ -133,13 +133,19 @@ A proof that validated balanced state `S1` could be reused for a different state
 
 The green run is intentionally retained in the evidence history as proof that revision freshness alone does not make an authority proof safe.
 
-## M4-v2 hardening — exact validated context
+## M4-v2 hardening — exact validated semantic and execution context
 
-The current candidate binds every operational proof to the exact semantic context it validated:
+The next candidate first bound business inputs/state but still omitted the trusted execution identity. Deep review found that a proof minted for Alice could otherwise transfer to Bob—or to another represented principal/workload—when the business payload was unchanged. The same attack applies across authority domains such as tenant/environment/session when those dimensions determine authority.
+
+The current bounded model therefore binds every operational proof to the exact context it validated:
 
 ```text
 target
 semantic operation identity
+actor
+represented principal
+workload
+authority context (for example tenant/environment/session when material)
 inputs
 pending / proposed state
 pinned basis
@@ -150,16 +156,18 @@ The runtime also seals the issued proof over its Type, context digest, state bas
 
 The concrete model uses HMAC-SHA256 only to make forgery testable. The semantic law is simpler:
 
-> an untrusted caller must not be able to mint, retarget or rewrite an authority proof outside the trusted runtime boundary.
+> an untrusted caller must not be able to mint, retarget, transfer across a materially different trusted execution context, or rewrite an authority proof outside the trusted runtime boundary.
 
 Permanent regressions now distinguish:
 
 ```text
-changed validated context -> ContextMismatch
-same context + tampered sealed proof -> ForgedProof
+changed business or execution context -> ContextMismatch
+same context + tampered sealed proof   -> ForgedProof
 ```
 
 The hardening did not reintroduce RuleBinding, `locus`, scope lookup or `CapabilityType`.
+
+Important: the bounded API accepts identity/authority-context fields explicitly so substitution is testable. Production must derive those fields from trusted session/workload/delegation context; allowing a caller to self-assert the same values at mint and invocation would merely seal a lie.
 
 ## Required semantic pressure
 
@@ -175,7 +183,7 @@ Every serious model must preserve:
 8. exact evaluator/model/ontology revision in explanation;
 9. evaluator error distinct from denial;
 10. no generic/admin bypass represented by the model;
-11. exact-context proof binding, not revision-only freshness;
+11. exact semantic + trusted execution context proof binding, not revision-only freshness;
 12. runtime-issued/unforgeable operational authority.
 
 ## What would make M4-v2 a real reduction
@@ -189,8 +197,8 @@ M4-v2 passes the anti-cheat test only if:
 - cross-cutting invariants are requirements of the lowest authoritative commit signature;
 - authorization combination can remain in a typed/inspectable PDP Computation whose result/evidence constructs the proof;
 - capability machinery remains useful in a model with zero business rules because it isolates Computation from privileged runtime authority;
-- actor/workload/represented-principal come from trusted execution context rather than caller assertion;
-- exact semantic context can be bound without growing proof Types into arbitrary locus/scope/binding records.
+- actor/workload/represented-principal and material authority-domain context come from trusted execution context rather than caller assertion;
+- exact semantic/execution context can be bound without growing proof Types into arbitrary locus/scope/binding records.
 
 If those conditions fail, M4 is hidden recreation and R5 survives.
 
@@ -216,7 +224,7 @@ It is still only a candidate.
 - #157 must attack no-bypass across admin/import/migration/privacy/repair paths;
 - #158 must attack Relation unification;
 - #71 must attack the same R6 semantics across the first cross-cycle acceptance vertical;
-- trusted execution identity and dependency-sensitive StateBasis must remain explicit runtime requirements.
+- trusted execution identity/authority-domain origin and dependency-sensitive StateBasis must remain explicit runtime requirements.
 
 ## Epistemic rule
 
