@@ -1,0 +1,30 @@
+name: transaction-research-ci
+
+on:
+  push:
+    branches:
+      - research/issue-40-commit-semantics
+  pull_request:
+    paths:
+      - 'research/runtime/transactions/**'
+      - 'research/index/issue-0040-commit-semantics.json'
+      - '.github/workflows/transaction-research-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Structural research checks
+        run: python3 research/runtime/transactions/check_research.py
+      - name: Execute semantic reference litmus tests
+        working-directory: research/runtime/transactions
+        run: python3 -m unittest -v test_reference_model.py
+      - name: Validate index JSON
+        run: python3 -m json.tool research/index/issue-0040-commit-semantics.json >/dev/null
