@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import assume, given, settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, invariant, rule
 
 from reference_model import (
@@ -11,7 +11,6 @@ from reference_model import (
     ActionPlan,
     CardinalityViolation,
     ComputationDef,
-    Decision,
     EffectKnowledge,
     EvaluationContext,
     IntentMismatch,
@@ -20,7 +19,6 @@ from reference_model import (
     RelationDef,
     RuleBinding,
     RuleDenied,
-    RuleResult,
     TypeDef,
     TypeNature,
     TypeViolation,
@@ -57,11 +55,10 @@ class ReductionPropertyTests(unittest.TestCase):
     @settings(max_examples=200, deadline=None)
     @given(
         first=st.integers(min_value=-1000, max_value=1000),
-        second=st.integers(min_value=-1000, max_value=1000).filter(lambda x: True),
+        second=st.integers(min_value=-1000, max_value=1000),
     )
     def test_changed_intent_cannot_reuse_operation_identity(self, first: int, second: int) -> None:
-        if first == second:
-            self.skipTest("Hypothesis generated equal intents; mismatch property requires distinct intent")
+        assume(first != second)
         engine = self._increment_engine()
         engine.invoke_action("Increment", "OP", f"x:{first}", {"key": "x", "delta": first}, actor="A")
         with self.assertRaises(IntentMismatch):
@@ -139,7 +136,6 @@ class EffectKnowledgeMachine(RuleBasedStateMachine):
         )
         self.engine.add_action(ActionDef("Remote", "plan"))
         self.engine.invoke_action("Remote", "OP", "remote:E", {}, actor="A")
-        self.ever_unknown_or_more = False
 
     @rule()
     def definitely_not_sent(self) -> None:
@@ -152,7 +148,6 @@ class EffectKnowledgeMachine(RuleBasedStateMachine):
         before = self.engine.effects["E"].knowledge
         after = self.engine.effect_attempt("E", "sent_no_response")
         if before not in {EffectKnowledge.CONFIRMED, EffectKnowledge.REJECTED}:
-            self.ever_unknown_or_more = True
             self.assert_equal(after, EffectKnowledge.INDETERMINATE)
 
     @rule()
@@ -160,18 +155,15 @@ class EffectKnowledgeMachine(RuleBasedStateMachine):
         before = self.engine.effects["E"].knowledge
         after = self.engine.effect_attempt("E", "accepted_pending")
         if before not in {EffectKnowledge.CONFIRMED, EffectKnowledge.REJECTED}:
-            self.ever_unknown_or_more = True
             self.assert_equal(after, EffectKnowledge.PENDING)
 
     @rule()
     def confirmed(self) -> None:
         self.engine.effect_attempt("E", "confirmed")
-        self.ever_unknown_or_more = True
 
     @rule()
     def rejected(self) -> None:
         self.engine.effect_attempt("E", "rejected")
-        self.ever_unknown_or_more = True
 
     @rule()
     def retry_without_remote_dedupe(self) -> None:
