@@ -13,7 +13,7 @@
       "topics": ["orchestration", "durable-execution", "workflow", "timers", "signals", "replay", "versioning", "process", "human-in-loop"],
       "source_keys": ["temporal", "azure-durable", "camunda", "aws-step-functions", "dbos", "restate", "issue-40-transactions", "issue-41-effects", "issue-42-authorization", "wave-a"],
       "evidence_kinds": ["official-doc", "test", "inference"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0043-durable-orchestration#L-ORCH-01", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0043-durable-orchestration#L-ORCH-02", "kind": "candidate-law", "epistemic_state": "supported"},
