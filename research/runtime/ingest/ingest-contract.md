@@ -28,15 +28,15 @@ SEMANTIC INTERPRETATION
         │
         ▼
 IDENTITY RESOLUTION
-  generate candidate bindings + evidence/score/constraints
+  generate candidate relations + evidence/score/constraints
         │
         ▼
 ADJUDICATE / ADMIT
-  decide which binding/statements may participate in which operational contexts
+  establish exact bindings when justified; admit statements under authority rules
         │
         ▼
-PROJECT / QUERY
-  derive current operational views without deleting the evidence below
+PROJECT / QUERY / ACT
+  consumers declare which relation kinds + assurance are sufficient
 ```
 
 A system can physically fuse stages for performance, but it must preserve enough metadata to explain the semantic boundaries.
@@ -201,7 +201,7 @@ Candidate mapping outputs:
 
 ```text
 one or more semantic statement proposals
-zero or more identity candidates
+zero or more identity/relationship candidates
 parse/validation diagnostics
 explicit unbound fields/evidence
 ```
@@ -273,7 +273,8 @@ source_key == business_id
 but conceptually:
 
 ```text
-source-local referent  --candidate/accepted binding-->  business referent
+source-local referent  --candidate relation-->  business referent
+source-local referent  --accepted exact binding, when justified--> business referent
 ```
 
 Examples:
@@ -286,7 +287,7 @@ bank account counterparty string -> Party candidate
 WhatsApp sender endpoint -> Person/Contact/Party candidate
 ```
 
-Different source identities can bind to one business identity. One source identity can also need **rebinding/splitting over time** if a source reused a code or a prior match was wrong.
+Different source identities can bind to one business identity. One source identity can also need **rebinding/splitting over time** if a source reused a code or a prior exact match was wrong.
 
 ## 6.2 Candidate generation is part of provenance
 
@@ -345,84 +346,133 @@ Therefore preserve:
 
 ```text
 pairwise candidate edges
+relation kind proposed
 cluster algorithm/revision/threshold
 cluster-level constraints/evaluation
-final binding decision separately
+final exact binding decision separately
 ```
 
-## 6.5 Confidence is not authority
+## 6.5 Relation semantics, assurance, and authority are separate
+
+The first draft of this contract incorrectly implied that a fuzzy match could become an exact identity binding for analytics but not for payment. That would make identity truth consumer-relative. The corrected model separates three questions.
+
+### A. What relation is being claimed?
+
+Examples:
+
+```text
+sameExactEntity
+sourceAliasOf
+probableSameProductFamily
+possibleMatch
+supersedesSourceIdentity
+```
+
+These names are illustrative, not proposed primitives.
+
+### B. What assurance/evidence supports the relation?
+
+Examples:
+
+```text
+globally unique signed identifier
+trusted crosswalk
+reviewed legal-document match
+probabilistic score + model revision
+string similarity
+conflicting evidence
+unknown/unreviewed
+```
 
 A confidence/probability answers:
 
-> how strongly does this model/evidence support the match under its assumptions?
+> how strongly does this model/evidence support this candidate relation under its assumptions?
 
-Authority answers:
+It does not answer whether the relation is exact identity, nor whether an Action may rely on it.
 
-> may this match be used as the binding that drives this operation/projection?
+### C. May this consumer/Action rely on that relation at that assurance?
 
-These are different questions.
-
-A domain can define automatic admission rules, for example:
+Examples:
 
 ```text
-if source supplies globally unique signed identifier
-  bind automatically
-
-if probability >= threshold AND no exclusivity conflict AND no negative legal-id evidence
-  bind for low-risk analytic aggregation
-
-if binding would merge payment counterparties or legal entities
-  require authorized review
+competitor analytics may use probableSameProductFamily
+payment requires sameExactEntity established by deterministic/reviewed legal evidence
+repricing requires exact identity of the company's own listing
 ```
 
-The important property is that the **rule/decision** is explicit and versioned; the score alone is not the rule.
+This is authorization/admissibility policy, not identity semantics.
+
+A domain can define automatic exact binding when the evidence contract is strong enough:
+
+```text
+if source supplies a globally unique non-reused identifier under trusted contract
+  establish sameExactEntity automatically
+```
+
+For ambiguous cases:
+
+```text
+if probabilistic evidence suggests relation
+  preserve candidate relation + assurance
+  do not promote to sameExactEntity until the domain's adjudication rule is satisfied
+```
+
+The important property is that **relation meaning**, **assurance**, and **Action admissibility** remain inspectable and versioned.
 
 # 7. Binding/adjudication
 
-## 7.1 Binding is scoped
+## 7.1 Exact binding is stable in meaning, scoped only where identity itself is scoped
 
-An accepted binding should identify its scope. Possible dimensions:
+An accepted exact-identity binding should not change semantic truth according to consumer risk. Its legitimate scope dimensions are those that affect the identity relation itself, for example:
 
 ```text
 source/source collection
 source-local identity
 target business identity
-valid/effective interval when source identity can be reused
-statement families/actions for which binding is acceptable
-tenant/legal entity/context
+identity grain/type
+valid/effective interval when a source identifier can be reused
+organization/tenant/jurisdiction when identity is genuinely namespace-scoped
 binding revision
 ```
 
-Not every system needs every dimension.
+Consumer/Action risk is **not** an identity-scope dimension. Instead, each consumer declares which relation kind and assurance it requires.
 
-Example: a weak fuzzy match may be accepted for competitor-price analytics but forbidden for supplier payment execution.
+Example:
+
+```text
+competitor offer A --probableSameProductFamily (0.93, model M)--> ProductFamily P
+```
+
+may be sufficient for exploratory analytics. It is not an exact Product identity binding and cannot authorize a repricing Action against the company's own Listing.
 
 ## 7.2 Binding decision has a basis
 
-A binding can come from:
+An exact binding can come from:
 
 ```text
 deterministic source contract
 trusted crosswalk
-constraint solver
+constraint solver with domain guarantees
 reviewed probabilistic candidate
 manual adjudication
 agent proposal approved by authorized actor
 ```
 
-Record:
+Record, where relevant:
 
 ```text
 who/what decided
+relation kind established
 rule/model/version
 evidence/candidate set seen
-scope
+assurance/basis
+identity scope/effectivity
 state/temporal basis
 when admitted
 supersedes/replaces which prior binding
 ```
 
-If #40 later defines a generic Decision/Action commit witness, binding adjudication should use that contract rather than inventing its own transaction semantics.
+If #40 later defines a generic Decision/Action commit witness, ambiguous/high-impact binding adjudication should use that contract rather than inventing its own transaction semantics. Deterministic exact mappings do not need performative human approval merely to satisfy a workflow shape.
 
 ## 7.3 Merge, split and rebind preserve history
 
@@ -446,7 +496,7 @@ The split cannot safely assign all historical statements automatically. Some rec
 
 ### Rebind
 
-A source-local identifier was associated with target A, then later should map to B.
+A source-local identifier was associated with target A, then later should map to B because the source key was reused or the prior exact binding was wrong.
 
 Do not mutate old decisions. Record the new binding scope/effectivity and preserve prior decisions/actions under the binding used at the time.
 
@@ -458,7 +508,7 @@ Example:
 
 ```text
 Bling Product 123          ┐
-Marketplace Listing MLB42  ├─ correctly linked to Product P
+Marketplace Listing MLB42  ├─ correctly linked to Product P / Listing L
 Cost spreadsheet row X     ┘
 ```
 
@@ -609,11 +659,13 @@ policy/permission prevents inspection
 candidate violates target invariant
 ```
 
-Quarantine is not data loss. Operators/agents need to query and resolve it.
+Quarantine is not data loss while the evidence is retained. Operators/agents need to query and resolve it subject to retention/privacy/security policy.
 
 A useful invariant:
 
-> failure to map/bind must never force the system either to drop source evidence or to fabricate a semantic target.
+> failure to map/bind must never force the system either to fabricate a semantic target or to silently claim semantic success.
+
+Disposition/retention policy may later reject, redact, or delete evidence; that is a governed lifecycle distinct from mapping success.
 
 # 14. Ingestion ownership modes
 
@@ -637,15 +689,16 @@ This contract currently requires generic capabilities, not ingest-specific engin
 1. stable typed identities for evidence/business objects;
 2. typed relationships and many-to-many mapping history;
 3. provenance/derivation metadata;
-4. immutable or history-preserving decisions/revisions;
+4. immutable or history-preserving decisions/revisions where required;
 5. typed missing/unknown/uncertain values where needed;
 6. Functions for parsing/mapping/scoring;
-7. governed Actions/Decision semantics for high-impact binding/adjudication;
+7. governed Actions/Decision semantics for ambiguous/high-impact binding/adjudication;
 8. query over unresolved and resolved evidence;
 9. temporal fields only when semantically available;
 10. source/version/revision identity;
-11. authorization over evidence and binding actions;
-12. projections/materializations that can elect operational current state without deleting the inputs.
+11. authorization over evidence, binding actions, and consumer reliance;
+12. projections/materializations that can elect operational current state without deleting the inputs;
+13. relation semantics and assurance metadata that remain distinct from Action policy.
 
 No evidence here requires the generic engine to understand `Excel`, `MercadoLivre`, `SKU`, `NF-e`, `Supplier`, or `Cost` by name.
 
@@ -668,8 +721,8 @@ Binding
 ```text
 CapturedArtifact : Type implementing provenance/evidence conventions
 MappingProposal  : ordinary Type
-IdentityCandidate: ordinary Type/relation
-BindingDecision  : ordinary governed Action/Decision output
+CandidateRelation: ordinary typed relation + assurance metadata
+BindingDecision  : ordinary governed Action/Decision output when exact identity needs adjudication
 ```
 
 **Benefit:** smaller metamodel, domain extensibility.  
@@ -693,18 +746,19 @@ A candidate runtime fails #45 if it cannot answer these without source-specific 
 1. What exact raw/source evidence produced this value?
 2. Which source schema and mapping/extractor revision interpreted it?
 3. What is the source-local identity/grain?
-4. Which business identity was it bound to, by what evidence/rule/actor, and when?
-5. What alternative identity candidates existed?
-6. Can a binding be split/rebound without rewriting old evidence/actions?
-7. Can unresolved evidence remain queryable?
+4. What semantic relation to a business identity was proposed or established, by what evidence/rule/actor, and when?
+5. What alternative identity candidates/relations existed?
+6. Can an exact binding be split/rebound without rewriting old evidence/actions?
+7. Can unresolved evidence remain queryable while retained?
 8. Can a snapshot express current state without invented events?
 9. Can source deletion remain only source disappearance when source lacks business deletion authority?
 10. Can one business identity preserve rival source assertions?
 11. Can an operational projection select a current value without deleting rivals?
 12. Can lineage-equivalent copies be detected/marked to prevent double-counting?
 13. Can schema drift quarantine or route to a new mapping revision instead of silently coercing?
-14. Can LLM/document extraction remain proposal/evidence until admitted?
-15. Can an automatic identity rule be scoped differently for analytics versus high-risk Actions?
+14. Can LLM/document extraction remain proposal/evidence until admitted under an explicit authority rule?
+15. Can consumer policy require a stronger **relation kind/assurance** without changing the semantics of identity itself?
 16. Can later model improvements explain why historical bindings/actions used the older interpretation?
+17. Can deterministic trusted identifiers establish exact identity automatically without forcing pointless human review?
 
 If not, the implementation is cleaning data by destroying semantic evidence.
