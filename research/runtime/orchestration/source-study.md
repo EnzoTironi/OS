@@ -50,8 +50,7 @@ Observed mechanism:
 - orchestrator code must be deterministic relative to execution history;
 - durable timers survive host unload/restart;
 - external events can wake a waiting orchestration and can be queued before the orchestration starts waiting;
-- external events can be delivered at least once depending on backend, so Microsoft recommends unique event IDs for manual dedupe;
-- current orchestration versioning permanently associates each instance with a version and protects against workers executing incompatible versions.
+- orchestration versioning associates running instances with execution versions so workers can preserve replay/code compatibility.
 
 ### Pressure for OS
 
@@ -63,7 +62,7 @@ runtime event queue semantics != #45 business observation semantics
 
 An Azure external event is a message to an orchestration instance. If it came from a webhook/human/system, OS still needs source identity, actor/correlation, authority and dedupe semantics before it satisfies a business condition.
 
-Version pinning is also clearly an execution concern. `orchestrator version 2` and `ontology revision 2` are unrelated identifiers unless explicitly bound.
+Version pinning/isolation is also clearly an execution concern. `orchestrator version 2` and `ontology revision 2` are unrelated identifiers unless explicitly bound.
 
 # 3. Camunda 8 / Zeebe
 
@@ -72,7 +71,7 @@ Primary references:
 - <https://docs.camunda.io/docs/components/orchestration-cluster/>
 - <https://docs.camunda.io/docs/components/modeler/bpmn/tasks/>
 - <https://docs.camunda.io/docs/components/modeler/bpmn/user-tasks/>
-- current process-instance migration docs under Camunda 8 documentation.
+- Camunda 8 process-instance migration documentation inspected during this research pass.
 
 Observed mechanism:
 
@@ -80,9 +79,9 @@ Observed mechanism:
 - BPMN tokens/active elements drive execution and job creation;
 - User Tasks explicitly stop a process instance while a human-assisted task waits for completion;
 - user task scheduling includes due/follow-up dates;
-- messages are correlated to process instances/subscriptions by message name and correlation key; buffering/TTL/dedupe behavior is engine-defined;
-- process-instance migration can move a running instance to another deployed definition, subject to element mappings and restrictions;
-- existing jobs/local state are not necessarily recreated/recomputed during migration.
+- messages are correlated to process instances/subscriptions by message name and correlation key under engine-defined buffering/correlation semantics;
+- process-instance migration can move a running instance to another deployed definition under explicit element mappings/restrictions;
+- migration of execution position does not imply historical domain Actions/Events are rewritten.
 
 ### Pressure for OS
 
@@ -98,7 +97,7 @@ It does not prove:
 
 Likewise, Camunda `dueDate` can be a UI/work-management schedule without being the legal/economic deadline of a Commitment. The domain deadline can move or be fulfilled independently while an old engine timer/task still exists.
 
-Instance migration reinforces the separation: runtime mapping from active element A to target element B is a migration of **execution memory**; it cannot silently rewrite what prior domain Actions/Events/Commitments meant.
+Instance migration reinforces the separation: runtime mapping of a running instance into another definition is a migration of **execution memory**; it cannot silently rewrite what prior domain Actions/Events/Commitments meant.
 
 # 4. AWS Step Functions
 
@@ -191,7 +190,7 @@ Observed mechanism:
 
 Restate demonstrates that **journaled code execution + interaction + keyed concurrency** can be a compact alternative to a standalone BPMN engine.
 
-But its `Workflow ID runs once`, Virtual Object key, durable Promise name, invocation ID, and journal entry are runtime identities. OS cannot assume they are globally canonical business identities.
+But its Workflow ID, Virtual Object key, durable Promise name, invocation ID, and journal entry are runtime identities. OS cannot assume they are globally canonical business identities.
 
 Its Saga guidance is useful evidence for #41: durable execution does not eliminate the lost-confirmation/duplicate-side-effect problem at external providers.
 
@@ -243,7 +242,7 @@ This divergence argues against importing one runtime's nouns into the base ontol
 
 # 9. Conclusion for #43
 
-The external evidence supports a first-class **durable execution/orchestration runtime boundary**, but does not support `Workflow` as a universal semantic primitive.
+The inspected external evidence supports a first-class **durable execution/orchestration runtime boundary**, but does not support `Workflow` as a universal semantic primitive.
 
 The runtime should be able to remember:
 
