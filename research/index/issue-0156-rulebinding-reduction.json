@@ -13,7 +13,7 @@
       "topics": ["metamodel", "primitive-reduction", "rule-binding", "type-refinement", "capability", "authorization", "invariant", "proof", "state-basis", "anti-cheat"],
       "source_keys": ["issue-8-logic", "issue-40-commit", "issue-41-effects", "issue-42-authorization", "issue-46-verification", "issue-56-primitives", "issue-70-metamodel", "rfc-0002"],
       "evidence_kinds": ["reviewed-corpus", "test", "counterexample", "sensitivity", "synthesis"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0156-rulebinding-reduction#L-RB-01", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0156-rulebinding-reduction#L-RB-02", "kind": "candidate-law", "epistemic_state": "supported"},
