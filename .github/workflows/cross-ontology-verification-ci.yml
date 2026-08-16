@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install property/formal dependencies
-        run: python3 -m pip install 'hypothesis>=6,<7' 'z3-solver>=4,<5'
+        run: python3 -m pip install 'hypothesis==6.165.9' 'z3-solver==4.16.0.0'
       - name: Check cross-ontology corpus registry
         run: |
           python3 research/verification/check_research.py
