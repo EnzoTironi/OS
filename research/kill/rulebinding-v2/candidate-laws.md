@@ -77,13 +77,15 @@ Issue #157 owns the stronger adversarial test over admin/import/migration/privac
 
 `PreviewPermit` cannot satisfy `commit:Purchase`; the operation signature demands a different proof Type.
 
-## L-RB-11 — Current-state authority can be represented as validity of a proof value against a revision
+## L-RB-11 — Current-state authority can be represented as proof validity against explicit state basis, but revision alone is insufficient
 
 **State:** `hypothesis`.
 
-A current proof constructed at revision N is stale after an unrelated authoritative revision change. This avoids a RuleBinding `basis=current` field at enforcement time.
+A current proof constructed at revision N is stale after an authoritative revision change. That handles coarse currentness, but the red-team found that revision/target/operation scoping alone still permits context substitution inside the same revision.
 
-Falsifier: required currentness depends on a subset/dependency graph that cannot be encoded without over-invalidating every proof or rebuilding StateBasis semantics elsewhere.
+The hardened candidate therefore combines freshness with L-RB-18's exact semantic-context binding. Production may use a dependency/StateBasis digest rather than one global revision to avoid unnecessary invalidation.
+
+Falsifier: required currentness cannot be represented as proof-value validity without rebuilding RuleBinding scheduling semantics.
 
 ## L-RB-12 — Pinned evidence can be represented as a proof value bound to a named basis digest
 
@@ -111,7 +113,7 @@ Falsifier: cross-policy composition must be visible/composable outside the PDP C
 
 **State:** `supported` in the bounded model.
 
-Successful commit audit includes the exact evaluator revisions and determining evidence that constructed required proof values.
+Successful commit audit includes the exact evaluator revisions and determining evidence that constructed required proof values. The hardened model seals these fields so callers cannot rewrite the explanation independently of the validated proof.
 
 ## L-RB-16 — Read authority and external-effect attempt authority are distinct typed proofs
 
@@ -127,11 +129,26 @@ Successful commit audit includes the exact evaluator revisions and determining e
 
 This does not settle Event demotion across privileged repair/privacy/migration paths. #157 is a mandatory dependency before promotion.
 
-## L-RB-18 — Proof values should be scoped to target and, where relevant, semantic operation identity
+## L-RB-18 — Operational proof values must be bound to the exact semantic context they validated and be unforgeable
 
-**State:** `supported` in the bounded model.
+**State:** `supported` in the hardened bounded model.
 
-A value built for a different target/type/operation cannot satisfy the signature. This prevents capability reuse from silently widening authority.
+Target, Type, semantic operation identity and revision are necessary but not sufficient. A proof for `amount=5` must not authorize `amount=500`; a `PostStateValid` proof for a balanced proposed state must not authorize a different unbalanced state in the same revision.
+
+The hardened model binds each authority proof to a digest of the exact validated context:
+
+```text
+target
+operation identity
+inputs
+proposed/pending state
+pinned basis
+payload where relevant
+```
+
+and runtime-seals the proof together with determining evidence and evaluator revisions. Context substitution raises `ContextMismatch`; caller rewriting of a sealed field raises `ForgedProof`.
+
+Production need not use HMAC specifically, but callers must not be able to manufacture or retarget an authority proof outside the trusted runtime boundary.
 
 ## L-RB-19 — R6-capability is materially different from Wave A's rejected Type/Link/Function/Action quartet
 
