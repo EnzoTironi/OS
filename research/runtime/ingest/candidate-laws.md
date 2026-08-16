@@ -58,7 +58,7 @@ A record-linkage probability, similarity score or LLM confidence does not by its
 
 **State:** `supported` for probabilistic/ambiguous linkage; deterministic trivial mappings are a scoped exception.
 
-Candidate retrieval/blocking/scoring can miss or overinclude alternatives. Final binding needs an explicit acceptance rule/decision when risk matters.
+Candidate retrieval/blocking/scoring can miss or overinclude alternatives. Final exact-identity binding needs an explicit acceptance rule/decision when ambiguity exists; weaker semantic relations may remain candidates without becoming exact identity.
 
 **Evidence:** Splink blocking/scoring/clustering; OpenRefine reconciliation candidates.
 
@@ -74,15 +74,15 @@ Connected-components/single-best-link/other clustering and thresholds can produc
 
 **Falsifier:** domain where connected components over the accepted pairwise relation is definitionally the identity equivalence relation and all equivalence axioms/domain cardinalities are guaranteed.
 
-## L-I45-08 — accepted binding must be revisable without erasing historical basis
+## L-I45-08 — accepted exact-identity binding must be revisable without erasing historical basis
 
 **State:** `supported` as an audit/reproducibility requirement.
 
-Merge/split/rebind corrections should preserve which binding earlier decisions used and why.
+Merge/split/rebind corrections should preserve which exact-identity binding earlier decisions used and why. Candidate similarity/probable-family relations may have shorter retention where no governed operation depended on them.
 
 **Evidence:** Wave A provenance/revision pressure; HF ambiguous repairs; general historical explainability.
 
-**Falsifier:** disposable, non-audited low-risk analysis where no action/history depends on the binding. That may justify ephemeral linkage without durable binding history.
+**Falsifier:** disposable, non-audited analysis where no action/history depends on the relation. That may justify ephemeral linkage without durable binding history.
 
 ## L-I45-09 — source deletion/disappearance is not universal business deletion
 
@@ -200,6 +200,24 @@ Failure to parse, map or bind should not force dropping the evidence or fabricat
 
 **Falsifier:** ingestion contract explicitly rejects and discards invalid inputs by business/legal requirement after retention obligations are satisfied. Even then rejection is a governed disposition, not semantic success.
 
+## L-I45-19 — identity relation, assurance and Action admissibility are separate dimensions
+
+**State:** `supported` as a correction to the first draft of this research.
+
+Do not make exact identity context-relative merely because consumers have different risk tolerance.
+
+Keep separate:
+
+1. **relation semantics** — what relation is claimed (`sameExactEntity`, `probableSameProductFamily`, `possibleMatch`, source alias, etc.);
+2. **assurance/evidence** — how strongly and by what basis that relation is established;
+3. **Action admissibility** — whether a particular consumer/Action is permitted to rely on that relation/assurance.
+
+An analytics workflow may aggregate over `probableSameProductFamily` while a supplier payment Action requires a reviewed/deterministic `sameExactEntity`. That does not make exact identity true for analytics and false for payment.
+
+**Evidence:** the candidate-vs-binding distinction from Splink/OpenRefine plus Wave A authority separation. This law also fixes an overreach found by adversarial self-review of issue #45.
+
+**Falsifier:** a domain in which all relations are exact identity and all consumers require the same assurance. Then the three dimensions may collapse operationally, but the general distinction remains harmless.
+
 # Candidate runtime consequences — not primitives
 
 If these laws survive, a runtime needs capability for:
@@ -207,13 +225,14 @@ If these laws survive, a runtime needs capability for:
 - evidence/source identity;
 - versioned mappings/extractors;
 - unresolved candidate relationships;
-- scored/explainable identity candidates;
-- governed binding decisions where risk requires;
+- explicit semantic relation kinds for candidate/exact matches;
+- scored/explainable assurance/evidence;
+- governed exact-identity binding decisions where ambiguity requires them;
 - source/schema positions and replay/dedupe evidence;
 - preserved/superseded bindings;
 - queryable quarantine;
 - current projections over admitted statements;
-- authorization scoped to binding/admission operations;
+- authorization scoped to binding/admission operations and Action reliance;
 - typed missingness/uncertainty;
 - provenance through transformations.
 
@@ -227,6 +246,7 @@ The following are **rejected as universal rules** by this research:
 - `same normalized string = same entity`;
 - `probability >= 0.95 = identity truth`;
 - `connected-component cluster = permanent business identity`;
+- `identity can be exact for analytics and non-exact for payment`;
 - `source delete = business delete`;
 - `CDC update = business Event`;
 - `latest timestamp = authority`;
