@@ -36,8 +36,13 @@ class EffectSemanticsTests(unittest.TestCase):
     def test_definitely_not_sent_can_retry(self):
         effect = self.request()
         effect.record_attempt(Attempt("A1", AttemptEvidence.DEFINITELY_NOT_SENT))
-        safe, _ = effect.can_retry_same_remote_operation()
-        self.assertTrue(safe)
+        self.assertTrue(effect.can_retry_same_remote_operation()[0])
+
+    def test_later_not_sent_attempt_does_not_erase_earlier_unknown_send(self):
+        effect = self.request()
+        effect.record_attempt(Attempt("A1", AttemptEvidence.SENT_NO_RESPONSE))
+        effect.record_attempt(Attempt("A2", AttemptEvidence.DEFINITELY_NOT_SENT))
+        self.assertEqual(effect.knowledge, Knowledge.INDETERMINATE)
 
     def test_indeterminate_retry_requires_current_idempotency_contract(self):
         unsafe = self.request(self.protocol(idempotent=False, window=False))
@@ -74,6 +79,13 @@ class EffectSemanticsTests(unittest.TestCase):
         changed = effect.reconcile(Observation("W1", "R1", Knowledge.PENDING, True, provider_sequence=10))
         self.assertFalse(changed)
         self.assertEqual(effect.knowledge, Knowledge.CONFIRMED_SUCCEEDED)
+
+    def test_newer_incompatible_terminal_evidence_becomes_contradicted(self):
+        effect = self.request()
+        effect.reconcile(Observation("W1", "R1", Knowledge.CONFIRMED_SUCCEEDED, True, provider_sequence=10))
+        changed = effect.reconcile(Observation("W2", "R1", Knowledge.CONFIRMED_REJECTED, True, provider_sequence=20))
+        self.assertTrue(changed)
+        self.assertEqual(effect.knowledge, Knowledge.CONTRADICTED)
 
     def test_non_authoritative_observation_is_preserved_but_does_not_confirm(self):
         effect = self.request()
