@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OS research index shard",
+  "description": "Merge-safe locator metadata for one research artifact. Human-readable research remains primary evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "kind", "entries"],
+  "properties": {
+    "$schema": {"const": "../schema/research-index.schema.json"},
+    "schema_version": {"const": 2},
+    "kind": {"enum": ["sentinel", "shard"]},
+    "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "sentinel"}}, "required": ["kind"]},
+      "then": {"properties": {"entries": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "shard"}}, "required": ["kind"]},
+      "then": {"properties": {"entries": {"minItems": 1, "maxItems": 1}}}
+    }
+  ],
+  "$defs": {
+    "slug": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "artifactId": {"type": "string", "pattern": "^issue-[0-9]{4,}-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "recordRef": {"type": "string", "minLength": 1},
+    "epistemicState": {"enum": ["hypothesis", "supported", "rejected", "undetermined"]},
+    "historicalDisposition": {"enum": ["rejected-falsified", "superseded", "assumption-withdrawn", "not-promoted", "scope-limited", "undetermined"]},
+    "governanceState": {"enum": ["none", "proposed", "accepted", "superseded", "challenged"]},
+    "reviewStatus": {"enum": ["unreviewed", "raw-evidence-ok", "challenged", "blocked-factual", "blocked-deliverable", "review-clean"]},
+    "evidenceKind": {"enum": ["implemented-code", "test", "observed-execution", "official-doc", "formal-spec", "academic-source", "primary-law", "real-company-evidence", "design-claim", "inference"]},
+    "evidenceStatus": {"enum": ["observed", "verified", "disputed", "retracted", "not-evaluated"]},
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "kind"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/recordRef"},
+        "kind": {"enum": ["observation", "evidence", "concept", "invariant", "candidate-law", "counterexample", "disagreement", "runtime-pressure", "experiment", "decision", "historical-disposition", "open-question", "review-finding"]},
+        "epistemic_state": {"$ref": "#/$defs/epistemicState"},
+        "historical_disposition": {"$ref": "#/$defs/historicalDisposition"},
+        "governance_state": {"$ref": "#/$defs/governanceState"},
+        "evidence_status": {"$ref": "#/$defs/evidenceStatus"}
+      }
+    },
+    "disagreement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "targets", "status"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "targets": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/recordRef"}},
+        "status": {"enum": ["open", "resolved", "scope-narrowed"]},
+        "resolution_ref": {"$ref": "#/$defs/recordRef"}
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact", "issue", "title", "question", "artifact_kind", "topics", "source_keys", "evidence_kinds", "review_status", "records", "disagreements", "depends_on", "related_issues"],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/artifactId"},
+        "artifact": {"type": "string", "pattern": "^research/.+\\.md$"},
+        "issue": {"type": "integer", "minimum": 1},
+        "title": {"type": "string", "minLength": 1},
+        "question": {"type": "string", "minLength": 1},
+        "artifact_kind": {"enum": ["corpus", "foundation-research", "domain-research", "kill-test", "experiment", "research-method", "research-ops", "review", "synthesis-input"]},
+        "topics": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/slug"}},
+        "source_keys": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/slug"}},
+        "evidence_kinds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/evidenceKind"}},
+        "review_status": {"$ref": "#/$defs/reviewStatus"},
+        "records": {"type": "array", "items": {"$ref": "#/$defs/record"}},
+        "disagreements": {"type": "array", "items": {"$ref": "#/$defs/disagreement"}},
+        "depends_on": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/recordRef"}},
+        "related_issues": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1}}
+      }
+    }
+  }
+}
