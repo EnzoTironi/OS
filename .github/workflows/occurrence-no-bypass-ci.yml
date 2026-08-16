@@ -1,0 +1,74 @@
+name: occurrence-no-bypass-ci
+
+on:
+  push:
+    branches:
+      - research/issue-157-occurrence-no-bypass
+  pull_request:
+    paths:
+      - 'research/kill/occurrence-no-bypass/**'
+      - 'research/index/issue-0157-occurrence-no-bypass.json'
+      - 'rfcs/0002-executable-metamodel-hypothesis-v1.md'
+      - '.github/workflows/occurrence-no-bypass-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  occurrence-no-bypass:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install property/formal dependencies
+        run: python3 -m pip install 'hypothesis==6.165.9' 'z3-solver==4.16.0.0'
+      - name: Check issue 157 anti-cheat structure
+        run: python3 research/kill/occurrence-no-bypass/check_research.py
+      - name: Run occurrence write-path and competitor tests
+        run: python3 -m unittest discover -s research/kill/occurrence-no-bypass -p 'test_*.py' -v
+      - name: Re-run RuleBinding reduction gate
+        run: |
+          python3 research/kill/rulebinding-v2/check_research.py
+          python3 -m unittest discover -s research/kill/rulebinding-v2 -p 'test_*.py' -v
+      - name: Re-run cross-ontology verification gate
+        run: |
+          python3 research/verification/check_research.py
+          python3 research/verification/scenario_registry.py --check
+          python3 -m unittest discover -s research/verification -p 'test_*.py' -v
+          python3 research/verification/modelcheck.py
+          python3 research/verification/formal/authorization_z3.py
+      - name: Re-run reviewed runtime reference models
+        run: |
+          python3 research/runtime/transactions/test_reference_model.py
+          python3 research/runtime/effects/test_reference_model.py
+          python3 research/runtime/orchestration/test_reference_model.py
+
+  postgres18-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      STORAGE39_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL driver
+        run: python3 -m pip install 'psycopg[binary]>=3,<4'
+      - name: Run real PostgreSQL 18 semantic competency experiment
+        run: python3 research/runtime/storage/experiments/postgres18/test_storage_contract.py
