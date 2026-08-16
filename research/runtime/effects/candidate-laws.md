@@ -17,19 +17,19 @@ A local Action can validly commit an intention/request to affect an external sys
 
 Payment, ERP writeback, notification, fiscal submission, etc. can have different target systems/outcomes. Effect identity cannot universally equal parent Action identity.
 
-## L-EFF-03 — semantic effect identity survives transport retries
+## L-EFF-03 — local semantic effect identity survives transport retries; remote identity is protocol-dependent
 
 **State:** `supported`.
 
-Retry attempts of the same intended remote operation retain one EffectRequest/remote-operation identity when the protocol contract says they are retries, not new business operations.
+Retries of the same requested external effect retain one stable local EffectRequestId. A provider-side dedupe/correlation key or receipt may also identify the remote operation **when the protocol actually supplies such semantics**, but it is not universal and need not exist before first send.
 
-**Evidence:** Temporal at-least-once Activity execution; Stripe idempotency; Debezium outbox IDs.
+**Evidence:** Temporal at-least-once Activity execution; Stripe idempotency; asynchronous provider receipts; protocols without idempotency support.
 
 ## L-EFF-04 — attempt identity is distinct from effect identity
 
 **State:** `supported`.
 
-Several network/client attempts can correspond to one remote business operation; one lost response should not invent a second effect.
+Several network/client attempts can correspond to one requested remote business operation; one lost response should not invent a second effect.
 
 ## L-EFF-05 — transport success is not universal business success
 
@@ -43,13 +43,13 @@ HTTP response/acknowledgement semantics depend on protocol. Async APIs can accep
 
 **State:** `supported`.
 
-Remote operation can succeed before caller receives response. Retry must consume protocol/idempotency/reconciliation evidence.
+Remote operation can succeed before caller receives response. Retry must consume the actual protocol/idempotency/read-back/reconciliation evidence available.
 
 ## L-EFF-07 — accepted/pending is distinct from indeterminate outcome
 
 **State:** `supported`.
 
-If remote system explicitly accepted the request and issued an operation ID, request acceptance is known while final outcome is still pending. That is stronger knowledge than `we do not know whether the request took effect`.
+If remote system explicitly accepted the request — with or without a returned receipt/operation ID — request acceptance is known while final outcome may still be pending. That is stronger knowledge than `we do not know whether the request reached the remote mutation boundary`.
 
 ## L-EFF-08 — indeterminate remote outcome is an epistemic condition, not a domain status
 
@@ -57,19 +57,19 @@ If remote system explicitly accepted the request and issued an operation ID, req
 
 `unknown/indeterminate` describes what OS can establish, not necessarily a status stored by the external system.
 
-## L-EFF-09 — remote idempotency is protocol-scoped and revisioned
+## L-EFF-09 — remote idempotency/correlation is optional, protocol-scoped, and revisioned
 
 **State:** `supported`.
 
-Scope, request equivalence, retention window, supported methods, and replay behavior vary by provider/version.
+A provider may expose a pre-send idempotency key, a receipt only after acceptance, a business-key lookup, several of these, or none. Scope, request equivalence, retention window, supported methods, and replay behavior vary by provider/version.
 
-**Evidence:** Stripe v1/v2.
+**Evidence:** Stripe v1/v2 plus contrasting non-idempotent/receipt-driven protocols.
 
-## L-EFF-10 — same remote idempotency identity with materially different intent is unsafe
+## L-EFF-10 — same provider dedupe/idempotency identity with materially different intent is unsafe
 
 **State:** `supported`.
 
-OS should reject/reproposal rather than silently rely on provider behavior when intent/payload materially changes.
+Where a remote dedupe identity exists, OS should reject/reproposal rather than silently rely on provider behavior when intent/payload materially changes.
 
 ## L-EFF-11 — provider idempotency expiry can reopen duplicate-effect risk
 
@@ -93,7 +93,7 @@ Outbox links local commit to durable publication intent/event; downstream applic
 
 **State:** `supported`.
 
-Delivery identities must be deduped/correlated to the underlying provider event/remote operation.
+Delivery identities must be deduped/correlated to the underlying provider event/requested effect where possible. Missing deterministic correlation remains an unresolved #45 relation rather than license to invent another effect.
 
 **Evidence:** Stripe explicitly warns duplicate webhook events occur.
 
@@ -109,7 +109,7 @@ Receive time/order cannot define remote business chronology when provider does n
 
 **State:** `supported`.
 
-Webhook, CDC, API read-back, protocol receipt, statement, and manual investigation remain independently identified observations whose source authority determines what they can confirm.
+Webhook, CDC, API read-back, protocol receipt, statement, and manual investigation remain independently identified observations whose source authority and correlation assurance determine what they can confirm.
 
 ## L-EFF-17 — reconciliation result must cite outcome evidence
 
@@ -153,7 +153,7 @@ Generic engine cannot assume every remote operation is all-or-nothing.
 
 **State:** `supported`.
 
-Rate limit, invalid request, definite rejection, lost response, asynchronous acceptance, and provider outage demand different recovery.
+Rate limit, invalid request, definite rejection, lost response, asynchronous acceptance, provider outage, availability of dedupe key, and availability of authoritative read-back demand different recovery.
 
 **Evidence:** Temporal current patterns; Stripe/provider semantics.
 
@@ -167,7 +167,7 @@ Caller may be unsure whether EffectRequest was locally committed before even rea
 
 **State:** `supported`.
 
-Effect execution consumes durable EffectRequest identity; caller transport failure is not authority to invent E2.
+Effect execution consumes durable local EffectRequest identity; caller transport failure is not authority to invent E2.
 
 ## L-EFF-26 — effect capability/security boundary is generic runtime pressure even if `Effect` is not an ontology primitive
 
@@ -210,6 +210,9 @@ Rejected as universal claims:
 - `webhook receive order = business event order`;
 - `Temporal Activity retry = exactly-once external mutation`;
 - `outbox event published = downstream remote operation succeeded`;
+- `EffectRequestId = provider idempotency key`;
+- `every external protocol exposes a stable remote operation ID before first send`;
+- `provider receipt = final success`;
 - `same payload = same effect`;
 - `same parent Action = same effect`;
 - `same idempotency key protects forever`;
