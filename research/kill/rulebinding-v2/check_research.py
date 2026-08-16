@@ -11,11 +11,15 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 CANDIDATE = HERE / "candidate.json"
 MODEL = HERE / "reference_model.py"
+CONTEXT_MODEL = HERE / "context_bound_model.py"
 TESTS = HERE / "test_models.py"
+CONTEXT_TESTS = HERE / "test_context_binding.py"
 README = HERE / "README.md"
 MODELS = HERE / "models.md"
+LAWS = HERE / "candidate-laws.md"
 INDEX = ROOT / "research" / "index" / "issue-0156-rulebinding-reduction.json"
 RFC2 = ROOT / "rfcs" / "0002-executable-metamodel-hypothesis-v1.md"
+LAW_RE = re.compile(r"^## (L-RB-\d{2})\b", re.MULTILINE)
 
 
 def fail(message: str) -> None:
@@ -43,8 +47,15 @@ def semantic_identifiers(source: str) -> set[str]:
     return names
 
 
+def no_module_level_tests(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    undiscoverable = re.findall(r"^def (test_[A-Za-z0-9_]+)\(", text, re.MULTILINE)
+    if undiscoverable:
+        fail(f"unittest would skip module-level tests in {path.name}: {undiscoverable}")
+
+
 def main() -> int:
-    for path in [CANDIDATE, MODEL, TESTS, README, MODELS, RFC2]:
+    for path in [CANDIDATE, MODEL, CONTEXT_MODEL, TESTS, CONTEXT_TESTS, README, MODELS, LAWS, RFC2]:
         if not path.exists():
             fail(f"missing {path.relative_to(ROOT)}")
 
@@ -61,21 +72,23 @@ def main() -> int:
         fail("R6-capability was promoted automatically")
 
     source = MODEL.read_text(encoding="utf-8")
-    if "class RuleBinding" in source:
-        fail("reference model reintroduced RuleBinding class")
-    if "class CapabilityType" in source:
+    context_source = CONTEXT_MODEL.read_text(encoding="utf-8")
+    if "class RuleBinding" in source + context_source:
+        fail("candidate reintroduced RuleBinding class")
+    if "class CapabilityType" in source + context_source:
         fail("M4 replaced RuleBinding with a dedicated CapabilityType semantic class")
     if "class RefinedTypeEngine" not in source or "class TypeDef" not in source or "class RefinedValue" not in source:
         fail("M4 generic refined Type model disappeared")
+    if "class ContextBoundEngine" not in context_source or "class ContextBoundValue" not in context_source:
+        fail("context-bound hardening disappeared")
 
     # Inspect only the M4 candidate implementation. Competitor M1/M3 are
     # intentionally allowed to contain locus/trigger dispatch so tests can show
-    # why they are hidden recreation. AST identifiers avoid #46-style false
-    # negatives where explanatory prose contains forbidden words in negation.
+    # why they are hidden recreation. AST identifiers avoid prose false alarms.
     marker = "# Weaker/alternative competitors"
     if marker not in source:
         fail("cannot isolate M4 candidate region")
-    m4 = source.split(marker, 1)[0]
+    m4 = source.split(marker, 1)[0] + "\n" + context_source
     ids = {name.lower() for name in semantic_identifiers(m4)}
     forbidden_ids = {
         "rulebinding",
@@ -99,11 +112,17 @@ def main() -> int:
         "_verify_signature",
         "authoritative_commit",
         "ComputationMutation",
+        "ContextBoundValue",
+        "semantic_context_digest",
+        "ContextMismatch",
+        "ForgedProof",
+        "_seal(",
     ]:
         if required not in m4:
-            fail(f"M4 lost required refined-Type/capability mechanism: {required}")
+            fail(f"M4 lost required refined-Type/context-bound mechanism: {required}")
 
     tests = TESTS.read_text(encoding="utf-8")
+    context_tests = CONTEXT_TESTS.read_text(encoding="utf-8")
     for mutant in ["DefinitionGraphDispatcher", "InlineContractEngine", "ExecutableRelationDispatcher"]:
         if mutant not in tests:
             fail(f"sensitivity competitor missing: {mutant}")
@@ -122,11 +141,23 @@ def main() -> int:
     ]:
         if pressure not in tests:
             fail(f"required semantic pressure test missing: {pressure}")
+    for pressure in [
+        "test_valid_proofs_commit_exact_context",
+        "test_post_state_proof_cannot_be_reused_for_different_proposed_state",
+        "test_authorization_proof_cannot_be_reused_for_changed_inputs",
+        "test_proof_payload_cannot_be_forged_by_rewriting_context_digest",
+        "test_context_bound_proof_is_still_invalidated_by_current_revision_change",
+    ]:
+        if pressure not in context_tests:
+            fail(f"required context-binding regression missing: {pressure}")
 
-    # #46 lesson: unittest discover silently skips module-level test functions.
-    undiscoverable = re.findall(r"^def (test_[A-Za-z0-9_]+)\(", tests, re.MULTILINE)
-    if undiscoverable:
-        fail(f"unittest would skip module-level tests: {undiscoverable}")
+    no_module_level_tests(TESTS)
+    no_module_level_tests(CONTEXT_TESTS)
+
+    laws = LAW_RE.findall(LAWS.read_text(encoding="utf-8"))
+    expected_laws = [f"L-RB-{i:02d}" for i in range(1, 21)]
+    if laws != expected_laws:
+        fail(f"expected contiguous L-RB-01..20, got {laws}")
 
     readme = norm(README.read_text(encoding="utf-8"))
     models = norm(MODELS.read_text(encoding="utf-8"))
@@ -164,7 +195,8 @@ def main() -> int:
 
     print(
         "ok: R5 control preserved; R6 quartet remains hypothesis; generic Type refinements cover value+capability; "
-        "M4 AST has no locus/scope/binding/CapabilityType dispatcher; M1/M2/M3 sensitivity retained; RFC-0002 unchanged"
+        "proofs are context-bound/unforgeable; M4 AST has no locus/scope/binding/CapabilityType dispatcher; "
+        "M1/M2/M3 sensitivity retained; RFC-0002 unchanged"
     )
     return 0
 
