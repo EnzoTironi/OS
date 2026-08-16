@@ -1,0 +1,30 @@
+{
+  "artifact_id": "issue-0156-rulebinding-reduction",
+  "decision_state": "hypothesis",
+  "review_status": "review-clean",
+  "control": {
+    "name": "R5",
+    "base_forms": ["Type", "Relation", "Computation", "Action", "RuleBinding"]
+  },
+  "candidate": {
+    "name": "R6-capability",
+    "base_forms": ["Type", "Relation", "Computation", "Action"],
+    "rulebinding_disposition": "candidate-demotion-to-standard-refined-capability-contract",
+    "runtime_requirement": "generic-proof-carrying-capability-mint-and-operation-signature-verification",
+    "architecture_state": "not-accepted"
+  },
+  "competitors": [
+    {"id": "M0", "name": "R5 explicit RuleBinding", "state": "control"},
+    {"id": "M1", "name": "definition graph plus locus dispatcher", "state": "expected-hidden-recreation"},
+    {"id": "M2", "name": "inline Action/Type checks", "state": "expected-insufficient"},
+    {"id": "M3", "name": "executable Relation triggers", "state": "expected-hidden-recreation"},
+    {"id": "M4", "name": "proof-carrying refined capability Types", "state": "hypothesis"}
+  ],
+  "promotion_blockers": [
+    "independent adversarial review",
+    "exact-head CI",
+    "Event no-bypass issue 157",
+    "Relation-vs-Property-Link issue 158",
+    "first semantic acceptance vertical issue 71"
+  ]
+}
