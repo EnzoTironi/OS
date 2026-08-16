@@ -54,7 +54,9 @@ def main() -> int:
         if marker not in matrix:
             fail(f"verification matrix lost critical property {marker}")
 
-    readme = (HERE / "README.md").read_text(encoding="utf-8").lower()
+    # Normalize Markdown emphasis before checking epistemic guard phrases so
+    # presentation markup cannot create false negatives in the safety checker.
+    readme = (HERE / "README.md").read_text(encoding="utf-8").lower().replace("**", "")
     for phrase in [
         "cheapest adequate verification mechanism",
         "does not mean verified",
