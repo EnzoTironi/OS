@@ -99,10 +99,15 @@ def validate(graph: dict[str, Any], source_root: Path | None, expected_snapshot:
         if source in by_id and by_id[source].get("type") == "disagreement" and kind == "disagrees-with":
             disagreement_targets[source] = disagreement_targets.get(source, 0) + 1
 
-    # A machine-readable disagreement is only useful if it points to both sides.
+    # Only disagreements that were explicitly normalized from a structured index
+    # are required to expose both graph targets. A Markdown heading named `D-*`
+    # can be a narrative disagreement card whose two sides are prose, source
+    # systems, external concepts, or records that do not have local IDs. Inventing
+    # those targets by lexical NLP would be worse than leaving the locator
+    # unresolved. #70 can later add explicit cross-artifact identity/edges.
     for nid, node in by_id.items():
-        if node.get("type") == "disagreement" and disagreement_targets.get(nid, 0) < 2:
-            errors.append(f"disagreement node has fewer than two targets: {nid}")
+        if node.get("type") == "disagreement" and nid.startswith("explicit:") and disagreement_targets.get(nid, 0) < 2:
+            errors.append(f"structured disagreement node has fewer than two targets: {nid}")
 
     # Adversarial review must remain visible at issue level. A reviewed issue
     # cannot silently revert to unreviewed just because its child artifacts are
@@ -122,8 +127,6 @@ def validate(graph: dict[str, Any], source_root: Path | None, expected_snapshot:
     # graph may carry both fields, but acceptance remains outside this index.
     for node in by_id.values():
         if node.get("review_status") == "review-clean" and node.get("type") == "candidate-law":
-            # No error if it still carries its original epistemic state; the
-            # check is documentary: `review-clean` is not an epistemic enum.
             if node.get("epistemic_state") not in EPISTEMIC_STATES:
                 errors.append(f"review state leaked into epistemic state for {node['id']}")
 
