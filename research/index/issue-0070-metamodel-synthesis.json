@@ -13,7 +13,7 @@
       "topics": ["metamodel", "primitive-reduction", "type", "relation", "action", "computation", "rule-binding", "event", "policy", "fact", "effect", "workflow"],
       "source_keys": ["rfc-0001", "issue-56-primitives", "issue-3-identity-kinds-roles", "issue-8-logic", "issue-4-facts", "issue-10-process", "issue-45-ingest", "issue-40-commit", "issue-41-effects", "issue-42-authorization", "issue-43-orchestration", "issue-39-storage", "issue-46-verification"],
       "evidence_kinds": ["reviewed-corpus", "test", "counterexample", "synthesis"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0070-metamodel-synthesis#L-META-01", "kind": "candidate-law", "epistemic_state": "supported"},
         {"ref": "issue-0070-metamodel-synthesis#L-META-02", "kind": "candidate-law", "epistemic_state": "supported"},
