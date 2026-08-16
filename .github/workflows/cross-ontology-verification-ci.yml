@@ -1,0 +1,78 @@
+name: cross-ontology-verification-ci
+
+on:
+  push:
+    branches:
+      - research/issue-46-verification
+  pull_request:
+    paths:
+      - 'research/verification/**'
+      - 'research/index/issue-0046-cross-ontology-verification.json'
+      - 'research/runtime/ingest/**'
+      - 'research/runtime/transactions/**'
+      - 'research/runtime/effects/**'
+      - 'research/runtime/authorization/**'
+      - 'research/runtime/orchestration/**'
+      - 'research/runtime/storage/**'
+      - '.github/workflows/cross-ontology-verification-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-verification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install property/formal dependencies
+        run: python3 -m pip install 'hypothesis>=6,<7' 'z3-solver>=4,<5'
+      - name: Check cross-ontology corpus registry
+        run: |
+          python3 research/verification/check_research.py
+          python3 research/verification/scenario_registry.py --check
+          python3 research/verification/scenario_registry.py --json > /tmp/cross-ontology-registry.json
+          python3 -m json.tool /tmp/cross-ontology-registry.json >/dev/null
+      - name: Run property/state-machine and regression tests
+        run: python3 -m unittest discover -s research/verification -p 'test_*.py' -v
+      - name: Run bounded commit-effect model checker
+        run: python3 research/verification/modelcheck.py
+      - name: Run bounded SMT authorization checks
+        run: python3 research/verification/formal/authorization_z3.py
+      - name: Re-run reviewed executable reference models
+        run: |
+          python3 research/runtime/transactions/test_reference_model.py
+          python3 research/runtime/effects/test_reference_model.py
+          python3 research/runtime/orchestration/test_reference_model.py
+      - name: Validate issue 46 index JSON
+        run: python3 -m json.tool research/index/issue-0046-cross-ontology-verification.json >/dev/null
+
+  postgres18-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      STORAGE39_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL driver
+        run: python3 -m pip install 'psycopg[binary]>=3,<4'
+      - name: Run real PostgreSQL 18 semantic competency experiment
+        run: python3 research/runtime/storage/experiments/postgres18/test_storage_contract.py
