@@ -1,314 +1,195 @@
 # Swarm result contract
 
-**Status:** required research contribution contract.
+**Status:** research contribution contract v2.  
+**Scope:** research branches/corpora, not OS architecture.
 
-This contract defines the durable output for OS swarm research. Research briefs must link to this file instead of restating it. The assigned issue controls the research question and scope. `docs/constitution.md` controls inquiry rules. `docs/thesis.md` remains provisional.
+This contract exists so a large swarm can compose evidence without silently turning observations, hypotheses, experiments, reviews, and governance decisions into the same kind of thing.
 
-The contract applies to domain research, source archaeology, kill tests, runtime research, and research operations. A summary in an issue or pull request is not a research result.
+Wave A began before this contract existed. **Existing Wave A artifacts are grandfathered.** They do not need to be mechanically reformatted. Issue #75 may index them later. New research and substantive revisions should follow v2 unless a narrower issue contract says otherwise.
 
-Issue #74 is the bootstrap exception. This contract, the index schema, and the empty index shard are its durable artifacts. It does not create a domain evidence note.
+## 1. Read before researching
 
-## Complete the pre-read
+At minimum read:
 
-Before collecting evidence:
+- the assigned issue and linked dependencies;
+- `docs/constitution.md`;
+- `docs/thesis.md`;
+- `docs/hypothesis-history.md`;
+- `docs/open-questions.md`;
+- `docs/swarm-research-backlog.md`;
+- relevant existing `research/` artifacts;
+- `research/reviews/wave-a-review-ledger.md` when consuming Wave A.
 
-1. Read the assigned issue body, all current comments, the parent issue, and every linked dependency.
-2. Read these repository files:
-   - `docs/swarm-result-contract.md`
-   - `docs/constitution.md`
-   - `docs/thesis.md`
-   - `docs/hypothesis-history.md`
-   - `docs/open-questions.md`
-   - `docs/research-program.md`
-   - `docs/swarm-research-backlog.md`
-   - `research/README.md`
-   - `rfcs/0001-metamodel-hypothesis.md`
-   - `scenarios/README.md`
-3. Search existing files under `research/notes/` and `research/index/` for the same question, sources, and terms.
-4. Choose the note stem and research angle before writing. When parallel agents share an issue, each agent must own a different angle and a different note.
+Repository hypotheses are constraints/context, **not evidence** for themselves.
 
-The pre-read supplies constraints, not answers. Do not promote a thesis or RFC statement to evidence.
+## 2. Durable output beats issue prose
 
-## Name and place artifacts
+A completed investigation must land durable material under `research/`. The exact folder is chosen by the workstream (`research/domain/...`, `research/foundation/...`, `research/<corpus>/...`, `research/kill/...`, `research/ops/...`, etc.). v2 deliberately does **not** force every artifact into `research/notes/` because Wave A demonstrated that bounded folders are often more readable.
 
-Every investigation produces one primary evidence note and one index shard. Both files use the same stem:
+The primary artifact should state:
 
-```text
-research/notes/issue-NNNN-<angle>.md
-research/index/issue-NNNN-<angle>.json
-```
+1. **Question** — one bounded uncertainty or attack.
+2. **Source scope** — exact repositories/versions/commits/docs/standards/data examined and important omissions.
+3. **Evidence/observations** — what the source actually says/does.
+4. **Interpretation** — domain distinction or candidate explanation, clearly separated from observation.
+5. **Source-system artifacts** — schemas/names/workflows likely local to a product.
+6. **Convergence/divergence** — independent support and disagreements.
+7. **Candidate laws** — smallest falsifiable generalizations, with scope.
+8. **Counterexamples/falsifiers** — cases that could narrow/defeat the law.
+9. **Runtime pressure** — capability/enforcement implied *if* the law survives, without selecting technology.
+10. **Open questions** — unresolved uncertainty.
+11. **Licensing/provenance** — especially when studying copyleft code or private real-company evidence.
 
-Apply these naming rules:
+Stable local IDs (`E-`, `L-`, `X-`, etc.) are encouraged when they improve cross-linking, but the **kind of record matters more than the prefix**.
 
-- Pad the issue number to at least four digits. Issue 7 becomes `0007`.
-- Write `<angle>` in lowercase ASCII kebab case.
-- Name the angle for the bounded question or source, such as `identity-erpnext` or `late-invoice-corrections`.
-- Use a distinct angle for each independent investigation on the same issue.
-- Keep the stem after merge. Do not renumber record IDs or rename the artifact to match later terminology.
+## 3. Separate five different state systems
 
-For example, an ERPNext investigation for issue 7 uses:
+Wave A proved that one universal `decision_state` enum is insufficient.
 
-```text
-research/notes/issue-0007-identity-erpnext.md
-research/index/issue-0007-identity-erpnext.json
-```
+### 3.1 Artifact kind
 
-Do not create empty source taxonomies. Create `research/notes/` when the first evidence note lands.
+Examples:
 
-## Structure the evidence note
+- observation/evidence;
+- concept/model hypothesis;
+- invariant/candidate law;
+- counterexample;
+- disagreement;
+- experiment;
+- review finding;
+- governance decision;
+- historical disposition.
 
-Start each note with this metadata:
+### 3.2 Epistemic state — for claims
 
-```markdown
-# <bounded research title>
+Use when a proposition can be true/false within a stated scope:
 
-- Artifact ID: `issue-NNNN-<angle>`
-- Issue: `<full issue URL>`
-- Parent: `<full parent issue URL>`
-- Research angle: `<one sentence>`
-- Decision states present: `hypothesis`, `supported`, `rejected`, or `undetermined`
-```
+- `hypothesis`
+- `supported`
+- `rejected`
+- `undetermined`
 
-Use these sections in this order:
+`Supported` means the cited evidence materially supports the **scoped** claim. It does not mean “accepted architecture,” and absence of a known counterexample is not by itself support.
 
-1. **Question.** State one falsifiable uncertainty.
-2. **Source scope.** List sources examined, versions or commits, and material not examined.
-3. **Evidence.** Record cited observations as `E-001`, `E-002`, and so on.
-4. **Domain evidence.** Explain which real-world distinctions the observations may support.
-5. **Source-system artifacts.** Isolate names, schemas, APIs, workflow choices, and implementation mechanics that may be local to a source.
-6. **Concepts.** Use `C-001`, `C-002`, and so on.
-7. **Invariants.** Use `I-001`, `I-002`, and so on.
-8. **Candidate laws.** Use `L-001`, `L-002`, and so on. A candidate law is not an architecture decision.
-9. **Counterexamples.** Use `X-001`, `X-002`, and so on.
-10. **Disagreements.** Use `D-001`, `D-002`, and so on. Write `None found` when the sources do not disagree.
-11. **Runtime consequences.** Use `R-001`, `R-002`, and so on. State required properties without selecting a runtime or toolchain.
-12. **Dependent research.** Link the records and issues that this note consumes or changes.
-13. **Open questions.** Mark unresolved questions `undetermined`. Do not answer `docs/open-questions.md` without cited evidence.
-14. **Licensing.** State whether the work extracted concepts and behavior only or considered implementation reuse.
+`Rejected` means evidence defeats the exact scoped claim. It does **not** prove the opposite proposition.
 
-Keep source observation and interpretation separate. A source table or class belongs under source-system artifacts. A real-world distinction inferred from several observations belongs under domain evidence or candidate laws.
+### 3.3 Evidence status — for observations/evidence
 
-## Evidence grades and citations
+Evidence is not itself a hypothesis. Track whether it is observed/verified/disputed/retracted/not-evaluated and preserve its source/provenance. Formal/academic/legal sources are evidence families, not product “decision states.”
 
-`Evidence grade` is this closed enum:
+### 3.4 Experiment/result state
 
-- `implemented-code`: behavior or structure present in source code at an immutable revision. This grade does not prove that the code runs in production.
-- `test`: executable expected behavior in a named test at an immutable revision, or an observed test result with the command and revision recorded.
-- `official-doc`: normative or descriptive material published by the project, vendor, standards body, or regulator.
-- `design-claim`: rationale or intended behavior asserted in an issue, RFC, proposal, maintainer comment, or design document.
-- `inference`: an interpretation derived from cited observations. The note must state the reasoning and a way to falsify it.
+Tests and experiments need execution/result state (e.g. not-run/passed/failed/inconclusive) separate from the epistemic state of the law they attack.
 
-The enum describes the kind of evidence, not a confidence ranking. An `official-doc` can be stale. A `test` can cover only one case. An `inference` remains an inference even when tests support its premises.
+### 3.5 Governance/adoption state
 
-Use this evidence record:
-
-```markdown
-### E-001 `<short label>`
-
-- Grade: `implemented-code | test | official-doc | design-claim | inference`
-- Claim supported: `<one bounded claim>`
-- Citation: `<immutable or versioned locator>`
-- Observation: `<what the source says or does>`
-- Limits: `<scope, missing cases, or uncertainty>`
-```
-
-Use an exact citation form:
-
-- Code or test: `<repository URL>/blob/<full commit SHA>/<path>#L<start>-L<end>`, plus the symbol or test name.
-- Repository file: `<path>@<full commit SHA>#L<start>-L<end>`.
-- Versioned document: `<publisher>, <title>, <version or date>, <section>, <URL>`.
-- Standard: `<standards body>, <identifier and version>, <clause or page>, <URL>`.
-- Issue or review: `<full issue or review URL>`, plus the comment link or date when the page contains several claims.
-- Observed execution: `<repository and full commit SHA>`, `<command>`, and the relevant output or durable result.
+Architecture/RFC/ADR decisions use a separate state such as:
 
-When a web document has no version, record the access date and quote only the minimum text needed to identify the claim. A home page, search result, branch name, or repository name alone is not a citation.
+- `proposed`
+- `accepted`
+- `superseded`
+- `challenged`
 
-## Use stable record templates
+An accepted design can still be uncertain empirically. **Adoption is not truth.** Raw research must never mark itself accepted merely because it landed in `research-corpus`.
 
-Record IDs are local to the note. Do not reuse an ID for a different claim after review.
+Historical research additionally uses dispositions such as `assumption-withdrawn`, `not-promoted`, or `scope-limited`; these must not be rewritten as `rejected` unless the exact claim was actually falsified.
 
-### Concept template
+## 4. Evidence kinds
 
-```markdown
-### C-001 `<concept name>`
+Use the closest evidence family and give an exact locator:
 
-- Source term: `<term used by the source, if any>`
-- Domain distinction: `<real-world distinction, not a table or class>`
-- Evidence: `E-001`, `E-002`
-- Source-specific form: `<schema, API, workflow, or naming that may not generalize>`
-- Alternative interpretations: `<credible alternatives>`
-- Decision state: `hypothesis | supported | rejected | undetermined`
-```
+- `implemented-code` — source behavior/structure at an immutable revision;
+- `test` — executable expected behavior or a recorded test result;
+- `observed-execution` — command/run and durable output;
+- `official-doc` — project/vendor/regulator documentation;
+- `formal-spec` — standards/ontology/specification text;
+- `academic-source` — paper/research result;
+- `primary-law` — statute/regulation/official legal text;
+- `real-company-evidence` — safely handled operational data/interview/process evidence;
+- `design-claim` — issue/RFC/maintainer rationale/intended design;
+- `inference` — researcher's interpretation from cited premises.
 
-### Invariant template
+These are **types, not a confidence ranking**. A test can be narrow, a law can change, and an official document can be stale.
 
-```markdown
-### I-001 `<invariant name>`
+Every material factual statement should carry enough locator/version/date information for another agent to recheck it.
 
-- Statement: `<condition that must remain true>`
-- Scope: `<where and when the statement applies>`
-- Evidence: `E-001`, `E-002`
-- Failure case: `<what breaks when the invariant does not hold>`
-- Falsifier: `<observation that would disprove or narrow it>`
-- Decision state: `hypothesis | supported | rejected | undetermined`
-```
+## 5. Independence and convergence
 
-### Candidate law template
+“Two sources agree” is useful only when their independence is understood. Forks/shared implementations, standards copied into products, or multiple docs from one authority do not count as independent families merely because they have different URLs.
 
-```markdown
-### L-001 `<candidate law name>`
+Multiple independent sources increase evidence strength, but they are **not a universal admission gate**. A jurisdiction-specific rule may have one authoritative legal source; a rare domain law may first appear in one production system. Record the scope and evidence strength rather than inventing a binary rule.
 
-- Statement: `<smallest general claim that explains the evidence>`
-- Evidence: `E-001`, `E-002`
-- Independent convergence: `<records from independent sources, or none>`
-- Known limits: `<scope boundaries>`
-- Counterexamples: `X-001`
-- Decision state: `hypothesis | supported | rejected | undetermined`
-```
+## 6. Disagreements are first-class
 
-### Counterexample template
+Do not edit one artifact to make it agree with another.
 
-```markdown
-### X-001 `<counterexample name>`
+A disagreement should identify:
 
-- Targets: `C-001 | I-001 | L-001`
-- Setup: `<scenario and relevant preconditions>`
-- Falsifying result: `<result that would disprove or narrow the target>`
-- Observed result: `<result with E-ID, or "not run">`
-- Consequence: `<reject, narrow, or leave undetermined>`
-- Decision state: `hypothesis | supported | rejected | undetermined`
-```
+- the exact two claims/observations;
+- whether the conflict is behavior, terminology, scope, temporal version, identity grain, authority, or interpretation;
+- evidence for both;
+- a test/observation that could resolve or narrow it;
+- status: `open`, `resolved`, or `scope-narrowed`.
 
-### Disagreement template
+Many apparent conflicts disappear after scope/identity/time is corrected. Preserve that resolution history.
 
-```markdown
-### D-001 `<disagreement name>`
+Adversarial reviews are themselves durable research evidence. For Wave A, `research/reviews/wave-a-review-ledger.md` overrides any naive reading of an internal `supported/rejected` label until the challenge is resolved.
 
-- Claim A: `<artifact-id>#<record-id>`
-- Claim B: `<artifact-id>#<record-id>`
-- Conflict: `<different observation, scope, terminology, or interpretation>`
-- Evidence for A: `<E-IDs or linked records>`
-- Evidence for B: `<E-IDs or linked records>`
-- Possible explanation: `<why both may appear true>`
-- Resolution test: `<evidence that would settle or narrow the conflict>`
-- Status: `open | resolved`
-- Resolution: `<linked evidence and retained decision history, or "unresolved">`
-```
+## 7. Research index shards
 
-### Runtime consequence template
+`research/schema/research-index.schema.json` v2 defines a **locator/index**, not the evidence database.
 
-```markdown
-### R-001 `<required runtime property>`
+- Human-readable research remains primary.
+- A real shard uses `kind: "shard"` and contains **exactly one entry**.
+- `research/index/_empty.json` is the only canonical empty sentinel and uses `kind: "sentinel"` with zero entries.
+- Artifact paths may point anywhere under `research/`.
+- Index records can carry separate epistemic, historical, governance, evidence, and review state when appropriate.
+- The index must preserve open disagreements and adversarial-review status.
 
-- If claim survives: `C-001 | I-001 | L-001`
-- Required property: `<what a runtime must preserve or make observable>`
-- Evidence: `E-001`, `E-002`
-- Non-requirement: `<architecture or technology not implied by the evidence>`
-- Decision state: `hypothesis | supported | rejected | undetermined`
-```
+Wave A artifacts are grandfathered and may initially lack v2 shards. Issue #75 owns normalization/index generation; do not rewrite good research solely to satisfy the index schema.
 
-Use decision states consistently:
+## 8. Review/promotion gates
 
-- `hypothesis`: a falsifiable candidate that has not yet earned support.
-- `supported`: cited evidence supports the claim within its stated scope and no recorded counterexample defeats it.
-- `rejected`: cited evidence or a counterexample defeats the claim.
-- `undetermined`: evidence is absent, insufficient, or in unresolved conflict.
+Landing in `research-corpus` means **preserved evidence**, not approval.
 
-Never use `accepted`. Synthesis and RFC work own later architecture decisions.
+A research artifact may land while `challenged` when the challenge is itself durably represented and synthesis will see it. It should not be treated as reliable/complete when `blocked-factual` or `blocked-deliverable` remains unresolved.
 
-## Disagreement rules
+Only an explicit synthesis/RFC/ADR/governance process may promote a research conclusion to `main` as normative. If a research convention itself becomes normative (for example decision-discipline rules), promote a small reviewed artifact rather than the whole raw research tree.
 
-Do not edit another note to make it agree with yours. Add a disagreement record to the note that found the conflict and link both record IDs. If a later investigation resolves the conflict, keep the two claims and append the resolution evidence. Do not delete the losing claim or its prior state.
+## 9. Child issues
 
-Different terms are not automatically a disagreement. State whether the conflict concerns observed behavior, scope, terminology, or interpretation. When two sources model different realities, narrow both claims instead of averaging them.
+Open a new issue only for a genuinely new, independently researchable uncertainty whose answer could change a law/model/runtime requirement. Do not create issues merely for missing citations, disagreements that fit the current scope, or bookkeeping.
 
-Add every disagreement to the index shard. A synthesis agent must be able to find open disagreements without reading the full corpus.
-
-## Cross-link dependent research
-
-Link to the smallest durable target:
-
-```text
-<relative note path>#<record-id>
-```
-
-In Markdown, link to the record heading. In the index shard, use `<artifact-id>#<record-id>`. Link a source observation once instead of copying its prose into another note.
-
-List a dependency when your claim consumes another artifact's evidence. List related research when the work shares a topic but neither artifact depends on the other. Comment on each affected issue with the new artifact path and the exact record IDs that matter.
-
-## Open child issues only for new questions
-
-Open a child issue only when all of these conditions hold:
-
-- The question is a new semantic uncertainty, not a restatement of the assigned issue.
-- Another agent can investigate it independently.
-- Its answer can change a candidate law, counterexample, or downstream research requirement.
-- The current issue can satisfy its acceptance criteria without answering it.
-- No existing open issue already owns it.
-
-Give the child issue a falsifiable question, parent link, relevant artifact and record links, and a completion condition. Keep a same-scope unknown in the current note as `undetermined`. Do not open a child issue only to store a disagreement, a missing citation, or work required by the current issue.
-
-## Publish a machine-readable index shard
-
-The research index is the set of JSON shards under `research/index/`. One note owns one shard, so parallel agents never append to one shared index file. Synthesis agents read every `research/index/*.json` file and concatenate each file's `entries` array.
-
-`research/schema/research-index.schema.json` is normative. `research/index/_empty.json` is the empty, valid example. Each real shard:
-
-- uses the same stem as its note;
-- contains exactly one entry;
-- includes only record IDs that exist in the note;
-- records open and resolved disagreements;
-- validates against the schema before commit.
-
-The entry fields have fixed jobs:
-
-- `artifact_id`, `artifact`, and `issue` identify the note and assigned issue.
-- `title` and `question` state the bounded investigation.
-- `topics` and `source_keys` provide lowercase kebab-case query keys.
-- `evidence_grades` and `decision_states` list the enum values present in the note.
-- `concepts`, `invariants`, `candidate_laws`, `counterexamples`, and `runtime_consequences` list local record IDs.
-- `disagreements` lists each `D-ID`, both target record references, and `open` or `resolved` status.
-- `depends_on` lists record references consumed by this note.
-- `related_issues` lists issue numbers that share or consume the result.
-
-The index is a locator, not a replacement for evidence. Keep claims, citations, reasoning, and limitations in the Markdown note.
-
-## Completion checklist
-
-Copy this checklist into the pull request or final issue comment:
-
-```markdown
-- [ ] I read the assigned issue, its comments, its parent, and every linked dependency.
-- [ ] I read every file in the contract pre-read list.
-- [ ] The primary note is `research/notes/issue-NNNN-<angle>.md`.
-- [ ] The index shard is `research/index/issue-NNNN-<angle>.json` and has the same stem.
-- [ ] Every factual claim has an `E-ID`, an evidence grade, and an exact citation.
-- [ ] The note separates domain evidence from source-system artifacts.
-- [ ] Concepts, invariants, candidate laws, counterexamples, and runtime consequences use stable IDs and decision states.
-- [ ] Disagreements link both claims and preserve conflicting evidence.
-- [ ] Dependent artifacts and affected issues are cross-linked without copied prose.
-- [ ] New child issues, if any, contain genuinely new semantic questions.
-- [ ] The index shard validates against `research/schema/research-index.schema.json`.
-- [ ] The licensing section confirms clean-room treatment and identifies any reuse review.
-- [ ] No architecture choice, source-schema mapping, or answer to an open question is presented as settled.
-- [ ] The pull request and issue comment link the durable artifact paths.
-```
-
-An issue is not complete when any applicable item remains unchecked. Partial research may land, but its unresolved claims must remain `undetermined`.
-
-## Forbidden results
+## 10. Forbidden shortcuts
 
 Do not:
 
-- make a premature architecture, primitive, runtime, database, language, or toolchain decision;
-- treat a thesis, RFC, source schema, class, table, or API as the OS domain model;
-- paste or mechanically translate source code or schemas, especially from copyleft projects;
-- state an uncited factual claim;
-- hide an inference under another evidence grade;
-- overwrite, average away, or delete a disagreement;
-- answer `docs/open-questions.md` from intuition;
-- edit RFC-0001 as part of a research result;
-- close a research issue with only summary prose in an issue or pull request;
-- create a large research taxonomy or placeholder corpus without evidence.
+- map a source table/class/DocType directly into OS ontology because it exists;
+- promote source behavior to universal law without stating scope;
+- infer `not-X` because X was rejected;
+- infer “rejected” from lack of supporting evidence;
+- treat implementation reuse/licensing as evidence that a semantic claim is true or false;
+- overwrite contradictory observations with a winner merely for convenience;
+- hide inference under a stronger evidence kind;
+- treat merge to `research-corpus` as architecture acceptance;
+- edit RFC-0001 from a research task unless the synthesis issue explicitly owns that proposal.
 
-The contract is the product for issue #74. It defines how later evidence composes. It does not settle what OS should become.
+## 11. Completion checklist
+
+Before calling a research issue complete:
+
+```markdown
+- [ ] Question and scope are explicit.
+- [ ] Sources/versions/commits/dates are reproducible.
+- [ ] Observation is separated from inference.
+- [ ] Candidate laws are scoped and falsifiable.
+- [ ] Counterexamples/disagreements are preserved.
+- [ ] Evidence kind/status is appropriate.
+- [ ] Claim epistemic state is not confused with governance adoption.
+- [ ] Adversarial review findings are incorporated or represented as open disagreement.
+- [ ] Required issue deliverables are actually present (including executable tools when requested).
+- [ ] Licensing/privacy/provenance constraints are recorded.
+- [ ] Nothing is silently promoted to normative architecture.
+```
+
+This contract is itself revisable. If later research shows the contract causes information loss or bureaucracy without synthesis value, change it through the same evidence/review discipline.
