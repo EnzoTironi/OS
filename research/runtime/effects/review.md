@@ -5,6 +5,20 @@
 
 This review attacks the draft effect contract after the source study, 70 scenarios, and executable toy model were written.
 
+## Follow-up integration correction
+
+The first merge of #41 included this review finding but left several primary artifacts on the older `RemoteOperationId` wording/model. The follow-up correction updates `README.md`, `effect-contract.md`, `candidate-laws.md`, `reference_model.py`, and `test_reference_model.py` so the reviewed conclusion is now mechanically consistent across the corpus:
+
+```text
+EffectRequestId                 mandatory local semantic identity
+RemoteDedupOrCorrelationKey?   optional, protocol-defined, may exist before send
+AttemptId                       mandatory per execution attempt
+RemoteReceiptId?               optional provider-generated identity learned later
+ObservationId                   independent #45 evidence identity
+```
+
+The executable tests now include a provider with **no pre-send remote key** and prove that local EffectRequest identity alone does not authorize replay after an indeterminate send.
+
 ## R-EFF-01 — a remote operation identifier is not universally available before send
 
 **Draft failure:** the first model treated `RemoteOperationId` as if every provider exposed a stable remote identity/idempotency key before the first request.
@@ -28,7 +42,7 @@ ObservationId                   independent #45 evidence identity
 
 A local `EffectRequestId` does not magically create provider-side idempotence. When no usable remote key/receipt/read-back exists, a sent/no-response effect may remain genuinely indeterminate and unsafe to resend.
 
-The older wording `RemoteOperationId` in the initial research artifacts must therefore be read as shorthand for **a protocol-defined remote dedupe/correlation identity when one exists**, not a universal required field. The executable model is the corrected form.
+The corrected primary artifacts no longer require a universal `RemoteOperationId`; they explicitly model provider dedupe/correlation keys and receipts as optional protocol capabilities.
 
 ## R-EFF-02 — attempt evidence is cumulative, not `last attempt wins`
 
