@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Context-bound hardening for the issue #156 M4 refined-Type candidate.
 
-The first M4 pass bound proof values to target/operation/revision but not to the
-exact semantic context they validated. M4-v2 also needs the trusted execution
-identity that determined authority; otherwise a proof minted for one actor,
-represented principal, or workload could be replayed by another while every
-business input remained identical.
+M4-v2 proof values must be bound to every part of the trusted context that can
+change the meaning of authority. Business inputs/state alone are not enough:
+actor, represented principal, workload and the surrounding authority domain
+(tenant/environment/session/task data where relevant) must not be silently
+substitutable.
 
 This is a bounded semantic model, not a production identity/session system.
-The invocation API receives actor/representation/workload explicitly so tests
-can model the value that a production runtime must derive from trusted execution
-context rather than from untrusted business parameters.
+The explicit parameters let tests model what a production runtime must derive
+from trusted execution context rather than from untrusted business parameters.
 """
 
 from __future__ import annotations
@@ -64,6 +63,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None,
         represented_principal: str | None,
         workload: str | None,
+        authority_context: dict[str, Any] | None,
         inputs: dict[str, Any] | None,
         pending_state: dict[str, Any] | None,
         pinned_state: dict[str, Any] | None,
@@ -76,6 +76,7 @@ class ContextBoundEngine(RefinedTypeEngine):
                 "actor": actor,
                 "represented_principal": represented_principal,
                 "workload": workload,
+                "authority_context": dict(authority_context or {}),
                 "inputs": dict(inputs or {}),
                 "pending_state": pending_state,
                 "pinned_state": pinned_state,
@@ -110,6 +111,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None = None,
         represented_principal: str | None = None,
         workload: str | None = None,
+        authority_context: dict[str, Any] | None = None,
         inputs: dict[str, Any] | None = None,
         pending_state: dict[str, Any] | None = None,
         pinned_state: dict[str, Any] | None = None,
@@ -132,6 +134,7 @@ class ContextBoundEngine(RefinedTypeEngine):
             actor=actor,
             represented_principal=represented_principal,
             workload=workload,
+            authority_context=authority_context,
             inputs=inputs,
             pending_state=pending_state,
             pinned_state=pinned_state,
@@ -160,6 +163,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None = None,
         represented_principal: str | None = None,
         workload: str | None = None,
+        authority_context: dict[str, Any] | None = None,
         inputs: dict[str, Any] | None = None,
         pending_state: dict[str, Any] | None = None,
         pinned_state: dict[str, Any] | None = None,
@@ -181,6 +185,7 @@ class ContextBoundEngine(RefinedTypeEngine):
             actor=actor,
             represented_principal=represented_principal,
             workload=workload,
+            authority_context=authority_context,
             inputs=inputs,
             pending_state=pending_state,
             pinned_state=pinned_state,
@@ -199,6 +204,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None = None,
         represented_principal: str | None = None,
         workload: str | None = None,
+        authority_context: dict[str, Any] | None = None,
         inputs: dict[str, Any] | None = None,
         pending_state: dict[str, Any] | None = None,
         pinned_state: dict[str, Any] | None = None,
@@ -215,6 +221,7 @@ class ContextBoundEngine(RefinedTypeEngine):
                 actor=actor,
                 represented_principal=represented_principal,
                 workload=workload,
+                authority_context=authority_context,
                 inputs=inputs,
                 pending_state=pending_state,
                 pinned_state=pinned_state,
@@ -229,6 +236,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None = None,
         represented_principal: str | None = None,
         workload: str | None = None,
+        authority_context: dict[str, Any] | None = None,
         inputs: dict[str, Any] | None = None,
     ) -> None:
         self._verify_signature(
@@ -239,6 +247,7 @@ class ContextBoundEngine(RefinedTypeEngine):
             actor=actor,
             represented_principal=represented_principal,
             workload=workload,
+            authority_context=authority_context,
             inputs=inputs,
         )
 
@@ -253,6 +262,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None = None,
         represented_principal: str | None = None,
         workload: str | None = None,
+        authority_context: dict[str, Any] | None = None,
         inputs: dict[str, Any] | None = None,
         pinned_state: dict[str, Any] | None = None,
     ) -> None:
@@ -264,6 +274,7 @@ class ContextBoundEngine(RefinedTypeEngine):
             actor=actor,
             represented_principal=represented_principal,
             workload=workload,
+            authority_context=authority_context,
             inputs=inputs,
             pending_state=proposed_state,
             pinned_state=pinned_state,
@@ -277,6 +288,7 @@ class ContextBoundEngine(RefinedTypeEngine):
                 "actor": actor,
                 "represented_principal": represented_principal,
                 "workload": workload,
+                "authority_context": dict(authority_context or {}),
                 "context_digest": next(iter(proofs.values())).context_digest if proofs else None,
                 "evidence": tuple(
                     evidence
@@ -300,6 +312,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None = None,
         represented_principal: str | None = None,
         workload: str | None = None,
+        authority_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._verify_signature(
             f"read:{type_name}",
@@ -308,6 +321,7 @@ class ContextBoundEngine(RefinedTypeEngine):
             actor=actor,
             represented_principal=represented_principal,
             workload=workload,
+            authority_context=authority_context,
         )
         return dict(self.state)
 
@@ -320,6 +334,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None = None,
         represented_principal: str | None = None,
         workload: str | None = None,
+        authority_context: dict[str, Any] | None = None,
     ) -> None:
         self._verify_signature(
             "update:Occurrence",
@@ -328,6 +343,7 @@ class ContextBoundEngine(RefinedTypeEngine):
             actor=actor,
             represented_principal=represented_principal,
             workload=workload,
+            authority_context=authority_context,
         )
         self.occurrences[occurrence_id].update(changes)
         self.revision += 1
@@ -340,6 +356,7 @@ class ContextBoundEngine(RefinedTypeEngine):
         actor: str | None = None,
         represented_principal: str | None = None,
         workload: str | None = None,
+        authority_context: dict[str, Any] | None = None,
     ) -> None:
         self._verify_signature(
             "effect-attempt",
@@ -348,5 +365,6 @@ class ContextBoundEngine(RefinedTypeEngine):
             actor=actor,
             represented_principal=represented_principal,
             workload=workload,
+            authority_context=authority_context,
         )
         self.effects_attempted.append(effect_id)
