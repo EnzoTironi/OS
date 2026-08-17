@@ -21,13 +21,15 @@ A tag/interface that callers or admin tools can bypass does not preserve histori
 
 The bounded candidate uses `sealed_semantics` on StockMovement, JournalPosting and non-event PublishedDefinition. Runtime enforcement branches on the generic Type contract, not a hard-coded Event species.
 
-**Falsifier:** real occurrence requirements force unique interpreter behavior that cannot be shared with other committed semantic values.
+For this to count as a real reduction, the **contract-bearing Type revision and the record's binding to that revision are themselves protected semantic identity**. A mutable per-row flag or redefinable historical Type revision is not sufficient; it is a bypassable tag under another name.
+
+**Falsifier:** real occurrence requirements force unique interpreter behavior that cannot be shared with other committed semantic values, or generic Type contract membership cannot itself be made non-bypass without recreating an Event species.
 
 ## L-OCC-04 — Every authoritative write path must obey the same protected-semantic boundary
 
 **State:** `hypothesis`.
 
-Action, admin, ingest, bulk import, migration, repair, privacy, restore/replay and connector reconciliation must not possess a lower raw semantic-update path.
+Action, admin, ingest, bulk import, migration, repair, privacy, restore/replay and connector reconciliation must not possess a lower raw semantic-update path. This includes attempts to weaken the guard first by redefining a published Type revision or retyping/rebinding the accepted record.
 
 ## L-OCC-05 — External occurrence admission does not require inventing a local business Action
 
@@ -87,7 +89,9 @@ Physical bytes/schema encoding are not the same as historical semantic meaning. 
 
 **State:** `supported` as historical-explanation pressure.
 
-Existing records remain bound to the Type/ontology revision under which their semantic meaning was admitted unless an explicit migration/reinterpretation record says otherwise.
+Existing records remain bound to the Type/ontology revision under which their semantic meaning was admitted unless an explicit migration/reinterpretation record says otherwise. A published Type revision's own definition/contracts must also remain stable; otherwise “pinned to revision v1” provides no historical guarantee at all.
+
+Publishing a new revision is distinct from mutating an old revision. A new revision may change future semantics, but it cannot become an implicit bridge for rewriting records already admitted under the old revision.
 
 ## L-OCC-15 — Projection rebuild is not a business occurrence
 
