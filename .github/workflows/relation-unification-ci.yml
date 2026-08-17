@@ -26,6 +26,8 @@ jobs:
         run: python3 -m pip install 'hypothesis==6.165.9' 'z3-solver==4.16.0.0'
       - name: Check issue 158 anti-cheat structure
         run: python3 research/experiments/relation-unification/check_research.py
+      - name: Check issue 158 review and index alignment
+        run: python3 research/experiments/relation-unification/check_review.py
       - name: Run four-IR semantic and surface tests
         run: python3 -m unittest discover -s research/experiments/relation-unification -p 'test_*.py' -v
       - name: Render sample SDK query tool and physical surfaces
