@@ -1,0 +1,45 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0158-relation-unification",
+      "artifact": "research/experiments/relation-unification/README.md",
+      "issue": 158,
+      "title": "Relation unification across Property and Link semantics",
+      "question": "Can one canonical Relation algebra subsume Property and Link across authoring, query, SDK/tool generation, migration, provenance and lifecycle without hidden semantic branches?",
+      "artifact_kind": "experiment",
+      "topics": ["relation", "property", "link", "cardinality", "identity", "migration", "toolchain", "provenance", "r6"],
+      "source_keys": ["issue-0003-identity-role-relator", "issue-0013-query-sets-interfaces", "issue-0062-value-system", "issue-0064-authoring-language", "issue-0065-compiler-toolchain", "issue-0070-metamodel", "issue-0157-occurrence-no-bypass"],
+      "evidence_kinds": ["test", "inference", "design-claim"],
+      "review_status": "unreviewed",
+      "records": [
+        {"ref": "issue-0158-relation-unification#L-REL-01", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-02", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-03", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-04", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-05", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-06", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-07", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-08", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-09", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-10", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-11", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-12", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-13", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-14", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-15", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-16", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-17", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-18", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0158-relation-unification#L-REL-19", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-20", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0158-relation-unification#L-REL-21", "kind": "candidate-law", "epistemic_state": "supported"}
+      ],
+      "disagreements": [],
+      "depends_on": ["issue-0157-occurrence-no-bypass", "issue-0156-rulebinding-reduction"],
+      "related_issues": [3, 13, 62, 64, 65, 70, 71, 156, 157]
+    }
+  ]
+}
