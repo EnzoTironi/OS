@@ -1,0 +1,54 @@
+name: relation-unification-ci
+
+on:
+  push:
+    branches:
+      - research/issue-158-relation-unification
+  pull_request:
+    paths:
+      - 'research/experiments/relation-unification/**'
+      - 'research/index/issue-0158-relation-unification.json'
+      - 'rfcs/0002-executable-metamodel-hypothesis-v1.md'
+      - '.github/workflows/relation-unification-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  relation-unification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install cross-ontology verification dependencies
+        run: python3 -m pip install 'hypothesis==6.165.9' 'z3-solver==4.16.0.0'
+      - name: Check issue 158 anti-cheat structure
+        run: python3 research/experiments/relation-unification/check_research.py
+      - name: Check issue 158 review and index alignment
+        run: python3 research/experiments/relation-unification/check_review.py
+      - name: Run four-IR semantic and surface tests
+        run: python3 -m unittest discover -s research/experiments/relation-unification -p 'test_*.py' -v
+      - name: Render sample SDK query tool and physical surfaces
+        run: |
+          python3 research/experiments/relation-unification/render_samples.py > /tmp/relation-samples.md
+          grep -q 'property name: str' /tmp/relation-samples.md
+          grep -q 'link customer: Party' /tmp/relation-samples.md
+          grep -q 'r:line-price' /tmp/relation-samples.md
+          grep -q 'table available_quantity' /tmp/relation-samples.md
+      - name: Re-run Event no-bypass gate
+        run: |
+          python3 research/kill/occurrence-no-bypass/check_research.py
+          python3 -m unittest discover -s research/kill/occurrence-no-bypass -p 'test_*.py' -v
+      - name: Re-run RuleBinding reduction gate
+        run: |
+          python3 research/kill/rulebinding-v2/check_research.py
+          python3 -m unittest discover -s research/kill/rulebinding-v2 -p 'test_*.py' -v
+      - name: Re-run cross-ontology verification gate
+        run: |
+          python3 research/verification/check_research.py
+          python3 research/verification/scenario_registry.py --check
+          python3 -m unittest discover -s research/verification -p 'test_*.py' -v
+          python3 research/verification/modelcheck.py
+          python3 research/verification/formal/authorization_z3.py
