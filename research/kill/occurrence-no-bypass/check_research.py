@@ -98,9 +98,10 @@ def main() -> int:
     for required in [
         "AtomicSemanticStore", "_atomic_authority_operation", "attach_evidence",
         "semantic_record_fingerprint", "set_privacy_policy", "privacy_policy_revision",
+        "rebind_type_revision", "published Type revision",
     ]:
         if required not in atomic_model:
-            fail(f"post-green atomic/provenance/privacy hardening disappeared: {required}")
+            fail(f"post-green atomic/provenance/privacy/Type-binding hardening disappeared: {required}")
     if "record.type_name in" in semantic_store + atomic_store:
         fail("generic candidate branches on concrete Type names")
 
@@ -130,9 +131,12 @@ def main() -> int:
         "test_failed_correction_does_not_consume_operation_id",
         "test_new_source_evidence_uses_explicit_envelope_operation",
         "test_evidence_attachment_is_idempotent_and_mismatch_safe",
+        "test_published_type_revision_cannot_be_redefined_with_weaker_contract",
+        "test_new_weaker_revision_cannot_rebind_existing_record",
+        "test_record_cannot_be_retyped_to_unsealed_type",
     ]:
         if name not in atomic_tests:
-            fail(f"required post-green atomic/provenance regression missing: {name}")
+            fail(f"required post-green atomic/provenance/Type-binding regression missing: {name}")
     for name in [
         "test_current_policy_can_make_old_payload_field_erasable_without_reinterpreting_record",
         "test_historical_type_default_does_not_override_current_privacy_policy",
@@ -151,15 +155,24 @@ def main() -> int:
 
     pg = norm(PG_EXPERIMENT.read_text(encoding="utf-8"))
     for phrase in [
-        "protect_sealed_semantics",
+        "protect_type_revision_history",
+        "protect_semantic_binding_and_core",
+        "contracts jsonb",
         "publisheddefinition",
         "mutablenote",
         "occ157_app",
         "occ157_admin",
-        "superuser/physical compromise is an operational security boundary",
+        "occ157_type_admin",
+        "stock-v2",
+        "accepted record type revision binding cannot be rewritten in place",
+        "superuser/physical compromise",
     ]:
         if phrase not in pg:
-            fail(f"PostgreSQL no-bypass experiment lost boundary: {phrase}")
+            fail(f"PostgreSQL no-bypass experiment lost contract/binding boundary: {phrase}")
+    if "sealed_semantics boolean" in pg:
+        fail("PostgreSQL experiment regressed to a mutable per-record sealed_semantics flag")
+    if "before update or delete" not in pg or "type_revision" not in pg:
+        fail("PostgreSQL experiment no longer protects published Type revisions")
 
     laws = LAW_RE.findall(LAWS.read_text(encoding="utf-8"))
     expected_laws = [f"L-OCC-{i:02d}" for i in range(1, 21)]
@@ -191,6 +204,8 @@ def main() -> int:
         "accepted record is not metaphysical truth",
         "legal erasure of protected semantic core",
         "raw database superuser / physical compromise",
+        "contract-bearing type revision",
+        "mutable per-row opt-out",
     ]:
         if phrase not in text:
             fail(f"research lost lifecycle/epistemic hardening boundary: {phrase}")
@@ -205,6 +220,7 @@ def main() -> int:
         "full erasure of semantic core remains unresolved",
         "physical superuser remains outside semantic proof",
         "event demotion is narrower than event elimination",
+        "mutable guard metadata bypass",
     ]:
         if phrase not in review:
             fail(f"review lost adversarial boundary: {phrase}")
@@ -238,7 +254,7 @@ def main() -> int:
         fail("R6 was accepted from #157 automatically")
 
     print(
-        "ok: generic sealed-semantic candidate + atomic/provenance/current-privacy hardening have no Event/Occurrence interpreter; "
+        "ok: generic sealed-semantic candidate + atomic/provenance/current-privacy/Type-binding hardening have no Event/Occurrence interpreter; "
         f"20 laws, 50 scenarios, PostgreSQL experiment and reviewed boundaries present; review={shard_review}/{review_status}"
     )
     return 0
