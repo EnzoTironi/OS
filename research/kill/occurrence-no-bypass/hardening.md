@@ -52,17 +52,59 @@ This is an important argument against treating `sealed_semantics` as absolute im
 
 ## H5 — Physical enforcement must not depend on Event type names
 
-The PostgreSQL 18 experiment projects the generic contract to a real local authority table:
+The PostgreSQL 18 experiment projects the generic contract to a real local authority store:
 
 - application role cannot update protected semantic core;
-- privileged semantic-admin role has UPDATE but a generic trigger rejects changes when `sealed_semantics=true`;
-- the same trigger protects `StockMovement` and non-event `PublishedDefinition`;
+- privileged semantic-admin role can address record columns, but a generic Type-revision trigger rejects semantic replacement;
+- the same mechanism protects `StockMovement` and non-event `PublishedDefinition`;
 - mutable `MutableNote` can change;
-- payload and representation version can change independently.
-
-The trigger contains no Event/Occurrence type-name branch.
+- payload and representation version can change independently;
+- the trigger contains no Event/Occurrence Type-name branch.
 
 This is evidence that lifecycle enforcement can be physically implemented without a native Event base sort.
+
+## H6 — Mutable guard metadata created a no-bypass escape hatch
+
+A later adversarial review found a **real flaw after the branch had already gone green**.
+
+The first PostgreSQL experiment stored:
+
+```text
+semantic_record.sealed_semantics boolean
+```
+
+and granted the semantic-admin `UPDATE` on the row. The trigger only fired when `semantic_core` changed and trusted `OLD.sealed_semantics`.
+
+That meant a privileged path could do:
+
+```text
+sealed_semantics = false
+        ↓
+rewrite semantic_core
+```
+
+or potentially swap Type-identifying metadata before rewriting. The lifecycle law was therefore not actually no-bypass; it was a mutable per-row opt-out flag.
+
+The Python model contained the analogous hole: `register_type()` could overwrite the same `(type_name, revision)` with a weaker definition. A record pinned to `stock-v1` was not historically safe if `stock-v1` itself could be redefined.
+
+**Correction:** contract-bearing Type revision identity is now part of the protected semantic boundary.
+
+The hardened model and PostgreSQL experiment separate:
+
+```text
+published TypeRevision
+  immutable meaning/contracts for that revision
+
+SemanticRecord
+  immutable binding -> TypeRevision
+  semantic_core governed by contracts from that pinned revision
+```
+
+A migration may publish a **new** revision. It may not rewrite an old revision or silently rebind an accepted record to a weaker revision. Retyping/reinterpretation must be an explicit semantic operation/new record/correction as appropriate.
+
+The PostgreSQL experiment now stores contracts in an independently governed `type_revision` table, protects published revisions from UPDATE/DELETE even for a migration role, protects record `type_name/type_revision` binding, and explicitly attacks a new unsealed `stock-v2` revision to prove the historical `stock-v1` record cannot be downgraded into it.
+
+This correction is load-bearing for Event demotion. `sealed_semantics` only counts as a genuine generic Type contract if **membership in the contract and the historical definition that gives it meaning are themselves non-bypass**.
 
 ## Still-open boundary A — accepted record is not metaphysical truth
 
@@ -88,7 +130,7 @@ If that operation exists, it must be explicit and governed. It does not automati
 
 ## Still-open boundary C — raw database superuser / physical compromise
 
-A real superuser can potentially disable a trigger, rewrite storage or restore arbitrary bytes. Semantic APIs cannot prove otherwise.
+A real superuser/schema owner can potentially disable a trigger, rewrite storage or restore arbitrary bytes. Semantic APIs cannot prove otherwise.
 
 Production no-bypass therefore also needs:
 
@@ -98,11 +140,11 @@ Production no-bypass therefore also needs:
 - reconciliation after physical restore;
 - operational governance of break-glass access.
 
-A malicious superuser is a physical security boundary. Promoting Event to a semantic primitive does not make a compromised storage administrator obey it.
+A malicious physical authority is a security boundary. Promoting Event to a semantic primitive does not make a compromised storage administrator obey it.
 
 ## Still-open boundary D — Is `sealed_semantics` merely Event renamed?
 
-The current evidence argues **not for the lifecycle job** because the same contract has an independently useful non-event case (`PublishedDefinition`). The generic engine has no Event/Occurrence branch.
+The current evidence argues **not for the lifecycle job** because the same contract has an independently useful non-event case (`PublishedDefinition`). The generic engine has no Event/Occurrence branch, and the contract is attached to a protected Type revision rather than inferred from an Event species.
 
 That is not proof that every semantic property of occurrences reduces to this contract. Occurrence time, participants, causation, provenance, satisfaction/fulfillment and domain meaning can still be modeled through Type/Relation/Computation semantics and must survive #71.
 
