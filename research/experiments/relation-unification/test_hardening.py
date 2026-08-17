@@ -16,7 +16,7 @@ from hardened_relation import (
     inverse_sdk_type,
     normalize_collection,
 )
-from models import Cardinality, PARTY, PRODUCT, STRING, RelationDef, Role
+from models import Cardinality, PARTY, PRODUCT, QUANTITY, STRING, WAREHOUSE, RelationDef, Role, TargetKind
 
 
 def semantic_identifiers(obj) -> set[str]:
@@ -96,6 +96,24 @@ class CollectionSemanticsTests(unittest.TestCase):
         bag = BinaryRelationContract("r:values", Cardinality(0, None), Cardinality(0, None), CollectionSemantics.BAG)
         self.assertEqual(collection_sdk_type(relation, bag), "Bag[Party]")
         self.assertEqual(normalize_collection(["party:1", "party:1", "party:2"], relation, bag), {"party:1": 2, "party:2": 1})
+
+
+class EndpointKindNotSpeciesTests(unittest.TestCase):
+    def test_one_nary_relation_can_mix_entity_and_literal_roles(self) -> None:
+        availability = RelationDef(
+            "r:availability-hardening",
+            "available_quantity",
+            (
+                Role("product", PRODUCT),
+                Role("warehouse", WAREHOUSE),
+                Role("value", QUANTITY),
+            ),
+        )
+        kinds = [role.target.kind for role in availability.roles]
+        self.assertEqual(kinds, [TargetKind.ENTITY, TargetKind.ENTITY, TargetKind.LITERAL])
+        # A single Relation cannot coherently be classified as globally
+        # "Property" or globally "Link" based on endpoint kind alone.
+        self.assertEqual(len(set(kinds)), 2)
 
 
 class AssertionEnvelopeTests(unittest.TestCase):
