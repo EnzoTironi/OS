@@ -158,7 +158,9 @@ class GeneratedSurfaceEquivalenceTests(unittest.TestCase):
     def test_fully_relational_ir_preserves_types_but_is_less_field_ergonomic(self) -> None:
         surfaces = generated_surface_map()
         self.assertIn("predicate", surfaces["D"]["r:product-name"])
-        self.assertIn("String", surfaces["D"]["r:product-name"])
+        # This comparison is intentionally at the generated SDK surface, where
+        # semantic String lowers to Python `str` for every competitor.
+        self.assertIn("str", surfaces["D"]["r:product-name"])
         self.assertNotEqual(surfaces["D"]["r:product-name"], surfaces["A"]["r:product-name"])
 
     def test_query_navigation_does_not_require_property_link_opcode(self) -> None:
