@@ -103,7 +103,6 @@ def main() -> int:
     if "targetkind" not in physical_names:
         fail("physical lowering no longer demonstrates endpoint-type specialization")
 
-    # Post-green hardening must remain generic Relation/statement machinery.
     hardened_names = semantic_names(hardened_source)
     leaked = hardened_names.intersection({"propertydef", "linkdef", "slotdef"})
     if leaked:
@@ -172,7 +171,7 @@ def main() -> int:
     hardening = norm(HARDENING.read_text(encoding="utf-8"))
     for phrase in [
         "forward cardinality does not determine inverse cardinality",
-        "set/list/bag",
+        "collection semantics",
         "relationassertion",
         "not a decision that fact is a metamodel primitive",
         "scalar-to-entity migration",
