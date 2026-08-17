@@ -19,6 +19,10 @@ def fail(msg: str) -> None:
     raise SystemExit(1)
 
 
+def without_rejected_catalog(text: str) -> str:
+    return re.split(r"^# Explicit non-laws\b", text, maxsplit=1, flags=re.MULTILINE)[0]
+
+
 def main() -> int:
     required = [
         "README.md", "source-study.md", "authorization-contract.md", "candidate-laws.md",
@@ -51,9 +55,15 @@ def main() -> int:
     if sorted(indexed) != sorted(laws):
         fail(f"candidate-law index drift: {indexed} != {laws}")
 
-    bundle = "\n".join((HERE / name).read_text(encoding="utf-8").lower() for name in [
-        "README.md", "authorization-contract.md", "candidate-laws.md", "open-questions.md"
-    ])
+    bundle = "\n".join(
+        without_rejected_catalog((HERE / name).read_text(encoding="utf-8")).lower()
+        for name in [
+            "README.md",
+            "authorization-contract.md",
+            "candidate-laws.md",
+            "open-questions.md",
+        ]
+    )
     required_phrases = [
         "workload identity",
         "represented principal",

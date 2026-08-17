@@ -25,6 +25,6 @@ jobs:
         run: python3 research/runtime/authorization/check_research.py
       - name: Execute delegation and authorization litmus tests
         working-directory: research/runtime/authorization
-        run: python3 -m unittest -v test_reference_model.py
+        run: python3 -m unittest discover -p 'test_*.py' -v
       - name: Validate index JSON
         run: python3 -m json.tool research/index/issue-0042-authorization-delegation.json >/dev/null

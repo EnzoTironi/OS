@@ -23,7 +23,7 @@ jobs:
           python-version: '3.12'
       - name: Run authorization semantic tests
         working-directory: research/runtime/authorization
-        run: python3 -m unittest -v test_reference_model.py
+        run: python3 -m unittest discover -p 'test_*.py' -v
       - name: Validate structural research checks
         run: python3 research/runtime/authorization/check_research.py
       - name: Validate both index shards
