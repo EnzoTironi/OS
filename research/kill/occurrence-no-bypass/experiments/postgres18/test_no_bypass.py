@@ -97,7 +97,7 @@ def main() -> None:
             cur.execute(
                 sql.SQL(
                     """
-                    CREATE FUNCTION {}.protect_semantic_identity_binding_and_core()
+                    CREATE FUNCTION {}.protect_semantic_binding_and_core()
                     RETURNS trigger LANGUAGE plpgsql AS $$
                     DECLARE
                       type_contracts jsonb;
@@ -128,9 +128,9 @@ def main() -> None:
             cur.execute(
                 sql.SQL(
                     """
-                    CREATE TRIGGER protect_semantic_identity_binding_and_core
+                    CREATE TRIGGER protect_semantic_binding_and_core
                     BEFORE UPDATE OF record_id, type_name, type_revision, semantic_core ON {}.semantic_record
-                    FOR EACH ROW EXECUTE FUNCTION {}.protect_semantic_identity_binding_and_core()
+                    FOR EACH ROW EXECUTE FUNCTION {}.protect_semantic_binding_and_core()
                     """
                 ).format(sql.Identifier(SCHEMA), sql.Identifier(SCHEMA))
             )
@@ -223,8 +223,6 @@ def main() -> None:
                     .format(sql.Identifier(SCHEMA)).as_string(cur),
                     (json.dumps(replacement), record_id),
                 )
-            # Stable semantic identity is part of the protected boundary: admin
-            # may not rename the row and then reuse the old id for new meaning.
             expect_failure(
                 cur,
                 sql.SQL("UPDATE {}.semantic_record SET record_id='stock:moved' WHERE record_id='stock:1'")
@@ -270,7 +268,6 @@ def main() -> None:
                     "WHERE record_id='stock:1'"
                 ).format(sql.Identifier(SCHEMA)).as_string(cur),
             )
-
             cur.execute(
                 sql.SQL("UPDATE {}.semantic_record SET semantic_core=%s::jsonb WHERE record_id='draft:1'")
                 .format(sql.Identifier(SCHEMA)),
