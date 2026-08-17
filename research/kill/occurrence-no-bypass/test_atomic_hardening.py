@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 
 from atomic_model import AtomicSemanticStore
-from reference_model import DuplicateConflict, TypeRevision
+from reference_model import DuplicateConflict, SemanticMutation, TypeRevision
 
 
 def configured() -> AtomicSemanticStore:
@@ -42,6 +42,7 @@ def create(
         type_name="StockMovement",
         semantic_core=core,
         source_evidence=evidence,
+        type_revision="stock-v1",
     )
 
 
@@ -53,8 +54,6 @@ class AtomicAuthorityTests(unittest.TestCase):
         with self.assertRaises(DuplicateConflict):
             create(store, operation_id="attempt:1", record_id="stock:1", qty=99)
 
-        # The failed attempt never committed an idempotency marker, so the same
-        # physical operation id is still free to identify a later valid attempt.
         create(store, operation_id="attempt:1", record_id="stock:2", qty=5)
         self.assertEqual(store.read("stock:2").semantic_core["qty"], 5)
 
@@ -112,8 +111,6 @@ class AtomicAuthorityTests(unittest.TestCase):
         store = configured()
         create(store, operation_id="ingest:1", record_id="stock:1", qty=10, evidence=("source:a",))
 
-        # A second source describing the same semantic record is not another
-        # occurrence and must not be silently folded through create().
         with self.assertRaises(DuplicateConflict):
             create(store, operation_id="ingest:2", record_id="stock:1", qty=10, evidence=("source:b",))
 
@@ -165,6 +162,73 @@ class AtomicAuthorityTests(unittest.TestCase):
                 evidence=("source:c",),
             )
         self.assertNotIn("source:c", store.read("stock:1").source_evidence)
+
+    def test_published_type_revision_cannot_be_redefined_with_weaker_contract(self) -> None:
+        store = configured()
+        original = store.type_def("StockMovement", "stock-v1")
+        with self.assertRaises(DuplicateConflict):
+            store.register_type(TypeRevision("StockMovement", "stock-v1", frozenset()))
+        self.assertEqual(store.type_def("StockMovement", "stock-v1"), original)
+
+        create(store, operation_id="seed:1", record_id="stock:1", qty=10)
+        context = {"record_id": "stock:1", "new_core": {"sku": "X", "qty": 99}}
+        proof = store.issue_proof(
+            operation="replace-core", path="admin", target="stock:1", context=context
+        )
+        with self.assertRaises(SemanticMutation):
+            store.replace_semantic_core(
+                path="admin", proof=proof, record_id="stock:1", new_core=context["new_core"]
+            )
+
+    def test_new_weaker_revision_cannot_rebind_existing_record(self) -> None:
+        store = configured()
+        create(store, operation_id="seed:1", record_id="stock:1", qty=10)
+        store.register_type(TypeRevision("StockMovement", "stock-v2", frozenset()))
+
+        context = {
+            "record_id": "stock:1",
+            "from_type_name": "StockMovement",
+            "from_type_revision": "stock-v1",
+            "to_type_name": "StockMovement",
+            "to_type_revision": "stock-v2",
+        }
+        proof = store.issue_proof(
+            operation="rebind-type-revision", path="migration", target="stock:1", context=context
+        )
+        with self.assertRaises(SemanticMutation):
+            store.rebind_type_revision(
+                path="migration",
+                proof=proof,
+                record_id="stock:1",
+                new_type_name="StockMovement",
+                new_type_revision="stock-v2",
+            )
+        record = store.read("stock:1")
+        self.assertEqual((record.type_name, record.type_revision), ("StockMovement", "stock-v1"))
+
+    def test_record_cannot_be_retyped_to_unsealed_type(self) -> None:
+        store = configured()
+        store.register_type(TypeRevision("MutableNote", "note-v1", frozenset()))
+        create(store, operation_id="seed:1", record_id="stock:1", qty=10)
+        context = {
+            "record_id": "stock:1",
+            "from_type_name": "StockMovement",
+            "from_type_revision": "stock-v1",
+            "to_type_name": "MutableNote",
+            "to_type_revision": "note-v1",
+        }
+        proof = store.issue_proof(
+            operation="rebind-type-revision", path="admin", target="stock:1", context=context
+        )
+        with self.assertRaises(SemanticMutation):
+            store.rebind_type_revision(
+                path="admin",
+                proof=proof,
+                record_id="stock:1",
+                new_type_name="MutableNote",
+                new_type_revision="note-v1",
+            )
+        self.assertEqual(store.read("stock:1").type_name, "StockMovement")
 
 
 if __name__ == "__main__":
