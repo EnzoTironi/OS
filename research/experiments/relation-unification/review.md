@@ -1,6 +1,6 @@
 # Adversarial review — issue #158 Relation unification
 
-**Status:** review-pending  
+**Status:** review-clean  
 **Architecture decision:** none  
 **Candidate:** one canonical Relation remains favored over canonical Property+Link in this bounded experiment; R6 remains `hypothesis`, not accepted.
 
@@ -18,7 +18,7 @@ Canonical generators for SDK, query, mutation-tool and UI surfaces inspect endpo
 
 That defeats the weakest argument for separate canonical forms: “we need two primitives in order to render fields differently from links.” We do not.
 
-### 2. `TargetKind` is a real distinction, but not yet Property/Link renamed
+### 2. `TargetKind` is a real distinction, but not Property/Link renamed in the current model
 
 Literal/value endpoints and identifiable entity endpoints have different equality and referential semantics:
 
@@ -29,7 +29,9 @@ Party/Product/...      -> stable entity identity semantics
 
 The reduction would be fake if it erased that distinction. It does not.
 
-The stronger adversarial question is whether this difference forces a unique interpreter/evolution/authority protocol for *relations themselves*. So far it does not: the same Relation definition, cardinality, provenance envelope and generation pipeline handle both. Physical lowering may choose a value column versus FK because endpoint representation differs; that is not evidence for separate canonical semantic species.
+More importantly, endpoint kind is **per role**, not a species of the whole Relation. The hardened n-ary control `available_quantity(Product, Warehouse, Quantity)` contains entity and literal roles simultaneously; classifying the whole relation as globally Property or Link from endpoint kind is incoherent.
+
+The remaining adversarial question is whether scalar/entity role differences eventually force independent interpreter/evolution/authority protocols. So far they do not: the same Relation definition, cardinality/collection contracts, assertion envelope and generation pipeline handle both. Physical lowering may choose a value column versus FK because endpoint representation differs; that is not evidence for separate canonical semantic species.
 
 Revive Property/Link if later cases show the endpoint distinction repeatedly grows independent lifecycle/authority/query rules that cannot be expressed through Type + Relation metadata without reconstructing two interpreters.
 
@@ -125,11 +127,20 @@ Split them again if cross-cycle evidence shows any of the following cannot be ex
 4. policy/query/action targeting needs a distinct canonical discriminator beyond target Type/roles;
 5. generated surfaces repeatedly reintroduce `is Property?` / `is Link?` logic across independent toolchain layers.
 
-## Remaining blockers before `review-clean`
+## Evidence gate achieved
 
-- exact final-head branch CI after post-green inverse/collection/assertion hardening;
-- v2 index shard aligned with the 21 candidate laws;
-- PR-triggered CI on the exact reviewed head;
-- #71 cross-cycle vertical before any RFC promotion.
+Exact-head branch CI passed after post-green inverse/cardinality, collection, assertion-envelope and TargetKind-per-role hardening. The branch gate included:
 
-A future `review-clean` means only that this bounded experiment and its adversarial history are internally coherent. It does not accept R6 or edit RFC-0002 automatically.
+- #158 anti-cheat and review/index consistency;
+- all four-IR semantic/tooling/migration regressions;
+- generated authoring/SDK/query/physical samples;
+- #157 Event no-bypass gate;
+- #156 RuleBinding reduction gate;
+- full #46 cross-ontology verification/model-check/SMT gate.
+
+## Merge and promotion blockers
+
+- PR-triggered CI must pass on the exact reviewed head against current `research-corpus` before merge;
+- #71 cross-cycle vertical must still execute the R6-capability candidate before any RFC/metamodel promotion.
+
+`review-clean` means only that this bounded experiment and its adversarial history are internally coherent. It does not accept R6 or edit RFC-0002 automatically.
