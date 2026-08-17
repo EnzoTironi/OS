@@ -11,10 +11,13 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 README = HERE / "README.md"
 MODELS = HERE / "models.py"
+HARDENED = HERE / "hardened_relation.py"
+HARDENING = HERE / "hardening.md"
 HELPERS = HERE / "semantic_helpers.py"
 SURFACES = HERE / "surface_generators.py"
 TESTS = HERE / "test_models.py"
 EXTENDED = HERE / "test_extended_cases.py"
+HARDENING_TESTS = HERE / "test_hardening.py"
 SURFACE_TESTS = HERE / "test_surfaces.py"
 LAWS = HERE / "candidate-laws.md"
 SCORECARD = HERE / "scorecard.md"
@@ -46,6 +49,19 @@ def names_in_function(source: str, function_name: str) -> set[str]:
     return set()
 
 
+def semantic_names(source: str) -> set[str]:
+    tree = ast.parse(source)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name.lower())
+        elif isinstance(node, ast.Name):
+            names.add(node.id.lower())
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr.lower())
+    return names
+
+
 def no_module_level_tests(path: Path) -> None:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     bad = [node.name for node in tree.body if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")]
@@ -54,11 +70,15 @@ def no_module_level_tests(path: Path) -> None:
 
 
 def main() -> int:
-    for path in [README, MODELS, HELPERS, SURFACES, TESTS, EXTENDED, SURFACE_TESTS, LAWS, SCORECARD, RENDER, RFC2]:
+    for path in [
+        README, MODELS, HARDENED, HARDENING, HELPERS, SURFACES, TESTS, EXTENDED,
+        HARDENING_TESTS, SURFACE_TESTS, LAWS, SCORECARD, RENDER, RFC2,
+    ]:
         if not path.exists():
             fail(f"missing {path.relative_to(ROOT)}")
 
     model_source = MODELS.read_text(encoding="utf-8")
+    hardened_source = HARDENED.read_text(encoding="utf-8")
     surface_source = SURFACES.read_text(encoding="utf-8")
     lower = model_source.lower()
 
@@ -83,15 +103,30 @@ def main() -> int:
     if "targetkind" not in physical_names:
         fail("physical lowering no longer demonstrates endpoint-type specialization")
 
+    # Post-green hardening must remain generic Relation/statement machinery.
+    hardened_names = semantic_names(hardened_source)
+    leaked = hardened_names.intersection({"propertydef", "linkdef", "slotdef"})
+    if leaked:
+        fail(f"Relation hardening recreated split semantic classes: {sorted(leaked)}")
+    for required in [
+        "collectionsemantics", "binaryrelationcontract", "relationassertion",
+        "relationcorrection", "inverse_sdk_type", "collection_sdk_type",
+    ]:
+        if required not in hardened_names:
+            fail(f"post-green Relation hardening disappeared: {required}")
+
     laws = LAW_RE.findall(LAWS.read_text(encoding="utf-8"))
     expected = [f"L-REL-{i:02d}" for i in range(1, 22)]
     if laws != expected:
         fail(f"expected contiguous L-REL-01..21, got {laws}")
 
-    for path in [TESTS, EXTENDED, SURFACE_TESTS]:
+    for path in [TESTS, EXTENDED, HARDENING_TESTS, SURFACE_TESTS]:
         no_module_level_tests(path)
 
-    test_text = "\n".join(path.read_text(encoding="utf-8") for path in [TESTS, EXTENDED, SURFACE_TESTS])
+    test_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [TESTS, EXTENDED, HARDENING_TESTS, SURFACE_TESTS]
+    )
     required_tests = [
         "test_required_optional_and_multi_scalar_signatures",
         "test_absence_unknown_and_not_applicable_are_not_collapsed",
@@ -110,6 +145,12 @@ def main() -> int:
         "test_many_to_one_collapse_requires_data_evidence",
         "test_scalar_and_entity_tools_share_one_generator",
         "test_canonical_generators_do_not_dispatch_on_property_or_link_classes",
+        "test_many_to_one_forward_can_have_one_to_many_inverse",
+        "test_set_list_and_bag_have_distinct_semantics",
+        "test_collection_semantics_apply_to_entity_targets_too",
+        "test_scalar_and_entity_assertions_share_one_envelope",
+        "test_correction_uses_new_assertion_identity_instead_of_rewriting_old",
+        "test_hardening_module_does_not_dispatch_property_link_species",
     ]
     for name in required_tests:
         if name not in test_text:
@@ -127,6 +168,18 @@ def main() -> int:
     ]:
         if phrase not in readme:
             fail(f"README lost semantic boundary: {phrase}")
+
+    hardening = norm(HARDENING.read_text(encoding="utf-8"))
+    for phrase in [
+        "forward cardinality does not determine inverse cardinality",
+        "set/list/bag",
+        "relationassertion",
+        "not a decision that fact is a metamodel primitive",
+        "scalar-to-entity migration",
+        "n-ary uniqueness constraints",
+    ]:
+        if phrase not in hardening:
+            fail(f"hardening history lost adversarial boundary: {phrase}")
 
     score = norm(SCORECARD.read_text(encoding="utf-8"))
     for phrase in [
@@ -148,7 +201,8 @@ def main() -> int:
 
     print(
         "ok: issue #158 has four executable IR competitors, 21 candidate laws, "
-        "required semantic/tooling/migration cases and no Property/Link dispatch in unified canonical generators"
+        "inverse/collection/assertion hardening, required semantic/tooling/migration cases "
+        "and no Property/Link dispatch in unified canonical generators"
     )
     return 0
 
