@@ -8,8 +8,8 @@ business row: records are pinned to immutable Type revisions whose contracts
 are governed separately.
 
 The experiment does not claim that a database/schema owner or superuser cannot
-intentionally disable triggers or rewrite storage. Physical compromise and
-break-glass governance remain a separate operational-security boundary.
+intentionally disable triggers or rewrite storage. A superuser/physical compromise
+is a separate operational-security boundary requiring break-glass governance.
 """
 
 from __future__ import annotations
