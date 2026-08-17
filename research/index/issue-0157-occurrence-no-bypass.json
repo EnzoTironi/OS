@@ -1,0 +1,44 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0157-occurrence-no-bypass",
+      "artifact": "research/kill/occurrence-no-bypass/README.md",
+      "issue": 157,
+      "title": "Occurrence/Event no-bypass kill test",
+      "question": "Can Event remain demoted when every legitimate write path must preserve committed occurrence semantics?",
+      "artifact_kind": "kill-test",
+      "topics": ["event", "occurrence", "lifecycle", "immutability", "privacy", "migration", "replay", "r6"],
+      "source_keys": ["issue-0007-action-event-effect", "issue-0040-transaction-commit", "issue-0045-ingest", "issue-0046-verification", "issue-0070-metamodel", "issue-0156-rulebinding-reduction"],
+      "evidence_kinds": ["test", "inference", "design-claim"],
+      "review_status": "review-clean",
+      "records": [
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-01", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-02", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-03", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-04", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-05", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-06", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-07", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-08", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-09", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-10", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-11", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-12", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-13", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-14", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-15", "kind": "candidate-law", "epistemic_state": "supported"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-16", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-17", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-18", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-19", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0157-occurrence-no-bypass#L-OCC-20", "kind": "candidate-law", "epistemic_state": "supported"}
+      ],
+      "disagreements": [],
+      "depends_on": ["issue-0156-rulebinding-reduction"],
+      "related_issues": [7, 9, 40, 45, 46, 57, 70, 71, 156, 158]
+    }
+  ]
+}
