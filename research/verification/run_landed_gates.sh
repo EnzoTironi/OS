@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Re-run every landed research-corpus CI job against this checkout.
-# Writes a TSV receipt. Exit 0 only when every required job passed.
-# Postgres jobs are required when STORAGE39_DSN is reachable, otherwise blocked.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
@@ -64,32 +61,26 @@ except Exception:
 PY
 }
 
-# ingest-research-ci
 run_step ingest check python3 research/runtime/ingest/check_research.py || true
 run_step ingest index json_ok research/index/issue-0045-ingest-entity-resolution.json || true
 
-# transaction-research-ci
 run_step transactions check python3 research/runtime/transactions/check_research.py || true
 run_step transactions tests bash -lc 'cd research/runtime/transactions && python3 -m unittest -v test_reference_model.py' || true
 run_step transactions index json_ok research/index/issue-0040-commit-semantics.json || true
 
-# effect-research-ci
 run_step effects check python3 research/runtime/effects/check_research.py || true
 run_step effects tests bash -lc 'cd research/runtime/effects && python3 -m unittest -v test_reference_model.py' || true
 run_step effects index json_ok research/index/issue-0041-external-effects.json || true
 
-# authorization-research-ci + authorization-review-ci
 run_step authorization check python3 research/runtime/authorization/check_research.py || true
 run_step authorization tests bash -lc 'cd research/runtime/authorization && python3 -m unittest discover -p "test_*.py" -v' || true
 run_step authorization index json_ok research/index/issue-0042-authorization-delegation.json || true
 run_step authorization review-index json_ok research/index/issue-0042-authorization-delegation-review.json || true
 
-# orchestration-research-ci
 run_step orchestration check python3 research/runtime/orchestration/check_research.py || true
 run_step orchestration tests python3 -m unittest discover -s research/runtime/orchestration -p 'test_reference_model.py' -v || true
 run_step orchestration index json_ok research/index/issue-0043-durable-orchestration.json || true
 
-# storage-research-ci structural
 if [[ -f research/index/issue-0039-storage-models.json ]]; then
 	run_step storage index json_ok research/index/issue-0039-storage-models.json || true
 fi
@@ -97,7 +88,6 @@ if [[ -f research/runtime/storage/check_research.py ]]; then
 	run_step storage check python3 research/runtime/storage/check_research.py || true
 fi
 
-# research-graph-ci
 run_step graph tests python3 -m unittest -v research/graph/test_graph.py || true
 run_step graph build bash research/graph/build_wave_a.sh || true
 if [[ -f /tmp/challenged.jsonl ]]; then rm -f /tmp/challenged.jsonl; fi
@@ -109,8 +99,6 @@ fi
 run_step graph schema json_ok research/graph/schema.json || true
 run_step graph generated json_ok research/graph/generated/wave-a-graph.json || true
 
-# cross-ontology-verification-ci semantic-verification
-# Later workflows re-run this gate. Execute the unique steps once.
 run_step verification check python3 research/verification/check_research.py || true
 run_step verification registry python3 research/verification/scenario_registry.py --check || true
 run_step verification registry-json bash -lc 'python3 research/verification/scenario_registry.py --json > /tmp/cross-ontology-registry.json && python3 -m json.tool /tmp/cross-ontology-registry.json >/dev/null' || true
@@ -122,21 +110,17 @@ run_step verification reviewed-tx python3 research/runtime/transactions/test_ref
 run_step verification reviewed-effects python3 research/runtime/effects/test_reference_model.py || true
 run_step verification reviewed-orch python3 research/runtime/orchestration/test_reference_model.py || true
 
-# metamodel-synthesis-ci unique steps
 run_step metamodel check python3 research/synthesis/metamodel/check_research.py || true
 run_step metamodel candidate json_ok research/synthesis/metamodel/candidate-metamodel.json || true
 run_step metamodel index json_ok research/index/issue-0070-metamodel-synthesis.json || true
 run_step metamodel tests python3 -m unittest discover -s research/synthesis/metamodel -p 'test_*.py' -v || true
 
-# rulebinding-reduction-ci unique steps
 run_step rulebinding check python3 research/kill/rulebinding-v2/check_research.py || true
 run_step rulebinding tests python3 -m unittest discover -s research/kill/rulebinding-v2 -p 'test_*.py' -v || true
 
-# occurrence-no-bypass-ci unique steps
 run_step occurrence check python3 research/kill/occurrence-no-bypass/check_research.py || true
 run_step occurrence tests python3 -m unittest discover -s research/kill/occurrence-no-bypass -p 'test_*.py' -v || true
 
-# relation-unification-ci unique steps
 run_step relation check python3 research/experiments/relation-unification/check_research.py || true
 run_step relation review python3 research/experiments/relation-unification/check_review.py || true
 run_step relation tests python3 -m unittest discover -s research/experiments/relation-unification -p 'test_*.py' -v || true
@@ -150,7 +134,6 @@ else
 	record relation samples fail "render_samples missing expected markers"
 fi
 
-# postgres jobs
 if postgres_ready; then
 	run_step postgres storage python3 research/runtime/storage/experiments/postgres18/test_storage_contract.py || true
 	run_step postgres occurrence python3 research/kill/occurrence-no-bypass/experiments/postgres18/test_no_bypass.py || true
