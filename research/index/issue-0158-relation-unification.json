@@ -13,7 +13,7 @@
       "topics": ["relation", "property", "link", "cardinality", "identity", "migration", "toolchain", "provenance", "r6"],
       "source_keys": ["issue-0003-identity-role-relator", "issue-0013-query-sets-interfaces", "issue-0062-value-system", "issue-0064-authoring-language", "issue-0065-compiler-toolchain", "issue-0070-metamodel", "issue-0157-occurrence-no-bypass"],
       "evidence_kinds": ["test", "inference", "design-claim"],
-      "review_status": "unreviewed",
+      "review_status": "review-clean",
       "records": [
         {"ref": "issue-0158-relation-unification#L-REL-01", "kind": "candidate-law", "epistemic_state": "hypothesis"},
         {"ref": "issue-0158-relation-unification#L-REL-02", "kind": "candidate-law", "epistemic_state": "supported"},
