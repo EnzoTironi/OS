@@ -2,10 +2,10 @@
 """PostgreSQL 18 competency experiment for issue #157.
 
 This proves only that a generic Type-revision contract can protect committed
-semantic meaning at a real local authority boundary without hard-coding an
-Event/Occurrence type. The protection contract is *not* a mutable flag on the
-business row: records are pinned to immutable Type revisions whose contracts
-are governed separately.
+semantic meaning and stable semantic-record identity at a real local authority
+boundary without hard-coding an Event/Occurrence type. The protection contract
+is *not* a mutable flag on the business row: records are pinned to immutable
+Type revisions whose contracts are governed separately.
 
 The experiment does not claim that a database/schema owner or superuser cannot
 intentionally disable triggers or rewrite storage. A superuser/physical compromise
@@ -43,9 +43,6 @@ def main() -> None:
         with admin.cursor() as cur:
             cur.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(SCHEMA)))
 
-            # Contract-bearing Type revisions are independent authority records.
-            # Existing revisions are immutable. A migration may add a new revision
-            # but cannot rewrite what an old revision meant.
             cur.execute(
                 sql.SQL(
                     """
@@ -100,11 +97,15 @@ def main() -> None:
             cur.execute(
                 sql.SQL(
                     """
-                    CREATE FUNCTION {}.protect_semantic_binding_and_core()
+                    CREATE FUNCTION {}.protect_semantic_identity_binding_and_core()
                     RETURNS trigger LANGUAGE plpgsql AS $$
                     DECLARE
                       type_contracts jsonb;
                     BEGIN
+                      IF NEW.record_id IS DISTINCT FROM OLD.record_id THEN
+                        RAISE EXCEPTION 'accepted semantic record identity cannot be rewritten in place';
+                      END IF;
+
                       IF NEW.type_name IS DISTINCT FROM OLD.type_name
                          OR NEW.type_revision IS DISTINCT FROM OLD.type_revision THEN
                         RAISE EXCEPTION 'accepted record Type revision binding cannot be rewritten in place';
@@ -127,9 +128,9 @@ def main() -> None:
             cur.execute(
                 sql.SQL(
                     """
-                    CREATE TRIGGER protect_semantic_binding_and_core
-                    BEFORE UPDATE OF type_name, type_revision, semantic_core ON {}.semantic_record
-                    FOR EACH ROW EXECUTE FUNCTION {}.protect_semantic_binding_and_core()
+                    CREATE TRIGGER protect_semantic_identity_binding_and_core
+                    BEFORE UPDATE OF record_id, type_name, type_revision, semantic_core ON {}.semantic_record
+                    FOR EACH ROW EXECUTE FUNCTION {}.protect_semantic_identity_binding_and_core()
                     """
                 ).format(sql.Identifier(SCHEMA), sql.Identifier(SCHEMA))
             )
@@ -142,9 +143,6 @@ def main() -> None:
                 .format(sql.Identifier(SCHEMA))
             )
 
-            # Type migration authority may add revisions and is deliberately
-            # granted UPDATE/DELETE too; the generic trigger, not mere ACL luck,
-            # must reject rewriting published revisions.
             cur.execute(
                 sql.SQL("GRANT SELECT, INSERT, UPDATE, DELETE ON {}.type_revision TO occ157_type_admin")
                 .format(sql.Identifier(SCHEMA))
@@ -162,8 +160,6 @@ def main() -> None:
                 sql.SQL("GRANT UPDATE(payload, representation_version) ON {}.semantic_record TO occ157_app")
                 .format(sql.Identifier(SCHEMA))
             )
-            # Privileged semantic admin can address every record column. The
-            # trigger must still make Type binding/core downgrade impossible.
             cur.execute(
                 sql.SQL("GRANT SELECT, INSERT, UPDATE ON {}.semantic_record TO occ157_admin")
                 .format(sql.Identifier(SCHEMA))
@@ -216,8 +212,6 @@ def main() -> None:
             )
             cur.execute("RESET ROLE")
 
-            # Privileged semantic admin cannot rewrite core or escape by swapping
-            # to another Type/revision. There is no mutable per-row seal flag.
             cur.execute("SET ROLE occ157_admin")
             for record_id, replacement in [
                 ("stock:1", {"qty": 99, "sku": "X"}),
@@ -229,6 +223,13 @@ def main() -> None:
                     .format(sql.Identifier(SCHEMA)).as_string(cur),
                     (json.dumps(replacement), record_id),
                 )
+            # Stable semantic identity is part of the protected boundary: admin
+            # may not rename the row and then reuse the old id for new meaning.
+            expect_failure(
+                cur,
+                sql.SQL("UPDATE {}.semantic_record SET record_id='stock:moved' WHERE record_id='stock:1'")
+                .format(sql.Identifier(SCHEMA)).as_string(cur),
+            )
             expect_failure(
                 cur,
                 sql.SQL(
@@ -238,8 +239,6 @@ def main() -> None:
             )
             cur.execute("RESET ROLE")
 
-            # Migration authority can publish a new weaker revision for future
-            # records, but cannot rewrite the meaning of stock-v1 itself.
             cur.execute("SET ROLE occ157_type_admin")
             cur.execute(
                 sql.SQL(
@@ -263,8 +262,6 @@ def main() -> None:
             )
             cur.execute("RESET ROLE")
 
-            # Even after stock-v2 exists, admin cannot rebind historical stock:1
-            # to the weaker revision and then mutate it.
             cur.execute("SET ROLE occ157_admin")
             expect_failure(
                 cur,
@@ -274,7 +271,6 @@ def main() -> None:
                 ).format(sql.Identifier(SCHEMA)).as_string(cur),
             )
 
-            # Same generic mechanism still permits a genuinely unsealed Type.
             cur.execute(
                 sql.SQL("UPDATE {}.semantic_record SET semantic_core=%s::jsonb WHERE record_id='draft:1'")
                 .format(sql.Identifier(SCHEMA)),
@@ -291,11 +287,18 @@ def main() -> None:
                     "FROM {}.semantic_record WHERE record_id='stock:1'"
                 ).format(sql.Identifier(SCHEMA))
             )
-            type_name, revision, core, payload, rep = cur.fetchone()
+            row = cur.fetchone()
+            assert row is not None
+            type_name, revision, core, payload, rep = row
             assert (type_name, revision) == ("StockMovement", "stock-v1")
             assert core == {"qty": 10, "sku": "X"}
             assert payload == {}
             assert rep == 2
+            cur.execute(
+                sql.SQL("SELECT 1 FROM {}.semantic_record WHERE record_id='stock:moved'")
+                .format(sql.Identifier(SCHEMA))
+            )
+            assert cur.fetchone() is None
             cur.execute(
                 sql.SQL("SELECT contracts FROM {}.type_revision WHERE type_name='StockMovement' AND revision='stock-v1'")
                 .format(sql.Identifier(SCHEMA))
@@ -317,8 +320,8 @@ def main() -> None:
                 cur.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
 
     print(
-        "ok: PostgreSQL 18 generic Type-revision contract blocks semantic-core, "
-        "Type-binding and historical-contract downgrade for occurrence + non-event; "
+        "ok: PostgreSQL 18 generic Type-revision contract blocks semantic-record identity, "
+        "semantic-core, Type-binding and historical-contract downgrade for occurrence + non-event; "
         "payload/representation and genuinely unsealed Type remain mutable"
     )
 
