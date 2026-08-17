@@ -147,6 +147,7 @@ def main() -> int:
         "test_many_to_one_forward_can_have_one_to_many_inverse",
         "test_set_list_and_bag_have_distinct_semantics",
         "test_collection_semantics_apply_to_entity_targets_too",
+        "test_one_nary_relation_can_mix_entity_and_literal_roles",
         "test_scalar_and_entity_assertions_share_one_envelope",
         "test_correction_uses_new_assertion_identity_instead_of_rewriting_old",
         "test_hardening_module_does_not_dispatch_property_link_species",
