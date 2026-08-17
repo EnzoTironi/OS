@@ -29,6 +29,10 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def norm(text: str) -> str:
+    return text.lower().replace("**", "").replace("`", "")
+
+
 def names_in_function(source: str, function_name: str) -> set[str]:
     tree = ast.parse(source)
     for node in tree.body:
@@ -62,8 +66,6 @@ def main() -> int:
         if required not in lower:
             fail(f"competitor model missing: {required}")
 
-    # Canonical A generators may inspect endpoint Type/cardinality but must not
-    # secretly dispatch on PropertyDef/LinkDef semantic classes.
     for fn in ["relation_surface", "query_path", "relation_statement_shape", "satisfies_shape", "migration_classification"]:
         names = names_in_function(model_source, fn)
         leaked = names.intersection({"propertydef", "linkdef", "slotdef"})
@@ -75,8 +77,6 @@ def main() -> int:
         if leaked:
             fail(f"unified surface generator {fn} leaked split semantic classes: {sorted(leaked)}")
 
-    # Physical lowering is allowed to inspect endpoint kind/cardinality, but not
-    # semantic Property/Link classes.
     physical_names = names_in_function(model_source, "relation_physical_lowering")
     if physical_names.intersection({"propertydef", "linkdef", "slotdef"}):
         fail("physical lowering recreated Property/Link class dispatch")
@@ -115,7 +115,7 @@ def main() -> int:
         if name not in test_text:
             fail(f"required issue #158 regression missing: {name}")
 
-    readme = README.read_text(encoding="utf-8").lower()
+    readme = norm(README.read_text(encoding="utf-8"))
     for phrase in [
         "architecture decision: none",
         "authoring vocabulary",
@@ -128,7 +128,7 @@ def main() -> int:
         if phrase not in readme:
             fail(f"README lost semantic boundary: {phrase}")
 
-    score = SCORECARD.read_text(encoding="utf-8").lower()
+    score = norm(SCORECARD.read_text(encoding="utf-8"))
     for phrase in [
         "a unified relation",
         "b property + link",
@@ -140,7 +140,7 @@ def main() -> int:
         if phrase not in score:
             fail(f"scorecard lost competitor/epistemic boundary: {phrase}")
 
-    rfc = RFC2.read_text(encoding="utf-8").lower()
+    rfc = norm(RFC2.read_text(encoding="utf-8"))
     if "status: hypothesis" not in rfc or "decision: none" not in rfc:
         fail("RFC-0002 was promoted during #158")
     if "r6 accepted" in rfc:
