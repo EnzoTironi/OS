@@ -149,3 +149,18 @@ The current evidence argues **not for the lifecycle job** because the same contr
 That is not proof that every semantic property of occurrences reduces to this contract. Occurrence time, participants, causation, provenance, satisfaction/fulfillment and domain meaning can still be modeled through Type/Relation/Computation semantics and must survive #71.
 
 Revive Event as a base form only if those occurrence semantics require a unique interpreter/identity/evolution protocol that generic Type contracts cannot express without rebuilding an Event species.
+
+## Still-open boundary E — Compatibility of future Type revisions
+
+#157 proves a narrower property than full ontology-evolution compatibility:
+
+```text
+old accepted record
+  remains pinned to old immutable TypeRevision
+```
+
+The experiment intentionally allows a migration authority to publish a new `StockMovement@stock-v2` without `sealed_semantics` and proves that `stock-v1` records cannot be downgraded into it.
+
+That does **not** establish that removing a lifecycle contract while retaining the same logical Type identity is a compatible or desirable ontology evolution. Such a revision may be a breaking semantic change that requires a new Type identity, compatibility rule, explicit migration policy, or prohibition.
+
+The correct place to decide that is ontology revision/governance and the cross-cycle vertical (#9/#71), not this bounded no-bypass test. #157's claim is only that a later revision cannot retroactively weaken the historical semantics of already accepted records.
