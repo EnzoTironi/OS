@@ -9,13 +9,19 @@ The first green `SemanticStore` exposed post-green problems during manual review
    second observation of the same occurrence should not create a second
    occurrence;
 3. privacy erasure permission was frozen into the historical Type revision,
-   even though a current legal/policy rule can change what must/may be erased.
+   even though a current legal/policy rule can change what must/may be erased;
+4. a mutable/redefinable Type revision would let a privileged path weaken the
+   generic lifecycle contract after a record had already been admitted.
 
 This bounded model makes the authority operation atomic (state + operation
 marker succeed/fail together), gives provenance/evidence an explicit
-non-semantic attachment operation, and separates historical Type meaning from a
-current privacy-policy revision. Production would rely on the real local
-transaction boundary from #40/#39 rather than Python snapshots.
+non-semantic attachment operation, separates historical Type meaning from a
+current privacy-policy revision, and treats published Type revisions plus a
+record's Type-revision binding as historical semantic identity rather than
+mutable guard metadata.
+
+Production would rely on the real local transaction/definition-governance
+boundary from #40/#39 rather than Python snapshots.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ from reference_model import (
     HistoryEntry,
     ModelError,
     RedactionViolation,
+    SemanticMutation,
     SemanticStore,
     TypeRevision,
 )
@@ -40,6 +47,12 @@ class AtomicSemanticStore(SemanticStore):
         self._privacy_policies: dict[str, tuple[str, frozenset[str]]] = {}
 
     def register_type(self, definition: TypeRevision, *, make_current: bool = True) -> None:
+        key = (definition.type_name, definition.revision)
+        existing = self.type_revisions.get(key)
+        if existing is not None and existing != definition:
+            raise DuplicateConflict(
+                f"published Type revision {definition.type_name}@{definition.revision} is immutable"
+            )
         super().register_type(definition, make_current=make_current)
         # Treat a Type's original redactable-field declaration only as the
         # initial policy seed. Later policy revisions are independent and do not
@@ -49,6 +62,47 @@ class AtomicSemanticStore(SemanticStore):
                 f"type-default:{definition.revision}",
                 frozenset(definition.redactable_payload_fields),
             )
+
+    def rebind_type_revision(
+        self,
+        *,
+        path: str,
+        proof,
+        record_id: str,
+        new_type_name: str,
+        new_type_revision: str,
+    ) -> None:
+        """Sensitivity API proving contract-bearing record identity is not mutable.
+
+        A migration may publish a new Type revision and future records may be
+        created against it. Reinterpreting an already accepted record by swapping
+        its Type/revision binding is a semantic rewrite and must instead be
+        represented explicitly (migration/correction/new record as appropriate).
+        """
+        if record_id not in self._records:
+            raise ModelError("cannot rebind missing record")
+        if (new_type_name, new_type_revision) not in self.type_revisions:
+            raise ModelError("target Type revision does not exist")
+        record = self._records[record_id]
+        context = {
+            "record_id": record_id,
+            "from_type_name": record.type_name,
+            "from_type_revision": record.type_revision,
+            "to_type_name": new_type_name,
+            "to_type_revision": new_type_revision,
+        }
+        self._verify_proof(
+            proof,
+            operation="rebind-type-revision",
+            path=path,
+            target=record_id,
+            context=context,
+        )
+        if (record.type_name, record.type_revision) == (new_type_name, new_type_revision):
+            return
+        raise SemanticMutation(
+            "accepted record Type/revision binding is semantic identity and cannot be rewritten in place"
+        )
 
     def set_privacy_policy(
         self,
