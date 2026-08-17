@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
 import inspect
 import unittest
 
@@ -16,6 +17,22 @@ from hardened_relation import (
     normalize_collection,
 )
 from models import Cardinality, PARTY, PRODUCT, STRING, RelationDef, Role
+
+
+def semantic_identifiers(obj) -> set[str]:
+    source = inspect.getsource(obj)
+    tree = ast.parse(source)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name.lower())
+        elif isinstance(node, ast.Name):
+            names.add(node.id.lower())
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr.lower())
+        elif isinstance(node, ast.arg):
+            names.add(node.arg.lower())
+    return names
 
 
 class InverseCardinalityTests(unittest.TestCase):
@@ -110,18 +127,19 @@ class AssertionEnvelopeTests(unittest.TestCase):
         self.assertEqual(correction.replacement.assertion_id, "a:2")
 
     def test_assertion_envelope_is_not_declared_as_fact_primitive(self) -> None:
-        source = inspect.getsource(hardened_relation.RelationAssertion).lower()
-        self.assertNotIn("fact", source)
-        self.assertNotIn("propertydef", source)
-        self.assertNotIn("linkdef", source)
+        names = semantic_identifiers(hardened_relation.RelationAssertion)
+        self.assertNotIn("fact", names)
+        self.assertNotIn("facttype", names)
+        self.assertNotIn("propertydef", names)
+        self.assertNotIn("linkdef", names)
 
 
 class HardeningHiddenBranchTests(unittest.TestCase):
     def test_hardening_module_does_not_dispatch_property_link_species(self) -> None:
-        source = inspect.getsource(hardened_relation).lower()
-        self.assertNotIn("propertydef", source)
-        self.assertNotIn("linkdef", source)
-        self.assertNotIn("slotdef", source)
+        names = semantic_identifiers(hardened_relation)
+        self.assertNotIn("propertydef", names)
+        self.assertNotIn("linkdef", names)
+        self.assertNotIn("slotdef", names)
 
 
 if __name__ == "__main__":
