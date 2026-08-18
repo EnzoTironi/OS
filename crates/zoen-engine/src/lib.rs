@@ -222,8 +222,23 @@ where
 
 fn verify_digest(canonical_json: &CanonicalJson, expected: &DefinitionDigest) -> bool {
     let actual = Sha256::digest(canonical_json.as_bytes());
-    let actual = format!("{actual:x}");
-    actual == expected.as_str()
+    expected
+        .as_str()
+        .as_bytes()
+        .chunks_exact(2)
+        .zip(actual)
+        .all(|(encoded, actual)| match encoded {
+            [high, low] => (hex_value(*high) << 4 | hex_value(*low)) == actual,
+            _ => false,
+        })
+}
+
+fn hex_value(byte: u8) -> u8 {
+    match byte {
+        b'0'..=b'9' => byte - b'0',
+        b'a'..=b'f' => byte - b'a' + 10,
+        _ => 0,
+    }
 }
 
 fn validate_definition(definition: &CanonicalDefinition) -> Result<(), ValidationError> {
