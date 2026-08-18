@@ -786,7 +786,12 @@ def run_failures(dsn: str, transcript: list[str]) -> tuple[list[dict[str, Any]],
     return rows, traces
 
 
-def run_compatibility(dsn: str, sample_result: dict[str, Any], transcript: list[str]) -> list[dict[str, Any]]:
+def run_compatibility(
+    dsn: str,
+    sample_result: dict[str, Any],
+    transcript: list[str],
+    collision_results: dict[str, Any],
+) -> list[dict[str, Any]]:
     request_schema = load_schema(REQUEST_SCHEMA)
     result_schema = load_schema(RESULT_SCHEMA)
     status_schema = load_schema(STATUS_SCHEMA)
@@ -802,6 +807,12 @@ def run_compatibility(dsn: str, sample_result: dict[str, Any], transcript: list[
     banned = [token for token in FORBIDDEN_IDENTIFIERS if token in contract_text]
     first = dump_json({"state": "committed", "commit_revision": 1})
     second = dump_json({"commit_revision": 1, "state": "committed"})
+    record_collision = collision_results["record"]["first"]
+    effect_collision = collision_results["effect"]["first"]
+    record_collision_errors = validate_schema(record_collision, result_schema)
+    effect_collision_errors = validate_schema(effect_collision, result_schema)
+    missing_identity = {"state": "identity_collision"}
+    missing_identity_errors = validate_schema(missing_identity, result_schema)
     transcript.append("compatibility schemas and identifier ban")
     return [
         property_row(
@@ -836,6 +847,20 @@ def run_compatibility(dsn: str, sample_result: dict[str, Any], transcript: list[
             "compatibility.sql_identifier_ban",
             banned == [],
             {"banned": banned},
+        ),
+        property_row(
+            "compatibility.identity_collision_schema_2020_12",
+            not record_collision_errors
+            and not effect_collision_errors
+            and bool(missing_identity_errors),
+            {
+                "record": record_collision,
+                "record_errors": record_collision_errors,
+                "effect": effect_collision,
+                "effect_errors": effect_collision_errors,
+                "missing_identity": missing_identity,
+                "missing_errors": missing_identity_errors,
+            },
         ),
     ]
 
@@ -959,9 +984,10 @@ def typed_identity_collision(
     namespace: str = "org-a",
 ) -> bool:
     return (
-        result.get("state") == "identity_collision"
-        and result.get("namespace") == namespace
-        and result.get("operation_id") == operation_id
+        set(result) == {"state", "namespace", "operation_id"}
+        and result["state"] == "identity_collision"
+        and result["namespace"] == namespace
+        and result["operation_id"] == operation_id
     )
 
 
@@ -970,6 +996,22 @@ def empty_operation(row_counts: dict[str, int]) -> bool:
         row_counts["operations"] == 0
         and row_counts["records"] == 0
         and row_counts["effects"] == 0
+    )
+
+
+def namespace_counts(
+    row_counts: dict[str, int],
+    *,
+    operations: int,
+    records: int,
+    effects: int,
+    head_revision: int,
+) -> bool:
+    return (
+        row_counts.get("operations") == operations
+        and row_counts.get("records") == records
+        and row_counts.get("effects") == effects
+        and row_counts.get("head_revision") == head_revision
     )
 
 
@@ -1033,10 +1075,22 @@ def identity_sequence_properties(case: dict[str, Any], trace: dict[str, Any]) ->
             f"identity.{kind}_no_partial",
             empty_operation(trace["after_first"])
             and empty_operation(trace["after_retry"])
-            and trace["after_owner"]["head_revision"] == 1
-            and trace["namespace"]["head_revision"] == 1
-            and trace["namespace"]["operations"] == 1,
+            and namespace_counts(
+                trace["after_owner"],
+                operations=1,
+                records=1,
+                effects=1,
+                head_revision=1,
+            )
+            and namespace_counts(
+                trace["namespace"],
+                operations=1,
+                records=1,
+                effects=1,
+                head_revision=1,
+            ),
             {
+                "after_owner": trace["after_owner"],
                 "after_first": trace["after_first"],
                 "after_retry": trace["after_retry"],
                 "namespace": trace["namespace"],
@@ -1207,8 +1261,13 @@ def run_identity_races(
             pair_states == ["identity_collision", "identity_collision"]
             and empty_operation(pair_c1)
             and empty_operation(pair_c2)
-            and pair_head["head_revision"] == 1
-            and pair_head["operations"] == 1,
+            and namespace_counts(
+                pair_head,
+                operations=1,
+                records=1,
+                effects=1,
+                head_revision=1,
+            ),
             traces["two_colliders"],
         ),
         property_row(
@@ -1219,9 +1278,20 @@ def run_identity_races(
             )
             and "error" not in mix_states
             and empty_operation(hit_counts)
-            and valid_counts["operations"] == 1
-            and mix_head["operations"] == 2
-            and mix_head["head_revision"] == 2,
+            and namespace_counts(
+                valid_counts,
+                operations=1,
+                records=1,
+                effects=1,
+                head_revision=2,
+            )
+            and namespace_counts(
+                mix_head,
+                operations=2,
+                records=2,
+                effects=2,
+                head_revision=2,
+            ),
             traces["collider_vs_valid"],
         ),
     ]
@@ -1257,7 +1327,7 @@ def run_all(dsn: str, output: Path) -> dict[str, Any]:
     properties.extend(failure_rows)
     reset_contract(dsn)
     sample = call_commit(dsn, request_payload(operation_id="op-schema"))
-    properties.extend(run_compatibility(dsn, sample, transcript))
+    properties.extend(run_compatibility(dsn, sample, transcript, identity_traces))
     mutants = run_mutants(dsn, transcript)
     properties.append(
         property_row(
