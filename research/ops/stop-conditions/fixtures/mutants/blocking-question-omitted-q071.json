@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "assessment_id": "assessment:mutant-architectural-promotion-accepted",
+  "assessment_id": "assessment:mutant-blocking-question-omitted-q071",
   "assessed_target": {
     "kind": "research_corpus",
     "ref": "origin/research-corpus",
@@ -196,11 +196,6 @@
       "id": "Q-002",
       "state": "blocking",
       "limit_refs": []
-    },
-    {
-      "id": "Q-071",
-      "state": "blocking",
-      "limit_refs": []
     }
   ],
   "experiment_case": {
@@ -277,6 +272,6 @@
     "reviewed_sha": "76f5e62704fa7479eae21726480c62efbfd68b1f",
     "current_sha_review_ref": "E-003",
     "governance_process_ref": "E-006",
-    "adoption_claim": "accepted"
+    "adoption_claim": "none"
   }
 }

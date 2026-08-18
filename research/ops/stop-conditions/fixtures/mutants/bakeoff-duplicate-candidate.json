@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "assessment_id": "assessment:mutant-architectural-promotion-accepted",
+  "assessment_id": "assessment:mutant-bakeoff-duplicate-candidate",
   "assessed_target": {
     "kind": "research_corpus",
     "ref": "origin/research-corpus",
@@ -179,18 +179,24 @@
     },
     {
       "id": "Q-015",
-      "state": "blocking",
-      "limit_refs": []
+      "state": "limited",
+      "limit_refs": [
+        "E-010"
+      ]
     },
     {
       "id": "Q-018",
-      "state": "blocking",
-      "limit_refs": []
+      "state": "limited",
+      "limit_refs": [
+        "E-010"
+      ]
     },
     {
       "id": "Q-021",
-      "state": "blocking",
-      "limit_refs": []
+      "state": "limited",
+      "limit_refs": [
+        "E-010"
+      ]
     },
     {
       "id": "Q-002",
@@ -199,8 +205,10 @@
     },
     {
       "id": "Q-071",
-      "state": "blocking",
-      "limit_refs": []
+      "state": "limited",
+      "limit_refs": [
+        "E-010"
+      ]
     }
   ],
   "experiment_case": {
@@ -242,10 +250,25 @@
     ]
   },
   "stack_bakeoff_case": {
-    "suite_published": false,
-    "suite_ref": null,
-    "candidates": [],
-    "shared_measure_refs": [],
+    "suite_published": true,
+    "suite_ref": "E-016",
+    "candidates": [
+      {
+        "candidate_id": "same-stack",
+        "execution_refs": [
+          "E-001"
+        ]
+      },
+      {
+        "candidate_id": "same-stack",
+        "execution_refs": [
+          "E-011"
+        ]
+      }
+    ],
+    "shared_measure_refs": [
+      "E-005"
+    ],
     "semantic_contract_refs": [
       "E-011"
     ],
@@ -277,6 +300,6 @@
     "reviewed_sha": "76f5e62704fa7479eae21726480c62efbfd68b1f",
     "current_sha_review_ref": "E-003",
     "governance_process_ref": "E-006",
-    "adoption_claim": "accepted"
+    "adoption_claim": "none"
   }
 }

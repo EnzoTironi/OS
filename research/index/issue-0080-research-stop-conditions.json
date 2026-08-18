@@ -30,7 +30,7 @@
         {
           "id": "D-080-001",
           "targets": [
-            "issue-0080-research-stop-conditions#experiment-allow",
+            "issue-0080-research-stop-conditions#EXP-01",
             "issue-0082-kinds-versus-verdicts#Q-002"
           ],
           "status": "open"

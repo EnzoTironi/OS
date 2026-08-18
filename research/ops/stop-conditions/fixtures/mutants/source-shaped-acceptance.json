@@ -1,24 +1,60 @@
 {
-  "schema_version": 1,
-  "assessment_id": "assessment:mutant-source-shaped",
+  "schema_version": 2,
+  "assessment_id": "assessment:mutant-source-shaped-acceptance",
   "assessed_target": {
     "kind": "research_corpus",
     "ref": "origin/research-corpus",
-    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "sha": "a749fb7a8d4e4c59ef7f508d5dd662449d858f39"
   },
-  "assessed_at": "2026-08-18T12:00:00Z",
+  "assessed_at": "2026-08-18T03:00:00Z",
   "evidence_items": [
     {
       "id": "E-001",
       "kind": "executable_test",
       "locator": {
         "path": "research/synthesis/metamodel/test_reductions.py",
-        "anchor": "ReducedMetamodelTests.test_r5_base_form_registry_is_explicit"
+        "anchor": "def test_r5_base_form_registry_is_explicit(self) -> None:"
       },
       "review_state": "review_clean"
     },
     {
       "id": "E-002",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/synthesis/metamodel/kill-tests.md",
+        "anchor": "K70-01 — value equality is not entity identity"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-003",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/synthesis/metamodel/review.md",
+        "anchor": "**Architecture decision:** none"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-004",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/kill/existing-platform/replace-os-report.md",
+        "anchor": "Answer"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-005",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/kill/existing-platform/scorecard.md",
+        "anchor": "Property scorecard"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-006",
       "kind": "official-doc",
       "locator": {
         "path": "docs/swarm-result-contract.md",
@@ -27,400 +63,243 @@
       "review_state": "review_clean"
     },
     {
-      "id": "E-003",
-      "kind": "design-claim",
-      "locator": {
-        "path": "docs/swarm-research-backlog.md",
-        "anchor": "#71 first executable vertical and semantic acceptance suite"
-      },
-      "review_state": "unreviewed"
-    },
-    {
-      "id": "E-004",
-      "kind": "test",
-      "locator": {
-        "path": "research/verification/README.md",
-        "anchor": "cheapest adequate verification mechanism"
-      },
-      "review_state": "review_clean"
-    },
-    {
-      "id": "E-005",
+      "id": "E-007",
       "kind": "official-doc",
       "locator": {
         "path": "research/ops/decision-discipline/conventions.md",
         "anchor": "Refuse these promotions"
       },
       "review_state": "unreviewed"
-    }
-  ],
-  "open_questions": [
-    {
-      "id": "Q-018",
-      "locator": {
-        "path": "docs/open-questions.md",
-        "anchor": "18. What is the right physical data model?"
-      },
-      "blocks": [
-        "stack_bakeoff"
-      ],
-      "reason": "A escolha de storage ainda definiria a semântica."
     },
     {
-      "id": "Q-021",
-      "locator": {
-        "path": "docs/open-questions.md",
-        "anchor": "21. Build from scratch or reuse existing software?"
-      },
-      "blocks": [
-        "stack_bakeoff"
-      ],
-      "reason": "Reuso versus construção ainda escolheria a stack."
-    },
-    {
-      "id": "Q-002",
+      "id": "E-008",
+      "kind": "official-doc",
       "locator": {
         "path": "research/ops/decision-discipline/issue-0082-kinds-versus-verdicts.md",
         "anchor": "Q-002"
       },
-      "blocks": [
-        "architectural_promotion"
-      ],
-      "reason": "O gate de decisão aceita permanece undetermined."
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-009",
+      "kind": "design-claim",
+      "locator": {
+        "path": "research/WAVE-B-EXECUTION.md",
+        "anchor": "Gate before #70"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-010",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "Open questions — intentionally unresolved"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-011",
+      "kind": "executable_test",
+      "locator": {
+        "path": "research/verification/check_research.py",
+        "anchor": "if registry[\"scenario_count\"] != 370 or registry[\"law_count\"] != 163:"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-012",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/ops/failure-archive/README.md",
+        "anchor": "It must not manufacture certainty retrospectively"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-013",
+      "kind": "design-claim",
+      "locator": {
+        "path": "research/synthesis/metamodel/candidate-metamodel.json",
+        "anchor": "decision_state"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-014",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/constitution.md",
+        "anchor": "17. RFCs are hypotheses until evidence promotes them"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-015",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/research-program.md",
+        "anchor": "Exit criteria for implementation"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-016",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/swarm-research-backlog.md",
+        "anchor": "#71 first executable vertical and semantic acceptance suite"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-017",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/ops/cross-industry/README.md",
+        "anchor": "Cross-industry primitive stress test"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-018",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/ops/cross-industry/matrix.md",
+        "anchor": "# Primitive stress matrix"
+      },
+      "review_state": "unreviewed"
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "Q-001",
+      "state": "blocking",
+      "limit_refs": []
+    },
+    {
+      "id": "Q-015",
+      "state": "limited",
+      "limit_refs": [
+        "E-010"
+      ]
+    },
+    {
+      "id": "Q-018",
+      "state": "limited",
+      "limit_refs": [
+        "E-010"
+      ]
+    },
+    {
+      "id": "Q-021",
+      "state": "limited",
+      "limit_refs": [
+        "E-010"
+      ]
+    },
+    {
+      "id": "Q-002",
+      "state": "blocking",
+      "limit_refs": []
+    },
+    {
+      "id": "Q-071",
+      "state": "limited",
+      "limit_refs": [
+        "E-010"
+      ]
     }
   ],
   "experiment_case": {
-    "question": "O corpus autoriza um experimento semântico limitado?",
-    "hypothesis": "Há prova executável discriminante sem promoção normativa.",
-    "falsifier": "A ausência de teste que separe a hipótese da alternativa derrota o experimento.",
-    "proof_refs": [
-      "E-001"
+    "question": "O corpus publicado em origin/research-corpus autoriza um experimento semântico limitado sem promover arquitetura?",
+    "question_refs": [
+      "E-009",
+      "E-015"
+    ],
+    "hypothesis": "Há pergunta limitada, hipótese com falsificador, prova executável discriminante e limites suficientes para experimentar distinções já testáveis, sem tratar supported como accepted.",
+    "hypothesis_refs": [
+      "E-002",
+      "E-015"
+    ],
+    "falsifier": "O experimento fica bloqueado se nenhum teste executável separar a hipótese de uma alternativa publicada, se a assessment fechar uma open question, ou se um artefato de research marcar accepted.",
+    "falsifier_refs": [
+      "E-002",
+      "E-015"
+    ],
+    "discriminating_proof_refs": [
+      "E-001",
+      "E-011"
     ],
     "source_kind": "executable_test",
-    "limits": "O experimento não escolhe stack, R5 ou arquitetura.",
-    "normative_promotion": false
+    "source_kind_refs": [
+      "E-001",
+      "E-006",
+      "E-010"
+    ],
+    "limits": "O experimento não escolhe stack, linguagem, storage, metamodelo, R5 ou R6. Não fecha #71, #70, #80 nem docs/open-questions.md.",
+    "limits_refs": [
+      "E-003",
+      "E-009"
+    ],
+    "normative_promotion": false,
+    "normative_promotion_refs": [
+      "E-003",
+      "E-007",
+      "E-013"
+    ]
   },
   "stack_bakeoff_case": {
-    "suite_published": false,
-    "suite_ref": null,
-    "candidates": [],
-    "shared_measure_refs": [],
-    "semantic_contract_refs": [],
+    "suite_published": true,
+    "suite_ref": "E-016",
+    "candidates": [
+      {
+        "candidate_id": "candidate-a",
+        "execution_refs": [
+          "E-001"
+        ]
+      },
+      {
+        "candidate_id": "candidate-b",
+        "execution_refs": [
+          "E-011"
+        ]
+      }
+    ],
+    "shared_measure_refs": [
+      "E-005"
+    ],
+    "semantic_contract_refs": [
+      "E-011"
+    ],
     "source_shaped_exceptions": true
   },
   "architectural_promotion_case": {
+    "cross_domain_demonstrated": null,
     "cross_domain_refs": [
-      "E-004"
+      "E-011"
     ],
+    "cross_industry_demonstrated": true,
     "cross_industry_refs": [
-      "E-004"
+      "E-017",
+      "E-018"
     ],
+    "limited_kill_tests_demonstrated": null,
     "kill_test_refs": [
-      "E-001"
-    ],
-    "high_risk_semantics_refs": [
+      "E-002",
       "E-004"
     ],
-    "competitors_reduced_refs": [
-      "E-001"
+    "high_risk_semantics_demonstrated": true,
+    "high_risk_semantics_refs": [
+      "E-011"
     ],
-    "current_sha_review_ref": "E-002",
-    "governance_process": {
-      "path": "docs/swarm-result-contract.md",
-      "anchor": "8. Review/promotion gates"
-    },
+    "competitors_reduced": false,
+    "competitors_reduced_refs": [
+      "E-013"
+    ],
+    "reviewed_sha": "76f5e62704fa7479eae21726480c62efbfd68b1f",
+    "current_sha_review_ref": "E-003",
+    "governance_process_ref": "E-006",
     "adoption_claim": "none"
-  },
-  "criteria": [
-    {
-      "criterion_id": "EXP-01",
-      "gate": "experiment",
-      "status": "pass",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para EXP-01 nesta fixture."
-    },
-    {
-      "criterion_id": "EXP-02",
-      "gate": "experiment",
-      "status": "pass",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para EXP-02 nesta fixture."
-    },
-    {
-      "criterion_id": "EXP-03",
-      "gate": "experiment",
-      "status": "pass",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para EXP-03 nesta fixture."
-    },
-    {
-      "criterion_id": "EXP-04",
-      "gate": "experiment",
-      "status": "pass",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para EXP-04 nesta fixture."
-    },
-    {
-      "criterion_id": "EXP-05",
-      "gate": "experiment",
-      "status": "pass",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para EXP-05 nesta fixture."
-    },
-    {
-      "criterion_id": "EXP-06",
-      "gate": "experiment",
-      "status": "pass",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para EXP-06 nesta fixture."
-    },
-    {
-      "criterion_id": "BAK-01",
-      "gate": "stack_bakeoff",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para BAK-01 nesta fixture."
-    },
-    {
-      "criterion_id": "BAK-02",
-      "gate": "stack_bakeoff",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para BAK-02 nesta fixture."
-    },
-    {
-      "criterion_id": "BAK-03",
-      "gate": "stack_bakeoff",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para BAK-03 nesta fixture."
-    },
-    {
-      "criterion_id": "BAK-04",
-      "gate": "stack_bakeoff",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para BAK-04 nesta fixture."
-    },
-    {
-      "criterion_id": "BAK-05",
-      "gate": "stack_bakeoff",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para BAK-05 nesta fixture."
-    },
-    {
-      "criterion_id": "PRO-01",
-      "gate": "architectural_promotion",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para PRO-01 nesta fixture."
-    },
-    {
-      "criterion_id": "PRO-02",
-      "gate": "architectural_promotion",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para PRO-02 nesta fixture."
-    },
-    {
-      "criterion_id": "PRO-03",
-      "gate": "architectural_promotion",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para PRO-03 nesta fixture."
-    },
-    {
-      "criterion_id": "PRO-04",
-      "gate": "architectural_promotion",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para PRO-04 nesta fixture."
-    },
-    {
-      "criterion_id": "PRO-05",
-      "gate": "architectural_promotion",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para PRO-05 nesta fixture."
-    },
-    {
-      "criterion_id": "PRO-06",
-      "gate": "architectural_promotion",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para PRO-06 nesta fixture."
-    },
-    {
-      "criterion_id": "PRO-07",
-      "gate": "architectural_promotion",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para PRO-07 nesta fixture."
-    },
-    {
-      "criterion_id": "PRO-08",
-      "gate": "architectural_promotion",
-      "status": "fail",
-      "evidence_refs": [
-        "E-001"
-      ],
-      "locators": [
-        {
-          "path": "research/synthesis/metamodel/test_reductions.py",
-          "anchor": "ReducedMetamodelTests"
-        }
-      ],
-      "rationale": "Status declarado para PRO-08 nesta fixture."
-    }
-  ],
-  "gate_results": {
-    "experiment": "allow",
-    "stack_bakeoff": "block",
-    "architectural_promotion": "block"
   }
 }

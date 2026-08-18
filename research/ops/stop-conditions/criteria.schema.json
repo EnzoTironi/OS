@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os.local/research/ops/stop-conditions/criteria.schema.json",
+  "title": "Research readiness criteria catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "required_open_questions",
+    "criteria",
+    "gates"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "required_open_questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/requiredOpenQuestion" }
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/catalogCriterion" }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "experiment",
+        "stack_bakeoff",
+        "architectural_promotion"
+      ],
+      "properties": {
+        "experiment": { "$ref": "#/$defs/gatePolicy" },
+        "stack_bakeoff": { "$ref": "#/$defs/gatePolicy" },
+        "architectural_promotion": { "$ref": "#/$defs/gatePolicy" }
+      }
+    }
+  },
+  "$defs": {
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "anchor"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "anchor": { "type": "string", "minLength": 1 }
+      }
+    },
+    "requiredOpenQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "gates", "locator"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^Q-[A-Za-z0-9-]+$"
+        },
+        "gates": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "experiment",
+              "stack_bakeoff",
+              "architectural_promotion"
+            ]
+          }
+        },
+        "locator": { "$ref": "#/$defs/locator" }
+      }
+    },
+    "catalogCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["criterion_id", "gate", "title", "rules"],
+      "properties": {
+        "criterion_id": {
+          "type": "string",
+          "pattern": "^(EXP|BAK|PRO)-[0-9]{2}$"
+        },
+        "gate": {
+          "enum": [
+            "experiment",
+            "stack_bakeoff",
+            "architectural_promotion"
+          ]
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/statusRule" }
+        }
+      }
+    },
+    "statusRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["pass", "fail", "undetermined"]
+        },
+        "when": { "$ref": "#/$defs/expression" },
+        "default": { "const": true }
+      },
+      "oneOf": [
+        { "required": ["when"] },
+        { "required": ["default"] }
+      ]
+    },
+    "gatePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_results", "rules"],
+      "properties": {
+        "allowed_results": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/gateRule" }
+        }
+      }
+    },
+    "gateRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": { "type": "string", "minLength": 1 },
+        "when": { "$ref": "#/$defs/expression" },
+        "default": { "const": true }
+      },
+      "oneOf": [
+        { "required": ["when"] },
+        { "required": ["default"] }
+      ]
+    },
+    "pathCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "count"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "pathFieldCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "field", "count"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "field": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "fieldEquals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "value"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "value": true
+      }
+    },
+    "pathsEqual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left", "right"],
+      "properties": {
+        "left": { "type": "string", "minLength": 1 },
+        "right": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gateArg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate"],
+      "properties": {
+        "gate": { "type": "string", "minLength": 1 }
+      }
+    },
+    "derivedStatusArg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "status"],
+      "properties": {
+        "gate": { "type": "string", "minLength": 1 },
+        "status": {
+          "enum": ["pass", "fail", "undetermined"]
+        }
+      }
+    },
+    "expression": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["all"],
+          "properties": {
+            "all": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/expression" }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["any"],
+          "properties": {
+            "any": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/expression" }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["not"],
+          "properties": {
+            "not": { "$ref": "#/$defs/expression" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["field_nonempty"],
+          "properties": {
+            "field_nonempty": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["field_equals"],
+          "properties": {
+            "field_equals": { "$ref": "#/$defs/fieldEquals" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["paths_equal"],
+          "properties": {
+            "paths_equal": { "$ref": "#/$defs/pathsEqual" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["min_items"],
+          "properties": {
+            "min_items": { "$ref": "#/$defs/pathCount" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["min_distinct"],
+          "properties": {
+            "min_distinct": { "$ref": "#/$defs/pathFieldCount" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["min_resolved_refs"],
+          "properties": {
+            "min_resolved_refs": { "$ref": "#/$defs/pathCount" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["each_item_resolved_refs"],
+          "properties": {
+            "each_item_resolved_refs": { "$ref": "#/$defs/pathFieldCount" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["no_blocker"],
+          "properties": {
+            "no_blocker": { "$ref": "#/$defs/gateArg" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["every_derived_status"],
+          "properties": {
+            "every_derived_status": { "$ref": "#/$defs/derivedStatusArg" }
+          }
+        }
+      ]
+    }
+  }
+}

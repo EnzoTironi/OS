@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "assessment_id": "assessment:mutant-architectural-promotion-accepted",
+  "assessment_id": "assessment:mutant-locator-anchor-missing",
   "assessed_target": {
     "kind": "research_corpus",
     "ref": "origin/research-corpus",
@@ -13,7 +13,7 @@
       "kind": "executable_test",
       "locator": {
         "path": "research/synthesis/metamodel/test_reductions.py",
-        "anchor": "def test_r5_base_form_registry_is_explicit(self) -> None:"
+        "anchor": "this-anchor-is-not-in-the-blob"
       },
       "review_state": "review_clean"
     },
@@ -277,6 +277,6 @@
     "reviewed_sha": "76f5e62704fa7479eae21726480c62efbfd68b1f",
     "current_sha_review_ref": "E-003",
     "governance_process_ref": "E-006",
-    "adoption_claim": "accepted"
+    "adoption_claim": "none"
   }
 }

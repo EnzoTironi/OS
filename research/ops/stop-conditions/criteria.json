@@ -1,103 +1,22 @@
 {
-  "schema_version": 1,
-  "criteria": [
-    {
-      "criterion_id": "EXP-01",
-      "gate": "experiment",
-      "title": "pergunta_limitada"
-    },
-    {
-      "criterion_id": "EXP-02",
-      "gate": "experiment",
-      "title": "hipotese_e_falsificador"
-    },
-    {
-      "criterion_id": "EXP-03",
-      "gate": "experiment",
-      "title": "prova_executavel_discriminante"
-    },
-    {
-      "criterion_id": "EXP-04",
-      "gate": "experiment",
-      "title": "fonte_ou_inferencia"
-    },
-    {
-      "criterion_id": "EXP-05",
-      "gate": "experiment",
-      "title": "limites_declarados"
-    },
-    {
-      "criterion_id": "EXP-06",
-      "gate": "experiment",
-      "title": "ausencia_de_promocao_normativa"
-    },
-    {
-      "criterion_id": "BAK-01",
-      "gate": "stack_bakeoff",
-      "title": "suite_implementation_neutral_publicada"
-    },
-    {
-      "criterion_id": "BAK-02",
-      "gate": "stack_bakeoff",
-      "title": "dois_candidatos_nas_mesmas_medidas"
-    },
-    {
-      "criterion_id": "BAK-03",
-      "gate": "stack_bakeoff",
-      "title": "contratos_semanticos_suficientes"
-    },
-    {
-      "criterion_id": "BAK-04",
-      "gate": "stack_bakeoff",
-      "title": "questoes_bloqueantes_limitadas"
-    },
-    {
-      "criterion_id": "BAK-05",
-      "gate": "stack_bakeoff",
-      "title": "ausencia_de_excecao_source_shaped"
-    },
-    {
-      "criterion_id": "PRO-01",
-      "gate": "architectural_promotion",
-      "title": "evidencia_cross_domain"
-    },
-    {
-      "criterion_id": "PRO-02",
-      "gate": "architectural_promotion",
-      "title": "evidencia_cross_industry"
-    },
-    {
-      "criterion_id": "PRO-03",
-      "gate": "architectural_promotion",
-      "title": "kill_tests_principais_respondidos_ou_limitados"
-    },
-    {
-      "criterion_id": "PRO-04",
-      "gate": "architectural_promotion",
-      "title": "semantica_de_alto_risco_executavel"
-    },
-    {
-      "criterion_id": "PRO-05",
-      "gate": "architectural_promotion",
-      "title": "competidores_reduzidos"
-    },
-    {
-      "criterion_id": "PRO-06",
-      "gate": "architectural_promotion",
-      "title": "review_do_sha_atual"
-    },
-    {
-      "criterion_id": "PRO-07",
-      "gate": "architectural_promotion",
-      "title": "locator_do_processo_de_governanca"
-    },
-    {
-      "criterion_id": "PRO-08",
-      "gate": "architectural_promotion",
-      "title": "adocao_nao_reivindicada"
-    }
-  ],
+  "schema_version": 2,
   "required_open_questions": [
+    {
+      "id": "Q-001",
+      "gates": ["architectural_promotion"],
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "1. What is the primary artifact?"
+      }
+    },
+    {
+      "id": "Q-015",
+      "gates": ["stack_bakeoff"],
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "15. What belongs in the ontology versus the runtime?"
+      }
+    },
     {
       "id": "Q-018",
       "gates": ["stack_bakeoff"],
@@ -121,89 +40,576 @@
         "path": "research/ops/decision-discipline/issue-0082-kinds-versus-verdicts.md",
         "anchor": "Q-002"
       }
-    }
-  ],
-  "checks": [
-    {
-      "id": "hypothesis-without-falsifier",
-      "finding": "hypothesis-without-falsifier",
-      "pointer": "/experiment_case/falsifier",
-      "message": "A hipótese precisa de um falsificador nomeado.",
-      "when": {
-        "all": [
-          { "nonempty_field": "experiment_case.hypothesis" },
-          { "empty_field": "experiment_case.falsifier" }
-        ]
-      }
     },
     {
-      "id": "locator-missing",
-      "finding": "locator-missing",
-      "pointer": "",
-      "message": "Todo locator precisa de path e âncora não vazios.",
-      "when": {
-        "any_locator_incomplete": true
-      }
-    },
-    {
-      "id": "bakeoff-single-candidate",
-      "finding": "bakeoff-single-candidate",
-      "pointer": "/stack_bakeoff_case/candidates",
-      "message": "Um bakeoff com um único candidato não compara stacks.",
-      "when": {
-        "candidate_count_equals": 1
-      }
-    },
-    {
-      "id": "source-shaped-acceptance",
-      "finding": "source-shaped-acceptance",
-      "pointer": "/stack_bakeoff_case/source_shaped_exceptions",
-      "message": "Exceção source-shaped não autoriza bakeoff nem promoção.",
-      "when": {
-        "field_equals": [
-          "stack_bakeoff_case.source_shaped_exceptions",
-          true
-        ]
-      }
-    },
-    {
-      "id": "blocking-question-omitted",
-      "finding": "blocking-question-omitted",
-      "pointer": "/open_questions",
-      "message": "A assessment omitiu uma questão bloqueante exigida pelo catálogo.",
-      "when": {
-        "required_open_question_missing": true
-      }
-    },
-    {
-      "id": "architectural-promotion-accepted",
-      "finding": "architectural-promotion-accepted",
-      "pointer": "/architectural_promotion_case/adoption_claim",
-      "message": "Promoção arquitetural não pode ser tratada como aceita.",
-      "when": {
-        "any_equals": [
-          ["architectural_promotion_case.adoption_claim", "accepted"],
-          ["gate_results.architectural_promotion", "allow"],
-          ["gate_results.architectural_promotion", "accepted"]
-        ]
+      "id": "Q-071",
+      "gates": ["stack_bakeoff", "architectural_promotion"],
+      "locator": {
+        "path": "docs/swarm-research-backlog.md",
+        "anchor": "#71 first executable vertical and semantic acceptance suite"
       }
     }
   ],
-  "derivation": {
+  "criteria": [
+    {
+      "criterion_id": "EXP-01",
+      "gate": "experiment",
+      "title": "pergunta_limitada",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              { "field_nonempty": "experiment_case.question" },
+              { "min_resolved_refs": { "path": "experiment_case.question_refs", "count": 1 } }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": { "not": { "field_nonempty": "experiment_case.question" } }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "EXP-02",
+      "gate": "experiment",
+      "title": "hipotese_e_falsificador",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              { "field_nonempty": "experiment_case.hypothesis" },
+              { "field_nonempty": "experiment_case.falsifier" },
+              { "min_resolved_refs": { "path": "experiment_case.hypothesis_refs", "count": 1 } },
+              { "min_resolved_refs": { "path": "experiment_case.falsifier_refs", "count": 1 } }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "any": [
+              { "not": { "field_nonempty": "experiment_case.hypothesis" } },
+              { "not": { "field_nonempty": "experiment_case.falsifier" } }
+            ]
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "EXP-03",
+      "gate": "experiment",
+      "title": "prova_executavel_discriminante",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "min_resolved_refs": {
+              "path": "experiment_case.discriminating_proof_refs",
+              "count": 1
+            }
+          }
+        },
+        { "status": "fail", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "EXP-04",
+      "gate": "experiment",
+      "title": "fonte_ou_inferencia",
+      "rules": [
+        {
+          "status": "pass",
+          "when": { "field_nonempty": "experiment_case.source_kind" }
+        },
+        { "status": "fail", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "EXP-05",
+      "gate": "experiment",
+      "title": "limites_declarados",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              { "field_nonempty": "experiment_case.limits" },
+              { "min_resolved_refs": { "path": "experiment_case.limits_refs", "count": 1 } }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": { "not": { "field_nonempty": "experiment_case.limits" } }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "EXP-06",
+      "gate": "experiment",
+      "title": "ausencia_de_promocao_normativa",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "field_equals": {
+              "path": "experiment_case.normative_promotion",
+              "value": false
+            }
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "field_equals": {
+              "path": "experiment_case.normative_promotion",
+              "value": true
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "BAK-01",
+      "gate": "stack_bakeoff",
+      "title": "suite_implementation_neutral_publicada",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              {
+                "field_equals": {
+                  "path": "stack_bakeoff_case.suite_published",
+                  "value": true
+                }
+              },
+              { "min_resolved_refs": { "path": "stack_bakeoff_case.suite_ref", "count": 1 } }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "field_equals": {
+              "path": "stack_bakeoff_case.suite_published",
+              "value": false
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "BAK-02",
+      "gate": "stack_bakeoff",
+      "title": "dois_candidatos_nas_mesmas_medidas",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              {
+                "min_distinct": {
+                  "path": "stack_bakeoff_case.candidates",
+                  "field": "candidate_id",
+                  "count": 2
+                }
+              },
+              {
+                "each_item_resolved_refs": {
+                  "path": "stack_bakeoff_case.candidates",
+                  "field": "execution_refs",
+                  "count": 1
+                }
+              },
+              {
+                "min_resolved_refs": {
+                  "path": "stack_bakeoff_case.shared_measure_refs",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "not": {
+              "min_distinct": {
+                "path": "stack_bakeoff_case.candidates",
+                "field": "candidate_id",
+                "count": 2
+              }
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "BAK-03",
+      "gate": "stack_bakeoff",
+      "title": "contratos_semanticos_suficientes",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              {
+                "field_equals": {
+                  "path": "stack_bakeoff_case.suite_published",
+                  "value": true
+                }
+              },
+              {
+                "min_resolved_refs": {
+                  "path": "stack_bakeoff_case.semantic_contract_refs",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": "undetermined",
+          "when": {
+            "min_resolved_refs": {
+              "path": "stack_bakeoff_case.semantic_contract_refs",
+              "count": 1
+            }
+          }
+        },
+        { "status": "fail", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "BAK-04",
+      "gate": "stack_bakeoff",
+      "title": "questoes_bloqueantes_limitadas",
+      "rules": [
+        {
+          "status": "pass",
+          "when": { "no_blocker": { "gate": "stack_bakeoff" } }
+        },
+        {
+          "status": "fail",
+          "when": { "not": { "no_blocker": { "gate": "stack_bakeoff" } } }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "BAK-05",
+      "gate": "stack_bakeoff",
+      "title": "ausencia_de_excecao_source_shaped",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "field_equals": {
+              "path": "stack_bakeoff_case.source_shaped_exceptions",
+              "value": false
+            }
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "field_equals": {
+              "path": "stack_bakeoff_case.source_shaped_exceptions",
+              "value": true
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "PRO-01",
+      "gate": "architectural_promotion",
+      "title": "evidencia_cross_domain",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              {
+                "field_equals": {
+                  "path": "architectural_promotion_case.cross_domain_demonstrated",
+                  "value": true
+                }
+              },
+              {
+                "min_resolved_refs": {
+                  "path": "architectural_promotion_case.cross_domain_refs",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "field_equals": {
+              "path": "architectural_promotion_case.cross_domain_demonstrated",
+              "value": false
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "PRO-02",
+      "gate": "architectural_promotion",
+      "title": "evidencia_cross_industry",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              {
+                "field_equals": {
+                  "path": "architectural_promotion_case.cross_industry_demonstrated",
+                  "value": true
+                }
+              },
+              {
+                "min_resolved_refs": {
+                  "path": "architectural_promotion_case.cross_industry_refs",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "field_equals": {
+              "path": "architectural_promotion_case.cross_industry_demonstrated",
+              "value": false
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "PRO-03",
+      "gate": "architectural_promotion",
+      "title": "kill_tests_principais_respondidos_ou_limitados",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              {
+                "field_equals": {
+                  "path": "architectural_promotion_case.limited_kill_tests_demonstrated",
+                  "value": true
+                }
+              },
+              {
+                "min_resolved_refs": {
+                  "path": "architectural_promotion_case.kill_test_refs",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "field_equals": {
+              "path": "architectural_promotion_case.limited_kill_tests_demonstrated",
+              "value": false
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "PRO-04",
+      "gate": "architectural_promotion",
+      "title": "semantica_de_alto_risco_executavel",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              {
+                "field_equals": {
+                  "path": "architectural_promotion_case.high_risk_semantics_demonstrated",
+                  "value": true
+                }
+              },
+              {
+                "min_resolved_refs": {
+                  "path": "architectural_promotion_case.high_risk_semantics_refs",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "field_equals": {
+              "path": "architectural_promotion_case.high_risk_semantics_demonstrated",
+              "value": false
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "PRO-05",
+      "gate": "architectural_promotion",
+      "title": "competidores_reduzidos",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              {
+                "field_equals": {
+                  "path": "architectural_promotion_case.competitors_reduced",
+                  "value": true
+                }
+              },
+              {
+                "min_resolved_refs": {
+                  "path": "architectural_promotion_case.competitors_reduced_refs",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "field_equals": {
+              "path": "architectural_promotion_case.competitors_reduced",
+              "value": false
+            }
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "PRO-06",
+      "gate": "architectural_promotion",
+      "title": "review_do_sha_atual",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "all": [
+              { "field_nonempty": "architectural_promotion_case.reviewed_sha" },
+              {
+                "paths_equal": {
+                  "left": "architectural_promotion_case.reviewed_sha",
+                  "right": "assessed_target.sha"
+                }
+              },
+              {
+                "min_resolved_refs": {
+                  "path": "architectural_promotion_case.current_sha_review_ref",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": "fail",
+          "when": {
+            "all": [
+              {
+                "min_resolved_refs": {
+                  "path": "architectural_promotion_case.current_sha_review_ref",
+                  "count": 1
+                }
+              },
+              {
+                "not": {
+                  "paths_equal": {
+                    "left": "architectural_promotion_case.reviewed_sha",
+                    "right": "assessed_target.sha"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        { "status": "undetermined", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "PRO-07",
+      "gate": "architectural_promotion",
+      "title": "locator_do_processo_de_governanca",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "min_resolved_refs": {
+              "path": "architectural_promotion_case.governance_process_ref",
+              "count": 1
+            }
+          }
+        },
+        { "status": "fail", "default": true }
+      ]
+    },
+    {
+      "criterion_id": "PRO-08",
+      "gate": "architectural_promotion",
+      "title": "adocao_nao_reivindicada",
+      "rules": [
+        {
+          "status": "pass",
+          "when": {
+            "field_equals": {
+              "path": "architectural_promotion_case.adoption_claim",
+              "value": "none"
+            }
+          }
+        },
+        { "status": "fail", "default": true }
+      ]
+    }
+  ],
+  "gates": {
     "experiment": {
       "allowed_results": ["allow", "block"],
       "rules": [
         {
           "result": "allow",
-          "require": {
-            "every_criterion_status": "pass",
-            "blocking_question_count": 0
+          "when": {
+            "all": [
+              { "every_derived_status": { "gate": "experiment", "status": "pass" } },
+              { "no_blocker": { "gate": "experiment" } }
+            ]
           }
         },
-        {
-          "result": "block",
-          "default": true
-        }
+        { "result": "block", "default": true }
       ]
     },
     "stack_bakeoff": {
@@ -211,35 +617,40 @@
       "rules": [
         {
           "result": "allow",
-          "require": {
-            "every_criterion_status": "pass",
-            "blocking_question_count": 0,
-            "min_candidates": 2,
-            "source_shaped_exceptions": false
+          "when": {
+            "all": [
+              { "every_derived_status": { "gate": "stack_bakeoff", "status": "pass" } },
+              { "no_blocker": { "gate": "stack_bakeoff" } }
+            ]
           }
         },
-        {
-          "result": "block",
-          "default": true
-        }
+        { "result": "block", "default": true }
       ]
     },
     "architectural_promotion": {
       "allowed_results": ["block", "eligible_for_governance_review"],
-      "forbidden_results": ["allow", "accepted"],
       "rules": [
         {
           "result": "eligible_for_governance_review",
-          "require": {
-            "every_criterion_status": "pass",
-            "blocking_question_count": 0,
-            "adoption_claim": "none"
+          "when": {
+            "all": [
+              {
+                "every_derived_status": {
+                  "gate": "architectural_promotion",
+                  "status": "pass"
+                }
+              },
+              { "no_blocker": { "gate": "architectural_promotion" } },
+              {
+                "field_equals": {
+                  "path": "architectural_promotion_case.adoption_claim",
+                  "value": "none"
+                }
+              }
+            ]
           }
         },
-        {
-          "result": "block",
-          "default": true
-        }
+        { "result": "block", "default": true }
       ]
     }
   }
