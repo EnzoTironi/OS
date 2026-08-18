@@ -1,0 +1,94 @@
+name: durable-commit-postgres-ci
+
+on:
+  push:
+    branches:
+      - cursor/durable-commit-postgres-a60c
+    paths:
+      - 'research/experiments/durable-commit-postgres/**'
+      - '.github/workflows/durable-commit-postgres-ci.yml'
+  pull_request:
+    paths:
+      - 'research/experiments/durable-commit-postgres/**'
+      - '.github/workflows/durable-commit-postgres-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  durable-commit-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DSN: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Pin HEAD_SHA
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            HEAD_SHA="${{ github.sha }}"
+          fi
+          echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Publish server version
+        run: |
+          psql "$DSN" -X -q -t -A -c 'SHOW server_version;' | tee /tmp/durable-commit-postgres-server-version.txt
+          psql "$DSN" -X -q -t -A -c 'SELECT version();' | tee /tmp/durable-commit-postgres-version.txt
+      - name: Init contract
+        run: python3 research/experiments/durable-commit-postgres/harness.py --dsn "$DSN" --init
+      - name: Run harness
+        run: |
+          python3 research/experiments/durable-commit-postgres/harness.py \
+            --dsn "$DSN" \
+            --all \
+            --output /tmp/durable-commit-postgres.json
+          python3 -m json.tool /tmp/durable-commit-postgres.json >/dev/null
+          test "$(tr -d '[:space:]' < /tmp/durable-commit-postgres.artifacts/sha.txt)" = "$HEAD_SHA"
+      - name: Copy published artifacts
+        run: |
+          cp /tmp/durable-commit-postgres.json /tmp/durable-commit-postgres-raw.json
+          cp /tmp/durable-commit-postgres.artifacts/property-matrix.json /tmp/durable-commit-postgres-property-matrix.json
+          cp /tmp/durable-commit-postgres.artifacts/concurrency-traces.json /tmp/durable-commit-postgres-concurrency.json
+          cp /tmp/durable-commit-postgres.artifacts/failure-traces.json /tmp/durable-commit-postgres-failures.json
+          cp /tmp/durable-commit-postgres.artifacts/schema.sql /tmp/durable-commit-postgres-schema.sql
+          cp /tmp/durable-commit-postgres.artifacts/environment.json /tmp/durable-commit-postgres-environment.json
+          cp /tmp/durable-commit-postgres.artifacts/transcript.txt /tmp/durable-commit-postgres-transcript.txt
+          cp /tmp/durable-commit-postgres.artifacts/sha.txt /tmp/durable-commit-postgres-sha.txt
+      - name: Publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: durable-commit-postgres-${{ env.HEAD_SHA }}
+          path: |
+            /tmp/durable-commit-postgres-raw.json
+            /tmp/durable-commit-postgres-property-matrix.json
+            /tmp/durable-commit-postgres-concurrency.json
+            /tmp/durable-commit-postgres-failures.json
+            /tmp/durable-commit-postgres-schema.sql
+            /tmp/durable-commit-postgres-environment.json
+            /tmp/durable-commit-postgres-transcript.txt
+            /tmp/durable-commit-postgres-sha.txt
+            /tmp/durable-commit-postgres-server-version.txt
+            /tmp/durable-commit-postgres-version.txt

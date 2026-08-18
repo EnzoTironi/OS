@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os.local/durable-commit-postgres/commit-result.schema.json",
+  "title": "SemanticCommitResult",
+  "type": "object",
+  "required": ["state"],
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": ["committed", "replayed", "intent_mismatch", "conflict"]
+    },
+    "namespace": {
+      "type": "string"
+    },
+    "operation_id": {
+      "type": "string"
+    },
+    "commit_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "result": {
+      "type": "object"
+    },
+    "record_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "effect_request_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "committed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "namespace",
+          "operation_id",
+          "commit_revision",
+          "result",
+          "record_ids",
+          "effect_request_ids"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "replayed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "namespace",
+          "operation_id",
+          "commit_revision",
+          "result",
+          "record_ids",
+          "effect_request_ids"
+        ]
+      }
+    }
+  ]
+}

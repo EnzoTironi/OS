@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os.local/durable-commit-postgres/status-result.schema.json",
+  "title": "SemanticOperationStatus",
+  "type": "object",
+  "required": ["found", "namespace", "operation_id"],
+  "properties": {
+    "found": {
+      "type": "boolean"
+    },
+    "state": {
+      "type": "string",
+      "const": "committed"
+    },
+    "namespace": {
+      "type": "string"
+    },
+    "operation_id": {
+      "type": "string"
+    },
+    "intent_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "commit_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "result": {
+      "type": "object"
+    },
+    "record_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "effect_request_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "found": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "state",
+          "intent_digest",
+          "commit_revision",
+          "result"
+        ]
+      }
+    }
+  ]
+}
