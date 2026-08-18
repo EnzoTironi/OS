@@ -115,16 +115,28 @@ class VerifierTests(unittest.TestCase):
         self.assertEqual(status, "missing")
         status, _ = lookup_evidence(index, "claim:purchase-raw-1")
         self.assertEqual(status, "wrong-kind")
+        claim_id = next(
+            reference
+            for item in comparison["property_results"]
+            if item["passed"]
+            for reference in item["evidence_refs"]
+            if reference.startswith("claim:")
+        )
+        citing = {
+            item["property_id"]
+            for item in comparison["property_results"]
+            if item["passed"] and claim_id in item["evidence_refs"]
+        }
         ambiguous_run = copy.deepcopy(self.run)
-        first = ambiguous_run["records"]["claims"][0]
-        ambiguous_run["records"]["claims"].append(copy.deepcopy(first))
+        duplicate = next(
+            item for item in ambiguous_run["records"]["claims"] if item["claim_id"] == claim_id
+        )
+        ambiguous_run["records"]["claims"].append(copy.deepcopy(duplicate))
         index = evidence_index(ambiguous_run)
-        status, _ = lookup_evidence(index, first["claim_id"])
+        status, _ = lookup_evidence(index, claim_id)
         self.assertEqual(status, "ambiguous")
-        tampered = copy.deepcopy(self.run)
-        tampered["records"]["claims"].append(copy.deepcopy(tampered["records"]["claims"][0]))
-        failed = _failed(evaluate_run(tampered, self.structure))
-        self.assertTrue(failed)
+        failed = _failed(evaluate_run(ambiguous_run, self.structure))
+        self.assertTrue(failed & citing)
 
     def test_raw_write_probe_changes_only_the_mutant(self) -> None:
         correct = raw_write_observation(Kernel)
