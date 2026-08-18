@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, Never
 
 
 PROTOCOL_COMMANDS = (
@@ -88,27 +88,53 @@ class Attribution:
         }
 
 
+def _date_prefix(value: str) -> str:
+    return value[:10]
+
+
+def _instant_covers(instant: str, valid_at: str) -> bool:
+    return _date_prefix(instant) == _date_prefix(valid_at)
+
+
+def _interval_covers(start: str | None, end: str | None, valid_at: str) -> bool:
+    if start is not None and end is not None and start > end:
+        return False
+    date_query = len(valid_at) == 10
+    point = _date_prefix(valid_at) if date_query else valid_at
+    if start is not None:
+        lower = _date_prefix(start) if date_query else start
+        if point < lower:
+            return False
+    if end is not None:
+        upper = _date_prefix(end) if date_query else end
+        if point >= upper:
+            return False
+    return True
+
+
 @dataclass(frozen=True)
 class ValidTime:
     instant: str | None = None
     start: str | None = None
     end: str | None = None
 
-    def covers(self, valid_at: str) -> bool:
-        point = self.instant if self.instant is not None else self.start
-        if point is None:
-            return True
-        if len(valid_at) == 10:
-            return point[:10] <= valid_at
+    def _form(self) -> Literal["empty", "instant", "interval"]:
         if self.instant is not None:
-            return self.instant <= valid_at
-        start = self.start or ""
-        end = self.end
-        if start and valid_at < start:
+            return "instant"
+        if self.start is not None or self.end is not None:
+            return "interval"
+        return "empty"
+
+    def covers(self, valid_at: str) -> bool:
+        form = self._form()
+        if form == "empty":
             return False
-        if end is not None and valid_at >= end:
-            return False
-        return True
+        if form == "instant":
+            return _instant_covers(self.instant or "", valid_at)
+        if form == "interval":
+            return _interval_covers(self.start, self.end, valid_at)
+        unreachable: Never = form
+        raise RuntimeError(unreachable)
 
 
 @dataclass(frozen=True)

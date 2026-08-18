@@ -321,7 +321,7 @@
       "subject_ref": "stock:sku-x",
       "predicate_ref": "available-quantity",
       "value": -20,
-      "valid_time": {"instant": "2030-08-08"},
+      "valid_time": {"start": "2030-08-08"},
       "provenance": {"source_id": "source:signed-doc", "source_locator": "doc://delivery/in-lot-20", "capture_id": "cap:signed", "capture_revision": "sig-12", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
     }
   ]
