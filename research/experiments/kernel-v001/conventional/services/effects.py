@@ -16,7 +16,11 @@ class EffectService:
         self.history = history
 
     def owns_claim(self, command: dict[str, Any]) -> bool:
-        return command.get("predicate_ref") == "remote-booking"
+        subject = command.get("subject_ref")
+        if subject and self.ledger.get("effect_requests", subject) is not None:
+            return True
+        predicate = command.get("predicate_ref") or ""
+        return predicate.startswith("remote-")
 
     def record_claim(self, command: dict[str, Any]) -> dict[str, Any]:
         return self.history.record_claim(command)
@@ -35,11 +39,19 @@ class EffectService:
             return (False, "already_confirmed")
         return (True, "retry_ok")
 
-    def open_request(self, request_id: str, operation_id: str, intent_digest: str, payload: dict[str, Any], revision: str) -> dict[str, Any]:
+    def open_request(
+        self,
+        request_id: str,
+        operation_id: str,
+        intent_digest: str,
+        payload: dict[str, Any],
+        revision: str,
+        effect_ref: str = "effect.book-carrier",
+    ) -> dict[str, Any]:
         request = {
             "request_id": request_id,
             "parent_operation_id": operation_id,
-            "effect_ref": "effect.book-carrier",
+            "effect_ref": effect_ref,
             "intent_digest": intent_digest,
             "payload": payload,
         }

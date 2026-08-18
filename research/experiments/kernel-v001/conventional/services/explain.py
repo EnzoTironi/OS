@@ -56,6 +56,9 @@ class ExplainService:
         if proposal:
             consumed.extend(proposal["state_basis"].get("evidence_refs") or [])
         gaps = self._gaps(receipt, receipt_ref, envelope_ref, reached)
+        decisions = list((envelope or {}).get("rule_decisions") or [])
+        if not decisions:
+            decisions = [{"decision_id": "rule:quantity-positive", "outcome": "permit", "locus": "commit"}]
         return {
             "reference": reference,
             "complete": len(gaps) == 0,
@@ -76,7 +79,7 @@ class ExplainService:
                 "commit_digest": receipt["commit_basis_digest"],
                 "stale": receipt["stale"],
             },
-            "rule_decisions": [{"decision_id": "rule:quantity-positive", "outcome": "permit", "locus": "commit"}],
+            "rule_decisions": decisions,
             "claims_consumed": sorted(set(consumed)),
             "mutation_plan": receipt.get("result"),
             "operation_receipt": {

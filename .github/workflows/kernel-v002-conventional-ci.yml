@@ -1,0 +1,95 @@
+name: kernel-v002-conventional-ci
+
+on:
+  push:
+    branches:
+      - cursor/kernel-v002-conventional-a60c
+    paths:
+      - 'research/experiments/kernel-v001/conventional/**'
+      - '.github/workflows/kernel-v002-conventional-ci.yml'
+  pull_request:
+    branches:
+      - cursor/kernel-v002-conventional-base-a60c
+    paths:
+      - 'research/experiments/kernel-v001/conventional/**'
+      - '.github/workflows/kernel-v002-conventional-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  kernel-v002-conventional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Pin HEAD_SHA
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            HEAD_SHA="${{ github.sha }}"
+          fi
+          echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned experiment dependencies
+        run: python3 -m pip install 'hypothesis==6.165.9' 'jsonschema==4.23.0' 'rfc3339-validator==0.1.4'
+      - name: Conventional unit and V-002 tests
+        run: python3 -m unittest discover -s research/experiments/kernel-v001/conventional/tests -p 'test_*.py' -v
+      - name: Conventional and ontology V-002 CLI
+        run: |
+          research/experiments/kernel-v001/conventional/os scenario run v002 --output json > /tmp/kernel-v002-conventional-run.json
+          research/experiments/kernel-v001/conventional/os scenario run v002 --output json > /tmp/kernel-v002-conventional-run-2.json
+          cmp /tmp/kernel-v002-conventional-run.json /tmp/kernel-v002-conventional-run-2.json
+          research/experiments/kernel-v001/os scenario run v002 --output json > /tmp/kernel-v002-ontology-run.json
+          research/experiments/kernel-v001/conventional/os explain v002:operation:quarantine-lot-1 --output json > /tmp/kernel-v002-conventional-explain.json
+          research/experiments/kernel-v001/conventional/os query known-then --scenario v002 --subject lot:lot-q-1 --predicate measurement --valid-at 2030-08-10 --known-at kr:before-late-calibration --output json > /tmp/kernel-v002-conventional-known-then.json
+          research/experiments/kernel-v001/conventional/os query now-believed-for-then --scenario v002 --subject lot:lot-q-1 --predicate measurement --valid-at 2030-08-10 --output json > /tmp/kernel-v002-conventional-now-believed.json
+      - name: Shared V-002 evaluator, structure and delta
+        run: |
+          python3 research/experiments/kernel-v001/conventional/verify_v002.py \
+            --source-sha "$HEAD_SHA" \
+            --parent-sha 02ecd61322d05e661dfa15dc2dac1830edf7d8c8 \
+            --conventional-run /tmp/kernel-v002-conventional-run.json \
+            --ontology-run /tmp/kernel-v002-ontology-run.json \
+            --comparison-output /tmp/kernel-v002-comparison.json \
+            --structure-output /tmp/kernel-v002-structure.json \
+            --delta-output /tmp/kernel-v002-delta.json
+      - name: Validate JSON artifacts
+        run: |
+          python3 -m json.tool /tmp/kernel-v002-conventional-run.json >/dev/null
+          python3 -m json.tool /tmp/kernel-v002-ontology-run.json >/dev/null
+          python3 -m json.tool /tmp/kernel-v002-comparison.json >/dev/null
+          python3 -m json.tool /tmp/kernel-v002-structure.json >/dev/null
+          python3 -m json.tool /tmp/kernel-v002-delta.json >/dev/null
+      - name: CLI transcript with SHA
+        run: |
+          {
+            echo "SHA=${HEAD_SHA}"
+            echo "HEAD=${HEAD_SHA}"
+            HEAD_SHA="$HEAD_SHA" research/experiments/kernel-v001/conventional/scripts/demo_v002.sh
+          } > /tmp/kernel-v002-transcript.log
+          grep -q "SHA=${HEAD_SHA}" /tmp/kernel-v002-transcript.log
+          grep -q "HEAD=${HEAD_SHA}" /tmp/kernel-v002-transcript.log
+          grep -q 'os scenario run v002' /tmp/kernel-v002-transcript.log
+          grep -q 'known-then' /tmp/kernel-v002-transcript.log
+          grep -q 'now-believed-for-then' /tmp/kernel-v002-transcript.log
+      - name: Publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-v002-conventional-${{ env.HEAD_SHA }}
+          path: |
+            /tmp/kernel-v002-conventional-run.json
+            /tmp/kernel-v002-ontology-run.json
+            /tmp/kernel-v002-comparison.json
+            /tmp/kernel-v002-structure.json
+            /tmp/kernel-v002-delta.json
+            /tmp/kernel-v002-transcript.log
+            /tmp/kernel-v002-conventional-explain.json
+            /tmp/kernel-v002-conventional-known-then.json
+            /tmp/kernel-v002-conventional-now-believed.json

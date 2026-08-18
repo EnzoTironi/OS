@@ -37,3 +37,24 @@ class CatalogService:
             "record_refs": [qualify("entity", entity["entity_id"])],
             "details": {},
         }
+
+    def remember_identity(self, command: dict[str, Any]) -> None:
+        value = command.get("value")
+        if not isinstance(value, dict):
+            return
+        identity_id = value.get("identity_id")
+        context = value.get("context_entity_id")
+        if not identity_id or not context:
+            return
+        if self.ledger.get("identities", identity_id) is not None:
+            return
+        self.ledger.put(
+            "identities",
+            identity_id,
+            {
+                "identity_id": identity_id,
+                "subject_ref": command.get("subject_ref"),
+                "context_entity_id": context,
+                "predicate_ref": command.get("predicate_ref"),
+            },
+        )

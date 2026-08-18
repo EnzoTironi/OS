@@ -16,14 +16,23 @@ if str(EXPERIMENT / "scripts") not in sys.path:
 from services.engine import ConventionalEngine, run_named_scenario
 
 FIXTURE = EXPERIMENT / "fixtures" / "v001" / "scenario.json"
+FIXTURE_V002 = EXPERIMENT / "fixtures" / "v002" / "scenario.json"
 
 
 def load_scenario() -> dict[str, Any]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+def load_v002() -> dict[str, Any]:
+    return json.loads(FIXTURE_V002.read_text(encoding="utf-8"))
+
+
 def run_v001() -> dict[str, Any]:
     return run_named_scenario("v001")
+
+
+def run_v002() -> dict[str, Any]:
+    return run_named_scenario("v002")
 
 
 def run_document(scenario: dict[str, Any]) -> dict[str, Any]:

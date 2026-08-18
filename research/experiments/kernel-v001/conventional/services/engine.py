@@ -14,6 +14,7 @@ from services.history import HistoryService
 from services.ledger import Ledger
 from services.orders import OrderService
 from services.purchasing import PurchasingService
+from services.quality import QualityService, commit_counts, disposition_kind
 from services.stock import StockService
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,12 +84,14 @@ class ConventionalEngine:
         self.authority = AuthorityService(self.ledger)
         self.effects = EffectService(self.ledger, self.history)
         self.purchasing = PurchasingService(self.ledger, self.stock, self.authority, self.effects)
+        self.quality = QualityService(self.ledger, self.history, self.authority, self.effects)
         self.explainer = ExplainService(self.ledger)
         self.command_receipts: list[dict[str, Any]] = []
         self.proof_observations: list[dict[str, Any]] = []
         self._seen_reconcile = False
         self._commit_count = 0
         self._effect_request_ids = named_effect_requests(scenario)
+        self._commit_counts = commit_counts(scenario)
 
     def apply(self, command: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(command, dict):
@@ -105,16 +108,31 @@ class ConventionalEngine:
         elif command_type == "RecordExternalOccurrence":
             receipt = self.stock.record_receipt(payload)
         elif command_type == "ProposeOperation":
-            receipt = self.purchasing.propose(payload, self.clock)
+            if self.quality.owns_proposal(payload):
+                kind = disposition_kind(self._commit_counts, payload.get("operation_id"))
+                receipt = self.quality.propose(payload, self.clock, kind)
+            else:
+                receipt = self.purchasing.propose(payload, self.clock)
         elif command_type == "RecordApproval":
             receipt = self.authority.approve(payload)
         elif command_type == "CommitOperation":
-            receipt = self.purchasing.commit(
-                payload,
-                self.clock,
-                self.scenario_id,
-                effect_request_id=self.effect_request_id_for_commit(payload.get("operation_id")),
-            )
+            proposal = self.ledger.get("proposals", payload.get("proposal_id"))
+            if self.quality.owns_stored(proposal):
+                hold = (proposal or {}).get("quality_kind") == "hold"
+                effect_id = self.effect_request_id_for_commit(payload.get("operation_id")) if hold else None
+                receipt = self.quality.commit(
+                    payload,
+                    self.clock,
+                    self.scenario_id,
+                    effect_request_id=effect_id,
+                )
+            else:
+                receipt = self.purchasing.commit(
+                    payload,
+                    self.clock,
+                    self.scenario_id,
+                    effect_request_id=self.effect_request_id_for_commit(payload.get("operation_id")),
+                )
         elif command_type == "RecordEffectAttempt":
             receipt = self.effects.attempt(payload)
         elif command_type == "ReconcileEffect":
@@ -128,12 +146,15 @@ class ConventionalEngine:
 
     def _record_claim(self, command: dict[str, Any]) -> dict[str, Any]:
         if self.stock.owns_claim(command):
-            return self.stock.record_claim(command)
-        if self.orders.owns(command):
-            return self.orders.record_claim(command)
-        if self.effects.owns_claim(command):
-            return self.effects.record_claim(command)
-        return self.history.record_claim(command)
+            receipt = self.stock.record_claim(command)
+        elif self.orders.owns(command):
+            receipt = self.orders.record_claim(command)
+        elif self.effects.owns_claim(command):
+            receipt = self.effects.record_claim(command)
+        else:
+            receipt = self.history.record_claim(command)
+        self.catalog.remember_identity(command)
+        return receipt
 
     def _install_policy(self, command: dict[str, Any]) -> dict[str, Any]:
         revision = self.ledger.next_revision()
@@ -271,6 +292,17 @@ class ConventionalEngine:
                 ],
                 key=lambda item: item["operation_id"],
             ),
+            "contextual_identities": sorted(
+                [
+                    {
+                        "identity_id": item["identity_id"],
+                        "subject_ref": item.get("subject_ref"),
+                        "context_entity_id": item.get("context_entity_id"),
+                    }
+                    for item in self.ledger.all("identities")
+                ],
+                key=lambda item: item["identity_id"],
+            ),
         }
 
     def operation_receipts(self) -> list[dict[str, Any]]:
@@ -399,7 +431,7 @@ class ConventionalEngine:
                 self.proof_observations.append(
                     _observation("obs:proposal", "proposal-apply", before_digest, after_digest, ["obs:proposal"])
                 )
-            elif command_type == "CommitOperation":
+            elif command_type == "CommitOperation" and receipt["outcome"] in {"committed", "replayed"}:
                 self._commit_count += 1
                 name = "obs:after-commit" if self._commit_count == 1 else "obs:replay"
                 operation = "commit-apply" if self._commit_count == 1 else "replay-apply"

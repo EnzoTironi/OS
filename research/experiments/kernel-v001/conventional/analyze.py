@@ -26,6 +26,14 @@ DOMAIN_MARKERS = {
     "receipt",
     "replan",
     "stale",
+    "quality",
+    "measurement",
+    "quarantine",
+    "lot",
+    "inspect",
+    "release",
+    "hold",
+    "calibrat",
 }
 
 
@@ -134,6 +142,8 @@ def trusted_findings() -> list[dict[str, Any]]:
     trusted = (
         ("purchasing.py", "PurchasingService", "commit"),
         ("purchasing.py", "PurchasingService", "propose"),
+        ("quality.py", "QualityService", "commit"),
+        ("quality.py", "QualityService", "propose"),
         ("effects.py", "EffectService", "attempt"),
         ("effects.py", "EffectService", "reconcile"),
         ("engine.py", "ConventionalEngine", "apply"),
@@ -206,8 +216,8 @@ def analyze(source_sha: str) -> dict[str, Any]:
             caller_findings(),
         ),
         "trusted_commit_path": _metric(
-            ["services/purchasing.py", "services/effects.py", "services/engine.py"],
-            "nonblank lines of the conventional purchase commit and effect path",
+            ["services/purchasing.py", "services/quality.py", "services/effects.py", "services/engine.py"],
+            "nonblank lines of the conventional purchase, quality, and effect path",
             trusted_findings(),
         ),
         "unsupported": {
