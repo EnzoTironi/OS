@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from os_kernel.canonical import digest, retained
-from os_kernel.definitions import ActionDefinition, DefinitionBundle, resolve_action, resolve_computation, resolve_effect
+from os_kernel.definitions import ActionDefinition, DefinitionBundle, pinned_expression, resolve_action, resolve_computation, resolve_effect
 from os_kernel.errors import InputError, InternalError
 from os_kernel.expression import EvalContext, evaluate
 from os_kernel.model import (
@@ -96,7 +96,7 @@ def capture_basis(
             known_at=knowledge_cut,
             knowledge_cut=knowledge_cut,
         )
-        value = evaluate(computation.expression, ctx)
+        value = evaluate(pinned_expression(computation), ctx)
         evidence = [
             claim.claim_id
             for claim in store.claims()
@@ -129,6 +129,15 @@ def capture_basis(
         definition_refs=tuple(refs),
         digest=basis_digest,
     )
+
+
+def planner_basis_inputs(proposal_basis: StateBasis, current_basis: StateBasis) -> dict[str, Any]:
+    inputs: dict[str, Any] = {}
+    for dep in proposal_basis.dependencies:
+        inputs[f"basis_{dep.dependency_id}"] = dep.evaluated_value
+    for dep in current_basis.dependencies:
+        inputs[f"current_{dep.dependency_id}"] = dep.evaluated_value
+    return inputs
 
 
 def _bound_value(approval_bounds: Any, path: str) -> Any:
@@ -176,7 +185,9 @@ def commit_operation(
     ids_next,
     local_provenance: Provenance,
 ) -> CommandReceipt:
-    namespace = command.get("authority_namespace") or command.get("namespace") or "v001"
+    namespace = command.get("authority_namespace") or command.get("namespace")
+    if not namespace:
+        raise InputError("invalid_command", "authority_namespace is required", "os scenario run v001 --output json")
     operation_id = command["operation_id"]
     proposal = store.get("proposals", command["proposal_id"])
     approval = store.get("approvals", command["approval_id"])
@@ -351,15 +362,14 @@ def _commit_body(
         **proposal.canonical_inputs,
         "now": clock_now,
         "proposed_quantity": proposal.canonical_inputs.get("quantity"),
-        "basis_available": proposal.state_basis.dependencies[0].evaluated_value if proposal.state_basis.dependencies else None,
-        "current_available": current_basis.dependencies[0].evaluated_value if current_basis.dependencies else None,
+        **planner_basis_inputs(proposal.state_basis, current_basis),
         "approval": approval.approved_bounds,
         "stale": stale,
         "subject": proposal.canonical_inputs.get("subject"),
         "predicate": proposal.canonical_inputs.get("predicate"),
     }
     plan_result = evaluate(
-        planner.expression,
+        pinned_expression(planner),
         EvalContext(planner_inputs, store, valid_at=clock_now, known_at=store.current_revision()),
     )
     if not isinstance(plan_result, dict):
@@ -392,7 +402,7 @@ def _commit_body(
     for rule in commit_rules:
         computation = resolve_computation(bundle, rule.computation_ref)
         outcome_value = evaluate(
-            computation.expression,
+            pinned_expression(computation),
             EvalContext({**planner_inputs, "quantity": quantity}, store, valid_at=clock_now),
         )
         permitted = bool(outcome_value) if not isinstance(outcome_value, dict) else bool(outcome_value.get("permit", True))
@@ -411,7 +421,7 @@ def _commit_body(
         decisions.append(decision)
     mutation_expr = None
     if action.mutation_plan_ref:
-        mutation_expr = resolve_computation(bundle, action.mutation_plan_ref).expression
+        mutation_expr = pinned_expression(resolve_computation(bundle, action.mutation_plan_ref))
     mutations: list[dict[str, Any]] = []
     if mutation_expr is not None:
         built = evaluate(

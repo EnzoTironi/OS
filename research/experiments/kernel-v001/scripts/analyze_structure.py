@@ -26,7 +26,6 @@ PROTOCOL_KEYS = {
     "known-then",
     "now-believed-for-then",
     "scenario-report",
-    "v001",
     "ontology",
     "conventional",
     "json",

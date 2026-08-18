@@ -72,11 +72,11 @@
     {
       "if": {"properties": {"type": {"const": "ProposeOperation"}}, "required": ["type"]},
       "then": {
-        "required": ["proposal_id", "operation_id", "action_id", "inputs", "attribution"],
+        "required": ["proposal_id", "operation_id", "authority_namespace", "action_id", "inputs", "attribution"],
         "properties": {
           "proposal_id": {"type": "string", "minLength": 1},
           "operation_id": {"type": "string", "minLength": 1},
-          "authority_namespace": {"type": "string"},
+          "authority_namespace": {"type": "string", "minLength": 1},
           "action_id": {"type": "string", "minLength": 1},
           "inputs": {"type": "object"},
           "attribution": {"$ref": "#/$defs/attribution"},
@@ -102,10 +102,10 @@
     {
       "if": {"properties": {"type": {"const": "CommitOperation"}}, "required": ["type"]},
       "then": {
-        "required": ["operation_id", "proposal_id", "approval_id", "attribution"],
+        "required": ["operation_id", "authority_namespace", "proposal_id", "approval_id", "attribution"],
         "properties": {
           "operation_id": {"type": "string", "minLength": 1},
-          "authority_namespace": {"type": "string"},
+          "authority_namespace": {"type": "string", "minLength": 1},
           "proposal_id": {"type": "string", "minLength": 1},
           "approval_id": {"type": "string", "minLength": 1},
           "attribution": {"$ref": "#/$defs/attribution"},

@@ -68,7 +68,7 @@
     },
     "action-definition": {
       "type": "object",
-      "required": ["definition_id", "planner_ref"],
+      "required": ["definition_id", "planner_ref", "bound_path"],
       "properties": {
         "definition_id": {"type": "string", "minLength": 1},
         "input_schema": {"$ref": "#/$defs/json-schema"},

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from os_kernel.errors import InputError
@@ -100,8 +101,9 @@ def explain(store: Store, reference: str) -> dict[str, Any]:
     reconciliations = [resolved[item] for item in reached if item.startswith("recon:") and item in resolved]
     consumed: list[str] = []
     if proposal is not None:
-        for dep in proposal.state_basis.dependencies:
-            consumed.extend(dep.evidence_refs)
+        consumed.extend(_evidence_refs(proposal.state_basis))
+    if isinstance(receipt.result, Mapping):
+        consumed.extend(_evidence_refs(receipt.result.get("commit_basis")))
     graph = {
         "reference": reference,
         "complete": not gaps,
@@ -205,6 +207,21 @@ def _attribution_field(reached: set[str], resolved: dict[str, Any], name: str) -
     if envelope is None:
         return None
     return getattr(envelope.attribution, name)
+
+
+def _evidence_refs(basis: Any) -> list[str]:
+    if basis is None:
+        return []
+    deps = getattr(basis, "dependencies", None)
+    if deps is None and isinstance(basis, Mapping):
+        deps = basis.get("dependencies") or []
+    refs: list[str] = []
+    for dep in deps or []:
+        if isinstance(dep, Mapping):
+            refs.extend(dep.get("evidence_refs") or [])
+        else:
+            refs.extend(getattr(dep, "evidence_refs", ()) or ())
+    return refs
 
 
 def _proposal_view(proposal: Any) -> dict[str, Any]:

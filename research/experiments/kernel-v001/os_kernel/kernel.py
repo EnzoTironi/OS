@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from os_kernel.canonical import public_output, retained
-from os_kernel.definitions import DefinitionBundle, load_bundle, resolve_action, resolve_computation, resolve_effect
+from os_kernel.definitions import DefinitionBundle, load_bundle, pinned_expression, resolve_action, resolve_computation, resolve_effect
 from os_kernel.effects import reconcile_knowledge, reduce_attempt, retry_allowed
 from os_kernel.errors import InputError
 from os_kernel.explanation import explain as explain_store
@@ -27,7 +27,7 @@ from os_kernel.model import (
     ReconciliationRecord,
     ValidTime,
 )
-from os_kernel.protocol import capture_basis, commit_operation, intent_digest, proposal_digest
+from os_kernel.protocol import capture_basis, commit_operation, intent_digest, planner_basis_inputs, proposal_digest
 from os_kernel.store import Store
 from os_kernel.temporal import evaluate_quantity
 from os_kernel.validation import (
@@ -297,7 +297,6 @@ class Kernel:
         return CommandReceipt("CreateEntity", "created", revision, (qualify("entity", entity.entity_id),), {})
 
     def _record_claim(self, command: dict[str, Any]) -> CommandReceipt:
-        revision = self.__store._next_revision()
         validate_value(schema_for_predicate(self._current, command["predicate_ref"]), command["value"])
         relation = self._current.relations.get(command["predicate_ref"])
         if relation is not None and relation.projects_contextual_identity:
@@ -315,6 +314,7 @@ class Kernel:
                         "contextual identity already exists for this entity, context, and role",
                         "os scenario run v001 --output json",
                     )
+        revision = self.__store._next_revision()
         claim = Claim(
             claim_id=command["claim_id"],
             subject_ref=command["subject_ref"],
@@ -398,6 +398,9 @@ class Kernel:
         return CommandReceipt("RecordExternalOccurrence", "recorded", revision, tuple(refs), {})
 
     def _propose(self, command: dict[str, Any]) -> CommandReceipt:
+        namespace = command.get("authority_namespace") or command.get("namespace")
+        if not namespace:
+            raise InputError("invalid_command", "authority_namespace is required", "os scenario run v001 --output json")
         attribution = _attribution(command["attribution"])
         action = resolve_action(self._current, command["action_id"])
         if action.input_schema:
@@ -454,13 +457,12 @@ class Kernel:
         )
         planner = resolve_computation(self._current, action.planner_ref)
         preview = evaluate(
-            planner.expression,
+            pinned_expression(planner),
             EvalContext(
                 {
                     **inputs,
                     "proposed_quantity": inputs.get("quantity"),
-                    "basis_available": basis.dependencies[0].evaluated_value if basis.dependencies else None,
-                    "current_available": basis.dependencies[0].evaluated_value if basis.dependencies else None,
+                    **planner_basis_inputs(basis, basis),
                     "approval": command.get("replan_bounds") or {},
                     "stale": False,
                     "now": self._clock.now(),
@@ -475,7 +477,7 @@ class Kernel:
             inputs,
             attribution,
             command["proposal_id"],
-            command.get("authority_namespace", "v001"),
+            namespace,
             command["operation_id"],
             _delegation_payload(delegation) if delegation is not None else None,
         )
@@ -483,7 +485,7 @@ class Kernel:
         proposal = Proposal(
             proposal_id=command["proposal_id"],
             operation_id=command["operation_id"],
-            authority_namespace=command.get("authority_namespace", "v001"),
+            authority_namespace=namespace,
             action_ref=action.definition_ref,
             canonical_inputs=inputs,
             intent_digest=digest_value,
@@ -533,7 +535,7 @@ class Kernel:
         for rule in approval_rules:
             computation = resolve_computation(pinned, rule.computation_ref)
             outcome_value = evaluate(
-                computation.expression,
+                pinned_expression(computation),
                 EvalContext(
                     {
                         "approver_actor_id": approver.actor_id,
@@ -680,7 +682,7 @@ class Kernel:
         if effect.reconciliation_ref:
             computation = resolve_computation(bundle, effect.reconciliation_ref)
             computed = evaluate(
-                computation.expression,
+                pinned_expression(computation),
                 EvalContext(
                     {
                         "evidence_count": len(evidence_refs),
