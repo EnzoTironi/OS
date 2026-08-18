@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os2030.local/schemas/kernel-v001-command.json",
+  "title": "kernel-v001 command",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "InstallDefinitionRevision",
+        "CreateEntity",
+        "RecordClaim",
+        "RecordExternalOccurrence",
+        "ProposeOperation",
+        "RecordApproval",
+        "CommitOperation",
+        "RecordEffectAttempt",
+        "ReconcileEffect"
+      ]
+    },
+    "command_id": {"type": "string"},
+    "step": {"type": "integer"},
+    "clock_time": {"$ref": "#/$defs/date-time"},
+    "alias_revision_as": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "InstallDefinitionRevision"}}, "required": ["type"]},
+      "then": {"required": ["definitions"], "properties": {"definitions": {"type": "object"}, "definitions_file": {"type": "string"}}}
+    },
+    {
+      "if": {"properties": {"type": {"const": "CreateEntity"}}, "required": ["type"]},
+      "then": {
+        "required": ["entity_id", "type_ref", "provenance"],
+        "properties": {
+          "entity_id": {"type": "string", "minLength": 1},
+          "type_ref": {"$ref": "#/$defs/definition-ref"},
+          "provenance": {"$ref": "#/$defs/provenance"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "RecordClaim"}}, "required": ["type"]},
+      "then": {
+        "required": ["claim_id", "subject_ref", "predicate_ref", "value", "valid_time", "provenance"],
+        "properties": {
+          "claim_id": {"type": "string", "minLength": 1},
+          "subject_ref": {"type": "string", "minLength": 1},
+          "predicate_ref": {"type": "string", "minLength": 1},
+          "valid_time": {"$ref": "#/$defs/valid-time"},
+          "provenance": {"$ref": "#/$defs/provenance"},
+          "derived_from": {"type": "array", "items": {"type": "string"}},
+          "corrects": {"type": "string"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "RecordExternalOccurrence"}}, "required": ["type"]},
+      "then": {
+        "required": ["occurrence_id", "occurrence_ref", "valid_time", "provenance"],
+        "properties": {
+          "occurrence_id": {"type": "string", "minLength": 1},
+          "occurrence_ref": {"$ref": "#/$defs/definition-ref"},
+          "valid_time": {"$ref": "#/$defs/valid-time"},
+          "payload": {"type": "object"},
+          "provenance": {"$ref": "#/$defs/provenance"},
+          "causal_operation_ref": {"type": "string"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "ProposeOperation"}}, "required": ["type"]},
+      "then": {
+        "required": ["proposal_id", "operation_id", "action_id", "inputs", "attribution"],
+        "properties": {
+          "proposal_id": {"type": "string", "minLength": 1},
+          "operation_id": {"type": "string", "minLength": 1},
+          "authority_namespace": {"type": "string"},
+          "action_id": {"type": "string", "minLength": 1},
+          "inputs": {"type": "object"},
+          "attribution": {"$ref": "#/$defs/attribution"},
+          "delegation": {"type": "object"},
+          "replan_bounds": {"type": "object"},
+          "validity": {"$ref": "#/$defs/rfc3339"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "RecordApproval"}}, "required": ["type"]},
+      "then": {
+        "required": ["approval_id", "proposal_id", "approved_bounds", "attribution"],
+        "properties": {
+          "approval_id": {"type": "string", "minLength": 1},
+          "proposal_id": {"type": "string", "minLength": 1},
+          "approved_bounds": {"type": "object"},
+          "attribution": {"$ref": "#/$defs/attribution"},
+          "state_basis_ref": {"type": "string"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "CommitOperation"}}, "required": ["type"]},
+      "then": {
+        "required": ["operation_id", "proposal_id", "approval_id", "attribution"],
+        "properties": {
+          "operation_id": {"type": "string", "minLength": 1},
+          "authority_namespace": {"type": "string"},
+          "proposal_id": {"type": "string", "minLength": 1},
+          "approval_id": {"type": "string", "minLength": 1},
+          "attribution": {"$ref": "#/$defs/attribution"},
+          "canonical_inputs": {"type": "object"},
+          "action_revision_id": {"type": "string"},
+          "alternate_proposal_id": {"type": "string"},
+          "provenance": {"$ref": "#/$defs/provenance"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "RecordEffectAttempt"}}, "required": ["type"]},
+      "then": {
+        "required": ["request_id", "outcome"],
+        "properties": {
+          "request_id": {"type": "string", "minLength": 1},
+          "attempt_id": {"type": "string"},
+          "outcome": {"type": "string"},
+          "transport_evidence": {"type": "object"},
+          "remote_receipt": {"type": "string"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "ReconcileEffect"}}, "required": ["type"]},
+      "then": {
+        "required": ["request_id", "attribution"],
+        "properties": {
+          "request_id": {"type": "string", "minLength": 1},
+          "reconciliation_id": {"type": "string"},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}},
+          "resulting_knowledge": {"type": "string"},
+          "attribution": {"$ref": "#/$defs/attribution"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "rfc3339": {
+      "type": "string",
+      "anyOf": [{"format": "date"}, {"format": "date-time"}]
+    },
+    "date-time": {"type": "string", "format": "date-time"},
+    "definition-ref": {
+      "type": "object",
+      "required": ["definition_id"],
+      "properties": {
+        "definition_id": {"type": "string", "minLength": 1},
+        "revision_id": {"type": "string"},
+        "definition_digest": {"type": "string"}
+      }
+    },
+    "attribution": {
+      "type": "object",
+      "required": ["actor_id", "represented_principal_id", "workload_id", "delegation_id"],
+      "properties": {
+        "actor_id": {"type": "string", "minLength": 1},
+        "represented_principal_id": {"type": "string", "minLength": 1},
+        "workload_id": {"type": "string", "minLength": 1},
+        "delegation_id": {"type": "string", "minLength": 1}
+      },
+      "not": {"required": ["principal_id"]}
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["source_id", "source_locator", "capture_id", "capture_revision", "actor_id", "workload_id"],
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "source_locator": {"type": "string", "minLength": 1},
+        "capture_id": {"type": "string", "minLength": 1},
+        "capture_revision": {"type": "string", "minLength": 1},
+        "actor_id": {"type": "string", "minLength": 1},
+        "workload_id": {"type": "string", "minLength": 1},
+        "mapping_revision": {"type": "string"},
+        "integrity_evidence": {"type": "string"}
+      }
+    },
+    "valid-time": {
+      "anyOf": [
+        {"$ref": "#/$defs/rfc3339"},
+        {
+          "type": "object",
+          "properties": {
+            "instant": {"$ref": "#/$defs/rfc3339"},
+            "start": {"$ref": "#/$defs/rfc3339"},
+            "end": {"$ref": "#/$defs/rfc3339"}
+          }
+        }
+      ]
+    }
+  }
+}

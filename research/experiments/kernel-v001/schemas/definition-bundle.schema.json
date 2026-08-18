@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os2030.local/schemas/kernel-v001-definition-bundle.json",
+  "title": "kernel-v001 definition bundle",
+  "type": "object",
+  "required": ["revision_id"],
+  "properties": {
+    "revision_id": {"type": "string", "minLength": 1},
+    "parent_revision_id": {"type": ["string", "null"]},
+    "types": {"type": "array", "items": {"$ref": "#/$defs/type-definition"}},
+    "relations": {"type": "array", "items": {"$ref": "#/$defs/relation-definition"}},
+    "computations": {"type": "array", "items": {"$ref": "#/$defs/computation-definition"}},
+    "rules": {"type": "array", "items": {"$ref": "#/$defs/rule-definition"}},
+    "actions": {"type": "array", "items": {"$ref": "#/$defs/action-definition"}},
+    "effects": {"type": "array", "items": {"$ref": "#/$defs/effect-definition"}}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "json-schema": {"type": "object"},
+    "expression": {"type": "object"},
+    "type-definition": {
+      "type": "object",
+      "required": ["definition_id"],
+      "properties": {
+        "definition_id": {"type": "string", "minLength": 1},
+        "nature": {"type": "string"},
+        "value_schema": {"$ref": "#/$defs/json-schema"},
+        "contracts": {"type": "array", "items": {"type": "string"}},
+        "on_record": {"$ref": "#/$defs/expression"},
+        "projects_contextual_identity": {"type": "boolean"}
+      }
+    },
+    "relation-definition": {
+      "type": "object",
+      "required": ["definition_id"],
+      "properties": {
+        "definition_id": {"type": "string", "minLength": 1},
+        "roles": {"type": "array"},
+        "cardinality": {"type": "object"},
+        "temporal_required": {"type": "boolean"},
+        "provenance_required": {"type": "boolean"},
+        "projects_contextual_identity": {"type": "boolean"},
+        "value_schema": {"$ref": "#/$defs/json-schema"}
+      }
+    },
+    "computation-definition": {
+      "type": "object",
+      "required": ["definition_id", "expression"],
+      "properties": {
+        "definition_id": {"type": "string", "minLength": 1},
+        "result_predicate": {"type": ["string", "null"]},
+        "input_schema": {"$ref": "#/$defs/json-schema"},
+        "result_schema": {"$ref": "#/$defs/json-schema"},
+        "expression": {"$ref": "#/$defs/expression"}
+      }
+    },
+    "rule-definition": {
+      "type": "object",
+      "required": ["definition_id", "computation_ref"],
+      "properties": {
+        "definition_id": {"type": "string", "minLength": 1},
+        "computation_ref": {"type": "string", "minLength": 1},
+        "enforcement_locus": {"type": "string"},
+        "basis_mode": {"type": "string"},
+        "error_outcome": {"type": "string"},
+        "combination_order": {"type": "integer"}
+      }
+    },
+    "action-definition": {
+      "type": "object",
+      "required": ["definition_id", "planner_ref"],
+      "properties": {
+        "definition_id": {"type": "string", "minLength": 1},
+        "input_schema": {"$ref": "#/$defs/json-schema"},
+        "planner_ref": {"type": "string", "minLength": 1},
+        "rule_refs": {"type": "array", "items": {"type": "string"}},
+        "state_basis_spec": {"type": "array", "items": {"type": "object"}},
+        "approval_required": {"type": "boolean"},
+        "stale_behavior": {"type": "string"},
+        "bound_path": {"type": "string"},
+        "mutation_plan_ref": {"type": ["string", "null"]},
+        "effect_refs": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "effect-definition": {
+      "type": "object",
+      "required": ["definition_id"],
+      "properties": {
+        "definition_id": {"type": "string", "minLength": 1},
+        "request_schema": {"$ref": "#/$defs/json-schema"},
+        "protocol_safety": {"type": "object"},
+        "reconciliation_ref": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

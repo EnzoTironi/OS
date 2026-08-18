@@ -87,3 +87,38 @@ class CliTests(unittest.TestCase):
         proc = subprocess.run([str(OS), "--help"], check=False, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("os", proc.stdout)
+
+    def test_cli_rejects_invalid_rfc3339(self) -> None:
+        code, out, err = self._run(
+            [
+                "query",
+                "known-then",
+                "--scenario",
+                "v001",
+                "--subject",
+                "stock:sku-x",
+                "--predicate",
+                "available-quantity",
+                "--valid-at",
+                "not-rfc3339",
+                "--known-at",
+                "kr:before-late-document",
+                "--output",
+                "json",
+            ]
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        payload = json.loads(err)
+        self.assertEqual(payload["error"]["class"], "user-input")
+        self.assertIn("invocation", payload["error"])
+        self.assertNotIn("Traceback", err)
+
+    def test_help_labels_are_pt_br(self) -> None:
+        for argv in (["--help"], ["scenario", "--help"], ["scenario", "run", "--help"], ["explain", "--help"], ["query", "--help"]):
+            code, text, _ = self._run(argv)
+            self.assertEqual(code, 0)
+            lowered = text.lower()
+            self.assertNotIn("usage", lowered)
+            self.assertNotIn("positional arguments", lowered)
+            self.assertNotIn("options", lowered)

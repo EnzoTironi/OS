@@ -66,7 +66,8 @@ class ReplayMismatchMachine(RuleBasedStateMachine):
 
     @invariant()
     def one_receipt(self) -> None:
-        assert len(self.kernel._store.all("receipts")) == 1
+        report = self.kernel.query({"type": "scenario-report", "scenario_id": "v001"})
+        assert len(report["operation_receipts"]) == 1
 
 
 class StateMachineTests(unittest.TestCase):

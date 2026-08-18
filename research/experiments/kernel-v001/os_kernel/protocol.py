@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
-from os_kernel.canonical import digest
+from os_kernel.canonical import digest, retained
 from os_kernel.definitions import ActionDefinition, DefinitionBundle, resolve_action, resolve_computation, resolve_effect
 from os_kernel.errors import InputError, InternalError
 from os_kernel.expression import EvalContext, evaluate
@@ -12,6 +13,7 @@ from os_kernel.model import (
     Claim,
     CommandReceipt,
     DefinitionRef,
+    Delegation,
     EffectKnowledgeRecord,
     EffectRequest,
     MutationPlan,
@@ -24,26 +26,50 @@ from os_kernel.model import (
     ValidTime,
 )
 from os_kernel.store import Store
+from os_kernel.validation import parse_valid_time, qualify, schema_for_predicate, validate_value
 
 
 def intent_digest(
     action_ref: DefinitionRef,
-    inputs: dict[str, Any],
-    represented_principal_id: str,
-    delegation_id: str,
+    inputs: Any,
+    attribution: Attribution,
     proposal_id: str,
+    namespace: str,
+    operation_id: str,
+    delegation: dict[str, Any] | None,
 ) -> str:
     return digest(
         {
+            "authority_namespace": namespace,
+            "operation_id": operation_id,
+            "proposal_id": proposal_id,
             "action_ref": {
                 "definition_id": action_ref.definition_id,
                 "revision_id": action_ref.revision_id,
                 "definition_digest": action_ref.definition_digest,
             },
             "inputs": inputs,
-            "represented_principal_id": represented_principal_id,
-            "delegation_id": delegation_id,
-            "proposal_id": proposal_id,
+            "attribution": attribution.as_dict(),
+            "delegation": delegation or {},
+        }
+    )
+
+
+def proposal_digest(proposal) -> str:
+    return digest(
+        {
+            "proposal_id": proposal.proposal_id,
+            "intent_digest": proposal.intent_digest,
+            "action_ref": {
+                "definition_id": proposal.action_ref.definition_id,
+                "revision_id": proposal.action_ref.revision_id,
+                "definition_digest": proposal.action_ref.definition_digest,
+            },
+            "inputs": proposal.canonical_inputs,
+            "state_basis": proposal.state_basis.digest,
+            "preview_plan": proposal.preview_plan,
+            "replan_bounds": proposal.replan_bounds,
+            "validity": proposal.validity,
         }
     )
 
@@ -106,10 +132,10 @@ def capture_basis(
     )
 
 
-def _bound_value(approval_bounds: dict[str, Any], path: str) -> Any:
+def _bound_value(approval_bounds: Any, path: str) -> Any:
     current: Any = approval_bounds
     for part in path.split("."):
-        if isinstance(current, dict):
+        if isinstance(current, Mapping):
             current = current.get(part)
         else:
             current = getattr(current, part, None)
@@ -117,13 +143,30 @@ def _bound_value(approval_bounds: dict[str, Any], path: str) -> Any:
 
 
 def _valid_time(value: Any, fallback: str) -> ValidTime:
+    if value is None:
+        return parse_valid_time(fallback)
     if isinstance(value, ValidTime):
-        return value
-    if isinstance(value, dict):
-        return ValidTime(value.get("instant"), value.get("start"), value.get("end"))
-    if isinstance(value, str):
-        return ValidTime(instant=value)
-    return ValidTime(instant=fallback)
+        return parse_valid_time(value)
+    return parse_valid_time(value)
+
+
+def _delegation_payload(delegation: Delegation | None) -> dict[str, Any]:
+    if delegation is None:
+        return {}
+    return {
+        "delegation_id": delegation.delegation_id,
+        "grantor_id": delegation.grantor_id,
+        "actor_id": delegation.actor_id,
+        "represented_principal_id": delegation.represented_principal_id,
+        "action_scope": list(delegation.action_scope),
+        "resource_scope": list(delegation.resource_scope),
+        "purpose": delegation.purpose,
+        "valid_from": delegation.valid_from,
+        "valid_until": delegation.valid_until,
+        "revocation_revision": delegation.revocation_revision,
+        "bound_workload_id": delegation.bound_workload_id,
+        "parent_id": delegation.parent_id,
+    }
 
 
 def commit_operation(
@@ -146,19 +189,7 @@ def commit_operation(
         )
     if approval.proposal_ref != proposal.proposal_id:
         raise InputError("approval_mismatch", "approval does not reference the proposal", "os scenario run v001 --output json")
-    if approval.proposal_digest != digest(
-        {
-            "proposal_id": proposal.proposal_id,
-            "intent_digest": proposal.intent_digest,
-            "action_ref": {
-                "definition_id": proposal.action_ref.definition_id,
-                "revision_id": proposal.action_ref.revision_id,
-                "definition_digest": proposal.action_ref.definition_digest,
-            },
-            "inputs": proposal.canonical_inputs,
-            "state_basis": proposal.state_basis.digest,
-        }
-    ):
+    if approval.proposal_digest != proposal_digest(proposal):
         raise InputError("approval_digest_mismatch", "approval digest does not match proposal", "os scenario run v001 --output json")
     attribution = Attribution(
         command["attribution"]["actor_id"],
@@ -166,36 +197,53 @@ def commit_operation(
         command["attribution"]["workload_id"],
         command["attribution"]["delegation_id"],
     )
+    if attribution != proposal.proposer:
+        return CommandReceipt(
+            "CommitOperation",
+            "intent_mismatch",
+            store.current_revision(),
+            (),
+            {"code": "intent_mismatch", "reason": "attribution"},
+        )
+    stored_delegation = store.get("delegations", attribution.delegation_id)
+    if stored_delegation is None:
+        raise InputError(
+            "unknown_delegation",
+            "commit requires the stored delegation",
+            "os scenario run v001 --output json",
+        )
     existing = store.receipt_for(namespace, operation_id)
     presented_inputs = command.get("canonical_inputs") or proposal.canonical_inputs
     presented_proposal = command.get("alternate_proposal_id") or command.get("proposal_id") or proposal.proposal_id
+    presented_revision = command.get("action_revision_id")
     expected_digest = intent_digest(
         proposal.action_ref,
         presented_inputs,
-        attribution.represented_principal_id,
-        attribution.delegation_id,
+        attribution,
         presented_proposal,
+        namespace,
+        operation_id,
+        _delegation_payload(stored_delegation),
     )
-    stored_digest = intent_digest(
-        proposal.action_ref,
-        proposal.canonical_inputs,
-        attribution.represented_principal_id,
-        attribution.delegation_id,
-        proposal.proposal_id,
-    )
+    stored_digest = proposal.intent_digest
     if existing is not None:
+        envelope = store.envelope_for(namespace, operation_id)
         same = (
             existing.action_ref.revision_id == proposal.action_ref.revision_id
-            and existing.intent_digest == expected_digest
+            and (presented_revision is None or presented_revision == existing.action_ref.revision_id)
+            and existing.intent_digest == stored_digest
+            and expected_digest == stored_digest
             and digest(presented_inputs) == digest(proposal.canonical_inputs)
             and presented_proposal == proposal.proposal_id
+            and envelope is not None
+            and envelope.attribution == attribution
         )
         if same:
             return CommandReceipt(
                 "CommitOperation",
                 "replayed",
                 store.current_revision(),
-                (f"receipt:{existing.operation_id}",),
+                (qualify("receipt", existing.operation_id),),
                 {"receipt": _receipt_dict(existing), "replayed": True},
             )
         return CommandReceipt(
@@ -209,8 +257,7 @@ def commit_operation(
                 "presented_digest": expected_digest,
             },
         )
-    presented = command.get("canonical_inputs") or proposal.canonical_inputs
-    if digest(presented) != digest(proposal.canonical_inputs):
+    if digest(presented_inputs) != digest(proposal.canonical_inputs):
         return CommandReceipt(
             "CommitOperation",
             "intent_mismatch",
@@ -218,7 +265,7 @@ def commit_operation(
             (),
             {"code": "intent_mismatch", "reason": "inputs"},
         )
-    if command.get("action_revision_id") and command["action_revision_id"] != proposal.action_ref.revision_id:
+    if presented_revision and presented_revision != proposal.action_ref.revision_id:
         return CommandReceipt(
             "CommitOperation",
             "intent_mismatch",
@@ -238,11 +285,11 @@ def commit_operation(
     if pinned_bundle is None:
         raise InternalError("missing_revision", "pinned action revision is not stored")
     pinned_action = resolve_action(pinned_bundle, proposal.action_ref.definition_id)
-    store.begin()
+    store._begin()
     try:
         return _commit_body(
             pinned_action,
-            bundle,
+            pinned_bundle,
             store,
             command,
             proposal,
@@ -256,7 +303,7 @@ def commit_operation(
             local_provenance,
         )
     except Exception:
-        store.rollback()
+        store._rollback()
         raise
 
 
@@ -284,10 +331,7 @@ def _commit_body(
         ids_next,
     )
     stale = current_basis.digest != proposal.state_basis.digest
-    planner = resolve_computation(
-        store.get("definition_revisions", action.definition_ref.revision_id) or bundle,
-        action.planner_ref,
-    )
+    planner = resolve_computation(bundle, action.planner_ref)
     planner_inputs = {
         **proposal.canonical_inputs,
         "now": clock_now,
@@ -308,7 +352,7 @@ def _commit_body(
     quantity = plan_result.get("quantity")
     bound = _bound_value(approval.approved_bounds, action.bound_path)
     if bound is not None and quantity is not None and float(quantity) > float(bound):
-        store.rollback()
+        store._rollback()
         return CommandReceipt(
             "CommitOperation",
             "needs_reproposal",
@@ -317,7 +361,7 @@ def _commit_body(
             {"code": "needs_reproposal", "quantity": quantity, "bound": bound},
         )
     if action.stale_behavior == "reject" and stale:
-        store.rollback()
+        store._rollback()
         return CommandReceipt(
             "CommitOperation",
             "stale_rejected",
@@ -328,10 +372,10 @@ def _commit_body(
     if stale and float(quantity) == float(proposal.canonical_inputs.get("quantity")):
         raise InternalError("stale_not_replanned", "stale commit kept the proposed quantity")
     decisions: list[RuleDecision] = []
-    eval_bundle = store.get("definition_revisions", action.definition_ref.revision_id) or bundle
-    for rule_id in action.rule_refs:
-        rule = eval_bundle.rules[rule_id]
-        computation = resolve_computation(eval_bundle, rule.computation_ref)
+    commit_rules = [bundle.rules[rule_id] for rule_id in action.rule_refs if bundle.rules[rule_id].enforcement_locus != "approval"]
+    commit_rules.sort(key=lambda item: item.combination_order)
+    for rule in commit_rules:
+        computation = resolve_computation(bundle, rule.computation_ref)
         outcome_value = evaluate(
             computation.expression,
             EvalContext({**planner_inputs, "quantity": quantity}, store, valid_at=clock_now),
@@ -347,12 +391,12 @@ def _commit_body(
             evaluated_revision=store.current_revision(),
         )
         if decision.outcome != "permit":
-            store.rollback()
-            return CommandReceipt("CommitOperation", "denied", store.current_revision(), (), {"rule": rule_id})
+            store._rollback()
+            return CommandReceipt("CommitOperation", "denied", store.current_revision(), (), {"rule": rule.definition_ref.definition_id})
         decisions.append(decision)
     mutation_expr = None
     if action.mutation_plan_ref:
-        mutation_expr = resolve_computation(eval_bundle, action.mutation_plan_ref).expression
+        mutation_expr = resolve_computation(bundle, action.mutation_plan_ref).expression
     mutations: list[dict[str, Any]] = []
     if mutation_expr is not None:
         built = evaluate(
@@ -367,42 +411,43 @@ def _commit_body(
             extra = built.get("mutations")
             if isinstance(extra, list):
                 mutations.extend(extra)
-    commit_revision = store.next_revision()
+    commit_revision = store._next_revision()
     refs: list[str] = []
     for decision in decisions:
-        store.put_rule_decision(decision)
-        refs.append(f"rule:{decision.decision_id}")
+        store._put_rule_decision(decision)
+        refs.append(qualify("rule", decision.decision_id))
     local_claims: list[Claim] = []
     effect_requests: list[EffectRequest] = []
     for mutation in mutations:
         kind = mutation.get("_kind")
         if kind == "claim_draft":
+            validate_value(schema_for_predicate(bundle, mutation["predicate_ref"]), mutation["value"])
             claim = Claim(
                 claim_id=mutation.get("claim_id") or ids_next("claim"),
                 subject_ref=mutation["subject_ref"],
                 predicate_ref=mutation["predicate_ref"],
-                value=mutation["value"],
+                value=retained(mutation["value"]),
                 valid_time=_valid_time(mutation.get("valid_time"), clock_now),
                 known_revision=commit_revision,
                 provenance=local_provenance,
                 derived_from=tuple(mutation.get("derived_from") or ()),
             )
-            store.put_claim(claim)
+            store._put_claim(claim)
             local_claims.append(claim)
-            refs.append(f"claim:{claim.claim_id}")
+            refs.append(qualify("claim", claim.claim_id))
         elif kind == "effect_request_draft":
-            effect = resolve_effect(eval_bundle, mutation["effect_id"])
+            effect = resolve_effect(bundle, mutation["effect_id"])
             request = EffectRequest(
                 request_id=mutation.get("request_id") or ids_next("effect"),
                 parent_operation_id=operation_id,
                 effect_ref=effect.definition_ref,
                 intent_digest=expected_digest,
-                payload=mutation.get("payload") or {},
+                payload=retained(mutation.get("payload") or {}),
                 retry_safety=effect.protocol_safety,
                 reconciliation_strategy=effect.reconciliation_ref or "",
             )
-            store.put_effect_request(request)
-            store.put_effect_knowledge(
+            store._put_effect_request(request)
+            store._put_effect_knowledge(
                 EffectKnowledgeRecord(
                     record_id=ids_next("ek"),
                     request_id=request.request_id,
@@ -414,7 +459,7 @@ def _commit_body(
                 )
             )
             effect_requests.append(request)
-            refs.append(f"effect:{request.request_id}")
+            refs.append(qualify("effect", request.request_id))
         elif kind == "occurrence_draft":
             raise InternalError("action_occurrence", "commit mutations must not emit occurrences for the action")
         else:
@@ -429,20 +474,40 @@ def _commit_body(
         operation_id=operation_id,
         authority_namespace=namespace,
         action_ref=proposal.action_ref,
-        canonical_inputs=proposal.canonical_inputs,
+        canonical_inputs=retained(proposal.canonical_inputs),
         intent_digest=expected_digest,
         attribution=attribution,
         proposal_ref=proposal.proposal_id,
         approval_ref=approval.approval_id,
         created_revision=commit_revision,
     )
+    links = [
+        CausalLink(ids_next("link"), qualify("proposal", proposal.proposal_id), "approved-by", qualify("approval", approval.approval_id), None, commit_revision),
+        CausalLink(ids_next("link"), qualify("approval", approval.approval_id), "committed-as", qualify("receipt", operation_id), action.definition_ref, commit_revision),
+        CausalLink(ids_next("link"), qualify("basis", proposal.state_basis.basis_id), "proposal-basis", qualify("receipt", operation_id), None, commit_revision),
+        CausalLink(ids_next("link"), qualify("basis", current_basis.basis_id), "commit-basis", qualify("receipt", operation_id), None, commit_revision),
+    ]
+    for decision in decisions:
+        links.append(CausalLink(ids_next("link"), qualify("receipt", operation_id), "evaluated-rule", qualify("rule", decision.decision_id), decision.rule_ref, commit_revision))
+    for claim in local_claims:
+        links.append(CausalLink(ids_next("link"), qualify("receipt", operation_id), "produced-claim", qualify("claim", claim.claim_id), None, commit_revision))
+    for request in effect_requests:
+        links.append(CausalLink(ids_next("link"), qualify("receipt", operation_id), "requested-effect", qualify("effect", request.request_id), request.effect_ref, commit_revision))
+    refs.extend(qualify("link", link.link_id) for link in links)
+    refs.append(qualify("receipt", operation_id))
+    result = {
+        "quantity": quantity,
+        "stale": stale,
+        "plan": plan_result,
+        "commit_basis": _basis_dict(current_basis),
+    }
     receipt = OperationReceipt(
         operation_id=operation_id,
         authority_namespace=namespace,
         intent_digest=expected_digest,
         action_ref=proposal.action_ref,
         outcome="committed",
-        result={"quantity": quantity, "stale": stale, "plan": plan_result},
+        result=retained(result),
         committed_refs=tuple(refs),
         commit_revision=commit_revision,
         stale=stale,
@@ -451,23 +516,11 @@ def _commit_body(
         planned_quantity=proposal.canonical_inputs.get("quantity"),
         committed_quantity=quantity,
     )
-    store.put_envelope(envelope)
-    store.put_receipt(receipt)
-    refs.append(f"receipt:{operation_id}")
-    links = [
-        CausalLink(ids_next("link"), f"proposal:{proposal.proposal_id}", "approved-by", f"approval:{approval.approval_id}", None, commit_revision),
-        CausalLink(ids_next("link"), f"approval:{approval.approval_id}", "committed-as", f"receipt:{operation_id}", action.definition_ref, commit_revision),
-        CausalLink(ids_next("link"), f"basis:{proposal.state_basis.basis_id}", "proposal-basis", f"receipt:{operation_id}", None, commit_revision),
-        CausalLink(ids_next("link"), f"basis:{current_basis.basis_id}", "commit-basis", f"receipt:{operation_id}", None, commit_revision),
-    ]
-    for claim in local_claims:
-        links.append(CausalLink(ids_next("link"), f"receipt:{operation_id}", "produced-claim", f"claim:{claim.claim_id}", None, commit_revision))
-    for request in effect_requests:
-        links.append(CausalLink(ids_next("link"), f"receipt:{operation_id}", "requested-effect", f"effect:{request.request_id}", request.effect_ref, commit_revision))
+    store._put_envelope(envelope)
+    store._put_receipt(receipt)
     for link in links:
-        store.put_link(link)
-        refs.append(f"link:{link.link_id}")
-    store.commit()
+        store._put_link(link)
+    store._commit()
     return CommandReceipt(
         "CommitOperation",
         "committed",

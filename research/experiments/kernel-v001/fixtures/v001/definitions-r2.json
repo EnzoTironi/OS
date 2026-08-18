@@ -2,14 +2,24 @@
   "revision_id": "defrev:v001-r2",
   "parent_revision_id": "defrev:v001-r1",
   "types": [
-    {"definition_id": "type.organization", "nature": "entity", "value_schema": {}, "contracts": ["identity"]},
-    {"definition_id": "type.product", "nature": "entity", "value_schema": {}, "contracts": ["identity"]},
-    {"definition_id": "type.stock-position", "nature": "entity", "value_schema": {}, "contracts": ["identity"]},
-    {"definition_id": "type.sales-order", "nature": "entity", "value_schema": {}, "contracts": ["identity"]},
+    {"definition_id": "type.organization", "nature": "entity", "value_schema": {"type": "object"}, "contracts": ["identity"]},
+    {"definition_id": "type.product", "nature": "entity", "value_schema": {"type": "object"}, "contracts": ["identity"]},
+    {"definition_id": "type.stock-position", "nature": "entity", "value_schema": {"type": "object"}, "contracts": ["identity"]},
+    {"definition_id": "type.sales-order", "nature": "entity", "value_schema": {"type": "object"}, "contracts": ["identity"]},
+    {"definition_id": "available-quantity", "nature": "typed-value", "value_schema": {"type": "number"}},
+    {"definition_id": "demand-quantity", "nature": "typed-value", "value_schema": {"type": "number"}},
+    {"definition_id": "ordered-quantity", "nature": "typed-value", "value_schema": {"type": "number"}},
+    {"definition_id": "requested-delivery", "nature": "typed-value", "value_schema": {"type": "string", "format": "date"}},
+    {"definition_id": "promised-delivery", "nature": "typed-value", "value_schema": {"type": "string", "format": "date"}},
+    {"definition_id": "planned-delivery", "nature": "typed-value", "value_schema": {"type": "string", "format": "date"}},
+    {"definition_id": "actual-shipment", "nature": "typed-value", "value_schema": {"type": "number"}},
+    {"definition_id": "substitute-accepted", "nature": "typed-value", "value_schema": {"type": "boolean"}},
+    {"definition_id": "remote-booking", "nature": "typed-value", "value_schema": {"type": "string"}},
+    {"definition_id": "committed-purchase-quantity", "nature": "typed-value", "value_schema": {"type": "number"}},
     {
       "definition_id": "type.goods-receipt",
       "nature": "occurrence",
-      "value_schema": {},
+      "value_schema": {"type": "object"},
       "contracts": ["occurrence"],
       "on_record": {
         "op": "construct_claim",
@@ -22,15 +32,45 @@
     }
   ],
   "relations": [
-    {"definition_id": "relation.customer-of", "roles": [{"name": "party"}], "cardinality": {}, "projects_contextual_identity": true, "provenance_required": true, "temporal_required": false},
-    {"definition_id": "relation.supplier-of", "roles": [{"name": "party"}], "cardinality": {}, "projects_contextual_identity": true, "provenance_required": true, "temporal_required": false}
+    {
+      "definition_id": "relation.customer-of",
+      "roles": [{"name": "party"}],
+      "cardinality": {},
+      "projects_contextual_identity": true,
+      "provenance_required": true,
+      "temporal_required": false,
+      "value_schema": {
+        "type": "object",
+        "required": ["context_entity_id"],
+        "properties": {
+          "identity_id": {"type": "string"},
+          "context_entity_id": {"type": "string"}
+        }
+      }
+    },
+    {
+      "definition_id": "relation.supplier-of",
+      "roles": [{"name": "party"}],
+      "cardinality": {},
+      "projects_contextual_identity": true,
+      "provenance_required": true,
+      "temporal_required": false,
+      "value_schema": {
+        "type": "object",
+        "required": ["context_entity_id"],
+        "properties": {
+          "identity_id": {"type": "string"},
+          "context_entity_id": {"type": "string"}
+        }
+      }
+    }
   ],
   "computations": [
     {
       "definition_id": "computation.available-quantity",
       "result_predicate": "available-quantity",
-      "input_schema": {},
-      "result_schema": {},
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "number"},
       "expression": {
         "op": "sum",
         "source": {
@@ -47,8 +87,8 @@
     {
       "definition_id": "computation.purchase-plan",
       "result_predicate": null,
-      "input_schema": {},
-      "result_schema": {},
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "object"},
       "expression": {
         "op": "construct_result",
         "quantity": {"op": "literal", "value": 999},
@@ -58,8 +98,8 @@
     {
       "definition_id": "computation.quantity-positive",
       "result_predicate": null,
-      "input_schema": {},
-      "result_schema": {},
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "boolean"},
       "expression": {
         "op": "compare",
         "cmp": "gt",
@@ -70,8 +110,8 @@
     {
       "definition_id": "computation.purchase-mutations",
       "result_predicate": null,
-      "input_schema": {},
-      "result_schema": {},
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "object"},
       "expression": {
         "op": "construct_result",
         "claim": {
@@ -93,8 +133,8 @@
     {
       "definition_id": "computation.reconcile-carrier",
       "result_predicate": null,
-      "input_schema": {},
-      "result_schema": {},
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "string"},
       "expression": {
         "op": "if",
         "condition": {
@@ -106,6 +146,29 @@
         "then": {"op": "literal", "value": "confirmed"},
         "else": {"op": "literal", "value": "unknown"}
       }
+    },
+    {
+      "definition_id": "computation.approval-authorized",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "boolean"},
+      "expression": {
+        "op": "all",
+        "items": [
+          {
+            "op": "compare",
+            "cmp": "eq",
+            "left": {"op": "input", "path": "approver_actor_id"},
+            "right": {"op": "literal", "value": "actor:human-buyer"}
+          },
+          {
+            "op": "compare",
+            "cmp": "eq",
+            "left": {"op": "input", "path": "approver_delegation_id"},
+            "right": {"op": "literal", "value": "delegation:approve-buy-1"}
+          }
+        ]
+      }
     }
   ],
   "rules": [
@@ -116,14 +179,22 @@
       "basis_mode": "current_at_commit",
       "error_outcome": "deny",
       "combination_order": 0
+    },
+    {
+      "definition_id": "rule.approval-authorized",
+      "computation_ref": "computation.approval-authorized",
+      "enforcement_locus": "approval",
+      "basis_mode": "proposal",
+      "error_outcome": "deny",
+      "combination_order": 0
     }
   ],
   "actions": [
     {
       "definition_id": "action.purchase-raw",
-      "input_schema": {},
+      "input_schema": {"type": "object"},
       "planner_ref": "computation.purchase-plan",
-      "rule_refs": ["rule.quantity-positive"],
+      "rule_refs": ["rule.quantity-positive", "rule.approval-authorized"],
       "state_basis_spec": [
         {
           "id": "available",
@@ -142,7 +213,7 @@
   "effects": [
     {
       "definition_id": "effect.book-carrier",
-      "request_schema": {},
+      "request_schema": {"type": "object"},
       "protocol_safety": {"safe_dedupe": false, "absence_proof": false},
       "reconciliation_ref": "computation.reconcile-carrier"
     }

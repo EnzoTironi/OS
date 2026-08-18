@@ -78,3 +78,11 @@ class V001PropertyTests(unittest.TestCase):
             "reconciliation_records",
         ):
             self.assertTrue(graph.get(key), key)
+        self.assertTrue(graph["complete"])
+        self.assertEqual(list(graph["gaps"]), [])
+        refs = graph["operation_receipt"]["committed_refs"]
+        joined = " ".join(refs)
+        self.assertNotIn("claim:claim:", joined)
+        self.assertNotIn("approval:approval:", joined)
+        self.assertNotIn("basis:basis:", joined)
+        self.assertNotIn("effect:effect:", joined)

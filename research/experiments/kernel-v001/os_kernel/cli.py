@@ -7,6 +7,7 @@ from typing import Any
 from os_kernel.canonical import dumps_pretty
 from os_kernel.errors import InputError, InternalError
 from os_kernel.scenario import run_scenario, scenario_run_document
+from os_kernel.validation import require_rfc3339
 
 KNOWN_THEN_EXAMPLE = (
     "os query known-then --scenario v001 --subject stock:sku-x "
@@ -21,7 +22,28 @@ EXPLAIN_EXAMPLE = "os explain v001:operation:purchase-raw-1 --output json"
 RUN_EXAMPLE = "os scenario run v001 --output json"
 
 
+class _PtHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    def add_usage(self, usage, actions, groups, prefix=None):
+        return super().add_usage(usage, actions, groups, "uso: " if prefix is None else prefix)
+
+    def start_section(self, heading):
+        titles = {
+            "positional arguments": "argumentos posicionais",
+            "optional arguments": "argumentos opcionais",
+            "options": "opções",
+        }
+        super().start_section(titles.get(heading, heading))
+
+
 class _Help(argparse.ArgumentParser):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("formatter_class", _PtHelpFormatter)
+        super().__init__(*args, **kwargs)
+        if self._positionals is not None:
+            self._positionals.title = "argumentos posicionais"
+        if self._optionals is not None:
+            self._optionals.title = "opções"
+
     def error(self, message: str) -> None:
         invocation = self._invocation()
         raise InputError("invalid_usage", message, invocation)
@@ -48,20 +70,28 @@ def _parser() -> argparse.ArgumentParser:
     scenario = sub.add_parser(
         "scenario",
         help="Executa um cenário pelo kernel público.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_PtHelpFormatter,
         epilog=f"Exemplos:\n  {RUN_EXAMPLE}\n",
     )
+    if scenario._positionals is not None:
+        scenario._positionals.title = "argumentos posicionais"
+    if scenario._optionals is not None:
+        scenario._optionals.title = "opções"
     scenario_sub = scenario.add_subparsers(dest="scenario_command")
     run = scenario_sub.add_parser(
         "run",
         help="Aplica cada comando do cenário via Kernel.apply e devolve ScenarioRun.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_PtHelpFormatter,
         epilog=(
             "Exemplos:\n"
             f"  {RUN_EXAMPLE}\n"
             "  os scenario run v001 --engine ontology --output json\n"
         ),
     )
+    if run._positionals is not None:
+        run._positionals.title = "argumentos posicionais"
+    if run._optionals is not None:
+        run._optionals.title = "opções"
     run.add_argument("scenario_id", help="Identificador do cenário, por exemplo v001.")
     run.add_argument("--engine", default="ontology", help="Motor. ontology é o padrão. conventional não é suportado nesta unidade.")
     run.add_argument("--output", choices=("json",), help="Formato de saída. Apenas json.")
@@ -69,27 +99,35 @@ def _parser() -> argparse.ArgumentParser:
     explain = sub.add_parser(
         "explain",
         help="Explica uma referência causal retida pelo kernel.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_PtHelpFormatter,
         epilog=f"Exemplos:\n  {EXPLAIN_EXAMPLE}\n",
     )
+    if explain._positionals is not None:
+        explain._positionals.title = "argumentos posicionais"
+    if explain._optionals is not None:
+        explain._optionals.title = "opções"
     explain.add_argument("reference", help="Referência estável, por exemplo v001:operation:purchase-raw-1.")
     explain.add_argument("--output", choices=("json",), help="Formato de saída. Apenas json.")
 
     query = sub.add_parser(
         "query",
         help="Consulta temporal known-then ou now-believed-for-then.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_PtHelpFormatter,
         epilog=(
             "Exemplos:\n"
             f"  {KNOWN_THEN_EXAMPLE}\n"
             f"  {NOW_BELIEVED_EXAMPLE}\n"
         ),
     )
+    if query._positionals is not None:
+        query._positionals.title = "argumentos posicionais"
+    if query._optionals is not None:
+        query._optionals.title = "opções"
     query.add_argument("query_type", help="known-then ou now-believed-for-then.")
     query.add_argument("--scenario", required=True, help="Identificador do cenário.")
     query.add_argument("--subject", required=True, help="Sujeito da proposição.")
     query.add_argument("--predicate", required=True, help="Predicado da proposição.")
-    query.add_argument("--valid-at", required=True, dest="valid_at", help="Tempo válido da pergunta.")
+    query.add_argument("--valid-at", required=True, dest="valid_at", help="Tempo válido da pergunta, em RFC3339.")
     query.add_argument("--known-at", dest="known_at", help="Corte de conhecimento. Obrigatório em known-then.")
     query.add_argument("--output", choices=("json",), help="Formato de saída. Apenas json.")
     return parser
@@ -140,6 +178,7 @@ def _query(args: argparse.Namespace) -> dict[str, Any]:
         )
     if args.query_type not in {"known-then", "now-believed-for-then"}:
         raise InputError("unknown_query", f"consulta {args.query_type!r} não é suportada", KNOWN_THEN_EXAMPLE)
+    require_rfc3339(args.valid_at)
     kernel, _, _ = run_scenario(args.scenario)
     payload = {
         "type": args.query_type,

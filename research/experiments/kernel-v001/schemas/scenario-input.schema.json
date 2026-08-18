@@ -16,8 +16,32 @@
         "start": {"type": "string", "format": "date-time"}
       }
     },
-    "knowledge_cuts": {"type": "object"},
-    "closing_queries": {"type": "array"},
+    "knowledge_cuts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "before_command_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "closing_queries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {"type": "string"},
+          "subject": {"type": "string"},
+          "predicate": {"type": "string"},
+          "valid_at": {
+            "type": "string",
+            "anyOf": [{"format": "date"}, {"format": "date-time"}]
+          },
+          "known_at": {"type": "string"}
+        }
+      }
+    },
     "closing_explains": {"type": "array", "items": {"type": "string"}},
     "black_box_expectations": {"type": "object"},
     "commands": {

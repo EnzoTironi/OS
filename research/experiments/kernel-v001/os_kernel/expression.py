@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,7 +25,7 @@ def _path(source: Any, path: str) -> Any:
     for part in path.split("."):
         if current is None:
             return None
-        if isinstance(current, dict):
+        if isinstance(current, Mapping):
             current = current.get(part)
             continue
         current = getattr(current, part, None)
@@ -36,11 +37,11 @@ def _as_number(value: Any) -> float:
         raise InternalError("expression", "boolean is not a number")
     if isinstance(value, (int, float)):
         return float(value)
-    if isinstance(value, dict) and "number" in value:
+    if isinstance(value, Mapping) and "number" in value:
         return float(value["number"])
-    if isinstance(value, dict) and "amount" in value:
+    if isinstance(value, Mapping) and "amount" in value:
         return float(value["amount"])
-    if isinstance(value, dict) and "signed" in value:
+    if isinstance(value, Mapping) and "signed" in value:
         return float(value["signed"])
     raise InternalError("expression", f"value {value!r} is not numeric")
 
@@ -69,7 +70,7 @@ def _compare(cmp: str, left: Any, right: Any) -> bool:
 def _valid_time(value: Any) -> ValidTime:
     if isinstance(value, ValidTime):
         return value
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return ValidTime(value.get("instant"), value.get("start"), value.get("end"))
     if isinstance(value, str):
         return ValidTime(instant=value)

@@ -8,6 +8,7 @@ from os_kernel.canonical import digest
 from os_kernel.definitions import load_bundle
 from os_kernel.errors import InputError, InternalError
 from os_kernel.kernel import Kernel, ScriptedClock, SeqIds
+from os_kernel.validation import validate_command, validate_scenario
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures"
@@ -34,29 +35,51 @@ def load_json(path: Path) -> dict[str, Any]:
     return data
 
 
+def _cuts_by_command(scenario: dict[str, Any]) -> dict[str, str]:
+    cuts = scenario.get("knowledge_cuts") or {}
+    mapped: dict[str, str] = {}
+    for alias, spec in cuts.items():
+        if isinstance(spec, dict) and spec.get("before_command_id"):
+            mapped[spec["before_command_id"]] = alias
+    return mapped
+
+
+def _reject_impossible_cuts(commands: list[dict[str, Any]], cut_before: dict[str, str]) -> None:
+    ids = [item.get("command_id") for item in commands]
+    for before, alias in cut_before.items():
+        if before not in ids:
+            raise InternalError("impossible_cut", f"knowledge cut {alias} refers to unknown command {before}")
+        if ids.index(before) == 0:
+            raise InternalError("impossible_cut", f"knowledge cut {alias} cannot be taken before the first command")
+
+
 def run_scenario(scenario_id: str) -> tuple[Kernel, dict[str, Any], list[dict[str, Any]]]:
     folder = scenario_dir(scenario_id)
     definitions = load_json(folder / "definitions.json")
     scenario = load_json(folder / "scenario.json")
+    validate_scenario(scenario, internal=True)
     if scenario.get("scenario_id") != scenario_id:
         raise InternalError("scenario_mismatch", "scenario_id no arquivo não coincide com o pedido")
+    commands = scenario.get("commands", [])
+    cut_before = _cuts_by_command(scenario)
+    _reject_impossible_cuts(commands, cut_before)
     clock = ScriptedClock(scenario.get("clock", {}).get("start", "2030-08-10T10:00:00Z"))
     kernel = Kernel.open(load_bundle(definitions), clock, SeqIds())
     receipts: list[dict[str, Any]] = []
-    cuts = scenario.get("knowledge_cuts") or {}
     applied = 0
-    for command in scenario.get("commands", []):
+    for index, command in enumerate(commands):
         if not isinstance(command, dict):
             raise InputError("invalid_command", "cada comando deve ser um objeto", "os scenario run v001 --output json")
-        command_id = command.get("command_id")
-        if command_id and any(item.get("before_command_id") == command_id for item in cuts.values() if isinstance(item, dict)):
-            for alias, spec in cuts.items():
-                if isinstance(spec, dict) and spec.get("before_command_id") == command_id:
-                    kernel._aliases[alias] = kernel._store.current_revision()
         payload = dict(command)
+        nxt = commands[index + 1] if index + 1 < len(commands) else None
+        if nxt is not None:
+            alias = cut_before.get(nxt.get("command_id"))
+            if alias:
+                payload["alias_revision_as"] = alias
         if "definitions_file" in payload:
             payload["definitions"] = load_json(folder / payload["definitions_file"])
             del payload["definitions_file"]
+        validate_command(payload)
         receipt = kernel.apply(payload)
         applied += 1
         receipts.append(

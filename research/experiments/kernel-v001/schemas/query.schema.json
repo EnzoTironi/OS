@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os2030.local/schemas/kernel-v001-query.json",
+  "title": "kernel-v001 query",
+  "type": "object",
+  "required": ["type"],
+  "oneOf": [
+    {
+      "properties": {
+        "type": {"const": "known-then"},
+        "subject": {"type": "string", "minLength": 1},
+        "predicate": {"type": "string", "minLength": 1},
+        "valid_at": {
+          "type": "string",
+          "anyOf": [{"format": "date"}, {"format": "date-time"}]
+        },
+        "known_at": {"type": "string", "minLength": 1}
+      },
+      "required": ["type", "subject", "predicate", "valid_at", "known_at"],
+      "additionalProperties": false
+    },
+    {
+      "properties": {
+        "type": {"const": "now-believed-for-then"},
+        "subject": {"type": "string", "minLength": 1},
+        "predicate": {"type": "string", "minLength": 1},
+        "valid_at": {
+          "type": "string",
+          "anyOf": [{"format": "date"}, {"format": "date-time"}]
+        }
+      },
+      "required": ["type", "subject", "predicate", "valid_at"],
+      "additionalProperties": false
+    },
+    {
+      "properties": {
+        "type": {"const": "scenario-report"},
+        "scenario_id": {"type": "string"}
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    }
+  ]
+}
