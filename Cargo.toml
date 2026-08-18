@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "apps/zoend",
   "crates/zoen-adapters",
   "crates/zoen-core",
   "crates/zoen-engine",

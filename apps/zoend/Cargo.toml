@@ -1,0 +1,24 @@
+[package]
+name = "zoend"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+axum = "0.8.9"
+buffa = { version = "0.8.1", features = ["json"] }
+connectrpc = { version = "0.8.1", features = ["axum", "server"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_jcs = "0.2.0"
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+zoen-adapters = { path = "../../crates/zoen-adapters" }
+zoen-core = { path = "../../crates/zoen-core" }
+zoen-engine = { path = "../../crates/zoen-engine" }
+
+[build-dependencies]
+connectrpc-build = "0.8.0"
+
+[lints]
+workspace = true
