@@ -1,0 +1,51 @@
+import type {
+  ActionDefinition,
+  ComputationDefinition,
+  RawDefinitionBundle,
+  RelationDefinition,
+  TypeDefinition,
+} from "./model.js";
+
+export type {
+  ActionDefinition,
+  ActionEffect,
+  CanonicalDefinitionBundle,
+  CompiledDefinition,
+  ComputationDefinition,
+  ExactValue,
+  Expression,
+  InputDefinition,
+  RawDefinitionBundle,
+  RelationDefinition,
+  RelationTarget,
+  TypeDefinition,
+  ValueType,
+} from "./model.js";
+
+export function defineAction(
+  definition: ActionDefinition,
+): ActionDefinition {
+  return definition;
+}
+
+export function defineBundle(
+  definition: RawDefinitionBundle,
+): RawDefinitionBundle {
+  return definition;
+}
+
+export function defineComputation(
+  definition: ComputationDefinition,
+): ComputationDefinition {
+  return definition;
+}
+
+export function defineRelation(
+  definition: RelationDefinition,
+): RelationDefinition {
+  return definition;
+}
+
+export function defineType(definition: TypeDefinition): TypeDefinition {
+  return definition;
+}

@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package zoen.definition.v1;
+
+service DefinitionService {
+  rpc Publish(PublishRequest) returns (PublishResponse);
+  rpc GetRevision(GetRevisionRequest) returns (GetRevisionResponse);
+}
+
+message PublishRequest {
+  string tenant_id = 1;
+  bytes canonical_json = 2;
+  string digest = 3;
+}
+
+message PublishResponse {
+  DefinitionRevision definition_revision = 1;
+}
+
+message GetRevisionRequest {
+  string tenant_id = 1;
+  string definition_id = 2;
+  string digest = 3;
+}
+
+message GetRevisionResponse {
+  DefinitionRevision definition_revision = 1;
+}
+
+message DefinitionRevision {
+  string definition_id = 1;
+  uint64 revision = 2;
+  string digest = 3;
+  bytes canonical_json = 4;
+  uint64 commit_sequence = 5;
+}

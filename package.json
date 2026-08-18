@@ -1,0 +1,29 @@
+{
+  "name": "zoen-os",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "buf:breaking": "buf breaking --against .buf-baseline",
+    "buf:generate": "buf generate",
+    "buf:lint": "buf lint",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/packages/ontology/src/compiler.test.js"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "1.72.0",
+    "@bufbuild/protobuf": "2.14.0",
+    "@bufbuild/protoc-gen-es": "2.14.0",
+    "@connectrpc/connect": "2.1.2",
+    "@connectrpc/connect-node": "2.1.2",
+    "@types/node": "26.2.0",
+    "@types/pg": "8.23.1",
+    "json-canonicalize": "2.0.1",
+    "pg": "8.23.0",
+    "typescript": "7.0.2",
+    "zod": "4.4.3"
+  }
+}
