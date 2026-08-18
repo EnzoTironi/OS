@@ -166,6 +166,16 @@ def call_commit(dsn: str, payload: dict[str, Any]) -> dict[str, Any]:
     return parse_json_line(raw)
 
 
+def observe_commit(dsn: str, payload: dict[str, Any]) -> dict[str, Any]:
+    completed = run_psql(dsn, commit_sql(payload))
+    if completed.returncode != 0:
+        return {
+            "state": "error",
+            "detail": completed.stderr.strip() or completed.stdout.strip(),
+        }
+    return parse_json_line(completed.stdout)
+
+
 def call_status(dsn: str, namespace: str, operation_id: str) -> dict[str, Any]:
     raw = psql_ok(dsn, status_sql(namespace, operation_id))
     return parse_json_line(raw)
@@ -929,6 +939,295 @@ def run_mutants(dsn: str, transcript: list[str]) -> list[dict[str, Any]]:
     return rows
 
 
+def claim_record(record_id: str, value: int) -> dict[str, Any]:
+    return {"record_id": record_id, "kind": "claim", "payload": {"value": value}}
+
+
+def carrier_effect(request_id: str, kind: str = "pickup") -> dict[str, Any]:
+    return {
+        "request_id": request_id,
+        "effect_definition_ref": "effect.book-carrier@1",
+        "intent_digest": DIGEST_B,
+        "payload": {"kind": kind},
+    }
+
+
+def typed_identity_collision(
+    result: dict[str, Any],
+    operation_id: str,
+    *,
+    namespace: str = "org-a",
+) -> bool:
+    return (
+        result.get("state") == "identity_collision"
+        and result.get("namespace") == namespace
+        and result.get("operation_id") == operation_id
+    )
+
+
+def empty_operation(row_counts: dict[str, int]) -> bool:
+    return (
+        row_counts["operations"] == 0
+        and row_counts["records"] == 0
+        and row_counts["effects"] == 0
+    )
+
+
+def canonical_receipt(result: dict[str, Any]) -> bool:
+    return (
+        isinstance(result.get("record_ids"), list)
+        and isinstance(result.get("effect_request_ids"), list)
+        and result["record_ids"] == ["claim:a", "claim:z"]
+        and result["effect_request_ids"] == ["effect:a", "effect:z"]
+    )
+
+
+def run_identity_collision_sequence(dsn: str, case: dict[str, Any]) -> dict[str, Any]:
+    reset_contract(dsn)
+    owner = call_commit(dsn, case["owner"])
+    after_owner = counts(dsn, "org-a")
+    first = observe_commit(dsn, case["collider"])
+    status = call_status(dsn, "org-a", case["collider_id"])
+    after_first = counts(dsn, "org-a", case["collider_id"])
+    retry = observe_commit(dsn, case["collider"])
+    after_retry = counts(dsn, "org-a", case["collider_id"])
+    stale = observe_commit(dsn, case["stale"])
+    after_stale = counts(dsn, "org-a", case["stale_id"])
+    return {
+        "kind": case["kind"],
+        "owner": owner,
+        "first": first,
+        "retry": retry,
+        "stale": stale,
+        "status": status,
+        "after_owner": after_owner,
+        "after_first": after_first,
+        "after_retry": after_retry,
+        "after_stale": after_stale,
+        "namespace": counts(dsn, "org-a"),
+    }
+
+
+def identity_sequence_properties(case: dict[str, Any], trace: dict[str, Any]) -> list[dict[str, Any]]:
+    kind = case["kind"]
+    collider_id = case["collider_id"]
+    return [
+        property_row(
+            f"identity.{kind}_collision",
+            typed_identity_collision(trace["first"], collider_id)
+            and trace["owner"].get("state") == "committed",
+            {"owner": trace["owner"], "first": trace["first"]},
+        ),
+        property_row(
+            f"identity.{kind}_status_absent",
+            trace["status"].get("found") is False,
+            trace["status"],
+        ),
+        property_row(
+            f"identity.{kind}_retry",
+            typed_identity_collision(trace["first"], collider_id)
+            and typed_identity_collision(trace["retry"], collider_id),
+            {"first": trace["first"], "retry": trace["retry"]},
+        ),
+        property_row(
+            f"identity.{kind}_no_partial",
+            empty_operation(trace["after_first"])
+            and empty_operation(trace["after_retry"])
+            and trace["after_owner"]["head_revision"] == 1
+            and trace["namespace"]["head_revision"] == 1
+            and trace["namespace"]["operations"] == 1,
+            {
+                "after_first": trace["after_first"],
+                "after_retry": trace["after_retry"],
+                "namespace": trace["namespace"],
+            },
+        ),
+        property_row(
+            f"identity.{kind}_stale_cas",
+            trace["stale"].get("state") == "conflict" and empty_operation(trace["after_stale"]),
+            {"stale": trace["stale"], "counts": trace["after_stale"]},
+        ),
+    ]
+
+
+def run_identity_collisions(
+    dsn: str,
+    transcript: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    cases = (
+        {
+            "kind": "record",
+            "collider_id": "op-rec-collider",
+            "stale_id": "op-rec-stale",
+            "owner": request_payload(
+                operation_id="op-rec-owner",
+                records=[claim_record("claim:shared-rec", 1)],
+                effect_requests=[carrier_effect("effect:rec-owner")],
+            ),
+            "collider": request_payload(
+                operation_id="op-rec-collider",
+                expected_revision=1,
+                records=[claim_record("claim:shared-rec", 2)],
+                effect_requests=[carrier_effect("effect:rec-collider")],
+            ),
+            "stale": request_payload(
+                operation_id="op-rec-stale",
+                expected_revision=0,
+                records=[claim_record("claim:shared-rec", 3)],
+                effect_requests=[carrier_effect("effect:rec-stale")],
+            ),
+        },
+        {
+            "kind": "effect",
+            "collider_id": "op-eff-collider",
+            "stale_id": "op-eff-stale",
+            "owner": request_payload(
+                operation_id="op-eff-owner",
+                records=[claim_record("claim:eff-owner", 1)],
+                effect_requests=[carrier_effect("effect:shared-eff")],
+            ),
+            "collider": request_payload(
+                operation_id="op-eff-collider",
+                expected_revision=1,
+                records=[claim_record("claim:eff-collider", 2)],
+                effect_requests=[carrier_effect("effect:shared-eff")],
+            ),
+            "stale": request_payload(
+                operation_id="op-eff-stale",
+                expected_revision=0,
+                records=[claim_record("claim:eff-stale", 3)],
+                effect_requests=[carrier_effect("effect:shared-eff")],
+            ),
+        },
+    )
+    rows: list[dict[str, Any]] = []
+    traces: dict[str, Any] = {}
+    for case in cases:
+        trace = run_identity_collision_sequence(dsn, case)
+        traces[case["kind"]] = trace
+        rows.extend(identity_sequence_properties(case, trace))
+        transcript.append(f"identity {case['kind']} collision")
+    return rows, traces
+
+
+def run_receipt_witness(
+    dsn: str,
+    transcript: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    reset_contract(dsn)
+    payload = request_payload(
+        operation_id="op-receipt",
+        records=[claim_record("claim:z", 1), claim_record("claim:a", 2)],
+        effect_requests=[carrier_effect("effect:z"), carrier_effect("effect:a", "drop")],
+    )
+    committed = call_commit(dsn, payload)
+    replayed = call_commit(dsn, payload)
+    status = call_status(dsn, "org-a", "op-receipt")
+    transcript.append("receipt canonical witness")
+    traces = {"committed": committed, "replayed": replayed, "status": status}
+    passed = (
+        committed.get("state") == "committed"
+        and replayed.get("state") == "replayed"
+        and status.get("found") is True
+        and canonical_receipt(committed)
+        and canonical_receipt(replayed)
+        and canonical_receipt(status)
+        and committed["record_ids"] == replayed["record_ids"] == status["record_ids"]
+        and committed["effect_request_ids"] == replayed["effect_request_ids"] == status["effect_request_ids"]
+    )
+    return [property_row("receipt.canonical_witness", passed, traces)], traces
+
+
+def run_identity_races(
+    dsn: str,
+    transcript: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    owner = request_payload(
+        operation_id="op-race-owner",
+        records=[claim_record("claim:race", 1)],
+        effect_requests=[carrier_effect("effect:race-owner")],
+    )
+    reset_contract(dsn)
+    call_commit(dsn, owner)
+    left = request_payload(
+        operation_id="op-race-c1",
+        expected_revision=1,
+        records=[claim_record("claim:race", 2)],
+        effect_requests=[carrier_effect("effect:race-c1")],
+    )
+    right = request_payload(
+        operation_id="op-race-c2",
+        expected_revision=1,
+        records=[claim_record("claim:race", 3)],
+        effect_requests=[carrier_effect("effect:race-c2")],
+    )
+    pair_results, pair_traces = run_two_commits(dsn, left, right)
+    pair_states = sorted(item.get("state") for item in pair_results)
+    pair_c1 = counts(dsn, "org-a", "op-race-c1")
+    pair_c2 = counts(dsn, "org-a", "op-race-c2")
+    pair_head = counts(dsn, "org-a")
+    transcript.append("identity two colliders")
+
+    reset_contract(dsn)
+    call_commit(dsn, owner)
+    valid = request_payload(
+        operation_id="op-race-valid",
+        expected_revision=1,
+        records=[claim_record("claim:valid", 1)],
+        effect_requests=[carrier_effect("effect:valid")],
+    )
+    collider = request_payload(
+        operation_id="op-race-hit",
+        expected_revision=1,
+        records=[claim_record("claim:race", 4)],
+        effect_requests=[carrier_effect("effect:race-hit")],
+    )
+    mix_results, mix_traces = run_two_commits(dsn, valid, collider)
+    mix_states = sorted(item.get("state") for item in mix_results)
+    valid_counts = counts(dsn, "org-a", "op-race-valid")
+    hit_counts = counts(dsn, "org-a", "op-race-hit")
+    mix_head = counts(dsn, "org-a")
+    transcript.append("identity collider versus valid")
+
+    traces = {
+        "two_colliders": {
+            "states": pair_states,
+            "traces": pair_traces,
+            "counts": {"c1": pair_c1, "c2": pair_c2, "namespace": pair_head},
+        },
+        "collider_vs_valid": {
+            "states": mix_states,
+            "traces": mix_traces,
+            "counts": {"valid": valid_counts, "collider": hit_counts, "namespace": mix_head},
+        },
+    }
+    rows = [
+        property_row(
+            "identity.two_colliders",
+            pair_states == ["identity_collision", "identity_collision"]
+            and empty_operation(pair_c1)
+            and empty_operation(pair_c2)
+            and pair_head["head_revision"] == 1
+            and pair_head["operations"] == 1,
+            traces["two_colliders"],
+        ),
+        property_row(
+            "identity.collider_vs_valid",
+            mix_states.count("committed") == 1
+            and (
+                mix_states.count("identity_collision") + mix_states.count("conflict") == 1
+            )
+            and "error" not in mix_states
+            and empty_operation(hit_counts)
+            and valid_counts["operations"] == 1
+            and mix_head["operations"] == 2
+            and mix_head["head_revision"] == 2,
+            traces["collider_vs_valid"],
+        ),
+    ]
+    return rows, traces
+
+
 def run_all(dsn: str, output: Path) -> dict[str, Any]:
     transcript: list[str] = []
     init_contract(dsn)
@@ -948,6 +1247,12 @@ def run_all(dsn: str, output: Path) -> dict[str, Any]:
     race_rows, race_traces = run_same_operation_races(dsn, transcript)
     properties.extend(race_rows)
     properties.extend(run_atomicity(dsn, transcript))
+    identity_rows, identity_traces = run_identity_collisions(dsn, transcript)
+    properties.extend(identity_rows)
+    receipt_rows, receipt_traces = run_receipt_witness(dsn, transcript)
+    properties.extend(receipt_rows)
+    identity_race_rows, identity_race_traces = run_identity_races(dsn, transcript)
+    properties.extend(identity_race_rows)
     failure_rows, failure_traces = run_failures(dsn, transcript)
     properties.extend(failure_rows)
     reset_contract(dsn)
@@ -980,7 +1285,10 @@ def run_all(dsn: str, output: Path) -> dict[str, Any]:
         "concurrency_results": {
             "conflict": conflict_traces,
             "same_operation": race_traces,
+            "identity_collision": identity_race_traces,
         },
+        "identity_results": identity_traces,
+        "receipt_results": receipt_traces,
         "failure_results": failure_traces,
         "mutant_matrix": mutants,
         "transcript": transcript,
@@ -1000,6 +1308,8 @@ def write_artifacts(output: Path, document: dict[str, Any]) -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     write_json(artifact_dir / "property-matrix.json", document["property_matrix"])
     write_json(artifact_dir / "concurrency-traces.json", document["concurrency_results"])
+    write_json(artifact_dir / "identity-results.json", document["identity_results"])
+    write_json(artifact_dir / "receipt-results.json", document["receipt_results"])
     write_json(artifact_dir / "failure-traces.json", document["failure_results"])
     write_json(artifact_dir / "environment.json", document["environment"])
     write_json(artifact_dir / "mutant-matrix.json", document["mutant_matrix"])
