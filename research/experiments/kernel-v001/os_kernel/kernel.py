@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -164,7 +163,7 @@ class Kernel:
     def apply(self, command: dict[str, Any] | Any) -> CommandReceipt:
         if not isinstance(command, dict):
             raise InputError("invalid_command", "command must be an object", "os scenario run v001 --output json")
-        payload = copy.deepcopy(command)
+        payload = public_output(command)
         validate_command(payload)
         command_type = payload.get("type")
         clock_time = payload.get("clock_time")
@@ -199,11 +198,11 @@ class Kernel:
             receipt.outcome,
             receipt.known_revision,
             receipt.record_refs,
-            retained(receipt.details),
+            public_output(receipt.details),
         )
 
     def query(self, query: dict[str, Any]) -> dict[str, Any]:
-        payload = copy.deepcopy(query)
+        payload = public_output(query)
         validate_query(payload)
         kind = payload.get("type")
         if kind == "known-then":

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import copy
 from typing import Any
 
+from os_kernel.canonical import copy_structure
 from os_kernel.errors import InternalError
 from os_kernel.model import (
     Approval,
@@ -62,7 +62,7 @@ class Store:
     def _begin(self) -> None:
         if self._stage is not None:
             raise InternalError("store_stage", "a staged commit is already open")
-        self._stage = copy.deepcopy(self._tables)
+        self._stage = copy_structure(self._tables)
         self._stage_revision = self._revision
 
     def _commit(self) -> None:
@@ -82,7 +82,7 @@ class Store:
         return self._stage if self._stage is not None else self._tables
 
     def _copy(self, value: Any) -> Any:
-        return copy.deepcopy(value)
+        return copy_structure(value)
 
     def _put(self, table: str, key: str, value: Any) -> None:
         active = self._active()

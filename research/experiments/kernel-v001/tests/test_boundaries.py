@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -13,6 +14,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from support import ROOT, load_json, load_schema, open_kernel, validator, v001_kernel
+from os_kernel.canonical import digest, public_output, retained
 from os_kernel.definitions import load_bundle
 from os_kernel.errors import InputError, InternalError
 from os_kernel.kernel import Kernel
@@ -20,7 +22,7 @@ from os_kernel.model import Approval, Attribution
 from os_kernel.scenario import load_json as load_scenario_json
 from os_kernel.scenario import run_scenario, scenario_dir
 from os_kernel.store import Store
-from os_kernel.validation import validate_scenario
+from os_kernel.validation import resolve_protocol_ref, validate_scenario
 
 
 PROVENANCE = {
@@ -530,3 +532,85 @@ class BoundaryTests(unittest.TestCase):
         payload["clock"]["start"] = "not-a-date"
         with self.assertRaises(InternalError):
             validate_scenario(payload, internal=True)
+
+    def test_retained_nested_mapping_roundtrip(self) -> None:
+        source = {"nested": [{"value": 1}]}
+        value = retained(source)
+        store = Store()
+        store._put("claims", "x", value)
+        loaded = store.get("claims", "x")
+        published = public_output(loaded)
+        json.dumps(published)
+        self.assertEqual(published, {"nested": [{"value": 1}]})
+        self.assertEqual(value, loaded)
+        self.assertEqual(digest(public_output(value)), digest(published))
+        source["nested"][0]["value"] = 9
+        self.assertEqual(public_output(store.get("claims", "x")), {"nested": [{"value": 1}]})
+
+    def test_store_and_public_aliases_are_separated(self) -> None:
+        source = {"nested": [{"value": 1}]}
+        value = retained(source)
+        store = Store()
+        store._put("claims", "x", value)
+        first = store.get("claims", "x")
+        second = store.get("claims", "x")
+        self.assertIsNot(first, second)
+        self.assertIsNot(first, store._tables["claims"]["x"])
+        published = public_output(first)
+        published["nested"][0]["value"] = 4
+        self.assertEqual(public_output(store.get("claims", "x"))["nested"][0]["value"], 1)
+        store._begin()
+        self.assertIsNot(store._active()["claims"]["x"], store._tables["claims"]["x"])
+        store._rollback()
+
+    def test_apply_outputs_are_json_copies_and_input_is_detached(self) -> None:
+        kernel = open_kernel()
+        command = claim_command("claim:out", 5)
+        receipt = kernel.apply(command)
+        command["value"] = 91
+        json.dumps(receipt.details)
+        receipt.details["claim_id"] = "mutated"
+        report = kernel.query({"type": "scenario-report", "scenario_id": "v001"})
+        json.dumps(report)
+        stored = next(item for item in report["records"]["claims"] if item["claim_id"] == "claim:out")
+        self.assertEqual(stored["value"], 5)
+        self.assertEqual(digest(stored["value"]), digest(5))
+        report["records"]["claims"][0]["value"] = 123
+        later = kernel.query({"type": "scenario-report", "scenario_id": "v001"})
+        stored_later = next(item for item in later["records"]["claims"] if item["claim_id"] == "claim:out")
+        self.assertEqual(stored_later["value"], 5)
+
+    def test_protocol_ref_resolution(self) -> None:
+        exact = Store()
+        exact._put("claims", "claim:a:x", {"claim_id": "claim:a:x"})
+        exact._put("claims", "claim:b:x", {"claim_id": "claim:b:x"})
+        self.assertEqual(resolve_protocol_ref(exact, "claim:a:x")["claim_id"], "claim:a:x")
+        with self.assertRaises(InputError) as ambiguous:
+            resolve_protocol_ref(exact, "claim:x")
+        self.assertEqual(ambiguous.exception.code, "ambiguous_ref")
+
+        unprefixed = Store()
+        unprefixed._put("claims", "a:x", {"claim_id": "a:x"})
+        self.assertEqual(resolve_protocol_ref(unprefixed, "claim:a:x")["claim_id"], "a:x")
+
+        prefers_exact = Store()
+        prefers_exact._put("claims", "claim:x", {"claim_id": "claim:x"})
+        prefers_exact._put("claims", "claim:a:x", {"claim_id": "claim:a:x"})
+        self.assertEqual(resolve_protocol_ref(prefers_exact, "claim:x")["claim_id"], "claim:x")
+
+        same_local = Store()
+        same_local._put("claims", "claim:x", {"claim_id": "claim:x"})
+        same_local._put("approvals", "approval:x", {"approval_id": "approval:x"})
+        self.assertEqual(resolve_protocol_ref(same_local, "claim:x")["claim_id"], "claim:x")
+        self.assertEqual(resolve_protocol_ref(same_local, "approval:x")["approval_id"], "approval:x")
+
+        wrong_kind = Store()
+        wrong_kind._put("approvals", "approval:x", {"approval_id": "approval:x"})
+        with self.assertRaises(InputError) as wrong:
+            resolve_protocol_ref(wrong_kind, "claim:x")
+        self.assertEqual(wrong.exception.code, "wrong_kind_ref")
+
+        empty = Store()
+        with self.assertRaises(InputError) as dangling:
+            resolve_protocol_ref(empty, "claim:x")
+        self.assertEqual(dangling.exception.code, "dangling_ref")

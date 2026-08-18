@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -205,53 +206,160 @@ def _row_id(row: Any, attr: str) -> str:
     return str(getattr(row, attr))
 
 
-def _matches(kind: str, identifier: str, row_id: str) -> bool:
-    qualified = qualify(kind, identifier)
-    return row_id in {identifier, qualified, qualify(kind, row_id)} or qualified == qualify(kind, row_id)
+def _qualified_id(kind: str, identifier: str) -> str:
+    prefix = f"{kind}:"
+    if identifier.startswith(prefix):
+        return identifier
+    return prefix + identifier
+
+
+def _local_suffix(identifier: str) -> str:
+    return identifier.rsplit(":", 1)[-1]
+
+
+@dataclass(frozen=True)
+class _RefCandidate:
+    kind: str
+    qualified: str
+    local: str
+    row: Any
+
+
+def _candidate(kind: str, identifier: str, row: Any) -> _RefCandidate | None:
+    if not identifier:
+        return None
+    return _RefCandidate(kind, _qualified_id(kind, identifier), _local_suffix(identifier), row)
+
+
+def _dedupe_candidates(candidates: list[_RefCandidate]) -> list[_RefCandidate]:
+    unique: dict[tuple[str, str], _RefCandidate] = {}
+    for item in candidates:
+        key = (item.kind, item.qualified)
+        if key not in unique:
+            unique[key] = item
+    return list(unique.values())
+
+
+def _table_candidates(store: Any, kind: str) -> list[_RefCandidate]:
+    table, attr = KIND_TABLES[kind]
+    found: list[_RefCandidate] = []
+    for row in store.all(table):
+        item = _candidate(kind, _row_id(row, attr), row)
+        if item is not None:
+            found.append(item)
+    return _dedupe_candidates(found)
+
+
+def _embedded_basis(row: Any) -> Any | None:
+    if isinstance(row, Mapping):
+        return row.get("state_basis")
+    return getattr(row, "state_basis", None)
+
+
+def _basis_id(basis: Any) -> str:
+    if isinstance(basis, Mapping):
+        return str(basis.get("basis_id", ""))
+    return str(getattr(basis, "basis_id", ""))
+
+
+def _receipt_result(row: Any) -> Any:
+    if isinstance(row, Mapping):
+        return row.get("result")
+    return getattr(row, "result", None)
+
+
+def _basis_candidates(store: Any) -> list[_RefCandidate]:
+    found: list[_RefCandidate] = []
+    for proposal in store.all("proposals"):
+        basis = _embedded_basis(proposal)
+        if basis is None:
+            continue
+        item = _candidate("basis", _basis_id(basis), basis)
+        if item is not None:
+            found.append(item)
+    for approval in store.all("approvals"):
+        basis = _embedded_basis(approval)
+        if basis is None:
+            continue
+        item = _candidate("basis", _basis_id(basis), basis)
+        if item is not None:
+            found.append(item)
+    for receipt in store.all("receipts"):
+        result = _receipt_result(receipt)
+        embedded = result.get("commit_basis") if isinstance(result, Mapping) else None
+        if isinstance(embedded, Mapping):
+            item = _candidate("basis", str(embedded.get("basis_id", "")), embedded)
+            if item is not None:
+                found.append(item)
+    return _dedupe_candidates(found)
+
+
+def _defrev_candidates(store: Any) -> list[_RefCandidate]:
+    found: list[_RefCandidate] = []
+    for key in store.keys("definition_revisions"):
+        item = _candidate("defrev", key, store.get("definition_revisions", key))
+        if item is not None:
+            found.append(item)
+    return _dedupe_candidates(found)
+
+
+def _candidates_by_kind(store: Any) -> dict[str, list[_RefCandidate]]:
+    grouped = {name: [] for name in REF_KINDS}
+    for kind in KIND_TABLES:
+        grouped[kind] = _table_candidates(store, kind)
+    grouped["basis"] = _basis_candidates(store)
+    grouped["defrev"] = _defrev_candidates(store)
+    return grouped
+
+
+def _unprefixed(item: _RefCandidate) -> str:
+    prefix = f"{item.kind}:"
+    if item.qualified.startswith(prefix):
+        return item.qualified[len(prefix):]
+    return item.qualified
+
+
+def _other_kind_hits(
+    kind: str,
+    remainder: str,
+    requested: str,
+    local_request: bool,
+    grouped: dict[str, list[_RefCandidate]],
+) -> bool:
+    for other, items in grouped.items():
+        if other == kind:
+            continue
+        for item in items:
+            if item.qualified == requested or _unprefixed(item) == remainder:
+                return True
+            if local_request and item.local == remainder:
+                return True
+    return False
+
+
+def _one_row(matches: list[_RefCandidate], reference: str) -> Any:
+    if len(matches) == 1:
+        return matches[0].row
+    raise InputError("ambiguous_ref", f"ref {reference} is ambiguous", INVOCATION)
 
 
 def resolve_protocol_ref(store: Any, reference: str) -> Any:
-    kind, qualified = parse_ref(reference)
-    if kind == "basis":
-        found = _resolve_basis(store, qualified)
-        if found is None:
-            raise InputError("dangling_ref", f"basis {reference} does not resolve", INVOCATION)
-        return found
-    if kind == "defrev":
-        found = store.get("definition_revisions", qualified) or store.get("definition_revisions", qualified.split(":", 1)[-1])
-        if found is None:
-            raise InputError("dangling_ref", f"definition revision {reference} does not resolve", INVOCATION)
-        return found
-    table, attr = KIND_TABLES[kind]
-    matches = [row for row in store.all(table) if _matches(kind, qualified, _row_id(row, attr))]
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        raise InputError("ambiguous_ref", f"ref {reference} is ambiguous", INVOCATION)
-    for other_kind, (other_table, other_attr) in KIND_TABLES.items():
-        if other_kind == kind:
-            continue
-        others = [row for row in store.all(other_table) if _matches(other_kind, qualified, _row_id(row, other_attr))]
-        if others:
-            raise InputError("wrong_kind_ref", f"ref {reference} does not match kind {kind}", INVOCATION)
+    kind, _ = parse_ref(reference)
+    remainder = reference.split(":", 1)[1]
+    grouped = _candidates_by_kind(store)
+    requested = _qualified_id(kind, remainder)
+    local_request = ":" not in remainder
+    own = grouped.get(kind, [])
+    exact = [item for item in own if item.qualified == requested]
+    if exact:
+        return _one_row(exact, reference)
+    if local_request:
+        local_hits = [item for item in own if item.local == remainder]
+        if local_hits:
+            return _one_row(local_hits, reference)
+    if _other_kind_hits(kind, remainder, requested, local_request, grouped):
+        raise InputError("wrong_kind_ref", f"ref {reference} does not match kind {kind}", INVOCATION)
     raise InputError("dangling_ref", f"ref {reference} does not resolve", INVOCATION)
-
-
-def _resolve_basis(store: Any, qualified: str) -> Any | None:
-    wanted = qualify("basis", qualified)
-    for proposal in store.all("proposals"):
-        basis = proposal.state_basis
-        if qualify("basis", basis.basis_id) == wanted:
-            return basis
-    for approval in store.all("approvals"):
-        basis = approval.state_basis
-        if qualify("basis", basis.basis_id) == wanted:
-            return basis
-    for receipt in store.all("receipts"):
-        embedded = receipt.result.get("commit_basis") if isinstance(receipt.result, Mapping) else None
-        if isinstance(embedded, Mapping) and qualify("basis", str(embedded.get("basis_id", ""))) == wanted:
-            return embedded
-    return None
 
 
 def schema_for_predicate(bundle: Any, predicate_ref: str) -> dict[str, Any]:
