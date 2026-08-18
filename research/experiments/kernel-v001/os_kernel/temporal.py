@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from os_kernel.canonical import digest
-from os_kernel.definitions import DefinitionBundle, computation_for_predicate
+from os_kernel.definitions import DefinitionBundle, computation_for_predicate, pinned_expression
 from os_kernel.expression import EvalContext, evaluate
 from os_kernel.store import Store
 
@@ -24,35 +24,36 @@ def evaluate_quantity(
         known_at=known_at,
         knowledge_cut=known_at,
     )
-    value = evaluate(computation.expression, ctx)
+    value = evaluate(pinned_expression(computation), ctx)
     contributors = []
+    rivals = []
     for claim in store.claims():
         if claim.subject_ref != subject or claim.predicate_ref != predicate:
             continue
-        if not claim.valid_time.covers(valid_at):
-            continue
-        if known_at is not None and claim.known_revision > known_at:
-            continue
-        contributors.append(
-            {
-                "claim_id": claim.claim_id,
-                "value": claim.value,
-                "known_revision": claim.known_revision,
-                "valid_time": {
-                    "instant": claim.valid_time.instant,
-                    "start": claim.valid_time.start,
-                    "end": claim.valid_time.end,
-                },
-                "provenance": {
-                    "source_id": claim.provenance.source_id,
-                    "source_locator": claim.provenance.source_locator,
-                    "capture_id": claim.provenance.capture_id,
-                    "capture_revision": claim.provenance.capture_revision,
-                },
-            }
-        )
+        row = {
+            "claim_id": claim.claim_id,
+            "value": claim.value,
+            "known_revision": claim.known_revision,
+            "valid_time": {
+                "instant": claim.valid_time.instant,
+                "start": claim.valid_time.start,
+                "end": claim.valid_time.end,
+            },
+            "provenance": {
+                "source_id": claim.provenance.source_id,
+                "source_locator": claim.provenance.source_locator,
+                "capture_id": claim.provenance.capture_id,
+                "capture_revision": claim.provenance.capture_revision,
+            },
+        }
+        covers = claim.valid_time.covers(valid_at)
+        known = known_at is None or claim.known_revision <= known_at
+        if covers and known:
+            contributors.append(row)
+        else:
+            rivals.append(row)
     contributors.sort(key=lambda item: item["claim_id"])
-    rivals = [item for item in contributors]
+    rivals.sort(key=lambda item: item["claim_id"])
     return {
         "subject": subject,
         "predicate": predicate,

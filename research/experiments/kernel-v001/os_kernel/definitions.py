@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
-from os_kernel.canonical import digest
+from os_kernel.canonical import canonical_dumps, digest
 from os_kernel.errors import InputError, InternalError
 from os_kernel.model import DefinitionRef
 from os_kernel.validation import validate_definition_document, validate_json_schema
@@ -74,6 +75,13 @@ class ComputationDefinition:
     result_schema: dict[str, Any]
     result_predicate: str | None
     expression: dict[str, Any]
+    expression_json: str = ""
+
+
+def pinned_expression(computation: ComputationDefinition) -> dict[str, Any]:
+    if computation.expression_json:
+        return json.loads(computation.expression_json)
+    return json.loads(canonical_dumps(computation.expression))
 
 
 @dataclass(frozen=True)
@@ -159,6 +167,13 @@ def _take_id(seen: set[str], item: dict[str, Any], path: str) -> str:
     return definition_id
 
 
+def _require_bound_path(item: dict[str, Any], path: str) -> str:
+    bound_path = item.get("bound_path")
+    if not isinstance(bound_path, str) or not bound_path:
+        raise InputError("invalid_definition", f"{path} is missing bound_path", "os scenario run v001 --output json")
+    return bound_path
+
+
 def _require_ref(pool: dict[str, Any], ref: str | None, path: str) -> None:
     if not ref:
         return
@@ -210,12 +225,14 @@ def load_bundle(raw: dict[str, Any]) -> DefinitionBundle:
             raise InputError("invalid_definition", f"computation {definition_id} is missing expression", "os scenario run v001 --output json")
         validate_json_schema(item.get("input_schema", {}), f"computations.{definition_id}.input_schema")
         validate_json_schema(item.get("result_schema", {}), f"computations.{definition_id}.result_schema")
+        snapshot = canonical_dumps(item["expression"])
         computations[definition_id] = ComputationDefinition(
             definition_ref=_ref(definition_id, revision_id, item),
             input_schema=item.get("input_schema", {}),
             result_schema=item.get("result_schema", {}),
             result_predicate=item.get("result_predicate"),
-            expression=item["expression"],
+            expression=json.loads(snapshot),
+            expression_json=snapshot,
         )
     for item in raw.get("rules", []):
         definition_id = _take_id(seen, item, "rules")
@@ -238,7 +255,7 @@ def load_bundle(raw: dict[str, Any]) -> DefinitionBundle:
             state_basis_spec=tuple(item.get("state_basis_spec", ())),
             approval_required=bool(item.get("approval_required", True)),
             stale_behavior=item.get("stale_behavior", "replan_within_bound"),
-            bound_path=item.get("bound_path", "max_quantity"),
+            bound_path=_require_bound_path(item, f"actions.{definition_id}"),
             mutation_plan_ref=item.get("mutation_plan_ref"),
             effect_refs=tuple(item.get("effect_refs", ())),
         )
