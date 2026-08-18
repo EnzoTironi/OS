@@ -120,7 +120,6 @@ def capture_basis(
                 {"id": dep.dependency_id, "mode": dep.mode, "value": dep.evaluated_value, "digest": dep.result_digest}
                 for dep in dependencies
             ],
-            "knowledge_cut": knowledge_cut,
         }
     )
     return StateBasis(
