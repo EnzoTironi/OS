@@ -100,7 +100,9 @@ impl Display for StoreError {
             Self::Conflict(message) => write!(formatter, "publication conflict: {message}"),
             Self::Corrupt(message) => write!(formatter, "authority data is corrupt: {message}"),
             Self::NotFound => formatter.write_str("definition revision was not found"),
-            Self::Unavailable(message) => write!(formatter, "authority store unavailable: {message}"),
+            Self::Unavailable(message) => {
+                write!(formatter, "authority store unavailable: {message}")
+            }
         }
     }
 }
@@ -242,50 +244,29 @@ fn hex_value(byte: u8) -> u8 {
 }
 
 fn validate_definition(definition: &CanonicalDefinition) -> Result<(), ValidationError> {
-    require_nonempty(
-        DefinitionFamily::Type,
-        definition.types.is_empty(),
-    )?;
-    require_nonempty(
-        DefinitionFamily::Relation,
-        definition.relations.is_empty(),
-    )?;
+    require_nonempty(DefinitionFamily::Type, definition.types.is_empty())?;
+    require_nonempty(DefinitionFamily::Relation, definition.relations.is_empty())?;
     require_nonempty(
         DefinitionFamily::Computation,
         definition.computations.is_empty(),
     )?;
-    require_nonempty(
-        DefinitionFamily::Action,
-        definition.actions.is_empty(),
-    )?;
+    require_nonempty(DefinitionFamily::Action, definition.actions.is_empty())?;
 
     ensure_unique(
         DefinitionFamily::Type,
-        definition
-            .types
-            .iter()
-            .map(|item| item.id.as_str()),
+        definition.types.iter().map(|item| item.id.as_str()),
     )?;
     ensure_unique(
         DefinitionFamily::Relation,
-        definition
-            .relations
-            .iter()
-            .map(|item| item.id.as_str()),
+        definition.relations.iter().map(|item| item.id.as_str()),
     )?;
     ensure_unique(
         DefinitionFamily::Computation,
-        definition
-            .computations
-            .iter()
-            .map(|item| item.id.as_str()),
+        definition.computations.iter().map(|item| item.id.as_str()),
     )?;
     ensure_unique(
         DefinitionFamily::Action,
-        definition
-            .actions
-            .iter()
-            .map(|item| item.id.as_str()),
+        definition.actions.iter().map(|item| item.id.as_str()),
     )?;
 
     let type_ids = definition
@@ -364,10 +345,7 @@ fn validate_definition(definition: &CanonicalDefinition) -> Result<(), Validatio
     Ok(())
 }
 
-fn require_nonempty(
-    family: DefinitionFamily,
-    is_empty: bool,
-) -> Result<(), ValidationError> {
+fn require_nonempty(family: DefinitionFamily, is_empty: bool) -> Result<(), ValidationError> {
     if is_empty {
         Err(ValidationError::EmptyFamily(family))
     } else {
@@ -417,12 +395,9 @@ fn validate_expression(
             validate_expression(left, input_ids, relation_ids, owner)?;
             validate_expression(right, input_ids, relation_ids, owner)
         }
-        Expression::Input(input_id) => require_reference(
-            input_ids,
-            input_id.as_str(),
-            ReferenceKind::Input,
-            owner,
-        ),
+        Expression::Input(input_id) => {
+            require_reference(input_ids, input_id.as_str(), ReferenceKind::Input, owner)
+        }
         Expression::Literal(_) => Ok(()),
         Expression::Relation(relation_id) => require_reference(
             relation_ids,

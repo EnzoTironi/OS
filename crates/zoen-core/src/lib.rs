@@ -49,10 +49,11 @@ semantic_id!(UnitId);
 
 fn parse_identifier(value: String, kind: &'static str) -> Result<String, IdentifierError> {
     let mut characters = value.chars();
-    let first_is_valid = characters.next().is_some_and(|character| character.is_ascii_alphabetic());
-    let rest_is_valid = characters.all(|character| {
-        character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
-    });
+    let first_is_valid = characters
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic());
+    let rest_is_valid = characters
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'));
     if first_is_valid && rest_is_valid {
         Ok(value)
     } else {
@@ -213,10 +214,7 @@ pub enum ExactValue {
     Bool(bool),
     Decimal(ExactDecimal),
     Integer(i64),
-    Quantity {
-        amount: ExactDecimal,
-        unit: UnitId,
-    },
+    Quantity { amount: ExactDecimal, unit: UnitId },
     Text(String),
 }
 
