@@ -245,6 +245,7 @@ async function typecheck(sourcePath: string): Promise<void> {
     JSON.stringify({
       compilerOptions: {
         noEmit: true,
+        rootDir: path.parse(sourcePath).root,
         typeRoots: [path.join(repositoryRoot, "node_modules", "@types")],
       },
       extends: configPath,
@@ -466,7 +467,7 @@ function evaluate(
       !imports.has(expression.callee.name) ||
       expression.arguments.length !== 1
     ) {
-      throw new Error("only imported ontology calls with one argument are supported");
+      throw new Error("nondeterministic or unsupported syntax: CallExpression");
     }
     const argument = expression.arguments[0];
     if (argument === undefined || !isExpression(argument)) {
