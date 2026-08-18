@@ -45,12 +45,12 @@ Agentes lideram a operação. Pessoas e organizações permanecem legalmente res
 
 **Premissa do caso.** Os nomes abaixo são identidades do caso. Não são registros de uma empresa real.
 
-### Organizações e pessoas legalmente responsáveis
+### Organizações legalmente responsáveis e pessoas do caso
 
 - Organização Alfa. Pessoa jurídica brasileira. Livros, registro estatutário e obrigação fiscal principal se ligam a esta pessoa jurídica. [`research/domain/party/candidate-laws.md`](../research/domain/party/candidate-laws.md) L2. [`research/domain/multi-entity/candidate-laws.md`](../research/domain/multi-entity/candidate-laws.md) L1.
-- Representante legal de Alfa. Pessoa que assina e responde pelos atos da pessoa jurídica.
-- Responsável fiscal de Alfa. Pessoa que classifica e assina a base fiscal usada.
-- Gerente de compras de Alfa. Pessoa que aprova a proposta de compra da cena 2.
+- Representante legal de Alfa. Premissa do caso. Pessoa nomeada no elenco para assinar atos da pessoa jurídica. Este Casebook não cita lei primária que prove responsabilidade pessoal deste cargo em cada ato.
+- Responsável fiscal de Alfa. Premissa do caso. Pessoa nomeada no elenco para classificar e assinar a base fiscal usada nas Actions fiscais. Este Casebook não cita lei primária que prove responsabilidade pessoal deste cargo em cada ato.
+- Gerente de compras de Alfa. Premissa do caso. Pessoa nomeada no elenco para aprovar a proposta de compra da cena 2. Este Casebook não cita lei primária que prove responsabilidade pessoal deste cargo em cada ato.
 - Cliente Beta. Organização que pede o conjunto acabado. Cliente é papel numa relação comercial, não um Kind. [`research/domain/party/candidate-laws.md`](../research/domain/party/candidate-laws.md) L1. Cenário S-005.
 - Fornecedor Gama. Organização chinesa que fornece o motor e o conjunto de acionamento. Fornecedor é papel numa relação de suprimento, não a identidade da organização. [`research/domain/p2p/candidate-laws.md`](../research/domain/p2p/candidate-laws.md) L11.
 
@@ -62,6 +62,10 @@ Agentes lideram a operação. Pessoas e organizações permanecem legalmente res
 - Agente de cadeia. Executa o pedido externo na fronteira chinesa.
 - Agente de planta. Dispara a célula robótica e registra evidência.
 - Agente fiscal. Prepara o pedido de autorização do documento fiscal eletrônico.
+- Agente contábil. Premissa do caso. Ator de negócio do posting da entrega aceita.
+- Delegação `G-CONTAB-01`. Premissa do caso. Limitada ao posting contábil da entrega aceita. Sem alargamento para classificação fiscal ou para reescrita de Actions históricas. O workload executor permanece distinto deste ator.
+- Agente de governança. Premissa do caso. Ator de negócio da publicação da revisão 2.
+- Delegação `G-GOV-01`. Premissa do caso. Limitada à publicação da revisão 2 para atos novos. Revisão humana exigida. Sem poder de reescrever Actions históricas. O workload executor permanece distinto deste ator.
 - Workload W-ERP. Processo autenticado que apresenta o agente de atendimento.
 - Workload W-MES. Processo autenticado da célula.
 - Workload W-GAMA. Conector do sistema operacional de Gama.
@@ -98,15 +102,15 @@ O Casebook liga pressões já catalogadas. Não copia o texto de [`scenarios/REA
 | Pressão | ID em `scenarios/README.md` | Caso ou lei local |
 | --- | --- | --- |
 | Pedido, promessa, plano e fato | S-001 | [`research/domain/o2c/candidate-laws.md`](../research/domain/o2c/candidate-laws.md) L-003 |
-| Cumprimento parcial e resto aberto | S-002 | o2c L-005 |
+| Cumprimento parcial e resto aberto | S-002 | `research/domain/o2c/candidate-laws.md`, L-005 |
 | Aprovação stale | S-003 | [`research/runtime/transactions/commit-contract.md`](../research/runtime/transactions/commit-contract.md) seções 5 e 8.2 |
-| Timeout externo com resultado `unknown` | S-004 | [`research/runtime/effects/effect-contract.md`](../research/runtime/effects/effect-contract.md) seções 4.2 e 5.4. Fiscal CL-005 |
-| Papéis cliente e fornecedor | S-005 | party L1, p2p L11 |
-| Relação com ciclo de vida | S-006 | party L4 |
-| Correção tardia e known-then | S-007 | inventory L-INV-08, L-INV-16 |
-| Rastreio de transformação | S-008 | manufacturing L12 |
-| Retrabalho e sucata | S-009 | manufacturing L8, L10 |
-| Cancelamento após consequência irreversível | S-010 | o2c L-008, accounting L3, fiscal CL-006 e CL-007 |
+| Timeout externo com resultado `unknown` | S-004 | [`research/runtime/effects/effect-contract.md`](../research/runtime/effects/effect-contract.md) seções 4.2 e 5.4. `research/domain/fiscal/candidate-laws.md`, CL-005 |
+| Papéis cliente e fornecedor | S-005 | `research/domain/party/candidate-laws.md`, L1. `research/domain/p2p/candidate-laws.md`, L11 |
+| Relação com ciclo de vida | S-006 | `research/domain/party/candidate-laws.md`, L4 |
+| Correção tardia e known-then | S-007 | `research/domain/inventory/candidate-laws.md`, L-INV-08, L-INV-16 |
+| Rastreio de transformação | S-008 | `research/domain/manufacturing/candidate-laws.md`, L12 |
+| Retrabalho e sucata | S-009 | `research/domain/manufacturing/candidate-laws.md`, L8, L10 |
+| Cancelamento após consequência irreversível | S-010 | `research/domain/o2c/candidate-laws.md`, L-008. `research/domain/accounting/candidate-laws.md`, L3. `research/domain/fiscal/candidate-laws.md`, CL-006 e CL-007 |
 | Observações contraditórias | S-011 | ingest #45, HF E-RC-003 |
 | Revisão de ontologia ou política após Action histórica | S-012 | RFC-0002 seção de revisão semântica. `docs/open-questions.md` Q19 |
 
@@ -137,7 +141,7 @@ Alfa já publicou oferta do SKU `SKU-BR-ACIO-01` conforme `SPEC-ACIO-BOMBA`. A o
 3. Planilha de planejamento. Quantidade 12 e data planejada 21 de agosto. Fonte, workbook de MRP. Kind, observação. HF já mostrou agregados e códigos compostos sem identidade estável de linha. [`research/ops/reality-check/hf-wave-a.md`](../research/ops/reality-check/hf-wave-a.md) E-RC-001, E-RC-003.
 4. Mensagem de vendas. Promessa verbal de 20 de agosto para 10 unidades do "motor Gama". Fonte, chat. Kind, observação. S-011.
 5. Ficha de Gama. Classificação NCM `8413.91.90`. Fonte, documento do fornecedor. Kind, observação. Premissa do caso para o código.
-6. Minuta fiscal interna. Classificação NCM `8501.20.00`. Fonte, responsável fiscal. Kind, observação. Premissa do caso para o código.
+6. Minuta fiscal interna. Classificação NCM `8501.20.00`. Fonte, responsável fiscal. Premissa do caso para a autoria pessoal desta minuta. Kind, observação. Premissa do caso para o código.
 
 As quatro datas de S-001 permanecem fatos distintos. Pedido 18, promessa 20, plano 21, ocorrência ainda ausente. [`research/domain/o2c/candidate-laws.md`](../research/domain/o2c/candidate-laws.md) L-003. `docs/open-questions.md` Q3.
 
@@ -157,22 +161,22 @@ A classificação NCM permanece divergente. Nenhuma das duas alegações vence n
 - Parâmetros. `order=PED-1001`, `sku=SKU-BR-ACIO-01`, `spec=SPEC-ACIO-BOMBA`, `qty=10`, `promised_date=2026-08-20`.
 - Ator de negócio. Agente de atendimento.
 - Representado. Organização Alfa.
-- Delegação. `G-ATEND-01`, emitida pelo representante legal, limitada a este pedido.
-- Base de estado. Oferta vigente e crédito de Beta ainda dentro da política. Compromisso não move estoque. o2c L-002.
+- Delegação. `G-ATEND-01`, emitida pelo representante legal, limitada a este pedido. Premissa do caso para a emissão pessoal da grant.
+- Base de estado. Oferta vigente e crédito de Beta ainda dentro da política. Compromisso não move estoque. `research/domain/o2c/candidate-laws.md`, L-002.
 - Revisão semântica relevante. Revisão da definição de compromisso comercial usada no aceite. RFC-0002 trata Action como hipótese, não como primitiva aceita.
 - Autorização ou aprovação exigida. Grant `G-ATEND-01`. Aprovação humana extra, não aplicável nesta Action.
 - Efeito externo previsto. não aplicável.
-- Responsabilidade legal. Organização Alfa e o representante legal. O agente e o workload W-ERP não assumem a obrigação.
+- Responsabilidade legal. Organização Alfa. O agente e o workload W-ERP não assumem a obrigação. A menção ao representante legal no elenco é premissa do caso, não prova de responsabilidade pessoal deste compromisso.
 
 ### Expected results
 
-O compromisso existe como leftover demand de 10 unidades. Estoque, receita e documento fiscal ainda não ocorreram. o2c L-002, L-005. As observações rivais permanecem consultáveis com proveniência. Issue #45.
+O compromisso existe como leftover demand de 10 unidades. Estoque, receita e documento fiscal ainda não ocorreram. `research/domain/o2c/candidate-laws.md`, L-002, L-005. As observações rivais permanecem consultáveis com proveniência. Issue #45.
 
 ### Invariants
 
 - Especificação, código de Gama, id de planejamento, SKU brasileiro, lote ou serial e classificação fiscal alegada não colapsam numa chave.
 - Pedido, promessa, plano e ocorrência permanecem fatos distintos. S-001.
-- Claims contraditórios sobre o mesmo recorte semântico não forçam um vencedor imediato. `docs/open-questions.md` Q3. Constituição, artigo 9.
+- Claims contraditórios sobre o mesmo recorte semântico não forçam um vencedor imediato. `docs/open-questions.md` Q3. `docs/constitution.md`, artigo 9.
 
 ### Falsifier
 
@@ -195,7 +199,7 @@ O compromisso `PED-1001` está aberto. Quatro unidades estão disponíveis em Al
 1. Preview da proposta `PROP-COMPRA-77` às 10:01. ATP 20, demanda 980 na planilha, compra proposta 1000. Kind, inferência operacional do agente, com base de estado declarada.
 2. Às 10:06 o WMS de Alfa posta recebimento de 800 unidades do lote `LOT-IN-8841`. Kind, observação. S-003.
 3. O ERP de Alfa ainda mostra 20 em mão no instante da aprovação. Kind, observação rival. S-011.
-4. Às 10:07 o gerente de compras aprova `PROP-COMPRA-77` como foi proposta às 10:01. Kind, decisão humana registrada.
+4. Às 10:07 o gerente de compras aprova `PROP-COMPRA-77` como foi proposta às 10:01. Kind, decisão humana registrada. Premissa do caso para a autoria pessoal desta aprovação.
 
 Necessidade não é compromisso. A necessidade de material existia antes da proposta. [`research/domain/p2p/candidate-laws.md`](../research/domain/p2p/candidate-laws.md) L1.
 
@@ -203,7 +207,7 @@ Necessidade não é compromisso. A necessidade de material existia antes da prop
 
 A aprovação humana amarra a proposta `PROP-COMPRA-77`, os parâmetros 1000 e `GAMA-PA-220`, a base de estado das 10:01 e a revisão de política então vigente. Aprovação não é `approved=true` num objeto mutável. [`research/runtime/transactions/commit-contract.md`](../research/runtime/transactions/commit-contract.md) seção 5.
 
-O commit posterior deve reler a base. A aprovação das 10:07 está stale em relação ao recebimento das 10:06. S-003. Commit-contract seção 8.2, `NeedsReproposal`.
+O commit posterior deve reler a base. A aprovação das 10:07 está stale em relação ao recebimento das 10:06. S-003. `research/runtime/transactions/commit-contract.md`, seção 8.2, `NeedsReproposal`.
 
 ### Actions
 
@@ -216,31 +220,31 @@ O commit posterior deve reler a base. A aprovação das 10:07 está stale em rel
 - Delegação. `G-PLAN-01`, propor até o teto da política de compras. Commit não está nesta grant.
 - Base de estado. Snapshot das 10:01. ATP 20 e demanda 980 da planilha.
 - Revisão semântica relevante. Revisão da Action de compra e da política de teto usadas no preview.
-- Autorização ou aprovação exigida. A proposta exige aprovação do gerente de compras.
+- Autorização ou aprovação exigida. A proposta exige aprovação do gerente de compras. Premissa do caso para este aprovador pessoal.
 - Efeito externo previsto. não aplicável. Preview não envia pedido a Gama.
-- Responsabilidade legal. Organização Alfa. O gerente de compras responde pela aprovação que vier a dar.
+- Responsabilidade legal. Organização Alfa.
 
 **Action `ApprovePurchaseProposal`.**
 
 - Objetivo. Registrar aprovação humana da proposta `PROP-COMPRA-77` no escopo das 10:01.
 - Parâmetros. `proposal=PROP-COMPRA-77`, `approved_qty=1000`, `approved_at=10:07`.
-- Ator de negócio. Gerente de compras.
+- Ator de negócio. Gerente de compras. Premissa do caso.
 - Representado. Organização Alfa.
-- Delegação. Autoridade própria do cargo, não uma grant de agente.
+- Delegação. Autoridade própria do cargo, não uma grant de agente. Premissa do caso.
 - Base de estado. A base que a proposta declara, não o estoque corrente das 10:07.
 - Revisão semântica relevante. Revisão de política de aprovação vigente às 10:07.
 - Autorização ou aprovação exigida. não aplicável além da própria aprovação.
 - Efeito externo previsto. não aplicável.
-- Responsabilidade legal. Gerente de compras e Organização Alfa.
+- Responsabilidade legal. Organização Alfa. A autoria da aprovação pelo gerente de compras é premissa do caso. Este Casebook não cita lei primária que prove responsabilidade pessoal deste cargo neste ato.
 
 ### Expected results
 
-Existe proposta aprovada e evidência de que a base mudou às 10:06. Não existe ainda compromisso de compra. Oferta de Gama, se houver, permanece distinta de compromisso. p2p L2. O agente de planejamento continua comprometido com `PED-1001`. Não trata o token de orquestração como estoque ou pedido.
+Existe proposta aprovada e evidência de que a base mudou às 10:06. Não existe ainda compromisso de compra. Oferta de Gama, se houver, permanece distinta de compromisso. `research/domain/p2p/candidate-laws.md`, L2. O agente de planejamento continua comprometido com `PED-1001`. Não trata o token de orquestração como estoque ou pedido.
 
 ### Invariants
 
-- Preview não reserva quantidade exclusiva e não posta payable. p2p L1, L4.
-- Aprovação cita proposta, parâmetros, base e revisão. Commit-contract seção 5.
+- Preview não reserva quantidade exclusiva e não posta payable. `research/domain/p2p/candidate-laws.md`, L1, L4.
+- Aprovação cita proposta, parâmetros, base e revisão. `research/runtime/transactions/commit-contract.md`, seção 5.
 - Recebimento das 10:06 e tela ERP das 10:07 convivem como observações. Nenhuma apaga a outra.
 
 ### Falsifier
@@ -258,23 +262,25 @@ Uma observação de que o commit aceitou `PROP-COMPRA-77` sem releitura, ou de q
 Duas Actions concorrentes pedem o mesmo recurso exclusivo. Premissa do caso.
 
 - Agente de planejamento tenta commitar compra reduzida e reservar o lote `LOT-IN-8841` para `PED-1001`.
-- Agente de contenção tenta reservar o mesmo restante de `LOT-IN-8841` para o pedido `PED-1002`.
+- Agente de contenção tenta reservar o mesmo slice de `LOT-IN-8841` para o pedido `PED-1002`.
 
-On-hand não é available. Reserva é claim, não movimento. [`research/domain/inventory/candidate-laws.md`](../research/domain/inventory/candidate-laws.md) L-INV-03, L-INV-04, L-INV-15. o2c L-004.
+Premissa do caso. O ATP disponível do mesmo slice de `LOT-IN-8841`, após as demais alocações, é exatamente 6 unidades na base compartilhada pelas duas reservas. A invocação A pede 6 unidades para `PED-1001`. A invocação B pede as mesmas 6 unidades para `PED-1002`. O recebimento de 800 unidades da cena 2 permanece. As demais alocações que deixam 6 unidades disponíveis também são premissa do caso. Este Casebook não escolhe o mecanismo de transação.
 
-Em paralelo, o teto de autoridade de compra do agente de planejamento não cobre 1000 após a releitura. Commit-contract seção 5.2.
+On-hand não é available. Reserva é claim, não movimento. [`research/domain/inventory/candidate-laws.md`](../research/domain/inventory/candidate-laws.md) L-INV-03, L-INV-04, L-INV-15. `research/domain/o2c/candidate-laws.md`, L-004.
+
+Em paralelo, o teto de autoridade de compra do agente de planejamento não cobre 1000 após a releitura. `research/runtime/transactions/commit-contract.md`, seção 5.2.
 
 ### Observations
 
-1. ATP corrente do lote `LOT-IN-8841` após o recebimento das 10:06. Kind, observação do WMS.
-2. Duas propostas de reserva sobre o mesmo slice. Kind, observações de intenção.
+1. ATP corrente do lote `LOT-IN-8841` após o recebimento das 10:06 e após as demais alocações. Valor observado, 6 unidades no mesmo slice. Kind, observação do WMS. Premissa do caso para o valor 6.
+2. Duas propostas de reserva sobre o mesmo slice e a mesma base. Invocação A pede 6 unidades para `PED-1001`. Invocação B pede as mesmas 6 unidades para `PED-1002`. Kind, observações de intenção.
 3. Grant `G-PLAN-01` com teto abaixo de 1000 na revisão corrente. Kind, observação de política.
 
 ### Decisions
 
-O commit de cada reserva relê o slice. A fatia inclui especificação, grão de identidade, local e dono ou custodiante. L-INV-15.
+O commit de cada reserva relê o mesmo slice na mesma base. A fatia inclui especificação, grão de identidade, local e dono ou custodiante. `research/domain/inventory/candidate-laws.md`, L-INV-15.
 
-Se as duas reservas pedem mais do que o ATP restante, no máximo uma sucede para o excesso. A outra recebe recusa ou `NeedsReproposal`. Não há consumo duplo do mesmo poder exclusivo.
+As duas reservas pedem 12 unidades no ATP disponível de 6 unidades. No máximo uma reserva consome as 6 unidades. A outra recebe recusa visível ou `NeedsReproposal`. Não há consumo duplo das mesmas 6 unidades. Este Casebook não escolhe o mecanismo de transação.
 
 A compra de 1000 não commita sob a aprovação stale. Uma reproposta pode usar quantidade menor dentro do teto vigente. S-003.
 
@@ -287,7 +293,7 @@ A compra de 1000 não commita sob a aprovação stale. Uma reproposta pode usar 
 - Ator de negócio. Agente de planejamento na A. Agente de contenção na B.
 - Representado. Organização Alfa em ambas.
 - Delegação. `G-PLAN-01` na A. `G-CONT-01` na B.
-- Base de estado. Predicado corrente. Quantidade disponível do slice maior ou igual à quantidade pedida agora. Commit-contract seção 3.6.
+- Base de estado. Predicado corrente compartilhado pelas duas invocações. ATP disponível do mesmo slice, 6 unidades. Cada invocação pede 6 unidades. `research/runtime/transactions/commit-contract.md`, seção 3.6.
 - Revisão semântica relevante. Revisão da regra de reserva e da identidade de lote.
 - Autorização ou aprovação exigida. Grant vigente no commit. A aprovação stale da cena 2 não autoriza a reserva.
 - Efeito externo previsto. não aplicável.
@@ -299,26 +305,26 @@ A compra de 1000 não commita sob a aprovação stale. Uma reproposta pode usar 
 - Parâmetros. Quantidade reavaliada, menor que 1000 se a base stale cair. Fornecedor, organização Gama no papel supplier. Código de Gama permanece `GAMA-PA-220`. SKU de Alfa não é enviado como identidade universal.
 - Ator de negócio. Agente de planejamento.
 - Representado. Organização Alfa.
-- Delegação. `G-PLAN-01` mais aprovação humana vigente para os parâmetros novos, se a quantidade ou o fornecedor mudarem. Commit-contract seção 5.1.
+- Delegação. `G-PLAN-01` mais aprovação humana vigente para os parâmetros novos, se a quantidade ou o fornecedor mudarem. `research/runtime/transactions/commit-contract.md`, seção 5.1.
 - Base de estado. ATP corrente, teto corrente, proposta nova ou reproposta. Não a base das 10:01.
 - Revisão semântica relevante. Revisão da Action de compra no commit.
-- Autorização ou aprovação exigida. Reaprovação se os parâmetros saírem do envelope aprovado.
-- Efeito externo previsto. Pedido de mudança no sistema de Gama, criado como EffectRequest distinto. Issue #41. Ainda não executado nesta Action se o contrato for local-first. Effect-contract seção 12.1. A ordem local-first versus remote-first permanece sem vencedor genérico. Seção 12.3.
-- Responsabilidade legal. Organização Alfa e o gerente de compras se houver reaprovação.
+- Autorização ou aprovação exigida. Reaprovação se os parâmetros saírem do envelope aprovado. O aprovador humano, quando exigido, é o gerente de compras. Premissa do caso.
+- Efeito externo previsto. Pedido de mudança no sistema de Gama, criado como EffectRequest distinto. Issue #41. Ainda não executado nesta Action se o contrato for local-first. `research/runtime/effects/effect-contract.md`, seção 12.1. A ordem local-first versus remote-first permanece sem vencedor genérico. `research/runtime/effects/effect-contract.md`, seção 12.3.
+- Responsabilidade legal. Organização Alfa.
 
 ### Expected results
 
-No máximo uma das reservas consome o ATP disputado. A outra falha de forma visível. Compra de 1000 não entra. Uma compra menor pode entrar se a base e a autoridade correntes permitirem. Reserva não altera on-hand. L-INV-04.
+No máximo uma das duas reservas consome as mesmas 6 unidades. A outra recebe recusa visível ou `NeedsReproposal`. Compra de 1000 não entra. Uma compra menor pode entrar se a base e a autoridade correntes permitirem. Reserva não altera on-hand. `research/domain/inventory/candidate-laws.md`, L-INV-04.
 
 ### Invariants
 
-- Duas Actions não consomem o mesmo restante exclusivo. L-INV-15.
-- Commit local é atômico no recorte declarado. Não há meia reserva. Commit-contract seção 7.3.
-- Aprovação stale não viaja com parâmetros novos. Seção 5.1.
+- Duas Actions não consomem as mesmas 6 unidades exclusivas do slice. `research/domain/inventory/candidate-laws.md`, L-INV-15.
+- Commit local é atômico no recorte declarado. Não há meia reserva. `research/runtime/transactions/commit-contract.md`, seção 7.3.
+- Aprovação stale não viaja com parâmetros novos. `research/runtime/transactions/commit-contract.md`, seção 5.1.
 
 ### Falsifier
 
-Uma observação de dupla alocação do mesmo restante de `LOT-IN-8841`, ou de commit da compra 1000 sob a aprovação das 10:01 após o recebimento das 10:06, derrota a claim. Um mutex narrativo sem revalidação da base também derrota a claim.
+Uma observação de que as duas reservas consumiram as mesmas 6 unidades de `LOT-IN-8841`, ou de commit da compra 1000 sob a aprovação das 10:01 após o recebimento das 10:06, derrota a claim. Um mutex narrativo sem o ATP de 6 unidades na precondição também derrota a claim.
 
 ### Owner issues/RFCs
 
@@ -328,24 +334,24 @@ Uma observação de dupla alocação do mesmo restante de `LOT-IN-8841`, ou de c
 
 ### Preconditions
 
-Alfa commitou localmente uma compra reduzida `PO-ALFA-220`. O commit local criou o EffectRequest `ER-GAMA-220` para o sistema de Gama. Effect-contract seção 1. Premissa do caso para os identificadores.
+Alfa commitou localmente uma compra reduzida `PO-ALFA-220`. O commit local criou o EffectRequest `ER-GAMA-220` para o sistema de Gama. `research/runtime/effects/effect-contract.md`, seção 1. Premissa do caso para os identificadores.
 
 Gama opera um sistema de registro próprio. Fontes chinesas de primeira parte descrevem commit por capacidade nomeada sobre ERP ou plataforma, não por chat livre. [yonyou.com/news/4948](https://www.yonyou.com/news/4948). [kingdee.com](https://www.kingdee.com/resources/articles/1519374747954812097). MIIT 2025-279 pede adapters agente-sistema industrial e manutenção de MES, DCS e SCADA. [nda.gov.cn](https://www.nda.gov.cn/sjj/zwgk/zcfb/0112/20260107214358696030895_pc.html).
 
 ### Observations
 
 1. Tentativa `A1` de `ER-GAMA-220` sai pelo workload W-GAMA. Kind, evidência de tentativa.
-2. A conexão expira antes da resposta. Transporte, `SentNoResponse` ou `TransportIndeterminate`. Effect-contract seções 4 e 4.2. Kind, observação de transporte. S-004.
-3. Nenhum RemoteReceiptId foi aprendido. Kind, ausência observada. Effect-contract seção 2.4.
+2. A conexão expira antes da resposta. Transporte, `SentNoResponse` ou `TransportIndeterminate`. `research/runtime/effects/effect-contract.md`, seções 4 e 4.2. Kind, observação de transporte. S-004.
+3. Nenhum RemoteReceiptId foi aprendido. Kind, ausência observada. `research/runtime/effects/effect-contract.md`, seção 2.4.
 4. A UI local não é fonte de resultado remoto.
 
 ### Decisions
 
-O resultado de negócio de `ER-GAMA-220` permanece `unknown`. Timeout não prova falha. Constituição, artigos 8 e 9. `docs/open-questions.md` Q5.
+O resultado de negócio de `ER-GAMA-220` permanece `unknown`. Timeout não prova falha. `docs/constitution.md`, artigos 8 e 9. `docs/open-questions.md` Q5.
 
-Retry cego é recusado enquanto o protocolo de Gama não oferecer lookup autoritativo ou chave de dedupe remota com garantia adequada. Effect-contract seção 6, casos C e D.
+Retry cego é recusado enquanto o protocolo de Gama não oferecer lookup autoritativo ou chave de dedupe remota com garantia adequada. `research/runtime/effects/effect-contract.md`, seção 6, casos C e D.
 
-Reconciliação é procedimento posterior que cita evidência. Não é um segundo pedido. Seção 9.
+Reconciliação é procedimento posterior que cita evidência. Não é um segundo pedido. `research/runtime/effects/effect-contract.md`, seção 9.
 
 ### Actions
 
@@ -356,7 +362,7 @@ Reconciliação é procedimento posterior que cita evidência. Não é um segund
 - Ator de negócio. Agente de cadeia.
 - Representado. Organização Alfa.
 - Delegação. `G-CADEIA-01`, limitada a este EffectRequest. Sem alargamento para outros fornecedores.
-- Base de estado. EffectRequest durável ligado à operação local. Se o commit local estiver `CommitOutcomeIndeterminate`, não se fabrica `ER-GAMA-221`. Effect-contract seção 11. Commit-contract seção 10.
+- Base de estado. EffectRequest durável ligado à operação local. Se o commit local estiver `CommitOutcomeIndeterminate`, não se fabrica `ER-GAMA-221`. `research/runtime/effects/effect-contract.md`, seção 11. `research/runtime/transactions/commit-contract.md`, seção 10.
 - Revisão semântica relevante. Revisão do capability contract do conector de Gama.
 - Autorização ou aprovação exigida. Grant `G-CADEIA-01` e credencial do workload W-GAMA.
 - Efeito externo previsto. Mutação possível no sistema de Gama. O resultado pode permanecer indeterminado.
@@ -370,9 +376,9 @@ YonClaw lista interceptação e confirmação humana como campos de auditoria. [
 
 ### Invariants
 
-- Action local commitada não é ocorrência remota. p2p L4. Effect-contract seção 1.
-- `unknown` é condição epistêmica. Não é status de negócio de Gama. Seção 5.4.
-- AttemptId novo sob o mesmo EffectRequestId só ocorre quando o contrato diz que é nova tentativa do mesmo efeito. Seção 2.5.
+- Action local commitada não é ocorrência remota. `research/domain/p2p/candidate-laws.md`, L4. `research/runtime/effects/effect-contract.md`, seção 1.
+- `unknown` é condição epistêmica. Não é status de negócio de Gama. `research/runtime/effects/effect-contract.md`, seção 5.4.
+- AttemptId novo sob o mesmo EffectRequestId só ocorre quando o contrato diz que é nova tentativa do mesmo efeito. `research/runtime/effects/effect-contract.md`, seção 2.5.
 
 ### Falsifier
 
@@ -386,9 +392,9 @@ Uma observação de que o timeout foi gravado como falha definitiva, ou de que u
 
 ### Preconditions
 
-Gama envia componentes. Alfa recebe, inspeciona, monta com a célula R-01, entrega a Beta, escritura e pratica atos fiscais. Custódia, direitos e risco podem mudar em tempos diferentes. p2p L5. Quantidade chegada, aceita, rejeitada e disponível para uso podem diferir. p2p L6.
+Gama envia componentes. Alfa recebe, inspeciona, monta com a célula R-01, entrega a Beta, escritura e pratica atos fiscais. Custódia, direitos e risco podem mudar em tempos diferentes. `research/domain/p2p/candidate-laws.md`, L5. Quantidade chegada, aceita, rejeitada e disponível para uso podem diferir. `research/domain/p2p/candidate-laws.md`, L6.
 
-Especificação, autorização de produção e execução são três fatos. [`research/domain/manufacturing/candidate-laws.md`](../research/domain/manufacturing/candidate-laws.md) L1. Reserva, issue e consumo são distintos. L5.
+Especificação, autorização de produção e execução são três fatos. [`research/domain/manufacturing/candidate-laws.md`](../research/domain/manufacturing/candidate-laws.md) L1. Reserva, issue e consumo são distintos. `research/domain/manufacturing/candidate-laws.md`, L5.
 
 ### Observations
 
@@ -399,19 +405,19 @@ Especificação, autorização de produção e execução são três fatos. [`re
 5. Agente de planta alega ocorrência `JobCompleted` para `SN-R01-0007`. Kind, ocorrência alegada, não resultado aceito.
 6. Entrega a Beta de 4 conjuntos acabados. Kind, observação de expedição. S-002.
 7. Minuta de NF-e gerada localmente. Kind, registro interno. Não é autorização de uso. [`research/domain/fiscal/candidate-laws.md`](../research/domain/fiscal/candidate-laws.md) CL-003, CL-005. [Ajuste SINIEF 07/05](https://www.confaz.fazenda.gov.br/legislacao/ajustes/2005/AJ007_05).
-8. Protocolo do autorizador, se chegar. Kind, evidência externa. Distinta do DANFE. CL-003.
+8. Protocolo do autorizador, se chegar. Kind, evidência externa. Distinta do DANFE. `research/domain/fiscal/candidate-laws.md`, CL-003.
 
-A situação tributável não é o documento comercial. CL-001. [CTN, arts. 113 a 118, texto compilado](https://www.planalto.gov.br/ccivil_03/leis/l5172compilado.htm). Fatura ou duplicata não é o documento fiscal. CL-004. [Lei 5.474/1968, arts. 1 e 2](https://planalto.gov.br/ccivil_03/leis/l5474.htm).
+A situação tributável não é o documento comercial. `research/domain/fiscal/candidate-laws.md`, CL-001. [CTN, arts. 113 a 118, texto compilado](https://www.planalto.gov.br/ccivil_03/leis/l5172compilado.htm). Fatura ou duplicata não é o documento fiscal. `research/domain/fiscal/candidate-laws.md`, CL-004. [Lei 5.474/1968, arts. 1 e 2](https://planalto.gov.br/ccivil_03/leis/l5474.htm).
 
 2026 é ano de teste de CBS e IBS na orientação corrente da Receita. Campos novos no DF-e não equivalem a arrecadação normal. [`research/domain/fiscal/current-law-2026-review.md`](../research/domain/fiscal/current-law-2026-review.md). [Orientações 2026](https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/acoes-e-programas/programas-e-atividades/reforma-tributaria-do-consumo/orientacoes-2026). [LC 214 compilada](https://planalto.gov.br/ccivil_03/leis/lcp/lcp214compilado.htm).
 
 ### Decisions
 
-Alfa não resolve a divergência 6 versus 5 por sobrescrita. Matching compara. Não funde. p2p L8.
+Alfa não resolve a divergência 6 versus 5 por sobrescrita. Matching compara. Não funde. `research/domain/p2p/candidate-laws.md`, L8.
 
-A célula R-01 produz efeito físico. O aceite do resultado de montagem é decisão posterior, distinta do pedido, da Action `StartJob`, da ocorrência alegada e da evidência do sensor. manufacturing L1, L3, L16.
+A célula R-01 produz efeito físico. O aceite do resultado de montagem é decisão posterior, distinta do pedido, da Action `StartJob`, da ocorrência alegada e da evidência do sensor. `research/domain/manufacturing/candidate-laws.md`, L1, L3, L16.
 
-A classificação NCM usada no DF-e é decisão governada do responsável fiscal, com revisão de regra pinada. CL-009. Os códigos locais de Alfa não viram conceitos universais. CL-010. Constituição, artigo 12.
+A classificação NCM usada no DF-e é decisão governada do responsável fiscal, com revisão de regra pinada. Premissa do caso para a autoria pessoal desta classificação. `research/domain/fiscal/candidate-laws.md`, CL-009. Os códigos locais de Alfa não viram conceitos universais. `research/domain/fiscal/candidate-laws.md`, CL-010. `docs/constitution.md`, artigo 12.
 
 Lançamento contábil é Action de posting distinta da entrega e do DF-e. Journal rascunho não afeta os livros. [`research/domain/accounting/candidate-laws.md`](../research/domain/accounting/candidate-laws.md) L1, L2, L8, L13. Documento operacional não é automaticamente o journal.
 
@@ -433,54 +439,54 @@ Lançamento contábil é Action de posting distinta da entrega e do DF-e. Journa
 **Action `StartJob`.**
 
 - Objetivo. Autorizar a célula R-01 a montar um conjunto serializado.
-- Parâmetros. `cell=R-01`, `serial=SN-R01-0007`, `authorization` da ordem de produção pinada à revisão de BOM. manufacturing L13.
+- Parâmetros. `cell=R-01`, `serial=SN-R01-0007`, `authorization` da ordem de produção pinada à revisão de BOM. `research/domain/manufacturing/candidate-laws.md`, L13.
 - Ator de negócio. Agente de planta.
 - Representado. Organização Alfa.
 - Delegação. `G-PLANTA-01`.
-- Base de estado. Autorização aberta, material emitido, capacidade da célula. Falha de capacidade não inventa execução. manufacturing L14.
+- Base de estado. Autorização aberta, material emitido, capacidade da célula. Falha de capacidade não inventa execução. `research/domain/manufacturing/candidate-laws.md`, L14.
 - Revisão semântica relevante. Revisão da especificação copiada na autorização, não o BOM vivo.
 - Autorização ou aprovação exigida. Liberação de produção prévia.
 - Efeito externo previsto. Movimento físico do robô. O efeito não é a Action.
-- Responsabilidade legal. Organização Alfa e o operador de planta responsável pela célula. O robô não é responsável.
+- Responsabilidade legal. Organização Alfa. O robô não é responsável.
 
 **Action `PostDeliveryJournal`.**
 
 - Objetivo. Escriturar o efeito contábil da entrega aceita, se a política de acoplamento desta operação exigir journal.
 - Parâmetros. Contas folha, valores em moeda funcional, dimensões de gestão se houver. Quantidade entregue 4. Premissa do caso.
-- Ator de negócio. Agente de atendimento ou workload contábil, conforme grant.
+- Ator de negócio. Agente contábil.
 - Representado. Organização Alfa.
-- Delegação. Grant de posting.
-- Base de estado. Período aberto. Débito igual a crédito na moeda funcional. accounting L1, L7.
+- Delegação. `G-CONTAB-01`. Limitada ao posting contábil da entrega aceita.
+- Base de estado. Período aberto. Débito igual a crédito na moeda funcional. `research/domain/accounting/candidate-laws.md`, L1, L7.
 - Revisão semântica relevante. Revisão do plano de contas e da regra de reconhecimento.
-- Autorização ou aprovação exigida. Policy de posting. Agente não improvisa conta de plug. accounting L1.
+- Autorização ou aprovação exigida. Policy de posting. Agente não improvisa conta de plug. `research/domain/accounting/candidate-laws.md`, L1.
 - Efeito externo previsto. não aplicável.
-- Responsabilidade legal. Organização Alfa. Mudança de quantidade de estoque não é automaticamente Event de ledger. accounting L11.
+- Responsabilidade legal. Organização Alfa. O workload executor permanece distinto do ator de negócio. Mudança de quantidade de estoque não é automaticamente Event de ledger. `research/domain/accounting/candidate-laws.md`, L11.
 
 **Action `RequestNFeAuthorization`.**
 
 - Objetivo. Pedir autorização de uso do documento eletrônico da operação, no modelo e na revisão aplicáveis.
-- Parâmetros. Payload do modelo NF-e em uso, chave de acesso se o modelo a exigir, classificação e regra pinadas pelo responsável fiscal.
+- Parâmetros. Payload do modelo NF-e em uso, chave de acesso se o modelo a exigir, classificação e regra pinadas pelo responsável fiscal. Premissa do caso para a autoria pessoal desta pinagem.
 - Ator de negócio. Agente fiscal.
 - Representado. Organização Alfa.
-- Delegação. `G-FISCAL-01`. Classificação final permanece com o responsável fiscal.
-- Base de estado. Fatos da operação, jurisdição, regime e revisão legal efetiva. CL-009. [`research/domain/fiscal/current-law-2026-review.md`](../research/domain/fiscal/current-law-2026-review.md).
+- Delegação. `G-FISCAL-01`. Classificação final permanece com o responsável fiscal. Premissa do caso para este recorte operacional.
+- Base de estado. Fatos da operação, jurisdição, regime e revisão legal efetiva. `research/domain/fiscal/candidate-laws.md`, CL-009. [`research/domain/fiscal/current-law-2026-review.md`](../research/domain/fiscal/current-law-2026-review.md).
 - Revisão semântica relevante. Schema e nota técnica do modelo, mais a revisão da LC e da orientação da Receita então vigentes.
-- Autorização ou aprovação exigida. Responsável fiscal assina a base. Grant do agente cobre envio, não interpretação livre de NCM.
-- Efeito externo previsto. Pedido ao autorizador. Resultado pode ser autorizado, rejeitado, contingência ou `unknown`. CL-005. Effect-contract seção 5. Não há enum legal universal para toda a família DF-e. current-law review, correção 2.
-- Responsabilidade legal. Organização Alfa e o responsável fiscal. O autorizador reconhece o documento no modelo. Não assume a obrigação tributária de Alfa.
+- Autorização ou aprovação exigida. Responsável fiscal assina a base. Premissa do caso para esta assinatura pessoal. Grant do agente cobre envio, não interpretação livre de NCM.
+- Efeito externo previsto. Pedido ao autorizador. Resultado pode ser autorizado, rejeitado, contingência ou `unknown`. `research/domain/fiscal/candidate-laws.md`, CL-005. `research/runtime/effects/effect-contract.md`, seção 5. Não há enum legal universal para toda a família DF-e. `research/domain/fiscal/current-law-2026-review.md`, correção 2.
+- Responsabilidade legal. Organização Alfa. O autorizador reconhece o documento no modelo. Não assume a obrigação tributária de Alfa. A menção ao responsável fiscal nesta Action é premissa do caso, não prova de responsabilidade pessoal deste cargo neste ato.
 
 ### Expected results
 
 Pedido, Action, ocorrência alegada, evidência do sensor e resultado aceito permanecem cinco registros. Entrega, journal e DF-e permanecem três atos. Códigos `PLN-BOMBA-ACIO` e `SKU-BR-ACIO-01` não são exportados como leis universais.
 
-Crédito de IBS ou CBS, se aplicável, não é o journal. CL-011. LC 214 arts. 47 e 48 no texto compilado citado em [`research/domain/fiscal/current-law-2026-review.md`](../research/domain/fiscal/current-law-2026-review.md).
+Crédito de IBS ou CBS, se aplicável, não é o journal. `research/domain/fiscal/candidate-laws.md`, CL-011. LC 214 arts. 47 e 48 no texto compilado citado em [`research/domain/fiscal/current-law-2026-review.md`](../research/domain/fiscal/current-law-2026-review.md).
 
 ### Invariants
 
-- Chegada, aceite, rejeição e disponível para uso não são um campo. p2p L6.
-- Consumo e produção da montagem são transformação, não transferência. inventory L-INV-11. manufacturing L12.
-- Payload local, pedido de autorização e protocolo externo não colapsam. CL-003, CL-005.
-- CFOP, CST, CSOSN, CRT, CEST e NCM ou TIPI ficam em definições brasileiras. Não entram no motor genérico. CL-010. Constituição, artigo 12.
+- Chegada, aceite, rejeição e disponível para uso não são um campo. `research/domain/p2p/candidate-laws.md`, L6.
+- Consumo e produção da montagem são transformação, não transferência. `research/domain/inventory/candidate-laws.md`, L-INV-11. `research/domain/manufacturing/candidate-laws.md`, L12.
+- Payload local, pedido de autorização e protocolo externo não colapsam. `research/domain/fiscal/candidate-laws.md`, CL-003, CL-005.
+- CFOP, CST, CSOSN, CRT, CEST e NCM ou TIPI ficam em definições brasileiras. Não entram no motor genérico. `research/domain/fiscal/candidate-laws.md`, CL-010. `docs/constitution.md`, artigo 12.
 
 ### Falsifier
 
@@ -500,20 +506,20 @@ Em data posterior, Alfa revisa a ontologia ou a política de classificação do 
 
 ### Observations
 
-1. Documento tardio de Gama, válido em 8 de agosto, conhecido em 12 de agosto. Kind, observação com valid time e known time distintos. inventory L-INV-08. `docs/open-questions.md` Q7.
+1. Documento tardio de Gama, válido em 8 de agosto, conhecido em 12 de agosto. Kind, observação com valid time e known time distintos. `research/domain/inventory/candidate-laws.md`, L-INV-08. `docs/open-questions.md` Q7.
 2. Saldos e ATP que as cenas 2 e 3 usaram em 10 e 11 de agosto. Kind, projeções then-known.
 3. Revisão 2 de ontologia ou política, com identificador de conteúdo. Kind, observação de definição. RFC-0002, binding de revisão. `docs/open-questions.md` Q19.
-4. Manifestação do destinatário, se Beta registrar ciência, desconhecimento ou operação não realizada. Kind, asserção oficial distinta da autorização do emitente. fiscal CL-008.
+4. Manifestação do destinatário, se Beta registrar ciência, desconhecimento ou operação não realizada. Kind, asserção oficial distinta da autorização do emitente. `research/domain/fiscal/candidate-laws.md`, CL-008.
 
 ### Decisions
 
-O entendimento corrente de estoque em 8 de agosto muda. O conhecimento que o agente tinha em 10 de agosto não é reescrito. L-INV-08, L-INV-16. Constituição, artigos 10 e 11.
+O entendimento corrente de estoque em 8 de agosto muda. O conhecimento que o agente tinha em 10 de agosto não é reescrito. `research/domain/inventory/candidate-laws.md`, L-INV-08, L-INV-16. `docs/constitution.md`, artigos 10 e 11.
 
-A Action histórica da cena 1 continua explicável sob a revisão 1. Replay sob a revisão 2 não é a explicação do desconto ou do aceite original. S-012. Commit-contract seção 11.
+A Action histórica da cena 1 continua explicável sob a revisão 1. Replay sob a revisão 2 não é a explicação do desconto ou do aceite original. S-012. `research/runtime/transactions/commit-contract.md`, seção 11.
 
-Correção fiscal, se a lei do modelo exigir, produz evento ou documento novo. Não apaga o payload autorizado como se nunca tivesse existido. CL-006, CL-007. [Ajuste SINIEF 44/20](https://www.confaz.fazenda.gov.br/legislacao/ajustes/2020/ajuste-sinief-44-20) e [Ajuste SINIEF 13/24](https://www.confaz.fazenda.gov.br/legislacao/ajustes/2024/AJ013_24) no registro de [`research/domain/fiscal/sources.md`](../research/domain/fiscal/sources.md).
+Correção fiscal, se a lei do modelo exigir, produz evento ou documento novo. Não apaga o payload autorizado como se nunca tivesse existido. `research/domain/fiscal/candidate-laws.md`, CL-006, CL-007. [Ajuste SINIEF 44/20](https://www.confaz.fazenda.gov.br/legislacao/ajustes/2020/ajuste-sinief-44-20) e [Ajuste SINIEF 13/24](https://www.confaz.fazenda.gov.br/legislacao/ajustes/2024/AJ013_24) no registro de [`research/domain/fiscal/sources.md`](../research/domain/fiscal/sources.md).
 
-Responsabilidade legal permanece em Alfa, no representante legal, no gerente de compras, no responsável fiscal e, no que couber ao contrato, em Gama e Beta. Agente, workload e robô não herdam essa responsabilidade porque a ontologia mudou.
+Responsabilidade legal permanece na Organização Alfa. Gama e Beta permanecem pessoas jurídicas nas relações que o caso já atribui a elas. Agente, workload e robô não herdam essa responsabilidade porque a ontologia mudou. Representante legal, gerente de compras e responsável fiscal permanecem identidades do elenco. Premissa do caso. Este Casebook não cita lei primária que prove responsabilidade pessoal desses cargos pelos atos das cenas 1 a 5.
 
 ### Actions
 
@@ -521,12 +527,12 @@ Responsabilidade legal permanece em Alfa, no representante legal, no gerente de 
 
 - Objetivo. Registrar o documento tardio como evidência com valid time em 8 de agosto e known time em 12 de agosto.
 - Parâmetros. `lot=LOT-IN-8841`, quantidade 20, `valid_on=2026-08-08`, `known_on=2026-08-12`, fonte documento Gama.
-- Ator de negócio. Agente de planta ou agente de cadeia, conforme grant.
+- Ator de negócio. Agente de planta.
 - Representado. Organização Alfa.
-- Delegação. `G-PLANTA-01` ou `G-CADEIA-01`, só para registrar evidência. Sem poder de apagar reservas históricas.
-- Base de estado. O documento é referência imutável. Commit-contract seção 3.4. Projeções dependentes marcam stale. L-INV-08.
+- Delegação. `G-PLANTA-01`, só para registrar evidência. Sem poder de apagar reservas históricas.
+- Base de estado. O documento é referência imutável. `research/runtime/transactions/commit-contract.md`, seção 3.4. Projeções dependentes marcam stale. `research/domain/inventory/candidate-laws.md`, L-INV-08.
 - Revisão semântica relevante. Revisão 1 para explicar decisões antigas. Revisão 2 só para atos novos.
-- Autorização ou aprovação exigida. Grant de correção. Período pode exigir override se já houver lock. accounting L7, L15.
+- Autorização ou aprovação exigida. Grant de correção. Período pode exigir override se já houver lock. `research/domain/accounting/candidate-laws.md`, L7, L15.
 - Efeito externo previsto. não aplicável, salvo novo EffectRequest se Gama ou o autorizador fiscal tiverem de ser notificados por ato próprio.
 - Responsabilidade legal. Organização Alfa. A correção não transfere responsabilidade ao agente que registrou o documento.
 
@@ -534,12 +540,12 @@ Responsabilidade legal permanece em Alfa, no representante legal, no gerente de 
 
 - Objetivo. Publicar a revisão 2 que altera a relação entre código de Gama e SKU brasileiro, ou a política usada no aceite.
 - Parâmetros. Identificador de conteúdo da revisão 2, escopo do diff, data efetiva para atos novos.
-- Ator de negócio. Agente de pesquisa ou humano de governança, conforme grant de evolução. `docs/open-questions.md` Q20 permanece aberta.
+- Ator de negócio. Agente de governança.
 - Representado. Organização Alfa.
-- Delegação. Grant de evolução de definição. Não inclui reescrever Actions históricas.
+- Delegação. `G-GOV-01`. Limitada à publicação da revisão 2 para atos novos. Revisão humana exigida. Sem poder de reescrever Actions históricas.
 - Base de estado. Revisão 1 permanece recuperável.
-- Revisão semântica relevante. A própria revisão 2, e a regra de compatibilidade que impede commit de proposta da revisão 1 sob interpretação da revisão 2 sem reproposta. Commit-contract seção 11.1. RFC-0002, hipótese.
-- Autorização ou aprovação exigida. Revisão humana de governança. Constituição, artigo 17. RFC-0002 não está aceito.
+- Revisão semântica relevante. A própria revisão 2, e a regra de compatibilidade que impede commit de proposta da revisão 1 sob interpretação da revisão 2 sem reproposta. `research/runtime/transactions/commit-contract.md`, seção 11.1. RFC-0002, hipótese.
+- Autorização ou aprovação exigida. Revisão humana de governança. `docs/constitution.md`, artigo 17. RFC-0002 não está aceito. `docs/open-questions.md` Q20 permanece aberta.
 - Efeito externo previsto. não aplicável.
 - Responsabilidade legal. Organização Alfa. A revisão de modelo não cria responsabilidade no motor, no agente ou no robô.
 
@@ -551,9 +557,9 @@ Se a jornada só puder ser contada mutando o passado sob a revisão 2, o Caseboo
 
 ### Invariants
 
-- Valid time e known time não são um timestamp. Q7. L-INV-08.
-- Correção acrescenta fato. Não apaga ocorrência. L-INV-16. accounting L3. fiscal CL-006.
-- Action histórica cita a revisão sob a qual foi interpretada. RFC-0002 e commit-contract seção 11, ambos hipótese de runtime e de metamodelo.
+- Valid time e known time não são um timestamp. Q7. `research/domain/inventory/candidate-laws.md`, L-INV-08.
+- Correção acrescenta fato. Não apaga ocorrência. `research/domain/inventory/candidate-laws.md`, L-INV-16. `research/domain/accounting/candidate-laws.md`, L3. `research/domain/fiscal/candidate-laws.md`, CL-006.
+- Action histórica cita a revisão sob a qual foi interpretada. RFC-0002 e `research/runtime/transactions/commit-contract.md`, seção 11, ambos hipótese de runtime e de metamodelo.
 
 ### Falsifier
 
@@ -570,13 +576,13 @@ Cada item aponta a um owner existente ou fica `sem owner identificado`. O Casebo
 1. Qual NCM ou TIPI cabe ao conjunto de acionamento permanece divergência do caso. Owner, #30. A TIPI é a autoridade de incidência de IPI. [S-TIPI](../research/domain/fiscal/sources.md). Este documento não classifica o produto.
 2. Incoterms, título e risco na rota China e Brasil não foram pinados por fonte primária deste caso. Owner, `sem owner identificado`. #17 e #18 cobrem custódia versus direitos. Não cobrem o Incoterm desta viagem.
 3. O protocolo real de Gama, chave de dedupe remota e janela de retenção, é desconhecido. Owner, #41. Fontes chinesas descrevem o mercado, não o endpoint de Gama.
-4. A ordem local-first versus remote-first não tem vencedor. Owner, #41. Effect-contract seção 12.3.
+4. A ordem local-first versus remote-first não tem vencedor. Owner, #41. `research/runtime/effects/effect-contract.md`, seção 12.3.
 5. Se Effect é primitiva, Type ordinário ou só capability de runtime permanece em disputa. Owner, #70 e RFC-0002. Não aceito.
 6. Se reserva é Commitment, relator ou figura de estoque permanece `undetermined`. Owner, #18. `docs/open-questions.md` Q12.
-7. Acoplamento entre movimento de estoque e journal não tem trigger único. Owner, #21. accounting L11, L13.
-8. Quanto da classificação fiscal é Function determinística e quanto é decisão governada permanece aberto. Owner, #30. current-law review, correção 3.
-9. Crédito de IBS ou CBS e o vínculo com extinção do débito não têm modelo de ligação fechado. Owner, #30. CL-011, `undetermined` no detalhe.
-10. Identidade de quote versus pedido aceito não é lei de domínio. Owner, #16. o2c L-012.
+7. Acoplamento entre movimento de estoque e journal não tem trigger único. Owner, #21. `research/domain/accounting/candidate-laws.md`, L11, L13.
+8. Quanto da classificação fiscal é Function determinística e quanto é decisão governada permanece aberto. Owner, #30. `research/domain/fiscal/current-law-2026-review.md`, correção 3.
+9. Crédito de IBS ou CBS e o vínculo com extinção do débito não têm modelo de ligação fechado. Owner, #30. `research/domain/fiscal/candidate-laws.md`, CL-011, `undetermined` no detalhe.
+10. Identidade de quote versus pedido aceito não é lei de domínio. Owner, #16. `research/domain/o2c/candidate-laws.md`, L-012.
 11. O Casebook não mede latência, acurácia, custo, volume, taxa de erro ou limiar. Owner, `sem owner identificado`. #80 pedirá critérios de parada. #71 pedirá suíte executável. Nenhum dos dois é este arquivo.
 12. Inspeção, amostragem e disposition têm pasta em `research/domain/quality/`. Este Casebook não promove essa pasta a owner da cena 5. Owner da lacuna de qualidade fina, `sem owner identificado` na lista do brief.
 
