@@ -1,0 +1,351 @@
+{
+  "revision_id": "defrev:v002-r1",
+  "parent_revision_id": null,
+  "types": [
+    {
+      "definition_id": "type.organization",
+      "nature": "entity",
+      "value_schema": {"type": "object"},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.product",
+      "nature": "entity",
+      "value_schema": {"type": "object"},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.lot",
+      "nature": "entity",
+      "value_schema": {"type": "object"},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "measurement",
+      "nature": "typed-value",
+      "value_schema": {"type": "number"}
+    },
+    {
+      "definition_id": "spec-min",
+      "nature": "typed-value",
+      "value_schema": {"type": "number"}
+    },
+    {
+      "definition_id": "spec-max",
+      "nature": "typed-value",
+      "value_schema": {"type": "number"}
+    },
+    {
+      "definition_id": "quality-approval",
+      "nature": "typed-value",
+      "value_schema": {"type": "boolean"}
+    },
+    {
+      "definition_id": "lot-status",
+      "nature": "typed-value",
+      "value_schema": {"type": "string"}
+    },
+    {
+      "definition_id": "remote-move",
+      "nature": "typed-value",
+      "value_schema": {"type": "string"}
+    }
+  ],
+  "relations": [
+    {
+      "definition_id": "relation.lot-of-product",
+      "roles": [{"name": "lot"}, {"name": "product"}],
+      "cardinality": {"min": 0, "max": null},
+      "temporal_required": false,
+      "provenance_required": true,
+      "projects_contextual_identity": true,
+      "value_schema": {
+        "type": "object",
+        "required": ["context_entity_id"],
+        "properties": {
+          "identity_id": {"type": "string"},
+          "context_entity_id": {"type": "string"}
+        }
+      }
+    },
+    {
+      "definition_id": "relation.inspector-of",
+      "roles": [{"name": "lab"}, {"name": "plant"}],
+      "cardinality": {"min": 0, "max": null},
+      "temporal_required": false,
+      "provenance_required": true,
+      "projects_contextual_identity": true,
+      "value_schema": {
+        "type": "object",
+        "required": ["context_entity_id"],
+        "properties": {
+          "identity_id": {"type": "string"},
+          "context_entity_id": {"type": "string"}
+        }
+      }
+    }
+  ],
+  "computations": [
+    {
+      "definition_id": "computation.measurement",
+      "result_predicate": "measurement",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subject": {"type": "string"},
+          "predicate": {"type": "string"}
+        }
+      },
+      "result_schema": {"type": "number"},
+      "expression": {
+        "op": "sum",
+        "source": {
+          "op": "project",
+          "path": "value",
+          "source": {
+            "op": "query_claims",
+            "subject": {"op": "input", "path": "subject"},
+            "predicate": {"op": "input", "path": "predicate"}
+          }
+        }
+      }
+    },
+    {
+      "definition_id": "computation.identity-plan",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "object"},
+      "expression": {
+        "op": "construct_result",
+        "quantity": {
+          "op": "if",
+          "condition": {"op": "input", "path": "stale"},
+          "then": {
+            "op": "subtract",
+            "left": {"op": "input", "path": "quantity"},
+            "right": {"op": "literal", "value": 1}
+          },
+          "else": {"op": "input", "path": "quantity"}
+        },
+        "stale": {"op": "input", "path": "stale"}
+      }
+    },
+    {
+      "definition_id": "computation.quantity-positive",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "boolean"},
+      "expression": {
+        "op": "compare",
+        "cmp": "gt",
+        "left": {"op": "input", "path": "quantity"},
+        "right": {"op": "literal", "value": 0}
+      }
+    },
+    {
+      "definition_id": "computation.release-requires-quality-approval",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "boolean"},
+      "expression": {
+        "op": "any",
+        "source": {
+          "op": "filter",
+          "source": {
+            "op": "query_claims",
+            "subject": {"op": "input", "path": "subject"},
+            "predicate": {"op": "literal", "value": "quality-approval"}
+          },
+          "where": {
+            "op": "compare",
+            "cmp": "eq",
+            "left": {"op": "input", "path": "item.value"},
+            "right": {"op": "literal", "value": true}
+          }
+        }
+      }
+    },
+    {
+      "definition_id": "computation.release-mutations",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "object"},
+      "expression": {
+        "op": "construct_result",
+        "claim": {
+          "op": "construct_claim",
+          "claim_id": {"op": "literal", "value": "claim:lot-released"},
+          "subject": {"op": "input", "path": "subject"},
+          "predicate": {"op": "literal", "value": "lot-status"},
+          "value": {"op": "literal", "value": "released"},
+          "valid_time": {"op": "input", "path": "now"}
+        },
+        "effect_request": {
+          "op": "construct_effect_request",
+          "request_id": {"op": "literal", "value": "effect:release-lot-1"},
+          "effect_id": {"op": "literal", "value": "effect.release-lot"},
+          "payload": {"op": "literal", "value": {"kind": "release"}}
+        }
+      }
+    },
+    {
+      "definition_id": "computation.quarantine-mutations",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "object"},
+      "expression": {
+        "op": "construct_result",
+        "claim": {
+          "op": "construct_claim",
+          "claim_id": {"op": "literal", "value": "claim:lot-quarantined"},
+          "subject": {"op": "input", "path": "subject"},
+          "predicate": {"op": "literal", "value": "lot-status"},
+          "value": {"op": "literal", "value": "quarantined"},
+          "valid_time": {"op": "input", "path": "now"}
+        },
+        "effect_request": {
+          "op": "construct_effect_request",
+          "request_id": {"op": "literal", "value": "effect:move-lot-1"},
+          "effect_id": {"op": "literal", "value": "effect.move-lot"},
+          "payload": {"op": "literal", "value": {"kind": "move", "destination": "quarantine"}}
+        }
+      }
+    },
+    {
+      "definition_id": "computation.reconcile-move",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "string"},
+      "expression": {
+        "op": "if",
+        "condition": {
+          "op": "compare",
+          "cmp": "gt",
+          "left": {"op": "input", "path": "evidence_count"},
+          "right": {"op": "literal", "value": 0}
+        },
+        "then": {"op": "literal", "value": "confirmed"},
+        "else": {"op": "literal", "value": "unknown"}
+      }
+    },
+    {
+      "definition_id": "computation.approval-authorized",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "boolean"},
+      "expression": {
+        "op": "all",
+        "items": [
+          {
+            "op": "compare",
+            "cmp": "eq",
+            "left": {"op": "input", "path": "approver_actor_id"},
+            "right": {"op": "literal", "value": "actor:quality-supervisor"}
+          },
+          {
+            "op": "compare",
+            "cmp": "eq",
+            "left": {"op": "input", "path": "approver_delegation_id"},
+            "right": {"op": "literal", "value": "delegation:approve-quality-1"}
+          }
+        ]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "definition_id": "rule.quantity-positive",
+      "computation_ref": "computation.quantity-positive",
+      "enforcement_locus": "commit",
+      "basis_mode": "current_at_commit",
+      "error_outcome": "deny",
+      "combination_order": 0
+    },
+    {
+      "definition_id": "rule.release-requires-quality-approval",
+      "computation_ref": "computation.release-requires-quality-approval",
+      "enforcement_locus": "commit",
+      "basis_mode": "current_at_commit",
+      "error_outcome": "deny",
+      "combination_order": 1
+    },
+    {
+      "definition_id": "rule.approval-authorized",
+      "computation_ref": "computation.approval-authorized",
+      "enforcement_locus": "approval",
+      "basis_mode": "proposal",
+      "error_outcome": "deny",
+      "combination_order": 0
+    }
+  ],
+  "actions": [
+    {
+      "definition_id": "action.release-lot",
+      "input_schema": {
+        "type": "object",
+        "required": ["quantity", "subject", "predicate"],
+        "properties": {
+          "quantity": {"type": "number"},
+          "subject": {"type": "string"},
+          "predicate": {"type": "string"}
+        }
+      },
+      "planner_ref": "computation.identity-plan",
+      "rule_refs": ["rule.quantity-positive", "rule.release-requires-quality-approval", "rule.approval-authorized"],
+      "state_basis_spec": [
+        {
+          "id": "measurement",
+          "mode": "current_at_commit",
+          "computation_ref": "computation.measurement",
+          "query": {"subject_input": "subject", "predicate_input": "predicate"}
+        }
+      ],
+      "approval_required": true,
+      "stale_behavior": "replan_within_bound",
+      "bound_path": "max_quantity",
+      "mutation_plan_ref": "computation.release-mutations",
+      "effect_refs": ["effect.release-lot"]
+    },
+    {
+      "definition_id": "action.quarantine-lot",
+      "input_schema": {
+        "type": "object",
+        "required": ["quantity", "subject", "predicate"],
+        "properties": {
+          "quantity": {"type": "number"},
+          "subject": {"type": "string"},
+          "predicate": {"type": "string"}
+        }
+      },
+      "planner_ref": "computation.identity-plan",
+      "rule_refs": ["rule.quantity-positive", "rule.approval-authorized"],
+      "state_basis_spec": [
+        {
+          "id": "measurement",
+          "mode": "current_at_commit",
+          "computation_ref": "computation.measurement",
+          "query": {"subject_input": "subject", "predicate_input": "predicate"}
+        }
+      ],
+      "approval_required": true,
+      "stale_behavior": "replan_within_bound",
+      "bound_path": "max_quantity",
+      "mutation_plan_ref": "computation.quarantine-mutations",
+      "effect_refs": ["effect.move-lot"]
+    }
+  ],
+  "effects": [
+    {
+      "definition_id": "effect.release-lot",
+      "request_schema": {"type": "object"},
+      "protocol_safety": {"safe_dedupe": false, "absence_proof": false},
+      "reconciliation_ref": "computation.reconcile-move"
+    },
+    {
+      "definition_id": "effect.move-lot",
+      "request_schema": {"type": "object"},
+      "protocol_safety": {"safe_dedupe": false, "absence_proof": false},
+      "reconciliation_ref": "computation.reconcile-move"
+    }
+  ]
+}

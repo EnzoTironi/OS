@@ -1,0 +1,299 @@
+{
+  "scenario_id": "v002",
+  "contract_version": "kernel-v001-scenario-input/1",
+  "premise": "simulated-2030",
+  "temporal_limit": {
+    "absolute_calendar_order": false,
+    "preserved_clock_order": ["10:01", "10:06", "10:07"],
+    "known_revision_assigned_by": "kernel",
+    "scenario_step_monotonic": true,
+    "note": "Dates are preserved. Commands are not sorted by valid time. Late calibration is known after the cut."
+  },
+  "clock": {"kind": "scripted", "start": "2030-08-10T10:00:00Z"},
+  "knowledge_cuts": {
+    "kr:before-late-calibration": {"before_command_id": "claim-calibration"}
+  },
+  "closing_queries": [
+    {
+      "type": "known-then",
+      "subject": "lot:lot-q-1",
+      "predicate": "measurement",
+      "valid_at": "2030-08-10",
+      "known_at": "kr:before-late-calibration"
+    },
+    {
+      "type": "now-believed-for-then",
+      "subject": "lot:lot-q-1",
+      "predicate": "measurement",
+      "valid_at": "2030-08-10"
+    }
+  ],
+  "closing_explains": ["v002:operation:quarantine-lot-1"],
+  "commands": [
+    {
+      "type": "CreateEntity",
+      "command_id": "create-plant",
+      "step": 1,
+      "clock_time": "2030-08-01T00:00:00Z",
+      "entity_id": "party:plant-a",
+      "type_ref": {"definition_id": "type.organization"},
+      "provenance": {"source_id": "source:master", "source_locator": "party/plant-a", "capture_id": "cap:plant-a", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-lab",
+      "step": 2,
+      "clock_time": "2030-08-01T00:00:01Z",
+      "entity_id": "party:lab-b",
+      "type_ref": {"definition_id": "type.organization"},
+      "provenance": {"source_id": "source:master", "source_locator": "party/lab-b", "capture_id": "cap:lab-b", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-product",
+      "step": 3,
+      "clock_time": "2030-08-01T00:00:02Z",
+      "entity_id": "product:widget-q",
+      "type_ref": {"definition_id": "type.product"},
+      "provenance": {"source_id": "source:master", "source_locator": "product/widget-q", "capture_id": "cap:product", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-lot",
+      "step": 4,
+      "clock_time": "2030-08-01T00:00:03Z",
+      "entity_id": "lot:lot-q-1",
+      "type_ref": {"definition_id": "type.lot"},
+      "provenance": {"source_id": "source:master", "source_locator": "lot/lot-q-1", "capture_id": "cap:lot", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "role-lot-of-product",
+      "step": 5,
+      "clock_time": "2030-08-02T00:00:00Z",
+      "claim_id": "claim:lot-of-product",
+      "subject_ref": "lot:lot-q-1",
+      "predicate_ref": "relation.lot-of-product",
+      "value": {"identity_id": "identity:lot-q-1-of-widget", "context_entity_id": "product:widget-q"},
+      "valid_time": {"instant": "2030-08-02"},
+      "provenance": {"source_id": "source:mes", "source_locator": "mes://lot/lot-q-1/product", "capture_id": "cap:lot-role", "capture_revision": "mes-1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "role-inspector",
+      "step": 6,
+      "clock_time": "2030-08-02T00:00:01Z",
+      "claim_id": "claim:inspector-of-plant",
+      "subject_ref": "party:lab-b",
+      "predicate_ref": "relation.inspector-of",
+      "value": {"identity_id": "identity:lab-b-inspector", "context_entity_id": "party:plant-a"},
+      "valid_time": {"instant": "2030-08-02"},
+      "provenance": {"source_id": "source:qms", "source_locator": "qms://lab/lab-b/inspector", "capture_id": "cap:insp-role", "capture_revision": "qms-1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "spec-min",
+      "step": 7,
+      "clock_time": "2030-08-03T00:00:00Z",
+      "claim_id": "claim:spec-min",
+      "subject_ref": "product:widget-q",
+      "predicate_ref": "spec-min",
+      "value": 9.5,
+      "valid_time": {"instant": "2030-08-03"},
+      "provenance": {"source_id": "source:spec", "source_locator": "spec://widget-q/min", "capture_id": "cap:spec-min", "capture_revision": "spec-1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "spec-max",
+      "step": 8,
+      "clock_time": "2030-08-03T00:00:01Z",
+      "claim_id": "claim:spec-max",
+      "subject_ref": "product:widget-q",
+      "predicate_ref": "spec-max",
+      "value": 10.5,
+      "valid_time": {"instant": "2030-08-03"},
+      "provenance": {"source_id": "source:spec", "source_locator": "spec://widget-q/max", "capture_id": "cap:spec-max", "capture_revision": "spec-1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "sensor-in-spec",
+      "step": 9,
+      "clock_time": "2030-08-10T09:00:00Z",
+      "claim_id": "claim:sensor-in-spec",
+      "subject_ref": "lot:lot-q-1",
+      "predicate_ref": "measurement",
+      "value": 10.2,
+      "valid_time": {"instant": "2030-08-10"},
+      "provenance": {"source_id": "source:sensor", "source_locator": "sensor://line-3/lot-q-1", "capture_id": "cap:sensor-1", "capture_revision": "sen-1", "actor_id": "actor:ingest", "workload_id": "workload:connector-sensor"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "inspector-out-of-spec",
+      "step": 10,
+      "clock_time": "2030-08-10T09:30:00Z",
+      "claim_id": "claim:inspector-out-of-spec",
+      "subject_ref": "lot:lot-q-1",
+      "predicate_ref": "measurement",
+      "value": 12.8,
+      "valid_time": {"instant": "2030-08-10"},
+      "provenance": {"source_id": "source:inspector", "source_locator": "insp://lab-b/lot-q-1", "capture_id": "cap:insp-1", "capture_revision": "insp-1", "actor_id": "actor:ingest", "workload_id": "workload:connector-qms"}
+    },
+    {
+      "type": "ProposeOperation",
+      "command_id": "propose-release",
+      "step": 11,
+      "clock_time": "2030-08-10T10:01:00Z",
+      "proposal_id": "proposal:release-lot-1",
+      "operation_id": "release-lot-1",
+      "authority_namespace": "v002",
+      "action_id": "action.release-lot",
+      "inputs": {"quantity": 2, "subject": "lot:lot-q-1", "predicate": "measurement"},
+      "replan_bounds": {"max_quantity": 2},
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:plant-a", "workload_id": "workload:agent-pod-1", "delegation_id": "delegation:release-lot-1"},
+      "delegation": {
+        "delegation_id": "delegation:release-lot-1",
+        "grantor_id": "party:plant-a",
+        "actor_id": "actor:planner-agent",
+        "represented_principal_id": "party:plant-a",
+        "action_scope": ["action.release-lot"],
+        "resource_scope": ["lot:lot-q-1"],
+        "purpose": "release lot after sensor reading",
+        "valid_from": "2030-08-10T10:00:00Z",
+        "valid_until": null,
+        "bound_workload_id": "workload:agent-pod-1"
+      }
+    },
+    {
+      "type": "RecordApproval",
+      "command_id": "approve-release",
+      "step": 12,
+      "clock_time": "2030-08-10T10:02:00Z",
+      "approval_id": "approval:release-lot-1",
+      "proposal_id": "proposal:release-lot-1",
+      "approved_bounds": {"max_quantity": 2},
+      "attribution": {"actor_id": "actor:quality-supervisor", "represented_principal_id": "party:plant-a", "workload_id": "workload:desktop-1", "delegation_id": "delegation:approve-quality-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "commit-release",
+      "step": 13,
+      "clock_time": "2030-08-10T10:03:00Z",
+      "operation_id": "release-lot-1",
+      "authority_namespace": "v002",
+      "proposal_id": "proposal:release-lot-1",
+      "approval_id": "approval:release-lot-1",
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:plant-a", "workload_id": "workload:agent-pod-1", "delegation_id": "delegation:release-lot-1"}
+    },
+    {
+      "type": "ProposeOperation",
+      "command_id": "propose-quarantine",
+      "step": 14,
+      "clock_time": "2030-08-10T10:04:00Z",
+      "proposal_id": "proposal:quarantine-lot-1",
+      "operation_id": "quarantine-lot-1",
+      "authority_namespace": "v002",
+      "action_id": "action.quarantine-lot",
+      "inputs": {"quantity": 2, "subject": "lot:lot-q-1", "predicate": "measurement"},
+      "replan_bounds": {"max_quantity": 2},
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:plant-a", "workload_id": "workload:agent-pod-1", "delegation_id": "delegation:quarantine-lot-1"},
+      "delegation": {
+        "delegation_id": "delegation:quarantine-lot-1",
+        "grantor_id": "party:plant-a",
+        "actor_id": "actor:planner-agent",
+        "represented_principal_id": "party:plant-a",
+        "action_scope": ["action.quarantine-lot"],
+        "resource_scope": ["lot:lot-q-1"],
+        "purpose": "hold lot after inspector reading",
+        "valid_from": "2030-08-10T10:00:00Z",
+        "valid_until": null,
+        "bound_workload_id": "workload:agent-pod-1"
+      }
+    },
+    {
+      "type": "RecordApproval",
+      "command_id": "approve-quarantine",
+      "step": 15,
+      "clock_time": "2030-08-10T10:05:00Z",
+      "approval_id": "approval:quarantine-lot-1",
+      "proposal_id": "proposal:quarantine-lot-1",
+      "approved_bounds": {"max_quantity": 2},
+      "attribution": {"actor_id": "actor:quality-supervisor", "represented_principal_id": "party:plant-a", "workload_id": "workload:desktop-1", "delegation_id": "delegation:approve-quality-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "commit-quarantine",
+      "step": 16,
+      "clock_time": "2030-08-10T10:06:00Z",
+      "operation_id": "quarantine-lot-1",
+      "authority_namespace": "v002",
+      "proposal_id": "proposal:quarantine-lot-1",
+      "approval_id": "approval:quarantine-lot-1",
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:plant-a", "workload_id": "workload:agent-pod-1", "delegation_id": "delegation:quarantine-lot-1"}
+    },
+    {
+      "type": "RecordEffectAttempt",
+      "command_id": "move-timeout",
+      "step": 17,
+      "clock_time": "2030-08-10T10:07:00Z",
+      "request_id": "effect:move-lot-1",
+      "attempt_id": "attempt:move-1",
+      "outcome": "sent_no_response",
+      "transport_evidence": {"kind": "timeout", "channel": "http"}
+    },
+    {
+      "type": "RecordEffectAttempt",
+      "command_id": "move-retry",
+      "step": 18,
+      "clock_time": "2030-08-10T10:08:00Z",
+      "request_id": "effect:move-lot-1",
+      "attempt_id": "attempt:move-2",
+      "outcome": "sent_no_response",
+      "transport_evidence": {"kind": "retry"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "move-evidence",
+      "step": 19,
+      "clock_time": "2030-08-11T12:00:00Z",
+      "claim_id": "claim:move-confirm",
+      "subject_ref": "effect:move-lot-1",
+      "predicate_ref": "remote-move",
+      "value": "confirmed",
+      "valid_time": {"instant": "2030-08-11"},
+      "provenance": {"source_id": "source:wms", "source_locator": "wms://move/lot-q-1", "capture_id": "cap:move", "capture_revision": "wms-1", "actor_id": "actor:ingest", "workload_id": "workload:connector-wms"}
+    },
+    {
+      "type": "ReconcileEffect",
+      "command_id": "reconcile-move",
+      "step": 20,
+      "clock_time": "2030-08-11T12:01:00Z",
+      "request_id": "effect:move-lot-1",
+      "reconciliation_id": "recon:move-1",
+      "evidence_refs": ["claim:move-confirm"],
+      "attribution": {"actor_id": "actor:reconciler", "represented_principal_id": "party:plant-a", "workload_id": "workload:recon-1", "delegation_id": "delegation:recon-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "replay-quarantine",
+      "step": 21,
+      "clock_time": "2030-08-11T15:01:00Z",
+      "operation_id": "quarantine-lot-1",
+      "authority_namespace": "v002",
+      "proposal_id": "proposal:quarantine-lot-1",
+      "approval_id": "approval:quarantine-lot-1",
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:plant-a", "workload_id": "workload:agent-pod-1", "delegation_id": "delegation:quarantine-lot-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "claim-calibration",
+      "step": 22,
+      "clock_time": "2030-08-12T09:00:00Z",
+      "claim_id": "claim:calibration-correction",
+      "subject_ref": "lot:lot-q-1",
+      "predicate_ref": "measurement",
+      "value": -1.6,
+      "valid_time": {"instant": "2030-08-10"},
+      "provenance": {"source_id": "source:calibration", "source_locator": "cal://sensor/line-3/rev-2", "capture_id": "cap:cal", "capture_revision": "cal-2", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    }
+  ]
+}
