@@ -437,7 +437,7 @@ function evaluate(
         throw new Error(`duplicate object key: ${name}`);
       }
       result[name] = evaluate(
-        property.initializer,
+        property.value,
         bindings,
         imports,
         visiting,
