@@ -1,0 +1,132 @@
+{
+  "scenario_id": "ontology-9",
+  "contract_version": "kernel-v001-scenario-input/1",
+  "premise": "simulated-2030",
+  "clock": {"kind": "scripted", "start": "2030-08-10T10:00:00Z"},
+  "knowledge_cuts": {
+    "kr:before-r2": {"before_command_id": "install-r2"}
+  },
+  "closing_queries": [
+    {
+      "type": "known-then",
+      "subject": "stock:sku-x",
+      "predicate": "available-quantity",
+      "valid_at": "2030-08-10",
+      "known_at": "kr:before-r2"
+    },
+    {
+      "type": "now-believed-for-then",
+      "subject": "stock:sku-x",
+      "predicate": "available-quantity",
+      "valid_at": "2030-08-10"
+    }
+  ],
+  "closing_explains": ["ontology-9:operation:reserve-1"],
+  "commands": [
+    {
+      "type": "CreateEntity",
+      "command_id": "create-org-a",
+      "clock_time": "2030-08-10T10:00:00Z",
+      "entity_id": "party:org-a",
+      "type_ref": {"definition_id": "type.organization"},
+      "provenance": {"source_id": "source:master", "source_locator": "party/org-a", "capture_id": "cap:org-a", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-sku",
+      "clock_time": "2030-08-10T10:00:01Z",
+      "entity_id": "product:sku-x",
+      "type_ref": {"definition_id": "type.product"},
+      "provenance": {"source_id": "source:master", "source_locator": "product/sku-x", "capture_id": "cap:sku", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-stock",
+      "clock_time": "2030-08-10T10:00:02Z",
+      "entity_id": "stock:sku-x",
+      "type_ref": {"definition_id": "type.stock-position"},
+      "provenance": {"source_id": "source:master", "source_locator": "stock/sku-x", "capture_id": "cap:stock", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "claim-onhand-20",
+      "clock_time": "2030-08-10T10:00:03Z",
+      "claim_id": "claim:onhand-20",
+      "subject_ref": "stock:sku-x",
+      "predicate_ref": "available-quantity",
+      "value": 20,
+      "valid_time": {"start": "2030-08-10"},
+      "provenance": {"source_id": "source:erp", "source_locator": "erp://onhand", "capture_id": "cap:onhand", "capture_revision": "e1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "ProposeOperation",
+      "command_id": "propose-reserve",
+      "clock_time": "2030-08-10T10:00:04Z",
+      "proposal_id": "proposal:reserve-1",
+      "operation_id": "reserve-1",
+      "authority_namespace": "ontology-9",
+      "action_id": "action.reserve-inventory",
+      "inputs": {"quantity": 5, "subject": "stock:sku-x", "claim_id": "claim:reserve-5"},
+      "replan_bounds": {"max_quantity": 5},
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:org-a", "workload_id": "workload:agent-1", "delegation_id": "delegation:reserve-1"},
+      "delegation": {
+        "delegation_id": "delegation:reserve-1",
+        "grantor_id": "party:org-a",
+        "actor_id": "actor:planner-agent",
+        "represented_principal_id": "party:org-a",
+        "action_scope": ["action.reserve-inventory"],
+        "resource_scope": [],
+        "purpose": "reserve",
+        "valid_from": "2030-08-10T10:00:00Z",
+        "valid_until": null,
+        "bound_workload_id": "workload:agent-1"
+      }
+    },
+    {
+      "type": "RecordApproval",
+      "command_id": "approve-reserve",
+      "clock_time": "2030-08-10T10:00:05Z",
+      "approval_id": "approval:reserve-1",
+      "proposal_id": "proposal:reserve-1",
+      "approved_bounds": {"max_quantity": 5},
+      "attribution": {"actor_id": "actor:human-approver", "represented_principal_id": "party:org-a", "workload_id": "workload:desktop-1", "delegation_id": "delegation:approve-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "commit-reserve",
+      "clock_time": "2030-08-10T10:00:06Z",
+      "operation_id": "reserve-1",
+      "authority_namespace": "ontology-9",
+      "proposal_id": "proposal:reserve-1",
+      "approval_id": "approval:reserve-1",
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:org-a", "workload_id": "workload:agent-1", "delegation_id": "delegation:reserve-1"}
+    },
+    {
+      "type": "InstallDefinitionRevision",
+      "command_id": "install-r2",
+      "clock_time": "2030-08-10T10:00:07Z",
+      "definitions_file": "definitions-r2.json"
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "naive-migrate-atp",
+      "clock_time": "2030-08-10T10:00:08Z",
+      "claim_id": "claim:naive-atp-20",
+      "subject_ref": "stock:sku-x",
+      "predicate_ref": "available-quantity",
+      "value": 20,
+      "valid_time": {"start": "2030-08-10"},
+      "provenance": {"source_id": "source:migrator", "source_locator": "migrator://copy-r1-number", "capture_id": "cap:naive", "capture_revision": "mig-1", "actor_id": "actor:ingest", "workload_id": "workload:migrator-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "replay-reserve",
+      "clock_time": "2030-08-10T10:00:09Z",
+      "operation_id": "reserve-1",
+      "authority_namespace": "ontology-9",
+      "proposal_id": "proposal:reserve-1",
+      "approval_id": "approval:reserve-1",
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:org-a", "workload_id": "workload:agent-1", "delegation_id": "delegation:reserve-1"}
+    }
+  ]
+}
