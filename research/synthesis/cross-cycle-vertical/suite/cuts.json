@@ -1,0 +1,26 @@
+{
+  "issue": 71,
+  "note": "Each cut must be tagged on at least one step or closing check. The suite is implementation-neutral; R6 is not a cut.",
+  "cuts": {
+    "identity": ["q-identity"],
+    "customer_intent": ["record-intent"],
+    "commercial_commitment": ["commit-accept-order"],
+    "inventory_availability": ["q-available-after-admit"],
+    "procurement_need": ["q-shortage"],
+    "action_proposal": ["propose-reserve-10"],
+    "policy_approval": ["approve-accept-order"],
+    "stale_revalidation": ["commit-reserve-10"],
+    "transactional_commit": ["commit-reserve-7", "replay-accept-order"],
+    "external_unknown": ["observe-supplier-unknown", "observe-carrier-unknown"],
+    "reconciliation": ["reconcile-supplier", "reconcile-carrier"],
+    "accounting_consequence": ["commit-receivable", "commit-settlement"],
+    "historical_query": ["q-known-then-erp"],
+    "causal_explanation": ["explain-accept-order", "explain-ship"],
+    "rival_sources": ["claim-erp", "claim-sensor", "q-rival-stock"],
+    "human_and_agent_same_action": ["commit-reserve-7", "commit-reserve-5"],
+    "ontology_revision_mid_cycle": ["publish-ontology-v2", "explain-accept-order", "q-ontology-now"],
+    "no_second_authority": ["q-write-paths"],
+    "correction_not_mutation": ["commit-return", "explain-ship"],
+    "unsafe_retry": ["retry-supplier"]
+  }
+}
