@@ -1,0 +1,167 @@
+{
+  "revision_id": "defrev:cross-r1",
+  "parent_revision_id": null,
+  "types": [
+    {
+      "definition_id": "type.organization",
+      "nature": "entity",
+      "value_schema": {"type": "object"},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.product",
+      "nature": "entity",
+      "value_schema": {"type": "object"},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.stock-position",
+      "nature": "entity",
+      "value_schema": {"type": "object"},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.sales-order",
+      "nature": "entity",
+      "value_schema": {"type": "object"},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.receivable",
+      "nature": "entity",
+      "value_schema": {"type": "object"},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "reserved-quantity",
+      "nature": "typed-value",
+      "value_schema": {"type": "number"}
+    },
+    {
+      "definition_id": "receivable-amount",
+      "nature": "typed-value",
+      "value_schema": {"type": "number"}
+    },
+    {
+      "definition_id": "settled-amount",
+      "nature": "typed-value",
+      "value_schema": {"type": "number"}
+    },
+    {
+      "definition_id": "shipped-quantity",
+      "nature": "typed-value",
+      "value_schema": {"type": "number"}
+    },
+    {
+      "definition_id": "return-quantity",
+      "nature": "typed-value",
+      "value_schema": {"type": "number"}
+    }
+  ],
+  "relations": [],
+  "computations": [
+    {
+      "definition_id": "computation.pass-through-plan",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "object"},
+      "expression": {
+        "op": "construct_result",
+        "quantity": {"op": "input", "path": "quantity"},
+        "stale": {"op": "literal", "value": false}
+      }
+    },
+    {
+      "definition_id": "computation.quantity-positive",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "boolean"},
+      "expression": {
+        "op": "compare",
+        "cmp": "gt",
+        "left": {"op": "input", "path": "quantity"},
+        "right": {"op": "literal", "value": 0}
+      }
+    },
+    {
+      "definition_id": "computation.approval-authorized",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "boolean"},
+      "expression": {
+        "op": "all",
+        "items": [
+          {
+            "op": "compare",
+            "cmp": "eq",
+            "left": {"op": "input", "path": "approver_actor_id"},
+            "right": {"op": "literal", "value": "actor:human-approver"}
+          },
+          {
+            "op": "compare",
+            "cmp": "eq",
+            "left": {"op": "input", "path": "approver_delegation_id"},
+            "right": {"op": "literal", "value": "delegation:approve-1"}
+          }
+        ]
+      }
+    },
+    {
+      "definition_id": "computation.reserve-mutations",
+      "result_predicate": null,
+      "input_schema": {"type": "object"},
+      "result_schema": {"type": "object"},
+      "expression": {
+        "op": "construct_result",
+        "claim": {
+          "op": "construct_claim",
+          "claim_id": {"op": "input", "path": "claim_id"},
+          "subject": {"op": "input", "path": "subject"},
+          "predicate": {"op": "literal", "value": "reserved-quantity"},
+          "value": {"op": "input", "path": "quantity"}
+        }
+      }
+    }
+  ],
+  "rules": [
+    {
+      "definition_id": "rule.quantity-positive",
+      "computation_ref": "computation.quantity-positive",
+      "enforcement_locus": "commit",
+      "basis_mode": "current_at_commit",
+      "error_outcome": "deny",
+      "combination_order": 0
+    },
+    {
+      "definition_id": "rule.approval-authorized",
+      "computation_ref": "computation.approval-authorized",
+      "enforcement_locus": "approval",
+      "basis_mode": "proposal",
+      "error_outcome": "deny",
+      "combination_order": 0
+    }
+  ],
+  "actions": [
+    {
+      "definition_id": "action.reserve-inventory",
+      "input_schema": {
+        "type": "object",
+        "required": ["quantity", "subject", "claim_id"],
+        "properties": {
+          "quantity": {"type": "number"},
+          "subject": {"type": "string"},
+          "claim_id": {"type": "string"}
+        }
+      },
+      "planner_ref": "computation.pass-through-plan",
+      "rule_refs": ["rule.quantity-positive", "rule.approval-authorized"],
+      "state_basis_spec": [],
+      "approval_required": true,
+      "stale_behavior": "reject",
+      "bound_path": "max_quantity",
+      "mutation_plan_ref": "computation.reserve-mutations",
+      "effect_refs": []
+    }
+  ],
+  "effects": []
+}

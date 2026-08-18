@@ -1,0 +1,280 @@
+{
+  "scenario_id": "cross-cycle-71",
+  "contract_version": "kernel-v001-scenario-input/1",
+  "premise": "simulated-2030",
+  "clock": {"kind": "scripted", "start": "2030-08-10T10:00:00Z"},
+  "closing_explains": [
+    "cross-cycle-71:operation:reserve-human-1",
+    "cross-cycle-71:operation:receivable-1"
+  ],
+  "commands": [
+    {
+      "type": "CreateEntity",
+      "command_id": "create-org-a",
+      "step": 1,
+      "clock_time": "2030-08-10T10:00:00Z",
+      "entity_id": "party:org-a",
+      "type_ref": {"definition_id": "type.organization"},
+      "provenance": {"source_id": "source:master", "source_locator": "party/org-a", "capture_id": "cap:org-a", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-sku",
+      "step": 2,
+      "clock_time": "2030-08-10T10:00:01Z",
+      "entity_id": "product:sku-x",
+      "type_ref": {"definition_id": "type.product"},
+      "provenance": {"source_id": "source:master", "source_locator": "product/sku-x", "capture_id": "cap:sku", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-stock",
+      "step": 3,
+      "clock_time": "2030-08-10T10:00:02Z",
+      "entity_id": "stock:sku-x",
+      "type_ref": {"definition_id": "type.stock-position"},
+      "provenance": {"source_id": "source:master", "source_locator": "stock/sku-x", "capture_id": "cap:stock", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-order",
+      "step": 4,
+      "clock_time": "2030-08-10T10:00:03Z",
+      "entity_id": "order:b-sku-x",
+      "type_ref": {"definition_id": "type.sales-order"},
+      "provenance": {"source_id": "source:sales", "source_locator": "order/b-sku-x", "capture_id": "cap:order", "capture_revision": "s1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-ar",
+      "step": 5,
+      "clock_time": "2030-08-10T10:00:04Z",
+      "entity_id": "ar:order-b",
+      "type_ref": {"definition_id": "type.receivable"},
+      "provenance": {"source_id": "source:ar", "source_locator": "ar/order-b", "capture_id": "cap:ar", "capture_revision": "a1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "ProposeOperation",
+      "command_id": "propose-reserve-human",
+      "step": 6,
+      "clock_time": "2030-08-10T10:00:05Z",
+      "proposal_id": "proposal:reserve-human-1",
+      "operation_id": "reserve-human-1",
+      "authority_namespace": "cross-cycle-71",
+      "action_id": "action.reserve-inventory",
+      "inputs": {"quantity": 3, "subject": "stock:sku-x", "claim_id": "claim:reserve-human"},
+      "attribution": {"actor_id": "actor:human-clerk", "represented_principal_id": "party:org-a", "workload_id": "workload:human-1", "delegation_id": "delegation:reserve-human-1"},
+      "delegation": {
+        "delegation_id": "delegation:reserve-human-1",
+        "grantor_id": "party:org-a",
+        "actor_id": "actor:human-clerk",
+        "represented_principal_id": "party:org-a",
+        "action_scope": ["action.reserve-inventory"],
+        "resource_scope": [],
+        "purpose": "reserve inventory",
+        "valid_from": "2030-08-10T10:00:00Z",
+        "valid_until": null,
+        "bound_workload_id": "workload:human-1"
+      }
+    },
+    {
+      "type": "RecordApproval",
+      "command_id": "approve-reserve-human",
+      "step": 7,
+      "clock_time": "2030-08-10T10:00:06Z",
+      "approval_id": "approval:reserve-human-1",
+      "proposal_id": "proposal:reserve-human-1",
+      "approved_bounds": {"max_quantity": 3},
+      "attribution": {"actor_id": "actor:human-approver", "represented_principal_id": "party:org-a", "workload_id": "workload:desktop-1", "delegation_id": "delegation:approve-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "commit-reserve-human",
+      "step": 8,
+      "clock_time": "2030-08-10T10:00:07Z",
+      "operation_id": "reserve-human-1",
+      "authority_namespace": "cross-cycle-71",
+      "proposal_id": "proposal:reserve-human-1",
+      "approval_id": "approval:reserve-human-1",
+      "attribution": {"actor_id": "actor:human-clerk", "represented_principal_id": "party:org-a", "workload_id": "workload:human-1", "delegation_id": "delegation:reserve-human-1"}
+    },
+    {
+      "type": "ProposeOperation",
+      "command_id": "propose-reserve-agent",
+      "step": 9,
+      "clock_time": "2030-08-10T10:00:08Z",
+      "proposal_id": "proposal:reserve-agent-1",
+      "operation_id": "reserve-agent-1",
+      "authority_namespace": "cross-cycle-71",
+      "action_id": "action.reserve-inventory",
+      "inputs": {"quantity": 2, "subject": "stock:sku-x", "claim_id": "claim:reserve-agent"},
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:org-a", "workload_id": "workload:agent-1", "delegation_id": "delegation:reserve-agent-1"},
+      "delegation": {
+        "delegation_id": "delegation:reserve-agent-1",
+        "grantor_id": "party:org-a",
+        "actor_id": "actor:planner-agent",
+        "represented_principal_id": "party:org-a",
+        "action_scope": ["action.reserve-inventory"],
+        "resource_scope": [],
+        "purpose": "reserve inventory",
+        "valid_from": "2030-08-10T10:00:00Z",
+        "valid_until": null,
+        "bound_workload_id": "workload:agent-1"
+      }
+    },
+    {
+      "type": "RecordApproval",
+      "command_id": "approve-reserve-agent",
+      "step": 10,
+      "clock_time": "2030-08-10T10:00:09Z",
+      "approval_id": "approval:reserve-agent-1",
+      "proposal_id": "proposal:reserve-agent-1",
+      "approved_bounds": {"max_quantity": 2},
+      "attribution": {"actor_id": "actor:human-approver", "represented_principal_id": "party:org-a", "workload_id": "workload:desktop-1", "delegation_id": "delegation:approve-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "commit-reserve-agent",
+      "step": 11,
+      "clock_time": "2030-08-10T10:00:10Z",
+      "operation_id": "reserve-agent-1",
+      "authority_namespace": "cross-cycle-71",
+      "proposal_id": "proposal:reserve-agent-1",
+      "approval_id": "approval:reserve-agent-1",
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:org-a", "workload_id": "workload:agent-1", "delegation_id": "delegation:reserve-agent-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "claim-ship-4",
+      "step": 12,
+      "clock_time": "2030-08-10T10:00:11Z",
+      "claim_id": "claim:ship-4",
+      "subject_ref": "order:b-sku-x",
+      "predicate_ref": "shipped-quantity",
+      "value": 4,
+      "valid_time": {"instant": "2030-08-10"},
+      "provenance": {"source_id": "source:wms", "source_locator": "wms://shipment/l1", "capture_id": "cap:ship-4", "capture_revision": "w1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "InstallDefinitionRevision",
+      "command_id": "install-r2",
+      "step": 13,
+      "clock_time": "2030-08-10T10:00:12Z",
+      "definitions_file": "definitions-r2.json"
+    },
+    {
+      "type": "ProposeOperation",
+      "command_id": "propose-receivable",
+      "step": 14,
+      "clock_time": "2030-08-10T10:00:13Z",
+      "proposal_id": "proposal:receivable-1",
+      "operation_id": "receivable-1",
+      "authority_namespace": "cross-cycle-71",
+      "action_id": "action.recognize-receivable",
+      "inputs": {"quantity": 40, "subject": "ar:order-b", "claim_id": "claim:ar-40"},
+      "attribution": {"actor_id": "actor:human-clerk", "represented_principal_id": "party:org-a", "workload_id": "workload:ar-1", "delegation_id": "delegation:receivable-1"},
+      "delegation": {
+        "delegation_id": "delegation:receivable-1",
+        "grantor_id": "party:org-a",
+        "actor_id": "actor:human-clerk",
+        "represented_principal_id": "party:org-a",
+        "action_scope": ["action.recognize-receivable"],
+        "resource_scope": [],
+        "purpose": "recognize receivable",
+        "valid_from": "2030-08-10T10:00:00Z",
+        "valid_until": null,
+        "bound_workload_id": "workload:ar-1"
+      }
+    },
+    {
+      "type": "RecordApproval",
+      "command_id": "approve-receivable",
+      "step": 15,
+      "clock_time": "2030-08-10T10:00:14Z",
+      "approval_id": "approval:receivable-1",
+      "proposal_id": "proposal:receivable-1",
+      "approved_bounds": {"max_quantity": 40},
+      "attribution": {"actor_id": "actor:human-approver", "represented_principal_id": "party:org-a", "workload_id": "workload:desktop-1", "delegation_id": "delegation:approve-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "commit-receivable",
+      "step": 16,
+      "clock_time": "2030-08-10T10:00:15Z",
+      "operation_id": "receivable-1",
+      "authority_namespace": "cross-cycle-71",
+      "proposal_id": "proposal:receivable-1",
+      "approval_id": "approval:receivable-1",
+      "attribution": {"actor_id": "actor:human-clerk", "represented_principal_id": "party:org-a", "workload_id": "workload:ar-1", "delegation_id": "delegation:receivable-1"}
+    },
+    {
+      "type": "ProposeOperation",
+      "command_id": "propose-settle",
+      "step": 17,
+      "clock_time": "2030-08-10T10:00:16Z",
+      "proposal_id": "proposal:settle-1",
+      "operation_id": "settle-1",
+      "authority_namespace": "cross-cycle-71",
+      "action_id": "action.settle-receivable",
+      "inputs": {"quantity": 40, "subject": "ar:order-b", "claim_id": "claim:settle-40"},
+      "attribution": {"actor_id": "actor:human-clerk", "represented_principal_id": "party:org-a", "workload_id": "workload:settle-1", "delegation_id": "delegation:settle-1"},
+      "delegation": {
+        "delegation_id": "delegation:settle-1",
+        "grantor_id": "party:org-a",
+        "actor_id": "actor:human-clerk",
+        "represented_principal_id": "party:org-a",
+        "action_scope": ["action.settle-receivable"],
+        "resource_scope": [],
+        "purpose": "settle receivable",
+        "valid_from": "2030-08-10T10:00:00Z",
+        "valid_until": null,
+        "bound_workload_id": "workload:settle-1"
+      }
+    },
+    {
+      "type": "RecordApproval",
+      "command_id": "approve-settle",
+      "step": 18,
+      "clock_time": "2030-08-10T10:00:17Z",
+      "approval_id": "approval:settle-1",
+      "proposal_id": "proposal:settle-1",
+      "approved_bounds": {"max_quantity": 40},
+      "attribution": {"actor_id": "actor:human-approver", "represented_principal_id": "party:org-a", "workload_id": "workload:desktop-1", "delegation_id": "delegation:approve-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "commit-settle",
+      "step": 19,
+      "clock_time": "2030-08-10T10:00:18Z",
+      "operation_id": "settle-1",
+      "authority_namespace": "cross-cycle-71",
+      "proposal_id": "proposal:settle-1",
+      "approval_id": "approval:settle-1",
+      "attribution": {"actor_id": "actor:human-clerk", "represented_principal_id": "party:org-a", "workload_id": "workload:settle-1", "delegation_id": "delegation:settle-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "claim-return-2",
+      "step": 20,
+      "clock_time": "2030-08-10T10:00:19Z",
+      "claim_id": "claim:return-2",
+      "subject_ref": "order:b-sku-x",
+      "predicate_ref": "return-quantity",
+      "value": 2,
+      "corrects": "claim:ship-4",
+      "valid_time": {"instant": "2030-08-10"},
+      "provenance": {"source_id": "source:returns", "source_locator": "returns://order/b-sku-x", "capture_id": "cap:return-2", "capture_revision": "r1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "replay-reserve-human",
+      "step": 21,
+      "clock_time": "2030-08-10T10:00:20Z",
+      "operation_id": "reserve-human-1",
+      "authority_namespace": "cross-cycle-71",
+      "proposal_id": "proposal:reserve-human-1",
+      "approval_id": "approval:reserve-human-1",
+      "attribution": {"actor_id": "actor:human-clerk", "represented_principal_id": "party:org-a", "workload_id": "workload:human-1", "delegation_id": "delegation:reserve-human-1"}
+    }
+  ]
+}
