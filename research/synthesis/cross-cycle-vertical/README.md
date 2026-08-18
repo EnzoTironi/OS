@@ -27,7 +27,7 @@ Deleting the reference adapter must not delete the suite. Another engine passes 
 
 - Not a kernel.
 - Not a metamodel. The suite does not require Type + Relation + Computation + Action.
-- Not a scorecard. Issue #80 is closed. Readiness is whether this suite, durable commit, and ontology evolution survive, not a JSON of gates.
+- Not a scorecard and not a gate. Issue #80 is closed. Readiness is whether this suite, durable commit, and ontology evolution survive.
 - Not permission to start the Rust product.
 
 The earlier `synthesis/issue-71-cross-cycle-vertical` branch started an R6 runtime before the suite existed. That was the wrong order. This folder publishes the suite first.

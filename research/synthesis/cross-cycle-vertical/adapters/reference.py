@@ -11,6 +11,7 @@ import importlib.util
 from hashlib import sha256
 import json
 from pathlib import Path
+import sys
 from typing import Any, Callable, Mapping
 
 RESEARCH = Path(__file__).resolve().parents[3]
@@ -22,6 +23,7 @@ def _load(module_name: str, relative: str):
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
