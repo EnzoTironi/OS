@@ -1,8 +1,19 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { canonicalize } from "json-canonicalize";
-import ts from "typescript";
+import { promisify } from "node:util";
+import { parse } from "@babel/parser";
+import { isExpression } from "@babel/types";
+import type {
+  Expression as BabelExpression,
+  Identifier,
+  ImportDeclaration,
+  PrivateName,
+  VariableDeclaration,
+} from "@babel/types";
+import canonicalize from "canonicalize";
 import { z } from "zod";
 import type {
   ActionDefinition,
@@ -28,6 +39,7 @@ type AuthorValue =
   | readonly AuthorValue[]
   | { readonly [key: string]: AuthorValue };
 
+const execFileAsync = promisify(execFile);
 const authorFunctions = new Set([
   "defineAction",
   "defineBundle",
@@ -206,101 +218,111 @@ export async function compileDefinition(
   sourcePath: string,
 ): Promise<CompiledDefinition> {
   const absoluteSourcePath = path.resolve(sourcePath);
-  typecheck(absoluteSourcePath);
+  await typecheck(absoluteSourcePath);
   const source = await readFile(absoluteSourcePath, "utf8");
   const authorValue = parseAuthorModule(absoluteSourcePath, source);
   const raw = rawBundleSchema.parse(authorValue);
   validateBundle(raw);
   const definition = normalize(raw);
   const canonicalJson = canonicalize(definition);
+  if (canonicalJson === undefined) {
+    throw new Error("canonical definition could not be serialized");
+  }
   const digest = createHash("sha256").update(canonicalJson).digest("hex");
 
   return { canonicalJson, definition, digest };
 }
 
-function typecheck(sourcePath: string): void {
-  const configPath = ts.findConfigFile(
-    process.cwd(),
-    ts.sys.fileExists,
-    "tsconfig.json",
+async function typecheck(sourcePath: string): Promise<void> {
+  const repositoryRoot = process.cwd();
+  const configPath = path.join(repositoryRoot, "tsconfig.json");
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "zoen-typecheck-"),
   );
-  if (configPath === undefined) {
-    throw new Error("tsconfig.json was not found");
-  }
-
-  const config = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (config.error !== undefined) {
-    throw new Error(formatDiagnostics([config.error]));
-  }
-
-  const parsed = ts.parseJsonConfigFileContent(
-    config.config,
-    ts.sys,
-    path.dirname(configPath),
-    { noEmit: true },
-    configPath,
+  const temporaryConfig = path.join(temporaryDirectory, "tsconfig.json");
+  await writeFile(
+    temporaryConfig,
+    JSON.stringify({
+      compilerOptions: { noEmit: true },
+      extends: configPath,
+      files: [sourcePath],
+      include: [],
+    }),
   );
-  const program = ts.createProgram({
-    options: parsed.options,
-    rootNames: [sourcePath],
-  });
-  const diagnostics = ts.getPreEmitDiagnostics(program);
-  if (diagnostics.length > 0) {
-    throw new Error(formatDiagnostics(diagnostics));
+
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        path.join(repositoryRoot, "node_modules", "typescript", "bin", "tsc"),
+        "--project",
+        temporaryConfig,
+      ],
+      { cwd: repositoryRoot },
+    );
+  } catch (error: unknown) {
+    throw new Error(`TypeScript typecheck failed:\n${commandOutput(error)}`, {
+      cause: error,
+    });
+  } finally {
+    await rm(temporaryDirectory, { force: true, recursive: true });
   }
 }
 
-function formatDiagnostics(
-  diagnostics: readonly ts.Diagnostic[],
-): string {
-  return ts.formatDiagnosticsWithColorAndContext(diagnostics, {
-    getCanonicalFileName: (fileName) => fileName,
-    getCurrentDirectory: ts.sys.getCurrentDirectory,
-    getNewLine: () => ts.sys.newLine,
-  });
+function commandOutput(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const stdout = Reflect.get(error, "stdout");
+    const stderr = Reflect.get(error, "stderr");
+    const output = [stdout, stderr]
+      .filter((value) => typeof value === "string" && value.length > 0)
+      .join("\n");
+    if (output.length > 0) {
+      return output;
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 function parseAuthorModule(
   fileName: string,
   source: string,
 ): AuthorValue {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.ESNext,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const bindings = new Map<string, ts.Expression>();
+  const sourceFile = parse(source, {
+    plugins: ["typescript"],
+    sourceFilename: fileName,
+    sourceType: "module",
+  });
+  const bindings = new Map<string, BabelExpression>();
   const imports = new Set<string>();
-  let defaultExpression: ts.Expression | undefined;
+  let defaultExpression: BabelExpression | undefined;
 
-  for (const statement of sourceFile.statements) {
-    if (ts.isImportDeclaration(statement)) {
+  for (const statement of sourceFile.program.body) {
+    if (statement.type === "ImportDeclaration") {
       parseImport(statement, imports);
       continue;
     }
-    if (ts.isVariableStatement(statement)) {
+    if (statement.type === "VariableDeclaration") {
       parseBindings(statement, bindings);
       continue;
     }
-    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+    if (
+      statement.type === "ExportDefaultDeclaration" &&
+      isExpression(statement.declaration)
+    ) {
       if (defaultExpression !== undefined) {
         throw new Error("a .zoen.ts module must have one default export");
       }
-      defaultExpression = statement.expression;
+      defaultExpression = statement.declaration;
       continue;
     }
-    throw new Error(
-      `unsupported top-level syntax: ${ts.SyntaxKind[statement.kind]}`,
-    );
+    throw new Error(`unsupported top-level syntax: ${statement.type}`);
   }
 
   if (
     defaultExpression === undefined ||
-    !ts.isCallExpression(defaultExpression) ||
-    !ts.isIdentifier(defaultExpression.expression) ||
-    defaultExpression.expression.text !== "defineBundle"
+    defaultExpression.type !== "CallExpression" ||
+    defaultExpression.callee.type !== "Identifier" ||
+    defaultExpression.callee.name !== "defineBundle"
   ) {
     throw new Error("the default export must call defineBundle");
   }
@@ -309,94 +331,108 @@ function parseAuthorModule(
 }
 
 function parseImport(
-  declaration: ts.ImportDeclaration,
+  declaration: ImportDeclaration,
   imports: Set<string>,
 ): void {
-  if (
-    !ts.isStringLiteral(declaration.moduleSpecifier) ||
-    declaration.moduleSpecifier.text !== "@zoen/ontology"
-  ) {
+  if (declaration.source.value !== "@zoen/ontology") {
     throw new Error(".zoen.ts may only import @zoen/ontology");
   }
-  const bindings = declaration.importClause?.namedBindings;
-  if (bindings === undefined || !ts.isNamedImports(bindings)) {
-    throw new Error(".zoen.ts must use named ontology imports");
-  }
-  for (const element of bindings.elements) {
-    const importedName = element.propertyName?.text ?? element.name.text;
+  for (const specifier of declaration.specifiers) {
+    if (specifier.type !== "ImportSpecifier") {
+      throw new Error(".zoen.ts must use named ontology imports");
+    }
+    const importedName =
+      specifier.imported.type === "Identifier"
+        ? specifier.imported.name
+        : specifier.imported.value;
     if (!authorFunctions.has(importedName)) {
       throw new Error(`unsupported ontology authoring function: ${importedName}`);
     }
-    imports.add(element.name.text);
+    imports.add(specifier.local.name);
   }
 }
 
 function parseBindings(
-  statement: ts.VariableStatement,
-  bindings: Map<string, ts.Expression>,
+  declaration: VariableDeclaration,
+  bindings: Map<string, BabelExpression>,
 ): void {
-  if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) {
+  if (declaration.kind !== "const") {
     throw new Error(".zoen.ts bindings must be const");
   }
-  for (const declaration of statement.declarationList.declarations) {
+  for (const binding of declaration.declarations) {
     if (
-      !ts.isIdentifier(declaration.name) ||
-      declaration.initializer === undefined
+      binding.id.type !== "Identifier" ||
+      binding.init === null ||
+      !isExpression(binding.init)
     ) {
       throw new Error(".zoen.ts bindings require a name and initializer");
     }
-    if (bindings.has(declaration.name.text)) {
-      throw new Error(`duplicate binding: ${declaration.name.text}`);
+    if (bindings.has(binding.id.name)) {
+      throw new Error(`duplicate binding: ${binding.id.name}`);
     }
-    bindings.set(declaration.name.text, declaration.initializer);
+    bindings.set(binding.id.name, binding.init);
   }
 }
 
 function evaluate(
-  expression: ts.Expression,
-  bindings: ReadonlyMap<string, ts.Expression>,
+  expression: BabelExpression,
+  bindings: ReadonlyMap<string, BabelExpression>,
   imports: ReadonlySet<string>,
   visiting: Set<string>,
 ): AuthorValue {
-  if (ts.isParenthesizedExpression(expression)) {
+  if (expression.type === "ParenthesizedExpression") {
     return evaluate(expression.expression, bindings, imports, visiting);
   }
-  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
-    return expression.text;
+  if (expression.type === "StringLiteral") {
+    return expression.value;
   }
-  if (ts.isNumericLiteral(expression)) {
-    return Number(expression.text);
+  if (expression.type === "TemplateLiteral") {
+    if (expression.expressions.length !== 0) {
+      throw new Error("template interpolation is not supported");
+    }
+    const quasi = expression.quasis[0];
+    if (quasi === undefined) {
+      throw new Error("template literal has no content");
+    }
+    return quasi.value.cooked ?? quasi.value.raw;
   }
-  if (expression.kind === ts.SyntaxKind.TrueKeyword) {
-    return true;
+  if (expression.type === "NumericLiteral") {
+    return expression.value;
   }
-  if (expression.kind === ts.SyntaxKind.FalseKeyword) {
-    return false;
+  if (expression.type === "BooleanLiteral") {
+    return expression.value;
   }
-  if (expression.kind === ts.SyntaxKind.NullKeyword) {
+  if (expression.type === "NullLiteral") {
     return null;
   }
-  if (ts.isPrefixUnaryExpression(expression)) {
+  if (expression.type === "UnaryExpression") {
     if (
-      expression.operator !== ts.SyntaxKind.MinusToken ||
-      !ts.isNumericLiteral(expression.operand)
+      expression.operator !== "-" ||
+      expression.argument.type !== "NumericLiteral"
     ) {
       throw new Error("only negative numeric literals are supported");
     }
-    return -Number(expression.operand.text);
+    return -expression.argument.value;
   }
-  if (ts.isArrayLiteralExpression(expression)) {
-    return expression.elements.map((element) =>
-      evaluate(element, bindings, imports, visiting),
-    );
+  if (expression.type === "ArrayExpression") {
+    return expression.elements.map((element) => {
+      if (element === null || !isExpression(element)) {
+        throw new Error("array holes and spreads are not supported");
+      }
+      return evaluate(element, bindings, imports, visiting);
+    });
   }
-  if (ts.isObjectLiteralExpression(expression)) {
+  if (expression.type === "ObjectExpression") {
     const result: Record<string, AuthorValue> = {};
     for (const property of expression.properties) {
-      if (!ts.isPropertyAssignment(property)) {
+      if (
+        property.type !== "ObjectProperty" ||
+        property.computed ||
+        !isExpression(property.value)
+      ) {
         throw new Error("spreads and shorthand properties are not supported");
       }
-      const name = propertyName(property.name);
+      const name = propertyName(property.key);
       if (Object.hasOwn(result, name)) {
         throw new Error(`duplicate object key: ${name}`);
       }
@@ -409,47 +445,49 @@ function evaluate(
     }
     return result;
   }
-  if (ts.isIdentifier(expression)) {
-    const initializer = bindings.get(expression.text);
+  if (expression.type === "Identifier") {
+    const initializer = bindings.get(expression.name);
     if (initializer === undefined) {
-      throw new Error(`unknown binding: ${expression.text}`);
+      throw new Error(`unknown binding: ${expression.name}`);
     }
-    if (visiting.has(expression.text)) {
-      throw new Error(`cyclic binding: ${expression.text}`);
+    if (visiting.has(expression.name)) {
+      throw new Error(`cyclic binding: ${expression.name}`);
     }
     const nextVisiting = new Set(visiting);
-    nextVisiting.add(expression.text);
+    nextVisiting.add(expression.name);
     return evaluate(initializer, bindings, imports, nextVisiting);
   }
-  if (ts.isCallExpression(expression)) {
+  if (expression.type === "CallExpression") {
     if (
-      !ts.isIdentifier(expression.expression) ||
-      !imports.has(expression.expression.text) ||
+      expression.callee.type !== "Identifier" ||
+      !imports.has(expression.callee.name) ||
       expression.arguments.length !== 1
     ) {
       throw new Error("only imported ontology calls with one argument are supported");
     }
     const argument = expression.arguments[0];
-    if (argument === undefined) {
+    if (argument === undefined || !isExpression(argument)) {
       throw new Error("ontology call argument is required");
     }
     return evaluate(argument, bindings, imports, visiting);
   }
 
-  throw new Error(
-    `nondeterministic or unsupported syntax: ${ts.SyntaxKind[expression.kind]}`,
-  );
+  throw new Error(`nondeterministic or unsupported syntax: ${expression.type}`);
 }
 
-function propertyName(name: ts.PropertyName): string {
-  if (
-    ts.isIdentifier(name) ||
-    ts.isStringLiteral(name) ||
-    ts.isNumericLiteral(name)
-  ) {
-    return name.text;
+function propertyName(
+  name: BabelExpression | Identifier | PrivateName,
+): string {
+  switch (name.type) {
+    case "Identifier":
+      return name.name;
+    case "StringLiteral":
+      return name.value;
+    case "NumericLiteral":
+      return String(name.value);
+    default:
+      throw new Error("computed property names are not supported");
   }
-  throw new Error("computed property names are not supported");
 }
 
 function validateBundle(bundle: RawDefinitionBundle): void {
