@@ -16,6 +16,7 @@ class AnalyzerTests(unittest.TestCase):
         report = analyze.analyze("0" * 40)
         for key in (
             "domain_branches",
+            "domain_coupling",
             "duplicated_rule_groups",
             "escape_hatches",
             "caller_contract",
@@ -26,6 +27,7 @@ class AnalyzerTests(unittest.TestCase):
             self.assertIn(key, report)
         for key in (
             "domain_branches",
+            "domain_coupling",
             "duplicated_rule_groups",
             "escape_hatches",
             "caller_contract",

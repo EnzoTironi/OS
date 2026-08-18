@@ -14,7 +14,7 @@ from services.history import HistoryService
 from services.ledger import Ledger
 from services.orders import OrderService
 from services.purchasing import PurchasingService
-from services.quality import QualityService, commit_counts, disposition_kind
+from services.quality import QualityService
 from services.stock import StockService
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -91,7 +91,6 @@ class ConventionalEngine:
         self._seen_reconcile = False
         self._commit_count = 0
         self._effect_request_ids = named_effect_requests(scenario)
-        self._commit_counts = commit_counts(scenario)
 
     def apply(self, command: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(command, dict):
@@ -109,8 +108,7 @@ class ConventionalEngine:
             receipt = self.stock.record_receipt(payload)
         elif command_type == "ProposeOperation":
             if self.quality.owns_proposal(payload):
-                kind = disposition_kind(self._commit_counts, payload.get("operation_id"))
-                receipt = self.quality.propose(payload, self.clock, kind)
+                receipt = self.quality.propose(payload, self.clock)
             else:
                 receipt = self.purchasing.propose(payload, self.clock)
         elif command_type == "RecordApproval":
@@ -169,13 +167,15 @@ class ConventionalEngine:
         }
 
     def effect_request_id_for_commit(self, operation_id: str | None) -> str:
-        if not self._effect_request_ids:
+        ids = self._effect_request_ids
+        if len(ids) != 1:
+            code = "missing_effect_request" if not ids else "ambiguous_effect_request"
             raise InputError(
-                "missing_effect_request",
-                f"scenario does not name an effect request before commit of {operation_id}",
+                code,
+                f"scenario must name exactly one effect request id before commit of {operation_id}",
                 RUN_EXAMPLE,
             )
-        return self._effect_request_ids[0]
+        return ids[0]
 
     def query(self, query: dict[str, Any]) -> dict[str, Any]:
         kind = query.get("type")

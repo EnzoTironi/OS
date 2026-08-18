@@ -34,7 +34,16 @@ DOMAIN_MARKERS = {
     "release",
     "hold",
     "calibrat",
+    "quality-approval",
+    "release-lot",
+    "quarantine-lot",
 }
+
+DOMAIN_COUPLING_TOKENS = (
+    "action.release-lot",
+    "action.quarantine-lot",
+    "quality-approval",
+)
 
 
 def locator(path: Path, lineno: int, name: str) -> str:
@@ -106,6 +115,26 @@ def domain_branch_findings() -> list[dict[str, Any]]:
                                     "text": child.value,
                                 }
                             )
+    return hits
+
+
+def domain_coupling_findings() -> list[dict[str, Any]]:
+    hits: list[dict[str, Any]] = []
+    for path in service_paths():
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        rel = path.relative_to(ROOT).as_posix()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in DOMAIN_COUPLING_TOKENS:
+                hits.append(
+                    {
+                        "path": rel,
+                        "line": node.lineno,
+                        "kind": "domain-coupling",
+                        "text": node.value,
+                        "locator": locator(path, node.lineno, node.value),
+                    }
+                )
     return hits
 
 
@@ -199,6 +228,11 @@ def analyze(source_sha: str) -> dict[str, Any]:
             scope,
             "domain-coded if/compare branches in conventional services",
             domain_branch_findings(),
+        ),
+        "domain_coupling": _metric(
+            scope,
+            "explicit quality Action IDs and quality-approval predicate coupled in conventional services",
+            domain_coupling_findings(),
         ),
         "duplicated_rule_groups": _metric(
             scope,

@@ -19,6 +19,8 @@ import evaluate_v002
 from harness import load_v002, remap_strings, run_document, run_v002
 from services.canonical import dumps_pretty
 from services.engine import ConventionalEngine
+from services.errors import InputError
+from services.quality import QUALITY_ACTIONS, QUALITY_APPROVAL_PREDICATE, QUARANTINE_ACTION, RELEASE_ACTION
 
 SCHEMA = json.loads((EXPERIMENT / "schemas" / "scenario-run.schema.json").read_text(encoding="utf-8"))
 ONTOLOGY_OS = EXPERIMENT / "os"
@@ -29,9 +31,8 @@ FIXTURE_IDS = (
     "claim:calibration-correction",
     "effect:move-lot-1",
     "effect:release-lot-1",
-    "action.release-lot",
-    "action.quarantine-lot",
 )
+DOMAIN_TOKENS = (RELEASE_ACTION, QUARANTINE_ACTION, QUALITY_APPROVAL_PREDICATE)
 
 
 def remap_including_keys(value: Any, mapping: dict[str, str]) -> Any:
@@ -51,6 +52,32 @@ def remap_including_keys(value: Any, mapping: dict[str, str]) -> Any:
 def _failed(run: dict) -> list[str]:
     comparison = evaluate_v002.evaluate_run(run)
     return [item["property_id"] for item in comparison["property_results"] if not item["passed"]]
+
+
+def _insert_bool_claim(scenario: dict[str, Any], *, claim_id: str, predicate: str, value: bool = True) -> dict[str, Any]:
+    claim = {
+        "type": "RecordClaim",
+        "command_id": "extra-approval",
+        "clock_time": "2030-08-10T09:45:00Z",
+        "claim_id": claim_id,
+        "subject_ref": "lot:lot-q-1",
+        "predicate_ref": predicate,
+        "value": value,
+        "valid_time": {"instant": "2030-08-10"},
+        "provenance": {
+            "source_id": "source:qms",
+            "source_locator": "qms://approval",
+            "capture_id": "cap:qa",
+            "capture_revision": "qa-1",
+            "actor_id": "actor:ingest",
+            "workload_id": "workload:ingest-1",
+        },
+    }
+    commands = list(scenario["commands"])
+    index = next(i for i, item in enumerate(commands) if item.get("command_id") == "propose-release")
+    commands.insert(index, claim)
+    scenario["commands"] = commands
+    return scenario
 
 
 class V002ConventionalTests(unittest.TestCase):
@@ -107,7 +134,7 @@ class V002ConventionalTests(unittest.TestCase):
         self.assertTrue(all(item["passed"] for item in conv["property_results"]))
         self.assertTrue(all(item["passed"] for item in onto["property_results"]))
 
-    def test_domain_remap_keeps_properties(self) -> None:
+    def test_entity_operation_effect_date_remap_keeps_properties(self) -> None:
         mapping = {
             "v002": "harbor",
             "lot:lot-q-1": "lot:lot-q",
@@ -120,9 +147,10 @@ class V002ConventionalTests(unittest.TestCase):
             "claim:sensor-in-spec": "claim:probe-inside",
             "claim:inspector-out-of-spec": "claim:human-outside",
             "claim:calibration-correction": "claim:offset-late",
-            "action.release-lot": "action.free-lot",
-            "action.quarantine-lot": "action.hold-lot",
             "kr:before-late-calibration": "kr:before-late-offset",
+            "2030-08-10": "2031-02-11",
+            "2030-08-11": "2031-02-12",
+            "2030-08-12": "2031-02-13",
         }
         remapped = remap_including_keys(load_v002(), mapping)
         run = run_document(remapped)
@@ -136,13 +164,58 @@ class V002ConventionalTests(unittest.TestCase):
         known = next(item for item in run["queries"] if item["type"] == "known-then")
         believed = next(item for item in run["queries"] if item["type"] == "now-believed-for-then")
         self.assertEqual(known["subject"], "lot:lot-q")
+        self.assertEqual(known["valid_at"], "2031-02-11")
         self.assertEqual(known["value"], 23)
         self.assertEqual(believed["value"], 21.4)
         blob = json.dumps(run)
         self.assertNotIn("lot:lot-q-1", blob)
         self.assertNotIn("effect:move-lot-1", blob)
         self.assertNotIn("quarantine-lot-1", blob)
+        self.assertIn(RELEASE_ACTION, blob)
+        self.assertIn(QUARANTINE_ACTION, blob)
         self.assertEqual(_failed(run), [])
+
+    def test_action_id_remap_fails_as_domain_coupling(self) -> None:
+        mapping = {
+            RELEASE_ACTION: "action.free-lot",
+            QUARANTINE_ACTION: "action.hold-lot",
+        }
+        remapped = remap_including_keys(load_v002(), mapping)
+        with self.assertRaises(InputError) as ctx:
+            run_document(remapped)
+        self.assertEqual(ctx.exception.code, "unknown_quality_action")
+        self.assertIn(RELEASE_ACTION, ctx.exception.message)
+        self.assertIn(QUARANTINE_ACTION, ctx.exception.message)
+
+    def test_quality_approval_predicate_remap_does_not_release(self) -> None:
+        scenario = _insert_bool_claim(
+            load_v002(),
+            claim_id="claim:quality-ok",
+            predicate=QUALITY_APPROVAL_PREDICATE,
+        )
+        remapped = remap_including_keys(scenario, {QUALITY_APPROVAL_PREDICATE: "quality-ok"})
+        run = run_document(remapped)
+        cmds = {item["command_id"]: item for item in run["command_receipts"]}
+        self.assertEqual(cmds["commit-release"]["outcome"], "denied")
+        self.assertEqual(cmds["commit-release"]["details"]["rule"], "quality-approval-required")
+
+    def test_true_claim_without_quality_approval_still_denies(self) -> None:
+        scenario = _insert_bool_claim(load_v002(), claim_id="claim:lot-cleared", predicate="lot-cleared")
+        run = run_document(scenario)
+        cmds = {item["command_id"]: item for item in run["command_receipts"]}
+        self.assertEqual(cmds["commit-release"]["outcome"], "denied")
+        self.assertEqual(cmds["commit-release"]["details"]["rule"], "quality-approval-required")
+
+    def test_quality_approval_predicate_permits_release(self) -> None:
+        scenario = _insert_bool_claim(
+            load_v002(),
+            claim_id="claim:quality-ok",
+            predicate=QUALITY_APPROVAL_PREDICATE,
+        )
+        run = run_document(scenario)
+        cmds = {item["command_id"]: item["outcome"] for item in run["command_receipts"]}
+        self.assertEqual(cmds["commit-release"], "committed")
+        self.assertEqual(cmds["commit-quarantine"], "committed")
 
     def test_measurement_variation_changes_derived_values(self) -> None:
         baseline = run_v002()
@@ -187,14 +260,23 @@ class V002ConventionalTests(unittest.TestCase):
 
     def test_services_do_not_hardcode_fixture_outputs(self) -> None:
         forbidden = ("21.4", *FIXTURE_IDS)
+        quality = (HERE / "services" / "quality.py").read_text(encoding="utf-8")
+        for token in DOMAIN_TOKENS:
+            self.assertIn(token, quality)
+        self.assertEqual(set(QUALITY_ACTIONS), {RELEASE_ACTION, QUARANTINE_ACTION})
         for path in (HERE / "services").glob("*.py"):
             text = path.read_text(encoding="utf-8")
             for token in forbidden:
                 self.assertNotIn(token, text, f"{path.name} contains {token}")
+        self.assertNotIn("commit_counts", quality)
+        self.assertNotIn("disposition_kind", quality)
 
     def test_analyzer_measures_quality_path(self) -> None:
         report = analyze.analyze("0" * 40)
         self.assertGreater(len(report["domain_branches"]["findings"]), 0)
+        coupled = {item.get("text") for item in report["domain_coupling"]["findings"]}
+        self.assertTrue(set(DOMAIN_TOKENS) <= coupled)
+        self.assertTrue(all(item.get("locator") and item.get("line") for item in report["domain_coupling"]["findings"]))
         symbols = {item.get("symbol") for item in report["trusted_commit_path"]["findings"]}
         self.assertTrue(any(symbol and "QualityService.commit" in symbol for symbol in symbols))
         self.assertTrue(any(item.get("symbol") == "apply" or (item.get("symbol") or "").endswith(".apply") for item in report["caller_contract"]["findings"]))

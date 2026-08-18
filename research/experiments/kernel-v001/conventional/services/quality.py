@@ -12,24 +12,24 @@ from services.stock import STOCK_PREDICATES
 
 RUN_EXAMPLE = "os scenario run v002 --output json"
 HOLD_STATUS = "held"
+RELEASE_ACTION = "action.release-lot"
+QUARANTINE_ACTION = "action.quarantine-lot"
+QUALITY_APPROVAL_PREDICATE = "quality-approval"
+QUALITY_ACTIONS = {
+    RELEASE_ACTION: "release",
+    QUARANTINE_ACTION: "hold",
+}
 
 
-def commit_counts(scenario: dict[str, Any]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for command in scenario.get("commands") or []:
-        if command.get("type") != "CommitOperation":
-            continue
-        operation_id = command.get("operation_id")
-        if not operation_id:
-            continue
-        counts[operation_id] = counts.get(operation_id, 0) + 1
-    return counts
-
-
-def disposition_kind(counts: dict[str, int], operation_id: str | None) -> str:
-    if operation_id and counts.get(operation_id, 0) >= 2:
-        return "hold"
-    return "release"
+def quality_kind_for_action(action_id: str) -> str:
+    kind = QUALITY_ACTIONS.get(action_id)
+    if kind is None:
+        raise InputError(
+            "unknown_quality_action",
+            f"conventional quality couples to {RELEASE_ACTION} and {QUARANTINE_ACTION}, not {action_id}",
+            RUN_EXAMPLE,
+        )
+    return kind
 
 
 class QualityService:
@@ -93,11 +93,14 @@ class QualityService:
         for claim in self.ledger.claims():
             if claim.get("subject_ref") != subject:
                 continue
+            if claim.get("predicate_ref") != QUALITY_APPROVAL_PREDICATE:
+                continue
             if claim.get("value") is True:
                 found.append(claim)
         return found
 
-    def propose(self, command: dict[str, Any], clock_now: str, kind: str) -> dict[str, Any]:
+    def propose(self, command: dict[str, Any], clock_now: str) -> dict[str, Any]:
+        kind = quality_kind_for_action(command["action_id"])
         attribution = attribution_of(command.get("attribution"))
         self.authority.remember_delegation(command.get("delegation"), attribution)
         inputs = dict(command.get("inputs") or {})
@@ -236,7 +239,7 @@ class QualityService:
             quantity = int(quantity)
         if float(quantity) <= 0:
             return self._deny(operation_id, "quantity-positive")
-        kind = proposal.get("quality_kind") or "release"
+        kind = quality_kind_for_action(proposal["action_id"])
         if kind == "release" and not self._approval_facts(inputs["subject"]):
             return self._deny(operation_id, "quality-approval-required")
         if kind == "hold" and not effect_request_id:

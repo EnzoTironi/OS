@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - cursor/kernel-v002-conventional-a60c
+      - cursor/kernel-v002-conventional-v3-a60c
     paths:
       - 'research/experiments/kernel-v001/conventional/**'
       - '.github/workflows/kernel-v002-conventional-ci.yml'
   pull_request:
     branches:
       - cursor/kernel-v002-conventional-base-a60c
+      - cursor/kernel-v002-conventional-a60c
     paths:
       - 'research/experiments/kernel-v001/conventional/**'
       - '.github/workflows/kernel-v002-conventional-ci.yml'

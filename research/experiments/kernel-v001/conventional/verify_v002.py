@@ -83,13 +83,20 @@ def main() -> int:
             "ontology_files": delta["ontology_extension"]["file_count"],
             "ontology_nonblank_lines": delta["ontology_extension"]["nonblank_lines"],
             "domain_branches": delta["structure_delta"]["domain_branches"],
+            "domain_coupling": delta["structure_delta"]["domain_coupling"],
+            "domain_nonblank_lines": delta["conventional_extension"]["domain_nonblank_lines"],
+            "test_nonblank_lines": delta["conventional_extension"]["test_nonblank_lines"],
+            "workflow_nonblank_lines": delta["conventional_extension"]["workflow_nonblank_lines"],
+            "shared_fixture_schema_nonblank_lines": delta["conventional_extension"][
+                "shared_fixture_schema_nonblank_lines"
+            ],
             "duplicated_rule_groups": delta["structure_delta"]["duplicated_rule_groups"],
             "caller_contract": delta["structure_delta"]["caller_contract"],
             "trusted_commit_path": delta["structure_delta"]["trusted_commit_path"],
         },
         "locators": {
-            "baseline_branch": "cursor/kernel-v002-conventional-a60c",
-            "base_branch": "cursor/kernel-v002-conventional-base-a60c",
+            "baseline_branch": "cursor/kernel-v002-conventional-v3-a60c",
+            "base_branch": "cursor/kernel-v002-conventional-a60c",
             "shared_evaluator": "research/experiments/kernel-v001/conventional/evaluate_v002.py",
             "evaluator_symbol": "evaluate_run",
             "conventional_analyzer": "research/experiments/kernel-v001/conventional/analyze.py",
