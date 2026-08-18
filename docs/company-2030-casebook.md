@@ -61,6 +61,7 @@ Agentes lideram a operação. Pessoas e organizações permanecem legalmente res
 - Agente de contenção. Disputa reserva de lote ou limite de autoridade na cena 3.
 - Agente de cadeia. Executa o pedido externo na fronteira chinesa.
 - Agente de planta. Dispara a célula robótica e registra evidência.
+- Delegação `G-PLANTA-01`. Premissa do caso. No uso por `RecordLateStockEvidence`, só registrar evidência. Sem poder de apagar reservas históricas. Este recorte de uso não altera os escopos já declarados por `RecordInboundCustody` e `StartJob`. O ator de negócio, o representado, a delegação e o workload executor permanecem dimensões distintas.
 - Agente fiscal. Prepara o pedido de autorização do documento fiscal eletrônico.
 - Agente contábil. Premissa do caso. Ator de negócio do posting da entrega aceita.
 - Delegação `G-CONTAB-01`. Premissa do caso. Limitada ao posting contábil da entrega aceita. Sem alargamento para classificação fiscal ou para reescrita de Actions históricas. O workload executor permanece distinto deste ator.
@@ -97,24 +98,24 @@ Um produto operacional pode participar de várias identidades de fonte. A audito
 
 ## Pressões reutilizadas
 
-O Casebook liga pressões já catalogadas. Não copia o texto de [`scenarios/README.md`](../scenarios/README.md).
+O Casebook liga pressões já catalogadas. Não copia o texto de [`scenarios/README.md`](../scenarios/README.md). A coluna Relação com a jornada classifica cada pressão. Lei ou tema na última coluna não prova instanciação.
 
-| Pressão | ID em `scenarios/README.md` | Caso ou lei local |
-| --- | --- | --- |
-| Pedido, promessa, plano e fato | S-001 | [`research/domain/o2c/candidate-laws.md`](../research/domain/o2c/candidate-laws.md) L-003 |
-| Cumprimento parcial e resto aberto | S-002 | `research/domain/o2c/candidate-laws.md`, L-005 |
-| Aprovação stale | S-003 | [`research/runtime/transactions/commit-contract.md`](../research/runtime/transactions/commit-contract.md) seções 5 e 8.2 |
-| Timeout externo com resultado `unknown` | S-004 | [`research/runtime/effects/effect-contract.md`](../research/runtime/effects/effect-contract.md) seções 4.2 e 5.4. `research/domain/fiscal/candidate-laws.md`, CL-005 |
-| Papéis cliente e fornecedor | S-005 | `research/domain/party/candidate-laws.md`, L1. `research/domain/p2p/candidate-laws.md`, L11 |
-| Relação com ciclo de vida | S-006 | `research/domain/party/candidate-laws.md`, L4 |
-| Correção tardia e known-then | S-007 | `research/domain/inventory/candidate-laws.md`, L-INV-08, L-INV-16 |
-| Rastreio de transformação | S-008 | `research/domain/manufacturing/candidate-laws.md`, L12 |
-| Retrabalho e sucata | S-009 | `research/domain/manufacturing/candidate-laws.md`, L8, L10 |
-| Cancelamento após consequência irreversível | S-010 | `research/domain/o2c/candidate-laws.md`, L-008. `research/domain/accounting/candidate-laws.md`, L3. `research/domain/fiscal/candidate-laws.md`, CL-006 e CL-007 |
-| Observações contraditórias | S-011 | ingest #45, HF E-RC-003 |
-| Revisão de ontologia ou política após Action histórica | S-012 | RFC-0002 seção de revisão semântica. `docs/open-questions.md` Q19 |
+| Pressão | ID em `scenarios/README.md` | Relação com a jornada | Caso ou lei local |
+| --- | --- | --- | --- |
+| Pedido, promessa, plano e fato | S-001 | cobertura parcial | Pedido, promessa e plano aparecem. A data da ocorrência está ausente. Este Casebook não reivindica instanciação completa. [`research/domain/o2c/candidate-laws.md`](../research/domain/o2c/candidate-laws.md) L-003 |
+| Cumprimento parcial e resto aberto | S-002 | instanciada | `research/domain/o2c/candidate-laws.md`, L-005 |
+| Aprovação stale | S-003 | instanciada | [`research/runtime/transactions/commit-contract.md`](../research/runtime/transactions/commit-contract.md) seções 5 e 8.2 |
+| Timeout externo com resultado `unknown` | S-004 | instanciada | [`research/runtime/effects/effect-contract.md`](../research/runtime/effects/effect-contract.md) seções 4.2 e 5.4. `research/domain/fiscal/candidate-laws.md`, CL-005 |
+| Papéis cliente e fornecedor | S-005 | referência relacionada | Cliente e fornecedor são organizações distintas no caso. Nenhuma organização ocupa os dois papéis. `research/domain/party/candidate-laws.md`, L1. `research/domain/p2p/candidate-laws.md`, L11 |
+| Relação com ciclo de vida | S-006 | referência relacionada | Lei de ciclo de vida de relação permanece catalogada. A jornada não instancia as precondições do cenário. `research/domain/party/candidate-laws.md`, L4 |
+| Correção tardia e known-then | S-007 | instanciada | `research/domain/inventory/candidate-laws.md`, L-INV-08, L-INV-16 |
+| Rastreio de transformação | S-008 | referência relacionada | Tema de transformação permanece catalogado. A jornada não instancia as precondições do cenário. `research/domain/manufacturing/candidate-laws.md`, L12 |
+| Retrabalho e sucata | S-009 | referência relacionada | Tema de retrabalho e sucata permanece catalogado. A jornada não instancia as precondições do cenário. `research/domain/manufacturing/candidate-laws.md`, L8, L10 |
+| Cancelamento após consequência irreversível | S-010 | referência relacionada | Tema de cancelamento após efeito irreversível permanece catalogado. A jornada não instancia as precondições do cenário. `research/domain/o2c/candidate-laws.md`, L-008. `research/domain/accounting/candidate-laws.md`, L3. `research/domain/fiscal/candidate-laws.md`, CL-006 e CL-007 |
+| Observações contraditórias | S-011 | instanciada | ingest #45, HF E-RC-003 |
+| Revisão de ontologia ou política após Action histórica | S-012 | instanciada | RFC-0002 seção de revisão semântica. `docs/open-questions.md` Q19 |
 
-A história V-001 do kill de plataforma existente compõe S-001, S-002, S-003, S-004, S-007 e S-011. [`research/kill/existing-platform/vertical.md`](../research/kill/existing-platform/vertical.md). Este Casebook especializa essa composição no âncora de bomba e na fronteira jurídico-fiscal brasileira. Não substitui V-001.
+A história V-001 do kill de plataforma existente aponta S-001, S-002, S-003, S-004, S-007 e S-011. [`research/kill/existing-platform/vertical.md`](../research/kill/existing-platform/vertical.md). Neste Casebook, S-001 tem cobertura parcial. S-002, S-003, S-004, S-007 e S-011 estão instanciados. Este Casebook especializa esse recorte no âncora de bomba e na fronteira jurídico-fiscal brasileira. Não substitui V-001.
 
 ## Cadeia chinesa, o que as fontes de primeira parte já registram
 
@@ -197,7 +198,7 @@ O compromisso `PED-1001` está aberto. Quatro unidades estão disponíveis em Al
 ### Observations
 
 1. Preview da proposta `PROP-COMPRA-77` às 10:01. ATP 20, demanda 980 na planilha, compra proposta 1000. Kind, inferência operacional do agente, com base de estado declarada.
-2. Às 10:06 o WMS de Alfa posta recebimento de 800 unidades do lote `LOT-IN-8841`. Kind, observação. S-003.
+2. O WMS de Alfa posta o recebimento `RCV-LOT-IN-8841-01` de 800 unidades do lote `LOT-IN-8841`, com `occurred_at=2026-08-10T10:06:00-03:00`. Premissa do caso para o identificador e o tempo. Kind, observação. S-003.
 3. O ERP de Alfa ainda mostra 20 em mão no instante da aprovação. Kind, observação rival. S-011.
 4. Às 10:07 o gerente de compras aprova `PROP-COMPRA-77` como foi proposta às 10:01. Kind, decisão humana registrada. Premissa do caso para a autoria pessoal desta aprovação.
 
@@ -207,7 +208,7 @@ Necessidade não é compromisso. A necessidade de material existia antes da prop
 
 A aprovação humana amarra a proposta `PROP-COMPRA-77`, os parâmetros 1000 e `GAMA-PA-220`, a base de estado das 10:01 e a revisão de política então vigente. Aprovação não é `approved=true` num objeto mutável. [`research/runtime/transactions/commit-contract.md`](../research/runtime/transactions/commit-contract.md) seção 5.
 
-O commit posterior deve reler a base. A aprovação das 10:07 está stale em relação ao recebimento das 10:06. S-003. `research/runtime/transactions/commit-contract.md`, seção 8.2, `NeedsReproposal`.
+O commit posterior deve reler a base. A aprovação das 10:07 está stale em relação ao recebimento `RCV-LOT-IN-8841-01`. S-003. `research/runtime/transactions/commit-contract.md`, seção 8.2, `NeedsReproposal`.
 
 ### Actions
 
@@ -239,13 +240,13 @@ O commit posterior deve reler a base. A aprovação das 10:07 está stale em rel
 
 ### Expected results
 
-Existe proposta aprovada e evidência de que a base mudou às 10:06. Não existe ainda compromisso de compra. Oferta de Gama, se houver, permanece distinta de compromisso. `research/domain/p2p/candidate-laws.md`, L2. O agente de planejamento continua comprometido com `PED-1001`. Não trata o token de orquestração como estoque ou pedido.
+Existe proposta aprovada e evidência de que a base mudou no recebimento `RCV-LOT-IN-8841-01`. Não existe ainda compromisso de compra. Oferta de Gama, se houver, permanece distinta de compromisso. `research/domain/p2p/candidate-laws.md`, L2. O agente de planejamento continua comprometido com `PED-1001`. Não trata o token de orquestração como estoque ou pedido.
 
 ### Invariants
 
 - Preview não reserva quantidade exclusiva e não posta payable. `research/domain/p2p/candidate-laws.md`, L1, L4.
 - Aprovação cita proposta, parâmetros, base e revisão. `research/runtime/transactions/commit-contract.md`, seção 5.
-- Recebimento das 10:06 e tela ERP das 10:07 convivem como observações. Nenhuma apaga a outra.
+- Recebimento `RCV-LOT-IN-8841-01` e tela ERP das 10:07 convivem como observações. Nenhuma apaga a outra.
 
 ### Falsifier
 
@@ -264,7 +265,7 @@ Duas Actions concorrentes pedem o mesmo recurso exclusivo. Premissa do caso.
 - Agente de planejamento tenta commitar compra reduzida e reservar o lote `LOT-IN-8841` para `PED-1001`.
 - Agente de contenção tenta reservar o mesmo slice de `LOT-IN-8841` para o pedido `PED-1002`.
 
-Premissa do caso. O ATP disponível do mesmo slice de `LOT-IN-8841`, após as demais alocações, é exatamente 6 unidades na base compartilhada pelas duas reservas. A invocação A pede 6 unidades para `PED-1001`. A invocação B pede as mesmas 6 unidades para `PED-1002`. O recebimento de 800 unidades da cena 2 permanece. As demais alocações que deixam 6 unidades disponíveis também são premissa do caso. Este Casebook não escolhe o mecanismo de transação.
+Premissa do caso. O ATP disponível do mesmo slice de `LOT-IN-8841`, após as demais alocações, é exatamente 6 unidades na base compartilhada pelas duas reservas. A invocação A pede 6 unidades para `PED-1001`. A invocação B pede as mesmas 6 unidades para `PED-1002`. O recebimento `RCV-LOT-IN-8841-01` de 800 unidades da cena 2 permanece. As demais alocações que deixam 6 unidades disponíveis também são premissa do caso. Este Casebook não escolhe o mecanismo de transação.
 
 On-hand não é available. Reserva é claim, não movimento. [`research/domain/inventory/candidate-laws.md`](../research/domain/inventory/candidate-laws.md) L-INV-03, L-INV-04, L-INV-15. `research/domain/o2c/candidate-laws.md`, L-004.
 
@@ -272,7 +273,7 @@ Em paralelo, o teto de autoridade de compra do agente de planejamento não cobre
 
 ### Observations
 
-1. ATP corrente do lote `LOT-IN-8841` após o recebimento das 10:06 e após as demais alocações. Valor observado, 6 unidades no mesmo slice. Kind, observação do WMS. Premissa do caso para o valor 6.
+1. ATP corrente do lote `LOT-IN-8841` após o recebimento `RCV-LOT-IN-8841-01` e após as demais alocações. Valor observado, 6 unidades no mesmo slice. Kind, observação do WMS. Premissa do caso para o valor 6.
 2. Duas propostas de reserva sobre o mesmo slice e a mesma base. Invocação A pede 6 unidades para `PED-1001`. Invocação B pede as mesmas 6 unidades para `PED-1002`. Kind, observações de intenção.
 3. Grant `G-PLAN-01` com teto abaixo de 1000 na revisão corrente. Kind, observação de política.
 
@@ -324,7 +325,7 @@ No máximo uma das duas reservas consome as mesmas 6 unidades. A outra recebe re
 
 ### Falsifier
 
-Uma observação de que as duas reservas consumiram as mesmas 6 unidades de `LOT-IN-8841`, ou de commit da compra 1000 sob a aprovação das 10:01 após o recebimento das 10:06, derrota a claim. Um mutex narrativo sem o ATP de 6 unidades na precondição também derrota a claim.
+Uma observação de que as duas reservas consumiram as mesmas 6 unidades de `LOT-IN-8841`, ou de commit da compra 1000 sob a aprovação das 10:01 após o recebimento `RCV-LOT-IN-8841-01`, derrota a claim. Um mutex narrativo sem o ATP de 6 unidades na precondição também derrota a claim.
 
 ### Owner issues/RFCs
 
@@ -398,9 +399,11 @@ Especificação, autorização de produção e execução são três fatos. [`re
 
 ### Observations
 
-1. Aviso de Gama. Enviou 6 unidades de `GAMA-PA-220`, lote `LOT-IN-8841`. Kind, observação do fornecedor.
-2. Portaria de Alfa. Contagem 5 unidades no mesmo lote. Kind, observação de inspeção.
-3. WMS de Alfa. Bin de quarentena, 5 unidades, ainda sem aceite. Kind, observação de sistema. S-011.
+Recebimento `RCV-LOT-IN-8841-02` do lote `LOT-IN-8841`, com `occurred_at=2026-08-11T15:00:00-03:00`. Premissa do caso para o identificador e o tempo. A alegação de 6 unidades e a contagem de 5 são observações rivais sobre `RCV-LOT-IN-8841-02`. Este Casebook não cria dois recebimentos e não resolve a quantidade aceita.
+
+1. Aviso de Gama. Enviou 6 unidades de `GAMA-PA-220`, lote `LOT-IN-8841`. Kind, observação do fornecedor. Observação rival sobre `RCV-LOT-IN-8841-02`.
+2. Portaria de Alfa. Contagem 5 unidades no mesmo lote. Kind, observação de inspeção. Observação rival sobre `RCV-LOT-IN-8841-02`.
+3. WMS de Alfa. Bin de quarentena, 5 unidades, ainda sem aceite. Kind, observação de sistema. S-011. Observação posterior sobre `RCV-LOT-IN-8841-02`.
 4. Célula R-01. O robô executa o aperto do conjunto `SN-R01-0007`. O sensor registra torque e timestamp. Kind, evidência de sensor. Premissa do caso para o serial e para o tipo de grandeza. Este Casebook não inventa limiar de torque.
 5. Agente de planta alega ocorrência `JobCompleted` para `SN-R01-0007`. Kind, ocorrência alegada, não resultado aceito.
 6. Entrega a Beta de 4 conjuntos acabados. Kind, observação de expedição. S-002.
@@ -426,7 +429,7 @@ Lançamento contábil é Action de posting distinta da entrega e do DF-e. Journa
 **Action `RecordInboundCustody`.**
 
 - Objetivo. Registrar custódia das unidades chegadas, sem aceitar qualidade e sem transferir direitos por padrão.
-- Parâmetros. `lot=LOT-IN-8841`, quantidade chegada segundo a fonte escolhida para custódia, ainda não a quantidade aceita.
+- Parâmetros. `receipt=RCV-LOT-IN-8841-02`, `lot=LOT-IN-8841`, quantidade chegada segundo a fonte escolhida para custódia, ainda não a quantidade aceita.
 - Ator de negócio. Agente de planta.
 - Representado. Organização Alfa.
 - Delegação. `G-PLANTA-01`.
@@ -500,13 +503,15 @@ Uma observação de que o torque do sensor foi tratado como aceite legal, ou de 
 
 ### Preconditions
 
-Decisões das cenas 1 a 5 já ocorreram sob o conhecimento de então. Em 12 de agosto chega documento assinado de Gama. Vinte unidades do lote `LOT-IN-8841` teriam saído em 8 de agosto e nunca haviam sido registradas em Alfa. S-007. V-001, passo 11. Premissa do caso para a data e a quantidade tardia.
+Decisões das cenas 1 a 5 já ocorreram sob o conhecimento de então. Em 12 de agosto chega o documento tardio `EVID-LOT-IN-8841-LATE-01`. Premissa do caso para o identificador. O documento alega a saída `MOV-LOT-IN-8841-OUT-01` de 20 unidades do lote `LOT-IN-8841`, com `valid_on=2026-08-08`. Premissa do caso para o identificador e o valid time. `EVID-LOT-IN-8841-LATE-01` tem `known_on=2026-08-12` e se liga a `MOV-LOT-IN-8841-OUT-01`. Premissa do caso para o known time. S-007. V-001, passo 11. Este Casebook não afirma que a saída alegada ocorreu.
+
+`RCV-LOT-IN-8841-01`, `RCV-LOT-IN-8841-02`, `MOV-LOT-IN-8841-OUT-01` e `EVID-LOT-IN-8841-LATE-01` são identidades distintas ligadas ao mesmo lote `LOT-IN-8841`. Premissa do caso.
 
 Em data posterior, Alfa revisa a ontologia ou a política de classificação do âncora. A revisão 2 trata `GAMA-PA-220` como especificação distinta de `SKU-BR-ACIO-01` de forma mais estrita, ou altera a política de desconto usada na cena 1. S-012. Premissa do caso para o teor exato da revisão. Este Casebook não escolhe o diff.
 
 ### Observations
 
-1. Documento tardio de Gama, válido em 8 de agosto, conhecido em 12 de agosto. Kind, observação com valid time e known time distintos. `research/domain/inventory/candidate-laws.md`, L-INV-08. `docs/open-questions.md` Q7.
+1. Documento tardio `EVID-LOT-IN-8841-LATE-01` de Gama, ligado à saída alegada `MOV-LOT-IN-8841-OUT-01`, com `valid_on=2026-08-08` e `known_on=2026-08-12`. Kind, observação com valid time e known time distintos. `research/domain/inventory/candidate-laws.md`, L-INV-08. `docs/open-questions.md` Q7.
 2. Saldos e ATP que as cenas 2 e 3 usaram em 10 e 11 de agosto. Kind, projeções then-known.
 3. Revisão 2 de ontologia ou política, com identificador de conteúdo. Kind, observação de definição. RFC-0002, binding de revisão. `docs/open-questions.md` Q19.
 4. Manifestação do destinatário, se Beta registrar ciência, desconhecimento ou operação não realizada. Kind, asserção oficial distinta da autorização do emitente. `research/domain/fiscal/candidate-laws.md`, CL-008.
@@ -525,8 +530,8 @@ Responsabilidade legal permanece na Organização Alfa. Gama e Beta permanecem p
 
 **Action `RecordLateStockEvidence`.**
 
-- Objetivo. Registrar o documento tardio como evidência com valid time em 8 de agosto e known time em 12 de agosto.
-- Parâmetros. `lot=LOT-IN-8841`, quantidade 20, `valid_on=2026-08-08`, `known_on=2026-08-12`, fonte documento Gama.
+- Objetivo. Registrar o documento tardio `EVID-LOT-IN-8841-LATE-01` como evidência com valid time em 8 de agosto e known time em 12 de agosto. A Action registra evidência. Não presume que a saída alegada `MOV-LOT-IN-8841-OUT-01` ocorreu.
+- Parâmetros. `evidence=EVID-LOT-IN-8841-LATE-01`, `alleged_occurrence=MOV-LOT-IN-8841-OUT-01`, `lot=LOT-IN-8841`, quantidade 20, `valid_on=2026-08-08`, `known_on=2026-08-12`, fonte documento Gama.
 - Ator de negócio. Agente de planta.
 - Representado. Organização Alfa.
 - Delegação. `G-PLANTA-01`, só para registrar evidência. Sem poder de apagar reservas históricas.
