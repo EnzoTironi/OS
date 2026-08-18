@@ -37,15 +37,15 @@ class Ledger:
         }
 
     def current_revision(self) -> str:
-        return f"kr:{self._revision:04d}"
+        return "kr:" + str(self._revision).zfill(4)
 
     def next_revision(self) -> str:
         self._revision += 1
-        return f"kr:{self._revision:04d}"
+        return "kr:" + str(self._revision).zfill(4)
 
     def next_id(self, kind: str) -> str:
         self._seq[kind] = self._seq.get(kind, 0) + 1
-        return f"{kind}:{self._seq[kind]:04d}"
+        return kind + ":" + str(self._seq[kind]).zfill(4)
 
     def alias(self, name: str, revision: str) -> None:
         self._aliases[name] = revision

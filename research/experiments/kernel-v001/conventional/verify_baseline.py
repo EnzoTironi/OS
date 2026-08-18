@@ -77,7 +77,7 @@ def main() -> int:
             "ontology": ontology_structure,
         },
         "locators": {
-            "baseline_branch": "cursor/kernel-v001-conventional-a60c",
+            "baseline_branch": "cursor/kernel-v001-conventional-v2-a60c",
             "kernel_branch": "cursor/kernel-v001-v3-a60c",
             "baseline_head": args.source_sha,
             "kernel_head": KERNEL_SHA,

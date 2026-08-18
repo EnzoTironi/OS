@@ -10,7 +10,6 @@ from services.ledger import Ledger, qualify
 from services.stock import StockService
 
 RUN_EXAMPLE = "os scenario run v001 --output json"
-CARRIER_REQUEST_ID = "effect:book-carrier-1"
 COMMITTED_PREDICATE = "committed-purchase-quantity"
 
 
@@ -134,7 +133,14 @@ class PurchasingService:
             "committed_quantity": receipt["committed_quantity"],
         }
 
-    def commit(self, command: dict[str, Any], clock_now: str, scenario_id: str) -> dict[str, Any]:
+    def commit(
+        self,
+        command: dict[str, Any],
+        clock_now: str,
+        scenario_id: str,
+        *,
+        effect_request_id: str,
+    ) -> dict[str, Any]:
         proposal = self.ledger.get("proposals", command["proposal_id"])
         approval = self.ledger.get("approvals", command["approval_id"])
         if proposal is None or approval is None:
@@ -226,8 +232,10 @@ class PurchasingService:
             },
         }
         self.ledger.put("claims", claim_id, claim)
+        if not effect_request_id:
+            raise InputError("missing_effect_request", "commit requires an effect request id from the scenario", RUN_EXAMPLE)
         request = self.effects.open_request(
-            CARRIER_REQUEST_ID,
+            effect_request_id,
             operation_id,
             proposal["intent_digest"],
             {"kind": "pickup"},

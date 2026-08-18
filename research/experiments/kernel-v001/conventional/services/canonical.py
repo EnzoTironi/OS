@@ -6,23 +6,38 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 
-def canonicalize(value: Any) -> Any:
+def _ordered(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return {key: canonicalize(value[key]) for key in sorted(value)}
-    if isinstance(value, (str, bytes)):
+        ordered: dict[str, Any] = {}
+        for key in sorted(value.keys()):
+            ordered[key] = _ordered(value[key])
+        return ordered
+    if type(value) is str or type(value) is bytes:
         return value
     if isinstance(value, Sequence):
-        return [canonicalize(item) for item in value]
+        return [_ordered(item) for item in value]
     return value
 
 
+def encode(value: Any) -> bytes:
+    text = json.dumps(_ordered(value), ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    return text.encode("utf-8")
+
+
+def canonicalize(value: Any) -> Any:
+    return _ordered(value)
+
+
 def canonical_dumps(value: Any) -> str:
-    return json.dumps(canonicalize(value), ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    return encode(value).decode("utf-8")
 
 
 def digest(value: Any) -> str:
-    return "sha256:" + hashlib.sha256(canonical_dumps(value).encode("utf-8")).hexdigest()
+    hasher = hashlib.sha256()
+    hasher.update(encode(value))
+    return "sha256:" + hasher.hexdigest()
 
 
 def dumps_pretty(value: Any) -> str:
-    return json.dumps(canonicalize(value), ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    body = json.dumps(_ordered(value), ensure_ascii=True, indent=2, sort_keys=True)
+    return f"{body}\n"
