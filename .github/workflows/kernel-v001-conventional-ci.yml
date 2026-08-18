@@ -1,0 +1,90 @@
+name: kernel-v001-conventional-ci
+
+on:
+  push:
+    branches:
+      - cursor/kernel-v001-conventional-a60c
+    paths:
+      - 'research/experiments/kernel-v001/conventional/**'
+      - '.github/workflows/kernel-v001-conventional-ci.yml'
+  pull_request:
+    branches:
+      - cursor/kernel-v001-v3-a60c
+    paths:
+      - 'research/experiments/kernel-v001/conventional/**'
+      - '.github/workflows/kernel-v001-conventional-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  kernel-v001-conventional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Pin HEAD_SHA
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            HEAD_SHA="${{ github.sha }}"
+          fi
+          echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned experiment dependencies
+        run: python3 -m pip install 'hypothesis==6.165.9' 'jsonschema==4.23.0' 'rfc3339-validator==0.1.4'
+      - name: Conventional unit and independence tests
+        run: python3 -m unittest discover -s research/experiments/kernel-v001/conventional/tests -p 'test_*.py' -v
+      - name: Conventional CLI
+        run: |
+          research/experiments/kernel-v001/conventional/os scenario run v001 --output json > /tmp/kernel-v001-conventional-run.json
+          research/experiments/kernel-v001/conventional/os scenario run v001 --output json > /tmp/kernel-v001-conventional-run-2.json
+          cmp /tmp/kernel-v001-conventional-run.json /tmp/kernel-v001-conventional-run-2.json
+          research/experiments/kernel-v001/conventional/os explain v001:operation:purchase-raw-1 --output json > /tmp/kernel-v001-conventional-explain.json
+          research/experiments/kernel-v001/conventional/os query known-then --scenario v001 --subject stock:sku-x --predicate available-quantity --valid-at 2030-08-10 --known-at kr:before-late-document --output json > /tmp/kernel-v001-conventional-known-then.json
+          research/experiments/kernel-v001/conventional/os query now-believed-for-then --scenario v001 --subject stock:sku-x --predicate available-quantity --valid-at 2030-08-10 --output json > /tmp/kernel-v001-conventional-now-believed.json
+      - name: Black-box evaluator and comparison input
+        run: |
+          python3 research/experiments/kernel-v001/conventional/verify_baseline.py \
+            --source-sha "$HEAD_SHA" \
+            --scenario-output /tmp/kernel-v001-conventional-run.json \
+            --comparison-output /tmp/kernel-v001-conventional-comparison.json \
+            --structure-output /tmp/kernel-v001-conventional-structure.json \
+            --comparison-input /tmp/kernel-v001-conventional-comparison-input.json
+      - name: Validate JSON artifacts
+        run: |
+          python3 -m json.tool /tmp/kernel-v001-conventional-run.json >/dev/null
+          python3 -m json.tool /tmp/kernel-v001-conventional-comparison.json >/dev/null
+          python3 -m json.tool /tmp/kernel-v001-conventional-structure.json >/dev/null
+          python3 -m json.tool /tmp/kernel-v001-conventional-comparison-input.json >/dev/null
+      - name: CLI transcript with SHA
+        run: |
+          {
+            echo "SHA=${HEAD_SHA}"
+            echo "HEAD=${HEAD_SHA}"
+            HEAD_SHA="$HEAD_SHA" research/experiments/kernel-v001/conventional/scripts/demo_cli.sh
+          } > /tmp/kernel-v001-conventional-transcript.log
+          grep -q "SHA=${HEAD_SHA}" /tmp/kernel-v001-conventional-transcript.log
+          grep -q "HEAD=${HEAD_SHA}" /tmp/kernel-v001-conventional-transcript.log
+          grep -q 'os scenario run v001' /tmp/kernel-v001-conventional-transcript.log
+          grep -q 'os explain v001:operation:purchase-raw-1' /tmp/kernel-v001-conventional-transcript.log
+          grep -q 'known-then' /tmp/kernel-v001-conventional-transcript.log
+          grep -q 'now-believed-for-then' /tmp/kernel-v001-conventional-transcript.log
+      - name: Publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-v001-conventional-${{ env.HEAD_SHA }}
+          path: |
+            /tmp/kernel-v001-conventional-run.json
+            /tmp/kernel-v001-conventional-comparison.json
+            /tmp/kernel-v001-conventional-structure.json
+            /tmp/kernel-v001-conventional-comparison-input.json
+            /tmp/kernel-v001-conventional-transcript.log
+            /tmp/kernel-v001-conventional-explain.json
+            /tmp/kernel-v001-conventional-known-then.json
+            /tmp/kernel-v001-conventional-now-believed.json
