@@ -328,52 +328,58 @@ class Kernel:
         return CommandReceipt("RecordClaim", "recorded", revision, tuple(refs), {"claim_id": claim.claim_id})
 
     def _record_occurrence(self, command: dict[str, Any]) -> CommandReceipt:
-        revision = self.__store._next_revision()
-        occurrence_ref = _type_ref(command["occurrence_ref"], self._current)
-        occurrence = Occurrence(
-            occurrence_id=command["occurrence_id"],
-            occurrence_ref=occurrence_ref,
-            valid_time=_valid_time(command.get("valid_time")),
-            known_revision=revision,
-            payload=retained(command.get("payload") or {}),
-            provenance=_provenance(command["provenance"]),
-            causal_operation_ref=command.get("causal_operation_ref"),
-        )
-        self.__store._put_occurrence(occurrence)
-        refs = [qualify("occurrence", occurrence.occurrence_id)]
-        type_def = self._current.types.get(occurrence_ref.definition_id)
-        if type_def is not None and type_def.on_record is not None:
-            built = evaluate(
-                type_def.on_record,
-                EvalContext(
-                    {
-                        "payload": occurrence.payload,
-                        "valid_time": {
-                            "instant": occurrence.valid_time.instant,
-                            "start": occurrence.valid_time.start,
-                            "end": occurrence.valid_time.end,
-                        },
-                        "now": self._clock.now(),
-                    },
-                    self.__store,
-                    valid_at=self._clock.now(),
-                    known_at=revision,
-                ),
+        self.__store._begin()
+        try:
+            revision = self.__store._next_revision()
+            occurrence_ref = _type_ref(command["occurrence_ref"], self._current)
+            occurrence = Occurrence(
+                occurrence_id=command["occurrence_id"],
+                occurrence_ref=occurrence_ref,
+                valid_time=_valid_time(command.get("valid_time")),
+                known_revision=revision,
+                payload=retained(command.get("payload") or {}),
+                provenance=_provenance(command["provenance"]),
+                causal_operation_ref=command.get("causal_operation_ref"),
             )
-            if isinstance(built, dict) and built.get("_kind") == "claim_draft":
-                validate_value(schema_for_predicate(self._current, built["predicate_ref"]), built["value"])
-                claim = Claim(
-                    claim_id=built.get("claim_id") or self._ids.next("claim"),
-                    subject_ref=built["subject_ref"],
-                    predicate_ref=built["predicate_ref"],
-                    value=retained(built["value"]),
-                    valid_time=_valid_time(built.get("valid_time") or occurrence.valid_time),
-                    known_revision=revision,
-                    provenance=occurrence.provenance,
-                    derived_from=(qualify("occurrence", occurrence.occurrence_id),),
+            self.__store._put_occurrence(occurrence)
+            refs = [qualify("occurrence", occurrence.occurrence_id)]
+            type_def = self._current.types.get(occurrence_ref.definition_id)
+            if type_def is not None and type_def.on_record is not None:
+                built = evaluate(
+                    type_def.on_record,
+                    EvalContext(
+                        {
+                            "payload": occurrence.payload,
+                            "valid_time": {
+                                "instant": occurrence.valid_time.instant,
+                                "start": occurrence.valid_time.start,
+                                "end": occurrence.valid_time.end,
+                            },
+                            "now": self._clock.now(),
+                        },
+                        self.__store,
+                        valid_at=self._clock.now(),
+                        known_at=revision,
+                    ),
                 )
-                self.__store._put_claim(claim)
-                refs.append(qualify("claim", claim.claim_id))
+                if isinstance(built, dict) and built.get("_kind") == "claim_draft":
+                    validate_value(schema_for_predicate(self._current, built["predicate_ref"]), built["value"])
+                    claim = Claim(
+                        claim_id=built.get("claim_id") or self._ids.next("claim"),
+                        subject_ref=built["subject_ref"],
+                        predicate_ref=built["predicate_ref"],
+                        value=retained(built["value"]),
+                        valid_time=_valid_time(built.get("valid_time") or occurrence.valid_time),
+                        known_revision=revision,
+                        provenance=occurrence.provenance,
+                        derived_from=(qualify("occurrence", occurrence.occurrence_id),),
+                    )
+                    self.__store._put_claim(claim)
+                    refs.append(qualify("claim", claim.claim_id))
+            self.__store._commit()
+        except Exception:
+            self.__store._rollback()
+            raise
         return CommandReceipt("RecordExternalOccurrence", "recorded", revision, tuple(refs), {})
 
     def _propose(self, command: dict[str, Any]) -> CommandReceipt:
