@@ -1,0 +1,71 @@
+name: kernel-v001-prototype-ci
+
+on:
+  push:
+    branches:
+      - cursor/kernel-v001-prototype-a60c
+    paths:
+      - 'research/experiments/kernel-v001/**'
+      - '.github/workflows/kernel-v001-prototype-ci.yml'
+  pull_request:
+    paths:
+      - 'research/experiments/kernel-v001/**'
+      - '.github/workflows/kernel-v001-prototype-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  kernel-v001:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned experiment dependencies
+        run: python3 -m pip install 'hypothesis==6.165.9' 'jsonschema==4.23.0' 'rfc3339-validator==0.1.4'
+      - name: Unit, property, mutant and CLI tests
+        run: python3 -m unittest discover -s research/experiments/kernel-v001/tests -p 'test_*.py' -v
+      - name: AST audit for domain branches
+        run: python3 research/experiments/kernel-v001/scripts/check_no_domain_branches.py
+      - name: Structural analysis
+        run: python3 research/experiments/kernel-v001/scripts/analyze_structure.py --output /tmp/kernel-v001-structure.json
+      - name: Black-box comparison
+        run: python3 research/experiments/kernel-v001/scripts/verify.py --engine ontology --output /tmp/kernel-v001-comparison.json
+      - name: Validate JSON artifacts
+        run: |
+          python3 -m json.tool /tmp/kernel-v001-structure.json >/dev/null
+          python3 -m json.tool /tmp/kernel-v001-comparison.json >/dev/null
+      - name: Deterministic CLI runs
+        run: |
+          research/experiments/kernel-v001/os scenario run v001 --output json > /tmp/kernel-v001-run-1.json
+          research/experiments/kernel-v001/os scenario run v001 --output json > /tmp/kernel-v001-run-2.json
+          cmp /tmp/kernel-v001-run-1.json /tmp/kernel-v001-run-2.json
+          research/experiments/kernel-v001/os explain v001:operation:purchase-raw-1 --output json > /tmp/kernel-v001-explain.json
+          research/experiments/kernel-v001/os query known-then --scenario v001 --subject stock:sku-x --predicate available-quantity --valid-at 2030-08-10 --known-at kr:before-late-document --output json > /tmp/kernel-v001-known-then.json
+          research/experiments/kernel-v001/os query now-believed-for-then --scenario v001 --subject stock:sku-x --predicate available-quantity --valid-at 2030-08-10 --output json > /tmp/kernel-v001-now-believed.json
+      - name: CLI transcript with SHA
+        run: |
+          {
+            echo "SHA=${GITHUB_SHA}"
+            echo "HEAD=$(git rev-parse HEAD)"
+            research/experiments/kernel-v001/scripts/demo_cli.sh
+          } > /tmp/kernel-v001-cli-demo.log
+          grep -q "${GITHUB_SHA}" /tmp/kernel-v001-cli-demo.log
+          grep -q 'os scenario run v001' /tmp/kernel-v001-cli-demo.log
+          grep -q 'os explain v001:operation:purchase-raw-1' /tmp/kernel-v001-cli-demo.log
+          grep -q 'known-then' /tmp/kernel-v001-cli-demo.log
+          grep -q 'now-believed-for-then' /tmp/kernel-v001-cli-demo.log
+      - name: Publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-v001-cli-${{ github.sha }}
+          path: |
+            /tmp/kernel-v001-cli-demo.log
+            /tmp/kernel-v001-run-1.json
+            /tmp/kernel-v001-explain.json
+            /tmp/kernel-v001-known-then.json
+            /tmp/kernel-v001-now-believed.json
+            /tmp/kernel-v001-structure.json
+            /tmp/kernel-v001-comparison.json

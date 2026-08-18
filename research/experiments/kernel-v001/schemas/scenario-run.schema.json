@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os2030.local/schemas/kernel-v001-scenario-run.json",
+  "title": "kernel-v001 ScenarioRun",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "scenario_id",
+    "engine",
+    "input_digest",
+    "definition_revisions",
+    "records",
+    "queries",
+    "explanations",
+    "operation_receipts",
+    "effect_knowledge"
+  ],
+  "properties": {
+    "contract_version": {"const": "kernel-v001-scenario-run/1"},
+    "scenario_id": {"type": "string"},
+    "engine": {"type": "string"},
+    "input_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "definition_revisions": {"type": "array", "items": {"type": "string"}},
+    "records": {"type": "object"},
+    "queries": {"type": "array"},
+    "explanations": {"type": "array"},
+    "operation_receipts": {"type": "array"},
+    "effect_knowledge": {"type": "array"}
+  },
+  "additionalProperties": true
+}

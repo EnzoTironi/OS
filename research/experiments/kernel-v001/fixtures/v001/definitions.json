@@ -1,0 +1,207 @@
+{
+  "revision_id": "defrev:v001-r1",
+  "parent_revision_id": null,
+  "types": [
+    {
+      "definition_id": "type.organization",
+      "nature": "entity",
+      "value_schema": {},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.product",
+      "nature": "entity",
+      "value_schema": {},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.stock-position",
+      "nature": "entity",
+      "value_schema": {},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.sales-order",
+      "nature": "entity",
+      "value_schema": {},
+      "contracts": ["identity"]
+    },
+    {
+      "definition_id": "type.goods-receipt",
+      "nature": "occurrence",
+      "value_schema": {},
+      "contracts": ["occurrence"],
+      "on_record": {
+        "op": "construct_claim",
+        "claim_id": {"op": "input", "path": "payload.claim_id"},
+        "subject": {"op": "input", "path": "payload.subject"},
+        "predicate": {"op": "input", "path": "payload.predicate"},
+        "value": {"op": "input", "path": "payload.signed"},
+        "valid_time": {"op": "input", "path": "valid_time.instant"}
+      }
+    }
+  ],
+  "relations": [
+    {
+      "definition_id": "relation.customer-of",
+      "roles": [{"name": "party"}, {"name": "context"}],
+      "cardinality": {"min": 0, "max": null},
+      "temporal_required": false,
+      "provenance_required": true,
+      "projects_contextual_identity": true
+    },
+    {
+      "definition_id": "relation.supplier-of",
+      "roles": [{"name": "party"}, {"name": "context"}],
+      "cardinality": {"min": 0, "max": null},
+      "temporal_required": false,
+      "provenance_required": true,
+      "projects_contextual_identity": true
+    }
+  ],
+  "computations": [
+    {
+      "definition_id": "computation.available-quantity",
+      "result_predicate": "available-quantity",
+      "input_schema": {"subject": "ref", "predicate": "ref"},
+      "result_schema": {"type": "number"},
+      "expression": {
+        "op": "sum",
+        "source": {
+          "op": "project",
+          "path": "value",
+          "source": {
+            "op": "query_claims",
+            "subject": {"op": "input", "path": "subject"},
+            "predicate": {"op": "input", "path": "predicate"}
+          }
+        }
+      }
+    },
+    {
+      "definition_id": "computation.purchase-plan",
+      "result_predicate": null,
+      "input_schema": {},
+      "result_schema": {},
+      "expression": {
+        "op": "construct_result",
+        "quantity": {
+          "op": "if",
+          "condition": {
+            "op": "compare",
+            "cmp": "neq",
+            "left": {"op": "input", "path": "current_available"},
+            "right": {"op": "input", "path": "basis_available"}
+          },
+          "then": {
+            "op": "subtract",
+            "left": {"op": "input", "path": "proposed_quantity"},
+            "right": {
+              "op": "subtract",
+              "left": {"op": "input", "path": "current_available"},
+              "right": {"op": "input", "path": "basis_available"}
+            }
+          },
+          "else": {"op": "input", "path": "proposed_quantity"}
+        },
+        "stale": {
+          "op": "compare",
+          "cmp": "neq",
+          "left": {"op": "input", "path": "current_available"},
+          "right": {"op": "input", "path": "basis_available"}
+        }
+      }
+    },
+    {
+      "definition_id": "computation.quantity-positive",
+      "result_predicate": null,
+      "input_schema": {},
+      "result_schema": {},
+      "expression": {
+        "op": "compare",
+        "cmp": "gt",
+        "left": {"op": "input", "path": "quantity"},
+        "right": {"op": "literal", "value": 0}
+      }
+    },
+    {
+      "definition_id": "computation.purchase-mutations",
+      "result_predicate": null,
+      "input_schema": {},
+      "result_schema": {},
+      "expression": {
+        "op": "construct_result",
+        "claim": {
+          "op": "construct_claim",
+          "claim_id": {"op": "literal", "value": "claim:purchase-committed"},
+          "subject": {"op": "input", "path": "subject"},
+          "predicate": {"op": "literal", "value": "committed-purchase-quantity"},
+          "value": {"op": "input", "path": "quantity"},
+          "valid_time": {"op": "input", "path": "now"}
+        },
+        "effect_request": {
+          "op": "construct_effect_request",
+          "request_id": {"op": "literal", "value": "effect:book-carrier-1"},
+          "effect_id": {"op": "literal", "value": "effect.book-carrier"},
+          "payload": {"op": "literal", "value": {"kind": "pickup"}}
+        }
+      }
+    },
+    {
+      "definition_id": "computation.reconcile-carrier",
+      "result_predicate": null,
+      "input_schema": {},
+      "result_schema": {},
+      "expression": {
+        "op": "if",
+        "condition": {
+          "op": "compare",
+          "cmp": "gt",
+          "left": {"op": "input", "path": "evidence_count"},
+          "right": {"op": "literal", "value": 0}
+        },
+        "then": {"op": "literal", "value": "confirmed"},
+        "else": {"op": "literal", "value": "unknown"}
+      }
+    }
+  ],
+  "rules": [
+    {
+      "definition_id": "rule.quantity-positive",
+      "computation_ref": "computation.quantity-positive",
+      "enforcement_locus": "commit",
+      "basis_mode": "current_at_commit",
+      "error_outcome": "deny",
+      "combination_order": 0
+    }
+  ],
+  "actions": [
+    {
+      "definition_id": "action.purchase-raw",
+      "input_schema": {"quantity": "number", "subject": "ref", "predicate": "ref"},
+      "planner_ref": "computation.purchase-plan",
+      "rule_refs": ["rule.quantity-positive"],
+      "state_basis_spec": [
+        {
+          "id": "available",
+          "mode": "current_at_commit",
+          "computation_ref": "computation.available-quantity",
+          "query": {"subject_input": "subject", "predicate_input": "predicate"}
+        }
+      ],
+      "approval_required": true,
+      "stale_behavior": "replan_within_bound",
+      "bound_path": "max_quantity",
+      "mutation_plan_ref": "computation.purchase-mutations",
+      "effect_refs": ["effect.book-carrier"]
+    }
+  ],
+  "effects": [
+    {
+      "definition_id": "effect.book-carrier",
+      "request_schema": {},
+      "protocol_safety": {"safe_dedupe": false, "absence_proof": false},
+      "reconciliation_ref": "computation.reconcile-carrier"
+    }
+  ]
+}

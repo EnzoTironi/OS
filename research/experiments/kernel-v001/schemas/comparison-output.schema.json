@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os2030.local/schemas/kernel-v001-comparison-output.json",
+  "title": "kernel-v001 ComparisonOutput",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "scenario_id",
+    "engine",
+    "input_digest",
+    "property_results",
+    "structural_metrics"
+  ],
+  "properties": {
+    "contract_version": {"const": "kernel-v001-comparison/1"},
+    "scenario_id": {"type": "string"},
+    "engine": {"type": "string"},
+    "input_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "property_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["property_id", "passed", "evidence_refs"],
+        "properties": {
+          "property_id": {"type": "string"},
+          "passed": {"type": "boolean"},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+        }
+      }
+    },
+    "structural_metrics": {
+      "type": "object",
+      "required": [
+        "domain_branches",
+        "duplicated_rule_groups",
+        "escape_hatches",
+        "caller_contract",
+        "trusted_commit_path"
+      ]
+    }
+  }
+}

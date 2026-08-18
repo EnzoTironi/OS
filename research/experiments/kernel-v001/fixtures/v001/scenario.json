@@ -1,0 +1,334 @@
+{
+  "scenario_id": "v001",
+  "contract_version": "kernel-v001-scenario-input/1",
+  "premise": "simulated-2030",
+  "temporal_limit": {
+    "absolute_calendar_order": false,
+    "preserved_clock_order": ["10:01", "10:06", "10:07"],
+    "known_revision_assigned_by": "kernel",
+    "scenario_step_monotonic": true,
+    "note": "The source does not give one total calendar order. Dates are preserved. 10:01 < 10:06 < 10:07 is preserved. Commands are not sorted by valid time."
+  },
+  "clock": {"kind": "scripted", "start": "2030-08-10T10:00:00Z"},
+  "knowledge_cuts": {
+    "kr:before-late-document": {"before_command_id": "claim-signed-outbound"}
+  },
+  "closing_queries": [
+    {
+      "type": "known-then",
+      "subject": "stock:sku-x",
+      "predicate": "available-quantity",
+      "valid_at": "2030-08-10",
+      "known_at": "kr:before-late-document"
+    },
+    {
+      "type": "now-believed-for-then",
+      "subject": "stock:sku-x",
+      "predicate": "available-quantity",
+      "valid_at": "2030-08-10"
+    }
+  ],
+  "closing_explains": ["v001:operation:purchase-raw-1"],
+  "black_box_expectations": {
+    "known_then_available_quantity": 820,
+    "now_believed_available_quantity": 800,
+    "commit_quantity": 200,
+    "proposal_quantity": 1000
+  },
+  "commands": [
+    {
+      "type": "CreateEntity",
+      "command_id": "create-org-a",
+      "step": 1,
+      "clock_time": "2030-08-01T00:00:00Z",
+      "entity_id": "party:org-a",
+      "type_ref": {"definition_id": "type.organization"},
+      "provenance": {"source_id": "source:master", "source_locator": "party/org-a", "capture_id": "cap:org-a", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-org-b",
+      "step": 2,
+      "clock_time": "2030-08-01T00:00:01Z",
+      "entity_id": "party:org-b",
+      "type_ref": {"definition_id": "type.organization"},
+      "provenance": {"source_id": "source:master", "source_locator": "party/org-b", "capture_id": "cap:org-b", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-sku",
+      "step": 3,
+      "clock_time": "2030-08-01T00:00:02Z",
+      "entity_id": "product:sku-x",
+      "type_ref": {"definition_id": "type.product"},
+      "provenance": {"source_id": "source:master", "source_locator": "product/sku-x", "capture_id": "cap:sku", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-stock",
+      "step": 4,
+      "clock_time": "2030-08-01T00:00:03Z",
+      "entity_id": "stock:sku-x",
+      "type_ref": {"definition_id": "type.stock-position"},
+      "provenance": {"source_id": "source:master", "source_locator": "stock/sku-x", "capture_id": "cap:stock", "capture_revision": "m1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "CreateEntity",
+      "command_id": "create-order",
+      "step": 5,
+      "clock_time": "2030-08-01T00:00:04Z",
+      "entity_id": "order:b-sku-x",
+      "type_ref": {"definition_id": "type.sales-order"},
+      "provenance": {"source_id": "source:sales", "source_locator": "order/b-sku-x", "capture_id": "cap:order", "capture_revision": "s1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "role-customer",
+      "step": 6,
+      "clock_time": "2030-08-02T00:00:00Z",
+      "claim_id": "claim:org-b-customer",
+      "subject_ref": "party:org-b",
+      "predicate_ref": "relation.customer-of",
+      "value": {"identity_id": "identity:org-b-customer", "context_entity_id": "party:org-a"},
+      "valid_time": {"instant": "2030-08-02"},
+      "provenance": {"source_id": "source:crm", "source_locator": "crm://party/org-b/customer", "capture_id": "cap:cust", "capture_revision": "c1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "role-supplier",
+      "step": 7,
+      "clock_time": "2030-08-02T00:00:01Z",
+      "claim_id": "claim:org-b-supplier",
+      "subject_ref": "party:org-b",
+      "predicate_ref": "relation.supplier-of",
+      "value": {"identity_id": "identity:org-b-supplier", "context_entity_id": "party:org-a"},
+      "valid_time": {"instant": "2030-08-02"},
+      "provenance": {"source_id": "source:srm", "source_locator": "srm://party/org-b/supplier", "capture_id": "cap:sup", "capture_revision": "c1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "order-qty",
+      "step": 8,
+      "clock_time": "2030-08-03T00:00:00Z",
+      "claim_id": "claim:order-qty-10",
+      "subject_ref": "order:b-sku-x",
+      "predicate_ref": "ordered-quantity",
+      "value": 10,
+      "valid_time": {"instant": "2030-08-03"},
+      "provenance": {"source_id": "source:sales", "source_locator": "sales://order/b-sku-x/qty", "capture_id": "cap:oq", "capture_revision": "s1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "requested-18",
+      "step": 9,
+      "clock_time": "2030-08-03T00:00:01Z",
+      "claim_id": "claim:requested-18",
+      "subject_ref": "order:b-sku-x",
+      "predicate_ref": "requested-delivery",
+      "value": "2030-08-18",
+      "valid_time": {"instant": "2030-08-18"},
+      "provenance": {"source_id": "source:sales", "source_locator": "sales://order/b-sku-x/requested", "capture_id": "cap:req", "capture_revision": "s1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "promised-20",
+      "step": 10,
+      "clock_time": "2030-08-03T00:00:02Z",
+      "claim_id": "claim:promised-20",
+      "subject_ref": "order:b-sku-x",
+      "predicate_ref": "promised-delivery",
+      "value": "2030-08-20",
+      "valid_time": {"instant": "2030-08-20"},
+      "provenance": {"source_id": "source:sales", "source_locator": "sales://order/b-sku-x/promised", "capture_id": "cap:prom", "capture_revision": "s1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "planned-21",
+      "step": 11,
+      "clock_time": "2030-08-04T00:00:00Z",
+      "claim_id": "claim:planned-21",
+      "subject_ref": "order:b-sku-x",
+      "predicate_ref": "planned-delivery",
+      "value": "2030-08-21",
+      "valid_time": {"instant": "2030-08-21"},
+      "provenance": {"source_id": "source:plan", "source_locator": "plan://order/b-sku-x/planned", "capture_id": "cap:plan", "capture_revision": "p1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "actual-16",
+      "step": 12,
+      "clock_time": "2030-08-16T18:00:00Z",
+      "claim_id": "claim:actual-ship-4",
+      "subject_ref": "order:b-sku-x",
+      "predicate_ref": "actual-shipment",
+      "value": 4,
+      "valid_time": {"instant": "2030-08-16"},
+      "provenance": {"source_id": "source:wms", "source_locator": "wms://shipment/l1", "capture_id": "cap:ship", "capture_revision": "w1", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "erp-20",
+      "step": 13,
+      "clock_time": "2030-08-10T09:00:00Z",
+      "claim_id": "claim:erp-onhand-20",
+      "subject_ref": "stock:sku-x",
+      "predicate_ref": "available-quantity",
+      "value": 20,
+      "valid_time": {"instant": "2030-08-10"},
+      "provenance": {"source_id": "source:erp", "source_locator": "erp://onhand/sku-x", "capture_id": "cap:erp-1", "capture_revision": "erp-rev-1", "actor_id": "actor:ingest", "workload_id": "workload:connector-erp"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "demand-980",
+      "step": 14,
+      "clock_time": "2030-08-10T09:30:00Z",
+      "claim_id": "claim:demand-980",
+      "subject_ref": "stock:sku-x",
+      "predicate_ref": "demand-quantity",
+      "value": 980,
+      "valid_time": {"instant": "2030-08-10"},
+      "provenance": {"source_id": "source:spreadsheet", "source_locator": "file://demand.xlsx#Sheet1!B2:B4", "capture_id": "cap:sheet", "capture_revision": "hash:demand-v3", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "chat-sub",
+      "step": 15,
+      "clock_time": "2030-08-10T09:45:00Z",
+      "claim_id": "claim:chat-substitute",
+      "subject_ref": "order:b-sku-x",
+      "predicate_ref": "substitute-accepted",
+      "value": true,
+      "valid_time": {"instant": "2030-08-10"},
+      "provenance": {"source_id": "source:chat", "source_locator": "chat://channel/sales/msg-441", "capture_id": "cap:chat", "capture_revision": "chat-441", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    },
+    {
+      "type": "ProposeOperation",
+      "command_id": "propose-purchase",
+      "step": 16,
+      "clock_time": "2030-08-10T10:01:00Z",
+      "proposal_id": "proposal:purchase-raw-1",
+      "operation_id": "purchase-raw-1",
+      "authority_namespace": "v001",
+      "action_id": "action.purchase-raw",
+      "inputs": {"quantity": 1000, "subject": "stock:sku-x", "predicate": "available-quantity"},
+      "replan_bounds": {"max_quantity": 1000},
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:org-a", "workload_id": "workload:agent-pod-1", "delegation_id": "delegation:buy-raw-1"},
+      "delegation": {
+        "delegation_id": "delegation:buy-raw-1",
+        "grantor_id": "party:org-a",
+        "actor_id": "actor:planner-agent",
+        "represented_principal_id": "party:org-a",
+        "action_scope": ["action.purchase-raw"],
+        "resource_scope": ["stock:sku-x"],
+        "purpose": "cover demand wave",
+        "valid_from": "2030-08-10T10:00:00Z",
+        "valid_until": null,
+        "bound_workload_id": "workload:agent-pod-1"
+      }
+    },
+    {
+      "type": "RecordExternalOccurrence",
+      "command_id": "wms-receipt",
+      "step": 17,
+      "clock_time": "2030-08-10T10:06:00Z",
+      "occurrence_id": "occurrence:wms-800",
+      "occurrence_ref": {"definition_id": "type.goods-receipt"},
+      "valid_time": {"instant": "2030-08-10T10:06:00Z"},
+      "payload": {"claim_id": "claim:wms-inbound-800", "subject": "stock:sku-x", "predicate": "available-quantity", "signed": 800},
+      "provenance": {"source_id": "source:wms", "source_locator": "wms://receipt/gr-800", "capture_id": "cap:wms-800", "capture_revision": "wms-rev-8", "actor_id": "actor:ingest", "workload_id": "workload:connector-wms"}
+    },
+    {
+      "type": "RecordApproval",
+      "command_id": "approve-purchase",
+      "step": 18,
+      "clock_time": "2030-08-10T10:07:00Z",
+      "approval_id": "approval:purchase-raw-1",
+      "proposal_id": "proposal:purchase-raw-1",
+      "approved_bounds": {"max_quantity": 1000},
+      "attribution": {"actor_id": "actor:human-buyer", "represented_principal_id": "party:org-a", "workload_id": "workload:desktop-1", "delegation_id": "delegation:approve-buy-1"}
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "commit-purchase",
+      "step": 19,
+      "clock_time": "2030-08-10T10:08:00Z",
+      "operation_id": "purchase-raw-1",
+      "authority_namespace": "v001",
+      "proposal_id": "proposal:purchase-raw-1",
+      "approval_id": "approval:purchase-raw-1",
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:org-a", "workload_id": "workload:agent-pod-1", "delegation_id": "delegation:buy-raw-1"}
+    },
+    {
+      "type": "RecordEffectAttempt",
+      "command_id": "carrier-timeout",
+      "step": 20,
+      "clock_time": "2030-08-10T10:09:00Z",
+      "request_id": "effect:book-carrier-1",
+      "attempt_id": "attempt:carrier-1",
+      "outcome": "sent_no_response",
+      "transport_evidence": {"kind": "timeout", "channel": "http"}
+    },
+    {
+      "type": "RecordEffectAttempt",
+      "command_id": "carrier-retry",
+      "step": 21,
+      "clock_time": "2030-08-10T10:10:00Z",
+      "request_id": "effect:book-carrier-1",
+      "attempt_id": "attempt:carrier-2",
+      "outcome": "sent_no_response",
+      "transport_evidence": {"kind": "retry"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "carrier-evidence",
+      "step": 22,
+      "clock_time": "2030-08-11T12:00:00Z",
+      "claim_id": "claim:carrier-confirm",
+      "subject_ref": "effect:book-carrier-1",
+      "predicate_ref": "remote-booking",
+      "value": "confirmed",
+      "valid_time": {"instant": "2030-08-11"},
+      "provenance": {"source_id": "source:carrier", "source_locator": "carrier://booking/b-77", "capture_id": "cap:car", "capture_revision": "car-1", "actor_id": "actor:ingest", "workload_id": "workload:connector-carrier"}
+    },
+    {
+      "type": "ReconcileEffect",
+      "command_id": "reconcile-carrier",
+      "step": 23,
+      "clock_time": "2030-08-11T12:01:00Z",
+      "request_id": "effect:book-carrier-1",
+      "reconciliation_id": "recon:carrier-1",
+      "evidence_refs": ["claim:carrier-confirm"],
+      "attribution": {"actor_id": "actor:reconciler", "represented_principal_id": "party:org-a", "workload_id": "workload:recon-1", "delegation_id": "delegation:recon-1"}
+    },
+    {
+      "type": "InstallDefinitionRevision",
+      "command_id": "install-r2",
+      "step": 24,
+      "clock_time": "2030-08-11T15:00:00Z",
+      "definitions_file": "definitions-r2.json"
+    },
+    {
+      "type": "CommitOperation",
+      "command_id": "replay-purchase",
+      "step": 25,
+      "clock_time": "2030-08-11T15:01:00Z",
+      "operation_id": "purchase-raw-1",
+      "authority_namespace": "v001",
+      "proposal_id": "proposal:purchase-raw-1",
+      "approval_id": "approval:purchase-raw-1",
+      "attribution": {"actor_id": "actor:planner-agent", "represented_principal_id": "party:org-a", "workload_id": "workload:agent-pod-1", "delegation_id": "delegation:buy-raw-1"}
+    },
+    {
+      "type": "RecordClaim",
+      "command_id": "claim-signed-outbound",
+      "step": 26,
+      "clock_time": "2030-08-12T09:00:00Z",
+      "claim_id": "claim:signed-outbound-20",
+      "subject_ref": "stock:sku-x",
+      "predicate_ref": "available-quantity",
+      "value": -20,
+      "valid_time": {"instant": "2030-08-08"},
+      "provenance": {"source_id": "source:signed-doc", "source_locator": "doc://delivery/in-lot-20", "capture_id": "cap:signed", "capture_revision": "sig-12", "actor_id": "actor:ingest", "workload_id": "workload:ingest-1"}
+    }
+  ]
+}
