@@ -1,65 +1,29 @@
-# OS
+# Zoen OS
 
-OS is a greenfield research project exploring a simple but ambitious question:
+Zoen is an executable semantic operating system for organizations.
 
-> If enterprise software, operational ontologies, and AI agents were invented together today, what would the correct system look like?
+The system models organizational meaning, evidence, authority, actions, history and external effects so humans, agents and software can operate the same organization through the same governed capabilities.
 
-The current working hypothesis is that the fundamental product may not be an ERP at all. It may be an **executable ontology of an organization**: one model for things, relationships, decisions, events, rules, history, humans, agents, and systems.
+## Architecture v0
 
-This repository is intentionally **pre-architecture**. Nothing here should be read as a frozen product definition, metamodel, storage choice, language, runtime design, or technology commitment.
+The current direction is deliberately small at the semantic center:
 
-## Start here
+- canonical semantic hypothesis: `Type + Relation + Computation + Action`;
+- business-specific meaning lives in versioned definitions, not runtime branches;
+- meaningful business mutation goes through governed Actions;
+- evidence, organizational belief, approval, local commit and external outcome remain distinct;
+- time, provenance, authority, causal history and uncertainty are explicit;
+- published definitions are immutable and historically reproducible;
+- Rust owns semantic authority;
+- PostgreSQL is the initial durable authority store;
+- the intelligence and experience plane is replaceable and may use TypeScript, agent harnesses, Company Brain capabilities and generated surfaces.
 
-- [`docs/thesis.md`](docs/thesis.md) — the current thesis, explicitly provisional.
-- [`docs/hypothesis-history.md`](docs/hypothesis-history.md) — how the idea evolved during the initial research session, including hypotheses we considered and then weakened or abandoned.
-- [`docs/constitution.md`](docs/constitution.md) — rules for how we research and decide, not rules for how the final system must work.
-- [`docs/open-questions.md`](docs/open-questions.md) — cross-cutting questions that remain deliberately unresolved, including what would falsify the leading thesis.
-- [`docs/research-program.md`](docs/research-program.md) — the first research program across enterprise domains and reference systems.
-- [`docs/swarm-research-backlog.md`](docs/swarm-research-backlog.md) — execution map for the research swarm, including workstreams, waves, output contracts, kill tests, and synthesis gates. GitHub issue #2 is the coordination epic.
-- [`rfcs/0001-metamodel-hypothesis.md`](rfcs/0001-metamodel-hypothesis.md) — a deliberately unstable metamodel hypothesis to attack.
-- [`scenarios/README.md`](scenarios/README.md) — adversarial business scenarios that candidate models must survive.
-- [`research/README.md`](research/README.md) — how evidence from ERPNext, Odoo, Moqui, Palantir, REA/ValueFlows, standards, and other systems should be recorded.
-- [`research/reference-landscape.md`](research/reference-landscape.md) — lessons, useful abstractions, and warnings from adjacent operational ontology / agentic enterprise projects.
+Architecture decisions live in [`docs/adr`](docs/adr/README.md). Active planning, specs and implementation tickets live in GitHub Issues.
 
-## Current posture
+## Research phase
 
-We are not trying to copy ERPNext, Palantir, Odoo, Moqui, or any other system. Mature systems are **evidence**: years of production usage encode real domain distinctions, invariants, failure modes, and operational patterns that we can study.
+The architecture was preceded by a two-day, agent-intensive research and falsification phase using disposable Python and PostgreSQL prototypes. That code is intentionally not part of the production foundation. Its implementation, reviews, failures and counterexamples remain available in Git history and closed GitHub issues and pull requests; surviving laws are condensed into ADRs.
 
-We are also not optimizing for the smallest amount of new code. The working assumption is that powerful AI systems radically reduce the cost of understanding, generating, testing, and maintaining software. The optimization target is therefore **semantic correctness, generality, safety, explainability, and evolvability**.
+## Development rule
 
-A useful working rule is:
-
-> Code can be large. The semantic core should be small, orthogonal, and difficult to simplify further.
-
-## Agent stack
-
-Skills and plugins for Cursor agents, versioned in this repo so desktop and cloud agents share the same workflows.
-
-| Layer | For | Entry |
-| --- | --- | --- |
-| **pstack** | Rigorous execution: `/poteto-mode`, principles, how/why, architect, arena | `/poteto-mode` |
-| **cursor-team-kit** | Shipping: CI, PRs, `deslop`, `control-cli`, `control-ui`, `verify-this` | `/review-and-ship`, `/fix-ci`, `/deslop` |
-| **mattpocock/skills** | Discovery and spec: grill, wayfinder, tickets, implement | `/grill-with-docs`, `/setup-matt-pocock-skills` |
-
-These are not three copies of the same flow. pstack executes. team-kit ships. Matt aligns and slices the work.
-
-`tdd` and `teach` come from pstack. The Matt skills with those names were not copied, so `/poteto-mode` does not see duplicates.
-
-The repo root is the OS research tree. Cursor plugins are not siblings of `docs/` and `research/`.
-
-```
-docs/ research/ rfcs/ scenarios/
-.cursor/skills/      # what the agent loads (cloud included)
-.cursor/agents/      # poteto-agent, Comment Sicko, ci-watcher, thermo-nuclear
-.cursor/rules/       # pstack models + team-kit rules
-.cursor/plugins/     # vendored marketplace packages
-.cursor-plugin/      # marketplace.json points at .cursor/plugins/
-```
-
-Models: Grok 4.6 xhigh fast day-to-day; `gpt-5.6-sol-xhigh` only for `hardest tasks` and `architect runners`. See `.cursor/rules/pstack-models.mdc`.
-
-Start a new chat in this workspace, then `/poteto-mode` plus a done criterion. On a product repo, run `/setup-matt-pocock-skills` once (tracker, labels, `CONTEXT.md`). Upstream licenses: MIT (Lauren Tan / Cursor / Matt Pocock). See `SOURCES.md`.
-
-## License and research hygiene
-
-OS is MIT licensed. Some important research references, including ERPNext and Odoo, use copyleft licenses. Research notes should extract concepts, behavior, invariants, scenarios, and references rather than transplanting implementation code into OS. Any reuse of implementation must be an explicit licensing decision, never an accidental outcome of research.
+> Meaning in definitions. Universal laws in the kernel. Infrastructure behind replaceable boundaries. Everything else is a surface.
