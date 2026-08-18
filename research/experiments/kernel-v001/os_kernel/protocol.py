@@ -212,6 +212,22 @@ def commit_operation(
             "commit requires the stored delegation",
             "os scenario run v001 --output json",
         )
+    if operation_id != proposal.operation_id:
+        return CommandReceipt(
+            "CommitOperation",
+            "intent_mismatch",
+            store.current_revision(),
+            (),
+            {"code": "intent_mismatch", "reason": "operation_id"},
+        )
+    if namespace != proposal.authority_namespace:
+        return CommandReceipt(
+            "CommitOperation",
+            "intent_mismatch",
+            store.current_revision(),
+            (),
+            {"code": "intent_mismatch", "reason": "authority_namespace"},
+        )
     existing = store.receipt_for(namespace, operation_id)
     presented_inputs = command.get("canonical_inputs") or proposal.canonical_inputs
     presented_proposal = command.get("alternate_proposal_id") or command.get("proposal_id") or proposal.proposal_id
