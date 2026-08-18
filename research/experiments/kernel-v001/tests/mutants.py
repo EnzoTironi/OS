@@ -13,24 +13,6 @@ def _store(kernel: Kernel):
     return object.__getattribute__(kernel, "_Kernel__store")
 
 
-class CollapsedAttribution:
-    def __init__(self, principal_id: str) -> None:
-        self.principal_id = principal_id
-        self.actor_id = principal_id
-        self.represented_principal_id = principal_id
-        self.workload_id = principal_id
-        self.delegation_id = principal_id
-
-    def as_dict(self) -> dict[str, str]:
-        return {
-            "principal_id": self.principal_id,
-            "actor_id": self.actor_id,
-            "represented_principal_id": self.represented_principal_id,
-            "workload_id": self.workload_id,
-            "delegation_id": self.delegation_id,
-        }
-
-
 class MergeRivalClaimsKernel(Kernel):
     def apply(self, command):
         receipt = super().apply(command)
@@ -139,13 +121,24 @@ class ReplayUnderCurrentRevisionKernel(Kernel):
 
 
 class CollapseActorAndWorkloadKernel(Kernel):
-    def _propose(self, command: dict) -> CommandReceipt:
-        receipt = super()._propose(command)
-        store = _store(self)
-        stored = store._tables["proposals"].get(command["proposal_id"])
-        if stored is not None:
-            object.__setattr__(stored, "proposer", CollapsedAttribution(command["attribution"]["actor_id"]))
-        return receipt
+    def query(self, query: dict) -> dict:
+        result = super().query(query)
+        if query.get("type") != "scenario-report":
+            return result
+        for proposal in (result.get("records") or {}).get("proposals") or []:
+            attribution = proposal.get("attribution")
+            if not isinstance(attribution, dict):
+                continue
+            collapsed = attribution.get("actor_id")
+            if not collapsed:
+                continue
+            proposal["attribution"] = {
+                "actor_id": collapsed,
+                "represented_principal_id": collapsed,
+                "workload_id": collapsed,
+                "delegation_id": collapsed,
+            }
+        return result
 
 
 class RawWriteBypassKernel(Kernel):
@@ -239,6 +232,7 @@ ALLOWED_FAILURES = {
     "merge-rival-claims": {
         "P1_RIVAL_CLAIMS_WITH_PROVENANCE": "later evidence replaces earlier rivals instead of keeping them",
         "EVIDENCE_IS_APPEND_ONLY": "the dropped rivals are missing from the late-evidence after digest",
+        "P10_KNOWN_THEN_DIFFERS": "dropping earlier rivals removes the temporal contributor that made known-then differ from now-believed-for-then",
     },
     "accept-stale-approval": {
         "P6_STALE_APPROVAL_REVALIDATED": "commit reuses the proposal basis so stale never appears",
@@ -253,7 +247,7 @@ ALLOWED_FAILURES = {
         "REVISION_PINNED_REPLAY": "replay evaluates the current planner and disagrees with the stored receipt",
     },
     "collapse-actor-and-workload": {
-        "ATTRIBUTION_DIMENSIONS_SEPARATE": "proposal attribution collapses the four dimensions into principal_id",
+        "ATTRIBUTION_DIMENSIONS_SEPARATE": "public proposal attribution copies actor_id into the other three dimensions",
     },
     "raw-write-bypass": {
         "NO_AUTHORITATIVE_WRITE_BYPASS": "the extra public write changes the isolated record digest",

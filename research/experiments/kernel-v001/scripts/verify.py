@@ -341,6 +341,18 @@ def _attribution_ok(payload: dict[str, Any] | None) -> bool:
     return "principal_id" not in payload and all(fields) and len(set(fields)) == 4
 
 
+def _independent_explanation_ref(run: dict[str, Any], envelopes: list[dict[str, Any]], receipts: list[dict[str, Any]]) -> str | None:
+    scenario_id = run.get("scenario_id")
+    operation_id = None
+    if receipts:
+        operation_id = receipts[0].get("operation_id")
+    if not operation_id and envelopes:
+        operation_id = envelopes[0].get("operation_id")
+    if not scenario_id or not operation_id:
+        return None
+    return f"{scenario_id}:operation:{operation_id}"
+
+
 def _contributor_sum(query: dict[str, Any]) -> float | None:
     total = 0.0
     contributors = query.get("contributors") or []
@@ -436,6 +448,7 @@ def evaluate_run(run: dict, structure: dict) -> dict:
         item.get("relation") == "committed-as" and str(item.get("cause_ref", "")).startswith("operation:")
         for item in explanation.get("causal_links") or []
     )
+    explanation_identity = _independent_explanation_ref(run, envelopes, receipts)
 
     def result(property_id: str, passed: bool, refs: list[str]) -> dict[str, Any]:
         evidence_refs = [item for item in refs if item]
@@ -550,7 +563,7 @@ def evaluate_run(run: dict, structure: dict) -> dict:
             and explanation.get("effect_attempts")
             and explanation.get("reconciliation_records")
             and envelope_link,
-            [f"explanation:{explanation.get('reference')}"] if explanation.get("reference") else [],
+            [f"explanation:{explanation_identity}"] if explanation_identity else [],
         ),
         result(
             "RECONCILED_KEEPING_TIMEOUT",
