@@ -4,15 +4,13 @@ on:
   pull_request:
     paths:
       - 'research/synthesis/cross-cycle-vertical/**'
-      - 'research/runtime/effects/reference_model.py'
-      - 'research/runtime/authorization/reference_model.py'
       - '.github/workflows/cross-cycle-71-ci.yml'
 
 permissions:
   contents: read
 
 jobs:
-  suite:
+  cuts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +19,6 @@ jobs:
           python-version: '3.12'
       - name: Structural checks
         run: python3 research/synthesis/cross-cycle-vertical/check_research.py
-      - name: Run #71 suite
+      - name: Cuts file
         working-directory: research/synthesis/cross-cycle-vertical
         run: python3 -m unittest discover -s tests -v

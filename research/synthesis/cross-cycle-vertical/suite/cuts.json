@@ -1,26 +1,90 @@
 {
   "issue": 71,
-  "note": "Each cut must be tagged on at least one step or closing check. The suite is implementation-neutral; R6 is not a cut.",
+  "kernel": "research/experiments/kernel-v001",
+  "kernel_branch": "cursor/kernel-v001-v3-a60c",
+  "kernel_pr": 169,
+  "command_schema": "research/experiments/kernel-v001/schemas/command.schema.json",
+  "note": "The suite language is the kernel command schema. Do not add a second apply/query/explain.",
   "cuts": {
-    "identity": ["q-identity"],
-    "customer_intent": ["record-intent"],
-    "commercial_commitment": ["commit-accept-order"],
-    "inventory_availability": ["q-available-after-admit"],
-    "procurement_need": ["q-shortage"],
-    "action_proposal": ["propose-reserve-10"],
-    "policy_approval": ["approve-accept-order"],
-    "stale_revalidation": ["commit-reserve-10"],
-    "transactional_commit": ["commit-reserve-7", "replay-accept-order"],
-    "external_unknown": ["observe-supplier-unknown", "observe-carrier-unknown"],
-    "reconciliation": ["reconcile-supplier", "reconcile-carrier"],
-    "accounting_consequence": ["commit-receivable", "commit-settlement"],
-    "historical_query": ["q-known-then-erp"],
-    "causal_explanation": ["explain-accept-order", "explain-ship"],
-    "rival_sources": ["claim-erp", "claim-sensor", "q-rival-stock"],
-    "human_and_agent_same_action": ["commit-reserve-7", "commit-reserve-5"],
-    "ontology_revision_mid_cycle": ["publish-ontology-v2", "explain-accept-order", "q-ontology-now"],
-    "no_second_authority": ["q-write-paths"],
-    "correction_not_mutation": ["commit-return", "explain-ship"],
-    "unsafe_retry": ["retry-supplier"]
+    "rival_sources": {
+      "in_v001": true,
+      "evidence": "tests/test_v001_properties.py::test_public_kernel_path_and_rival_claims"
+    },
+    "stale_revalidation": {
+      "in_v001": true,
+      "evidence": "tests/test_v001_properties.py::test_stale_replan_and_effect_protocol"
+    },
+    "transactional_commit": {
+      "in_v001": true,
+      "evidence": "replay-purchase outcome replayed"
+    },
+    "external_unknown": {
+      "in_v001": true,
+      "evidence": "carrier-timeout outcome unknown"
+    },
+    "unsafe_retry": {
+      "in_v001": true,
+      "evidence": "carrier-retry outcome unsafe_retry"
+    },
+    "reconciliation": {
+      "in_v001": true,
+      "evidence": "resulting_knowledge confirmed"
+    },
+    "historical_query": {
+      "in_v001": true,
+      "evidence": "tests/test_v001_properties.py::test_temporal_queries_differ"
+    },
+    "causal_explanation": {
+      "in_v001": true,
+      "evidence": "tests/test_v001_properties.py::test_explain_resolves_causal_records"
+    },
+    "policy_approval": {
+      "in_v001": true,
+      "evidence": "RecordApproval + rule.approval-authorized"
+    },
+    "action_proposal": {
+      "in_v001": true,
+      "evidence": "ProposeOperation action.purchase-raw"
+    },
+    "identity": {
+      "in_v001": true,
+      "evidence": "party/product/stock entities; contextual customer/supplier identities"
+    },
+    "customer_intent": {
+      "in_v001": "partial",
+      "evidence": "ordered-quantity / requested-delivery claims exist; no separate intent then AcceptOrder"
+    },
+    "commercial_commitment": {
+      "in_v001": "partial",
+      "evidence": "committed-purchase-quantity after purchase; not a commercial commitment Type"
+    },
+    "inventory_availability": {
+      "in_v001": true,
+      "evidence": "computation.available-quantity"
+    },
+    "procurement_need": {
+      "in_v001": "partial",
+      "evidence": "purchase is the procurement Action; no reserve-then-shortage split"
+    },
+    "accounting_consequence": {
+      "in_v001": false,
+      "needed": "receivable/settlement as claims or occurrences after fulfillment, through CommitOperation"
+    },
+    "human_and_agent_same_action": {
+      "in_v001": false,
+      "needed": "same action_id, two attributions (human workload vs agent workload) both CommitOperation"
+    },
+    "ontology_revision_mid_cycle": {
+      "in_v001": false,
+      "needed": "InstallDefinitionRevision after a committed Action; explain still pins the old revision"
+    },
+    "no_second_authority": {
+      "in_v001": true,
+      "evidence": "mutations go through CommitOperation; verify.py forbids domain branches"
+    },
+    "correction_not_mutation": {
+      "in_v001": false,
+      "needed": "return/credit as a new record that does not rewrite the original occurrence"
+    }
   }
 }

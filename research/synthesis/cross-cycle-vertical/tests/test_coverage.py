@@ -1,27 +1,15 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import unittest
 
-from harness.loader import load_cuts, load_scenario
+HERE = Path(__file__).resolve().parents[1]
 
 
 class CoverageTests(unittest.TestCase):
-    def test_every_cut_has_a_step_or_check(self) -> None:
-        scenario = load_scenario()
-        tagged: dict[str, set[str]] = {}
-        for step in scenario["steps"]:
-            for cut in step.get("cuts") or []:
-                tagged.setdefault(cut, set()).add(step["id"])
-        for item in list(scenario.get("closing_queries") or []) + list(scenario.get("closing_explains") or []):
-            for cut in item.get("cuts") or []:
-                tagged.setdefault(cut, set()).add(item["id"])
-        cuts = load_cuts()["cuts"]
-        missing = sorted(name for name in cuts if name not in tagged)
-        self.assertEqual(missing, [])
-        for name, expected_ids in cuts.items():
-            self.assertTrue(set(expected_ids) <= tagged[name], msg=name)
-
-    def test_required_issue_cuts_are_declared(self) -> None:
+    def test_cuts_name_the_kernel_and_the_gaps(self) -> None:
+        cuts = json.loads((HERE / "suite/cuts.json").read_text(encoding="utf-8"))
         required = {
             "identity",
             "customer_intent",
@@ -44,4 +32,27 @@ class CoverageTests(unittest.TestCase):
             "correction_not_mutation",
             "unsafe_retry",
         }
-        self.assertEqual(required, set(load_cuts()["cuts"]))
+        self.assertEqual(required, set(cuts["cuts"]))
+        self.assertEqual(cuts["kernel_pr"], 169)
+        missing = [name for name, row in cuts["cuts"].items() if row.get("in_v001") is False]
+        self.assertEqual(
+            missing,
+            [
+                "accounting_consequence",
+                "human_and_agent_same_action",
+                "ontology_revision_mid_cycle",
+                "correction_not_mutation",
+            ],
+        )
+
+    def test_this_folder_has_no_second_kernel(self) -> None:
+        banned = [
+            HERE / "adapters/reference.py",
+            HERE / "harness/protocol.py",
+            HERE / "suite/scenario.json",
+        ]
+        for path in banned:
+            self.assertFalse(path.exists(), path)
+        text = (HERE / "README.md").read_text(encoding="utf-8")
+        self.assertIn("os_kernel", text)
+        self.assertNotIn("class ReferenceRuntime", text)
