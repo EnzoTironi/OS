@@ -243,7 +243,10 @@ async function typecheck(sourcePath: string): Promise<void> {
   await writeFile(
     temporaryConfig,
     JSON.stringify({
-      compilerOptions: { noEmit: true },
+      compilerOptions: {
+        noEmit: true,
+        typeRoots: [path.join(repositoryRoot, "node_modules", "@types")],
+      },
       extends: configPath,
       files: [sourcePath],
       include: [],
