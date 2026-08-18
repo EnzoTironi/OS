@@ -434,6 +434,11 @@ def check_delegation(
         raise InputError("invalid_delegation", "delegation has been revoked", INVOCATION)
     if delegation.parent_id and parent is None:
         raise InputError("invalid_delegation", "delegation parent does not resolve", INVOCATION)
+    if parent is not None:
+        if not set(delegation.action_scope) <= set(parent.action_scope):
+            raise InputError("invalid_delegation", "child action scope exceeds parent", INVOCATION)
+        if not set(delegation.resource_scope) <= set(parent.resource_scope):
+            raise InputError("invalid_delegation", "child resource scope exceeds parent", INVOCATION)
 
 
 def derived_resources(spec: tuple[dict[str, Any], ...], inputs: Any) -> list[str]:
