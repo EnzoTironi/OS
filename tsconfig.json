@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "declaration": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -12,7 +11,7 @@
     "outDir": "dist",
     "paths": {
       "@zoen/ontology": [
-        "packages/ontology/src/index.ts"
+        "./packages/ontology/src/index.ts"
       ]
     },
     "rootDir": ".",
