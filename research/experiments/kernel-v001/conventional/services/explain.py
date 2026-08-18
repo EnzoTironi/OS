@@ -8,10 +8,15 @@ from services.ledger import Ledger, qualify
 EXPLAIN_EXAMPLE = "os explain v001:operation:purchase-raw-1 --output json"
 
 
-def _operation_id(reference: str) -> str:
-    if ":" in reference and "operation" in reference.split(":"):
-        return reference.split(":")[-1]
-    return reference
+def operation_name(reference: str) -> str:
+    pieces = reference.split(":")
+    try:
+        marker = pieces.index("operation")
+    except ValueError:
+        return reference
+    if marker >= len(pieces) - 1:
+        return reference
+    return pieces[-1]
 
 
 class ExplainService:
@@ -19,59 +24,47 @@ class ExplainService:
         self.ledger = ledger
 
     def explain(self, reference: str) -> dict[str, Any]:
-        operation_id = _operation_id(reference)
-        receipt = None
-        for item in self.ledger.all("receipts"):
-            if item["operation_id"] == operation_id:
-                receipt = item
-                break
+        receipt = self._receipt_for(operation_name(reference))
         if receipt is None:
             raise InputError("unknown_reference", f"no operation matches {reference}", EXPLAIN_EXAMPLE)
-        envelope = None
-        for item in self.ledger.all("envelopes"):
-            if item["operation_id"] == operation_id:
-                envelope = item
-                break
-        proposal = None
-        approval = None
-        if envelope:
-            proposal = self.ledger.get("proposals", envelope["proposal_ref"])
-            approval = self.ledger.get("approvals", envelope["approval_ref"])
-        used_links = []
-        reached = {qualify("receipt", receipt["operation_id"])}
-        if envelope:
-            reached.add(f"operation:{reference.split(':', 1)[0]}:{operation_id}" if reference.count(":") >= 2 else f"operation:{operation_id}")
-        frontier = list(reached)
-        links = self.ledger.all("causal_links")
-        while frontier:
-            current = frontier.pop()
-            for link in links:
-                ends = {link["cause_ref"], link["consequence_ref"]}
-                if current not in ends:
-                    continue
-                if link not in used_links:
-                    used_links.append(link)
-                for end in ends:
-                    if end not in reached:
-                        reached.add(end)
-                        frontier.append(end)
-        requests = [item for item in self.ledger.all("effect_requests") if item["parent_operation_id"] == operation_id]
+        receipt_ref = qualify("receipt", receipt["operation_id"])
+        reached, used_links = self._walk(receipt_ref)
+        envelope_ref = self._envelope_ref(receipt, reference)
+        envelope = self._record(envelope_ref) if envelope_ref in reached else None
+        proposal = self._first_reached(reached, "proposal:")
+        approval = self._first_reached(reached, "approval:")
+        requests = [
+            item
+            for item in self.ledger.all("effect_requests")
+            if item["request_id"] in reached or qualify("effect", item["request_id"]) in reached
+        ]
         request_ids = {item["request_id"] for item in requests}
-        attempts = [item for item in self.ledger.all("effect_attempts") if item["request_id"] in request_ids]
-        reconciliations = [item for item in self.ledger.all("reconciliations") if item["request_id"] in request_ids]
+        attempts = [
+            item
+            for item in self.ledger.all("effect_attempts")
+            if item["request_id"] in request_ids
+            and (item["attempt_id"] in reached or qualify("attempt", item["attempt_id"]) in reached)
+        ]
+        reconciliations = [
+            item
+            for item in self.ledger.all("reconciliations")
+            if item["request_id"] in request_ids
+            and (item["reconciliation_id"] in reached or qualify("recon", item["reconciliation_id"]) in reached)
+        ]
         attribution = (envelope or {}).get("attribution") or {}
-        consumed = []
+        consumed: list[str] = []
         if proposal:
             consumed.extend(proposal["state_basis"].get("evidence_refs") or [])
-        graph = {
+        gaps = self._gaps(receipt, receipt_ref, envelope_ref, reached)
+        return {
             "reference": reference,
-            "complete": True,
-            "gaps": [],
+            "complete": len(gaps) == 0,
+            "gaps": gaps,
             "action_revision": {
                 "definition_id": (proposal or {}).get("action_id"),
                 "revision_id": receipt["action_revision"],
             },
-            "inputs": dict((envelope or proposal or {}).get("canonical_inputs") or {}),
+            "inputs": dict((envelope or {}).get("canonical_inputs") or {}),
             "actor_id": attribution.get("actor_id"),
             "represented_principal_id": attribution.get("represented_principal_id"),
             "workload_id": attribution.get("workload_id"),
@@ -130,7 +123,98 @@ class ExplainService:
                 for item in used_links
             ],
         }
-        return graph
+
+    def _receipt_for(self, operation_id: str) -> dict[str, Any] | None:
+        for item in self.ledger.all("receipts"):
+            if item["operation_id"] == operation_id:
+                return item
+        return None
+
+    def _envelope_ref(self, receipt: dict[str, Any], reference: str) -> str:
+        namespace = receipt.get("authority_namespace")
+        if not namespace and ":" in reference:
+            namespace = reference.split(":", 1)[0]
+        operation_id = receipt["operation_id"]
+        if namespace:
+            return f"operation:{namespace}:{operation_id}"
+        return f"operation:{operation_id}"
+
+    def _walk(self, start: str) -> tuple[set[str], list[dict[str, Any]]]:
+        links = self.ledger.all("causal_links")
+        reached = {start}
+        frontier = [start]
+        used: list[dict[str, Any]] = []
+        while frontier:
+            current = frontier.pop()
+            for link in links:
+                ends = {link["cause_ref"], link["consequence_ref"]}
+                if current not in ends:
+                    continue
+                if link not in used:
+                    used.append(link)
+                    reached.add(qualify("link", link["link_id"]))
+                for end in ends:
+                    if end not in reached:
+                        reached.add(end)
+                        frontier.append(end)
+        return reached, used
+
+    def _gaps(
+        self,
+        receipt: dict[str, Any],
+        receipt_ref: str,
+        envelope_ref: str,
+        reached: set[str],
+    ) -> list[dict[str, Any]]:
+        missing: list[dict[str, Any]] = []
+        if envelope_ref not in reached:
+            missing.append({"ref": envelope_ref, "reason": "unreachable"})
+        for ref in receipt.get("committed_refs") or []:
+            if ref == receipt_ref or ref in reached:
+                continue
+            missing.append({"ref": ref, "reason": "unreachable"})
+        return missing
+
+    def _first_reached(self, reached: set[str], prefix: str) -> dict[str, Any] | None:
+        for ref in sorted(reached):
+            if not ref.startswith(prefix):
+                continue
+            record = self._record(ref)
+            if record is not None:
+                return record
+        return None
+
+    def _record(self, ref: str) -> dict[str, Any] | None:
+        if ref.startswith("operation:"):
+            key = ref[len("operation:") :]
+            found = self.ledger.get("envelopes", key)
+            if found is not None:
+                return found
+            operation_id = key.split(":")[-1]
+            for item in self.ledger.all("envelopes"):
+                if item["operation_id"] == operation_id:
+                    return item
+            return None
+        if ref.startswith("receipt:"):
+            operation_id = ref[len("receipt:") :]
+            return self._receipt_for(operation_id)
+        buckets = (
+            ("proposals", "proposal_id"),
+            ("approvals", "approval_id"),
+            ("effect_requests", "request_id"),
+            ("effect_attempts", "attempt_id"),
+            ("reconciliations", "reconciliation_id"),
+            ("claims", "claim_id"),
+            ("causal_links", "link_id"),
+        )
+        for table, field in buckets:
+            direct = self.ledger.get(table, ref)
+            if direct is not None:
+                return direct
+            for item in self.ledger.all(table):
+                if item.get(field) == ref:
+                    return item
+        return None
 
     def _proposal_view(self, proposal: dict[str, Any]) -> dict[str, Any]:
         return {

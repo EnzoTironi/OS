@@ -21,6 +21,18 @@ FIXTURES = ROOT / "fixtures"
 RUN_EXAMPLE = "os scenario run v001 --output json"
 
 
+def named_effect_requests(scenario: dict[str, Any]) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for command in scenario.get("commands") or []:
+        value = command.get("request_id")
+        if not isinstance(value, str) or not value or value in seen:
+            continue
+        seen.add(value)
+        found.append(value)
+    return found
+
+
 def load_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -76,6 +88,7 @@ class ConventionalEngine:
         self.proof_observations: list[dict[str, Any]] = []
         self._seen_reconcile = False
         self._commit_count = 0
+        self._effect_request_ids = named_effect_requests(scenario)
 
     def apply(self, command: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(command, dict):
@@ -96,7 +109,12 @@ class ConventionalEngine:
         elif command_type == "RecordApproval":
             receipt = self.authority.approve(payload)
         elif command_type == "CommitOperation":
-            receipt = self.purchasing.commit(payload, self.clock, self.scenario_id)
+            receipt = self.purchasing.commit(
+                payload,
+                self.clock,
+                self.scenario_id,
+                effect_request_id=self.effect_request_id_for_commit(payload.get("operation_id")),
+            )
         elif command_type == "RecordEffectAttempt":
             receipt = self.effects.attempt(payload)
         elif command_type == "ReconcileEffect":
@@ -128,6 +146,15 @@ class ConventionalEngine:
             "record_refs": [],
             "details": {"pack_id": pack_id},
         }
+
+    def effect_request_id_for_commit(self, operation_id: str | None) -> str:
+        if not self._effect_request_ids:
+            raise InputError(
+                "missing_effect_request",
+                f"scenario does not name an effect request before commit of {operation_id}",
+                RUN_EXAMPLE,
+            )
+        return self._effect_request_ids[0]
 
     def query(self, query: dict[str, Any]) -> dict[str, Any]:
         kind = query.get("type")
