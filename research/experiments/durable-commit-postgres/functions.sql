@@ -17,6 +17,8 @@ DECLARE
     v_effect jsonb;
     v_record_ids text[];
     v_effect_ids text[];
+    v_record_collision boolean;
+    v_effect_collision boolean;
     v_digest_re constant text := '^sha256:[0-9a-f]{64}$';
 BEGIN
     IF payload IS NULL OR jsonb_typeof(payload) <> 'object' THEN
@@ -160,6 +162,28 @@ BEGIN
         );
     END IF;
 
+    SELECT EXISTS (
+        SELECT 1
+        FROM semantic_record
+        WHERE namespace = v_namespace
+          AND record_id = ANY (v_record_ids)
+    ) INTO v_record_collision;
+
+    SELECT EXISTS (
+        SELECT 1
+        FROM effect_request
+        WHERE namespace = v_namespace
+          AND request_id = ANY (v_effect_ids)
+    ) INTO v_effect_collision;
+
+    IF v_record_collision OR v_effect_collision THEN
+        RETURN jsonb_build_object(
+            'state', 'identity_collision',
+            'namespace', v_namespace,
+            'operation_id', v_operation_id
+        );
+    END IF;
+
     v_commit_revision := v_head_revision + 1;
 
     INSERT INTO semantic_operation (
@@ -226,8 +250,18 @@ BEGIN
         'operation_id', v_operation_id,
         'commit_revision', v_commit_revision,
         'result', v_result,
-        'record_ids', to_jsonb(v_record_ids),
-        'effect_request_ids', to_jsonb(v_effect_ids)
+        'record_ids', (
+            SELECT coalesce(jsonb_agg(record_id ORDER BY record_id), '[]'::jsonb)
+            FROM semantic_record
+            WHERE namespace = v_namespace
+              AND operation_id = v_operation_id
+        ),
+        'effect_request_ids', (
+            SELECT coalesce(jsonb_agg(request_id ORDER BY request_id), '[]'::jsonb)
+            FROM effect_request
+            WHERE namespace = v_namespace
+              AND operation_id = v_operation_id
+        )
     );
 END;
 $fn$;

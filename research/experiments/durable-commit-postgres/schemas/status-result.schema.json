@@ -56,7 +56,9 @@
           "state",
           "intent_digest",
           "commit_revision",
-          "result"
+          "result",
+          "record_ids",
+          "effect_request_ids"
         ]
       }
     }

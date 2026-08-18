@@ -7,7 +7,7 @@
   "properties": {
     "state": {
       "type": "string",
-      "enum": ["committed", "replayed", "intent_mismatch", "conflict"]
+      "enum": ["committed", "replayed", "intent_mismatch", "conflict", "identity_collision"]
     },
     "namespace": {
       "type": "string"
@@ -71,6 +71,21 @@
           "result",
           "record_ids",
           "effect_request_ids"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "identity_collision"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "namespace",
+          "operation_id"
         ]
       }
     }
