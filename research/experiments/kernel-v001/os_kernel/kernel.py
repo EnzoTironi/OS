@@ -299,6 +299,22 @@ class Kernel:
     def _record_claim(self, command: dict[str, Any]) -> CommandReceipt:
         revision = self.__store._next_revision()
         validate_value(schema_for_predicate(self._current, command["predicate_ref"]), command["value"])
+        relation = self._current.relations.get(command["predicate_ref"])
+        if relation is not None and relation.projects_contextual_identity:
+            payload = command["value"] if isinstance(command["value"], dict) or hasattr(command["value"], "get") else {}
+            context_entity_id = payload["context_entity_id"]
+            role_id = relation.definition_ref.definition_id
+            for existing in self.__store.all("contextual_identities"):
+                if (
+                    existing.entity_id == command["subject_ref"]
+                    and existing.context_entity_id == context_entity_id
+                    and existing.role_definition_ref.definition_id == role_id
+                ):
+                    raise InputError(
+                        "duplicate_identity",
+                        "contextual identity already exists for this entity, context, and role",
+                        "os scenario run v001 --output json",
+                    )
         claim = Claim(
             claim_id=command["claim_id"],
             subject_ref=command["subject_ref"],
@@ -312,7 +328,6 @@ class Kernel:
         )
         self.__store._put_claim(claim)
         refs = [qualify("claim", claim.claim_id)]
-        relation = self._current.relations.get(claim.predicate_ref)
         if relation is not None and relation.projects_contextual_identity:
             payload = claim.value if isinstance(claim.value, dict) or hasattr(claim.value, "get") else {}
             identity = ContextualIdentity(
