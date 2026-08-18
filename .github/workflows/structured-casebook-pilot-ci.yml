@@ -1,0 +1,42 @@
+name: structured-casebook-pilot-ci
+
+on:
+  push:
+    paths:
+      - 'research/experiments/structured-casebook/**'
+      - '.github/workflows/structured-casebook-pilot-ci.yml'
+  pull_request:
+    paths:
+      - 'research/experiments/structured-casebook/**'
+      - '.github/workflows/structured-casebook-pilot-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  structured-casebook-pilot-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned validator dependency
+        run: python3 -m pip install -r research/experiments/structured-casebook/requirements.txt
+      - name: Run structured casebook suite
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s research/experiments/structured-casebook \
+            -p 'test_*.py' -v
+      - name: Validate green fixture via CLI
+        run: |
+          python3 research/experiments/structured-casebook/validate_casebook.py \
+            research/experiments/structured-casebook/fixtures/valid-minimal.json
+      - name: Prove mutant batch is red
+        run: |
+          set +e
+          python3 research/experiments/structured-casebook/validate_casebook.py \
+            research/experiments/structured-casebook/fixtures/mutants/*.json
+          status=$?
+          set -e
+          test "$status" -eq 1

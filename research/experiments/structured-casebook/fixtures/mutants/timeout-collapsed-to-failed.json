@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "case_id": "case:generic-pilot",
+  "identities": [
+    {"id": "org:alpha", "kind": "organization"},
+    {"id": "person:alice", "kind": "person"},
+    {"id": "agent:planner", "kind": "agent"},
+    {"id": "workload:connector", "kind": "workload"}
+  ],
+  "grants": [
+    {
+      "id": "grant:planner-alpha",
+      "actor_ref": "agent:planner",
+      "represented_ref": "org:alpha"
+    }
+  ],
+  "approvals": [
+    {
+      "id": "approval:proposal-1",
+      "proposal_ref": "proposal:1",
+      "basis_ref": "basis:v1"
+    }
+  ],
+  "actions": [
+    {
+      "id": "action:reserve",
+      "actor_ref": "agent:planner",
+      "represented_ref": "org:alpha",
+      "grant_ref": "grant:planner-alpha",
+      "proposal_ref": "proposal:1",
+      "basis_ref": "basis:v2",
+      "result": "needs_reproposal",
+      "workload_ref": "workload:connector",
+      "approval_ref": "approval:proposal-1"
+    }
+  ],
+  "responsibility_claims": [
+    {
+      "id": "resp:alice",
+      "subject_ref": "person:alice",
+      "basis": {
+        "kind": "primary_source",
+        "locator": "docs/generic-source.md, section 1"
+      }
+    },
+    {
+      "id": "resp:alpha",
+      "subject_ref": "org:alpha"
+    }
+  ],
+  "scenario_claims": [
+    {
+      "id": "sc:alpha-instantiated",
+      "scenario_ref": "scenario:alpha",
+      "relationship": "instantiated",
+      "instance_ref": "si:alpha-1"
+    },
+    {
+      "id": "sc:beta-related",
+      "scenario_ref": "scenario:beta",
+      "relationship": "related"
+    }
+  ],
+  "scenario_instances": [
+    {
+      "id": "si:alpha-1",
+      "scenario_ref": "scenario:alpha",
+      "witness_refs": ["occ:subject-a-1"]
+    }
+  ],
+  "occurrences": [
+    {
+      "id": "occ:subject-a-1",
+      "subject_ref": "subject:item",
+      "occurred_at": "2026-08-10T10:06:00-03:00"
+    },
+    {
+      "id": "occ:subject-a-2",
+      "subject_ref": "subject:item",
+      "valid_on": "2026-08-08",
+      "known_at": "2026-08-12T00:00:00-03:00"
+    }
+  ],
+  "owners": [
+    {
+      "id": "owner:ops",
+      "scopes": ["planning", "inventory"]
+    }
+  ],
+  "gaps": [
+    {
+      "id": "gap:known-planning",
+      "required_scopes": ["planning"],
+      "owner": {
+        "status": "known",
+        "owner_ref": "owner:ops"
+      }
+    },
+    {
+      "id": "gap:unknown-legal",
+      "required_scopes": ["legal-review"],
+      "owner": {
+        "status": "unknown"
+      }
+    }
+  ],
+  "effect_attempts": [
+    {
+      "id": "effect:timeout-1",
+      "transport_result": "timeout",
+      "knowledge_state": "failed"
+    },
+    {
+      "id": "effect:delivered-1",
+      "transport_result": "delivered",
+      "knowledge_state": "observed"
+    }
+  ]
+}
