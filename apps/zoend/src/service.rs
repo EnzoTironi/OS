@@ -33,12 +33,12 @@ impl DefinitionServiceImpl {
         request_context: &RequestContext,
         claimed_tenant: &str,
     ) -> Result<ExecutionContext, ConnectError> {
-        let context = self
-            .sessions
-            .authenticate(request_context.header("authorization"))
-            .ok_or_else(|| {
-                ConnectError::new(ErrorCode::Unauthenticated, "invalid bearer session")
-            })?;
+        let authorization = request_context
+            .header("authorization")
+            .and_then(|value| value.to_str().ok());
+        let context = self.sessions.authenticate(authorization).ok_or_else(|| {
+            ConnectError::new(ErrorCode::Unauthenticated, "invalid bearer session")
+        })?;
         let claimed_tenant = TenantId::parse(claimed_tenant)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         if context.tenant_id != claimed_tenant {
@@ -72,7 +72,7 @@ impl DefinitionService for DefinitionServiceImpl {
             .await
             .map_err(map_publish_error)?;
         Response::ok(PublishResponse {
-            definition_revision: Some(to_protocol_revision(revision)),
+            definition_revision: Some(to_protocol_revision(revision)).into(),
             ..Default::default()
         })
     }
@@ -93,7 +93,7 @@ impl DefinitionService for DefinitionServiceImpl {
             .await
             .map_err(map_get_error)?;
         Response::ok(GetRevisionResponse {
-            definition_revision: Some(to_protocol_revision(revision)),
+            definition_revision: Some(to_protocol_revision(revision)).into(),
             ..Default::default()
         })
     }
