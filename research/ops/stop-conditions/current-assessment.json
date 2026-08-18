@@ -1,0 +1,541 @@
+{
+  "schema_version": 1,
+  "assessment_id": "assessment:current-corpus",
+  "assessed_target": {
+    "kind": "research_corpus",
+    "ref": "origin/research-corpus",
+    "sha": "a749fb7a8d4e4c59ef7f508d5dd662449d858f39"
+  },
+  "assessed_at": "2026-08-18T03:10:00Z",
+  "evidence_items": [
+    {
+      "id": "E-001",
+      "kind": "executable_test",
+      "locator": {
+        "path": "research/synthesis/metamodel/test_reductions.py",
+        "anchor": "ReducedMetamodelTests.test_r5_base_form_registry_is_explicit"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-002",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/synthesis/metamodel/kill-tests.md",
+        "anchor": "K70-01 — value equality is not entity identity"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-003",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/synthesis/metamodel/review.md",
+        "anchor": "Architecture decision: none"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-004",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/kill/existing-platform/replace-os-report.md",
+        "anchor": "Answer"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-005",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/kill/existing-platform/scorecard.md",
+        "anchor": "Property scorecard"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-006",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/swarm-result-contract.md",
+        "anchor": "8. Review/promotion gates"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-007",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/ops/decision-discipline/conventions.md",
+        "anchor": "Refuse these promotions"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-008",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/ops/decision-discipline/issue-0082-kinds-versus-verdicts.md",
+        "anchor": "Q-002"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-009",
+      "kind": "design-claim",
+      "locator": {
+        "path": "research/WAVE-B-EXECUTION.md",
+        "anchor": "Gate before #70"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-010",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "Open questions — intentionally unresolved"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-011",
+      "kind": "executable_test",
+      "locator": {
+        "path": "research/verification/check_research.py",
+        "anchor": "ok: 370 scenarios"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-012",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/ops/failure-archive/README.md",
+        "anchor": "It must not manufacture certainty retrospectively"
+      },
+      "review_state": "unreviewed"
+    },
+    {
+      "id": "E-013",
+      "kind": "design-claim",
+      "locator": {
+        "path": "research/synthesis/metamodel/candidate-metamodel.json",
+        "anchor": "decision_state"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-014",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/constitution.md",
+        "anchor": "17. RFCs are hypotheses until evidence promotes them"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-015",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/research-program.md",
+        "anchor": "Exit criteria for implementation"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-016",
+      "kind": "official-doc",
+      "locator": {
+        "path": "docs/swarm-research-backlog.md",
+        "anchor": "#71 first executable vertical and semantic acceptance suite"
+      },
+      "review_state": "review_clean"
+    },
+    {
+      "id": "E-017",
+      "kind": "official-doc",
+      "locator": {
+        "path": "research/ops/cross-industry/README.md",
+        "anchor": "Cross-industry primitive stress test"
+      },
+      "review_state": "unreviewed"
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "Q-001",
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "1. What is the primary artifact?"
+      },
+      "blocks": ["architectural_promotion"],
+      "reason": "A tese líder permanece aberta. Isso limita promoção, não um experimento localizado."
+    },
+    {
+      "id": "Q-015",
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "15. What belongs in the ontology versus the runtime?"
+      },
+      "blocks": ["stack_bakeoff"],
+      "reason": "Sem esse limite, a stack escolheria o significado."
+    },
+    {
+      "id": "Q-018",
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "18. What is the right physical data model?"
+      },
+      "blocks": ["stack_bakeoff"],
+      "reason": "Nenhuma store foi escolhida. Um bakeoff de stack ainda definiria a semântica."
+    },
+    {
+      "id": "Q-021",
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "21. Build from scratch or reuse existing software?"
+      },
+      "blocks": ["stack_bakeoff"],
+      "reason": "A questão de reuso permanece aberta de propósito."
+    },
+    {
+      "id": "Q-002",
+      "locator": {
+        "path": "research/ops/decision-discipline/issue-0082-kinds-versus-verdicts.md",
+        "anchor": "Q-002"
+      },
+      "blocks": ["architectural_promotion"],
+      "reason": "O gate de decisão aceita permanece undetermined. Este scorecard mede readiness, não fecha aceitação."
+    },
+    {
+      "id": "Q-071",
+      "locator": {
+        "path": "docs/swarm-research-backlog.md",
+        "anchor": "#71 first executable vertical and semantic acceptance suite"
+      },
+      "blocks": ["stack_bakeoff", "architectural_promotion"],
+      "reason": "A suíte implementation-neutral de aceitação ainda não foi publicada."
+    }
+  ],
+  "experiment_case": {
+    "question": "O corpus publicado em origin/research-corpus autoriza um experimento semântico limitado sem promover arquitetura?",
+    "hypothesis": "Há pergunta limitada, hipótese com falsificador, prova executável discriminante e limites suficientes para experimentar distinções já testáveis, sem tratar supported como accepted.",
+    "falsifier": "O experimento fica bloqueado se nenhum teste executável separar a hipótese de uma alternativa publicada, se a assessment fechar uma open question, ou se um artefato de research marcar accepted.",
+    "proof_refs": ["E-001", "E-011"],
+    "source_kind": "executable_test",
+    "limits": "O experimento não escolhe stack, linguagem, storage, metamodelo, R5 ou R6. Não fecha #71, #70, #80 nem docs/open-questions.md.",
+    "normative_promotion": false
+  },
+  "stack_bakeoff_case": {
+    "suite_published": false,
+    "suite_ref": null,
+    "candidates": [],
+    "shared_measure_refs": [],
+    "semantic_contract_refs": ["E-011"],
+    "source_shaped_exceptions": false
+  },
+  "architectural_promotion_case": {
+    "cross_domain_refs": ["E-011"],
+    "cross_industry_refs": ["E-017"],
+    "kill_test_refs": ["E-002", "E-004"],
+    "high_risk_semantics_refs": ["E-011"],
+    "competitors_reduced_refs": ["E-013"],
+    "current_sha_review_ref": "E-003",
+    "governance_process": {
+      "path": "docs/swarm-result-contract.md",
+      "anchor": "8. Review/promotion gates"
+    },
+    "adoption_claim": "none"
+  },
+  "criteria": [
+    {
+      "criterion_id": "EXP-01",
+      "gate": "experiment",
+      "status": "pass",
+      "evidence_refs": ["E-009", "E-015"],
+      "locators": [
+        {
+          "path": "research/WAVE-B-EXECUTION.md",
+          "anchor": "Gate before #70"
+        },
+        {
+          "path": "docs/research-program.md",
+          "anchor": "Exit criteria for implementation"
+        }
+      ],
+      "rationale": "A pergunta está limitada a evidência suficiente para experimento, não a certeza ou ontologia empresarial completa."
+    },
+    {
+      "criterion_id": "EXP-02",
+      "gate": "experiment",
+      "status": "pass",
+      "evidence_refs": ["E-002", "E-015"],
+      "locators": [
+        {
+          "path": "research/synthesis/metamodel/kill-tests.md",
+          "anchor": "K70-01 — value equality is not entity identity"
+        },
+        {
+          "path": "docs/research-program.md",
+          "anchor": "we can state what would falsify the design"
+        }
+      ],
+      "rationale": "As hipóteses publicadas nomeiam falsificadores. Kill tests e o programa de pesquisa exigem isso antes de implementação experimental."
+    },
+    {
+      "criterion_id": "EXP-03",
+      "gate": "experiment",
+      "status": "pass",
+      "evidence_refs": ["E-001", "E-011"],
+      "locators": [
+        {
+          "path": "research/synthesis/metamodel/test_reductions.py",
+          "anchor": "ReducedMetamodelTests.test_r5_base_form_registry_is_explicit"
+        },
+        {
+          "path": "research/verification/check_research.py",
+          "anchor": "ok: 370 scenarios"
+        }
+      ],
+      "rationale": "Há provas executáveis que discriminam reduções e contratos de alto risco. Isso autoriza experimento, não aceitação."
+    },
+    {
+      "criterion_id": "EXP-04",
+      "gate": "experiment",
+      "status": "pass",
+      "evidence_refs": ["E-001", "E-006", "E-010"],
+      "locators": [
+        {
+          "path": "docs/swarm-result-contract.md",
+          "anchor": "4. Evidence kinds"
+        }
+      ],
+      "rationale": "As evidências usadas aqui têm kind e locator. Inferência não foi escondida sob test."
+    },
+    {
+      "criterion_id": "EXP-05",
+      "gate": "experiment",
+      "status": "pass",
+      "evidence_refs": ["E-003", "E-009"],
+      "locators": [
+        {
+          "path": "research/synthesis/metamodel/review.md",
+          "anchor": "review-clean does not mean accepted"
+        },
+        {
+          "path": "research/WAVE-B-EXECUTION.md",
+          "anchor": "Gate before #70"
+        }
+      ],
+      "rationale": "A review de R5 e o gate da Wave B declaram limites. R5 permanece hypothesis."
+    },
+    {
+      "criterion_id": "EXP-06",
+      "gate": "experiment",
+      "status": "pass",
+      "evidence_refs": ["E-003", "E-007", "E-013"],
+      "locators": [
+        {
+          "path": "research/synthesis/metamodel/candidate-metamodel.json",
+          "anchor": "decision_state"
+        },
+        {
+          "path": "research/ops/decision-discipline/conventions.md",
+          "anchor": "Never write accepted"
+        }
+      ],
+      "rationale": "O corpus publicado não promove R5 nem candidate-metamodel a arquitetura. decision_state permanece hypothesis."
+    },
+    {
+      "criterion_id": "BAK-01",
+      "gate": "stack_bakeoff",
+      "status": "fail",
+      "evidence_refs": ["E-016"],
+      "locators": [
+        {
+          "path": "docs/swarm-research-backlog.md",
+          "anchor": "#71 first executable vertical and semantic acceptance suite"
+        }
+      ],
+      "rationale": "A suíte implementation-neutral da issue #71 não existe neste SHA. Contratos de runtime isolados não substituem essa suíte."
+    },
+    {
+      "criterion_id": "BAK-02",
+      "gate": "stack_bakeoff",
+      "status": "fail",
+      "evidence_refs": ["E-005", "E-016"],
+      "locators": [
+        {
+          "path": "research/kill/existing-platform/scorecard.md",
+          "anchor": "Grid"
+        }
+      ],
+      "rationale": "O kill de plataformas existentes compara propriedades, não executa dois candidatos contra os mesmos inputs e medidas de uma suíte comum."
+    },
+    {
+      "criterion_id": "BAK-03",
+      "gate": "stack_bakeoff",
+      "status": "undetermined",
+      "evidence_refs": ["E-011", "E-016"],
+      "locators": [
+        {
+          "path": "research/verification/check_research.py",
+          "anchor": "ok: 370 scenarios"
+        }
+      ],
+      "rationale": "Há contratos executáveis em verificação e runtime. Eles não formam a suíte comum que impede a stack de escolher o significado."
+    },
+    {
+      "criterion_id": "BAK-04",
+      "gate": "stack_bakeoff",
+      "status": "fail",
+      "evidence_refs": ["E-010"],
+      "locators": [
+        {
+          "path": "docs/open-questions.md",
+          "anchor": "18. What is the right physical data model?"
+        },
+        {
+          "path": "docs/open-questions.md",
+          "anchor": "21. Build from scratch or reuse existing software?"
+        }
+      ],
+      "rationale": "Q-015, Q-018 e Q-021 continuam bloqueantes para comparação de stack. Incerteza limitada não se aplica a essas três."
+    },
+    {
+      "criterion_id": "BAK-05",
+      "gate": "stack_bakeoff",
+      "status": "undetermined",
+      "evidence_refs": ["E-009"],
+      "locators": [
+        {
+          "path": "research/WAVE-B-EXECUTION.md",
+          "anchor": "can the first vertical be expressed without hidden ERP/source exceptions?"
+        }
+      ],
+      "rationale": "O corpus recusa exceção source-shaped. Ainda não mostrou um vertical sem essas exceções. Ausência no arquivo de falha não prova o vertical."
+    },
+    {
+      "criterion_id": "PRO-01",
+      "gate": "architectural_promotion",
+      "status": "undetermined",
+      "evidence_refs": ["E-011"],
+      "locators": [
+        {
+          "path": "research/verification/check_research.py",
+          "anchor": "ok: 370 scenarios"
+        }
+      ],
+      "rationale": "Há pressão cross-domain na suíte #46. Isso não é evidência de que a síntese atravessou os domínios exigidos para promoção."
+    },
+    {
+      "criterion_id": "PRO-02",
+      "gate": "architectural_promotion",
+      "status": "undetermined",
+      "evidence_refs": ["E-017"],
+      "locators": [
+        {
+          "path": "research/ops/cross-industry/README.md",
+          "anchor": "Cross-industry primitive stress test"
+        }
+      ],
+      "rationale": "Existe pasta cross-industry. Ela não substitui o stress test exigido pelo corpo da issue #80."
+    },
+    {
+      "criterion_id": "PRO-03",
+      "gate": "architectural_promotion",
+      "status": "undetermined",
+      "evidence_refs": ["E-002", "E-004", "E-012"],
+      "locators": [
+        {
+          "path": "research/kill/existing-platform/replace-os-report.md",
+          "anchor": "Answer"
+        },
+        {
+          "path": "research/ops/failure-archive/README.md",
+          "anchor": "Only rejected/falsified is a strict failure"
+        }
+      ],
+      "rationale": "O kill de plataforma existente está completo. Kill tests de metamodelo existem. Vários rejeitos irmãos ainda são proposed rejection under review."
+    },
+    {
+      "criterion_id": "PRO-04",
+      "gate": "architectural_promotion",
+      "status": "pass",
+      "evidence_refs": ["E-011"],
+      "locators": [
+        {
+          "path": "research/verification/check_research.py",
+          "anchor": "ok: 370 scenarios"
+        }
+      ],
+      "rationale": "Commit, efeito e autorização de alto risco já têm cenários executáveis na suíte #46. Isso é necessário e não suficiente para promoção."
+    },
+    {
+      "criterion_id": "PRO-05",
+      "gate": "architectural_promotion",
+      "status": "fail",
+      "evidence_refs": ["E-003", "E-013"],
+      "locators": [
+        {
+          "path": "research/synthesis/metamodel/candidate-metamodel.json",
+          "anchor": "candidate"
+        },
+        {
+          "path": "research/synthesis/metamodel/review.md",
+          "anchor": "Candidate: R5 remains hypothesis"
+        }
+      ],
+      "rationale": "R5 permanece hypothesis. Competidores não foram reduzidos a um modelo aceitável para governança."
+    },
+    {
+      "criterion_id": "PRO-06",
+      "gate": "architectural_promotion",
+      "status": "fail",
+      "evidence_refs": ["E-003"],
+      "locators": [
+        {
+          "path": "research/synthesis/metamodel/review.md",
+          "anchor": "Pending-gate evidence"
+        }
+      ],
+      "rationale": "A review-clean de síntese aponta o SHA 76f5e62704fa7479eae21726480c62efbfd68b1f, não a749fb7a8d4e4c59ef7f508d5dd662449d858f39."
+    },
+    {
+      "criterion_id": "PRO-07",
+      "gate": "architectural_promotion",
+      "status": "pass",
+      "evidence_refs": ["E-006", "E-014"],
+      "locators": [
+        {
+          "path": "docs/swarm-result-contract.md",
+          "anchor": "8. Review/promotion gates"
+        },
+        {
+          "path": "docs/constitution.md",
+          "anchor": "17. RFCs are hypotheses until evidence promotes them"
+        }
+      ],
+      "rationale": "O processo de governança está localizado e separado deste scorecard. O scorecard não é esse processo."
+    },
+    {
+      "criterion_id": "PRO-08",
+      "gate": "architectural_promotion",
+      "status": "pass",
+      "evidence_refs": ["E-007", "E-013"],
+      "locators": [
+        {
+          "path": "research/ops/decision-discipline/conventions.md",
+          "anchor": "Do not treat supported as accepted"
+        }
+      ],
+      "rationale": "Nenhum artefato citado reivindica accepted. A assessment declara adoption_claim none."
+    }
+  ],
+  "gate_results": {
+    "experiment": "allow",
+    "stack_bakeoff": "block",
+    "architectural_promotion": "block"
+  }
+}

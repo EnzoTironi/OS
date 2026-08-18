@@ -1,0 +1,48 @@
+name: research-stop-conditions-ci
+
+on:
+  push:
+    paths:
+      - 'research/ops/stop-conditions/**'
+      - 'research/index/issue-0080-research-stop-conditions.json'
+      - '.github/workflows/research-stop-conditions-ci.yml'
+  pull_request:
+    paths:
+      - 'research/ops/stop-conditions/**'
+      - 'research/index/issue-0080-research-stop-conditions.json'
+      - '.github/workflows/research-stop-conditions-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  research-stop-conditions-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned scorecard dependencies
+        run: python3 -m pip install -r research/ops/stop-conditions/requirements.txt
+      - name: Run stop-conditions suite
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s research/ops/stop-conditions \
+            -p 'test_*.py' -v
+      - name: Evaluate current assessment via CLI
+        run: |
+          python3 research/ops/stop-conditions/evaluate_scorecard.py \
+            research/ops/stop-conditions/current-assessment.json
+      - name: Evaluate green fixtures via CLI
+        run: |
+          python3 research/ops/stop-conditions/evaluate_scorecard.py \
+            research/ops/stop-conditions/fixtures/valid/*.json
+      - name: Prove mutant batch is red
+        run: |
+          set +e
+          python3 research/ops/stop-conditions/evaluate_scorecard.py \
+            research/ops/stop-conditions/fixtures/mutants/*.json
+          status=$?
+          set -e
+          test "$status" -eq 1

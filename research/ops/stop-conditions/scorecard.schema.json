@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://os.local/research/ops/stop-conditions/scorecard.schema.json",
+  "title": "Research readiness scorecard assessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assessment_id",
+    "assessed_target",
+    "assessed_at",
+    "evidence_items",
+    "open_questions",
+    "experiment_case",
+    "stack_bakeoff_case",
+    "architectural_promotion_case",
+    "criteria",
+    "gate_results"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "assessment_id": {
+      "type": "string",
+      "pattern": "^assessment:[a-z0-9-]+$"
+    },
+    "assessed_target": { "$ref": "#/$defs/assessedTarget" },
+    "assessed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidence_items": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/evidenceItem" }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/openQuestion" }
+    },
+    "experiment_case": { "$ref": "#/$defs/experimentCase" },
+    "stack_bakeoff_case": { "$ref": "#/$defs/stackBakeoffCase" },
+    "architectural_promotion_case": { "$ref": "#/$defs/architecturalPromotionCase" },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/criterion" }
+    },
+    "gate_results": { "$ref": "#/$defs/gateResults" }
+  },
+  "$defs": {
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "anchor": { "type": "string" }
+      }
+    },
+    "assessedTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "sha"],
+      "properties": {
+        "kind": { "const": "research_corpus" },
+        "ref": { "type": "string", "minLength": 1 },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "evidenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "locator", "review_state"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^E-[0-9]{3}$"
+        },
+        "kind": {
+          "enum": [
+            "executable_test",
+            "implemented-code",
+            "test",
+            "observed-execution",
+            "official-doc",
+            "formal-spec",
+            "academic-source",
+            "primary-law",
+            "real-company-evidence",
+            "design-claim",
+            "inference"
+          ]
+        },
+        "locator": { "$ref": "#/$defs/locator" },
+        "review_state": {
+          "enum": [
+            "unreviewed",
+            "review_clean",
+            "challenged",
+            "blocked_factual",
+            "blocked_deliverable"
+          ]
+        }
+      }
+    },
+    "openQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "locator", "blocks", "reason"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^Q-[A-Za-z0-9-]+$"
+        },
+        "locator": { "$ref": "#/$defs/locator" },
+        "blocks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "experiment",
+              "stack_bakeoff",
+              "architectural_promotion"
+            ]
+          }
+        },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "experimentCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question",
+        "hypothesis",
+        "falsifier",
+        "proof_refs",
+        "source_kind",
+        "limits",
+        "normative_promotion"
+      ],
+      "properties": {
+        "question": { "type": "string" },
+        "hypothesis": { "type": "string" },
+        "falsifier": { "type": "string" },
+        "proof_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "source_kind": {
+          "enum": [
+            "executable_test",
+            "implemented-code",
+            "test",
+            "observed-execution",
+            "official-doc",
+            "formal-spec",
+            "academic-source",
+            "primary-law",
+            "real-company-evidence",
+            "design-claim",
+            "inference",
+            ""
+          ]
+        },
+        "limits": { "type": "string" },
+        "normative_promotion": { "type": "boolean" }
+      }
+    },
+    "stackBakeoffCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "suite_published",
+        "suite_ref",
+        "candidates",
+        "shared_measure_refs",
+        "semantic_contract_refs",
+        "source_shaped_exceptions"
+      ],
+      "properties": {
+        "suite_published": { "type": "boolean" },
+        "suite_ref": {
+          "anyOf": [
+            { "type": "string", "pattern": "^E-[0-9]{3}$" },
+            { "type": "null" }
+          ]
+        },
+        "candidates": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "shared_measure_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "semantic_contract_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "source_shaped_exceptions": { "type": "boolean" }
+      }
+    },
+    "architecturalPromotionCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cross_domain_refs",
+        "cross_industry_refs",
+        "kill_test_refs",
+        "high_risk_semantics_refs",
+        "competitors_reduced_refs",
+        "current_sha_review_ref",
+        "governance_process",
+        "adoption_claim"
+      ],
+      "properties": {
+        "cross_domain_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "cross_industry_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "kill_test_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "high_risk_semantics_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "competitors_reduced_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "current_sha_review_ref": {
+          "anyOf": [
+            { "type": "string", "pattern": "^E-[0-9]{3}$" },
+            { "type": "null" }
+          ]
+        },
+        "governance_process": { "$ref": "#/$defs/locator" },
+        "adoption_claim": {
+          "enum": ["none", "accepted"]
+        }
+      }
+    },
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "criterion_id",
+        "gate",
+        "status",
+        "evidence_refs",
+        "locators",
+        "rationale"
+      ],
+      "properties": {
+        "criterion_id": {
+          "type": "string",
+          "pattern": "^(EXP|BAK|PRO)-[0-9]{2}$"
+        },
+        "gate": {
+          "enum": [
+            "experiment",
+            "stack_bakeoff",
+            "architectural_promotion"
+          ]
+        },
+        "status": {
+          "enum": ["pass", "fail", "undetermined"]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^E-[0-9]{3}$"
+          }
+        },
+        "locators": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/locator" }
+        },
+        "rationale": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gateResults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "experiment",
+        "stack_bakeoff",
+        "architectural_promotion"
+      ],
+      "properties": {
+        "experiment": { "enum": ["allow", "block"] },
+        "stack_bakeoff": { "enum": ["allow", "block"] },
+        "architectural_promotion": {
+          "enum": [
+            "block",
+            "eligible_for_governance_review",
+            "allow",
+            "accepted"
+          ]
+        }
+      }
+    }
+  }
+}

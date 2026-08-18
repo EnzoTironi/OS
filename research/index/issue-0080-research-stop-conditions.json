@@ -1,0 +1,46 @@
+{
+  "$schema": "../schema/research-index.schema.json",
+  "schema_version": 2,
+  "kind": "shard",
+  "entries": [
+    {
+      "artifact_id": "issue-0080-research-stop-conditions",
+      "artifact": "research/ops/stop-conditions/README.md",
+      "issue": 80,
+      "title": "Research stop conditions — executable readiness scorecard",
+      "question": "When does the published corpus have enough located evidence to authorize an experiment, authorize a stack bakeoff, or remain blocked from architectural promotion?",
+      "artifact_kind": "research-ops",
+      "topics": ["readiness", "stop-conditions", "scorecard", "experiment", "bakeoff"],
+      "source_keys": ["issue-80", "wave-b-gate", "decision-discipline", "open-questions"],
+      "evidence_kinds": ["test", "official-doc", "design-claim", "inference"],
+      "review_status": "unreviewed",
+      "records": [
+        {"ref": "issue-0080-research-stop-conditions#EXP-01", "kind": "experiment", "epistemic_state": "supported"},
+        {"ref": "issue-0080-research-stop-conditions#EXP-02", "kind": "experiment", "epistemic_state": "supported"},
+        {"ref": "issue-0080-research-stop-conditions#EXP-03", "kind": "experiment", "epistemic_state": "supported"},
+        {"ref": "issue-0080-research-stop-conditions#BAK-01", "kind": "experiment", "epistemic_state": "rejected"},
+        {"ref": "issue-0080-research-stop-conditions#PRO-05", "kind": "candidate-law", "epistemic_state": "hypothesis"},
+        {"ref": "issue-0080-research-stop-conditions#Q-002", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0080-research-stop-conditions#Q-018", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0080-research-stop-conditions#Q-021", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0080-research-stop-conditions#Q-071", "kind": "open-question", "epistemic_state": "undetermined"},
+        {"ref": "issue-0082-kinds-versus-verdicts#Q-002", "kind": "open-question", "epistemic_state": "undetermined"}
+      ],
+      "disagreements": [
+        {
+          "id": "D-080-001",
+          "targets": [
+            "issue-0080-research-stop-conditions#experiment-allow",
+            "issue-0082-kinds-versus-verdicts#Q-002"
+          ],
+          "status": "open"
+        }
+      ],
+      "depends_on": [
+        "issue-0082-kinds-versus-verdicts#Q-002",
+        "docs/open-questions.md"
+      ],
+      "related_issues": [2, 70, 71, 80, 82]
+    }
+  ]
+}

@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "criteria": [
+    {
+      "criterion_id": "EXP-01",
+      "gate": "experiment",
+      "title": "pergunta_limitada"
+    },
+    {
+      "criterion_id": "EXP-02",
+      "gate": "experiment",
+      "title": "hipotese_e_falsificador"
+    },
+    {
+      "criterion_id": "EXP-03",
+      "gate": "experiment",
+      "title": "prova_executavel_discriminante"
+    },
+    {
+      "criterion_id": "EXP-04",
+      "gate": "experiment",
+      "title": "fonte_ou_inferencia"
+    },
+    {
+      "criterion_id": "EXP-05",
+      "gate": "experiment",
+      "title": "limites_declarados"
+    },
+    {
+      "criterion_id": "EXP-06",
+      "gate": "experiment",
+      "title": "ausencia_de_promocao_normativa"
+    },
+    {
+      "criterion_id": "BAK-01",
+      "gate": "stack_bakeoff",
+      "title": "suite_implementation_neutral_publicada"
+    },
+    {
+      "criterion_id": "BAK-02",
+      "gate": "stack_bakeoff",
+      "title": "dois_candidatos_nas_mesmas_medidas"
+    },
+    {
+      "criterion_id": "BAK-03",
+      "gate": "stack_bakeoff",
+      "title": "contratos_semanticos_suficientes"
+    },
+    {
+      "criterion_id": "BAK-04",
+      "gate": "stack_bakeoff",
+      "title": "questoes_bloqueantes_limitadas"
+    },
+    {
+      "criterion_id": "BAK-05",
+      "gate": "stack_bakeoff",
+      "title": "ausencia_de_excecao_source_shaped"
+    },
+    {
+      "criterion_id": "PRO-01",
+      "gate": "architectural_promotion",
+      "title": "evidencia_cross_domain"
+    },
+    {
+      "criterion_id": "PRO-02",
+      "gate": "architectural_promotion",
+      "title": "evidencia_cross_industry"
+    },
+    {
+      "criterion_id": "PRO-03",
+      "gate": "architectural_promotion",
+      "title": "kill_tests_principais_respondidos_ou_limitados"
+    },
+    {
+      "criterion_id": "PRO-04",
+      "gate": "architectural_promotion",
+      "title": "semantica_de_alto_risco_executavel"
+    },
+    {
+      "criterion_id": "PRO-05",
+      "gate": "architectural_promotion",
+      "title": "competidores_reduzidos"
+    },
+    {
+      "criterion_id": "PRO-06",
+      "gate": "architectural_promotion",
+      "title": "review_do_sha_atual"
+    },
+    {
+      "criterion_id": "PRO-07",
+      "gate": "architectural_promotion",
+      "title": "locator_do_processo_de_governanca"
+    },
+    {
+      "criterion_id": "PRO-08",
+      "gate": "architectural_promotion",
+      "title": "adocao_nao_reivindicada"
+    }
+  ],
+  "required_open_questions": [
+    {
+      "id": "Q-018",
+      "gates": ["stack_bakeoff"],
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "18. What is the right physical data model?"
+      }
+    },
+    {
+      "id": "Q-021",
+      "gates": ["stack_bakeoff"],
+      "locator": {
+        "path": "docs/open-questions.md",
+        "anchor": "21. Build from scratch or reuse existing software?"
+      }
+    },
+    {
+      "id": "Q-002",
+      "gates": ["architectural_promotion"],
+      "locator": {
+        "path": "research/ops/decision-discipline/issue-0082-kinds-versus-verdicts.md",
+        "anchor": "Q-002"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "id": "hypothesis-without-falsifier",
+      "finding": "hypothesis-without-falsifier",
+      "pointer": "/experiment_case/falsifier",
+      "message": "A hipótese precisa de um falsificador nomeado.",
+      "when": {
+        "all": [
+          { "nonempty_field": "experiment_case.hypothesis" },
+          { "empty_field": "experiment_case.falsifier" }
+        ]
+      }
+    },
+    {
+      "id": "locator-missing",
+      "finding": "locator-missing",
+      "pointer": "",
+      "message": "Todo locator precisa de path e âncora não vazios.",
+      "when": {
+        "any_locator_incomplete": true
+      }
+    },
+    {
+      "id": "bakeoff-single-candidate",
+      "finding": "bakeoff-single-candidate",
+      "pointer": "/stack_bakeoff_case/candidates",
+      "message": "Um bakeoff com um único candidato não compara stacks.",
+      "when": {
+        "candidate_count_equals": 1
+      }
+    },
+    {
+      "id": "source-shaped-acceptance",
+      "finding": "source-shaped-acceptance",
+      "pointer": "/stack_bakeoff_case/source_shaped_exceptions",
+      "message": "Exceção source-shaped não autoriza bakeoff nem promoção.",
+      "when": {
+        "field_equals": [
+          "stack_bakeoff_case.source_shaped_exceptions",
+          true
+        ]
+      }
+    },
+    {
+      "id": "blocking-question-omitted",
+      "finding": "blocking-question-omitted",
+      "pointer": "/open_questions",
+      "message": "A assessment omitiu uma questão bloqueante exigida pelo catálogo.",
+      "when": {
+        "required_open_question_missing": true
+      }
+    },
+    {
+      "id": "architectural-promotion-accepted",
+      "finding": "architectural-promotion-accepted",
+      "pointer": "/architectural_promotion_case/adoption_claim",
+      "message": "Promoção arquitetural não pode ser tratada como aceita.",
+      "when": {
+        "any_equals": [
+          ["architectural_promotion_case.adoption_claim", "accepted"],
+          ["gate_results.architectural_promotion", "allow"],
+          ["gate_results.architectural_promotion", "accepted"]
+        ]
+      }
+    }
+  ],
+  "derivation": {
+    "experiment": {
+      "allowed_results": ["allow", "block"],
+      "rules": [
+        {
+          "result": "allow",
+          "require": {
+            "every_criterion_status": "pass",
+            "blocking_question_count": 0
+          }
+        },
+        {
+          "result": "block",
+          "default": true
+        }
+      ]
+    },
+    "stack_bakeoff": {
+      "allowed_results": ["allow", "block"],
+      "rules": [
+        {
+          "result": "allow",
+          "require": {
+            "every_criterion_status": "pass",
+            "blocking_question_count": 0,
+            "min_candidates": 2,
+            "source_shaped_exceptions": false
+          }
+        },
+        {
+          "result": "block",
+          "default": true
+        }
+      ]
+    },
+    "architectural_promotion": {
+      "allowed_results": ["block", "eligible_for_governance_review"],
+      "forbidden_results": ["allow", "accepted"],
+      "rules": [
+        {
+          "result": "eligible_for_governance_review",
+          "require": {
+            "every_criterion_status": "pass",
+            "blocking_question_count": 0,
+            "adoption_claim": "none"
+          }
+        },
+        {
+          "result": "block",
+          "default": true
+        }
+      ]
+    }
+  }
+}
