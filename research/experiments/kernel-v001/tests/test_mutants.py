@@ -7,101 +7,37 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+if str(_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "scripts"))
 
-from mutants import MUTANTS
-from support import ROOT, load_json, run_with_class, v001_run
+import analyze_structure
+from mutants import ASSIGNED_PROPERTIES, MUTANTS
 from os_kernel.kernel import Kernel
-
-
-def _stock(kernel: Kernel) -> list:
-    return [
-        claim
-        for claim in kernel._store.claims()
-        if claim.subject_ref == "stock:sku-x" and claim.predicate_ref == "available-quantity"
-    ]
+from verify import evaluate_run, instrumented_run, run_gauntlet
 
 
 class MutantGauntletTests(unittest.TestCase):
-    def test_correct_kernel_passes_named_properties(self) -> None:
-        run = v001_run()
-        expected = load_json(ROOT / "fixtures" / "v001" / "scenario.json")["black_box_expectations"]
-        receipt = run["operation_receipts"][0]
-        self.assertGreaterEqual(len([c for c in run["records"]["claims"] if c["predicate_ref"] == "available-quantity" and c["subject_ref"] == "stock:sku-x"]), 2)
-        self.assertTrue(receipt["stale"])
-        self.assertEqual(receipt["committed_quantity"], expected["commit_quantity"])
-        cmds = {item["command_id"]: item["outcome"] for item in run["command_receipts"]}
-        self.assertEqual(cmds["carrier-timeout"], "unknown")
-        self.assertEqual(cmds["carrier-retry"], "unsafe_retry")
-        self.assertEqual(cmds["replay-purchase"], "replayed")
-        known = next(item for item in run["queries"] if item["type"] == "known-then")
-        believed = next(item for item in run["queries"] if item["type"] == "now-believed-for-then")
-        self.assertEqual(known["value"], expected["known_then_available_quantity"])
-        self.assertEqual(believed["value"], expected["now_believed_available_quantity"])
+    def test_same_property_function_runs_eleven_engines(self) -> None:
+        matrix = run_gauntlet("0" * 40, analyze_structure.analyze("0" * 40))
+        self.assertEqual(matrix["evaluate_run_calls"], 11)
+        self.assertEqual(len(matrix["engines"]), 11)
+        by_name = {item["engine"]: item for item in matrix["engines"]}
+        self.assertEqual(by_name["Kernel"]["status"], "passed")
+        self.assertEqual(by_name["Kernel"]["failed_properties"], [])
+        for name, assigned in ASSIGNED_PROPERTIES.items():
+            row = by_name[name]
+            self.assertIsNone(row["exception"], row["exception"])
+            self.assertTrue(row["valid_scenario_run"], name)
+            self.assertEqual(row["status"], "killed", row)
+            self.assertIn(assigned, row["failed_properties"])
+            self.assertTrue(set(row["failed_properties"]) <= set(row["allowed_failures"]))
 
-    def test_merge_rival_claims(self) -> None:
-        kernel, _ = run_with_class(MUTANTS["merge-rival-claims"])
-        self.assertLess(len(_stock(kernel)), 3)
+    def test_replacing_each_mutant_with_kernel_makes_assigned_property_green(self) -> None:
+        run = instrumented_run(Kernel, "ontology", "0" * 40)
+        comparison = evaluate_run(run, analyze_structure.analyze("0" * 40))
+        passed = {item["property_id"] for item in comparison["property_results"] if item["passed"]}
+        for assigned in ASSIGNED_PROPERTIES.values():
+            self.assertIn(assigned, passed)
 
-    def test_accept_stale_approval(self) -> None:
-        kernel, _ = run_with_class(MUTANTS["accept-stale-approval"])
-        receipt = kernel._store.all("receipts")[0]
-        self.assertEqual(receipt.committed_quantity, 1000)
-
-    def test_timeout_is_failed(self) -> None:
-        kernel, receipts = run_with_class(MUTANTS["timeout-is-failed"])
-        timeout = next(item for item in receipts if item["command_id"] == "carrier-timeout")
-        self.assertEqual(timeout["outcome"], "failed")
-
-    def test_blind_retry_after_unknown(self) -> None:
-        kernel, receipts = run_with_class(MUTANTS["blind-retry-after-unknown"])
-        retry = next(item for item in receipts if item["command_id"] == "carrier-retry")
-        self.assertNotEqual(retry["outcome"], "unsafe_retry")
-        self.assertGreaterEqual(len(kernel._store.all("effect_attempts")), 2)
-
-    def test_replay_under_current_revision(self) -> None:
-        kernel, receipts = run_with_class(MUTANTS["replay-under-current-revision"])
-        replay = next(item for item in receipts if item["command_id"] == "replay-purchase")
-        self.assertEqual(replay["details"]["receipt"]["committed_quantity"], 999)
-
-    def test_collapse_actor_and_workload(self) -> None:
-        kernel, _ = run_with_class(MUTANTS["collapse-actor-and-workload"])
-        proposal = kernel._store.all("proposals")[0]
-        self.assertTrue(hasattr(proposal.proposer, "principal_id"))
-
-    def test_raw_write_bypass(self) -> None:
-        kernel, _ = run_with_class(MUTANTS["raw-write-bypass"])
-        self.assertTrue(callable(getattr(kernel, "append")))
-        self.assertTrue(callable(getattr(kernel, "set_state")))
-        correct = Kernel
-        self.assertFalse(hasattr(correct, "append"))
-        self.assertFalse(hasattr(correct, "set_state"))
-
-    def test_action_is_occurrence(self) -> None:
-        kernel, _ = run_with_class(MUTANTS["action-is-occurrence"])
-        self.assertTrue(any(item.causal_operation_ref == "purchase-raw-1" for item in kernel._store.all("occurrences")))
-
-    def test_overwrite_evidence(self) -> None:
-        kernel, _ = run_with_class(MUTANTS["overwrite-evidence"])
-        erp = next(item for item in kernel._store.claims() if item.claim_id == "claim:erp-onhand-20")
-        self.assertNotEqual(erp.value, 20)
-
-    def test_collapse_known_then(self) -> None:
-        kernel, _ = run_with_class(MUTANTS["collapse-known-then"])
-        known = kernel.query(
-            {
-                "type": "known-then",
-                "subject": "stock:sku-x",
-                "predicate": "available-quantity",
-                "valid_at": "2030-08-10",
-                "known_at": "kr:before-late-document",
-            }
-        )
-        believed = kernel.query(
-            {
-                "type": "now-believed-for-then",
-                "subject": "stock:sku-x",
-                "predicate": "available-quantity",
-                "valid_at": "2030-08-10",
-            }
-        )
-        self.assertEqual(known["value"], believed["value"])
+    def test_mutant_catalog_matches_required_names(self) -> None:
+        self.assertEqual(set(MUTANTS), set(ASSIGNED_PROPERTIES))

@@ -40,6 +40,7 @@ REF_KINDS = (
     "identity",
     "delegation",
     "defrev",
+    "operation",
 )
 KIND_TABLES = {
     "claim": ("claims", "claim_id"),
@@ -303,12 +304,38 @@ def _defrev_candidates(store: Any) -> list[_RefCandidate]:
     return _dedupe_candidates(found)
 
 
+def _envelope_namespace(row: Any) -> str:
+    if isinstance(row, Mapping):
+        return str(row.get("authority_namespace", "") or "")
+    return str(getattr(row, "authority_namespace", "") or "")
+
+
+def _envelope_operation_id(row: Any) -> str:
+    if isinstance(row, Mapping):
+        return str(row.get("operation_id", "") or "")
+    return str(getattr(row, "operation_id", "") or "")
+
+
+def _envelope_candidates(store: Any) -> list[_RefCandidate]:
+    found: list[_RefCandidate] = []
+    for row in store.all("envelopes"):
+        namespace = _envelope_namespace(row)
+        operation_id = _envelope_operation_id(row)
+        if not namespace or not operation_id:
+            continue
+        item = _candidate("operation", f"{namespace}:{operation_id}", row)
+        if item is not None:
+            found.append(item)
+    return _dedupe_candidates(found)
+
+
 def _candidates_by_kind(store: Any) -> dict[str, list[_RefCandidate]]:
     grouped = {name: [] for name in REF_KINDS}
     for kind in KIND_TABLES:
         grouped[kind] = _table_candidates(store, kind)
     grouped["basis"] = _basis_candidates(store)
     grouped["defrev"] = _defrev_candidates(store)
+    grouped["operation"] = _envelope_candidates(store)
     return grouped
 
 

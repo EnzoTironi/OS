@@ -20,12 +20,66 @@
     "scenario_id": {"type": "string"},
     "engine": {"type": "string"},
     "input_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_sha": {"type": "string", "minLength": 40},
     "definition_revisions": {"type": "array", "items": {"type": "string"}},
     "records": {"type": "object"},
-    "queries": {"type": "array"},
-    "explanations": {"type": "array"},
+    "queries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/query"}
+    },
+    "explanations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/explanation"}
+    },
     "operation_receipts": {"type": "array"},
-    "effect_knowledge": {"type": "array"}
+    "effect_knowledge": {"type": "array"},
+    "command_receipts": {"type": "array"},
+    "proof_observations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/proof_observation"}
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "$defs": {
+    "query": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"type": "string"},
+        "subject": {"type": "string"},
+        "predicate": {"type": "string"},
+        "value": {},
+        "contributors": {"type": "array"}
+      },
+      "additionalProperties": true
+    },
+    "explanation": {
+      "type": "object",
+      "required": ["reference", "complete", "gaps", "inputs"],
+      "properties": {
+        "reference": {"type": "string"},
+        "complete": {"type": "boolean"},
+        "gaps": {"type": "array"},
+        "inputs": {"type": "object"},
+        "actor_id": {"type": ["string", "null"]},
+        "represented_principal_id": {"type": ["string", "null"]},
+        "workload_id": {"type": ["string", "null"]},
+        "delegation_id": {"type": ["string", "null"]},
+        "causal_links": {"type": "array"}
+      },
+      "additionalProperties": true
+    },
+    "proof_observation": {
+      "type": "object",
+      "required": ["evidence_id", "operation", "before_digest", "after_digest", "observed_refs"],
+      "properties": {
+        "evidence_id": {"type": "string", "minLength": 1},
+        "operation": {"type": "string", "minLength": 1},
+        "before_digest": {"type": "string"},
+        "after_digest": {"type": "string"},
+        "observed_refs": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  }
 }

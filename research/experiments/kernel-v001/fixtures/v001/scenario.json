@@ -29,12 +29,6 @@
     }
   ],
   "closing_explains": ["v001:operation:purchase-raw-1"],
-  "black_box_expectations": {
-    "known_then_available_quantity": 820,
-    "now_believed_available_quantity": 800,
-    "commit_quantity": 200,
-    "proposal_quantity": 1000
-  },
   "commands": [
     {
       "type": "CreateEntity",

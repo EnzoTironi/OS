@@ -111,11 +111,11 @@ def explain(store: Store, reference: str) -> dict[str, Any]:
             "revision_id": receipt.action_ref.revision_id,
             "definition_digest": receipt.action_ref.definition_digest,
         },
-        "inputs": _inputs(store, receipt, reached, resolved),
-        "actor_id": _attribution_field(store, receipt, reached, resolved, "actor_id"),
-        "represented_principal_id": _attribution_field(store, receipt, reached, resolved, "represented_principal_id"),
-        "workload_id": _attribution_field(store, receipt, reached, resolved, "workload_id"),
-        "delegation_id": _attribution_field(store, receipt, reached, resolved, "delegation_id"),
+        "inputs": _inputs(reached, resolved),
+        "actor_id": _attribution_field(reached, resolved, "actor_id"),
+        "represented_principal_id": _attribution_field(reached, resolved, "represented_principal_id"),
+        "workload_id": _attribution_field(reached, resolved, "workload_id"),
+        "delegation_id": _attribution_field(reached, resolved, "delegation_id"),
         "proposal": _proposal_view(proposal) if proposal is not None else None,
         "approval": _approval_view(approval) if approval is not None else None,
         "state_basis": {
@@ -181,15 +181,27 @@ def explain(store: Store, reference: str) -> dict[str, Any]:
     return graph
 
 
-def _inputs(store: Store, receipt: Any, reached: set[str], resolved: dict[str, Any]) -> Any:
-    envelope = store.envelope_for(receipt.authority_namespace, receipt.operation_id)
+def _reached_envelope(reached: set[str], resolved: dict[str, Any]) -> Any | None:
+    for reference in sorted(reached):
+        if not reference.startswith("operation:"):
+            continue
+        record = resolved.get(reference)
+        if record is None:
+            continue
+        if hasattr(record, "canonical_inputs") and hasattr(record, "attribution"):
+            return record
+    return None
+
+
+def _inputs(reached: set[str], resolved: dict[str, Any]) -> Any:
+    envelope = _reached_envelope(reached, resolved)
     if envelope is None:
         return {}
     return envelope.canonical_inputs
 
 
-def _attribution_field(store: Store, receipt: Any, reached: set[str], resolved: dict[str, Any], name: str) -> Any:
-    envelope = store.envelope_for(receipt.authority_namespace, receipt.operation_id)
+def _attribution_field(reached: set[str], resolved: dict[str, Any], name: str) -> Any:
+    envelope = _reached_envelope(reached, resolved)
     if envelope is None:
         return None
     return getattr(envelope.attribution, name)

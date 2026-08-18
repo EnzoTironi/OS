@@ -481,11 +481,14 @@ def _commit_body(
         approval_ref=approval.approval_id,
         created_revision=commit_revision,
     )
+    envelope_ref = qualify("operation", f"{namespace}:{operation_id}")
+    receipt_ref = qualify("receipt", operation_id)
     links = [
+        CausalLink(ids_next("link"), envelope_ref, "committed-as", receipt_ref, action.definition_ref, commit_revision),
         CausalLink(ids_next("link"), qualify("proposal", proposal.proposal_id), "approved-by", qualify("approval", approval.approval_id), None, commit_revision),
-        CausalLink(ids_next("link"), qualify("approval", approval.approval_id), "committed-as", qualify("receipt", operation_id), action.definition_ref, commit_revision),
-        CausalLink(ids_next("link"), qualify("basis", proposal.state_basis.basis_id), "proposal-basis", qualify("receipt", operation_id), None, commit_revision),
-        CausalLink(ids_next("link"), qualify("basis", current_basis.basis_id), "commit-basis", qualify("receipt", operation_id), None, commit_revision),
+        CausalLink(ids_next("link"), qualify("approval", approval.approval_id), "committed-as", receipt_ref, action.definition_ref, commit_revision),
+        CausalLink(ids_next("link"), qualify("basis", proposal.state_basis.basis_id), "proposal-basis", receipt_ref, None, commit_revision),
+        CausalLink(ids_next("link"), qualify("basis", current_basis.basis_id), "commit-basis", receipt_ref, None, commit_revision),
     ]
     for decision in decisions:
         links.append(CausalLink(ids_next("link"), qualify("receipt", operation_id), "evaluated-rule", qualify("rule", decision.decision_id), decision.rule_ref, commit_revision))

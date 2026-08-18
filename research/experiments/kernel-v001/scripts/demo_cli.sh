@@ -3,10 +3,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OS="$ROOT/os"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
-if git -C "$ROOT/../../.." rev-parse HEAD >/dev/null 2>&1; then
-  echo "SHA=$(git -C "$ROOT/../../.." rev-parse HEAD)"
+if [ -n "${HEAD_SHA:-}" ]; then
+  echo "SHA=${HEAD_SHA}"
+  echo "HEAD=${HEAD_SHA}"
+elif git -C "$ROOT/../../.." rev-parse HEAD >/dev/null 2>&1; then
+  SHA="$(git -C "$ROOT/../../.." rev-parse HEAD)"
+  echo "SHA=${SHA}"
+  echo "HEAD=${SHA}"
 else
   echo "SHA=unknown"
+  echo "HEAD=unknown"
 fi
 "$OS" --help
 "$OS" scenario --help

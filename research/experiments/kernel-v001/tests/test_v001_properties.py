@@ -7,11 +7,23 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+if str(_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "scripts"))
 
-from support import ROOT, load_json, v001_kernel, v001_run
+import analyze_structure
+from os_kernel.kernel import Kernel
+from support import v001_kernel, v001_run
+from verify import evaluate_run, instrumented_run, validate_scenario_run
 
 
 class V001PropertyTests(unittest.TestCase):
+    def test_black_box_properties_pass_without_fixture_expectations(self) -> None:
+        run = instrumented_run(Kernel, "ontology", "0" * 40)
+        validate_scenario_run(run)
+        comparison = evaluate_run(run, analyze_structure.analyze("0" * 40))
+        failed = [item["property_id"] for item in comparison["property_results"] if not item["passed"]]
+        self.assertEqual(failed, [])
+
     def test_public_kernel_path_and_rival_claims(self) -> None:
         run = v001_run()
         stock = [
@@ -29,8 +41,7 @@ class V001PropertyTests(unittest.TestCase):
         run = v001_run()
         receipt = run["operation_receipts"][0]
         self.assertTrue(receipt["stale"])
-        self.assertEqual(receipt["planned_quantity"], 1000)
-        self.assertEqual(receipt["committed_quantity"], 200)
+        self.assertNotEqual(receipt["planned_quantity"], receipt["committed_quantity"])
         cmds = {item["command_id"]: item for item in run["command_receipts"]}
         self.assertEqual(cmds["carrier-timeout"]["outcome"], "unknown")
         self.assertEqual(cmds["carrier-retry"]["outcome"], "unsafe_retry")
@@ -40,11 +51,12 @@ class V001PropertyTests(unittest.TestCase):
 
     def test_temporal_queries_differ(self) -> None:
         run = v001_run()
-        expected = load_json(ROOT / "fixtures" / "v001" / "scenario.json")["black_box_expectations"]
         known = next(item for item in run["queries"] if item["type"] == "known-then")
         believed = next(item for item in run["queries"] if item["type"] == "now-believed-for-then")
-        self.assertEqual(known["value"], expected["known_then_available_quantity"])
-        self.assertEqual(believed["value"], expected["now_believed_available_quantity"])
+        known_sum = sum(item["value"] for item in known["contributors"])
+        believed_sum = sum(item["value"] for item in believed["contributors"])
+        self.assertEqual(known["value"], known_sum)
+        self.assertEqual(believed["value"], believed_sum)
         self.assertNotEqual(known["contributor_digest"], believed["contributor_digest"])
 
     def test_attribution_and_occurrence_split(self) -> None:
@@ -86,3 +98,4 @@ class V001PropertyTests(unittest.TestCase):
         self.assertNotIn("approval:approval:", joined)
         self.assertNotIn("basis:basis:", joined)
         self.assertNotIn("effect:effect:", joined)
+        self.assertTrue(any(item["cause_ref"].startswith("operation:") for item in graph["causal_links"]))

@@ -18,7 +18,7 @@ from os_kernel.canonical import digest, public_output, retained
 from os_kernel.definitions import load_bundle
 from os_kernel.errors import InputError, InternalError
 from os_kernel.kernel import Kernel
-from os_kernel.model import Approval, Attribution
+from os_kernel.model import Approval, Attribution, DefinitionRef, OperationEnvelope
 from os_kernel.scenario import load_json as load_scenario_json
 from os_kernel.scenario import run_scenario, scenario_dir
 from os_kernel.store import Store
@@ -511,7 +511,36 @@ class BoundaryTests(unittest.TestCase):
         graph = kernel.explain("v001:operation:purchase-raw-1")
         self.assertTrue(graph["complete"])
         self.assertEqual(list(graph["gaps"]), [])
+        self.assertEqual(graph["inputs"]["quantity"], 1000)
+        self.assertEqual(graph["actor_id"], "actor:planner-agent")
+        self.assertEqual(graph["represented_principal_id"], "party:org-a")
+        self.assertEqual(graph["workload_id"], "workload:agent-pod-1")
+        self.assertEqual(graph["delegation_id"], "delegation:buy-raw-1")
+        envelope_links = [
+            item
+            for item in graph["causal_links"]
+            if item["relation"] == "committed-as" and str(item["cause_ref"]).startswith("operation:")
+        ]
+        self.assertEqual(len(envelope_links), 1)
+        self.assertTrue(envelope_links[0]["consequence_ref"].startswith("receipt:"))
         store = object.__getattribute__(kernel, "_Kernel__store")
+        envelope_keys = [
+            key
+            for key, link in store._tables["causal_links"].items()
+            if link.relation == "committed-as" and str(link.cause_ref).startswith("operation:")
+        ]
+        self.assertEqual(len(envelope_keys), 1)
+        for key in envelope_keys:
+            del store._tables["causal_links"][key]
+        without_envelope = kernel.explain("v001:operation:purchase-raw-1")
+        self.assertIsNotNone(without_envelope["proposal"])
+        self.assertIsNotNone(without_envelope["approval"])
+        self.assertTrue(without_envelope["effect_requests"])
+        self.assertEqual(without_envelope["inputs"], {})
+        self.assertIsNone(without_envelope["actor_id"])
+        self.assertIsNone(without_envelope["represented_principal_id"])
+        self.assertIsNone(without_envelope["workload_id"])
+        self.assertIsNone(without_envelope["delegation_id"])
         store._tables["causal_links"].clear()
         broken = kernel.explain("v001:operation:purchase-raw-1")
         self.assertFalse(broken["complete"])
@@ -519,6 +548,11 @@ class BoundaryTests(unittest.TestCase):
         self.assertIsNone(broken["proposal"])
         self.assertEqual(list(broken["effect_attempts"]), [])
         self.assertEqual(list(broken["reconciliation_records"]), [])
+        self.assertEqual(broken["inputs"], {})
+        self.assertIsNone(broken["actor_id"])
+        self.assertIsNone(broken["represented_principal_id"])
+        self.assertIsNone(broken["workload_id"])
+        self.assertIsNone(broken["delegation_id"])
         self.assertTrue(any(item.get("ref") for item in broken["gaps"]))
 
     def test_scenario_runner_has_no_private_store_access(self) -> None:
@@ -614,3 +648,43 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaises(InputError) as dangling:
             resolve_protocol_ref(empty, "claim:x")
         self.assertEqual(dangling.exception.code, "dangling_ref")
+
+        action_ref = DefinitionRef("def.action", "defrev:r", "digest")
+        first = OperationEnvelope(
+            "op-1",
+            "ns-a",
+            action_ref,
+            {"quantity": 1},
+            "intent-a",
+            Attribution("actor-a", "party-a", "workload-a", "delegation-a"),
+            "proposal-a",
+            "approval-a",
+            "kr:0001",
+        )
+        second = OperationEnvelope(
+            "op-1",
+            "ns-b",
+            action_ref,
+            {"quantity": 2},
+            "intent-b",
+            Attribution("actor-b", "party-b", "workload-b", "delegation-b"),
+            "proposal-b",
+            "approval-b",
+            "kr:0002",
+        )
+        operations = Store()
+        operations._put_envelope(first)
+        self.assertEqual(resolve_protocol_ref(operations, "operation:ns-a:op-1").authority_namespace, "ns-a")
+        self.assertEqual(resolve_protocol_ref(operations, "operation:op-1").operation_id, "op-1")
+        operations._put_envelope(second)
+        self.assertEqual(resolve_protocol_ref(operations, "operation:ns-a:op-1").authority_namespace, "ns-a")
+        self.assertEqual(resolve_protocol_ref(operations, "operation:ns-b:op-1").authority_namespace, "ns-b")
+        with self.assertRaises(InputError) as operation_ambiguous:
+            resolve_protocol_ref(operations, "operation:op-1")
+        self.assertEqual(operation_ambiguous.exception.code, "ambiguous_ref")
+        with self.assertRaises(InputError) as operation_wrong:
+            resolve_protocol_ref(operations, "claim:ns-a:op-1")
+        self.assertEqual(operation_wrong.exception.code, "wrong_kind_ref")
+        with self.assertRaises(InputError) as operation_dangling:
+            resolve_protocol_ref(operations, "operation:missing")
+        self.assertEqual(operation_dangling.exception.code, "dangling_ref")
