@@ -410,6 +410,8 @@ def validate_loaded_document(
 def load_json_file(path: Path) -> tuple[Any | None, Finding | None]:
     try:
         text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None, Finding("invalid-json", "", "JSON inválido: o arquivo precisa usar UTF-8")
     except OSError as exc:
         return None, Finding("unreadable-input", "", f"não foi possível ler o arquivo: {exc.strerror}")
     try:

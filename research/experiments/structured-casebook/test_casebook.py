@@ -141,6 +141,120 @@ class CasebookPilotTests(unittest.TestCase):
         self.assertEqual(empty.returncode, 2)
         parse_report(empty.stdout)
 
+    def test_cli_validates_date_and_date_time_formats(self) -> None:
+        document = json.loads((REPO_ROOT / VALID).read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            invalid_dt = json.loads(json.dumps(document))
+            invalid_dt["occurrences"][0]["occurred_at"] = "not-a-date-time"
+            invalid_dt_path = Path(tmp) / "invalid-date-time.json"
+            invalid_dt_path.write_text(json.dumps(invalid_dt), encoding="utf-8")
+            invalid_dt_result = run_cli(str(invalid_dt_path))
+            self.assertEqual(invalid_dt_result.returncode, 1, invalid_dt_result.stdout)
+            invalid_dt_report = parse_report(invalid_dt_result.stdout)
+            self.assertEqual(invalid_dt_report["status"], "invalid")
+            invalid_dt_results = invalid_dt_report["results"]
+            assert isinstance(invalid_dt_results, list)
+            invalid_dt_first = invalid_dt_results[0]
+            assert isinstance(invalid_dt_first, dict)
+            invalid_dt_findings = invalid_dt_first["findings"]
+            assert isinstance(invalid_dt_findings, list)
+            self.assertEqual(len(invalid_dt_findings), 1)
+            invalid_dt_finding = invalid_dt_findings[0]
+            assert isinstance(invalid_dt_finding, dict)
+            self.assertEqual(invalid_dt_finding["code"], "schema-violation")
+            self.assertEqual(invalid_dt_finding["json_pointer"], "/occurrences/0/occurred_at")
+
+            valid_tz = json.loads(json.dumps(document))
+            valid_tz["occurrences"][0]["occurred_at"] = "2030-08-18T10:30:00+08:00"
+            valid_tz_path = Path(tmp) / "valid-offset-date-time.json"
+            valid_tz_path.write_text(json.dumps(valid_tz), encoding="utf-8")
+            valid_tz_result = run_cli(str(valid_tz_path))
+            self.assertEqual(valid_tz_result.returncode, 0, valid_tz_result.stdout)
+            valid_tz_report = parse_report(valid_tz_result.stdout)
+            self.assertEqual(valid_tz_report["status"], "valid")
+            valid_tz_results = valid_tz_report["results"]
+            assert isinstance(valid_tz_results, list)
+            valid_tz_first = valid_tz_results[0]
+            assert isinstance(valid_tz_first, dict)
+            self.assertEqual(valid_tz_first["findings"], [])
+
+            invalid_date = json.loads(json.dumps(document))
+            invalid_date["occurrences"][1]["valid_on"] = "2030-02-30"
+            invalid_date_path = Path(tmp) / "invalid-date.json"
+            invalid_date_path.write_text(json.dumps(invalid_date), encoding="utf-8")
+            invalid_date_result = run_cli(str(invalid_date_path))
+            self.assertEqual(invalid_date_result.returncode, 1, invalid_date_result.stdout)
+            invalid_date_report = parse_report(invalid_date_result.stdout)
+            self.assertEqual(invalid_date_report["status"], "invalid")
+            invalid_date_results = invalid_date_report["results"]
+            assert isinstance(invalid_date_results, list)
+            invalid_date_first = invalid_date_results[0]
+            assert isinstance(invalid_date_first, dict)
+            invalid_date_findings = invalid_date_first["findings"]
+            assert isinstance(invalid_date_findings, list)
+            self.assertEqual(len(invalid_date_findings), 1)
+            invalid_date_finding = invalid_date_findings[0]
+            assert isinstance(invalid_date_finding, dict)
+            self.assertEqual(invalid_date_finding["code"], "schema-violation")
+            self.assertEqual(invalid_date_finding["json_pointer"], "/occurrences/1/valid_on")
+
+    def test_non_utf8_input_is_invalid_json_exit_2(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "non-utf8.json"
+            path.write_bytes(b"\xff")
+            result = run_cli(str(path))
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertEqual(result.stderr, "")
+        report = parse_report(result.stdout)
+        self.assertEqual(report["status"], "error")
+        results = report["results"]
+        assert isinstance(results, list)
+        first = results[0]
+        assert isinstance(first, dict)
+        self.assertFalse(first["valid"])
+        findings = first["findings"]
+        assert isinstance(findings, list)
+        self.assertEqual(len(findings), 1)
+        finding = findings[0]
+        assert isinstance(finding, dict)
+        self.assertEqual(finding["code"], "invalid-json")
+        self.assertEqual(finding["json_pointer"], "")
+        message = finding["message"]
+        assert isinstance(message, str)
+        self.assertEqual(message, "JSON inválido: o arquivo precisa usar UTF-8")
+        self.assertNotIn("codec", message)
+        self.assertNotIn("can't decode", message)
+        self.assertNotIn("0xff", message)
+        self.assertNotIn("position", message)
+
+    def test_internal_schema_failure_remains_exit_3(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            cli_copy = work / "validate_casebook.py"
+            cli_copy.write_text(CLI.read_text(encoding="utf-8"), encoding="utf-8")
+            (work / "casebook-fixture.schema.json").write_text("{", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(cli_copy), VALID],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=RUN_ENV,
+            )
+        self.assertEqual(result.returncode, 3, result.stdout)
+        report = parse_report(result.stdout)
+        self.assertEqual(report["status"], "error")
+        results = report["results"]
+        assert isinstance(results, list)
+        first = results[0]
+        assert isinstance(first, dict)
+        findings = first["findings"]
+        assert isinstance(findings, list)
+        self.assertTrue(findings)
+        finding = findings[0]
+        assert isinstance(finding, dict)
+        self.assertEqual(finding["code"], "internal-error")
+
     def test_repeated_runs_are_byte_identical(self) -> None:
         first = run_cli(VALID)
         second = run_cli(VALID)
