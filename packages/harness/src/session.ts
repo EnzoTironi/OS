@@ -232,7 +232,7 @@ export async function runAgentSession(
     case "capability_unavailable":
       return {
         kind: "capability_unavailable",
-        missing: resolution.missing,
+        missing: [...resolution.missing],
         sessionId: command.sessionId,
         taskId: command.task.taskId,
       };
