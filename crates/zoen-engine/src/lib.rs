@@ -6,8 +6,8 @@ use zoen_core::{
     ActionApproval, ActionProposal, CanonicalJson, CommitIdentityKind, CommitReceipt,
     DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
     DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim, EvidenceDraft,
-    EvolutionClassification, ExecutionContext, ExplanationTarget, OperationId, PolicyEvidence,
-    ProposalId, TenantId, TimestampMicros,
+    EvolutionClassification, ExecutionContext, ExplanationTarget, IntentDigest, OperationId,
+    PolicyEvidence, ProposalId, TenantId, TimestampMicros,
 };
 
 mod action;
@@ -35,11 +35,11 @@ pub use effect::{
 };
 pub use history::{
     ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistoryEngine,
-    HistoryError, HistorySnapshot,
+    HistoryError, HistorySnapshot, MigrationHistorySnapshot,
 };
 pub use migration::{
-    AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord, MigrationError,
-    decode_migration_plan,
+    AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,
+    MigrationBatchPreflight, MigrationError, decode_migration_plan,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -636,6 +636,14 @@ pub trait AuthorityStore: Send + Sync {
         &self,
         migration: &AdmittedMigrationPlan,
     ) -> Result<zoen_core::MigrationProgress, StoreError>;
+
+    async fn preflight_migration_batch(
+        &self,
+        tenant_id: &TenantId,
+        operation_id: &OperationId,
+        batch_index: u32,
+        intent_digest: &IntentDigest,
+    ) -> Result<MigrationBatchPreflight, StoreError>;
 
     async fn get_revision(
         &self,

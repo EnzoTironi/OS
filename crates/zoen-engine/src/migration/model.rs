@@ -5,6 +5,13 @@ use zoen_core::{
 
 use crate::AdmittedEvidence;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MigrationBatchPreflight {
+    Mismatch,
+    Ready,
+    Replayed(MigrationProgress),
+}
+
 #[derive(Clone, Debug)]
 pub struct AdmittedMigrationPlan {
     pub(super) canonical_plan: String,

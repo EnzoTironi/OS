@@ -194,6 +194,10 @@ where
         ) {
             return Err(ActivateRevisionError::DelegationDenied);
         }
+        let current_reference = previous
+            .as_ref()
+            .map(reference)
+            .ok_or(ActivateRevisionError::InvalidRollbackTarget)?;
         let policy = match self
             .policy
             .evaluate(&PolicyRequest {
@@ -201,7 +205,7 @@ where
                 approved: false,
                 classification: None,
                 context,
-                definition: &target_reference,
+                definition: &current_reference,
                 inputs: &[],
                 operation: PolicyOperation::RollbackRevision,
                 resource_id: &resource_id,

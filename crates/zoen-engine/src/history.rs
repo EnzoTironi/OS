@@ -7,13 +7,14 @@ use zoen_core::{
     ActionApproval, ActionId, ActionProposal, ActionProposalStructure, CausalActionExplanation,
     CausalActionInput, CausalActionProposal, CausalClaim, CausalClaimExplanation,
     CausalClaimStructure, CausalCommit, CausalEffect, CausalEffectRequest,
-    CausalEffectRequestStructure, CausalExplanation, CausalReference, CausalStateBasis,
-    CommitReceipt, DecisionReference, DefinitionEvidence, DefinitionReference, DefinitionRevision,
-    EffectDispatchEvidence, EffectKnowledgeState, EffectSnapshot, EvidenceClaim, EvidenceClass,
-    ExactValue, ExplanationGap, ExplanationPayload, ExplanationSubject, ExplanationTarget,
-    GapReason, LineageRole, PayloadDigest, PayloadRedaction, PolicyDecisionEvidence,
-    PolicyDecisionStage, ProposalAuthority, RedactionReason, StateBasisStage, StateDependency,
-    TrustedExecutionContext, expression_relations,
+    CausalEffectRequestStructure, CausalExplanation, CausalMigration, CausalReference,
+    CausalStateBasis, CommitReceipt, DecisionReference, DefinitionEvidence, DefinitionReference,
+    DefinitionRevision, EffectDispatchEvidence, EffectKnowledgeState, EffectSnapshot,
+    EvidenceClaim, EvidenceClass, ExactValue, ExplanationGap, ExplanationPayload,
+    ExplanationSubject, ExplanationTarget, GapReason, LineageRole, MigrationOrigin, PayloadDigest,
+    PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage, ProposalAuthority,
+    RedactionReason, StateBasisStage, StateDependency, TrustedExecutionContext,
+    expression_relations,
 };
 
 use crate::{AuthorityStore, StoreError, decode_canonical_definition, state_basis_digest_matches};
@@ -114,9 +115,16 @@ pub struct ActionHistorySnapshot {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigrationHistorySnapshot {
+    pub origin: MigrationOrigin,
+    pub source_claims: Vec<EvidenceClaim>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaimHistorySnapshot {
     pub claim: EvidenceClaim,
     pub definition: Option<DefinitionRevision>,
+    pub migration: Option<MigrationHistorySnapshot>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -308,9 +316,18 @@ fn explain_claim(
             evidence
         },
     );
+    let migration = snapshot.migration.map(|migration| CausalMigration {
+        origin: migration.origin,
+        source_claims: migration
+            .source_claims
+            .into_iter()
+            .map(|claim| causal_claim(claim, access, gaps))
+            .collect(),
+    });
     CausalClaimExplanation {
         claim: causal_claim(snapshot.claim, access, gaps),
         definition,
+        migration,
     }
 }
 

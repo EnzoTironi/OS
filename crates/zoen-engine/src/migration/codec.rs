@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    CommitSequence, DefinitionDigest, DefinitionElementKind, DefinitionImpactArea,
-    DefinitionReference, DefinitionRevisionNumber, EntityId, EvidenceDraft,
-    EvolutionClassification, ExactValue, IntentDigest, MigrationArtifactDependency,
-    MigrationDependency, MigrationElement, MigrationPlan, MigrationPostcondition, MigrationRecord,
+    CommitSequence, DefinitionChangeKind, DefinitionDigest, DefinitionElementKind,
+    DefinitionImpactApplicability, DefinitionImpactArea, DefinitionReference,
+    DefinitionRevisionNumber, EntityId, EvidenceDraft, EvolutionClassification, EvolutionPlan,
+    ExactValue, IntentDigest, MigrationArtifactDependency, MigrationDependency, MigrationElement,
+    MigrationObligationSource, MigrationPlan, MigrationPostcondition, MigrationRecord,
     MigrationRule, MigrationRuleId, MigrationRuleKind, OperationId, RelationId, ValidTime,
 };
 
@@ -15,6 +16,14 @@ const MIGRATION_PLAN_SCHEMA: &str = "zoen.migration.v1";
 pub(super) fn digest(bytes: &[u8]) -> Result<IntentDigest, MigrationError> {
     IntentDigest::parse(hex_digest(Sha256::digest(bytes)))
         .map_err(|error| MigrationError::Configuration(error.to_string()))
+}
+
+pub(super) fn evolution_assessment_digest(
+    assessment: &EvolutionPlan,
+) -> Result<IntentDigest, MigrationError> {
+    let canonical = serde_jcs::to_vec(&EvolutionAssessmentDocument::from(assessment))
+        .map_err(|error| MigrationError::Configuration(error.to_string()))?;
+    digest(&canonical)
 }
 
 pub(super) fn batch_digest(
@@ -31,6 +40,70 @@ pub(super) fn batch_digest(
     let canonical = serde_jcs::to_vec(&document)
         .map_err(|error| MigrationError::Configuration(error.to_string()))?;
     digest(&canonical)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EvolutionAssessmentDocument {
+    changes: Vec<EvolutionChangeDocument>,
+    classification: String,
+    from: DefinitionReferenceDocument,
+    impacts: Vec<EvolutionImpactDocument>,
+    schema: String,
+    to: DefinitionReferenceDocument,
+}
+
+impl From<&EvolutionPlan> for EvolutionAssessmentDocument {
+    fn from(assessment: &EvolutionPlan) -> Self {
+        Self {
+            changes: assessment
+                .changes
+                .iter()
+                .map(|change| EvolutionChangeDocument {
+                    change: change_kind_name(change.change).to_owned(),
+                    classification: change.classification.as_str().to_owned(),
+                    element: element_name(change.element).to_owned(),
+                    id: change.id.clone(),
+                    rationale: change.rationale.clone(),
+                })
+                .collect(),
+            classification: assessment.classification.as_str().to_owned(),
+            from: DefinitionReferenceDocument::from(&assessment.from),
+            impacts: assessment
+                .impacts
+                .iter()
+                .map(|impact| EvolutionImpactDocument {
+                    affected: impact.affected.clone(),
+                    applicability: impact_applicability_name(impact.applicability).to_owned(),
+                    area: impact_area_name(impact.area).to_owned(),
+                    rationale: impact.rationale.clone(),
+                    unaffected: impact.unaffected.clone(),
+                })
+                .collect(),
+            schema: "zoen.evolution.assessment.v1".to_owned(),
+            to: DefinitionReferenceDocument::from(&assessment.to),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EvolutionChangeDocument {
+    change: String,
+    classification: String,
+    element: String,
+    id: String,
+    rationale: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EvolutionImpactDocument {
+    affected: Vec<String>,
+    applicability: String,
+    area: String,
+    rationale: String,
+    unaffected: Vec<String>,
 }
 
 pub(super) fn encode_migration_plan(plan: &MigrationPlan) -> Result<String, MigrationError> {
@@ -56,11 +129,12 @@ pub fn decode_migration_plan(source: &str) -> Result<MigrationPlan, String> {
 struct MigrationPlanDocument {
     affected_elements: Vec<MigrationElementDocument>,
     artifact_dependencies: Vec<MigrationArtifactDocument>,
+    assessment_digest: String,
     classification: String,
     dependencies: Vec<MigrationDependencyDocument>,
-    expected_batches: u32,
     format_version: u32,
     from: DefinitionReferenceDocument,
+    obligation_sources: Vec<MigrationObligationSourceDocument>,
     operation_id: String,
     postconditions: Vec<MigrationPostconditionDocument>,
     rules: Vec<MigrationRuleDocument>,
@@ -81,15 +155,20 @@ impl From<&MigrationPlan> for MigrationPlanDocument {
                 .iter()
                 .map(MigrationArtifactDocument::from)
                 .collect(),
+            assessment_digest: plan.assessment_digest.as_str().to_owned(),
             classification: plan.classification.as_str().to_owned(),
             dependencies: plan
                 .dependencies
                 .iter()
                 .map(MigrationDependencyDocument::from)
                 .collect(),
-            expected_batches: plan.expected_batches,
             format_version: plan.format_version,
             from: DefinitionReferenceDocument::from(&plan.from),
+            obligation_sources: plan
+                .obligation_sources
+                .iter()
+                .map(MigrationObligationSourceDocument::from)
+                .collect(),
             operation_id: plan.operation_id.as_str().to_owned(),
             postconditions: plan
                 .postconditions
@@ -118,15 +197,21 @@ impl TryFrom<MigrationPlanDocument> for MigrationPlan {
                 .into_iter()
                 .map(MigrationArtifactDependency::try_from)
                 .collect::<Result<_, _>>()?,
+            assessment_digest: IntentDigest::parse(document.assessment_digest)
+                .map_err(|error| error.to_string())?,
             classification: parse_classification(&document.classification)?,
             dependencies: document
                 .dependencies
                 .into_iter()
                 .map(MigrationDependency::try_from)
                 .collect::<Result<_, _>>()?,
-            expected_batches: document.expected_batches,
             format_version: document.format_version,
             from: DefinitionReference::try_from(document.from)?,
+            obligation_sources: document
+                .obligation_sources
+                .into_iter()
+                .map(MigrationObligationSource::try_from)
+                .collect::<Result<_, _>>()?,
             operation_id: OperationId::parse(document.operation_id)
                 .map_err(|error| error.to_string())?,
             postconditions: document
@@ -343,6 +428,37 @@ impl TryFrom<MigrationPostconditionDocument> for MigrationPostcondition {
     }
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MigrationObligationSourceDocument {
+    kind: String,
+    relation_id: String,
+    rule_id: String,
+}
+
+impl From<&MigrationObligationSource> for MigrationObligationSourceDocument {
+    fn from(source: &MigrationObligationSource) -> Self {
+        Self {
+            kind: source.kind.as_str().to_owned(),
+            relation_id: source.relation_id.as_str().to_owned(),
+            rule_id: source.rule_id.as_str().to_owned(),
+        }
+    }
+}
+
+impl TryFrom<MigrationObligationSourceDocument> for MigrationObligationSource {
+    type Error = String;
+
+    fn try_from(document: MigrationObligationSourceDocument) -> Result<Self, Self::Error> {
+        Ok(Self {
+            kind: parse_rule_kind(&document.kind)?,
+            relation_id: RelationId::parse(document.relation_id)
+                .map_err(|error| error.to_string())?,
+            rule_id: MigrationRuleId::parse(document.rule_id).map_err(|error| error.to_string())?,
+        })
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MigrationBatchDocument {
@@ -430,6 +546,21 @@ fn parse_classification(value: &str) -> Result<EvolutionClassification, String> 
         "breaking" => Ok(EvolutionClassification::Breaking),
         "forbidden" => Ok(EvolutionClassification::Forbidden),
         _ => Err(format!("unknown evolution classification {value:?}")),
+    }
+}
+
+fn change_kind_name(change: DefinitionChangeKind) -> &'static str {
+    match change {
+        DefinitionChangeKind::Added => "added",
+        DefinitionChangeKind::Modified => "modified",
+        DefinitionChangeKind::Removed => "removed",
+    }
+}
+
+fn impact_applicability_name(applicability: DefinitionImpactApplicability) -> &'static str {
+    match applicability {
+        DefinitionImpactApplicability::Applicable => "applicable",
+        DefinitionImpactApplicability::NotApplicable => "not_applicable",
     }
 }
 

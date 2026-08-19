@@ -1,9 +1,10 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use zoen_core::{
     ActionId, DefinitionElementKind, DefinitionReference, EvolutionClassification,
-    MigrationElement, MigrationPlan, MigrationProgress, MigrationRecord, MigrationRuleKind,
+    MigrationElement, MigrationProgress, MigrationRecipe, MigrationRecord, MigrationRuleKind,
     OperationId, PolicyEvaluation, PolicyEvidence, ResourceId, TimestampMicros,
 };
 
@@ -17,9 +18,11 @@ mod model;
 mod validation;
 
 pub use codec::decode_migration_plan;
-use codec::{batch_digest, digest, encode_migration_plan};
-pub use model::{AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord};
-use validation::{validate_plan_against_assessment, validate_plan_shape};
+use codec::{batch_digest, digest, encode_migration_plan, evolution_assessment_digest};
+pub use model::{
+    AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord, MigrationBatchPreflight,
+};
+use validation::build_plan;
 
 const MIGRATION_ACTION_ID: &str = "zoen.definition.migrate";
 
@@ -81,39 +84,48 @@ where
     pub async fn prepare_migration(
         &self,
         context: &zoen_core::ExecutionContext,
-        plan: MigrationPlan,
+        recipe: MigrationRecipe,
         prepared_at: TimestampMicros,
     ) -> Result<MigrationProgress, MigrationError> {
-        validate_plan_shape(&plan)?;
         let assessment = self
             .plan_evolution(
                 context,
-                &plan.from.definition_id,
-                &plan.from.digest,
-                &plan.to.digest,
+                &recipe.definition_id,
+                &recipe.from_digest,
+                &recipe.to_digest,
             )
             .await
             .map_err(|error| MigrationError::InvalidPlan(error.to_string()))?;
-        validate_plan_against_assessment(&plan, &assessment)?;
-        let target = self
+        let source = self
             .store
-            .get_revision(context.tenant_id(), &plan.to.definition_id, &plan.to.digest)
+            .get_revision(
+                context.tenant_id(),
+                &recipe.definition_id,
+                &recipe.from_digest,
+            )
             .await
             .map_err(MigrationError::Store)?;
+        let target = self
+            .store
+            .get_revision(
+                context.tenant_id(),
+                &recipe.definition_id,
+                &recipe.to_digest,
+            )
+            .await
+            .map_err(MigrationError::Store)?;
+        let source_definition = decode_canonical_definition(&source.canonical_json)
+            .map_err(|error| MigrationError::InvalidPlan(error.to_string()))?;
         let target_definition = decode_canonical_definition(&target.canonical_json)
             .map_err(|error| MigrationError::InvalidPlan(error.to_string()))?;
-        for postcondition in &plan.postconditions {
-            if !target_definition
-                .relations
-                .iter()
-                .any(|relation| relation.id == postcondition.relation_id)
-            {
-                return Err(MigrationError::InvalidPlan(format!(
-                    "postcondition names unknown target Relation {}",
-                    postcondition.relation_id
-                )));
-            }
-        }
+        let assessment_digest = evolution_assessment_digest(&assessment)?;
+        let plan = build_plan(
+            recipe,
+            &assessment,
+            &source_definition,
+            &target_definition,
+            assessment_digest,
+        )?;
         let policy = self
             .authorize_migration(
                 context,
@@ -146,17 +158,29 @@ where
         records: Vec<MigrationRecord>,
         applied_at: TimestampMicros,
     ) -> Result<MigrationProgress, MigrationError> {
+        let intent_digest = batch_digest(operation_id, batch_index, &records)?;
+        match self
+            .store
+            .preflight_migration_batch(
+                context.tenant_id(),
+                operation_id,
+                batch_index,
+                &intent_digest,
+            )
+            .await
+            .map_err(MigrationError::Store)?
+        {
+            MigrationBatchPreflight::Replayed(progress) => return Ok(progress),
+            MigrationBatchPreflight::Mismatch => {
+                return Err(MigrationError::Store(StoreError::OperationMismatch));
+            }
+            MigrationBatchPreflight::Ready => {}
+        }
         let migration = self
             .store
             .get_migration(context.tenant_id(), operation_id)
             .await
             .map_err(MigrationError::Store)?;
-        if batch_index >= migration.plan.expected_batches {
-            return Err(MigrationError::InvalidPlan(format!(
-                "batch index {batch_index} is outside expected batch count {}",
-                migration.plan.expected_batches
-            )));
-        }
         let policy = self
             .authorize_migration(
                 context,
@@ -176,6 +200,8 @@ where
             .await
             .map_err(MigrationError::Store)?;
         let mut admitted = Vec::with_capacity(records.len());
+        let mut source_claim_ids = BTreeSet::new();
+        let mut target_claim_ids = BTreeSet::new();
         for record in &records {
             let rule = migration
                 .plan
@@ -198,11 +224,48 @@ where
                     rule.id, record.target.relation_id
                 )));
             }
-            if rule.kind != MigrationRuleKind::Recompute && record.source_claim_ids.is_empty() {
-                return Err(MigrationError::InvalidPlan(format!(
-                    "rule {} requires source claims",
-                    rule.id
-                )));
+            match rule.kind {
+                MigrationRuleKind::PreserveMeaning if record.source_claim_ids.len() != 1 => {
+                    return Err(MigrationError::InvalidPlan(format!(
+                        "preserve_meaning rule {} requires one source claim",
+                        rule.id
+                    )));
+                }
+                MigrationRuleKind::Transform if record.source_claim_ids.is_empty() => {
+                    return Err(MigrationError::InvalidPlan(format!(
+                        "transform rule {} requires source claims",
+                        rule.id
+                    )));
+                }
+                MigrationRuleKind::Recompute if !record.source_claim_ids.is_empty() => {
+                    return Err(MigrationError::InvalidPlan(format!(
+                        "recompute rule {} does not accept source claims",
+                        rule.id
+                    )));
+                }
+                MigrationRuleKind::Supersede => {
+                    return Err(MigrationError::InvalidPlan(format!(
+                        "supersede rule {} has no successor record",
+                        rule.id
+                    )));
+                }
+                MigrationRuleKind::PreserveMeaning
+                | MigrationRuleKind::Transform
+                | MigrationRuleKind::Recompute => {}
+            }
+            if !record
+                .source_claim_ids
+                .iter()
+                .all(|claim_id| source_claim_ids.insert(claim_id.clone()))
+            {
+                return Err(MigrationError::InvalidPlan(
+                    "a source claim may be resolved only once per batch".to_owned(),
+                ));
+            }
+            if !target_claim_ids.insert(record.target.claim_id.clone()) {
+                return Err(MigrationError::InvalidPlan(
+                    "a target claim may appear only once per batch".to_owned(),
+                ));
             }
             let evidence = admission::admit_evidence(&target, record.target.clone())
                 .map_err(migration_evidence_error)?;
@@ -213,7 +276,6 @@ where
                 source_claim_ids: record.source_claim_ids.clone(),
             });
         }
-        let intent_digest = batch_digest(operation_id, batch_index, &records)?;
         self.store
             .apply_migration_batch(&AdmittedMigrationBatch {
                 batch_index,

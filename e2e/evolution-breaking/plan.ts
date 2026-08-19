@@ -6,13 +6,12 @@ import {
   DefinitionImpactApplicability,
   DefinitionImpactArea,
   EvolutionClassification,
-  MigrationPlanSchema,
+  MigrationRecipeSchema,
   MigrationRuleKind,
-  type DefinitionChange,
   type EvolutionPlan,
   type MigrationDependency,
-  type MigrationPlan,
   type MigrationPostcondition,
+  type MigrationRecipe,
 } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 
 interface RenamePair {
@@ -20,10 +19,9 @@ interface RenamePair {
   readonly toId: string;
 }
 
-interface BuildMigrationPlan {
+interface BuildMigrationRecipe {
   readonly assessment: EvolutionPlan;
   readonly dependencies: readonly MigrationDependency[];
-  readonly expectedBatches: number;
   readonly operationId: string;
   readonly postconditions: readonly MigrationPostcondition[];
   readonly renamePairs: readonly RenamePair[];
@@ -31,34 +29,32 @@ interface BuildMigrationPlan {
 
 type Observe = (name: string, condition: boolean) => void;
 
-const artifactAreas = new Set([
-  DefinitionImpactArea.QUERY_AND_MATERIALIZATION_ARTIFACTS,
-  DefinitionImpactArea.GENERATED_SDK_AND_SURFACE_ARTIFACTS,
-  DefinitionImpactArea.POLICY_AND_AUTHORITY_CONTRACTS,
-]);
-
-export function buildMigrationPlan({
+export function buildMigrationRecipe({
   assessment,
   dependencies,
-  expectedBatches,
   operationId,
   postconditions,
   renamePairs,
-}: BuildMigrationPlan): MigrationPlan {
+}: BuildMigrationRecipe): MigrationRecipe {
   assert.ok(assessment.from);
   assert.ok(assessment.to);
   const renamedIds = new Set(
     renamePairs.flatMap((pair) => [pair.fromId, pair.toId]),
   );
   const rules = assessment.changes
-    .filter((change) => !renamedIds.has(change.id))
+    .filter(
+      (change) =>
+        change.element === DefinitionElementKind.RELATION &&
+        change.change !== DefinitionChangeKind.ADDED &&
+        !renamedIds.has(change.id),
+    )
     .map((change) => ({
-      kind: ruleKind(change),
+      kind:
+        change.change === DefinitionChangeKind.REMOVED
+          ? MigrationRuleKind.SUPERSEDE
+          : MigrationRuleKind.TRANSFORM,
       ruleId: `migration.${operationId}.${safeId(change.id)}`,
-      sources:
-        change.change === DefinitionChangeKind.ADDED
-          ? []
-          : [{ element: change.element, id: change.id }],
+      sources: [{ element: change.element, id: change.id }],
       targets:
         change.change === DefinitionChangeKind.REMOVED
           ? []
@@ -85,30 +81,15 @@ export function buildMigrationPlan({
       targets: [{ element: target.element, id: target.id }],
     });
   }
-  return create(MigrationPlanSchema, {
-    affectedElements: assessment.changes.map((change) => ({
-      element: change.element,
-      id: change.id,
-    })),
-    artifactDependencies: assessment.impacts
-      .filter(
-        (impact) =>
-          impact.applicability ===
-            DefinitionImpactApplicability.APPLICABLE &&
-          artifactAreas.has(impact.area),
-      )
-      .flatMap((impact) =>
-        impact.affected.map((id) => ({ area: impact.area, id })),
-      ),
-    classification: assessment.classification,
+  return create(MigrationRecipeSchema, {
+    definitionId: assessment.from.definitionId,
     dependencies: [...dependencies],
-    expectedBatches,
     formatVersion: 1,
-    from: assessment.from,
+    fromDigest: assessment.from.digest,
     operationId,
     postconditions: [...postconditions],
     rules,
-    to: assessment.to,
+    toDigest: assessment.to.digest,
   });
 }
 
@@ -235,32 +216,6 @@ function impact(plan: EvolutionPlan, area: DefinitionImpactArea) {
   const result = plan.impacts.find((item) => item.area === area);
   assert.ok(result);
   return result;
-}
-
-function ruleKind(change: DefinitionChange): MigrationRuleKind {
-  if (change.element === DefinitionElementKind.TYPE) {
-    return MigrationRuleKind.PRESERVE_MEANING;
-  }
-  if (change.element === DefinitionElementKind.COMPUTATION) {
-    return MigrationRuleKind.RECOMPUTE;
-  }
-  if (change.element === DefinitionElementKind.ACTION) {
-    return MigrationRuleKind.SUPERSEDE;
-  }
-  switch (change.change) {
-    case DefinitionChangeKind.ADDED:
-      return MigrationRuleKind.RECOMPUTE;
-    case DefinitionChangeKind.REMOVED:
-      return MigrationRuleKind.SUPERSEDE;
-    case DefinitionChangeKind.MODIFIED:
-      return MigrationRuleKind.TRANSFORM;
-    case DefinitionChangeKind.UNSPECIFIED:
-      throw new Error(`unspecified change for ${change.id}`);
-    default: {
-      const exhaustive: never = change.change;
-      return exhaustive;
-    }
-  }
 }
 
 function safeId(value: string): string {

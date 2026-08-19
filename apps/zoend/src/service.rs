@@ -14,13 +14,13 @@ use zoen_core::{
     DefinitionImpactApplicability as CoreImpactApplicability,
     DefinitionImpactArea as CoreImpactArea, DefinitionRevision as CoreDefinitionRevision,
     EvolutionClassification as CoreEvolutionClassification, EvolutionPlan as CoreEvolutionPlan,
-    MigrationArtifactDependency as CoreMigrationArtifactDependency,
     MigrationDependency as CoreMigrationDependency, MigrationElement as CoreMigrationElement,
-    MigrationLineage as CoreMigrationLineage, MigrationPlan as CoreMigrationPlan,
-    MigrationPostcondition as CoreMigrationPostcondition,
-    MigrationProgress as CoreMigrationProgress, MigrationRecord as CoreMigrationRecord,
-    MigrationRule as CoreMigrationRule, MigrationRuleKind as CoreMigrationRuleKind,
-    MigrationStatus as CoreMigrationStatus, OperationId, TimestampMicros,
+    MigrationLineage as CoreMigrationLineage, MigrationObligation as CoreMigrationObligation,
+    MigrationPlan as CoreMigrationPlan, MigrationPostcondition as CoreMigrationPostcondition,
+    MigrationProgress as CoreMigrationProgress, MigrationRecipe as CoreMigrationRecipe,
+    MigrationRecord as CoreMigrationRecord, MigrationRule as CoreMigrationRule,
+    MigrationRuleKind as CoreMigrationRuleKind, MigrationStatus as CoreMigrationStatus,
+    OperationId, TimestampMicros,
 };
 use zoen_engine::{
     ActivateRevisionError, DefinitionEngine, GetRevisionError, MigrationError, PlanEvolutionError,
@@ -37,8 +37,9 @@ use crate::proto::zoen::definition::v1::{
     DefinitionImpactArea, DefinitionRevision, DefinitionService, EvolutionClassification,
     EvolutionPlan, GetActiveRevisionRequest, GetActiveRevisionResponse, GetMigrationRequest,
     GetMigrationResponse, GetRevisionRequest, GetRevisionResponse, MigrationArtifactDependency,
-    MigrationDependency, MigrationElement, MigrationLineage, MigrationPlan, MigrationPostcondition,
-    MigrationProgress, MigrationRecord, MigrationRule, MigrationRuleKind, MigrationStatus,
+    MigrationDependency, MigrationElement, MigrationLineage, MigrationObligation,
+    MigrationObligationSource, MigrationPlan, MigrationPostcondition, MigrationProgress,
+    MigrationRecipe, MigrationRecord, MigrationRule, MigrationRuleKind, MigrationStatus,
     PlanEvolutionRequest, PlanEvolutionResponse, PrepareMigrationRequest, PrepareMigrationResponse,
     PublishRequest, PublishResponse, RollbackRevisionRequest, RollbackRevisionResponse,
 };
@@ -160,15 +161,15 @@ impl DefinitionService for DefinitionServiceImpl {
         let execution_context = self
             .sessions
             .execution_context(&context, request.tenant_id)?;
-        let plan = request
-            .plan
+        let recipe = request
+            .recipe
             .as_option()
-            .ok_or_else(|| invalid("migration plan is required"))?
+            .ok_or_else(|| invalid("migration recipe is required"))?
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
         let progress = self
             .engine
-            .prepare_migration(&execution_context, parse_migration_plan(&plan)?, now()?)
+            .prepare_migration(&execution_context, parse_migration_recipe(&recipe)?, now()?)
             .await
             .map_err(map_migration_error)?;
         Response::ok(PrepareMigrationResponse {
@@ -401,28 +402,11 @@ fn to_protocol_plan(plan: CoreEvolutionPlan) -> EvolutionPlan {
     }
 }
 
-fn parse_migration_plan(plan: &MigrationPlan) -> Result<CoreMigrationPlan, ConnectError> {
-    let from = plan
-        .from
-        .as_option()
-        .ok_or_else(|| invalid("migration source revision is required"))?;
-    let to = plan
-        .to
-        .as_option()
-        .ok_or_else(|| invalid("migration target revision is required"))?;
-    Ok(CoreMigrationPlan {
-        affected_elements: plan
-            .affected_elements
-            .iter()
-            .map(parse_migration_element)
-            .collect::<Result<_, _>>()?,
-        artifact_dependencies: plan
-            .artifact_dependencies
-            .iter()
-            .map(parse_migration_artifact)
-            .collect::<Result<_, _>>()?,
-        classification: parse_classification(plan.classification.as_known())?,
-        dependencies: plan
+fn parse_migration_recipe(recipe: &MigrationRecipe) -> Result<CoreMigrationRecipe, ConnectError> {
+    Ok(CoreMigrationRecipe {
+        definition_id: DefinitionId::parse(&recipe.definition_id)
+            .map_err(|error| invalid(error.to_string()))?,
+        dependencies: recipe
             .dependencies
             .iter()
             .map(|dependency| {
@@ -438,12 +422,12 @@ fn parse_migration_plan(plan: &MigrationPlan) -> Result<CoreMigrationPlan, Conne
                 })
             })
             .collect::<Result<_, ConnectError>>()?,
-        expected_batches: plan.expected_batches,
-        format_version: plan.format_version,
-        from: parse_definition_reference(from)?,
-        operation_id: OperationId::parse(&plan.operation_id)
+        format_version: recipe.format_version,
+        from_digest: DefinitionDigest::parse(&recipe.from_digest)
             .map_err(|error| invalid(error.to_string()))?,
-        postconditions: plan
+        operation_id: OperationId::parse(&recipe.operation_id)
+            .map_err(|error| invalid(error.to_string()))?,
+        postconditions: recipe
             .postconditions
             .iter()
             .map(|postcondition| {
@@ -454,12 +438,13 @@ fn parse_migration_plan(plan: &MigrationPlan) -> Result<CoreMigrationPlan, Conne
                 })
             })
             .collect::<Result<_, ConnectError>>()?,
-        rules: plan
+        rules: recipe
             .rules
             .iter()
             .map(parse_migration_rule)
             .collect::<Result<_, _>>()?,
-        to: parse_definition_reference(to)?,
+        to_digest: DefinitionDigest::parse(&recipe.to_digest)
+            .map_err(|error| invalid(error.to_string()))?,
     })
 }
 
@@ -469,15 +454,6 @@ fn parse_migration_element(
     Ok(CoreMigrationElement {
         element: parse_element_kind(element.element.as_known())?,
         id: element.id.clone(),
-    })
-}
-
-fn parse_migration_artifact(
-    artifact: &MigrationArtifactDependency,
-) -> Result<CoreMigrationArtifactDependency, ConnectError> {
-    Ok(CoreMigrationArtifactDependency {
-        area: parse_impact_area(artifact.area.as_known())?,
-        id: artifact.id.clone(),
     })
 }
 
@@ -518,22 +494,6 @@ fn parse_migration_record(record: &MigrationRecord) -> Result<CoreMigrationRecor
     })
 }
 
-fn parse_classification(
-    classification: Option<EvolutionClassification>,
-) -> Result<CoreEvolutionClassification, ConnectError> {
-    match classification {
-        Some(EvolutionClassification::Compatible) => Ok(CoreEvolutionClassification::Compatible),
-        Some(EvolutionClassification::RequiresMigration) => {
-            Ok(CoreEvolutionClassification::RequiresMigration)
-        }
-        Some(EvolutionClassification::Breaking) => Ok(CoreEvolutionClassification::Breaking),
-        Some(EvolutionClassification::Forbidden) => Ok(CoreEvolutionClassification::Forbidden),
-        Some(EvolutionClassification::Unspecified) | None => {
-            Err(invalid("migration classification is required"))
-        }
-    }
-}
-
 fn parse_element_kind(
     element: Option<DefinitionElementKind>,
 ) -> Result<CoreElementKind, ConnectError> {
@@ -544,37 +504,6 @@ fn parse_element_kind(
         Some(DefinitionElementKind::Action) => Ok(CoreElementKind::Action),
         Some(DefinitionElementKind::Unspecified) | None => {
             Err(invalid("migration element kind is required"))
-        }
-    }
-}
-
-fn parse_impact_area(area: Option<DefinitionImpactArea>) -> Result<CoreImpactArea, ConnectError> {
-    match area {
-        Some(DefinitionImpactArea::Types) => Ok(CoreImpactArea::Types),
-        Some(DefinitionImpactArea::Relations) => Ok(CoreImpactArea::Relations),
-        Some(DefinitionImpactArea::Computations) => Ok(CoreImpactArea::Computations),
-        Some(DefinitionImpactArea::Actions) => Ok(CoreImpactArea::Actions),
-        Some(DefinitionImpactArea::DomainPackageDependencies) => {
-            Ok(CoreImpactArea::DomainPackageDependencies)
-        }
-        Some(DefinitionImpactArea::StoredSemanticRecords) => {
-            Ok(CoreImpactArea::StoredSemanticRecords)
-        }
-        Some(DefinitionImpactArea::QueryAndMaterializationArtifacts) => {
-            Ok(CoreImpactArea::QueryAndMaterializationArtifacts)
-        }
-        Some(DefinitionImpactArea::GeneratedSdkAndSurfaceArtifacts) => {
-            Ok(CoreImpactArea::GeneratedSdkAndSurfaceArtifacts)
-        }
-        Some(DefinitionImpactArea::PolicyAndWasmReferences) => {
-            Ok(CoreImpactArea::PolicyAndWasmReferences)
-        }
-        Some(DefinitionImpactArea::PolicyAndAuthorityContracts) => {
-            Ok(CoreImpactArea::PolicyAndAuthorityContracts)
-        }
-        Some(DefinitionImpactArea::WasmComponents) => Ok(CoreImpactArea::WasmComponents),
-        Some(DefinitionImpactArea::Unspecified) | None => {
-            Err(invalid("migration artifact impact area is required"))
         }
     }
 }
@@ -604,12 +533,18 @@ fn to_protocol_migration_progress(progress: CoreMigrationProgress) -> MigrationP
             .map(to_protocol_migration_lineage)
             .collect(),
         plan: Some(to_protocol_migration_plan(progress.plan)).into(),
+        remaining_obligations: progress
+            .remaining_obligations
+            .into_iter()
+            .map(to_protocol_migration_obligation)
+            .collect(),
         status: match progress.status {
             CoreMigrationStatus::Prepared => MigrationStatus::Prepared,
             CoreMigrationStatus::InProgress => MigrationStatus::InProgress,
             CoreMigrationStatus::Completed => MigrationStatus::Completed,
         }
         .into(),
+        total_obligations: progress.total_obligations,
         ..Default::default()
     }
 }
@@ -630,6 +565,7 @@ fn to_protocol_migration_plan(plan: CoreMigrationPlan) -> MigrationPlan {
                 ..Default::default()
             })
             .collect(),
+        assessment_digest: plan.assessment_digest.as_str().to_owned(),
         classification: to_classification(plan.classification).into(),
         dependencies: plan
             .dependencies
@@ -642,9 +578,18 @@ fn to_protocol_migration_plan(plan: CoreMigrationPlan) -> MigrationPlan {
                 ..Default::default()
             })
             .collect(),
-        expected_batches: plan.expected_batches,
         format_version: plan.format_version,
         from: Some(to_definition_reference(plan.from)).into(),
+        obligation_sources: plan
+            .obligation_sources
+            .into_iter()
+            .map(|source| MigrationObligationSource {
+                kind: to_migration_rule_kind(source.kind).into(),
+                relation_id: source.relation_id.as_str().to_owned(),
+                rule_id: source.rule_id.as_str().to_owned(),
+                ..Default::default()
+            })
+            .collect(),
         operation_id: plan.operation_id.as_str().to_owned(),
         postconditions: plan
             .postconditions
@@ -659,13 +604,7 @@ fn to_protocol_migration_plan(plan: CoreMigrationPlan) -> MigrationPlan {
             .rules
             .into_iter()
             .map(|rule| MigrationRule {
-                kind: match rule.kind {
-                    CoreMigrationRuleKind::PreserveMeaning => MigrationRuleKind::PreserveMeaning,
-                    CoreMigrationRuleKind::Transform => MigrationRuleKind::Transform,
-                    CoreMigrationRuleKind::Supersede => MigrationRuleKind::Supersede,
-                    CoreMigrationRuleKind::Recompute => MigrationRuleKind::Recompute,
-                }
-                .into(),
+                kind: to_migration_rule_kind(rule.kind).into(),
                 rule_id: rule.id.as_str().to_owned(),
                 sources: rule
                     .sources
@@ -695,13 +634,7 @@ fn to_protocol_migration_element(element: CoreMigrationElement) -> MigrationElem
 
 fn to_protocol_migration_lineage(lineage: CoreMigrationLineage) -> MigrationLineage {
     MigrationLineage {
-        kind: match lineage.kind {
-            CoreMigrationRuleKind::PreserveMeaning => MigrationRuleKind::PreserveMeaning,
-            CoreMigrationRuleKind::Transform => MigrationRuleKind::Transform,
-            CoreMigrationRuleKind::Supersede => MigrationRuleKind::Supersede,
-            CoreMigrationRuleKind::Recompute => MigrationRuleKind::Recompute,
-        }
-        .into(),
+        kind: to_migration_rule_kind(lineage.kind).into(),
         rule_id: lineage.rule_id.as_str().to_owned(),
         source_claim_ids: lineage
             .source_claim_ids
@@ -710,6 +643,25 @@ fn to_protocol_migration_lineage(lineage: CoreMigrationLineage) -> MigrationLine
             .collect(),
         target_claim_id: lineage.target_claim_id.as_str().to_owned(),
         ..Default::default()
+    }
+}
+
+fn to_protocol_migration_obligation(obligation: CoreMigrationObligation) -> MigrationObligation {
+    MigrationObligation {
+        kind: to_migration_rule_kind(obligation.kind).into(),
+        relation_id: obligation.relation_id.as_str().to_owned(),
+        rule_id: obligation.rule_id.as_str().to_owned(),
+        source_claim_id: obligation.source_claim_id.as_str().to_owned(),
+        ..Default::default()
+    }
+}
+
+fn to_migration_rule_kind(kind: CoreMigrationRuleKind) -> MigrationRuleKind {
+    match kind {
+        CoreMigrationRuleKind::PreserveMeaning => MigrationRuleKind::PreserveMeaning,
+        CoreMigrationRuleKind::Transform => MigrationRuleKind::Transform,
+        CoreMigrationRuleKind::Supersede => MigrationRuleKind::Supersede,
+        CoreMigrationRuleKind::Recompute => MigrationRuleKind::Recompute,
     }
 }
 

@@ -7,7 +7,7 @@ import {
   DefinitionActivationKind,
   DefinitionImpactArea,
   EvolutionClassification,
-  MigrationPlanSchema,
+  MigrationRecipeSchema,
   MigrationRuleKind,
   MigrationStatus,
   type EvolutionPlan,
@@ -30,11 +30,12 @@ import {
   assertAssessment,
   assertV1ToV2Assessment,
   assertV2ToV3Assessment,
-  buildMigrationPlan,
+  buildMigrationRecipe,
 } from "./evolution-breaking/plan.js";
 import {
   activate,
   activateInitial,
+  claims,
   entity,
   integer,
   latestClaim,
@@ -260,13 +261,12 @@ async function main(): Promise<void> {
     );
     recordFailure("activation-before-migration");
 
-    const stalePlan = buildMigrationPlan({
+    const staleRecipe = buildMigrationRecipe({
       assessment: v1ToV2Assessment,
       dependencies: [
         migrationDependency(originalDependency),
         migrationDependency(storedAtDependency),
       ],
-      expectedBatches: 1,
       operationId: "migration.inventory.stale",
       postconditions: [
         postcondition("inventory.level"),
@@ -279,13 +279,12 @@ async function main(): Promise<void> {
         },
       ],
     });
-    const realPlanTemplate = buildMigrationPlan({
+    const realRecipeTemplate = buildMigrationRecipe({
       assessment: v1ToV2Assessment,
       dependencies: [
         migrationDependency(originalDependency),
         migrationDependency(storedAtDependency),
       ],
-      expectedBatches: 2,
       operationId: "migration.inventory.v1.v2",
       postconditions: [
         postcondition("inventory.level"),
@@ -298,14 +297,44 @@ async function main(): Promise<void> {
         },
       ],
     });
+    const emptyCoverageRecipe = buildMigrationRecipe({
+      assessment: v1ToV2Assessment,
+      dependencies: [],
+      operationId: "migration.inventory.empty.coverage",
+      postconditions: [],
+      renamePairs: [
+        {
+          fromId: "inventory.storedAt",
+          toId: "inventory.warehouseLocation",
+        },
+      ],
+    });
+    await definitionA.prepareMigration({
+      recipe: emptyCoverageRecipe,
+      tenantId: tenantA,
+    });
+    const emptyCoverage = await definitionA.applyMigrationBatch({
+      batchIndex: 0,
+      operationId: emptyCoverageRecipe.operationId,
+      records: [],
+      tenantId: tenantA,
+    });
+    assert.ok(
+      emptyCoverage.progress &&
+        emptyCoverage.progress.remainingObligations.length > 0,
+    );
+    await expectConnectCode(
+      () => activate(definitionA, tenantA, v1.digest, v2.digest),
+      Code.FailedPrecondition,
+    );
+    recordFailure("empty-batch-does-not-cover-source-claims");
     mutants.impactGraphMissesDependencies = await expectConnectCode(
       () =>
         definitionA.prepareMigration({
-          plan: create(MigrationPlanSchema, {
-            ...realPlanTemplate,
-            artifactDependencies:
-              realPlanTemplate.artifactDependencies.slice(1),
+          recipe: create(MigrationRecipeSchema, {
+            ...realRecipeTemplate,
             operationId: "migration.inventory.incomplete",
+            rules: realRecipeTemplate.rules.slice(1),
           }),
           tenantId: tenantA,
         }),
@@ -315,13 +344,10 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         definitionA.prepareMigration({
-          plan: create(MigrationPlanSchema, {
-            ...realPlanTemplate,
+          recipe: create(MigrationRecipeSchema, {
+            ...realRecipeTemplate,
             operationId: "migration.inventory.wrong.target",
-            to: {
-              ...definitionReference(v2),
-              digest: "f".repeat(64),
-            },
+            toDigest: "f".repeat(64),
           }),
           tenantId: tenantA,
         }),
@@ -330,13 +356,16 @@ async function main(): Promise<void> {
     recordFailure("wrong-source-target-pair");
 
     const stalePrepared = await definitionA.prepareMigration({
-      plan: stalePlan,
+      recipe: staleRecipe,
       tenantId: tenantA,
     });
     observe(
       "migrationPlanIsGovernedAndPrepared",
       stalePrepared.progress?.status === MigrationStatus.PREPARED &&
-        stalePrepared.progress.intentDigest.length === 64,
+        stalePrepared.progress.intentDigest.length === 64 &&
+        stalePrepared.progress.plan?.assessmentDigest.length === 64 &&
+        stalePrepared.progress.remainingObligations.length === 2 &&
+        stalePrepared.progress.totalObligations === 2n,
     );
     await commitAction(
       actionA,
@@ -349,10 +378,10 @@ async function main(): Promise<void> {
       () =>
         definitionA.applyMigrationBatch({
           batchIndex: 0,
-          operationId: stalePlan.operationId,
+          operationId: staleRecipe.operationId,
           records: [
             {
-              ruleId: targetRuleId(stalePlan, "inventory.level"),
+              ruleId: targetRuleId(staleRecipe, "inventory.level"),
               sourceClaimIds: [originalDependency.claim_id],
               targetEvidence: evidenceClaim(
                 definitionReference(v2),
@@ -373,13 +402,12 @@ async function main(): Promise<void> {
       v1.digest,
       "inventory.level",
     );
-    const realPlan = buildMigrationPlan({
+    const realRecipe = buildMigrationRecipe({
       assessment: v1ToV2Assessment,
       dependencies: [
         migrationDependency(currentDependency),
         migrationDependency(storedAtDependency),
       ],
-      expectedBatches: 2,
       operationId: "migration.inventory.v1.v2",
       postconditions: [
         postcondition("inventory.level"),
@@ -395,20 +423,23 @@ async function main(): Promise<void> {
     const foreignPrepareDenied = await expectConnectCode(
       () =>
         definitionB.prepareMigration({
-          plan: realPlan,
+          recipe: realRecipe,
           tenantId: tenantA,
         }),
       Code.PermissionDenied,
     );
-    await definitionA.prepareMigration({ plan: realPlan, tenantId: tenantA });
+    await definitionA.prepareMigration({
+      recipe: realRecipe,
+      tenantId: tenantA,
+    });
     await expectConnectCode(
       () =>
         definitionA.applyMigrationBatch({
           batchIndex: 0,
-          operationId: realPlan.operationId,
+          operationId: realRecipe.operationId,
           records: [
             {
-              ruleId: targetRuleId(realPlan, "inventory.level"),
+              ruleId: targetRuleId(realRecipe, "inventory.level"),
               sourceClaimIds: [currentDependency.claim_id],
               targetEvidence: evidenceClaim(
                 definitionReference(v2),
@@ -426,10 +457,10 @@ async function main(): Promise<void> {
 
     const firstBatchRequest = {
       batchIndex: 0,
-      operationId: realPlan.operationId,
+      operationId: realRecipe.operationId,
       records: [
         {
-          ruleId: targetRuleId(realPlan, "inventory.level"),
+          ruleId: targetRuleId(realRecipe, "inventory.level"),
           sourceClaimIds: [currentDependency.claim_id],
           targetEvidence: evidenceClaim(
             definitionReference(v2),
@@ -440,7 +471,7 @@ async function main(): Promise<void> {
         },
         {
           ruleId: targetRuleId(
-            realPlan,
+            realRecipe,
             "inventory.warehouseLocation",
           ),
           sourceClaimIds: [storedAtDependency.claim_id],
@@ -492,7 +523,7 @@ async function main(): Promise<void> {
 
     server = await startServer(policyManifestPath);
     const recovered = await definitionA.getMigration({
-      operationId: realPlan.operationId,
+      operationId: realRecipe.operationId,
       tenantId: tenantA,
     });
     observe(
@@ -517,7 +548,7 @@ async function main(): Promise<void> {
           WHERE tenant_id = $1 AND operation_id = $2) AS record_count,
          (SELECT count(*)::text FROM semantic_claims
           WHERE tenant_id = $1 AND claim_id = $3) AS target_count`,
-      [tenantA, realPlan.operationId, "claim.inventory.level.v2"],
+      [tenantA, realRecipe.operationId, "claim.inventory.level.v2"],
     );
     mutants.migrationReplayDuplicates =
       replayed.progress?.completedBatches.length === 1 &&
@@ -533,7 +564,7 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         definitionB.getMigration({
-          operationId: realPlan.operationId,
+          operationId: realRecipe.operationId,
           tenantId: tenantB,
         }),
       Code.NotFound,
@@ -554,14 +585,27 @@ async function main(): Promise<void> {
     recordFailure("cross-tenant-migration-and-activation");
     const completedV2 = await definitionA.applyMigrationBatch({
       batchIndex: 1,
-      operationId: realPlan.operationId,
-      records: [],
+      operationId: realRecipe.operationId,
+      records: [
+        {
+          ruleId: targetRuleId(realRecipe, "inventory.level"),
+          sourceClaimIds: [originalDependency.claim_id],
+          targetEvidence: evidenceClaim(
+            definitionReference(v2),
+            "inventory.level",
+            entity("inventory.warehouse.primary"),
+            "claim.inventory.level.v2.original",
+          ),
+        },
+      ],
       tenantId: tenantA,
     });
     observe(
       "migrationCompletesAfterRestart",
       completedV2.progress?.status === MigrationStatus.COMPLETED &&
-        completedV2.progress.completedBatches.join(",") === "0,1",
+        completedV2.progress.completedBatches.join(",") === "0,1" &&
+        completedV2.progress.remainingObligations.length === 0 &&
+        completedV2.progress.totalObligations === 3n,
     );
     const v2Activation = await activate(
       definitionA,
@@ -575,7 +619,7 @@ async function main(): Promise<void> {
         DefinitionActivationKind.ACTIVATION &&
         v2Activation.activation.classification ===
           EvolutionClassification.BREAKING &&
-        v2Activation.activation.migrationOperationId === realPlan.operationId,
+        v2Activation.activation.migrationOperationId === realRecipe.operationId,
     );
 
     const v2Receipt = await commitAction(
@@ -612,10 +656,9 @@ async function main(): Promise<void> {
     );
     assertV2ToV3Assessment(v2ToV3Assessment, observe);
     const v2Level = await latestClaim(admin, v2.digest, "inventory.level");
-    const v2ToV3Plan = buildMigrationPlan({
+    const v2ToV3Recipe = buildMigrationRecipe({
       assessment: v2ToV3Assessment,
       dependencies: [migrationDependency(v2Level)],
-      expectedBatches: 1,
       operationId: "migration.inventory.v2.v3",
       postconditions: [postcondition("inventory.primaryWarehouse")],
       renamePairs: [
@@ -626,16 +669,16 @@ async function main(): Promise<void> {
       ],
     });
     await definitionA.prepareMigration({
-      plan: v2ToV3Plan,
+      recipe: v2ToV3Recipe,
       tenantId: tenantA,
     });
     const completedV3 = await definitionA.applyMigrationBatch({
       batchIndex: 0,
-      operationId: v2ToV3Plan.operationId,
+      operationId: v2ToV3Recipe.operationId,
       records: [
         {
           ruleId: targetRuleId(
-            v2ToV3Plan,
+            v2ToV3Recipe,
             "inventory.primaryWarehouse",
           ),
           sourceClaimIds: [v2Level.claim_id],
@@ -649,6 +692,14 @@ async function main(): Promise<void> {
       ],
       tenantId: tenantA,
     });
+    const migratedClaimExplanation = await historyClient(adminAToken).explain({
+      target: {
+        target: {
+          case: "claimId",
+          value: "claim.inventory.primaryWarehouse.v3",
+        },
+      },
+    });
     observe(
       "meaningPreservingRenameCreatesNewEvidence",
       completedV3.progress?.status === MigrationStatus.COMPLETED &&
@@ -657,7 +708,12 @@ async function main(): Promise<void> {
         completedV3.progress.lineage[0]?.sourceClaimIds[0] ===
           "claim.inventory.level.v2" &&
         completedV3.progress.lineage[0]?.targetClaimId ===
-          "claim.inventory.primaryWarehouse.v3",
+          "claim.inventory.primaryWarehouse.v3" &&
+        migratedClaimExplanation.explanation?.subject.case === "claim" &&
+        migratedClaimExplanation.explanation.subject.value.migration?.origin
+          ?.operationId === v2ToV3Recipe.operationId &&
+        migratedClaimExplanation.explanation.subject.value.migration.origin
+          .sourceClaimIds[0] === "claim.inventory.level.v2",
     );
     await activate(definitionA, tenantA, v2.digest, v3.digest);
     const v3Receipt = await commitAction(
@@ -677,7 +733,11 @@ async function main(): Promise<void> {
       "v3CurrentSemanticsUseEntityEvidence",
       v3Current.definition?.digest === v3.digest &&
         v3Current.value.value.case === "entityRefValue" &&
-        v3Current.value.value.value === "inventory.warehouse.primary",
+        v3Current.value.value.value === "inventory.warehouse.primary" &&
+        v3Current.value.dependencies[0]?.migration?.operationId ===
+          v2ToV3Recipe.operationId &&
+        v3Current.value.dependencies[0]?.migration?.sourceClaimIds[0] ===
+          "claim.inventory.level.v2",
     );
 
     await expectProjectionFailure(tenantA);
@@ -763,7 +823,8 @@ async function main(): Promise<void> {
       "rollbackMovesOnlyTheFutureActivePointer",
       rollback.activation?.kind === DefinitionActivationKind.ROLLBACK &&
         rollback.activation.active?.digest === v2.digest &&
-        rollback.activation.previous?.digest === v3.digest,
+        rollback.activation.previous?.digest === v3.digest &&
+        rollback.activation.policy?.revision?.policyId === "policy.rollback.v3",
     );
     const postRollbackReceipt = await commitAction(
       actionA,
@@ -883,8 +944,8 @@ async function main(): Promise<void> {
       foreignTenantRejections,
       mutants,
       observedOperations: {
-        migrationV1ToV2: realPlan.operationId,
-        migrationV2ToV3: v2ToV3Plan.operationId,
+        migrationV1ToV2: realRecipe.operationId,
+        migrationV2ToV3: v2ToV3Recipe.operationId,
         v1Action: v1ReceiptOperationId,
         v2Action: v2ReceiptOperationId,
         v3Action: v3ReceiptOperationId,

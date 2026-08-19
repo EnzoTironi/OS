@@ -23,6 +23,7 @@ mod effect_store;
 mod history_store;
 mod migration_store;
 mod restate;
+mod semantic_claim_store;
 mod value_store;
 
 pub use action_store::PostgresActionCommit;
@@ -34,8 +35,8 @@ pub use effect_dispatcher::{
 };
 pub use effect_store::PostgresEffectUpdate;
 pub use restate::{RestateEffectScheduler, restate_effect_key};
-use value_store::{row_to_valid_time, valid_time_columns};
-pub(crate) use value_store::{row_to_value, value_columns};
+use value_store::row_to_valid_time;
+pub(crate) use value_store::{row_to_value, valid_time_columns, value_columns};
 
 #[derive(Debug)]
 pub enum PostgresInitError {
@@ -557,6 +558,16 @@ impl AuthorityStore for PostgresAuthorityStore {
         migration_store::prepare(self, migration).await
     }
 
+    async fn preflight_migration_batch(
+        &self,
+        tenant_id: &TenantId,
+        operation_id: &OperationId,
+        batch_index: u32,
+        intent_digest: &zoen_core::IntentDigest,
+    ) -> Result<zoen_engine::MigrationBatchPreflight, StoreError> {
+        migration_store::preflight(self, tenant_id, operation_id, batch_index, intent_digest).await
+    }
+
     async fn get_revision(
         &self,
         tenant_id: &TenantId,
@@ -635,13 +646,6 @@ impl AuthorityStore for PostgresAuthorityStore {
             transaction.commit().await.map_err(store_unavailable)?;
             return Ok(claim);
         }
-        require_active_revision(
-            &mut transaction,
-            context.tenant_id(),
-            &evidence.draft().definition,
-        )
-        .await?;
-
         let next_sequence = head
             .checked_add(1)
             .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
@@ -656,45 +660,14 @@ impl AuthorityStore for PostgresAuthorityStore {
         .map_err(store_unavailable)?;
 
         let draft = evidence.draft();
-        let (value_kind, value_text, value_unit) = value_columns(&draft.value);
-        let (valid_time_kind, valid_from_micros, valid_to_micros) =
-            valid_time_columns(&draft.valid_time);
-        sqlx::query(
-            "INSERT INTO semantic_claims (
-                tenant_id, claim_id, definition_id, definition_digest, definition_revision,
-                entity_id, relation_id, value_kind, value_text, value_unit,
-                valid_time_kind, valid_from_micros, valid_to_micros,
-                source_id, source_digest, source_ref, commit_sequence
-             ) VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7, $8, $9, $10,
-                $11, $12, $13,
-                $14, $15, $16, $17
-             )",
+        semantic_claim_store::insert(
+            &mut transaction,
+            context.tenant_id(),
+            next_sequence,
+            evidence,
+            semantic_claim_store::RevisionRequirement::Active,
         )
-        .bind(context.tenant_id().as_str())
-        .bind(draft.claim_id.as_str())
-        .bind(draft.definition.definition_id.as_str())
-        .bind(draft.definition.digest.as_str())
-        .bind(u64_to_i64(
-            draft.definition.revision.get(),
-            "definition revision",
-        )?)
-        .bind(draft.entity_id.as_str())
-        .bind(draft.relation_id.as_str())
-        .bind(value_kind)
-        .bind(value_text)
-        .bind(value_unit)
-        .bind(valid_time_kind)
-        .bind(valid_from_micros)
-        .bind(valid_to_micros)
-        .bind(draft.provenance.source_id.as_str())
-        .bind(draft.provenance.source_digest.as_str())
-        .bind(&draft.provenance.source_ref)
-        .bind(next_sequence)
-        .execute(&mut *transaction)
-        .await
-        .map_err(store_unavailable)?;
+        .await?;
 
         let event = evidence.projection_event();
         sqlx::query(

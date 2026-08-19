@@ -4,7 +4,7 @@ import {
   DefinitionElementKind,
   MigrationDependencySchema,
   MigrationPostconditionSchema,
-  type MigrationPlan,
+  type MigrationRecipe,
 } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import {
   ExactValueSchema,
@@ -27,7 +27,7 @@ export interface DurableClaim {
 }
 
 export function targetRuleId(
-  plan: MigrationPlan,
+  plan: Pick<MigrationRecipe, "rules">,
   relationId: string,
 ): string {
   const rule = plan.rules.find((item) =>
@@ -55,6 +55,25 @@ export function postcondition(relationId: string) {
     minimumRecordCount: 1n,
     relationId,
   });
+}
+
+export async function claims(
+  admin: ReturnType<typeof adminClient>,
+  digest: string,
+  relationId: string,
+): Promise<DurableClaim[]> {
+  const result = await admin.query<DurableClaim>(
+    `SELECT claim_id, commit_sequence::text, definition_revision::text,
+            relation_id
+     FROM semantic_claims
+     WHERE tenant_id = $1
+       AND definition_digest = $2
+       AND entity_id = $3
+       AND relation_id = $4
+     ORDER BY commit_sequence, claim_id`,
+    [tenantA, digest, resourceId, relationId],
+  );
+  return result.rows;
 }
 
 export async function latestClaim(

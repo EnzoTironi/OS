@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -15,8 +15,9 @@ use zoen_adapters::{PostgresClaimLoader, PostgresClaimQuery};
 use zoen_core::{
     CanonicalDefinition, CanonicalJson, ClaimId, CommitSequence, Consistency, DefinitionReference,
     EntityId, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, Expression,
-    LineageDependency, LineageRole, RelationId, SemanticQuery, SemanticResult, SemanticSelection,
-    SemanticValue, SourceId, TenantId, UnitId, expression_relations,
+    LineageDependency, LineageRole, MigrationOrigin, MigrationRuleId, MigrationRuleKind,
+    OperationId, RelationId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
+    SourceId, TenantId, UnitId, expression_relations,
 };
 use zoen_engine::{
     QueryExecutor, QueryPortError, SemanticClaim, StoreError, decode_canonical_definition,
@@ -101,7 +102,7 @@ impl QueryRuntime {
         let definition = decode_canonical_definition(&canonical_json)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
         let plan = QueryPlan::new(&query.selection, &definition)?;
-        let claims = match &source {
+        let mut claims = match &source {
             SourcePlan::Postgres { cut } => {
                 let claims = self
                     .claim_loader
@@ -140,6 +141,13 @@ impl QueryRuntime {
                 .await?
             }
         };
+        let mut migration_origins = self
+            .load_migration_origins(context.tenant_id(), &claims, cut)
+            .await?;
+        for claim in &mut claims {
+            claim.dependency.migration =
+                migration_origins.remove(claim.dependency.claim_id.as_str());
+        }
         let values = plan.evaluate(&claims)?;
         let actual_commit_sequence = commit_sequence(cut, "query cut")?;
         Ok(SemanticResult {
@@ -218,6 +226,91 @@ impl QueryRuntime {
                 }),
             },
         }
+    }
+
+    async fn load_migration_origins(
+        &self,
+        tenant_id: &TenantId,
+        claims: &[SemanticClaim],
+        cut: i64,
+    ) -> Result<BTreeMap<String, MigrationOrigin>, QueryError> {
+        if claims.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        let claim_ids = claims
+            .iter()
+            .map(|claim| claim.dependency.claim_id.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        set_tenant(&mut transaction, tenant_id).await?;
+        let rows = sqlx::query(
+            "SELECT record.target_claim_id, record.operation_id, record.rule_id,
+                    record.rule_kind, lineage.source_claim_id
+             FROM definition_migration_records AS record
+             JOIN definition_migration_batches AS batch
+               ON batch.tenant_id = record.tenant_id
+              AND batch.operation_id = record.operation_id
+              AND batch.batch_index = record.batch_index
+             LEFT JOIN definition_migration_lineage AS lineage
+               ON lineage.tenant_id = record.tenant_id
+              AND lineage.operation_id = record.operation_id
+              AND lineage.target_claim_id = record.target_claim_id
+             WHERE record.tenant_id = $1
+               AND record.target_claim_id = ANY($2::text[])
+               AND batch.commit_sequence <= $3
+             ORDER BY record.target_claim_id, lineage.source_claim_id",
+        )
+        .bind(tenant_id.as_str())
+        .bind(claim_ids)
+        .bind(cut)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(unavailable)?;
+        transaction.commit().await.map_err(unavailable)?;
+        let mut origins = BTreeMap::<String, MigrationOrigin>::new();
+        for row in rows {
+            let target_claim_id = row
+                .try_get::<String, _>("target_claim_id")
+                .map_err(unavailable)?;
+            let operation_id = row
+                .try_get::<String, _>("operation_id")
+                .map_err(unavailable)?;
+            let rule_id = row.try_get::<String, _>("rule_id").map_err(unavailable)?;
+            let rule_kind = row.try_get::<String, _>("rule_kind").map_err(unavailable)?;
+            let kind = MigrationRuleKind::parse(&rule_kind).ok_or_else(|| {
+                QueryError::Corrupt(format!("unknown migration rule kind: {rule_kind}"))
+            })?;
+            let operation_id = OperationId::parse(operation_id)
+                .map_err(|error| QueryError::Corrupt(error.to_string()))?;
+            let rule_id = MigrationRuleId::parse(rule_id)
+                .map_err(|error| QueryError::Corrupt(error.to_string()))?;
+            let origin = origins
+                .entry(target_claim_id)
+                .or_insert_with(|| MigrationOrigin {
+                    kind,
+                    operation_id: operation_id.clone(),
+                    rule_id: rule_id.clone(),
+                    source_claim_ids: Vec::new(),
+                });
+            if origin.operation_id != operation_id
+                || origin.rule_id != rule_id
+                || origin.kind != kind
+            {
+                return Err(QueryError::Corrupt(
+                    "a migrated claim has conflicting origin metadata".to_owned(),
+                ));
+            }
+            if let Some(source_claim_id) = row
+                .try_get::<Option<String>, _>("source_claim_id")
+                .map_err(unavailable)?
+            {
+                origin.source_claim_ids.push(
+                    ClaimId::parse(source_claim_id)
+                        .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+                );
+            }
+        }
+        Ok(origins)
     }
 
     async fn load_definition(
@@ -446,6 +539,7 @@ fn parse_claim(
             commit_sequence: commit_sequence(physical.commit_sequence, "claim commit sequence")?,
             entity_id: EntityId::parse(physical.entity_id)
                 .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+            migration: None,
             relation_id: RelationId::parse(physical.relation_id)
                 .map_err(|error| QueryError::Corrupt(error.to_string()))?,
             role: LineageRole::Supporting,

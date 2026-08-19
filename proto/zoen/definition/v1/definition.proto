@@ -204,6 +204,23 @@ message MigrationPostcondition {
   uint64 minimum_record_count = 2;
 }
 
+message MigrationRecipe {
+  uint32 format_version = 1;
+  string operation_id = 2;
+  string definition_id = 3;
+  string from_digest = 4;
+  string to_digest = 5;
+  repeated MigrationRule rules = 6;
+  repeated MigrationDependency dependencies = 7;
+  repeated MigrationPostcondition postconditions = 8;
+}
+
+message MigrationObligationSource {
+  string relation_id = 1;
+  string rule_id = 2;
+  MigrationRuleKind kind = 3;
+}
+
 message MigrationPlan {
   uint32 format_version = 1;
   string operation_id = 2;
@@ -215,7 +232,8 @@ message MigrationPlan {
   repeated MigrationRule rules = 8;
   repeated MigrationDependency dependencies = 9;
   repeated MigrationPostcondition postconditions = 10;
-  uint32 expected_batches = 11;
+  string assessment_digest = 11;
+  repeated MigrationObligationSource obligation_sources = 12;
 }
 
 message MigrationRecord {
@@ -231,6 +249,13 @@ message MigrationLineage {
   string target_claim_id = 4;
 }
 
+message MigrationObligation {
+  string source_claim_id = 1;
+  string relation_id = 2;
+  string rule_id = 3;
+  MigrationRuleKind kind = 4;
+}
+
 message MigrationProgress {
   MigrationPlan plan = 1;
   string intent_digest = 2;
@@ -238,11 +263,13 @@ message MigrationProgress {
   uint64 commit_sequence = 4;
   repeated uint32 completed_batches = 5;
   repeated MigrationLineage lineage = 6;
+  repeated MigrationObligation remaining_obligations = 7;
+  uint64 total_obligations = 8;
 }
 
 message PrepareMigrationRequest {
   string tenant_id = 1;
-  MigrationPlan plan = 2;
+  MigrationRecipe recipe = 2;
 }
 
 message PrepareMigrationResponse {

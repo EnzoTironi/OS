@@ -33,10 +33,10 @@ CREATE TABLE definition_migrations (
     from_digest CHAR(64) NOT NULL CHECK (from_digest ~ '^[0-9a-f]{64}$'),
     to_revision BIGINT NOT NULL CHECK (to_revision > 0),
     to_digest CHAR(64) NOT NULL CHECK (to_digest ~ '^[0-9a-f]{64}$'),
+    assessment_digest CHAR(64) NOT NULL CHECK (assessment_digest ~ '^[0-9a-f]{64}$'),
     classification TEXT NOT NULL CHECK (
         classification IN ('requires_migration', 'breaking')
     ),
-    expected_batches INTEGER NOT NULL CHECK (expected_batches > 0),
     commit_sequence BIGINT NOT NULL CHECK (commit_sequence > 0),
     prepared_at_micros BIGINT NOT NULL,
     actor_id TEXT NOT NULL,
@@ -100,6 +100,7 @@ CREATE TABLE definition_migration_lineage (
     target_claim_id TEXT NOT NULL,
     source_claim_id TEXT NOT NULL,
     PRIMARY KEY (tenant_id, operation_id, target_claim_id, source_claim_id),
+    UNIQUE (tenant_id, operation_id, source_claim_id),
     FOREIGN KEY (tenant_id, operation_id, target_claim_id)
         REFERENCES definition_migration_records (tenant_id, operation_id, target_claim_id),
     FOREIGN KEY (tenant_id, source_claim_id)

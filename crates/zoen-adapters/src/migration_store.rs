@@ -1,16 +1,19 @@
+use std::collections::BTreeSet;
+
 use sqlx::{Postgres, Row, Transaction};
 use zoen_core::{
     ClaimId, CommitSequence, DefinitionActivationKind, DefinitionReference, IntentDigest,
-    MigrationLineage, MigrationProgress, MigrationRuleKind, MigrationStatus, OperationId, TenantId,
+    MigrationLineage, MigrationObligation, MigrationProgress, MigrationRuleKind, MigrationStatus,
+    OperationId, TenantId,
 };
 use zoen_engine::{
-    AdmittedDefinitionActivation, AdmittedMigrationBatch, AdmittedMigrationPlan, StoreError,
-    decode_migration_plan,
+    AdmittedDefinitionActivation, AdmittedMigrationBatch, AdmittedMigrationPlan,
+    MigrationBatchPreflight, StoreError, decode_migration_plan,
 };
 
+use crate::semantic_claim_store::{self, RevisionRequirement};
 use crate::{
-    PostgresAuthorityStore, i64_to_u64, set_tenant, store_unavailable, u64_to_i64,
-    valid_time_columns, value_columns,
+    PostgresAuthorityStore, i64_to_u64, row_to_claim, set_tenant, store_unavailable, u64_to_i64,
 };
 
 pub(crate) async fn prepare(
@@ -56,7 +59,7 @@ pub(crate) async fn prepare(
         "INSERT INTO definition_migrations (
             tenant_id, operation_id, intent_digest, canonical_plan,
             definition_id, from_revision, from_digest, to_revision, to_digest,
-            classification, expected_batches, commit_sequence, prepared_at_micros,
+            assessment_digest, classification, commit_sequence, prepared_at_micros,
             actor_id, principal_id, workload_id,
             policy_id, policy_revision, policy_digest, determining_policies
          ) VALUES (
@@ -82,10 +85,8 @@ pub(crate) async fn prepare(
         "target definition revision",
     )?)
     .bind(plan.to.digest.as_str())
+    .bind(plan.assessment_digest.as_str())
     .bind(plan.classification.as_str())
-    .bind(i32::try_from(plan.expected_batches).map_err(|_| {
-        StoreError::Conflict("expected migration batch count exceeds i32".to_owned())
-    })?)
     .bind(next_sequence)
     .bind(migration.prepared_at().get())
     .bind(context.actor_id().as_str())
@@ -120,6 +121,38 @@ pub(crate) async fn prepare(
     advance_head(&mut transaction, context.tenant_id(), next_sequence).await?;
     transaction.commit().await.map_err(store_unavailable)?;
     get(store, context.tenant_id(), &plan.operation_id).await
+}
+
+pub(crate) async fn preflight(
+    store: &PostgresAuthorityStore,
+    tenant_id: &TenantId,
+    operation_id: &OperationId,
+    batch_index: u32,
+    intent_digest: &IntentDigest,
+) -> Result<MigrationBatchPreflight, StoreError> {
+    let batch_index = i32::try_from(batch_index)
+        .map_err(|_| StoreError::Conflict("migration batch index exceeds i32".to_owned()))?;
+    let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
+    set_tenant(&mut transaction, tenant_id).await?;
+    let existing = sqlx::query_scalar::<_, String>(
+        "SELECT intent_digest
+         FROM definition_migration_batches
+         WHERE tenant_id = $1 AND operation_id = $2 AND batch_index = $3",
+    )
+    .bind(tenant_id.as_str())
+    .bind(operation_id.as_str())
+    .bind(batch_index)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(store_unavailable)?;
+    transaction.commit().await.map_err(store_unavailable)?;
+    match existing {
+        Some(existing) if existing == intent_digest.as_str() => get(store, tenant_id, operation_id)
+            .await
+            .map(MigrationBatchPreflight::Replayed),
+        Some(_) => Ok(MigrationBatchPreflight::Mismatch),
+        None => Ok(MigrationBatchPreflight::Ready),
+    }
 }
 
 pub(crate) async fn apply(
@@ -235,9 +268,8 @@ pub(crate) async fn apply(
         )
         .await?;
     }
-    let completed =
-        completed_batch_count(&mut transaction, context.tenant_id(), &plan.operation_id).await?;
-    if completed == u64::from(plan.expected_batches) {
+    let (_, remaining) = obligations(&mut transaction, context.tenant_id(), plan).await?;
+    if remaining.is_empty() {
         check_postconditions(&mut transaction, context.tenant_id(), plan).await?;
     }
     insert_event(
@@ -271,7 +303,7 @@ pub(crate) async fn get(
     let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
     set_tenant(&mut transaction, tenant_id).await?;
     let row = sqlx::query(
-        "SELECT canonical_plan, intent_digest, commit_sequence, expected_batches
+        "SELECT assessment_digest, canonical_plan, intent_digest, commit_sequence
          FROM definition_migrations
          WHERE tenant_id = $1 AND operation_id = $2",
     )
@@ -285,6 +317,14 @@ pub(crate) async fn get(
         .try_get::<String, _>("canonical_plan")
         .map_err(store_unavailable)?;
     let plan = decode_migration_plan(&canonical_plan).map_err(StoreError::Corrupt)?;
+    let assessment_digest = row
+        .try_get::<String, _>("assessment_digest")
+        .map_err(store_unavailable)?;
+    if assessment_digest != plan.assessment_digest.as_str() {
+        return Err(StoreError::Corrupt(
+            "stored migration assessment digest does not match its plan".to_owned(),
+        ));
+    }
     let intent_digest = IntentDigest::parse(
         row.try_get::<String, _>("intent_digest")
             .map_err(store_unavailable)?,
@@ -292,9 +332,6 @@ pub(crate) async fn get(
     .map_err(|error| StoreError::Corrupt(error.to_string()))?;
     let plan_commit = row
         .try_get::<i64, _>("commit_sequence")
-        .map_err(store_unavailable)?;
-    let expected_batches = row
-        .try_get::<i32, _>("expected_batches")
         .map_err(store_unavailable)?;
     let batch_rows = sqlx::query(
         "SELECT batch_index, commit_sequence
@@ -372,10 +409,12 @@ pub(crate) async fn get(
                 .map_err(|error| StoreError::Corrupt(error.to_string()))?,
         });
     }
-    let status = if completed_batches.is_empty() {
-        MigrationStatus::Prepared
-    } else if i32::try_from(completed_batches.len()).ok() == Some(expected_batches) {
+    let (total_obligations, remaining_obligations) =
+        obligations(&mut transaction, tenant_id, &plan).await?;
+    let status = if remaining_obligations.is_empty() {
         MigrationStatus::Completed
+    } else if completed_batches.is_empty() {
+        MigrationStatus::Prepared
     } else {
         MigrationStatus::InProgress
     };
@@ -390,7 +429,9 @@ pub(crate) async fn get(
         intent_digest,
         lineage,
         plan,
+        remaining_obligations,
         status,
+        total_obligations,
     })
 }
 
@@ -402,23 +443,16 @@ pub(crate) async fn completed(
 ) -> Result<Option<MigrationProgress>, StoreError> {
     let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
     set_tenant(&mut transaction, tenant_id).await?;
-    let operation = sqlx::query_scalar::<_, String>(
-        "SELECT migration.operation_id
-         FROM definition_migrations AS migration
-         WHERE migration.tenant_id = $1
-           AND migration.definition_id = $2
-           AND migration.from_digest = $3
-           AND migration.from_revision = $4
-           AND migration.to_digest = $5
-           AND migration.to_revision = $6
-           AND (
-             SELECT count(*)
-             FROM definition_migration_batches AS batch
-             WHERE batch.tenant_id = migration.tenant_id
-               AND batch.operation_id = migration.operation_id
-           ) = migration.expected_batches
-         ORDER BY migration.commit_sequence DESC
-         LIMIT 1",
+    let rows = sqlx::query(
+        "SELECT operation_id, canonical_plan
+         FROM definition_migrations
+         WHERE tenant_id = $1
+           AND definition_id = $2
+           AND from_digest = $3
+           AND from_revision = $4
+           AND to_digest = $5
+           AND to_revision = $6
+         ORDER BY commit_sequence DESC",
     )
     .bind(tenant_id.as_str())
     .bind(from.definition_id.as_str())
@@ -429,16 +463,30 @@ pub(crate) async fn completed(
     )?)
     .bind(to.digest.as_str())
     .bind(u64_to_i64(to.revision.get(), "target definition revision")?)
-    .fetch_optional(&mut *transaction)
+    .fetch_all(&mut *transaction)
     .await
     .map_err(store_unavailable)?;
-    transaction.commit().await.map_err(store_unavailable)?;
-    match operation {
-        Some(operation) => {
-            let operation = OperationId::parse(operation)
-                .map_err(|error| StoreError::Corrupt(error.to_string()))?;
-            get(store, tenant_id, &operation).await.map(Some)
+    let mut completed = None;
+    for row in rows {
+        let canonical_plan = row
+            .try_get::<String, _>("canonical_plan")
+            .map_err(store_unavailable)?;
+        let plan = decode_migration_plan(&canonical_plan).map_err(StoreError::Corrupt)?;
+        let (_, remaining) = obligations(&mut transaction, tenant_id, &plan).await?;
+        if remaining.is_empty() {
+            completed = Some(
+                OperationId::parse(
+                    row.try_get::<String, _>("operation_id")
+                        .map_err(store_unavailable)?,
+                )
+                .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+            );
+            break;
         }
+    }
+    transaction.commit().await.map_err(store_unavailable)?;
+    match completed {
+        Some(operation) => get(store, tenant_id, &operation).await.map(Some),
         None => Ok(None),
     }
 }
@@ -503,8 +551,8 @@ pub(crate) async fn validate_activation(
         DefinitionActivationKind::Activation => {
             if let Some(operation_id) = activation.migration_operation_id() {
                 let previous = activation.previous().ok_or(StoreError::StalePrecondition)?;
-                let migration = sqlx::query(
-                    "SELECT expected_batches, canonical_plan
+                let canonical_plan = sqlx::query_scalar::<_, String>(
+                    "SELECT canonical_plan
                      FROM definition_migrations
                      WHERE tenant_id = $1
                        AND operation_id = $2
@@ -532,23 +580,14 @@ pub(crate) async fn validate_activation(
                 .await
                 .map_err(store_unavailable)?
                 .ok_or(StoreError::StalePrecondition)?;
-                let expected = migration
-                    .try_get::<i32, _>("expected_batches")
-                    .map_err(store_unavailable)?;
-                let completed = completed_batch_count(
-                    transaction,
-                    activation.context().tenant_id(),
-                    operation_id,
-                )
-                .await?;
-                if i32::try_from(completed).ok() != Some(expected) {
-                    return Err(StoreError::StalePrecondition);
-                }
-                let canonical_plan = migration
-                    .try_get::<String, _>("canonical_plan")
-                    .map_err(store_unavailable)?;
                 let plan = decode_migration_plan(&canonical_plan).map_err(StoreError::Corrupt)?;
                 check_dependencies(transaction, activation.context().tenant_id(), &plan).await?;
+                let (_, remaining) =
+                    obligations(transaction, activation.context().tenant_id(), &plan).await?;
+                if !remaining.is_empty() {
+                    return Err(StoreError::StalePrecondition);
+                }
+                check_postconditions(transaction, activation.context().tenant_id(), &plan).await?;
             }
         }
     }
@@ -615,9 +654,13 @@ async fn check_record_sources(
             .filter(|source| source.element == zoen_core::DefinitionElementKind::Relation)
             .map(|source| source.id.as_str())
             .collect::<Vec<_>>();
+        let mut source_claims = Vec::with_capacity(record.source_claim_ids().len());
         for source_claim_id in record.source_claim_ids() {
             let row = sqlx::query(
-                "SELECT definition_digest, relation_id
+                "SELECT claim_id, definition_id, definition_digest, definition_revision,
+                        entity_id, relation_id, value_kind, value_text, value_unit,
+                        valid_time_kind, valid_from_micros, valid_to_micros,
+                        source_id, source_digest, source_ref, commit_sequence
                  FROM semantic_claims
                  WHERE tenant_id = $1 AND claim_id = $2
                  FOR SHARE",
@@ -628,14 +671,23 @@ async fn check_record_sources(
             .await
             .map_err(store_unavailable)?
             .ok_or(StoreError::NotFound)?;
-            let definition_digest = row
-                .try_get::<String, _>("definition_digest")
-                .map_err(store_unavailable)?;
-            let relation_id = row
-                .try_get::<String, _>("relation_id")
-                .map_err(store_unavailable)?;
-            if definition_digest != plan.from.digest.as_str()
-                || !source_relations.contains(&relation_id.as_str())
+            let claim = row_to_claim(&row)?;
+            if claim.draft.definition != plan.from
+                || !source_relations.contains(&claim.draft.relation_id.as_str())
+                || claim.draft.entity_id != record.evidence().draft().entity_id
+            {
+                return Err(StoreError::OperationMismatch);
+            }
+            source_claims.push(claim);
+        }
+        if rule.kind == MigrationRuleKind::PreserveMeaning {
+            let source = source_claims.first().ok_or_else(|| {
+                StoreError::Corrupt("preserve rule has no source claim".to_owned())
+            })?;
+            let target = record.evidence().draft();
+            if source.draft.entity_id != target.entity_id
+                || source.draft.value != target.value
+                || source.draft.valid_time != target.valid_time
             {
                 return Err(StoreError::OperationMismatch);
             }
@@ -654,58 +706,14 @@ async fn insert_record(
     record: &zoen_engine::AdmittedMigrationRecord,
 ) -> Result<(), StoreError> {
     let draft = record.evidence().draft();
-    let collision = sqlx::query_scalar::<_, bool>(
-        "SELECT true FROM semantic_claims WHERE tenant_id = $1 AND claim_id = $2",
+    semantic_claim_store::insert(
+        transaction,
+        tenant_id,
+        commit_sequence,
+        record.evidence(),
+        RevisionRequirement::Published,
     )
-    .bind(tenant_id.as_str())
-    .bind(draft.claim_id.as_str())
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(store_unavailable)?;
-    if collision.is_some() {
-        return Err(StoreError::Conflict(
-            "migration target claim ID already exists".to_owned(),
-        ));
-    }
-    let (value_kind, value_text, value_unit) = value_columns(&draft.value);
-    let (valid_time_kind, valid_from_micros, valid_to_micros) =
-        valid_time_columns(&draft.valid_time);
-    sqlx::query(
-        "INSERT INTO semantic_claims (
-            tenant_id, claim_id, definition_id, definition_digest, definition_revision,
-            entity_id, relation_id, value_kind, value_text, value_unit,
-            valid_time_kind, valid_from_micros, valid_to_micros,
-            source_id, source_digest, source_ref, commit_sequence
-         ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8, $9, $10,
-            $11, $12, $13,
-            $14, $15, $16, $17
-         )",
-    )
-    .bind(tenant_id.as_str())
-    .bind(draft.claim_id.as_str())
-    .bind(plan.to.definition_id.as_str())
-    .bind(plan.to.digest.as_str())
-    .bind(u64_to_i64(
-        plan.to.revision.get(),
-        "target definition revision",
-    )?)
-    .bind(draft.entity_id.as_str())
-    .bind(draft.relation_id.as_str())
-    .bind(value_kind)
-    .bind(value_text)
-    .bind(value_unit)
-    .bind(valid_time_kind)
-    .bind(valid_from_micros)
-    .bind(valid_to_micros)
-    .bind(draft.provenance.source_id.as_str())
-    .bind(draft.provenance.source_digest.as_str())
-    .bind(&draft.provenance.source_ref)
-    .bind(commit_sequence)
-    .execute(&mut **transaction)
-    .await
-    .map_err(store_unavailable)?;
+    .await?;
     sqlx::query(
         "INSERT INTO definition_migration_records (
             tenant_id, operation_id, batch_index, target_claim_id, rule_id, rule_kind
@@ -758,14 +766,19 @@ async fn check_postconditions(
     for postcondition in &plan.postconditions {
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT count(*)
-             FROM semantic_claims
-             WHERE tenant_id = $1
-               AND definition_id = $2
-               AND definition_digest = $3
-               AND definition_revision = $4
-               AND relation_id = $5",
+             FROM definition_migration_records AS record
+             JOIN semantic_claims AS claim
+               ON claim.tenant_id = record.tenant_id
+              AND claim.claim_id = record.target_claim_id
+             WHERE record.tenant_id = $1
+               AND record.operation_id = $2
+               AND claim.definition_id = $3
+               AND claim.definition_digest = $4
+               AND claim.definition_revision = $5
+               AND claim.relation_id = $6",
         )
         .bind(tenant_id.as_str())
+        .bind(plan.operation_id.as_str())
         .bind(plan.to.definition_id.as_str())
         .bind(plan.to.digest.as_str())
         .bind(u64_to_i64(
@@ -871,22 +884,79 @@ async fn advance_head(
     Ok(())
 }
 
-async fn completed_batch_count(
+async fn obligations(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
-    operation_id: &OperationId,
-) -> Result<u64, StoreError> {
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*)
-         FROM definition_migration_batches
-         WHERE tenant_id = $1 AND operation_id = $2",
-    )
-    .bind(tenant_id.as_str())
-    .bind(operation_id.as_str())
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(store_unavailable)?;
-    i64_to_u64(count, "completed migration batch count")
+    plan: &zoen_core::MigrationPlan,
+) -> Result<(u64, Vec<MigrationObligation>), StoreError> {
+    let mut total = 0_u64;
+    let mut remaining = Vec::new();
+    for source in &plan.obligation_sources {
+        let source_claim_ids = sqlx::query_scalar::<_, String>(
+            "SELECT claim_id
+             FROM semantic_claims
+             WHERE tenant_id = $1
+               AND definition_id = $2
+               AND definition_digest = $3
+               AND definition_revision = $4
+               AND relation_id = $5
+             ORDER BY claim_id
+             FOR SHARE",
+        )
+        .bind(tenant_id.as_str())
+        .bind(plan.from.definition_id.as_str())
+        .bind(plan.from.digest.as_str())
+        .bind(u64_to_i64(
+            plan.from.revision.get(),
+            "source definition revision",
+        )?)
+        .bind(source.relation_id.as_str())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(store_unavailable)?;
+        total = total
+            .checked_add(u64::try_from(source_claim_ids.len()).map_err(|_| {
+                StoreError::Corrupt("migration obligation count exceeds u64".to_owned())
+            })?)
+            .ok_or_else(|| StoreError::Corrupt("migration obligation count overflow".to_owned()))?;
+        if source.kind == MigrationRuleKind::Supersede || source_claim_ids.is_empty() {
+            continue;
+        }
+        let resolved = sqlx::query_scalar::<_, String>(
+            "SELECT lineage.source_claim_id
+             FROM definition_migration_lineage AS lineage
+             JOIN definition_migration_records AS record
+               ON record.tenant_id = lineage.tenant_id
+              AND record.operation_id = lineage.operation_id
+              AND record.target_claim_id = lineage.target_claim_id
+             WHERE lineage.tenant_id = $1
+               AND lineage.operation_id = $2
+               AND record.rule_id = $3
+               AND lineage.source_claim_id = ANY($4::text[])",
+        )
+        .bind(tenant_id.as_str())
+        .bind(plan.operation_id.as_str())
+        .bind(source.rule_id.as_str())
+        .bind(&source_claim_ids)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(store_unavailable)?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        for source_claim_id in source_claim_ids {
+            if resolved.contains(&source_claim_id) {
+                continue;
+            }
+            remaining.push(MigrationObligation {
+                kind: source.kind,
+                relation_id: source.relation_id.clone(),
+                rule_id: source.rule_id.clone(),
+                source_claim_id: ClaimId::parse(source_claim_id)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+            });
+        }
+    }
+    Ok((total, remaining))
 }
 
 fn parse_rule_kind(value: &str) -> Result<MigrationRuleKind, StoreError> {
