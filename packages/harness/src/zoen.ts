@@ -16,7 +16,7 @@ import {
   PolicyDecision,
   type PolicyEvidence as WirePolicyEvidence,
   ProposalStatus,
-} from "@zoen/sdk/action/v1";
+} from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
   DefinitionReferenceSchema,
   ExactValueSchema,
@@ -27,7 +27,7 @@ import {
   SemanticValueResultSchema,
   StrongConsistencySchema,
   WorldService,
-} from "@zoen/sdk/world/v1";
+} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import { createHash } from "node:crypto";
 import {
   agentCommitReceiptSchema,
