@@ -5887,6 +5887,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "uuid",
+ "zoen-adapters",
  "zoen-core",
  "zoen-engine",
 ]

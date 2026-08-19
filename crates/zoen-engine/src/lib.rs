@@ -125,6 +125,7 @@ pub enum EvidenceValidationError {
     DefinitionReferenceMismatch,
     EmptySourceReference,
     MalformedDefinition(String),
+    ReservedClaimId(String),
     UnknownRelation(String),
     ValueTypeMismatch(String),
 }
@@ -138,6 +139,12 @@ impl Display for EvidenceValidationError {
             Self::EmptySourceReference => formatter.write_str("evidence source reference is empty"),
             Self::MalformedDefinition(message) => {
                 write!(formatter, "stored definition is malformed: {message}")
+            }
+            Self::ReservedClaimId(claim_id) => {
+                write!(
+                    formatter,
+                    "evidence claim id uses a reserved namespace: {claim_id}"
+                )
             }
             Self::UnknownRelation(relation_id) => {
                 write!(formatter, "definition has no relation: {relation_id}")
@@ -582,6 +589,7 @@ fn validate_definition(definition: &CanonicalDefinition) -> Result<(), Validatio
     }
 
     for item in &definition.actions {
+        require_nonempty(DefinitionFamily::ActionEffect, item.effects.is_empty())?;
         validate_executable(
             item.id.as_str(),
             DefinitionFamily::ActionInput,

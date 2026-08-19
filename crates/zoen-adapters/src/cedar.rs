@@ -162,7 +162,10 @@ fn cedar_request(request: &PolicyRequest<'_>) -> Result<Request, String> {
     let inputs = request
         .inputs
         .iter()
-        .map(|input| cedar_value(&input.value).map(|value| (input.id.as_str().to_owned(), value)))
+        .map(|input| {
+            cedar_value(input.id.as_str(), &input.value)
+                .map(|value| (input.id.as_str().to_owned(), value))
+        })
         .collect::<Result<serde_json::Map<_, _>, _>>()?;
     let context = Context::from_json_value(
         serde_json::json!({
@@ -179,14 +182,14 @@ fn cedar_request(request: &PolicyRequest<'_>) -> Result<Request, String> {
     Request::new(principal, action, resource, context, None).map_err(|error| error.to_string())
 }
 
-fn cedar_value(value: &ExactValue) -> Result<serde_json::Value, String> {
+fn cedar_value(input_id: &str, value: &ExactValue) -> Result<serde_json::Value, String> {
     match value {
         ExactValue::Bool(value) => Ok(serde_json::Value::Bool(*value)),
         ExactValue::Integer(value) => value
             .as_str()
             .parse::<i64>()
             .map(serde_json::Value::from)
-            .map_err(|_| "Cedar integer input exceeds i64".to_owned()),
+            .map_err(|_| format!("Action input {input_id} exceeds Cedar's integer range")),
         ExactValue::Decimal(value) => Ok(serde_json::Value::String(value.as_str().to_owned())),
         ExactValue::Quantity { amount, unit } => Ok(serde_json::json!({
             "amount": amount.as_str(),
@@ -305,6 +308,50 @@ mod tests {
         assert!(matches!(
             error,
             zoen_core::PolicyEvaluation::EvaluationError { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn reports_the_input_that_exceeds_cedars_integer_range() {
+        let definition_digest = "a".repeat(64);
+        let source = r#"permit(principal, action, resource);"#;
+        let evaluator = CedarPolicyEvaluator::from_json(&format!(
+            r#"{{"policies":[{{"actionId":"action.purchase","definitionDigest":"{definition_digest}","digest":"{}","policyId":"policy.permit","revision":1,"source":{}}}]}}"#,
+            sha256(source.as_bytes()),
+            serde_json::to_string(source).expect("source"),
+        ))
+        .expect("manifest");
+        let context = trusted_context("action.purchase");
+        let action = ActionId::parse("action.purchase").expect("action");
+        let definition = DefinitionReference {
+            definition_id: DefinitionId::parse("definition.test").expect("definition"),
+            digest: DefinitionDigest::parse(&definition_digest).expect("digest"),
+            revision: DefinitionRevisionNumber::new(1).expect("revision"),
+        };
+        let resource = ResourceId::parse("resource.item").expect("resource");
+        let input = zoen_core::ActionInput {
+            id: InputId::parse("quantity").expect("input"),
+            value: zoen_core::ExactValue::Integer(
+                ExactInteger::parse("9223372036854775808").expect("integer"),
+            ),
+        };
+
+        let evaluation = evaluator
+            .evaluate(&PolicyRequest {
+                action_id: &action,
+                approved: false,
+                context: &context,
+                definition: &definition,
+                inputs: &[input],
+                operation: PolicyOperation::Commit,
+                resource_id: &resource,
+            })
+            .await;
+
+        assert!(matches!(
+            evaluation,
+            zoen_core::PolicyEvaluation::EvaluationError { message, .. }
+                if message.contains("quantity") && message.contains("integer range")
         ));
     }
 

@@ -55,6 +55,25 @@ pub(crate) fn admit_evidence(
     revision: &DefinitionRevision,
     draft: EvidenceDraft,
 ) -> Result<AdmittedEvidence, RecordEvidenceError> {
+    if draft.claim_id.as_str().starts_with("claim.action.") {
+        return Err(RecordEvidenceError::InvalidEvidence(
+            EvidenceValidationError::ReservedClaimId(draft.claim_id.as_str().to_owned()),
+        ));
+    }
+    admit_evidence_draft(revision, draft)
+}
+
+pub(crate) fn admit_action_effect(
+    revision: &DefinitionRevision,
+    draft: EvidenceDraft,
+) -> Result<AdmittedEvidence, RecordEvidenceError> {
+    admit_evidence_draft(revision, draft)
+}
+
+fn admit_evidence_draft(
+    revision: &DefinitionRevision,
+    draft: EvidenceDraft,
+) -> Result<AdmittedEvidence, RecordEvidenceError> {
     if revision.definition_id != draft.definition.definition_id
         || revision.digest != draft.definition.digest
         || revision.revision != draft.definition.revision

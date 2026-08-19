@@ -17,8 +17,10 @@ use zoen_engine::{
 
 mod action_store;
 mod cedar;
+mod claim_store;
 
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
+pub use claim_store::{PostgresClaimLoader, PostgresClaimQuery};
 
 #[derive(Debug)]
 pub enum PostgresInitError {
@@ -480,7 +482,7 @@ fn row_to_revision(row: &PgRow) -> Result<DefinitionRevision, StoreError> {
     })
 }
 
-fn row_to_claim(row: &PgRow) -> Result<EvidenceClaim, StoreError> {
+pub(crate) fn row_to_claim(row: &PgRow) -> Result<EvidenceClaim, StoreError> {
     let claim_id = ClaimId::parse(row_string(row, "claim_id")?)
         .map_err(|error| StoreError::Corrupt(error.to_string()))?;
     let definition_id = DefinitionId::parse(row_string(row, "definition_id")?)
@@ -549,7 +551,7 @@ fn valid_time_columns(valid_time: &ValidTime) -> (&'static str, i64, Option<i64>
     }
 }
 
-fn row_to_value(row: &PgRow) -> Result<ExactValue, StoreError> {
+pub(crate) fn row_to_value(row: &PgRow) -> Result<ExactValue, StoreError> {
     let kind = row_string(row, "value_kind")?;
     let value = row_string(row, "value_text")?;
     match kind.as_str() {

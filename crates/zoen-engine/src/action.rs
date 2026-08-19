@@ -1,19 +1,20 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId, ClaimId,
-    CommitReceipt, Consistency, DefinitionReference, EntityId, EvidenceDigest, EvidenceDraft,
-    EvidenceProvenance, ExactInteger, ExactValue, ExecutionContext, Expression, InputId,
-    IntentDigest, LineageDependency, OperationId, PolicyEvaluation, PolicyEvidence,
-    ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult,
-    SemanticSelection, StateBasis, StateBasisDigest, StateDependency, TimestampMicros,
-    TrustedExecutionContext, ValidTime, ValueType,
+    ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
+    CanonicalDefinition, Cardinality, ClaimId, CommitReceipt, Consistency, DefinitionReference,
+    DefinitionRevision, EntityId, EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue,
+    ExecutionContext, IntentDigest, LineageDependency, LineageRole, OperationId, PolicyEvaluation,
+    PolicyEvidence, ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery,
+    SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
+    StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime, ValueType,
+    evaluate_expression, expression_relations,
 };
 
-use crate::{AuthorityStore, StoreError, decode_canonical_definition};
+use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyOperation {
@@ -114,7 +115,7 @@ pub enum CommitStoreOutcome {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommitPlan {
-    pub effects: Vec<EvidenceDraft>,
+    pub effects: Vec<AdmittedEvidence>,
     pub policy: PolicyEvidence,
     pub proposal: ActionProposal,
 }
@@ -227,25 +228,24 @@ where
             .map_err(|error| ActionError::Definition(error.to_string()))?;
         let mut discoveries = Vec::with_capacity(decoded.actions.len());
         for action in decoded.actions {
-            let evaluation =
-                if context
-                    .delegation()
-                    .permits(&action.id, resource_id, context.workload_id(), at)
-                {
-                    self.policy
-                        .evaluate(&PolicyRequest {
-                            action_id: &action.id,
-                            approved: false,
-                            context,
-                            definition,
-                            inputs: &[],
-                            operation: PolicyOperation::Discover,
-                            resource_id,
-                        })
-                        .await
-                } else {
-                    return Err(ActionError::DelegationDenied);
-                };
+            if !context
+                .delegation()
+                .permits(&action.id, resource_id, context.workload_id(), at)
+            {
+                continue;
+            }
+            let evaluation = self
+                .policy
+                .evaluate(&PolicyRequest {
+                    action_id: &action.id,
+                    approved: false,
+                    context,
+                    definition,
+                    inputs: &[],
+                    operation: PolicyOperation::Discover,
+                    resource_id,
+                })
+                .await;
             discoveries.push(ActionDiscovery {
                 action_id: action.id,
                 evaluation,
@@ -268,16 +268,16 @@ where
             &command.resource_id,
             command.proposed_at,
         )?;
-        let action = self
+        let loaded = self
             .load_action(context, &command.definition, &command.action_id)
             .await?;
-        validate_inputs(&action, &command.inputs)?;
+        validate_inputs(&loaded.action, &command.inputs)?;
         let state_basis = self
             .evaluate_precondition(
                 context,
                 &command.definition,
                 &command.resource_id,
-                &action,
+                &loaded,
                 &command.inputs,
                 command.valid_at,
             )
@@ -348,7 +348,7 @@ where
             operation_id: command.operation_id,
             proposal_id: command.proposal_id,
             proposed_at: command.proposed_at,
-            proposed_by: context.actor_id().clone(),
+            proposed_by: context.clone(),
             resource_id: command.resource_id,
             state_basis,
             valid_at: command.valid_at,
@@ -409,7 +409,7 @@ where
                 let approval = ActionApproval {
                     approval_id,
                     approved_at,
-                    approved_by: context.actor_id().clone(),
+                    approved_by: context.clone(),
                     expires_at,
                     policy,
                     proposal_id: proposal.proposal_id,
@@ -448,6 +448,21 @@ where
             .map_err(ActionError::Store)?;
         if &proposal.operation_id != operation_id {
             return Err(ActionError::OperationMismatch);
+        }
+        match self.store.get_operation(context, operation_id).await {
+            Ok(receipt)
+                if receipt.proposal_id == proposal.proposal_id
+                    && receipt.intent_digest == proposal.intent_digest =>
+            {
+                return Ok(CommitOutcome::Committed(receipt));
+            }
+            Ok(_) => {
+                return Err(ActionError::Store(StoreError::Conflict(
+                    "operation id already identifies a different intent".to_owned(),
+                )));
+            }
+            Err(StoreError::NotFound) => {}
+            Err(error) => return Err(ActionError::Store(error)),
         }
         if committed_at >= proposal.expires_at {
             return Err(ActionError::ExpiredProposal);
@@ -497,23 +512,16 @@ where
                 });
             }
         };
-        let action = self
+        let loaded = self
             .load_action(context, &proposal.definition, &proposal.action_id)
             .await?;
-        let current_basis = self
-            .evaluate_precondition(
-                context,
-                &proposal.definition,
-                &proposal.resource_id,
-                &action,
-                &proposal.inputs,
-                proposal.valid_at,
-            )
-            .await?;
-        if current_basis.digest != proposal.state_basis.digest {
-            return Ok(CommitOutcome::Stale(current_basis));
-        }
-        let effects = build_effects(&proposal, &action)?;
+        let effects = build_effects(&proposal, &loaded.action)?
+            .into_iter()
+            .map(|draft| {
+                admission::admit_action_effect(&loaded.revision, draft)
+                    .map_err(|error| ActionError::Evaluation(error.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         match self
             .store
             .commit_action(
@@ -548,7 +556,7 @@ where
         context: &TrustedExecutionContext,
         definition: &DefinitionReference,
         action_id: &ActionId,
-    ) -> Result<ActionDefinition, ActionError> {
+    ) -> Result<LoadedAction, ActionError> {
         let revision = self
             .store
             .get_revision(
@@ -565,13 +573,19 @@ where
         }
         let decoded = decode_canonical_definition(&revision.canonical_json)
             .map_err(|error| ActionError::Definition(error.to_string()))?;
-        decoded
+        let action = decoded
             .actions
-            .into_iter()
+            .iter()
             .find(|action| action.id == *action_id)
+            .cloned()
             .ok_or_else(|| {
                 ActionError::Definition(format!("definition has no Action: {action_id}"))
-            })
+            })?;
+        Ok(LoadedAction {
+            action,
+            definition: decoded,
+            revision,
+        })
     }
 
     async fn evaluate_precondition(
@@ -579,24 +593,27 @@ where
         context: &TrustedExecutionContext,
         definition: &DefinitionReference,
         resource_id: &ResourceId,
-        action: &ActionDefinition,
+        loaded: &LoadedAction,
         inputs: &[ActionInput],
         valid_at: TimestampMicros,
     ) -> Result<StateBasis, ActionError> {
         let entity_id = EntityId::parse(resource_id.as_str())
             .map_err(|error| ActionError::Input(error.to_string()))?;
-        let mut relations = BTreeSet::new();
-        collect_relations(&action.precondition, &mut relations);
-        let mut values = BTreeMap::<RelationId, Vec<ExactValue>>::new();
+        let relations = expression_relations(&loaded.action.precondition);
+        let mut values = BTreeMap::<RelationId, Vec<SemanticValue>>::new();
         let mut dependencies = Vec::new();
         let mut observed = None;
         for relation_id in relations {
+            let consistency = match observed {
+                Some(cut) => Consistency::Snapshot(cut),
+                None => Consistency::Strong,
+            };
             let result = self
                 .query
                 .execute(
                     context,
                     &SemanticQuery {
-                        consistency: Consistency::Strong,
+                        consistency,
                         definition: definition.clone(),
                         entity_id: entity_id.clone(),
                         selection: SemanticSelection::Relation(relation_id.clone()),
@@ -605,34 +622,49 @@ where
                 )
                 .await
                 .map_err(|error| ActionError::Evaluation(error.to_string()))?;
+            if observed.is_some_and(|cut| cut != result.actual_commit_sequence) {
+                return Err(ActionError::Evaluation(
+                    "Action precondition relations used different authority cuts".to_owned(),
+                ));
+            }
             observed = Some(result.actual_commit_sequence);
-            values.insert(
-                relation_id,
-                result
-                    .values
-                    .iter()
-                    .map(|value| value.value.clone())
-                    .collect(),
-            );
             dependencies.extend(
                 result
                     .values
-                    .into_iter()
+                    .iter()
                     .flat_map(|value| value.dependencies)
+                    .cloned()
                     .map(state_dependency),
             );
+            let cardinality = loaded
+                .definition
+                .relations
+                .iter()
+                .find(|relation| relation.id == relation_id)
+                .map(|relation| relation.cardinality)
+                .ok_or_else(|| {
+                    ActionError::Definition(format!(
+                        "definition has no relation: {}",
+                        relation_id.as_str()
+                    ))
+                })?;
+            values.insert(relation_id, relation_values(result.values, cardinality)?);
         }
         let input_values = inputs
             .iter()
             .map(|input| (input.id.clone(), input.value.clone()))
             .collect::<BTreeMap<_, _>>();
-        let evaluated = evaluate_expression(&action.precondition, &input_values, &values)?;
-        if !evaluated
-            .iter()
-            .any(|value| matches!(value, ExactValue::Bool(true)))
-        {
+        let evaluated = evaluate_expression(&loaded.action.precondition, &input_values, &values)
+            .map_err(|error| ActionError::Evaluation(error.to_string()))?;
+        if !matches!(
+            evaluated.as_slice(),
+            [SemanticValue {
+                value: ExactValue::Bool(true),
+                ..
+            }]
+        ) {
             return Err(ActionError::Evaluation(
-                "Action precondition is not satisfied".to_owned(),
+                "Action precondition must produce one satisfied boolean".to_owned(),
             ));
         }
         dependencies.sort_by(|left, right| {
@@ -658,6 +690,35 @@ where
             observed_commit_sequence,
         })
     }
+}
+
+struct LoadedAction {
+    action: ActionDefinition,
+    definition: CanonicalDefinition,
+    revision: DefinitionRevision,
+}
+
+fn relation_values(
+    values: Vec<SemanticValue>,
+    cardinality: Cardinality,
+) -> Result<Vec<SemanticValue>, ActionError> {
+    match cardinality {
+        Cardinality::Many => Ok(values),
+        Cardinality::One => Ok(values
+            .into_iter()
+            .max_by_key(latest_supporting_commit)
+            .into_iter()
+            .collect()),
+    }
+}
+
+fn latest_supporting_commit(value: &SemanticValue) -> Option<zoen_core::CommitSequence> {
+    value
+        .dependencies
+        .iter()
+        .filter(|dependency| dependency.role == LineageRole::Supporting)
+        .map(|dependency| dependency.commit_sequence)
+        .max()
 }
 
 fn authorize_delegation(
@@ -715,90 +776,6 @@ fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
     }
 }
 
-fn collect_relations(expression: &Expression, relations: &mut BTreeSet<RelationId>) {
-    match expression {
-        Expression::Binary { left, right, .. } => {
-            collect_relations(left, relations);
-            collect_relations(right, relations);
-        }
-        Expression::Relation(relation_id) => {
-            relations.insert(relation_id.clone());
-        }
-        Expression::Input(_) | Expression::Literal(_) => {}
-    }
-}
-
-fn evaluate_expression(
-    expression: &Expression,
-    inputs: &BTreeMap<InputId, ExactValue>,
-    relations: &BTreeMap<RelationId, Vec<ExactValue>>,
-) -> Result<Vec<ExactValue>, ActionError> {
-    match expression {
-        Expression::Binary {
-            left,
-            operator,
-            right,
-        } => {
-            let left = evaluate_expression(left, inputs, relations)?;
-            let right = evaluate_expression(right, inputs, relations)?;
-            let mut values = Vec::with_capacity(left.len().saturating_mul(right.len()));
-            for left in &left {
-                for right in &right {
-                    values.push(apply_operator(*operator, left, right)?);
-                }
-            }
-            Ok(values)
-        }
-        Expression::Input(input_id) => inputs
-            .get(input_id)
-            .cloned()
-            .map(|value| vec![value])
-            .ok_or_else(|| ActionError::Input(format!("missing input {}", input_id.as_str()))),
-        Expression::Literal(value) => Ok(vec![value.clone()]),
-        Expression::Relation(relation_id) => {
-            Ok(relations.get(relation_id).cloned().unwrap_or_default())
-        }
-    }
-}
-
-fn apply_operator(
-    operator: zoen_core::BinaryOperator,
-    left: &ExactValue,
-    right: &ExactValue,
-) -> Result<ExactValue, ActionError> {
-    let (ExactValue::Integer(left), ExactValue::Integer(right)) = (left, right) else {
-        return Err(ActionError::Evaluation(
-            "V1 Action expression requires exact integer operands".to_owned(),
-        ));
-    };
-    let left = left
-        .as_str()
-        .parse::<i128>()
-        .map_err(|_| ActionError::Evaluation("left integer exceeds i128".to_owned()))?;
-    let right = right
-        .as_str()
-        .parse::<i128>()
-        .map_err(|_| ActionError::Evaluation("right integer exceeds i128".to_owned()))?;
-    match operator {
-        zoen_core::BinaryOperator::Add => checked_integer(left.checked_add(right), "addition"),
-        zoen_core::BinaryOperator::GreaterThan => Ok(ExactValue::Bool(left > right)),
-        zoen_core::BinaryOperator::Multiply => {
-            checked_integer(left.checked_mul(right), "multiplication")
-        }
-        zoen_core::BinaryOperator::Subtract => {
-            checked_integer(left.checked_sub(right), "subtraction")
-        }
-    }
-}
-
-fn checked_integer(value: Option<i128>, operation: &str) -> Result<ExactValue, ActionError> {
-    let value = value
-        .ok_or_else(|| ActionError::Evaluation(format!("integer {operation} overflowed i128")))?;
-    ExactInteger::parse(value.to_string())
-        .map(ExactValue::Integer)
-        .map_err(|error| ActionError::Evaluation(error.to_string()))
-}
-
 fn state_dependency(dependency: LineageDependency) -> StateDependency {
     StateDependency {
         claim_id: dependency.claim_id,
@@ -831,14 +808,15 @@ fn intent_digest(
 ) -> Result<IntentDigest, ActionError> {
     let mut hasher = Sha256::new();
     hash_field(&mut hasher, context.tenant_id().as_str());
-    hash_field(&mut hasher, command.proposal_id.as_str());
-    hash_field(&mut hasher, command.operation_id.as_str());
     hash_field(&mut hasher, command.definition.definition_id.as_str());
     hash_field(&mut hasher, command.definition.digest.as_str());
     hash_field(&mut hasher, &command.definition.revision.get().to_string());
     hash_field(&mut hasher, command.action_id.as_str());
     hash_field(&mut hasher, command.resource_id.as_str());
-    for input in &command.inputs {
+    hash_field(&mut hasher, &command.valid_at.get().to_string());
+    let mut inputs = command.inputs.iter().collect::<Vec<_>>();
+    inputs.sort_by(|left, right| left.id.cmp(&right.id));
+    for input in inputs {
         hash_field(&mut hasher, input.id.as_str());
         hash_field(&mut hasher, &value_key(&input.value));
     }
@@ -863,7 +841,8 @@ fn build_effects(
         .iter()
         .enumerate()
         .map(|(index, effect)| {
-            let values = evaluate_expression(&effect.value, &inputs, &BTreeMap::new())?;
+            let values = evaluate_expression(&effect.value, &inputs, &BTreeMap::new())
+                .map_err(|error| ActionError::Evaluation(error.to_string()))?;
             let [value] = values.as_slice() else {
                 return Err(ActionError::Evaluation(
                     "Action effect must produce exactly one value".to_owned(),
@@ -871,8 +850,8 @@ fn build_effects(
             };
             Ok(EvidenceDraft {
                 claim_id: ClaimId::parse(format!(
-                    "claim.{}.{}",
-                    proposal.proposal_id.as_str(),
+                    "claim.action.{}.{}",
+                    proposal.intent_digest.as_str(),
                     index
                 ))
                 .map_err(|error| ActionError::Evaluation(error.to_string()))?,
@@ -887,7 +866,7 @@ fn build_effects(
                 },
                 relation_id: effect.relation_id.clone(),
                 valid_time: ValidTime::instant(proposal.valid_at),
-                value: value.clone(),
+                value: value.value.clone(),
             })
         })
         .collect()

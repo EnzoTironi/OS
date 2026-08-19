@@ -385,7 +385,7 @@ fn to_proposal(proposal: ActionProposal) -> Proposal {
         policy: Some(to_policy_evidence(policy)).into(),
         proposal_id: proposal.proposal_id.as_str().to_owned(),
         proposed_at: Some(to_timestamp(proposal.proposed_at)).into(),
-        proposed_by: proposal.proposed_by.as_str().to_owned(),
+        proposed_by: proposal.proposed_by.actor_id().as_str().to_owned(),
         resource_id: proposal.resource_id.as_str().to_owned(),
         state_basis: Some(to_state_basis(proposal.state_basis)).into(),
         status: status.into(),
@@ -398,7 +398,7 @@ fn to_approval(approval: ActionApproval) -> Approval {
     Approval {
         approval_id: approval.approval_id.as_str().to_owned(),
         approved_at: Some(to_timestamp(approval.approved_at)).into(),
-        approved_by: approval.approved_by.as_str().to_owned(),
+        approved_by: approval.approved_by.actor_id().as_str().to_owned(),
         expires_at: Some(to_timestamp(approval.expires_at)).into(),
         policy: Some(to_policy_evidence(approval.policy)).into(),
         proposal_id: approval.proposal_id.as_str().to_owned(),

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -352,6 +352,140 @@ pub enum Expression {
     Input(InputId),
     Literal(ExactValue),
     Relation(RelationId),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExpressionEvaluationError {
+    IntegerOutOfRange(&'static str),
+    IntegerOverflow(&'static str),
+    InvalidOperands,
+    MissingInput(InputId),
+}
+
+impl Display for ExpressionEvaluationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IntegerOutOfRange(side) => {
+                write!(formatter, "{side} integer exceeds i128")
+            }
+            Self::IntegerOverflow(operation) => {
+                write!(formatter, "integer {operation} overflowed i128")
+            }
+            Self::InvalidOperands => {
+                formatter.write_str("expression requires exact integer operands")
+            }
+            Self::MissingInput(input_id) => {
+                write!(formatter, "missing expression input {}", input_id.as_str())
+            }
+        }
+    }
+}
+
+impl Error for ExpressionEvaluationError {}
+
+pub fn expression_relations(expression: &Expression) -> BTreeSet<RelationId> {
+    let mut relations = BTreeSet::new();
+    collect_expression_relations(expression, &mut relations);
+    relations
+}
+
+pub fn evaluate_expression(
+    expression: &Expression,
+    inputs: &BTreeMap<InputId, ExactValue>,
+    relations: &BTreeMap<RelationId, Vec<SemanticValue>>,
+) -> Result<Vec<SemanticValue>, ExpressionEvaluationError> {
+    match expression {
+        Expression::Binary {
+            left,
+            operator,
+            right,
+        } => {
+            let left = evaluate_expression(left, inputs, relations)?;
+            let right = evaluate_expression(right, inputs, relations)?;
+            let mut values = Vec::with_capacity(left.len().saturating_mul(right.len()));
+            for left in &left {
+                for right in &right {
+                    let mut dependencies =
+                        Vec::with_capacity(left.dependencies.len() + right.dependencies.len());
+                    dependencies.extend(left.dependencies.iter().cloned());
+                    dependencies.extend(right.dependencies.iter().cloned());
+                    values.push(SemanticValue {
+                        dependencies,
+                        value: apply_expression_operator(*operator, &left.value, &right.value)?,
+                    });
+                }
+            }
+            Ok(values)
+        }
+        Expression::Input(input_id) => inputs
+            .get(input_id)
+            .cloned()
+            .map(|value| {
+                vec![SemanticValue {
+                    dependencies: Vec::new(),
+                    value,
+                }]
+            })
+            .ok_or_else(|| ExpressionEvaluationError::MissingInput(input_id.clone())),
+        Expression::Literal(value) => Ok(vec![SemanticValue {
+            dependencies: Vec::new(),
+            value: value.clone(),
+        }]),
+        Expression::Relation(relation_id) => {
+            Ok(relations.get(relation_id).cloned().unwrap_or_default())
+        }
+    }
+}
+
+fn collect_expression_relations(expression: &Expression, relations: &mut BTreeSet<RelationId>) {
+    match expression {
+        Expression::Binary { left, right, .. } => {
+            collect_expression_relations(left, relations);
+            collect_expression_relations(right, relations);
+        }
+        Expression::Relation(relation_id) => {
+            relations.insert(relation_id.clone());
+        }
+        Expression::Input(_) | Expression::Literal(_) => {}
+    }
+}
+
+fn apply_expression_operator(
+    operator: BinaryOperator,
+    left: &ExactValue,
+    right: &ExactValue,
+) -> Result<ExactValue, ExpressionEvaluationError> {
+    let (ExactValue::Integer(left), ExactValue::Integer(right)) = (left, right) else {
+        return Err(ExpressionEvaluationError::InvalidOperands);
+    };
+    let left = left
+        .as_str()
+        .parse::<i128>()
+        .map_err(|_| ExpressionEvaluationError::IntegerOutOfRange("left"))?;
+    let right = right
+        .as_str()
+        .parse::<i128>()
+        .map_err(|_| ExpressionEvaluationError::IntegerOutOfRange("right"))?;
+    match operator {
+        BinaryOperator::Add => checked_expression_integer(left.checked_add(right), "addition"),
+        BinaryOperator::GreaterThan => Ok(ExactValue::Bool(left > right)),
+        BinaryOperator::Multiply => {
+            checked_expression_integer(left.checked_mul(right), "multiplication")
+        }
+        BinaryOperator::Subtract => {
+            checked_expression_integer(left.checked_sub(right), "subtraction")
+        }
+    }
+}
+
+fn checked_expression_integer(
+    value: Option<i128>,
+    operation: &'static str,
+) -> Result<ExactValue, ExpressionEvaluationError> {
+    let value = value.ok_or(ExpressionEvaluationError::IntegerOverflow(operation))?;
+    ExactInteger::parse(value.to_string())
+        .map(ExactValue::Integer)
+        .map_err(|_| ExpressionEvaluationError::IntegerOverflow(operation))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -873,7 +1007,7 @@ pub struct ActionProposal {
     pub operation_id: OperationId,
     pub proposal_id: ProposalId,
     pub proposed_at: TimestampMicros,
-    pub proposed_by: ActorId,
+    pub proposed_by: TrustedExecutionContext,
     pub resource_id: ResourceId,
     pub state_basis: StateBasis,
     pub valid_at: TimestampMicros,
@@ -883,7 +1017,7 @@ pub struct ActionProposal {
 pub struct ActionApproval {
     pub approval_id: ApprovalId,
     pub approved_at: TimestampMicros,
-    pub approved_by: ActorId,
+    pub approved_by: TrustedExecutionContext,
     pub expires_at: TimestampMicros,
     pub policy: PolicyEvidence,
     pub proposal_id: ProposalId,
@@ -893,6 +1027,7 @@ pub struct ActionApproval {
 pub struct CommitReceipt {
     pub action_id: ActionId,
     pub commit_sequence: CommitSequence,
+    pub committed_by: TrustedExecutionContext,
     pub definition: DefinitionReference,
     pub intent_digest: IntentDigest,
     pub operation_id: OperationId,
@@ -903,12 +1038,13 @@ pub struct CommitReceipt {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        ActionId, DefinitionDigest, DelegationChain, DelegationError, DelegationGrant,
-        DelegationId, ExactDecimal, ExactInteger, ResourceId, TimestampMicros, ValidTime,
-        WorkloadId,
+        ActionId, BinaryOperator, DefinitionDigest, DelegationChain, DelegationError,
+        DelegationGrant, DelegationId, ExactDecimal, ExactInteger, ExactValue, Expression, InputId,
+        RelationId, ResourceId, SemanticValue, TimestampMicros, ValidTime, WorkloadId,
+        evaluate_expression,
     };
 
     #[test]
@@ -936,6 +1072,38 @@ mod tests {
         for rejected in ["", "-0", "01", "1.0", "1.", ".1", "+1", "1e2"] {
             assert!(ExactDecimal::parse(rejected).is_err(), "{rejected}");
         }
+    }
+
+    #[test]
+    fn expression_evaluation_uses_typed_input_and_relation_bindings() {
+        let input_id = InputId::parse("quantity").expect("input");
+        let relation_id = RelationId::parse("inventory.available").expect("relation");
+        let expression = Expression::Binary {
+            left: Box::new(Expression::Relation(relation_id.clone())),
+            operator: BinaryOperator::GreaterThan,
+            right: Box::new(Expression::Input(input_id.clone())),
+        };
+        let inputs = BTreeMap::from([(
+            input_id,
+            ExactValue::Integer(ExactInteger::parse("2").expect("integer")),
+        )]);
+        let relations = BTreeMap::from([(
+            relation_id,
+            vec![SemanticValue {
+                dependencies: Vec::new(),
+                value: ExactValue::Integer(ExactInteger::parse("6").expect("integer")),
+            }],
+        )]);
+
+        let values = evaluate_expression(&expression, &inputs, &relations).expect("evaluation");
+
+        assert_eq!(
+            values,
+            vec![SemanticValue {
+                dependencies: Vec::new(),
+                value: ExactValue::Bool(true),
+            }]
+        );
     }
 
     #[test]

@@ -8,8 +8,8 @@ use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
 use zoen_core::{
-    ActionId, ActorId, DelegationChain, DelegationGrant, DelegationId, ExecutionContext,
-    PrincipalId, ResourceId, TenantId, TimestampMicros, WorkloadId,
+    ActionId, ActorId, DelegationChain, DelegationError, DelegationGrant, DelegationId,
+    ExecutionContext, PrincipalId, ResourceId, TenantId, TimestampMicros, WorkloadId,
 };
 
 #[derive(Debug)]
@@ -65,6 +65,11 @@ struct OidcVerifier {
     audience: String,
     issuer: String,
     keys: HashMap<String, DecodingKey>,
+}
+
+enum AuthenticationError {
+    InvalidClaim,
+    InvalidDelegation(DelegationError),
 }
 
 impl SessionRegistry {
@@ -147,11 +152,19 @@ impl SessionRegistry {
         })
     }
 
-    pub fn authenticate(&self, authorization: Option<&str>) -> Option<ExecutionContext> {
-        let token = authorization?.strip_prefix("Bearer ")?;
+    fn authenticate(
+        &self,
+        authorization: Option<&str>,
+    ) -> Result<ExecutionContext, AuthenticationError> {
+        let token = authorization
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .ok_or(AuthenticationError::InvalidClaim)?;
         match &self.provider {
-            AuthProvider::Legacy(contexts) => contexts.get(token).cloned(),
-            AuthProvider::Oidc(verifier) => verifier.authenticate(token).ok(),
+            AuthProvider::Legacy(contexts) => contexts
+                .get(token)
+                .cloned()
+                .ok_or(AuthenticationError::InvalidClaim),
+            AuthProvider::Oidc(verifier) => verifier.authenticate(token),
         }
     }
 
@@ -162,9 +175,15 @@ impl SessionRegistry {
         let authorization = request_context
             .header("authorization")
             .and_then(|value| value.to_str().ok());
-        self.authenticate(authorization).ok_or_else(|| {
-            ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-        })
+        self.authenticate(authorization)
+            .map_err(|error| match error {
+                AuthenticationError::InvalidClaim => {
+                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                }
+                AuthenticationError::InvalidDelegation(error) => {
+                    ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
+                }
+            })
     }
 
     pub fn execution_context(
@@ -186,20 +205,16 @@ impl SessionRegistry {
 }
 
 impl OidcVerifier {
-    fn authenticate(&self, token: &str) -> Result<ExecutionContext, SessionConfigError> {
-        let header = decode_header(token)
-            .map_err(|error| SessionConfigError::InvalidClaim(error.to_string()))?;
+    fn authenticate(&self, token: &str) -> Result<ExecutionContext, AuthenticationError> {
+        let header = decode_header(token).map_err(|_| AuthenticationError::InvalidClaim)?;
         if header.alg != Algorithm::RS256 {
-            return Err(SessionConfigError::InvalidClaim(
-                "token must use RS256".to_owned(),
-            ));
+            return Err(AuthenticationError::InvalidClaim);
         }
-        let key_id = header
-            .kid
-            .ok_or_else(|| SessionConfigError::InvalidClaim("token has no key id".to_owned()))?;
-        let key = self.keys.get(&key_id).ok_or_else(|| {
-            SessionConfigError::InvalidClaim(format!("unknown token key id {key_id:?}"))
-        })?;
+        let key_id = header.kid.ok_or(AuthenticationError::InvalidClaim)?;
+        let key = self
+            .keys
+            .get(&key_id)
+            .ok_or(AuthenticationError::InvalidClaim)?;
         let mut validation = Validation::new(Algorithm::RS256);
         validation.leeway = 0;
         validation.validate_nbf = true;
@@ -207,59 +222,61 @@ impl OidcVerifier {
         validation.set_issuer(&[&self.issuer]);
         validation.set_required_spec_claims(&["aud", "exp", "iss", "sub"]);
         let claims = decode::<OidcClaims>(token, key, &validation)
-            .map_err(|error| SessionConfigError::InvalidClaim(error.to_string()))?
+            .map_err(|_| AuthenticationError::InvalidClaim)?
             .claims;
         trusted_context_from_claims(claims)
     }
 }
 
-fn trusted_context_from_claims(claims: OidcClaims) -> Result<ExecutionContext, SessionConfigError> {
+fn trusted_context_from_claims(
+    claims: OidcClaims,
+) -> Result<ExecutionContext, AuthenticationError> {
     let delegation_claims = serde_json::from_str::<Vec<DelegationClaim>>(&claims.delegation)
-        .map_err(|error| SessionConfigError::InvalidClaim(error.to_string()))?;
+        .map_err(|_| AuthenticationError::InvalidClaim)?;
     let grants = delegation_claims
         .into_iter()
         .map(parse_delegation_claim)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ExecutionContext::new(
-        TenantId::parse(claims.tenant_id).map_err(invalid_claim)?,
-        ActorId::parse(claims.actor_id).map_err(invalid_claim)?,
-        PrincipalId::parse(claims.principal_id).map_err(invalid_claim)?,
-        WorkloadId::parse(claims.workload_id).map_err(invalid_claim)?,
-        DelegationChain::new(grants).map_err(invalid_claim)?,
+        TenantId::parse(claims.tenant_id).map_err(|_| AuthenticationError::InvalidClaim)?,
+        ActorId::parse(claims.actor_id).map_err(|_| AuthenticationError::InvalidClaim)?,
+        PrincipalId::parse(claims.principal_id).map_err(|_| AuthenticationError::InvalidClaim)?,
+        WorkloadId::parse(claims.workload_id).map_err(|_| AuthenticationError::InvalidClaim)?,
+        DelegationChain::new(grants).map_err(AuthenticationError::InvalidDelegation)?,
     ))
 }
 
-fn parse_delegation_claim(claim: DelegationClaim) -> Result<DelegationGrant, SessionConfigError> {
+fn parse_delegation_claim(claim: DelegationClaim) -> Result<DelegationGrant, AuthenticationError> {
     DelegationGrant::new(
-        DelegationId::parse(claim.delegation_id).map_err(invalid_claim)?,
+        DelegationId::parse(claim.delegation_id).map_err(|_| AuthenticationError::InvalidClaim)?,
         parse_ids(claim.action_ids, ActionId::parse)?,
         parse_ids(claim.resource_ids, ResourceId::parse)?,
         parse_ids(claim.workload_ids, WorkloadId::parse)?,
         seconds_to_micros(claim.not_before)?,
         seconds_to_micros(claim.expires_at)?,
     )
-    .map_err(invalid_claim)
+    .map_err(AuthenticationError::InvalidDelegation)
 }
 
 fn parse_ids<T, E>(
     values: Vec<String>,
     parse: impl Fn(String) -> Result<T, E>,
-) -> Result<BTreeSet<T>, SessionConfigError>
+) -> Result<BTreeSet<T>, AuthenticationError>
 where
     T: Ord,
     E: Display,
 {
     values
         .into_iter()
-        .map(|value| parse(value).map_err(invalid_claim))
+        .map(|value| parse(value).map_err(|_| AuthenticationError::InvalidClaim))
         .collect()
 }
 
-fn seconds_to_micros(value: i64) -> Result<TimestampMicros, SessionConfigError> {
+fn seconds_to_micros(value: i64) -> Result<TimestampMicros, AuthenticationError> {
     value
         .checked_mul(1_000_000)
         .map(TimestampMicros::new)
-        .ok_or_else(|| SessionConfigError::InvalidClaim("delegation time exceeds i64".to_owned()))
+        .ok_or(AuthenticationError::InvalidClaim)
 }
 
 fn legacy_context(tenant_id: TenantId) -> Result<ExecutionContext, SessionConfigError> {

@@ -617,7 +617,7 @@ async function main(): Promise<void> {
           definition: fixtures.direct.definition,
           resourceId,
         }),
-      Code.Unauthenticated,
+      Code.PermissionDenied,
     );
     const afterTokenFailures = await databaseSnapshot(admin, tenantA);
     assert.deepEqual(afterTokenFailures, beforeTokenFailures);
@@ -627,17 +627,15 @@ async function main(): Promise<void> {
     recordFailureInjection("child-delegation-expansion");
     recordAssertion(
       "oidcFailuresRejectedWithoutWrites",
-      [
-        invalidSignatureCode,
-        wrongAudienceCode,
-        expiredTokenCode,
-        expandedDelegationCode,
-      ].every((code) => code === Code.Unauthenticated) &&
+      [invalidSignatureCode, wrongAudienceCode, expiredTokenCode].every(
+        (code) => code === Code.Unauthenticated,
+      ) &&
+        expandedDelegationCode === Code.PermissionDenied &&
         isDeepStrictEqual(afterTokenFailures, beforeTokenFailures),
     );
     recordAssertion(
       "childDelegationExpansionRejected",
-      expandedDelegationCode === Code.Unauthenticated,
+      expandedDelegationCode === Code.PermissionDenied,
     );
 
     const foreignOperation = await propose(actionA, {
