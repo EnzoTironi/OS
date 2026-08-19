@@ -43,6 +43,7 @@ import {
   oidcToken,
   publish,
   queryValue,
+  queryValues,
   rebuildProjection,
   recordEvidence,
   repositoryRoot,
@@ -603,10 +604,15 @@ async function main(): Promise<void> {
         projectedV3.value.value.case === "entityRefValue",
     );
 
-    const historicalV1 = await queryValue(
+    const historicalV1 = await queryValues(
       worldA,
       definitionReference(v1),
       "inventory.level",
+    );
+    const historicalV1Amounts = historicalV1.values.flatMap((value) =>
+      value.value?.value.case === "quantityValue"
+        ? [value.value.value.value.amount]
+        : [],
     );
     const v1Explanation = await historyClient(adminAToken).explain({
       target: {
@@ -619,8 +625,8 @@ async function main(): Promise<void> {
     observe(
       "historicalActionQueryAndExplainStayOnV1",
       historicalV1.definition?.digest === v1.digest &&
-        historicalV1.value.value.case === "quantityValue" &&
-        historicalV1.value.value.value.amount === "6" &&
+        historicalV1Amounts.length === historicalV1.values.length &&
+        historicalV1Amounts.sort().join(",") === "5,6" &&
         v1Explanation.explanation?.subject.case === "action" &&
         v1Explanation.explanation.subject.value.definition?.reference
           ?.digest === v1.digest,

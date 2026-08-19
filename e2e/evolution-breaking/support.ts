@@ -197,13 +197,13 @@ export async function commitAction(
   return committed.receipt;
 }
 
-export async function queryValue(
+export async function queryValues(
   client: WorldClient,
   definition: DefinitionReference,
   relationId: string,
   consistency: "eventual" | "strong" = "strong",
 ) {
-  const response = await client.semanticQuery({
+  return client.semanticQuery({
     consistency: create(QueryConsistencySchema, {
       value:
         consistency === "strong"
@@ -224,6 +224,20 @@ export async function queryValue(
     tenantId: tenantA,
     validAt: timestampFromDate(validAt),
   });
+}
+
+export async function queryValue(
+  client: WorldClient,
+  definition: DefinitionReference,
+  relationId: string,
+  consistency: "eventual" | "strong" = "strong",
+) {
+  const response = await queryValues(
+    client,
+    definition,
+    relationId,
+    consistency,
+  );
   assert.equal(response.values.length, 1);
   assert.ok(response.values[0]?.value);
   return {
