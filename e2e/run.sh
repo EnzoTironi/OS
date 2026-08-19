@@ -122,7 +122,7 @@ run_check() {
   npm run buf:generate
   npm exec -- buf build --as-file-descriptor-set -o proto/definition_descriptor.binpb
   git diff --exit-code -- packages/sdk/src/gen proto/definition_descriptor.binpb
-  npm run check
+  npm run build
   npm test
   cargo fmt --all --check
   cargo clippy --locked --workspace --all-targets -- -D warnings
