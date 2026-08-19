@@ -632,7 +632,7 @@ where
                 result
                     .values
                     .iter()
-                    .flat_map(|value| value.dependencies)
+                    .flat_map(|value| value.dependencies.iter())
                     .cloned()
                     .map(state_dependency),
             );
