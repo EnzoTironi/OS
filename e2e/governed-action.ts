@@ -15,10 +15,12 @@ import {
   actionId,
   adminDatabaseUrl,
   assertPolicy,
+  command,
   composeOutput,
   corruptToken,
   databaseSnapshot,
   definitionClient,
+  definitionId,
   delay,
   expectConnectCode,
   generatedDirectory,
@@ -33,6 +35,7 @@ import {
   recordAvailable,
   repositoryRoot,
   resourceId,
+  rowCount,
   sha256,
   startServer,
   stopServer,
@@ -225,15 +228,16 @@ async function main(): Promise<void> {
       quantity: "2",
     });
     assert.equal(direct.decision, PolicyDecision.PERMIT);
-    assert.ok(direct.proposal);
-    assert.equal(direct.proposal.status, ProposalStatus.READY);
-    assert.equal(direct.proposal.stateBasis?.dependencies.length, 1);
-    assertPolicy(direct.proposal.policy, fixtures.direct);
+    const directProposal = direct.proposal;
+    assert.ok(directProposal);
+    assert.equal(directProposal.status, ProposalStatus.READY);
+    assert.equal(directProposal.stateBasis?.dependencies.length, 1);
+    assertPolicy(directProposal.policy, fixtures.direct);
     const beforeReservedClaim = await databaseSnapshot(admin, tenantA);
     const reservedClaimCode = await expectConnectCode(
       () =>
         recordAvailable(worldA, {
-          claimId: `claim.action.${direct.proposal.intentDigest}.0`,
+          claimId: `claim.action.${directProposal.intentDigest}.0`,
           fixture: fixtures.direct,
           resource: resourceId,
           tenantId: tenantA,

@@ -60,7 +60,7 @@ const baseUrl = "http://127.0.0.1:58083";
 export const oidcIssuer = "http://127.0.0.1:58082/realms/zoen";
 export const oidcAudience = "zoend";
 export const actionId = "inventory.requestStock";
-const definitionId = "inventory.governed";
+export const definitionId = "inventory.governed";
 export const resourceId = "inventory.item.1";
 export const unrelatedResourceId = "inventory.item.unrelated";
 const availableRelation = "inventory.available";
@@ -521,7 +521,7 @@ export function composeOutput(...arguments_: string[]): Promise<string> {
   ]);
 }
 
-function command(
+export function command(
   executable: string,
   arguments_: readonly string[],
 ): Promise<string> {
