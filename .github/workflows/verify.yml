@@ -1,0 +1,122 @@
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          components: rustfmt
+          toolchain: "1.88.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
+      - run: ./e2e/run.sh lint
+
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          components: clippy
+          toolchain: "1.88.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: clippy
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+      - run: npm ci
+      - run: ./e2e/run.sh build all
+      - uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: e2e-binaries
+          path: |
+            dist/
+            target/debug/zoend
+            target/debug/zoen-effect-dispatcher
+            target/debug/zoen-http-connector
+            target/debug/zoen-projection
+            target/failpoints/debug/zoend
+
+  e2e:
+    needs: [check, clippy, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - definition-publication
+          - domain-quality
+          - durable-commit
+          - effects
+          - evolution-breaking
+          - evolution-compatible
+          - explain
+          - governed-action
+          - semantic-query
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-binaries
+      - run: chmod +x target/debug/zoend target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection target/failpoints/debug/zoend
+      - run: ./e2e/run.sh run ${{ matrix.scenario }}
+
+  required:
+    if: always()
+    needs: [check, clippy, build, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every gate
+        run: |
+          test "${{ needs.check.result }}" = "success"
+          test "${{ needs.clippy.result }}" = "success"
+          test "${{ needs.build.result }}" = "success"
+          test "${{ needs.e2e.result }}" = "success"
