@@ -17,12 +17,27 @@ import {
   type Interceptor,
 } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
+import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Client as PostgresClient } from "pg";
 import { DefinitionService } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import {
+  DefinitionReferenceSchema,
+  EvidenceClaimSchema,
+  EvidenceProvenanceSchema,
+  EventualConsistencySchema,
+  ExactValueSchema,
   LineageRole,
+  QueryConsistencySchema,
+  QuerySelectionSchema,
+  StrongConsistencySchema,
+  TemporalIntervalSchema,
+  ValidTimeSchema,
   WorldService,
+  type DefinitionReference as WorldDefinitionReference,
+  type QueryConsistency,
+  type QuerySelection,
+  type ValidTime,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 
 const repositoryRoot = process.cwd();
@@ -75,11 +90,11 @@ async function main(): Promise<void> {
     await readFile(definitionPath, "utf8")
   ).trimEnd();
   const definitionDigest = sha256(canonicalDefinition);
-  const definition = {
+  const definition = create(DefinitionReferenceSchema, {
     definitionId,
     digest: definitionDigest,
     revision: 1n,
-  };
+  });
   const clientA = definitionClient(tokenA);
   const clientB = definitionClient(tokenB);
   const worldA = worldClient(tokenA);
@@ -641,11 +656,7 @@ function authorization(token: string): Interceptor {
 
 interface EvidenceInput {
   claimId: string;
-  definition: {
-    definitionId: string;
-    digest: string;
-    revision: bigint;
-  };
+  definition: WorldDefinitionReference;
   entityId: string;
   relationId: string;
   sourceId: string;
@@ -666,52 +677,61 @@ async function recordInterval(
   client: WorldClient,
   input: IntervalEvidenceInput,
 ): Promise<bigint> {
-  return record(client, input, {
-    case: "interval",
-    value: {
-      end: timestampFromDate(input.end),
-      start: timestampFromDate(input.start),
-    },
-  });
+  return record(
+    client,
+    input,
+    create(ValidTimeSchema, {
+      value: {
+        case: "interval",
+        value: create(TemporalIntervalSchema, {
+          end: timestampFromDate(input.end),
+          start: timestampFromDate(input.start),
+        }),
+      },
+    }),
+  );
 }
 
 async function recordInstant(
   client: WorldClient,
   input: InstantEvidenceInput,
 ): Promise<bigint> {
-  return record(client, input, {
-    case: "instant",
-    value: timestampFromDate(input.instant),
-  });
+  return record(
+    client,
+    input,
+    create(ValidTimeSchema, {
+      value: {
+        case: "instant",
+        value: timestampFromDate(input.instant),
+      },
+    }),
+  );
 }
 
 async function record(
   client: WorldClient,
   input: EvidenceInput,
-  validTime: {
-    case: "instant" | "interval";
-    value: unknown;
-  },
+  validTime: ValidTime,
 ): Promise<bigint> {
   const response = await client.recordEvidence({
-    claim: {
+    claim: create(EvidenceClaimSchema, {
       claimId: input.claimId,
       definition: input.definition,
       entityId: input.entityId,
-      provenance: {
+      provenance: create(EvidenceProvenanceSchema, {
         sourceDigest: sha256(input.sourceId),
         sourceId: input.sourceId,
         sourceRef: `urn:evidence:${input.claimId}`,
-      },
+      }),
       relationId: input.relationId,
-      validTime: { value: validTime },
-      value: {
+      validTime,
+      value: create(ExactValueSchema, {
         value: {
           case: "integerValue",
           value: input.value,
         },
-      },
-    },
+      }),
+    }),
     tenantId: input.tenantId,
   });
   assert.equal(response.claimId, input.claimId);
@@ -719,24 +739,10 @@ async function record(
 }
 
 interface QueryInput {
-  consistency: {
-    value: {
-      case: "strong" | "atLeastCommit" | "snapshotCommit" | "eventual";
-      value: unknown;
-    };
-  };
-  definition: {
-    definitionId: string;
-    digest: string;
-    revision: bigint;
-  };
+  consistency: QueryConsistency;
+  definition: WorldDefinitionReference;
   entityId: string;
-  selection: {
-    value: {
-      case: "relationId" | "computationId";
-      value: string;
-    };
-  };
+  selection: QuerySelection;
   tenantId: string;
   validAt: Date;
 }
@@ -760,29 +766,45 @@ async function query(client: WorldClient, input: QueryInput) {
 }
 
 function strong() {
-  return { value: { case: "strong" as const, value: {} } };
+  return create(QueryConsistencySchema, {
+    value: {
+      case: "strong",
+      value: create(StrongConsistencySchema),
+    },
+  });
 }
 
 function atLeast(commit: bigint) {
-  return { value: { case: "atLeastCommit" as const, value: commit } };
+  return create(QueryConsistencySchema, {
+    value: { case: "atLeastCommit", value: commit },
+  });
 }
 
 function snapshot(commit: bigint) {
-  return { value: { case: "snapshotCommit" as const, value: commit } };
+  return create(QueryConsistencySchema, {
+    value: { case: "snapshotCommit", value: commit },
+  });
 }
 
 function eventual() {
-  return { value: { case: "eventual" as const, value: {} } };
+  return create(QueryConsistencySchema, {
+    value: {
+      case: "eventual",
+      value: create(EventualConsistencySchema),
+    },
+  });
 }
 
 function relation(relationId: string) {
-  return { value: { case: "relationId" as const, value: relationId } };
+  return create(QuerySelectionSchema, {
+    value: { case: "relationId", value: relationId },
+  });
 }
 
 function computation(computationId: string) {
-  return {
-    value: { case: "computationId" as const, value: computationId },
-  };
+  return create(QuerySelectionSchema, {
+    value: { case: "computationId", value: computationId },
+  });
 }
 
 function integerValues(response: Awaited<ReturnType<typeof query>>): string[] {
