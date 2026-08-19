@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CommitStatus } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
+  activateDefinition,
   loadFixture,
   publishDefinition,
   recordAvailable,
@@ -54,6 +55,8 @@ async function main(): Promise<void> {
 
   const agentAToken = await oidcToken("agent-a");
   const agentBToken = await oidcToken("agent-b");
+  const adminAToken = await oidcToken("admin-a");
+  const adminBToken = await oidcToken("admin-b");
   const workerAToken = await oidcToken("effect-worker-a");
   const workerBToken = await oidcToken("effect-worker-b");
   const reconcilerAToken = await oidcToken("effect-reconciler-a");
@@ -62,6 +65,8 @@ async function main(): Promise<void> {
   const actionB = actionClient(agentBToken);
   const definitionA = definitionClient(agentAToken);
   const definitionB = definitionClient(agentBToken);
+  const definitionAdminA = definitionClient(adminAToken);
+  const definitionAdminB = definitionClient(adminBToken);
   const effectA = effectClient(agentAToken);
   const effectB = effectClient(agentBToken);
   const effectReconcilerA = effectClient(reconcilerAToken);
@@ -108,6 +113,8 @@ async function main(): Promise<void> {
     assert.match(registration, /ZoenEffect|deployment/i);
     await publishDefinition(definitionA, tenantA, fixture);
     await publishDefinition(definitionB, tenantB, fixture);
+    await activateDefinition(definitionAdminA, tenantA, fixture);
+    await activateDefinition(definitionAdminB, tenantB, fixture);
     await recordAvailable(worldA, {
       claimId: "claim.available.effects.a",
       fixture,

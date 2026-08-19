@@ -256,8 +256,15 @@ async function main(): Promise<void> {
     );
     recordAssertion("immutableMutationKilled");
 
-    assert.equal(await relationName(admin, "active_definition_revisions"), null);
-    recordAssertion("activationStorageDeferred");
+    assert.equal(
+      await relationName(admin, "active_definition_revisions"),
+      "active_definition_revisions",
+    );
+    assert.equal(
+      await rowCount(admin, "active_definition_revisions", tenantA),
+      0,
+    );
+    recordAssertion("publishDidNotActivate");
     await assertRlsIsolation();
 
     await stopServer(server);
@@ -514,6 +521,7 @@ async function rowCount(
   tenantId: string,
 ): Promise<number> {
   const allowedTables = new Set([
+    "active_definition_revisions",
     "authority_commits",
     "definition_revisions",
     "projection_outbox",
@@ -615,7 +623,10 @@ async function assertRlsIsolation(): Promise<void> {
       [tenantA],
     );
     for (const table of [
+      "active_definition_revisions",
       "authority_commits",
+      "definition_activation_grants",
+      "definition_activations",
       "definition_revisions",
       "projection_outbox",
     ]) {

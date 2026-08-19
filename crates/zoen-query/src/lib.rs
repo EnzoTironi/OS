@@ -599,9 +599,15 @@ fn adapter_error(error: StoreError) -> QueryError {
         StoreError::IdentityCollision(_) => {
             QueryError::Corrupt("unexpected Action identity collision".to_owned())
         }
+        StoreError::InactiveDefinition => {
+            QueryError::Corrupt("unexpected inactive definition precondition".to_owned())
+        }
         StoreError::NotFound => QueryError::Invalid("claim source was not found".to_owned()),
         StoreError::OperationMismatch => {
             QueryError::Corrupt("unexpected Action operation mismatch".to_owned())
+        }
+        StoreError::StalePrecondition => {
+            QueryError::Corrupt("unexpected stale activation precondition".to_owned())
         }
         StoreError::Unavailable(message) => QueryError::Unavailable(message),
     }

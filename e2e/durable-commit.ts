@@ -7,6 +7,7 @@ import { Client as PostgresClient } from "pg";
 import { DefinitionReferenceSchema } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   actionClient,
+  activateDefinition,
   adminDatabaseUrl,
   definitionClient,
   definitionId,
@@ -58,10 +59,14 @@ async function main(): Promise<void> {
 
   const agentAToken = await oidcToken("agent-a");
   const agentBToken = await oidcToken("agent-b");
+  const adminAToken = await oidcToken("admin-a");
+  const adminBToken = await oidcToken("admin-b");
   const actionA = actionClient(agentAToken);
   const actionB = actionClient(agentBToken);
   const definitionA = definitionClient(agentAToken);
   const definitionB = definitionClient(agentBToken);
+  const definitionAdminA = definitionClient(adminAToken);
+  const definitionAdminB = definitionClient(adminBToken);
   const worldA = worldClient(agentAToken);
   const worldB = worldClient(agentBToken);
   const runtime = {
@@ -74,6 +79,8 @@ async function main(): Promise<void> {
     for (const fixture of Object.values(fixtures)) {
       await publishDefinition(definitionA, tenantA, fixture);
       await publishDefinition(definitionB, tenantB, fixture);
+      await activateDefinition(definitionAdminA, tenantA, fixture);
+      await activateDefinition(definitionAdminB, tenantB, fixture);
       await recordAvailable(worldA, {
         claimId: `claim.available.${fixture.definition.revision}.a`,
         fixture,
@@ -208,12 +215,18 @@ async function main(): Promise<void> {
 }
 
 async function loadMultiFixture(): Promise<DefinitionFixture> {
-  const canonicalJson = (
+  const source = (
     await readFile(
       path.join(scenarioDirectory, "definition-multi.canonical.json"),
       "utf8",
     )
   ).trimEnd();
+  const multiDefinitionId = `${definitionId}.multi`;
+  const canonicalJson = source.replace(
+    `"definitionId":"${definitionId}"`,
+    `"definitionId":"${multiDefinitionId}"`,
+  );
+  assert.notEqual(canonicalJson, source);
   const policySource = await readFile(
     path.join(repositoryRoot, "e2e", "governed-action", "direct.cedar"),
     "utf8",
@@ -222,7 +235,7 @@ async function loadMultiFixture(): Promise<DefinitionFixture> {
   return {
     canonicalJson,
     definition: create(DefinitionReferenceSchema, {
-      definitionId,
+      definitionId: multiDefinitionId,
       digest,
       revision: 6n,
     }),

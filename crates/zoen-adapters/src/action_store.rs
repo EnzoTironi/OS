@@ -14,7 +14,10 @@ use zoen_core::{
 };
 use zoen_engine::StoreError;
 
-use crate::{i64_to_u64, row_to_value, set_tenant, store_unavailable, u64_to_i64, value_columns};
+use crate::{
+    i64_to_u64, require_active_revision, row_to_value, set_tenant, store_unavailable, u64_to_i64,
+    value_columns,
+};
 
 mod commit;
 mod failpoints;
@@ -45,6 +48,7 @@ pub(crate) async fn save_proposal(
             "proposal id already identifies a different intent".to_owned(),
         ));
     }
+    require_active_revision(&mut transaction, context.tenant_id(), &proposal.definition).await?;
     if load_proposal_by_operation(
         &mut transaction,
         context.tenant_id(),

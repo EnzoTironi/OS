@@ -40,22 +40,24 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         Err(error) => return Err(error.into()),
     };
-    let policy = match env::var("ZOEN_CEDAR_POLICY_MANIFEST") {
+    let policy = Arc::new(match env::var("ZOEN_CEDAR_POLICY_MANIFEST") {
         Ok(path) => CedarPolicyEvaluator::from_path(path)?,
         Err(env::VarError::NotPresent) => CedarPolicyEvaluator::from_json(r#"{"policies":[]}"#)?,
         Err(error) => return Err(error.into()),
-    };
+    });
     let listen_address = env::var("ZOEN_LISTEN_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
         .parse::<SocketAddr>()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
     let query = QueryRuntime::new(store.pool(), object_store_config()?);
     let action_service = ActionServiceImpl::new(
-        ActionEngine::new(store.clone(), query.clone(), policy),
+        ActionEngine::new(store.clone(), query.clone(), policy.clone()),
         sessions.clone(),
     );
-    let definition_service =
-        DefinitionServiceImpl::new(DefinitionEngine::new(store.clone()), sessions.clone());
+    let definition_service = DefinitionServiceImpl::new(
+        DefinitionEngine::new(store.clone(), policy),
+        sessions.clone(),
+    );
     let effect_worker_workload = WorkloadId::parse(
         env::var("ZOEN_EFFECT_WORKER_WORKLOAD_ID")
             .unwrap_or_else(|_| "workload.effect-worker".to_owned()),

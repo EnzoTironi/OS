@@ -28,6 +28,7 @@ import {
   ValidTimeSchema,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
+  activateDefinition,
   type DefinitionFixture,
   loadFixture,
   publishDefinition,
@@ -147,12 +148,16 @@ async function main(): Promise<void> {
 
   const agentAToken = await oidcToken("agent-a");
   const agentBToken = await oidcToken("agent-b");
+  const adminAToken = await oidcToken("admin-a");
+  const adminBToken = await oidcToken("admin-b");
   const workerAToken = await oidcToken("effect-worker-a");
   const workerBToken = await oidcToken("effect-worker-b");
   const reconcilerAToken = await oidcToken("effect-reconciler-a");
   const actionA = actionClient(agentAToken);
   const definitionA = definitionClient(agentAToken);
   const definitionB = definitionClient(agentBToken);
+  const definitionAdminA = definitionClient(adminAToken);
+  const definitionAdminB = definitionClient(adminBToken);
   const effectA = effectClient(agentAToken);
   const reconcilerA = effectClient(reconcilerAToken);
   const worldA = worldClient(agentAToken);
@@ -182,6 +187,8 @@ async function main(): Promise<void> {
     assert.match(registration, /ZoenEffect|deployment/i);
     await publishDefinition(definitionA, tenantA, fixture);
     await publishDefinition(definitionB, tenantB, fixture);
+    await activateDefinition(definitionAdminA, tenantA, fixture);
+    await activateDefinition(definitionAdminB, tenantB, fixture);
     await recordAvailable(worldA, {
       claimId: "claim.available.explain.rival",
       fixture,

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
@@ -25,6 +26,7 @@ pub use state_basis::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyOperation {
+    ActivateRevision,
     Approve,
     Commit,
     Discover,
@@ -45,6 +47,15 @@ pub struct PolicyRequest<'a> {
 #[allow(async_fn_in_trait)]
 pub trait PolicyEvaluator: Send + Sync {
     async fn evaluate(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation;
+}
+
+impl<T> PolicyEvaluator for Arc<T>
+where
+    T: PolicyEvaluator + ?Sized,
+{
+    async fn evaluate(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
+        self.as_ref().evaluate(request).await
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -158,6 +169,7 @@ pub enum ActionError {
     DelegationDenied,
     Evaluation(String),
     ExpiredProposal,
+    InactiveDefinition,
     Input(String),
     Store(StoreError),
 }
@@ -175,6 +187,9 @@ impl Display for ActionError {
             }
             Self::Evaluation(message) => write!(formatter, "Action evaluation failed: {message}"),
             Self::ExpiredProposal => formatter.write_str("Action proposal has expired"),
+            Self::InactiveDefinition => {
+                formatter.write_str("Action proposals require the active definition revision")
+            }
             Self::Input(message) => write!(formatter, "invalid Action input: {message}"),
             Self::Store(error) => error.fmt(formatter),
         }
@@ -191,6 +206,7 @@ impl Error for ActionError {
             | Self::DelegationDenied
             | Self::Evaluation(_)
             | Self::ExpiredProposal
+            | Self::InactiveDefinition
             | Self::Input(_) => None,
         }
     }
@@ -237,17 +253,12 @@ where
     ) -> Result<Vec<ActionDiscovery>, ActionError> {
         let canonical = self
             .store
-            .get_revision(
-                context.tenant_id(),
-                &definition.definition_id,
-                &definition.digest,
-            )
+            .get_active_revision(context.tenant_id(), &definition.definition_id)
             .await
-            .map_err(ActionError::Store)?;
-        if canonical.revision != definition.revision {
-            return Err(ActionError::Definition(
-                "definition digest and revision do not match".to_owned(),
-            ));
+            .map_err(ActionError::Store)?
+            .ok_or(ActionError::InactiveDefinition)?;
+        if canonical.digest != definition.digest || canonical.revision != definition.revision {
+            return Err(ActionError::InactiveDefinition);
         }
         let decoded = decode_canonical_definition(&canonical.canonical_json)
             .map_err(|error| ActionError::Definition(error.to_string()))?;
@@ -674,9 +685,7 @@ where
             observed = Some(result.actual_commit_sequence);
             values.insert(relation_id, result.values);
         }
-        let observed_commit_sequence = observed.ok_or_else(|| {
-            ActionError::Evaluation("Action precondition has no state dependency".to_owned())
-        })?;
+        let observed_commit_sequence = observed.unwrap_or(loaded.revision.commit_sequence);
         evaluate_action_state_basis(
             &loaded.action,
             &loaded.definition,

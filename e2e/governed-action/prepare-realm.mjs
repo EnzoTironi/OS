@@ -3,6 +3,15 @@ import path from "node:path";
 
 const outputDirectory = path.join("e2e", "governed-action", ".generated");
 const actionId = "inventory.requestStock";
+const activationActionId = "zoen.definition.activate";
+const definitionIds = [
+  "inventory.governed",
+  "inventory.governed.deny",
+  "inventory.governed.error",
+  "inventory.governed.human",
+  "inventory.governed.multi",
+  "inventory.governed.self",
+];
 const resourceId = "inventory.item.1";
 const farFuture = 4_102_444_800;
 
@@ -52,6 +61,19 @@ function delegation(workloadId, grants) {
       },
     ],
   );
+}
+
+function activationDelegation(workloadId) {
+  return delegation(workloadId, [
+    {
+      actionIds: [activationActionId],
+      delegationId: `delegation.activation.${workloadId}`,
+      expiresAt: farFuture,
+      notBefore: 0,
+      resourceIds: definitionIds,
+      workloadIds: [workloadId],
+    },
+  ]);
 }
 
 function confidentialClient({
@@ -131,6 +153,14 @@ const realm = {
       workloadId: "workload.agent.a",
     }),
     confidentialClient({
+      actorId: "actor.admin.a",
+      clientId: "admin-a",
+      delegationClaim: activationDelegation("workload.admin.a"),
+      principalId: "principal.admin.a",
+      tenantId: "tenant.a",
+      workloadId: "workload.admin.a",
+    }),
+    confidentialClient({
       actorId: "actor.approver.a",
       clientId: "approver-a",
       principalId: "principal.approver.a",
@@ -143,6 +173,14 @@ const realm = {
       principalId: "principal.agent.b",
       tenantId: "tenant.b",
       workloadId: "workload.agent.b",
+    }),
+    confidentialClient({
+      actorId: "actor.admin.b",
+      clientId: "admin-b",
+      delegationClaim: activationDelegation("workload.admin.b"),
+      principalId: "principal.admin.b",
+      tenantId: "tenant.b",
+      workloadId: "workload.admin.b",
     }),
     confidentialClient({
       actorId: "actor.effect-worker.a",

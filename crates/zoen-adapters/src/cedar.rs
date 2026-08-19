@@ -201,6 +201,7 @@ fn cedar_value(input_id: &str, value: &ExactValue) -> Result<serde_json::Value, 
 
 fn operation_name(operation: PolicyOperation) -> &'static str {
     match operation {
+        PolicyOperation::ActivateRevision => "activate_revision",
         PolicyOperation::Approve => "approve",
         PolicyOperation::Commit => "commit",
         PolicyOperation::Discover => "discover",
