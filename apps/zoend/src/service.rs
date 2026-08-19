@@ -1,36 +1,51 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use buffa::MessageView;
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
     ActivationPrecondition, DefinitionActivation as CoreDefinitionActivation,
+    DefinitionActivationKind as CoreDefinitionActivationKind,
     DefinitionChangeKind as CoreChangeKind, DefinitionDigest,
     DefinitionElementKind as CoreElementKind, DefinitionId,
     DefinitionImpactApplicability as CoreImpactApplicability,
     DefinitionImpactArea as CoreImpactArea, DefinitionRevision as CoreDefinitionRevision,
     EvolutionClassification as CoreEvolutionClassification, EvolutionPlan as CoreEvolutionPlan,
-    TimestampMicros,
+    MigrationArtifactDependency as CoreMigrationArtifactDependency,
+    MigrationDependency as CoreMigrationDependency, MigrationElement as CoreMigrationElement,
+    MigrationLineage as CoreMigrationLineage, MigrationPlan as CoreMigrationPlan,
+    MigrationPostcondition as CoreMigrationPostcondition,
+    MigrationProgress as CoreMigrationProgress, MigrationRecord as CoreMigrationRecord,
+    MigrationRule as CoreMigrationRule, MigrationRuleKind as CoreMigrationRuleKind,
+    MigrationStatus as CoreMigrationStatus, OperationId, TimestampMicros,
 };
 use zoen_engine::{
-    ActivateRevisionError, DefinitionEngine, GetRevisionError, PlanEvolutionError, PublishError,
-    StoreError,
+    ActivateRevisionError, DefinitionEngine, GetRevisionError, MigrationError, PlanEvolutionError,
+    PublishError, StoreError,
 };
 
 use crate::action_service::to_policy_evidence;
 use crate::auth::SessionRegistry;
 use crate::proto::zoen::definition::v1::__buffa::view::oneof::activate_revision_request as activate_revision_request_view;
 use crate::proto::zoen::definition::v1::{
-    ActivateRevisionRequest, ActivateRevisionResponse, DefinitionActivation, DefinitionChange,
+    ActivateRevisionRequest, ActivateRevisionResponse, ApplyMigrationBatchRequest,
+    ApplyMigrationBatchResponse, DefinitionActivation, DefinitionActivationKind, DefinitionChange,
     DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactApplicability,
     DefinitionImpactArea, DefinitionRevision, DefinitionService, EvolutionClassification,
-    EvolutionPlan, GetActiveRevisionRequest, GetActiveRevisionResponse, GetRevisionRequest,
-    GetRevisionResponse, PlanEvolutionRequest, PlanEvolutionResponse, PublishRequest,
-    PublishResponse,
+    EvolutionPlan, GetActiveRevisionRequest, GetActiveRevisionResponse, GetMigrationRequest,
+    GetMigrationResponse, GetRevisionRequest, GetRevisionResponse, MigrationArtifactDependency,
+    MigrationDependency, MigrationElement, MigrationLineage, MigrationPlan, MigrationPostcondition,
+    MigrationProgress, MigrationRecord, MigrationRule, MigrationRuleKind, MigrationStatus,
+    PlanEvolutionRequest, PlanEvolutionResponse, PrepareMigrationRequest, PrepareMigrationResponse,
+    PublishRequest, PublishResponse, RollbackRevisionRequest, RollbackRevisionResponse,
 };
-use crate::world_service::{to_definition_reference, to_timestamp};
+use crate::world_service::{
+    invalid, parse_definition_reference, parse_evidence_claim, to_definition_reference,
+    to_timestamp,
+};
 
 pub struct DefinitionServiceImpl {
     engine: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,
@@ -137,6 +152,89 @@ impl DefinitionService for DefinitionServiceImpl {
         })
     }
 
+    async fn prepare_migration(
+        &self,
+        context: RequestContext,
+        request: ServiceRequest<'_, PrepareMigrationRequest>,
+    ) -> ServiceResult<PrepareMigrationResponse> {
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
+        let plan = request
+            .plan
+            .as_option()
+            .ok_or_else(|| invalid("migration plan is required"))?
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
+        let progress = self
+            .engine
+            .prepare_migration(&execution_context, parse_migration_plan(&plan)?, now()?)
+            .await
+            .map_err(map_migration_error)?;
+        Response::ok(PrepareMigrationResponse {
+            progress: Some(to_protocol_migration_progress(progress)).into(),
+            ..Default::default()
+        })
+    }
+
+    async fn apply_migration_batch(
+        &self,
+        context: RequestContext,
+        request: ServiceRequest<'_, ApplyMigrationBatchRequest>,
+    ) -> ServiceResult<ApplyMigrationBatchResponse> {
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
+        let operation_id =
+            OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
+        let records = request
+            .records
+            .iter()
+            .map(|record| {
+                let record = record
+                    .to_owned_message()
+                    .map_err(|error| invalid(error.to_string()))?;
+                parse_migration_record(&record)
+            })
+            .collect::<Result<Vec<_>, ConnectError>>()?;
+        let progress = self
+            .engine
+            .apply_migration_batch(
+                &execution_context,
+                &operation_id,
+                request.batch_index,
+                records,
+                now()?,
+            )
+            .await
+            .map_err(map_migration_error)?;
+        Response::ok(ApplyMigrationBatchResponse {
+            progress: Some(to_protocol_migration_progress(progress)).into(),
+            ..Default::default()
+        })
+    }
+
+    async fn get_migration(
+        &self,
+        context: RequestContext,
+        request: ServiceRequest<'_, GetMigrationRequest>,
+    ) -> ServiceResult<GetMigrationResponse> {
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
+        let operation_id =
+            OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
+        let progress = self
+            .engine
+            .get_migration(&execution_context, &operation_id)
+            .await
+            .map_err(map_migration_error)?;
+        Response::ok(GetMigrationResponse {
+            progress: Some(to_protocol_migration_progress(progress)).into(),
+            ..Default::default()
+        })
+    }
+
     async fn activate_revision(
         &self,
         context: RequestContext,
@@ -167,6 +265,37 @@ impl DefinitionService for DefinitionServiceImpl {
             ..Default::default()
         })
     }
+
+    async fn rollback_revision(
+        &self,
+        context: RequestContext,
+        request: ServiceRequest<'_, RollbackRevisionRequest>,
+    ) -> ServiceResult<RollbackRevisionResponse> {
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
+        let definition_id = DefinitionId::parse(request.definition_id)
+            .map_err(|error| invalid(error.to_string()))?;
+        let digest =
+            DefinitionDigest::parse(request.digest).map_err(|error| invalid(error.to_string()))?;
+        let expected_active_digest = DefinitionDigest::parse(request.expected_active_digest)
+            .map_err(|error| invalid(error.to_string()))?;
+        let activation = self
+            .engine
+            .rollback_revision(
+                &execution_context,
+                &definition_id,
+                &digest,
+                &ActivationPrecondition::ActiveDigest(expected_active_digest),
+                now()?,
+            )
+            .await
+            .map_err(map_activate_error)?;
+        Response::ok(RollbackRevisionResponse {
+            activation: Some(to_protocol_activation(activation)).into(),
+            ..Default::default()
+        })
+    }
 }
 
 fn to_protocol_revision(revision: CoreDefinitionRevision) -> DefinitionRevision {
@@ -191,6 +320,15 @@ fn to_protocol_activation(activation: CoreDefinitionActivation) -> DefinitionAct
             .unwrap_or(EvolutionClassification::Unspecified)
             .into(),
         commit_sequence: activation.commit_sequence.get(),
+        kind: match activation.kind {
+            CoreDefinitionActivationKind::Activation => DefinitionActivationKind::Activation,
+            CoreDefinitionActivationKind::Rollback => DefinitionActivationKind::Rollback,
+        }
+        .into(),
+        migration_operation_id: activation
+            .migration_operation_id
+            .map(|operation_id| operation_id.as_str().to_owned())
+            .unwrap_or_default(),
         policy: Some(to_policy_evidence(activation.policy)).into(),
         previous: activation.previous.map(to_definition_reference).into(),
         principal_id: activation.principal_id.as_str().to_owned(),
@@ -236,8 +374,10 @@ fn to_protocol_plan(plan: CoreEvolutionPlan) -> EvolutionPlan {
             .into_iter()
             .map(|change| DefinitionChange {
                 change: to_change_kind(change.change).into(),
+                classification: to_classification(change.classification).into(),
                 element: to_element_kind(change.element).into(),
                 id: change.id,
+                rationale: change.rationale,
                 ..Default::default()
             })
             .collect(),
@@ -257,6 +397,318 @@ fn to_protocol_plan(plan: CoreEvolutionPlan) -> EvolutionPlan {
             .collect(),
         migration_required,
         to: Some(to_definition_reference(plan.to)).into(),
+        ..Default::default()
+    }
+}
+
+fn parse_migration_plan(plan: &MigrationPlan) -> Result<CoreMigrationPlan, ConnectError> {
+    let from = plan
+        .from
+        .as_option()
+        .ok_or_else(|| invalid("migration source revision is required"))?;
+    let to = plan
+        .to
+        .as_option()
+        .ok_or_else(|| invalid("migration target revision is required"))?;
+    Ok(CoreMigrationPlan {
+        affected_elements: plan
+            .affected_elements
+            .iter()
+            .map(parse_migration_element)
+            .collect::<Result<_, _>>()?,
+        artifact_dependencies: plan
+            .artifact_dependencies
+            .iter()
+            .map(parse_migration_artifact)
+            .collect::<Result<_, _>>()?,
+        classification: parse_classification(plan.classification.as_known())?,
+        dependencies: plan
+            .dependencies
+            .iter()
+            .map(|dependency| {
+                Ok(CoreMigrationDependency {
+                    claim_id: zoen_core::ClaimId::parse(dependency.claim_id)
+                        .map_err(|error| invalid(error.to_string()))?,
+                    commit_sequence: zoen_core::CommitSequence::new(dependency.commit_sequence)
+                        .ok_or_else(|| invalid("migration dependency commit must be positive"))?,
+                    entity_id: zoen_core::EntityId::parse(dependency.entity_id)
+                        .map_err(|error| invalid(error.to_string()))?,
+                    relation_id: zoen_core::RelationId::parse(dependency.relation_id)
+                        .map_err(|error| invalid(error.to_string()))?,
+                })
+            })
+            .collect::<Result<_, ConnectError>>()?,
+        expected_batches: plan.expected_batches,
+        format_version: plan.format_version,
+        from: parse_definition_reference(from)?,
+        operation_id: OperationId::parse(&plan.operation_id)
+            .map_err(|error| invalid(error.to_string()))?,
+        postconditions: plan
+            .postconditions
+            .iter()
+            .map(|postcondition| {
+                Ok(CoreMigrationPostcondition {
+                    minimum_record_count: postcondition.minimum_record_count,
+                    relation_id: zoen_core::RelationId::parse(postcondition.relation_id)
+                        .map_err(|error| invalid(error.to_string()))?,
+                })
+            })
+            .collect::<Result<_, ConnectError>>()?,
+        rules: plan
+            .rules
+            .iter()
+            .map(parse_migration_rule)
+            .collect::<Result<_, _>>()?,
+        to: parse_definition_reference(to)?,
+    })
+}
+
+fn parse_migration_element(
+    element: &MigrationElement,
+) -> Result<CoreMigrationElement, ConnectError> {
+    Ok(CoreMigrationElement {
+        element: parse_element_kind(element.element.as_known())?,
+        id: element.id.clone(),
+    })
+}
+
+fn parse_migration_artifact(
+    artifact: &MigrationArtifactDependency,
+) -> Result<CoreMigrationArtifactDependency, ConnectError> {
+    Ok(CoreMigrationArtifactDependency {
+        area: parse_impact_area(artifact.area.as_known())?,
+        id: artifact.id.clone(),
+    })
+}
+
+fn parse_migration_rule(rule: &MigrationRule) -> Result<CoreMigrationRule, ConnectError> {
+    Ok(CoreMigrationRule {
+        id: zoen_core::MigrationRuleId::parse(&rule.rule_id)
+            .map_err(|error| invalid(error.to_string()))?,
+        kind: parse_migration_rule_kind(rule.kind.as_known())?,
+        sources: rule
+            .sources
+            .iter()
+            .map(parse_migration_element)
+            .collect::<Result<_, _>>()?,
+        targets: rule
+            .targets
+            .iter()
+            .map(parse_migration_element)
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn parse_migration_record(record: &MigrationRecord) -> Result<CoreMigrationRecord, ConnectError> {
+    let target = record
+        .target_evidence
+        .as_option()
+        .ok_or_else(|| invalid("migration target evidence is required"))?;
+    Ok(CoreMigrationRecord {
+        rule_id: zoen_core::MigrationRuleId::parse(&record.rule_id)
+            .map_err(|error| invalid(error.to_string()))?,
+        source_claim_ids: record
+            .source_claim_ids
+            .iter()
+            .map(|claim_id| {
+                zoen_core::ClaimId::parse(claim_id).map_err(|error| invalid(error.to_string()))
+            })
+            .collect::<Result<_, _>>()?,
+        target: parse_evidence_claim(target)?,
+    })
+}
+
+fn parse_classification(
+    classification: Option<EvolutionClassification>,
+) -> Result<CoreEvolutionClassification, ConnectError> {
+    match classification {
+        Some(EvolutionClassification::Compatible) => Ok(CoreEvolutionClassification::Compatible),
+        Some(EvolutionClassification::RequiresMigration) => {
+            Ok(CoreEvolutionClassification::RequiresMigration)
+        }
+        Some(EvolutionClassification::Breaking) => Ok(CoreEvolutionClassification::Breaking),
+        Some(EvolutionClassification::Forbidden) => Ok(CoreEvolutionClassification::Forbidden),
+        Some(EvolutionClassification::Unspecified) | None => {
+            Err(invalid("migration classification is required"))
+        }
+    }
+}
+
+fn parse_element_kind(
+    element: Option<DefinitionElementKind>,
+) -> Result<CoreElementKind, ConnectError> {
+    match element {
+        Some(DefinitionElementKind::Type) => Ok(CoreElementKind::Type),
+        Some(DefinitionElementKind::Relation) => Ok(CoreElementKind::Relation),
+        Some(DefinitionElementKind::Computation) => Ok(CoreElementKind::Computation),
+        Some(DefinitionElementKind::Action) => Ok(CoreElementKind::Action),
+        Some(DefinitionElementKind::Unspecified) | None => {
+            Err(invalid("migration element kind is required"))
+        }
+    }
+}
+
+fn parse_impact_area(area: Option<DefinitionImpactArea>) -> Result<CoreImpactArea, ConnectError> {
+    match area {
+        Some(DefinitionImpactArea::Types) => Ok(CoreImpactArea::Types),
+        Some(DefinitionImpactArea::Relations) => Ok(CoreImpactArea::Relations),
+        Some(DefinitionImpactArea::Computations) => Ok(CoreImpactArea::Computations),
+        Some(DefinitionImpactArea::Actions) => Ok(CoreImpactArea::Actions),
+        Some(DefinitionImpactArea::DomainPackageDependencies) => {
+            Ok(CoreImpactArea::DomainPackageDependencies)
+        }
+        Some(DefinitionImpactArea::StoredSemanticRecords) => {
+            Ok(CoreImpactArea::StoredSemanticRecords)
+        }
+        Some(DefinitionImpactArea::QueryAndMaterializationArtifacts) => {
+            Ok(CoreImpactArea::QueryAndMaterializationArtifacts)
+        }
+        Some(DefinitionImpactArea::GeneratedSdkAndSurfaceArtifacts) => {
+            Ok(CoreImpactArea::GeneratedSdkAndSurfaceArtifacts)
+        }
+        Some(DefinitionImpactArea::PolicyAndWasmReferences) => {
+            Ok(CoreImpactArea::PolicyAndWasmReferences)
+        }
+        Some(DefinitionImpactArea::PolicyAndAuthorityContracts) => {
+            Ok(CoreImpactArea::PolicyAndAuthorityContracts)
+        }
+        Some(DefinitionImpactArea::WasmComponents) => Ok(CoreImpactArea::WasmComponents),
+        Some(DefinitionImpactArea::Unspecified) | None => {
+            Err(invalid("migration artifact impact area is required"))
+        }
+    }
+}
+
+fn parse_migration_rule_kind(
+    kind: Option<MigrationRuleKind>,
+) -> Result<CoreMigrationRuleKind, ConnectError> {
+    match kind {
+        Some(MigrationRuleKind::PreserveMeaning) => Ok(CoreMigrationRuleKind::PreserveMeaning),
+        Some(MigrationRuleKind::Transform) => Ok(CoreMigrationRuleKind::Transform),
+        Some(MigrationRuleKind::Supersede) => Ok(CoreMigrationRuleKind::Supersede),
+        Some(MigrationRuleKind::Recompute) => Ok(CoreMigrationRuleKind::Recompute),
+        Some(MigrationRuleKind::Unspecified) | None => {
+            Err(invalid("migration rule kind is required"))
+        }
+    }
+}
+
+fn to_protocol_migration_progress(progress: CoreMigrationProgress) -> MigrationProgress {
+    MigrationProgress {
+        commit_sequence: progress.commit_sequence.get(),
+        completed_batches: progress.completed_batches,
+        intent_digest: progress.intent_digest.as_str().to_owned(),
+        lineage: progress
+            .lineage
+            .into_iter()
+            .map(to_protocol_migration_lineage)
+            .collect(),
+        plan: Some(to_protocol_migration_plan(progress.plan)).into(),
+        status: match progress.status {
+            CoreMigrationStatus::Prepared => MigrationStatus::Prepared,
+            CoreMigrationStatus::InProgress => MigrationStatus::InProgress,
+            CoreMigrationStatus::Completed => MigrationStatus::Completed,
+        }
+        .into(),
+        ..Default::default()
+    }
+}
+
+fn to_protocol_migration_plan(plan: CoreMigrationPlan) -> MigrationPlan {
+    MigrationPlan {
+        affected_elements: plan
+            .affected_elements
+            .into_iter()
+            .map(to_protocol_migration_element)
+            .collect(),
+        artifact_dependencies: plan
+            .artifact_dependencies
+            .into_iter()
+            .map(|artifact| MigrationArtifactDependency {
+                area: to_impact_area(artifact.area).into(),
+                id: artifact.id,
+                ..Default::default()
+            })
+            .collect(),
+        classification: to_classification(plan.classification).into(),
+        dependencies: plan
+            .dependencies
+            .into_iter()
+            .map(|dependency| MigrationDependency {
+                claim_id: dependency.claim_id.as_str().to_owned(),
+                commit_sequence: dependency.commit_sequence.get(),
+                entity_id: dependency.entity_id.as_str().to_owned(),
+                relation_id: dependency.relation_id.as_str().to_owned(),
+                ..Default::default()
+            })
+            .collect(),
+        expected_batches: plan.expected_batches,
+        format_version: plan.format_version,
+        from: Some(to_definition_reference(plan.from)).into(),
+        operation_id: plan.operation_id.as_str().to_owned(),
+        postconditions: plan
+            .postconditions
+            .into_iter()
+            .map(|postcondition| MigrationPostcondition {
+                minimum_record_count: postcondition.minimum_record_count,
+                relation_id: postcondition.relation_id.as_str().to_owned(),
+                ..Default::default()
+            })
+            .collect(),
+        rules: plan
+            .rules
+            .into_iter()
+            .map(|rule| MigrationRule {
+                kind: match rule.kind {
+                    CoreMigrationRuleKind::PreserveMeaning => MigrationRuleKind::PreserveMeaning,
+                    CoreMigrationRuleKind::Transform => MigrationRuleKind::Transform,
+                    CoreMigrationRuleKind::Supersede => MigrationRuleKind::Supersede,
+                    CoreMigrationRuleKind::Recompute => MigrationRuleKind::Recompute,
+                }
+                .into(),
+                rule_id: rule.id.as_str().to_owned(),
+                sources: rule
+                    .sources
+                    .into_iter()
+                    .map(to_protocol_migration_element)
+                    .collect(),
+                targets: rule
+                    .targets
+                    .into_iter()
+                    .map(to_protocol_migration_element)
+                    .collect(),
+                ..Default::default()
+            })
+            .collect(),
+        to: Some(to_definition_reference(plan.to)).into(),
+        ..Default::default()
+    }
+}
+
+fn to_protocol_migration_element(element: CoreMigrationElement) -> MigrationElement {
+    MigrationElement {
+        element: to_element_kind(element.element).into(),
+        id: element.id,
+        ..Default::default()
+    }
+}
+
+fn to_protocol_migration_lineage(lineage: CoreMigrationLineage) -> MigrationLineage {
+    MigrationLineage {
+        kind: match lineage.kind {
+            CoreMigrationRuleKind::PreserveMeaning => MigrationRuleKind::PreserveMeaning,
+            CoreMigrationRuleKind::Transform => MigrationRuleKind::Transform,
+            CoreMigrationRuleKind::Supersede => MigrationRuleKind::Supersede,
+            CoreMigrationRuleKind::Recompute => MigrationRuleKind::Recompute,
+        }
+        .into(),
+        rule_id: lineage.rule_id.as_str().to_owned(),
+        source_claim_ids: lineage
+            .source_claim_ids
+            .into_iter()
+            .map(|claim_id| claim_id.as_str().to_owned())
+            .collect(),
+        target_claim_id: lineage.target_claim_id.as_str().to_owned(),
         ..Default::default()
     }
 }
@@ -315,6 +767,10 @@ fn to_impact_area(area: CoreImpactArea) -> DefinitionImpactArea {
             DefinitionImpactArea::GeneratedSdkAndSurfaceArtifacts
         }
         CoreImpactArea::PolicyAndWasmReferences => DefinitionImpactArea::PolicyAndWasmReferences,
+        CoreImpactArea::PolicyAndAuthorityContracts => {
+            DefinitionImpactArea::PolicyAndAuthorityContracts
+        }
+        CoreImpactArea::WasmComponents => DefinitionImpactArea::WasmComponents,
     }
 }
 
@@ -336,6 +792,8 @@ fn map_activate_error(error: ActivateRevisionError) -> ConnectError {
             ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
         }
         ActivateRevisionError::Incompatible(_)
+        | ActivateRevisionError::InvalidRollbackTarget
+        | ActivateRevisionError::MigrationIncomplete
         | ActivateRevisionError::PolicyEvaluation { .. }
         | ActivateRevisionError::StalePrecondition => {
             ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
@@ -344,6 +802,24 @@ fn map_activate_error(error: ActivateRevisionError) -> ConnectError {
             ConnectError::new(ErrorCode::DataLoss, error.to_string())
         }
         ActivateRevisionError::Store(error) => map_store_error(error),
+    }
+}
+
+fn map_migration_error(error: MigrationError) -> ConnectError {
+    match error {
+        MigrationError::Configuration(_) => {
+            ConnectError::new(ErrorCode::Internal, error.to_string())
+        }
+        MigrationError::DelegationDenied | MigrationError::PolicyDenied(_) => {
+            ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
+        }
+        MigrationError::InvalidEvidence(_) | MigrationError::InvalidPlan(_) => {
+            ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
+        }
+        MigrationError::PolicyEvaluation { .. } => {
+            ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
+        }
+        MigrationError::Store(error) => map_store_error(error),
     }
 }
 

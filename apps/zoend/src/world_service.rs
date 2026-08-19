@@ -118,7 +118,7 @@ impl WorldService for WorldServiceImpl {
     }
 }
 
-fn parse_evidence_claim(claim: &EvidenceClaim) -> Result<EvidenceDraft, ConnectError> {
+pub(crate) fn parse_evidence_claim(claim: &EvidenceClaim) -> Result<EvidenceDraft, ConnectError> {
     let definition = claim
         .definition
         .as_option()
