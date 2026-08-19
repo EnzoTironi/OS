@@ -2580,6 +2580,9 @@ version = "0.1.0"
 name = "zoen-engine"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_jcs",
+ "serde_json",
  "sha2 0.11.0",
  "zoen-core",
 ]
@@ -2592,9 +2595,6 @@ dependencies = [
  "buffa",
  "connectrpc",
  "connectrpc-build",
- "serde",
- "serde_jcs",
- "serde_json",
  "tokio",
  "zoen-adapters",
  "zoen-core",

@@ -1,55 +1,114 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::cmp::Ordering;
+use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 use zoen_core::{
     ActionDefinition, ActionEffect, ActionId, BinaryOperator, CanonicalDefinition, CanonicalJson,
-    Cardinality, ComputationDefinition, ComputationId, DefinitionId, DefinitionRevisionNumber,
-    DefinitionSchema, ExactDecimal, ExactValue, Expression, InputDefinition, InputId,
-    RelationDefinition, RelationId, RelationTarget, TypeDefinition, TypeId, UnitId, ValueType,
+    Cardinality, ComputationDefinition, ComputationId, DefinitionDigest, DefinitionId,
+    DefinitionRevisionNumber, DefinitionSchema, ExactDecimal, ExactInteger, ExactValue, Expression,
+    InputDefinition, InputId, RelationDefinition, RelationId, RelationTarget, TypeDefinition,
+    TypeId, UnitId, ValueType,
 };
 
-#[derive(Debug)]
-pub enum CanonicalParseError {
-    Invalid(String),
-    Malformed(String),
-    NonCanonical,
-}
+use crate::{
+    AdmittedDefinitionPublication, ProjectionEvent, PublishError, validate_definition,
+    verify_digest,
+};
 
-impl Display for CanonicalParseError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Invalid(message) => write!(formatter, "invalid canonical definition: {message}"),
-            Self::Malformed(message) => {
-                write!(formatter, "malformed canonical definition JSON: {message}")
-            }
-            Self::NonCanonical => formatter.write_str("definition JSON is not RFC 8785 canonical"),
-        }
-    }
-}
-
-impl Error for CanonicalParseError {}
-
-pub struct ParsedCanonical {
-    pub canonical_json: CanonicalJson,
-    pub definition: CanonicalDefinition,
-}
-
-pub fn parse_canonical(bytes: &[u8]) -> Result<ParsedCanonical, CanonicalParseError> {
-    let dto = serde_json::from_slice::<CanonicalDefinitionDto>(bytes)
-        .map_err(|error| CanonicalParseError::Malformed(error.to_string()))?;
+pub(crate) fn admit(
+    bytes: &[u8],
+    claimed_digest: DefinitionDigest,
+) -> Result<AdmittedDefinitionPublication, PublishError> {
+    let mut dto = serde_json::from_slice::<CanonicalDefinitionDto>(bytes)
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
+    normalize(&mut dto);
     let normalized = serde_jcs::to_vec(&dto)
-        .map_err(|error| CanonicalParseError::Malformed(error.to_string()))?;
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
     if normalized != bytes {
-        return Err(CanonicalParseError::NonCanonical);
+        return Err(PublishError::NonCanonicalDefinition);
     }
-    let canonical_json = String::from_utf8(bytes.to_vec())
-        .map_err(|error| CanonicalParseError::Malformed(error.to_string()))?;
-    Ok(ParsedCanonical {
-        canonical_json: CanonicalJson::new(canonical_json)
-            .ok_or_else(|| CanonicalParseError::Malformed("empty document".to_owned()))?,
-        definition: convert_definition(dto)?,
-    })
+    let canonical_json = CanonicalJson::new(
+        String::from_utf8(normalized)
+            .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?,
+    )
+    .ok_or_else(|| PublishError::MalformedDefinition("empty document".to_owned()))?;
+    if !verify_digest(&canonical_json, &claimed_digest) {
+        return Err(PublishError::DigestMismatch);
+    }
+
+    let definition = convert_definition(dto)?;
+    validate_definition(&definition).map_err(PublishError::InvalidDefinition)?;
+    let event = ProjectionEvent::definition_published(
+        &definition.id,
+        definition.revision,
+        &claimed_digest,
+    )?;
+    Ok(AdmittedDefinitionPublication::new(
+        canonical_json,
+        definition.id,
+        claimed_digest,
+        definition.revision,
+        event,
+    ))
+}
+
+fn normalize(dto: &mut CanonicalDefinitionDto) {
+    dto.actions
+        .sort_by(|left, right| compare_code_points(&left.id, &right.id));
+    for action in &mut dto.actions {
+        action
+            .effects
+            .sort_by(|left, right| compare_code_points(&left.relation_id, &right.relation_id));
+        sort_inputs(&mut action.inputs);
+    }
+    dto.computations
+        .sort_by(|left, right| compare_code_points(&left.id, &right.id));
+    for computation in &mut dto.computations {
+        sort_inputs(&mut computation.inputs);
+    }
+    dto.relations
+        .sort_by(|left, right| compare_code_points(&left.id, &right.id));
+    dto.types
+        .sort_by(|left, right| compare_code_points(&left.id, &right.id));
+    for definition_type in &mut dto.types {
+        sort_inputs(&mut definition_type.attributes);
+    }
+}
+
+fn sort_inputs(inputs: &mut [InputDefinitionDto]) {
+    inputs.sort_by(|left, right| compare_code_points(&left.id, &right.id));
+}
+
+fn compare_code_points(left: &str, right: &str) -> Ordering {
+    left.chars().cmp(right.chars())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DefinitionPublishedV1<'a> {
+    definition_id: &'a str,
+    digest: &'a str,
+    revision: u64,
+}
+
+impl ProjectionEvent {
+    fn definition_published(
+        definition_id: &DefinitionId,
+        revision: DefinitionRevisionNumber,
+        digest: &DefinitionDigest,
+    ) -> Result<Self, PublishError> {
+        let payload = serde_jcs::to_string(&DefinitionPublishedV1 {
+            definition_id: definition_id.as_str(),
+            digest: digest.as_str(),
+            revision: revision.get(),
+        })
+        .map_err(|error| PublishError::EventEncoding(error.to_string()))?;
+        Ok(Self {
+            event_type: "DefinitionPublished",
+            event_version: 1,
+            payload,
+        })
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -200,9 +259,7 @@ enum BinaryOperatorDto {
     Subtract,
 }
 
-fn convert_definition(
-    dto: CanonicalDefinitionDto,
-) -> Result<CanonicalDefinition, CanonicalParseError> {
+fn convert_definition(dto: CanonicalDefinitionDto) -> Result<CanonicalDefinition, PublishError> {
     Ok(CanonicalDefinition {
         actions: dto
             .actions
@@ -220,8 +277,9 @@ fn convert_definition(
             .into_iter()
             .map(convert_relation)
             .collect::<Result<_, _>>()?,
-        revision: DefinitionRevisionNumber::new(dto.revision)
-            .ok_or_else(|| CanonicalParseError::Invalid("revision must be positive".to_owned()))?,
+        revision: DefinitionRevisionNumber::new(dto.revision).ok_or_else(|| {
+            PublishError::InvalidCanonicalDefinition("revision must be positive".to_owned())
+        })?,
         schema: match dto.schema {
             DefinitionSchemaDto::V1 => DefinitionSchema::V1,
         },
@@ -233,7 +291,7 @@ fn convert_definition(
     })
 }
 
-fn convert_type(dto: TypeDefinitionDto) -> Result<TypeDefinition, CanonicalParseError> {
+fn convert_type(dto: TypeDefinitionDto) -> Result<TypeDefinition, PublishError> {
     Ok(TypeDefinition {
         attributes: dto
             .attributes
@@ -244,7 +302,7 @@ fn convert_type(dto: TypeDefinitionDto) -> Result<TypeDefinition, CanonicalParse
     })
 }
 
-fn convert_relation(dto: RelationDefinitionDto) -> Result<RelationDefinition, CanonicalParseError> {
+fn convert_relation(dto: RelationDefinitionDto) -> Result<RelationDefinition, PublishError> {
     Ok(RelationDefinition {
         cardinality: match dto.cardinality {
             CardinalityDto::Many => Cardinality::Many,
@@ -265,7 +323,7 @@ fn convert_relation(dto: RelationDefinitionDto) -> Result<RelationDefinition, Ca
 
 fn convert_computation(
     dto: ComputationDefinitionDto,
-) -> Result<ComputationDefinition, CanonicalParseError> {
+) -> Result<ComputationDefinition, PublishError> {
     Ok(ComputationDefinition {
         expression: convert_expression(dto.expression)?,
         id: ComputationId::parse(dto.id).map_err(invalid)?,
@@ -278,7 +336,7 @@ fn convert_computation(
     })
 }
 
-fn convert_action(dto: ActionDefinitionDto) -> Result<ActionDefinition, CanonicalParseError> {
+fn convert_action(dto: ActionDefinitionDto) -> Result<ActionDefinition, PublishError> {
     Ok(ActionDefinition {
         effects: dto
             .effects
@@ -289,7 +347,7 @@ fn convert_action(dto: ActionDefinitionDto) -> Result<ActionDefinition, Canonica
                     value: convert_expression(effect.value)?,
                 })
             })
-            .collect::<Result<_, CanonicalParseError>>()?,
+            .collect::<Result<_, PublishError>>()?,
         id: ActionId::parse(dto.id).map_err(invalid)?,
         inputs: dto
             .inputs
@@ -300,14 +358,14 @@ fn convert_action(dto: ActionDefinitionDto) -> Result<ActionDefinition, Canonica
     })
 }
 
-fn convert_input(dto: InputDefinitionDto) -> Result<InputDefinition, CanonicalParseError> {
+fn convert_input(dto: InputDefinitionDto) -> Result<InputDefinition, PublishError> {
     Ok(InputDefinition {
         id: InputId::parse(dto.id).map_err(invalid)?,
         value_type: convert_value_type(dto.value_type)?,
     })
 }
 
-fn convert_value_type(dto: ValueTypeDto) -> Result<ValueType, CanonicalParseError> {
+fn convert_value_type(dto: ValueTypeDto) -> Result<ValueType, PublishError> {
     Ok(match dto {
         ValueTypeDto::Bool => ValueType::Bool,
         ValueTypeDto::Decimal => ValueType::Decimal,
@@ -319,7 +377,7 @@ fn convert_value_type(dto: ValueTypeDto) -> Result<ValueType, CanonicalParseErro
     })
 }
 
-fn convert_expression(dto: ExpressionDto) -> Result<Expression, CanonicalParseError> {
+fn convert_expression(dto: ExpressionDto) -> Result<Expression, PublishError> {
     Ok(match dto {
         ExpressionDto::Binary {
             left,
@@ -345,17 +403,15 @@ fn convert_expression(dto: ExpressionDto) -> Result<Expression, CanonicalParseEr
     })
 }
 
-fn convert_exact_value(dto: ExactValueDto) -> Result<ExactValue, CanonicalParseError> {
+fn convert_exact_value(dto: ExactValueDto) -> Result<ExactValue, PublishError> {
     Ok(match dto {
         ExactValueDto::Bool { value } => ExactValue::Bool(value),
         ExactValueDto::Decimal { value } => {
             ExactValue::Decimal(ExactDecimal::parse(value).map_err(invalid)?)
         }
-        ExactValueDto::Integer { value } => ExactValue::Integer(
-            value
-                .parse::<i64>()
-                .map_err(|error| CanonicalParseError::Invalid(error.to_string()))?,
-        ),
+        ExactValueDto::Integer { value } => {
+            ExactValue::Integer(ExactInteger::parse(value).map_err(invalid)?)
+        }
         ExactValueDto::Quantity { amount, unit } => ExactValue::Quantity {
             amount: ExactDecimal::parse(amount).map_err(invalid)?,
             unit: UnitId::parse(unit).map_err(invalid)?,
@@ -364,6 +420,64 @@ fn convert_exact_value(dto: ExactValueDto) -> Result<ExactValue, CanonicalParseE
     })
 }
 
-fn invalid(error: impl Display) -> CanonicalParseError {
-    CanonicalParseError::Invalid(error.to_string())
+fn invalid(error: impl Display) -> PublishError {
+    PublishError::InvalidCanonicalDefinition(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use sha2::{Digest, Sha256};
+    use zoen_core::DefinitionDigest;
+
+    use super::{CanonicalDefinitionDto, admit};
+    use crate::PublishError;
+
+    const INVENTORY: &str =
+        include_str!("../../../packages/ontology/fixtures/inventory.canonical.json");
+
+    #[test]
+    fn admission_rejects_noncanonical_exact_integers() {
+        for value in ["01", "+1", "-0"] {
+            let canonical = with_integer(value);
+            let error = admit(canonical.as_bytes(), digest(canonical.as_bytes()))
+                .expect_err("noncanonical integer must fail admission");
+            assert!(
+                matches!(error, PublishError::InvalidCanonicalDefinition(_)),
+                "{value}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn admission_keeps_canonical_integers_beyond_i64() {
+        let canonical = with_integer("9223372036854775808");
+        admit(canonical.as_bytes(), digest(canonical.as_bytes()))
+            .expect("canonical integer must remain unbounded during admission");
+    }
+
+    #[test]
+    fn admission_normalizes_unordered_families_before_comparing_bytes() {
+        let mut dto =
+            serde_json::from_str::<CanonicalDefinitionDto>(INVENTORY.trim()).expect("fixture");
+        dto.types.reverse();
+        let reordered = serde_jcs::to_vec(&dto).expect("canonical JSON");
+        let error = admit(&reordered, digest(&reordered))
+            .expect_err("non-normalized family order must fail admission");
+        assert_eq!(error, PublishError::NonCanonicalDefinition);
+    }
+
+    fn with_integer(value: &str) -> String {
+        INVENTORY.trim().replace(
+            r#"{"amount":"0.125","kind":"quantity","unit":"kg"}"#,
+            &format!(r#"{{"kind":"integer","value":"{value}"}}"#),
+        )
+    }
+
+    fn digest(bytes: &[u8]) -> DefinitionDigest {
+        let encoded = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        DefinitionDigest::parse(encoded).expect("SHA-256 digest")
+    }
 }

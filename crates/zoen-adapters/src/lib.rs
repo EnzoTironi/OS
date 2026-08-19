@@ -5,9 +5,9 @@ use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     CanonicalJson, CommitSequence, DefinitionDigest, DefinitionId, DefinitionRevision,
-    DefinitionRevisionNumber, ExecutionContext, PublicationRequest, TenantId,
+    DefinitionRevisionNumber, ExecutionContext, TenantId,
 };
-use zoen_engine::{AuthorityStore, StoreError};
+use zoen_engine::{AdmittedDefinitionPublication, AuthorityStore, StoreError};
 
 #[derive(Debug)]
 pub enum PostgresInitError {
@@ -57,7 +57,7 @@ impl AuthorityStore for PostgresAuthorityStore {
     async fn publish(
         &self,
         context: &ExecutionContext,
-        request: &PublicationRequest,
+        publication: &AdmittedDefinitionPublication,
     ) -> Result<DefinitionRevision, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
         set_tenant(&mut transaction, &context.tenant_id).await?;
@@ -90,16 +90,16 @@ impl AuthorityStore for PostgresAuthorityStore {
              WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3",
         )
         .bind(context.tenant_id.as_str())
-        .bind(request.definition.id.as_str())
-        .bind(request.digest.as_str())
+        .bind(publication.definition_id().as_str())
+        .bind(publication.digest().as_str())
         .fetch_optional(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
 
         if let Some(row) = existing {
             let revision = row_to_revision(&row)?;
-            if revision.revision != request.definition.revision
-                || revision.canonical_json != request.canonical_json
+            if revision.revision != publication.revision()
+                || &revision.canonical_json != publication.canonical_json()
             {
                 return Err(StoreError::Corrupt(
                     "content-addressed revision has different content".to_owned(),
@@ -115,8 +115,8 @@ impl AuthorityStore for PostgresAuthorityStore {
              WHERE tenant_id = $1 AND definition_id = $2 AND revision = $3",
         )
         .bind(context.tenant_id.as_str())
-        .bind(request.definition.id.as_str())
-        .bind(u64_to_i64(request.definition.revision.get(), "revision")?)
+        .bind(publication.definition_id().as_str())
+        .bind(u64_to_i64(publication.revision().get(), "revision")?)
         .fetch_optional(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
@@ -136,10 +136,10 @@ impl AuthorityStore for PostgresAuthorityStore {
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(context.tenant_id.as_str())
-        .bind(request.definition.id.as_str())
-        .bind(u64_to_i64(request.definition.revision.get(), "revision")?)
-        .bind(request.digest.as_str())
-        .bind(request.canonical_json.as_str())
+        .bind(publication.definition_id().as_str())
+        .bind(u64_to_i64(publication.revision().get(), "revision")?)
+        .bind(publication.digest().as_str())
+        .bind(publication.canonical_json().as_str())
         .bind(next_sequence)
         .execute(&mut *transaction)
         .await
@@ -152,8 +152,8 @@ impl AuthorityStore for PostgresAuthorityStore {
         )
         .bind(context.tenant_id.as_str())
         .bind(next_sequence)
-        .bind(request.definition.id.as_str())
-        .bind(request.digest.as_str())
+        .bind(publication.definition_id().as_str())
+        .bind(publication.digest().as_str())
         .execute(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
@@ -177,15 +177,15 @@ impl AuthorityStore for PostgresAuthorityStore {
         transaction.commit().await.map_err(store_unavailable)?;
 
         Ok(DefinitionRevision {
-            canonical_json: request.canonical_json.clone(),
+            canonical_json: publication.canonical_json().clone(),
             commit_sequence: CommitSequence::new(
                 u64::try_from(next_sequence)
                     .map_err(|_| StoreError::Corrupt("negative commit sequence".to_owned()))?,
             )
             .ok_or_else(|| StoreError::Corrupt("zero commit sequence".to_owned()))?,
-            definition_id: request.definition.id.clone(),
-            digest: request.digest.clone(),
-            revision: request.definition.revision,
+            definition_id: publication.definition_id().clone(),
+            digest: publication.digest().clone(),
+            revision: publication.revision(),
         })
     }
 

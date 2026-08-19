@@ -4,12 +4,11 @@ use connectrpc::{
 use zoen_adapters::PostgresAuthorityStore;
 use zoen_core::{
     DefinitionDigest, DefinitionId, DefinitionRevision as CoreDefinitionRevision, ExecutionContext,
-    PublicationRequest, TenantId,
+    TenantId,
 };
 use zoen_engine::{DefinitionEngine, GetRevisionError, PublishError, StoreError};
 
 use crate::auth::SessionRegistry;
-use crate::canonical::{CanonicalParseError, parse_canonical};
 use crate::proto::zoen::definition::v1::{
     DefinitionRevision, DefinitionService, GetRevisionRequest, GetRevisionResponse, PublishRequest,
     PublishResponse,
@@ -58,17 +57,11 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, PublishRequest>,
     ) -> ServiceResult<PublishResponse> {
         let execution_context = self.execution_context(&context, request.tenant_id)?;
-        let parsed = parse_canonical(request.canonical_json).map_err(map_canonical_error)?;
         let digest = DefinitionDigest::parse(request.digest)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
-        let publication = PublicationRequest {
-            canonical_json: parsed.canonical_json,
-            definition: parsed.definition,
-            digest,
-        };
         let revision = self
             .engine
-            .publish(&execution_context, &publication)
+            .publish(&execution_context, request.canonical_json, digest)
             .await
             .map_err(map_publish_error)?;
         Response::ok(PublishResponse {
@@ -110,15 +103,16 @@ fn to_protocol_revision(revision: CoreDefinitionRevision) -> DefinitionRevision 
     }
 }
 
-fn map_canonical_error(error: CanonicalParseError) -> ConnectError {
-    ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
-}
-
 fn map_publish_error(error: PublishError) -> ConnectError {
     match error {
-        PublishError::DigestMismatch | PublishError::InvalidDefinition(_) => {
+        PublishError::DigestMismatch
+        | PublishError::InvalidCanonicalDefinition(_)
+        | PublishError::InvalidDefinition(_)
+        | PublishError::MalformedDefinition(_)
+        | PublishError::NonCanonicalDefinition => {
             ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
         }
+        PublishError::EventEncoding(_) => ConnectError::new(ErrorCode::Internal, error.to_string()),
         PublishError::Store(error) => map_store_error(error),
     }
 }

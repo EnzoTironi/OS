@@ -13,7 +13,6 @@ use crate::auth::SessionRegistry;
 use crate::service::DefinitionServiceImpl;
 
 mod auth;
-mod canonical;
 mod service;
 
 pub mod proto {

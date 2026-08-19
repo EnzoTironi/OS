@@ -145,6 +145,45 @@ impl CanonicalJson {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExactIntegerError(String);
+
+impl Display for ExactIntegerError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "noncanonical exact integer: {:?}", self.0)
+    }
+}
+
+impl Error for ExactIntegerError {}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExactInteger(String);
+
+impl ExactInteger {
+    pub fn parse(value: impl Into<String>) -> Result<Self, ExactIntegerError> {
+        let value = value.into();
+        if is_canonical_integer(&value) {
+            Ok(Self(value))
+        } else {
+            Err(ExactIntegerError(value))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+fn is_canonical_integer(value: &str) -> bool {
+    match value.as_bytes() {
+        [b'0'] => true,
+        [b'-', first, rest @ ..] | [first, rest @ ..] => {
+            matches!(first, b'1'..=b'9') && rest.iter().all(u8::is_ascii_digit)
+        }
+        [] => false,
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactDecimalError(String);
 
 impl Display for ExactDecimalError {
@@ -213,7 +252,7 @@ pub enum ValueType {
 pub enum ExactValue {
     Bool(bool),
     Decimal(ExactDecimal),
-    Integer(i64),
+    Integer(ExactInteger),
     Quantity { amount: ExactDecimal, unit: UnitId },
     Text(String),
 }
@@ -309,13 +348,6 @@ pub struct CanonicalDefinition {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PublicationRequest {
-    pub canonical_json: CanonicalJson,
-    pub definition: CanonicalDefinition,
-    pub digest: DefinitionDigest,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefinitionRevision {
     pub canonical_json: CanonicalJson,
     pub commit_sequence: CommitSequence,
@@ -331,7 +363,24 @@ pub struct ExecutionContext {
 
 #[cfg(test)]
 mod tests {
-    use super::{DefinitionDigest, ExactDecimal};
+    use super::{DefinitionDigest, ExactDecimal, ExactInteger};
+
+    #[test]
+    fn exact_integer_accepts_only_canonical_unbounded_forms() {
+        for accepted in [
+            "0",
+            "12",
+            "-12",
+            "9223372036854775808",
+            "-9223372036854775809",
+        ] {
+            let integer = ExactInteger::parse(accepted).expect("canonical integer");
+            assert_eq!(integer.as_str(), accepted);
+        }
+        for rejected in ["", "-0", "01", "001", "+1", "1.0", "1e2"] {
+            assert!(ExactInteger::parse(rejected).is_err(), "{rejected}");
+        }
+    }
 
     #[test]
     fn exact_decimal_accepts_only_canonical_forms() {

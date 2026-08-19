@@ -5,8 +5,11 @@ use std::fmt::{Display, Formatter};
 use sha2::{Digest, Sha256};
 use zoen_core::{
     CanonicalDefinition, CanonicalJson, DefinitionDigest, DefinitionId, DefinitionRevision,
-    ExecutionContext, Expression, InputDefinition, PublicationRequest, RelationTarget, TenantId,
+    DefinitionRevisionNumber, ExecutionContext, Expression, InputDefinition, RelationTarget,
+    TenantId,
 };
+
+mod admission;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DefinitionFamily {
@@ -112,7 +115,11 @@ impl Error for StoreError {}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PublishError {
     DigestMismatch,
+    EventEncoding(String),
+    InvalidCanonicalDefinition(String),
     InvalidDefinition(ValidationError),
+    MalformedDefinition(String),
+    NonCanonicalDefinition,
     Store(StoreError),
 }
 
@@ -120,7 +127,19 @@ impl Display for PublishError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::DigestMismatch => formatter.write_str("canonical definition digest mismatch"),
+            Self::EventEncoding(message) => {
+                write!(formatter, "failed to encode publication event: {message}")
+            }
+            Self::InvalidCanonicalDefinition(message) => {
+                write!(formatter, "invalid canonical definition: {message}")
+            }
             Self::InvalidDefinition(error) => error.fmt(formatter),
+            Self::MalformedDefinition(message) => {
+                write!(formatter, "malformed canonical definition JSON: {message}")
+            }
+            Self::NonCanonicalDefinition => {
+                formatter.write_str("definition JSON is not normalized RFC 8785 canonical JSON")
+            }
             Self::Store(error) => error.fmt(formatter),
         }
     }
@@ -131,7 +150,11 @@ impl Error for PublishError {
         match self {
             Self::InvalidDefinition(error) => Some(error),
             Self::Store(error) => Some(error),
-            Self::DigestMismatch => None,
+            Self::DigestMismatch
+            | Self::EventEncoding(_)
+            | Self::InvalidCanonicalDefinition(_)
+            | Self::MalformedDefinition(_)
+            | Self::NonCanonicalDefinition => None,
         }
     }
 }
@@ -162,12 +185,80 @@ impl Error for GetRevisionError {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectionEvent {
+    event_type: &'static str,
+    event_version: u16,
+    payload: String,
+}
+
+impl ProjectionEvent {
+    pub fn event_type(&self) -> &'static str {
+        self.event_type
+    }
+
+    pub fn event_version(&self) -> u16 {
+        self.event_version
+    }
+
+    pub fn payload(&self) -> &str {
+        &self.payload
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdmittedDefinitionPublication {
+    canonical_json: CanonicalJson,
+    definition_id: DefinitionId,
+    digest: DefinitionDigest,
+    revision: DefinitionRevisionNumber,
+    projection_event: ProjectionEvent,
+}
+
+impl AdmittedDefinitionPublication {
+    fn new(
+        canonical_json: CanonicalJson,
+        definition_id: DefinitionId,
+        digest: DefinitionDigest,
+        revision: DefinitionRevisionNumber,
+        projection_event: ProjectionEvent,
+    ) -> Self {
+        Self {
+            canonical_json,
+            definition_id,
+            digest,
+            revision,
+            projection_event,
+        }
+    }
+
+    pub fn canonical_json(&self) -> &CanonicalJson {
+        &self.canonical_json
+    }
+
+    pub fn definition_id(&self) -> &DefinitionId {
+        &self.definition_id
+    }
+
+    pub fn digest(&self) -> &DefinitionDigest {
+        &self.digest
+    }
+
+    pub fn revision(&self) -> DefinitionRevisionNumber {
+        self.revision
+    }
+
+    pub fn projection_event(&self) -> &ProjectionEvent {
+        &self.projection_event
+    }
+}
+
 #[allow(async_fn_in_trait)]
 pub trait AuthorityStore: Send + Sync {
     async fn publish(
         &self,
         context: &ExecutionContext,
-        request: &PublicationRequest,
+        publication: &AdmittedDefinitionPublication,
     ) -> Result<DefinitionRevision, StoreError>;
 
     async fn get_revision(
@@ -193,14 +284,12 @@ where
     pub async fn publish(
         &self,
         context: &ExecutionContext,
-        request: &PublicationRequest,
+        canonical_bytes: &[u8],
+        claimed_digest: DefinitionDigest,
     ) -> Result<DefinitionRevision, PublishError> {
-        validate_definition(&request.definition).map_err(PublishError::InvalidDefinition)?;
-        verify_digest(&request.canonical_json, &request.digest)
-            .then_some(())
-            .ok_or(PublishError::DigestMismatch)?;
+        let publication = admission::admit(canonical_bytes, claimed_digest)?;
         self.store
-            .publish(context, request)
+            .publish(context, &publication)
             .await
             .map_err(PublishError::Store)
     }
