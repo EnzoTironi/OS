@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  appendFile,
   cp,
   mkdtemp,
   readFile,
@@ -489,9 +488,14 @@ export async function runLeakageMutant(): Promise<ProcessResult> {
     await cp(path.join(repositoryRoot, "crates", "zoen-engine"), crate, {
       recursive: true,
     });
-    await appendFile(
-      path.join(crate, "src", "lib.rs"),
-      '\nconst DOMAIN_ACTION_BRANCH: &str = "quality.releaseLot";\n',
+    const libraryPath = path.join(crate, "src", "lib.rs");
+    const library = await readFile(libraryPath, "utf8");
+    const mutation = 'const DOMAIN_ACTION_BRANCH: &str = "quality.releaseLot";\n\n';
+    await writeFile(
+      libraryPath,
+      library.includes("#[cfg(test)]")
+        ? library.replace("#[cfg(test)]", `${mutation}#[cfg(test)]`)
+        : `${mutation}${library}`,
     );
     return await runLeakageGate(path.join(crate, "src"));
   } finally {
