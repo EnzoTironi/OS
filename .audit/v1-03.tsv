@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-08-19T03:31:00Z	frame	started cursor/governed-action-7420 from origin/main at 80a96fd	the ticket requires an isolated writer branch from the landed V1-01 and V1-02 head	git rev-parse origin/main	clean branch
+2026-08-19T03:34:00Z	grounding	kept core engine query adapters and zoend ownership boundaries	ADRs 0014 and 0017 assign semantic state lifecycle query mechanisms and authentication to these modules	docs/adr/0014-v1-system-shape-and-module-topology.md	design constraint accepted
+2026-08-19T03:35:00Z	baseline	ran the official governed-action command before implementation	the missing scenario provides a falsifiable pre-change baseline	just e2e governed-action	exit 2 because the scenario does not exist
+2026-08-19T03:36:00Z	environment	installed just Docker Compose rustfmt and clippy availability for local verification	the official command requires these tools	just --version; docker info; rustup component list --installed	local verifier ready
+2026-08-19T03:39:00Z	architecture	chose one deep ActionEngine with QueryExecutor PolicyEvaluator and AuthorityStore ports	the alternative zoend orchestration and technology crates violate ADR-0014 ownership	.audit/v1-03-architecture.txt	design ready for implementation

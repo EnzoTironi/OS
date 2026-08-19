@@ -6,15 +6,17 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use connectrpc::Router;
-use zoen_adapters::PostgresAuthorityStore;
-use zoen_engine::{DefinitionEngine, WorldEngine};
+use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
+use zoen_engine::{ActionEngine, DefinitionEngine, WorldEngine};
 use zoen_query::QueryRuntime;
 use zoend::config::object_store_config;
 
+use crate::action_service::ActionServiceImpl;
 use crate::auth::SessionRegistry;
 use crate::service::DefinitionServiceImpl;
 use crate::world_service::WorldServiceImpl;
 
+mod action_service;
 mod auth;
 mod service;
 mod world_service;
@@ -26,16 +28,32 @@ pub mod proto {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let database_url = env::var("DATABASE_URL")?;
-    let sessions = SessionRegistry::from_json(&env::var("ZOEN_SESSION_TOKENS")?)?;
+    let sessions = match env::var("ZOEN_OIDC_ISSUER") {
+        Ok(issuer) => SessionRegistry::from_oidc(issuer, env::var("ZOEN_OIDC_AUDIENCE")?).await?,
+        Err(env::VarError::NotPresent) => {
+            SessionRegistry::from_json(&env::var("ZOEN_SESSION_TOKENS")?)?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let policy = match env::var("ZOEN_CEDAR_POLICY_MANIFEST") {
+        Ok(path) => CedarPolicyEvaluator::from_path(path)?,
+        Err(env::VarError::NotPresent) => CedarPolicyEvaluator::from_json(r#"{"policies":[]}"#)?,
+        Err(error) => return Err(error.into()),
+    };
     let listen_address = env::var("ZOEN_LISTEN_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
         .parse::<SocketAddr>()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
     let query = QueryRuntime::new(store.pool(), object_store_config()?);
+    let action_service = ActionServiceImpl::new(
+        ActionEngine::new(store.clone(), query.clone(), policy),
+        sessions.clone(),
+    );
     let definition_service =
         DefinitionServiceImpl::new(DefinitionEngine::new(store.clone()), sessions.clone());
     let world_service = WorldServiceImpl::new(WorldEngine::new(store), query, sessions);
     let application = Router::new()
+        .add_service(Arc::new(action_service))
         .add_service(Arc::new(definition_service))
         .add_service(Arc::new(world_service))
         .into_axum_router();

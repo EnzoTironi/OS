@@ -17,7 +17,7 @@ use zoen_core::{
     ExecutionContext, Expression, LineageDependency, LineageRole, RelationId, SemanticQuery,
     SemanticResult, SemanticSelection, SemanticValue, SourceId, TenantId, UnitId,
 };
-use zoen_engine::decode_canonical_definition;
+use zoen_engine::{QueryExecutor, QueryPortError, decode_canonical_definition};
 
 mod physical;
 mod projection;
@@ -86,11 +86,11 @@ impl QueryRuntime {
         query: &SemanticQuery,
     ) -> Result<SemanticResult, QueryError> {
         let source = self
-            .select_source(&context.tenant_id, &query.consistency)
+            .select_source(context.tenant_id(), &query.consistency)
             .await?;
         let cut = source.cut();
         let canonical_json = self
-            .load_definition(&context.tenant_id, &query.definition, cut)
+            .load_definition(context.tenant_id(), &query.definition, cut)
             .await?;
         let definition = decode_canonical_definition(&canonical_json)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
@@ -247,7 +247,7 @@ impl QueryRuntime {
     ) -> Result<Vec<ClaimRecord>, QueryError> {
         let relations = relation_ids.iter().cloned().collect::<Vec<_>>();
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, &context.tenant_id).await?;
+        set_tenant(&mut transaction, context.tenant_id()).await?;
         let rows = sqlx::query(
             "SELECT tenant_id, claim_id, definition_id, definition_digest,
                     definition_revision, entity_id, relation_id, value_kind, value_text,
@@ -271,7 +271,7 @@ impl QueryRuntime {
                )
              ORDER BY claim_id",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(query.definition.definition_id.as_str())
         .bind(query.definition.digest.as_str())
         .bind(u64_to_i64(
@@ -343,7 +343,7 @@ impl QueryRuntime {
             .map_err(projected_corrupt)?
             .filter(
                 col("tenant_id")
-                    .eq(lit(context.tenant_id.as_str()))
+                    .eq(lit(context.tenant_id().as_str()))
                     .and(col("definition_id").eq(lit(query.definition.definition_id.as_str())))
                     .and(col("definition_digest").eq(lit(query.definition.digest.as_str())))
                     .and(col("definition_revision").eq(lit(u64_to_i64(
@@ -365,6 +365,29 @@ impl QueryRuntime {
             .into_iter()
             .map(|claim| ClaimRecord::parse(claim, context, query))
             .collect()
+    }
+}
+
+impl QueryExecutor for QueryRuntime {
+    async fn execute(
+        &self,
+        context: &ExecutionContext,
+        query: &SemanticQuery,
+    ) -> Result<SemanticResult, QueryPortError> {
+        QueryRuntime::execute(self, context, query)
+            .await
+            .map_err(|error| match error {
+                QueryError::Corrupt(message) => QueryPortError::Corrupt(message),
+                QueryError::Evaluation(message) => QueryPortError::Evaluation(message),
+                QueryError::Freshness {
+                    available,
+                    requested,
+                } => QueryPortError::Invalid(format!(
+                    "projection watermark {available:?} is below requested commit {requested}"
+                )),
+                QueryError::Invalid(message) => QueryPortError::Invalid(message),
+                QueryError::Unavailable(message) => QueryPortError::Unavailable(message),
+            })
     }
 }
 
@@ -425,7 +448,7 @@ impl ClaimRecord {
         context: &ExecutionContext,
         query: &SemanticQuery,
     ) -> Result<Self, QueryError> {
-        if physical.tenant_id != context.tenant_id.as_str()
+        if physical.tenant_id != context.tenant_id().as_str()
             || physical.definition_id != query.definition.definition_id.as_str()
             || physical.definition_digest != query.definition.digest.as_str()
             || physical.definition_revision

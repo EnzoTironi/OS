@@ -1,0 +1,191 @@
+syntax = "proto3";
+
+package zoen.action.v1;
+
+import "google/protobuf/timestamp.proto";
+import "zoen/world/v1/world.proto";
+
+service ActionService {
+  rpc Discover(DiscoverRequest) returns (DiscoverResponse);
+  rpc Propose(ProposeRequest) returns (ProposeResponse);
+  rpc Approve(ApproveRequest) returns (ApproveResponse);
+  rpc Commit(CommitRequest) returns (CommitResponse);
+  rpc GetOperationStatus(GetOperationStatusRequest) returns (GetOperationStatusResponse);
+}
+
+message TrustedContext {
+  string tenant_id = 1;
+  string actor_id = 2;
+  string principal_id = 3;
+  string workload_id = 4;
+  repeated DelegationGrant delegation = 5;
+}
+
+message DelegationGrant {
+  string delegation_id = 1;
+  repeated string action_ids = 2;
+  repeated string resource_ids = 3;
+  repeated string workload_ids = 4;
+  google.protobuf.Timestamp not_before = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message PolicyRevision {
+  string policy_id = 1;
+  uint64 revision = 2;
+  string digest = 3;
+}
+
+message PolicyEvidence {
+  PolicyRevision revision = 1;
+  repeated string determining_policy_ids = 2;
+}
+
+enum PolicyDecision {
+  POLICY_DECISION_UNSPECIFIED = 0;
+  POLICY_DECISION_PERMIT = 1;
+  POLICY_DECISION_DENY = 2;
+  POLICY_DECISION_EVALUATION_ERROR = 3;
+}
+
+message ActionCapability {
+  string action_id = 1;
+  PolicyDecision decision = 2;
+  PolicyEvidence policy = 3;
+  string evaluation_error = 4;
+}
+
+message DiscoverRequest {
+  zoen.world.v1.DefinitionReference definition = 1;
+  string resource_id = 2;
+}
+
+message DiscoverResponse {
+  TrustedContext trusted_context = 1;
+  repeated ActionCapability actions = 2;
+}
+
+message ActionInput {
+  string input_id = 1;
+  zoen.world.v1.ExactValue value = 2;
+}
+
+message StateDependency {
+  string claim_id = 1;
+  string entity_id = 2;
+  string relation_id = 3;
+  uint64 commit_sequence = 4;
+  string source_digest = 5;
+}
+
+message StateBasis {
+  repeated StateDependency dependencies = 1;
+  string digest = 2;
+  uint64 observed_commit_sequence = 3;
+}
+
+enum ProposalStatus {
+  PROPOSAL_STATUS_UNSPECIFIED = 0;
+  PROPOSAL_STATUS_READY = 1;
+  PROPOSAL_STATUS_AWAITING_APPROVAL = 2;
+}
+
+message Proposal {
+  string proposal_id = 1;
+  string operation_id = 2;
+  string action_id = 3;
+  string resource_id = 4;
+  zoen.world.v1.DefinitionReference definition = 5;
+  repeated ActionInput inputs = 6;
+  string intent_digest = 7;
+  StateBasis state_basis = 8;
+  ProposalStatus status = 9;
+  PolicyEvidence policy = 10;
+  google.protobuf.Timestamp proposed_at = 11;
+  google.protobuf.Timestamp expires_at = 12;
+  google.protobuf.Timestamp valid_at = 13;
+  string proposed_by = 14;
+}
+
+message ProposeRequest {
+  string proposal_id = 1;
+  string operation_id = 2;
+  zoen.world.v1.DefinitionReference definition = 3;
+  string action_id = 4;
+  string resource_id = 5;
+  repeated ActionInput inputs = 6;
+  google.protobuf.Timestamp valid_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+}
+
+message ProposeResponse {
+  PolicyDecision decision = 1;
+  Proposal proposal = 2;
+  PolicyEvidence policy = 3;
+  string evaluation_error = 4;
+  TrustedContext trusted_context = 5;
+}
+
+message ApproveRequest {
+  string proposal_id = 1;
+  string approval_id = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message Approval {
+  string approval_id = 1;
+  string proposal_id = 2;
+  string approved_by = 3;
+  google.protobuf.Timestamp approved_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  PolicyEvidence policy = 6;
+}
+
+message ApproveResponse {
+  PolicyDecision decision = 1;
+  Approval approval = 2;
+  PolicyEvidence policy = 3;
+  string evaluation_error = 4;
+}
+
+enum CommitStatus {
+  COMMIT_STATUS_UNSPECIFIED = 0;
+  COMMIT_STATUS_COMMITTED = 1;
+  COMMIT_STATUS_STALE = 2;
+  COMMIT_STATUS_DENIED = 3;
+  COMMIT_STATUS_EVALUATION_ERROR = 4;
+  COMMIT_STATUS_CONFLICT = 5;
+}
+
+message CommitRequest {
+  string proposal_id = 1;
+  string operation_id = 2;
+}
+
+message CommitReceipt {
+  string proposal_id = 1;
+  string operation_id = 2;
+  string action_id = 3;
+  zoen.world.v1.DefinitionReference definition = 4;
+  string intent_digest = 5;
+  uint64 commit_sequence = 6;
+  repeated string record_ids = 7;
+  PolicyEvidence policy = 8;
+}
+
+message CommitResponse {
+  CommitStatus status = 1;
+  CommitReceipt receipt = 2;
+  StateBasis current_state_basis = 3;
+  PolicyEvidence policy = 4;
+  string error = 5;
+}
+
+message GetOperationStatusRequest {
+  string operation_id = 1;
+}
+
+message GetOperationStatusResponse {
+  CommitStatus status = 1;
+  CommitReceipt receipt = 2;
+}
