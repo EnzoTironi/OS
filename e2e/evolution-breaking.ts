@@ -784,10 +784,12 @@ async function main(): Promise<void> {
     }>(
       `SELECT
          (SELECT count(*)::text FROM definition_revisions
-          WHERE tenant_id = $1 AND definition_id = $2) AS definition_count,
+          WHERE tenant_id = $1
+            AND definition_id = $2
+            AND digest IN ($3, $4, $5)) AS definition_count,
          (SELECT count(*)::text FROM semantic_claims
-          WHERE tenant_id = $1 AND definition_digest = $3) AS v3_claim_count`,
-      [tenantA, definitionId, v3.digest],
+          WHERE tenant_id = $1 AND definition_digest = $5) AS v3_claim_count`,
+      [tenantA, definitionId, v1.digest, v2.digest, v3.digest],
     );
     observe(
       "rollbackPreservesV3HistoryAndV1V2V3Coexistence",
