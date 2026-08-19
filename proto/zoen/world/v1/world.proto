@@ -94,6 +94,7 @@ message SemanticQueryRequest {
   QuerySelection selection = 3;
   google.protobuf.Timestamp valid_at = 4;
   QueryConsistency consistency = 5;
+  string entity_id = 6;
 }
 
 enum LineageRole {
@@ -109,6 +110,9 @@ message LineageDependency {
   string relation_id = 3;
   uint64 commit_sequence = 4;
   LineageRole role = 5;
+  string source_id = 6;
+  string source_digest = 7;
+  string source_ref = 8;
 }
 
 message SemanticValueResult {

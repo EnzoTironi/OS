@@ -503,6 +503,7 @@ pub enum SemanticSelection {
 pub struct SemanticQuery {
     pub consistency: Consistency,
     pub definition: DefinitionReference,
+    pub entity_id: EntityId,
     pub selection: SemanticSelection,
     pub valid_at: TimestampMicros,
 }
@@ -521,6 +522,9 @@ pub struct LineageDependency {
     pub entity_id: EntityId,
     pub relation_id: RelationId,
     pub role: LineageRole,
+    pub source_digest: EvidenceDigest,
+    pub source_id: SourceId,
+    pub source_ref: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
