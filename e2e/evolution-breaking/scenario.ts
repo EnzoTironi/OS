@@ -70,7 +70,7 @@ export async function claims(
        AND definition_digest = $2
        AND entity_id = $3
        AND relation_id = $4
-     ORDER BY commit_sequence, claim_id`,
+     ORDER BY semantic_claims.commit_sequence, claim_id`,
     [tenantA, digest, resourceId, relationId],
   );
   return result.rows;
@@ -89,7 +89,7 @@ export async function latestClaim(
        AND definition_digest = $2
        AND entity_id = $3
        AND relation_id = $4
-     ORDER BY commit_sequence DESC, claim_id DESC
+     ORDER BY semantic_claims.commit_sequence DESC, claim_id DESC
      LIMIT 1`,
     [tenantA, digest, resourceId, relationId],
   );
