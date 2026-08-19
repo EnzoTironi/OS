@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { z } from "zod";
 import {
   DefinitionActivationKind,
   DefinitionElementKind,
@@ -62,10 +63,40 @@ import {
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
+const actionContractsSchema = z
+  .object({
+    actions: z.array(
+      z
+        .object({
+          effects: z.array(
+            z.object({ relationId: z.string() }).passthrough(),
+          ),
+          id: z.string(),
+          inputs: z.array(z.object({ id: z.string() }).passthrough()),
+          outputs: z
+            .array(
+              z
+                .object({
+                  id: z.string(),
+                  valueType: z.object({ kind: z.string() }).passthrough(),
+                })
+                .strict(),
+            )
+            .optional(),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
 
 function observe(name: string, condition: boolean): void {
   assert.ok(condition, name);
   assertions[name] = condition;
+}
+
+function parseActionContracts(source: string) {
+  const document: unknown = JSON.parse(source);
+  return actionContractsSchema.parse(document).actions;
 }
 
 function recordFailure(name: string): void {
@@ -88,10 +119,12 @@ async function main(): Promise<void> {
   assert.equal(v3.definition.revision, 3);
   assert.notEqual(v1.digest, v2.digest);
   assert.notEqual(v2.digest, v3.digest);
-  const v1Action = v1.definition.actions.find(
+  const v1Actions = parseActionContracts(v1.canonicalJson);
+  const v2Actions = parseActionContracts(v2.canonicalJson);
+  const v1Action = v1Actions.find(
     (action) => action.id === "inventory.replenish",
   );
-  const v2Action = v2.definition.actions.find(
+  const v2Action = v2Actions.find(
     (action) => action.id === "inventory.replenish",
   );
   assert.ok(v1Action);
