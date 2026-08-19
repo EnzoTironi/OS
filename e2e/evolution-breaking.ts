@@ -730,7 +730,7 @@ async function main(): Promise<void> {
       integer("8"),
     );
     v3ReceiptOperationId = v3Receipt.operationId;
-    const v3Current = await queryValue(
+    const v3Current = await queryValues(
       worldA,
       definitionReference(v3),
       "inventory.primaryWarehouse",
@@ -738,13 +738,18 @@ async function main(): Promise<void> {
     observe(
       "v3CurrentSemanticsUseEntityEvidence",
       v3Current.definition?.digest === v3.digest &&
-        v3Current.value.value.case === "entityRefValue" &&
-        v3Current.value.value.value === "inventory.warehouse.primary" &&
-        v3Current.dependencies.some(
-          (dependency) =>
-            dependency.migration?.operationId === v2ToV3Recipe.operationId &&
-            dependency.migration.sourceClaimIds.some((sourceClaimId) =>
-              v2Levels.some((source) => source.claim_id === sourceClaimId),
+        v3Current.values.length === v2Levels.length &&
+        v3Current.values.every(
+          (value) =>
+            value.value?.value.case === "entityRefValue" &&
+            value.value.value.value === "inventory.warehouse.primary" &&
+            value.dependencies.some(
+              (dependency) =>
+                dependency.migration?.operationId ===
+                  v2ToV3Recipe.operationId &&
+                dependency.migration.sourceClaimIds.some((sourceClaimId) =>
+                  v2Levels.some((source) => source.claim_id === sourceClaimId),
+                ),
             ),
         ),
     );
@@ -752,7 +757,7 @@ async function main(): Promise<void> {
     await expectProjectionFailure(tenantA);
     recordFailure("projection-regeneration-failure");
     const rebuilt = await rebuildProjection(tenantA);
-    const projectedV3 = await queryValue(
+    const projectedV3 = await queryValues(
       worldA,
       definitionReference(v3),
       "inventory.primaryWarehouse",
@@ -762,7 +767,10 @@ async function main(): Promise<void> {
       "projectionRebuildNamesAndServesV3",
       rebuilt.wroteManifest &&
         projectedV3.definition?.digest === v3.digest &&
-        projectedV3.value.value.case === "entityRefValue",
+        projectedV3.values.length === v2Levels.length &&
+        projectedV3.values.every(
+          (value) => value.value?.value.case === "entityRefValue",
+        ),
     );
 
     const historicalV1 = await queryValues(
