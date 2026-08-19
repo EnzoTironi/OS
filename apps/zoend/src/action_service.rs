@@ -155,6 +155,12 @@ impl ActionService for ActionServiceImpl {
                 trusted_context,
                 ..Default::default()
             }),
+            ProposeOutcome::PreconditionDenied(state_basis) => Response::ok(ProposeResponse {
+                decision: PolicyDecision::Deny.into(),
+                state_basis: Some(to_state_basis(state_basis)).into(),
+                trusted_context,
+                ..Default::default()
+            }),
             ProposeOutcome::EvaluationError { message, policy } => Response::ok(ProposeResponse {
                 decision: PolicyDecision::EvaluationError.into(),
                 evaluation_error: message,
