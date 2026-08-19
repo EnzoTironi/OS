@@ -207,6 +207,30 @@ export async function seedEffectRequestCollision(
   );
 }
 
+export async function seedSemanticRecordCollision(
+  client: PostgresClient,
+  tenantId: string,
+  sourceClaimId: string,
+  collisionClaimId: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO semantic_claims (
+       tenant_id, claim_id, definition_id, definition_digest, definition_revision,
+       entity_id, relation_id, value_kind, value_text, value_unit,
+       valid_time_kind, valid_from_micros, valid_to_micros,
+       source_id, source_digest, source_ref, commit_sequence
+     )
+     SELECT
+       tenant_id, $3, definition_id, definition_digest, definition_revision,
+       entity_id, relation_id, value_kind, value_text, value_unit,
+       valid_time_kind, valid_from_micros, valid_to_micros,
+       source_id, source_digest, source_ref, commit_sequence
+     FROM semantic_claims
+     WHERE tenant_id = $1 AND claim_id = $2`,
+    [tenantId, sourceClaimId, collisionClaimId],
+  );
+}
+
 export function composeOutput(...arguments_: string[]): Promise<string> {
   return command("docker", [
     "compose",

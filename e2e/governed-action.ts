@@ -238,7 +238,7 @@ async function main(): Promise<void> {
     const reservedClaimCode = await expectConnectCode(
       () =>
         recordAvailable(worldA, {
-          claimId: `claim.action.${directProposal.intentDigest}.0`,
+          claimId: "claim.action.operation.direct.0",
           fixture: fixtures.direct,
           resource: resourceId,
           tenantId: tenantA,

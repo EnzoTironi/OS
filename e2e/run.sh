@@ -63,6 +63,9 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo build --locked --workspace
 cargo test --locked --workspace
 test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
+if [[ "$scenario" == "durable-commit" ]]; then
+  CARGO_TARGET_DIR=target/failpoints cargo build --locked --package zoend --features failpoints
+fi
 
 docker compose --project-name "$project" --file "$compose_file" up --detach --wait
 node "$runner"
