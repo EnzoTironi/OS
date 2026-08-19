@@ -157,7 +157,7 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
 
 fn cedar_request(request: &PolicyRequest<'_>) -> Result<Request, String> {
     let principal = entity_uid("Zoen::Principal", request.context.principal_id().as_str())?;
-    let action = entity_uid("Zoen::Operation", operation_name(request.operation))?;
+    let action = entity_uid("Action", operation_name(request.operation))?;
     let resource = entity_uid("Zoen::Resource", request.resource_id.as_str())?;
     let inputs = request
         .inputs
@@ -251,8 +251,8 @@ mod tests {
     #[tokio::test]
     async fn distinguishes_permit_deny_and_evaluation_error() {
         let definition_digest = "a".repeat(64);
-        let permit_source = r#"permit(principal, action == Zoen::Operation::"commit", resource) when { context.inputs.quantity <= 5 };"#;
-        let error_source = r#"permit(principal, action == Zoen::Operation::"commit", resource) when { context.missing == true };"#;
+        let permit_source = r#"permit(principal, action == Action::"commit", resource) when { context.inputs.quantity <= 5 };"#;
+        let error_source = r#"permit(principal, action == Action::"commit", resource) when { context.missing == true };"#;
         let evaluator = CedarPolicyEvaluator::from_json(&format!(
             r#"{{"policies":[
                 {{"actionId":"action.purchase","definitionDigest":"{definition_digest}","digest":"{}","policyId":"policy.permit","revision":1,"source":{}}},
