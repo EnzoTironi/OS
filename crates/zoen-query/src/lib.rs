@@ -4,16 +4,17 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use datafusion::execution::object_store::ObjectStoreUrl;
+use datafusion::logical_expr::Expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext, col, lit};
 use object_store::ObjectStore;
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    ClaimId, CommitSequence, ComputationId, Consistency, DefinitionReference, EntityId,
-    EvidenceDigest, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, LineageDependency,
-    LineageRole, RelationId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
-    SourceId, TenantId, TimestampMicros, UnitId,
+    ClaimId, CommitSequence, Consistency, DefinitionReference, EntityId, EvidenceDigest,
+    ExactDecimal, ExactInteger, ExactValue, ExecutionContext, LineageDependency, LineageRole,
+    RelationId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, SourceId,
+    TenantId, UnitId,
 };
 
 mod physical;
@@ -365,7 +366,7 @@ impl QueryRuntime {
         let store_url = ObjectStoreUrl::parse(self.object_store_config.registration_url())
             .map_err(|error| QueryError::Unavailable(error.to_string()))?;
         session.register_object_store(store_url.as_ref(), Arc::clone(&self.store));
-        let mut relation_filter = None;
+        let mut relation_filter: Option<Expr> = None;
         for relation_id in relation_ids {
             let current = col("relation_id").eq(lit(relation_id.clone()));
             relation_filter = Some(match relation_filter {
@@ -598,12 +599,12 @@ impl QueryPlan {
                         let selected_claims = candidate
                             .dependencies
                             .iter()
-                            .map(|dependency| dependency.claim_id.as_str())
+                            .map(|dependency| dependency.claim_id.as_str().to_owned())
                             .collect::<BTreeSet<_>>();
                         let selected_relations = candidate
                             .dependencies
                             .iter()
-                            .map(|dependency| dependency.relation_id.as_str())
+                            .map(|dependency| dependency.relation_id.as_str().to_owned())
                             .collect::<BTreeSet<_>>();
                         let mut dependencies = candidate.dependencies;
                         dependencies.extend(
