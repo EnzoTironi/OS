@@ -701,9 +701,7 @@ where
             observed = Some(result.actual_commit_sequence);
             values.insert(relation_id, result.values);
         }
-        let observed_commit_sequence = observed.ok_or_else(|| {
-            ActionError::Evaluation("Action precondition has no state dependency".to_owned())
-        })?;
+        let observed_commit_sequence = observed.unwrap_or(loaded.revision.commit_sequence);
         evaluate_action_state_basis(
             &loaded.action,
             &loaded.definition,
