@@ -316,7 +316,7 @@ fn to_snapshot(snapshot: CoreEffectSnapshot) -> EffectSnapshot {
     }
 }
 
-fn to_request(request: CoreEffectRequest) -> EffectRequest {
+pub(crate) fn to_request(request: CoreEffectRequest) -> EffectRequest {
     EffectRequest {
         commit_sequence: request.commit_sequence.get(),
         effect_request_id: request.effect_request_id.as_str().to_owned(),
@@ -330,7 +330,7 @@ fn to_request(request: CoreEffectRequest) -> EffectRequest {
     }
 }
 
-fn to_attempt(attempt: CoreEffectAttempt) -> EffectAttempt {
+pub(crate) fn to_attempt(attempt: CoreEffectAttempt) -> EffectAttempt {
     let (outcome, reason, provider_operation_id, response_digest) = match attempt.result {
         EffectAttemptResult::DefinitelyNotSent { reason } => (
             EffectAttemptOutcome::DefinitelyNotSent,
@@ -413,7 +413,7 @@ fn to_attempt(attempt: CoreEffectAttempt) -> EffectAttempt {
     }
 }
 
-fn to_evidence(evidence: CoreEffectEvidence) -> EffectEvidence {
+pub(crate) fn to_evidence(evidence: CoreEffectEvidence) -> EffectEvidence {
     EffectEvidence {
         commit_sequence: evidence.commit_sequence.get(),
         evidence_digest: evidence.digest.as_str().to_owned(),
@@ -432,7 +432,9 @@ fn to_evidence(evidence: CoreEffectEvidence) -> EffectEvidence {
     }
 }
 
-fn to_reconciliation(reconciliation: CoreEffectReconciliation) -> EffectReconciliation {
+pub(crate) fn to_reconciliation(
+    reconciliation: CoreEffectReconciliation,
+) -> EffectReconciliation {
     EffectReconciliation {
         commit_sequence: reconciliation.commit_sequence.get(),
         evidence_id: reconciliation.evidence_id.as_str().to_owned(),
