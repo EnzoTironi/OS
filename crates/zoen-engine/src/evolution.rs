@@ -10,9 +10,9 @@ use zoen_core::{
 };
 
 use crate::{
-    ActivateRevisionError, AdmittedDefinitionActivation, AuthorityStore, DefinitionEngine,
-    PlanEvolutionError, PolicyEvaluator, PolicyOperation, PolicyRequest, StoreError,
-    decode_canonical_definition, verify_digest,
+    ActivateRevisionError, AdmittedDefinitionActivation, AuthorityStore,
+    DefinitionActivationAdmission, DefinitionEngine, PlanEvolutionError, PolicyEvaluator,
+    PolicyOperation, PolicyRequest, StoreError, decode_canonical_definition, verify_digest,
 };
 
 const DEFINITION_ACTIVATION_ACTION_ID: &str = "zoen.definition.activate";
@@ -134,11 +134,13 @@ where
             context.clone(),
             previous.as_ref().map(reference),
             target,
-            classification,
-            DefinitionActivationKind::Activation,
-            migration_operation_id,
-            policy,
-            activated_at,
+            DefinitionActivationAdmission {
+                activated_at,
+                classification,
+                kind: DefinitionActivationKind::Activation,
+                migration_operation_id,
+                policy,
+            },
         )?;
         self.store
             .activate_revision(&activation)
@@ -227,11 +229,13 @@ where
             context.clone(),
             previous.as_ref().map(reference),
             target,
-            None,
-            DefinitionActivationKind::Rollback,
-            None,
-            policy,
-            activated_at,
+            DefinitionActivationAdmission {
+                activated_at,
+                classification: None,
+                kind: DefinitionActivationKind::Rollback,
+                migration_operation_id: None,
+                policy,
+            },
         )?;
         self.store
             .activate_revision(&activation)

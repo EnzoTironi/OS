@@ -498,17 +498,28 @@ pub struct AdmittedDefinitionActivation {
     target: DefinitionRevision,
 }
 
+struct DefinitionActivationAdmission {
+    activated_at: TimestampMicros,
+    classification: Option<EvolutionClassification>,
+    kind: zoen_core::DefinitionActivationKind,
+    migration_operation_id: Option<OperationId>,
+    policy: PolicyEvidence,
+}
+
 impl AdmittedDefinitionActivation {
     fn new(
         context: ExecutionContext,
         previous: Option<DefinitionReference>,
         target: DefinitionRevision,
-        classification: Option<EvolutionClassification>,
-        kind: zoen_core::DefinitionActivationKind,
-        migration_operation_id: Option<OperationId>,
-        policy: PolicyEvidence,
-        activated_at: TimestampMicros,
+        admission: DefinitionActivationAdmission,
     ) -> Result<Self, ActivateRevisionError> {
+        let DefinitionActivationAdmission {
+            activated_at,
+            classification,
+            kind,
+            migration_operation_id,
+            policy,
+        } = admission;
         let payload = serde_jcs::to_string(&DefinitionActivatedV1 {
             activated_by: context.actor_id().as_str(),
             classification: classification.map(EvolutionClassification::as_str),
