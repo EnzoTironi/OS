@@ -41,7 +41,7 @@ pub(crate) async fn load(
                         .ok_or(StoreError::NotFound)?;
                     let definition =
                         load_definition(&mut transaction, context, &claim.draft.definition).await?;
-                    HistorySnapshot::Claim(ClaimHistorySnapshot { claim, definition })
+                    HistorySnapshot::Claim(Box::new(ClaimHistorySnapshot { claim, definition }))
                 }
             }
         }

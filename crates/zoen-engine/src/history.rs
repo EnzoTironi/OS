@@ -43,7 +43,7 @@ pub struct ClaimHistorySnapshot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HistorySnapshot {
     Action(Box<ActionHistorySnapshot>),
-    Claim(ClaimHistorySnapshot),
+    Claim(Box<ClaimHistorySnapshot>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -96,7 +96,7 @@ where
                 explain_action(context, &target, *snapshot, disclosure, &mut gaps),
             )),
             HistorySnapshot::Claim(snapshot) => {
-                ExplanationSubject::Claim(Box::new(explain_claim(snapshot, disclosure, &mut gaps)))
+                ExplanationSubject::Claim(Box::new(explain_claim(*snapshot, disclosure, &mut gaps)))
             }
         };
         Ok(CausalExplanation {
