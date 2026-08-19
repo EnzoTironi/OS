@@ -84,6 +84,17 @@ interface ServerProcess {
   output: string[];
 }
 
+const assertions: Record<string, boolean> = {};
+const failureInjections: string[] = [];
+
+function recordAssertion(name: string): void {
+  assertions[name] = true;
+}
+
+function recordFailureInjection(name: string): void {
+  failureInjections.push(name);
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const canonicalDefinition = (
@@ -119,6 +130,20 @@ async function main(): Promise<void> {
 
     await expectConnectCode(
       () =>
+        query(worldA, {
+          consistency: strong(),
+          definition,
+          entityId,
+          selection: relation("world.unknown"),
+          tenantId: tenantA,
+          validAt,
+        }),
+      Code.InvalidArgument,
+    );
+    recordAssertion("unknownRelationRejected");
+
+    await expectConnectCode(
+      () =>
         recordInterval(worldA, {
           claimId: "claim.invalidInterval",
           definition,
@@ -132,6 +157,7 @@ async function main(): Promise<void> {
         }),
       Code.InvalidArgument,
     );
+    recordFailureInjection("inverted-valid-time");
     await expectConnectCode(
       () =>
         recordInterval(worldA, {
@@ -147,9 +173,11 @@ async function main(): Promise<void> {
         }),
       Code.InvalidArgument,
     );
+    recordFailureInjection("unknown-relation");
     assert.equal(await rowCount(admin, "authority_commits", tenantA), 1);
     assert.equal(await rowCount(admin, "semantic_claims", tenantA), 0);
     assert.equal(await rowCount(admin, "projection_outbox", tenantA), 1);
+    recordAssertion("invalidEvidenceAtomic");
 
     assert.equal(
       await recordInterval(worldA, {
@@ -199,14 +227,23 @@ async function main(): Promise<void> {
     assert.equal(await projectionState(admin, tenantA), null);
     await compose("start", "minio");
     await waitForObjectStore();
+    recordFailureInjection("object-store-outage");
+    recordAssertion("objectStoreOutagePreservesWatermark");
 
-    await expectCommandFailure(
-      workerPath,
-      ["--fail-before-publish", tenantA],
-      workerEnvironment(),
-    );
+    await installProjectionPublishFailure(admin);
+    try {
+      await expectCommandFailure(
+        workerPath,
+        ["--once", tenantA],
+        workerEnvironment(),
+      );
+    } finally {
+      await removeProjectionPublishFailure(admin);
+    }
     assert.equal(await projectionState(admin, tenantA), null);
     assert.ok((await objectKeys()).length >= 2);
+    recordFailureInjection("projection-publish-failure");
+    recordAssertion("projectionFailureLeavesNoPublishedWatermark");
 
     const firstProjection = await runProjection(["--once", tenantA]);
     assert.equal(firstProjection.throughCommit, 4);
@@ -223,6 +260,8 @@ async function main(): Promise<void> {
       await rowCount(admin, "projection_manifests", tenantA),
       firstManifestCount,
     );
+    recordFailureInjection("duplicate-projection-delivery");
+    recordAssertion("duplicateOutboxDeliveryIdempotent");
 
     const strongAtFour = await query(worldA, {
       consistency: strong(),
@@ -245,6 +284,8 @@ async function main(): Promise<void> {
     assert.deepEqual(semanticShape(strongAtFour), semanticShape(snapshotFour));
     assert.deepEqual(integerValues(strongAtFour), ["7", "9"]);
     assertComputationLineage(strongAtFour, 2);
+    recordAssertion("crossRelationLineageComplete");
+    recordAssertion("postgresParquetLineageEquivalent");
 
     await stopServer(server);
     server = await startServer();
@@ -258,6 +299,8 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(integerValues(rivalsAfterRestart), ["10", "12"]);
     assertRelationLineage(rivalsAfterRestart, 2);
+    recordAssertion("contradictoryClaimsSurviveRestart");
+    recordAssertion("rivalLineageComplete");
 
     assert.equal(
       await recordInterval(worldA, {
@@ -291,6 +334,20 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(integerValues(knownThen), ["10", "12"]);
     assert.deepEqual(integerValues(nowBelievedThen), ["10", "11", "12"]);
+    const snapshotFiveFromAuthority = await query(worldA, {
+      consistency: snapshot(5n),
+      definition,
+      entityId,
+      selection: relation(onHand),
+      tenantId: tenantA,
+      validAt,
+    });
+    assert.deepEqual(
+      semanticShape(snapshotFiveFromAuthority),
+      semanticShape(nowBelievedThen),
+    );
+    recordAssertion("lateEvidenceSeparatesKnowledgeCuts");
+    recordAssertion("snapshotReadsAuthorityWhenProjectionBehind");
     const eventualBehind = await query(worldA, {
       consistency: eventual(),
       definition,
@@ -313,6 +370,8 @@ async function main(): Promise<void> {
         }),
       Code.FailedPrecondition,
     );
+    recordFailureInjection("stale-at-least");
+    recordAssertion("staleAtLeastRejected");
 
     const caughtUp = await runProjection(["--once", tenantA]);
     assert.equal(caughtUp.throughCommit, 5);
@@ -326,6 +385,19 @@ async function main(): Promise<void> {
     });
     assert.equal(atLeastFive.actualCommitSequence, 5n);
     assert.deepEqual(integerValues(atLeastFive), ["10", "11", "12"]);
+    const snapshotFourAfterProjectionFive = await query(worldA, {
+      consistency: snapshot(4n),
+      definition,
+      entityId,
+      selection: computation(available),
+      tenantId: tenantA,
+      validAt,
+    });
+    assert.deepEqual(
+      semanticShape(snapshotFourAfterProjectionFive),
+      semanticShape(snapshotFour),
+    );
+    recordAssertion("snapshotCutFiltersAheadProjection");
 
     assert.equal(
       await recordInstant(worldA, {
@@ -358,6 +430,7 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(integerValues(atInstant), ["10", "11", "12", "99"]);
     assert.deepEqual(integerValues(afterInstantResult), ["10", "11", "12"]);
+    recordAssertion("instantIsNotOpenEnded");
 
     assert.equal(
       await recordInterval(worldB, {
@@ -410,6 +483,7 @@ async function main(): Promise<void> {
         }),
       Code.PermissionDenied,
     );
+    recordAssertion("tenantCollisionsIsolated");
 
     assert.equal(
       await recordInterval(worldA, {
@@ -451,6 +525,8 @@ async function main(): Promise<void> {
         }),
       Code.FailedPrecondition,
     );
+    recordFailureInjection("computation-overflow");
+    recordAssertion("computationEvaluationErrorTyped");
     const latestProjection = await runProjection(["--once", tenantA]);
     assert.equal(latestProjection.throughCommit, 8);
 
@@ -476,6 +552,21 @@ async function main(): Promise<void> {
 
     const activeBeforeLoss = await projectionState(admin, tenantA);
     assert.ok(activeBeforeLoss);
+    await overwriteObject(activeBeforeLoss.parquetObjectKey, "corrupt parquet");
+    await expectConnectCode(
+      () =>
+        query(worldA, {
+          consistency: snapshot(8n),
+          definition,
+          entityId,
+          selection: relation(onHand),
+          tenantId: tenantA,
+          validAt,
+        }),
+      Code.DataLoss,
+    );
+    recordFailureInjection("corrupt-parquet-object");
+    recordAssertion("corruptParquetDetected");
     await removeObject(activeBeforeLoss.parquetObjectKey);
     await expectConnectCode(
       () =>
@@ -489,6 +580,8 @@ async function main(): Promise<void> {
         }),
       Code.Unavailable,
     );
+    recordFailureInjection("missing-parquet-object");
+    recordAssertion("missingParquetDetected");
     const strongWithoutProjection = await query(worldA, {
       consistency: strong(),
       definition,
@@ -529,6 +622,7 @@ async function main(): Promise<void> {
       validAt,
     });
     assert.deepEqual(semanticShape(strongAtEight), semanticShape(rebuiltResult));
+    recordAssertion("projectionRebuildAddsNoBusinessHistory");
 
     await stopServer(server);
     server = await startServer();
@@ -561,39 +655,14 @@ async function main(): Promise<void> {
     const activeAfterRebuild = await projectionState(admin, tenantA);
     assert.ok(activeAfterRebuild);
     const manifest = {
-      assertions: {
-        computationEvaluationErrorTyped: true,
-        contradictoryClaimsSurviveRestart: true,
-        crossRelationLineageComplete: true,
-        duplicateOutboxDeliveryIdempotent: true,
-        instantIsNotOpenEnded: true,
-        invalidEvidenceAtomic: true,
-        lateEvidenceSeparatesKnowledgeCuts: true,
-        missingParquetDetected: true,
-        objectStoreOutagePreservesWatermark: true,
-        postgresParquetLineageEquivalent: true,
-        projectionCrashLeavesNoPublishedWatermark: true,
-        projectionRebuildAddsNoBusinessHistory: true,
-        rivalLineageComplete: true,
-        staleAtLeastRejected: true,
-        tenantCollisionsIsolated: true,
-      },
+      assertions,
       componentVersions: {
         dataFusion: dataFusionVersion,
         minio: minioVersion.split("\n")[0],
         postgres: postgresVersion,
       },
       definitionDigest,
-      failureInjections: [
-        "inverted-valid-time",
-        "unknown-relation",
-        "object-store-outage",
-        "projection-crash-before-manifest",
-        "duplicate-projection-delivery",
-        "stale-at-least",
-        "computation-overflow",
-        "missing-parquet-object",
-      ],
+      failureInjections,
       finishedAt: new Date().toISOString(),
       observedCuts: {
         authoritative: strongAtEight.actualCommitSequence.toString(),
@@ -603,6 +672,7 @@ async function main(): Promise<void> {
       },
       projection: {
         manifestDigest: activeAfterRebuild.manifestDigest,
+        parquetDigest: activeAfterRebuild.parquetDigest,
         parquetObjectKey: activeAfterRebuild.parquetObjectKey,
         throughCommit: activeAfterRebuild.throughCommit,
       },
@@ -1022,20 +1092,52 @@ async function rowCount(
   return Number(result.rows[0]?.count);
 }
 
+async function installProjectionPublishFailure(
+  client: PostgresClient,
+): Promise<void> {
+  await client.query(`
+    CREATE FUNCTION e2e_fail_projection_manifest()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      RAISE EXCEPTION 'injected projection manifest failure';
+    END;
+    $$;
+
+    CREATE TRIGGER e2e_projection_manifest_failure
+    BEFORE INSERT ON projection_manifests
+    FOR EACH ROW
+    EXECUTE FUNCTION e2e_fail_projection_manifest();
+  `);
+}
+
+async function removeProjectionPublishFailure(
+  client: PostgresClient,
+): Promise<void> {
+  await client.query(`
+    DROP TRIGGER e2e_projection_manifest_failure ON projection_manifests;
+    DROP FUNCTION e2e_fail_projection_manifest();
+  `);
+}
+
 async function projectionState(
   client: PostgresClient,
   tenantId: string,
 ): Promise<{
   manifestDigest: string;
+  parquetDigest: string;
   parquetObjectKey: string;
   throughCommit: number;
 } | null> {
   const result = await client.query<{
     manifest_digest: string;
+    parquet_digest: string;
     parquet_object_key: string;
     through_commit: string;
   }>(
-    `SELECT w.manifest_digest, m.parquet_object_key, w.through_commit::text
+    `SELECT w.manifest_digest, m.parquet_digest, m.parquet_object_key,
+            w.through_commit::text
      FROM projection_watermarks w
      JOIN projection_manifests m
        ON m.tenant_id = w.tenant_id
@@ -1048,6 +1150,7 @@ async function projectionState(
   return row
     ? {
         manifestDigest: row.manifest_digest,
+        parquetDigest: row.parquet_digest,
         parquetObjectKey: row.parquet_object_key,
         throughCommit: Number(row.through_commit),
       }
@@ -1070,6 +1173,26 @@ async function objectKeys(): Promise<string[]> {
     .filter(Boolean)
     .map((line) => JSON.parse(line) as { key: string })
     .map((item) => item.key);
+}
+
+async function overwriteObject(key: string, contents: string): Promise<void> {
+  await commandWithInput(
+    "docker",
+    [
+      "compose",
+      "--project-name",
+      composeProject,
+      "--file",
+      composeFile,
+      "exec",
+      "-T",
+      "minio-client",
+      "mc",
+      "pipe",
+      `local/zoen-projections/${key}`,
+    ],
+    contents,
+  );
 }
 
 async function removeObject(key: string): Promise<void> {
@@ -1140,6 +1263,35 @@ function command(
         resolve(stdout.trim());
       },
     );
+  });
+}
+
+function commandWithInput(
+  executable: string,
+  arguments_: readonly string[],
+  input: string,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, [...arguments_], {
+      cwd: repositoryRoot,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.once("error", reject);
+    child.once("close", (code) => {
+      const output = Buffer.concat(stdout).toString();
+      const errors = Buffer.concat(stderr).toString();
+      if (code !== 0) {
+        reject(new Error(`${output}${errors}`));
+        return;
+      }
+      resolve(output.trim());
+    });
+    child.stdin.end(input);
   });
 }
 
