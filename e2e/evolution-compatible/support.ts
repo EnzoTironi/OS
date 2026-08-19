@@ -31,6 +31,7 @@ import {
   DefinitionReferenceSchema,
   EvidenceClaimSchema,
   EvidenceProvenanceSchema,
+  EventualConsistencySchema,
   ExactValueSchema,
   QueryConsistencySchema,
   QuerySelectionSchema,
@@ -39,6 +40,7 @@ import {
   ValidTimeSchema,
   WorldService,
   type DefinitionReference,
+  type QueryConsistency,
 } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 
 export const repositoryRoot = process.cwd();
@@ -77,6 +79,12 @@ const compilerPath = path.join(
   "cli.js",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
+const workerPath = path.join(
+  repositoryRoot,
+  "target",
+  "debug",
+  "zoen-projection",
+);
 const validAt = new Date("2026-08-19T00:00:00.000Z");
 
 const compiledDefinitionSchema = z
@@ -94,6 +102,17 @@ const compiledDefinitionSchema = z
 const tokenResponseSchema = z
   .object({ access_token: z.string().min(1) })
   .passthrough();
+const projectionOutcomeSchema = z
+  .object({
+    manifestDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    manifestObjectKey: z.string().min(1),
+    parquetDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    parquetObjectKey: z.string().min(1),
+    projectedRows: z.number().int().nonnegative(),
+    throughCommit: z.number().int().positive(),
+    wroteManifest: z.boolean(),
+  })
+  .strict();
 
 export type CompiledDefinition = z.infer<typeof compiledDefinitionSchema>;
 export type DefinitionClient = Client<typeof DefinitionService>;
@@ -227,9 +246,24 @@ export async function commitReplenish(
   suffix: string,
   amount: string,
 ): Promise<CommitReceipt> {
-  const proposalId = `proposal.${suffix}`;
-  const operationId = `operation.${suffix}`;
-  const proposed = await client.propose({
+  const request = replenishProposal(definition, suffix, amount);
+  const proposed = await client.propose(request);
+  assert.equal(proposed.decision, PolicyDecision.PERMIT);
+  assert.ok(proposed.proposal);
+  const committed = await client.commit({
+    operationId: request.operationId,
+    proposalId: request.proposalId,
+  });
+  assert.ok(committed.receipt);
+  return committed.receipt;
+}
+
+export function replenishProposal(
+  definition: DefinitionReference,
+  suffix: string,
+  amount: string,
+) {
+  return {
     actionId: "inventory.replenish",
     definition,
     expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
@@ -239,16 +273,11 @@ export async function commitReplenish(
         value: quantity(amount),
       }),
     ],
-    operationId,
-    proposalId,
+    operationId: `operation.${suffix}`,
+    proposalId: `proposal.${suffix}`,
     resourceId,
     validAt: timestampFromDate(validAt),
-  });
-  assert.equal(proposed.decision, PolicyDecision.PERMIT);
-  assert.ok(proposed.proposal);
-  const committed = await client.commit({ operationId, proposalId });
-  assert.ok(committed.receipt);
-  return committed.receipt;
+  };
 }
 
 export async function recordQuantity(
@@ -293,13 +322,55 @@ export async function queryQuantity(
   amount: string;
   definition: DefinitionReference | undefined;
 }> {
-  const response = await client.semanticQuery({
-    consistency: create(QueryConsistencySchema, {
+  return executeQuantityQuery(
+    client,
+    definition,
+    selection,
+    create(QueryConsistencySchema, {
       value: {
         case: "strong",
         value: create(StrongConsistencySchema),
       },
     }),
+  );
+}
+
+export async function queryProjectedQuantity(
+  client: WorldClient,
+  definition: DefinitionReference,
+  selection:
+    | { kind: "relation"; id: string }
+    | { kind: "computation"; id: string },
+): Promise<{
+  amount: string;
+  definition: DefinitionReference | undefined;
+}> {
+  return executeQuantityQuery(
+    client,
+    definition,
+    selection,
+    create(QueryConsistencySchema, {
+      value: {
+        case: "eventual",
+        value: create(EventualConsistencySchema),
+      },
+    }),
+  );
+}
+
+async function executeQuantityQuery(
+  client: WorldClient,
+  definition: DefinitionReference,
+  selection:
+    | { kind: "relation"; id: string }
+    | { kind: "computation"; id: string },
+  consistency: QueryConsistency,
+): Promise<{
+  amount: string;
+  definition: DefinitionReference | undefined;
+}> {
+  const response = await client.semanticQuery({
+    consistency,
     definition,
     entityId: resourceId,
     selection: create(QuerySelectionSchema, {
@@ -337,7 +408,7 @@ export async function startServer(
   const child = spawn(serverPath, [], {
     cwd: repositoryRoot,
     env: {
-      ...process.env,
+      ...projectionEnvironment(),
       DATABASE_URL: applicationDatabaseUrl,
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
       ZOEN_LISTEN_ADDR: "127.0.0.1:58089",
@@ -417,6 +488,7 @@ export function composeOutput(...arguments_: string[]): Promise<string> {
 export function command(
   executable: string,
   arguments_: readonly string[],
+  environment: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -425,6 +497,7 @@ export function command(
       {
         cwd: repositoryRoot,
         encoding: "utf8",
+        env: environment,
         maxBuffer: 10 * 1024 * 1024,
       },
       (error, stdout, stderr) => {
@@ -436,6 +509,29 @@ export function command(
       },
     );
   });
+}
+
+export async function rebuildProjection(tenantId: string) {
+  const output = await command(
+    workerPath,
+    ["--rebuild", tenantId],
+    projectionEnvironment(),
+  );
+  const parsed: unknown = JSON.parse(output);
+  return projectionOutcomeSchema.parse(parsed);
+}
+
+function projectionEnvironment(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    DATABASE_URL: applicationDatabaseUrl,
+    S3_ACCESS_KEY_ID: "zoen-access",
+    S3_ALLOW_HTTP: "true",
+    S3_BUCKET: "zoen-projections",
+    S3_ENDPOINT: "http://127.0.0.1:59005",
+    S3_REGION: "us-east-1",
+    S3_SECRET_ACCESS_KEY: "zoen-secret",
+  };
 }
 
 export function sha256(value: string | Uint8Array): string {

@@ -326,6 +326,10 @@ export async function activateDefinition(
   fixture: DefinitionFixture,
 ): Promise<void> {
   const response = await client.activateRevision({
+    activeRevisionPrecondition: {
+      case: "expectNoActiveRevision",
+      value: true,
+    },
     definitionId: fixture.definition.definitionId,
     digest: fixture.digest,
     tenantId,

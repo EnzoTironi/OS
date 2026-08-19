@@ -5,6 +5,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   DefinitionChangeKind,
   DefinitionElementKind,
+  DefinitionImpactApplicability,
   DefinitionImpactArea,
   EvolutionClassification,
   type EvolutionPlan,
@@ -24,9 +25,13 @@ import {
   historyClient,
   oidcToken,
   publish,
+  queryProjectedQuantity,
   queryQuantity,
+  rebuildProjection,
   recordQuantity,
+  replenishProposal,
   repositoryRoot,
+  resourceId,
   sha256,
   startServer,
   stopServer,
@@ -59,17 +64,21 @@ async function main(): Promise<void> {
     path.join(fixtureDirectory, "inventory-v2.zoen.ts"),
   );
   const mutant = await compileMutant(v2);
+  const addedActionMutant = await compileAddedActionMutant(v2);
   assert.equal(v1.definition.revision, 1);
   assert.equal(v2.definition.revision, 2);
   assert.equal(mutant.definition.revision, 3);
+  assert.equal(addedActionMutant.definition.revision, 3);
   assert.notEqual(v1.digest, v2.digest);
   assert.notEqual(v2.digest, mutant.digest);
+  assert.notEqual(v2.digest, addedActionMutant.digest);
+  assert.notEqual(mutant.digest, addedActionMutant.digest);
 
   const policyManifestPath = path.join(
     generatedDirectory,
     "policies.json",
   );
-  await writePolicyManifest(policyManifestPath, [v1, v2]);
+  await writePolicyManifest(policyManifestPath, [v1, v2, addedActionMutant]);
   const adminAToken = await oidcToken("admin-a");
   const deniedAToken = await oidcToken("denied-a");
   const adminBToken = await oidcToken("admin-b");
@@ -83,6 +92,7 @@ async function main(): Promise<void> {
   let server: ServerProcess | undefined;
   let compatiblePlan: EvolutionPlan | undefined;
   let v1ReceiptOperationId = "";
+  let replayRequest: ReturnType<typeof replenishProposal> | undefined;
 
   try {
     server = await startServer(policyManifestPath);
@@ -144,11 +154,19 @@ async function main(): Promise<void> {
       recoveredV1.digest === v1.digest,
     );
     const activatedV1A = await definitionA.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectNoActiveRevision",
+        value: true,
+      },
       definitionId,
       digest: v1.digest,
       tenantId: tenantA,
     });
     const activatedV1B = await definitionB.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectNoActiveRevision",
+        value: true,
+      },
       definitionId,
       digest: v1.digest,
       tenantId: tenantB,
@@ -176,9 +194,21 @@ async function main(): Promise<void> {
       v1Receipt.definition?.digest === v1.digest &&
         v1Receipt.definition.revision === 1n,
     );
+    replayRequest = replenishProposal(
+      definitionReference(v1),
+      "evolution.v1.lostResponse",
+      "6",
+    );
+    const proposalBeforeActivation = await actionA.propose(replayRequest);
+    assert.ok(proposalBeforeActivation.proposal);
+    observe(
+      "proposalCreatedBeforeLaterActivation",
+      proposalBeforeActivation.proposal.definition?.digest === v1.digest,
+    );
     await publish(definitionA, tenantA, v2);
     await publish(definitionB, tenantB, v2);
     await publish(definitionA, tenantA, mutant);
+    await publish(definitionB, tenantB, addedActionMutant);
     const activeAfterV2Publication = await activeDigest(definitionA, tenantA);
     observe(
       "v2PublicationLeavesV1Active",
@@ -197,10 +227,43 @@ async function main(): Promise<void> {
     recordFailure("client-digest-bypass-before-activation");
     await expectConnectCode(
       () =>
+        recordQuantity(
+          worldA,
+          definitionReference(mutant),
+          "inventory.reserved",
+          "2",
+          "claim.inventory.inactive.mutant",
+        ),
+      Code.FailedPrecondition,
+    );
+    await expectConnectCode(
+      () =>
+        actionA.discover({
+          definition: definitionReference(mutant),
+          resourceId,
+        }),
+      Code.FailedPrecondition,
+    );
+    recordFailure("inactive-revision-new-work");
+    await expectConnectCode(
+      () =>
         definitionA.activateRevision({
           definitionId,
+          digest: v2.digest,
+          tenantId: tenantA,
+        }),
+      Code.InvalidArgument,
+    );
+    recordFailure("activation-without-precondition");
+    await expectConnectCode(
+      () =>
+        definitionA.activateRevision({
+          activeRevisionPrecondition: {
+            case: "expectedActiveDigest",
+            value: v1.digest,
+          },
+          definitionId,
           digest: "f".repeat(64),
-          expectedActiveDigest: v1.digest,
           tenantId: tenantA,
         }),
       Code.NotFound,
@@ -209,9 +272,12 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         definitionDenied.activateRevision({
+          activeRevisionPrecondition: {
+            case: "expectedActiveDigest",
+            value: v1.digest,
+          },
           definitionId,
           digest: v2.digest,
-          expectedActiveDigest: v1.digest,
           tenantId: tenantA,
         }),
       Code.PermissionDenied,
@@ -220,9 +286,12 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         definitionA.activateRevision({
+          activeRevisionPrecondition: {
+            case: "expectedActiveDigest",
+            value: v1.digest,
+          },
           definitionId,
           digest: mutant.digest,
-          expectedActiveDigest: v1.digest,
           tenantId: tenantA,
         }),
       Code.FailedPrecondition,
@@ -266,13 +335,11 @@ async function main(): Promise<void> {
       definitionId,
       fromDigest: v1.digest,
       tenantId: tenantB,
-      toDigest: v2.digest,
+      toDigest: addedActionMutant.digest,
     });
-    observe(
-      "tenantBPlansOnlyItsOwnPublishedRevisions",
-      tenantBPlan.plan?.classification ===
-        EvolutionClassification.COMPATIBLE,
-    );
+    assert.ok(tenantBPlan.plan);
+    assertAddedActionPlan(tenantBPlan.plan);
+    observe("tenantBPlansOnlyItsOwnPublishedRevisions", true);
     await expectConnectCode(
       () =>
         definitionA.planEvolution({
@@ -300,15 +367,21 @@ async function main(): Promise<void> {
     server = await startServer(policyManifestPath);
     const activationRace = await Promise.allSettled([
       definitionA.activateRevision({
+        activeRevisionPrecondition: {
+          case: "expectedActiveDigest",
+          value: v1.digest,
+        },
         definitionId,
         digest: v2.digest,
-        expectedActiveDigest: v1.digest,
         tenantId: tenantA,
       }),
       definitionA.activateRevision({
+        activeRevisionPrecondition: {
+          case: "expectedActiveDigest",
+          value: v1.digest,
+        },
         definitionId,
         digest: v2.digest,
-        expectedActiveDigest: v1.digest,
         tenantId: tenantA,
       }),
     ]);
@@ -323,7 +396,7 @@ async function main(): Promise<void> {
     const loser = losers[0];
     assert.ok(loser?.status === "rejected");
     assert.ok(loser.reason instanceof ConnectError);
-    assert.equal(loser.reason.code, Code.AlreadyExists);
+    assert.equal(loser.reason.code, Code.FailedPrecondition);
     observe(
       "concurrentActivationHasOneWinner",
       winners.length === 1 &&
@@ -331,12 +404,39 @@ async function main(): Promise<void> {
         (await activeDigest(definitionA, tenantA)) === v2.digest,
     );
     recordFailure("concurrent-activation-race");
+    assert.ok(replayRequest);
+    const replayedAfterActivation = await actionA.propose(replayRequest);
+    const replayedAt = replayedAfterActivation.proposal?.proposedAt;
+    const replayedAtMicros =
+      replayedAt === undefined
+        ? undefined
+        : replayedAt.seconds * 1_000_000n +
+          BigInt(Math.trunc(replayedAt.nanos / 1_000));
+    const originalProposal = await admin.query<{
+      intent_digest: string;
+      proposed_at_micros: string;
+    }>(
+      `SELECT intent_digest, proposed_at_micros::text
+       FROM action_proposals
+       WHERE tenant_id = $1 AND proposal_id = $2`,
+      [tenantA, replayRequest.proposalId],
+    );
+    observe(
+      "lostProposalResponseReplaysAfterActivation",
+      replayedAfterActivation.proposal?.intentDigest ===
+        originalProposal.rows[0]?.intent_digest &&
+        replayedAtMicros?.toString() ===
+          originalProposal.rows[0]?.proposed_at_micros,
+    );
     await expectConnectCode(
       () =>
         definitionA.activateRevision({
+          activeRevisionPrecondition: {
+            case: "expectedActiveDigest",
+            value: v1.digest,
+          },
           definitionId,
           digest: v2.digest,
-          expectedActiveDigest: v1.digest,
           tenantId: tenantB,
         }),
       Code.PermissionDenied,
@@ -345,6 +445,22 @@ async function main(): Promise<void> {
     observe(
       "tenantBPointerUnaffectedByTenantAAttack",
       (await activeDigest(definitionB, tenantB)) === v1.digest,
+    );
+    const addedActionActivation = await definitionB.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectedActiveDigest",
+        value: v1.digest,
+      },
+      definitionId,
+      digest: addedActionMutant.digest,
+      tenantId: tenantB,
+    });
+    observe(
+      "addedActionOnAddedRelationActivates",
+      addedActionActivation.activation?.active?.digest ===
+        addedActionMutant.digest &&
+        addedActionActivation.activation.classification ===
+          EvolutionClassification.COMPATIBLE,
     );
     await stopServer(server);
     server = undefined;
@@ -411,6 +527,25 @@ async function main(): Promise<void> {
         v2Computation.amount === "7" &&
         v2Computation.definition?.digest === v2.digest,
     );
+    const rebuiltProjection = await rebuildProjection(tenantA);
+    const projectedV1 = await queryProjectedQuantity(
+      worldA,
+      definitionReference(v1),
+      { id: "inventory.level", kind: "relation" },
+    );
+    const projectedV2 = await queryProjectedQuantity(
+      worldA,
+      definitionReference(v2),
+      { id: "inventory.availableToPromise", kind: "computation" },
+    );
+    observe(
+      "projectionRebuildServesHistoricalV1AndActiveV2",
+      rebuiltProjection.wroteManifest &&
+        projectedV1.amount === "5" &&
+        projectedV1.definition?.digest === v1.digest &&
+        projectedV2.amount === "7" &&
+        projectedV2.definition?.digest === v2.digest,
+    );
     const historicalQueryAgain = await queryQuantity(
       worldA,
       definitionReference(v1),
@@ -438,14 +573,16 @@ async function main(): Promise<void> {
     );
     const activationEvidence = await admin.query<{
       actor_id: string;
+      classification: string;
+      commit_sequence: string;
       digest: string;
       policy_id: string;
       principal_id: string;
       revision: string;
       workload_id: string;
     }>(
-      `SELECT actor_id, digest, policy_id, principal_id,
-              revision::text, workload_id
+      `SELECT actor_id, classification, commit_sequence::text,
+              digest, policy_id, principal_id, revision::text, workload_id
        FROM definition_activations
        WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3`,
       [tenantA, definitionId, v2.digest],
@@ -457,7 +594,31 @@ async function main(): Promise<void> {
         activationEvidence.rows[0]?.principal_id === "principal.admin.a" &&
         activationEvidence.rows[0]?.workload_id === "workload.admin.a" &&
         activationEvidence.rows[0]?.policy_id === "policy.activation.v2" &&
-        activationEvidence.rows[0]?.revision === "2",
+        activationEvidence.rows[0]?.revision === "2" &&
+        activationEvidence.rows[0]?.classification === "compatible",
+    );
+    const activationGrant = await admin.query<{
+      action_ids: string[];
+      delegation_id: string;
+      resource_ids: string[];
+      workload_ids: string[];
+    }>(
+      `SELECT action_ids, delegation_id, resource_ids, workload_ids
+       FROM definition_activation_grants
+       WHERE tenant_id = $1 AND commit_sequence = $2`,
+      [tenantA, activationEvidence.rows[0]?.commit_sequence],
+    );
+    observe(
+      "activationDelegationGrantIsDurable",
+      activationGrant.rows.length === 1 &&
+        activationGrant.rows[0]?.delegation_id ===
+          "delegation.workload.admin.a" &&
+        activationGrant.rows[0]?.action_ids.includes(
+          "zoen.definition.activate",
+        ) === true &&
+        activationGrant.rows[0]?.resource_ids.includes(definitionId) === true &&
+        activationGrant.rows[0]?.workload_ids.includes("workload.admin.a") ===
+          true,
     );
     await assertImmutableActivationHistory(admin);
     const activationEvent = await admin.query<{
@@ -524,6 +685,7 @@ async function main(): Promise<void> {
         postgres: postgresVersion,
       },
       definitionDigests: {
+        addedActionMutant: addedActionMutant.digest,
         mutant: mutant.digest,
         v1: v1.digest,
         v2: v2.digest,
@@ -538,8 +700,14 @@ async function main(): Promise<void> {
           assertions.activeV2SurvivesApplicationRestart === true,
         dependencyImpactOmittedNewComputation:
           assertions.semanticImpactIncludesAddedComputation === true,
+        addedActionOnAddedRelationClassifiedBreaking:
+          assertions.addedActionOnAddedRelationActivates === true,
         historicalActionResolvedLatest:
           assertions.historicalActionQueryAndExplainRemainOnV1 === true,
+        inactiveRevisionAcceptedNewWork:
+          failureInjections.includes("inactive-revision-new-work"),
+        lostProposalResponseRejectedAfterActivation:
+          assertions.lostProposalResponseReplaysAfterActivation === true,
         publishAutoActivated: assertions.publishDoesNotAutoActivate === true,
       },
       observedOperations: {
@@ -587,9 +755,13 @@ function assertCompatiblePlan(plan: EvolutionPlan): void {
     plan,
     DefinitionImpactArea.QUERY_AND_MATERIALIZATION_ARTIFACTS,
   );
-  const storedImpact = impact(
+  const packageImpact = impact(
     plan,
-    DefinitionImpactArea.STORED_SEMANTIC_RECORDS,
+    DefinitionImpactArea.DOMAIN_PACKAGE_DEPENDENCIES,
+  );
+  const policyAndWasmImpact = impact(
+    plan,
+    DefinitionImpactArea.POLICY_AND_WASM_REFERENCES,
   );
   observe(
     "semanticDiffIncludesAddedRelation",
@@ -605,22 +777,43 @@ function assertCompatiblePlan(plan: EvolutionPlan): void {
   observe(
     "unchangedActionMeaningIsExplicit",
     actionImpact.affected.length === 0 &&
-      actionImpact.unaffected.includes("inventory.replenish") &&
-      actionImpact.rationale.length > 20,
+      actionImpact.unaffected.includes("inventory.replenish"),
   );
   observe(
-    "noMigrationRationaleIsInspectable",
-    storedImpact.affected.length === 0 &&
-      storedImpact.rationale.includes("no migration is required"),
+    "unobservableImpactAreasAreNotApplicable",
+    packageImpact.applicability ===
+      DefinitionImpactApplicability.NOT_APPLICABLE &&
+      packageImpact.affected.length === 0 &&
+      packageImpact.unaffected.length === 0 &&
+      policyAndWasmImpact.applicability ===
+        DefinitionImpactApplicability.NOT_APPLICABLE &&
+      policyAndWasmImpact.affected.length === 0 &&
+      policyAndWasmImpact.unaffected.length === 0,
   );
+}
+
+function assertAddedActionPlan(plan: EvolutionPlan): void {
+  assert.equal(plan.classification, EvolutionClassification.COMPATIBLE);
+  assert.equal(plan.migrationRequired, false);
+  const addedRelation = plan.changes.find(
+    (change) =>
+      change.element === DefinitionElementKind.RELATION &&
+      change.change === DefinitionChangeKind.ADDED &&
+      change.id === "inventory.reserved",
+  );
+  const addedAction = plan.changes.find(
+    (change) =>
+      change.element === DefinitionElementKind.ACTION &&
+      change.change === DefinitionChangeKind.ADDED &&
+      change.id === "inventory.reserve",
+  );
+  const actionImpact = impact(plan, DefinitionImpactArea.ACTIONS);
   observe(
-    "everyImpactCellContainsAnalysis",
-    plan.impacts.length === 9 &&
-      plan.impacts.every(
-        (item) =>
-          item.rationale.length > 20 &&
-          !item.rationale.toLowerCase().includes("n/a"),
-      ),
+    "addedActionAndRelationClassifyCompatible",
+    addedRelation !== undefined &&
+      addedAction !== undefined &&
+      actionImpact.affected.includes("inventory.reserve") &&
+      actionImpact.unaffected.includes("inventory.replenish"),
   );
 }
 
@@ -642,6 +835,57 @@ async function compileMutant(
     .replace("revision: 2", "revision: 3");
   assert.notEqual(mutated, source);
   const outputPath = path.join(generatedDirectory, "inventory-mutant.zoen.ts");
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, mutated);
+  const mutant = await compileDefinition(outputPath);
+  assert.notEqual(mutant.digest, v2.digest);
+  return mutant;
+}
+
+async function compileAddedActionMutant(
+  v2: CompiledDefinition,
+): Promise<CompiledDefinition> {
+  const source = await readFile(
+    path.join(fixtureDirectory, "inventory-v2.zoen.ts"),
+    "utf8",
+  );
+  const reserveAction = `const reserve = defineAction({
+  effects: [
+    {
+      relationId: "inventory.reserved",
+      value: { inputId: "quantity", kind: "input" },
+    },
+  ],
+  id: "inventory.reserve",
+  inputs: [
+    {
+      id: "quantity",
+      valueType: { kind: "quantity", unit: "kg" },
+    },
+  ],
+  precondition: {
+    kind: "binary",
+    left: { inputId: "quantity", kind: "input" },
+    operator: "greater_than",
+    right: {
+      kind: "literal",
+      value: { amount: "0.125", kind: "quantity", unit: "kg" },
+    },
+  },
+});
+
+`;
+  const mutated = source
+    .replace("const replenish = defineAction({", `${reserveAction}const replenish = defineAction({`)
+    .replace("actions: [replenish]", "actions: [replenish, reserve]")
+    .replace("revision: 2", "revision: 3");
+  assert.notEqual(mutated, source);
+  assert.match(mutated, /id: "inventory\.reserve"/);
+  assert.match(mutated, /actions: \[replenish, reserve\]/);
+  const outputPath = path.join(
+    generatedDirectory,
+    "inventory-added-action-mutant.zoen.ts",
+  );
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, mutated);
   const mutant = await compileDefinition(outputPath);

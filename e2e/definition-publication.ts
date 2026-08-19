@@ -623,7 +623,10 @@ async function assertRlsIsolation(): Promise<void> {
       [tenantA],
     );
     for (const table of [
+      "active_definition_revisions",
       "authority_commits",
+      "definition_activation_grants",
+      "definition_activations",
       "definition_revisions",
       "projection_outbox",
     ]) {
