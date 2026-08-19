@@ -127,7 +127,7 @@ const tokenResponseSchema = z
 const definitionDocumentSchema = z
   .object({
     actions: z.array(z.unknown()),
-    id: z.string(),
+    definitionId: z.string(),
   })
   .passthrough();
 
@@ -183,7 +183,7 @@ function fixtureDefinition(
             .replace('"revision":1', `"revision":${revision}`)
         : source;
   const document = definitionDocumentSchema.parse(JSON.parse(transformed));
-  document.id = fixtureDefinitionId(name);
+  document.definitionId = fixtureDefinitionId(name);
   const canonical = canonicalize(document);
   assert.ok(canonical);
   return canonical;
