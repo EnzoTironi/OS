@@ -1,8 +1,7 @@
 use sqlx::{Postgres, Row, Transaction};
 use zoen_core::{
-    ClaimId, CommitSequence, DefinitionActivationKind, DefinitionDigest, DefinitionReference,
-    EntityId, EvolutionClassification, IntentDigest, MigrationLineage, MigrationProgress,
-    MigrationRuleKind, MigrationStatus, OperationId, RelationId, TenantId,
+    ClaimId, CommitSequence, DefinitionActivationKind, DefinitionReference, IntentDigest,
+    MigrationLineage, MigrationProgress, MigrationRuleKind, MigrationStatus, OperationId, TenantId,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedMigrationBatch, AdmittedMigrationPlan, StoreError,

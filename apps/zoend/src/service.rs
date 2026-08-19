@@ -427,13 +427,13 @@ fn parse_migration_plan(plan: &MigrationPlan) -> Result<CoreMigrationPlan, Conne
             .iter()
             .map(|dependency| {
                 Ok(CoreMigrationDependency {
-                    claim_id: zoen_core::ClaimId::parse(dependency.claim_id)
+                    claim_id: zoen_core::ClaimId::parse(&dependency.claim_id)
                         .map_err(|error| invalid(error.to_string()))?,
                     commit_sequence: zoen_core::CommitSequence::new(dependency.commit_sequence)
                         .ok_or_else(|| invalid("migration dependency commit must be positive"))?,
-                    entity_id: zoen_core::EntityId::parse(dependency.entity_id)
+                    entity_id: zoen_core::EntityId::parse(&dependency.entity_id)
                         .map_err(|error| invalid(error.to_string()))?,
-                    relation_id: zoen_core::RelationId::parse(dependency.relation_id)
+                    relation_id: zoen_core::RelationId::parse(&dependency.relation_id)
                         .map_err(|error| invalid(error.to_string()))?,
                 })
             })
@@ -449,7 +449,7 @@ fn parse_migration_plan(plan: &MigrationPlan) -> Result<CoreMigrationPlan, Conne
             .map(|postcondition| {
                 Ok(CoreMigrationPostcondition {
                     minimum_record_count: postcondition.minimum_record_count,
-                    relation_id: zoen_core::RelationId::parse(postcondition.relation_id)
+                    relation_id: zoen_core::RelationId::parse(&postcondition.relation_id)
                         .map_err(|error| invalid(error.to_string()))?,
                 })
             })
