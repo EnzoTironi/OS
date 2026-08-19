@@ -101,14 +101,22 @@ impl ActionService for ActionServiceImpl {
                 let value = input
                     .value
                     .as_option()
-                    .ok_or_else(|| invalid("Action input value is required"))?;
+                    .ok_or_else(|| invalid("Action input value is required"))?
+                    .to_owned_message()
+                    .map_err(|error| invalid(error.to_string()))?;
                 Ok(CoreActionInput {
                     id: zoen_core::InputId::parse(input.input_id)
                         .map_err(|error| invalid(error.to_string()))?,
-                    value: parse_exact_value(value)?,
+                    value: parse_exact_value(&value)?,
                 })
             })
             .collect::<Result<Vec<_>, ConnectError>>()?;
+        let valid_at = valid_at
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
+        let expires_at = expires_at
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
         let proposed_at = now()?;
         let outcome = self
             .engine
@@ -118,7 +126,7 @@ impl ActionService for ActionServiceImpl {
                     action_id: zoen_core::ActionId::parse(request.action_id)
                         .map_err(|error| invalid(error.to_string()))?,
                     definition: parse_definition_reference(&definition)?,
-                    expires_at: parse_timestamp(expires_at)?,
+                    expires_at: parse_timestamp(&expires_at)?,
                     inputs,
                     operation_id: OperationId::parse(request.operation_id)
                         .map_err(|error| invalid(error.to_string()))?,
@@ -127,7 +135,7 @@ impl ActionService for ActionServiceImpl {
                     proposed_at,
                     resource_id: ResourceId::parse(request.resource_id)
                         .map_err(|error| invalid(error.to_string()))?,
-                    valid_at: parse_timestamp(valid_at)?,
+                    valid_at: parse_timestamp(&valid_at)?,
                 },
             )
             .await
@@ -165,7 +173,9 @@ impl ActionService for ActionServiceImpl {
         let expires_at = request
             .expires_at
             .as_option()
-            .ok_or_else(|| invalid("expires_at is required"))?;
+            .ok_or_else(|| invalid("expires_at is required"))?
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
         let outcome = self
             .engine
             .approve(
@@ -175,7 +185,7 @@ impl ActionService for ActionServiceImpl {
                 ApprovalId::parse(request.approval_id)
                     .map_err(|error| invalid(error.to_string()))?,
                 now()?,
-                parse_timestamp(expires_at)?,
+                parse_timestamp(&expires_at)?,
             )
             .await
             .map_err(map_action_error)?;
