@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 use zoen_core::{
     ActionDefinition, ActionEffect, ActionId, BinaryOperator, CanonicalDefinition, CanonicalJson,
     Cardinality, ComputationDefinition, ComputationId, DefinitionDigest, DefinitionId,
-    DefinitionRevisionNumber, DefinitionSchema, ExactDecimal, ExactInteger, ExactValue, Expression,
-    InputDefinition, InputId, RelationDefinition, RelationId, RelationTarget, TypeDefinition,
-    TypeId, UnitId, ValueType,
+    DefinitionRevision, DefinitionRevisionNumber, DefinitionSchema, EvidenceDraft, ExactDecimal,
+    ExactInteger, ExactValue, Expression, InputDefinition, InputId, RelationDefinition, RelationId,
+    RelationTarget, TypeDefinition, TypeId, UnitId, ValueType,
 };
 
 use crate::{
-    AdmittedDefinitionPublication, ProjectionEvent, PublishError, validate_definition,
-    verify_digest,
+    AdmittedDefinitionPublication, AdmittedEvidence, EvidenceValidationError, ProjectionEvent,
+    PublishError, RecordEvidenceError, validate_definition, verify_digest,
 };
 
 pub(crate) fn admit(
@@ -50,6 +50,72 @@ pub(crate) fn admit(
         definition.revision,
         event,
     ))
+}
+
+pub(crate) fn admit_evidence(
+    revision: &DefinitionRevision,
+    draft: EvidenceDraft,
+) -> Result<AdmittedEvidence, RecordEvidenceError> {
+    if revision.definition_id != draft.definition.definition_id
+        || revision.digest != draft.definition.digest
+        || revision.revision != draft.definition.revision
+    {
+        return Err(RecordEvidenceError::InvalidEvidence(
+            EvidenceValidationError::DefinitionReferenceMismatch,
+        ));
+    }
+    if draft.provenance.source_ref.trim().is_empty() {
+        return Err(RecordEvidenceError::InvalidEvidence(
+            EvidenceValidationError::EmptySourceReference,
+        ));
+    }
+
+    let dto = serde_json::from_str::<CanonicalDefinitionDto>(revision.canonical_json.as_str())
+        .map_err(|error| {
+            RecordEvidenceError::InvalidEvidence(EvidenceValidationError::MalformedDefinition(
+                error.to_string(),
+            ))
+        })?;
+    let definition = convert_definition(dto).map_err(|error| {
+        RecordEvidenceError::InvalidEvidence(EvidenceValidationError::MalformedDefinition(
+            error.to_string(),
+        ))
+    })?;
+    let relation = definition
+        .relations
+        .iter()
+        .find(|relation| relation.id == draft.relation_id)
+        .ok_or_else(|| {
+            RecordEvidenceError::InvalidEvidence(EvidenceValidationError::UnknownRelation(
+                draft.relation_id.as_str().to_owned(),
+            ))
+        })?;
+    let RelationTarget::Value(value_type) = &relation.target else {
+        return Err(RecordEvidenceError::InvalidEvidence(
+            EvidenceValidationError::ValueTypeMismatch(draft.relation_id.as_str().to_owned()),
+        ));
+    };
+    if !value_matches(value_type, &draft.value) {
+        return Err(RecordEvidenceError::InvalidEvidence(
+            EvidenceValidationError::ValueTypeMismatch(draft.relation_id.as_str().to_owned()),
+        ));
+    }
+
+    let event = ProjectionEvent::claim_recorded(&draft)?;
+    Ok(AdmittedEvidence::new(draft, event))
+}
+
+fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
+    match (value_type, value) {
+        (ValueType::Bool, ExactValue::Bool(_))
+        | (ValueType::Decimal, ExactValue::Decimal(_))
+        | (ValueType::Integer, ExactValue::Integer(_))
+        | (ValueType::Text, ExactValue::Text(_)) => true,
+        (ValueType::Quantity { unit: expected }, ExactValue::Quantity { unit: actual, .. }) => {
+            expected == actual
+        }
+        _ => false,
+    }
 }
 
 fn normalize(dto: &mut CanonicalDefinitionDto) {
@@ -91,6 +157,15 @@ struct DefinitionPublishedV1<'a> {
     revision: u64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaimRecordedV1<'a> {
+    claim_id: &'a str,
+    definition_id: &'a str,
+    digest: &'a str,
+    revision: u64,
+}
+
 impl ProjectionEvent {
     fn definition_published(
         definition_id: &DefinitionId,
@@ -105,6 +180,21 @@ impl ProjectionEvent {
         .map_err(|error| PublishError::EventEncoding(error.to_string()))?;
         Ok(Self {
             event_type: "DefinitionPublished",
+            event_version: 1,
+            payload,
+        })
+    }
+
+    fn claim_recorded(draft: &EvidenceDraft) -> Result<Self, RecordEvidenceError> {
+        let payload = serde_jcs::to_string(&ClaimRecordedV1 {
+            claim_id: draft.claim_id.as_str(),
+            definition_id: draft.definition.definition_id.as_str(),
+            digest: draft.definition.digest.as_str(),
+            revision: draft.definition.revision.get(),
+        })
+        .map_err(|error| RecordEvidenceError::EventEncoding(error.to_string()))?;
+        Ok(Self {
+            event_type: "ClaimRecorded",
             event_version: 1,
             payload,
         })

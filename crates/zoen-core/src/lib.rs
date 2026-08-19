@@ -39,10 +39,13 @@ macro_rules! semantic_id {
 }
 
 semantic_id!(ActionId);
+semantic_id!(ClaimId);
 semantic_id!(ComputationId);
 semantic_id!(DefinitionId);
+semantic_id!(EntityId);
 semantic_id!(InputId);
 semantic_id!(RelationId);
+semantic_id!(SourceId);
 semantic_id!(TenantId);
 semantic_id!(TypeId);
 semantic_id!(UnitId);
@@ -95,6 +98,34 @@ impl DefinitionDigest {
 }
 
 impl Display for DefinitionDigest {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceDigest(String);
+
+impl EvidenceDigest {
+    pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
+        let value = value.into();
+        if value.len() == 64
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        {
+            Ok(Self(value))
+        } else {
+            Err(DigestError(value))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for EvidenceDigest {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(formatter)
     }
@@ -361,9 +392,155 @@ pub struct ExecutionContext {
     pub tenant_id: TenantId,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct TimestampMicros(i64);
+
+impl TimestampMicros {
+    pub fn new(value: i64) -> Self {
+        Self(value)
+    }
+
+    pub fn get(self) -> i64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidTimeError {
+    start: TimestampMicros,
+    end: TimestampMicros,
+}
+
+impl Display for ValidTimeError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "valid-time interval end {} must be after start {}",
+            self.end.get(),
+            self.start.get()
+        )
+    }
+}
+
+impl Error for ValidTimeError {}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ValidTime {
+    Instant(TimestampMicros),
+    Interval {
+        start: TimestampMicros,
+        end: TimestampMicros,
+    },
+}
+
+impl ValidTime {
+    pub fn instant(at: TimestampMicros) -> Self {
+        Self::Instant(at)
+    }
+
+    pub fn interval(start: TimestampMicros, end: TimestampMicros) -> Result<Self, ValidTimeError> {
+        if start < end {
+            Ok(Self::Interval { start, end })
+        } else {
+            Err(ValidTimeError { start, end })
+        }
+    }
+
+    pub fn contains(&self, at: TimestampMicros) -> bool {
+        match self {
+            Self::Instant(instant) => *instant == at,
+            Self::Interval { start, end } => *start <= at && at < *end,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DefinitionReference {
+    pub definition_id: DefinitionId,
+    pub digest: DefinitionDigest,
+    pub revision: DefinitionRevisionNumber,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceProvenance {
+    pub source_digest: EvidenceDigest,
+    pub source_id: SourceId,
+    pub source_ref: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceDraft {
+    pub claim_id: ClaimId,
+    pub definition: DefinitionReference,
+    pub entity_id: EntityId,
+    pub provenance: EvidenceProvenance,
+    pub relation_id: RelationId,
+    pub valid_time: ValidTime,
+    pub value: ExactValue,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceClaim {
+    pub commit_sequence: CommitSequence,
+    pub draft: EvidenceDraft,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Consistency {
+    Strong,
+    AtLeast(CommitSequence),
+    Snapshot(CommitSequence),
+    Eventual,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SemanticSelection {
+    Computation(ComputationId),
+    Relation(RelationId),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticQuery {
+    pub consistency: Consistency,
+    pub definition: DefinitionReference,
+    pub selection: SemanticSelection,
+    pub valid_at: TimestampMicros,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum LineageRole {
+    ComputationDependency,
+    Rival,
+    Supporting,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LineageDependency {
+    pub claim_id: ClaimId,
+    pub commit_sequence: CommitSequence,
+    pub entity_id: EntityId,
+    pub relation_id: RelationId,
+    pub role: LineageRole,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticValue {
+    pub dependencies: Vec<LineageDependency>,
+    pub value: ExactValue,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticResult {
+    pub actual_commit_sequence: CommitSequence,
+    pub definition: DefinitionReference,
+    pub knowledge_cut: CommitSequence,
+    pub valid_at: TimestampMicros,
+    pub values: Vec<SemanticValue>,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{DefinitionDigest, ExactDecimal, ExactInteger};
+    use super::{DefinitionDigest, ExactDecimal, ExactInteger, TimestampMicros, ValidTime};
 
     #[test]
     fn exact_integer_accepts_only_canonical_unbounded_forms() {
@@ -397,5 +574,19 @@ mod tests {
         assert!(DefinitionDigest::parse("a".repeat(64)).is_ok());
         assert!(DefinitionDigest::parse("A".repeat(64)).is_err());
         assert!(DefinitionDigest::parse("a".repeat(63)).is_err());
+    }
+
+    #[test]
+    fn valid_time_distinguishes_instants_and_half_open_intervals() {
+        let instant = ValidTime::instant(TimestampMicros::new(10));
+        assert!(instant.contains(TimestampMicros::new(10)));
+        assert!(!instant.contains(TimestampMicros::new(11)));
+
+        let interval = ValidTime::interval(TimestampMicros::new(10), TimestampMicros::new(20))
+            .expect("ordered interval");
+        assert!(interval.contains(TimestampMicros::new(10)));
+        assert!(interval.contains(TimestampMicros::new(19)));
+        assert!(!interval.contains(TimestampMicros::new(20)));
+        assert!(ValidTime::interval(TimestampMicros::new(20), TimestampMicros::new(20)).is_err());
     }
 }
