@@ -112,7 +112,7 @@ impl QueryRuntime {
                             relation_ids: plan
                                 .relation_ids
                                 .iter()
-                                .map(|relation_id| RelationId::parse(relation_id))
+                                .map(RelationId::parse)
                                 .collect::<Result<_, _>>()
                                 .map_err(|error| QueryError::Corrupt(error.to_string()))?,
                             valid_at: query.valid_at,
