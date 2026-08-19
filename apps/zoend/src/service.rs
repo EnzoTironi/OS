@@ -349,6 +349,7 @@ pub(crate) fn map_store_error(error: StoreError) -> ConnectError {
         StoreError::Conflict(_) => ErrorCode::AlreadyExists,
         StoreError::Corrupt(_) => ErrorCode::DataLoss,
         StoreError::IdentityCollision(_) => ErrorCode::AlreadyExists,
+        StoreError::InactiveDefinition => ErrorCode::FailedPrecondition,
         StoreError::NotFound => ErrorCode::NotFound,
         StoreError::OperationMismatch => ErrorCode::InvalidArgument,
         StoreError::Unavailable(_) => ErrorCode::Unavailable,

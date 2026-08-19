@@ -253,17 +253,12 @@ where
     ) -> Result<Vec<ActionDiscovery>, ActionError> {
         let canonical = self
             .store
-            .get_revision(
-                context.tenant_id(),
-                &definition.definition_id,
-                &definition.digest,
-            )
+            .get_active_revision(context.tenant_id(), &definition.definition_id)
             .await
-            .map_err(ActionError::Store)?;
-        if canonical.revision != definition.revision {
-            return Err(ActionError::Definition(
-                "definition digest and revision do not match".to_owned(),
-            ));
+            .map_err(ActionError::Store)?
+            .ok_or(ActionError::InactiveDefinition)?;
+        if canonical.digest != definition.digest || canonical.revision != definition.revision {
+            return Err(ActionError::InactiveDefinition);
         }
         let decoded = decode_canonical_definition(&canonical.canonical_json)
             .map_err(|error| ActionError::Definition(error.to_string()))?;
@@ -309,17 +304,6 @@ where
             &command.resource_id,
             command.proposed_at,
         )?;
-        let active = self
-            .store
-            .get_active_revision(context.tenant_id(), &command.definition.definition_id)
-            .await
-            .map_err(ActionError::Store)?
-            .ok_or(ActionError::InactiveDefinition)?;
-        if active.digest != command.definition.digest
-            || active.revision != command.definition.revision
-        {
-            return Err(ActionError::InactiveDefinition);
-        }
         let loaded = self
             .load_action(context, &command.definition, &command.action_id)
             .await?;

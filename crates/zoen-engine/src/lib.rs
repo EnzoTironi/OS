@@ -120,6 +120,7 @@ pub enum StoreError {
     Conflict(String),
     Corrupt(String),
     IdentityCollision(CommitIdentityKind),
+    InactiveDefinition,
     NotFound,
     OperationMismatch,
     Unavailable(String),
@@ -135,6 +136,9 @@ impl Display for StoreError {
             }
             Self::IdentityCollision(CommitIdentityKind::SemanticRecord) => {
                 formatter.write_str("Action semantic record identity already exists")
+            }
+            Self::InactiveDefinition => {
+                formatter.write_str("new work requires the active definition revision")
             }
             Self::NotFound => formatter.write_str("definition revision was not found"),
             Self::OperationMismatch => {

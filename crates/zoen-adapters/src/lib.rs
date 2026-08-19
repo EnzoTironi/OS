@@ -585,6 +585,12 @@ impl AuthorityStore for PostgresAuthorityStore {
             transaction.commit().await.map_err(store_unavailable)?;
             return Ok(claim);
         }
+        require_active_revision(
+            &mut transaction,
+            context.tenant_id(),
+            &evidence.draft().definition,
+        )
+        .await?;
 
         let next_sequence = head
             .checked_add(1)
@@ -706,6 +712,37 @@ async fn set_tenant(
         .await
         .map_err(store_unavailable)?;
     Ok(())
+}
+
+async fn require_active_revision(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    definition: &DefinitionReference,
+) -> Result<(), StoreError> {
+    let active = sqlx::query_scalar::<_, bool>(
+        "SELECT true
+         FROM active_definition_revisions
+         WHERE tenant_id = $1
+           AND definition_id = $2
+           AND digest = $3
+           AND revision = $4
+         FOR SHARE",
+    )
+    .bind(tenant_id.as_str())
+    .bind(definition.definition_id.as_str())
+    .bind(definition.digest.as_str())
+    .bind(u64_to_i64(
+        definition.revision.get(),
+        "definition revision",
+    )?)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    if active.is_some() {
+        Ok(())
+    } else {
+        Err(StoreError::InactiveDefinition)
+    }
 }
 
 fn row_to_reference(row: &PgRow) -> Result<DefinitionReference, StoreError> {
