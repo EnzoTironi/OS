@@ -223,8 +223,8 @@ async function loadMultiFixture(): Promise<DefinitionFixture> {
   ).trimEnd();
   const multiDefinitionId = `${definitionId}.multi`;
   const canonicalJson = source.replace(
-    `"id":"${definitionId}"`,
-    `"id":"${multiDefinitionId}"`,
+    `"definitionId":"${definitionId}"`,
+    `"definitionId":"${multiDefinitionId}"`,
   );
   assert.notEqual(canonicalJson, source);
   const policySource = await readFile(
