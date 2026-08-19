@@ -13,8 +13,6 @@ CHECK (
     )
 );
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 CREATE TABLE effect_requests (
     tenant_id TEXT NOT NULL,
     effect_request_id TEXT NOT NULL,
@@ -58,35 +56,6 @@ CREATE TABLE effect_requests (
     FOREIGN KEY (tenant_id, last_commit_sequence)
         REFERENCES authority_commits (tenant_id, commit_sequence)
 );
-
-INSERT INTO effect_requests (
-    tenant_id,
-    effect_request_id,
-    operation_id,
-    commit_sequence,
-    external_operation_id,
-    intent_digest,
-    request_digest,
-    payload,
-    knowledge_state,
-    last_commit_sequence
-)
-SELECT
-    outbox.tenant_id,
-    outbox.effect_request_id,
-    operation.operation_id,
-    outbox.commit_sequence,
-    outbox.effect_request_id,
-    operation.intent_digest,
-    encode(digest(convert_to(outbox.payload::text, 'UTF8'), 'sha256'), 'hex'),
-    convert_to(outbox.payload::text, 'UTF8'),
-    'not_attempted',
-    outbox.commit_sequence
-FROM projection_outbox AS outbox
-JOIN action_operations AS operation
-  ON operation.tenant_id = outbox.tenant_id
- AND operation.commit_sequence = outbox.commit_sequence
-WHERE outbox.effect_request_id IS NOT NULL;
 
 CREATE TABLE effect_attempts (
     tenant_id TEXT NOT NULL,
