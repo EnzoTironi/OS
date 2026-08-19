@@ -131,6 +131,16 @@ impl AuthorityStore for PostgresAuthorityStore {
             .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
 
         sqlx::query(
+            "INSERT INTO authority_commits (tenant_id, commit_sequence)
+             VALUES ($1, $2)",
+        )
+        .bind(context.tenant_id.as_str())
+        .bind(next_sequence)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+
+        sqlx::query(
             "INSERT INTO definition_revisions
                 (tenant_id, definition_id, revision, digest, canonical_json, commit_sequence)
              VALUES ($1, $2, $3, $4, $5, $6)",
@@ -145,15 +155,17 @@ impl AuthorityStore for PostgresAuthorityStore {
         .await
         .map_err(store_unavailable)?;
 
+        let event = publication.projection_event();
         sqlx::query(
             "INSERT INTO projection_outbox
-                (tenant_id, commit_sequence, ordinal, event_type, definition_id, digest)
-             VALUES ($1, $2, 0, 'definition.published', $3, $4)",
+                (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
+             VALUES ($1, $2, 0, $3, $4, $5::jsonb)",
         )
         .bind(context.tenant_id.as_str())
         .bind(next_sequence)
-        .bind(publication.definition_id().as_str())
-        .bind(publication.digest().as_str())
+        .bind(event.event_type())
+        .bind(i32::from(event.event_version()))
+        .bind(event.payload())
         .execute(&mut *transaction)
         .await
         .map_err(store_unavailable)?;

@@ -136,8 +136,18 @@ async function main(): Promise<void> {
 
     const replayedA = await publish(clientA, tenantA, first);
     assert.equal(replayedA.commitSequence, 1n);
+    assert.equal(await rowCount(admin, "authority_commits", tenantA), 1);
     assert.equal(await rowCount(admin, "definition_revisions", tenantA), 1);
     assert.equal(await rowCount(admin, "projection_outbox", tenantA), 1);
+    assert.deepEqual(await projectionEvent(admin, tenantA, 1), {
+      eventType: "DefinitionPublished",
+      eventVersion: 1,
+      payload: {
+        definitionId: first.definition.definitionId,
+        digest: first.digest,
+        revision: 1,
+      },
+    });
 
     await expectConnectCode(
       () => publish(clientA, tenantB, first),
@@ -147,6 +157,7 @@ async function main(): Promise<void> {
 
     const publishedB = await publish(clientB, tenantB, first);
     assert.equal(publishedB.commitSequence, 1n);
+    assert.equal(await rowCount(admin, "authority_commits", tenantB), 1);
     assert.equal(await rowCount(admin, "definition_revisions", tenantB), 1);
 
     await expectConnectCode(
@@ -174,6 +185,23 @@ async function main(): Promise<void> {
       Code.InvalidArgument,
     );
 
+    for (const value of ["01", "+1", "-0", "001"]) {
+      const invalidInteger = first.canonicalJson.replace(
+        '{"amount":"0.125","kind":"quantity","unit":"kg"}',
+        `{"kind":"integer","value":"${value}"}`,
+      );
+      assert.notEqual(invalidInteger, first.canonicalJson);
+      await expectConnectCode(
+        () =>
+          clientA.publish({
+            canonicalJson: encode(invalidInteger),
+            digest: sha256(invalidInteger),
+            tenantId: tenantA,
+          }),
+        Code.InvalidArgument,
+      );
+    }
+
     await expectConnectCode(
       () =>
         clientA.publish({
@@ -193,6 +221,7 @@ async function main(): Promise<void> {
     } finally {
       await removeOutboxFailure(admin);
     }
+    assert.equal(await rowCount(admin, "authority_commits", tenantA), 1);
     assert.equal(await rowCount(admin, "definition_revisions", tenantA), 1);
     assert.equal(await rowCount(admin, "projection_outbox", tenantA), 1);
     assert.equal(await authorityHead(admin, tenantA), 1);
@@ -211,14 +240,7 @@ async function main(): Promise<void> {
       /published definition revisions are immutable/,
     );
 
-    assert.equal(
-      await rowCount(admin, "active_definition_revisions", tenantA),
-      0,
-    );
-    assert.equal(
-      await rowCount(admin, "active_definition_revisions", tenantB),
-      0,
-    );
+    assert.equal(await relationName(admin, "active_definition_revisions"), null);
     await assertRlsIsolation();
 
     await stopServer(server);
@@ -283,12 +305,15 @@ async function main(): Promise<void> {
     );
     const manifest = {
       assertions: {
+        activationStorageDeferred: true,
         atomicDatabaseFailure: true,
+        authorityCommitParentPersisted: true,
         canonicalFixtureMatched: true,
         computationMutationChangedDigest: true,
+        definitionPublishedEventPersisted: true,
         deterministicIndependentCompiles: true,
         immutableMutationKilled: true,
-        noAutomaticActivation: true,
+        noncanonicalIntegersRejected: true,
         outboxAndCommitSequencePersisted: true,
         restartRecoveredExactRevision: true,
         sourceOrderingNormalized: true,
@@ -484,7 +509,7 @@ async function rowCount(
   tenantId: string,
 ): Promise<number> {
   const allowedTables = new Set([
-    "active_definition_revisions",
+    "authority_commits",
     "definition_revisions",
     "projection_outbox",
   ]);
@@ -494,6 +519,45 @@ async function rowCount(
     [tenantId],
   );
   return Number(result.rows[0]?.count);
+}
+
+async function projectionEvent(
+  client: PostgresClient,
+  tenantId: string,
+  commitSequence: number,
+): Promise<{
+  eventType: string;
+  eventVersion: number;
+  payload: unknown;
+}> {
+  const result = await client.query<{
+    event_type: string;
+    event_version: number;
+    payload: unknown;
+  }>(
+    `SELECT event_type, event_version, payload
+     FROM projection_outbox
+     WHERE tenant_id = $1 AND commit_sequence = $2 AND ordinal = 0`,
+    [tenantId, commitSequence],
+  );
+  const row = result.rows[0];
+  assert.ok(row);
+  return {
+    eventType: row.event_type,
+    eventVersion: row.event_version,
+    payload: row.payload,
+  };
+}
+
+async function relationName(
+  client: PostgresClient,
+  relation: string,
+): Promise<string | null> {
+  const result = await client.query<{ name: string | null }>(
+    "SELECT to_regclass($1)::text AS name",
+    [`public.${relation}`],
+  );
+  return result.rows[0]?.name ?? null;
 }
 
 async function authorityHead(
@@ -545,13 +609,19 @@ async function assertRlsIsolation(): Promise<void> {
       "SELECT set_config('zoen.tenant_id', $1, true)",
       [tenantA],
     );
-    const result = await application.query<{ count: string }>(
-      `SELECT count(*)::text AS count
-       FROM definition_revisions
-       WHERE tenant_id = $1`,
-      [tenantB],
-    );
-    assert.equal(result.rows[0]?.count, "0");
+    for (const table of [
+      "authority_commits",
+      "definition_revisions",
+      "projection_outbox",
+    ]) {
+      const result = await application.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+         FROM ${table}
+         WHERE tenant_id = $1`,
+        [tenantB],
+      );
+      assert.equal(result.rows[0]?.count, "0");
+    }
     await application.query("ROLLBACK");
   } finally {
     await application.end();
