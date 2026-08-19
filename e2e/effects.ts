@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CommitStatus } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
+  activateDefinition,
   loadFixture,
   publishDefinition,
   recordAvailable,
@@ -108,6 +109,8 @@ async function main(): Promise<void> {
     assert.match(registration, /ZoenEffect|deployment/i);
     await publishDefinition(definitionA, tenantA, fixture);
     await publishDefinition(definitionB, tenantB, fixture);
+    await activateDefinition(definitionA, tenantA, fixture);
+    await activateDefinition(definitionB, tenantB, fixture);
     await recordAvailable(worldA, {
       claimId: "claim.available.effects.a",
       fixture,

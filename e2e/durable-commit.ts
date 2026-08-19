@@ -7,6 +7,7 @@ import { Client as PostgresClient } from "pg";
 import { DefinitionReferenceSchema } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   actionClient,
+  activateDefinition,
   adminDatabaseUrl,
   definitionClient,
   definitionId,
@@ -74,6 +75,8 @@ async function main(): Promise<void> {
     for (const fixture of Object.values(fixtures)) {
       await publishDefinition(definitionA, tenantA, fixture);
       await publishDefinition(definitionB, tenantB, fixture);
+      await activateDefinition(definitionA, tenantA, fixture);
+      await activateDefinition(definitionB, tenantB, fixture);
       await recordAvailable(worldA, {
         claimId: `claim.available.${fixture.definition.revision}.a`,
         fixture,
@@ -208,12 +211,18 @@ async function main(): Promise<void> {
 }
 
 async function loadMultiFixture(): Promise<DefinitionFixture> {
-  const canonicalJson = (
+  const source = (
     await readFile(
       path.join(scenarioDirectory, "definition-multi.canonical.json"),
       "utf8",
     )
   ).trimEnd();
+  const multiDefinitionId = `${definitionId}.multi`;
+  const canonicalJson = source.replace(
+    `"id":"${definitionId}"`,
+    `"id":"${multiDefinitionId}"`,
+  );
+  assert.notEqual(canonicalJson, source);
   const policySource = await readFile(
     path.join(repositoryRoot, "e2e", "governed-action", "direct.cedar"),
     "utf8",
@@ -222,7 +231,7 @@ async function loadMultiFixture(): Promise<DefinitionFixture> {
   return {
     canonicalJson,
     definition: create(DefinitionReferenceSchema, {
-      definitionId,
+      definitionId: multiDefinitionId,
       digest,
       revision: 6n,
     }),

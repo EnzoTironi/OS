@@ -13,6 +13,7 @@ import {
 import {
   actionClient,
   actionId,
+  activateDefinition,
   adminDatabaseUrl,
   assertPolicy,
   command,
@@ -92,8 +93,10 @@ async function main(): Promise<void> {
   try {
     for (const fixture of Object.values(fixtures)) {
       await publishDefinition(definitionA, tenantA, fixture);
+      await activateDefinition(definitionA, tenantA, fixture);
     }
     await publishDefinition(definitionB, tenantB, fixtures.direct);
+    await activateDefinition(definitionB, tenantB, fixtures.direct);
 
     await recordAvailable(worldA, {
       claimId: "claim.available.direct.a",
@@ -148,12 +151,14 @@ async function main(): Promise<void> {
     assert.equal(trusted.actorId, "actor.agent.a");
     assert.equal(trusted.principalId, "principal.agent.a");
     assert.equal(trusted.workloadId, "workload.agent.a");
-    assert.equal(trusted.delegation.length, 1);
-    assert.deepEqual(trusted.delegation[0]?.actionIds, [actionId]);
-    assert.deepEqual(trusted.delegation[0]?.resourceIds, [resourceId]);
-    assert.deepEqual(trusted.delegation[0]?.workloadIds, [
-      "workload.agent.a",
-    ]);
+    assert.equal(trusted.delegation.length, 2);
+    const actionDelegation = trusted.delegation.find((grant) =>
+      grant.actionIds.includes(actionId),
+    );
+    assert.ok(actionDelegation);
+    assert.deepEqual(actionDelegation.actionIds, [actionId]);
+    assert.deepEqual(actionDelegation.resourceIds, [resourceId]);
+    assert.deepEqual(actionDelegation.workloadIds, ["workload.agent.a"]);
     assert.deepEqual(
       directDiscovery.actions.map((action) => action.actionId),
       [actionId],
@@ -173,12 +178,10 @@ async function main(): Promise<void> {
     );
     recordAssertion(
       "delegationScopeExposed",
-      trusted.delegation.length === 1 &&
-        isDeepStrictEqual(trusted.delegation[0]?.actionIds, [actionId]) &&
-        isDeepStrictEqual(trusted.delegation[0]?.resourceIds, [resourceId]) &&
-        isDeepStrictEqual(trusted.delegation[0]?.workloadIds, [
-          "workload.agent.a",
-        ]),
+      trusted.delegation.length === 2 &&
+        isDeepStrictEqual(actionDelegation.actionIds, [actionId]) &&
+        isDeepStrictEqual(actionDelegation.resourceIds, [resourceId]) &&
+        isDeepStrictEqual(actionDelegation.workloadIds, ["workload.agent.a"]),
     );
     recordAssertion(
       "discoveryIntersectsDelegationScope",

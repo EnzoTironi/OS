@@ -3,6 +3,15 @@ import path from "node:path";
 
 const outputDirectory = path.join("e2e", "governed-action", ".generated");
 const actionId = "inventory.requestStock";
+const activationActionId = "zoen.definition.activate";
+const definitionIds = [
+  "inventory.governed",
+  "inventory.governed.deny",
+  "inventory.governed.error",
+  "inventory.governed.human",
+  "inventory.governed.multi",
+  "inventory.governed.self",
+];
 const resourceId = "inventory.item.1";
 const farFuture = 4_102_444_800;
 
@@ -39,22 +48,32 @@ function audienceMapper() {
   };
 }
 
-function delegation(workloadId, grants) {
-  return JSON.stringify(
-    grants ?? [
-      {
-        actionIds: [actionId],
-        delegationId: `delegation.${workloadId}`,
-        expiresAt: farFuture,
-        notBefore: 0,
-        resourceIds: [resourceId],
-        workloadIds: [workloadId],
-      },
-    ],
-  );
+function delegation(workloadId, grants, canActivate = false) {
+  const defaultGrants = [
+    {
+      actionIds: [actionId],
+      delegationId: `delegation.${workloadId}`,
+      expiresAt: farFuture,
+      notBefore: 0,
+      resourceIds: [resourceId],
+      workloadIds: [workloadId],
+    },
+  ];
+  if (canActivate) {
+    defaultGrants.push({
+      actionIds: [activationActionId],
+      delegationId: `delegation.activation.${workloadId}`,
+      expiresAt: farFuture,
+      notBefore: 0,
+      resourceIds: definitionIds,
+      workloadIds: [workloadId],
+    });
+  }
+  return JSON.stringify(grants ?? defaultGrants);
 }
 
 function confidentialClient({
+  canActivate = false,
   actorId,
   audience = true,
   clientId,
@@ -71,7 +90,7 @@ function confidentialClient({
     hardcodedClaim("workload_id", workloadId),
     hardcodedClaim(
       "zoen_delegation",
-      delegationClaim ?? delegation(workloadId),
+      delegationClaim ?? delegation(workloadId, undefined, canActivate),
     ),
   ];
   if (audience) {
@@ -125,6 +144,7 @@ const realm = {
     },
     confidentialClient({
       actorId: "actor.agent.a",
+      canActivate: true,
       clientId: "agent-a",
       principalId: "principal.agent.a",
       tenantId: "tenant.a",
@@ -139,6 +159,7 @@ const realm = {
     }),
     confidentialClient({
       actorId: "actor.agent.b",
+      canActivate: true,
       clientId: "agent-b",
       principalId: "principal.agent.b",
       tenantId: "tenant.b",

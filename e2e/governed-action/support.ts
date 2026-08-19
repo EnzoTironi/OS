@@ -67,6 +67,7 @@ const baseUrl = "http://127.0.0.1:58083";
 export const oidcIssuer = "http://127.0.0.1:58082/realms/zoen";
 export const oidcAudience = "zoend";
 export const actionId = "inventory.requestStock";
+export const activationActionId = "zoen.definition.activate";
 export const definitionId = "inventory.governed";
 export const resourceId = "inventory.item.1";
 export const unrelatedResourceId = "inventory.item.unrelated";
@@ -126,6 +127,7 @@ const tokenResponseSchema = z
 const definitionDocumentSchema = z
   .object({
     actions: z.array(z.unknown()),
+    id: z.string(),
   })
   .passthrough();
 
@@ -152,7 +154,7 @@ export async function loadFixture(
   return {
     canonicalJson,
     definition: create(DefinitionReferenceSchema, {
-      definitionId,
+      definitionId: fixtureDefinitionId(name),
       digest,
       revision: BigInt(revision),
     }),
@@ -169,18 +171,26 @@ function fixtureDefinition(
   revision: number,
   source: string,
 ): string {
-  if (name === "direct") {
-    return withRestrictedDiscoveryAction(source);
-  }
-  if (name === "self") {
-    return source
-      .replace(
-        '"relationId":"inventory.requested","value":{"inputId":"quantity"',
-        '"relationId":"inventory.available","value":{"inputId":"quantity"',
-      )
-      .replace('"revision":1', `"revision":${revision}`);
-  }
-  return source;
+  const transformed =
+    name === "direct"
+      ? withRestrictedDiscoveryAction(source)
+      : name === "self"
+        ? source
+            .replace(
+              '"relationId":"inventory.requested","value":{"inputId":"quantity"',
+              '"relationId":"inventory.available","value":{"inputId":"quantity"',
+            )
+            .replace('"revision":1', `"revision":${revision}`)
+        : source;
+  const document = definitionDocumentSchema.parse(JSON.parse(transformed));
+  document.id = fixtureDefinitionId(name);
+  const canonical = canonicalize(document);
+  assert.ok(canonical);
+  return canonical;
+}
+
+function fixtureDefinitionId(name: string): string {
+  return name === "direct" ? definitionId : `${definitionId}.${name}`;
 }
 
 function withRestrictedDiscoveryAction(source: string): string {
@@ -217,19 +227,34 @@ export async function writePolicyManifest(
   outputPath: string,
   fixtures: readonly DefinitionFixture[],
 ): Promise<void> {
+  const activationSource = await readFile(
+    path.join(scenarioDirectory, "activation.cedar"),
+    "utf8",
+  );
+  const activationDigest = sha256(activationSource);
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(
     outputPath,
     `${JSON.stringify(
       {
-        policies: fixtures.map((fixture) => ({
-          actionId,
-          definitionDigest: fixture.digest,
-          digest: fixture.policyDigest,
-          policyId: fixture.policyId,
-          revision: fixture.policyRevision,
-          source: fixture.policySource,
-        })),
+        policies: fixtures.flatMap((fixture) => [
+          {
+            actionId,
+            definitionDigest: fixture.digest,
+            digest: fixture.policyDigest,
+            policyId: fixture.policyId,
+            revision: fixture.policyRevision,
+            source: fixture.policySource,
+          },
+          {
+            actionId: activationActionId,
+            definitionDigest: fixture.digest,
+            digest: activationDigest,
+            policyId: `policy.activation.${fixture.definition.definitionId}`,
+            revision: fixture.policyRevision,
+            source: activationSource,
+          },
+        ]),
       },
       null,
       2,
@@ -291,6 +316,23 @@ export async function publishDefinition(
   assert.equal(response.definitionRevision?.digest, fixture.digest);
   assert.equal(
     response.definitionRevision?.revision,
+    fixture.definition.revision,
+  );
+}
+
+export async function activateDefinition(
+  client: DefinitionClient,
+  tenantId: string,
+  fixture: DefinitionFixture,
+): Promise<void> {
+  const response = await client.activateRevision({
+    definitionId: fixture.definition.definitionId,
+    digest: fixture.digest,
+    tenantId,
+  });
+  assert.equal(response.activation?.active?.digest, fixture.digest);
+  assert.equal(
+    response.activation?.active?.revision,
     fixture.definition.revision,
   );
 }

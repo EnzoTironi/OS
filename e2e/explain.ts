@@ -28,6 +28,7 @@ import {
   ValidTimeSchema,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
+  activateDefinition,
   type DefinitionFixture,
   loadFixture,
   publishDefinition,
@@ -182,6 +183,8 @@ async function main(): Promise<void> {
     assert.match(registration, /ZoenEffect|deployment/i);
     await publishDefinition(definitionA, tenantA, fixture);
     await publishDefinition(definitionB, tenantB, fixture);
+    await activateDefinition(definitionA, tenantA, fixture);
+    await activateDefinition(definitionB, tenantB, fixture);
     await recordAvailable(worldA, {
       claimId: "claim.available.explain.rival",
       fixture,
