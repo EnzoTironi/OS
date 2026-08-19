@@ -5,9 +5,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use axum::extract::State;
+use axum::extract::{Request, State};
 use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine;
@@ -150,10 +152,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         credentials: Arc::new(credentials),
         provider,
     };
-    let application = Router::new()
-        .route("/health", get(|| async { StatusCode::NO_CONTENT }))
+    let protected = Router::new()
         .route("/v1/effects", post(execute))
         .route("/v1/effects/status", post(query_status))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            authenticate_request,
+        ));
+    let application = Router::new()
+        .route("/health", get(|| async { StatusCode::NO_CONTENT }))
+        .merge(protected)
         .with_state(state);
     let listener = tokio::net::TcpListener::bind(listen_address).await?;
     axum::serve(listener, application)
@@ -164,10 +172,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
 async fn execute(
     State(state): State<ConnectorState>,
-    headers: HeaderMap,
     Json(request): Json<ConnectorRequest>,
 ) -> Result<Json<ConnectorResponse>, HttpError> {
-    authenticate(&state, &headers)?;
     let payload = STANDARD
         .decode(request.payload_base64.as_bytes())
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
@@ -296,10 +302,8 @@ async fn execute(
 
 async fn query_status(
     State(state): State<ConnectorState>,
-    headers: HeaderMap,
     Json(request): Json<StatusRequest>,
 ) -> Result<Json<ProviderStatusResponse>, HttpError> {
-    authenticate(&state, &headers)?;
     let binding = state
         .credentials
         .get(&request.credential_ref)
@@ -346,6 +350,15 @@ async fn query_status(
         ));
     }
     Ok(Json(status))
+}
+
+async fn authenticate_request(
+    State(state): State<ConnectorState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, HttpError> {
+    authenticate(&state, request.headers())?;
+    Ok(next.run(request).await)
 }
 
 fn authenticate(state: &ConnectorState, headers: &HeaderMap) -> Result<(), HttpError> {
