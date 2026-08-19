@@ -386,9 +386,9 @@ export function createAgentSessionService(runtime: AgentSessionRuntime) {
         const result = await runAgentSession(runtime, parsed.data, {
           run: (name, action) =>
             context.run(name, action, {
-              initialRetryInterval: 100,
-              maxRetryAttempts: 3,
-              maxRetryInterval: 1_000,
+              initialRetryInterval: 2_000,
+              maxRetryAttempts: 5,
+              maxRetryInterval: 15_000,
             }),
         });
         return agentSessionResultSchema.parse(result);
