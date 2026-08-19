@@ -22,8 +22,15 @@ case "$scenario" in
     project="zoen-governed-action"
     runner="dist/e2e/governed-action.js"
     ;;
+  durable-commit)
+    compose_file="e2e/durable-commit/compose.yaml"
+    generated_directory="e2e/governed-action/.generated"
+    prepare="e2e/governed-action/prepare-realm.mjs"
+    project="zoen-durable-commit"
+    runner="dist/e2e/durable-commit.js"
+    ;;
   *)
-    echo "usage: just e2e <definition-publication|governed-action|semantic-query>" >&2
+    echo "usage: just e2e <definition-publication|durable-commit|governed-action|semantic-query>" >&2
     exit 2
     ;;
 esac
@@ -56,6 +63,9 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo build --locked --workspace
 cargo test --locked --workspace
 test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
+if [[ "$scenario" == "durable-commit" ]]; then
+  CARGO_TARGET_DIR=target/failpoints cargo build --locked --package zoend --features failpoints
+fi
 
 docker compose --project-name "$project" --file "$compose_file" up --detach --wait
 node "$runner"

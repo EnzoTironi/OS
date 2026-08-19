@@ -50,6 +50,13 @@ export const generatedDirectory = path.join(
   ".generated",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
+const failpointServerPath = path.join(
+  repositoryRoot,
+  "target",
+  "failpoints",
+  "debug",
+  "zoend",
+);
 const composeFile = path.join("e2e", "governed-action", "compose.yaml");
 const composeProject = "zoen-governed-action";
 export const applicationDatabaseUrl =
@@ -68,9 +75,9 @@ export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 const validAt = new Date("2026-08-19T00:00:00.000Z");
 
-type ActionClient = Client<typeof ActionService>;
-type DefinitionClient = Client<typeof DefinitionService>;
-type WorldClient = Client<typeof WorldService>;
+export type ActionClient = Client<typeof ActionService>;
+export type DefinitionClient = Client<typeof DefinitionService>;
+export type WorldClient = Client<typeof WorldService>;
 
 export interface DefinitionFixture {
   canonicalJson: string;
@@ -86,6 +93,21 @@ export interface ServerProcess {
   child: ChildProcessWithoutNullStreams;
   output: string[];
 }
+
+export interface ActionCommitFailpoint {
+  name: string;
+  pauseMs?: number;
+}
+
+export type ServerOptions =
+  | {
+      kind: "default";
+      injectedEnvironment?: ActionCommitFailpoint;
+    }
+  | {
+      kind: "failpoints";
+      failpoint: ActionCommitFailpoint;
+    };
 
 export interface DatabaseSnapshot {
   actionApprovals: number;
@@ -410,9 +432,16 @@ export async function rowCount(
 
 export async function startServer(
   policyManifestPath: string,
+  options: ServerOptions = { kind: "default" },
 ): Promise<ServerProcess> {
+  const failpoint =
+    options.kind === "failpoints"
+      ? options.failpoint
+      : options.injectedEnvironment;
+  const executable =
+    options.kind === "failpoints" ? failpointServerPath : serverPath;
   const output: string[] = [];
-  const child = spawn(serverPath, [], {
+  const child = spawn(executable, [], {
     cwd: repositoryRoot,
     env: {
       ...process.env,
@@ -421,6 +450,17 @@ export async function startServer(
       ZOEN_LISTEN_ADDR: "127.0.0.1:58083",
       ZOEN_OIDC_AUDIENCE: oidcAudience,
       ZOEN_OIDC_ISSUER: oidcIssuer,
+      ...(failpoint === undefined
+        ? {}
+        : {
+            ZOEN_ACTION_COMMIT_FAILPOINT: failpoint.name,
+            ...(failpoint.pauseMs === undefined
+              ? {}
+              : {
+                  ZOEN_ACTION_COMMIT_FAILPOINT_PAUSE_MS:
+                    failpoint.pauseMs.toString(),
+                }),
+          }),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });

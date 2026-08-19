@@ -6,21 +6,23 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     ActionApproval, ActionId, ActionInput, ActionProposal, ActorId, ApprovalId, ClaimId,
     CommitReceipt, CommitSequence, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EntityId,
-    EvidenceDigest, ExecutionContext, InputId, IntentDigest, OperationId, PolicyDigest,
+    DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EffectRequestId,
+    EntityId, EvidenceDigest, ExecutionContext, InputId, IntentDigest, OperationId, PolicyDigest,
     PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId, ProposalAuthority,
     ProposalId, RelationId, ResourceId, StateBasis, StateBasisDigest, StateDependency, TenantId,
     TimestampMicros, TrustedExecutionContext, WorkloadId,
 };
-use zoen_engine::{
-    AdmittedEvidence, CommitPlan, CommitStoreOutcome, StoreError, calculate_state_basis_digest,
-};
+use zoen_engine::StoreError;
 
-use crate::claim_store::load_in_transaction;
-use crate::{
-    PostgresClaimQuery, i64_to_u64, row_to_value, set_tenant, store_unavailable, u64_to_i64,
-    valid_time_columns, value_columns,
-};
+use crate::{i64_to_u64, row_to_value, set_tenant, store_unavailable, u64_to_i64, value_columns};
+
+mod commit;
+mod failpoints;
+mod state_basis;
+mod writes;
+
+pub use commit::PostgresActionCommit;
+pub(crate) use commit::begin_action_commit;
 
 pub(crate) async fn save_proposal(
     pool: &PgPool,
@@ -42,6 +44,16 @@ pub(crate) async fn save_proposal(
         return Err(StoreError::Conflict(
             "proposal id already identifies a different intent".to_owned(),
         ));
+    }
+    if load_proposal_by_operation(
+        &mut transaction,
+        context.tenant_id(),
+        &proposal.operation_id,
+    )
+    .await?
+    .is_some()
+    {
+        return Err(StoreError::OperationMismatch);
     }
 
     let (authority_kind, policy) = proposal_authority_columns(&proposal.authority);
@@ -210,302 +222,6 @@ pub(crate) async fn get_operation(
     Ok(receipt)
 }
 
-pub(crate) async fn commit_action(
-    pool: &PgPool,
-    context: &ExecutionContext,
-    plan: &CommitPlan,
-) -> Result<CommitStoreOutcome, StoreError> {
-    if plan.effects.is_empty() {
-        return Err(StoreError::Corrupt(
-            "admitted Action has no effects".to_owned(),
-        ));
-    }
-    let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
-    if let Some(receipt) = load_operation(
-        &mut transaction,
-        context.tenant_id(),
-        &plan.proposal.operation_id,
-    )
-    .await?
-    {
-        if receipt.intent_digest == plan.proposal.intent_digest
-            && receipt.proposal_id == plan.proposal.proposal_id
-        {
-            transaction.commit().await.map_err(store_unavailable)?;
-            return Ok(CommitStoreOutcome::Committed(Box::new(receipt)));
-        }
-        return Err(StoreError::Conflict(
-            "operation id already identifies a different intent".to_owned(),
-        ));
-    }
-
-    let head = initialize_and_lock_head(&mut transaction, context).await?;
-    let current_basis = load_current_basis(&mut transaction, context, &plan.proposal, head).await?;
-    if current_basis.digest != plan.proposal.state_basis.digest {
-        transaction.commit().await.map_err(store_unavailable)?;
-        return Ok(CommitStoreOutcome::Stale(current_basis));
-    }
-    let next_sequence = head
-        .checked_add(1)
-        .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
-    sqlx::query(
-        "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
-         VALUES ($1, $2, 'action')",
-    )
-    .bind(context.tenant_id().as_str())
-    .bind(next_sequence)
-    .execute(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
-
-    for (ordinal, evidence) in plan.effects.iter().enumerate() {
-        insert_effect(
-            &mut transaction,
-            context.tenant_id(),
-            next_sequence,
-            ordinal,
-            evidence,
-        )
-        .await?;
-    }
-
-    let commit_sequence = commit_sequence(next_sequence, "commit sequence")?;
-    let receipt = CommitReceipt {
-        action_id: plan.proposal.action_id.clone(),
-        commit_sequence,
-        committed_by: context.clone(),
-        definition: plan.proposal.definition.clone(),
-        intent_digest: plan.proposal.intent_digest.clone(),
-        operation_id: plan.proposal.operation_id.clone(),
-        policy: plan.policy.clone(),
-        proposal_id: plan.proposal.proposal_id.clone(),
-        record_ids: plan
-            .effects
-            .iter()
-            .map(|effect| effect.draft().claim_id.clone())
-            .collect(),
-    };
-    insert_operation(&mut transaction, context.tenant_id(), &receipt).await?;
-    let updated = sqlx::query(
-        "UPDATE authority_heads
-         SET commit_sequence = $2
-         WHERE tenant_id = $1",
-    )
-    .bind(context.tenant_id().as_str())
-    .bind(next_sequence)
-    .execute(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
-    if updated.rows_affected() != 1 {
-        return Err(StoreError::Corrupt(
-            "authority head update affected an unexpected row count".to_owned(),
-        ));
-    }
-    transaction.commit().await.map_err(store_unavailable)?;
-    Ok(CommitStoreOutcome::Committed(Box::new(receipt)))
-}
-
-async fn initialize_and_lock_head(
-    transaction: &mut Transaction<'_, Postgres>,
-    context: &ExecutionContext,
-) -> Result<i64, StoreError> {
-    sqlx::query(
-        "INSERT INTO authority_heads (tenant_id, commit_sequence)
-         VALUES ($1, 0)
-         ON CONFLICT (tenant_id) DO NOTHING",
-    )
-    .bind(context.tenant_id().as_str())
-    .execute(&mut **transaction)
-    .await
-    .map_err(store_unavailable)?;
-    sqlx::query(
-        "SELECT commit_sequence
-         FROM authority_heads
-         WHERE tenant_id = $1
-         FOR UPDATE",
-    )
-    .bind(context.tenant_id().as_str())
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(store_unavailable)?
-    .try_get::<i64, _>("commit_sequence")
-    .map_err(store_unavailable)
-}
-
-async fn load_current_basis(
-    transaction: &mut Transaction<'_, Postgres>,
-    context: &ExecutionContext,
-    proposal: &ActionProposal,
-    head: i64,
-) -> Result<StateBasis, StoreError> {
-    let relation_ids = proposal
-        .state_basis
-        .dependencies
-        .iter()
-        .map(|dependency| dependency.relation_id.clone())
-        .collect::<BTreeSet<_>>();
-    let cut = commit_sequence(head, "commit sequence")?;
-    let claims = load_in_transaction(
-        transaction,
-        context,
-        &PostgresClaimQuery {
-            cut,
-            definition: proposal.definition.clone(),
-            entity_id: EntityId::parse(proposal.resource_id.as_str()).map_err(corrupt)?,
-            relation_ids,
-            valid_at: proposal.valid_at,
-        },
-    )
-    .await?;
-    let mut dependencies = claims
-        .into_iter()
-        .map(|claim| StateDependency {
-            claim_id: claim.draft.claim_id,
-            commit_sequence: claim.commit_sequence,
-            entity_id: claim.draft.entity_id,
-            relation_id: claim.draft.relation_id,
-            source_digest: claim.draft.provenance.source_digest,
-        })
-        .collect::<Vec<_>>();
-    sort_dependencies(&mut dependencies);
-    dependencies.dedup();
-    let digest = calculate_state_basis_digest(&dependencies)
-        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
-    Ok(StateBasis {
-        dependencies,
-        digest,
-        observed_commit_sequence: cut,
-    })
-}
-
-async fn insert_effect(
-    transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
-    commit_sequence: i64,
-    ordinal: usize,
-    evidence: &AdmittedEvidence,
-) -> Result<(), StoreError> {
-    let draft = evidence.draft();
-    let (value_kind, value_text, value_unit) = value_columns(&draft.value);
-    let (valid_time_kind, valid_from_micros, valid_to_micros) =
-        valid_time_columns(&draft.valid_time);
-    sqlx::query(
-        "INSERT INTO semantic_claims (
-            tenant_id, claim_id, definition_id, definition_digest, definition_revision,
-            entity_id, relation_id, value_kind, value_text, value_unit,
-            valid_time_kind, valid_from_micros, valid_to_micros,
-            source_id, source_digest, source_ref, commit_sequence
-         ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8, $9, $10,
-            $11, $12, $13,
-            $14, $15, $16, $17
-         )",
-    )
-    .bind(tenant_id.as_str())
-    .bind(draft.claim_id.as_str())
-    .bind(draft.definition.definition_id.as_str())
-    .bind(draft.definition.digest.as_str())
-    .bind(u64_to_i64(
-        draft.definition.revision.get(),
-        "definition revision",
-    )?)
-    .bind(draft.entity_id.as_str())
-    .bind(draft.relation_id.as_str())
-    .bind(value_kind)
-    .bind(value_text)
-    .bind(value_unit)
-    .bind(valid_time_kind)
-    .bind(valid_from_micros)
-    .bind(valid_to_micros)
-    .bind(draft.provenance.source_id.as_str())
-    .bind(draft.provenance.source_digest.as_str())
-    .bind(&draft.provenance.source_ref)
-    .bind(commit_sequence)
-    .execute(&mut **transaction)
-    .await
-    .map_err(map_action_insert)?;
-
-    let event = evidence.projection_event();
-    sqlx::query(
-        "INSERT INTO projection_outbox
-            (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb)",
-    )
-    .bind(tenant_id.as_str())
-    .bind(commit_sequence)
-    .bind(ordinal_i32(ordinal)?)
-    .bind(event.event_type())
-    .bind(i32::from(event.event_version()))
-    .bind(event.payload())
-    .execute(&mut **transaction)
-    .await
-    .map_err(store_unavailable)?;
-    Ok(())
-}
-
-async fn insert_operation(
-    transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
-    receipt: &CommitReceipt,
-) -> Result<(), StoreError> {
-    ensure_context_tenant(tenant_id, &receipt.committed_by)?;
-    sqlx::query(
-        "INSERT INTO action_operations (
-            tenant_id, operation_id, proposal_id, intent_digest, commit_sequence,
-            committed_actor_id, committed_principal_id, committed_workload_id,
-            policy_id, policy_digest, policy_revision, determining_policies
-         ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8,
-            $9, $10, $11, $12
-         )",
-    )
-    .bind(tenant_id.as_str())
-    .bind(receipt.operation_id.as_str())
-    .bind(receipt.proposal_id.as_str())
-    .bind(receipt.intent_digest.as_str())
-    .bind(u64_to_i64(
-        receipt.commit_sequence.get(),
-        "commit sequence",
-    )?)
-    .bind(receipt.committed_by.actor_id().as_str())
-    .bind(receipt.committed_by.principal_id().as_str())
-    .bind(receipt.committed_by.workload_id().as_str())
-    .bind(receipt.policy.revision.id.as_str())
-    .bind(receipt.policy.revision.digest.as_str())
-    .bind(u64_to_i64(
-        receipt.policy.revision.revision.get(),
-        "policy revision",
-    )?)
-    .bind(&receipt.policy.determining_policies)
-    .execute(&mut **transaction)
-    .await
-    .map_err(map_action_insert)?;
-    for (ordinal, claim_id) in receipt.record_ids.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO action_operation_records
-                (tenant_id, operation_id, ordinal, claim_id)
-             VALUES ($1, $2, $3, $4)",
-        )
-        .bind(tenant_id.as_str())
-        .bind(receipt.operation_id.as_str())
-        .bind(ordinal_i32(ordinal)?)
-        .bind(claim_id.as_str())
-        .execute(&mut **transaction)
-        .await
-        .map_err(map_action_insert)?;
-    }
-    insert_grants(
-        transaction,
-        tenant_id,
-        GrantOwner::Operation(&receipt.operation_id),
-        &receipt.committed_by,
-    )
-    .await
-}
-
 async fn insert_inputs(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
@@ -629,6 +345,28 @@ async fn load_proposal(
     }))
 }
 
+async fn load_proposal_by_operation(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    operation_id: &OperationId,
+) -> Result<Option<ActionProposal>, StoreError> {
+    let proposal_id = sqlx::query_scalar::<_, String>(
+        "SELECT proposal_id
+         FROM action_proposals
+         WHERE tenant_id = $1 AND operation_id = $2",
+    )
+    .bind(tenant_id.as_str())
+    .bind(operation_id.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    let Some(proposal_id) = proposal_id else {
+        return Ok(None);
+    };
+    let proposal_id = ProposalId::parse(proposal_id).map_err(corrupt)?;
+    load_proposal(transaction, tenant_id, &proposal_id).await
+}
+
 async fn load_approval(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
@@ -695,9 +433,12 @@ async fn load_operation(
         return Ok(None);
     };
     let grants = load_grants(transaction, tenant_id, GrantOwner::Operation(operation_id)).await?;
+    let commit_sequence_value = row_i64(&row, "commit_sequence")?;
+    let effect_request_ids =
+        load_effect_request_ids(transaction, tenant_id, commit_sequence_value).await?;
     Ok(Some(CommitReceipt {
         action_id: ActionId::parse(row_string(&row, "action_id")?).map_err(corrupt)?,
-        commit_sequence: commit_sequence(row_i64(&row, "commit_sequence")?, "commit sequence")?,
+        commit_sequence: commit_sequence(commit_sequence_value, "commit sequence")?,
         committed_by: trusted_context(
             tenant_id,
             row_string(&row, "committed_actor_id")?,
@@ -706,6 +447,7 @@ async fn load_operation(
             grants,
         )?,
         definition: definition_from_row(&row)?,
+        effect_request_ids,
         intent_digest: IntentDigest::parse(row_string(&row, "intent_digest")?).map_err(corrupt)?,
         operation_id: OperationId::parse(row_string(&row, "operation_id")?).map_err(corrupt)?,
         policy: policy_from_row(&row)?,
@@ -791,6 +533,29 @@ async fn load_record_ids(
     .map_err(store_unavailable)?;
     rows.iter()
         .map(|row| ClaimId::parse(row_string(row, "claim_id")?).map_err(corrupt))
+        .collect()
+}
+
+async fn load_effect_request_ids(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    commit_sequence: i64,
+) -> Result<Vec<EffectRequestId>, StoreError> {
+    let rows = sqlx::query(
+        "SELECT effect_request_id
+         FROM projection_outbox
+         WHERE tenant_id = $1
+           AND commit_sequence = $2
+           AND effect_request_id IS NOT NULL
+         ORDER BY ordinal",
+    )
+    .bind(tenant_id.as_str())
+    .bind(commit_sequence)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    rows.iter()
+        .map(|row| EffectRequestId::parse(row_string(row, "effect_request_id")?).map_err(corrupt))
         .collect()
 }
 
@@ -1010,21 +775,6 @@ fn ensure_context_tenant(
     }
 }
 
-fn sort_dependencies(dependencies: &mut [StateDependency]) {
-    dependencies.sort_by(|left, right| {
-        (
-            left.relation_id.as_str(),
-            left.claim_id.as_str(),
-            left.commit_sequence,
-        )
-            .cmp(&(
-                right.relation_id.as_str(),
-                right.claim_id.as_str(),
-                right.commit_sequence,
-            ))
-    });
-}
-
 fn commit_sequence(value: i64, name: &str) -> Result<CommitSequence, StoreError> {
     CommitSequence::new(i64_to_u64(value, name)?)
         .ok_or_else(|| StoreError::Corrupt(format!("{name} is zero")))
@@ -1036,11 +786,14 @@ fn ordinal_i32(value: usize) -> Result<i32, StoreError> {
 }
 
 fn map_action_insert(error: sqlx::Error) -> StoreError {
-    if error
-        .as_database_error()
-        .is_some_and(|database| database.is_unique_violation())
+    if let Some(database) = error.as_database_error()
+        && database.is_unique_violation()
     {
-        StoreError::Conflict("Action identity already exists".to_owned())
+        if database.constraint() == Some("action_proposals_tenant_id_operation_id_key") {
+            StoreError::OperationMismatch
+        } else {
+            StoreError::Conflict("Action identity already exists".to_owned())
+        }
     } else {
         store_unavailable(error)
     }

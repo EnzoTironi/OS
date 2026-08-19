@@ -11,14 +11,14 @@ use zoen_core::{
     ProposalId, RelationId, SourceId, TenantId, TimestampMicros, UnitId, ValidTime,
 };
 use zoen_engine::{
-    AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, CommitPlan,
-    CommitStoreOutcome, StoreError,
+    AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, CommitPreparation, StoreError,
 };
 
 mod action_store;
 mod cedar;
 mod claim_store;
 
+pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
 pub use claim_store::{PostgresClaimLoader, PostgresClaimQuery};
 
@@ -71,12 +71,14 @@ impl PostgresAuthorityStore {
 }
 
 impl AuthorityStore for PostgresAuthorityStore {
-    async fn commit_action(
+    type ActionCommit = PostgresActionCommit;
+
+    async fn begin_action_commit(
         &self,
         context: &ExecutionContext,
-        plan: &CommitPlan,
-    ) -> Result<CommitStoreOutcome, StoreError> {
-        action_store::commit_action(&self.pool, context, plan).await
+        proposal: &ActionProposal,
+    ) -> Result<CommitPreparation<Self::ActionCommit>, StoreError> {
+        action_store::begin_action_commit(&self.pool, context, proposal).await
     }
 
     async fn get_approval(

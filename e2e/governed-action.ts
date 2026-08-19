@@ -237,7 +237,7 @@ async function main(): Promise<void> {
     const reservedClaimCode = await expectConnectCode(
       () =>
         recordAvailable(worldA, {
-          claimId: `claim.action.${directProposal.intentDigest}.0`,
+          claimId: "claim.action.operation.direct.0",
           fixture: fixtures.direct,
           resource: resourceId,
           tenantId: tenantA,
@@ -299,19 +299,29 @@ async function main(): Promise<void> {
       duplicateIntent.proposal?.intentDigest,
       directCommit.receipt.intentDigest,
     );
-    const beforeDuplicateIntent = await databaseSnapshot(admin, tenantA);
     const duplicateIntentCommit = await actionA.commit({
       operationId: "operation.duplicateIntent",
       proposalId: "proposal.duplicateIntent",
     });
-    assert.equal(duplicateIntentCommit.status, CommitStatus.CONFLICT);
-    const afterDuplicateIntent = await databaseSnapshot(admin, tenantA);
-    assert.deepEqual(afterDuplicateIntent, beforeDuplicateIntent);
-    recordFailureInjection("action-record-identity-collision");
+    assert.equal(duplicateIntentCommit.status, CommitStatus.COMMITTED);
+    assert.ok(duplicateIntentCommit.receipt);
+    assert.deepEqual(
+      duplicateIntentCommit.receipt.recordIds,
+      ["claim.action.operation.duplicateIntent.0"],
+    );
+    assert.deepEqual(
+      duplicateIntentCommit.receipt.effectRequestIds,
+      ["effect.action.operation.duplicateIntent.0"],
+    );
     recordAssertion(
-      "actionRecordIdentityCollisionTyped",
-      duplicateIntentCommit.status === CommitStatus.CONFLICT &&
-        isDeepStrictEqual(afterDuplicateIntent, beforeDuplicateIntent),
+      "independentSameIntentOperationsCommitted",
+      duplicateIntentCommit.status === CommitStatus.COMMITTED &&
+        isDeepStrictEqual(duplicateIntentCommit.receipt.recordIds, [
+          "claim.action.operation.duplicateIntent.0",
+        ]) &&
+        isDeepStrictEqual(duplicateIntentCommit.receipt.effectRequestIds, [
+          "effect.action.operation.duplicateIntent.0",
+        ]),
     );
 
     const selfMutating = await propose(actionA, {
@@ -780,13 +790,13 @@ async function main(): Promise<void> {
     });
     assert.ok(foreignOperation.proposal);
     const beforeForeignOperation = await databaseSnapshot(admin, tenantA);
-    const foreignOperationCode = await expectConnectCode(
-      () =>
-        actionA.commit({
-          operationId: "operation.other",
-          proposalId: "proposal.foreign",
-        }),
-      Code.InvalidArgument,
+    const foreignOperationMismatch = await actionA.commit({
+      operationId: "operation.other",
+      proposalId: "proposal.foreign",
+    });
+    assert.equal(
+      foreignOperationMismatch.status,
+      CommitStatus.OPERATION_MISMATCH,
     );
     const afterForeignOperation = await databaseSnapshot(admin, tenantA);
     assert.deepEqual(afterForeignOperation, beforeForeignOperation);
@@ -798,7 +808,7 @@ async function main(): Promise<void> {
     recordFailureInjection("foreign-operation-identity");
     recordAssertion(
       "foreignOperationRejectedWithoutWrites",
-      foreignOperationCode === Code.InvalidArgument &&
+      foreignOperationMismatch.status === CommitStatus.OPERATION_MISMATCH &&
         isDeepStrictEqual(afterForeignOperation, beforeForeignOperation) &&
         foreignRecovery.status === CommitStatus.COMMITTED,
     );

@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+failpoints = ["zoen-adapters/failpoints"]
+
 [dependencies]
 axum = "0.8.9"
 buffa = { version = "0.8.1", features = ["json"] }

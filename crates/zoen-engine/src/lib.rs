@@ -4,19 +4,22 @@ use std::fmt::{Display, Formatter};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    ActionApproval, ActionProposal, CanonicalDefinition, CanonicalJson, CommitReceipt,
-    DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber, EvidenceClaim,
-    EvidenceDraft, ExecutionContext, Expression, InputDefinition, OperationId, ProposalId,
-    RelationTarget, TenantId,
+    ActionApproval, ActionProposal, CanonicalDefinition, CanonicalJson, CommitIdentityKind,
+    CommitReceipt, DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber,
+    EvidenceClaim, EvidenceDraft, ExecutionContext, Expression, InputDefinition, OperationId,
+    ProposalId, RelationTarget, TenantId,
 };
 
 mod action;
 mod admission;
 
 pub use action::{
-    ActionDiscovery, ActionEngine, ActionError, ApproveOutcome, CommitOutcome, CommitPlan,
-    CommitStoreOutcome, PolicyEvaluator, PolicyOperation, PolicyRequest, ProposeCommand,
-    ProposeOutcome, QueryExecutor, QueryPortError, calculate_state_basis_digest,
+    ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
+    ActionStateRead, ActionStateSnapshot, ApproveOutcome, CommitOutcome, CommitPlan,
+    CommitPreparation, CommitStoreOutcome, PolicyEvaluator, PolicyOperation, PolicyRequest,
+    ProposeCommand, ProposeOutcome, QueryExecutor, QueryPortError, SemanticClaim,
+    calculate_state_basis_digest, evaluate_action_state_basis, evaluate_semantic_claims,
+    read_action_state_basis,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,7 +104,9 @@ impl Error for ValidationError {}
 pub enum StoreError {
     Conflict(String),
     Corrupt(String),
+    IdentityCollision(CommitIdentityKind),
     NotFound,
+    OperationMismatch,
     Unavailable(String),
 }
 
@@ -110,7 +115,16 @@ impl Display for StoreError {
         match self {
             Self::Conflict(message) => write!(formatter, "publication conflict: {message}"),
             Self::Corrupt(message) => write!(formatter, "authority data is corrupt: {message}"),
+            Self::IdentityCollision(CommitIdentityKind::EffectRequest) => {
+                formatter.write_str("Action EffectRequest identity already exists")
+            }
+            Self::IdentityCollision(CommitIdentityKind::SemanticRecord) => {
+                formatter.write_str("Action semantic record identity already exists")
+            }
             Self::NotFound => formatter.write_str("definition revision was not found"),
+            Self::OperationMismatch => {
+                formatter.write_str("operation identity does not match the proposal")
+            }
             Self::Unavailable(message) => {
                 write!(formatter, "authority store unavailable: {message}")
             }
@@ -362,11 +376,13 @@ impl AdmittedEvidence {
 
 #[allow(async_fn_in_trait)]
 pub trait AuthorityStore: Send + Sync {
-    async fn commit_action(
+    type ActionCommit: ActionCommitTransaction;
+
+    async fn begin_action_commit(
         &self,
         context: &ExecutionContext,
-        plan: &CommitPlan,
-    ) -> Result<CommitStoreOutcome, StoreError>;
+        proposal: &ActionProposal,
+    ) -> Result<CommitPreparation<Self::ActionCommit>, StoreError>;
 
     async fn get_approval(
         &self,

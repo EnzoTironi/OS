@@ -109,7 +109,9 @@ pub(crate) fn map_store_error(error: StoreError) -> ConnectError {
     let code = match &error {
         StoreError::Conflict(_) => ErrorCode::AlreadyExists,
         StoreError::Corrupt(_) => ErrorCode::DataLoss,
+        StoreError::IdentityCollision(_) => ErrorCode::AlreadyExists,
         StoreError::NotFound => ErrorCode::NotFound,
+        StoreError::OperationMismatch => ErrorCode::InvalidArgument,
         StoreError::Unavailable(_) => ErrorCode::Unavailable,
     };
     ConnectError::new(code, error.to_string())
