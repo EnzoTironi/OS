@@ -1,7 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const outputDirectory = path.join("e2e", "governed-action", ".generated");
+const outputDirectory =
+  process.env.ZOEN_E2E_GENERATED_DIR ??
+  path.join("e2e", "governed-action", ".generated");
 const actionId = "inventory.requestStock";
 const activationActionId = "zoen.definition.activate";
 const definitionIds = [

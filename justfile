@@ -1,3 +1,11 @@
+# Buf, tsc, unit tests, fmt, zoen-core isolation. No Clippy, no Docker.
+lint:
+    ./e2e/run.sh lint
+
+# Clippy only. CI uses a separate rust-cache key from `lint`.
+clippy:
+    ./e2e/run.sh clippy
+
 # Static lint and in-process tests. No Docker.
 check:
     ./e2e/run.sh check

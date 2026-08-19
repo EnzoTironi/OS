@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CommitStatus } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
@@ -11,6 +10,7 @@ import {
   resourceId,
   writePolicyManifest,
 } from "./governed-action/support.js";
+import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
 import { verifyDispatch } from "./effects/laws/dispatch.js";
 import { verifyReconciliation } from "./effects/laws/reconciliation.js";
 import { verifyRecovery } from "./effects/laws/recovery.js";
@@ -45,10 +45,7 @@ async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const fixture = await loadFixture("direct", 1);
   const policyManifestPath = path.join(
-    repositoryRoot,
-    "e2e",
-    "governed-action",
-    ".generated",
+    e2eGeneratedDirectory(repositoryRoot, "effects"),
     "effects-policies.json",
   );
   await writePolicyManifest(policyManifestPath, [fixture]);
@@ -274,11 +271,7 @@ async function main(): Promise<void> {
       startedAt,
       tenants: [tenantA, tenantB],
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "effects.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "effects", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     await admin.end();

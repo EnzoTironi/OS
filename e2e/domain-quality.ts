@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
@@ -75,6 +74,7 @@ import {
   yearEnd,
   yearStart,
 } from "./domain-quality/laws.js";
+import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -133,10 +133,7 @@ async function main(): Promise<void> {
     remappedQuarantinePolicy,
   ];
   const policyManifestPath = path.join(
-    repositoryRoot,
-    "e2e",
-    "domain-quality",
-    ".generated",
+    e2eGeneratedDirectory(repositoryRoot, "domain-quality"),
     "policies.json",
   );
   await writeQualityPolicies(
@@ -920,11 +917,7 @@ async function main(): Promise<void> {
       startedAt,
       tenants: [tenantA, tenantB],
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "domain-quality.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "domain-quality", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     await admin.end();

@@ -1,7 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const outputDirectory = path.join("e2e", "domain-quality", ".generated");
+const outputDirectory =
+  process.env.ZOEN_E2E_GENERATED_DIR ??
+  path.join("e2e", "domain-quality", ".generated");
 const farFuture = 4_102_444_800;
 const qualityActions = ["quality.quarantineLot", "quality.releaseLot"];
 const remappedActions = ["lab.quarantineLot", "lab.releaseLot"];

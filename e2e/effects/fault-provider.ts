@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
+import { e2ePort } from "../host-env.js";
 
 const modeSchema = z.enum([
   "accepted_pending",
@@ -34,7 +35,7 @@ interface StoredOperation {
 }
 
 const listenAddress = "127.0.0.1";
-const listenPort = 58_086;
+const listenPort = e2ePort("ZOEN_E2E_PROVIDER_PORT", 58_114);
 const operationsById = new Map<string, StoredOperation>();
 const operationsByKey = new Map<string, StoredOperation>();
 let mode: FaultMode = "confirmed";

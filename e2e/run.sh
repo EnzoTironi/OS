@@ -4,6 +4,8 @@ set -euo pipefail
 # Ticket command stays `just e2e <scenario>` (check + build + run).
 # `just verify` runs check and build once, then each scenario runner.
 # `just e2e-run` executes a built workspace against Compose and does not lint.
+# Each scenario loads `e2e/<scenario>/.env` so Compose, zoend, and artifacts
+# never share host ports or generated files with another scenario.
 
 scenarios=(
   definition-publication
@@ -25,7 +27,9 @@ generated_directory=""
 prepare=""
 
 usage() {
-  echo "usage: just check" >&2
+  echo "usage: just lint" >&2
+  echo "       just clippy" >&2
+  echo "       just check" >&2
   echo "       just build [scenario|all]" >&2
   echo "       just e2e-run <scenario>" >&2
   echo "       just e2e <scenario>" >&2
@@ -45,6 +49,21 @@ is_scenario() {
   return 1
 }
 
+load_scenario_env() {
+  local env_file="e2e/${scenario}/.env"
+  if [[ ! -f "$env_file" ]]; then
+    echo "missing ${env_file}" >&2
+    exit 1
+  fi
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+  export ZOEN_E2E_ARTIFACTS_DIR="artifacts/${scenario}"
+  export ZOEN_E2E_GENERATED_DIR="e2e/${scenario}/.generated"
+  generated_directory="${ZOEN_E2E_GENERATED_DIR}"
+}
+
 resolve_scenario() {
   scenario="${1:-}"
   generated_directory=""
@@ -62,49 +81,42 @@ resolve_scenario() {
       ;;
     governed-action)
       compose_file="e2e/governed-action/compose.yaml"
-      generated_directory="e2e/governed-action/.generated"
       prepare="e2e/governed-action/prepare-realm.mjs"
       project="zoen-governed-action"
       runner="dist/e2e/governed-action.js"
       ;;
     durable-commit)
       compose_file="e2e/durable-commit/compose.yaml"
-      generated_directory="e2e/governed-action/.generated"
       prepare="e2e/governed-action/prepare-realm.mjs"
       project="zoen-durable-commit"
       runner="dist/e2e/durable-commit.js"
       ;;
     effects)
       compose_file="e2e/effects/compose.yaml"
-      generated_directory="e2e/governed-action/.generated"
       prepare="e2e/governed-action/prepare-realm.mjs"
       project="zoen-effects"
       runner="dist/e2e/effects.js"
       ;;
     explain)
       compose_file="e2e/explain/compose.yaml"
-      generated_directory="e2e/governed-action/.generated"
       prepare="e2e/governed-action/prepare-realm.mjs"
       project="zoen-explain"
       runner="dist/e2e/explain.js"
       ;;
     domain-quality)
       compose_file="e2e/domain-quality/compose.yaml"
-      generated_directory="e2e/domain-quality/.generated"
       prepare="e2e/domain-quality/prepare-realm.mjs"
       project="zoen-domain-quality"
       runner="dist/e2e/domain-quality.js"
       ;;
     evolution-compatible)
       compose_file="e2e/evolution-compatible/compose.yaml"
-      generated_directory="e2e/evolution-compatible/.generated"
       prepare="e2e/evolution-compatible/prepare-realm.mjs"
       project="zoen-evolution-compatible"
       runner="dist/e2e/evolution-compatible.js"
       ;;
     evolution-breaking)
       compose_file="e2e/evolution-breaking/compose.yaml"
-      generated_directory="e2e/evolution-breaking/.generated"
       prepare="e2e/evolution-breaking/prepare-realm.mjs"
       project="zoen-evolution-breaking"
       runner="dist/e2e/evolution-breaking.js"
@@ -113,9 +125,10 @@ resolve_scenario() {
       usage
       ;;
   esac
+  load_scenario_env
 }
 
-run_check() {
+run_lint() {
   npm ci
   npm run buf:lint
   npm run buf:breaking
@@ -125,9 +138,18 @@ run_check() {
   npm run build
   npm test
   cargo fmt --all --check
-  cargo clippy --locked --workspace --all-targets -- -D warnings
   cargo test --locked --workspace
   test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
+  ./e2e/assert-unique-ports.sh
+}
+
+run_clippy() {
+  cargo clippy --locked --workspace --all-targets -- -D warnings
+}
+
+run_check() {
+  run_lint
+  run_clippy
 }
 
 run_build() {
@@ -166,7 +188,7 @@ run_scenario() {
   require_built
   trap cleanup_scenario EXIT
   cleanup_scenario
-  mkdir -p artifacts
+  mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
   if [[ -n "$prepare" ]]; then
     node "$prepare"
   fi
@@ -176,6 +198,8 @@ run_scenario() {
   fi
   docker compose --project-name "$project" --file "$compose_file" up --detach --wait
   node "$runner"
+  cleanup_scenario
+  trap - EXIT
 }
 
 run_e2e() {
@@ -197,6 +221,12 @@ run_verify() {
 
 command="${1:-}"
 case "$command" in
+  lint)
+    run_lint
+    ;;
+  clippy)
+    run_clippy
+    ;;
   check)
     run_check
     ;;

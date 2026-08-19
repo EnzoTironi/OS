@@ -43,6 +43,11 @@ import {
   type ServerProcess,
   type WorldClient,
 } from "../evolution-compatible/support.js";
+import {
+  e2eGeneratedDirectory,
+  e2eHttpUrl,
+  e2ePostgresUrl,
+} from "../host-env.js";
 
 export {
   actionClient,
@@ -79,9 +84,9 @@ export const scenarioDirectory = path.join(
   "e2e",
   "evolution-breaking",
 );
-export const generatedDirectory = path.join(
-  scenarioDirectory,
-  ".generated",
+export const generatedDirectory = e2eGeneratedDirectory(
+  repositoryRoot,
+  "evolution-breaking",
 );
 export const validAt = new Date("2026-08-19T00:00:00.000Z");
 
@@ -268,11 +273,11 @@ export async function expectProjectionFailure(tenantId: string): Promise<void> {
   await assert.rejects(
     command(workerPath, ["--rebuild", tenantId], {
       ...process.env,
-      DATABASE_URL: "postgres://zoen_app:zoen_app@127.0.0.1:55438/zoen",
+      DATABASE_URL: e2ePostgresUrl("zoen_app", "zoen_app", 55_444),
       S3_ACCESS_KEY_ID: "zoen-access",
       S3_ALLOW_HTTP: "true",
       S3_BUCKET: "missing-projection-bucket",
-      S3_ENDPOINT: "http://127.0.0.1:59005",
+      S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT", 59_006),
       S3_REGION: "us-east-1",
       S3_SECRET_ACCESS_KEY: "zoen-secret",
     }),

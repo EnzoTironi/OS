@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
     ports:
-      - "127.0.0.1:55434:5432"
+      - "127.0.0.1:${ZOEN_E2E_POSTGRES_PORT}:5432"
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
     healthcheck:
@@ -27,7 +27,7 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_HEALTH_ENABLED: "true"
     ports:
-      - "127.0.0.1:58082:8080"
+      - "127.0.0.1:${ZOEN_E2E_KEYCLOAK_PORT}:8080"
     volumes:
       - ./.generated/realm.json:/opt/keycloak/data/import/realm.json:ro
     healthcheck:
