@@ -223,7 +223,7 @@ enum TextColumn<'a> {
     Utf8View(&'a StringViewArray),
 }
 
-impl TextColumn<'_> {
+impl<'a> TextColumn<'a> {
     fn is_null(self, index: usize) -> bool {
         match self {
             Self::Utf8(values) => values.is_null(index),
@@ -231,7 +231,7 @@ impl TextColumn<'_> {
         }
     }
 
-    fn value(self, index: usize) -> &str {
+    fn value(self, index: usize) -> &'a str {
         match self {
             Self::Utf8(values) => values.value(index),
             Self::Utf8View(values) => values.value(index),
