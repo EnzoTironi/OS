@@ -790,13 +790,13 @@ async function main(): Promise<void> {
     });
     assert.ok(foreignOperation.proposal);
     const beforeForeignOperation = await databaseSnapshot(admin, tenantA);
-    const foreignOperationCode = await expectConnectCode(
-      () =>
-        actionA.commit({
-          operationId: "operation.other",
-          proposalId: "proposal.foreign",
-        }),
-      Code.InvalidArgument,
+    const foreignOperationMismatch = await actionA.commit({
+      operationId: "operation.other",
+      proposalId: "proposal.foreign",
+    });
+    assert.equal(
+      foreignOperationMismatch.status,
+      CommitStatus.OPERATION_MISMATCH,
     );
     const afterForeignOperation = await databaseSnapshot(admin, tenantA);
     assert.deepEqual(afterForeignOperation, beforeForeignOperation);
@@ -808,7 +808,7 @@ async function main(): Promise<void> {
     recordFailureInjection("foreign-operation-identity");
     recordAssertion(
       "foreignOperationRejectedWithoutWrites",
-      foreignOperationCode === Code.InvalidArgument &&
+      foreignOperationMismatch.status === CommitStatus.OPERATION_MISMATCH &&
         isDeepStrictEqual(afterForeignOperation, beforeForeignOperation) &&
         foreignRecovery.status === CommitStatus.COMMITTED,
     );
