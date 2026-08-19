@@ -44,7 +44,6 @@ async function route(
     url.pathname === "/control/drop-next-commit-response"
   ) {
     dropNextCommitResponse = true;
-    holdRecovery = true;
     response.writeHead(204).end();
     return;
   }
@@ -109,6 +108,7 @@ function forward(
           dropNextCommitResponse = false;
           upstreamResponse.resume();
           upstreamResponse.once("end", () => {
+            holdRecovery = true;
             droppedCommitResponses += 1;
             outgoing.destroy(
               new Error("injected loss after ordinary Action commit"),
