@@ -109,6 +109,12 @@ enum DefinitionImpactArea {
   DEFINITION_IMPACT_AREA_POLICY_AND_WASM_REFERENCES = 9;
 }
 
+enum DefinitionImpactApplicability {
+  DEFINITION_IMPACT_APPLICABILITY_UNSPECIFIED = 0;
+  DEFINITION_IMPACT_APPLICABILITY_APPLICABLE = 1;
+  DEFINITION_IMPACT_APPLICABILITY_NOT_APPLICABLE = 2;
+}
+
 message DefinitionChange {
   DefinitionChangeKind change = 1;
   DefinitionElementKind element = 2;
@@ -120,6 +126,7 @@ message DefinitionImpact {
   repeated string affected = 2;
   repeated string unaffected = 3;
   string rationale = 4;
+  DefinitionImpactApplicability applicability = 5;
 }
 
 message EvolutionPlan {

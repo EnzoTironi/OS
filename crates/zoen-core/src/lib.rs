@@ -839,9 +839,16 @@ pub enum DefinitionImpactArea {
     PolicyAndWasmReferences,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DefinitionImpactApplicability {
+    Applicable,
+    NotApplicable,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefinitionImpact {
     pub affected: Vec<String>,
+    pub applicability: DefinitionImpactApplicability,
     pub area: DefinitionImpactArea,
     pub rationale: String,
     pub unaffected: Vec<String>,

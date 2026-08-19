@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zoen_core::{
     ActionDefinition, CanonicalDefinition, ComputationDefinition, DefinitionChange,
-    DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactArea,
-    DefinitionReference, DefinitionRevision, EvolutionClassification, EvolutionPlan,
-    RelationDefinition, RelationTarget, expression_relations,
+    DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactApplicability,
+    DefinitionImpactArea, DefinitionReference, DefinitionRevision, EvolutionClassification,
+    EvolutionPlan, RelationDefinition, RelationTarget, expression_relations,
 };
 
 pub(crate) fn plan(
@@ -63,7 +63,7 @@ pub(crate) fn plan(
             .then_with(|| left.id.cmp(&right.id))
     });
 
-    let classification = classify(from, to, &changes, &action_dependencies);
+    let classification = classify(from, to, &changes);
     let changed_query_elements = union(&relations.affected, &affected_computations);
     let unchanged_query_elements = union(&relations.unaffected, &unaffected_computations);
     let changed_generated_elements = union(
@@ -88,56 +88,65 @@ pub(crate) fn plan(
         impacts: vec![
             DefinitionImpact {
                 affected: affected_types.into_iter().collect(),
+                applicability: DefinitionImpactApplicability::Applicable,
                 area: DefinitionImpactArea::Types,
                 rationale: "Type declarations are affected when they change or when a changed Relation changes their semantic neighborhood.".to_owned(),
                 unaffected: unaffected_types.into_iter().collect(),
             },
             DefinitionImpact {
                 affected: relations.affected.into_iter().collect(),
+                applicability: DefinitionImpactApplicability::Applicable,
                 area: DefinitionImpactArea::Relations,
                 rationale: "The affected set contains every added, removed, or modified Relation after exact semantic comparison.".to_owned(),
                 unaffected: relations.unaffected.into_iter().collect(),
             },
             DefinitionImpact {
                 affected: affected_computations.into_iter().collect(),
+                applicability: DefinitionImpactApplicability::Applicable,
                 area: DefinitionImpactArea::Computations,
                 rationale: "Computations are affected by their own semantic diff and by changed Relations referenced by their expressions.".to_owned(),
                 unaffected: unaffected_computations.into_iter().collect(),
             },
             DefinitionImpact {
                 affected: affected_actions.into_iter().collect(),
+                applicability: DefinitionImpactApplicability::Applicable,
                 area: DefinitionImpactArea::Actions,
                 rationale: "Actions are affected by contract changes and by changed Relations referenced by preconditions or effects; unchanged contracts remain explicit.".to_owned(),
                 unaffected: unaffected_actions.into_iter().collect(),
             },
             DefinitionImpact {
                 affected: Vec::new(),
+                applicability: DefinitionImpactApplicability::NotApplicable,
                 area: DefinitionImpactArea::DomainPackageDependencies,
-                rationale: "Neither revision contains package dependency metadata because the canonical v1 contract has no package dependency field, so there is no dependency edge to invalidate.".to_owned(),
-                unaffected: vec!["canonical-v1-package-dependency-set".to_owned()],
+                rationale: "Canonical v1 has no package dependency field, so these revisions cannot report package dependency impact.".to_owned(),
+                unaffected: Vec::new(),
             },
             DefinitionImpact {
                 affected: changed_existing_elements.into_iter().collect(),
+                applicability: DefinitionImpactApplicability::Applicable,
                 area: DefinitionImpactArea::StoredSemanticRecords,
                 rationale: stored_record_rationale(classification),
                 unaffected: unchanged_record_elements,
             },
             DefinitionImpact {
                 affected: changed_query_elements.into_iter().collect(),
+                applicability: DefinitionImpactApplicability::Applicable,
                 area: DefinitionImpactArea::QueryAndMaterializationArtifacts,
                 rationale: "Query and materialization artifacts must add plans or metadata for affected Relations and Computations; artifacts over unchanged elements keep their prior meaning.".to_owned(),
                 unaffected: unchanged_query_elements.into_iter().collect(),
             },
             DefinitionImpact {
                 affected: changed_generated_elements.into_iter().collect(),
+                applicability: DefinitionImpactApplicability::Applicable,
                 area: DefinitionImpactArea::GeneratedSdkAndSurfaceArtifacts,
                 rationale: "Definition-derived catalogs and surfaces must expose affected elements under the target revision; the Protobuf SDK contract itself is unchanged.".to_owned(),
                 unaffected: unchanged_generated_elements.into_iter().collect(),
             },
             DefinitionImpact {
-                affected: to.actions.iter().map(|action| action.id.as_str().to_owned()).collect(),
+                affected: Vec::new(),
+                applicability: DefinitionImpactApplicability::NotApplicable,
                 area: DefinitionImpactArea::PolicyAndWasmReferences,
-                rationale: "Canonical v1 contains no Wasm references. Digest-scoped Cedar bindings for target-revision Actions must be installed even when the Action contract is unchanged.".to_owned(),
+                rationale: "Canonical v1 has no policy or Wasm reference fields, so these revisions cannot report policy or Wasm impact.".to_owned(),
                 unaffected: Vec::new(),
             },
         ],
@@ -205,17 +214,14 @@ fn classify(
     from: &CanonicalDefinition,
     to: &CanonicalDefinition,
     changes: &[DefinitionChange],
-    action_dependencies: &BTreeSet<String>,
 ) -> EvolutionClassification {
     if from.id != to.id || from.schema != to.schema || to.revision <= from.revision {
         return EvolutionClassification::Forbidden;
     }
-    if !action_dependencies.is_empty()
-        || changes.iter().any(|change| {
-            change.element == DefinitionElementKind::Action
-                && change.change != DefinitionChangeKind::Added
-        })
-    {
+    if changes.iter().any(|change| {
+        change.element == DefinitionElementKind::Action
+            && change.change != DefinitionChangeKind::Added
+    }) {
         return EvolutionClassification::Breaking;
     }
     if changes
@@ -335,16 +341,18 @@ fn without(values: &BTreeSet<String>, excluded: &BTreeSet<String>) -> BTreeSet<S
 mod tests {
     use zoen_core::{
         ActionDefinition, ActionEffect, ActionId, CanonicalDefinition, CanonicalJson, Cardinality,
-        CommitSequence, ComputationDefinition, ComputationId, DefinitionDigest, DefinitionId,
-        DefinitionImpactArea, DefinitionRevision, DefinitionRevisionNumber, DefinitionSchema,
-        EvolutionClassification, ExactInteger, ExactValue, Expression, RelationDefinition,
-        RelationId, RelationTarget, TypeDefinition, TypeId, ValueType,
+        CommitSequence, ComputationDefinition, ComputationId, DefinitionChange,
+        DefinitionChangeKind, DefinitionDigest, DefinitionElementKind, DefinitionId,
+        DefinitionImpactApplicability, DefinitionImpactArea, DefinitionRevision,
+        DefinitionRevisionNumber, DefinitionSchema, EvolutionClassification, ExactInteger,
+        ExactValue, Expression, RelationDefinition, RelationId, RelationTarget, TypeDefinition,
+        TypeId, ValueType,
     };
 
-    use super::plan;
+    use super::{classify, plan};
 
     #[test]
-    fn compatible_addition_tracks_semantic_dependencies() {
+    fn added_relation_computation_and_action_are_compatible() {
         let from_definition = definition(1);
         let mut to_definition = definition(2);
         to_definition.relations.push(RelationDefinition {
@@ -360,6 +368,17 @@ mod tests {
             id: ComputationId::parse("inventory.availableToPromise").expect("computation"),
             inputs: Vec::new(),
             returns: ValueType::Integer,
+        });
+        to_definition.actions.push(ActionDefinition {
+            effects: vec![ActionEffect {
+                relation_id: RelationId::parse("inventory.reserved").expect("relation"),
+                value: Expression::Literal(ExactValue::Integer(
+                    ExactInteger::parse("1").expect("integer"),
+                )),
+            }],
+            id: ActionId::parse("inventory.reserve").expect("action"),
+            inputs: Vec::new(),
+            precondition: Expression::Literal(ExactValue::Bool(true)),
         });
 
         let result = plan(
@@ -387,6 +406,7 @@ mod tests {
             .iter()
             .find(|impact| impact.area == DefinitionImpactArea::Actions)
             .expect("Action impact");
+        assert_eq!(actions.affected, ["inventory.reserve"]);
         assert_eq!(actions.unaffected, ["inventory.replenish"]);
         let types = result
             .impacts
@@ -394,7 +414,81 @@ mod tests {
             .find(|impact| impact.area == DefinitionImpactArea::Types)
             .expect("Type impact");
         assert_eq!(types.affected, ["inventory.Item"]);
+        let package_dependencies = result
+            .impacts
+            .iter()
+            .find(|impact| impact.area == DefinitionImpactArea::DomainPackageDependencies)
+            .expect("package dependency impact");
+        assert_eq!(
+            package_dependencies.applicability,
+            DefinitionImpactApplicability::NotApplicable
+        );
+        assert!(package_dependencies.affected.is_empty());
+        assert!(package_dependencies.unaffected.is_empty());
+        let policy_and_wasm = result
+            .impacts
+            .iter()
+            .find(|impact| impact.area == DefinitionImpactArea::PolicyAndWasmReferences)
+            .expect("policy and Wasm impact");
+        assert_eq!(
+            policy_and_wasm.applicability,
+            DefinitionImpactApplicability::NotApplicable
+        );
+        assert!(policy_and_wasm.affected.is_empty());
+        assert!(policy_and_wasm.unaffected.is_empty());
         assert!(!result.migration_required());
+    }
+
+    #[test]
+    fn classification_follows_change_kinds() {
+        let from = definition(1);
+        let to = definition(2);
+        let cases = [
+            (
+                "only additions",
+                vec![
+                    change(DefinitionElementKind::Relation, DefinitionChangeKind::Added),
+                    change(DefinitionElementKind::Action, DefinitionChangeKind::Added),
+                ],
+                EvolutionClassification::Compatible,
+            ),
+            (
+                "modified action",
+                vec![change(
+                    DefinitionElementKind::Action,
+                    DefinitionChangeKind::Modified,
+                )],
+                EvolutionClassification::Breaking,
+            ),
+            (
+                "removed action",
+                vec![change(
+                    DefinitionElementKind::Action,
+                    DefinitionChangeKind::Removed,
+                )],
+                EvolutionClassification::Breaking,
+            ),
+            (
+                "modified relation",
+                vec![change(
+                    DefinitionElementKind::Relation,
+                    DefinitionChangeKind::Modified,
+                )],
+                EvolutionClassification::RequiresMigration,
+            ),
+            (
+                "removed computation",
+                vec![change(
+                    DefinitionElementKind::Computation,
+                    DefinitionChangeKind::Removed,
+                )],
+                EvolutionClassification::RequiresMigration,
+            ),
+        ];
+
+        for (name, changes, expected) in cases {
+            assert_eq!(classify(&from, &to, &changes), expected, "{name}");
+        }
     }
 
     #[test]
@@ -451,6 +545,14 @@ mod tests {
             definition_id: DefinitionId::parse("inventory.definition").expect("definition"),
             digest: DefinitionDigest::parse(digest.repeat(64)).expect("digest"),
             revision: DefinitionRevisionNumber::new(number).expect("revision"),
+        }
+    }
+
+    fn change(element: DefinitionElementKind, change: DefinitionChangeKind) -> DefinitionChange {
+        DefinitionChange {
+            change,
+            element,
+            id: "inventory.changed".to_owned(),
         }
     }
 }

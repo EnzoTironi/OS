@@ -8,6 +8,7 @@ use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
     DefinitionActivation as CoreDefinitionActivation, DefinitionChangeKind as CoreChangeKind,
     DefinitionDigest, DefinitionElementKind as CoreElementKind, DefinitionId,
+    DefinitionImpactApplicability as CoreImpactApplicability,
     DefinitionImpactArea as CoreImpactArea, DefinitionRevision as CoreDefinitionRevision,
     EvolutionClassification as CoreEvolutionClassification, EvolutionPlan as CoreEvolutionPlan,
     TimestampMicros,
@@ -21,10 +22,11 @@ use crate::action_service::to_policy_evidence;
 use crate::auth::SessionRegistry;
 use crate::proto::zoen::definition::v1::{
     ActivateRevisionRequest, ActivateRevisionResponse, DefinitionActivation, DefinitionChange,
-    DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactArea,
-    DefinitionRevision, DefinitionService, EvolutionClassification, EvolutionPlan,
-    GetActiveRevisionRequest, GetActiveRevisionResponse, GetRevisionRequest, GetRevisionResponse,
-    PlanEvolutionRequest, PlanEvolutionResponse, PublishRequest, PublishResponse,
+    DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactApplicability,
+    DefinitionImpactArea, DefinitionRevision, DefinitionService, EvolutionClassification,
+    EvolutionPlan, GetActiveRevisionRequest, GetActiveRevisionResponse, GetRevisionRequest,
+    GetRevisionResponse, PlanEvolutionRequest, PlanEvolutionResponse, PublishRequest,
+    PublishResponse,
 };
 use crate::world_service::{to_definition_reference, to_timestamp};
 
@@ -213,6 +215,7 @@ fn to_protocol_plan(plan: CoreEvolutionPlan) -> EvolutionPlan {
             .into_iter()
             .map(|impact| DefinitionImpact {
                 affected: impact.affected,
+                applicability: to_impact_applicability(impact.applicability).into(),
                 area: to_impact_area(impact.area).into(),
                 rationale: impact.rationale,
                 unaffected: impact.unaffected,
@@ -250,6 +253,15 @@ fn to_element_kind(element: CoreElementKind) -> DefinitionElementKind {
         CoreElementKind::Relation => DefinitionElementKind::Relation,
         CoreElementKind::Computation => DefinitionElementKind::Computation,
         CoreElementKind::Action => DefinitionElementKind::Action,
+    }
+}
+
+fn to_impact_applicability(
+    applicability: CoreImpactApplicability,
+) -> DefinitionImpactApplicability {
+    match applicability {
+        CoreImpactApplicability::Applicable => DefinitionImpactApplicability::Applicable,
+        CoreImpactApplicability::NotApplicable => DefinitionImpactApplicability::NotApplicable,
     }
 }
 
