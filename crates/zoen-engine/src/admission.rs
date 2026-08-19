@@ -13,8 +13,13 @@ use zoen_core::{
 
 use crate::{
     AdmittedDefinitionPublication, AdmittedEvidence, EvidenceValidationError, ProjectionEvent,
-    PublishError, RecordEvidenceError, validate_definition, verify_digest,
+    PublishError, RecordEvidenceError, verify_digest,
 };
+
+mod validation;
+
+use validation::validate_definition;
+pub use validation::{DefinitionFamily, ReferenceKind, ValidationError};
 
 pub(crate) fn admit(
     bytes: &[u8],
@@ -117,7 +122,13 @@ fn admit_evidence_draft(
     Ok(AdmittedEvidence::new(draft, event))
 }
 
-pub(crate) fn decode(canonical_json: &CanonicalJson) -> Result<CanonicalDefinition, PublishError> {
+pub fn decode_canonical_definition(
+    canonical_json: &CanonicalJson,
+) -> Result<CanonicalDefinition, PublishError> {
+    decode(canonical_json)
+}
+
+fn decode(canonical_json: &CanonicalJson) -> Result<CanonicalDefinition, PublishError> {
     let dto = serde_json::from_str::<CanonicalDefinitionDto>(canonical_json.as_str())
         .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
     let definition = convert_definition(dto)?;
