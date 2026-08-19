@@ -1,0 +1,71 @@
+Caller usage
+
+OIDC bearer token -> TrustedExecutionContext
+Discover(definition, resource) -> visible Action capabilities
+Propose(definition, action, resource, inputs, valid_at, operation_id) -> ActionProposal
+Approve(proposal, approval_id, expires_at) -> ActionApproval
+Commit(proposal, operation_id) -> CommitOutcome
+
+Chosen shape
+
+zoen-core owns branded identity, validated delegation chains, Action proposal states, policy evidence, StateBasis dependencies, and commit receipts. It has no IO or vendor dependencies.
+
+zoen-engine owns one ActionEngine. The engine validates definitions and business inputs, checks delegation, evaluates policy through PolicyEvaluator, reads dependencies through QueryExecutor, and sends one CommitPlan through AuthorityStore.
+
+zoen-query implements QueryExecutor with strong semantic queries. StateBasis contains only dependencies that the Action precondition evaluated.
+
+zoen-adapters implements PolicyEvaluator with Cedar and extends PostgresAuthorityStore for durable proposals, approvals, operation receipts, and atomic Action commits. Action commits append to authority_commits and projection_outbox.
+
+zoend validates OIDC issuer, audience, signature, and expiry. It constructs TrustedExecutionContext and adapts Connect messages. Action requests do not accept a tenant, actor, principal, or workload field.
+
+Candidate assessment
+
+Candidate A puts the complete lifecycle in ActionEngine behind the existing deep ports. It keeps transport, Cedar, and SQL private to their assigned boundaries. Chosen.
+
+Candidate B coordinates query, Cedar, and SQL in zoend. Rejected because transport code would own Action semantics and callers would depend on execution order.
+
+Candidate C adds Action, Cedar, and OIDC crates. Rejected because it recreates technology-owned shallow modules that ADR-0014 already ruled out.
+
+Data model
+
+TrustedExecutionContext contains TenantId, ActorId, PrincipalId, WorkloadId, and one validated DelegationChain.
+
+DelegationChain is a nonempty ordered set of grants. Every child grant must be a subset of its parent for Action, resource, workload, and time.
+
+PolicyEvaluation is Permit, Deny, or EvaluationError. Permit and Deny carry the exact policy revision and determining policy IDs.
+
+ActionProposal is either Ready or AwaitingApproval. Both states pin the definition, canonical intent digest, operation identity, policy evidence, and StateBasis.
+
+StateBasis is a sorted set of material claim dependencies plus its digest. Global authority revision is explanatory metadata only.
+
+CommitPlan binds one stored proposal, one operation identity, effects, and the expected StateBasis. PostgreSQL rechecks the relevant dependencies inside the commit transaction before it appends semantic records.
+
+Review synthesis
+
+Candidate A moves expression evaluation into zoen-core, moves the authoritative PostgreSQL claim loader into zoen-adapters for both QueryRuntime and commit-time revalidation, and stores Action history in typed columns and child rows. Chosen because each semantic fact has one implementation and PostgreSQL still revalidates under the authority-head lock.
+
+Candidate B gives ActionEngine an open PostgreSQL transaction or an async commit closure so QueryRuntime can read through the store lock. Rejected because the engine port would expose adapter transaction lifetime and SQL coordination details.
+
+Candidate C keeps JSONB but adds a canonical Action codec to zoen-core. Rejected because V1-03 does not need another durable serialization format when typed PostgreSQL rows already express the complete reconstructible state.
+
+Trusted-context decoding returns authentication failures separately from valid-token delegation failures. zoend maps the former to Unauthenticated and the latter to PermissionDenied.
+
+Discover filters the definition Actions by the trusted delegation before Cedar evaluation. A caller can still discover every delegated capability when another definition Action is outside its grant.
+
+Implementation contract
+
+zoen-core owns one expression evaluator. Its input is an Expression plus typed input and relation bindings. Its output is SemanticValue so query lineage survives evaluation without a second evaluator.
+
+QueryRuntime selects one authority cut for an Action precondition. Every relation read uses that cut. A cardinality-one relation contributes the value with the latest supporting commit while every rival remains in StateBasis.
+
+zoen-adapters owns one PostgreSQL claim loader. QueryRuntime uses it for strong reads. Action commit uses the same loader under the authority-head lock.
+
+ActionProposal, ActionApproval, and CommitReceipt retain the complete TrustedExecutionContext that authorized each step. PostgreSQL stores scalar fields in typed columns. Child tables store inputs, StateBasis dependencies, delegation grants, and committed claim IDs.
+
+CommitPlan contains admitted evidence, not raw EvidenceDraft values. Action effects use the existing ClaimRecorded event schema. Definition admission rejects Actions with no effects.
+
+The intent digest excludes proposal and operation IDs. It hashes the tenant, definition, Action, resource, valid time, sorted inputs, and StateBasis digest.
+
+Action claim IDs use a reserved claim.action namespace derived from the intent digest. World evidence admission rejects that namespace.
+
+ActionEngine checks for a stored receipt before expiry, policy, or StateBasis revalidation. An exact retry returns the canonical receipt even when the Action changed its own dependency.

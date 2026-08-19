@@ -4,12 +4,20 @@ use std::fmt::{Display, Formatter};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    CanonicalDefinition, CanonicalJson, DefinitionDigest, DefinitionId, DefinitionRevision,
-    DefinitionRevisionNumber, EvidenceClaim, EvidenceDraft, ExecutionContext, Expression,
-    InputDefinition, RelationTarget, TenantId,
+    ActionApproval, ActionProposal, CanonicalDefinition, CanonicalJson, CommitReceipt,
+    DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber, EvidenceClaim,
+    EvidenceDraft, ExecutionContext, Expression, InputDefinition, OperationId, ProposalId,
+    RelationTarget, TenantId,
 };
 
+mod action;
 mod admission;
+
+pub use action::{
+    ActionDiscovery, ActionEngine, ActionError, ApproveOutcome, CommitOutcome, CommitPlan,
+    CommitStoreOutcome, PolicyEvaluator, PolicyOperation, PolicyRequest, ProposeCommand,
+    ProposeOutcome, QueryExecutor, QueryPortError, calculate_state_basis_digest,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DefinitionFamily {
@@ -117,6 +125,7 @@ pub enum EvidenceValidationError {
     DefinitionReferenceMismatch,
     EmptySourceReference,
     MalformedDefinition(String),
+    ReservedClaimId(String),
     UnknownRelation(String),
     ValueTypeMismatch(String),
 }
@@ -130,6 +139,12 @@ impl Display for EvidenceValidationError {
             Self::EmptySourceReference => formatter.write_str("evidence source reference is empty"),
             Self::MalformedDefinition(message) => {
                 write!(formatter, "stored definition is malformed: {message}")
+            }
+            Self::ReservedClaimId(claim_id) => {
+                write!(
+                    formatter,
+                    "evidence claim id uses a reserved namespace: {claim_id}"
+                )
             }
             Self::UnknownRelation(relation_id) => {
                 write!(formatter, "definition has no relation: {relation_id}")
@@ -347,6 +362,30 @@ impl AdmittedEvidence {
 
 #[allow(async_fn_in_trait)]
 pub trait AuthorityStore: Send + Sync {
+    async fn commit_action(
+        &self,
+        context: &ExecutionContext,
+        plan: &CommitPlan,
+    ) -> Result<CommitStoreOutcome, StoreError>;
+
+    async fn get_approval(
+        &self,
+        context: &ExecutionContext,
+        proposal_id: &ProposalId,
+    ) -> Result<Option<ActionApproval>, StoreError>;
+
+    async fn get_operation(
+        &self,
+        context: &ExecutionContext,
+        operation_id: &OperationId,
+    ) -> Result<CommitReceipt, StoreError>;
+
+    async fn get_proposal(
+        &self,
+        context: &ExecutionContext,
+        proposal_id: &ProposalId,
+    ) -> Result<ActionProposal, StoreError>;
+
     async fn publish(
         &self,
         context: &ExecutionContext,
@@ -365,6 +404,18 @@ pub trait AuthorityStore: Send + Sync {
         context: &ExecutionContext,
         evidence: &AdmittedEvidence,
     ) -> Result<EvidenceClaim, StoreError>;
+
+    async fn save_approval(
+        &self,
+        context: &ExecutionContext,
+        approval: &ActionApproval,
+    ) -> Result<ActionApproval, StoreError>;
+
+    async fn save_proposal(
+        &self,
+        context: &ExecutionContext,
+        proposal: &ActionProposal,
+    ) -> Result<ActionProposal, StoreError>;
 }
 
 pub struct DefinitionEngine<S> {
@@ -391,7 +442,7 @@ where
         let revision = self
             .store
             .get_revision(
-                &context.tenant_id,
+                context.tenant_id(),
                 &draft.definition.definition_id,
                 &draft.definition.digest,
             )
@@ -434,7 +485,7 @@ where
     ) -> Result<DefinitionRevision, GetRevisionError> {
         let revision = self
             .store
-            .get_revision(&context.tenant_id, definition_id, digest)
+            .get_revision(context.tenant_id(), definition_id, digest)
             .await
             .map_err(GetRevisionError::Store)?;
         verify_digest(&revision.canonical_json, &revision.digest)
@@ -538,6 +589,7 @@ fn validate_definition(definition: &CanonicalDefinition) -> Result<(), Validatio
     }
 
     for item in &definition.actions {
+        require_nonempty(DefinitionFamily::ActionEffect, item.effects.is_empty())?;
         validate_executable(
             item.id.as_str(),
             DefinitionFamily::ActionInput,

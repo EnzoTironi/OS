@@ -2,6 +2,8 @@
 set -euo pipefail
 
 scenario="${1:-}"
+generated_directory=""
+prepare=""
 case "$scenario" in
   definition-publication)
     compose_file="e2e/definition-publication/compose.yaml"
@@ -13,20 +15,33 @@ case "$scenario" in
     project="zoen-semantic-query"
     runner="dist/e2e/semantic-query.js"
     ;;
+  governed-action)
+    compose_file="e2e/governed-action/compose.yaml"
+    generated_directory="e2e/governed-action/.generated"
+    prepare="e2e/governed-action/prepare-realm.mjs"
+    project="zoen-governed-action"
+    runner="dist/e2e/governed-action.js"
+    ;;
   *)
-    echo "usage: just e2e <definition-publication|semantic-query>" >&2
+    echo "usage: just e2e <definition-publication|governed-action|semantic-query>" >&2
     exit 2
     ;;
 esac
 
 cleanup() {
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
+  if [[ -n "$generated_directory" ]]; then
+    rm -rf "$generated_directory"
+  fi
 }
 
 trap cleanup EXIT
 cleanup
 rm -rf artifacts
 mkdir -p artifacts
+if [[ -n "$prepare" ]]; then
+  node "$prepare"
+fi
 
 npm ci
 npm run buf:lint

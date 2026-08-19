@@ -11,13 +11,15 @@ use object_store::path::Path;
 use object_store::{ObjectStore, ObjectStoreExt};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use zoen_adapters::{PostgresClaimLoader, PostgresClaimQuery};
 use zoen_core::{
-    BinaryOperator, CanonicalDefinition, CanonicalJson, ClaimId, CommitSequence, Consistency,
-    DefinitionReference, EntityId, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue,
+    CanonicalDefinition, CanonicalJson, ClaimId, CommitSequence, Consistency, DefinitionReference,
+    EntityId, EvidenceClaim, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue,
     ExecutionContext, Expression, LineageDependency, LineageRole, RelationId, SemanticQuery,
     SemanticResult, SemanticSelection, SemanticValue, SourceId, TenantId, UnitId,
+    evaluate_expression, expression_relations,
 };
-use zoen_engine::decode_canonical_definition;
+use zoen_engine::{QueryExecutor, QueryPortError, StoreError, decode_canonical_definition};
 
 mod physical;
 mod projection;
@@ -68,6 +70,7 @@ impl Error for QueryError {}
 
 #[derive(Clone)]
 pub struct QueryRuntime {
+    claim_loader: PostgresClaimLoader,
     object_store_config: Option<ObjectStoreConfig>,
     pool: PgPool,
 }
@@ -75,6 +78,7 @@ pub struct QueryRuntime {
 impl QueryRuntime {
     pub fn new(pool: PgPool, object_store_config: Option<ObjectStoreConfig>) -> Self {
         Self {
+            claim_loader: PostgresClaimLoader::new(pool.clone()),
             object_store_config,
             pool,
         }
@@ -86,19 +90,37 @@ impl QueryRuntime {
         query: &SemanticQuery,
     ) -> Result<SemanticResult, QueryError> {
         let source = self
-            .select_source(&context.tenant_id, &query.consistency)
+            .select_source(context.tenant_id(), &query.consistency)
             .await?;
         let cut = source.cut();
         let canonical_json = self
-            .load_definition(&context.tenant_id, &query.definition, cut)
+            .load_definition(context.tenant_id(), &query.definition, cut)
             .await?;
         let definition = decode_canonical_definition(&canonical_json)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
         let plan = QueryPlan::new(&query.selection, &definition)?;
         let claims = match &source {
             SourcePlan::Postgres { cut } => {
-                self.load_postgres_claims(context, query, &plan.relation_ids, *cut)
-                    .await?
+                let claims = self
+                    .claim_loader
+                    .load(
+                        context,
+                        &PostgresClaimQuery {
+                            cut: commit_sequence(*cut, "query cut")?,
+                            definition: query.definition.clone(),
+                            entity_id: query.entity_id.clone(),
+                            relation_ids: plan
+                                .relation_ids
+                                .iter()
+                                .map(RelationId::parse)
+                                .collect::<Result<_, _>>()
+                                .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+                            valid_at: query.valid_at,
+                        },
+                    )
+                    .await
+                    .map_err(adapter_error)?;
+                claims.into_iter().map(ClaimRecord::from_evidence).collect()
             }
             SourcePlan::Projection {
                 cut,
@@ -238,64 +260,6 @@ impl QueryRuntime {
             .ok_or_else(|| QueryError::Corrupt("stored canonical definition is empty".to_owned()))
     }
 
-    async fn load_postgres_claims(
-        &self,
-        context: &ExecutionContext,
-        query: &SemanticQuery,
-        relation_ids: &BTreeSet<String>,
-        cut: i64,
-    ) -> Result<Vec<ClaimRecord>, QueryError> {
-        let relations = relation_ids.iter().cloned().collect::<Vec<_>>();
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, &context.tenant_id).await?;
-        let rows = sqlx::query(
-            "SELECT tenant_id, claim_id, definition_id, definition_digest,
-                    definition_revision, entity_id, relation_id, value_kind, value_text,
-                    value_unit, valid_time_kind, valid_from_micros, valid_to_micros,
-                    source_id, source_digest, source_ref, commit_sequence
-             FROM semantic_claims
-             WHERE tenant_id = $1
-               AND definition_id = $2
-               AND definition_digest = $3
-               AND definition_revision = $4
-               AND entity_id = $5
-               AND relation_id = ANY($6)
-               AND commit_sequence <= $7
-               AND (
-                    (valid_time_kind = 'instant' AND valid_from_micros = $8)
-                    OR (
-                        valid_time_kind = 'interval'
-                        AND valid_from_micros <= $8
-                        AND valid_to_micros > $8
-                    )
-               )
-             ORDER BY claim_id",
-        )
-        .bind(context.tenant_id.as_str())
-        .bind(query.definition.definition_id.as_str())
-        .bind(query.definition.digest.as_str())
-        .bind(u64_to_i64(
-            query.definition.revision.get(),
-            "definition revision",
-        )?)
-        .bind(query.entity_id.as_str())
-        .bind(relations)
-        .bind(cut)
-        .bind(query.valid_at.get())
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
-        let physical = rows
-            .iter()
-            .map(PhysicalClaim::from_postgres)
-            .collect::<Result<Vec<_>, _>>()?;
-        transaction.commit().await.map_err(unavailable)?;
-        physical
-            .into_iter()
-            .map(|claim| ClaimRecord::parse(claim, context, query))
-            .collect()
-    }
-
     async fn load_projected_claims(
         &self,
         context: &ExecutionContext,
@@ -343,7 +307,7 @@ impl QueryRuntime {
             .map_err(projected_corrupt)?
             .filter(
                 col("tenant_id")
-                    .eq(lit(context.tenant_id.as_str()))
+                    .eq(lit(context.tenant_id().as_str()))
                     .and(col("definition_id").eq(lit(query.definition.definition_id.as_str())))
                     .and(col("definition_digest").eq(lit(query.definition.digest.as_str())))
                     .and(col("definition_revision").eq(lit(u64_to_i64(
@@ -365,6 +329,29 @@ impl QueryRuntime {
             .into_iter()
             .map(|claim| ClaimRecord::parse(claim, context, query))
             .collect()
+    }
+}
+
+impl QueryExecutor for QueryRuntime {
+    async fn execute(
+        &self,
+        context: &ExecutionContext,
+        query: &SemanticQuery,
+    ) -> Result<SemanticResult, QueryPortError> {
+        QueryRuntime::execute(self, context, query)
+            .await
+            .map_err(|error| match error {
+                QueryError::Corrupt(message) => QueryPortError::Corrupt(message),
+                QueryError::Evaluation(message) => QueryPortError::Evaluation(message),
+                QueryError::Freshness {
+                    available,
+                    requested,
+                } => QueryPortError::Invalid(format!(
+                    "projection watermark {available:?} is below requested commit {requested}"
+                )),
+                QueryError::Invalid(message) => QueryPortError::Invalid(message),
+                QueryError::Unavailable(message) => QueryPortError::Unavailable(message),
+            })
     }
 }
 
@@ -420,12 +407,29 @@ struct ClaimRecord {
 }
 
 impl ClaimRecord {
+    fn from_evidence(claim: EvidenceClaim) -> Self {
+        let draft = claim.draft;
+        Self {
+            dependency: LineageDependency {
+                claim_id: draft.claim_id,
+                commit_sequence: claim.commit_sequence,
+                entity_id: draft.entity_id,
+                relation_id: draft.relation_id,
+                role: LineageRole::Supporting,
+                source_digest: draft.provenance.source_digest,
+                source_id: draft.provenance.source_id,
+                source_ref: draft.provenance.source_ref,
+            },
+            value: draft.value,
+        }
+    }
+
     fn parse(
         physical: PhysicalClaim,
         context: &ExecutionContext,
         query: &SemanticQuery,
     ) -> Result<Self, QueryError> {
-        if physical.tenant_id != context.tenant_id.as_str()
+        if physical.tenant_id != context.tenant_id().as_str()
             || physical.definition_id != query.definition.definition_id.as_str()
             || physical.definition_digest != query.definition.digest.as_str()
             || physical.definition_revision
@@ -526,8 +530,10 @@ impl QueryPlan {
                             computation_id.as_str()
                         ))
                     })?;
-                let mut relation_ids = BTreeSet::new();
-                collect_relations(&computation.expression, &mut relation_ids);
+                let relation_ids = expression_relations(&computation.expression)
+                    .into_iter()
+                    .map(|relation_id| relation_id.as_str().to_owned())
+                    .collect::<BTreeSet<_>>();
                 if relation_ids.is_empty() {
                     return Err(QueryError::Invalid(format!(
                         "computation {} has no relation dependencies",
@@ -544,8 +550,9 @@ impl QueryPlan {
     }
 
     fn evaluate(&self, claims: &[ClaimRecord]) -> Result<Vec<SemanticValue>, QueryError> {
-        let by_relation = claims_by_relation(claims);
-        let candidates = evaluate_expression(&self.expression, &by_relation, self.relation_role)?;
+        let by_relation = claims_by_relation(claims, self.relation_role);
+        let candidates = evaluate_expression(&self.expression, &BTreeMap::new(), &by_relation)
+            .map_err(|error| QueryError::Evaluation(error.to_string()))?;
         let mut values = candidates
             .into_iter()
             .map(|candidate| {
@@ -581,116 +588,21 @@ impl QueryPlan {
     }
 }
 
-struct Candidate {
-    dependencies: Vec<LineageDependency>,
-    value: ExactValue,
-}
-
-fn collect_relations(expression: &Expression, relations: &mut BTreeSet<String>) {
-    match expression {
-        Expression::Binary { left, right, .. } => {
-            collect_relations(left, relations);
-            collect_relations(right, relations);
-        }
-        Expression::Relation(relation_id) => {
-            relations.insert(relation_id.as_str().to_owned());
-        }
-        Expression::Input(_) | Expression::Literal(_) => {}
-    }
-}
-
-fn claims_by_relation(claims: &[ClaimRecord]) -> BTreeMap<&str, Vec<&ClaimRecord>> {
-    let mut by_relation = BTreeMap::<&str, Vec<&ClaimRecord>>::new();
+fn claims_by_relation(
+    claims: &[ClaimRecord],
+    relation_role: LineageRole,
+) -> BTreeMap<RelationId, Vec<SemanticValue>> {
+    let mut by_relation = BTreeMap::<RelationId, Vec<SemanticValue>>::new();
     for claim in claims {
         by_relation
-            .entry(claim.dependency.relation_id.as_str())
+            .entry(claim.dependency.relation_id.clone())
             .or_default()
-            .push(claim);
-    }
-    by_relation
-}
-
-fn evaluate_expression(
-    expression: &Expression,
-    claims: &BTreeMap<&str, Vec<&ClaimRecord>>,
-    relation_role: LineageRole,
-) -> Result<Vec<Candidate>, QueryError> {
-    match expression {
-        Expression::Binary {
-            left,
-            operator,
-            right,
-        } => {
-            let left = evaluate_expression(left, claims, relation_role)?;
-            let right = evaluate_expression(right, claims, relation_role)?;
-            let mut combined = Vec::with_capacity(left.len().saturating_mul(right.len()));
-            for left in &left {
-                for right in &right {
-                    let mut dependencies =
-                        Vec::with_capacity(left.dependencies.len() + right.dependencies.len());
-                    dependencies.extend(left.dependencies.iter().cloned());
-                    dependencies.extend(right.dependencies.iter().cloned());
-                    combined.push(Candidate {
-                        dependencies,
-                        value: apply_operator(*operator, &left.value, &right.value)?,
-                    });
-                }
-            }
-            Ok(combined)
-        }
-        Expression::Input(input_id) => Err(QueryError::Evaluation(format!(
-            "computation input {} has no query binding",
-            input_id.as_str()
-        ))),
-        Expression::Literal(value) => Ok(vec![Candidate {
-            dependencies: Vec::new(),
-            value: value.clone(),
-        }]),
-        Expression::Relation(relation_id) => Ok(claims
-            .get(relation_id.as_str())
-            .into_iter()
-            .flatten()
-            .map(|claim| Candidate {
+            .push(SemanticValue {
                 dependencies: vec![claim.dependency(relation_role)],
                 value: claim.value.clone(),
-            })
-            .collect()),
+            });
     }
-}
-
-fn apply_operator(
-    operator: BinaryOperator,
-    left: &ExactValue,
-    right: &ExactValue,
-) -> Result<ExactValue, QueryError> {
-    let (ExactValue::Integer(left), ExactValue::Integer(right)) = (left, right) else {
-        return Err(QueryError::Evaluation(
-            "V1 relation computation requires exact integer operands".to_owned(),
-        ));
-    };
-    let left = left
-        .as_str()
-        .parse::<i128>()
-        .map_err(|_| QueryError::Evaluation("left integer exceeds i128".to_owned()))?;
-    let right = right
-        .as_str()
-        .parse::<i128>()
-        .map_err(|_| QueryError::Evaluation("right integer exceeds i128".to_owned()))?;
-    match operator {
-        BinaryOperator::Add => checked_integer(left.checked_add(right), "addition"),
-        BinaryOperator::GreaterThan => Ok(ExactValue::Bool(left > right)),
-        BinaryOperator::Multiply => checked_integer(left.checked_mul(right), "multiplication"),
-        BinaryOperator::Subtract => checked_integer(left.checked_sub(right), "subtraction"),
-    }
-}
-
-fn checked_integer(value: Option<i128>, operation: &str) -> Result<ExactValue, QueryError> {
-    let value = value
-        .ok_or_else(|| QueryError::Evaluation(format!("integer {operation} overflowed i128")))?;
-    Ok(ExactValue::Integer(
-        ExactInteger::parse(value.to_string())
-            .map_err(|error| QueryError::Evaluation(error.to_string()))?,
-    ))
+    by_relation
 }
 
 fn parse_value(physical: &PhysicalClaim) -> Result<ExactValue, QueryError> {
@@ -805,6 +717,16 @@ fn sha256(bytes: &[u8]) -> String {
 
 fn unavailable(error: sqlx::Error) -> QueryError {
     QueryError::Unavailable(error.to_string())
+}
+
+fn adapter_error(error: StoreError) -> QueryError {
+    match error {
+        StoreError::Conflict(message) | StoreError::Corrupt(message) => {
+            QueryError::Corrupt(message)
+        }
+        StoreError::NotFound => QueryError::Invalid("claim source was not found".to_owned()),
+        StoreError::Unavailable(message) => QueryError::Unavailable(message),
+    }
 }
 
 fn projected_corrupt(error: datafusion::error::DataFusionError) -> QueryError {

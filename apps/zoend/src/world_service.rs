@@ -153,7 +153,7 @@ fn parse_evidence_claim(claim: &EvidenceClaim) -> Result<EvidenceDraft, ConnectE
     })
 }
 
-fn parse_definition_reference(
+pub(crate) fn parse_definition_reference(
     reference: &DefinitionReference,
 ) -> Result<CoreDefinitionReference, ConnectError> {
     Ok(CoreDefinitionReference {
@@ -166,7 +166,7 @@ fn parse_definition_reference(
     })
 }
 
-fn parse_exact_value(value: &ExactValue) -> Result<CoreExactValue, ConnectError> {
+pub(crate) fn parse_exact_value(value: &ExactValue) -> Result<CoreExactValue, ConnectError> {
     match value
         .value
         .as_ref()
@@ -248,7 +248,7 @@ fn parse_consistency(
     }
 }
 
-fn parse_timestamp(value: &Timestamp) -> Result<TimestampMicros, ConnectError> {
+pub(crate) fn parse_timestamp(value: &Timestamp) -> Result<TimestampMicros, ConnectError> {
     if !(0..1_000_000_000).contains(&value.nanos) || value.nanos % 1_000 != 0 {
         return Err(invalid(
             "timestamp nanos must be normalized to microsecond precision",
@@ -302,7 +302,7 @@ fn to_query_response(result: SemanticResult) -> SemanticQueryResponse {
     }
 }
 
-fn to_definition_reference(reference: CoreDefinitionReference) -> DefinitionReference {
+pub(crate) fn to_definition_reference(reference: CoreDefinitionReference) -> DefinitionReference {
     DefinitionReference {
         definition_id: reference.definition_id.as_str().to_owned(),
         digest: reference.digest.as_str().to_owned(),
@@ -311,7 +311,7 @@ fn to_definition_reference(reference: CoreDefinitionReference) -> DefinitionRefe
     }
 }
 
-fn to_exact_value(value: CoreExactValue) -> ExactValue {
+pub(crate) fn to_exact_value(value: CoreExactValue) -> ExactValue {
     let value = match value {
         CoreExactValue::Bool(value) => exact_value::Value::BoolValue(value),
         CoreExactValue::Decimal(value) => {
@@ -335,7 +335,7 @@ fn to_exact_value(value: CoreExactValue) -> ExactValue {
     }
 }
 
-fn to_timestamp(value: TimestampMicros) -> Timestamp {
+pub(crate) fn to_timestamp(value: TimestampMicros) -> Timestamp {
     Timestamp {
         nanos: (value.get().rem_euclid(1_000_000) * 1_000) as i32,
         seconds: value.get().div_euclid(1_000_000),
@@ -365,6 +365,6 @@ fn map_query_error(error: QueryError) -> ConnectError {
     ConnectError::new(code, error.to_string())
 }
 
-fn invalid(message: impl Into<String>) -> ConnectError {
+pub(crate) fn invalid(message: impl Into<String>) -> ConnectError {
     ConnectError::new(ErrorCode::InvalidArgument, message.into())
 }

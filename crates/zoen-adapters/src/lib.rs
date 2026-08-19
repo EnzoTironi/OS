@@ -4,12 +4,23 @@ use std::fmt::{Display, Formatter};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    CanonicalJson, ClaimId, CommitSequence, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevision, DefinitionRevisionNumber, EntityId, EvidenceClaim, EvidenceDigest,
-    EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger, ExactValue, ExecutionContext,
-    RelationId, SourceId, TenantId, TimestampMicros, UnitId, ValidTime,
+    ActionApproval, ActionProposal, CanonicalJson, ClaimId, CommitReceipt, CommitSequence,
+    DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
+    DefinitionRevisionNumber, EntityId, EvidenceClaim, EvidenceDigest, EvidenceDraft,
+    EvidenceProvenance, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, OperationId,
+    ProposalId, RelationId, SourceId, TenantId, TimestampMicros, UnitId, ValidTime,
 };
-use zoen_engine::{AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, StoreError};
+use zoen_engine::{
+    AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, CommitPlan,
+    CommitStoreOutcome, StoreError,
+};
+
+mod action_store;
+mod cedar;
+mod claim_store;
+
+pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
+pub use claim_store::{PostgresClaimLoader, PostgresClaimQuery};
 
 #[derive(Debug)]
 pub enum PostgresInitError {
@@ -60,19 +71,51 @@ impl PostgresAuthorityStore {
 }
 
 impl AuthorityStore for PostgresAuthorityStore {
+    async fn commit_action(
+        &self,
+        context: &ExecutionContext,
+        plan: &CommitPlan,
+    ) -> Result<CommitStoreOutcome, StoreError> {
+        action_store::commit_action(&self.pool, context, plan).await
+    }
+
+    async fn get_approval(
+        &self,
+        context: &ExecutionContext,
+        proposal_id: &ProposalId,
+    ) -> Result<Option<ActionApproval>, StoreError> {
+        action_store::get_approval(&self.pool, context, proposal_id).await
+    }
+
+    async fn get_operation(
+        &self,
+        context: &ExecutionContext,
+        operation_id: &OperationId,
+    ) -> Result<CommitReceipt, StoreError> {
+        action_store::get_operation(&self.pool, context, operation_id).await
+    }
+
+    async fn get_proposal(
+        &self,
+        context: &ExecutionContext,
+        proposal_id: &ProposalId,
+    ) -> Result<ActionProposal, StoreError> {
+        action_store::get_proposal(&self.pool, context, proposal_id).await
+    }
+
     async fn publish(
         &self,
         context: &ExecutionContext,
         publication: &AdmittedDefinitionPublication,
     ) -> Result<DefinitionRevision, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, &context.tenant_id).await?;
+        set_tenant(&mut transaction, context.tenant_id()).await?;
         sqlx::query(
             "INSERT INTO authority_heads (tenant_id, commit_sequence)
              VALUES ($1, 0)
              ON CONFLICT (tenant_id) DO NOTHING",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .execute(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
@@ -83,7 +126,7 @@ impl AuthorityStore for PostgresAuthorityStore {
              WHERE tenant_id = $1
              FOR UPDATE",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .fetch_one(&mut *transaction)
         .await
         .map_err(store_unavailable)?
@@ -95,7 +138,7 @@ impl AuthorityStore for PostgresAuthorityStore {
              FROM definition_revisions
              WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(publication.definition_id().as_str())
         .bind(publication.digest().as_str())
         .fetch_optional(&mut *transaction)
@@ -120,7 +163,7 @@ impl AuthorityStore for PostgresAuthorityStore {
              FROM definition_revisions
              WHERE tenant_id = $1 AND definition_id = $2 AND revision = $3",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(publication.definition_id().as_str())
         .bind(u64_to_i64(publication.revision().get(), "revision")?)
         .fetch_optional(&mut *transaction)
@@ -140,7 +183,7 @@ impl AuthorityStore for PostgresAuthorityStore {
             "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
              VALUES ($1, $2, 'definition_publication')",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(next_sequence)
         .execute(&mut *transaction)
         .await
@@ -151,7 +194,7 @@ impl AuthorityStore for PostgresAuthorityStore {
                 (tenant_id, definition_id, revision, digest, canonical_json, commit_sequence)
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(publication.definition_id().as_str())
         .bind(u64_to_i64(publication.revision().get(), "revision")?)
         .bind(publication.digest().as_str())
@@ -167,7 +210,7 @@ impl AuthorityStore for PostgresAuthorityStore {
                 (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
              VALUES ($1, $2, 0, $3, $4, $5::jsonb)",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(next_sequence)
         .bind(event.event_type())
         .bind(i32::from(event.event_version()))
@@ -181,7 +224,7 @@ impl AuthorityStore for PostgresAuthorityStore {
              SET commit_sequence = $2
              WHERE tenant_id = $1",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(next_sequence)
         .execute(&mut *transaction)
         .await
@@ -238,13 +281,13 @@ impl AuthorityStore for PostgresAuthorityStore {
         evidence: &AdmittedEvidence,
     ) -> Result<EvidenceClaim, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, &context.tenant_id).await?;
+        set_tenant(&mut transaction, context.tenant_id()).await?;
         sqlx::query(
             "INSERT INTO authority_heads (tenant_id, commit_sequence)
              VALUES ($1, 0)
              ON CONFLICT (tenant_id) DO NOTHING",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .execute(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
@@ -255,7 +298,7 @@ impl AuthorityStore for PostgresAuthorityStore {
              WHERE tenant_id = $1
              FOR UPDATE",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .fetch_one(&mut *transaction)
         .await
         .map_err(store_unavailable)?
@@ -270,7 +313,7 @@ impl AuthorityStore for PostgresAuthorityStore {
              FROM semantic_claims
              WHERE tenant_id = $1 AND claim_id = $2",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(evidence.draft().claim_id.as_str())
         .fetch_optional(&mut *transaction)
         .await
@@ -293,7 +336,7 @@ impl AuthorityStore for PostgresAuthorityStore {
             "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
              VALUES ($1, $2, 'evidence')",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(next_sequence)
         .execute(&mut *transaction)
         .await
@@ -316,7 +359,7 @@ impl AuthorityStore for PostgresAuthorityStore {
                 $14, $15, $16, $17
              )",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(draft.claim_id.as_str())
         .bind(draft.definition.definition_id.as_str())
         .bind(draft.definition.digest.as_str())
@@ -346,7 +389,7 @@ impl AuthorityStore for PostgresAuthorityStore {
                 (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
              VALUES ($1, $2, 0, $3, $4, $5::jsonb)",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(next_sequence)
         .bind(event.event_type())
         .bind(i32::from(event.event_version()))
@@ -360,7 +403,7 @@ impl AuthorityStore for PostgresAuthorityStore {
              SET commit_sequence = $2
              WHERE tenant_id = $1",
         )
-        .bind(context.tenant_id.as_str())
+        .bind(context.tenant_id().as_str())
         .bind(next_sequence)
         .execute(&mut *transaction)
         .await
@@ -377,6 +420,22 @@ impl AuthorityStore for PostgresAuthorityStore {
                 .ok_or_else(|| StoreError::Corrupt("zero commit sequence".to_owned()))?,
             draft: draft.clone(),
         })
+    }
+
+    async fn save_approval(
+        &self,
+        context: &ExecutionContext,
+        approval: &ActionApproval,
+    ) -> Result<ActionApproval, StoreError> {
+        action_store::save_approval(&self.pool, context, approval).await
+    }
+
+    async fn save_proposal(
+        &self,
+        context: &ExecutionContext,
+        proposal: &ActionProposal,
+    ) -> Result<ActionProposal, StoreError> {
+        action_store::save_proposal(&self.pool, context, proposal).await
     }
 }
 
@@ -423,7 +482,7 @@ fn row_to_revision(row: &PgRow) -> Result<DefinitionRevision, StoreError> {
     })
 }
 
-fn row_to_claim(row: &PgRow) -> Result<EvidenceClaim, StoreError> {
+pub(crate) fn row_to_claim(row: &PgRow) -> Result<EvidenceClaim, StoreError> {
     let claim_id = ClaimId::parse(row_string(row, "claim_id")?)
         .map_err(|error| StoreError::Corrupt(error.to_string()))?;
     let definition_id = DefinitionId::parse(row_string(row, "definition_id")?)
@@ -492,7 +551,7 @@ fn valid_time_columns(valid_time: &ValidTime) -> (&'static str, i64, Option<i64>
     }
 }
 
-fn row_to_value(row: &PgRow) -> Result<ExactValue, StoreError> {
+pub(crate) fn row_to_value(row: &PgRow) -> Result<ExactValue, StoreError> {
     let kind = row_string(row, "value_kind")?;
     let value = row_string(row, "value_text")?;
     match kind.as_str() {
