@@ -54,7 +54,8 @@ impl WorldService for WorldServiceImpl {
             .claim
             .as_option()
             .ok_or_else(|| invalid("claim is required"))?
-            .to_owned_message();
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
         let draft = parse_evidence_claim(&claim)?;
         let recorded = self
             .engine
@@ -80,22 +81,26 @@ impl WorldService for WorldServiceImpl {
             .definition
             .as_option()
             .ok_or_else(|| invalid("definition is required"))?
-            .to_owned_message();
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
         let selection = request
             .selection
             .as_option()
             .ok_or_else(|| invalid("selection is required"))?
-            .to_owned_message();
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
         let valid_at = request
             .valid_at
             .as_option()
             .ok_or_else(|| invalid("valid_at is required"))?
-            .to_owned_message();
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
         let consistency = request
             .consistency
             .as_option()
             .ok_or_else(|| invalid("consistency is required"))?
-            .to_owned_message();
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
         let query = SemanticQuery {
             consistency: parse_consistency(&consistency)?,
             definition: parse_definition_reference(&definition)?,
