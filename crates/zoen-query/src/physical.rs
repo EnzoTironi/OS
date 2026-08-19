@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use datafusion::arrow::array::{Array, ArrayRef, Int64Array, StringArray};
+use datafusion::arrow::array::{Array, ArrayRef, Int64Array, StringArray, StringViewArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::record_batch::RecordBatch;
 use sqlx::Row;
@@ -217,15 +217,42 @@ pub(crate) fn batches_to_claims(batches: &[RecordBatch]) -> Result<Vec<PhysicalC
     Ok(rows)
 }
 
-fn strings<'a>(batch: &'a RecordBatch, name: &str) -> Result<&'a StringArray, QueryError> {
-    batch
+#[derive(Clone, Copy)]
+enum TextColumn<'a> {
+    Utf8(&'a StringArray),
+    Utf8View(&'a StringViewArray),
+}
+
+impl TextColumn<'_> {
+    fn is_null(self, index: usize) -> bool {
+        match self {
+            Self::Utf8(values) => values.is_null(index),
+            Self::Utf8View(values) => values.is_null(index),
+        }
+    }
+
+    fn value(self, index: usize) -> &str {
+        match self {
+            Self::Utf8(values) => values.value(index),
+            Self::Utf8View(values) => values.value(index),
+        }
+    }
+}
+
+fn strings<'a>(batch: &'a RecordBatch, name: &str) -> Result<TextColumn<'a>, QueryError> {
+    let column = batch
         .column_by_name(name)
-        .ok_or_else(|| QueryError::Corrupt(format!("Parquet projection has no {name} column")))?
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or_else(|| {
-            QueryError::Corrupt(format!("Parquet projection column {name} is not UTF-8"))
-        })
+        .ok_or_else(|| QueryError::Corrupt(format!("Parquet projection has no {name} column")))?;
+    if let Some(values) = column.as_any().downcast_ref::<StringArray>() {
+        return Ok(TextColumn::Utf8(values));
+    }
+    if let Some(values) = column.as_any().downcast_ref::<StringViewArray>() {
+        return Ok(TextColumn::Utf8View(values));
+    }
+    Err(QueryError::Corrupt(format!(
+        "Parquet projection column {name} has unsupported type {}",
+        column.data_type()
+    )))
 }
 
 fn integers<'a>(batch: &'a RecordBatch, name: &str) -> Result<&'a Int64Array, QueryError> {
@@ -239,7 +266,7 @@ fn integers<'a>(batch: &'a RecordBatch, name: &str) -> Result<&'a Int64Array, Qu
         })
 }
 
-fn required_string(values: &StringArray, index: usize, name: &str) -> Result<String, QueryError> {
+fn required_string(values: TextColumn<'_>, index: usize, name: &str) -> Result<String, QueryError> {
     (!values.is_null(index))
         .then(|| values.value(index).to_owned())
         .ok_or_else(|| QueryError::Corrupt(format!("Parquet projection column {name} is null")))
@@ -251,7 +278,7 @@ fn required_integer(values: &Int64Array, index: usize, name: &str) -> Result<i64
         .ok_or_else(|| QueryError::Corrupt(format!("Parquet projection column {name} is null")))
 }
 
-fn optional_array_string(values: &StringArray, index: usize) -> Option<String> {
+fn optional_array_string(values: TextColumn<'_>, index: usize) -> Option<String> {
     (!values.is_null(index)).then(|| values.value(index).to_owned())
 }
 
@@ -277,4 +304,30 @@ fn integer(row: &PgRow, column: &str) -> Result<i64, QueryError> {
 fn optional_integer(row: &PgRow, column: &str) -> Result<Option<i64>, QueryError> {
     row.try_get::<Option<i64>, _>(column)
         .map_err(|error| QueryError::Unavailable(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_datafusion_string_views() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "tenant_id",
+            DataType::Utf8View,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(StringViewArray::from(vec!["tenant.a"]))],
+        )
+        .expect("valid string view batch");
+
+        let tenant_ids = strings(&batch, "tenant_id").expect("tenant column");
+
+        assert_eq!(
+            required_string(tenant_ids, 0, "tenant_id").expect("tenant value"),
+            "tenant.a"
+        );
+    }
 }
