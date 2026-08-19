@@ -9,6 +9,7 @@ rust-version.workspace = true
 axum = "0.8.9"
 buffa = { version = "0.8.1", features = ["json"] }
 connectrpc = { version = "0.8.1", features = ["axum", "server"] }
+serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 zoen-adapters = { path = "../../crates/zoen-adapters" }
 zoen-core = { path = "../../crates/zoen-core" }

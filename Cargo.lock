@@ -2595,6 +2595,7 @@ dependencies = [
  "buffa",
  "connectrpc",
  "connectrpc-build",
+ "serde",
  "tokio",
  "zoen-adapters",
  "zoen-core",
