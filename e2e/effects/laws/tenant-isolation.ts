@@ -132,17 +132,28 @@ export async function verifyTenantIsolation(
   );
 
   scenario.recorder.observe(
-    "tenantIsolationCoversWorkerConnectorScheduleQueryAndReconcile",
+    "effectReadsAndReconciliationAreTenantIsolated",
     crossTenantGet === Code.NotFound &&
-      crossTenantReconcile === Code.NotFound &&
-      actionReconcile === Code.PermissionDenied &&
+      crossTenantReconcile === Code.NotFound,
+  );
+  scenario.recorder.observe(
+    "effectMutationsRequireDedicatedWorkloads",
+    actionReconcile === Code.PermissionDenied &&
       actionClaim === Code.PermissionDenied &&
       actionRecord === Code.PermissionDenied &&
-      workerReconcile === Code.PermissionDenied &&
-      unauthenticatedConnector.status === 401 &&
-      foreignCredential.status === 403 &&
-      dispatchAttemptsBeforeTenantB === dispatchAttemptsAfterTenantB &&
-      tenantBConfirmed.attempts.length === 1 &&
+      workerReconcile === Code.PermissionDenied,
+  );
+  scenario.recorder.observe(
+    "connectorAuthenticatesCallersAndTenantCredentials",
+    unauthenticatedConnector.status === 401 && foreignCredential.status === 403,
+  );
+  scenario.recorder.observe(
+    "tenantScopedDispatchDoesNotRescheduleOtherTenants",
+    dispatchAttemptsBeforeTenantB === dispatchAttemptsAfterTenantB,
+  );
+  scenario.recorder.observe(
+    "multiTenantWorkerUsesInvocationTenant",
+    tenantBConfirmed.attempts.length === 1 &&
       tenantBProvider.idempotencyKey === tenantBEffect.idempotencyKey,
   );
   assert.equal(tenantBProvider.outcome, "confirmed");
