@@ -7,7 +7,9 @@ import {
   DefinitionActivationKind,
   DefinitionElementKind,
   EvolutionClassification,
+  MigrationDependencySchema,
   MigrationPlanSchema,
+  MigrationPostconditionSchema,
   MigrationRuleKind,
   MigrationStatus,
   type EvolutionPlan,
@@ -195,11 +197,8 @@ async function main(): Promise<void> {
       expectedBatches: 1,
       operationId: "migration.inventory.stale",
       postconditions: [
-        { minimumRecordCount: 1n, relationId: "inventory.level" },
-        {
-          minimumRecordCount: 1n,
-          relationId: "inventory.warehouseLocation",
-        },
+        postcondition("inventory.level"),
+        postcondition("inventory.warehouseLocation"),
       ],
       renamePairs: [
         {
@@ -217,11 +216,8 @@ async function main(): Promise<void> {
       expectedBatches: 2,
       operationId: "migration.inventory.v1.v2",
       postconditions: [
-        { minimumRecordCount: 1n, relationId: "inventory.level" },
-        {
-          minimumRecordCount: 1n,
-          relationId: "inventory.warehouseLocation",
-        },
+        postcondition("inventory.level"),
+        postcondition("inventory.warehouseLocation"),
       ],
       renamePairs: [
         {
@@ -314,11 +310,8 @@ async function main(): Promise<void> {
       expectedBatches: 2,
       operationId: "migration.inventory.v1.v2",
       postconditions: [
-        { minimumRecordCount: 1n, relationId: "inventory.level" },
-        {
-          minimumRecordCount: 1n,
-          relationId: "inventory.warehouseLocation",
-        },
+        postcondition("inventory.level"),
+        postcondition("inventory.warehouseLocation"),
       ],
       renamePairs: [
         {
@@ -531,12 +524,7 @@ async function main(): Promise<void> {
       dependencies: [migrationDependency(v2Level)],
       expectedBatches: 1,
       operationId: "migration.inventory.v2.v3",
-      postconditions: [
-        {
-          minimumRecordCount: 1n,
-          relationId: "inventory.primaryWarehouse",
-        },
-      ],
+      postconditions: [postcondition("inventory.primaryWarehouse")],
       renamePairs: [
         {
           fromId: "inventory.level",
@@ -793,12 +781,19 @@ function targetRuleId(plan: MigrationPlan, relationId: string): string {
 }
 
 function migrationDependency(claim: DurableClaim) {
-  return {
+  return create(MigrationDependencySchema, {
     claimId: claim.claim_id,
     commitSequence: BigInt(claim.commit_sequence),
     entityId: resourceId,
     relationId: claim.relation_id,
-  };
+  });
+}
+
+function postcondition(relationId: string) {
+  return create(MigrationPostconditionSchema, {
+    minimumRecordCount: 1n,
+    relationId,
+  });
 }
 
 interface DurableClaim {
