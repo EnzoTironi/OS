@@ -10,8 +10,7 @@ use zoen_core::{
     EvidenceClaim, EvidenceClass, ExactValue, ExplanationDisclosure, ExplanationGap,
     ExplanationSubject, ExplanationTarget, GapReason, PayloadDigest, PayloadRedaction,
     PolicyDecisionEvidence, PolicyDecisionStage, ProposalAuthority, RedactionReason,
-    StateBasisStage, StateDependency, TrustedExecutionContext,
-    expression_relations,
+    StateBasisStage, StateDependency, TrustedExecutionContext, expression_relations,
 };
 
 use crate::{
@@ -96,11 +95,9 @@ where
             HistorySnapshot::Action(snapshot) => ExplanationSubject::Action(Box::new(
                 explain_action(context, &target, *snapshot, disclosure, &mut gaps),
             )),
-            HistorySnapshot::Claim(snapshot) => ExplanationSubject::Claim(explain_claim(
-                snapshot,
-                disclosure,
-                &mut gaps,
-            )),
+            HistorySnapshot::Claim(snapshot) => {
+                ExplanationSubject::Claim(explain_claim(snapshot, disclosure, &mut gaps))
+            }
         };
         Ok(CausalExplanation {
             complete: gaps.is_empty(),
@@ -168,10 +165,7 @@ fn explain_action(
             CausalReference::Approval(approval.approval_id.clone()),
             gaps,
         );
-        let approval_policy = policy_evidence(
-            &approval.policy,
-            PolicyDecisionStage::Approval,
-        );
+        let approval_policy = policy_evidence(&approval.policy, PolicyDecisionStage::Approval);
         verify_policy(&approval_policy, gaps);
         policies.push(approval_policy);
     }
@@ -183,10 +177,7 @@ fn explain_action(
             CausalReference::Operation(receipt.operation_id.clone()),
             gaps,
         );
-        let commit_policy = policy_evidence(
-            &receipt.policy,
-            PolicyDecisionStage::Commit,
-        );
+        let commit_policy = policy_evidence(&receipt.policy, PolicyDecisionStage::Commit);
         verify_policy(&commit_policy, gaps);
         policies.push(commit_policy);
         commit_evidence(receipt, snapshot.commit_claims, disclosure, gaps)
@@ -208,9 +199,10 @@ fn explain_action(
         .collect::<Vec<_>>();
     if let Some(commit) = &commit {
         for effect_request_id in &commit.receipt.effect_request_ids {
-            if !effects.iter().any(|effect| {
-                effect.snapshot.request.effect_request_id == *effect_request_id
-            }) {
+            if !effects
+                .iter()
+                .any(|effect| effect.snapshot.request.effect_request_id == *effect_request_id)
+            {
                 gaps.push(gap(
                     EvidenceClass::EffectRequest,
                     GapReason::Missing,
@@ -239,12 +231,11 @@ fn explain_claim(
 ) -> CausalClaimExplanation {
     let reference = snapshot.claim.draft.definition.clone();
     let relation = snapshot.claim.draft.relation_id.clone();
-    let definition = definition_evidence(snapshot.definition, None, &reference, gaps).map(
-        |mut evidence| {
+    let definition =
+        definition_evidence(snapshot.definition, None, &reference, gaps).map(|mut evidence| {
             evidence.relation_ids = vec![relation];
             evidence
-        },
-    );
+        });
     CausalClaimExplanation {
         claim: causal_claim(snapshot.claim, disclosure, gaps),
         definition,
@@ -297,7 +288,11 @@ fn definition_evidence(
     let mut computation_ids = Vec::new();
     if let Some(decoded) = decoded {
         if let Some(action_id) = action_id {
-            if let Some(action) = decoded.actions.iter().find(|action| action.id == *action_id) {
+            if let Some(action) = decoded
+                .actions
+                .iter()
+                .find(|action| action.id == *action_id)
+            {
                 relation_ids.extend(expression_relations(&action.precondition));
                 relation_ids.extend(
                     action

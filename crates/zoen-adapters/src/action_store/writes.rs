@@ -273,9 +273,14 @@ pub(super) async fn insert_operation(
     )
     .await
     .map_err(OperationInsertError::Store)?;
-    insert_operation_dependencies(transaction, tenant_id, receipt.operation_id.as_str(), state_basis)
-        .await
-        .map_err(OperationInsertError::Store)
+    insert_operation_dependencies(
+        transaction,
+        tenant_id,
+        receipt.operation_id.as_str(),
+        state_basis,
+    )
+    .await
+    .map_err(OperationInsertError::Store)
 }
 
 async fn insert_operation_dependencies(

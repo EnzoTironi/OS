@@ -8,9 +8,7 @@ use std::sync::Arc;
 use connectrpc::Router;
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::WorkloadId;
-use zoen_engine::{
-    ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine,
-};
+use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
 use zoen_query::QueryRuntime;
 use zoend::config::object_store_config;
 

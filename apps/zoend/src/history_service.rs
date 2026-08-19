@@ -1,7 +1,5 @@
 use buffa::MessageView;
-use connectrpc::{
-    ConnectError, RequestContext, Response, ServiceRequest, ServiceResult,
-};
+use connectrpc::{ConnectError, RequestContext, Response, ServiceRequest, ServiceResult};
 use zoen_adapters::PostgresAuthorityStore;
 use zoen_core::{
     CausalActionExplanation as CoreCausalActionExplanation, CausalClaim as CoreCausalClaim,
@@ -10,8 +8,8 @@ use zoen_core::{
     CausalReference as CoreCausalReference, CausalStateBasis as CoreCausalStateBasis,
     DecisionReference, DefinitionEvidence as CoreDefinitionEvidence,
     EffectDispatchEvidence as CoreEffectDispatchEvidence,
-    EffectDispatchOutcome as CoreEffectDispatchOutcome, EvidenceClass as CoreEvidenceClass,
-    EvidenceClaim, ExplanationDisclosure as CoreExplanationDisclosure,
+    EffectDispatchOutcome as CoreEffectDispatchOutcome, EvidenceClaim,
+    EvidenceClass as CoreEvidenceClass, ExplanationDisclosure as CoreExplanationDisclosure,
     ExplanationGap as CoreExplanationGap, ExplanationSubject, ExplanationTarget as CoreTarget,
     GapReason as CoreGapReason, PayloadRedaction as CorePayloadRedaction,
     PolicyDecisionEvidence as CorePolicyDecisionEvidence,
@@ -26,26 +24,22 @@ use crate::action_service::{
     to_trusted_context,
 };
 use crate::auth::SessionRegistry;
-use crate::effect_service::{
-    to_attempt, to_evidence, to_reconciliation, to_request,
-};
+use crate::effect_service::{to_attempt, to_evidence, to_reconciliation, to_request};
 use crate::proto::zoen::action::v1::PolicyRevision;
 use crate::proto::zoen::history::v1::{
     CausalActionExplanation, CausalClaim, CausalClaimExplanation, CausalCommit, CausalEffect,
-    CausalEffectRequest, CausalExplanation, CausalReference, CausalStateBasis,
-    DefinitionEvidence, EffectDispatchEvidence, EffectDispatchOutcome, EvidenceClass,
-    ExplainRequest, ExplainResponse, ExplanationDisclosure, ExplanationGap, ExplanationTarget,
-    GapReason, HistoryService, PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage,
-    RedactionReason, StateBasisStage, causal_claim, causal_effect_request, causal_explanation,
-    causal_reference, explanation_target,
+    CausalEffectRequest, CausalExplanation, CausalReference, CausalStateBasis, DefinitionEvidence,
+    EffectDispatchEvidence, EffectDispatchOutcome, EvidenceClass, ExplainRequest, ExplainResponse,
+    ExplanationDisclosure, ExplanationGap, ExplanationTarget, GapReason, HistoryService,
+    PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage, RedactionReason,
+    StateBasisStage, causal_claim, causal_effect_request, causal_explanation, causal_reference,
+    explanation_target,
 };
 use crate::proto::zoen::world::v1::{
     EvidenceClaim as ProtocolEvidenceClaim, EvidenceProvenance, TemporalInterval,
     ValidTime as ProtocolValidTime, valid_time,
 };
-use crate::world_service::{
-    invalid, to_definition_reference, to_exact_value, to_timestamp,
-};
+use crate::world_service::{invalid, to_definition_reference, to_exact_value, to_timestamp};
 
 pub struct HistoryServiceImpl {
     engine: HistoryEngine<PostgresAuthorityStore>,
@@ -53,10 +47,7 @@ pub struct HistoryServiceImpl {
 }
 
 impl HistoryServiceImpl {
-    pub fn new(
-        engine: HistoryEngine<PostgresAuthorityStore>,
-        sessions: SessionRegistry,
-    ) -> Self {
+    pub fn new(engine: HistoryEngine<PostgresAuthorityStore>, sessions: SessionRegistry) -> Self {
         Self { engine, sessions }
     }
 }
@@ -159,9 +150,7 @@ fn to_action(action: CoreCausalActionExplanation) -> CausalActionExplanation {
     }
 }
 
-fn to_claim_explanation(
-    explanation: CoreCausalClaimExplanation,
-) -> CausalClaimExplanation {
+fn to_claim_explanation(explanation: CoreCausalClaimExplanation) -> CausalClaimExplanation {
     CausalClaimExplanation {
         claim: Some(to_causal_claim(explanation.claim)).into(),
         definition: explanation.definition.map(to_definition).into(),
@@ -203,9 +192,9 @@ fn to_causal_claim(causal: CoreCausalClaim) -> CausalClaim {
         draft,
     } = causal.claim;
     let payload = match causal.value_redaction {
-        Some(redaction) => causal_claim::Payload::Redaction(Box::new(
-            to_payload_redaction(redaction),
-        )),
+        Some(redaction) => {
+            causal_claim::Payload::Redaction(Box::new(to_payload_redaction(redaction)))
+        }
         None => causal_claim::Payload::Value(Box::new(to_exact_value(draft.value.clone()))),
     };
     CausalClaim {
@@ -234,9 +223,7 @@ fn to_causal_claim(causal: CoreCausalClaim) -> CausalClaim {
 fn to_valid_time(valid_time: CoreValidTime) -> ProtocolValidTime {
     ProtocolValidTime {
         value: Some(match valid_time {
-            CoreValidTime::Instant(at) => {
-                valid_time::Value::Instant(Box::new(to_timestamp(at)))
-            }
+            CoreValidTime::Instant(at) => valid_time::Value::Instant(Box::new(to_timestamp(at))),
             CoreValidTime::Interval { start, end } => {
                 valid_time::Value::Interval(Box::new(TemporalInterval {
                     end: Some(to_timestamp(end)).into(),
@@ -324,9 +311,7 @@ fn to_dispatch(dispatch: CoreEffectDispatchEvidence) -> EffectDispatchEvidence {
         error: dispatch.error.unwrap_or_default(),
         outcome: match dispatch.outcome {
             CoreEffectDispatchOutcome::Accepted => EffectDispatchOutcome::Accepted,
-            CoreEffectDispatchOutcome::InvalidResponse => {
-                EffectDispatchOutcome::InvalidResponse
-            }
+            CoreEffectDispatchOutcome::InvalidResponse => EffectDispatchOutcome::InvalidResponse,
             CoreEffectDispatchOutcome::Rejected => EffectDispatchOutcome::Rejected,
             CoreEffectDispatchOutcome::SchedulerUnavailable => {
                 EffectDispatchOutcome::SchedulerUnavailable
@@ -398,11 +383,9 @@ fn to_reference(reference: CoreCausalReference) -> CausalReference {
             CoreCausalReference::Claim(id) => {
                 causal_reference::Reference::ClaimId(id.as_str().to_owned())
             }
-            CoreCausalReference::Definition(reference) => {
-                causal_reference::Reference::Definition(Box::new(to_definition_reference(
-                    reference,
-                )))
-            }
+            CoreCausalReference::Definition(reference) => causal_reference::Reference::Definition(
+                Box::new(to_definition_reference(reference)),
+            ),
             CoreCausalReference::EffectAttempt(id) => {
                 causal_reference::Reference::EffectAttemptId(id.as_str().to_owned())
             }
@@ -444,9 +427,7 @@ fn to_target(target: CoreTarget) -> ExplanationTarget {
             CoreTarget::Operation(id) => {
                 explanation_target::Target::OperationId(id.as_str().to_owned())
             }
-            CoreTarget::Claim(id) => {
-                explanation_target::Target::ClaimId(id.as_str().to_owned())
-            }
+            CoreTarget::Claim(id) => explanation_target::Target::ClaimId(id.as_str().to_owned()),
             CoreTarget::EffectRequest(id) => {
                 explanation_target::Target::EffectRequestId(id.as_str().to_owned())
             }

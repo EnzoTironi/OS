@@ -432,9 +432,7 @@ pub(crate) fn to_evidence(evidence: CoreEffectEvidence) -> EffectEvidence {
     }
 }
 
-pub(crate) fn to_reconciliation(
-    reconciliation: CoreEffectReconciliation,
-) -> EffectReconciliation {
+pub(crate) fn to_reconciliation(reconciliation: CoreEffectReconciliation) -> EffectReconciliation {
     EffectReconciliation {
         commit_sequence: reconciliation.commit_sequence.get(),
         evidence_id: reconciliation.evidence_id.as_str().to_owned(),

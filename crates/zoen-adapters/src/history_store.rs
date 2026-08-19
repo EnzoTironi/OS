@@ -1,12 +1,10 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    ClaimId, DecisionReference, DefinitionRevision, EffectDispatchEvidence,
-    EffectDispatchOutcome, EffectRequestId, EvidenceClaim, ExecutionContext, ExplanationTarget,
-    OperationId, ProposalId,
+    ClaimId, DecisionReference, DefinitionRevision, EffectDispatchEvidence, EffectDispatchOutcome,
+    EffectRequestId, EvidenceClaim, ExecutionContext, ExplanationTarget, OperationId, ProposalId,
 };
 use zoen_engine::{
-    ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistorySnapshot,
-    StoreError,
+    ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistorySnapshot, StoreError,
 };
 
 use crate::action_store::{load_approval, load_operation, load_proposal};
@@ -60,7 +58,13 @@ async fn load_action_by_operation(
     let commit = load_operation(transaction, context.tenant_id(), operation_id)
         .await?
         .ok_or(StoreError::NotFound)?;
-    load_action(transaction, context, commit.proposal_id.clone(), Some(commit)).await
+    load_action(
+        transaction,
+        context,
+        commit.proposal_id.clone(),
+        Some(commit),
+    )
+    .await
 }
 
 async fn load_action_by_proposal(
@@ -82,7 +86,9 @@ async fn load_action_by_proposal(
     .transpose()
     .map_err(corrupt)?;
     let commit = match operation_id {
-        Some(operation_id) => load_operation(transaction, context.tenant_id(), &operation_id).await?,
+        Some(operation_id) => {
+            load_operation(transaction, context.tenant_id(), &operation_id).await?
+        }
         None => None,
     };
     load_action(transaction, context, proposal_id.clone(), commit).await
@@ -127,8 +133,7 @@ async fn load_action(
     if let Some(receipt) = &commit {
         for effect_request_id in &receipt.effect_request_ids {
             let snapshot = load_snapshot(transaction, context, effect_request_id).await?;
-            let dispatches =
-                load_dispatches(transaction, context, effect_request_id).await?;
+            let dispatches = load_dispatches(transaction, context, effect_request_id).await?;
             effects.push(EffectHistorySnapshot {
                 dispatches,
                 snapshot,

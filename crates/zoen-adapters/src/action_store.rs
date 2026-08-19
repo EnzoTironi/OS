@@ -7,8 +7,8 @@ use zoen_core::{
     ActionApproval, ActionId, ActionInput, ActionProposal, ActorId, ApprovalId, ClaimId,
     CommitReceipt, CommitSequence, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EffectRequestId,
-    EntityId, EvidenceDigest, ExecutionContext, InputId, IntentDigest, OperationId, PolicyDigest,
-    LineageRole, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
+    EntityId, EvidenceDigest, ExecutionContext, InputId, IntentDigest, LineageRole, OperationId,
+    PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
     ProposalAuthority, ProposalId, RelationId, ResourceId, SourceId, StateBasis, StateBasisDigest,
     StateDependency, TenantId, TimestampMicros, TrustedExecutionContext, WorkloadId,
 };
@@ -438,8 +438,7 @@ pub(crate) async fn load_operation(
     };
     let grants = load_grants(transaction, tenant_id, GrantOwner::Operation(operation_id)).await?;
     let commit_sequence_value = row_i64(&row, "commit_sequence")?;
-    let effect_request_ids =
-        load_effect_request_ids(transaction, tenant_id, operation_id).await?;
+    let effect_request_ids = load_effect_request_ids(transaction, tenant_id, operation_id).await?;
     let state_basis_digest = row
         .try_get::<Option<String>, _>("state_basis_digest")
         .map_err(store_unavailable)?;
@@ -448,8 +447,7 @@ pub(crate) async fn load_operation(
         .map_err(store_unavailable)?;
     let commit_state_basis = match (state_basis_digest, observed_commit_sequence) {
         (Some(digest), Some(observed)) => Some(StateBasis {
-            dependencies: load_operation_dependencies(transaction, tenant_id, operation_id)
-                .await?,
+            dependencies: load_operation_dependencies(transaction, tenant_id, operation_id).await?,
             digest: StateBasisDigest::parse(digest).map_err(corrupt)?,
             observed_commit_sequence: commit_sequence(observed, "commit observed sequence")?,
         }),

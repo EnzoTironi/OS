@@ -204,12 +204,7 @@ sha256_digest!(StateBasisDigest);
 
 impl PayloadDigest {
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
-        Self(
-            bytes
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
-        )
+        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
     }
 }
 

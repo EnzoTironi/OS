@@ -7,12 +7,11 @@ use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
     CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
     DefinitionReference, DefinitionRevision, EffectRequestId, EntityId, EvidenceDigest,
-    EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest, OperationId,
-    LineageRole, PolicyEvaluation, PolicyEvidence, ProposalAuthority, ProposalId, RelationId,
+    EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest, LineageRole,
+    OperationId, PolicyEvaluation, PolicyEvidence, ProposalAuthority, ProposalId, RelationId,
     ResourceId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis,
     StateBasisDigest, StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime,
-    ValueType,
-    evaluate_expression, expression_relations,
+    ValueType, evaluate_expression, expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
