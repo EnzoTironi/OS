@@ -29,8 +29,15 @@ case "$scenario" in
     project="zoen-durable-commit"
     runner="dist/e2e/durable-commit.js"
     ;;
+  effects)
+    compose_file="e2e/effects/compose.yaml"
+    generated_directory="e2e/governed-action/.generated"
+    prepare="e2e/governed-action/prepare-realm.mjs"
+    project="zoen-effects"
+    runner="dist/e2e/effects.js"
+    ;;
   *)
-    echo "usage: just e2e <definition-publication|durable-commit|governed-action|semantic-query>" >&2
+    echo "usage: just e2e <definition-publication|durable-commit|effects|governed-action|semantic-query>" >&2
     exit 2
     ;;
 esac

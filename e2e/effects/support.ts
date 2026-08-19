@@ -1,0 +1,413 @@
+import assert from "node:assert/strict";
+import {
+  execFile,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
+import { once } from "node:events";
+import { createConnection } from "node:net";
+import path from "node:path";
+import { createClient, type Client, type Interceptor } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-node";
+import { Client as PostgresClient } from "pg";
+import { z } from "zod";
+import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+import { EffectService } from "../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import { WorldService } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+
+export const repositoryRoot = process.cwd();
+export const applicationDatabaseUrl =
+  "postgres://zoen_app:zoen_app@127.0.0.1:55435/zoen";
+export const adminDatabaseUrl =
+  "postgres://postgres:postgres@127.0.0.1:55435/zoen";
+export const zoenBaseUrl = "http://127.0.0.1:58083";
+export const oidcIssuer = "http://127.0.0.1:58084/realms/zoen";
+export const oidcAudience = "zoend";
+export const restateIngress = "http://127.0.0.1:58085";
+export const restateAdmin = "http://127.0.0.1:59070";
+export const connectorUrl = "http://127.0.0.1:58087/v1/effects";
+export const providerUrl = "http://127.0.0.1:58086/v1/operations";
+export const tenantA = "tenant.a";
+export const tenantB = "tenant.b";
+
+const composeFile = path.join("e2e", "effects", "compose.yaml");
+const composeProject = "zoen-effects";
+const targetDirectory = path.join(repositoryRoot, "target", "debug");
+const distDirectory = path.join(repositoryRoot, "dist");
+const tokenResponseSchema = z
+  .object({ access_token: z.string().min(1) })
+  .passthrough();
+const providerOperationSchema = z
+  .object({
+    evidenceDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    externalOperationId: z.string().min(1),
+    observedAtMicros: z.string().regex(/^[0-9]+$/),
+    outcome: z.enum(["confirmed", "no_effect"]),
+    requests: z.number().int().positive(),
+    sourceRef: z.string().min(1),
+  })
+  .strict();
+const invocationLookupSchema = z
+  .object({ invocationId: z.string().min(1) })
+  .passthrough();
+
+export type ActionClient = Client<typeof ActionService>;
+export type DefinitionClient = Client<typeof DefinitionService>;
+export type EffectClient = Client<typeof EffectService>;
+export type WorldClient = Client<typeof WorldService>;
+export type ProviderOperation = z.infer<typeof providerOperationSchema>;
+
+export interface ManagedProcess {
+  child: ChildProcessWithoutNullStreams;
+  name: string;
+  output: string[];
+}
+
+export function adminClient(): PostgresClient {
+  return new PostgresClient({ connectionString: adminDatabaseUrl });
+}
+
+export function actionClient(token: string): ActionClient {
+  return createClient(ActionService, transport(token));
+}
+
+export function definitionClient(token: string): DefinitionClient {
+  return createClient(DefinitionService, transport(token));
+}
+
+export function effectClient(token: string): EffectClient {
+  return createClient(EffectService, transport(token));
+}
+
+export function worldClient(token: string): WorldClient {
+  return createClient(WorldService, transport(token));
+}
+
+export async function oidcToken(clientId: string): Promise<string> {
+  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: `${clientId}-secret`,
+      grant_type: "client_credentials",
+    }),
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    method: "POST",
+  });
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return tokenResponseSchema.parse(body).access_token;
+}
+
+export async function startZoend(policyManifestPath: string): Promise<ManagedProcess> {
+  return startProcess({
+    command: path.join(targetDirectory, "zoend"),
+    environment: {
+      DATABASE_URL: applicationDatabaseUrl,
+      ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
+      ZOEN_LISTEN_ADDR: "127.0.0.1:58083",
+      ZOEN_OIDC_AUDIENCE: oidcAudience,
+      ZOEN_OIDC_ISSUER: oidcIssuer,
+    },
+    name: "zoend",
+    port: 58_083,
+  });
+}
+
+export async function startFaultProvider(): Promise<ManagedProcess> {
+  return startProcess({
+    command: process.execPath,
+    arguments: [
+      path.join(distDirectory, "e2e", "effects", "fault-provider.js"),
+    ],
+    environment: {},
+    name: "fault provider",
+    port: 58_086,
+  });
+}
+
+export async function startConnector(options?: {
+  credentials?: Readonly<Record<string, string>>;
+  timeoutMs?: number;
+}): Promise<ManagedProcess> {
+  return startProcess({
+    command: path.join(targetDirectory, "zoen-http-connector"),
+    environment: {
+      ZOEN_CONNECTOR_CREDENTIALS: JSON.stringify(
+        options?.credentials ?? { "secret.provider": "provider-secret" },
+      ),
+      ZOEN_CONNECTOR_LISTEN_ADDR: "127.0.0.1:58087",
+      ZOEN_CONNECTOR_PROVIDER_TIMEOUT_MS: (
+        options?.timeoutMs ?? 250
+      ).toString(),
+      ZOEN_CONNECTOR_PROVIDER_URL: providerUrl,
+    },
+    name: "HTTP connector",
+    port: 58_087,
+  });
+}
+
+export async function startWorker(token: string): Promise<ManagedProcess> {
+  return startProcess({
+    command: process.execPath,
+    arguments: [
+      path.join(
+        distDirectory,
+        "packages",
+        "effect-worker",
+        "src",
+        "index.js",
+      ),
+    ],
+    environment: {
+      ZOEN_CONNECTOR_CREDENTIAL_REF: "secret.provider",
+      ZOEN_EFFECT_CONNECTOR_URL: connectorUrl,
+      ZOEN_EFFECT_SERVICE_BEARER_TOKEN: token,
+      ZOEN_EFFECT_SERVICE_URL: zoenBaseUrl,
+      ZOEN_EFFECT_WORKER_PORT: "58088",
+      ZOEN_EFFECT_WORKER_TENANT_ID: tenantA,
+    },
+    name: "Restate effect worker",
+    port: 58_088,
+  });
+}
+
+export async function stopProcess(process: ManagedProcess): Promise<void> {
+  if (process.child.exitCode !== null) {
+    return;
+  }
+  process.child.kill("SIGINT");
+  await once(process.child, "exit");
+  assert.ok(
+    process.child.exitCode === 0 || process.child.signalCode === "SIGINT",
+    `${process.name} failed during shutdown:\n${process.output.join("")}`,
+  );
+}
+
+export async function dispatchOnce(tenantId = tenantA): Promise<void> {
+  await runProcess(
+    path.join(targetDirectory, "zoen-effect-dispatcher"),
+    [],
+    {
+      DATABASE_URL: applicationDatabaseUrl,
+      RESTATE_INGRESS: restateIngress,
+      ZOEN_EFFECT_DISPATCH_ONCE: "true",
+      ZOEN_TENANT_ID: tenantId,
+    },
+  );
+}
+
+export async function registerWorker(): Promise<string> {
+  const response = await fetch(`${restateAdmin}/deployments`, {
+    body: JSON.stringify({
+      uri: "http://host.docker.internal:58088",
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const body = await response.text();
+  assert.ok(response.ok, `Restate deployment registration failed: ${body}`);
+  return body;
+}
+
+export async function lookupInvocation(
+  effectRequestId: string,
+): Promise<string> {
+  const key = `${tenantA}:${effectRequestId}`;
+  const response = await fetch(`${restateIngress}/restate/lookup`, {
+    body: JSON.stringify({
+      handler: "execute",
+      idempotencyKey: key,
+      key,
+      service: "ZoenEffect",
+      target: "idempotentInvocation",
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return invocationLookupSchema.parse(body).invocationId;
+}
+
+export async function setProviderMode(
+  mode:
+    | "accepted_pending"
+    | "confirmed"
+    | "confirmed_no_effect"
+    | "hold_confirmed"
+    | "parse_error"
+    | "schema_error"
+    | "timeout_after_delivery"
+    | "unavailable",
+): Promise<void> {
+  const response = await fetch("http://127.0.0.1:58086/control", {
+    body: JSON.stringify({ mode }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  assert.equal(response.ok, true, await response.text());
+}
+
+export async function providerOperation(
+  externalOperationId: string,
+): Promise<ProviderOperation | undefined> {
+  const response = await fetch(
+    `http://127.0.0.1:58086/v1/operations/${encodeURIComponent(externalOperationId)}`,
+  );
+  if (response.status === 404) {
+    return undefined;
+  }
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return providerOperationSchema.parse(body);
+}
+
+export async function stopRestate(): Promise<void> {
+  await compose("stop", "restate");
+}
+
+export async function startRestate(): Promise<void> {
+  await compose("start", "restate");
+  await waitForPort(59_070);
+  await waitForPort(58_085);
+}
+
+export async function restartRestate(): Promise<void> {
+  await compose("restart", "restate");
+  await waitForPort(59_070);
+  await waitForPort(58_085);
+}
+
+export async function waitFor<T>(
+  probe: () => Promise<T | undefined>,
+  description: string,
+  attempts = 200,
+): Promise<T> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const result = await probe();
+    if (result !== undefined) {
+      return result;
+    }
+    await delay(50);
+  }
+  throw new Error(`timed out waiting for ${description}`);
+}
+
+async function startProcess(options: {
+  arguments?: readonly string[];
+  command: string;
+  environment: Readonly<Record<string, string>>;
+  name: string;
+  port: number;
+}): Promise<ManagedProcess> {
+  const output: string[] = [];
+  const child = spawn(options.command, [...(options.arguments ?? [])], {
+    cwd: repositoryRoot,
+    env: { ...process.env, ...options.environment },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  child.stdin.end();
+  child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  const process = { child, name: options.name, output };
+  await waitForPort(options.port, process);
+  return process;
+}
+
+async function waitForPort(
+  port: number,
+  process?: ManagedProcess,
+): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (process !== undefined && process.child.exitCode !== null) {
+      throw new Error(
+        `${process.name} exited during startup:\n${process.output.join("")}`,
+      );
+    }
+    if (await canConnect(port)) {
+      return;
+    }
+    await delay(50);
+  }
+  throw new Error(
+    `${process?.name ?? `service on port ${port}`} did not start:\n${
+      process?.output.join("") ?? ""
+    }`,
+  );
+}
+
+function canConnect(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    let settled = false;
+    const finish = (connected: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      resolve(connected);
+    };
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    socket.setTimeout(200, () => finish(false));
+  });
+}
+
+function transport(token: string) {
+  const authorization: Interceptor = (next) => async (request) => {
+    request.header.set("authorization", `Bearer ${token}`);
+    return next(request);
+  };
+  return createConnectTransport({
+    baseUrl: zoenBaseUrl,
+    httpVersion: "1.1",
+    interceptors: [authorization],
+  });
+}
+
+function compose(...arguments_: readonly string[]): Promise<string> {
+  return runProcess("docker", [
+    "compose",
+    "--project-name",
+    composeProject,
+    "--file",
+    composeFile,
+    ...arguments_,
+  ]);
+}
+
+function runProcess(
+  command: string,
+  arguments_: readonly string[],
+  environment: Readonly<Record<string, string>> = {},
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      command,
+      [...arguments_],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        env: { ...process.env, ...environment },
+      },
+      (error, stdout, stderr) => {
+        if (error === null) {
+          resolve(stdout);
+        } else {
+          reject(
+            new Error(
+              `${command} ${arguments_.join(" ")} failed:\n${stdout}${stderr}`,
+              { cause: error },
+            ),
+          );
+        }
+      },
+    );
+  });
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
