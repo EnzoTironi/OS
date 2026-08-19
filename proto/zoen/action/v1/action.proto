@@ -155,6 +155,14 @@ enum CommitStatus {
   COMMIT_STATUS_DENIED = 3;
   COMMIT_STATUS_EVALUATION_ERROR = 4;
   COMMIT_STATUS_CONFLICT = 5;
+  COMMIT_STATUS_OPERATION_MISMATCH = 6;
+  COMMIT_STATUS_IDENTITY_COLLISION = 7;
+}
+
+enum CommitIdentityKind {
+  COMMIT_IDENTITY_KIND_UNSPECIFIED = 0;
+  COMMIT_IDENTITY_KIND_SEMANTIC_RECORD = 1;
+  COMMIT_IDENTITY_KIND_EFFECT_REQUEST = 2;
 }
 
 message CommitRequest {
@@ -171,6 +179,7 @@ message CommitReceipt {
   uint64 commit_sequence = 6;
   repeated string record_ids = 7;
   PolicyEvidence policy = 8;
+  repeated string effect_request_ids = 9;
 }
 
 message CommitResponse {
@@ -179,6 +188,7 @@ message CommitResponse {
   StateBasis current_state_basis = 3;
   PolicyEvidence policy = 4;
   string error = 5;
+  CommitIdentityKind collision_kind = 6;
 }
 
 message GetOperationStatusRequest {

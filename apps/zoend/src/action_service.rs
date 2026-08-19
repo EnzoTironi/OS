@@ -6,9 +6,10 @@ use connectrpc::{
 };
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
-    ActionApproval, ActionInput as CoreActionInput, ActionProposal, ApprovalId, CommitReceipt,
-    OperationId, PolicyEvaluation, PolicyEvidence as CorePolicyEvidence, ProposalAuthority,
-    ProposalId, ResourceId, StateBasis as CoreStateBasis, TimestampMicros, TrustedExecutionContext,
+    ActionApproval, ActionInput as CoreActionInput, ActionProposal, ApprovalId,
+    CommitIdentityKind as CoreCommitIdentityKind, CommitReceipt, OperationId, PolicyEvaluation,
+    PolicyEvidence as CorePolicyEvidence, ProposalAuthority, ProposalId, ResourceId,
+    StateBasis as CoreStateBasis, TimestampMicros, TrustedExecutionContext,
 };
 use zoen_engine::{
     ActionEngine, ActionError, ApproveOutcome, CommitOutcome, ProposeCommand, ProposeOutcome,
@@ -19,8 +20,8 @@ use zoen_query::QueryRuntime;
 use crate::auth::SessionRegistry;
 use crate::proto::zoen::action::v1::{
     ActionCapability, ActionInput, ActionService, Approval, ApproveRequest, ApproveResponse,
-    CommitReceipt as ProtocolCommitReceipt, CommitRequest, CommitResponse, CommitStatus,
-    DelegationGrant, DiscoverRequest, DiscoverResponse, GetOperationStatusRequest,
+    CommitIdentityKind, CommitReceipt as ProtocolCommitReceipt, CommitRequest, CommitResponse,
+    CommitStatus, DelegationGrant, DiscoverRequest, DiscoverResponse, GetOperationStatusRequest,
     GetOperationStatusResponse, PolicyDecision, PolicyEvidence, PolicyRevision, Proposal,
     ProposalStatus, ProposeRequest, ProposeResponse, StateBasis, StateDependency, TrustedContext,
 };
@@ -247,6 +248,15 @@ impl ActionService for ActionServiceImpl {
                     ..Default::default()
                 })
             }
+            Ok(CommitOutcome::IdentityCollision(kind)) => Response::ok(CommitResponse {
+                collision_kind: to_commit_identity_kind(kind).into(),
+                status: CommitStatus::IdentityCollision.into(),
+                ..Default::default()
+            }),
+            Ok(CommitOutcome::OperationMismatch) => Response::ok(CommitResponse {
+                status: CommitStatus::OperationMismatch.into(),
+                ..Default::default()
+            }),
             Err(ActionError::Store(StoreError::Conflict(message))) => {
                 Response::ok(CommitResponse {
                     error: message,
@@ -431,6 +441,11 @@ fn to_commit_receipt(receipt: CommitReceipt) -> ProtocolCommitReceipt {
         action_id: receipt.action_id.as_str().to_owned(),
         commit_sequence: receipt.commit_sequence.get(),
         definition: Some(to_definition_reference(receipt.definition)).into(),
+        effect_request_ids: receipt
+            .effect_request_ids
+            .into_iter()
+            .map(|id| id.as_str().to_owned())
+            .collect(),
         intent_digest: receipt.intent_digest.as_str().to_owned(),
         operation_id: receipt.operation_id.as_str().to_owned(),
         policy: Some(to_policy_evidence(receipt.policy)).into(),
@@ -441,6 +456,13 @@ fn to_commit_receipt(receipt: CommitReceipt) -> ProtocolCommitReceipt {
             .map(|id| id.as_str().to_owned())
             .collect(),
         ..Default::default()
+    }
+}
+
+fn to_commit_identity_kind(kind: CoreCommitIdentityKind) -> CommitIdentityKind {
+    match kind {
+        CoreCommitIdentityKind::EffectRequest => CommitIdentityKind::EffectRequest,
+        CoreCommitIdentityKind::SemanticRecord => CommitIdentityKind::SemanticRecord,
     }
 }
 
@@ -459,9 +481,7 @@ fn map_action_error(error: ActionError) -> ConnectError {
         | ActionError::ApprovalOutsideBounds
         | ActionError::Evaluation(_)
         | ActionError::ExpiredProposal => ErrorCode::FailedPrecondition,
-        ActionError::Definition(_) | ActionError::Input(_) | ActionError::OperationMismatch => {
-            ErrorCode::InvalidArgument
-        }
+        ActionError::Definition(_) | ActionError::Input(_) => ErrorCode::InvalidArgument,
         ActionError::DelegationDenied => ErrorCode::PermissionDenied,
         ActionError::Store(error) => return crate::service::map_store_error(error.clone()),
     };

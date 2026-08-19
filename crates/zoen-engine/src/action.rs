@@ -5,13 +5,14 @@ use std::fmt::{Display, Formatter};
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
-    CanonicalDefinition, Cardinality, ClaimId, CommitReceipt, Consistency, DefinitionReference,
-    DefinitionRevision, EntityId, EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue,
-    ExecutionContext, IntentDigest, LineageDependency, LineageRole, OperationId, PolicyEvaluation,
-    PolicyEvidence, ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery,
-    SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
-    StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime, ValueType,
-    evaluate_expression, expression_relations,
+    CanonicalDefinition, Cardinality, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
+    DefinitionReference, DefinitionRevision, EffectRequestId, EntityId, EvidenceDigest,
+    EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
+    LineageDependency, LineageRole, OperationId, PolicyEvaluation, PolicyEvidence,
+    ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult,
+    SemanticSelection, SemanticValue, StateBasis, StateBasisDigest, StateDependency,
+    TimestampMicros, TrustedExecutionContext, ValidTime, ValueType, evaluate_expression,
+    expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
@@ -104,18 +105,28 @@ pub enum CommitOutcome {
         message: String,
         policy: Option<PolicyEvidence>,
     },
+    IdentityCollision(CommitIdentityKind),
+    OperationMismatch,
     Stale(StateBasis),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommitStoreOutcome {
     Committed(Box<CommitReceipt>),
+    IdentityCollision(CommitIdentityKind),
+    OperationMismatch,
     Stale(StateBasis),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionCommitEffect {
+    pub effect_request_id: EffectRequestId,
+    pub evidence: AdmittedEvidence,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommitPlan {
-    pub effects: Vec<AdmittedEvidence>,
+    pub effects: Vec<ActionCommitEffect>,
     pub policy: PolicyEvidence,
     pub proposal: ActionProposal,
 }
@@ -129,7 +140,6 @@ pub enum ActionError {
     Evaluation(String),
     ExpiredProposal,
     Input(String),
-    OperationMismatch,
     Store(StoreError),
 }
 
@@ -147,9 +157,6 @@ impl Display for ActionError {
             Self::Evaluation(message) => write!(formatter, "Action evaluation failed: {message}"),
             Self::ExpiredProposal => formatter.write_str("Action proposal has expired"),
             Self::Input(message) => write!(formatter, "invalid Action input: {message}"),
-            Self::OperationMismatch => {
-                formatter.write_str("operation identity does not match the proposal")
-            }
             Self::Store(error) => error.fmt(formatter),
         }
     }
@@ -165,8 +172,7 @@ impl Error for ActionError {
             | Self::DelegationDenied
             | Self::Evaluation(_)
             | Self::ExpiredProposal
-            | Self::Input(_)
-            | Self::OperationMismatch => None,
+            | Self::Input(_) => None,
         }
     }
 }
@@ -447,7 +453,7 @@ where
             .await
             .map_err(ActionError::Store)?;
         if &proposal.operation_id != operation_id {
-            return Err(ActionError::OperationMismatch);
+            return Ok(CommitOutcome::OperationMismatch);
         }
         match self.store.get_operation(context, operation_id).await {
             Ok(receipt)
@@ -457,9 +463,7 @@ where
                 return Ok(CommitOutcome::Committed(Box::new(receipt)));
             }
             Ok(_) => {
-                return Err(ActionError::Store(StoreError::Conflict(
-                    "operation id already identifies a different intent".to_owned(),
-                )));
+                return Ok(CommitOutcome::OperationMismatch);
             }
             Err(StoreError::NotFound) => {}
             Err(error) => return Err(ActionError::Store(error)),
@@ -517,9 +521,13 @@ where
             .await?;
         let effects = build_effects(&proposal, &loaded.action)?
             .into_iter()
-            .map(|draft| {
-                admission::admit_action_effect(&loaded.revision, draft)
-                    .map_err(|error| ActionError::Evaluation(error.to_string()))
+            .enumerate()
+            .map(|(index, draft)| {
+                Ok(ActionCommitEffect {
+                    effect_request_id: effect_request_id(&proposal.intent_digest, index)?,
+                    evidence: admission::admit_action_effect(&loaded.revision, draft)
+                        .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+                })
             })
             .collect::<Result<Vec<_>, _>>()?;
         match self
@@ -536,6 +544,10 @@ where
             .map_err(ActionError::Store)?
         {
             CommitStoreOutcome::Committed(receipt) => Ok(CommitOutcome::Committed(receipt)),
+            CommitStoreOutcome::IdentityCollision(kind) => {
+                Ok(CommitOutcome::IdentityCollision(kind))
+            }
+            CommitStoreOutcome::OperationMismatch => Ok(CommitOutcome::OperationMismatch),
             CommitStoreOutcome::Stale(basis) => Ok(CommitOutcome::Stale(basis)),
         }
     }
@@ -870,6 +882,18 @@ fn build_effects(
             })
         })
         .collect()
+}
+
+fn effect_request_id(
+    intent_digest: &IntentDigest,
+    index: usize,
+) -> Result<EffectRequestId, ActionError> {
+    EffectRequestId::parse(format!(
+        "effect.action.{}.{}",
+        intent_digest.as_str(),
+        index
+    ))
+    .map_err(|error| ActionError::Evaluation(error.to_string()))
 }
 
 fn value_key(value: &ExactValue) -> String {

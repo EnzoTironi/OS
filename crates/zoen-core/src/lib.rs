@@ -47,6 +47,7 @@ semantic_id!(ComputationId);
 semantic_id!(DelegationId);
 semantic_id!(DefinitionId);
 semantic_id!(EntityId);
+semantic_id!(EffectRequestId);
 semantic_id!(InputId);
 semantic_id!(OperationId);
 semantic_id!(PolicyId);
@@ -1023,12 +1024,19 @@ pub struct ActionApproval {
     pub proposal_id: ProposalId,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommitIdentityKind {
+    EffectRequest,
+    SemanticRecord,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommitReceipt {
     pub action_id: ActionId,
     pub commit_sequence: CommitSequence,
     pub committed_by: TrustedExecutionContext,
     pub definition: DefinitionReference,
+    pub effect_request_ids: Vec<EffectRequestId>,
     pub intent_digest: IntentDigest,
     pub operation_id: OperationId,
     pub policy: PolicyEvidence,

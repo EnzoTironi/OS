@@ -87,6 +87,11 @@ export interface ServerProcess {
   output: string[];
 }
 
+export interface ActionCommitFailpoint {
+  name: string;
+  pauseMs?: number;
+}
+
 export interface DatabaseSnapshot {
   actionApprovals: number;
   actionOperations: number;
@@ -410,6 +415,7 @@ export async function rowCount(
 
 export async function startServer(
   policyManifestPath: string,
+  failpoint?: ActionCommitFailpoint,
 ): Promise<ServerProcess> {
   const output: string[] = [];
   const child = spawn(serverPath, [], {
@@ -421,6 +427,17 @@ export async function startServer(
       ZOEN_LISTEN_ADDR: "127.0.0.1:58083",
       ZOEN_OIDC_AUDIENCE: oidcAudience,
       ZOEN_OIDC_ISSUER: oidcIssuer,
+      ...(failpoint === undefined
+        ? {}
+        : {
+            ZOEN_ACTION_COMMIT_FAILPOINT: failpoint.name,
+            ...(failpoint.pauseMs === undefined
+              ? {}
+              : {
+                  ZOEN_ACTION_COMMIT_FAILPOINT_PAUSE_MS:
+                    failpoint.pauseMs.toString(),
+                }),
+          }),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
