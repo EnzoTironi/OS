@@ -43,7 +43,7 @@ export async function verifyDispatch(
     "effectRequestStoredBeforeRemoteAttempt",
     storedBeforeRemote.rows[0]?.requests === "1" &&
       storedBeforeRemote.rows[0]?.dispatches === "0" &&
-      (await providerOperation(unavailable.effectRequestId)) === undefined,
+      (await providerOperation(unavailable.idempotencyKey)) === undefined,
   );
 
   await stopRestate();
@@ -61,7 +61,7 @@ export async function verifyDispatch(
     unavailableDispatch.rows[0]?.outcome === "restate_unavailable",
   );
   await startRestate();
-  await dispatchOnce();
+  await Promise.all([dispatchOnce(), dispatchOnce()]);
   const confirmedAfterRestate = await waitForState(
     scenario.effectA,
     unavailable.effectRequestId,
@@ -69,19 +69,49 @@ export async function verifyDispatch(
   );
   scenario.recorder.state(confirmedAfterRestate);
   const dispatchIdentity = await scenario.admin.query<{
+    accepted_dispatches: string;
+    knowledge_commit_sequence: string;
     restate_invocation_id: string;
   }>(
-    `SELECT restate_invocation_id
+    `SELECT
+        knowledge_commit_sequence::text,
+        restate_invocation_id,
+        (
+          SELECT count(*)::text
+          FROM effect_dispatch_attempts
+          WHERE tenant_id = $1
+            AND effect_request_id = $2
+            AND outcome = 'accepted'
+        ) AS accepted_dispatches
      FROM effect_dispatches
-     WHERE tenant_id = $1 AND effect_request_id = $2`,
+     WHERE tenant_id = $1 AND effect_request_id = $2
+     ORDER BY knowledge_commit_sequence DESC
+     LIMIT 1`,
     [tenantA, unavailable.effectRequestId],
+  );
+  scenario.recorder.observe(
+    "dispatcherClaimsKnowledgeRevisionBeforeScheduling",
+    dispatchIdentity.rows[0]?.accepted_dispatches === "1",
   );
   const lookedUpInvocation = await lookupInvocation(
     unavailable.effectRequestId,
+    dispatchIdentity.rows[0]?.knowledge_commit_sequence ?? "",
+  );
+  const claimedIdentity = await scenario.admin.query<{
+    attempt_id: string;
+  }>(
+    `SELECT attempt_id
+     FROM effect_attempt_claims
+     WHERE tenant_id = $1 AND effect_request_id = $2`,
+    [tenantA, unavailable.effectRequestId],
   );
   scenario.recorder.observe(
-    "restateInvocationKeyedByTenantAndEffect",
-    lookedUpInvocation === dispatchIdentity.rows[0]?.restate_invocation_id,
+    "restateInvocationIsTenantScopedAdapterEvidence",
+    lookedUpInvocation === dispatchIdentity.rows[0]?.restate_invocation_id &&
+      /^attempt\.[0-9a-f]{64}$/.test(
+        claimedIdentity.rows[0]?.attempt_id ?? "",
+      ) &&
+      claimedIdentity.rows[0]?.attempt_id !== lookedUpInvocation,
   );
   return unavailable;
 }

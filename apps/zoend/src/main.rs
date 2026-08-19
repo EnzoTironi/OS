@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use connectrpc::Router;
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
+use zoen_core::WorkloadId;
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, WorldEngine};
 use zoen_query::QueryRuntime;
 use zoend::config::object_store_config;
@@ -53,7 +54,22 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
     let definition_service =
         DefinitionServiceImpl::new(DefinitionEngine::new(store.clone()), sessions.clone());
-    let effect_service = EffectServiceImpl::new(EffectEngine::new(store.clone()), sessions.clone());
+    let effect_worker_workload = WorkloadId::parse(
+        env::var("ZOEN_EFFECT_WORKER_WORKLOAD_ID")
+            .unwrap_or_else(|_| "workload.effect-worker".to_owned()),
+    )?;
+    let effect_reconciler_workload = WorkloadId::parse(
+        env::var("ZOEN_EFFECT_RECONCILER_WORKLOAD_ID")
+            .unwrap_or_else(|_| "workload.effect-reconciler".to_owned()),
+    )?;
+    let effect_service = EffectServiceImpl::new(
+        EffectEngine::new(
+            store.clone(),
+            effect_worker_workload,
+            effect_reconciler_workload,
+        ),
+        sessions.clone(),
+    );
     let world_service = WorldServiceImpl::new(WorldEngine::new(store), query, sessions);
     let application = Router::new()
         .add_service(Arc::new(action_service))

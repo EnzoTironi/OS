@@ -9,7 +9,6 @@ import {
 } from "../support.js";
 import {
   commitEffect,
-  delay,
   waitForProviderOperation,
   waitForState,
   type CommittedEffect,
@@ -17,8 +16,10 @@ import {
 } from "../scenario.js";
 
 export interface UncertaintyResults {
+  connectorUnavailable: CommittedEffect;
   noEffect: CommittedEffect;
   parseError: CommittedEffect;
+  providerRejectedCredential: CommittedEffect;
   revoked: CommittedEffect;
   safeRetry: CommittedEffect;
   schemaError: CommittedEffect;
@@ -99,7 +100,72 @@ export async function verifyUncertainty(
     "credentialRevocationIsDefinitelyNotSent",
     revokedSnapshot.attempts[0]?.reason ===
       EffectAttemptReason.CREDENTIAL_REVOKED &&
-      (await providerOperation(revoked.effectRequestId)) === undefined,
+      (await providerOperation(revoked.idempotencyKey)) === undefined,
+  );
+  await stopProcess(scenario.runtime.connector);
+  scenario.runtime.connector = await startConnector();
+  scenario.processes.push(scenario.runtime.connector);
+
+  await stopProcess(scenario.runtime.connector);
+  const connectorUnavailable = await commitEffect(
+    scenario.actionA,
+    scenario.fixture,
+    "connector-unavailable",
+  );
+  await dispatchOnce();
+  scenario.recorder.inject("connector-unreachable-before-send");
+  const connectorUnavailableSnapshot = await waitForState(
+    scenario.effectA,
+    connectorUnavailable.effectRequestId,
+    EffectKnowledgeState.DEFINITELY_NOT_SENT,
+  );
+  scenario.runtime.connector = await startConnector();
+  scenario.processes.push(scenario.runtime.connector);
+  await dispatchOnce();
+  const connectorRecovered = await waitForState(
+    scenario.effectA,
+    connectorUnavailable.effectRequestId,
+    EffectKnowledgeState.CONFIRMED,
+  );
+  scenario.recorder.state(connectorUnavailableSnapshot);
+  scenario.recorder.state(connectorRecovered);
+  scenario.recorder.observe(
+    "connectorPreSendFailureIsDefinitelyNotSentAndRetryable",
+    connectorUnavailableSnapshot.attempts[0]?.reason ===
+      EffectAttemptReason.TIMEOUT_BEFORE_SEND &&
+      connectorRecovered.attempts.length === 2,
+  );
+
+  await stopProcess(scenario.runtime.connector);
+  scenario.runtime.connector = await startConnector({
+    credentials: {
+      "secret.provider.a": {
+        secret: "revoked-provider-secret",
+        tenantId: "tenant.a",
+      },
+      "secret.provider.b": {
+        secret: "provider-secret",
+        tenantId: "tenant.b",
+      },
+    },
+  });
+  scenario.processes.push(scenario.runtime.connector);
+  const providerRejectedCredential = await commitEffect(
+    scenario.actionA,
+    scenario.fixture,
+    "provider-rejected-credential",
+  );
+  await dispatchOnce();
+  const providerRejectedSnapshot = await waitForState(
+    scenario.effectA,
+    providerRejectedCredential.effectRequestId,
+    EffectKnowledgeState.UNKNOWN,
+  );
+  scenario.recorder.state(providerRejectedSnapshot);
+  scenario.recorder.observe(
+    "providerAuthRejectionAfterSendIsUnknown",
+    providerRejectedSnapshot.attempts[0]?.reason ===
+      EffectAttemptReason.PROVIDER_UNAVAILABLE,
   );
   await stopProcess(scenario.runtime.connector);
   scenario.runtime.connector = await startConnector();
@@ -113,9 +179,14 @@ export async function verifyUncertainty(
   );
   await dispatchOnce();
   scenario.recorder.inject("provider-unreachable-before-send");
-  await delay(150);
+  const definitelyNotSent = await waitForState(
+    scenario.effectA,
+    safeRetry.effectRequestId,
+    EffectKnowledgeState.DEFINITELY_NOT_SENT,
+  );
   scenario.runtime.provider = await startFaultProvider();
   scenario.processes.push(scenario.runtime.provider);
+  await dispatchOnce();
   const safelyRetried = await waitForState(
     scenario.effectA,
     safeRetry.effectRequestId,
@@ -123,8 +194,21 @@ export async function verifyUncertainty(
   );
   scenario.recorder.state(safelyRetried);
   scenario.recorder.observe(
-    "definitelyNotSentTransportFailureSafelyRetriedByRestate",
-    (await waitForProviderOperation(safeRetry.effectRequestId)).requests === 1,
+    "definitelyNotSentTransportFailureGetsNewDurableAttempt",
+    definitelyNotSent.attempts.length === 1 &&
+      safelyRetried.attempts.length === 2 &&
+      safelyRetried.attempts.every((attempt) =>
+        /^attempt\.[0-9a-f]{64}$/.test(attempt.attemptId),
+      ) &&
+      (await waitForProviderOperation(safeRetry.idempotencyKey)).requests === 1,
   );
-  return { noEffect, parseError, revoked, safeRetry, schemaError };
+  return {
+    connectorUnavailable,
+    noEffect,
+    parseError,
+    providerRejectedCredential,
+    revoked,
+    safeRetry,
+    schemaError,
+  };
 }

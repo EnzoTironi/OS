@@ -148,17 +148,23 @@ pub(super) async fn insert_effect_request(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
+    let idempotency_key = format!(
+        "idempotency.{}.{}",
+        tenant_id.as_str(),
+        effect.effect_request_id.as_str()
+    );
     sqlx::query(
         "INSERT INTO effect_requests (
             tenant_id, effect_request_id, operation_id, commit_sequence,
-            external_operation_id, intent_digest, request_digest, payload,
+            idempotency_key, intent_digest, request_digest, payload,
             knowledge_state, last_commit_sequence
-         ) VALUES ($1, $2, $3, $4, $2, $5, $6, $7, 'not_attempted', $4)",
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'not_attempted', $4)",
     )
     .bind(tenant_id.as_str())
     .bind(effect.effect_request_id.as_str())
     .bind(operation_id.as_str())
     .bind(commit_sequence)
+    .bind(idempotency_key)
     .bind(intent_digest.as_str())
     .bind(request_digest)
     .bind(event.payload().as_bytes())

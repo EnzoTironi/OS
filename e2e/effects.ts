@@ -54,11 +54,20 @@ async function main(): Promise<void> {
 
   const agentAToken = await oidcToken("agent-a");
   const agentBToken = await oidcToken("agent-b");
+  const workerAToken = await oidcToken("effect-worker-a");
+  const workerBToken = await oidcToken("effect-worker-b");
+  const reconcilerAToken = await oidcToken("effect-reconciler-a");
+  const reconcilerBToken = await oidcToken("effect-reconciler-b");
   const actionA = actionClient(agentAToken);
+  const actionB = actionClient(agentBToken);
   const definitionA = definitionClient(agentAToken);
   const definitionB = definitionClient(agentBToken);
   const effectA = effectClient(agentAToken);
   const effectB = effectClient(agentBToken);
+  const effectReconcilerA = effectClient(reconcilerAToken);
+  const effectReconcilerB = effectClient(reconcilerBToken);
+  const effectWorkerA = effectClient(workerAToken);
+  const effectWorkerB = effectClient(workerBToken);
   const worldA = worldClient(agentAToken);
   const worldB = worldClient(agentBToken);
   const admin = adminClient();
@@ -70,15 +79,23 @@ async function main(): Promise<void> {
   processes.push(provider);
   const connector = await startConnector();
   processes.push(connector);
-  const worker = await startWorker(agentAToken);
+  const worker = await startWorker({
+    [tenantA]: workerAToken,
+    [tenantB]: workerBToken,
+  });
   processes.push(worker);
   await admin.connect();
 
   const scenario: EffectsScenario = {
     actionA,
+    actionB,
     admin,
     effectA,
     effectB,
+    effectReconcilerA,
+    effectReconcilerB,
+    effectWorkerA,
+    effectWorkerB,
     fixture,
     policyManifestPath,
     processes,
@@ -128,15 +145,20 @@ async function main(): Promise<void> {
           causal.evidence[0]!.commitSequence,
     );
     recorder.observe(
-      "externalOperationAndDigestsAreAttributable",
-      causal.request?.externalOperationId ===
-        reconciliation.accepted.effectRequestId &&
+      "idempotencyProviderIdentityAndDigestsAreAttributable",
+      causal.request?.idempotencyKey ===
+        reconciliation.accepted.idempotencyKey &&
         /^[0-9a-f]{64}$/.test(causal.request.requestDigest ?? "") &&
         causal.attempts.every(
           (attempt) =>
-            attempt.externalOperationId ===
-              reconciliation.accepted.effectRequestId &&
-            /^[0-9a-f]{64}$/.test(attempt.requestDigest),
+            attempt.providerOperationId.startsWith("provider.") &&
+            /^[0-9a-f]{64}$/.test(attempt.requestDigest) &&
+            /^attempt\.[0-9a-f]{64}$/.test(attempt.attemptId),
+        ) &&
+        causal.evidence.every(
+          (evidence) =>
+            evidence.idempotencyKey === reconciliation.accepted.idempotencyKey &&
+            evidence.providerOperationId.startsWith("provider."),
         ),
     );
 
@@ -166,9 +188,12 @@ async function main(): Promise<void> {
       unavailable,
       reconciliation.accepted,
       reconciliation.ambiguous,
+      reconciliation.claimedRace,
       uncertainty.parseError,
       uncertainty.schemaError,
       uncertainty.noEffect,
+      uncertainty.connectorUnavailable,
+      uncertainty.providerRejectedCredential,
       uncertainty.revoked,
       uncertainty.safeRetry,
       recovery.restateRestart,
@@ -205,8 +230,6 @@ async function main(): Promise<void> {
       encoding: "utf8",
     }).trim();
     const mutants = {
-      connectorWritesSemanticAuthority:
-        recorder.assertions.reconciliationDoesNotRerunBusinessAction === true,
       credentialsSerializedIntoHistory:
         recorder.assertions.connectorCredentialsRemainOpaqueAndOutsideHistory ===
         true,

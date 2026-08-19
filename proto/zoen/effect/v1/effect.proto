@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 service EffectService {
   rpc GetEffect(GetEffectRequest) returns (GetEffectResponse);
+  rpc ClaimAttempt(ClaimAttemptRequest) returns (ClaimAttemptResponse);
   rpc RecordAttempt(RecordAttemptRequest) returns (RecordAttemptResponse);
   rpc Reconcile(ReconcileRequest) returns (ReconcileResponse);
 }
@@ -49,7 +50,7 @@ enum EffectEvidenceOutcome {
 message EffectRequest {
   string effect_request_id = 1;
   string operation_id = 2;
-  string external_operation_id = 3;
+  string idempotency_key = 3;
   string intent_digest = 4;
   string request_digest = 5;
   bytes payload = 6;
@@ -59,7 +60,7 @@ message EffectRequest {
 
 message EffectAttempt {
   string attempt_id = 1;
-  string external_operation_id = 2;
+  string provider_operation_id = 2;
   string request_digest = 3;
   EffectAttemptOutcome outcome = 4;
   EffectAttemptReason reason = 5;
@@ -71,12 +72,13 @@ message EffectAttempt {
 message EffectEvidence {
   string evidence_id = 1;
   string evidence_digest = 2;
-  string external_operation_id = 3;
+  string idempotency_key = 3;
   EffectEvidenceOutcome outcome = 4;
   string source_id = 5;
   string source_ref = 6;
   google.protobuf.Timestamp observed_at = 7;
   uint64 commit_sequence = 8;
+  string provider_operation_id = 9;
 }
 
 message EffectReconciliation {
@@ -103,12 +105,26 @@ message GetEffectResponse {
 
 message EffectAttemptInput {
   string attempt_id = 1;
-  string external_operation_id = 2;
-  string request_digest = 3;
+  string provider_operation_id = 2;
+  reserved 3;
   EffectAttemptOutcome outcome = 4;
   EffectAttemptReason reason = 5;
   string response_digest = 6;
   google.protobuf.Timestamp observed_at = 7;
+}
+
+message ClaimAttemptRequest {
+  string effect_request_id = 1;
+  string adapter_execution_id = 2;
+}
+
+message EffectAttemptClaim {
+  string attempt_id = 1;
+  EffectRequest request = 2;
+}
+
+message ClaimAttemptResponse {
+  EffectAttemptClaim claim = 1;
 }
 
 message RecordAttemptRequest {
@@ -123,11 +139,12 @@ message RecordAttemptResponse {
 message EffectEvidenceInput {
   string evidence_id = 1;
   string evidence_digest = 2;
-  string external_operation_id = 3;
+  string idempotency_key = 3;
   EffectEvidenceOutcome outcome = 4;
   string source_id = 5;
   string source_ref = 6;
   google.protobuf.Timestamp observed_at = 7;
+  string provider_operation_id = 8;
 }
 
 message ReconcileRequest {

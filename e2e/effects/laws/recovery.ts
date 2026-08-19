@@ -36,7 +36,7 @@ export async function verifyRecovery(
     "restate-restart",
   );
   await dispatchOnce();
-  await waitForProviderOperation(restateRestart.effectRequestId);
+  await waitForProviderOperation(restateRestart.idempotencyKey);
   scenario.recorder.inject("restate-restart-during-pending-work");
   await restartRestate();
   const afterRestateRestart = await waitForState(
@@ -48,7 +48,7 @@ export async function verifyRecovery(
   scenario.recorder.observe(
     "restateRestartPreservesDurableInvocation",
     afterRestateRestart.attempts.length === 1 &&
-      (await providerOperation(restateRestart.effectRequestId)) !== undefined,
+      (await providerOperation(restateRestart.idempotencyKey)) !== undefined,
   );
 
   await setProviderMode("hold_confirmed");
@@ -58,7 +58,7 @@ export async function verifyRecovery(
     "zoend-restart",
   );
   await dispatchOnce();
-  await waitForProviderOperation(zoendRestart.effectRequestId);
+  await waitForProviderOperation(zoendRestart.idempotencyKey);
   scenario.recorder.inject("zoend-restart-after-remote-delivery");
   await stopProcess(scenario.runtime.zoend);
   await delay(2_200);

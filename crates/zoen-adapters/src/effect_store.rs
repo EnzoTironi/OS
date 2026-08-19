@@ -5,9 +5,9 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     CommitSequence, DefinitelyNotSentReason, EffectAttempt, EffectAttemptId, EffectAttemptResult,
     EffectEvidence, EffectEvidenceDigest, EffectEvidenceId, EffectEvidenceOutcome,
-    EffectKnowledgeState, EffectReconciliation, EffectRequest, EffectRequestDigest,
-    EffectRequestId, EffectResponseDigest, EffectSnapshot, ExecutionContext, ExternalOperationId,
-    IntentDigest, OperationId, SourceId, TimestampMicros,
+    EffectIdempotencyKey, EffectKnowledgeState, EffectReconciliation, EffectRequest,
+    EffectRequestDigest, EffectRequestId, EffectResponseDigest, EffectSnapshot, ExecutionContext,
+    IntentDigest, OperationId, ProviderOperationId, SourceId, TimestampMicros,
 };
 use zoen_engine::{
     EffectAttemptCommand, EffectReconcileCommand, EffectUpdateTransaction, StoreError,
@@ -82,6 +82,78 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
         &self.snapshot
     }
 
+    async fn claimed_attempt(
+        &mut self,
+        adapter_execution_id: &str,
+    ) -> Result<Option<EffectAttemptId>, StoreError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT attempt_id
+             FROM effect_attempt_claims
+             WHERE tenant_id = $1
+               AND effect_request_id = $2
+               AND adapter_execution_id = $3",
+        )
+        .bind(self.context.tenant_id().as_str())
+        .bind(self.effect_request_id.as_str())
+        .bind(adapter_execution_id)
+        .fetch_optional(&mut *self.transaction)
+        .await
+        .map_err(store_unavailable)?
+        .map(EffectAttemptId::parse)
+        .transpose()
+        .map_err(corrupt)
+    }
+
+    async fn commit_claim(
+        self,
+        adapter_execution_id: &str,
+        attempt_id: &EffectAttemptId,
+    ) -> Result<(), StoreError> {
+        let Self {
+            context,
+            effect_request_id,
+            head: _,
+            pool: _,
+            snapshot: _,
+            mut transaction,
+        } = self;
+        sqlx::query(
+            "INSERT INTO effect_attempt_claims (
+                tenant_id, effect_request_id, attempt_id, adapter_execution_id,
+                claimed_workload_id
+             ) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(effect_request_id.as_str())
+        .bind(attempt_id.as_str())
+        .bind(adapter_execution_id)
+        .bind(context.workload_id().as_str())
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        transaction.commit().await.map_err(store_unavailable)
+    }
+
+    async fn has_claim(&mut self, attempt_id: &EffectAttemptId) -> Result<bool, StoreError> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1
+                FROM effect_attempt_claims
+                WHERE tenant_id = $1
+                  AND effect_request_id = $2
+                  AND attempt_id = $3
+                  AND claimed_workload_id = $4
+             )",
+        )
+        .bind(self.context.tenant_id().as_str())
+        .bind(self.effect_request_id.as_str())
+        .bind(attempt_id.as_str())
+        .bind(self.context.workload_id().as_str())
+        .fetch_one(&mut *self.transaction)
+        .await
+        .map_err(store_unavailable)
+    }
+
     async fn commit_attempt(
         self,
         command: &EffectAttemptCommand,
@@ -92,16 +164,17 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
             effect_request_id,
             head,
             pool,
-            snapshot: _,
+            snapshot,
             mut transaction,
         } = self;
         let next_sequence =
             append_authority_commit(&mut transaction, &context, head, "effect_attempt").await?;
-        let (result_kind, reason_kind, response_digest) = attempt_result_columns(&command.result);
+        let (result_kind, reason_kind, provider_operation_id, response_digest) =
+            attempt_result_columns(&command.result);
         sqlx::query(
             "INSERT INTO effect_attempts (
                 tenant_id, effect_request_id, attempt_id, commit_sequence,
-                external_operation_id, observed_at_micros, request_digest,
+                observed_at_micros, request_digest, provider_operation_id,
                 result_kind, reason_kind, response_digest
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
@@ -109,9 +182,9 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
         .bind(effect_request_id.as_str())
         .bind(command.attempt_id.as_str())
         .bind(next_sequence)
-        .bind(command.external_operation_id.as_str())
         .bind(command.observed_at.get())
-        .bind(command.request_digest.as_str())
+        .bind(snapshot.request.request_digest.as_str())
+        .bind(provider_operation_id)
         .bind(result_kind)
         .bind(reason_kind)
         .bind(response_digest)
@@ -134,7 +207,6 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
             serde_json::json!({
                 "attemptId": command.attempt_id.as_str(),
                 "effectRequestId": effect_request_id.as_str(),
-                "externalOperationId": command.external_operation_id.as_str(),
                 "resultingState": state_name(resulting_state),
             }),
         )
@@ -163,18 +235,19 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
         sqlx::query(
             "INSERT INTO effect_evidence (
                 tenant_id, effect_request_id, evidence_id, commit_sequence,
-                evidence_digest, external_operation_id, observed_at_micros,
-                outcome, source_id, source_ref
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                evidence_digest, idempotency_key, observed_at_micros,
+                outcome, provider_operation_id, source_id, source_ref
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(context.tenant_id().as_str())
         .bind(effect_request_id.as_str())
         .bind(command.evidence_id.as_str())
         .bind(next_sequence)
         .bind(command.digest.as_str())
-        .bind(command.external_operation_id.as_str())
+        .bind(command.idempotency_key.as_str())
         .bind(command.observed_at.get())
         .bind(evidence_outcome_name(command.outcome))
+        .bind(command.provider_operation_id.as_str())
         .bind(command.source_id.as_str())
         .bind(&command.source_ref)
         .execute(&mut *transaction)
@@ -231,7 +304,7 @@ async fn load_snapshot(
     effect_request_id: &EffectRequestId,
 ) -> Result<EffectSnapshot, StoreError> {
     let request = sqlx::query(
-        "SELECT effect_request_id, operation_id, commit_sequence, external_operation_id,
+        "SELECT effect_request_id, operation_id, commit_sequence, idempotency_key,
                 intent_digest, request_digest, payload, knowledge_state
          FROM effect_requests
          WHERE tenant_id = $1 AND effect_request_id = $2",
@@ -244,8 +317,8 @@ async fn load_snapshot(
     .ok_or(StoreError::NotFound)
     .and_then(row_to_request)?;
     let attempts = sqlx::query(
-        "SELECT attempt_id, commit_sequence, external_operation_id, observed_at_micros,
-                request_digest, result_kind, reason_kind, response_digest
+        "SELECT attempt_id, commit_sequence, observed_at_micros, request_digest,
+                provider_operation_id, result_kind, reason_kind, response_digest
          FROM effect_attempts
          WHERE tenant_id = $1 AND effect_request_id = $2
          ORDER BY commit_sequence, attempt_id",
@@ -259,8 +332,8 @@ async fn load_snapshot(
     .map(row_to_attempt)
     .collect::<Result<Vec<_>, _>>()?;
     let evidence = sqlx::query(
-        "SELECT evidence_id, commit_sequence, evidence_digest, external_operation_id,
-                observed_at_micros, outcome, source_id, source_ref
+        "SELECT evidence_id, commit_sequence, evidence_digest, idempotency_key,
+                observed_at_micros, outcome, provider_operation_id, source_id, source_ref
          FROM effect_evidence
          WHERE tenant_id = $1 AND effect_request_id = $2
          ORDER BY commit_sequence, evidence_id",
@@ -396,11 +469,8 @@ fn row_to_request(row: PgRow) -> Result<EffectRequest, StoreError> {
         commit_sequence: row_commit_sequence(&row)?,
         effect_request_id: EffectRequestId::parse(row_string(&row, "effect_request_id")?)
             .map_err(corrupt)?,
-        external_operation_id: ExternalOperationId::parse(row_string(
-            &row,
-            "external_operation_id",
-        )?)
-        .map_err(corrupt)?,
+        idempotency_key: EffectIdempotencyKey::parse(row_string(&row, "idempotency_key")?)
+            .map_err(corrupt)?,
         intent_digest: IntentDigest::parse(row_string(&row, "intent_digest")?).map_err(corrupt)?,
         operation_id: OperationId::parse(row_string(&row, "operation_id")?).map_err(corrupt)?,
         payload: row
@@ -423,22 +493,47 @@ fn row_to_attempt(row: &PgRow) -> Result<EffectAttempt, StoreError> {
         .map(EffectResponseDigest::parse)
         .transpose()
         .map_err(corrupt)?;
-    let result = match (result_kind.as_str(), reason.as_deref(), response_digest) {
-        ("definitely_not_sent", Some(reason), None) => EffectAttemptResult::DefinitelyNotSent {
-            reason: parse_definitely_not_sent_reason(reason)?,
-        },
-        ("unknown", Some(reason), response_digest) => EffectAttemptResult::Unknown {
-            reason: parse_unknown_reason(reason)?,
-            response_digest,
-        },
-        ("accepted_pending", None, Some(response_digest)) => {
-            EffectAttemptResult::AcceptedPending { response_digest }
+    let provider_operation_id = row
+        .try_get::<Option<String>, _>("provider_operation_id")
+        .map_err(store_unavailable)?
+        .map(ProviderOperationId::parse)
+        .transpose()
+        .map_err(corrupt)?;
+    let result = match (
+        result_kind.as_str(),
+        reason.as_deref(),
+        provider_operation_id,
+        response_digest,
+    ) {
+        ("definitely_not_sent", Some(reason), None, None) => {
+            EffectAttemptResult::DefinitelyNotSent {
+                reason: parse_definitely_not_sent_reason(reason)?,
+            }
         }
-        ("confirmed", None, Some(response_digest)) => {
-            EffectAttemptResult::Confirmed { response_digest }
+        ("unknown", Some(reason), provider_operation_id, response_digest) => {
+            EffectAttemptResult::Unknown {
+                provider_operation_id,
+                reason: parse_unknown_reason(reason)?,
+                response_digest,
+            }
         }
-        ("confirmed_no_effect", None, Some(response_digest)) => {
-            EffectAttemptResult::ConfirmedNoEffect { response_digest }
+        ("accepted_pending", None, Some(provider_operation_id), Some(response_digest)) => {
+            EffectAttemptResult::AcceptedPending {
+                provider_operation_id,
+                response_digest,
+            }
+        }
+        ("confirmed", None, Some(provider_operation_id), Some(response_digest)) => {
+            EffectAttemptResult::Confirmed {
+                provider_operation_id,
+                response_digest,
+            }
+        }
+        ("confirmed_no_effect", None, Some(provider_operation_id), Some(response_digest)) => {
+            EffectAttemptResult::ConfirmedNoEffect {
+                provider_operation_id,
+                response_digest,
+            }
         }
         _ => {
             return Err(StoreError::Corrupt(
@@ -449,11 +544,6 @@ fn row_to_attempt(row: &PgRow) -> Result<EffectAttempt, StoreError> {
     Ok(EffectAttempt {
         attempt_id: EffectAttemptId::parse(row_string(row, "attempt_id")?).map_err(corrupt)?,
         commit_sequence: row_commit_sequence(row)?,
-        external_operation_id: ExternalOperationId::parse(row_string(
-            row,
-            "external_operation_id",
-        )?)
-        .map_err(corrupt)?,
         observed_at: TimestampMicros::new(row_i64(row, "observed_at_micros")?),
         request_digest: EffectRequestDigest::parse(row_string(row, "request_digest")?)
             .map_err(corrupt)?,
@@ -467,13 +557,15 @@ fn row_to_evidence(row: &PgRow) -> Result<EffectEvidence, StoreError> {
         digest: EffectEvidenceDigest::parse(row_string(row, "evidence_digest")?)
             .map_err(corrupt)?,
         evidence_id: EffectEvidenceId::parse(row_string(row, "evidence_id")?).map_err(corrupt)?,
-        external_operation_id: ExternalOperationId::parse(row_string(
-            row,
-            "external_operation_id",
-        )?)
-        .map_err(corrupt)?,
+        idempotency_key: EffectIdempotencyKey::parse(row_string(row, "idempotency_key")?)
+            .map_err(corrupt)?,
         observed_at: TimestampMicros::new(row_i64(row, "observed_at_micros")?),
         outcome: parse_evidence_outcome(&row_string(row, "outcome")?)?,
+        provider_operation_id: ProviderOperationId::parse(row_string(
+            row,
+            "provider_operation_id",
+        )?)
+        .map_err(corrupt)?,
         source_id: SourceId::parse(row_string(row, "source_id")?).map_err(corrupt)?,
         source_ref: row_string(row, "source_ref")?,
     })
@@ -490,30 +582,58 @@ fn row_to_reconciliation(row: &PgRow) -> Result<EffectReconciliation, StoreError
 
 fn attempt_result_columns(
     result: &EffectAttemptResult,
-) -> (&'static str, Option<&'static str>, Option<&str>) {
+) -> (
+    &'static str,
+    Option<&'static str>,
+    Option<&str>,
+    Option<&str>,
+) {
     match result {
         EffectAttemptResult::DefinitelyNotSent { reason } => (
             "definitely_not_sent",
             Some(definitely_not_sent_reason_name(*reason)),
             None,
+            None,
         ),
         EffectAttemptResult::Unknown {
+            provider_operation_id,
             reason,
             response_digest,
         } => (
             "unknown",
             Some(unknown_reason_name(*reason)),
+            provider_operation_id
+                .as_ref()
+                .map(ProviderOperationId::as_str),
             response_digest.as_ref().map(EffectResponseDigest::as_str),
         ),
-        EffectAttemptResult::AcceptedPending { response_digest } => {
-            ("accepted_pending", None, Some(response_digest.as_str()))
-        }
-        EffectAttemptResult::Confirmed { response_digest } => {
-            ("confirmed", None, Some(response_digest.as_str()))
-        }
-        EffectAttemptResult::ConfirmedNoEffect { response_digest } => {
-            ("confirmed_no_effect", None, Some(response_digest.as_str()))
-        }
+        EffectAttemptResult::AcceptedPending {
+            provider_operation_id,
+            response_digest,
+        } => (
+            "accepted_pending",
+            None,
+            Some(provider_operation_id.as_str()),
+            Some(response_digest.as_str()),
+        ),
+        EffectAttemptResult::Confirmed {
+            provider_operation_id,
+            response_digest,
+        } => (
+            "confirmed",
+            None,
+            Some(provider_operation_id.as_str()),
+            Some(response_digest.as_str()),
+        ),
+        EffectAttemptResult::ConfirmedNoEffect {
+            provider_operation_id,
+            response_digest,
+        } => (
+            "confirmed_no_effect",
+            None,
+            Some(provider_operation_id.as_str()),
+            Some(response_digest.as_str()),
+        ),
     }
 }
 

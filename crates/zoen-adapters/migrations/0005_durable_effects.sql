@@ -18,7 +18,7 @@ CREATE TABLE effect_requests (
     effect_request_id TEXT NOT NULL,
     operation_id TEXT NOT NULL,
     commit_sequence BIGINT NOT NULL CHECK (commit_sequence > 0),
-    external_operation_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
     intent_digest CHAR(64) NOT NULL CHECK (intent_digest ~ '^[0-9a-f]{64}$'),
     request_digest CHAR(64) NOT NULL CHECK (request_digest ~ '^[0-9a-f]{64}$'),
     payload BYTEA NOT NULL,
@@ -37,16 +37,16 @@ CREATE TABLE effect_requests (
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (tenant_id, effect_request_id),
-    UNIQUE (tenant_id, external_operation_id),
+    UNIQUE (tenant_id, idempotency_key),
     UNIQUE (
         tenant_id,
         effect_request_id,
-        external_operation_id
+        idempotency_key
     ),
     UNIQUE (
         tenant_id,
         effect_request_id,
-        external_operation_id,
+        idempotency_key,
         request_digest
     ),
     FOREIGN KEY (tenant_id, operation_id)
@@ -62,9 +62,9 @@ CREATE TABLE effect_attempts (
     effect_request_id TEXT NOT NULL,
     attempt_id TEXT NOT NULL,
     commit_sequence BIGINT NOT NULL CHECK (commit_sequence > 0),
-    external_operation_id TEXT NOT NULL,
     observed_at_micros BIGINT NOT NULL,
     request_digest CHAR(64) NOT NULL CHECK (request_digest ~ '^[0-9a-f]{64}$'),
+    provider_operation_id TEXT,
     result_kind TEXT NOT NULL CHECK (
         result_kind IN (
             'definitely_not_sent',
@@ -89,24 +89,15 @@ CREATE TABLE effect_attempts (
     ),
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (tenant_id, effect_request_id, attempt_id),
-    FOREIGN KEY (
-        tenant_id,
-        effect_request_id,
-        external_operation_id,
-        request_digest
-    )
-        REFERENCES effect_requests (
-            tenant_id,
-            effect_request_id,
-            external_operation_id,
-            request_digest
-        ),
+    FOREIGN KEY (tenant_id, effect_request_id)
+        REFERENCES effect_requests (tenant_id, effect_request_id),
     FOREIGN KEY (tenant_id, commit_sequence)
         REFERENCES authority_commits (tenant_id, commit_sequence),
     CHECK (
         (
             result_kind = 'definitely_not_sent'
             AND reason_kind IN ('credential_revoked', 'timeout_before_send')
+            AND provider_operation_id IS NULL
             AND response_digest IS NULL
         )
         OR (
@@ -121,9 +112,23 @@ CREATE TABLE effect_attempts (
         OR (
             result_kind IN ('accepted_pending', 'confirmed', 'confirmed_no_effect')
             AND reason_kind IS NULL
+            AND provider_operation_id IS NOT NULL
             AND response_digest IS NOT NULL
         )
     )
+);
+
+CREATE TABLE effect_attempt_claims (
+    tenant_id TEXT NOT NULL,
+    effect_request_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    adapter_execution_id TEXT NOT NULL,
+    claimed_workload_id TEXT NOT NULL,
+    claimed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (tenant_id, effect_request_id, attempt_id),
+    UNIQUE (tenant_id, effect_request_id, adapter_execution_id),
+    FOREIGN KEY (tenant_id, effect_request_id)
+        REFERENCES effect_requests (tenant_id, effect_request_id)
 );
 
 CREATE TABLE effect_evidence (
@@ -132,9 +137,10 @@ CREATE TABLE effect_evidence (
     evidence_id TEXT NOT NULL,
     commit_sequence BIGINT NOT NULL CHECK (commit_sequence > 0),
     evidence_digest CHAR(64) NOT NULL CHECK (evidence_digest ~ '^[0-9a-f]{64}$'),
-    external_operation_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
     observed_at_micros BIGINT NOT NULL,
     outcome TEXT NOT NULL CHECK (outcome IN ('confirmed', 'no_effect')),
+    provider_operation_id TEXT NOT NULL,
     source_id TEXT NOT NULL,
     source_ref TEXT NOT NULL CHECK (source_ref <> ''),
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -143,12 +149,12 @@ CREATE TABLE effect_evidence (
     FOREIGN KEY (
         tenant_id,
         effect_request_id,
-        external_operation_id
+        idempotency_key
     )
         REFERENCES effect_requests (
             tenant_id,
             effect_request_id,
-            external_operation_id
+            idempotency_key
         ),
     FOREIGN KEY (tenant_id, commit_sequence)
         REFERENCES authority_commits (tenant_id, commit_sequence)
@@ -199,9 +205,10 @@ CREATE TABLE effect_dispatch_attempts (
 CREATE TABLE effect_dispatches (
     tenant_id TEXT NOT NULL,
     effect_request_id TEXT NOT NULL,
+    knowledge_commit_sequence BIGINT NOT NULL CHECK (knowledge_commit_sequence > 0),
     restate_invocation_id TEXT NOT NULL,
     dispatched_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    PRIMARY KEY (tenant_id, effect_request_id),
+    PRIMARY KEY (tenant_id, effect_request_id, knowledge_commit_sequence),
     FOREIGN KEY (tenant_id, effect_request_id)
         REFERENCES effect_requests (tenant_id, effect_request_id)
 );
@@ -211,12 +218,17 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    RAISE EXCEPTION 'effect attempts, evidence, reconciliation, and dispatch history are immutable';
+    RAISE EXCEPTION 'effect claims, attempts, evidence, reconciliation, and dispatch history are immutable';
 END;
 $$;
 
 CREATE TRIGGER effect_attempts_are_immutable
 BEFORE UPDATE OR DELETE ON effect_attempts
+FOR EACH ROW
+EXECUTE FUNCTION reject_effect_history_mutation();
+
+CREATE TRIGGER effect_attempt_claims_are_immutable
+BEFORE UPDATE OR DELETE ON effect_attempt_claims
 FOR EACH ROW
 EXECUTE FUNCTION reject_effect_history_mutation();
 
@@ -246,6 +258,7 @@ DECLARE
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
         'effect_requests',
+        'effect_attempt_claims',
         'effect_attempts',
         'effect_evidence',
         'effect_reconciliations',

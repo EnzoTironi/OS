@@ -17,10 +17,12 @@ import {
   propose,
 } from "../governed-action/support.js";
 import {
+  connectorStatus,
   providerOperation,
   tenantA,
   waitFor,
   type ActionClient,
+  type ConnectorStatus,
   type EffectClient,
   type ManagedProcess,
   type ProviderOperation,
@@ -51,15 +53,21 @@ export class EvidenceRecorder {
 
 export interface CommittedEffect {
   effectRequestId: string;
+  idempotencyKey: string;
   operationId: string;
   receipt: CommitReceipt;
 }
 
 export interface EffectsScenario {
   actionA: ActionClient;
+  actionB: ActionClient;
   admin: PostgresClient;
   effectA: EffectClient;
   effectB: EffectClient;
+  effectReconcilerA: EffectClient;
+  effectReconcilerB: EffectClient;
+  effectWorkerA: EffectClient;
+  effectWorkerB: EffectClient;
   fixture: EffectsFixture;
   policyManifestPath: string;
   processes: ManagedProcess[];
@@ -75,6 +83,7 @@ export async function commitEffect(
   action: ActionClient,
   fixture: EffectsFixture,
   label: string,
+  tenantId = tenantA,
 ): Promise<CommittedEffect> {
   const operationId = `operation.effects.${label}`;
   const proposalId = `proposal.effects.${label}`;
@@ -93,6 +102,7 @@ export async function commitEffect(
   assert.ok(effectRequestId);
   return {
     effectRequestId,
+    idempotencyKey: `idempotency.${tenantId}.${effectRequestId}`,
     operationId,
     receipt: committed.receipt,
   };
@@ -111,22 +121,32 @@ export async function waitForState(
 }
 
 export async function waitForProviderOperation(
-  effectRequestId: string,
+  idempotencyKey: string,
 ): Promise<ProviderOperation> {
   return waitFor(
-    () => providerOperation(effectRequestId),
-    `provider operation ${effectRequestId}`,
+    () => providerOperation(idempotencyKey),
+    `provider operation ${idempotencyKey}`,
+  );
+}
+
+export async function waitForConnectorStatus(
+  idempotencyKey: string,
+  tenantId?: string,
+): Promise<ConnectorStatus> {
+  return waitFor(
+    () => connectorStatus(idempotencyKey, tenantId),
+    `connector status ${idempotencyKey}`,
   );
 }
 
 export function evidenceInput(
-  operation: ProviderOperation,
+  operation: ConnectorStatus,
   suffix: string,
 ) {
   return {
     evidenceDigest: operation.evidenceDigest,
     evidenceId: `evidence.${suffix}`,
-    externalOperationId: operation.externalOperationId,
+    idempotencyKey: operation.idempotencyKey,
     observedAt: timestampFromDate(
       new Date(Number(BigInt(operation.observedAtMicros) / 1_000n)),
     ),
@@ -136,6 +156,7 @@ export function evidenceInput(
         : EffectEvidenceOutcome.NO_EFFECT,
     sourceId: "source.provider-query",
     sourceRef: operation.sourceRef,
+    providerOperationId: operation.providerOperationId,
   };
 }
 

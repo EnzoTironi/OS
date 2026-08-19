@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file zoen/effect/v1/effect.proto.
  */
 export const file_zoen_effect_v1_effect: GenFile = /*@__PURE__*/
-  fileDesc("Cht6b2VuL2VmZmVjdC92MS9lZmZlY3QucHJvdG8SDnpvZW4uZWZmZWN0LnYxIu0BCg1FZmZlY3RSZXF1ZXN0EhkKEWVmZmVjdF9yZXF1ZXN0X2lkGAEgASgJEhQKDG9wZXJhdGlvbl9pZBgCIAEoCRIdChVleHRlcm5hbF9vcGVyYXRpb25faWQYAyABKAkSFQoNaW50ZW50X2RpZ2VzdBgEIAEoCRIWCg5yZXF1ZXN0X2RpZ2VzdBgFIAEoCRIPCgdwYXlsb2FkGAYgASgMEjMKBXN0YXRlGAcgASgOMiQuem9lbi5lZmZlY3QudjEuRWZmZWN0S25vd2xlZGdlU3RhdGUSFwoPY29tbWl0X3NlcXVlbmNlGAggASgEIqkCCg1FZmZlY3RBdHRlbXB0EhIKCmF0dGVtcHRfaWQYASABKAkSHQoVZXh0ZXJuYWxfb3BlcmF0aW9uX2lkGAIgASgJEhYKDnJlcXVlc3RfZGlnZXN0GAMgASgJEjUKB291dGNvbWUYBCABKA4yJC56b2VuLmVmZmVjdC52MS5FZmZlY3RBdHRlbXB0T3V0Y29tZRIzCgZyZWFzb24YBSABKA4yIy56b2VuLmVmZmVjdC52MS5FZmZlY3RBdHRlbXB0UmVhc29uEhcKD3Jlc3BvbnNlX2RpZ2VzdBgGIAEoCRIvCgtvYnNlcnZlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFwoPY29tbWl0X3NlcXVlbmNlGAggASgEIoYCCg5FZmZlY3RFdmlkZW5jZRITCgtldmlkZW5jZV9pZBgBIAEoCRIXCg9ldmlkZW5jZV9kaWdlc3QYAiABKAkSHQoVZXh0ZXJuYWxfb3BlcmF0aW9uX2lkGAMgASgJEjYKB291dGNvbWUYBCABKA4yJS56b2VuLmVmZmVjdC52MS5FZmZlY3RFdmlkZW5jZU91dGNvbWUSEQoJc291cmNlX2lkGAUgASgJEhIKCnNvdXJjZV9yZWYYBiABKAkSLwoLb2JzZXJ2ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhcKD2NvbW1pdF9zZXF1ZW5jZRgIIAEoBCLBAQoURWZmZWN0UmVjb25jaWxpYXRpb24SEwoLZXZpZGVuY2VfaWQYASABKAkSPAoOcHJldmlvdXNfc3RhdGUYAiABKA4yJC56b2VuLmVmZmVjdC52MS5FZmZlY3RLbm93bGVkZ2VTdGF0ZRI9Cg9yZXN1bHRpbmdfc3RhdGUYAyABKA4yJC56b2VuLmVmZmVjdC52MS5FZmZlY3RLbm93bGVkZ2VTdGF0ZRIXCg9jb21taXRfc2VxdWVuY2UYBCABKAQi4gEKDkVmZmVjdFNuYXBzaG90Ei4KB3JlcXVlc3QYASABKAsyHS56b2VuLmVmZmVjdC52MS5FZmZlY3RSZXF1ZXN0Ei8KCGF0dGVtcHRzGAIgAygLMh0uem9lbi5lZmZlY3QudjEuRWZmZWN0QXR0ZW1wdBIwCghldmlkZW5jZRgDIAMoCzIeLnpvZW4uZWZmZWN0LnYxLkVmZmVjdEV2aWRlbmNlEj0KD3JlY29uY2lsaWF0aW9ucxgEIAMoCzIkLnpvZW4uZWZmZWN0LnYxLkVmZmVjdFJlY29uY2lsaWF0aW9uIi0KEEdldEVmZmVjdFJlcXVlc3QSGQoRZWZmZWN0X3JlcXVlc3RfaWQYASABKAkiRQoRR2V0RWZmZWN0UmVzcG9uc2USMAoIc25hcHNob3QYASABKAsyHi56b2VuLmVmZmVjdC52MS5FZmZlY3RTbmFwc2hvdCKVAgoSRWZmZWN0QXR0ZW1wdElucHV0EhIKCmF0dGVtcHRfaWQYASABKAkSHQoVZXh0ZXJuYWxfb3BlcmF0aW9uX2lkGAIgASgJEhYKDnJlcXVlc3RfZGlnZXN0GAMgASgJEjUKB291dGNvbWUYBCABKA4yJC56b2VuLmVmZmVjdC52MS5FZmZlY3RBdHRlbXB0T3V0Y29tZRIzCgZyZWFzb24YBSABKA4yIy56b2VuLmVmZmVjdC52MS5FZmZlY3RBdHRlbXB0UmVhc29uEhcKD3Jlc3BvbnNlX2RpZ2VzdBgGIAEoCRIvCgtvYnNlcnZlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiZgoUUmVjb3JkQXR0ZW1wdFJlcXVlc3QSGQoRZWZmZWN0X3JlcXVlc3RfaWQYASABKAkSMwoHYXR0ZW1wdBgCIAEoCzIiLnpvZW4uZWZmZWN0LnYxLkVmZmVjdEF0dGVtcHRJbnB1dCJJChVSZWNvcmRBdHRlbXB0UmVzcG9uc2USMAoIc25hcHNob3QYASABKAsyHi56b2VuLmVmZmVjdC52MS5FZmZlY3RTbmFwc2hvdCLyAQoTRWZmZWN0RXZpZGVuY2VJbnB1dBITCgtldmlkZW5jZV9pZBgBIAEoCRIXCg9ldmlkZW5jZV9kaWdlc3QYAiABKAkSHQoVZXh0ZXJuYWxfb3BlcmF0aW9uX2lkGAMgASgJEjYKB291dGNvbWUYBCABKA4yJS56b2VuLmVmZmVjdC52MS5FZmZlY3RFdmlkZW5jZU91dGNvbWUSEQoJc291cmNlX2lkGAUgASgJEhIKCnNvdXJjZV9yZWYYBiABKAkSLwoLb2JzZXJ2ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wImQKEFJlY29uY2lsZVJlcXVlc3QSGQoRZWZmZWN0X3JlcXVlc3RfaWQYASABKAkSNQoIZXZpZGVuY2UYAiABKAsyIy56b2VuLmVmZmVjdC52MS5FZmZlY3RFdmlkZW5jZUlucHV0IkUKEVJlY29uY2lsZVJlc3BvbnNlEjAKCHNuYXBzaG90GAEgASgLMh4uem9lbi5lZmZlY3QudjEuRWZmZWN0U25hcHNob3Qq6AIKFEVmZmVjdEtub3dsZWRnZVN0YXRlEiYKIkVGRkVDVF9LTk9XTEVER0VfU1RBVEVfVU5TUEVDSUZJRUQQABIoCiRFRkZFQ1RfS05PV0xFREdFX1NUQVRFX05PVF9BVFRFTVBURUQQARIuCipFRkZFQ1RfS05PV0xFREdFX1NUQVRFX0RFRklOSVRFTFlfTk9UX1NFTlQQAhIiCh5FRkZFQ1RfS05PV0xFREdFX1NUQVRFX1VOS05PV04QAxIrCidFRkZFQ1RfS05PV0xFREdFX1NUQVRFX0FDQ0VQVEVEX1BFTkRJTkcQBBIkCiBFRkZFQ1RfS05PV0xFREdFX1NUQVRFX0NPTkZJUk1FRBAFEi4KKkVGRkVDVF9LTk9XTEVER0VfU1RBVEVfQ09ORklSTUVEX05PX0VGRkVDVBAGEicKI0VGRkVDVF9LTk9XTEVER0VfU1RBVEVfQ09OVFJBRElDVEVEEAcqlQIKFEVmZmVjdEF0dGVtcHRPdXRjb21lEiYKIkVGRkVDVF9BVFRFTVBUX09VVENPTUVfVU5TUEVDSUZJRUQQABIuCipFRkZFQ1RfQVRURU1QVF9PVVRDT01FX0RFRklOSVRFTFlfTk9UX1NFTlQQARIiCh5FRkZFQ1RfQVRURU1QVF9PVVRDT01FX1VOS05PV04QAhIrCidFRkZFQ1RfQVRURU1QVF9PVVRDT01FX0FDQ0VQVEVEX1BFTkRJTkcQAxIkCiBFRkZFQ1RfQVRURU1QVF9PVVRDT01FX0NPTkZJUk1FRBAEEi4KKkVGRkVDVF9BVFRFTVBUX09VVENPTUVfQ09ORklSTUVEX05PX0VGRkVDVBAFKuUCChNFZmZlY3RBdHRlbXB0UmVhc29uEiUKIUVGRkVDVF9BVFRFTVBUX1JFQVNPTl9VTlNQRUNJRklFRBAAEiwKKEVGRkVDVF9BVFRFTVBUX1JFQVNPTl9DUkVERU5USUFMX1JFVk9LRUQQARItCilFRkZFQ1RfQVRURU1QVF9SRUFTT05fVElNRU9VVF9CRUZPUkVfU0VORBACEi4KKkVGRkVDVF9BVFRFTVBUX1JFQVNPTl9QUk9WSURFUl9VTkFWQUlMQUJMRRADEi4KKkVGRkVDVF9BVFRFTVBUX1JFQVNPTl9SRVNQT05TRV9QQVJTRV9FUlJPUhAEEi8KK0VGRkVDVF9BVFRFTVBUX1JFQVNPTl9SRVNQT05TRV9TQ0hFTUFfRVJST1IQBRI5CjVFRkZFQ1RfQVRURU1QVF9SRUFTT05fVElNRU9VVF9BRlRFUl9QT1NTSUJMRV9ERUxJVkVSWRAGKo4BChVFZmZlY3RFdmlkZW5jZU91dGNvbWUSJwojRUZGRUNUX0VWSURFTkNFX09VVENPTUVfVU5TUEVDSUZJRUQQABIlCiFFRkZFQ1RfRVZJREVOQ0VfT1VUQ09NRV9DT05GSVJNRUQQARIlCiFFRkZFQ1RfRVZJREVOQ0VfT1VUQ09NRV9OT19FRkZFQ1QQAjKRAgoNRWZmZWN0U2VydmljZRJQCglHZXRFZmZlY3QSIC56b2VuLmVmZmVjdC52MS5HZXRFZmZlY3RSZXF1ZXN0GiEuem9lbi5lZmZlY3QudjEuR2V0RWZmZWN0UmVzcG9uc2USXAoNUmVjb3JkQXR0ZW1wdBIkLnpvZW4uZWZmZWN0LnYxLlJlY29yZEF0dGVtcHRSZXF1ZXN0GiUuem9lbi5lZmZlY3QudjEuUmVjb3JkQXR0ZW1wdFJlc3BvbnNlElAKCVJlY29uY2lsZRIgLnpvZW4uZWZmZWN0LnYxLlJlY29uY2lsZVJlcXVlc3QaIS56b2VuLmVmZmVjdC52MS5SZWNvbmNpbGVSZXNwb25zZWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Cht6b2VuL2VmZmVjdC92MS9lZmZlY3QucHJvdG8SDnpvZW4uZWZmZWN0LnYxIucBCg1FZmZlY3RSZXF1ZXN0EhkKEWVmZmVjdF9yZXF1ZXN0X2lkGAEgASgJEhQKDG9wZXJhdGlvbl9pZBgCIAEoCRIXCg9pZGVtcG90ZW5jeV9rZXkYAyABKAkSFQoNaW50ZW50X2RpZ2VzdBgEIAEoCRIWCg5yZXF1ZXN0X2RpZ2VzdBgFIAEoCRIPCgdwYXlsb2FkGAYgASgMEjMKBXN0YXRlGAcgASgOMiQuem9lbi5lZmZlY3QudjEuRWZmZWN0S25vd2xlZGdlU3RhdGUSFwoPY29tbWl0X3NlcXVlbmNlGAggASgEIqkCCg1FZmZlY3RBdHRlbXB0EhIKCmF0dGVtcHRfaWQYASABKAkSHQoVcHJvdmlkZXJfb3BlcmF0aW9uX2lkGAIgASgJEhYKDnJlcXVlc3RfZGlnZXN0GAMgASgJEjUKB291dGNvbWUYBCABKA4yJC56b2VuLmVmZmVjdC52MS5FZmZlY3RBdHRlbXB0T3V0Y29tZRIzCgZyZWFzb24YBSABKA4yIy56b2VuLmVmZmVjdC52MS5FZmZlY3RBdHRlbXB0UmVhc29uEhcKD3Jlc3BvbnNlX2RpZ2VzdBgGIAEoCRIvCgtvYnNlcnZlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFwoPY29tbWl0X3NlcXVlbmNlGAggASgEIp8CCg5FZmZlY3RFdmlkZW5jZRITCgtldmlkZW5jZV9pZBgBIAEoCRIXCg9ldmlkZW5jZV9kaWdlc3QYAiABKAkSFwoPaWRlbXBvdGVuY3lfa2V5GAMgASgJEjYKB291dGNvbWUYBCABKA4yJS56b2VuLmVmZmVjdC52MS5FZmZlY3RFdmlkZW5jZU91dGNvbWUSEQoJc291cmNlX2lkGAUgASgJEhIKCnNvdXJjZV9yZWYYBiABKAkSLwoLb2JzZXJ2ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhcKD2NvbW1pdF9zZXF1ZW5jZRgIIAEoBBIdChVwcm92aWRlcl9vcGVyYXRpb25faWQYCSABKAkiwQEKFEVmZmVjdFJlY29uY2lsaWF0aW9uEhMKC2V2aWRlbmNlX2lkGAEgASgJEjwKDnByZXZpb3VzX3N0YXRlGAIgASgOMiQuem9lbi5lZmZlY3QudjEuRWZmZWN0S25vd2xlZGdlU3RhdGUSPQoPcmVzdWx0aW5nX3N0YXRlGAMgASgOMiQuem9lbi5lZmZlY3QudjEuRWZmZWN0S25vd2xlZGdlU3RhdGUSFwoPY29tbWl0X3NlcXVlbmNlGAQgASgEIuIBCg5FZmZlY3RTbmFwc2hvdBIuCgdyZXF1ZXN0GAEgASgLMh0uem9lbi5lZmZlY3QudjEuRWZmZWN0UmVxdWVzdBIvCghhdHRlbXB0cxgCIAMoCzIdLnpvZW4uZWZmZWN0LnYxLkVmZmVjdEF0dGVtcHQSMAoIZXZpZGVuY2UYAyADKAsyHi56b2VuLmVmZmVjdC52MS5FZmZlY3RFdmlkZW5jZRI9Cg9yZWNvbmNpbGlhdGlvbnMYBCADKAsyJC56b2VuLmVmZmVjdC52MS5FZmZlY3RSZWNvbmNpbGlhdGlvbiItChBHZXRFZmZlY3RSZXF1ZXN0EhkKEWVmZmVjdF9yZXF1ZXN0X2lkGAEgASgJIkUKEUdldEVmZmVjdFJlc3BvbnNlEjAKCHNuYXBzaG90GAEgASgLMh4uem9lbi5lZmZlY3QudjEuRWZmZWN0U25hcHNob3QigwIKEkVmZmVjdEF0dGVtcHRJbnB1dBISCgphdHRlbXB0X2lkGAEgASgJEh0KFXByb3ZpZGVyX29wZXJhdGlvbl9pZBgCIAEoCRI1CgdvdXRjb21lGAQgASgOMiQuem9lbi5lZmZlY3QudjEuRWZmZWN0QXR0ZW1wdE91dGNvbWUSMwoGcmVhc29uGAUgASgOMiMuem9lbi5lZmZlY3QudjEuRWZmZWN0QXR0ZW1wdFJlYXNvbhIXCg9yZXNwb25zZV9kaWdlc3QYBiABKAkSLwoLb2JzZXJ2ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSgQIAxAEIk4KE0NsYWltQXR0ZW1wdFJlcXVlc3QSGQoRZWZmZWN0X3JlcXVlc3RfaWQYASABKAkSHAoUYWRhcHRlcl9leGVjdXRpb25faWQYAiABKAkiWAoSRWZmZWN0QXR0ZW1wdENsYWltEhIKCmF0dGVtcHRfaWQYASABKAkSLgoHcmVxdWVzdBgCIAEoCzIdLnpvZW4uZWZmZWN0LnYxLkVmZmVjdFJlcXVlc3QiSQoUQ2xhaW1BdHRlbXB0UmVzcG9uc2USMQoFY2xhaW0YASABKAsyIi56b2VuLmVmZmVjdC52MS5FZmZlY3RBdHRlbXB0Q2xhaW0iZgoUUmVjb3JkQXR0ZW1wdFJlcXVlc3QSGQoRZWZmZWN0X3JlcXVlc3RfaWQYASABKAkSMwoHYXR0ZW1wdBgCIAEoCzIiLnpvZW4uZWZmZWN0LnYxLkVmZmVjdEF0dGVtcHRJbnB1dCJJChVSZWNvcmRBdHRlbXB0UmVzcG9uc2USMAoIc25hcHNob3QYASABKAsyHi56b2VuLmVmZmVjdC52MS5FZmZlY3RTbmFwc2hvdCKLAgoTRWZmZWN0RXZpZGVuY2VJbnB1dBITCgtldmlkZW5jZV9pZBgBIAEoCRIXCg9ldmlkZW5jZV9kaWdlc3QYAiABKAkSFwoPaWRlbXBvdGVuY3lfa2V5GAMgASgJEjYKB291dGNvbWUYBCABKA4yJS56b2VuLmVmZmVjdC52MS5FZmZlY3RFdmlkZW5jZU91dGNvbWUSEQoJc291cmNlX2lkGAUgASgJEhIKCnNvdXJjZV9yZWYYBiABKAkSLwoLb2JzZXJ2ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEh0KFXByb3ZpZGVyX29wZXJhdGlvbl9pZBgIIAEoCSJkChBSZWNvbmNpbGVSZXF1ZXN0EhkKEWVmZmVjdF9yZXF1ZXN0X2lkGAEgASgJEjUKCGV2aWRlbmNlGAIgASgLMiMuem9lbi5lZmZlY3QudjEuRWZmZWN0RXZpZGVuY2VJbnB1dCJFChFSZWNvbmNpbGVSZXNwb25zZRIwCghzbmFwc2hvdBgBIAEoCzIeLnpvZW4uZWZmZWN0LnYxLkVmZmVjdFNuYXBzaG90KugCChRFZmZlY3RLbm93bGVkZ2VTdGF0ZRImCiJFRkZFQ1RfS05PV0xFREdFX1NUQVRFX1VOU1BFQ0lGSUVEEAASKAokRUZGRUNUX0tOT1dMRURHRV9TVEFURV9OT1RfQVRURU1QVEVEEAESLgoqRUZGRUNUX0tOT1dMRURHRV9TVEFURV9ERUZJTklURUxZX05PVF9TRU5UEAISIgoeRUZGRUNUX0tOT1dMRURHRV9TVEFURV9VTktOT1dOEAMSKwonRUZGRUNUX0tOT1dMRURHRV9TVEFURV9BQ0NFUFRFRF9QRU5ESU5HEAQSJAogRUZGRUNUX0tOT1dMRURHRV9TVEFURV9DT05GSVJNRUQQBRIuCipFRkZFQ1RfS05PV0xFREdFX1NUQVRFX0NPTkZJUk1FRF9OT19FRkZFQ1QQBhInCiNFRkZFQ1RfS05PV0xFREdFX1NUQVRFX0NPTlRSQURJQ1RFRBAHKpUCChRFZmZlY3RBdHRlbXB0T3V0Y29tZRImCiJFRkZFQ1RfQVRURU1QVF9PVVRDT01FX1VOU1BFQ0lGSUVEEAASLgoqRUZGRUNUX0FUVEVNUFRfT1VUQ09NRV9ERUZJTklURUxZX05PVF9TRU5UEAESIgoeRUZGRUNUX0FUVEVNUFRfT1VUQ09NRV9VTktOT1dOEAISKwonRUZGRUNUX0FUVEVNUFRfT1VUQ09NRV9BQ0NFUFRFRF9QRU5ESU5HEAMSJAogRUZGRUNUX0FUVEVNUFRfT1VUQ09NRV9DT05GSVJNRUQQBBIuCipFRkZFQ1RfQVRURU1QVF9PVVRDT01FX0NPTkZJUk1FRF9OT19FRkZFQ1QQBSrlAgoTRWZmZWN0QXR0ZW1wdFJlYXNvbhIlCiFFRkZFQ1RfQVRURU1QVF9SRUFTT05fVU5TUEVDSUZJRUQQABIsCihFRkZFQ1RfQVRURU1QVF9SRUFTT05fQ1JFREVOVElBTF9SRVZPS0VEEAESLQopRUZGRUNUX0FUVEVNUFRfUkVBU09OX1RJTUVPVVRfQkVGT1JFX1NFTkQQAhIuCipFRkZFQ1RfQVRURU1QVF9SRUFTT05fUFJPVklERVJfVU5BVkFJTEFCTEUQAxIuCipFRkZFQ1RfQVRURU1QVF9SRUFTT05fUkVTUE9OU0VfUEFSU0VfRVJST1IQBBIvCitFRkZFQ1RfQVRURU1QVF9SRUFTT05fUkVTUE9OU0VfU0NIRU1BX0VSUk9SEAUSOQo1RUZGRUNUX0FUVEVNUFRfUkVBU09OX1RJTUVPVVRfQUZURVJfUE9TU0lCTEVfREVMSVZFUlkQBiqOAQoVRWZmZWN0RXZpZGVuY2VPdXRjb21lEicKI0VGRkVDVF9FVklERU5DRV9PVVRDT01FX1VOU1BFQ0lGSUVEEAASJQohRUZGRUNUX0VWSURFTkNFX09VVENPTUVfQ09ORklSTUVEEAESJQohRUZGRUNUX0VWSURFTkNFX09VVENPTUVfTk9fRUZGRUNUEAIy7AIKDUVmZmVjdFNlcnZpY2USUAoJR2V0RWZmZWN0EiAuem9lbi5lZmZlY3QudjEuR2V0RWZmZWN0UmVxdWVzdBohLnpvZW4uZWZmZWN0LnYxLkdldEVmZmVjdFJlc3BvbnNlElkKDENsYWltQXR0ZW1wdBIjLnpvZW4uZWZmZWN0LnYxLkNsYWltQXR0ZW1wdFJlcXVlc3QaJC56b2VuLmVmZmVjdC52MS5DbGFpbUF0dGVtcHRSZXNwb25zZRJcCg1SZWNvcmRBdHRlbXB0EiQuem9lbi5lZmZlY3QudjEuUmVjb3JkQXR0ZW1wdFJlcXVlc3QaJS56b2VuLmVmZmVjdC52MS5SZWNvcmRBdHRlbXB0UmVzcG9uc2USUAoJUmVjb25jaWxlEiAuem9lbi5lZmZlY3QudjEuUmVjb25jaWxlUmVxdWVzdBohLnpvZW4uZWZmZWN0LnYxLlJlY29uY2lsZVJlc3BvbnNlYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message zoen.effect.v1.EffectRequest
@@ -29,9 +29,9 @@ export type EffectRequest = Message<"zoen.effect.v1.EffectRequest"> & {
   operationId: string;
 
   /**
-   * @generated from field: string external_operation_id = 3;
+   * @generated from field: string idempotency_key = 3;
    */
-  externalOperationId: string;
+  idempotencyKey: string;
 
   /**
    * @generated from field: string intent_digest = 4;
@@ -76,9 +76,9 @@ export type EffectAttempt = Message<"zoen.effect.v1.EffectAttempt"> & {
   attemptId: string;
 
   /**
-   * @generated from field: string external_operation_id = 2;
+   * @generated from field: string provider_operation_id = 2;
    */
-  externalOperationId: string;
+  providerOperationId: string;
 
   /**
    * @generated from field: string request_digest = 3;
@@ -133,9 +133,9 @@ export type EffectEvidence = Message<"zoen.effect.v1.EffectEvidence"> & {
   evidenceDigest: string;
 
   /**
-   * @generated from field: string external_operation_id = 3;
+   * @generated from field: string idempotency_key = 3;
    */
-  externalOperationId: string;
+  idempotencyKey: string;
 
   /**
    * @generated from field: zoen.effect.v1.EffectEvidenceOutcome outcome = 4;
@@ -161,6 +161,11 @@ export type EffectEvidence = Message<"zoen.effect.v1.EffectEvidence"> & {
    * @generated from field: uint64 commit_sequence = 8;
    */
   commitSequence: bigint;
+
+  /**
+   * @generated from field: string provider_operation_id = 9;
+   */
+  providerOperationId: string;
 };
 
 /**
@@ -278,14 +283,9 @@ export type EffectAttemptInput = Message<"zoen.effect.v1.EffectAttemptInput"> & 
   attemptId: string;
 
   /**
-   * @generated from field: string external_operation_id = 2;
+   * @generated from field: string provider_operation_id = 2;
    */
-  externalOperationId: string;
-
-  /**
-   * @generated from field: string request_digest = 3;
-   */
-  requestDigest: string;
+  providerOperationId: string;
 
   /**
    * @generated from field: zoen.effect.v1.EffectAttemptOutcome outcome = 4;
@@ -316,6 +316,67 @@ export const EffectAttemptInputSchema: GenMessage<EffectAttemptInput> = /*@__PUR
   messageDesc(file_zoen_effect_v1_effect, 7);
 
 /**
+ * @generated from message zoen.effect.v1.ClaimAttemptRequest
+ */
+export type ClaimAttemptRequest = Message<"zoen.effect.v1.ClaimAttemptRequest"> & {
+  /**
+   * @generated from field: string effect_request_id = 1;
+   */
+  effectRequestId: string;
+
+  /**
+   * @generated from field: string adapter_execution_id = 2;
+   */
+  adapterExecutionId: string;
+};
+
+/**
+ * Describes the message zoen.effect.v1.ClaimAttemptRequest.
+ * Use `create(ClaimAttemptRequestSchema)` to create a new message.
+ */
+export const ClaimAttemptRequestSchema: GenMessage<ClaimAttemptRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_effect_v1_effect, 8);
+
+/**
+ * @generated from message zoen.effect.v1.EffectAttemptClaim
+ */
+export type EffectAttemptClaim = Message<"zoen.effect.v1.EffectAttemptClaim"> & {
+  /**
+   * @generated from field: string attempt_id = 1;
+   */
+  attemptId: string;
+
+  /**
+   * @generated from field: zoen.effect.v1.EffectRequest request = 2;
+   */
+  request?: EffectRequest | undefined;
+};
+
+/**
+ * Describes the message zoen.effect.v1.EffectAttemptClaim.
+ * Use `create(EffectAttemptClaimSchema)` to create a new message.
+ */
+export const EffectAttemptClaimSchema: GenMessage<EffectAttemptClaim> = /*@__PURE__*/
+  messageDesc(file_zoen_effect_v1_effect, 9);
+
+/**
+ * @generated from message zoen.effect.v1.ClaimAttemptResponse
+ */
+export type ClaimAttemptResponse = Message<"zoen.effect.v1.ClaimAttemptResponse"> & {
+  /**
+   * @generated from field: zoen.effect.v1.EffectAttemptClaim claim = 1;
+   */
+  claim?: EffectAttemptClaim | undefined;
+};
+
+/**
+ * Describes the message zoen.effect.v1.ClaimAttemptResponse.
+ * Use `create(ClaimAttemptResponseSchema)` to create a new message.
+ */
+export const ClaimAttemptResponseSchema: GenMessage<ClaimAttemptResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_effect_v1_effect, 10);
+
+/**
  * @generated from message zoen.effect.v1.RecordAttemptRequest
  */
 export type RecordAttemptRequest = Message<"zoen.effect.v1.RecordAttemptRequest"> & {
@@ -335,7 +396,7 @@ export type RecordAttemptRequest = Message<"zoen.effect.v1.RecordAttemptRequest"
  * Use `create(RecordAttemptRequestSchema)` to create a new message.
  */
 export const RecordAttemptRequestSchema: GenMessage<RecordAttemptRequest> = /*@__PURE__*/
-  messageDesc(file_zoen_effect_v1_effect, 8);
+  messageDesc(file_zoen_effect_v1_effect, 11);
 
 /**
  * @generated from message zoen.effect.v1.RecordAttemptResponse
@@ -352,7 +413,7 @@ export type RecordAttemptResponse = Message<"zoen.effect.v1.RecordAttemptRespons
  * Use `create(RecordAttemptResponseSchema)` to create a new message.
  */
 export const RecordAttemptResponseSchema: GenMessage<RecordAttemptResponse> = /*@__PURE__*/
-  messageDesc(file_zoen_effect_v1_effect, 9);
+  messageDesc(file_zoen_effect_v1_effect, 12);
 
 /**
  * @generated from message zoen.effect.v1.EffectEvidenceInput
@@ -369,9 +430,9 @@ export type EffectEvidenceInput = Message<"zoen.effect.v1.EffectEvidenceInput"> 
   evidenceDigest: string;
 
   /**
-   * @generated from field: string external_operation_id = 3;
+   * @generated from field: string idempotency_key = 3;
    */
-  externalOperationId: string;
+  idempotencyKey: string;
 
   /**
    * @generated from field: zoen.effect.v1.EffectEvidenceOutcome outcome = 4;
@@ -392,6 +453,11 @@ export type EffectEvidenceInput = Message<"zoen.effect.v1.EffectEvidenceInput"> 
    * @generated from field: google.protobuf.Timestamp observed_at = 7;
    */
   observedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: string provider_operation_id = 8;
+   */
+  providerOperationId: string;
 };
 
 /**
@@ -399,7 +465,7 @@ export type EffectEvidenceInput = Message<"zoen.effect.v1.EffectEvidenceInput"> 
  * Use `create(EffectEvidenceInputSchema)` to create a new message.
  */
 export const EffectEvidenceInputSchema: GenMessage<EffectEvidenceInput> = /*@__PURE__*/
-  messageDesc(file_zoen_effect_v1_effect, 10);
+  messageDesc(file_zoen_effect_v1_effect, 13);
 
 /**
  * @generated from message zoen.effect.v1.ReconcileRequest
@@ -421,7 +487,7 @@ export type ReconcileRequest = Message<"zoen.effect.v1.ReconcileRequest"> & {
  * Use `create(ReconcileRequestSchema)` to create a new message.
  */
 export const ReconcileRequestSchema: GenMessage<ReconcileRequest> = /*@__PURE__*/
-  messageDesc(file_zoen_effect_v1_effect, 11);
+  messageDesc(file_zoen_effect_v1_effect, 14);
 
 /**
  * @generated from message zoen.effect.v1.ReconcileResponse
@@ -438,7 +504,7 @@ export type ReconcileResponse = Message<"zoen.effect.v1.ReconcileResponse"> & {
  * Use `create(ReconcileResponseSchema)` to create a new message.
  */
 export const ReconcileResponseSchema: GenMessage<ReconcileResponse> = /*@__PURE__*/
-  messageDesc(file_zoen_effect_v1_effect, 12);
+  messageDesc(file_zoen_effect_v1_effect, 15);
 
 /**
  * @generated from enum zoen.effect.v1.EffectKnowledgeState
@@ -615,6 +681,14 @@ export const EffectService: GenService<{
     methodKind: "unary";
     input: typeof GetEffectRequestSchema;
     output: typeof GetEffectResponseSchema;
+  },
+  /**
+   * @generated from rpc zoen.effect.v1.EffectService.ClaimAttempt
+   */
+  claimAttempt: {
+    methodKind: "unary";
+    input: typeof ClaimAttemptRequestSchema;
+    output: typeof ClaimAttemptResponseSchema;
   },
   /**
    * @generated from rpc zoen.effect.v1.EffectService.RecordAttempt

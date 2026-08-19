@@ -6,17 +6,21 @@ use zoen_adapters::PostgresAuthorityStore;
 use zoen_core::{
     DefinitelyNotSentReason, EffectAttempt as CoreEffectAttempt, EffectAttemptId,
     EffectAttemptResult, EffectEvidence as CoreEffectEvidence, EffectEvidenceDigest,
-    EffectEvidenceId, EffectEvidenceOutcome as CoreEffectEvidenceOutcome,
+    EffectEvidenceId, EffectEvidenceOutcome as CoreEffectEvidenceOutcome, EffectIdempotencyKey,
     EffectKnowledgeState as CoreEffectKnowledgeState,
     EffectReconciliation as CoreEffectReconciliation, EffectRequest as CoreEffectRequest,
-    EffectRequestDigest, EffectRequestId, EffectResponseDigest,
-    EffectSnapshot as CoreEffectSnapshot, ExternalOperationId, SourceId,
+    EffectRequestId, EffectResponseDigest, EffectSnapshot as CoreEffectSnapshot,
+    ProviderOperationId, SourceId,
 };
-use zoen_engine::{EffectAttemptCommand, EffectEngine, EffectError, EffectReconcileCommand};
+use zoen_engine::{
+    EffectAttemptClaimCommand, EffectAttemptCommand, EffectEngine, EffectError,
+    EffectReconcileCommand,
+};
 
 use crate::auth::SessionRegistry;
 use crate::proto::zoen::effect::v1::{
-    EffectAttempt, EffectAttemptInput, EffectAttemptOutcome, EffectAttemptReason, EffectEvidence,
+    ClaimAttemptRequest, ClaimAttemptResponse, EffectAttempt, EffectAttemptClaim,
+    EffectAttemptInput, EffectAttemptOutcome, EffectAttemptReason, EffectEvidence,
     EffectEvidenceInput, EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation,
     EffectRequest, EffectService, EffectSnapshot, GetEffectRequest, GetEffectResponse,
     ReconcileRequest, ReconcileResponse, RecordAttemptRequest, RecordAttemptResponse,
@@ -50,6 +54,36 @@ impl EffectService for EffectServiceImpl {
             .map_err(map_effect_error)?;
         Response::ok(GetEffectResponse {
             snapshot: Some(to_snapshot(snapshot)).into(),
+            ..Default::default()
+        })
+    }
+
+    async fn claim_attempt(
+        &self,
+        context: RequestContext,
+        request: ServiceRequest<'_, ClaimAttemptRequest>,
+    ) -> ServiceResult<ClaimAttemptResponse> {
+        let execution_context = self.sessions.trusted_context(&context)?;
+        let effect_request_id = EffectRequestId::parse(request.effect_request_id)
+            .map_err(|error| invalid(error.to_string()))?;
+        let claim = self
+            .engine
+            .claim_attempt(
+                &execution_context,
+                &effect_request_id,
+                EffectAttemptClaimCommand {
+                    adapter_execution_id: request.adapter_execution_id.to_owned(),
+                },
+            )
+            .await
+            .map_err(map_effect_error)?;
+        Response::ok(ClaimAttemptResponse {
+            claim: Some(EffectAttemptClaim {
+                attempt_id: claim.attempt_id.as_str().to_owned(),
+                request: Some(to_request(claim.request)).into(),
+                ..Default::default()
+            })
+            .into(),
             ..Default::default()
         })
     }
@@ -126,41 +160,63 @@ fn parse_attempt(attempt: EffectAttemptInput) -> Result<EffectAttemptCommand, Co
         .reason
         .as_known()
         .ok_or_else(|| invalid("attempt reason is unknown"))?;
-    let result = match (outcome, reason, attempt.response_digest.as_str()) {
-        (EffectAttemptOutcome::DefinitelyNotSent, EffectAttemptReason::CredentialRevoked, "") => {
-            EffectAttemptResult::DefinitelyNotSent {
-                reason: DefinitelyNotSentReason::CredentialRevoked,
-            }
-        }
-        (EffectAttemptOutcome::DefinitelyNotSent, EffectAttemptReason::TimeoutBeforeSend, "") => {
-            EffectAttemptResult::DefinitelyNotSent {
-                reason: DefinitelyNotSentReason::TimeoutBeforeSend,
-            }
-        }
-        (EffectAttemptOutcome::Unknown, reason, response_digest) => EffectAttemptResult::Unknown {
-            reason: parse_unknown_reason(reason)?,
-            response_digest: (!response_digest.is_empty())
-                .then(|| EffectResponseDigest::parse(response_digest))
-                .transpose()
-                .map_err(|error| invalid(error.to_string()))?,
+    let result = match (
+        outcome,
+        reason,
+        attempt.provider_operation_id.as_str(),
+        attempt.response_digest.as_str(),
+    ) {
+        (
+            EffectAttemptOutcome::DefinitelyNotSent,
+            EffectAttemptReason::CredentialRevoked,
+            "",
+            "",
+        ) => EffectAttemptResult::DefinitelyNotSent {
+            reason: DefinitelyNotSentReason::CredentialRevoked,
         },
+        (
+            EffectAttemptOutcome::DefinitelyNotSent,
+            EffectAttemptReason::TimeoutBeforeSend,
+            "",
+            "",
+        ) => EffectAttemptResult::DefinitelyNotSent {
+            reason: DefinitelyNotSentReason::TimeoutBeforeSend,
+        },
+        (EffectAttemptOutcome::Unknown, reason, provider_operation_id, response_digest) => {
+            EffectAttemptResult::Unknown {
+                provider_operation_id: parse_optional_provider_operation_id(provider_operation_id)?,
+                reason: parse_unknown_reason(reason)?,
+                response_digest: (!response_digest.is_empty())
+                    .then(|| EffectResponseDigest::parse(response_digest))
+                    .transpose()
+                    .map_err(|error| invalid(error.to_string()))?,
+            }
+        }
         (
             EffectAttemptOutcome::AcceptedPending,
             EffectAttemptReason::Unspecified,
+            provider_operation_id,
             response_digest,
         ) => EffectAttemptResult::AcceptedPending {
+            provider_operation_id: parse_provider_operation_id(provider_operation_id)?,
             response_digest: parse_response_digest(response_digest)?,
         },
-        (EffectAttemptOutcome::Confirmed, EffectAttemptReason::Unspecified, response_digest) => {
-            EffectAttemptResult::Confirmed {
-                response_digest: parse_response_digest(response_digest)?,
-            }
-        }
+        (
+            EffectAttemptOutcome::Confirmed,
+            EffectAttemptReason::Unspecified,
+            provider_operation_id,
+            response_digest,
+        ) => EffectAttemptResult::Confirmed {
+            provider_operation_id: parse_provider_operation_id(provider_operation_id)?,
+            response_digest: parse_response_digest(response_digest)?,
+        },
         (
             EffectAttemptOutcome::ConfirmedNoEffect,
             EffectAttemptReason::Unspecified,
+            provider_operation_id,
             response_digest,
         ) => EffectAttemptResult::ConfirmedNoEffect {
+            provider_operation_id: parse_provider_operation_id(provider_operation_id)?,
             response_digest: parse_response_digest(response_digest)?,
         },
         _ => {
@@ -172,11 +228,7 @@ fn parse_attempt(attempt: EffectAttemptInput) -> Result<EffectAttemptCommand, Co
     Ok(EffectAttemptCommand {
         attempt_id: EffectAttemptId::parse(attempt.attempt_id)
             .map_err(|error| invalid(error.to_string()))?,
-        external_operation_id: ExternalOperationId::parse(attempt.external_operation_id)
-            .map_err(|error| invalid(error.to_string()))?,
         observed_at: parse_timestamp(observed_at)?,
-        request_digest: EffectRequestDigest::parse(attempt.request_digest)
-            .map_err(|error| invalid(error.to_string()))?,
         result,
     })
 }
@@ -198,10 +250,12 @@ fn parse_evidence(evidence: EffectEvidenceInput) -> Result<EffectReconcileComman
             .map_err(|error| invalid(error.to_string()))?,
         evidence_id: EffectEvidenceId::parse(evidence.evidence_id)
             .map_err(|error| invalid(error.to_string()))?,
-        external_operation_id: ExternalOperationId::parse(evidence.external_operation_id)
+        idempotency_key: EffectIdempotencyKey::parse(evidence.idempotency_key)
             .map_err(|error| invalid(error.to_string()))?,
         observed_at: parse_timestamp(observed_at)?,
         outcome,
+        provider_operation_id: ProviderOperationId::parse(evidence.provider_operation_id)
+            .map_err(|error| invalid(error.to_string()))?,
         source_id: SourceId::parse(evidence.source_id)
             .map_err(|error| invalid(error.to_string()))?,
         source_ref: evidence.source_ref,
@@ -236,6 +290,18 @@ fn parse_response_digest(value: &str) -> Result<EffectResponseDigest, ConnectErr
     EffectResponseDigest::parse(value).map_err(|error| invalid(error.to_string()))
 }
 
+fn parse_provider_operation_id(value: &str) -> Result<ProviderOperationId, ConnectError> {
+    ProviderOperationId::parse(value).map_err(|error| invalid(error.to_string()))
+}
+
+fn parse_optional_provider_operation_id(
+    value: &str,
+) -> Result<Option<ProviderOperationId>, ConnectError> {
+    (!value.is_empty())
+        .then(|| parse_provider_operation_id(value))
+        .transpose()
+}
+
 fn to_snapshot(snapshot: CoreEffectSnapshot) -> EffectSnapshot {
     EffectSnapshot {
         attempts: snapshot.attempts.into_iter().map(to_attempt).collect(),
@@ -254,7 +320,7 @@ fn to_request(request: CoreEffectRequest) -> EffectRequest {
     EffectRequest {
         commit_sequence: request.commit_sequence.get(),
         effect_request_id: request.effect_request_id.as_str().to_owned(),
-        external_operation_id: request.external_operation_id.as_str().to_owned(),
+        idempotency_key: request.idempotency_key.as_str().to_owned(),
         intent_digest: request.intent_digest.as_str().to_owned(),
         operation_id: request.operation_id.as_str().to_owned(),
         payload: request.payload,
@@ -265,7 +331,7 @@ fn to_request(request: CoreEffectRequest) -> EffectRequest {
 }
 
 fn to_attempt(attempt: CoreEffectAttempt) -> EffectAttempt {
-    let (outcome, reason, response_digest) = match attempt.result {
+    let (outcome, reason, provider_operation_id, response_digest) = match attempt.result {
         EffectAttemptResult::DefinitelyNotSent { reason } => (
             EffectAttemptOutcome::DefinitelyNotSent,
             match reason {
@@ -277,8 +343,10 @@ fn to_attempt(attempt: CoreEffectAttempt) -> EffectAttempt {
                 }
             },
             String::new(),
+            String::new(),
         ),
         EffectAttemptResult::Unknown {
+            provider_operation_id,
             reason,
             response_digest,
         } => (
@@ -297,32 +365,47 @@ fn to_attempt(attempt: CoreEffectAttempt) -> EffectAttempt {
                     EffectAttemptReason::TimeoutAfterPossibleDelivery
                 }
             },
+            provider_operation_id
+                .map(|id| id.as_str().to_owned())
+                .unwrap_or_default(),
             response_digest
                 .map(|digest| digest.as_str().to_owned())
                 .unwrap_or_default(),
         ),
-        EffectAttemptResult::AcceptedPending { response_digest } => (
+        EffectAttemptResult::AcceptedPending {
+            provider_operation_id,
+            response_digest,
+        } => (
             EffectAttemptOutcome::AcceptedPending,
             EffectAttemptReason::Unspecified,
+            provider_operation_id.as_str().to_owned(),
             response_digest.as_str().to_owned(),
         ),
-        EffectAttemptResult::Confirmed { response_digest } => (
+        EffectAttemptResult::Confirmed {
+            provider_operation_id,
+            response_digest,
+        } => (
             EffectAttemptOutcome::Confirmed,
             EffectAttemptReason::Unspecified,
+            provider_operation_id.as_str().to_owned(),
             response_digest.as_str().to_owned(),
         ),
-        EffectAttemptResult::ConfirmedNoEffect { response_digest } => (
+        EffectAttemptResult::ConfirmedNoEffect {
+            provider_operation_id,
+            response_digest,
+        } => (
             EffectAttemptOutcome::ConfirmedNoEffect,
             EffectAttemptReason::Unspecified,
+            provider_operation_id.as_str().to_owned(),
             response_digest.as_str().to_owned(),
         ),
     };
     EffectAttempt {
         attempt_id: attempt.attempt_id.as_str().to_owned(),
         commit_sequence: attempt.commit_sequence.get(),
-        external_operation_id: attempt.external_operation_id.as_str().to_owned(),
         observed_at: Some(to_timestamp(attempt.observed_at)).into(),
         outcome: outcome.into(),
+        provider_operation_id,
         reason: reason.into(),
         request_digest: attempt.request_digest.as_str().to_owned(),
         response_digest,
@@ -335,13 +418,14 @@ fn to_evidence(evidence: CoreEffectEvidence) -> EffectEvidence {
         commit_sequence: evidence.commit_sequence.get(),
         evidence_digest: evidence.digest.as_str().to_owned(),
         evidence_id: evidence.evidence_id.as_str().to_owned(),
-        external_operation_id: evidence.external_operation_id.as_str().to_owned(),
+        idempotency_key: evidence.idempotency_key.as_str().to_owned(),
         observed_at: Some(to_timestamp(evidence.observed_at)).into(),
         outcome: match evidence.outcome {
             CoreEffectEvidenceOutcome::Confirmed => EffectEvidenceOutcome::Confirmed,
             CoreEffectEvidenceOutcome::NoEffect => EffectEvidenceOutcome::NoEffect,
         }
         .into(),
+        provider_operation_id: evidence.provider_operation_id.as_str().to_owned(),
         source_id: evidence.source_id.as_str().to_owned(),
         source_ref: evidence.source_ref,
         ..Default::default()
@@ -377,6 +461,9 @@ fn map_effect_error(error: EffectError) -> ConnectError {
         }
         EffectError::InvalidEvidence(_) => {
             ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
+        }
+        EffectError::ForbiddenWorkload => {
+            ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
         }
         EffectError::Store(error) => crate::service::map_store_error(error),
         EffectError::UnsafeRetry(_) => {

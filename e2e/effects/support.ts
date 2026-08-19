@@ -28,6 +28,7 @@ export const restateIngress = "http://127.0.0.1:58085";
 export const restateAdmin = "http://127.0.0.1:59070";
 export const connectorUrl = "http://127.0.0.1:58087/v1/effects";
 export const providerUrl = "http://127.0.0.1:58086/v1/operations";
+export const connectorCallerToken = "connector-worker-token";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 
@@ -41,13 +42,15 @@ const tokenResponseSchema = z
 const providerOperationSchema = z
   .object({
     evidenceDigest: z.string().regex(/^[0-9a-f]{64}$/),
-    externalOperationId: z.string().min(1),
+    idempotencyKey: z.string().min(1),
     observedAtMicros: z.string().regex(/^[0-9]+$/),
     outcome: z.enum(["confirmed", "no_effect"]),
+    providerOperationId: z.string().min(1),
     requests: z.number().int().positive(),
     sourceRef: z.string().min(1),
   })
   .strict();
+const connectorStatusSchema = providerOperationSchema.omit({ requests: true });
 const invocationLookupSchema = z
   .object({ invocationId: z.string().min(1) })
   .passthrough();
@@ -57,6 +60,7 @@ export type DefinitionClient = Client<typeof DefinitionService>;
 export type EffectClient = Client<typeof EffectService>;
 export type WorldClient = Client<typeof WorldService>;
 export type ProviderOperation = z.infer<typeof providerOperationSchema>;
+export type ConnectorStatus = z.infer<typeof connectorStatusSchema>;
 
 export interface ManagedProcess {
   child: ChildProcessWithoutNullStreams;
@@ -127,15 +131,27 @@ export async function startFaultProvider(): Promise<ManagedProcess> {
 }
 
 export async function startConnector(options?: {
-  credentials?: Readonly<Record<string, string>>;
+  credentials?: Readonly<
+    Record<string, { readonly secret: string; readonly tenantId: string }>
+  >;
   timeoutMs?: number;
 }): Promise<ManagedProcess> {
   return startProcess({
     command: path.join(targetDirectory, "zoen-http-connector"),
     environment: {
       ZOEN_CONNECTOR_CREDENTIALS: JSON.stringify(
-        options?.credentials ?? { "secret.provider": "provider-secret" },
+        options?.credentials ?? {
+          "secret.provider.a": {
+            secret: "provider-secret",
+            tenantId: tenantA,
+          },
+          "secret.provider.b": {
+            secret: "provider-secret",
+            tenantId: tenantB,
+          },
+        },
       ),
+      ZOEN_CONNECTOR_CALLER_TOKEN: connectorCallerToken,
       ZOEN_CONNECTOR_LISTEN_ADDR: "127.0.0.1:58087",
       ZOEN_CONNECTOR_PROVIDER_TIMEOUT_MS: (
         options?.timeoutMs ?? 250
@@ -147,7 +163,10 @@ export async function startConnector(options?: {
   });
 }
 
-export async function startWorker(token: string): Promise<ManagedProcess> {
+export async function startWorker(tokens: {
+  readonly [tenantA]: string;
+  readonly [tenantB]: string;
+}): Promise<ManagedProcess> {
   return startProcess({
     command: process.execPath,
     arguments: [
@@ -160,12 +179,15 @@ export async function startWorker(token: string): Promise<ManagedProcess> {
       ),
     ],
     environment: {
-      ZOEN_CONNECTOR_CREDENTIAL_REF: "secret.provider",
+      ZOEN_CONNECTOR_CALLER_TOKEN: connectorCallerToken,
+      ZOEN_CONNECTOR_CREDENTIAL_REFS: JSON.stringify({
+        [tenantA]: "secret.provider.a",
+        [tenantB]: "secret.provider.b",
+      }),
       ZOEN_EFFECT_CONNECTOR_URL: connectorUrl,
-      ZOEN_EFFECT_SERVICE_BEARER_TOKEN: token,
+      ZOEN_EFFECT_SERVICE_BEARER_TOKENS: JSON.stringify(tokens),
       ZOEN_EFFECT_SERVICE_URL: zoenBaseUrl,
       ZOEN_EFFECT_WORKER_PORT: "58088",
-      ZOEN_EFFECT_WORKER_TENANT_ID: tenantA,
     },
     name: "Restate effect worker",
     port: 58_088,
@@ -212,8 +234,10 @@ export async function registerWorker(): Promise<string> {
 
 export async function lookupInvocation(
   effectRequestId: string,
+  dispatchVersion: string,
+  tenantId = tenantA,
 ): Promise<string> {
-  const key = `${tenantA}:${effectRequestId}`;
+  const key = `${tenantId}:${effectRequestId}:${dispatchVersion}`;
   const response = await fetch(`${restateIngress}/restate/lookup`, {
     body: JSON.stringify({
       handler: "execute",
@@ -250,10 +274,11 @@ export async function setProviderMode(
 }
 
 export async function providerOperation(
-  externalOperationId: string,
+  idempotencyKey: string,
 ): Promise<ProviderOperation | undefined> {
   const response = await fetch(
-    `http://127.0.0.1:58086/v1/operations/${encodeURIComponent(externalOperationId)}`,
+    `http://127.0.0.1:58086/v1/operations/by-idempotency/${encodeURIComponent(idempotencyKey)}`,
+    { headers: { authorization: "Bearer provider-secret" } },
   );
   if (response.status === 404) {
     return undefined;
@@ -261,6 +286,29 @@ export async function providerOperation(
   const body: unknown = await response.json();
   assert.equal(response.ok, true, JSON.stringify(body));
   return providerOperationSchema.parse(body);
+}
+
+export async function connectorStatus(
+  idempotencyKey: string,
+  tenantId = tenantA,
+  credentialRef = tenantId === tenantA
+    ? "secret.provider.a"
+    : "secret.provider.b",
+): Promise<ConnectorStatus | undefined> {
+  const response = await fetch(`${connectorUrl}/status`, {
+    body: JSON.stringify({ credentialRef, idempotencyKey, tenantId }),
+    headers: {
+      authorization: `Bearer ${connectorCallerToken}`,
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+  if (response.status === 404) {
+    return undefined;
+  }
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return connectorStatusSchema.parse(body);
 }
 
 export async function stopRestate(): Promise<void> {

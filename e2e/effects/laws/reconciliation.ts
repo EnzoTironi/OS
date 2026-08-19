@@ -16,6 +16,7 @@ import {
   evidenceCounts,
   evidenceInput,
   sha256,
+  waitForConnectorStatus,
   waitForProviderOperation,
   waitForState,
   type CommittedEffect,
@@ -25,6 +26,7 @@ import {
 export interface ReconciliationResults {
   accepted: CommittedEffect;
   ambiguous: CommittedEffect;
+  claimedRace: CommittedEffect;
   contradicted: EffectSnapshot;
   firstEvidence: ReturnType<typeof evidenceInput>;
 }
@@ -49,21 +51,26 @@ export async function verifyReconciliation(
     "remoteAcceptedRemainsPending",
     acceptedSnapshot.request?.state === EffectKnowledgeState.ACCEPTED_PENDING,
   );
-  const acceptedEvidence = await waitForProviderOperation(
-    accepted.effectRequestId,
+  const acceptedEvidence = await waitForConnectorStatus(
+    accepted.idempotencyKey,
+  );
+  scenario.recorder.observe(
+    "productionConnectorQueriesProviderStatus",
+    acceptedEvidence.idempotencyKey === accepted.idempotencyKey &&
+      acceptedEvidence.providerOperationId.startsWith("provider."),
   );
   const actionCommitsBeforeReconcile = await actionCommitCount(scenario.admin);
   const firstEvidence = evidenceInput(
     acceptedEvidence,
     "accepted-confirmed",
   );
-  const reconciled = await scenario.effectA.reconcile({
+  const reconciled = await scenario.effectReconcilerA.reconcile({
     effectRequestId: accepted.effectRequestId,
     evidence: firstEvidence,
   });
   assert.ok(reconciled.snapshot);
   scenario.recorder.state(reconciled.snapshot);
-  const duplicated = await scenario.effectA.reconcile({
+  const duplicated = await scenario.effectReconcilerA.reconcile({
     effectRequestId: accepted.effectRequestId,
     evidence: firstEvidence,
   });
@@ -76,16 +83,17 @@ export async function verifyReconciliation(
     "duplicateEvidenceIsIdempotent",
     duplicateCounts.evidence === 1 && duplicateCounts.reconciliations === 1,
   );
-  const contradicted = await scenario.effectA.reconcile({
+  const contradicted = await scenario.effectReconcilerA.reconcile({
     effectRequestId: accepted.effectRequestId,
     evidence: {
       evidenceDigest: sha256(
         `${accepted.effectRequestId}:no_effect:reordered`,
       ),
       evidenceId: "evidence.accepted-no-effect",
-      externalOperationId: accepted.effectRequestId,
+      idempotencyKey: accepted.idempotencyKey,
       observedAt: timestampFromDate(new Date()),
       outcome: EffectEvidenceOutcome.NO_EFFECT,
+      providerOperationId: acceptedEvidence.providerOperationId,
       sourceId: "source.provider-query",
       sourceRef: `urn:provider-query:${accepted.effectRequestId}:no-effect`,
     },
@@ -102,6 +110,56 @@ export async function verifyReconciliation(
       actionCommitsBeforeReconcile,
   );
 
+  await setProviderMode("hold_confirmed");
+  const claimedRace = await commitEffect(
+    scenario.actionA,
+    scenario.fixture,
+    "claim-reconcile-race",
+  );
+  await dispatchOnce();
+  const claimedRemote = await waitForProviderOperation(
+    claimedRace.idempotencyKey,
+  );
+  const beforeRaceReconcile = await scenario.admin.query<{
+    attempts: string;
+    claims: string;
+  }>(
+    `SELECT
+        (SELECT count(*)::text FROM effect_attempt_claims WHERE tenant_id = $1 AND effect_request_id = $2) AS claims,
+        (SELECT count(*)::text FROM effect_attempts WHERE tenant_id = $1 AND effect_request_id = $2) AS attempts`,
+    ["tenant.a", claimedRace.effectRequestId],
+  );
+  const reconciledDuringSend = await scenario.effectReconcilerA.reconcile({
+    effectRequestId: claimedRace.effectRequestId,
+    evidence: {
+      evidenceDigest: sha256(
+        `${claimedRace.idempotencyKey}:no_effect:while-send-pending`,
+      ),
+      evidenceId: "evidence.claim-race-no-effect",
+      idempotencyKey: claimedRace.idempotencyKey,
+      observedAt: timestampFromDate(new Date()),
+      outcome: EffectEvidenceOutcome.NO_EFFECT,
+      providerOperationId: claimedRemote.providerOperationId,
+      sourceId: "source.independent-audit",
+      sourceRef: `urn:independent-audit:${claimedRemote.providerOperationId}`,
+    },
+  });
+  assert.ok(reconciledDuringSend.snapshot);
+  const raceContradicted = await waitForState(
+    scenario.effectA,
+    claimedRace.effectRequestId,
+    EffectKnowledgeState.CONTRADICTED,
+  );
+  scenario.recorder.state(raceContradicted);
+  scenario.recorder.observe(
+    "attemptClaimPrecedesSendAndObservationSurvivesReconciliationRace",
+    beforeRaceReconcile.rows[0]?.claims === "1" &&
+      beforeRaceReconcile.rows[0]?.attempts === "0" &&
+      reconciledDuringSend.snapshot.request?.state ===
+        EffectKnowledgeState.CONFIRMED_NO_EFFECT &&
+      raceContradicted.attempts.length === 1,
+  );
+
   await setProviderMode("timeout_after_delivery");
   const ambiguous = await commitEffect(
     scenario.actionA,
@@ -116,7 +174,7 @@ export async function verifyReconciliation(
   );
   scenario.recorder.state(unknownSnapshot);
   const ambiguousRemote = await waitForProviderOperation(
-    ambiguous.effectRequestId,
+    ambiguous.idempotencyKey,
   );
   await delay(1_100);
   const ambiguousAfterDelay = await scenario.effectA.getEffect({
@@ -128,9 +186,12 @@ export async function verifyReconciliation(
     ambiguousAfterDelay.snapshot.request?.state ===
       EffectKnowledgeState.UNKNOWN && ambiguousRemote.requests === 1,
   );
-  const reconciledUnknown = await scenario.effectA.reconcile({
+  const reconciledUnknown = await scenario.effectReconcilerA.reconcile({
     effectRequestId: ambiguous.effectRequestId,
-    evidence: evidenceInput(ambiguousRemote, "ambiguous-confirmed"),
+    evidence: evidenceInput(
+      await waitForConnectorStatus(ambiguous.idempotencyKey),
+      "ambiguous-confirmed",
+    ),
   });
   assert.ok(reconciledUnknown.snapshot);
   scenario.recorder.state(reconciledUnknown.snapshot);
@@ -142,6 +203,7 @@ export async function verifyReconciliation(
   return {
     accepted,
     ambiguous,
+    claimedRace,
     contradicted: contradicted.snapshot,
     firstEvidence,
   };

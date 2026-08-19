@@ -26,6 +26,7 @@ pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
 pub use claim_store::{PostgresClaimLoader, PostgresClaimQuery};
 pub use effect_dispatcher::{
+    DispatchAcceptance, DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
     EffectDispatchOutcome, EffectDispatchResult, PostgresEffectDispatcher,
 };
 pub use effect_store::PostgresEffectUpdate;

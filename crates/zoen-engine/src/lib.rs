@@ -23,9 +23,9 @@ pub use action::{
     read_action_state_basis,
 };
 pub use effect::{
-    EffectAttemptCommand, EffectEngine, EffectError, EffectReconcileCommand, EffectScheduleCommand,
-    EffectScheduleError, EffectScheduler, EffectUpdateTransaction, ScheduledEffect,
-    effect_state_after_attempt, effect_state_after_evidence,
+    EffectAttemptClaim, EffectAttemptClaimCommand, EffectAttemptCommand, EffectEngine, EffectError,
+    EffectReconcileCommand, EffectUpdateTransaction, effect_state_after_attempt,
+    effect_state_after_evidence,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

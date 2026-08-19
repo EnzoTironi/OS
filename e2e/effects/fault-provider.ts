@@ -16,7 +16,7 @@ const controlSchema = z.object({ mode: modeSchema }).strict();
 const operationSchema = z
   .object({
     effectRequestId: z.string().min(1),
-    externalOperationId: z.string().min(1),
+    idempotencyKey: z.string().min(1),
     payloadBase64: z.string(),
     requestDigest: z.string().regex(/^[0-9a-f]{64}$/),
     tenantId: z.string().min(1),
@@ -26,9 +26,10 @@ const operationSchema = z
 type FaultMode = z.infer<typeof modeSchema>;
 
 interface StoredOperation {
-  externalOperationId: string;
+  idempotencyKey: string;
   mode: FaultMode;
   observedAtMicros: string;
+  providerOperationId: string;
   requests: number;
 }
 
@@ -66,10 +67,17 @@ async function route(
     return;
   }
   if (request.method === "GET" && url.pathname.startsWith("/v1/operations/")) {
-    const externalOperationId = decodeURIComponent(
-      url.pathname.slice("/v1/operations/".length),
-    );
-    const operation = operationsById.get(externalOperationId);
+    if (request.headers.authorization !== "Bearer provider-secret") {
+      sendJson(response, 401, { error: "credential rejected" });
+      return;
+    }
+    const path = url.pathname.slice("/v1/operations/".length);
+    const operation =
+      path.startsWith("by-idempotency/")
+        ? operationsByKey.get(
+            decodeURIComponent(path.slice("by-idempotency/".length)),
+          )
+        : operationsById.get(decodeURIComponent(path));
     if (operation === undefined) {
       sendJson(response, 404, { error: "operation not found" });
       return;
@@ -78,13 +86,14 @@ async function route(
       operation.mode === "confirmed_no_effect" ? "no_effect" : "confirmed";
     sendJson(response, 200, {
       evidenceDigest: sha256(
-        `${externalOperationId}:${outcome}:${operation.observedAtMicros}`,
+        `${operation.providerOperationId}:${outcome}:${operation.observedAtMicros}`,
       ),
-      externalOperationId,
+      idempotencyKey: operation.idempotencyKey,
       observedAtMicros: operation.observedAtMicros,
       outcome,
+      providerOperationId: operation.providerOperationId,
       requests: operation.requests,
-      sourceRef: `urn:provider-operation:${externalOperationId}`,
+      sourceRef: `urn:provider-operation:${operation.providerOperationId}`,
     });
     return;
   }
@@ -103,19 +112,21 @@ async function route(
       return;
     }
     const input = operationSchema.parse(await readJson(request));
+    if (input.idempotencyKey !== idempotencyKey) {
+      sendJson(response, 400, { error: "idempotency key mismatch" });
+      return;
+    }
     let operation = operationsByKey.get(idempotencyKey);
     if (operation === undefined) {
       operation = {
-        externalOperationId: input.externalOperationId,
+        idempotencyKey,
         mode,
         observedAtMicros: nowMicros(),
+        providerOperationId: `provider.${sha256(idempotencyKey).slice(0, 24)}`,
         requests: 0,
       };
       operationsByKey.set(idempotencyKey, operation);
-      operationsById.set(input.externalOperationId, operation);
-    } else if (operation.externalOperationId !== input.externalOperationId) {
-      sendJson(response, 409, { error: "idempotency identity conflict" });
-      return;
+      operationsById.set(operation.providerOperationId, operation);
     }
     operation.requests += 1;
     await respondForMode(response, operation);
@@ -131,20 +142,20 @@ async function respondForMode(
   switch (operation.mode) {
     case "accepted_pending":
       sendJson(response, 202, {
-        externalOperationId: operation.externalOperationId,
         outcome: "accepted_pending",
+        providerOperationId: operation.providerOperationId,
       });
       return;
     case "confirmed":
       sendJson(response, 200, {
-        externalOperationId: operation.externalOperationId,
         outcome: "confirmed",
+        providerOperationId: operation.providerOperationId,
       });
       return;
     case "confirmed_no_effect":
       sendJson(response, 200, {
-        externalOperationId: operation.externalOperationId,
         outcome: "confirmed_no_effect",
+        providerOperationId: operation.providerOperationId,
       });
       return;
     case "hold_confirmed":
@@ -152,8 +163,8 @@ async function respondForMode(
         await delay(2_000);
       }
       sendJson(response, 200, {
-        externalOperationId: operation.externalOperationId,
         outcome: "confirmed",
+        providerOperationId: operation.providerOperationId,
       });
       return;
     case "parse_error":
@@ -166,8 +177,8 @@ async function respondForMode(
     case "timeout_after_delivery":
       await delay(1_000);
       sendJson(response, 200, {
-        externalOperationId: operation.externalOperationId,
         outcome: "confirmed",
+        providerOperationId: operation.providerOperationId,
       });
       return;
     case "unavailable":

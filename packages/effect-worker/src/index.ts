@@ -1,27 +1,33 @@
 import { createHash } from "node:crypto";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { createClient, type Interceptor } from "@connectrpc/connect";
+import {
+  Code,
+  ConnectError,
+  createClient,
+  type Interceptor,
+} from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import * as restate from "@restatedev/restate-sdk";
 import { z } from "zod";
 import {
   EffectAttemptOutcome,
   EffectAttemptReason,
-  EffectKnowledgeState,
   EffectService,
 } from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
 
+const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
 const environmentSchema = z.object({
-  ZOEN_CONNECTOR_CREDENTIAL_REF: z.string().min(1),
+  ZOEN_CONNECTOR_CALLER_TOKEN: z.string().min(1),
+  ZOEN_CONNECTOR_CREDENTIAL_REFS: z.string().min(1),
   ZOEN_EFFECT_CONNECTOR_URL: z.url(),
-  ZOEN_EFFECT_SERVICE_BEARER_TOKEN: z.string().min(1),
+  ZOEN_EFFECT_SERVICE_BEARER_TOKENS: z.string().min(1),
   ZOEN_EFFECT_SERVICE_URL: z.url(),
   ZOEN_EFFECT_WORKER_PORT: z.coerce.number().int().min(1).max(65_535),
-  ZOEN_EFFECT_WORKER_TENANT_ID: z.string().min(1),
 });
 
 const dispatchInputSchema = z
   .object({
+    dispatchVersion: z.number().int().positive(),
     effectRequestId: z.string().min(1),
     tenantId: z.string().min(1),
   })
@@ -43,6 +49,7 @@ const connectorOutcomeSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("unknown"),
       observedAtMicros: observedAtSchema,
+      providerOperationId: z.string().min(1).optional(),
       reason: z.enum([
         "provider_unavailable",
         "response_parse_error",
@@ -54,25 +61,25 @@ const connectorOutcomeSchema = z.discriminatedUnion("kind", [
     .strict(),
   z
     .object({
-      externalOperationId: z.string().min(1),
       kind: z.literal("accepted_pending"),
       observedAtMicros: observedAtSchema,
+      providerOperationId: z.string().min(1),
       responseDigest: digestSchema,
     })
     .strict(),
   z
     .object({
-      externalOperationId: z.string().min(1),
       kind: z.literal("confirmed"),
       observedAtMicros: observedAtSchema,
+      providerOperationId: z.string().min(1),
       responseDigest: digestSchema,
     })
     .strict(),
   z
     .object({
-      externalOperationId: z.string().min(1),
       kind: z.literal("confirmed_no_effect"),
       observedAtMicros: observedAtSchema,
+      providerOperationId: z.string().min(1),
       responseDigest: digestSchema,
     })
     .strict(),
@@ -82,7 +89,7 @@ type ConnectorOutcome = z.infer<typeof connectorOutcomeSchema>;
 
 interface EffectDispatchRequest {
   effectRequestId: string;
-  externalOperationId: string;
+  idempotencyKey: string;
   payloadBase64: string;
   requestDigest: string;
 }
@@ -90,64 +97,73 @@ interface EffectDispatchRequest {
 interface AttemptResult {
   outcome: EffectAttemptOutcome;
   reason: EffectAttemptReason;
-  responseDigest: string;
 }
 
-const environment = environmentSchema.parse(process.env);
-const authorization: Interceptor = (next) => async (request) => {
-  request.header.set(
-    "authorization",
-    `Bearer ${environment.ZOEN_EFFECT_SERVICE_BEARER_TOKEN}`,
-  );
-  return next(request);
+type AttemptClaim =
+  | { kind: "not_sendable" }
+  | ({
+      attemptId: string;
+      kind: "claimed";
+    } & EffectDispatchRequest);
+
+const rawEnvironment = environmentSchema.parse(process.env);
+const environment = {
+  ...rawEnvironment,
+  ZOEN_CONNECTOR_CREDENTIAL_REFS: parseStringMap(
+    rawEnvironment.ZOEN_CONNECTOR_CREDENTIAL_REFS,
+  ),
+  ZOEN_EFFECT_SERVICE_BEARER_TOKENS: parseStringMap(
+    rawEnvironment.ZOEN_EFFECT_SERVICE_BEARER_TOKENS,
+  ),
 };
-const effectClient = createClient(
-  EffectService,
-  createConnectTransport({
-    baseUrl: environment.ZOEN_EFFECT_SERVICE_URL,
-    httpVersion: "1.1",
-    interceptors: [authorization],
-  }),
-);
 
 const zoenEffect = restate.object({
   name: "ZoenEffect",
   handlers: {
     execute: async (context: restate.ObjectContext, input: unknown) => {
       const command = dispatchInputSchema.parse(input);
-      const expectedKey = `${command.tenantId}:${command.effectRequestId}`;
-      if (
-        context.key !== expectedKey ||
-        command.tenantId !== environment.ZOEN_EFFECT_WORKER_TENANT_ID
-      ) {
+      const expectedKey = `${command.tenantId}:${command.effectRequestId}:${command.dispatchVersion}`;
+      if (context.key !== expectedKey) {
         throw new restate.TerminalError(
-          "effect invocation key does not match the trusted tenant and effect identity",
+          "effect invocation key does not match the tenant, effect, and knowledge revision",
         );
       }
-
-      const effect = await context.run("load effect request", async () => {
-        const response = await effectClient.getEffect({
-          effectRequestId: command.effectRequestId,
-        });
-        const request = response.snapshot?.request;
-        if (request === undefined) {
-          throw new restate.TerminalError(
-            "EffectService returned no effect request",
-          );
-        }
-        return {
-          effectRequestId: request.effectRequestId,
-          externalOperationId: request.externalOperationId,
-          payloadBase64: Buffer.from(request.payload).toString("base64"),
-          requestDigest: request.requestDigest,
-          state: request.state,
-        };
-      });
-
-      if (
-        effect.state !== EffectKnowledgeState.NOT_ATTEMPTED &&
-        effect.state !== EffectKnowledgeState.DEFINITELY_NOT_SENT
-      ) {
+      const client = effectClient(command.tenantId);
+      const claim = await context.run(
+        "claim effect attempt",
+        async (): Promise<AttemptClaim> => {
+          try {
+            const response = await client.claimAttempt({
+              adapterExecutionId: context.request().id,
+              effectRequestId: command.effectRequestId,
+            });
+            const claimed = response.claim;
+            const request = claimed?.request;
+            if (claimed === undefined || request === undefined) {
+              throw new restate.TerminalError(
+                "EffectService returned no attempt claim",
+              );
+            }
+            return {
+              attemptId: claimed.attemptId,
+              effectRequestId: request.effectRequestId,
+              idempotencyKey: request.idempotencyKey,
+              kind: "claimed",
+              payloadBase64: Buffer.from(request.payload).toString("base64"),
+              requestDigest: request.requestDigest,
+            };
+          } catch (error: unknown) {
+            if (
+              error instanceof ConnectError &&
+              error.code === Code.FailedPrecondition
+            ) {
+              return { kind: "not_sendable" };
+            }
+            throw error;
+          }
+        },
+      );
+      if (claim.kind === "not_sendable") {
         return;
       }
 
@@ -156,7 +172,10 @@ const zoenEffect = restate.object({
         outcome = await context.run(
           "invoke external connector",
           async () => {
-            const result = await invokeConnector(effect, command.tenantId);
+            const result = await invokeConnector(
+              claim,
+              command.tenantId,
+            );
             if (
               result.kind === "definitely_not_sent" &&
               result.reason === "timeout_before_send"
@@ -187,17 +206,16 @@ const zoenEffect = restate.object({
 
       const result = toAttemptResult(outcome);
       await context.run("record effect attempt", async () => {
-        await effectClient.recordAttempt({
+        await client.recordAttempt({
           attempt: {
-            attemptId: `attempt.restate.${context.request().id}`,
-            externalOperationId: effect.externalOperationId,
+            attemptId: claim.attemptId,
             observedAt: timestampFromMicros(outcome.observedAtMicros),
             outcome: result.outcome,
+            providerOperationId: providerOperationId(outcome),
             reason: result.reason,
-            requestDigest: effect.requestDigest,
-            responseDigest: result.responseDigest,
+            responseDigest: responseDigest(outcome),
           },
-          effectRequestId: effect.effectRequestId,
+          effectRequestId: claim.effectRequestId,
         });
         return "recorded";
       });
@@ -205,34 +223,75 @@ const zoenEffect = restate.object({
   },
 });
 
+function effectClient(tenantId: string) {
+  const token = environment.ZOEN_EFFECT_SERVICE_BEARER_TOKENS[tenantId];
+  if (token === undefined) {
+    throw new restate.TerminalError(
+      "effect worker has no service credential for the invocation tenant",
+    );
+  }
+  const authorization: Interceptor = (next) => async (request) => {
+    request.header.set("authorization", `Bearer ${token}`);
+    return next(request);
+  };
+  return createClient(
+    EffectService,
+    createConnectTransport({
+      baseUrl: environment.ZOEN_EFFECT_SERVICE_URL,
+      httpVersion: "1.1",
+      interceptors: [authorization],
+    }),
+  );
+}
+
 async function invokeConnector(
   request: EffectDispatchRequest,
   tenantId: string,
 ): Promise<ConnectorOutcome> {
+  const credentialRef = environment.ZOEN_CONNECTOR_CREDENTIAL_REFS[tenantId];
+  if (credentialRef === undefined) {
+    throw new restate.TerminalError(
+      "effect worker has no connector credential reference for the invocation tenant",
+    );
+  }
   let response: Response;
   try {
     response = await fetch(environment.ZOEN_EFFECT_CONNECTOR_URL, {
       body: JSON.stringify({
-        credentialRef: environment.ZOEN_CONNECTOR_CREDENTIAL_REF,
+        credentialRef,
         effectRequestId: request.effectRequestId,
-        externalOperationId: request.externalOperationId,
+        idempotencyKey: request.idempotencyKey,
         payloadBase64: request.payloadBase64,
         requestDigest: request.requestDigest,
         tenantId,
       }),
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: `Bearer ${environment.ZOEN_CONNECTOR_CALLER_TOKEN}`,
+        "content-type": "application/json",
+      },
       method: "POST",
     });
-  } catch {
-    return {
-      kind: "unknown",
-      observedAtMicros: nowMicros(),
-      reason: "timeout_after_possible_delivery",
-    };
+  } catch (error: unknown) {
+    return isPreSendConnectorFailure(error)
+      ? {
+          kind: "definitely_not_sent",
+          observedAtMicros: nowMicros(),
+          reason: "timeout_before_send",
+        }
+      : {
+          kind: "unknown",
+          observedAtMicros: nowMicros(),
+          reason: "timeout_after_possible_delivery",
+        };
+  }
+  if (!response.ok) {
+    throw new Error(
+      `connector rejected effect request with HTTP ${response.status}`,
+    );
   }
 
   const body = new Uint8Array(await response.arrayBuffer());
-  const responseDigest = createHash("sha256").update(body).digest("hex");
+  const responseDigestValue = createHash("sha256").update(body).digest("hex");
   let value: unknown;
   try {
     value = JSON.parse(new TextDecoder().decode(body));
@@ -241,7 +300,7 @@ async function invokeConnector(
       kind: "unknown",
       observedAtMicros: nowMicros(),
       reason: "response_parse_error",
-      responseDigest,
+      responseDigest: responseDigestValue,
     };
   }
   const parsed = connectorOutcomeSchema.safeParse(value);
@@ -250,18 +309,7 @@ async function invokeConnector(
       kind: "unknown",
       observedAtMicros: nowMicros(),
       reason: "response_schema_error",
-      responseDigest,
-    };
-  }
-  if (
-    "externalOperationId" in parsed.data &&
-    parsed.data.externalOperationId !== request.externalOperationId
-  ) {
-    return {
-      kind: "unknown",
-      observedAtMicros: nowMicros(),
-      reason: "response_schema_error",
-      responseDigest,
+      responseDigest: responseDigestValue,
     };
   }
   return parsed.data;
@@ -276,31 +324,26 @@ function toAttemptResult(outcome: ConnectorOutcome): AttemptResult {
           outcome.reason === "credential_revoked"
             ? EffectAttemptReason.CREDENTIAL_REVOKED
             : EffectAttemptReason.TIMEOUT_BEFORE_SEND,
-        responseDigest: "",
       };
     case "unknown":
       return {
         outcome: EffectAttemptOutcome.UNKNOWN,
         reason: unknownReason(outcome.reason),
-        responseDigest: outcome.responseDigest ?? "",
       };
     case "accepted_pending":
       return {
         outcome: EffectAttemptOutcome.ACCEPTED_PENDING,
         reason: EffectAttemptReason.UNSPECIFIED,
-        responseDigest: outcome.responseDigest,
       };
     case "confirmed":
       return {
         outcome: EffectAttemptOutcome.CONFIRMED,
         reason: EffectAttemptReason.UNSPECIFIED,
-        responseDigest: outcome.responseDigest,
       };
     case "confirmed_no_effect":
       return {
         outcome: EffectAttemptOutcome.CONFIRMED_NO_EFFECT,
         reason: EffectAttemptReason.UNSPECIFIED,
-        responseDigest: outcome.responseDigest,
       };
     default: {
       const exhaustive: never = outcome;
@@ -328,6 +371,32 @@ function unknownReason(
   }
 }
 
+function providerOperationId(outcome: ConnectorOutcome): string {
+  return "providerOperationId" in outcome
+    ? (outcome.providerOperationId ?? "")
+    : "";
+}
+
+function responseDigest(outcome: ConnectorOutcome): string {
+  return "responseDigest" in outcome ? (outcome.responseDigest ?? "") : "";
+}
+
+function isPreSendConnectorFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const cause = error.cause;
+  if (
+    typeof cause !== "object" ||
+    cause === null ||
+    !("code" in cause) ||
+    typeof cause.code !== "string"
+  ) {
+    return false;
+  }
+  return ["EAI_AGAIN", "ECONNREFUSED", "ENOTFOUND"].includes(cause.code);
+}
+
 function timestampFromMicros(value: string) {
   const milliseconds = Number(BigInt(value) / 1_000n);
   return timestampFromDate(new Date(milliseconds));
@@ -335,6 +404,11 @@ function timestampFromMicros(value: string) {
 
 function nowMicros(): string {
   return (BigInt(Date.now()) * 1_000n).toString();
+}
+
+function parseStringMap(value: string): Record<string, string> {
+  const parsed: unknown = JSON.parse(value);
+  return stringMapSchema.parse(parsed);
 }
 
 await restate.serve({
