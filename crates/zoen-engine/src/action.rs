@@ -885,6 +885,14 @@ fn lineage_role_name(role: LineageRole) -> &'static str {
     }
 }
 
+fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
+    bytes
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use zoen_core::{CommitSequence, SourceId};
@@ -917,12 +925,4 @@ mod tests {
             legacy
         );
     }
-}
-
-fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
