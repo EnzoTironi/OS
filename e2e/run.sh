@@ -29,6 +29,7 @@ npm run build
 
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo build --locked --workspace
 cargo test --locked --workspace
 test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
 
