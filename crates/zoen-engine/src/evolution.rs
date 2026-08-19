@@ -4,7 +4,7 @@ use zoen_core::{
     ActionDefinition, CanonicalDefinition, ComputationDefinition, DefinitionChange,
     DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactArea,
     DefinitionReference, DefinitionRevision, EvolutionClassification, EvolutionPlan,
-    RelationDefinition, RelationTarget, TypeDefinition, expression_relations,
+    RelationDefinition, RelationTarget, expression_relations,
 };
 
 pub(crate) fn plan(
@@ -79,6 +79,7 @@ pub(crate) fn plan(
         .filter(|change| change.change != DefinitionChangeKind::Added)
         .map(|change| change.id.clone())
         .collect::<BTreeSet<_>>();
+    let unchanged_record_elements = unchanged_record_elements(from, &changes);
 
     EvolutionPlan {
         changes,
@@ -119,7 +120,7 @@ pub(crate) fn plan(
                 affected: changed_existing_elements.into_iter().collect(),
                 area: DefinitionImpactArea::StoredSemanticRecords,
                 rationale: stored_record_rationale(classification),
-                unaffected: unchanged_record_elements(from, &changes),
+                unaffected: unchanged_record_elements,
             },
             DefinitionImpact {
                 affected: changed_query_elements.into_iter().collect(),
