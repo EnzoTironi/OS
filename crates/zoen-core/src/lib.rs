@@ -3,11 +3,21 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 mod effect;
+mod history;
 
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
     EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation, EffectRequest,
     EffectSnapshot, UnknownEffectReason,
+};
+pub use history::{
+    ActionProposalStructure, CausalActionExplanation, CausalActionInput, CausalActionProposal,
+    CausalClaim, CausalClaimExplanation, CausalClaimStructure, CausalCommit, CausalEffect,
+    CausalEffectRequest, CausalEffectRequestStructure, CausalExplanation, CausalReference,
+    CausalStateBasis, DecisionReference, DefinitionEvidence, EffectDispatchEvidence,
+    EffectDispatchOutcome, EvidenceClass, ExplanationGap, ExplanationPayload, ExplanationSubject,
+    ExplanationTarget, GapReason, PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage,
+    RedactionReason, StateBasisStage,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -190,8 +200,15 @@ sha256_digest!(IntentDigest);
 sha256_digest!(EffectEvidenceDigest);
 sha256_digest!(EffectRequestDigest);
 sha256_digest!(EffectResponseDigest);
+sha256_digest!(PayloadDigest);
 sha256_digest!(PolicyDigest);
 sha256_digest!(StateBasisDigest);
+
+impl PayloadDigest {
+    pub fn from_sha256(bytes: [u8; 32]) -> Self {
+        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DefinitionRevisionNumber(u64);
@@ -996,7 +1013,10 @@ pub struct StateDependency {
     pub commit_sequence: CommitSequence,
     pub entity_id: EntityId,
     pub relation_id: RelationId,
+    pub role: LineageRole,
     pub source_digest: EvidenceDigest,
+    pub source_id: SourceId,
+    pub source_ref: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1049,6 +1069,7 @@ pub enum CommitIdentityKind {
 pub struct CommitReceipt {
     pub action_id: ActionId,
     pub commit_sequence: CommitSequence,
+    pub commit_state_basis: Option<StateBasis>,
     pub committed_by: TrustedExecutionContext,
     pub definition: DefinitionReference,
     pub effect_request_ids: Vec<EffectRequestId>,

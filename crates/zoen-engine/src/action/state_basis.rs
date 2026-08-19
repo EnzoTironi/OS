@@ -213,7 +213,10 @@ fn state_dependency(dependency: LineageDependency) -> StateDependency {
         commit_sequence: dependency.commit_sequence,
         entity_id: dependency.entity_id,
         relation_id: dependency.relation_id,
+        role: dependency.role,
         source_digest: dependency.source_digest,
+        source_id: dependency.source_id,
+        source_ref: dependency.source_ref,
     }
 }
 
@@ -255,11 +258,13 @@ fn sort_semantic_values(values: &mut [SemanticValue]) {
 fn sort_state_dependencies(dependencies: &mut [StateDependency]) {
     dependencies.sort_by(|left, right| {
         (
+            left.role,
             left.relation_id.as_str(),
             left.claim_id.as_str(),
             left.commit_sequence,
         )
             .cmp(&(
+                right.role,
                 right.relation_id.as_str(),
                 right.claim_id.as_str(),
                 right.commit_sequence,

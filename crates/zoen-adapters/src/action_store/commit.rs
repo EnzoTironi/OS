@@ -2,6 +2,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{ActionProposal, CommitReceipt, ExecutionContext};
 use zoen_engine::{
     ActionCommitTransaction, CommitPlan, CommitPreparation, CommitStoreOutcome, StoreError,
+    state_basis_digest_matches,
 };
 
 use crate::{set_tenant, store_unavailable};
@@ -74,7 +75,12 @@ impl ActionCommitTransaction for PostgresActionCommit {
             mut transaction,
         } = self;
         let current_basis = load_current(&mut transaction, &context, &plan.proposal, head).await?;
-        if current_basis.digest != plan.proposal.state_basis.digest {
+        let basis_matches = state_basis_digest_matches(
+            &current_basis.dependencies,
+            &plan.proposal.state_basis.digest,
+        )
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+        if !basis_matches {
             transaction.commit().await.map_err(store_unavailable)?;
             return Ok(CommitStoreOutcome::Stale(current_basis));
         }
@@ -101,6 +107,7 @@ impl ActionCommitTransaction for PostgresActionCommit {
         let receipt = CommitReceipt {
             action_id: plan.proposal.action_id.clone(),
             commit_sequence,
+            commit_state_basis: Some(current_basis),
             committed_by: context.clone(),
             definition: plan.proposal.definition.clone(),
             effect_request_ids: plan

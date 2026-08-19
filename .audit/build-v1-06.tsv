@@ -1,0 +1,15 @@
+ts	phase	decision	why	evidence	result
+2026-08-19T11:49:05Z	frame	Defined completion as a fresh production-shaped explain E2E that proves the ticket laws	The official command and derived evidence are the acceptance boundary	issue #196, docs/adr/0021-v1-end-to-end-verification-and-release-gates.md	open
+2026-08-19T11:49:05Z	design	Chose core causal types, an engine validator, a PostgreSQL history loader, and thin Connect mapping	The accepted crate boundaries keep SQL and Protobuf out of semantic types	docs/adr/0014-v1-system-shape-and-module-topology.md	selected
+2026-08-19T11:49:05Z	design	Rejected assembling explanations from SQL rows inside zoend	The shortcut leaks storage shape into the protocol boundary and cannot host reusable completeness laws	docs/adr/0009-semantic-query-causal-explanation.md	rejected
+2026-08-19T11:50:39Z	harness	Ran the official explain command before implementation	A red baseline proves the scenario did not already exist	just e2e explain	exit 2, unsupported scenario
+2026-08-19T12:09:43Z	implementation	Added durable proposal and commit StateBasis dependencies before exposing HistoryService	Proposal and commit evidence must remain distinguishable after restart	commit 958ed71	complete
+2026-08-19T12:09:43Z	implementation	Added a typed HistoryService protocol and a thin Connect mapping	Typed refs keep formatted strings out of the product protocol	commits 6a02aee and 17e637a	complete
+2026-08-19T12:09:43Z	verify	Compiled the workspace after wiring HistoryService	The first green compile isolates service and storage errors before the E2E slice	cargo check --locked --workspace	exit 0
+2026-08-19T12:09:43Z	harness	Added a standalone explain scenario over Postgres 18, OIDC, Restate, and Connect	The official command must prove the production path and required mutants	e2e/explain.ts	ready to run
+2026-08-19T12:19:43Z	verify	Ran the official scenario through the first explanation assertion	The run reached every production dependency and exposed an incorrect identity expectation	just e2e explain	exit 1, trustedContextComesFromDurableAuthority
+2026-08-19T12:19:43Z	harness	Aligned the identity assertion with the OIDC realm claims	The durable authority rows retain dotted actor and principal IDs from Keycloak	e2e/governed-action/prepare-realm.mjs	corrected
+2026-08-19T12:24:10Z	verify	Passed the official explain scenario from a clean product state	The evidence records all required assertions and mutant kills from the running system	just e2e explain	exit 0 at 288c913
+2026-08-19T12:24:10Z	verify	Passed the governed Action regression	The causal persistence changes preserve the shared Action path	just e2e governed-action	exit 0
+2026-08-19T12:24:10Z	verify	Passed the effects regression	The history loader changes preserve durable Restate dispatch and reconciliation	just e2e effects	exit 0
+2026-08-19T12:24:10Z	quality	Reviewed branch comments and suppressions after deslop	The hand-authored diff contains no comments, lint suppressions, or production placeholders	no-comments scan	0 deletions, 0 open findings

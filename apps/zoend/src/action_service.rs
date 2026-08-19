@@ -7,9 +7,9 @@ use connectrpc::{
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
     ActionApproval, ActionInput as CoreActionInput, ActionProposal, ApprovalId,
-    CommitIdentityKind as CoreCommitIdentityKind, CommitReceipt, OperationId, PolicyEvaluation,
-    PolicyEvidence as CorePolicyEvidence, ProposalAuthority, ProposalId, ResourceId,
-    StateBasis as CoreStateBasis, TimestampMicros, TrustedExecutionContext,
+    CommitIdentityKind as CoreCommitIdentityKind, CommitReceipt, LineageRole as CoreLineageRole,
+    OperationId, PolicyEvaluation, PolicyEvidence as CorePolicyEvidence, ProposalAuthority,
+    ProposalId, ResourceId, StateBasis as CoreStateBasis, TimestampMicros, TrustedExecutionContext,
 };
 use zoen_engine::{
     ActionEngine, ActionError, ApproveOutcome, CommitOutcome, ProposeCommand, ProposeOutcome,
@@ -320,7 +320,7 @@ fn to_capability(action_id: &str, evaluation: PolicyEvaluation) -> ActionCapabil
     }
 }
 
-fn to_trusted_context(context: &TrustedExecutionContext) -> TrustedContext {
+pub(crate) fn to_trusted_context(context: &TrustedExecutionContext) -> TrustedContext {
     TrustedContext {
         actor_id: context.actor_id().as_str().to_owned(),
         delegation: context
@@ -356,7 +356,7 @@ fn to_trusted_context(context: &TrustedExecutionContext) -> TrustedContext {
     }
 }
 
-fn to_policy_evidence(evidence: CorePolicyEvidence) -> PolicyEvidence {
+pub(crate) fn to_policy_evidence(evidence: CorePolicyEvidence) -> PolicyEvidence {
     PolicyEvidence {
         determining_policy_ids: evidence.determining_policies,
         revision: Some(PolicyRevision {
@@ -370,7 +370,7 @@ fn to_policy_evidence(evidence: CorePolicyEvidence) -> PolicyEvidence {
     }
 }
 
-fn to_proposal(proposal: ActionProposal) -> Proposal {
+pub(crate) fn to_proposal(proposal: ActionProposal) -> Proposal {
     let (status, policy) = match &proposal.authority {
         ProposalAuthority::AwaitingApproval(policy) => {
             (ProposalStatus::AwaitingApproval, policy.clone())
@@ -404,7 +404,7 @@ fn to_proposal(proposal: ActionProposal) -> Proposal {
     }
 }
 
-fn to_approval(approval: ActionApproval) -> Approval {
+pub(crate) fn to_approval(approval: ActionApproval) -> Approval {
     Approval {
         approval_id: approval.approval_id.as_str().to_owned(),
         approved_at: Some(to_timestamp(approval.approved_at)).into(),
@@ -416,7 +416,7 @@ fn to_approval(approval: ActionApproval) -> Approval {
     }
 }
 
-fn to_state_basis(state_basis: CoreStateBasis) -> StateBasis {
+pub(crate) fn to_state_basis(state_basis: CoreStateBasis) -> StateBasis {
     StateBasis {
         dependencies: state_basis
             .dependencies
@@ -426,7 +426,19 @@ fn to_state_basis(state_basis: CoreStateBasis) -> StateBasis {
                 commit_sequence: dependency.commit_sequence.get(),
                 entity_id: dependency.entity_id.as_str().to_owned(),
                 relation_id: dependency.relation_id.as_str().to_owned(),
+                role: match dependency.role {
+                    CoreLineageRole::ComputationDependency => {
+                        crate::proto::zoen::world::v1::LineageRole::ComputationDependency
+                    }
+                    CoreLineageRole::Rival => crate::proto::zoen::world::v1::LineageRole::Rival,
+                    CoreLineageRole::Supporting => {
+                        crate::proto::zoen::world::v1::LineageRole::Supporting
+                    }
+                }
+                .into(),
                 source_digest: dependency.source_digest.as_str().to_owned(),
+                source_id: dependency.source_id.as_str().to_owned(),
+                source_ref: dependency.source_ref,
                 ..Default::default()
             })
             .collect(),
@@ -436,10 +448,11 @@ fn to_state_basis(state_basis: CoreStateBasis) -> StateBasis {
     }
 }
 
-fn to_commit_receipt(receipt: CommitReceipt) -> ProtocolCommitReceipt {
+pub(crate) fn to_commit_receipt(receipt: CommitReceipt) -> ProtocolCommitReceipt {
     ProtocolCommitReceipt {
         action_id: receipt.action_id.as_str().to_owned(),
         commit_sequence: receipt.commit_sequence.get(),
+        commit_state_basis: receipt.commit_state_basis.map(to_state_basis).into(),
         definition: Some(to_definition_reference(receipt.definition)).into(),
         effect_request_ids: receipt
             .effect_request_ids

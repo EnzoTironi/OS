@@ -7,11 +7,11 @@ use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
     CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
     DefinitionReference, DefinitionRevision, EffectRequestId, EntityId, EvidenceDigest,
-    EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest, OperationId,
-    PolicyEvaluation, PolicyEvidence, ProposalAuthority, ProposalId, RelationId, ResourceId,
-    SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
-    StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime, ValueType,
-    evaluate_expression, expression_relations,
+    EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest, LineageRole,
+    OperationId, PolicyEvaluation, PolicyEvidence, ProposalAuthority, ProposalId, RelationId,
+    ResourceId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis,
+    StateBasisDigest, StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime,
+    ValueType, evaluate_expression, expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
@@ -752,10 +752,33 @@ pub fn calculate_state_basis_digest(
         hash_field(&mut hasher, &dependency.commit_sequence.get().to_string());
         hash_field(&mut hasher, dependency.entity_id.as_str());
         hash_field(&mut hasher, dependency.relation_id.as_str());
+        hash_field(&mut hasher, lineage_role_name(dependency.role));
         hash_field(&mut hasher, dependency.source_digest.as_str());
+        hash_field(&mut hasher, dependency.source_id.as_str());
+        hash_field(&mut hasher, &dependency.source_ref);
     }
     StateBasisDigest::parse(hex_digest(hasher.finalize()))
         .map_err(|error| ActionError::Evaluation(error.to_string()))
+}
+
+pub fn state_basis_digest_matches(
+    dependencies: &[StateDependency],
+    expected: &StateBasisDigest,
+) -> Result<bool, ActionError> {
+    if calculate_state_basis_digest(dependencies)? == *expected {
+        return Ok(true);
+    }
+    let mut hasher = Sha256::new();
+    for dependency in dependencies {
+        hash_field(&mut hasher, dependency.claim_id.as_str());
+        hash_field(&mut hasher, &dependency.commit_sequence.get().to_string());
+        hash_field(&mut hasher, dependency.entity_id.as_str());
+        hash_field(&mut hasher, dependency.relation_id.as_str());
+        hash_field(&mut hasher, dependency.source_digest.as_str());
+    }
+    let legacy = StateBasisDigest::parse(hex_digest(hasher.finalize()))
+        .map_err(|error| ActionError::Evaluation(error.to_string()))?;
+    Ok(legacy == *expected)
 }
 
 fn intent_digest(
@@ -854,10 +877,52 @@ fn hash_field(hasher: &mut Sha256, value: &str) {
     hasher.update(value.as_bytes());
 }
 
+fn lineage_role_name(role: LineageRole) -> &'static str {
+    match role {
+        LineageRole::ComputationDependency => "computation_dependency",
+        LineageRole::Rival => "rival",
+        LineageRole::Supporting => "supporting",
+    }
+}
+
 fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
     bytes
         .as_ref()
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use zoen_core::{CommitSequence, SourceId};
+
+    use super::*;
+
+    #[test]
+    fn v1_state_basis_digest_remains_valid() {
+        let dependency = StateDependency {
+            claim_id: ClaimId::parse("claim.available.legacy").expect("claim"),
+            commit_sequence: CommitSequence::new(7).expect("commit sequence"),
+            entity_id: EntityId::parse("inventory.item.1").expect("entity"),
+            relation_id: RelationId::parse("inventory.available").expect("relation"),
+            role: LineageRole::Supporting,
+            source_digest: EvidenceDigest::parse("a".repeat(64)).expect("source digest"),
+            source_id: SourceId::parse("source.legacy").expect("source"),
+            source_ref: "urn:legacy:available".to_owned(),
+        };
+        let legacy = StateBasisDigest::parse(
+            "8ebb0d95ed2d1236760a0d9b59ef6557dda60807aa7b155771b241ed0b5b9b85",
+        )
+        .expect("legacy digest");
+
+        assert!(
+            state_basis_digest_matches(&[dependency.clone()], &legacy)
+                .expect("digest verification")
+        );
+        assert_ne!(
+            calculate_state_basis_digest(&[dependency]).expect("current digest"),
+            legacy
+        );
+    }
 }

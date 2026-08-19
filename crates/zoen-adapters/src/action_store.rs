@@ -7,10 +7,10 @@ use zoen_core::{
     ActionApproval, ActionId, ActionInput, ActionProposal, ActorId, ApprovalId, ClaimId,
     CommitReceipt, CommitSequence, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EffectRequestId,
-    EntityId, EvidenceDigest, ExecutionContext, InputId, IntentDigest, OperationId, PolicyDigest,
-    PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId, ProposalAuthority,
-    ProposalId, RelationId, ResourceId, StateBasis, StateBasisDigest, StateDependency, TenantId,
-    TimestampMicros, TrustedExecutionContext, WorkloadId,
+    EntityId, EvidenceDigest, ExecutionContext, InputId, IntentDigest, LineageRole, OperationId,
+    PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
+    ProposalAuthority, ProposalId, RelationId, ResourceId, SourceId, StateBasis, StateBasisDigest,
+    StateDependency, TenantId, TimestampMicros, TrustedExecutionContext, WorkloadId,
 };
 use zoen_engine::StoreError;
 
@@ -258,8 +258,8 @@ async fn insert_dependencies(
         sqlx::query(
             "INSERT INTO action_proposal_dependencies (
                 tenant_id, proposal_id, ordinal, claim_id, commit_sequence,
-                entity_id, relation_id, source_digest
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                entity_id, relation_id, role, source_digest, source_id, source_ref
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(tenant_id.as_str())
         .bind(proposal.proposal_id.as_str())
@@ -271,7 +271,10 @@ async fn insert_dependencies(
         )?)
         .bind(dependency.entity_id.as_str())
         .bind(dependency.relation_id.as_str())
+        .bind(lineage_role_name(dependency.role))
         .bind(dependency.source_digest.as_str())
+        .bind(dependency.source_id.as_str())
+        .bind(&dependency.source_ref)
         .execute(&mut **transaction)
         .await
         .map_err(map_action_insert)?;
@@ -279,7 +282,7 @@ async fn insert_dependencies(
     Ok(())
 }
 
-async fn load_proposal(
+pub(crate) async fn load_proposal(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
     proposal_id: &ProposalId,
@@ -367,7 +370,7 @@ async fn load_proposal_by_operation(
     load_proposal(transaction, tenant_id, &proposal_id).await
 }
 
-async fn load_approval(
+pub(crate) async fn load_approval(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
     proposal_id: &ProposalId,
@@ -404,7 +407,7 @@ async fn load_approval(
     }))
 }
 
-async fn load_operation(
+pub(crate) async fn load_operation(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
     operation_id: &OperationId,
@@ -415,7 +418,8 @@ async fn load_operation(
                 operation.committed_actor_id, operation.committed_principal_id,
                 operation.committed_workload_id,
                 operation.policy_id, operation.policy_digest, operation.policy_revision,
-                operation.determining_policies,
+                operation.determining_policies, operation.state_basis_digest,
+                operation.observed_commit_sequence,
                 proposal.action_id, proposal.definition_id,
                 proposal.definition_digest, proposal.definition_revision
          FROM action_operations AS operation
@@ -434,11 +438,30 @@ async fn load_operation(
     };
     let grants = load_grants(transaction, tenant_id, GrantOwner::Operation(operation_id)).await?;
     let commit_sequence_value = row_i64(&row, "commit_sequence")?;
-    let effect_request_ids =
-        load_effect_request_ids(transaction, tenant_id, commit_sequence_value).await?;
+    let effect_request_ids = load_effect_request_ids(transaction, tenant_id, operation_id).await?;
+    let state_basis_digest = row
+        .try_get::<Option<String>, _>("state_basis_digest")
+        .map_err(store_unavailable)?;
+    let observed_commit_sequence = row
+        .try_get::<Option<i64>, _>("observed_commit_sequence")
+        .map_err(store_unavailable)?;
+    let commit_state_basis = match (state_basis_digest, observed_commit_sequence) {
+        (Some(digest), Some(observed)) => Some(StateBasis {
+            dependencies: load_operation_dependencies(transaction, tenant_id, operation_id).await?,
+            digest: StateBasisDigest::parse(digest).map_err(corrupt)?,
+            observed_commit_sequence: commit_sequence(observed, "commit observed sequence")?,
+        }),
+        (None, None) => None,
+        _ => {
+            return Err(StoreError::Corrupt(
+                "operation commit StateBasis columns are inconsistent".to_owned(),
+            ));
+        }
+    };
     Ok(Some(CommitReceipt {
         action_id: ActionId::parse(row_string(&row, "action_id")?).map_err(corrupt)?,
         commit_sequence: commit_sequence(commit_sequence_value, "commit sequence")?,
+        commit_state_basis,
         committed_by: trusted_context(
             tenant_id,
             row_string(&row, "committed_actor_id")?,
@@ -488,7 +511,8 @@ async fn load_dependencies(
     proposal_id: &ProposalId,
 ) -> Result<Vec<StateDependency>, StoreError> {
     let rows = sqlx::query(
-        "SELECT claim_id, commit_sequence, entity_id, relation_id, source_digest
+        "SELECT claim_id, commit_sequence, entity_id, relation_id, role,
+                source_digest, source_id, source_ref
          FROM action_proposal_dependencies
          WHERE tenant_id = $1 AND proposal_id = $2
          ORDER BY ordinal",
@@ -508,8 +532,48 @@ async fn load_dependencies(
                 )?,
                 entity_id: EntityId::parse(row_string(row, "entity_id")?).map_err(corrupt)?,
                 relation_id: RelationId::parse(row_string(row, "relation_id")?).map_err(corrupt)?,
+                role: parse_lineage_role(&row_string(row, "role")?)?,
                 source_digest: EvidenceDigest::parse(row_string(row, "source_digest")?)
                     .map_err(corrupt)?,
+                source_id: SourceId::parse(row_string(row, "source_id")?).map_err(corrupt)?,
+                source_ref: row_string(row, "source_ref")?,
+            })
+        })
+        .collect()
+}
+
+async fn load_operation_dependencies(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    operation_id: &OperationId,
+) -> Result<Vec<StateDependency>, StoreError> {
+    let rows = sqlx::query(
+        "SELECT claim_id, commit_sequence, entity_id, relation_id, role,
+                source_digest, source_id, source_ref
+         FROM action_operation_dependencies
+         WHERE tenant_id = $1 AND operation_id = $2
+         ORDER BY ordinal",
+    )
+    .bind(tenant_id.as_str())
+    .bind(operation_id.as_str())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    rows.iter()
+        .map(|row| {
+            Ok(StateDependency {
+                claim_id: ClaimId::parse(row_string(row, "claim_id")?).map_err(corrupt)?,
+                commit_sequence: commit_sequence(
+                    row_i64(row, "commit_sequence")?,
+                    "commit dependency sequence",
+                )?,
+                entity_id: EntityId::parse(row_string(row, "entity_id")?).map_err(corrupt)?,
+                relation_id: RelationId::parse(row_string(row, "relation_id")?).map_err(corrupt)?,
+                role: parse_lineage_role(&row_string(row, "role")?)?,
+                source_digest: EvidenceDigest::parse(row_string(row, "source_digest")?)
+                    .map_err(corrupt)?,
+                source_id: SourceId::parse(row_string(row, "source_id")?).map_err(corrupt)?,
+                source_ref: row_string(row, "source_ref")?,
             })
         })
         .collect()
@@ -539,18 +603,17 @@ async fn load_record_ids(
 async fn load_effect_request_ids(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
-    commit_sequence: i64,
+    operation_id: &OperationId,
 ) -> Result<Vec<EffectRequestId>, StoreError> {
     let rows = sqlx::query(
         "SELECT effect_request_id
-         FROM projection_outbox
+         FROM action_operation_effect_requests
          WHERE tenant_id = $1
-           AND commit_sequence = $2
-           AND effect_request_id IS NOT NULL
+           AND operation_id = $2
          ORDER BY ordinal",
     )
     .bind(tenant_id.as_str())
-    .bind(commit_sequence)
+    .bind(operation_id.as_str())
     .fetch_all(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
@@ -759,6 +822,25 @@ fn proposal_authority_columns(authority: &ProposalAuthority) -> (&'static str, &
     match authority {
         ProposalAuthority::AwaitingApproval(policy) => ("awaiting_approval", policy),
         ProposalAuthority::Ready(policy) => ("ready", policy),
+    }
+}
+
+fn lineage_role_name(role: LineageRole) -> &'static str {
+    match role {
+        LineageRole::ComputationDependency => "computation_dependency",
+        LineageRole::Rival => "rival",
+        LineageRole::Supporting => "supporting",
+    }
+}
+
+fn parse_lineage_role(value: &str) -> Result<LineageRole, StoreError> {
+    match value {
+        "computation_dependency" => Ok(LineageRole::ComputationDependency),
+        "rival" => Ok(LineageRole::Rival),
+        "supporting" => Ok(LineageRole::Supporting),
+        _ => Err(StoreError::Corrupt(format!(
+            "unknown state dependency role: {value}"
+        ))),
     }
 }
 
