@@ -280,7 +280,10 @@ pub(super) async fn insert_operation(
         state_basis,
     )
     .await
-    .map_err(OperationInsertError::Store)
+    .map_err(OperationInsertError::Store)?;
+    insert_operation_effect_requests(transaction, tenant_id, receipt)
+        .await
+        .map_err(OperationInsertError::Store)
 }
 
 async fn insert_operation_dependencies(
@@ -310,6 +313,28 @@ async fn insert_operation_dependencies(
         .bind(dependency.source_digest.as_str())
         .bind(dependency.source_id.as_str())
         .bind(&dependency.source_ref)
+        .execute(&mut **transaction)
+        .await
+        .map_err(store_unavailable)?;
+    }
+    Ok(())
+}
+
+async fn insert_operation_effect_requests(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    receipt: &CommitReceipt,
+) -> Result<(), StoreError> {
+    for (ordinal, effect_request_id) in receipt.effect_request_ids.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO action_operation_effect_requests
+                (tenant_id, operation_id, ordinal, effect_request_id)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(tenant_id.as_str())
+        .bind(receipt.operation_id.as_str())
+        .bind(ordinal_i32(ordinal)?)
+        .bind(effect_request_id.as_str())
         .execute(&mut **transaction)
         .await
         .map_err(store_unavailable)?;

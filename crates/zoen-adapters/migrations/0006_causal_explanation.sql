@@ -59,3 +59,47 @@ CREATE POLICY action_operation_dependencies_tenant_policy
 ON action_operation_dependencies
 USING (tenant_id = current_setting('zoen.tenant_id', true))
 WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
+
+CREATE TABLE action_operation_effect_requests (
+    tenant_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    effect_request_id TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, operation_id, ordinal),
+    UNIQUE (tenant_id, effect_request_id),
+    FOREIGN KEY (tenant_id, operation_id)
+        REFERENCES action_operations (tenant_id, operation_id),
+    FOREIGN KEY (tenant_id, effect_request_id)
+        REFERENCES effect_requests (tenant_id, effect_request_id)
+        DEFERRABLE INITIALLY DEFERRED
+);
+
+INSERT INTO action_operation_effect_requests (
+    tenant_id,
+    operation_id,
+    ordinal,
+    effect_request_id
+)
+SELECT
+    tenant_id,
+    operation_id,
+    (
+        row_number() OVER (
+            PARTITION BY tenant_id, operation_id
+            ORDER BY effect_request_id
+        ) - 1
+    )::INTEGER,
+    effect_request_id
+FROM effect_requests;
+
+CREATE TRIGGER action_operation_effect_requests_are_immutable
+BEFORE UPDATE OR DELETE ON action_operation_effect_requests
+FOR EACH ROW
+EXECUTE FUNCTION reject_action_history_mutation();
+
+ALTER TABLE action_operation_effect_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE action_operation_effect_requests FORCE ROW LEVEL SECURITY;
+CREATE POLICY action_operation_effect_requests_tenant_policy
+ON action_operation_effect_requests
+USING (tenant_id = current_setting('zoen.tenant_id', true))
+WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));

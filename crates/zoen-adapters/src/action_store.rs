@@ -607,10 +607,10 @@ async fn load_effect_request_ids(
 ) -> Result<Vec<EffectRequestId>, StoreError> {
     let rows = sqlx::query(
         "SELECT effect_request_id
-         FROM effect_requests
+         FROM action_operation_effect_requests
          WHERE tenant_id = $1
            AND operation_id = $2
-         ORDER BY effect_request_id",
+         ORDER BY ordinal",
     )
     .bind(tenant_id.as_str())
     .bind(operation_id.as_str())
