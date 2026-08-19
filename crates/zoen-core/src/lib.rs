@@ -1027,6 +1027,12 @@ pub struct StateBasis {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PreconditionEvaluation {
+    Satisfied(StateBasis),
+    Unsatisfied(StateBasis),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProposalAuthority {
     AwaitingApproval(PolicyEvidence),
     Ready(PolicyEvidence),

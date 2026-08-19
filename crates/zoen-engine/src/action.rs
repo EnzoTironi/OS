@@ -8,10 +8,10 @@ use zoen_core::{
     CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
     DefinitionReference, DefinitionRevision, EffectRequestId, EntityId, EvidenceDigest,
     EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest, LineageRole,
-    OperationId, PolicyEvaluation, PolicyEvidence, ProposalAuthority, ProposalId, RelationId,
-    ResourceId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis,
-    StateBasisDigest, StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime,
-    ValueType, evaluate_expression, expression_relations,
+    OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation, ProposalAuthority,
+    ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult, SemanticSelection,
+    SemanticValue, StateBasis, StateBasisDigest, StateDependency, TimestampMicros,
+    TrustedExecutionContext, ValidTime, ValueType, evaluate_expression, expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
@@ -87,6 +87,7 @@ pub struct ActionDiscovery {
 pub enum ProposeOutcome {
     Accepted(Box<ActionProposal>),
     Denied(PolicyEvidence),
+    PreconditionDenied(StateBasis),
     EvaluationError {
         message: String,
         policy: Option<PolicyEvidence>,
@@ -296,7 +297,7 @@ where
             .load_action(context, &command.definition, &command.action_id)
             .await?;
         validate_inputs(&loaded.action, &command.inputs)?;
-        let state_basis = self
+        let precondition = self
             .evaluate_precondition(
                 context,
                 &command.definition,
@@ -306,6 +307,12 @@ where
                 command.valid_at,
             )
             .await?;
+        let state_basis = match precondition {
+            PreconditionEvaluation::Satisfied(state_basis) => state_basis,
+            PreconditionEvaluation::Unsatisfied(state_basis) => {
+                return Ok(ProposeOutcome::PreconditionDenied(state_basis));
+            }
+        };
         let direct = self
             .policy
             .evaluate(&PolicyRequest {
@@ -634,7 +641,7 @@ where
         loaded: &LoadedAction,
         inputs: &[ActionInput],
         valid_at: TimestampMicros,
-    ) -> Result<StateBasis, ActionError> {
+    ) -> Result<PreconditionEvaluation, ActionError> {
         let entity_id = EntityId::parse(resource_id.as_str())
             .map_err(|error| ActionError::Input(error.to_string()))?;
         let relations = expression_relations(&loaded.action.precondition);

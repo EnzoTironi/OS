@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zoen_core::{
     ActionDefinition, ActionInput, CanonicalDefinition, Cardinality, EvidenceClaim, ExactValue,
-    Expression, ExpressionEvaluationError, LineageDependency, LineageRole, RelationId,
-    SemanticValue, StateBasis, StateDependency, evaluate_expression, expression_relations,
+    Expression, ExpressionEvaluationError, LineageDependency, LineageRole, PreconditionEvaluation,
+    RelationId, SemanticValue, StateBasis, StateDependency, evaluate_expression,
+    expression_relations,
 };
 
 use super::{ActionError, calculate_state_basis_digest, value_key};
@@ -50,7 +51,7 @@ pub fn evaluate_action_state_basis(
     definition: &CanonicalDefinition,
     inputs: &[ActionInput],
     snapshot: ActionStateSnapshot,
-) -> Result<StateBasis, ActionError> {
+) -> Result<PreconditionEvaluation, ActionError> {
     let read = read_action_state_basis(action, definition, snapshot)?;
     let input_values = inputs
         .iter()
@@ -58,18 +59,23 @@ pub fn evaluate_action_state_basis(
         .collect::<BTreeMap<_, _>>();
     let evaluated = evaluate_expression(&action.precondition, &input_values, &read.values)
         .map_err(|error| ActionError::Evaluation(error.to_string()))?;
-    if !matches!(
-        evaluated.as_slice(),
-        [SemanticValue {
-            value: ExactValue::Bool(true),
-            ..
-        }]
-    ) {
-        return Err(ActionError::Evaluation(
-            "Action precondition must produce one satisfied boolean".to_owned(),
-        ));
+    match evaluated.as_slice() {
+        [
+            SemanticValue {
+                value: ExactValue::Bool(true),
+                ..
+            },
+        ] => Ok(PreconditionEvaluation::Satisfied(read.basis)),
+        [
+            SemanticValue {
+                value: ExactValue::Bool(false),
+                ..
+            },
+        ] => Ok(PreconditionEvaluation::Unsatisfied(read.basis)),
+        _ => Err(ActionError::Evaluation(
+            "Action precondition must produce exactly one boolean".to_owned(),
+        )),
     }
-    Ok(read.basis)
 }
 
 pub fn read_action_state_basis(
