@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use buffa::MessageView;
@@ -31,13 +32,13 @@ use crate::world_service::{
 };
 
 pub struct ActionServiceImpl {
-    engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, CedarPolicyEvaluator>,
+    engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
     sessions: SessionRegistry,
 }
 
 impl ActionServiceImpl {
     pub fn new(
-        engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, CedarPolicyEvaluator>,
+        engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
         sessions: SessionRegistry,
     ) -> Self {
         Self { engine, sessions }
