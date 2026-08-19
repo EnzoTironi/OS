@@ -310,9 +310,9 @@ async function startProcess(options: {
   child.stdin.end();
   child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
   child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  const process = { child, name: options.name, output };
-  await waitForPort(options.port, process);
-  return process;
+  const managedProcess = { child, name: options.name, output };
+  await waitForPort(options.port, managedProcess);
+  return managedProcess;
 }
 
 async function waitForPort(
