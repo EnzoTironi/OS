@@ -150,7 +150,7 @@ pub(crate) async fn commit_action(
             && receipt.proposal_id == plan.proposal.proposal_id
         {
             transaction.commit().await.map_err(store_unavailable)?;
-            return Ok(CommitStoreOutcome::Committed(receipt));
+            return Ok(CommitStoreOutcome::Committed(Box::new(receipt)));
         }
         return Err(StoreError::Conflict(
             "operation id already identifies a different intent".to_owned(),
@@ -291,7 +291,7 @@ pub(crate) async fn commit_action(
     .await
     .map_err(store_unavailable)?;
     transaction.commit().await.map_err(store_unavailable)?;
-    Ok(CommitStoreOutcome::Committed(receipt))
+    Ok(CommitStoreOutcome::Committed(Box::new(receipt)))
 }
 
 async fn initialize_and_lock_head(

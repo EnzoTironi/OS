@@ -77,7 +77,7 @@ pub struct ActionDiscovery {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProposeOutcome {
-    Accepted(ActionProposal),
+    Accepted(Box<ActionProposal>),
     Denied(PolicyEvidence),
     EvaluationError {
         message: String,
@@ -108,7 +108,7 @@ pub enum CommitOutcome {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommitStoreOutcome {
-    Committed(CommitReceipt),
+    Committed(Box<CommitReceipt>),
     Stale(StateBasis),
 }
 
@@ -358,7 +358,7 @@ where
             .save_proposal(context, &proposal)
             .await
             .map_err(ActionError::Store)?;
-        Ok(ProposeOutcome::Accepted(saved))
+        Ok(ProposeOutcome::Accepted(Box::new(saved)))
     }
 
     pub async fn approve(
@@ -527,7 +527,7 @@ where
             .await
             .map_err(ActionError::Store)?
         {
-            CommitStoreOutcome::Committed(receipt) => Ok(CommitOutcome::Committed(receipt)),
+            CommitStoreOutcome::Committed(receipt) => Ok(CommitOutcome::Committed(*receipt)),
             CommitStoreOutcome::Stale(basis) => Ok(CommitOutcome::Stale(basis)),
         }
     }

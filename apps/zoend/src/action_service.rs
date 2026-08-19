@@ -144,7 +144,7 @@ impl ActionService for ActionServiceImpl {
         match outcome {
             ProposeOutcome::Accepted(proposal) => Response::ok(ProposeResponse {
                 decision: PolicyDecision::Permit.into(),
-                proposal: Some(to_proposal(proposal)).into(),
+                proposal: Some(to_proposal(*proposal)).into(),
                 trusted_context,
                 ..Default::default()
             }),
