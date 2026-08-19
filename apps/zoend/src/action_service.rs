@@ -499,7 +499,8 @@ fn map_action_error(error: ActionError) -> ConnectError {
         ActionError::ApprovalExpired
         | ActionError::ApprovalOutsideBounds
         | ActionError::Evaluation(_)
-        | ActionError::ExpiredProposal => ErrorCode::FailedPrecondition,
+        | ActionError::ExpiredProposal
+        | ActionError::InactiveDefinition => ErrorCode::FailedPrecondition,
         ActionError::Definition(_) | ActionError::Input(_) => ErrorCode::InvalidArgument,
         ActionError::DelegationDenied => ErrorCode::PermissionDenied,
         ActionError::Store(error) => return crate::service::map_store_error(error.clone()),

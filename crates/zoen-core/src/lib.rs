@@ -600,6 +600,77 @@ pub struct DefinitionRevision {
     pub revision: DefinitionRevisionNumber,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EvolutionClassification {
+    Compatible,
+    RequiresMigration,
+    Breaking,
+    Forbidden,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum DefinitionElementKind {
+    Type,
+    Relation,
+    Computation,
+    Action,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DefinitionChangeKind {
+    Added,
+    Removed,
+    Modified,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DefinitionChange {
+    pub change: DefinitionChangeKind,
+    pub element: DefinitionElementKind,
+    pub id: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DefinitionImpactArea {
+    Types,
+    Relations,
+    Computations,
+    Actions,
+    DomainPackageDependencies,
+    StoredSemanticRecords,
+    QueryAndMaterializationArtifacts,
+    GeneratedSdkAndSurfaceArtifacts,
+    PolicyAndWasmReferences,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DefinitionImpact {
+    pub affected: Vec<String>,
+    pub area: DefinitionImpactArea,
+    pub rationale: String,
+    pub unaffected: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvolutionPlan {
+    pub changes: Vec<DefinitionChange>,
+    pub classification: EvolutionClassification,
+    pub from: DefinitionReference,
+    pub impacts: Vec<DefinitionImpact>,
+    pub to: DefinitionReference,
+}
+
+impl EvolutionPlan {
+    pub fn migration_required(&self) -> bool {
+        matches!(
+            self.classification,
+            EvolutionClassification::RequiresMigration
+                | EvolutionClassification::Breaking
+                | EvolutionClassification::Forbidden
+        )
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TrustedExecutionContext {
     tenant_id: TenantId,
@@ -989,6 +1060,18 @@ pub struct PolicyRevision {
 pub struct PolicyEvidence {
     pub determining_policies: Vec<String>,
     pub revision: PolicyRevision,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DefinitionActivation {
+    pub activated_at: TimestampMicros,
+    pub activated_by: ActorId,
+    pub active: DefinitionReference,
+    pub commit_sequence: CommitSequence,
+    pub policy: PolicyEvidence,
+    pub previous: Option<DefinitionReference>,
+    pub principal_id: PrincipalId,
+    pub workload_id: WorkloadId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

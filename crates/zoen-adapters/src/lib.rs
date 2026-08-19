@@ -5,15 +5,15 @@ use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     ActionApproval, ActionProposal, CanonicalJson, ClaimId, CommitReceipt, CommitSequence,
-    DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
+    DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
     DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EntityId, EvidenceClaim,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger, ExactValue,
     ExecutionContext, ExplanationTarget, OperationId, ProposalId, RelationId, SourceId, TenantId,
     TimestampMicros, UnitId, ValidTime,
 };
 use zoen_engine::{
-    AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, CommitPreparation,
-    HistorySnapshot, StoreError,
+    AdmittedDefinitionActivation, AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore,
+    CommitPreparation, HistorySnapshot, StoreError,
 };
 
 mod action_store;
@@ -86,6 +86,196 @@ impl AuthorityStore for PostgresAuthorityStore {
     type ActionCommit = PostgresActionCommit;
     type EffectUpdate = PostgresEffectUpdate;
 
+    async fn activate_revision(
+        &self,
+        activation: &AdmittedDefinitionActivation,
+    ) -> Result<DefinitionActivation, StoreError> {
+        let context = activation.context();
+        let target = activation.target();
+        let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
+        set_tenant(&mut transaction, context.tenant_id()).await?;
+        let head = sqlx::query(
+            "SELECT commit_sequence
+             FROM authority_heads
+             WHERE tenant_id = $1
+             FOR UPDATE",
+        )
+        .bind(context.tenant_id().as_str())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?
+        .ok_or(StoreError::NotFound)?
+        .try_get::<i64, _>("commit_sequence")
+        .map_err(store_unavailable)?;
+        let published = sqlx::query(
+            "SELECT 1
+             FROM definition_revisions
+             WHERE tenant_id = $1
+               AND definition_id = $2
+               AND digest = $3
+               AND revision = $4
+             FOR SHARE",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(target.definition_id.as_str())
+        .bind(target.digest.as_str())
+        .bind(u64_to_i64(target.revision.get(), "definition revision")?)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        if published.is_none() {
+            return Err(StoreError::NotFound);
+        }
+        let current = sqlx::query(
+            "SELECT definition_id, digest, revision
+             FROM active_definition_revisions
+             WHERE tenant_id = $1 AND definition_id = $2
+             FOR UPDATE",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(target.definition_id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?
+        .map(|row| row_to_reference(&row))
+        .transpose()?;
+        if current.as_ref() != activation.previous() {
+            return Err(StoreError::Conflict(
+                "active definition revision changed".to_owned(),
+            ));
+        }
+        if current.as_ref().is_some_and(|current| {
+            current.digest == target.digest && current.revision == target.revision
+        }) {
+            return Err(StoreError::Conflict(
+                "target definition revision is already active".to_owned(),
+            ));
+        }
+
+        let next_sequence = head
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
+        sqlx::query(
+            "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
+             VALUES ($1, $2, 'definition_activation')",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(next_sequence)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+
+        let previous_revision = activation
+            .previous()
+            .map(|previous| u64_to_i64(previous.revision.get(), "previous definition revision"))
+            .transpose()?;
+        let previous_digest = activation
+            .previous()
+            .map(|previous| previous.digest.as_str());
+        let policy = activation.policy();
+        sqlx::query(
+            "INSERT INTO definition_activations (
+                tenant_id, definition_id, revision, digest,
+                previous_revision, previous_digest, commit_sequence,
+                activated_at_micros, actor_id, principal_id, workload_id,
+                policy_id, policy_revision, policy_digest, determining_policies
+             ) VALUES (
+                $1, $2, $3, $4,
+                $5, $6, $7,
+                $8, $9, $10, $11,
+                $12, $13, $14, $15
+             )",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(target.definition_id.as_str())
+        .bind(u64_to_i64(target.revision.get(), "definition revision")?)
+        .bind(target.digest.as_str())
+        .bind(previous_revision)
+        .bind(previous_digest)
+        .bind(next_sequence)
+        .bind(activation.activated_at().get())
+        .bind(context.actor_id().as_str())
+        .bind(context.principal_id().as_str())
+        .bind(context.workload_id().as_str())
+        .bind(policy.revision.id.as_str())
+        .bind(u64_to_i64(
+            policy.revision.revision.get(),
+            "policy revision",
+        )?)
+        .bind(policy.revision.digest.as_str())
+        .bind(&policy.determining_policies)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        sqlx::query(
+            "INSERT INTO active_definition_revisions (
+                tenant_id, definition_id, revision, digest, activation_commit_sequence
+             ) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (tenant_id, definition_id)
+             DO UPDATE SET
+                revision = EXCLUDED.revision,
+                digest = EXCLUDED.digest,
+                activation_commit_sequence = EXCLUDED.activation_commit_sequence",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(target.definition_id.as_str())
+        .bind(u64_to_i64(target.revision.get(), "definition revision")?)
+        .bind(target.digest.as_str())
+        .bind(next_sequence)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        let event = activation.projection_event();
+        sqlx::query(
+            "INSERT INTO projection_outbox
+                (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
+             VALUES ($1, $2, 0, $3, $4, $5::jsonb)",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(next_sequence)
+        .bind(event.event_type())
+        .bind(i32::from(event.event_version()))
+        .bind(event.payload())
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        let updated = sqlx::query(
+            "UPDATE authority_heads
+             SET commit_sequence = $2
+             WHERE tenant_id = $1",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(next_sequence)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        if updated.rows_affected() != 1 {
+            return Err(StoreError::Corrupt(
+                "authority head update affected an unexpected row count".to_owned(),
+            ));
+        }
+        transaction.commit().await.map_err(store_unavailable)?;
+
+        Ok(DefinitionActivation {
+            activated_at: activation.activated_at(),
+            activated_by: context.actor_id().clone(),
+            active: DefinitionReference {
+                definition_id: target.definition_id.clone(),
+                digest: target.digest.clone(),
+                revision: target.revision,
+            },
+            commit_sequence: CommitSequence::new(i64_to_u64(
+                next_sequence,
+                "activation commit sequence",
+            )?)
+            .ok_or_else(|| StoreError::Corrupt("zero activation commit sequence".to_owned()))?,
+            policy: policy.clone(),
+            previous: activation.previous().cloned(),
+            principal_id: context.principal_id().clone(),
+            workload_id: context.workload_id().clone(),
+        })
+    }
+
     async fn begin_action_commit(
         &self,
         context: &ExecutionContext,
@@ -100,6 +290,34 @@ impl AuthorityStore for PostgresAuthorityStore {
         proposal_id: &ProposalId,
     ) -> Result<Option<ActionApproval>, StoreError> {
         action_store::get_approval(&self.pool, context, proposal_id).await
+    }
+
+    async fn get_active_revision(
+        &self,
+        tenant_id: &TenantId,
+        definition_id: &DefinitionId,
+    ) -> Result<Option<DefinitionRevision>, StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
+        set_tenant(&mut transaction, tenant_id).await?;
+        let row = sqlx::query(
+            "SELECT revision.definition_id, revision.revision, revision.digest,
+                    revision.canonical_json, revision.commit_sequence
+             FROM active_definition_revisions AS active
+             JOIN definition_revisions AS revision
+               ON revision.tenant_id = active.tenant_id
+              AND revision.definition_id = active.definition_id
+              AND revision.digest = active.digest
+              AND revision.revision = active.revision
+             WHERE active.tenant_id = $1 AND active.definition_id = $2",
+        )
+        .bind(tenant_id.as_str())
+        .bind(definition_id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        let revision = row.as_ref().map(row_to_revision).transpose()?;
+        transaction.commit().await.map_err(store_unavailable)?;
+        Ok(revision)
     }
 
     async fn begin_effect_update(
@@ -488,6 +706,20 @@ async fn set_tenant(
         .await
         .map_err(store_unavailable)?;
     Ok(())
+}
+
+fn row_to_reference(row: &PgRow) -> Result<DefinitionReference, StoreError> {
+    Ok(DefinitionReference {
+        definition_id: DefinitionId::parse(row_string(row, "definition_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        digest: DefinitionDigest::parse(row_string(row, "digest")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        revision: DefinitionRevisionNumber::new(i64_to_u64(
+            row_i64(row, "revision")?,
+            "definition revision",
+        )?)
+        .ok_or_else(|| StoreError::Corrupt("zero definition revision".to_owned()))?,
+    })
 }
 
 fn row_to_revision(row: &PgRow) -> Result<DefinitionRevision, StoreError> {

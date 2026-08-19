@@ -4,16 +4,19 @@ use std::fmt::{Display, Formatter};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    ActionApproval, ActionProposal, CanonicalDefinition, CanonicalJson, CommitIdentityKind,
-    CommitReceipt, DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber,
-    EffectRequestId, EffectSnapshot, EvidenceClaim, EvidenceDraft, ExecutionContext,
-    ExplanationTarget, Expression, InputDefinition, OperationId, ProposalId, RelationTarget,
-    TenantId,
+    ActionApproval, ActionId, ActionProposal, CanonicalDefinition, CanonicalJson,
+    CommitIdentityKind, CommitReceipt, DefinitionActivation, DefinitionDigest, DefinitionId,
+    DefinitionReference, DefinitionRevision, DefinitionRevisionNumber, EffectRequestId,
+    EffectSnapshot, EvidenceClaim, EvidenceDraft, EvolutionClassification, EvolutionPlan,
+    ExecutionContext, ExplanationTarget, Expression, InputDefinition, OperationId,
+    PolicyEvaluation, PolicyEvidence, ProposalId, RelationTarget, ResourceId, TenantId,
+    TimestampMicros,
 };
 
 mod action;
 mod admission;
 mod effect;
+mod evolution;
 mod history;
 
 pub use action::{
@@ -125,7 +128,7 @@ pub enum StoreError {
 impl Display for StoreError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Conflict(message) => write!(formatter, "publication conflict: {message}"),
+            Self::Conflict(message) => write!(formatter, "authority conflict: {message}"),
             Self::Corrupt(message) => write!(formatter, "authority data is corrupt: {message}"),
             Self::IdentityCollision(CommitIdentityKind::EffectRequest) => {
                 formatter.write_str("Action EffectRequest identity already exists")
@@ -289,6 +292,98 @@ impl Error for GetRevisionError {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PlanEvolutionError {
+    InvalidRevision(String),
+    Store(StoreError),
+}
+
+impl Display for PlanEvolutionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidRevision(message) => {
+                write!(formatter, "invalid evolution revision: {message}")
+            }
+            Self::Store(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl Error for PlanEvolutionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Store(error) => Some(error),
+            Self::InvalidRevision(_) => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActivateRevisionError {
+    Configuration(String),
+    DelegationDenied,
+    EventEncoding(String),
+    Incompatible(EvolutionClassification),
+    InvalidRevision(String),
+    PolicyDenied(PolicyEvidence),
+    PolicyEvaluation {
+        message: String,
+        policy: Option<PolicyEvidence>,
+    },
+    Store(StoreError),
+}
+
+impl Display for ActivateRevisionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Configuration(message) => {
+                write!(
+                    formatter,
+                    "definition activation is misconfigured: {message}"
+                )
+            }
+            Self::DelegationDenied => {
+                formatter.write_str("delegation does not permit definition activation")
+            }
+            Self::EventEncoding(message) => {
+                write!(
+                    formatter,
+                    "failed to encode definition activation event: {message}"
+                )
+            }
+            Self::Incompatible(classification) => {
+                write!(
+                    formatter,
+                    "definition activation requires a compatible plan, got {classification:?}"
+                )
+            }
+            Self::InvalidRevision(message) => {
+                write!(formatter, "invalid activation revision: {message}")
+            }
+            Self::PolicyDenied(_) => formatter.write_str("definition activation was denied"),
+            Self::PolicyEvaluation { message, .. } => {
+                write!(formatter, "definition activation policy failed: {message}")
+            }
+            Self::Store(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl Error for ActivateRevisionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Store(error) => Some(error),
+            Self::Configuration(_)
+            | Self::DelegationDenied
+            | Self::EventEncoding(_)
+            | Self::Incompatible(_)
+            | Self::InvalidRevision(_)
+            | Self::PolicyDenied(_)
+            | Self::PolicyEvaluation { .. } => None,
+        }
+    }
+}
+
 pub fn decode_canonical_definition(
     canonical_json: &CanonicalJson,
 ) -> Result<CanonicalDefinition, PublishError> {
@@ -364,6 +459,93 @@ impl AdmittedDefinitionPublication {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdmittedDefinitionActivation {
+    activated_at: TimestampMicros,
+    context: ExecutionContext,
+    policy: PolicyEvidence,
+    previous: Option<DefinitionReference>,
+    projection_event: ProjectionEvent,
+    target: DefinitionRevision,
+}
+
+impl AdmittedDefinitionActivation {
+    fn new(
+        context: ExecutionContext,
+        previous: Option<DefinitionReference>,
+        target: DefinitionRevision,
+        policy: PolicyEvidence,
+        activated_at: TimestampMicros,
+    ) -> Result<Self, ActivateRevisionError> {
+        let payload = serde_jcs::to_string(&DefinitionActivatedV1 {
+            activated_by: context.actor_id().as_str(),
+            definition_id: target.definition_id.as_str(),
+            digest: target.digest.as_str(),
+            policy_digest: policy.revision.digest.as_str(),
+            policy_id: policy.revision.id.as_str(),
+            policy_revision: policy.revision.revision.get(),
+            previous_digest: previous.as_ref().map(|reference| reference.digest.as_str()),
+            previous_revision: previous.as_ref().map(|reference| reference.revision.get()),
+            principal_id: context.principal_id().as_str(),
+            revision: target.revision.get(),
+            workload_id: context.workload_id().as_str(),
+        })
+        .map_err(|error| ActivateRevisionError::EventEncoding(error.to_string()))?;
+        Ok(Self {
+            activated_at,
+            context,
+            policy,
+            previous,
+            projection_event: ProjectionEvent {
+                event_type: "DefinitionActivated",
+                event_version: 1,
+                payload,
+            },
+            target,
+        })
+    }
+
+    pub fn activated_at(&self) -> TimestampMicros {
+        self.activated_at
+    }
+
+    pub fn context(&self) -> &ExecutionContext {
+        &self.context
+    }
+
+    pub fn policy(&self) -> &PolicyEvidence {
+        &self.policy
+    }
+
+    pub fn previous(&self) -> Option<&DefinitionReference> {
+        self.previous.as_ref()
+    }
+
+    pub fn projection_event(&self) -> &ProjectionEvent {
+        &self.projection_event
+    }
+
+    pub fn target(&self) -> &DefinitionRevision {
+        &self.target
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DefinitionActivatedV1<'a> {
+    activated_by: &'a str,
+    definition_id: &'a str,
+    digest: &'a str,
+    policy_digest: &'a str,
+    policy_id: &'a str,
+    policy_revision: u64,
+    previous_digest: Option<&'a str>,
+    previous_revision: Option<u64>,
+    principal_id: &'a str,
+    revision: u64,
+    workload_id: &'a str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedEvidence {
     draft: EvidenceDraft,
     projection_event: ProjectionEvent,
@@ -391,6 +573,11 @@ pub trait AuthorityStore: Send + Sync {
     type ActionCommit: ActionCommitTransaction;
     type EffectUpdate: EffectUpdateTransaction;
 
+    async fn activate_revision(
+        &self,
+        activation: &AdmittedDefinitionActivation,
+    ) -> Result<DefinitionActivation, StoreError>;
+
     async fn begin_action_commit(
         &self,
         context: &ExecutionContext,
@@ -402,6 +589,12 @@ pub trait AuthorityStore: Send + Sync {
         context: &ExecutionContext,
         proposal_id: &ProposalId,
     ) -> Result<Option<ActionApproval>, StoreError>;
+
+    async fn get_active_revision(
+        &self,
+        tenant_id: &TenantId,
+        definition_id: &DefinitionId,
+    ) -> Result<Option<DefinitionRevision>, StoreError>;
 
     async fn begin_effect_update(
         &self,
@@ -465,7 +658,10 @@ pub trait AuthorityStore: Send + Sync {
     ) -> Result<ActionProposal, StoreError>;
 }
 
-pub struct DefinitionEngine<S> {
+const DEFINITION_ACTIVATION_ACTION_ID: &str = "zoen.definition.activate";
+
+pub struct DefinitionEngine<S, P> {
+    policy: P,
     store: S,
 }
 
@@ -503,12 +699,13 @@ where
     }
 }
 
-impl<S> DefinitionEngine<S>
+impl<S, P> DefinitionEngine<S, P>
 where
     S: AuthorityStore,
+    P: PolicyEvaluator,
 {
-    pub fn new(store: S) -> Self {
-        Self { store }
+    pub fn new(store: S, policy: P) -> Self {
+        Self { policy, store }
     }
 
     pub async fn publish(
@@ -522,6 +719,115 @@ where
             .publish(context, &publication)
             .await
             .map_err(PublishError::Store)
+    }
+
+    pub async fn activate_revision(
+        &self,
+        context: &ExecutionContext,
+        definition_id: &DefinitionId,
+        digest: &DefinitionDigest,
+        expected_active_digest: Option<&DefinitionDigest>,
+        activated_at: TimestampMicros,
+    ) -> Result<DefinitionActivation, ActivateRevisionError> {
+        let target = self
+            .store
+            .get_revision(context.tenant_id(), definition_id, digest)
+            .await
+            .map_err(ActivateRevisionError::Store)?;
+        let target_definition = decode_activation_revision(&target)?;
+        let previous = self
+            .store
+            .get_active_revision(context.tenant_id(), definition_id)
+            .await
+            .map_err(ActivateRevisionError::Store)?;
+        if previous.as_ref().map(|revision| &revision.digest) != expected_active_digest {
+            return Err(ActivateRevisionError::Store(StoreError::Conflict(
+                "active definition revision changed".to_owned(),
+            )));
+        }
+        if let Some(previous_revision) = &previous {
+            let previous_definition = decode_activation_revision(previous_revision)?;
+            let plan = evolution::plan(
+                previous_revision,
+                &previous_definition,
+                &target,
+                &target_definition,
+            );
+            if plan.classification != EvolutionClassification::Compatible {
+                return Err(ActivateRevisionError::Incompatible(plan.classification));
+            }
+        }
+
+        let action_id = ActionId::parse(DEFINITION_ACTIVATION_ACTION_ID)
+            .map_err(|error| ActivateRevisionError::Configuration(error.to_string()))?;
+        let resource_id = ResourceId::parse(definition_id.as_str())
+            .map_err(|error| ActivateRevisionError::Configuration(error.to_string()))?;
+        if !context.delegation().permits(
+            &action_id,
+            &resource_id,
+            context.workload_id(),
+            activated_at,
+        ) {
+            return Err(ActivateRevisionError::DelegationDenied);
+        }
+        let target_reference = reference(&target);
+        let policy = match self
+            .policy
+            .evaluate(&PolicyRequest {
+                action_id: &action_id,
+                approved: false,
+                context,
+                definition: &target_reference,
+                inputs: &[],
+                operation: PolicyOperation::ActivateRevision,
+                resource_id: &resource_id,
+            })
+            .await
+        {
+            PolicyEvaluation::Permit(policy) => policy,
+            PolicyEvaluation::Deny(policy) => {
+                return Err(ActivateRevisionError::PolicyDenied(policy));
+            }
+            PolicyEvaluation::EvaluationError { message, revision } => {
+                return Err(ActivateRevisionError::PolicyEvaluation {
+                    message,
+                    policy: revision.map(|revision| PolicyEvidence {
+                        determining_policies: Vec::new(),
+                        revision,
+                    }),
+                });
+            }
+        };
+        let activation = AdmittedDefinitionActivation::new(
+            context.clone(),
+            previous.as_ref().map(reference),
+            target,
+            policy,
+            activated_at,
+        )?;
+        self.store
+            .activate_revision(&activation)
+            .await
+            .map_err(ActivateRevisionError::Store)
+    }
+
+    pub async fn get_active_revision(
+        &self,
+        context: &ExecutionContext,
+        definition_id: &DefinitionId,
+    ) -> Result<Option<DefinitionRevision>, GetRevisionError> {
+        let revision = self
+            .store
+            .get_active_revision(context.tenant_id(), definition_id)
+            .await
+            .map_err(GetRevisionError::Store)?;
+        revision
+            .map(|revision| {
+                verify_digest(&revision.canonical_json, &revision.digest)
+                    .then_some(revision)
+                    .ok_or(GetRevisionError::DigestMismatch)
+            })
+            .transpose()
     }
 
     pub async fn get_revision(
@@ -538,6 +844,60 @@ where
         verify_digest(&revision.canonical_json, &revision.digest)
             .then_some(revision)
             .ok_or(GetRevisionError::DigestMismatch)
+    }
+
+    pub async fn plan_evolution(
+        &self,
+        context: &ExecutionContext,
+        definition_id: &DefinitionId,
+        from_digest: &DefinitionDigest,
+        to_digest: &DefinitionDigest,
+    ) -> Result<EvolutionPlan, PlanEvolutionError> {
+        let from_revision = self
+            .store
+            .get_revision(context.tenant_id(), definition_id, from_digest)
+            .await
+            .map_err(PlanEvolutionError::Store)?;
+        let to_revision = self
+            .store
+            .get_revision(context.tenant_id(), definition_id, to_digest)
+            .await
+            .map_err(PlanEvolutionError::Store)?;
+        let from = decode_evolution_revision(&from_revision)?;
+        let to = decode_evolution_revision(&to_revision)?;
+        Ok(evolution::plan(&from_revision, &from, &to_revision, &to))
+    }
+}
+
+fn decode_activation_revision(
+    revision: &DefinitionRevision,
+) -> Result<CanonicalDefinition, ActivateRevisionError> {
+    if !verify_digest(&revision.canonical_json, &revision.digest) {
+        return Err(ActivateRevisionError::InvalidRevision(
+            "stored digest does not match canonical content".to_owned(),
+        ));
+    }
+    decode_canonical_definition(&revision.canonical_json)
+        .map_err(|error| ActivateRevisionError::InvalidRevision(error.to_string()))
+}
+
+fn decode_evolution_revision(
+    revision: &DefinitionRevision,
+) -> Result<CanonicalDefinition, PlanEvolutionError> {
+    if !verify_digest(&revision.canonical_json, &revision.digest) {
+        return Err(PlanEvolutionError::InvalidRevision(
+            "stored digest does not match canonical content".to_owned(),
+        ));
+    }
+    decode_canonical_definition(&revision.canonical_json)
+        .map_err(|error| PlanEvolutionError::InvalidRevision(error.to_string()))
+}
+
+fn reference(revision: &DefinitionRevision) -> DefinitionReference {
+    DefinitionReference {
+        definition_id: revision.definition_id.clone(),
+        digest: revision.digest.clone(),
+        revision: revision.revision,
     }
 }
 

@@ -2,9 +2,16 @@ syntax = "proto3";
 
 package zoen.definition.v1;
 
+import "google/protobuf/timestamp.proto";
+import "zoen/action/v1/action.proto";
+import "zoen/world/v1/world.proto";
+
 service DefinitionService {
   rpc Publish(PublishRequest) returns (PublishResponse);
   rpc GetRevision(GetRevisionRequest) returns (GetRevisionResponse);
+  rpc GetActiveRevision(GetActiveRevisionRequest) returns (GetActiveRevisionResponse);
+  rpc PlanEvolution(PlanEvolutionRequest) returns (PlanEvolutionResponse);
+  rpc ActivateRevision(ActivateRevisionRequest) returns (ActivateRevisionResponse);
 }
 
 message PublishRequest {
@@ -27,10 +34,110 @@ message GetRevisionResponse {
   DefinitionRevision definition_revision = 1;
 }
 
+message GetActiveRevisionRequest {
+  string tenant_id = 1;
+  string definition_id = 2;
+}
+
+message GetActiveRevisionResponse {
+  DefinitionRevision definition_revision = 1;
+}
+
+message PlanEvolutionRequest {
+  string tenant_id = 1;
+  string definition_id = 2;
+  string from_digest = 3;
+  string to_digest = 4;
+}
+
+message PlanEvolutionResponse {
+  EvolutionPlan plan = 1;
+}
+
+message ActivateRevisionRequest {
+  string tenant_id = 1;
+  string definition_id = 2;
+  string digest = 3;
+  optional string expected_active_digest = 4;
+}
+
+message ActivateRevisionResponse {
+  DefinitionActivation activation = 1;
+}
+
 message DefinitionRevision {
   string definition_id = 1;
   uint64 revision = 2;
   string digest = 3;
   bytes canonical_json = 4;
   uint64 commit_sequence = 5;
+}
+
+enum EvolutionClassification {
+  EVOLUTION_CLASSIFICATION_UNSPECIFIED = 0;
+  EVOLUTION_CLASSIFICATION_COMPATIBLE = 1;
+  EVOLUTION_CLASSIFICATION_REQUIRES_MIGRATION = 2;
+  EVOLUTION_CLASSIFICATION_BREAKING = 3;
+  EVOLUTION_CLASSIFICATION_FORBIDDEN = 4;
+}
+
+enum DefinitionElementKind {
+  DEFINITION_ELEMENT_KIND_UNSPECIFIED = 0;
+  DEFINITION_ELEMENT_KIND_TYPE = 1;
+  DEFINITION_ELEMENT_KIND_RELATION = 2;
+  DEFINITION_ELEMENT_KIND_COMPUTATION = 3;
+  DEFINITION_ELEMENT_KIND_ACTION = 4;
+}
+
+enum DefinitionChangeKind {
+  DEFINITION_CHANGE_KIND_UNSPECIFIED = 0;
+  DEFINITION_CHANGE_KIND_ADDED = 1;
+  DEFINITION_CHANGE_KIND_REMOVED = 2;
+  DEFINITION_CHANGE_KIND_MODIFIED = 3;
+}
+
+enum DefinitionImpactArea {
+  DEFINITION_IMPACT_AREA_UNSPECIFIED = 0;
+  DEFINITION_IMPACT_AREA_TYPES = 1;
+  DEFINITION_IMPACT_AREA_RELATIONS = 2;
+  DEFINITION_IMPACT_AREA_COMPUTATIONS = 3;
+  DEFINITION_IMPACT_AREA_ACTIONS = 4;
+  DEFINITION_IMPACT_AREA_DOMAIN_PACKAGE_DEPENDENCIES = 5;
+  DEFINITION_IMPACT_AREA_STORED_SEMANTIC_RECORDS = 6;
+  DEFINITION_IMPACT_AREA_QUERY_AND_MATERIALIZATION_ARTIFACTS = 7;
+  DEFINITION_IMPACT_AREA_GENERATED_SDK_AND_SURFACE_ARTIFACTS = 8;
+  DEFINITION_IMPACT_AREA_POLICY_AND_WASM_REFERENCES = 9;
+}
+
+message DefinitionChange {
+  DefinitionChangeKind change = 1;
+  DefinitionElementKind element = 2;
+  string id = 3;
+}
+
+message DefinitionImpact {
+  DefinitionImpactArea area = 1;
+  repeated string affected = 2;
+  repeated string unaffected = 3;
+  string rationale = 4;
+}
+
+message EvolutionPlan {
+  zoen.world.v1.DefinitionReference from = 1;
+  zoen.world.v1.DefinitionReference to = 2;
+  EvolutionClassification classification = 3;
+  repeated DefinitionChange changes = 4;
+  repeated DefinitionImpact impacts = 5;
+  bool migration_required = 6;
+}
+
+message DefinitionActivation {
+  zoen.world.v1.DefinitionReference active = 1;
+  zoen.world.v1.DefinitionReference previous = 2;
+  uint64 commit_sequence = 3;
+  google.protobuf.Timestamp activated_at = 4;
+  string activated_by = 5;
+  string principal_id = 6;
+  string workload_id = 7;
+  zoen.action.v1.PolicyEvidence policy = 8;
 }
