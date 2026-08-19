@@ -29,6 +29,8 @@ const dispatchInputSchema = z
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const observedAtSchema = z.string().regex(/^[0-9]+$/);
+const timeoutBeforeSendError =
+  "connector proved that the request timed out before send";
 const connectorOutcomeSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -159,9 +161,7 @@ const zoenEffect = restate.object({
               result.kind === "definitely_not_sent" &&
               result.reason === "timeout_before_send"
             ) {
-              throw new Error(
-                "connector proved that the request timed out before send",
-              );
+              throw new Error(timeoutBeforeSendError);
             }
             return result;
           },
@@ -172,7 +172,10 @@ const zoenEffect = restate.object({
           },
         );
       } catch (error: unknown) {
-        if (!(error instanceof restate.TerminalError)) {
+        if (
+          !(error instanceof restate.TerminalError) ||
+          !error.message.includes(timeoutBeforeSendError)
+        ) {
           throw error;
         }
         outcome = {
