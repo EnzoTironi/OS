@@ -9,6 +9,7 @@ import type {
 export type {
   ActionDefinition,
   ActionEffect,
+  ActionOutputDefinition,
   CanonicalDefinitionBundle,
   CompiledDefinition,
   ComputationDefinition,

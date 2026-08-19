@@ -73,6 +73,7 @@ semantic_id!(EffectRequestId);
 semantic_id!(InputId);
 semantic_id!(MigrationRuleId);
 semantic_id!(OperationId);
+semantic_id!(OutputId);
 semantic_id!(PolicyId);
 semantic_id!(PrincipalId);
 semantic_id!(ProposalId);
@@ -766,10 +767,17 @@ pub struct ActionEffect {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionOutputDefinition {
+    pub id: OutputId,
+    pub value_type: ValueType,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActionDefinition {
     pub effects: Vec<ActionEffect>,
     pub id: ActionId,
     pub inputs: Vec<InputDefinition>,
+    pub outputs: Vec<ActionOutputDefinition>,
     pub precondition: Expression,
 }
 

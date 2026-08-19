@@ -69,6 +69,7 @@ const replenish = defineAction({
   ],
   id: "inventory.replenish",
   inputs: [{ id: "units", valueType: { kind: "integer" } }],
+  outputs: [{ id: "acceptedUnits", valueType: { kind: "integer" } }],
   precondition: {
     kind: "binary",
     left: { inputId: "units", kind: "input" },

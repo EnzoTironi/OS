@@ -88,6 +88,31 @@ async function main(): Promise<void> {
   assert.equal(v3.definition.revision, 3);
   assert.notEqual(v1.digest, v2.digest);
   assert.notEqual(v2.digest, v3.digest);
+  const v1Action = v1.definition.actions.find(
+    (action) => action.id === "inventory.replenish",
+  );
+  const v2Action = v2.definition.actions.find(
+    (action) => action.id === "inventory.replenish",
+  );
+  assert.ok(v1Action);
+  assert.ok(v2Action);
+  observe(
+    "actionContractCoversInputOutputAndEffectChanges",
+    v1Action.outputs === undefined &&
+      v1Action.inputs.some((input) => input.id === "quantity") &&
+      v1Action.effects.some(
+        (effect) => effect.relationId === "inventory.level",
+      ) &&
+      v2Action.outputs?.some(
+        (output) =>
+          output.id === "acceptedUnits" &&
+          output.valueType.kind === "integer",
+      ) === true &&
+      v2Action.inputs.some((input) => input.id === "units") &&
+      v2Action.effects.some(
+        (effect) => effect.relationId === "inventory.receivedUnits",
+      ),
+  );
 
   const policyManifestPath = path.join(
     generatedDirectory,
@@ -727,10 +752,6 @@ async function main(): Promise<void> {
       },
       failureInjections,
       finishedAt: new Date().toISOString(),
-      limitations: {
-        actionOutput:
-          "NotApplicable: canonical v1 Actions define inputs, preconditions, and effects but no output field",
-      },
       mutants: {
         activationBeforeMigration:
           failureInjections.includes("activation-before-migration"),

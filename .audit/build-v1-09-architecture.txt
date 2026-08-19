@@ -20,7 +20,7 @@ RollbackRevision(target, expected_active_digest) commits another immutable defin
 
 Shape
 
-zoen-core owns MigrationPlan, MigrationRule, MigrationDependency, MigrationPostcondition, MigrationRecord, MigrationProgress, and MigrationStatus. MigrationPlan is a sum of typed rules rather than optional fields. ExactValue gains an Entity variant so a Type-target relation can carry an entity reference. zoen-core keeps no dependencies.
+zoen-core owns MigrationPlan, MigrationRule, MigrationDependency, MigrationPostcondition, MigrationRecord, MigrationProgress, and MigrationStatus. MigrationPlan is a sum of typed rules rather than optional fields. ExactValue gains an Entity variant so a Type-target relation can carry an entity reference. ActionDefinition gains typed outputs so output contract changes participate in canonical identity and evolution classification. zoen-core keeps no dependencies.
 
 zoen-engine owns assessment, plan validation, deterministic plan and batch intent digests, Cedar and delegation admission, target evidence admission, activation preconditions, and rollback rules. The engine exposes complete migration operations through the existing AuthorityStore deep port.
 

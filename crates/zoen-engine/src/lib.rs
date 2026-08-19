@@ -46,6 +46,7 @@ pub enum DefinitionFamily {
     Action,
     ActionEffect,
     ActionInput,
+    ActionOutput,
     Computation,
     ComputationInput,
     Relation,
@@ -59,6 +60,7 @@ impl Display for DefinitionFamily {
             Self::Action => "Action",
             Self::ActionEffect => "Action effect",
             Self::ActionInput => "Action input",
+            Self::ActionOutput => "Action output",
             Self::Computation => "Computation",
             Self::ComputationInput => "Computation input",
             Self::Relation => "Relation",
@@ -957,6 +959,10 @@ fn validate_definition(definition: &CanonicalDefinition) -> Result<(), Validatio
             item.effects
                 .iter()
                 .map(|effect| effect.relation_id.as_str()),
+        )?;
+        ensure_unique(
+            DefinitionFamily::ActionOutput,
+            item.outputs.iter().map(|output| output.id.as_str()),
         )?;
         let input_ids = input_ids(&item.inputs);
         for effect in &item.effects {

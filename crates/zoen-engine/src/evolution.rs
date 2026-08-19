@@ -580,7 +580,7 @@ fn classify_change(
             DefinitionElementKind::Action => (
                 EvolutionClassification::Breaking,
                 format!(
-                    "Action {} changes its input, authority precondition, or committed effects.",
+                    "Action {} changes its input, output, authority precondition, or committed effects.",
                     change.id
                 ),
             ),
@@ -767,13 +767,13 @@ fn without(values: &BTreeSet<String>, excluded: &BTreeSet<String>) -> BTreeSet<S
 #[cfg(test)]
 mod tests {
     use zoen_core::{
-        ActionDefinition, ActionEffect, ActionId, CanonicalDefinition, CanonicalJson, Cardinality,
-        CommitSequence, ComputationDefinition, ComputationId, DefinitionChange,
-        DefinitionChangeKind, DefinitionDigest, DefinitionElementKind, DefinitionId,
-        DefinitionImpactApplicability, DefinitionImpactArea, DefinitionRevision,
+        ActionDefinition, ActionEffect, ActionId, ActionOutputDefinition, CanonicalDefinition,
+        CanonicalJson, Cardinality, CommitSequence, ComputationDefinition, ComputationId,
+        DefinitionChange, DefinitionChangeKind, DefinitionDigest, DefinitionElementKind,
+        DefinitionId, DefinitionImpactApplicability, DefinitionImpactArea, DefinitionRevision,
         DefinitionRevisionNumber, DefinitionSchema, EvolutionClassification, ExactInteger,
-        ExactValue, Expression, RelationDefinition, RelationId, RelationTarget, TypeDefinition,
-        TypeId, ValueType,
+        ExactValue, Expression, OutputId, RelationDefinition, RelationId, RelationTarget,
+        TypeDefinition, TypeId, ValueType,
     };
 
     use super::{classify, plan};
@@ -805,6 +805,7 @@ mod tests {
             }],
             id: ActionId::parse("inventory.reserve").expect("action"),
             inputs: Vec::new(),
+            outputs: Vec::new(),
             precondition: Expression::Literal(ExactValue::Bool(true)),
         });
 
@@ -922,7 +923,12 @@ mod tests {
     fn action_contract_change_is_breaking() {
         let from_definition = definition(1);
         let mut to_definition = definition(2);
-        to_definition.actions[0].precondition = Expression::Literal(ExactValue::Bool(false));
+        to_definition.actions[0]
+            .outputs
+            .push(ActionOutputDefinition {
+                id: OutputId::parse("acceptedUnits").expect("output"),
+                value_type: ValueType::Integer,
+            });
 
         let result = plan(
             &revision(1, "a"),
@@ -933,6 +939,13 @@ mod tests {
 
         assert_eq!(result.classification, EvolutionClassification::Breaking);
         assert!(result.migration_required());
+        assert!(
+            result
+                .changes
+                .iter()
+                .any(|change| change.element == DefinitionElementKind::Action
+                    && change.rationale.contains("output"))
+        );
     }
 
     fn definition(revision: u64) -> CanonicalDefinition {
@@ -946,6 +959,7 @@ mod tests {
                 }],
                 id: ActionId::parse("inventory.replenish").expect("action"),
                 inputs: Vec::new(),
+                outputs: Vec::new(),
                 precondition: Expression::Literal(ExactValue::Bool(true)),
             }],
             computations: Vec::new(),

@@ -161,6 +161,7 @@ export function assertV1ToV2Assessment(
       /cardinality/.test(level.rationale) &&
       /target value or entity representation/.test(level.rationale) &&
       action.classification === EvolutionClassification.BREAKING &&
+      /output/.test(action.rationale) &&
       computation.classification ===
         EvolutionClassification.REQUIRES_MIGRATION &&
       item.classification ===

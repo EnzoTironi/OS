@@ -64,10 +64,16 @@ export interface ActionEffect {
   readonly value: Expression;
 }
 
+export interface ActionOutputDefinition {
+  readonly id: string;
+  readonly valueType: ValueType;
+}
+
 export interface ActionDefinition {
   readonly effects: readonly ActionEffect[];
   readonly id: string;
   readonly inputs: readonly InputDefinition[];
+  readonly outputs?: readonly ActionOutputDefinition[];
   readonly precondition: Expression;
 }
 

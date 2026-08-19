@@ -18,6 +18,7 @@ import { z } from "zod";
 import type {
   ActionDefinition,
   ActionEffect,
+  ActionOutputDefinition,
   CanonicalDefinitionBundle,
   CompiledDefinition,
   ComputationDefinition,
@@ -194,11 +195,19 @@ const actionEffectSchema: z.ZodType<ActionEffect> = z
   })
   .strict();
 
+const actionOutputSchema: z.ZodType<ActionOutputDefinition> = z
+  .object({
+    id: identifierSchema,
+    valueType: valueTypeSchema,
+  })
+  .strict();
+
 const actionSchema: z.ZodType<ActionDefinition> = z
   .object({
     effects: z.array(actionEffectSchema),
     id: identifierSchema,
     inputs: z.array(inputSchema),
+    outputs: z.array(actionOutputSchema).optional(),
     precondition: expressionSchema,
   })
   .strict();
@@ -536,6 +545,7 @@ function validateBundle(bundle: RawDefinitionBundle): void {
     validateExecutable(definition.id, definition.inputs, definition.expression, relationIds);
   }
   for (const definition of bundle.actions) {
+    assertUniqueIds(definition.outputs ?? [], `output in ${definition.id}`);
     assertUniqueBy(
       definition.effects,
       `effect in ${definition.id}`,
@@ -631,19 +641,23 @@ function assertUniqueBy<T>(
 
 function normalize(bundle: RawDefinitionBundle): CanonicalDefinitionBundle {
   return {
-    actions: sortById(bundle.actions).map((definition) => ({
-      effects: [...definition.effects]
-        .sort((left, right) =>
-          compareCodePoints(left.relationId, right.relationId),
-        )
-        .map((effect) => ({
-          relationId: effect.relationId,
-          value: copyExpression(effect.value),
-        })),
-      id: definition.id,
-      inputs: normalizeInputs(definition.inputs),
-      precondition: copyExpression(definition.precondition),
-    })),
+    actions: sortById(bundle.actions).map((definition) => {
+      const outputs = normalizeOutputs(definition.outputs ?? []);
+      return {
+        effects: [...definition.effects]
+          .sort((left, right) =>
+            compareCodePoints(left.relationId, right.relationId),
+          )
+          .map((effect) => ({
+            relationId: effect.relationId,
+            value: copyExpression(effect.value),
+          })),
+        id: definition.id,
+        inputs: normalizeInputs(definition.inputs),
+        ...(outputs.length === 0 ? {} : { outputs }),
+        precondition: copyExpression(definition.precondition),
+      };
+    }),
     computations: sortById(bundle.computations).map((definition) => ({
       expression: copyExpression(definition.expression),
       id: definition.id,
@@ -684,6 +698,15 @@ function normalizeInputs(
   return sortById(inputs).map((input) => ({
     id: input.id,
     valueType: copyValueType(input.valueType),
+  }));
+}
+
+function normalizeOutputs(
+  outputs: readonly ActionOutputDefinition[],
+): ActionOutputDefinition[] {
+  return sortById(outputs).map((output) => ({
+    id: output.id,
+    valueType: copyValueType(output.valueType),
   }));
 }
 
