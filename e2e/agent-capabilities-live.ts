@@ -530,12 +530,18 @@ async function main(): Promise<void> {
       "--version",
     );
     assert.match(keycloakVersion, /Keycloak 26\.0\.7/);
-    const restateImage = await composeOutput(
+    const restateImageId = await composeOutput(
       "images",
       "restate",
-      "--format",
-      "{{.Repository}}:{{.Tag}}",
+      "--quiet",
     );
+    const restateImage = await command("docker", [
+      "image",
+      "inspect",
+      restateImageId,
+      "--format",
+      "{{index .RepoTags 0}}",
+    ]);
     assert.match(restateImage, /restate:1\.7\.2/);
     const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
     const cargoTree = await command("cargo", [
