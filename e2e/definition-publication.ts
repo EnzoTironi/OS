@@ -427,6 +427,12 @@ async function startServer(): Promise<ServerProcess> {
     env: {
       ...process.env,
       DATABASE_URL: applicationDatabaseUrl,
+      S3_ACCESS_KEY_ID: "unused",
+      S3_ALLOW_HTTP: "true",
+      S3_BUCKET: "unused",
+      S3_ENDPOINT: "http://127.0.0.1:1",
+      S3_REGION: "us-east-1",
+      S3_SECRET_ACCESS_KEY: "unused",
       ZOEN_LISTEN_ADDR: "127.0.0.1:58080",
       ZOEN_SESSION_TOKENS: JSON.stringify({
         [tokenA]: tenantA,

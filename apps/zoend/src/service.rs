@@ -2,10 +2,7 @@ use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
 use zoen_adapters::PostgresAuthorityStore;
-use zoen_core::{
-    DefinitionDigest, DefinitionId, DefinitionRevision as CoreDefinitionRevision, ExecutionContext,
-    TenantId,
-};
+use zoen_core::{DefinitionDigest, DefinitionId, DefinitionRevision as CoreDefinitionRevision};
 use zoen_engine::{DefinitionEngine, GetRevisionError, PublishError, StoreError};
 
 use crate::auth::SessionRegistry;
@@ -26,28 +23,6 @@ impl DefinitionServiceImpl {
     ) -> Self {
         Self { engine, sessions }
     }
-
-    fn execution_context(
-        &self,
-        request_context: &RequestContext,
-        claimed_tenant: &str,
-    ) -> Result<ExecutionContext, ConnectError> {
-        let authorization = request_context
-            .header("authorization")
-            .and_then(|value| value.to_str().ok());
-        let context = self.sessions.authenticate(authorization).ok_or_else(|| {
-            ConnectError::new(ErrorCode::Unauthenticated, "invalid bearer session")
-        })?;
-        let claimed_tenant = TenantId::parse(claimed_tenant)
-            .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
-        if context.tenant_id != claimed_tenant {
-            return Err(ConnectError::new(
-                ErrorCode::PermissionDenied,
-                "payload tenant does not match the trusted session",
-            ));
-        }
-        Ok(context)
-    }
 }
 
 impl DefinitionService for DefinitionServiceImpl {
@@ -56,7 +31,9 @@ impl DefinitionService for DefinitionServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, PublishRequest>,
     ) -> ServiceResult<PublishResponse> {
-        let execution_context = self.execution_context(&context, request.tenant_id)?;
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
         let digest = DefinitionDigest::parse(request.digest)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let revision = self
@@ -75,7 +52,9 @@ impl DefinitionService for DefinitionServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, GetRevisionRequest>,
     ) -> ServiceResult<GetRevisionResponse> {
-        let execution_context = self.execution_context(&context, request.tenant_id)?;
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let digest = DefinitionDigest::parse(request.digest)
@@ -126,7 +105,7 @@ fn map_get_error(error: GetRevisionError) -> ConnectError {
     }
 }
 
-fn map_store_error(error: StoreError) -> ConnectError {
+pub(crate) fn map_store_error(error: StoreError) -> ConnectError {
     let code = match &error {
         StoreError::Conflict(_) => ErrorCode::AlreadyExists,
         StoreError::Corrupt(_) => ErrorCode::DataLoss,

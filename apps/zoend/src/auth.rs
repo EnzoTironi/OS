@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use connectrpc::{ConnectError, ErrorCode, RequestContext};
 use zoen_core::{ExecutionContext, TenantId};
 
 #[derive(Debug)]
@@ -57,5 +58,27 @@ impl SessionRegistry {
             .get(token)
             .cloned()
             .map(|tenant_id| ExecutionContext { tenant_id })
+    }
+
+    pub fn execution_context(
+        &self,
+        request_context: &RequestContext,
+        claimed_tenant: &str,
+    ) -> Result<ExecutionContext, ConnectError> {
+        let authorization = request_context
+            .header("authorization")
+            .and_then(|value| value.to_str().ok());
+        let context = self.authenticate(authorization).ok_or_else(|| {
+            ConnectError::new(ErrorCode::Unauthenticated, "invalid bearer session")
+        })?;
+        let claimed_tenant = TenantId::parse(claimed_tenant)
+            .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
+        if context.tenant_id != claimed_tenant {
+            return Err(ConnectError::new(
+                ErrorCode::PermissionDenied,
+                "payload tenant does not match the trusted session",
+            ));
+        }
+        Ok(context)
     }
 }
