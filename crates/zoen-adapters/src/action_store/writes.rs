@@ -1,5 +1,6 @@
+use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
-use zoen_core::{CommitIdentityKind, CommitReceipt, TenantId};
+use zoen_core::{CommitIdentityKind, CommitReceipt, IntentDigest, OperationId, TenantId};
 use zoen_engine::{ActionCommitEffect, AdmittedEvidence, CommitPlan, StoreError};
 
 use crate::{store_unavailable, u64_to_i64, valid_time_columns, value_columns};
@@ -55,6 +56,11 @@ pub(super) async fn find_identity_collision(
         .collect::<Vec<_>>();
     let effect_collision = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS (
+            SELECT 1
+            FROM effect_requests
+            WHERE tenant_id = $1
+              AND effect_request_id = ANY($2::text[])
+            UNION ALL
             SELECT 1
             FROM projection_outbox
             WHERE tenant_id = $1
@@ -133,9 +139,39 @@ pub(super) async fn insert_effect_request(
     tenant_id: &TenantId,
     commit_sequence: i64,
     ordinal: usize,
+    operation_id: &OperationId,
+    intent_digest: &IntentDigest,
     effect: &ActionCommitEffect,
 ) -> Result<(), StoreError> {
     let event = effect.evidence.projection_event();
+    let request_digest = Sha256::digest(event.payload().as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let idempotency_key = format!(
+        "idempotency.{}.{}",
+        tenant_id.as_str(),
+        effect.effect_request_id.as_str()
+    );
+    sqlx::query(
+        "INSERT INTO effect_requests (
+            tenant_id, effect_request_id, operation_id, commit_sequence,
+            idempotency_key, intent_digest, request_digest, payload,
+            knowledge_state, last_commit_sequence
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'not_attempted', $4)",
+    )
+    .bind(tenant_id.as_str())
+    .bind(effect.effect_request_id.as_str())
+    .bind(operation_id.as_str())
+    .bind(commit_sequence)
+    .bind(idempotency_key)
+    .bind(intent_digest.as_str())
+    .bind(request_digest)
+    .bind(event.payload().as_bytes())
+    .execute(&mut **transaction)
+    .await
+    .map_err(map_effect_request_insert)?;
+
     sqlx::query(
         "INSERT INTO projection_outbox
             (tenant_id, commit_sequence, ordinal, event_type, event_version, payload,
@@ -159,6 +195,19 @@ pub(super) async fn insert_effect_request(
         )
     })?;
     Ok(())
+}
+
+fn map_effect_request_insert(error: sqlx::Error) -> StoreError {
+    if error.as_database_error().is_some_and(|database| {
+        database.is_unique_violation()
+            && database
+                .constraint()
+                .is_some_and(|constraint| constraint.starts_with("effect_requests_"))
+    }) {
+        StoreError::IdentityCollision(CommitIdentityKind::EffectRequest)
+    } else {
+        store_unavailable(error)
+    }
 }
 
 pub(super) async fn insert_operation(

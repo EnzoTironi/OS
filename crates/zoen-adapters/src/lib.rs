@@ -6,9 +6,10 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     ActionApproval, ActionProposal, CanonicalJson, ClaimId, CommitReceipt, CommitSequence,
     DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
-    DefinitionRevisionNumber, EntityId, EvidenceClaim, EvidenceDigest, EvidenceDraft,
-    EvidenceProvenance, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, OperationId,
-    ProposalId, RelationId, SourceId, TenantId, TimestampMicros, UnitId, ValidTime,
+    DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EntityId, EvidenceClaim,
+    EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger, ExactValue,
+    ExecutionContext, OperationId, ProposalId, RelationId, SourceId, TenantId, TimestampMicros,
+    UnitId, ValidTime,
 };
 use zoen_engine::{
     AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, CommitPreparation, StoreError,
@@ -17,10 +18,19 @@ use zoen_engine::{
 mod action_store;
 mod cedar;
 mod claim_store;
+mod effect_dispatcher;
+mod effect_store;
+mod restate;
 
 pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
 pub use claim_store::{PostgresClaimLoader, PostgresClaimQuery};
+pub use effect_dispatcher::{
+    DispatchAcceptance, DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
+    EffectDispatchOutcome, EffectDispatchResult, PostgresEffectDispatcher,
+};
+pub use effect_store::PostgresEffectUpdate;
+pub use restate::{RestateEffectScheduler, restate_effect_key};
 
 #[derive(Debug)]
 pub enum PostgresInitError {
@@ -72,6 +82,7 @@ impl PostgresAuthorityStore {
 
 impl AuthorityStore for PostgresAuthorityStore {
     type ActionCommit = PostgresActionCommit;
+    type EffectUpdate = PostgresEffectUpdate;
 
     async fn begin_action_commit(
         &self,
@@ -87,6 +98,22 @@ impl AuthorityStore for PostgresAuthorityStore {
         proposal_id: &ProposalId,
     ) -> Result<Option<ActionApproval>, StoreError> {
         action_store::get_approval(&self.pool, context, proposal_id).await
+    }
+
+    async fn begin_effect_update(
+        &self,
+        context: &ExecutionContext,
+        effect_request_id: &EffectRequestId,
+    ) -> Result<Self::EffectUpdate, StoreError> {
+        effect_store::begin(&self.pool, context, effect_request_id).await
+    }
+
+    async fn get_effect(
+        &self,
+        context: &ExecutionContext,
+        effect_request_id: &EffectRequestId,
+    ) -> Result<EffectSnapshot, StoreError> {
+        effect_store::get(&self.pool, context, effect_request_id).await
     }
 
     async fn get_operation(

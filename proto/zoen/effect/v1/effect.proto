@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package zoen.effect.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service EffectService {
+  rpc GetEffect(GetEffectRequest) returns (GetEffectResponse);
+  rpc ClaimAttempt(ClaimAttemptRequest) returns (ClaimAttemptResponse);
+  rpc RecordAttempt(RecordAttemptRequest) returns (RecordAttemptResponse);
+  rpc Reconcile(ReconcileRequest) returns (ReconcileResponse);
+}
+
+enum EffectKnowledgeState {
+  EFFECT_KNOWLEDGE_STATE_UNSPECIFIED = 0;
+  EFFECT_KNOWLEDGE_STATE_NOT_ATTEMPTED = 1;
+  EFFECT_KNOWLEDGE_STATE_DEFINITELY_NOT_SENT = 2;
+  EFFECT_KNOWLEDGE_STATE_UNKNOWN = 3;
+  EFFECT_KNOWLEDGE_STATE_ACCEPTED_PENDING = 4;
+  EFFECT_KNOWLEDGE_STATE_CONFIRMED = 5;
+  EFFECT_KNOWLEDGE_STATE_CONFIRMED_NO_EFFECT = 6;
+  EFFECT_KNOWLEDGE_STATE_CONTRADICTED = 7;
+}
+
+enum EffectAttemptOutcome {
+  EFFECT_ATTEMPT_OUTCOME_UNSPECIFIED = 0;
+  EFFECT_ATTEMPT_OUTCOME_DEFINITELY_NOT_SENT = 1;
+  EFFECT_ATTEMPT_OUTCOME_UNKNOWN = 2;
+  EFFECT_ATTEMPT_OUTCOME_ACCEPTED_PENDING = 3;
+  EFFECT_ATTEMPT_OUTCOME_CONFIRMED = 4;
+  EFFECT_ATTEMPT_OUTCOME_CONFIRMED_NO_EFFECT = 5;
+}
+
+enum EffectAttemptReason {
+  EFFECT_ATTEMPT_REASON_UNSPECIFIED = 0;
+  EFFECT_ATTEMPT_REASON_CREDENTIAL_REVOKED = 1;
+  EFFECT_ATTEMPT_REASON_TIMEOUT_BEFORE_SEND = 2;
+  EFFECT_ATTEMPT_REASON_PROVIDER_UNAVAILABLE = 3;
+  EFFECT_ATTEMPT_REASON_RESPONSE_PARSE_ERROR = 4;
+  EFFECT_ATTEMPT_REASON_RESPONSE_SCHEMA_ERROR = 5;
+  EFFECT_ATTEMPT_REASON_TIMEOUT_AFTER_POSSIBLE_DELIVERY = 6;
+}
+
+enum EffectEvidenceOutcome {
+  EFFECT_EVIDENCE_OUTCOME_UNSPECIFIED = 0;
+  EFFECT_EVIDENCE_OUTCOME_CONFIRMED = 1;
+  EFFECT_EVIDENCE_OUTCOME_NO_EFFECT = 2;
+}
+
+message EffectRequest {
+  string effect_request_id = 1;
+  string operation_id = 2;
+  string idempotency_key = 3;
+  string intent_digest = 4;
+  string request_digest = 5;
+  bytes payload = 6;
+  EffectKnowledgeState state = 7;
+  uint64 commit_sequence = 8;
+}
+
+message EffectAttempt {
+  string attempt_id = 1;
+  string provider_operation_id = 2;
+  string request_digest = 3;
+  EffectAttemptOutcome outcome = 4;
+  EffectAttemptReason reason = 5;
+  string response_digest = 6;
+  google.protobuf.Timestamp observed_at = 7;
+  uint64 commit_sequence = 8;
+}
+
+message EffectEvidence {
+  string evidence_id = 1;
+  string evidence_digest = 2;
+  string idempotency_key = 3;
+  EffectEvidenceOutcome outcome = 4;
+  string source_id = 5;
+  string source_ref = 6;
+  google.protobuf.Timestamp observed_at = 7;
+  uint64 commit_sequence = 8;
+  string provider_operation_id = 9;
+}
+
+message EffectReconciliation {
+  string evidence_id = 1;
+  EffectKnowledgeState previous_state = 2;
+  EffectKnowledgeState resulting_state = 3;
+  uint64 commit_sequence = 4;
+}
+
+message EffectSnapshot {
+  EffectRequest request = 1;
+  repeated EffectAttempt attempts = 2;
+  repeated EffectEvidence evidence = 3;
+  repeated EffectReconciliation reconciliations = 4;
+}
+
+message GetEffectRequest {
+  string effect_request_id = 1;
+}
+
+message GetEffectResponse {
+  EffectSnapshot snapshot = 1;
+}
+
+message EffectAttemptInput {
+  string attempt_id = 1;
+  string provider_operation_id = 2;
+  reserved 3;
+  EffectAttemptOutcome outcome = 4;
+  EffectAttemptReason reason = 5;
+  string response_digest = 6;
+  google.protobuf.Timestamp observed_at = 7;
+}
+
+message ClaimAttemptRequest {
+  string effect_request_id = 1;
+  string adapter_execution_id = 2;
+}
+
+message EffectAttemptClaim {
+  string attempt_id = 1;
+  EffectRequest request = 2;
+}
+
+message ClaimAttemptResponse {
+  EffectAttemptClaim claim = 1;
+}
+
+message RecordAttemptRequest {
+  string effect_request_id = 1;
+  EffectAttemptInput attempt = 2;
+}
+
+message RecordAttemptResponse {
+  EffectSnapshot snapshot = 1;
+}
+
+message EffectEvidenceInput {
+  string evidence_id = 1;
+  string evidence_digest = 2;
+  string idempotency_key = 3;
+  EffectEvidenceOutcome outcome = 4;
+  string source_id = 5;
+  string source_ref = 6;
+  google.protobuf.Timestamp observed_at = 7;
+  string provider_operation_id = 8;
+}
+
+message ReconcileRequest {
+  string effect_request_id = 1;
+  EffectEvidenceInput evidence = 2;
+}
+
+message ReconcileResponse {
+  EffectSnapshot snapshot = 1;
+}

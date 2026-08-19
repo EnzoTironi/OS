@@ -2,6 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+mod effect;
+
+pub use effect::{
+    DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
+    EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation, EffectRequest,
+    EffectSnapshot, UnknownEffectReason,
+};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IdentifierError {
     kind: &'static str,
@@ -47,12 +55,16 @@ semantic_id!(ComputationId);
 semantic_id!(DelegationId);
 semantic_id!(DefinitionId);
 semantic_id!(EntityId);
+semantic_id!(EffectAttemptId);
+semantic_id!(EffectEvidenceId);
+semantic_id!(EffectIdempotencyKey);
 semantic_id!(EffectRequestId);
 semantic_id!(InputId);
 semantic_id!(OperationId);
 semantic_id!(PolicyId);
 semantic_id!(PrincipalId);
 semantic_id!(ProposalId);
+semantic_id!(ProviderOperationId);
 semantic_id!(RelationId);
 semantic_id!(ResourceId);
 semantic_id!(SourceId);
@@ -175,6 +187,9 @@ macro_rules! sha256_digest {
 }
 
 sha256_digest!(IntentDigest);
+sha256_digest!(EffectEvidenceDigest);
+sha256_digest!(EffectRequestDigest);
+sha256_digest!(EffectResponseDigest);
 sha256_digest!(PolicyDigest);
 sha256_digest!(StateBasisDigest);
 

@@ -6,12 +6,13 @@ use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionProposal, CanonicalDefinition, CanonicalJson, CommitIdentityKind,
     CommitReceipt, DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber,
-    EvidenceClaim, EvidenceDraft, ExecutionContext, Expression, InputDefinition, OperationId,
-    ProposalId, RelationTarget, TenantId,
+    EffectRequestId, EffectSnapshot, EvidenceClaim, EvidenceDraft, ExecutionContext, Expression,
+    InputDefinition, OperationId, ProposalId, RelationTarget, TenantId,
 };
 
 mod action;
 mod admission;
+mod effect;
 
 pub use action::{
     ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
@@ -20,6 +21,11 @@ pub use action::{
     ProposeCommand, ProposeOutcome, QueryExecutor, QueryPortError, SemanticClaim,
     calculate_state_basis_digest, evaluate_action_state_basis, evaluate_semantic_claims,
     read_action_state_basis,
+};
+pub use effect::{
+    EffectAttemptClaim, EffectAttemptClaimCommand, EffectAttemptCommand, EffectEngine, EffectError,
+    EffectReconcileCommand, EffectUpdateTransaction, effect_state_after_attempt,
+    effect_state_after_evidence,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -377,6 +383,7 @@ impl AdmittedEvidence {
 #[allow(async_fn_in_trait)]
 pub trait AuthorityStore: Send + Sync {
     type ActionCommit: ActionCommitTransaction;
+    type EffectUpdate: EffectUpdateTransaction;
 
     async fn begin_action_commit(
         &self,
@@ -389,6 +396,18 @@ pub trait AuthorityStore: Send + Sync {
         context: &ExecutionContext,
         proposal_id: &ProposalId,
     ) -> Result<Option<ActionApproval>, StoreError>;
+
+    async fn begin_effect_update(
+        &self,
+        context: &ExecutionContext,
+        effect_request_id: &EffectRequestId,
+    ) -> Result<Self::EffectUpdate, StoreError>;
+
+    async fn get_effect(
+        &self,
+        context: &ExecutionContext,
+        effect_request_id: &EffectRequestId,
+    ) -> Result<EffectSnapshot, StoreError>;
 
     async fn get_operation(
         &self,

@@ -159,6 +159,8 @@ impl ActionCommitTransaction for PostgresActionCommit {
                 context.tenant_id(),
                 next_sequence,
                 ordinal,
+                &plan.proposal.operation_id,
+                &plan.proposal.intent_digest,
                 effect,
             )
             .await

@@ -10,6 +10,7 @@ failpoints = []
 
 [dependencies]
 cedar-policy = "4.7.1"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
