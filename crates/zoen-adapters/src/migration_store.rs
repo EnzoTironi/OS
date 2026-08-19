@@ -149,6 +149,7 @@ pub(crate) async fn preflight(
     match existing {
         Some(existing) if existing == intent_digest.as_str() => get(store, tenant_id, operation_id)
             .await
+            .map(Box::new)
             .map(MigrationBatchPreflight::Replayed),
         Some(_) => Ok(MigrationBatchPreflight::Mismatch),
         None => Ok(MigrationBatchPreflight::Ready),

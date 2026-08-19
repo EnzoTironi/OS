@@ -170,7 +170,7 @@ where
             .await
             .map_err(MigrationError::Store)?
         {
-            MigrationBatchPreflight::Replayed(progress) => return Ok(progress),
+            MigrationBatchPreflight::Replayed(progress) => return Ok(*progress),
             MigrationBatchPreflight::Mismatch => {
                 return Err(MigrationError::Store(StoreError::OperationMismatch));
             }

@@ -9,7 +9,7 @@ use crate::AdmittedEvidence;
 pub enum MigrationBatchPreflight {
     Mismatch,
     Ready,
-    Replayed(MigrationProgress),
+    Replayed(Box<MigrationProgress>),
 }
 
 #[derive(Clone, Debug)]
