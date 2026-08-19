@@ -1,0 +1,483 @@
+use std::cmp::Ordering;
+use std::fmt::Display;
+
+use serde::{Deserialize, Serialize};
+use zoen_core::{
+    ActionDefinition, ActionEffect, ActionId, BinaryOperator, CanonicalDefinition, CanonicalJson,
+    Cardinality, ComputationDefinition, ComputationId, DefinitionDigest, DefinitionId,
+    DefinitionRevisionNumber, DefinitionSchema, ExactDecimal, ExactInteger, ExactValue, Expression,
+    InputDefinition, InputId, RelationDefinition, RelationId, RelationTarget, TypeDefinition,
+    TypeId, UnitId, ValueType,
+};
+
+use crate::{
+    AdmittedDefinitionPublication, ProjectionEvent, PublishError, validate_definition,
+    verify_digest,
+};
+
+pub(crate) fn admit(
+    bytes: &[u8],
+    claimed_digest: DefinitionDigest,
+) -> Result<AdmittedDefinitionPublication, PublishError> {
+    let mut dto = serde_json::from_slice::<CanonicalDefinitionDto>(bytes)
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
+    normalize(&mut dto);
+    let normalized = serde_jcs::to_vec(&dto)
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
+    if normalized != bytes {
+        return Err(PublishError::NonCanonicalDefinition);
+    }
+    let canonical_json = CanonicalJson::new(
+        String::from_utf8(normalized)
+            .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?,
+    )
+    .ok_or_else(|| PublishError::MalformedDefinition("empty document".to_owned()))?;
+    if !verify_digest(&canonical_json, &claimed_digest) {
+        return Err(PublishError::DigestMismatch);
+    }
+
+    let definition = convert_definition(dto)?;
+    validate_definition(&definition).map_err(PublishError::InvalidDefinition)?;
+    let event = ProjectionEvent::definition_published(
+        &definition.id,
+        definition.revision,
+        &claimed_digest,
+    )?;
+    Ok(AdmittedDefinitionPublication::new(
+        canonical_json,
+        definition.id,
+        claimed_digest,
+        definition.revision,
+        event,
+    ))
+}
+
+fn normalize(dto: &mut CanonicalDefinitionDto) {
+    dto.actions
+        .sort_by(|left, right| compare_code_points(&left.id, &right.id));
+    for action in &mut dto.actions {
+        action
+            .effects
+            .sort_by(|left, right| compare_code_points(&left.relation_id, &right.relation_id));
+        sort_inputs(&mut action.inputs);
+    }
+    dto.computations
+        .sort_by(|left, right| compare_code_points(&left.id, &right.id));
+    for computation in &mut dto.computations {
+        sort_inputs(&mut computation.inputs);
+    }
+    dto.relations
+        .sort_by(|left, right| compare_code_points(&left.id, &right.id));
+    dto.types
+        .sort_by(|left, right| compare_code_points(&left.id, &right.id));
+    for definition_type in &mut dto.types {
+        sort_inputs(&mut definition_type.attributes);
+    }
+}
+
+fn sort_inputs(inputs: &mut [InputDefinitionDto]) {
+    inputs.sort_by(|left, right| compare_code_points(&left.id, &right.id));
+}
+
+fn compare_code_points(left: &str, right: &str) -> Ordering {
+    left.chars().cmp(right.chars())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DefinitionPublishedV1<'a> {
+    definition_id: &'a str,
+    digest: &'a str,
+    revision: u64,
+}
+
+impl ProjectionEvent {
+    fn definition_published(
+        definition_id: &DefinitionId,
+        revision: DefinitionRevisionNumber,
+        digest: &DefinitionDigest,
+    ) -> Result<Self, PublishError> {
+        let payload = serde_jcs::to_string(&DefinitionPublishedV1 {
+            definition_id: definition_id.as_str(),
+            digest: digest.as_str(),
+            revision: revision.get(),
+        })
+        .map_err(|error| PublishError::EventEncoding(error.to_string()))?;
+        Ok(Self {
+            event_type: "DefinitionPublished",
+            event_version: 1,
+            payload,
+        })
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CanonicalDefinitionDto {
+    actions: Vec<ActionDefinitionDto>,
+    computations: Vec<ComputationDefinitionDto>,
+    definition_id: String,
+    relations: Vec<RelationDefinitionDto>,
+    revision: u64,
+    schema: DefinitionSchemaDto,
+    types: Vec<TypeDefinitionDto>,
+}
+
+#[derive(Deserialize, Serialize)]
+enum DefinitionSchemaDto {
+    #[serde(rename = "zoen.definition.v1")]
+    V1,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InputDefinitionDto {
+    id: String,
+    value_type: ValueTypeDto,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TypeDefinitionDto {
+    attributes: Vec<InputDefinitionDto>,
+    id: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+enum RelationTargetDto {
+    Type { type_id: String },
+    Value { value_type: ValueTypeDto },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RelationDefinitionDto {
+    cardinality: CardinalityDto,
+    id: String,
+    source_type: String,
+    target: RelationTargetDto,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CardinalityDto {
+    Many,
+    One,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ComputationDefinitionDto {
+    expression: ExpressionDto,
+    id: String,
+    inputs: Vec<InputDefinitionDto>,
+    returns: ValueTypeDto,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ActionEffectDto {
+    relation_id: String,
+    value: ExpressionDto,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ActionDefinitionDto {
+    effects: Vec<ActionEffectDto>,
+    id: String,
+    inputs: Vec<InputDefinitionDto>,
+    precondition: ExpressionDto,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+enum ValueTypeDto {
+    Bool,
+    Decimal,
+    Integer,
+    Quantity { unit: String },
+    Text,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+enum ExactValueDto {
+    Bool { value: bool },
+    Decimal { value: String },
+    Integer { value: String },
+    Quantity { amount: String, unit: String },
+    Text { value: String },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+enum ExpressionDto {
+    Binary {
+        left: Box<ExpressionDto>,
+        operator: BinaryOperatorDto,
+        right: Box<ExpressionDto>,
+    },
+    Input {
+        input_id: String,
+    },
+    Literal {
+        value: ExactValueDto,
+    },
+    Relation {
+        relation_id: String,
+    },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BinaryOperatorDto {
+    Add,
+    GreaterThan,
+    Multiply,
+    Subtract,
+}
+
+fn convert_definition(dto: CanonicalDefinitionDto) -> Result<CanonicalDefinition, PublishError> {
+    Ok(CanonicalDefinition {
+        actions: dto
+            .actions
+            .into_iter()
+            .map(convert_action)
+            .collect::<Result<_, _>>()?,
+        computations: dto
+            .computations
+            .into_iter()
+            .map(convert_computation)
+            .collect::<Result<_, _>>()?,
+        id: DefinitionId::parse(dto.definition_id).map_err(invalid)?,
+        relations: dto
+            .relations
+            .into_iter()
+            .map(convert_relation)
+            .collect::<Result<_, _>>()?,
+        revision: DefinitionRevisionNumber::new(dto.revision).ok_or_else(|| {
+            PublishError::InvalidCanonicalDefinition("revision must be positive".to_owned())
+        })?,
+        schema: match dto.schema {
+            DefinitionSchemaDto::V1 => DefinitionSchema::V1,
+        },
+        types: dto
+            .types
+            .into_iter()
+            .map(convert_type)
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn convert_type(dto: TypeDefinitionDto) -> Result<TypeDefinition, PublishError> {
+    Ok(TypeDefinition {
+        attributes: dto
+            .attributes
+            .into_iter()
+            .map(convert_input)
+            .collect::<Result<_, _>>()?,
+        id: TypeId::parse(dto.id).map_err(invalid)?,
+    })
+}
+
+fn convert_relation(dto: RelationDefinitionDto) -> Result<RelationDefinition, PublishError> {
+    Ok(RelationDefinition {
+        cardinality: match dto.cardinality {
+            CardinalityDto::Many => Cardinality::Many,
+            CardinalityDto::One => Cardinality::One,
+        },
+        id: RelationId::parse(dto.id).map_err(invalid)?,
+        source_type: TypeId::parse(dto.source_type).map_err(invalid)?,
+        target: match dto.target {
+            RelationTargetDto::Type { type_id } => {
+                RelationTarget::Type(TypeId::parse(type_id).map_err(invalid)?)
+            }
+            RelationTargetDto::Value { value_type } => {
+                RelationTarget::Value(convert_value_type(value_type)?)
+            }
+        },
+    })
+}
+
+fn convert_computation(
+    dto: ComputationDefinitionDto,
+) -> Result<ComputationDefinition, PublishError> {
+    Ok(ComputationDefinition {
+        expression: convert_expression(dto.expression)?,
+        id: ComputationId::parse(dto.id).map_err(invalid)?,
+        inputs: dto
+            .inputs
+            .into_iter()
+            .map(convert_input)
+            .collect::<Result<_, _>>()?,
+        returns: convert_value_type(dto.returns)?,
+    })
+}
+
+fn convert_action(dto: ActionDefinitionDto) -> Result<ActionDefinition, PublishError> {
+    Ok(ActionDefinition {
+        effects: dto
+            .effects
+            .into_iter()
+            .map(|effect| {
+                Ok(ActionEffect {
+                    relation_id: RelationId::parse(effect.relation_id).map_err(invalid)?,
+                    value: convert_expression(effect.value)?,
+                })
+            })
+            .collect::<Result<_, PublishError>>()?,
+        id: ActionId::parse(dto.id).map_err(invalid)?,
+        inputs: dto
+            .inputs
+            .into_iter()
+            .map(convert_input)
+            .collect::<Result<_, _>>()?,
+        precondition: convert_expression(dto.precondition)?,
+    })
+}
+
+fn convert_input(dto: InputDefinitionDto) -> Result<InputDefinition, PublishError> {
+    Ok(InputDefinition {
+        id: InputId::parse(dto.id).map_err(invalid)?,
+        value_type: convert_value_type(dto.value_type)?,
+    })
+}
+
+fn convert_value_type(dto: ValueTypeDto) -> Result<ValueType, PublishError> {
+    Ok(match dto {
+        ValueTypeDto::Bool => ValueType::Bool,
+        ValueTypeDto::Decimal => ValueType::Decimal,
+        ValueTypeDto::Integer => ValueType::Integer,
+        ValueTypeDto::Quantity { unit } => ValueType::Quantity {
+            unit: UnitId::parse(unit).map_err(invalid)?,
+        },
+        ValueTypeDto::Text => ValueType::Text,
+    })
+}
+
+fn convert_expression(dto: ExpressionDto) -> Result<Expression, PublishError> {
+    Ok(match dto {
+        ExpressionDto::Binary {
+            left,
+            operator,
+            right,
+        } => Expression::Binary {
+            left: Box::new(convert_expression(*left)?),
+            operator: match operator {
+                BinaryOperatorDto::Add => BinaryOperator::Add,
+                BinaryOperatorDto::GreaterThan => BinaryOperator::GreaterThan,
+                BinaryOperatorDto::Multiply => BinaryOperator::Multiply,
+                BinaryOperatorDto::Subtract => BinaryOperator::Subtract,
+            },
+            right: Box::new(convert_expression(*right)?),
+        },
+        ExpressionDto::Input { input_id } => {
+            Expression::Input(InputId::parse(input_id).map_err(invalid)?)
+        }
+        ExpressionDto::Literal { value } => Expression::Literal(convert_exact_value(value)?),
+        ExpressionDto::Relation { relation_id } => {
+            Expression::Relation(RelationId::parse(relation_id).map_err(invalid)?)
+        }
+    })
+}
+
+fn convert_exact_value(dto: ExactValueDto) -> Result<ExactValue, PublishError> {
+    Ok(match dto {
+        ExactValueDto::Bool { value } => ExactValue::Bool(value),
+        ExactValueDto::Decimal { value } => {
+            ExactValue::Decimal(ExactDecimal::parse(value).map_err(invalid)?)
+        }
+        ExactValueDto::Integer { value } => {
+            ExactValue::Integer(ExactInteger::parse(value).map_err(invalid)?)
+        }
+        ExactValueDto::Quantity { amount, unit } => ExactValue::Quantity {
+            amount: ExactDecimal::parse(amount).map_err(invalid)?,
+            unit: UnitId::parse(unit).map_err(invalid)?,
+        },
+        ExactValueDto::Text { value } => ExactValue::Text(value),
+    })
+}
+
+fn invalid(error: impl Display) -> PublishError {
+    PublishError::InvalidCanonicalDefinition(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use sha2::{Digest, Sha256};
+    use zoen_core::DefinitionDigest;
+
+    use super::{CanonicalDefinitionDto, admit};
+    use crate::PublishError;
+
+    const INVENTORY: &str =
+        include_str!("../../../packages/ontology/fixtures/inventory.canonical.json");
+
+    #[test]
+    fn admission_rejects_noncanonical_exact_integers() {
+        for value in ["01", "+1", "-0"] {
+            let canonical = with_integer(value);
+            let error = admit(canonical.as_bytes(), digest(canonical.as_bytes()))
+                .expect_err("noncanonical integer must fail admission");
+            assert!(
+                matches!(error, PublishError::InvalidCanonicalDefinition(_)),
+                "{value}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn admission_keeps_canonical_integers_beyond_i64() {
+        let canonical = with_integer("9223372036854775808");
+        admit(canonical.as_bytes(), digest(canonical.as_bytes()))
+            .expect("canonical integer must remain unbounded during admission");
+    }
+
+    #[test]
+    fn admission_normalizes_unordered_families_before_comparing_bytes() {
+        let mut dto =
+            serde_json::from_str::<CanonicalDefinitionDto>(INVENTORY.trim()).expect("fixture");
+        dto.types.reverse();
+        let reordered = serde_jcs::to_vec(&dto).expect("canonical JSON");
+        let error = admit(&reordered, digest(&reordered))
+            .expect_err("non-normalized family order must fail admission");
+        assert_eq!(error, PublishError::NonCanonicalDefinition);
+    }
+
+    fn with_integer(value: &str) -> String {
+        INVENTORY.trim().replace(
+            r#"{"amount":"0.125","kind":"quantity","unit":"kg"}"#,
+            &format!(r#"{{"kind":"integer","value":"{value}"}}"#),
+        )
+    }
+
+    fn digest(bytes: &[u8]) -> DefinitionDigest {
+        let encoded = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        DefinitionDigest::parse(encoded).expect("SHA-256 digest")
+    }
+}
