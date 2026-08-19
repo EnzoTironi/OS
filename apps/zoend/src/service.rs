@@ -43,10 +43,7 @@ use crate::proto::zoen::definition::v1::{
     PlanEvolutionRequest, PlanEvolutionResponse, PrepareMigrationRequest, PrepareMigrationResponse,
     PublishRequest, PublishResponse, RollbackRevisionRequest, RollbackRevisionResponse,
 };
-use crate::world_service::{
-    invalid, parse_definition_reference, parse_evidence_claim, to_definition_reference,
-    to_timestamp,
-};
+use crate::world_service::{invalid, parse_evidence_claim, to_definition_reference, to_timestamp};
 
 pub struct DefinitionServiceImpl {
     engine: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,

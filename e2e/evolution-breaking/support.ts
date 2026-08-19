@@ -252,6 +252,7 @@ export async function queryValue(
   assert.equal(response.values.length, 1);
   assert.ok(response.values[0]?.value);
   return {
+    dependencies: response.values[0].dependencies,
     definition: response.definition,
     value: response.values[0].value,
   };

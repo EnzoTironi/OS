@@ -734,9 +734,9 @@ async function main(): Promise<void> {
       v3Current.definition?.digest === v3.digest &&
         v3Current.value.value.case === "entityRefValue" &&
         v3Current.value.value.value === "inventory.warehouse.primary" &&
-        v3Current.value.dependencies[0]?.migration?.operationId ===
+        v3Current.dependencies[0]?.migration?.operationId ===
           v2ToV3Recipe.operationId &&
-        v3Current.value.dependencies[0]?.migration?.sourceClaimIds[0] ===
+        v3Current.dependencies[0]?.migration?.sourceClaimIds[0] ===
           "claim.inventory.level.v2",
     );
 
