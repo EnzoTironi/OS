@@ -96,7 +96,7 @@ where
                 explain_action(context, &target, *snapshot, disclosure, &mut gaps),
             )),
             HistorySnapshot::Claim(snapshot) => {
-                ExplanationSubject::Claim(explain_claim(snapshot, disclosure, &mut gaps))
+                ExplanationSubject::Claim(Box::new(explain_claim(snapshot, disclosure, &mut gaps)))
             }
         };
         Ok(CausalExplanation {

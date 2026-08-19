@@ -119,7 +119,7 @@ fn to_explanation(explanation: CoreCausalExplanation) -> CausalExplanation {
                 causal_explanation::Subject::Action(Box::new(to_action(*action)))
             }
             ExplanationSubject::Claim(claim) => {
-                causal_explanation::Subject::Claim(Box::new(to_claim_explanation(claim)))
+                causal_explanation::Subject::Claim(Box::new(to_claim_explanation(*claim)))
             }
         }),
         target: Some(to_target(explanation.target)).into(),

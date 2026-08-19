@@ -128,7 +128,7 @@ pub struct CausalClaimExplanation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplanationSubject {
     Action(Box<CausalActionExplanation>),
-    Claim(CausalClaimExplanation),
+    Claim(Box<CausalClaimExplanation>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -326,7 +326,9 @@ async function main(): Promise<void> {
         causalEffect.request.payload.case === "value" &&
         causalEffect.request.payload.value.length > 0 &&
         causalEffect.dispatches.length === 1 &&
-        causalEffect.dispatches[0]?.schedulerInvocationId.length > 0 &&
+        causalEffect.dispatches.some(
+          (dispatch) => dispatch.schedulerInvocationId.length > 0,
+        ) &&
         causalEffect.attempts.length === 1 &&
         causalEffect.evidence.length === 2 &&
         causalEffect.reconciliations.length === 2 &&
@@ -366,7 +368,7 @@ async function main(): Promise<void> {
             record.payload.case === "redaction" &&
             record.payload.value.digest.length === 64 &&
             record.structure?.value === undefined &&
-            record.structure?.claimId.length > 0,
+            (record.structure?.claimId.length ?? 0) > 0,
         ) &&
         redactedEffect.request?.payload.case === "redaction" &&
         redactedEffect.request.payload.value.digest.length === 64 &&
