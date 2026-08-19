@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -14,12 +14,14 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_adapters::{PostgresClaimLoader, PostgresClaimQuery};
 use zoen_core::{
     CanonicalDefinition, CanonicalJson, ClaimId, CommitSequence, Consistency, DefinitionReference,
-    EntityId, EvidenceClaim, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue,
-    ExecutionContext, Expression, LineageDependency, LineageRole, RelationId, SemanticQuery,
-    SemanticResult, SemanticSelection, SemanticValue, SourceId, TenantId, UnitId,
-    evaluate_expression, expression_relations,
+    EntityId, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, Expression,
+    LineageDependency, LineageRole, RelationId, SemanticQuery, SemanticResult, SemanticSelection,
+    SemanticValue, SourceId, TenantId, UnitId, expression_relations,
 };
-use zoen_engine::{QueryExecutor, QueryPortError, StoreError, decode_canonical_definition};
+use zoen_engine::{
+    QueryExecutor, QueryPortError, SemanticClaim, StoreError, decode_canonical_definition,
+    evaluate_semantic_claims,
+};
 
 mod physical;
 mod projection;
@@ -120,7 +122,7 @@ impl QueryRuntime {
                     )
                     .await
                     .map_err(adapter_error)?;
-                claims.into_iter().map(ClaimRecord::from_evidence).collect()
+                claims.into_iter().map(SemanticClaim::from).collect()
             }
             SourcePlan::Projection {
                 cut,
@@ -268,7 +270,7 @@ impl QueryRuntime {
         cut: i64,
         parquet_digest: &str,
         parquet_object_key: &str,
-    ) -> Result<Vec<ClaimRecord>, QueryError> {
+    ) -> Result<Vec<SemanticClaim>, QueryError> {
         let object_store_config = self.object_store_config.as_ref().ok_or_else(|| {
             QueryError::Unavailable("object storage is not configured".to_owned())
         })?;
@@ -327,7 +329,7 @@ impl QueryRuntime {
             .map_err(projected_corrupt)?;
         batches_to_claims(&data)?
             .into_iter()
-            .map(|claim| ClaimRecord::parse(claim, context, query))
+            .map(|claim| parse_claim(claim, context, query))
             .collect()
     }
 }
@@ -401,93 +403,60 @@ impl SourcePlan {
     }
 }
 
-struct ClaimRecord {
-    dependency: LineageDependency,
-    value: ExactValue,
-}
-
-impl ClaimRecord {
-    fn from_evidence(claim: EvidenceClaim) -> Self {
-        let draft = claim.draft;
-        Self {
-            dependency: LineageDependency {
-                claim_id: draft.claim_id,
-                commit_sequence: claim.commit_sequence,
-                entity_id: draft.entity_id,
-                relation_id: draft.relation_id,
-                role: LineageRole::Supporting,
-                source_digest: draft.provenance.source_digest,
-                source_id: draft.provenance.source_id,
-                source_ref: draft.provenance.source_ref,
-            },
-            value: draft.value,
-        }
+fn parse_claim(
+    physical: PhysicalClaim,
+    context: &ExecutionContext,
+    query: &SemanticQuery,
+) -> Result<SemanticClaim, QueryError> {
+    if physical.tenant_id != context.tenant_id().as_str()
+        || physical.definition_id != query.definition.definition_id.as_str()
+        || physical.definition_digest != query.definition.digest.as_str()
+        || physical.definition_revision
+            != u64_to_i64(query.definition.revision.get(), "definition revision")?
+        || physical.entity_id != query.entity_id.as_str()
+    {
+        return Err(QueryError::Corrupt(
+            "physical provider returned a row outside the semantic query scope".to_owned(),
+        ));
     }
-
-    fn parse(
-        physical: PhysicalClaim,
-        context: &ExecutionContext,
-        query: &SemanticQuery,
-    ) -> Result<Self, QueryError> {
-        if physical.tenant_id != context.tenant_id().as_str()
-            || physical.definition_id != query.definition.definition_id.as_str()
-            || physical.definition_digest != query.definition.digest.as_str()
-            || physical.definition_revision
-                != u64_to_i64(query.definition.revision.get(), "definition revision")?
-            || physical.entity_id != query.entity_id.as_str()
-        {
-            return Err(QueryError::Corrupt(
-                "physical provider returned a row outside the semantic query scope".to_owned(),
-            ));
-        }
-        if !matches!(physical.valid_time_kind.as_str(), "instant" | "interval")
-            || physical.valid_time_kind == "instant" && physical.valid_to_micros.is_some()
-            || physical.valid_time_kind == "interval"
-                && physical
-                    .valid_to_micros
-                    .is_none_or(|end| physical.valid_from_micros >= end)
-            || physical.valid_time_kind == "instant"
-                && physical.valid_from_micros != query.valid_at.get()
-            || physical.valid_time_kind == "interval"
-                && !(physical.valid_from_micros <= query.valid_at.get()
-                    && query.valid_at.get()
-                        < physical
-                            .valid_to_micros
-                            .unwrap_or(physical.valid_from_micros))
-        {
-            return Err(QueryError::Corrupt(
-                "physical provider returned an invalid valid-time row".to_owned(),
-            ));
-        }
-        let value = parse_value(&physical)?;
-        Ok(Self {
-            dependency: LineageDependency {
-                claim_id: ClaimId::parse(physical.claim_id)
-                    .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-                commit_sequence: commit_sequence(
-                    physical.commit_sequence,
-                    "claim commit sequence",
-                )?,
-                entity_id: EntityId::parse(physical.entity_id)
-                    .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-                relation_id: RelationId::parse(physical.relation_id)
-                    .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-                role: LineageRole::Supporting,
-                source_digest: EvidenceDigest::parse(physical.source_digest)
-                    .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-                source_id: SourceId::parse(physical.source_id)
-                    .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-                source_ref: physical.source_ref,
-            },
-            value,
-        })
+    if !matches!(physical.valid_time_kind.as_str(), "instant" | "interval")
+        || physical.valid_time_kind == "instant" && physical.valid_to_micros.is_some()
+        || physical.valid_time_kind == "interval"
+            && physical
+                .valid_to_micros
+                .is_none_or(|end| physical.valid_from_micros >= end)
+        || physical.valid_time_kind == "instant"
+            && physical.valid_from_micros != query.valid_at.get()
+        || physical.valid_time_kind == "interval"
+            && !(physical.valid_from_micros <= query.valid_at.get()
+                && query.valid_at.get()
+                    < physical
+                        .valid_to_micros
+                        .unwrap_or(physical.valid_from_micros))
+    {
+        return Err(QueryError::Corrupt(
+            "physical provider returned an invalid valid-time row".to_owned(),
+        ));
     }
-
-    fn dependency(&self, role: LineageRole) -> LineageDependency {
-        let mut dependency = self.dependency.clone();
-        dependency.role = role;
-        dependency
-    }
+    let value = parse_value(&physical)?;
+    Ok(SemanticClaim {
+        dependency: LineageDependency {
+            claim_id: ClaimId::parse(physical.claim_id)
+                .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+            commit_sequence: commit_sequence(physical.commit_sequence, "claim commit sequence")?,
+            entity_id: EntityId::parse(physical.entity_id)
+                .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+            relation_id: RelationId::parse(physical.relation_id)
+                .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+            role: LineageRole::Supporting,
+            source_digest: EvidenceDigest::parse(physical.source_digest)
+                .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+            source_id: SourceId::parse(physical.source_id)
+                .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+            source_ref: physical.source_ref,
+        },
+        value,
+    })
 }
 
 struct QueryPlan {
@@ -549,60 +518,10 @@ impl QueryPlan {
         }
     }
 
-    fn evaluate(&self, claims: &[ClaimRecord]) -> Result<Vec<SemanticValue>, QueryError> {
-        let by_relation = claims_by_relation(claims, self.relation_role);
-        let candidates = evaluate_expression(&self.expression, &BTreeMap::new(), &by_relation)
-            .map_err(|error| QueryError::Evaluation(error.to_string()))?;
-        let mut values = candidates
-            .into_iter()
-            .map(|candidate| {
-                let selected_claims = candidate
-                    .dependencies
-                    .iter()
-                    .map(|dependency| dependency.claim_id.as_str().to_owned())
-                    .collect::<BTreeSet<_>>();
-                let selected_relations = candidate
-                    .dependencies
-                    .iter()
-                    .map(|dependency| dependency.relation_id.as_str().to_owned())
-                    .collect::<BTreeSet<_>>();
-                let mut dependencies = candidate.dependencies;
-                dependencies.extend(
-                    claims
-                        .iter()
-                        .filter(|claim| {
-                            selected_relations.contains(claim.dependency.relation_id.as_str())
-                                && !selected_claims.contains(claim.dependency.claim_id.as_str())
-                        })
-                        .map(|claim| claim.dependency(LineageRole::Rival)),
-                );
-                sort_dependencies(&mut dependencies);
-                SemanticValue {
-                    dependencies,
-                    value: candidate.value,
-                }
-            })
-            .collect::<Vec<_>>();
-        sort_values(&mut values);
-        Ok(values)
+    fn evaluate(&self, claims: &[SemanticClaim]) -> Result<Vec<SemanticValue>, QueryError> {
+        evaluate_semantic_claims(&self.expression, claims, self.relation_role)
+            .map_err(|error| QueryError::Evaluation(error.to_string()))
     }
-}
-
-fn claims_by_relation(
-    claims: &[ClaimRecord],
-    relation_role: LineageRole,
-) -> BTreeMap<RelationId, Vec<SemanticValue>> {
-    let mut by_relation = BTreeMap::<RelationId, Vec<SemanticValue>>::new();
-    for claim in claims {
-        by_relation
-            .entry(claim.dependency.relation_id.clone())
-            .or_default()
-            .push(SemanticValue {
-                dependencies: vec![claim.dependency(relation_role)],
-                value: claim.value.clone(),
-            });
-    }
-    by_relation
 }
 
 fn parse_value(physical: &PhysicalClaim) -> Result<ExactValue, QueryError> {
@@ -634,53 +553,6 @@ fn parse_value(physical: &PhysicalClaim) -> Result<ExactValue, QueryError> {
         kind => Err(QueryError::Corrupt(format!(
             "unknown projected value kind: {kind}"
         ))),
-    }
-}
-
-fn sort_dependencies(dependencies: &mut [LineageDependency]) {
-    dependencies.sort_by(|left, right| {
-        (
-            left.role,
-            left.relation_id.as_str(),
-            left.claim_id.as_str(),
-            left.commit_sequence,
-        )
-            .cmp(&(
-                right.role,
-                right.relation_id.as_str(),
-                right.claim_id.as_str(),
-                right.commit_sequence,
-            ))
-    });
-}
-
-fn sort_values(values: &mut [SemanticValue]) {
-    values.sort_by(|left, right| {
-        value_key(&left.value)
-            .cmp(&value_key(&right.value))
-            .then_with(|| {
-                left.dependencies
-                    .iter()
-                    .map(|dependency| dependency.claim_id.as_str())
-                    .cmp(
-                        right
-                            .dependencies
-                            .iter()
-                            .map(|dependency| dependency.claim_id.as_str()),
-                    )
-            })
-    });
-}
-
-fn value_key(value: &ExactValue) -> String {
-    match value {
-        ExactValue::Bool(value) => format!("bool:{value}"),
-        ExactValue::Decimal(value) => format!("decimal:{}", value.as_str()),
-        ExactValue::Integer(value) => format!("integer:{}", value.as_str()),
-        ExactValue::Quantity { amount, unit } => {
-            format!("quantity:{}:{}", amount.as_str(), unit.as_str())
-        }
-        ExactValue::Text(value) => format!("text:{value}"),
     }
 }
 

@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+failpoints = []
+
 [dependencies]
 cedar-policy = "4.7.1"
 serde = { version = "1.0.229", features = ["derive"] }

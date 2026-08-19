@@ -14,9 +14,12 @@ mod action;
 mod admission;
 
 pub use action::{
-    ActionCommitEffect, ActionDiscovery, ActionEngine, ActionError, ApproveOutcome, CommitOutcome,
-    CommitPlan, CommitStoreOutcome, PolicyEvaluator, PolicyOperation, PolicyRequest,
-    ProposeCommand, ProposeOutcome, QueryExecutor, QueryPortError, calculate_state_basis_digest,
+    ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
+    ActionStateRead, ActionStateSnapshot, ApproveOutcome, CommitOutcome, CommitPlan,
+    CommitPreparation, CommitStoreOutcome, PolicyEvaluator, PolicyOperation, PolicyRequest,
+    ProposeCommand, ProposeOutcome, QueryExecutor, QueryPortError, SemanticClaim,
+    calculate_state_basis_digest, evaluate_action_state_basis, evaluate_semantic_claims,
+    read_action_state_basis,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -373,11 +376,13 @@ impl AdmittedEvidence {
 
 #[allow(async_fn_in_trait)]
 pub trait AuthorityStore: Send + Sync {
-    async fn commit_action(
+    type ActionCommit: ActionCommitTransaction;
+
+    async fn begin_action_commit(
         &self,
         context: &ExecutionContext,
-        plan: &CommitPlan,
-    ) -> Result<CommitStoreOutcome, StoreError>;
+        proposal: &ActionProposal,
+    ) -> Result<CommitPreparation<Self::ActionCommit>, StoreError>;
 
     async fn get_approval(
         &self,

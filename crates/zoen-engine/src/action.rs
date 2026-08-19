@@ -5,17 +5,23 @@ use std::fmt::{Display, Formatter};
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
-    CanonicalDefinition, Cardinality, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
+    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
     DefinitionReference, DefinitionRevision, EffectRequestId, EntityId, EvidenceDigest,
-    EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
-    LineageDependency, LineageRole, OperationId, PolicyEvaluation, PolicyEvidence,
-    ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult,
-    SemanticSelection, SemanticValue, StateBasis, StateBasisDigest, StateDependency,
-    TimestampMicros, TrustedExecutionContext, ValidTime, ValueType, evaluate_expression,
-    expression_relations,
+    EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest, OperationId,
+    PolicyEvaluation, PolicyEvidence, ProposalAuthority, ProposalId, RelationId, ResourceId,
+    SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
+    StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime, ValueType,
+    evaluate_expression, expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
+
+mod state_basis;
+
+pub use state_basis::{
+    ActionStateRead, ActionStateSnapshot, SemanticClaim, evaluate_action_state_basis,
+    evaluate_semantic_claims, read_action_state_basis,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyOperation {
@@ -116,6 +122,18 @@ pub enum CommitStoreOutcome {
     IdentityCollision(CommitIdentityKind),
     OperationMismatch,
     Stale(StateBasis),
+}
+
+pub enum CommitPreparation<T> {
+    OperationMismatch,
+    Ready(T),
+    Replayed(Box<CommitReceipt>),
+}
+
+#[allow(async_fn_in_trait)]
+pub trait ActionCommitTransaction: Send {
+    async fn commit(self, plan: &CommitPlan) -> Result<CommitStoreOutcome, StoreError>;
+    async fn rollback(self) -> Result<(), StoreError>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -455,28 +473,33 @@ where
         if &proposal.operation_id != operation_id {
             return Ok(CommitOutcome::OperationMismatch);
         }
-        match self.store.get_operation(context, operation_id).await {
-            Ok(receipt)
-                if receipt.proposal_id == proposal.proposal_id
-                    && receipt.intent_digest == proposal.intent_digest =>
-            {
-                return Ok(CommitOutcome::Committed(Box::new(receipt)));
-            }
-            Ok(_) => {
+        let transaction = match self
+            .store
+            .begin_action_commit(context, &proposal)
+            .await
+            .map_err(ActionError::Store)?
+        {
+            crate::CommitPreparation::OperationMismatch => {
                 return Ok(CommitOutcome::OperationMismatch);
             }
-            Err(StoreError::NotFound) => {}
-            Err(error) => return Err(ActionError::Store(error)),
-        }
+            crate::CommitPreparation::Ready(transaction) => transaction,
+            crate::CommitPreparation::Replayed(receipt) => {
+                return Ok(CommitOutcome::Committed(receipt));
+            }
+        };
         if committed_at >= proposal.expires_at {
+            transaction.rollback().await.map_err(ActionError::Store)?;
             return Err(ActionError::ExpiredProposal);
         }
-        authorize_delegation(
+        if let Err(error) = authorize_delegation(
             context,
             &proposal.action_id,
             &proposal.resource_id,
             committed_at,
-        )?;
+        ) {
+            transaction.rollback().await.map_err(ActionError::Store)?;
+            return Err(error);
+        }
         let approval = match &proposal.authority {
             ProposalAuthority::Ready(_) => None,
             ProposalAuthority::AwaitingApproval(_) => {
@@ -487,7 +510,10 @@ where
                     .map_err(ActionError::Store)?;
                 match approval {
                     Some(approval) if committed_at < approval.expires_at => Some(approval),
-                    _ => return Err(ActionError::ApprovalExpired),
+                    _ => {
+                        transaction.rollback().await.map_err(ActionError::Store)?;
+                        return Err(ActionError::ApprovalExpired);
+                    }
                 }
             }
         };
@@ -505,8 +531,12 @@ where
             .await
         {
             PolicyEvaluation::Permit(evidence) => evidence,
-            PolicyEvaluation::Deny(evidence) => return Ok(CommitOutcome::Denied(evidence)),
+            PolicyEvaluation::Deny(evidence) => {
+                transaction.rollback().await.map_err(ActionError::Store)?;
+                return Ok(CommitOutcome::Denied(evidence));
+            }
             PolicyEvaluation::EvaluationError { message, revision } => {
+                transaction.rollback().await.map_err(ActionError::Store)?;
                 return Ok(CommitOutcome::EvaluationError {
                     message,
                     policy: revision.map(|revision| PolicyEvidence {
@@ -524,22 +554,18 @@ where
             .enumerate()
             .map(|(index, draft)| {
                 Ok(ActionCommitEffect {
-                    effect_request_id: effect_request_id(&proposal.intent_digest, index)?,
+                    effect_request_id: effect_request_id(&proposal.operation_id, index)?,
                     evidence: admission::admit_action_effect(&loaded.revision, draft)
                         .map_err(|error| ActionError::Evaluation(error.to_string()))?,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        match self
-            .store
-            .commit_action(
-                context,
-                &CommitPlan {
-                    effects,
-                    policy,
-                    proposal,
-                },
-            )
+        match transaction
+            .commit(&CommitPlan {
+                effects,
+                policy,
+                proposal,
+            })
             .await
             .map_err(ActionError::Store)?
         {
@@ -613,7 +639,6 @@ where
             .map_err(|error| ActionError::Input(error.to_string()))?;
         let relations = expression_relations(&loaded.action.precondition);
         let mut values = BTreeMap::<RelationId, Vec<SemanticValue>>::new();
-        let mut dependencies = Vec::new();
         let mut observed = None;
         for relation_id in relations {
             let consistency = match observed {
@@ -640,67 +665,20 @@ where
                 ));
             }
             observed = Some(result.actual_commit_sequence);
-            dependencies.extend(
-                result
-                    .values
-                    .iter()
-                    .flat_map(|value| value.dependencies.iter())
-                    .cloned()
-                    .map(state_dependency),
-            );
-            let cardinality = loaded
-                .definition
-                .relations
-                .iter()
-                .find(|relation| relation.id == relation_id)
-                .map(|relation| relation.cardinality)
-                .ok_or_else(|| {
-                    ActionError::Definition(format!(
-                        "definition has no relation: {}",
-                        relation_id.as_str()
-                    ))
-                })?;
-            values.insert(relation_id, relation_values(result.values, cardinality)?);
+            values.insert(relation_id, result.values);
         }
-        let input_values = inputs
-            .iter()
-            .map(|input| (input.id.clone(), input.value.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let evaluated = evaluate_expression(&loaded.action.precondition, &input_values, &values)
-            .map_err(|error| ActionError::Evaluation(error.to_string()))?;
-        if !matches!(
-            evaluated.as_slice(),
-            [SemanticValue {
-                value: ExactValue::Bool(true),
-                ..
-            }]
-        ) {
-            return Err(ActionError::Evaluation(
-                "Action precondition must produce one satisfied boolean".to_owned(),
-            ));
-        }
-        dependencies.sort_by(|left, right| {
-            (
-                left.relation_id.as_str(),
-                left.claim_id.as_str(),
-                left.commit_sequence,
-            )
-                .cmp(&(
-                    right.relation_id.as_str(),
-                    right.claim_id.as_str(),
-                    right.commit_sequence,
-                ))
-        });
-        dependencies.dedup();
         let observed_commit_sequence = observed.ok_or_else(|| {
             ActionError::Evaluation("Action precondition has no state dependency".to_owned())
         })?;
-        let digest = calculate_state_basis_digest(&dependencies)?;
-        Ok(StateBasis {
-            dependencies,
-            digest,
-            observed_commit_sequence,
-        })
+        evaluate_action_state_basis(
+            &loaded.action,
+            &loaded.definition,
+            inputs,
+            ActionStateSnapshot {
+                observed_commit_sequence,
+                relations: values,
+            },
+        )
     }
 }
 
@@ -708,29 +686,6 @@ struct LoadedAction {
     action: ActionDefinition,
     definition: CanonicalDefinition,
     revision: DefinitionRevision,
-}
-
-fn relation_values(
-    values: Vec<SemanticValue>,
-    cardinality: Cardinality,
-) -> Result<Vec<SemanticValue>, ActionError> {
-    match cardinality {
-        Cardinality::Many => Ok(values),
-        Cardinality::One => Ok(values
-            .into_iter()
-            .max_by_key(latest_supporting_commit)
-            .into_iter()
-            .collect()),
-    }
-}
-
-fn latest_supporting_commit(value: &SemanticValue) -> Option<zoen_core::CommitSequence> {
-    value
-        .dependencies
-        .iter()
-        .filter(|dependency| dependency.role == LineageRole::Supporting)
-        .map(|dependency| dependency.commit_sequence)
-        .max()
 }
 
 fn authorize_delegation(
@@ -785,16 +740,6 @@ fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
             expected == actual
         }
         _ => false,
-    }
-}
-
-fn state_dependency(dependency: LineageDependency) -> StateDependency {
-    StateDependency {
-        claim_id: dependency.claim_id,
-        commit_sequence: dependency.commit_sequence,
-        entity_id: dependency.entity_id,
-        relation_id: dependency.relation_id,
-        source_digest: dependency.source_digest,
     }
 }
 
@@ -863,7 +808,7 @@ fn build_effects(
             Ok(EvidenceDraft {
                 claim_id: ClaimId::parse(format!(
                     "claim.action.{}.{}",
-                    proposal.intent_digest.as_str(),
+                    proposal.operation_id.as_str(),
                     index
                 ))
                 .map_err(|error| ActionError::Evaluation(error.to_string()))?,
@@ -885,15 +830,11 @@ fn build_effects(
 }
 
 fn effect_request_id(
-    intent_digest: &IntentDigest,
+    operation_id: &OperationId,
     index: usize,
 ) -> Result<EffectRequestId, ActionError> {
-    EffectRequestId::parse(format!(
-        "effect.action.{}.{}",
-        intent_digest.as_str(),
-        index
-    ))
-    .map_err(|error| ActionError::Evaluation(error.to_string()))
+    EffectRequestId::parse(format!("effect.action.{}.{}", operation_id.as_str(), index))
+        .map_err(|error| ActionError::Evaluation(error.to_string()))
 }
 
 fn value_key(value: &ExactValue) -> String {
