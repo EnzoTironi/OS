@@ -257,6 +257,15 @@ async function main(): Promise<void> {
       value: { amount: "70", kind: "quantity", unit: "MPa" },
     });
     await recordEvidence(worldA, {
+      claimId: "claim.quality.specification-v1-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.specificationMinimumBasisRelation,
+      sourceId: "source.quality-engineering",
+      tenantId: tenantA,
+      time: interval(yearStart, specificationChange),
+      value: { kind: "integer", value: "70000" },
+    });
+    await recordEvidence(worldA, {
       claimId: "claim.quality.specification-v1-version",
       fixture: quality,
       relationId: qualityVocabulary.specificationVersionRelation,
@@ -275,6 +284,15 @@ async function main(): Promise<void> {
       value: { amount: "72", kind: "quantity", unit: "MPa" },
     });
     await recordEvidence(worldA, {
+      claimId: "claim.quality.sensor-original-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.measurementBasisRelation,
+      sourceId: "source.sensor-a",
+      tenantId: tenantA,
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "72000" },
+    });
+    await recordEvidence(worldA, {
       claimId: "claim.quality.sensor-uncertainty",
       fixture: quality,
       relationId: qualityVocabulary.uncertaintyRelation,
@@ -282,6 +300,15 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       time: interval(yearStart, yearEnd),
       value: { amount: "0.4", kind: "quantity", unit: "MPa" },
+    });
+    await recordEvidence(worldA, {
+      claimId: "claim.quality.sensor-uncertainty-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.uncertaintyBasisRelation,
+      sourceId: "source.sensor-a",
+      tenantId: tenantA,
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "400" },
     });
     const inspectorCommit = await recordEvidence(worldA, {
       claimId: "claim.quality.inspector-original",
@@ -293,6 +320,15 @@ async function main(): Promise<void> {
       value: { amount: "71", kind: "quantity", unit: "MPa" },
     });
     await recordEvidence(worldA, {
+      claimId: "claim.quality.inspector-original-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.measurementBasisRelation,
+      sourceId: "source.inspector-a",
+      tenantId: tenantA,
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "71000" },
+    });
+    await recordEvidence(worldA, {
       claimId: "claim.quality.inspector-uncertainty",
       fixture: quality,
       relationId: qualityVocabulary.uncertaintyRelation,
@@ -302,6 +338,15 @@ async function main(): Promise<void> {
       value: { amount: "0.2", kind: "quantity", unit: "MPa" },
     });
     await recordEvidence(worldA, {
+      claimId: "claim.quality.inspector-uncertainty-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.uncertaintyBasisRelation,
+      sourceId: "source.inspector-a",
+      tenantId: tenantA,
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "200" },
+    });
+    await recordEvidence(worldA, {
       claimId: "claim.quality.accepted-original",
       fixture: quality,
       relationId: qualityVocabulary.acceptedMeasurementRelation,
@@ -309,6 +354,15 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       time: interval(yearStart, yearEnd),
       value: { amount: "71", kind: "quantity", unit: "MPa" },
+    });
+    await recordEvidence(worldA, {
+      claimId: "claim.quality.accepted-original-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.acceptedMeasurementBasisRelation,
+      sourceId: "source.quality-engineering",
+      tenantId: tenantA,
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "71000" },
     });
     await recordEvidence(worldA, {
       claimId: "claim.quality.lot-product",
@@ -363,6 +417,15 @@ async function main(): Promise<void> {
       value: { amount: "75", kind: "quantity", unit: "MPa" },
     });
     await recordEvidence(worldA, {
+      claimId: "claim.quality.specification-v2-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.specificationMinimumBasisRelation,
+      sourceId: "source.quality-engineering",
+      tenantId: tenantA,
+      time: interval(specificationChange, yearEnd),
+      value: { kind: "integer", value: "75000" },
+    });
+    await recordEvidence(worldA, {
       claimId: "claim.quality.specification-v2-version",
       fixture: quality,
       relationId: qualityVocabulary.specificationVersionRelation,
@@ -395,9 +458,9 @@ async function main(): Promise<void> {
         "source.sensor-a",
       ]) &&
         hasRelationLineage(failingAcceptance, [
-          qualityVocabulary.measurementRelation,
-          qualityVocabulary.specificationMinimumRelation,
-          qualityVocabulary.uncertaintyRelation,
+          qualityVocabulary.measurementBasisRelation,
+          qualityVocabulary.specificationMinimumBasisRelation,
+          qualityVocabulary.uncertaintyBasisRelation,
         ]),
     );
     await recordEvidence(worldA, {
@@ -453,12 +516,13 @@ async function main(): Promise<void> {
         deniedRelease.receipt === undefined &&
         deniedDependencies.some(
           (dependency) =>
-            dependency.claimId === "claim.quality.accepted-original",
+            dependency.claimId ===
+            "claim.quality.accepted-original-basis-kpa",
         ) &&
         deniedDependencies.some(
           (dependency) =>
             dependency.claimId ===
-            "claim.quality.specification-v2-minimum",
+            "claim.quality.specification-v2-basis-kpa",
         ),
     );
     observe(
@@ -557,6 +621,15 @@ async function main(): Promise<void> {
       value: { amount: "78", kind: "quantity", unit: "MPa" },
     });
     await recordEvidence(worldA, {
+      claimId: "claim.quality.inspector-retest-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.measurementBasisRelation,
+      sourceId: "source.inspector-retest",
+      tenantId: tenantA,
+      time: interval(releaseAt, yearEnd),
+      value: { kind: "integer", value: "78000" },
+    });
+    await recordEvidence(worldA, {
       claimId: "claim.quality.retest-uncertainty",
       fixture: quality,
       relationId: qualityVocabulary.uncertaintyRelation,
@@ -566,6 +639,15 @@ async function main(): Promise<void> {
       value: { amount: "0.3", kind: "quantity", unit: "MPa" },
     });
     await recordEvidence(worldA, {
+      claimId: "claim.quality.retest-uncertainty-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.uncertaintyBasisRelation,
+      sourceId: "source.inspector-retest",
+      tenantId: tenantA,
+      time: interval(releaseAt, yearEnd),
+      value: { kind: "integer", value: "300" },
+    });
+    await recordEvidence(worldA, {
       claimId: "claim.quality.accepted-retest",
       fixture: quality,
       relationId: qualityVocabulary.acceptedMeasurementRelation,
@@ -573,6 +655,15 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       time: interval(releaseAt, yearEnd),
       value: { amount: "78", kind: "quantity", unit: "MPa" },
+    });
+    await recordEvidence(worldA, {
+      claimId: "claim.quality.accepted-retest-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.acceptedMeasurementBasisRelation,
+      sourceId: "source.quality-supervisor",
+      tenantId: tenantA,
+      time: interval(releaseAt, yearEnd),
+      value: { kind: "integer", value: "78000" },
     });
     await recordEvidence(worldA, {
       claimId: "claim.quality.retest-corrects-original",
@@ -688,6 +779,15 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       time: instant(releaseAt),
       value: { amount: "76", kind: "quantity", unit: "MPa" },
+    });
+    await recordEvidence(worldA, {
+      claimId: "claim.quality.specification-v3-basis-kpa",
+      fixture: quality,
+      relationId: qualityVocabulary.specificationMinimumBasisRelation,
+      sourceId: "source.quality-engineering",
+      tenantId: tenantA,
+      time: instant(releaseAt),
+      value: { kind: "integer", value: "76000" },
     });
     await recordEvidence(worldA, {
       claimId: "claim.quality.specification-v3-version",
@@ -1114,11 +1214,25 @@ async function recordRemappedEvidence(
       value: { amount: "75", kind: "quantity", unit: "MPa" },
     },
     {
+      claimId: "claim.lab.specification-v2-basis-kpa",
+      relationId: vocabulary.specificationMinimumBasisRelation,
+      sourceId: "source.quality-engineering",
+      time: interval(specificationChange, yearEnd),
+      value: { kind: "integer", value: "75000" },
+    },
+    {
       claimId: "claim.lab.specification-v3-minimum",
       relationId: vocabulary.specificationMinimumRelation,
       sourceId: "source.quality-engineering",
       time: instant(releaseAt),
       value: { amount: "76", kind: "quantity", unit: "MPa" },
+    },
+    {
+      claimId: "claim.lab.specification-v3-basis-kpa",
+      relationId: vocabulary.specificationMinimumBasisRelation,
+      sourceId: "source.quality-engineering",
+      time: instant(releaseAt),
+      value: { kind: "integer", value: "76000" },
     },
     {
       claimId: "claim.lab.measurement-sensor",
@@ -1128,11 +1242,25 @@ async function recordRemappedEvidence(
       value: { amount: "72", kind: "quantity", unit: "MPa" },
     },
     {
+      claimId: "claim.lab.measurement-sensor-basis-kpa",
+      relationId: vocabulary.measurementBasisRelation,
+      sourceId: "source.sensor-a",
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "72000" },
+    },
+    {
       claimId: "claim.lab.measurement-inspector",
       relationId: vocabulary.measurementRelation,
       sourceId: "source.inspector-a",
       time: interval(yearStart, yearEnd),
       value: { amount: "71", kind: "quantity", unit: "MPa" },
+    },
+    {
+      claimId: "claim.lab.measurement-inspector-basis-kpa",
+      relationId: vocabulary.measurementBasisRelation,
+      sourceId: "source.inspector-a",
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "71000" },
     },
     {
       claimId: "claim.lab.measurement-retest",
@@ -1142,11 +1270,25 @@ async function recordRemappedEvidence(
       value: { amount: "78", kind: "quantity", unit: "MPa" },
     },
     {
+      claimId: "claim.lab.measurement-retest-basis-kpa",
+      relationId: vocabulary.measurementBasisRelation,
+      sourceId: "source.inspector-retest",
+      time: interval(releaseAt, yearEnd),
+      value: { kind: "integer", value: "78000" },
+    },
+    {
       claimId: "claim.lab.uncertainty-sensor",
       relationId: vocabulary.uncertaintyRelation,
       sourceId: "source.sensor-a",
       time: interval(yearStart, yearEnd),
       value: { amount: "0.4", kind: "quantity", unit: "MPa" },
+    },
+    {
+      claimId: "claim.lab.uncertainty-sensor-basis-kpa",
+      relationId: vocabulary.uncertaintyBasisRelation,
+      sourceId: "source.sensor-a",
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "400" },
     },
     {
       claimId: "claim.lab.uncertainty-inspector",
@@ -1156,11 +1298,25 @@ async function recordRemappedEvidence(
       value: { amount: "0.2", kind: "quantity", unit: "MPa" },
     },
     {
+      claimId: "claim.lab.uncertainty-inspector-basis-kpa",
+      relationId: vocabulary.uncertaintyBasisRelation,
+      sourceId: "source.inspector-a",
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "200" },
+    },
+    {
       claimId: "claim.lab.uncertainty-retest",
       relationId: vocabulary.uncertaintyRelation,
       sourceId: "source.inspector-retest",
       time: interval(releaseAt, yearEnd),
       value: { amount: "0.3", kind: "quantity", unit: "MPa" },
+    },
+    {
+      claimId: "claim.lab.uncertainty-retest-basis-kpa",
+      relationId: vocabulary.uncertaintyBasisRelation,
+      sourceId: "source.inspector-retest",
+      time: interval(releaseAt, yearEnd),
+      value: { kind: "integer", value: "300" },
     },
     {
       claimId: "claim.lab.accepted-original",
@@ -1170,11 +1326,25 @@ async function recordRemappedEvidence(
       value: { amount: "71", kind: "quantity", unit: "MPa" },
     },
     {
+      claimId: "claim.lab.accepted-original-basis-kpa",
+      relationId: vocabulary.acceptedMeasurementBasisRelation,
+      sourceId: "source.quality-engineering",
+      time: interval(yearStart, yearEnd),
+      value: { kind: "integer", value: "71000" },
+    },
+    {
       claimId: "claim.lab.accepted-retest",
       relationId: vocabulary.acceptedMeasurementRelation,
       sourceId: "source.quality-supervisor",
       time: interval(releaseAt, yearEnd),
       value: { amount: "78", kind: "quantity", unit: "MPa" },
+    },
+    {
+      claimId: "claim.lab.accepted-retest-basis-kpa",
+      relationId: vocabulary.acceptedMeasurementBasisRelation,
+      sourceId: "source.quality-supervisor",
+      time: interval(releaseAt, yearEnd),
+      value: { kind: "integer", value: "78000" },
     },
   ];
   for (const claim of claims) {

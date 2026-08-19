@@ -59,6 +59,13 @@ const measurement = defineRelation({
   },
 });
 
+const measurementBasisKpa = defineRelation({
+  cardinality: "many",
+  id: "lab.measurementBasisKpa",
+  sourceType: "lab.Inspection",
+  target: { kind: "value", valueType: { kind: "integer" } },
+});
+
 const uncertainty = defineRelation({
   cardinality: "many",
   id: "lab.uncertainty",
@@ -67,6 +74,13 @@ const uncertainty = defineRelation({
     kind: "value",
     valueType: { kind: "quantity", unit: "MPa" },
   },
+});
+
+const uncertaintyBasisKpa = defineRelation({
+  cardinality: "many",
+  id: "lab.uncertaintyBasisKpa",
+  sourceType: "lab.Inspection",
+  target: { kind: "value", valueType: { kind: "integer" } },
 });
 
 const acceptedMeasurement = defineRelation({
@@ -79,6 +93,13 @@ const acceptedMeasurement = defineRelation({
   },
 });
 
+const acceptedMeasurementBasisKpa = defineRelation({
+  cardinality: "one",
+  id: "lab.acceptedMeasurementBasisKpa",
+  sourceType: "lab.Inspection",
+  target: { kind: "value", valueType: { kind: "integer" } },
+});
+
 const specificationMinimum = defineRelation({
   cardinality: "one",
   id: "lab.specificationMinimum",
@@ -87,6 +108,13 @@ const specificationMinimum = defineRelation({
     kind: "value",
     valueType: { kind: "quantity", unit: "MPa" },
   },
+});
+
+const specificationMinimumBasisKpa = defineRelation({
+  cardinality: "one",
+  id: "lab.specificationMinimumBasisKpa",
+  sourceType: "lab.Inspection",
+  target: { kind: "value", valueType: { kind: "integer" } },
 });
 
 const specificationVersion = defineRelation({
@@ -129,14 +157,20 @@ const acceptance = defineComputation({
     kind: "binary",
     left: {
       kind: "binary",
-      left: { kind: "relation", relationId: "lab.measurement" },
+      left: {
+        kind: "relation",
+        relationId: "lab.measurementBasisKpa",
+      },
       operator: "subtract",
-      right: { kind: "relation", relationId: "lab.uncertainty" },
+      right: {
+        kind: "relation",
+        relationId: "lab.uncertaintyBasisKpa",
+      },
     },
     operator: "greater_than",
     right: {
       kind: "relation",
-      relationId: "lab.specificationMinimum",
+      relationId: "lab.specificationMinimumBasisKpa",
     },
   },
   id: "lab.acceptance",
@@ -162,18 +196,18 @@ const releaseLot = defineAction({
       kind: "binary",
       left: {
         kind: "relation",
-        relationId: "lab.acceptedMeasurement",
+        relationId: "lab.acceptedMeasurementBasisKpa",
       },
       operator: "add",
       right: {
         kind: "relation",
-        relationId: "lab.specificationMinimum",
+        relationId: "lab.specificationMinimumBasisKpa",
       },
     },
     operator: "greater_than",
     right: {
       kind: "literal",
-      value: { amount: "0", kind: "quantity", unit: "MPa" },
+      value: { kind: "integer", value: "0" },
     },
   },
 });
@@ -193,12 +227,12 @@ const quarantineLot = defineAction({
     kind: "binary",
     left: {
       kind: "relation",
-      relationId: "lab.acceptedMeasurement",
+      relationId: "lab.acceptedMeasurementBasisKpa",
     },
     operator: "greater_than",
     right: {
       kind: "literal",
-      value: { amount: "0", kind: "quantity", unit: "MPa" },
+      value: { kind: "integer", value: "0" },
     },
   },
 });
@@ -209,15 +243,19 @@ export default defineBundle({
   id: "lab.assurance",
   relations: [
     acceptedMeasurement,
+    acceptedMeasurementBasisKpa,
     correctionOf,
     disposition,
     lotProduct,
     measurement,
+    measurementBasisKpa,
     nonconformance,
     releaseStatus,
     specificationMinimum,
+    specificationMinimumBasisKpa,
     specificationVersion,
     uncertainty,
+    uncertaintyBasisKpa,
   ],
   revision: 1,
   types: [Inspection, Lot, Nonconformance, Product, QualitySpecification],

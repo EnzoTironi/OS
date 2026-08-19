@@ -109,18 +109,22 @@ export type {
 
 export interface QualityVocabulary {
   readonly acceptanceComputation: string;
+  readonly acceptedMeasurementBasisRelation: string;
   readonly acceptedMeasurementRelation: string;
   readonly correctionRelation: string;
   readonly definitionId: string;
   readonly dispositionRelation: string;
+  readonly measurementBasisRelation: string;
   readonly measurementRelation: string;
   readonly nonconformanceRelation: string;
   readonly quarantineAction: string;
   readonly releaseAction: string;
   readonly releaseStatusRelation: string;
+  readonly specificationMinimumBasisRelation: string;
   readonly resourceId: string;
   readonly specificationMinimumRelation: string;
   readonly specificationVersionRelation: string;
+  readonly uncertaintyBasisRelation: string;
   readonly uncertaintyRelation: string;
 }
 
@@ -159,35 +163,43 @@ export type EvidenceTime =
 
 export const qualityVocabulary: QualityVocabulary = {
   acceptanceComputation: "quality.acceptance",
+  acceptedMeasurementBasisRelation: "quality.acceptedMeasurementBasisKpa",
   acceptedMeasurementRelation: "quality.acceptedMeasurement",
   correctionRelation: "quality.correctionOf",
   definitionId: "quality.assurance",
   dispositionRelation: "quality.disposition",
+  measurementBasisRelation: "quality.measurementBasisKpa",
   measurementRelation: "quality.measurement",
   nonconformanceRelation: "quality.nonconformance",
   quarantineAction: "quality.quarantineLot",
   releaseAction: "quality.releaseLot",
   releaseStatusRelation: "quality.releaseStatus",
   resourceId: "quality.inspection.lot-42",
+  specificationMinimumBasisRelation: "quality.specificationMinimumBasisKpa",
   specificationMinimumRelation: "quality.specificationMinimum",
   specificationVersionRelation: "quality.specificationVersion",
+  uncertaintyBasisRelation: "quality.uncertaintyBasisKpa",
   uncertaintyRelation: "quality.uncertainty",
 };
 
 export const remappedVocabulary: QualityVocabulary = {
   acceptanceComputation: "lab.acceptance",
+  acceptedMeasurementBasisRelation: "lab.acceptedMeasurementBasisKpa",
   acceptedMeasurementRelation: "lab.acceptedMeasurement",
   correctionRelation: "lab.correctionOf",
   definitionId: "lab.assurance",
   dispositionRelation: "lab.disposition",
+  measurementBasisRelation: "lab.measurementBasisKpa",
   measurementRelation: "lab.measurement",
   nonconformanceRelation: "lab.nonconformance",
   quarantineAction: "lab.quarantineLot",
   releaseAction: "lab.releaseLot",
   releaseStatusRelation: "lab.releaseStatus",
   resourceId: "lab.inspection.lot-42",
+  specificationMinimumBasisRelation: "lab.specificationMinimumBasisKpa",
   specificationMinimumRelation: "lab.specificationMinimum",
   specificationVersionRelation: "lab.specificationVersion",
+  uncertaintyBasisRelation: "lab.uncertaintyBasisKpa",
   uncertaintyRelation: "lab.uncertainty",
 };
 
