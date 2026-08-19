@@ -7,21 +7,24 @@ use datafusion::execution::object_store::ObjectStoreUrl;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext, col, lit};
 use object_store::ObjectStore;
-use serde::Deserialize;
-use sqlx::postgres::PgPoolOptions;
+use object_store::memory::InMemory;
+use object_store::path::Path;
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    ClaimId, CommitSequence, Consistency, DefinitionReference, EntityId, EvidenceDigest,
-    ExactDecimal, ExactInteger, ExactValue, ExecutionContext, LineageDependency, LineageRole,
-    RelationId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, SourceId,
-    TenantId, UnitId,
+    BinaryOperator, CanonicalDefinition, CanonicalJson, ClaimId, CommitSequence, Consistency,
+    DefinitionReference, EntityId, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue,
+    ExecutionContext, Expression, LineageDependency, LineageRole, RelationId, SemanticQuery,
+    SemanticResult, SemanticSelection, SemanticValue, SourceId, TenantId, UnitId,
 };
+use zoen_engine::decode_canonical_definition;
 
 mod physical;
 mod projection;
 mod storage;
 
 use physical::{PhysicalClaim, batches_to_claims};
+use projection::load_source_state;
 pub use projection::{ProjectionMode, ProjectionOutcome, ProjectionRunOptions, ProjectionWorker};
 pub use storage::ObjectStoreConfig;
 
@@ -65,27 +68,16 @@ impl Error for QueryError {}
 
 #[derive(Clone)]
 pub struct QueryRuntime {
-    object_store_config: ObjectStoreConfig,
+    object_store_config: Option<ObjectStoreConfig>,
     pool: PgPool,
-    store: Arc<dyn ObjectStore>,
 }
 
 impl QueryRuntime {
-    pub async fn connect(
-        database_url: &str,
-        object_store_config: ObjectStoreConfig,
-    ) -> Result<Self, QueryError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(8)
-            .connect(database_url)
-            .await
-            .map_err(unavailable)?;
-        let store = object_store_config.build()?;
-        Ok(Self {
+    pub fn new(pool: PgPool, object_store_config: Option<ObjectStoreConfig>) -> Self {
+        Self {
             object_store_config,
             pool,
-            store,
-        })
+        }
     }
 
     pub async fn execute(
@@ -100,7 +92,9 @@ impl QueryRuntime {
         let canonical_json = self
             .load_definition(&context.tenant_id, &query.definition, cut)
             .await?;
-        let plan = QueryPlan::new(&query.selection, &canonical_json)?;
+        let definition = decode_canonical_definition(&canonical_json)
+            .map_err(|error| QueryError::Corrupt(error.to_string()))?;
+        let plan = QueryPlan::new(&query.selection, &definition)?;
         let claims = match &source {
             SourcePlan::Postgres { cut } => {
                 self.load_postgres_claims(context, query, &plan.relation_ids, *cut)
@@ -108,6 +102,7 @@ impl QueryRuntime {
             }
             SourcePlan::Projection {
                 cut,
+                parquet_digest,
                 parquet_object_key,
             } => {
                 self.load_projected_claims(
@@ -115,6 +110,7 @@ impl QueryRuntime {
                     query,
                     &plan.relation_ids,
                     *cut,
+                    parquet_digest,
                     parquet_object_key,
                 )
                 .await?
@@ -136,123 +132,68 @@ impl QueryRuntime {
         tenant_id: &TenantId,
         consistency: &Consistency,
     ) -> Result<SourcePlan, QueryError> {
+        let state = load_source_state(&self.pool, tenant_id).await?;
         match consistency {
             Consistency::Strong => {
-                let head = self.authority_head(tenant_id).await?;
-                if head == 0 {
+                if state.authority_head == 0 {
                     Err(QueryError::Invalid(
                         "tenant has no authoritative snapshot".to_owned(),
                     ))
                 } else {
-                    Ok(SourcePlan::Postgres { cut: head })
+                    Ok(SourcePlan::Postgres {
+                        cut: state.authority_head,
+                    })
                 }
             }
-            Consistency::AtLeast(requested) => {
-                let projection = self.projection_state(tenant_id).await?;
-                match projection {
-                    Some(projection)
-                        if projection.through_commit
-                            >= u64_to_i64(requested.get(), "requested commit")? =>
-                    {
-                        Ok(SourcePlan::Projection {
-                            cut: projection.through_commit,
-                            parquet_object_key: projection.parquet_object_key,
-                        })
-                    }
-                    projection => Err(QueryError::Freshness {
-                        available: projection
-                            .and_then(|value| u64::try_from(value.through_commit).ok()),
-                        requested: requested.get(),
-                    }),
+            Consistency::AtLeast(requested) => match state.projection {
+                Some(projection)
+                    if projection.through_commit
+                        >= u64_to_i64(requested.get(), "requested commit")? =>
+                {
+                    Ok(SourcePlan::Projection {
+                        cut: projection.through_commit,
+                        parquet_digest: projection.parquet_digest,
+                        parquet_object_key: projection.parquet_object_key,
+                    })
                 }
-            }
+                projection => Err(QueryError::Freshness {
+                    available: projection
+                        .and_then(|value| u64::try_from(value.through_commit).ok()),
+                    requested: requested.get(),
+                }),
+            },
             Consistency::Snapshot(requested) => {
                 let requested_i64 = u64_to_i64(requested.get(), "snapshot commit")?;
-                let head = self.authority_head(tenant_id).await?;
-                if requested_i64 > head {
+                if requested_i64 > state.authority_head {
                     return Err(QueryError::Invalid(format!(
-                        "snapshot commit {} is ahead of authority head {head}",
-                        requested.get()
+                        "snapshot commit {} is ahead of authority head {}",
+                        requested.get(),
+                        state.authority_head,
                     )));
                 }
-                let projection = self.projection_state(tenant_id).await?;
-                match projection {
+                match state.projection {
                     Some(projection) if projection.through_commit >= requested_i64 => {
                         Ok(SourcePlan::Projection {
                             cut: requested_i64,
+                            parquet_digest: projection.parquet_digest,
                             parquet_object_key: projection.parquet_object_key,
                         })
                     }
-                    projection => Err(QueryError::Freshness {
-                        available: projection
-                            .and_then(|value| u64::try_from(value.through_commit).ok()),
-                        requested: requested.get(),
-                    }),
+                    _ => Ok(SourcePlan::Postgres { cut: requested_i64 }),
                 }
             }
-            Consistency::Eventual => {
-                let projection = self.projection_state(tenant_id).await?;
-                match projection {
-                    Some(projection) => Ok(SourcePlan::Projection {
-                        cut: projection.through_commit,
-                        parquet_object_key: projection.parquet_object_key,
-                    }),
-                    None => Err(QueryError::Freshness {
-                        available: None,
-                        requested: 1,
-                    }),
-                }
-            }
+            Consistency::Eventual => match state.projection {
+                Some(projection) => Ok(SourcePlan::Projection {
+                    cut: projection.through_commit,
+                    parquet_digest: projection.parquet_digest,
+                    parquet_object_key: projection.parquet_object_key,
+                }),
+                None => Err(QueryError::Freshness {
+                    available: None,
+                    requested: 1,
+                }),
+            },
         }
-    }
-
-    async fn authority_head(&self, tenant_id: &TenantId) -> Result<i64, QueryError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
-        let head = sqlx::query(
-            "SELECT commit_sequence
-             FROM authority_heads
-             WHERE tenant_id = $1",
-        )
-        .bind(tenant_id.as_str())
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(unavailable)?
-        .map(|row| row.try_get::<i64, _>("commit_sequence"))
-        .transpose()
-        .map_err(unavailable)?
-        .unwrap_or(0);
-        transaction.commit().await.map_err(unavailable)?;
-        Ok(head)
-    }
-
-    async fn projection_state(
-        &self,
-        tenant_id: &TenantId,
-    ) -> Result<Option<ProjectionState>, QueryError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
-        let row = sqlx::query(
-            "SELECT w.through_commit, m.parquet_object_key
-             FROM projection_watermarks w
-             JOIN projection_manifests m
-               ON m.tenant_id = w.tenant_id
-              AND m.projection_id = w.projection_id
-              AND m.manifest_digest = w.manifest_digest
-             WHERE w.tenant_id = $1 AND w.projection_id = 'semantic_claims_v1'",
-        )
-        .bind(tenant_id.as_str())
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
-        transaction.commit().await.map_err(unavailable)?;
-        row.map(|row| {
-            Ok(ProjectionState {
-                parquet_object_key: row.try_get("parquet_object_key").map_err(unavailable)?,
-                through_commit: row.try_get("through_commit").map_err(unavailable)?,
-            })
-        })
-        .transpose()
     }
 
     async fn load_definition(
@@ -260,7 +201,7 @@ impl QueryRuntime {
         tenant_id: &TenantId,
         reference: &DefinitionReference,
         cut: i64,
-    ) -> Result<String, QueryError> {
+    ) -> Result<CanonicalJson, QueryError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         set_tenant(&mut transaction, tenant_id).await?;
         let row = sqlx::query(
@@ -293,7 +234,8 @@ impl QueryRuntime {
                 "definition revision did not exist at the requested snapshot".to_owned(),
             ));
         }
-        Ok(canonical_json)
+        CanonicalJson::new(canonical_json)
+            .ok_or_else(|| QueryError::Corrupt("stored canonical definition is empty".to_owned()))
     }
 
     async fn load_postgres_claims(
@@ -360,12 +302,19 @@ impl QueryRuntime {
         query: &SemanticQuery,
         relation_ids: &BTreeSet<String>,
         cut: i64,
+        parquet_digest: &str,
         parquet_object_key: &str,
     ) -> Result<Vec<ClaimRecord>, QueryError> {
+        let object_store_config = self.object_store_config.as_ref().ok_or_else(|| {
+            QueryError::Unavailable("object storage is not configured".to_owned())
+        })?;
+        let source_store = object_store_config.build()?;
+        let verified_store =
+            verified_projection_store(&*source_store, parquet_object_key, parquet_digest).await?;
         let session = SessionContext::new();
-        let store_url = ObjectStoreUrl::parse(self.object_store_config.registration_url())
+        let store_url = ObjectStoreUrl::parse(object_store_config.registration_url())
             .map_err(|error| QueryError::Unavailable(error.to_string()))?;
-        session.register_object_store(store_url.as_ref(), Arc::clone(&self.store));
+        session.register_object_store(store_url.as_ref(), verified_store);
         let mut relation_filter: Option<Expr> = None;
         for relation_id in relation_ids {
             let current = col("relation_id").eq(lit(relation_id.clone()));
@@ -387,11 +336,11 @@ impl QueryRuntime {
             ));
         let data = session
             .read_parquet(
-                self.object_store_config.object_url(parquet_object_key),
+                object_store_config.object_url(parquet_object_key),
                 ParquetReadOptions::default(),
             )
             .await
-            .map_err(projected_unavailable)?
+            .map_err(projected_corrupt)?
             .filter(
                 col("tenant_id")
                     .eq(lit(context.tenant_id.as_str()))
@@ -406,17 +355,44 @@ impl QueryRuntime {
                     .and(col("commit_sequence").lt_eq(lit(cut)))
                     .and(valid_filter),
             )
-            .map_err(projected_unavailable)?
+            .map_err(projected_corrupt)?
             .sort(vec![col("claim_id").sort(true, true)])
-            .map_err(projected_unavailable)?
+            .map_err(projected_corrupt)?
             .collect()
             .await
-            .map_err(projected_unavailable)?;
+            .map_err(projected_corrupt)?;
         batches_to_claims(&data)?
             .into_iter()
             .map(|claim| ClaimRecord::parse(claim, context, query))
             .collect()
     }
+}
+
+async fn verified_projection_store(
+    source: &dyn ObjectStore,
+    parquet_object_key: &str,
+    expected_digest: &str,
+) -> Result<Arc<dyn ObjectStore>, QueryError> {
+    let path = Path::from(parquet_object_key);
+    let bytes = source
+        .get(&path)
+        .await
+        .map_err(|error| QueryError::Unavailable(error.to_string()))?
+        .bytes()
+        .await
+        .map_err(|error| QueryError::Unavailable(error.to_string()))?;
+    let actual_digest = sha256(&bytes);
+    if actual_digest != expected_digest {
+        return Err(QueryError::Corrupt(format!(
+            "Parquet object {parquet_object_key} has digest {actual_digest}, expected {expected_digest}"
+        )));
+    }
+    let verified = InMemory::new();
+    verified
+        .put(&path, bytes.into())
+        .await
+        .map_err(|error| QueryError::Unavailable(error.to_string()))?;
+    Ok(Arc::new(verified))
 }
 
 enum SourcePlan {
@@ -425,6 +401,7 @@ enum SourcePlan {
     },
     Projection {
         cut: i64,
+        parquet_digest: String,
         parquet_object_key: String,
     },
 }
@@ -435,11 +412,6 @@ impl SourcePlan {
             Self::Postgres { cut } | Self::Projection { cut, .. } => *cut,
         }
     }
-}
-
-struct ProjectionState {
-    parquet_object_key: String,
-    through_commit: i64,
 }
 
 struct ClaimRecord {
@@ -515,29 +487,39 @@ impl ClaimRecord {
 }
 
 struct QueryPlan {
-    kind: QueryPlanKind,
+    expression: Expression,
     relation_ids: BTreeSet<String>,
-}
-
-enum QueryPlanKind {
-    Computation(ExpressionDto),
-    Relation(RelationId),
+    relation_role: LineageRole,
 }
 
 impl QueryPlan {
-    fn new(selection: &SemanticSelection, canonical_json: &str) -> Result<Self, QueryError> {
+    fn new(
+        selection: &SemanticSelection,
+        definition: &CanonicalDefinition,
+    ) -> Result<Self, QueryError> {
         match selection {
-            SemanticSelection::Relation(relation_id) => Ok(Self {
-                kind: QueryPlanKind::Relation(relation_id.clone()),
-                relation_ids: BTreeSet::from([relation_id.as_str().to_owned()]),
-            }),
+            SemanticSelection::Relation(relation_id) => {
+                if !definition
+                    .relations
+                    .iter()
+                    .any(|relation| relation.id == *relation_id)
+                {
+                    return Err(QueryError::Invalid(format!(
+                        "definition has no relation: {}",
+                        relation_id.as_str()
+                    )));
+                }
+                Ok(Self {
+                    expression: Expression::Relation(relation_id.clone()),
+                    relation_ids: BTreeSet::from([relation_id.as_str().to_owned()]),
+                    relation_role: LineageRole::Supporting,
+                })
+            }
             SemanticSelection::Computation(computation_id) => {
-                let definition = serde_json::from_str::<QueryDefinitionDto>(canonical_json)
-                    .map_err(|error| QueryError::Corrupt(error.to_string()))?;
                 let computation = definition
                     .computations
-                    .into_iter()
-                    .find(|candidate| candidate.id == computation_id.as_str())
+                    .iter()
+                    .find(|candidate| candidate.id == *computation_id)
                     .ok_or_else(|| {
                         QueryError::Invalid(format!(
                             "definition has no computation: {}",
@@ -553,140 +535,50 @@ impl QueryPlan {
                     )));
                 }
                 Ok(Self {
-                    kind: QueryPlanKind::Computation(computation.expression),
+                    expression: computation.expression.clone(),
                     relation_ids,
+                    relation_role: LineageRole::ComputationDependency,
                 })
             }
         }
     }
 
     fn evaluate(&self, claims: &[ClaimRecord]) -> Result<Vec<SemanticValue>, QueryError> {
-        match &self.kind {
-            QueryPlanKind::Relation(relation_id) => {
-                let selected = claims
+        let by_relation = claims_by_relation(claims);
+        let candidates = evaluate_expression(&self.expression, &by_relation, self.relation_role)?;
+        let mut values = candidates
+            .into_iter()
+            .map(|candidate| {
+                let selected_claims = candidate
+                    .dependencies
                     .iter()
-                    .filter(|claim| &claim.dependency.relation_id == relation_id)
-                    .collect::<Vec<_>>();
-                let mut values = selected
+                    .map(|dependency| dependency.claim_id.as_str().to_owned())
+                    .collect::<BTreeSet<_>>();
+                let selected_relations = candidate
+                    .dependencies
                     .iter()
-                    .map(|claim| {
-                        let mut dependencies = Vec::with_capacity(selected.len());
-                        dependencies.push(claim.dependency(LineageRole::Supporting));
-                        dependencies.extend(
-                            selected
-                                .iter()
-                                .filter(|rival| {
-                                    rival.dependency.claim_id != claim.dependency.claim_id
-                                })
-                                .map(|rival| rival.dependency(LineageRole::Rival)),
-                        );
-                        sort_dependencies(&mut dependencies);
-                        SemanticValue {
-                            dependencies,
-                            value: claim.value.clone(),
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                sort_values(&mut values);
-                Ok(values)
-            }
-            QueryPlanKind::Computation(expression) => {
-                let by_relation = claims_by_relation(claims);
-                let candidates = evaluate_expression(expression, &by_relation)?;
-                let mut values = candidates
-                    .into_iter()
-                    .map(|candidate| {
-                        let selected_claims = candidate
-                            .dependencies
-                            .iter()
-                            .map(|dependency| dependency.claim_id.as_str().to_owned())
-                            .collect::<BTreeSet<_>>();
-                        let selected_relations = candidate
-                            .dependencies
-                            .iter()
-                            .map(|dependency| dependency.relation_id.as_str().to_owned())
-                            .collect::<BTreeSet<_>>();
-                        let mut dependencies = candidate.dependencies;
-                        dependencies.extend(
-                            claims
-                                .iter()
-                                .filter(|claim| {
-                                    selected_relations
-                                        .contains(claim.dependency.relation_id.as_str())
-                                        && !selected_claims
-                                            .contains(claim.dependency.claim_id.as_str())
-                                })
-                                .map(|claim| claim.dependency(LineageRole::Rival)),
-                        );
-                        sort_dependencies(&mut dependencies);
-                        SemanticValue {
-                            dependencies,
-                            value: candidate.value,
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                sort_values(&mut values);
-                Ok(values)
-            }
-        }
+                    .map(|dependency| dependency.relation_id.as_str().to_owned())
+                    .collect::<BTreeSet<_>>();
+                let mut dependencies = candidate.dependencies;
+                dependencies.extend(
+                    claims
+                        .iter()
+                        .filter(|claim| {
+                            selected_relations.contains(claim.dependency.relation_id.as_str())
+                                && !selected_claims.contains(claim.dependency.claim_id.as_str())
+                        })
+                        .map(|claim| claim.dependency(LineageRole::Rival)),
+                );
+                sort_dependencies(&mut dependencies);
+                SemanticValue {
+                    dependencies,
+                    value: candidate.value,
+                }
+            })
+            .collect::<Vec<_>>();
+        sort_values(&mut values);
+        Ok(values)
     }
-}
-
-#[derive(Deserialize)]
-struct QueryDefinitionDto {
-    computations: Vec<ComputationDto>,
-}
-
-#[derive(Deserialize)]
-struct ComputationDto {
-    expression: ExpressionDto,
-    id: String,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-enum ExpressionDto {
-    Binary {
-        left: Box<ExpressionDto>,
-        operator: BinaryOperatorDto,
-        right: Box<ExpressionDto>,
-    },
-    Input {
-        input_id: String,
-    },
-    Literal {
-        value: ExactValueDto,
-    },
-    Relation {
-        relation_id: String,
-    },
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum BinaryOperatorDto {
-    Add,
-    GreaterThan,
-    Multiply,
-    Subtract,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-enum ExactValueDto {
-    Bool { value: bool },
-    Decimal { value: String },
-    Integer { value: String },
-    Quantity { amount: String, unit: String },
-    Text { value: String },
 }
 
 struct Candidate {
@@ -694,16 +586,16 @@ struct Candidate {
     value: ExactValue,
 }
 
-fn collect_relations(expression: &ExpressionDto, relations: &mut BTreeSet<String>) {
+fn collect_relations(expression: &Expression, relations: &mut BTreeSet<String>) {
     match expression {
-        ExpressionDto::Binary { left, right, .. } => {
+        Expression::Binary { left, right, .. } => {
             collect_relations(left, relations);
             collect_relations(right, relations);
         }
-        ExpressionDto::Relation { relation_id } => {
-            relations.insert(relation_id.clone());
+        Expression::Relation(relation_id) => {
+            relations.insert(relation_id.as_str().to_owned());
         }
-        ExpressionDto::Input { .. } | ExpressionDto::Literal { .. } => {}
+        Expression::Input(_) | Expression::Literal(_) => {}
     }
 }
 
@@ -719,17 +611,18 @@ fn claims_by_relation(claims: &[ClaimRecord]) -> BTreeMap<&str, Vec<&ClaimRecord
 }
 
 fn evaluate_expression(
-    expression: &ExpressionDto,
+    expression: &Expression,
     claims: &BTreeMap<&str, Vec<&ClaimRecord>>,
+    relation_role: LineageRole,
 ) -> Result<Vec<Candidate>, QueryError> {
     match expression {
-        ExpressionDto::Binary {
+        Expression::Binary {
             left,
             operator,
             right,
         } => {
-            let left = evaluate_expression(left, claims)?;
-            let right = evaluate_expression(right, claims)?;
+            let left = evaluate_expression(left, claims, relation_role)?;
+            let right = evaluate_expression(right, claims, relation_role)?;
             let mut combined = Vec::with_capacity(left.len().saturating_mul(right.len()));
             for left in &left {
                 for right in &right {
@@ -745,19 +638,20 @@ fn evaluate_expression(
             }
             Ok(combined)
         }
-        ExpressionDto::Input { input_id } => Err(QueryError::Evaluation(format!(
-            "computation input {input_id} has no query binding"
+        Expression::Input(input_id) => Err(QueryError::Evaluation(format!(
+            "computation input {} has no query binding",
+            input_id.as_str()
         ))),
-        ExpressionDto::Literal { value } => Ok(vec![Candidate {
+        Expression::Literal(value) => Ok(vec![Candidate {
             dependencies: Vec::new(),
-            value: parse_literal(value)?,
+            value: value.clone(),
         }]),
-        ExpressionDto::Relation { relation_id } => Ok(claims
+        Expression::Relation(relation_id) => Ok(claims
             .get(relation_id.as_str())
             .into_iter()
             .flatten()
             .map(|claim| Candidate {
-                dependencies: vec![claim.dependency(LineageRole::ComputationDependency)],
+                dependencies: vec![claim.dependency(relation_role)],
                 value: claim.value.clone(),
             })
             .collect()),
@@ -765,7 +659,7 @@ fn evaluate_expression(
 }
 
 fn apply_operator(
-    operator: BinaryOperatorDto,
+    operator: BinaryOperator,
     left: &ExactValue,
     right: &ExactValue,
 ) -> Result<ExactValue, QueryError> {
@@ -783,10 +677,10 @@ fn apply_operator(
         .parse::<i128>()
         .map_err(|_| QueryError::Evaluation("right integer exceeds i128".to_owned()))?;
     match operator {
-        BinaryOperatorDto::Add => checked_integer(left.checked_add(right), "addition"),
-        BinaryOperatorDto::GreaterThan => Ok(ExactValue::Bool(left > right)),
-        BinaryOperatorDto::Multiply => checked_integer(left.checked_mul(right), "multiplication"),
-        BinaryOperatorDto::Subtract => checked_integer(left.checked_sub(right), "subtraction"),
+        BinaryOperator::Add => checked_integer(left.checked_add(right), "addition"),
+        BinaryOperator::GreaterThan => Ok(ExactValue::Bool(left > right)),
+        BinaryOperator::Multiply => checked_integer(left.checked_mul(right), "multiplication"),
+        BinaryOperator::Subtract => checked_integer(left.checked_sub(right), "subtraction"),
     }
 }
 
@@ -797,24 +691,6 @@ fn checked_integer(value: Option<i128>, operation: &str) -> Result<ExactValue, Q
         ExactInteger::parse(value.to_string())
             .map_err(|error| QueryError::Evaluation(error.to_string()))?,
     ))
-}
-
-fn parse_literal(value: &ExactValueDto) -> Result<ExactValue, QueryError> {
-    match value {
-        ExactValueDto::Bool { value } => Ok(ExactValue::Bool(*value)),
-        ExactValueDto::Decimal { value } => ExactDecimal::parse(value)
-            .map(ExactValue::Decimal)
-            .map_err(|error| QueryError::Corrupt(error.to_string())),
-        ExactValueDto::Integer { value } => ExactInteger::parse(value)
-            .map(ExactValue::Integer)
-            .map_err(|error| QueryError::Corrupt(error.to_string())),
-        ExactValueDto::Quantity { amount, unit } => Ok(ExactValue::Quantity {
-            amount: ExactDecimal::parse(amount)
-                .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-            unit: UnitId::parse(unit).map_err(|error| QueryError::Corrupt(error.to_string()))?,
-        }),
-        ExactValueDto::Text { value } => Ok(ExactValue::Text(value.clone())),
-    }
 }
 
 fn parse_value(physical: &PhysicalClaim) -> Result<ExactValue, QueryError> {
@@ -920,10 +796,17 @@ fn u64_to_i64(value: u64, name: &str) -> Result<i64, QueryError> {
     i64::try_from(value).map_err(|_| QueryError::Invalid(format!("{name} exceeds i64")))
 }
 
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn unavailable(error: sqlx::Error) -> QueryError {
     QueryError::Unavailable(error.to_string())
 }
 
-fn projected_unavailable(error: datafusion::error::DataFusionError) -> QueryError {
-    QueryError::Unavailable(error.to_string())
+fn projected_corrupt(error: datafusion::error::DataFusionError) -> QueryError {
+    QueryError::Corrupt(error.to_string())
 }

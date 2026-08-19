@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
         .parse::<SocketAddr>()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
-    let query = QueryRuntime::connect(&database_url, object_store_config()?).await?;
+    let query = QueryRuntime::new(store.pool(), object_store_config()?);
     let definition_service =
         DefinitionServiceImpl::new(DefinitionEngine::new(store.clone()), sessions.clone());
     let world_service = WorldServiceImpl::new(WorldEngine::new(store), query, sessions);

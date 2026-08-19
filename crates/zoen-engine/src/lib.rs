@@ -248,6 +248,12 @@ impl Error for GetRevisionError {
     }
 }
 
+pub fn decode_canonical_definition(
+    canonical_json: &CanonicalJson,
+) -> Result<CanonicalDefinition, PublishError> {
+    admission::decode(canonical_json)
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectionEvent {
     event_type: &'static str,

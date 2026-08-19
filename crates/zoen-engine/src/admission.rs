@@ -36,8 +36,7 @@ pub(crate) fn admit(
         return Err(PublishError::DigestMismatch);
     }
 
-    let definition = convert_definition(dto)?;
-    validate_definition(&definition).map_err(PublishError::InvalidDefinition)?;
+    let definition = decode(&canonical_json)?;
     let event = ProjectionEvent::definition_published(
         &definition.id,
         definition.revision,
@@ -70,13 +69,7 @@ pub(crate) fn admit_evidence(
         ));
     }
 
-    let dto = serde_json::from_str::<CanonicalDefinitionDto>(revision.canonical_json.as_str())
-        .map_err(|error| {
-            RecordEvidenceError::InvalidEvidence(EvidenceValidationError::MalformedDefinition(
-                error.to_string(),
-            ))
-        })?;
-    let definition = convert_definition(dto).map_err(|error| {
+    let definition = decode(&revision.canonical_json).map_err(|error| {
         RecordEvidenceError::InvalidEvidence(EvidenceValidationError::MalformedDefinition(
             error.to_string(),
         ))
@@ -103,6 +96,14 @@ pub(crate) fn admit_evidence(
 
     let event = ProjectionEvent::claim_recorded(&draft)?;
     Ok(AdmittedEvidence::new(draft, event))
+}
+
+pub(crate) fn decode(canonical_json: &CanonicalJson) -> Result<CanonicalDefinition, PublishError> {
+    let dto = serde_json::from_str::<CanonicalDefinitionDto>(canonical_json.as_str())
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
+    let definition = convert_definition(dto)?;
+    validate_definition(&definition).map_err(PublishError::InvalidDefinition)?;
+    Ok(definition)
 }
 
 fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {

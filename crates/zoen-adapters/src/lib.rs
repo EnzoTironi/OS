@@ -53,6 +53,10 @@ impl PostgresAuthorityStore {
             .map_err(PostgresInitError::Migrate)?;
         Ok(Self { pool })
     }
+
+    pub fn pool(&self) -> PgPool {
+        self.pool.clone()
+    }
 }
 
 impl AuthorityStore for PostgresAuthorityStore {

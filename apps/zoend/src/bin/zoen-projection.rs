@@ -3,6 +3,7 @@ use std::error::Error;
 use std::time::Duration;
 
 use serde_json::json;
+use zoen_adapters::PostgresAuthorityStore;
 use zoen_core::TenantId;
 use zoen_query::{ProjectionMode, ProjectionOutcome, ProjectionRunOptions, ProjectionWorker};
 use zoend::config::object_store_config;
@@ -15,7 +16,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         return Ok(());
     }
     let database_url = env::var("DATABASE_URL")?;
-    let worker = ProjectionWorker::connect(&database_url, &object_store_config()?).await?;
+    let store = PostgresAuthorityStore::connect(&database_url).await?;
+    let object_store = object_store_config()?.ok_or("S3 storage is required for projection")?;
+    let worker = ProjectionWorker::new(store.pool(), &object_store)?;
     match arguments.as_slice() {
         [] => run_continuously(&worker, projection_tenants()?).await,
         [command, tenant] if command == "--once" => {
@@ -30,7 +33,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .run_once(
                     &TenantId::parse(tenant)?,
                     ProjectionRunOptions {
-                        fail_before_publish: false,
                         mode: ProjectionMode::Rebuild,
                     },
                 )
@@ -38,19 +40,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             print_outcome(&outcome);
             Ok(())
         }
-        [command, tenant] if command == "--fail-before-publish" => {
-            worker
-                .run_once(
-                    &TenantId::parse(tenant)?,
-                    ProjectionRunOptions {
-                        fail_before_publish: true,
-                        mode: ProjectionMode::Rebuild,
-                    },
-                )
-                .await?;
-            Ok(())
-        }
-        _ => Err("usage: zoen-projection [--once|--rebuild|--fail-before-publish <tenant>]".into()),
+        _ => Err("usage: zoen-projection [--once|--rebuild <tenant>]".into()),
     }
 }
 
@@ -112,7 +102,6 @@ fn print_help() {
   zoen-projection
   zoen-projection --once <tenant>
   zoen-projection --rebuild <tenant>
-  zoen-projection --fail-before-publish <tenant>
 
 The default command polls tenants from ZOEN_PROJECTION_TENANTS.
 

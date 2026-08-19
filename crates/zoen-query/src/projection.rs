@@ -4,35 +4,31 @@ use object_store::path::Path;
 use object_store::{ObjectStore, PutMode, PutOptions};
 use parquet::arrow::ArrowWriter;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
-use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 use zoen_core::TenantId;
 
 use crate::physical::{PhysicalClaim, claims_to_batch};
-use crate::{ObjectStoreConfig, QueryError};
+use crate::{ObjectStoreConfig, QueryError, sha256};
 
 const PROJECTION_ID: &str = "semantic_claims_v1";
 const SEMANTIC_SCHEMA_REVISION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProjectionMode {
-    Incremental,
+    RunOnce,
     Rebuild,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProjectionRunOptions {
-    pub fail_before_publish: bool,
     pub mode: ProjectionMode,
 }
 
 impl Default for ProjectionRunOptions {
     fn default() -> Self {
         Self {
-            fail_before_publish: false,
-            mode: ProjectionMode::Incremental,
+            mode: ProjectionMode::RunOnce,
         }
     }
 }
@@ -55,15 +51,7 @@ pub struct ProjectionWorker {
 }
 
 impl ProjectionWorker {
-    pub async fn connect(
-        database_url: &str,
-        object_store: &ObjectStoreConfig,
-    ) -> Result<Self, QueryError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(4)
-            .connect(database_url)
-            .await
-            .map_err(unavailable)?;
+    pub fn new(pool: PgPool, object_store: &ObjectStoreConfig) -> Result<Self, QueryError> {
         Ok(Self {
             pool,
             store: object_store.build()?,
@@ -75,15 +63,15 @@ impl ProjectionWorker {
         tenant_id: &TenantId,
         options: ProjectionRunOptions,
     ) -> Result<ProjectionOutcome, QueryError> {
-        let current = self.current_projection(tenant_id).await?;
-        let target = self.authority_head(tenant_id).await?;
+        let state = load_source_state(&self.pool, tenant_id).await?;
+        let target = state.authority_head;
         if target == 0 {
             return Err(QueryError::Invalid(
                 "cannot project a tenant with no authority commits".to_owned(),
             ));
         }
-        if options.mode == ProjectionMode::Incremental
-            && let Some(current) = current
+        if options.mode == ProjectionMode::RunOnce
+            && let Some(current) = state.projection
             && current.through_commit >= target
         {
             return current.into_outcome(false);
@@ -128,12 +116,6 @@ impl ProjectionWorker {
             format!("projections/{PROJECTION_ID}/manifests/{manifest_digest}.json");
         put_immutable(&*self.store, &manifest_object_key, manifest_bytes).await?;
 
-        if options.fail_before_publish {
-            return Err(QueryError::Unavailable(
-                "injected projection failure before manifest publication".to_owned(),
-            ));
-        }
-
         self.publish_manifest(
             tenant_id,
             PublishedManifest {
@@ -156,60 +138,6 @@ impl ProjectionWorker {
             through_commit: i64_to_u64(target, "projection target")?,
             wrote_manifest: true,
         })
-    }
-
-    async fn authority_head(&self, tenant_id: &TenantId) -> Result<i64, QueryError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
-        let head = sqlx::query(
-            "SELECT commit_sequence
-             FROM authority_heads
-             WHERE tenant_id = $1",
-        )
-        .bind(tenant_id.as_str())
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(unavailable)?
-        .map(|row| row.try_get::<i64, _>("commit_sequence"))
-        .transpose()
-        .map_err(unavailable)?
-        .unwrap_or(0);
-        transaction.commit().await.map_err(unavailable)?;
-        Ok(head)
-    }
-
-    async fn current_projection(
-        &self,
-        tenant_id: &TenantId,
-    ) -> Result<Option<CurrentProjection>, QueryError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
-        let row = sqlx::query(
-            "SELECT w.through_commit, w.manifest_digest,
-                    m.manifest_object_key, m.parquet_object_key, m.parquet_digest
-             FROM projection_watermarks w
-             JOIN projection_manifests m
-               ON m.tenant_id = w.tenant_id
-              AND m.projection_id = w.projection_id
-              AND m.manifest_digest = w.manifest_digest
-             WHERE w.tenant_id = $1 AND w.projection_id = $2",
-        )
-        .bind(tenant_id.as_str())
-        .bind(PROJECTION_ID)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
-        transaction.commit().await.map_err(unavailable)?;
-        row.map(|row| {
-            Ok(CurrentProjection {
-                manifest_digest: row.try_get("manifest_digest").map_err(unavailable)?,
-                manifest_object_key: row.try_get("manifest_object_key").map_err(unavailable)?,
-                parquet_digest: row.try_get("parquet_digest").map_err(unavailable)?,
-                parquet_object_key: row.try_get("parquet_object_key").map_err(unavailable)?,
-                through_commit: row.try_get("through_commit").map_err(unavailable)?,
-            })
-        })
-        .transpose()
     }
 
     async fn verify_outbox(&self, tenant_id: &TenantId, target: i64) -> Result<(), QueryError> {
@@ -347,6 +275,81 @@ impl ProjectionWorker {
     }
 }
 
+pub(crate) struct SourceState {
+    pub(crate) authority_head: i64,
+    pub(crate) projection: Option<ProjectionState>,
+}
+
+pub(crate) struct ProjectionState {
+    pub(crate) manifest_digest: String,
+    pub(crate) manifest_object_key: String,
+    pub(crate) parquet_digest: String,
+    pub(crate) parquet_object_key: String,
+    pub(crate) through_commit: i64,
+}
+
+pub(crate) async fn load_source_state(
+    pool: &PgPool,
+    tenant_id: &TenantId,
+) -> Result<SourceState, QueryError> {
+    let mut transaction = pool.begin().await.map_err(unavailable)?;
+    set_tenant(&mut transaction, tenant_id).await?;
+    let row = sqlx::query(
+        "SELECT h.commit_sequence AS authority_head,
+                w.through_commit, w.manifest_digest,
+                m.manifest_object_key, m.parquet_object_key, m.parquet_digest
+         FROM authority_heads h
+         LEFT JOIN projection_watermarks w
+           ON w.tenant_id = h.tenant_id
+          AND w.projection_id = $2
+         LEFT JOIN projection_manifests m
+           ON m.tenant_id = w.tenant_id
+          AND m.projection_id = w.projection_id
+          AND m.manifest_digest = w.manifest_digest
+         WHERE h.tenant_id = $1",
+    )
+    .bind(tenant_id.as_str())
+    .bind(PROJECTION_ID)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(unavailable)?;
+    transaction.commit().await.map_err(unavailable)?;
+    let Some(row) = row else {
+        return Ok(SourceState {
+            authority_head: 0,
+            projection: None,
+        });
+    };
+    let authority_head = row.try_get("authority_head").map_err(unavailable)?;
+    let through_commit = row
+        .try_get::<Option<i64>, _>("through_commit")
+        .map_err(unavailable)?;
+    let projection = through_commit
+        .map(|through_commit| {
+            Ok(ProjectionState {
+                manifest_digest: required_projection_column(&row, "manifest_digest")?,
+                manifest_object_key: required_projection_column(&row, "manifest_object_key")?,
+                parquet_digest: required_projection_column(&row, "parquet_digest")?,
+                parquet_object_key: required_projection_column(&row, "parquet_object_key")?,
+                through_commit,
+            })
+        })
+        .transpose()?;
+    Ok(SourceState {
+        authority_head,
+        projection,
+    })
+}
+
+fn required_projection_column(
+    row: &sqlx::postgres::PgRow,
+    column: &str,
+) -> Result<String, QueryError> {
+    row.try_get::<Option<String>, _>(column)
+        .map_err(unavailable)?
+        .ok_or_else(|| QueryError::Corrupt(format!("active projection has no {column}")))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProjectionManifest<'a> {
@@ -376,15 +379,7 @@ struct PublishedManifest<'a> {
     through_commit: i64,
 }
 
-struct CurrentProjection {
-    manifest_digest: String,
-    manifest_object_key: String,
-    parquet_digest: String,
-    parquet_object_key: String,
-    through_commit: i64,
-}
-
-impl CurrentProjection {
+impl ProjectionState {
     fn into_outcome(self, wrote_manifest: bool) -> Result<ProjectionOutcome, QueryError> {
         Ok(ProjectionOutcome {
             manifest_digest: self.manifest_digest,
@@ -427,13 +422,6 @@ async fn set_tenant(
         .await
         .map_err(unavailable)?;
     Ok(())
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 fn i64_to_u64(value: i64, name: &str) -> Result<u64, QueryError> {
