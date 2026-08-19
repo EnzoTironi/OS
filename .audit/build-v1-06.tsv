@@ -7,3 +7,5 @@ ts	phase	decision	why	evidence	result
 2026-08-19T12:09:43Z	implementation	Added a typed HistoryService protocol and a thin Connect mapping	Typed refs keep formatted strings out of the product protocol	commits 6a02aee and 17e637a	complete
 2026-08-19T12:09:43Z	verify	Compiled the workspace after wiring HistoryService	The first green compile isolates service and storage errors before the E2E slice	cargo check --locked --workspace	exit 0
 2026-08-19T12:09:43Z	harness	Added a standalone explain scenario over Postgres 18, OIDC, Restate, and Connect	The official command must prove the production path and required mutants	e2e/explain.ts	ready to run
+2026-08-19T12:19:43Z	verify	Ran the official scenario through the first explanation assertion	The run reached every production dependency and exposed an incorrect identity expectation	just e2e explain	exit 1, trustedContextComesFromDurableAuthority
+2026-08-19T12:19:43Z	harness	Aligned the identity assertion with the OIDC realm claims	The durable authority rows retain dotted actor and principal IDs from Keycloak	e2e/governed-action/prepare-realm.mjs	corrected

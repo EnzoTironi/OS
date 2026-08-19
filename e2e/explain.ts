@@ -252,10 +252,10 @@ async function main(): Promise<void> {
     observe(
       "trustedContextComesFromDurableAuthority",
       operationAction.proposedBy?.tenantId === tenantA &&
-        operationAction.proposedBy.actorId === "actor.agent-a" &&
-        operationAction.proposedBy.principalId === "principal.agent-a" &&
+        operationAction.proposedBy.actorId === "actor.agent.a" &&
+        operationAction.proposedBy.principalId === "principal.agent.a" &&
         operationAction.commit?.committedBy?.tenantId === tenantA &&
-        operationAction.commit.committedBy.actorId === "actor.agent-a",
+        operationAction.commit.committedBy.actorId === "actor.agent.a",
     );
     observe(
       "proposalAndCommitStateBasesAreDistinct",
