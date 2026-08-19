@@ -1,106 +1,48 @@
 import assert from "node:assert/strict";
-import {
-  execFile,
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from "node:child_process";
-import { createHash } from "node:crypto";
-import { once } from "node:events";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createConnection } from "node:net";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import {
-  Code,
-  ConnectError,
-  createClient,
-  type Client,
-  type Interceptor,
-} from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-node";
-import { create } from "@bufbuild/protobuf";
+import { Code } from "@connectrpc/connect";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Client as PostgresClient } from "pg";
-import { z } from "zod";
 import {
-  ActionInputSchema,
-  ActionService,
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-  type ActionInput,
-  type Proposal,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
-import { DefinitionService } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import {
-  DefinitionReferenceSchema,
-  EvidenceClaimSchema,
-  EvidenceProvenanceSchema,
-  ExactValueSchema,
-  ValidTimeSchema,
-  WorldService,
-  type DefinitionReference,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-
-const repositoryRoot = process.cwd();
-const scenarioDirectory = path.join(
+  actionClient,
+  actionId,
+  adminDatabaseUrl,
+  assertPolicy,
+  composeOutput,
+  corruptToken,
+  databaseSnapshot,
+  definitionClient,
+  delay,
+  expectConnectCode,
+  generatedDirectory,
+  loadFixture,
+  millisecondsFromNow,
+  minutesFromNow,
+  oidcAudience,
+  oidcIssuer,
+  oidcToken,
+  propose,
+  publishDefinition,
+  recordAvailable,
   repositoryRoot,
-  "e2e",
-  "governed-action",
-);
-const generatedDirectory = path.join(scenarioDirectory, ".generated");
-const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
-const composeFile = path.join("e2e", "governed-action", "compose.yaml");
-const composeProject = "zoen-governed-action";
-const applicationDatabaseUrl =
-  "postgres://zoen_app:zoen_app@127.0.0.1:55434/zoen";
-const adminDatabaseUrl =
-  "postgres://postgres:postgres@127.0.0.1:55434/zoen";
-const baseUrl = "http://127.0.0.1:58083";
-const oidcIssuer = "http://127.0.0.1:58082/realms/zoen";
-const oidcAudience = "zoend";
-const actionId = "inventory.requestStock";
-const definitionId = "inventory.governed";
-const resourceId = "inventory.item.1";
-const unrelatedResourceId = "inventory.item.unrelated";
-const availableRelation = "inventory.available";
-const tenantA = "tenant.a";
-const tenantB = "tenant.b";
-const validAt = new Date("2026-08-19T00:00:00.000Z");
-
-type ActionClient = Client<typeof ActionService>;
-type DefinitionClient = Client<typeof DefinitionService>;
-type WorldClient = Client<typeof WorldService>;
-
-interface DefinitionFixture {
-  canonicalJson: string;
-  definition: DefinitionReference;
-  digest: string;
-  policyDigest: string;
-  policyId: string;
-  policyRevision: number;
-  policySource: string;
-}
-
-interface ServerProcess {
-  child: ChildProcessWithoutNullStreams;
-  output: string[];
-}
-
-interface DatabaseSnapshot {
-  actionApprovals: number;
-  actionOperations: number;
-  actionProposals: number;
-  authorityCommits: number;
-  projectionOutbox: number;
-  semanticClaims: number;
-}
-
-const tokenResponseSchema = z
-  .object({
-    access_token: z.string().min(1),
-  })
-  .passthrough();
+  resourceId,
+  sha256,
+  startServer,
+  stopServer,
+  tenantA,
+  tenantB,
+  textInput,
+  unrelatedResourceId,
+  worldClient,
+  writePolicyManifest,
+} from "./governed-action/support.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -121,6 +63,7 @@ async function main(): Promise<void> {
     direct: await loadFixture("direct", 1),
     error: await loadFixture("error", 4),
     human: await loadFixture("human", 2),
+    self: await loadFixture("self", 5),
   };
   const policyManifestPath = path.join(generatedDirectory, "policies.json");
   await writePolicyManifest(policyManifestPath, Object.values(fixtures));
@@ -177,6 +120,13 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       value: "10",
     });
+    await recordAvailable(worldA, {
+      claimId: "claim.available.self.a",
+      fixture: fixtures.self,
+      resource: resourceId,
+      tenantId: tenantA,
+      value: "10",
+    });
     await recordAvailable(worldB, {
       claimId: "claim.available.direct.b",
       fixture: fixtures.direct,
@@ -201,6 +151,10 @@ async function main(): Promise<void> {
     assert.deepEqual(trusted.delegation[0]?.workloadIds, [
       "workload.agent.a",
     ]);
+    assert.deepEqual(
+      directDiscovery.actions.map((action) => action.actionId),
+      [actionId],
+    );
     const directCapability = directDiscovery.actions.find(
       (action) => action.actionId === actionId,
     );
@@ -222,6 +176,13 @@ async function main(): Promise<void> {
         isDeepStrictEqual(trusted.delegation[0]?.workloadIds, [
           "workload.agent.a",
         ]),
+    );
+    recordAssertion(
+      "discoveryIntersectsDelegationScope",
+      isDeepStrictEqual(
+        directDiscovery.actions.map((action) => action.actionId),
+        [actionId],
+      ),
     );
     recordAssertion(
       "cedarDeterminingPolicyRecorded",
@@ -268,6 +229,21 @@ async function main(): Promise<void> {
     assert.equal(direct.proposal.status, ProposalStatus.READY);
     assert.equal(direct.proposal.stateBasis?.dependencies.length, 1);
     assertPolicy(direct.proposal.policy, fixtures.direct);
+    const beforeReservedClaim = await databaseSnapshot(admin, tenantA);
+    const reservedClaimCode = await expectConnectCode(
+      () =>
+        recordAvailable(worldA, {
+          claimId: `claim.action.${direct.proposal.intentDigest}.0`,
+          fixture: fixtures.direct,
+          resource: resourceId,
+          tenantId: tenantA,
+          value: "99",
+        }),
+      Code.InvalidArgument,
+    );
+    const afterReservedClaim = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterReservedClaim, beforeReservedClaim);
+    recordFailureInjection("reserved-action-claim-id");
     const directCommit = await actionA.commit({
       operationId: "operation.direct",
       proposalId: "proposal.direct",
@@ -298,9 +274,70 @@ async function main(): Promise<void> {
         directCommit.receipt.definition?.digest === fixtures.direct.digest,
     );
     recordAssertion(
+      "actionClaimNamespaceRejectedCallerEvidence",
+      reservedClaimCode === Code.InvalidArgument &&
+        isDeepStrictEqual(afterReservedClaim, beforeReservedClaim),
+    );
+    recordAssertion(
       "operationIdempotencyPreserved",
       directReplay.receipt?.commitSequence ===
         directCommit.receipt.commitSequence,
+    );
+
+    const selfMutating = await propose(actionA, {
+      expiresAt: minutesFromNow(5),
+      fixture: fixtures.self,
+      operationId: "operation.selfMutating",
+      proposalId: "proposal.selfMutating",
+      quantity: "2",
+    });
+    assert.ok(selfMutating.proposal);
+    const selfMutatingCommit = await actionA.commit({
+      operationId: "operation.selfMutating",
+      proposalId: "proposal.selfMutating",
+    });
+    assert.equal(selfMutatingCommit.status, CommitStatus.COMMITTED);
+    const selfMutatingReplay = await actionA.commit({
+      operationId: "operation.selfMutating",
+      proposalId: "proposal.selfMutating",
+    });
+    assert.equal(
+      selfMutatingReplay.receipt?.commitSequence,
+      selfMutatingCommit.receipt?.commitSequence,
+    );
+    recordAssertion(
+      "selfMutatingActionReplayReturnedCanonicalReceipt",
+      selfMutatingReplay.receipt?.commitSequence ===
+        selfMutatingCommit.receipt?.commitSequence,
+    );
+
+    await recordAvailable(worldA, {
+      claimId: "claim.available.large.a",
+      fixture: fixtures.direct,
+      resource: resourceId,
+      tenantId: tenantA,
+      value: "9223372036854775809",
+    });
+    const beforeLargeCedarInput = await databaseSnapshot(admin, tenantA);
+    const largeCedarInput = await propose(actionA, {
+      expiresAt: minutesFromNow(5),
+      fixture: fixtures.direct,
+      operationId: "operation.largeCedarInput",
+      proposalId: "proposal.largeCedarInput",
+      quantity: "9223372036854775808",
+    });
+    assert.equal(
+      largeCedarInput.decision,
+      PolicyDecision.EVALUATION_ERROR,
+    );
+    assert.match(largeCedarInput.evaluationError, /quantity.*integer range/);
+    const afterLargeCedarInput = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterLargeCedarInput, beforeLargeCedarInput);
+    recordFailureInjection("cedar-integer-out-of-range");
+    recordAssertion(
+      "cedarRejectedOutOfRangeIntegerWithoutWrites",
+      largeCedarInput.decision === PolicyDecision.EVALUATION_ERROR &&
+        isDeepStrictEqual(afterLargeCedarInput, beforeLargeCedarInput),
     );
 
     const beforeThresholdDeny = await databaseSnapshot(admin, tenantA);
@@ -325,8 +362,9 @@ async function main(): Promise<void> {
       isDeepStrictEqual(afterThresholdDeny, beforeThresholdDeny),
     );
 
+    const humanExpiresAt = minutesFromNow(5);
     const human = await propose(actionA, {
-      expiresAt: minutesFromNow(5),
+      expiresAt: humanExpiresAt,
       fixture: fixtures.human,
       operationId: "operation.human",
       proposalId: "proposal.human",
@@ -348,21 +386,77 @@ async function main(): Promise<void> {
     });
     await stopServer(server);
     server = await startServer(policyManifestPath);
+    const humanRetry = await propose(actionA, {
+      expiresAt: humanExpiresAt,
+      fixture: fixtures.human,
+      operationId: "operation.human",
+      proposalId: "proposal.human",
+      quantity: "2",
+    });
+    assert.equal(
+      humanRetry.proposal?.proposedAt?.seconds,
+      human.proposal.proposedAt?.seconds,
+    );
+    const humanApprovalExpiresAt = minutesFromNow(4);
     const humanApproval = await approverA.approve({
       approvalId: "approval.human",
-      expiresAt: timestampFromDate(minutesFromNow(4)),
+      expiresAt: timestampFromDate(humanApprovalExpiresAt),
       proposalId: "proposal.human",
     });
     assert.equal(humanApproval.decision, PolicyDecision.PERMIT);
     assert.equal(humanApproval.approval?.approvedBy, "actor.approver.a");
+    const humanApprovalRetry = await approverA.approve({
+      approvalId: "approval.human",
+      expiresAt: timestampFromDate(humanApprovalExpiresAt),
+      proposalId: "proposal.human",
+    });
+    assert.equal(
+      humanApprovalRetry.approval?.approvedAt?.seconds,
+      humanApproval.approval?.approvedAt?.seconds,
+    );
     const humanCommit = await actionA.commit({
       operationId: "operation.human",
       proposalId: "proposal.human",
     });
     assert.equal(humanCommit.status, CommitStatus.COMMITTED);
+    const authorityBasis = (
+      await admin.query<{
+        approved_principal_id: string;
+        approval_grants: string;
+        committed_principal_id: string;
+        operation_grants: string;
+        proposal_grants: string;
+        proposed_principal_id: string;
+      }>(
+        `SELECT
+            proposal.proposed_principal_id,
+            approval.approved_principal_id,
+            operation.committed_principal_id,
+            (SELECT count(*)::text FROM action_proposal_grants WHERE tenant_id = proposal.tenant_id AND proposal_id = proposal.proposal_id) AS proposal_grants,
+            (SELECT count(*)::text FROM action_approval_grants WHERE tenant_id = approval.tenant_id AND proposal_id = approval.proposal_id) AS approval_grants,
+            (SELECT count(*)::text FROM action_operation_grants WHERE tenant_id = operation.tenant_id AND operation_id = operation.operation_id) AS operation_grants
+         FROM action_proposals AS proposal
+         JOIN action_approvals AS approval
+           ON approval.tenant_id = proposal.tenant_id
+          AND approval.proposal_id = proposal.proposal_id
+         JOIN action_operations AS operation
+           ON operation.tenant_id = proposal.tenant_id
+          AND operation.proposal_id = proposal.proposal_id
+         WHERE proposal.tenant_id = $1 AND proposal.proposal_id = $2`,
+        [tenantA, "proposal.human"],
+      )
+    ).rows[0];
+    assert.ok(authorityBasis);
     recordAssertion(
       "proposalRecoveredAcrossRestart",
       humanApproval.approval?.proposalId === "proposal.human",
+    );
+    recordAssertion(
+      "proposalAndApprovalRetriesReturnedStoredRecords",
+      humanRetry.proposal?.proposedAt?.seconds ===
+        human.proposal.proposedAt?.seconds &&
+        humanApprovalRetry.approval?.approvedAt?.seconds ===
+          humanApproval.approval?.approvedAt?.seconds,
     );
     recordAssertion(
       "unrelatedStateDidNotFalseStale",
@@ -372,6 +466,15 @@ async function main(): Promise<void> {
       "humanApprovalCommitted",
       humanApproval.decision === PolicyDecision.PERMIT &&
         humanCommit.status === CommitStatus.COMMITTED,
+    );
+    recordAssertion(
+      "durableHistoryRetainedAuthorityBasis",
+      authorityBasis.proposed_principal_id === "principal.agent.a" &&
+        authorityBasis.approved_principal_id === "principal.approver.a" &&
+        authorityBasis.committed_principal_id === "principal.agent.a" &&
+        authorityBasis.proposal_grants === "1" &&
+        authorityBasis.approval_grants === "1" &&
+        authorityBasis.operation_grants === "1",
     );
 
     const boundedProposal = await propose(actionA, {
@@ -817,399 +920,6 @@ async function main(): Promise<void> {
       await stopServer(server);
     }
   }
-}
-
-async function loadFixture(
-  name: string,
-  revision: number,
-): Promise<DefinitionFixture> {
-  const canonicalJson = (
-    await readFile(
-      path.join(
-        scenarioDirectory,
-        `definition-${name}.canonical.json`,
-      ),
-      "utf8",
-    )
-  ).trimEnd();
-  const policySource = await readFile(
-    path.join(scenarioDirectory, `${name}.cedar`),
-    "utf8",
-  );
-  const digest = sha256(canonicalJson);
-  return {
-    canonicalJson,
-    definition: create(DefinitionReferenceSchema, {
-      definitionId,
-      digest,
-      revision: BigInt(revision),
-    }),
-    digest,
-    policyDigest: sha256(policySource),
-    policyId: `policy.${name}`,
-    policyRevision: revision,
-    policySource,
-  };
-}
-
-async function writePolicyManifest(
-  outputPath: string,
-  fixtures: readonly DefinitionFixture[],
-): Promise<void> {
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(
-    outputPath,
-    `${JSON.stringify(
-      {
-        policies: fixtures.map((fixture) => ({
-          actionId,
-          definitionDigest: fixture.digest,
-          digest: fixture.policyDigest,
-          policyId: fixture.policyId,
-          revision: fixture.policyRevision,
-          source: fixture.policySource,
-        })),
-      },
-      null,
-      2,
-    )}\n`,
-  );
-}
-
-async function oidcToken(clientId: string): Promise<string> {
-  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: `${clientId}-secret`,
-      grant_type: "client_credentials",
-    }),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    method: "POST",
-  });
-  const body: unknown = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(body));
-  return tokenResponseSchema.parse(body).access_token;
-}
-
-function actionClient(token: string): ActionClient {
-  return createClient(ActionService, transport(token));
-}
-
-function definitionClient(token: string): DefinitionClient {
-  return createClient(DefinitionService, transport(token));
-}
-
-function worldClient(token: string): WorldClient {
-  return createClient(WorldService, transport(token));
-}
-
-function transport(token: string) {
-  const authorization: Interceptor = (next) => async (request) => {
-    request.header.set("authorization", `Bearer ${token}`);
-    return next(request);
-  };
-  return createConnectTransport({
-    baseUrl,
-    httpVersion: "1.1",
-    interceptors: [authorization],
-  });
-}
-
-async function publishDefinition(
-  client: DefinitionClient,
-  tenantId: string,
-  fixture: DefinitionFixture,
-): Promise<void> {
-  const response = await client.publish({
-    canonicalJson: new TextEncoder().encode(fixture.canonicalJson),
-    digest: fixture.digest,
-    tenantId,
-  });
-  assert.equal(response.definitionRevision?.digest, fixture.digest);
-  assert.equal(
-    response.definitionRevision?.revision,
-    fixture.definition.revision,
-  );
-}
-
-interface EvidenceInput {
-  claimId: string;
-  fixture: DefinitionFixture;
-  resource: string;
-  tenantId: string;
-  value: string;
-}
-
-async function recordAvailable(
-  client: WorldClient,
-  input: EvidenceInput,
-): Promise<void> {
-  const response = await client.recordEvidence({
-    claim: create(EvidenceClaimSchema, {
-      claimId: input.claimId,
-      definition: input.fixture.definition,
-      entityId: input.resource,
-      provenance: create(EvidenceProvenanceSchema, {
-        sourceDigest: sha256(input.claimId),
-        sourceId: "source.governedActionE2e",
-        sourceRef: `urn:zoen:e2e:${input.claimId}`,
-      }),
-      relationId: availableRelation,
-      validTime: create(ValidTimeSchema, {
-        value: {
-          case: "instant",
-          value: timestampFromDate(validAt),
-        },
-      }),
-      value: integerValue(input.value),
-    }),
-    tenantId: input.tenantId,
-  });
-  assert.equal(response.claimId, input.claimId);
-}
-
-interface ProposeInput {
-  expiresAt: Date;
-  extraInputs?: readonly ActionInput[];
-  fixture: DefinitionFixture;
-  operationId: string;
-  proposalId: string;
-  quantity: string;
-}
-
-function propose(client: ActionClient, input: ProposeInput) {
-  return client.propose({
-    actionId,
-    definition: input.fixture.definition,
-    expiresAt: timestampFromDate(input.expiresAt),
-    inputs: [integerInput("quantity", input.quantity), ...(input.extraInputs ?? [])],
-    operationId: input.operationId,
-    proposalId: input.proposalId,
-    resourceId,
-    validAt: timestampFromDate(validAt),
-  });
-}
-
-function integerInput(inputId: string, value: string): ActionInput {
-  return create(ActionInputSchema, {
-    inputId,
-    value: integerValue(value),
-  });
-}
-
-function textInput(inputId: string, value: string): ActionInput {
-  return create(ActionInputSchema, {
-    inputId,
-    value: create(ExactValueSchema, {
-      value: {
-        case: "textValue",
-        value,
-      },
-    }),
-  });
-}
-
-function integerValue(value: string) {
-  return create(ExactValueSchema, {
-    value: {
-      case: "integerValue",
-      value,
-    },
-  });
-}
-
-function assertPolicy(
-  policy: Proposal["policy"] | undefined,
-  fixture: DefinitionFixture,
-  requireDeterminingPolicy = true,
-): void {
-  assert.ok(policy);
-  assert.equal(policy.revision?.policyId, fixture.policyId);
-  assert.equal(policy.revision?.revision, BigInt(fixture.policyRevision));
-  assert.equal(policy.revision?.digest, fixture.policyDigest);
-  if (requireDeterminingPolicy) {
-    assert.ok(policy.determiningPolicyIds.length > 0);
-  }
-}
-
-async function databaseSnapshot(
-  client: PostgresClient,
-  tenantId: string,
-): Promise<DatabaseSnapshot> {
-  return {
-    actionApprovals: await rowCount(client, "action_approvals", tenantId),
-    actionOperations: await rowCount(client, "action_operations", tenantId),
-    actionProposals: await rowCount(client, "action_proposals", tenantId),
-    authorityCommits: await rowCount(client, "authority_commits", tenantId),
-    projectionOutbox: await rowCount(client, "projection_outbox", tenantId),
-    semanticClaims: await rowCount(client, "semantic_claims", tenantId),
-  };
-}
-
-async function rowCount(
-  client: PostgresClient,
-  table: string,
-  tenantId: string,
-): Promise<number> {
-  const allowed = new Set([
-    "action_approvals",
-    "action_operations",
-    "action_proposals",
-    "authority_commits",
-    "projection_outbox",
-    "semantic_claims",
-  ]);
-  assert.ok(allowed.has(table));
-  const result = await client.query<{ count: string }>(
-    `SELECT count(*)::text AS count FROM ${table} WHERE tenant_id = $1`,
-    [tenantId],
-  );
-  return Number(result.rows[0]?.count);
-}
-
-async function startServer(policyManifestPath: string): Promise<ServerProcess> {
-  const output: string[] = [];
-  const child = spawn(serverPath, [], {
-    cwd: repositoryRoot,
-    env: {
-      ...process.env,
-      DATABASE_URL: applicationDatabaseUrl,
-      ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
-      ZOEN_LISTEN_ADDR: "127.0.0.1:58083",
-      ZOEN_OIDC_AUDIENCE: oidcAudience,
-      ZOEN_OIDC_ISSUER: oidcIssuer,
-    },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  child.stdin.end();
-  child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  await waitForPort(child, output);
-  return { child, output };
-}
-
-async function stopServer(server: ServerProcess): Promise<void> {
-  if (server.child.exitCode !== null) {
-    return;
-  }
-  server.child.kill("SIGINT");
-  await once(server.child, "exit");
-  assert.equal(
-    server.child.exitCode,
-    0,
-    `zoend failed during shutdown:\n${server.output.join("")}`,
-  );
-}
-
-async function waitForPort(
-  child: ChildProcessWithoutNullStreams,
-  output: readonly string[],
-): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (child.exitCode !== null) {
-      throw new Error(`zoend exited during startup:\n${output.join("")}`);
-    }
-    if (await canConnect()) {
-      return;
-    }
-    await delay(100);
-  }
-  throw new Error(`zoend did not listen on port 58083:\n${output.join("")}`);
-}
-
-function canConnect(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port: 58083 });
-    let settled = false;
-    const finish = (connected: boolean) => {
-      if (!settled) {
-        settled = true;
-        socket.destroy();
-        resolve(connected);
-      }
-    };
-    socket.once("connect", () => finish(true));
-    socket.once("error", () => finish(false));
-    socket.setTimeout(200, () => finish(false));
-  });
-}
-
-async function expectConnectCode(
-  action: () => Promise<unknown>,
-  expected: Code,
-): Promise<Code> {
-  try {
-    await action();
-    assert.fail(`expected Connect error ${Code[expected]}`);
-  } catch (error: unknown) {
-    if (!(error instanceof ConnectError)) {
-      throw error;
-    }
-    assert.equal(error.code, expected, error.message);
-    return error.code;
-  }
-}
-
-function corruptToken(token: string): string {
-  const parts = token.split(".");
-  assert.equal(parts.length, 3);
-  const signature = parts[2];
-  assert.ok(signature);
-  const replacement = signature[0] === "A" ? "B" : "A";
-  return `${parts[0]}.${parts[1]}.${replacement}${signature.slice(1)}`;
-}
-
-function minutesFromNow(minutes: number): Date {
-  return millisecondsFromNow(minutes * 60_000);
-}
-
-function millisecondsFromNow(milliseconds: number): Date {
-  return new Date(Date.now() + milliseconds);
-}
-
-function composeOutput(...arguments_: string[]): Promise<string> {
-  return command("docker", [
-    "compose",
-    "--project-name",
-    composeProject,
-    "--file",
-    composeFile,
-    ...arguments_,
-  ]);
-}
-
-function command(
-  executable: string,
-  arguments_: readonly string[],
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      executable,
-      [...arguments_],
-      {
-        cwd: repositoryRoot,
-        encoding: "utf8",
-        maxBuffer: 10 * 1024 * 1024,
-      },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          reject(new Error(`${stdout}${stderr}`, { cause: error }));
-          return;
-        }
-        resolve(stdout.trim());
-      },
-    );
-  });
-}
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 main().catch((error: unknown) => {
