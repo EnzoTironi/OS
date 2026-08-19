@@ -21,13 +21,14 @@ use zoen_engine::{
 
 use crate::action_service::to_policy_evidence;
 use crate::auth::SessionRegistry;
+use crate::proto::zoen::definition::v1::__buffa::view::oneof::activate_revision_request as activate_revision_request_view;
 use crate::proto::zoen::definition::v1::{
     ActivateRevisionRequest, ActivateRevisionResponse, DefinitionActivation, DefinitionChange,
     DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactApplicability,
     DefinitionImpactArea, DefinitionRevision, DefinitionService, EvolutionClassification,
     EvolutionPlan, GetActiveRevisionRequest, GetActiveRevisionResponse, GetRevisionRequest,
     GetRevisionResponse, PlanEvolutionRequest, PlanEvolutionResponse, PublishRequest,
-    PublishResponse, activate_revision_request,
+    PublishResponse,
 };
 use crate::world_service::{to_definition_reference, to_timestamp};
 
@@ -199,20 +200,24 @@ fn to_protocol_activation(activation: CoreDefinitionActivation) -> DefinitionAct
 }
 
 fn parse_activation_precondition(
-    precondition: Option<&activate_revision_request::ActiveRevisionPrecondition>,
+    precondition: Option<&activate_revision_request_view::ActiveRevisionPrecondition<'_>>,
 ) -> Result<ActivationPrecondition, ConnectError> {
     match precondition {
-        Some(activate_revision_request::ActiveRevisionPrecondition::ExpectNoActiveRevision(
-            true,
-        )) => Ok(ActivationPrecondition::NoActiveRevision),
-        Some(activate_revision_request::ActiveRevisionPrecondition::ExpectedActiveDigest(
+        Some(
+            activate_revision_request_view::ActiveRevisionPrecondition::ExpectNoActiveRevision(
+                true,
+            ),
+        ) => Ok(ActivationPrecondition::NoActiveRevision),
+        Some(activate_revision_request_view::ActiveRevisionPrecondition::ExpectedActiveDigest(
             digest,
-        )) => DefinitionDigest::parse(digest.clone())
+        )) => DefinitionDigest::parse((*digest).to_owned())
             .map(ActivationPrecondition::ActiveDigest)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string())),
-        Some(activate_revision_request::ActiveRevisionPrecondition::ExpectNoActiveRevision(
-            false,
-        )) => Err(ConnectError::new(
+        Some(
+            activate_revision_request_view::ActiveRevisionPrecondition::ExpectNoActiveRevision(
+                false,
+            ),
+        ) => Err(ConnectError::new(
             ErrorCode::InvalidArgument,
             "expect_no_active_revision must be true",
         )),

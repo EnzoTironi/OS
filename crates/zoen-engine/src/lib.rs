@@ -7,8 +7,8 @@ use zoen_core::{
     ActionApproval, ActionProposal, CanonicalDefinition, CanonicalJson, CommitIdentityKind,
     CommitReceipt, DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevision, DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim,
-    EvidenceDraft, EvolutionClassification, EvolutionPlan, ExecutionContext, ExplanationTarget,
-    Expression, InputDefinition, OperationId, PolicyEvidence, ProposalId, RelationTarget, TenantId,
+    EvidenceDraft, EvolutionClassification, ExecutionContext, ExplanationTarget, Expression,
+    InputDefinition, OperationId, PolicyEvidence, ProposalId, RelationTarget, TenantId,
     TimestampMicros,
 };
 
