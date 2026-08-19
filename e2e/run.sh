@@ -36,6 +36,13 @@ case "$scenario" in
     project="zoen-effects"
     runner="dist/e2e/effects.js"
     ;;
+  agent-capabilities-live)
+    compose_file="e2e/agent-capabilities-live/compose.yaml"
+    generated_directory="e2e/agent-capabilities-live/.generated"
+    prepare="e2e/agent-capabilities-live/prepare-realm.mjs"
+    project="zoen-agent-capabilities-live"
+    runner="dist/e2e/agent-capabilities-live.js"
+    ;;
   explain)
     compose_file="e2e/explain/compose.yaml"
     generated_directory="e2e/governed-action/.generated"
@@ -65,7 +72,7 @@ case "$scenario" in
     runner="dist/e2e/evolution-breaking.js"
     ;;
   *)
-    echo "usage: just e2e <definition-publication|domain-quality|durable-commit|effects|evolution-breaking|evolution-compatible|explain|governed-action|semantic-query>" >&2
+    echo "usage: just e2e <agent-capabilities-live|definition-publication|domain-quality|durable-commit|effects|evolution-breaking|evolution-compatible|explain|governed-action|semantic-query>" >&2
     exit 2
     ;;
 esac
