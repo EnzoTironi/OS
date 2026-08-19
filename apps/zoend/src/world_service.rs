@@ -1,0 +1,370 @@
+use buffa::MessageView;
+use buffa_types::google::protobuf::Timestamp;
+use connectrpc::{
+    ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
+};
+use zoen_adapters::PostgresAuthorityStore;
+use zoen_core::{
+    ClaimId, CommitSequence, ComputationId, Consistency, DefinitionDigest, DefinitionId,
+    DefinitionReference as CoreDefinitionReference, DefinitionRevisionNumber, EntityId,
+    EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger,
+    ExactValue as CoreExactValue, LineageRole as CoreLineageRole, RelationId, SemanticQuery,
+    SemanticResult, SemanticSelection, SourceId, TimestampMicros, UnitId, ValidTime,
+};
+use zoen_engine::{RecordEvidenceError, WorldEngine};
+use zoen_query::{QueryError, QueryRuntime};
+
+use crate::auth::SessionRegistry;
+use crate::proto::zoen::world::v1::{
+    DefinitionReference, EvidenceClaim, ExactValue, LineageDependency, LineageRole, QuantityValue,
+    RecordEvidenceRequest, RecordEvidenceResponse, SemanticQueryRequest, SemanticQueryResponse,
+    SemanticValueResult, WorldService, exact_value, query_consistency, query_selection, valid_time,
+};
+
+pub struct WorldServiceImpl {
+    engine: WorldEngine<PostgresAuthorityStore>,
+    query: QueryRuntime,
+    sessions: SessionRegistry,
+}
+
+impl WorldServiceImpl {
+    pub fn new(
+        engine: WorldEngine<PostgresAuthorityStore>,
+        query: QueryRuntime,
+        sessions: SessionRegistry,
+    ) -> Self {
+        Self {
+            engine,
+            query,
+            sessions,
+        }
+    }
+}
+
+impl WorldService for WorldServiceImpl {
+    async fn record_evidence(
+        &self,
+        context: RequestContext,
+        request: ServiceRequest<'_, RecordEvidenceRequest>,
+    ) -> ServiceResult<RecordEvidenceResponse> {
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
+        let claim = request
+            .claim
+            .as_option()
+            .ok_or_else(|| invalid("claim is required"))?
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
+        let draft = parse_evidence_claim(&claim)?;
+        let recorded = self
+            .engine
+            .record_evidence(&execution_context, draft)
+            .await
+            .map_err(map_record_error)?;
+        Response::ok(RecordEvidenceResponse {
+            claim_id: recorded.draft.claim_id.as_str().to_owned(),
+            commit_sequence: recorded.commit_sequence.get(),
+            ..Default::default()
+        })
+    }
+
+    async fn semantic_query(
+        &self,
+        context: RequestContext,
+        request: ServiceRequest<'_, SemanticQueryRequest>,
+    ) -> ServiceResult<SemanticQueryResponse> {
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
+        let definition = request
+            .definition
+            .as_option()
+            .ok_or_else(|| invalid("definition is required"))?
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
+        let selection = request
+            .selection
+            .as_option()
+            .ok_or_else(|| invalid("selection is required"))?
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
+        let valid_at = request
+            .valid_at
+            .as_option()
+            .ok_or_else(|| invalid("valid_at is required"))?
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
+        let consistency = request
+            .consistency
+            .as_option()
+            .ok_or_else(|| invalid("consistency is required"))?
+            .to_owned_message()
+            .map_err(|error| invalid(error.to_string()))?;
+        let query = SemanticQuery {
+            consistency: parse_consistency(&consistency)?,
+            definition: parse_definition_reference(&definition)?,
+            entity_id: EntityId::parse(request.entity_id)
+                .map_err(|error| invalid(error.to_string()))?,
+            selection: parse_selection(&selection)?,
+            valid_at: parse_timestamp(&valid_at)?,
+        };
+        let result = self
+            .query
+            .execute(&execution_context, &query)
+            .await
+            .map_err(map_query_error)?;
+        Response::ok(to_query_response(result))
+    }
+}
+
+fn parse_evidence_claim(claim: &EvidenceClaim) -> Result<EvidenceDraft, ConnectError> {
+    let definition = claim
+        .definition
+        .as_option()
+        .ok_or_else(|| invalid("claim definition is required"))?;
+    let value = claim
+        .value
+        .as_option()
+        .ok_or_else(|| invalid("claim value is required"))?;
+    let valid_time = claim
+        .valid_time
+        .as_option()
+        .ok_or_else(|| invalid("claim valid_time is required"))?;
+    let provenance = claim
+        .provenance
+        .as_option()
+        .ok_or_else(|| invalid("claim provenance is required"))?;
+    Ok(EvidenceDraft {
+        claim_id: ClaimId::parse(&claim.claim_id).map_err(|error| invalid(error.to_string()))?,
+        definition: parse_definition_reference(definition)?,
+        entity_id: EntityId::parse(&claim.entity_id).map_err(|error| invalid(error.to_string()))?,
+        provenance: EvidenceProvenance {
+            source_digest: EvidenceDigest::parse(&provenance.source_digest)
+                .map_err(|error| invalid(error.to_string()))?,
+            source_id: SourceId::parse(&provenance.source_id)
+                .map_err(|error| invalid(error.to_string()))?,
+            source_ref: provenance.source_ref.clone(),
+        },
+        relation_id: RelationId::parse(&claim.relation_id)
+            .map_err(|error| invalid(error.to_string()))?,
+        valid_time: parse_valid_time(valid_time)?,
+        value: parse_exact_value(value)?,
+    })
+}
+
+fn parse_definition_reference(
+    reference: &DefinitionReference,
+) -> Result<CoreDefinitionReference, ConnectError> {
+    Ok(CoreDefinitionReference {
+        definition_id: DefinitionId::parse(&reference.definition_id)
+            .map_err(|error| invalid(error.to_string()))?,
+        digest: DefinitionDigest::parse(&reference.digest)
+            .map_err(|error| invalid(error.to_string()))?,
+        revision: DefinitionRevisionNumber::new(reference.revision)
+            .ok_or_else(|| invalid("definition revision must be positive"))?,
+    })
+}
+
+fn parse_exact_value(value: &ExactValue) -> Result<CoreExactValue, ConnectError> {
+    match value
+        .value
+        .as_ref()
+        .ok_or_else(|| invalid("exact value variant is required"))?
+    {
+        exact_value::Value::BoolValue(value) => Ok(CoreExactValue::Bool(*value)),
+        exact_value::Value::DecimalValue(value) => ExactDecimal::parse(value)
+            .map(CoreExactValue::Decimal)
+            .map_err(|error| invalid(error.to_string())),
+        exact_value::Value::IntegerValue(value) => ExactInteger::parse(value)
+            .map(CoreExactValue::Integer)
+            .map_err(|error| invalid(error.to_string())),
+        exact_value::Value::QuantityValue(value) => Ok(CoreExactValue::Quantity {
+            amount: ExactDecimal::parse(&value.amount)
+                .map_err(|error| invalid(error.to_string()))?,
+            unit: UnitId::parse(&value.unit).map_err(|error| invalid(error.to_string()))?,
+        }),
+        exact_value::Value::TextValue(value) => Ok(CoreExactValue::Text(value.clone())),
+    }
+}
+
+fn parse_valid_time(
+    value: &crate::proto::zoen::world::v1::ValidTime,
+) -> Result<ValidTime, ConnectError> {
+    match value
+        .value
+        .as_ref()
+        .ok_or_else(|| invalid("valid_time variant is required"))?
+    {
+        valid_time::Value::Instant(value) => Ok(ValidTime::instant(parse_timestamp(value)?)),
+        valid_time::Value::Interval(value) => {
+            let start = value
+                .start
+                .as_option()
+                .ok_or_else(|| invalid("valid_time interval start is required"))?;
+            let end = value
+                .end
+                .as_option()
+                .ok_or_else(|| invalid("valid_time interval end is required"))?;
+            ValidTime::interval(parse_timestamp(start)?, parse_timestamp(end)?)
+                .map_err(|error| invalid(error.to_string()))
+        }
+    }
+}
+
+fn parse_selection(
+    selection: &crate::proto::zoen::world::v1::QuerySelection,
+) -> Result<SemanticSelection, ConnectError> {
+    match selection
+        .value
+        .as_ref()
+        .ok_or_else(|| invalid("query selection variant is required"))?
+    {
+        query_selection::Value::RelationId(value) => RelationId::parse(value)
+            .map(SemanticSelection::Relation)
+            .map_err(|error| invalid(error.to_string())),
+        query_selection::Value::ComputationId(value) => ComputationId::parse(value)
+            .map(SemanticSelection::Computation)
+            .map_err(|error| invalid(error.to_string())),
+    }
+}
+
+fn parse_consistency(
+    consistency: &crate::proto::zoen::world::v1::QueryConsistency,
+) -> Result<Consistency, ConnectError> {
+    match consistency
+        .value
+        .as_ref()
+        .ok_or_else(|| invalid("query consistency variant is required"))?
+    {
+        query_consistency::Value::Strong(_) => Ok(Consistency::Strong),
+        query_consistency::Value::AtLeastCommit(value) => CommitSequence::new(*value)
+            .map(Consistency::AtLeast)
+            .ok_or_else(|| invalid("at_least commit must be positive")),
+        query_consistency::Value::SnapshotCommit(value) => CommitSequence::new(*value)
+            .map(Consistency::Snapshot)
+            .ok_or_else(|| invalid("snapshot commit must be positive")),
+        query_consistency::Value::Eventual(_) => Ok(Consistency::Eventual),
+    }
+}
+
+fn parse_timestamp(value: &Timestamp) -> Result<TimestampMicros, ConnectError> {
+    if !(0..1_000_000_000).contains(&value.nanos) || value.nanos % 1_000 != 0 {
+        return Err(invalid(
+            "timestamp nanos must be normalized to microsecond precision",
+        ));
+    }
+    let micros = value
+        .seconds
+        .checked_mul(1_000_000)
+        .and_then(|seconds| seconds.checked_add(i64::from(value.nanos / 1_000)))
+        .ok_or_else(|| invalid("timestamp exceeds normalized microsecond range"))?;
+    Ok(TimestampMicros::new(micros))
+}
+
+fn to_query_response(result: SemanticResult) -> SemanticQueryResponse {
+    SemanticQueryResponse {
+        actual_commit_sequence: result.actual_commit_sequence.get(),
+        definition: Some(to_definition_reference(result.definition)).into(),
+        knowledge_cut: result.knowledge_cut.get(),
+        valid_at: Some(to_timestamp(result.valid_at)).into(),
+        values: result
+            .values
+            .into_iter()
+            .map(|value| SemanticValueResult {
+                dependencies: value
+                    .dependencies
+                    .into_iter()
+                    .map(|dependency| LineageDependency {
+                        claim_id: dependency.claim_id.as_str().to_owned(),
+                        commit_sequence: dependency.commit_sequence.get(),
+                        entity_id: dependency.entity_id.as_str().to_owned(),
+                        relation_id: dependency.relation_id.as_str().to_owned(),
+                        role: match dependency.role {
+                            CoreLineageRole::ComputationDependency => {
+                                LineageRole::ComputationDependency
+                            }
+                            CoreLineageRole::Rival => LineageRole::Rival,
+                            CoreLineageRole::Supporting => LineageRole::Supporting,
+                        }
+                        .into(),
+                        source_digest: dependency.source_digest.as_str().to_owned(),
+                        source_id: dependency.source_id.as_str().to_owned(),
+                        source_ref: dependency.source_ref,
+                        ..Default::default()
+                    })
+                    .collect(),
+                value: Some(to_exact_value(value.value)).into(),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+fn to_definition_reference(reference: CoreDefinitionReference) -> DefinitionReference {
+    DefinitionReference {
+        definition_id: reference.definition_id.as_str().to_owned(),
+        digest: reference.digest.as_str().to_owned(),
+        revision: reference.revision.get(),
+        ..Default::default()
+    }
+}
+
+fn to_exact_value(value: CoreExactValue) -> ExactValue {
+    let value = match value {
+        CoreExactValue::Bool(value) => exact_value::Value::BoolValue(value),
+        CoreExactValue::Decimal(value) => {
+            exact_value::Value::DecimalValue(value.as_str().to_owned())
+        }
+        CoreExactValue::Integer(value) => {
+            exact_value::Value::IntegerValue(value.as_str().to_owned())
+        }
+        CoreExactValue::Quantity { amount, unit } => {
+            exact_value::Value::QuantityValue(Box::new(QuantityValue {
+                amount: amount.as_str().to_owned(),
+                unit: unit.as_str().to_owned(),
+                ..Default::default()
+            }))
+        }
+        CoreExactValue::Text(value) => exact_value::Value::TextValue(value),
+    };
+    ExactValue {
+        value: Some(value),
+        ..Default::default()
+    }
+}
+
+fn to_timestamp(value: TimestampMicros) -> Timestamp {
+    Timestamp {
+        nanos: (value.get().rem_euclid(1_000_000) * 1_000) as i32,
+        seconds: value.get().div_euclid(1_000_000),
+        ..Default::default()
+    }
+}
+
+fn map_record_error(error: RecordEvidenceError) -> ConnectError {
+    match error {
+        RecordEvidenceError::EventEncoding(_) => {
+            ConnectError::new(ErrorCode::Internal, error.to_string())
+        }
+        RecordEvidenceError::InvalidEvidence(_) => {
+            ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
+        }
+        RecordEvidenceError::Store(error) => crate::service::map_store_error(error),
+    }
+}
+
+fn map_query_error(error: QueryError) -> ConnectError {
+    let code = match &error {
+        QueryError::Corrupt(_) => ErrorCode::DataLoss,
+        QueryError::Evaluation(_) | QueryError::Freshness { .. } => ErrorCode::FailedPrecondition,
+        QueryError::Invalid(_) => ErrorCode::InvalidArgument,
+        QueryError::Unavailable(_) => ErrorCode::Unavailable,
+    };
+    ConnectError::new(code, error.to_string())
+}
+
+fn invalid(message: impl Into<String>) -> ConnectError {
+    ConnectError::new(ErrorCode::InvalidArgument, message.into())
+}

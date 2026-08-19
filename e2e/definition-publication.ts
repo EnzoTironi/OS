@@ -65,6 +65,12 @@ interface ServerProcess {
   output: string[];
 }
 
+const assertions: Record<string, boolean> = {};
+
+function recordAssertion(name: string): void {
+  assertions[name] = true;
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const sourcePath = path.join(fixtureDirectory, "inventory.zoen.ts");
@@ -91,6 +97,9 @@ async function main(): Promise<void> {
   assert.equal(first.digest, reordered.digest);
   assert.equal(first.canonicalJson, expectedCanonical);
   assert.equal(first.digest, expectedDigest);
+  recordAssertion("canonicalFixtureMatched");
+  recordAssertion("deterministicIndependentCompiles");
+  recordAssertion("sourceOrderingNormalized");
 
   const source = await readFile(sourcePath, "utf8");
   const temporaryDirectory = await mkdtemp(
@@ -121,6 +130,7 @@ async function main(): Promise<void> {
   await expectCompilerFailure(
     path.join(fixtureDirectory, "nondeterministic.zoen.ts"),
   );
+  recordAssertion("computationMutationChangedDigest");
 
   let server = await startServer();
   const clientA = definitionClient(tokenA);
@@ -148,6 +158,9 @@ async function main(): Promise<void> {
         revision: 1,
       },
     });
+    recordAssertion("authorityCommitParentPersisted");
+    recordAssertion("definitionPublishedEventPersisted");
+    recordAssertion("outboxAndCommitSequencePersisted");
 
     await expectConnectCode(
       () => publish(clientA, tenantB, first),
@@ -201,6 +214,7 @@ async function main(): Promise<void> {
         Code.InvalidArgument,
       );
     }
+    recordAssertion("noncanonicalIntegersRejected");
 
     await expectConnectCode(
       () =>
@@ -225,6 +239,7 @@ async function main(): Promise<void> {
     assert.equal(await rowCount(admin, "definition_revisions", tenantA), 1);
     assert.equal(await rowCount(admin, "projection_outbox", tenantA), 1);
     assert.equal(await authorityHead(admin, tenantA), 1);
+    recordAssertion("atomicDatabaseFailure");
 
     await assert.rejects(
       admin.query(
@@ -239,8 +254,10 @@ async function main(): Promise<void> {
       ),
       /published definition revisions are immutable/,
     );
+    recordAssertion("immutableMutationKilled");
 
     assert.equal(await relationName(admin, "active_definition_revisions"), null);
+    recordAssertion("activationStorageDeferred");
     await assertRlsIsolation();
 
     await stopServer(server);
@@ -258,6 +275,7 @@ async function main(): Promise<void> {
     assert.equal(recoveredA.commitSequence, 1n);
     assert.equal(recoveredA.digest, expectedDigest);
     assert.equal(decode(recoveredA.canonicalJson), expectedCanonical);
+    recordAssertion("restartRecoveredExactRevision");
 
     const recoveredB = await getRevision(
       clientB,
@@ -276,6 +294,7 @@ async function main(): Promise<void> {
         }),
       Code.PermissionDenied,
     );
+    recordAssertion("tenantSubstitutionRejected");
     await expectConnectCode(
       () =>
         clientB.getRevision({
@@ -304,21 +323,7 @@ async function main(): Promise<void> {
       ),
     );
     const manifest = {
-      assertions: {
-        activationStorageDeferred: true,
-        atomicDatabaseFailure: true,
-        authorityCommitParentPersisted: true,
-        canonicalFixtureMatched: true,
-        computationMutationChangedDigest: true,
-        definitionPublishedEventPersisted: true,
-        deterministicIndependentCompiles: true,
-        immutableMutationKilled: true,
-        noncanonicalIntegersRejected: true,
-        outboxAndCommitSequencePersisted: true,
-        restartRecoveredExactRevision: true,
-        sourceOrderingNormalized: true,
-        tenantSubstitutionRejected: true,
-      },
+      assertions,
       componentVersions: {
         postgres: version,
       },

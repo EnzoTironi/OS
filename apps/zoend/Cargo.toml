@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 axum = "0.8.9"
 buffa = { version = "0.8.1", features = ["json"] }
+buffa-types = { version = "0.8.1", features = ["json"] }
 connectrpc = { version = "0.8.1", features = ["axum", "server"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -15,6 +16,7 @@ tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "s
 zoen-adapters = { path = "../../crates/zoen-adapters" }
 zoen-core = { path = "../../crates/zoen-core" }
 zoen-engine = { path = "../../crates/zoen-engine" }
+zoen-query = { version = "0.1.0", path = "../../crates/zoen-query" }
 
 [build-dependencies]
 connectrpc-build = "0.8.0"

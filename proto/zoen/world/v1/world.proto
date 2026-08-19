@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package zoen.world.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service WorldService {
+  rpc RecordEvidence(RecordEvidenceRequest) returns (RecordEvidenceResponse);
+  rpc SemanticQuery(SemanticQueryRequest) returns (SemanticQueryResponse);
+}
+
+message DefinitionReference {
+  string definition_id = 1;
+  uint64 revision = 2;
+  string digest = 3;
+}
+
+message ExactValue {
+  oneof value {
+    bool bool_value = 1;
+    string decimal_value = 2;
+    string integer_value = 3;
+    QuantityValue quantity_value = 4;
+    string text_value = 5;
+  }
+}
+
+message QuantityValue {
+  string amount = 1;
+  string unit = 2;
+}
+
+message TemporalInterval {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+}
+
+message ValidTime {
+  oneof value {
+    google.protobuf.Timestamp instant = 1;
+    TemporalInterval interval = 2;
+  }
+}
+
+message EvidenceProvenance {
+  string source_id = 1;
+  string source_digest = 2;
+  string source_ref = 3;
+}
+
+message EvidenceClaim {
+  string claim_id = 1;
+  DefinitionReference definition = 2;
+  string entity_id = 3;
+  string relation_id = 4;
+  ExactValue value = 5;
+  ValidTime valid_time = 6;
+  EvidenceProvenance provenance = 7;
+}
+
+message RecordEvidenceRequest {
+  string tenant_id = 1;
+  EvidenceClaim claim = 2;
+}
+
+message RecordEvidenceResponse {
+  string claim_id = 1;
+  uint64 commit_sequence = 2;
+}
+
+message StrongConsistency {}
+
+message EventualConsistency {}
+
+message QueryConsistency {
+  oneof value {
+    StrongConsistency strong = 1;
+    uint64 at_least_commit = 2;
+    uint64 snapshot_commit = 3;
+    EventualConsistency eventual = 4;
+  }
+}
+
+message QuerySelection {
+  oneof value {
+    string relation_id = 1;
+    string computation_id = 2;
+  }
+}
+
+message SemanticQueryRequest {
+  string tenant_id = 1;
+  DefinitionReference definition = 2;
+  QuerySelection selection = 3;
+  google.protobuf.Timestamp valid_at = 4;
+  QueryConsistency consistency = 5;
+  string entity_id = 6;
+}
+
+enum LineageRole {
+  LINEAGE_ROLE_UNSPECIFIED = 0;
+  LINEAGE_ROLE_SUPPORTING = 1;
+  LINEAGE_ROLE_RIVAL = 2;
+  LINEAGE_ROLE_COMPUTATION_DEPENDENCY = 3;
+}
+
+message LineageDependency {
+  string claim_id = 1;
+  string entity_id = 2;
+  string relation_id = 3;
+  uint64 commit_sequence = 4;
+  LineageRole role = 5;
+  string source_id = 6;
+  string source_digest = 7;
+  string source_ref = 8;
+}
+
+message SemanticValueResult {
+  ExactValue value = 1;
+  repeated LineageDependency dependencies = 2;
+}
+
+message SemanticQueryResponse {
+  DefinitionReference definition = 1;
+  uint64 actual_commit_sequence = 2;
+  uint64 knowledge_cut = 3;
+  google.protobuf.Timestamp valid_at = 4;
+  repeated SemanticValueResult values = 5;
+}

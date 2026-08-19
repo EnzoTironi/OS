@@ -5,8 +5,8 @@ use std::fmt::{Display, Formatter};
 use sha2::{Digest, Sha256};
 use zoen_core::{
     CanonicalDefinition, CanonicalJson, DefinitionDigest, DefinitionId, DefinitionRevision,
-    DefinitionRevisionNumber, ExecutionContext, Expression, InputDefinition, RelationTarget,
-    TenantId,
+    DefinitionRevisionNumber, EvidenceClaim, EvidenceDraft, ExecutionContext, Expression,
+    InputDefinition, RelationTarget, TenantId,
 };
 
 mod admission;
@@ -113,6 +113,69 @@ impl Display for StoreError {
 impl Error for StoreError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EvidenceValidationError {
+    DefinitionReferenceMismatch,
+    EmptySourceReference,
+    MalformedDefinition(String),
+    UnknownRelation(String),
+    ValueTypeMismatch(String),
+}
+
+impl Display for EvidenceValidationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DefinitionReferenceMismatch => {
+                formatter.write_str("evidence definition reference does not match stored revision")
+            }
+            Self::EmptySourceReference => formatter.write_str("evidence source reference is empty"),
+            Self::MalformedDefinition(message) => {
+                write!(formatter, "stored definition is malformed: {message}")
+            }
+            Self::UnknownRelation(relation_id) => {
+                write!(formatter, "definition has no relation: {relation_id}")
+            }
+            Self::ValueTypeMismatch(relation_id) => {
+                write!(
+                    formatter,
+                    "evidence value does not match relation target: {relation_id}"
+                )
+            }
+        }
+    }
+}
+
+impl Error for EvidenceValidationError {}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecordEvidenceError {
+    EventEncoding(String),
+    InvalidEvidence(EvidenceValidationError),
+    Store(StoreError),
+}
+
+impl Display for RecordEvidenceError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EventEncoding(message) => {
+                write!(formatter, "failed to encode evidence event: {message}")
+            }
+            Self::InvalidEvidence(error) => error.fmt(formatter),
+            Self::Store(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl Error for RecordEvidenceError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidEvidence(error) => Some(error),
+            Self::Store(error) => Some(error),
+            Self::EventEncoding(_) => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PublishError {
     DigestMismatch,
     EventEncoding(String),
@@ -185,6 +248,12 @@ impl Error for GetRevisionError {
     }
 }
 
+pub fn decode_canonical_definition(
+    canonical_json: &CanonicalJson,
+) -> Result<CanonicalDefinition, PublishError> {
+    admission::decode(canonical_json)
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectionEvent {
     event_type: &'static str,
@@ -253,6 +322,29 @@ impl AdmittedDefinitionPublication {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdmittedEvidence {
+    draft: EvidenceDraft,
+    projection_event: ProjectionEvent,
+}
+
+impl AdmittedEvidence {
+    fn new(draft: EvidenceDraft, projection_event: ProjectionEvent) -> Self {
+        Self {
+            draft,
+            projection_event,
+        }
+    }
+
+    pub fn draft(&self) -> &EvidenceDraft {
+        &self.draft
+    }
+
+    pub fn projection_event(&self) -> &ProjectionEvent {
+        &self.projection_event
+    }
+}
+
 #[allow(async_fn_in_trait)]
 pub trait AuthorityStore: Send + Sync {
     async fn publish(
@@ -267,10 +359,50 @@ pub trait AuthorityStore: Send + Sync {
         definition_id: &DefinitionId,
         digest: &DefinitionDigest,
     ) -> Result<DefinitionRevision, StoreError>;
+
+    async fn record_evidence(
+        &self,
+        context: &ExecutionContext,
+        evidence: &AdmittedEvidence,
+    ) -> Result<EvidenceClaim, StoreError>;
 }
 
 pub struct DefinitionEngine<S> {
     store: S,
+}
+
+pub struct WorldEngine<S> {
+    store: S,
+}
+
+impl<S> WorldEngine<S>
+where
+    S: AuthorityStore,
+{
+    pub fn new(store: S) -> Self {
+        Self { store }
+    }
+
+    pub async fn record_evidence(
+        &self,
+        context: &ExecutionContext,
+        draft: EvidenceDraft,
+    ) -> Result<EvidenceClaim, RecordEvidenceError> {
+        let revision = self
+            .store
+            .get_revision(
+                &context.tenant_id,
+                &draft.definition.definition_id,
+                &draft.definition.digest,
+            )
+            .await
+            .map_err(RecordEvidenceError::Store)?;
+        let admitted = admission::admit_evidence(&revision, draft)?;
+        self.store
+            .record_evidence(context, &admitted)
+            .await
+            .map_err(RecordEvidenceError::Store)
+    }
 }
 
 impl<S> DefinitionEngine<S>

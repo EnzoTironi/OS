@@ -4,10 +4,12 @@ use std::fmt::{Display, Formatter};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    CanonicalJson, CommitSequence, DefinitionDigest, DefinitionId, DefinitionRevision,
-    DefinitionRevisionNumber, ExecutionContext, TenantId,
+    CanonicalJson, ClaimId, CommitSequence, DefinitionDigest, DefinitionId, DefinitionReference,
+    DefinitionRevision, DefinitionRevisionNumber, EntityId, EvidenceClaim, EvidenceDigest,
+    EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger, ExactValue, ExecutionContext,
+    RelationId, SourceId, TenantId, TimestampMicros, UnitId, ValidTime,
 };
-use zoen_engine::{AdmittedDefinitionPublication, AuthorityStore, StoreError};
+use zoen_engine::{AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, StoreError};
 
 #[derive(Debug)]
 pub enum PostgresInitError {
@@ -50,6 +52,10 @@ impl PostgresAuthorityStore {
             .await
             .map_err(PostgresInitError::Migrate)?;
         Ok(Self { pool })
+    }
+
+    pub fn pool(&self) -> PgPool {
+        self.pool.clone()
     }
 }
 
@@ -131,8 +137,8 @@ impl AuthorityStore for PostgresAuthorityStore {
             .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
 
         sqlx::query(
-            "INSERT INTO authority_commits (tenant_id, commit_sequence)
-             VALUES ($1, $2)",
+            "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
+             VALUES ($1, $2, 'definition_publication')",
         )
         .bind(context.tenant_id.as_str())
         .bind(next_sequence)
@@ -225,6 +231,153 @@ impl AuthorityStore for PostgresAuthorityStore {
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(revision)
     }
+
+    async fn record_evidence(
+        &self,
+        context: &ExecutionContext,
+        evidence: &AdmittedEvidence,
+    ) -> Result<EvidenceClaim, StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
+        set_tenant(&mut transaction, &context.tenant_id).await?;
+        sqlx::query(
+            "INSERT INTO authority_heads (tenant_id, commit_sequence)
+             VALUES ($1, 0)
+             ON CONFLICT (tenant_id) DO NOTHING",
+        )
+        .bind(context.tenant_id.as_str())
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+
+        let head = sqlx::query(
+            "SELECT commit_sequence
+             FROM authority_heads
+             WHERE tenant_id = $1
+             FOR UPDATE",
+        )
+        .bind(context.tenant_id.as_str())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?
+        .try_get::<i64, _>("commit_sequence")
+        .map_err(store_unavailable)?;
+
+        let existing = sqlx::query(
+            "SELECT claim_id, definition_id, definition_digest, definition_revision,
+                    entity_id, relation_id, value_kind, value_text, value_unit,
+                    valid_time_kind, valid_from_micros, valid_to_micros,
+                    source_id, source_digest, source_ref, commit_sequence
+             FROM semantic_claims
+             WHERE tenant_id = $1 AND claim_id = $2",
+        )
+        .bind(context.tenant_id.as_str())
+        .bind(evidence.draft().claim_id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        if let Some(row) = existing {
+            let claim = row_to_claim(&row)?;
+            if claim.draft != *evidence.draft() {
+                return Err(StoreError::Conflict(
+                    "claim id already identifies different evidence".to_owned(),
+                ));
+            }
+            transaction.commit().await.map_err(store_unavailable)?;
+            return Ok(claim);
+        }
+
+        let next_sequence = head
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
+        sqlx::query(
+            "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
+             VALUES ($1, $2, 'evidence')",
+        )
+        .bind(context.tenant_id.as_str())
+        .bind(next_sequence)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+
+        let draft = evidence.draft();
+        let (value_kind, value_text, value_unit) = value_columns(&draft.value);
+        let (valid_time_kind, valid_from_micros, valid_to_micros) =
+            valid_time_columns(&draft.valid_time);
+        sqlx::query(
+            "INSERT INTO semantic_claims (
+                tenant_id, claim_id, definition_id, definition_digest, definition_revision,
+                entity_id, relation_id, value_kind, value_text, value_unit,
+                valid_time_kind, valid_from_micros, valid_to_micros,
+                source_id, source_digest, source_ref, commit_sequence
+             ) VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9, $10,
+                $11, $12, $13,
+                $14, $15, $16, $17
+             )",
+        )
+        .bind(context.tenant_id.as_str())
+        .bind(draft.claim_id.as_str())
+        .bind(draft.definition.definition_id.as_str())
+        .bind(draft.definition.digest.as_str())
+        .bind(u64_to_i64(
+            draft.definition.revision.get(),
+            "definition revision",
+        )?)
+        .bind(draft.entity_id.as_str())
+        .bind(draft.relation_id.as_str())
+        .bind(value_kind)
+        .bind(value_text)
+        .bind(value_unit)
+        .bind(valid_time_kind)
+        .bind(valid_from_micros)
+        .bind(valid_to_micros)
+        .bind(draft.provenance.source_id.as_str())
+        .bind(draft.provenance.source_digest.as_str())
+        .bind(&draft.provenance.source_ref)
+        .bind(next_sequence)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+
+        let event = evidence.projection_event();
+        sqlx::query(
+            "INSERT INTO projection_outbox
+                (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
+             VALUES ($1, $2, 0, $3, $4, $5::jsonb)",
+        )
+        .bind(context.tenant_id.as_str())
+        .bind(next_sequence)
+        .bind(event.event_type())
+        .bind(i32::from(event.event_version()))
+        .bind(event.payload())
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+
+        let updated = sqlx::query(
+            "UPDATE authority_heads
+             SET commit_sequence = $2
+             WHERE tenant_id = $1",
+        )
+        .bind(context.tenant_id.as_str())
+        .bind(next_sequence)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        if updated.rows_affected() != 1 {
+            return Err(StoreError::Corrupt(
+                "authority head update affected an unexpected row count".to_owned(),
+            ));
+        }
+        transaction.commit().await.map_err(store_unavailable)?;
+
+        Ok(EvidenceClaim {
+            commit_sequence: CommitSequence::new(i64_to_u64(next_sequence, "commit sequence")?)
+                .ok_or_else(|| StoreError::Corrupt("zero commit sequence".to_owned()))?,
+            draft: draft.clone(),
+        })
+    }
 }
 
 async fn set_tenant(
@@ -268,6 +421,137 @@ fn row_to_revision(row: &PgRow) -> Result<DefinitionRevision, StoreError> {
         revision: DefinitionRevisionNumber::new(i64_to_u64(revision, "revision")?)
             .ok_or_else(|| StoreError::Corrupt("zero revision".to_owned()))?,
     })
+}
+
+fn row_to_claim(row: &PgRow) -> Result<EvidenceClaim, StoreError> {
+    let claim_id = ClaimId::parse(row_string(row, "claim_id")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let definition_id = DefinitionId::parse(row_string(row, "definition_id")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let definition_digest = DefinitionDigest::parse(row_string(row, "definition_digest")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let definition_revision = DefinitionRevisionNumber::new(i64_to_u64(
+        row_i64(row, "definition_revision")?,
+        "definition revision",
+    )?)
+    .ok_or_else(|| StoreError::Corrupt("zero definition revision".to_owned()))?;
+    let entity_id = EntityId::parse(row_string(row, "entity_id")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let relation_id = RelationId::parse(row_string(row, "relation_id")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let value = row_to_value(row)?;
+    let valid_time = row_to_valid_time(row)?;
+    let source_id = SourceId::parse(row_string(row, "source_id")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let source_digest = EvidenceDigest::parse(row_string(row, "source_digest")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let commit_sequence = CommitSequence::new(i64_to_u64(
+        row_i64(row, "commit_sequence")?,
+        "commit sequence",
+    )?)
+    .ok_or_else(|| StoreError::Corrupt("zero commit sequence".to_owned()))?;
+
+    Ok(EvidenceClaim {
+        commit_sequence,
+        draft: EvidenceDraft {
+            claim_id,
+            definition: DefinitionReference {
+                definition_id,
+                digest: definition_digest,
+                revision: definition_revision,
+            },
+            entity_id,
+            provenance: EvidenceProvenance {
+                source_digest,
+                source_id,
+                source_ref: row_string(row, "source_ref")?,
+            },
+            relation_id,
+            valid_time,
+            value,
+        },
+    })
+}
+
+fn value_columns(value: &ExactValue) -> (&'static str, String, Option<&str>) {
+    match value {
+        ExactValue::Bool(value) => ("bool", value.to_string(), None),
+        ExactValue::Decimal(value) => ("decimal", value.as_str().to_owned(), None),
+        ExactValue::Integer(value) => ("integer", value.as_str().to_owned(), None),
+        ExactValue::Quantity { amount, unit } => {
+            ("quantity", amount.as_str().to_owned(), Some(unit.as_str()))
+        }
+        ExactValue::Text(value) => ("text", value.clone(), None),
+    }
+}
+
+fn valid_time_columns(valid_time: &ValidTime) -> (&'static str, i64, Option<i64>) {
+    match valid_time {
+        ValidTime::Instant(at) => ("instant", at.get(), None),
+        ValidTime::Interval { start, end } => ("interval", start.get(), Some(end.get())),
+    }
+}
+
+fn row_to_value(row: &PgRow) -> Result<ExactValue, StoreError> {
+    let kind = row_string(row, "value_kind")?;
+    let value = row_string(row, "value_text")?;
+    match kind.as_str() {
+        "bool" => match value.as_str() {
+            "true" => Ok(ExactValue::Bool(true)),
+            "false" => Ok(ExactValue::Bool(false)),
+            _ => Err(StoreError::Corrupt(format!(
+                "invalid stored boolean: {value}"
+            ))),
+        },
+        "decimal" => ExactDecimal::parse(value)
+            .map(ExactValue::Decimal)
+            .map_err(|error| StoreError::Corrupt(error.to_string())),
+        "integer" => ExactInteger::parse(value)
+            .map(ExactValue::Integer)
+            .map_err(|error| StoreError::Corrupt(error.to_string())),
+        "quantity" => {
+            let unit = row
+                .try_get::<Option<String>, _>("value_unit")
+                .map_err(store_unavailable)?
+                .ok_or_else(|| StoreError::Corrupt("quantity has no unit".to_owned()))?;
+            Ok(ExactValue::Quantity {
+                amount: ExactDecimal::parse(value)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+                unit: UnitId::parse(unit)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+            })
+        }
+        "text" => Ok(ExactValue::Text(value)),
+        _ => Err(StoreError::Corrupt(format!(
+            "unknown stored value kind: {kind}"
+        ))),
+    }
+}
+
+fn row_to_valid_time(row: &PgRow) -> Result<ValidTime, StoreError> {
+    let kind = row_string(row, "valid_time_kind")?;
+    let start = TimestampMicros::new(row_i64(row, "valid_from_micros")?);
+    let end = row
+        .try_get::<Option<i64>, _>("valid_to_micros")
+        .map_err(store_unavailable)?
+        .map(TimestampMicros::new);
+    match (kind.as_str(), end) {
+        ("instant", None) => Ok(ValidTime::instant(start)),
+        ("interval", Some(end)) => {
+            ValidTime::interval(start, end).map_err(|error| StoreError::Corrupt(error.to_string()))
+        }
+        _ => Err(StoreError::Corrupt(
+            "stored valid-time shape is inconsistent".to_owned(),
+        )),
+    }
+}
+
+fn row_string(row: &PgRow, column: &str) -> Result<String, StoreError> {
+    row.try_get::<String, _>(column).map_err(store_unavailable)
+}
+
+fn row_i64(row: &PgRow, column: &str) -> Result<i64, StoreError> {
+    row.try_get::<i64, _>(column).map_err(store_unavailable)
 }
 
 fn u64_to_i64(value: u64, name: &str) -> Result<i64, StoreError> {

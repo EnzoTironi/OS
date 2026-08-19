@@ -2,13 +2,22 @@
 set -euo pipefail
 
 scenario="${1:-}"
-if [[ "$scenario" != "definition-publication" ]]; then
-  echo "usage: just e2e definition-publication" >&2
-  exit 2
-fi
-
-compose_file="e2e/definition-publication/compose.yaml"
-project="zoen-definition-publication"
+case "$scenario" in
+  definition-publication)
+    compose_file="e2e/definition-publication/compose.yaml"
+    project="zoen-definition-publication"
+    runner="dist/e2e/definition-publication.js"
+    ;;
+  semantic-query)
+    compose_file="e2e/semantic-query/compose.yaml"
+    project="zoen-semantic-query"
+    runner="dist/e2e/semantic-query.js"
+    ;;
+  *)
+    echo "usage: just e2e <definition-publication|semantic-query>" >&2
+    exit 2
+    ;;
+esac
 
 cleanup() {
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -34,4 +43,4 @@ cargo test --locked --workspace
 test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
 
 docker compose --project-name "$project" --file "$compose_file" up --detach --wait
-node dist/e2e/definition-publication.js
+node "$runner"
