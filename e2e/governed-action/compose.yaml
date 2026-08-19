@@ -33,7 +33,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - bash -c ': > /dev/tcp/127.0.0.1/8080'
+        - "bash -c ': > /dev/tcp/127.0.0.1/8080'"
       interval: 1s
       timeout: 3s
       retries: 90
