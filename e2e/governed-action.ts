@@ -288,6 +288,32 @@ async function main(): Promise<void> {
         directCommit.receipt.commitSequence,
     );
 
+    const duplicateIntent = await propose(actionA, {
+      expiresAt: minutesFromNow(5),
+      fixture: fixtures.direct,
+      operationId: "operation.duplicateIntent",
+      proposalId: "proposal.duplicateIntent",
+      quantity: "2",
+    });
+    assert.equal(
+      duplicateIntent.proposal?.intentDigest,
+      directCommit.receipt.intentDigest,
+    );
+    const beforeDuplicateIntent = await databaseSnapshot(admin, tenantA);
+    const duplicateIntentCommit = await actionA.commit({
+      operationId: "operation.duplicateIntent",
+      proposalId: "proposal.duplicateIntent",
+    });
+    assert.equal(duplicateIntentCommit.status, CommitStatus.CONFLICT);
+    const afterDuplicateIntent = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterDuplicateIntent, beforeDuplicateIntent);
+    recordFailureInjection("action-record-identity-collision");
+    recordAssertion(
+      "actionRecordIdentityCollisionTyped",
+      duplicateIntentCommit.status === CommitStatus.CONFLICT &&
+        isDeepStrictEqual(afterDuplicateIntent, beforeDuplicateIntent),
+    );
+
     const selfMutating = await propose(actionA, {
       expiresAt: minutesFromNow(5),
       fixture: fixtures.self,
@@ -782,7 +808,7 @@ async function main(): Promise<void> {
       fixture: fixtures.direct,
       operationId: "operation.tenantCollision",
       proposalId: "proposal.tenantCollision",
-      quantity: "2",
+      quantity: "3",
     });
     assert.ok(tenantACollision.proposal);
     const tenantBBeforeCrossAttempt = await databaseSnapshot(admin, tenantB);
@@ -801,7 +827,7 @@ async function main(): Promise<void> {
       fixture: fixtures.direct,
       operationId: "operation.tenantCollision",
       proposalId: "proposal.tenantCollision",
-      quantity: "2",
+      quantity: "3",
     });
     assert.ok(tenantBCollision.proposal);
     const tenantBCommit = await actionB.commit({

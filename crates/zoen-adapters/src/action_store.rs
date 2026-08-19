@@ -425,7 +425,7 @@ async fn insert_effect(
     .bind(commit_sequence)
     .execute(&mut **transaction)
     .await
-    .map_err(store_unavailable)?;
+    .map_err(map_action_insert)?;
 
     let event = evidence.projection_event();
     sqlx::query(
