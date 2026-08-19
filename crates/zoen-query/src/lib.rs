@@ -6,9 +6,9 @@ use std::sync::Arc;
 use datafusion::execution::object_store::ObjectStoreUrl;
 use datafusion::logical_expr::Expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext, col, lit};
-use object_store::ObjectStore;
 use object_store::memory::InMemory;
 use object_store::path::Path;
+use object_store::{ObjectStore, ObjectStoreExt};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
