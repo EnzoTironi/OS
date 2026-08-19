@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -405,7 +406,7 @@ impl Display for ExpressionEvaluationError {
                 write!(formatter, "integer {operation} overflowed i128")
             }
             Self::InvalidOperands => {
-                formatter.write_str("expression requires exact integer operands")
+                formatter.write_str("expression operator does not support these exact operands")
             }
             Self::MissingInput(input_id) => {
                 write!(formatter, "missing expression input {}", input_id.as_str())
@@ -488,9 +489,43 @@ fn apply_expression_operator(
     left: &ExactValue,
     right: &ExactValue,
 ) -> Result<ExactValue, ExpressionEvaluationError> {
-    let (ExactValue::Integer(left), ExactValue::Integer(right)) = (left, right) else {
-        return Err(ExpressionEvaluationError::InvalidOperands);
-    };
+    match (left, right) {
+        (ExactValue::Integer(left), ExactValue::Integer(right)) => {
+            apply_integer_operator(operator, left, right)
+        }
+        (ExactValue::Decimal(left), ExactValue::Decimal(right)) => {
+            apply_decimal_operator(operator, left, right).map(ExactValue::Decimal)
+        }
+        (
+            ExactValue::Quantity {
+                amount: left,
+                unit: left_unit,
+            },
+            ExactValue::Quantity {
+                amount: right,
+                unit: right_unit,
+            },
+        ) if left_unit == right_unit => match operator {
+            BinaryOperator::Add | BinaryOperator::Subtract => {
+                apply_decimal_operator(operator, left, right).map(|amount| ExactValue::Quantity {
+                    amount,
+                    unit: left_unit.clone(),
+                })
+            }
+            BinaryOperator::GreaterThan => {
+                Ok(ExactValue::Bool(compare_decimals(left, right).is_gt()))
+            }
+            BinaryOperator::Multiply => Err(ExpressionEvaluationError::InvalidOperands),
+        },
+        _ => Err(ExpressionEvaluationError::InvalidOperands),
+    }
+}
+
+fn apply_integer_operator(
+    operator: BinaryOperator,
+    left: &ExactInteger,
+    right: &ExactInteger,
+) -> Result<ExactValue, ExpressionEvaluationError> {
     let left = left
         .as_str()
         .parse::<i128>()
@@ -509,6 +544,167 @@ fn apply_expression_operator(
             checked_expression_integer(left.checked_sub(right), "subtraction")
         }
     }
+}
+
+fn apply_decimal_operator(
+    operator: BinaryOperator,
+    left: &ExactDecimal,
+    right: &ExactDecimal,
+) -> Result<ExactDecimal, ExpressionEvaluationError> {
+    match operator {
+        BinaryOperator::Add => Ok(add_decimals(left, right, false)),
+        BinaryOperator::Subtract => Ok(add_decimals(left, right, true)),
+        BinaryOperator::GreaterThan | BinaryOperator::Multiply => {
+            Err(ExpressionEvaluationError::InvalidOperands)
+        }
+    }
+}
+
+#[derive(Clone)]
+struct DecimalParts {
+    digits: Vec<u8>,
+    negative: bool,
+    scale: usize,
+}
+
+fn decimal_parts(value: &ExactDecimal) -> DecimalParts {
+    let (negative, magnitude) = value
+        .as_str()
+        .strip_prefix('-')
+        .map_or((false, value.as_str()), |magnitude| (true, magnitude));
+    let scale = magnitude
+        .split_once('.')
+        .map_or(0, |(_, fraction)| fraction.len());
+    let digits = magnitude
+        .bytes()
+        .filter(|byte| *byte != b'.')
+        .map(|byte| byte - b'0')
+        .collect();
+    DecimalParts {
+        digits,
+        negative,
+        scale,
+    }
+}
+
+fn add_decimals(left: &ExactDecimal, right: &ExactDecimal, subtract: bool) -> ExactDecimal {
+    let left = decimal_parts(left);
+    let mut right = decimal_parts(right);
+    right.negative ^= subtract;
+    let (left_digits, right_digits, scale) = aligned_magnitudes(&left, &right);
+    let (digits, negative) = if left.negative == right.negative {
+        (add_magnitudes(&left_digits, &right_digits), left.negative)
+    } else {
+        match left_digits.cmp(&right_digits) {
+            Ordering::Greater => (
+                subtract_magnitudes(&left_digits, &right_digits),
+                left.negative,
+            ),
+            Ordering::Less => (
+                subtract_magnitudes(&right_digits, &left_digits),
+                right.negative,
+            ),
+            Ordering::Equal => (vec![0], false),
+        }
+    };
+    ExactDecimal(render_decimal(digits, scale, negative))
+}
+
+fn compare_decimals(left: &ExactDecimal, right: &ExactDecimal) -> Ordering {
+    let left = decimal_parts(left);
+    let right = decimal_parts(right);
+    if left.negative != right.negative {
+        return if left.negative {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+    }
+    let (left_digits, right_digits, _) = aligned_magnitudes(&left, &right);
+    let ordering = left_digits.cmp(&right_digits);
+    if left.negative {
+        ordering.reverse()
+    } else {
+        ordering
+    }
+}
+
+fn aligned_magnitudes(left: &DecimalParts, right: &DecimalParts) -> (Vec<u8>, Vec<u8>, usize) {
+    let scale = left.scale.max(right.scale);
+    let mut left_digits = left.digits.clone();
+    let mut right_digits = right.digits.clone();
+    left_digits.resize(left_digits.len() + scale - left.scale, 0);
+    right_digits.resize(right_digits.len() + scale - right.scale, 0);
+    let width = left_digits.len().max(right_digits.len());
+    (
+        left_pad(left_digits, width),
+        left_pad(right_digits, width),
+        scale,
+    )
+}
+
+fn left_pad(digits: Vec<u8>, width: usize) -> Vec<u8> {
+    let mut padded = vec![0; width - digits.len()];
+    padded.extend(digits);
+    padded
+}
+
+fn add_magnitudes(left: &[u8], right: &[u8]) -> Vec<u8> {
+    let mut result = vec![0; left.len() + 1];
+    let mut carry = 0;
+    for index in (0..left.len()).rev() {
+        let sum = left[index] + right[index] + carry;
+        result[index + 1] = sum % 10;
+        carry = sum / 10;
+    }
+    result[0] = carry;
+    result
+}
+
+fn subtract_magnitudes(left: &[u8], right: &[u8]) -> Vec<u8> {
+    let mut result = vec![0; left.len()];
+    let mut borrow = 0_i16;
+    for index in (0..left.len()).rev() {
+        let difference = i16::from(left[index]) - borrow - i16::from(right[index]);
+        if difference < 0 {
+            result[index] = (difference + 10) as u8;
+            borrow = 1;
+        } else {
+            result[index] = difference as u8;
+            borrow = 0;
+        }
+    }
+    result
+}
+
+fn render_decimal(mut digits: Vec<u8>, mut scale: usize, negative: bool) -> String {
+    while scale > 0 && digits.last() == Some(&0) {
+        digits.pop();
+        scale -= 1;
+    }
+    let first_significant = digits
+        .iter()
+        .position(|digit| *digit != 0)
+        .unwrap_or(digits.len().saturating_sub(1));
+    digits.drain(..first_significant);
+    if digits.iter().all(|digit| *digit == 0) {
+        return "0".to_owned();
+    }
+    if digits.len() <= scale {
+        digits = left_pad(digits, scale + 1);
+    }
+    let decimal_index = digits.len() - scale;
+    let mut rendered = String::with_capacity(digits.len() + 2);
+    if negative {
+        rendered.push('-');
+    }
+    for (index, digit) in digits.into_iter().enumerate() {
+        if scale > 0 && index == decimal_index {
+            rendered.push('.');
+        }
+        rendered.push(char::from(b'0' + digit));
+    }
+    rendered
 }
 
 fn checked_expression_integer(
@@ -1176,8 +1372,8 @@ mod tests {
     use super::{
         ActionId, BinaryOperator, DefinitionDigest, DelegationChain, DelegationError,
         DelegationGrant, DelegationId, ExactDecimal, ExactInteger, ExactValue, Expression, InputId,
-        RelationId, ResourceId, SemanticValue, TimestampMicros, ValidTime, WorkloadId,
-        evaluate_expression,
+        RelationId, ResourceId, SemanticValue, TimestampMicros, UnitId, ValidTime, WorkloadId,
+        apply_expression_operator, evaluate_expression,
     };
 
     #[test]
@@ -1236,6 +1432,35 @@ mod tests {
                 dependencies: Vec::new(),
                 value: ExactValue::Bool(true),
             }]
+        );
+    }
+
+    #[test]
+    fn expression_evaluation_preserves_exact_quantity_units() {
+        let unit = UnitId::parse("kg").expect("unit");
+        let quantity = |amount: &str| ExactValue::Quantity {
+            amount: ExactDecimal::parse(amount).expect("amount"),
+            unit: unit.clone(),
+        };
+
+        assert_eq!(
+            apply_expression_operator(
+                BinaryOperator::GreaterThan,
+                &quantity("5"),
+                &quantity("0.125"),
+            )
+            .expect("comparison"),
+            ExactValue::Bool(true)
+        );
+        assert_eq!(
+            apply_expression_operator(BinaryOperator::Subtract, &quantity("10"), &quantity("3"),)
+                .expect("subtraction"),
+            quantity("7")
+        );
+        assert_eq!(
+            apply_expression_operator(BinaryOperator::Add, &quantity("-0.5"), &quantity("1.125"),)
+                .expect("addition"),
+            quantity("0.625")
         );
     }
 
