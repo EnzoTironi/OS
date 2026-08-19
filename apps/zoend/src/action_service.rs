@@ -225,7 +225,7 @@ impl ActionService for ActionServiceImpl {
             .await;
         match outcome {
             Ok(CommitOutcome::Committed(receipt)) => Response::ok(CommitResponse {
-                receipt: Some(to_commit_receipt(receipt)).into(),
+                receipt: Some(to_commit_receipt(*receipt)).into(),
                 status: CommitStatus::Committed.into(),
                 ..Default::default()
             }),

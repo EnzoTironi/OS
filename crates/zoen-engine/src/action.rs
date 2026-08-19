@@ -98,7 +98,7 @@ pub enum ApproveOutcome {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommitOutcome {
-    Committed(CommitReceipt),
+    Committed(Box<CommitReceipt>),
     Denied(PolicyEvidence),
     EvaluationError {
         message: String,
@@ -454,7 +454,7 @@ where
                 if receipt.proposal_id == proposal.proposal_id
                     && receipt.intent_digest == proposal.intent_digest =>
             {
-                return Ok(CommitOutcome::Committed(receipt));
+                return Ok(CommitOutcome::Committed(Box::new(receipt)));
             }
             Ok(_) => {
                 return Err(ActionError::Store(StoreError::Conflict(
@@ -535,7 +535,7 @@ where
             .await
             .map_err(ActionError::Store)?
         {
-            CommitStoreOutcome::Committed(receipt) => Ok(CommitOutcome::Committed(*receipt)),
+            CommitStoreOutcome::Committed(receipt) => Ok(CommitOutcome::Committed(receipt)),
             CommitStoreOutcome::Stale(basis) => Ok(CommitOutcome::Stale(basis)),
         }
     }
