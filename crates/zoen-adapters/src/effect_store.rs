@@ -298,7 +298,7 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
     }
 }
 
-async fn load_snapshot(
+pub(crate) async fn load_snapshot(
     transaction: &mut Transaction<'_, Postgres>,
     context: &ExecutionContext,
     effect_request_id: &EffectRequestId,

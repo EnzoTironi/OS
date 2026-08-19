@@ -1,6 +1,8 @@
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
-use zoen_core::{CommitIdentityKind, CommitReceipt, IntentDigest, OperationId, TenantId};
+use zoen_core::{
+    CommitIdentityKind, CommitReceipt, IntentDigest, OperationId, StateBasis, TenantId,
+};
 use zoen_engine::{ActionCommitEffect, AdmittedEvidence, CommitPlan, StoreError};
 
 use crate::{store_unavailable, u64_to_i64, valid_time_columns, value_columns};
@@ -216,15 +218,22 @@ pub(super) async fn insert_operation(
     receipt: &CommitReceipt,
 ) -> Result<(), OperationInsertError> {
     ensure_context_tenant(tenant_id, &receipt.committed_by).map_err(OperationInsertError::Store)?;
+    let state_basis = receipt.commit_state_basis.as_ref().ok_or_else(|| {
+        OperationInsertError::Store(StoreError::Corrupt(
+            "new Action operation has no commit StateBasis".to_owned(),
+        ))
+    })?;
     sqlx::query(
         "INSERT INTO action_operations (
             tenant_id, operation_id, proposal_id, intent_digest, commit_sequence,
             committed_actor_id, committed_principal_id, committed_workload_id,
-            policy_id, policy_digest, policy_revision, determining_policies
+            policy_id, policy_digest, policy_revision, determining_policies,
+            state_basis_digest, observed_commit_sequence
          ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8,
-            $9, $10, $11, $12
+            $9, $10, $11, $12,
+            $13, $14
          )",
     )
     .bind(tenant_id.as_str())
@@ -245,6 +254,14 @@ pub(super) async fn insert_operation(
             .map_err(OperationInsertError::Store)?,
     )
     .bind(&receipt.policy.determining_policies)
+    .bind(state_basis.digest.as_str())
+    .bind(
+        u64_to_i64(
+            state_basis.observed_commit_sequence.get(),
+            "commit observed sequence",
+        )
+        .map_err(OperationInsertError::Store)?,
+    )
     .execute(&mut **transaction)
     .await
     .map_err(map_operation_insert)?;
@@ -255,7 +272,44 @@ pub(super) async fn insert_operation(
         &receipt.committed_by,
     )
     .await
-    .map_err(OperationInsertError::Store)
+    .map_err(OperationInsertError::Store)?;
+    insert_operation_dependencies(transaction, tenant_id, receipt.operation_id.as_str(), state_basis)
+        .await
+        .map_err(OperationInsertError::Store)
+}
+
+async fn insert_operation_dependencies(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    operation_id: &str,
+    state_basis: &StateBasis,
+) -> Result<(), StoreError> {
+    for (ordinal, dependency) in state_basis.dependencies.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO action_operation_dependencies (
+                tenant_id, operation_id, ordinal, claim_id, commit_sequence,
+                entity_id, relation_id, role, source_digest, source_id, source_ref
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        )
+        .bind(tenant_id.as_str())
+        .bind(operation_id)
+        .bind(ordinal_i32(ordinal)?)
+        .bind(dependency.claim_id.as_str())
+        .bind(u64_to_i64(
+            dependency.commit_sequence.get(),
+            "commit dependency sequence",
+        )?)
+        .bind(dependency.entity_id.as_str())
+        .bind(dependency.relation_id.as_str())
+        .bind(super::lineage_role_name(dependency.role))
+        .bind(dependency.source_digest.as_str())
+        .bind(dependency.source_id.as_str())
+        .bind(&dependency.source_ref)
+        .execute(&mut **transaction)
+        .await
+        .map_err(store_unavailable)?;
+    }
+    Ok(())
 }
 
 pub(super) async fn insert_operation_records(

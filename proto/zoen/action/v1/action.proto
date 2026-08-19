@@ -76,6 +76,9 @@ message StateDependency {
   string relation_id = 3;
   uint64 commit_sequence = 4;
   string source_digest = 5;
+  zoen.world.v1.LineageRole role = 6;
+  string source_id = 7;
+  string source_ref = 8;
 }
 
 message StateBasis {
@@ -180,6 +183,7 @@ message CommitReceipt {
   repeated string record_ids = 7;
   PolicyEvidence policy = 8;
   repeated string effect_request_ids = 9;
+  StateBasis commit_state_basis = 10;
 }
 
 message CommitResponse {

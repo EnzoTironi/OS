@@ -8,11 +8,12 @@ use zoen_core::{
     DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
     DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EntityId, EvidenceClaim,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger, ExactValue,
-    ExecutionContext, OperationId, ProposalId, RelationId, SourceId, TenantId, TimestampMicros,
-    UnitId, ValidTime,
+    ExecutionContext, ExplanationTarget, OperationId, ProposalId, RelationId, SourceId, TenantId,
+    TimestampMicros, UnitId, ValidTime,
 };
 use zoen_engine::{
-    AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, CommitPreparation, StoreError,
+    AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore, CommitPreparation,
+    HistorySnapshot, StoreError,
 };
 
 mod action_store;
@@ -20,6 +21,7 @@ mod cedar;
 mod claim_store;
 mod effect_dispatcher;
 mod effect_store;
+mod history_store;
 mod restate;
 
 pub use action_store::PostgresActionCommit;
@@ -122,6 +124,14 @@ impl AuthorityStore for PostgresAuthorityStore {
         operation_id: &OperationId,
     ) -> Result<CommitReceipt, StoreError> {
         action_store::get_operation(&self.pool, context, operation_id).await
+    }
+
+    async fn load_history(
+        &self,
+        context: &ExecutionContext,
+        target: &ExplanationTarget,
+    ) -> Result<HistorySnapshot, StoreError> {
+        history_store::load(&self.pool, context, target).await
     }
 
     async fn get_proposal(

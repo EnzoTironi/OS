@@ -6,13 +6,15 @@ use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionProposal, CanonicalDefinition, CanonicalJson, CommitIdentityKind,
     CommitReceipt, DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber,
-    EffectRequestId, EffectSnapshot, EvidenceClaim, EvidenceDraft, ExecutionContext, Expression,
-    InputDefinition, OperationId, ProposalId, RelationTarget, TenantId,
+    EffectRequestId, EffectSnapshot, EvidenceClaim, EvidenceDraft, ExecutionContext,
+    ExplanationTarget, Expression, InputDefinition, OperationId, ProposalId, RelationTarget,
+    TenantId,
 };
 
 mod action;
 mod admission;
 mod effect;
+mod history;
 
 pub use action::{
     ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
@@ -26,6 +28,10 @@ pub use effect::{
     EffectAttemptClaim, EffectAttemptClaimCommand, EffectAttemptCommand, EffectEngine, EffectError,
     EffectReconcileCommand, EffectUpdateTransaction, effect_state_after_attempt,
     effect_state_after_evidence,
+};
+pub use history::{
+    ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistoryEngine,
+    HistoryError, HistorySnapshot,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -414,6 +420,12 @@ pub trait AuthorityStore: Send + Sync {
         context: &ExecutionContext,
         operation_id: &OperationId,
     ) -> Result<CommitReceipt, StoreError>;
+
+    async fn load_history(
+        &self,
+        context: &ExecutionContext,
+        target: &ExplanationTarget,
+    ) -> Result<HistorySnapshot, StoreError>;
 
     async fn get_proposal(
         &self,

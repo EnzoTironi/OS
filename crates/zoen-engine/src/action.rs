@@ -8,9 +8,10 @@ use zoen_core::{
     CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
     DefinitionReference, DefinitionRevision, EffectRequestId, EntityId, EvidenceDigest,
     EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest, OperationId,
-    PolicyEvaluation, PolicyEvidence, ProposalAuthority, ProposalId, RelationId, ResourceId,
-    SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
-    StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime, ValueType,
+    LineageRole, PolicyEvaluation, PolicyEvidence, ProposalAuthority, ProposalId, RelationId,
+    ResourceId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis,
+    StateBasisDigest, StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime,
+    ValueType,
     evaluate_expression, expression_relations,
 };
 
@@ -752,7 +753,10 @@ pub fn calculate_state_basis_digest(
         hash_field(&mut hasher, &dependency.commit_sequence.get().to_string());
         hash_field(&mut hasher, dependency.entity_id.as_str());
         hash_field(&mut hasher, dependency.relation_id.as_str());
+        hash_field(&mut hasher, lineage_role_name(dependency.role));
         hash_field(&mut hasher, dependency.source_digest.as_str());
+        hash_field(&mut hasher, dependency.source_id.as_str());
+        hash_field(&mut hasher, &dependency.source_ref);
     }
     StateBasisDigest::parse(hex_digest(hasher.finalize()))
         .map_err(|error| ActionError::Evaluation(error.to_string()))
@@ -852,6 +856,14 @@ fn value_key(value: &ExactValue) -> String {
 fn hash_field(hasher: &mut Sha256, value: &str) {
     hasher.update(value.len().to_be_bytes());
     hasher.update(value.as_bytes());
+}
+
+fn lineage_role_name(role: LineageRole) -> &'static str {
+    match role {
+        LineageRole::ComputationDependency => "computation_dependency",
+        LineageRole::Rival => "rival",
+        LineageRole::Supporting => "supporting",
+    }
 }
 
 fn hex_digest(bytes: impl AsRef<[u8]>) -> String {

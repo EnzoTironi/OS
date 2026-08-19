@@ -101,6 +101,7 @@ impl ActionCommitTransaction for PostgresActionCommit {
         let receipt = CommitReceipt {
             action_id: plan.proposal.action_id.clone(),
             commit_sequence,
+            commit_state_basis: Some(current_basis),
             committed_by: context.clone(),
             definition: plan.proposal.definition.clone(),
             effect_request_ids: plan
