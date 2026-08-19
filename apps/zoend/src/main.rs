@@ -7,17 +7,19 @@ use std::sync::Arc;
 
 use connectrpc::Router;
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
-use zoen_engine::{ActionEngine, DefinitionEngine, WorldEngine};
+use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, WorldEngine};
 use zoen_query::QueryRuntime;
 use zoend::config::object_store_config;
 
 use crate::action_service::ActionServiceImpl;
 use crate::auth::SessionRegistry;
+use crate::effect_service::EffectServiceImpl;
 use crate::service::DefinitionServiceImpl;
 use crate::world_service::WorldServiceImpl;
 
 mod action_service;
 mod auth;
+mod effect_service;
 mod service;
 mod world_service;
 
@@ -51,10 +53,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
     let definition_service =
         DefinitionServiceImpl::new(DefinitionEngine::new(store.clone()), sessions.clone());
+    let effect_service = EffectServiceImpl::new(EffectEngine::new(store.clone()), sessions.clone());
     let world_service = WorldServiceImpl::new(WorldEngine::new(store), query, sessions);
     let application = Router::new()
         .add_service(Arc::new(action_service))
         .add_service(Arc::new(definition_service))
+        .add_service(Arc::new(effect_service))
         .add_service(Arc::new(world_service))
         .into_axum_router();
     let listener = tokio::net::TcpListener::bind(listen_address).await?;
