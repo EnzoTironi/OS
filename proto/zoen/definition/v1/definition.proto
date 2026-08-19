@@ -58,7 +58,10 @@ message ActivateRevisionRequest {
   string tenant_id = 1;
   string definition_id = 2;
   string digest = 3;
-  optional string expected_active_digest = 4;
+  oneof active_revision_precondition {
+    bool expect_no_active_revision = 4;
+    string expected_active_digest = 5;
+  }
 }
 
 message ActivateRevisionResponse {
@@ -147,4 +150,5 @@ message DefinitionActivation {
   string principal_id = 6;
   string workload_id = 7;
   zoen.action.v1.PolicyEvidence policy = 8;
+  EvolutionClassification classification = 9;
 }

@@ -6,8 +6,9 @@ use connectrpc::{
 };
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
-    DefinitionActivation as CoreDefinitionActivation, DefinitionChangeKind as CoreChangeKind,
-    DefinitionDigest, DefinitionElementKind as CoreElementKind, DefinitionId,
+    ActivationPrecondition, DefinitionActivation as CoreDefinitionActivation,
+    DefinitionChangeKind as CoreChangeKind, DefinitionDigest,
+    DefinitionElementKind as CoreElementKind, DefinitionId,
     DefinitionImpactApplicability as CoreImpactApplicability,
     DefinitionImpactArea as CoreImpactArea, DefinitionRevision as CoreDefinitionRevision,
     EvolutionClassification as CoreEvolutionClassification, EvolutionPlan as CoreEvolutionPlan,
@@ -26,7 +27,7 @@ use crate::proto::zoen::definition::v1::{
     DefinitionImpactArea, DefinitionRevision, DefinitionService, EvolutionClassification,
     EvolutionPlan, GetActiveRevisionRequest, GetActiveRevisionResponse, GetRevisionRequest,
     GetRevisionResponse, PlanEvolutionRequest, PlanEvolutionResponse, PublishRequest,
-    PublishResponse,
+    PublishResponse, activate_revision_request,
 };
 use crate::world_service::{to_definition_reference, to_timestamp};
 
@@ -147,18 +148,15 @@ impl DefinitionService for DefinitionServiceImpl {
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let digest = DefinitionDigest::parse(request.digest)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
-        let expected_active_digest = request
-            .expected_active_digest
-            .map(DefinitionDigest::parse)
-            .transpose()
-            .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
+        let precondition =
+            parse_activation_precondition(request.active_revision_precondition.as_ref())?;
         let activation = self
             .engine
             .activate_revision(
                 &execution_context,
                 &definition_id,
                 &digest,
-                expected_active_digest.as_ref(),
+                &precondition,
                 now()?,
             )
             .await
@@ -186,12 +184,42 @@ fn to_protocol_activation(activation: CoreDefinitionActivation) -> DefinitionAct
         activated_at: Some(to_timestamp(activation.activated_at)).into(),
         activated_by: activation.activated_by.as_str().to_owned(),
         active: Some(to_definition_reference(activation.active)).into(),
+        classification: activation
+            .classification
+            .map(to_classification)
+            .unwrap_or(EvolutionClassification::Unspecified)
+            .into(),
         commit_sequence: activation.commit_sequence.get(),
         policy: Some(to_policy_evidence(activation.policy)).into(),
         previous: activation.previous.map(to_definition_reference).into(),
         principal_id: activation.principal_id.as_str().to_owned(),
         workload_id: activation.workload_id.as_str().to_owned(),
         ..Default::default()
+    }
+}
+
+fn parse_activation_precondition(
+    precondition: Option<&activate_revision_request::ActiveRevisionPrecondition>,
+) -> Result<ActivationPrecondition, ConnectError> {
+    match precondition {
+        Some(activate_revision_request::ActiveRevisionPrecondition::ExpectNoActiveRevision(
+            true,
+        )) => Ok(ActivationPrecondition::NoActiveRevision),
+        Some(activate_revision_request::ActiveRevisionPrecondition::ExpectedActiveDigest(
+            digest,
+        )) => DefinitionDigest::parse(digest.clone())
+            .map(ActivationPrecondition::ActiveDigest)
+            .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string())),
+        Some(activate_revision_request::ActiveRevisionPrecondition::ExpectNoActiveRevision(
+            false,
+        )) => Err(ConnectError::new(
+            ErrorCode::InvalidArgument,
+            "expect_no_active_revision must be true",
+        )),
+        None => Err(ConnectError::new(
+            ErrorCode::InvalidArgument,
+            "active revision precondition is required",
+        )),
     }
 }
 
@@ -302,7 +330,9 @@ fn map_activate_error(error: ActivateRevisionError) -> ConnectError {
         ActivateRevisionError::DelegationDenied | ActivateRevisionError::PolicyDenied(_) => {
             ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
         }
-        ActivateRevisionError::Incompatible(_) | ActivateRevisionError::PolicyEvaluation { .. } => {
+        ActivateRevisionError::Incompatible(_)
+        | ActivateRevisionError::PolicyEvaluation { .. }
+        | ActivateRevisionError::StalePrecondition => {
             ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
         }
         ActivateRevisionError::InvalidRevision(_) => {
@@ -352,6 +382,7 @@ pub(crate) fn map_store_error(error: StoreError) -> ConnectError {
         StoreError::InactiveDefinition => ErrorCode::FailedPrecondition,
         StoreError::NotFound => ErrorCode::NotFound,
         StoreError::OperationMismatch => ErrorCode::InvalidArgument,
+        StoreError::StalePrecondition => ErrorCode::FailedPrecondition,
         StoreError::Unavailable(_) => ErrorCode::Unavailable,
     };
     ConnectError::new(code, error.to_string())

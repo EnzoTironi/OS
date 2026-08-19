@@ -140,16 +140,12 @@ impl AuthorityStore for PostgresAuthorityStore {
         .map(|row| row_to_reference(&row))
         .transpose()?;
         if current.as_ref() != activation.previous() {
-            return Err(StoreError::Conflict(
-                "active definition revision changed".to_owned(),
-            ));
+            return Err(StoreError::StalePrecondition);
         }
         if current.as_ref().is_some_and(|current| {
             current.digest == target.digest && current.revision == target.revision
         }) {
-            return Err(StoreError::Conflict(
-                "target definition revision is already active".to_owned(),
-            ));
+            return Err(StoreError::StalePrecondition);
         }
 
         let next_sequence = head
@@ -178,12 +174,14 @@ impl AuthorityStore for PostgresAuthorityStore {
                 tenant_id, definition_id, revision, digest,
                 previous_revision, previous_digest, commit_sequence,
                 activated_at_micros, actor_id, principal_id, workload_id,
-                policy_id, policy_revision, policy_digest, determining_policies
+                policy_id, policy_revision, policy_digest, determining_policies,
+                classification
              ) VALUES (
                 $1, $2, $3, $4,
                 $5, $6, $7,
                 $8, $9, $10, $11,
-                $12, $13, $14, $15
+                $12, $13, $14, $15,
+                $16
              )",
         )
         .bind(context.tenant_id().as_str())
@@ -204,9 +202,21 @@ impl AuthorityStore for PostgresAuthorityStore {
         )?)
         .bind(policy.revision.digest.as_str())
         .bind(&policy.determining_policies)
+        .bind(
+            activation
+                .classification()
+                .map(zoen_core::EvolutionClassification::as_str),
+        )
         .execute(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
+        insert_activation_grants(
+            &mut transaction,
+            context.tenant_id(),
+            next_sequence,
+            context,
+        )
+        .await?;
         sqlx::query(
             "INSERT INTO active_definition_revisions (
                 tenant_id, definition_id, revision, digest, activation_commit_sequence
@@ -264,6 +274,7 @@ impl AuthorityStore for PostgresAuthorityStore {
                 digest: target.digest.clone(),
                 revision: target.revision,
             },
+            classification: activation.classification(),
             commit_sequence: CommitSequence::new(i64_to_u64(
                 next_sequence,
                 "activation commit sequence",
@@ -711,6 +722,56 @@ async fn set_tenant(
         .execute(&mut **transaction)
         .await
         .map_err(store_unavailable)?;
+    Ok(())
+}
+
+async fn insert_activation_grants(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    commit_sequence: i64,
+    context: &ExecutionContext,
+) -> Result<(), StoreError> {
+    for (ordinal, grant) in context.delegation().grants().iter().enumerate() {
+        let ordinal = i32::try_from(ordinal)
+            .map_err(|_| StoreError::Conflict("activation has too many grants".to_owned()))?;
+        sqlx::query(
+            "INSERT INTO definition_activation_grants (
+                tenant_id, commit_sequence, ordinal, delegation_id,
+                action_ids, resource_ids, workload_ids,
+                not_before_micros, expires_at_micros
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(tenant_id.as_str())
+        .bind(commit_sequence)
+        .bind(ordinal)
+        .bind(grant.id().as_str())
+        .bind(
+            grant
+                .actions()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            grant
+                .resources()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            grant
+                .workloads()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(grant.not_before().get())
+        .bind(grant.expires_at().get())
+        .execute(&mut **transaction)
+        .await
+        .map_err(store_unavailable)?;
+    }
     Ok(())
 }
 

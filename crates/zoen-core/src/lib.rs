@@ -804,6 +804,23 @@ pub enum EvolutionClassification {
     Forbidden,
 }
 
+impl EvolutionClassification {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Compatible => "compatible",
+            Self::RequiresMigration => "requires_migration",
+            Self::Breaking => "breaking",
+            Self::Forbidden => "forbidden",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActivationPrecondition {
+    NoActiveRevision,
+    ActiveDigest(DefinitionDigest),
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DefinitionElementKind {
     Type,
@@ -1270,6 +1287,7 @@ pub struct DefinitionActivation {
     pub activated_at: TimestampMicros,
     pub activated_by: ActorId,
     pub active: DefinitionReference,
+    pub classification: Option<EvolutionClassification>,
     pub commit_sequence: CommitSequence,
     pub policy: PolicyEvidence,
     pub previous: Option<DefinitionReference>,

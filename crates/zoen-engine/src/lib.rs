@@ -4,12 +4,11 @@ use std::fmt::{Display, Formatter};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    ActionApproval, ActionId, ActionProposal, CanonicalDefinition, CanonicalJson,
-    CommitIdentityKind, CommitReceipt, DefinitionActivation, DefinitionDigest, DefinitionId,
-    DefinitionReference, DefinitionRevision, DefinitionRevisionNumber, EffectRequestId,
-    EffectSnapshot, EvidenceClaim, EvidenceDraft, EvolutionClassification, EvolutionPlan,
-    ExecutionContext, ExplanationTarget, Expression, InputDefinition, OperationId,
-    PolicyEvaluation, PolicyEvidence, ProposalId, RelationTarget, ResourceId, TenantId,
+    ActionApproval, ActionProposal, CanonicalDefinition, CanonicalJson, CommitIdentityKind,
+    CommitReceipt, DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference,
+    DefinitionRevision, DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim,
+    EvidenceDraft, EvolutionClassification, EvolutionPlan, ExecutionContext, ExplanationTarget,
+    Expression, InputDefinition, OperationId, PolicyEvidence, ProposalId, RelationTarget, TenantId,
     TimestampMicros,
 };
 
@@ -123,6 +122,7 @@ pub enum StoreError {
     InactiveDefinition,
     NotFound,
     OperationMismatch,
+    StalePrecondition,
     Unavailable(String),
 }
 
@@ -143,6 +143,9 @@ impl Display for StoreError {
             Self::NotFound => formatter.write_str("definition revision was not found"),
             Self::OperationMismatch => {
                 formatter.write_str("operation identity does not match the proposal")
+            }
+            Self::StalePrecondition => {
+                formatter.write_str("active definition revision does not match the precondition")
             }
             Self::Unavailable(message) => {
                 write!(formatter, "authority store unavailable: {message}")
@@ -334,6 +337,7 @@ pub enum ActivateRevisionError {
         message: String,
         policy: Option<PolicyEvidence>,
     },
+    StalePrecondition,
     Store(StoreError),
 }
 
@@ -368,6 +372,9 @@ impl Display for ActivateRevisionError {
             Self::PolicyEvaluation { message, .. } => {
                 write!(formatter, "definition activation policy failed: {message}")
             }
+            Self::StalePrecondition => {
+                formatter.write_str("active definition revision does not match the precondition")
+            }
             Self::Store(error) => error.fmt(formatter),
         }
     }
@@ -383,7 +390,8 @@ impl Error for ActivateRevisionError {
             | Self::Incompatible(_)
             | Self::InvalidRevision(_)
             | Self::PolicyDenied(_)
-            | Self::PolicyEvaluation { .. } => None,
+            | Self::PolicyEvaluation { .. }
+            | Self::StalePrecondition => None,
         }
     }
 }
@@ -465,6 +473,7 @@ impl AdmittedDefinitionPublication {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedDefinitionActivation {
     activated_at: TimestampMicros,
+    classification: Option<EvolutionClassification>,
     context: ExecutionContext,
     policy: PolicyEvidence,
     previous: Option<DefinitionReference>,
@@ -477,11 +486,13 @@ impl AdmittedDefinitionActivation {
         context: ExecutionContext,
         previous: Option<DefinitionReference>,
         target: DefinitionRevision,
+        classification: Option<EvolutionClassification>,
         policy: PolicyEvidence,
         activated_at: TimestampMicros,
     ) -> Result<Self, ActivateRevisionError> {
         let payload = serde_jcs::to_string(&DefinitionActivatedV1 {
             activated_by: context.actor_id().as_str(),
+            classification: classification.map(EvolutionClassification::as_str),
             definition_id: target.definition_id.as_str(),
             digest: target.digest.as_str(),
             policy_digest: policy.revision.digest.as_str(),
@@ -496,6 +507,7 @@ impl AdmittedDefinitionActivation {
         .map_err(|error| ActivateRevisionError::EventEncoding(error.to_string()))?;
         Ok(Self {
             activated_at,
+            classification,
             context,
             policy,
             previous,
@@ -514,6 +526,10 @@ impl AdmittedDefinitionActivation {
 
     pub fn context(&self) -> &ExecutionContext {
         &self.context
+    }
+
+    pub fn classification(&self) -> Option<EvolutionClassification> {
+        self.classification
     }
 
     pub fn policy(&self) -> &PolicyEvidence {
@@ -537,6 +553,7 @@ impl AdmittedDefinitionActivation {
 #[serde(rename_all = "camelCase")]
 struct DefinitionActivatedV1<'a> {
     activated_by: &'a str,
+    classification: Option<&'a str>,
     definition_id: &'a str,
     digest: &'a str,
     policy_digest: &'a str,
@@ -662,8 +679,6 @@ pub trait AuthorityStore: Send + Sync {
     ) -> Result<ActionProposal, StoreError>;
 }
 
-const DEFINITION_ACTIVATION_ACTION_ID: &str = "zoen.definition.activate";
-
 pub struct DefinitionEngine<S, P> {
     policy: P,
     store: S,
@@ -725,96 +740,6 @@ where
             .map_err(PublishError::Store)
     }
 
-    pub async fn activate_revision(
-        &self,
-        context: &ExecutionContext,
-        definition_id: &DefinitionId,
-        digest: &DefinitionDigest,
-        expected_active_digest: Option<&DefinitionDigest>,
-        activated_at: TimestampMicros,
-    ) -> Result<DefinitionActivation, ActivateRevisionError> {
-        let target = self
-            .store
-            .get_revision(context.tenant_id(), definition_id, digest)
-            .await
-            .map_err(ActivateRevisionError::Store)?;
-        let target_definition = decode_activation_revision(&target)?;
-        let previous = self
-            .store
-            .get_active_revision(context.tenant_id(), definition_id)
-            .await
-            .map_err(ActivateRevisionError::Store)?;
-        if previous.as_ref().map(|revision| &revision.digest) != expected_active_digest {
-            return Err(ActivateRevisionError::Store(StoreError::Conflict(
-                "active definition revision changed".to_owned(),
-            )));
-        }
-        if let Some(previous_revision) = &previous {
-            let previous_definition = decode_activation_revision(previous_revision)?;
-            let plan = evolution::plan(
-                previous_revision,
-                &previous_definition,
-                &target,
-                &target_definition,
-            );
-            if plan.classification != EvolutionClassification::Compatible {
-                return Err(ActivateRevisionError::Incompatible(plan.classification));
-            }
-        }
-
-        let action_id = ActionId::parse(DEFINITION_ACTIVATION_ACTION_ID)
-            .map_err(|error| ActivateRevisionError::Configuration(error.to_string()))?;
-        let resource_id = ResourceId::parse(definition_id.as_str())
-            .map_err(|error| ActivateRevisionError::Configuration(error.to_string()))?;
-        if !context.delegation().permits(
-            &action_id,
-            &resource_id,
-            context.workload_id(),
-            activated_at,
-        ) {
-            return Err(ActivateRevisionError::DelegationDenied);
-        }
-        let target_reference = reference(&target);
-        let policy = match self
-            .policy
-            .evaluate(&PolicyRequest {
-                action_id: &action_id,
-                approved: false,
-                context,
-                definition: &target_reference,
-                inputs: &[],
-                operation: PolicyOperation::ActivateRevision,
-                resource_id: &resource_id,
-            })
-            .await
-        {
-            PolicyEvaluation::Permit(policy) => policy,
-            PolicyEvaluation::Deny(policy) => {
-                return Err(ActivateRevisionError::PolicyDenied(policy));
-            }
-            PolicyEvaluation::EvaluationError { message, revision } => {
-                return Err(ActivateRevisionError::PolicyEvaluation {
-                    message,
-                    policy: revision.map(|revision| PolicyEvidence {
-                        determining_policies: Vec::new(),
-                        revision,
-                    }),
-                });
-            }
-        };
-        let activation = AdmittedDefinitionActivation::new(
-            context.clone(),
-            previous.as_ref().map(reference),
-            target,
-            policy,
-            activated_at,
-        )?;
-        self.store
-            .activate_revision(&activation)
-            .await
-            .map_err(ActivateRevisionError::Store)
-    }
-
     pub async fn get_active_revision(
         &self,
         context: &ExecutionContext,
@@ -848,60 +773,6 @@ where
         verify_digest(&revision.canonical_json, &revision.digest)
             .then_some(revision)
             .ok_or(GetRevisionError::DigestMismatch)
-    }
-
-    pub async fn plan_evolution(
-        &self,
-        context: &ExecutionContext,
-        definition_id: &DefinitionId,
-        from_digest: &DefinitionDigest,
-        to_digest: &DefinitionDigest,
-    ) -> Result<EvolutionPlan, PlanEvolutionError> {
-        let from_revision = self
-            .store
-            .get_revision(context.tenant_id(), definition_id, from_digest)
-            .await
-            .map_err(PlanEvolutionError::Store)?;
-        let to_revision = self
-            .store
-            .get_revision(context.tenant_id(), definition_id, to_digest)
-            .await
-            .map_err(PlanEvolutionError::Store)?;
-        let from = decode_evolution_revision(&from_revision)?;
-        let to = decode_evolution_revision(&to_revision)?;
-        Ok(evolution::plan(&from_revision, &from, &to_revision, &to))
-    }
-}
-
-fn decode_activation_revision(
-    revision: &DefinitionRevision,
-) -> Result<CanonicalDefinition, ActivateRevisionError> {
-    if !verify_digest(&revision.canonical_json, &revision.digest) {
-        return Err(ActivateRevisionError::InvalidRevision(
-            "stored digest does not match canonical content".to_owned(),
-        ));
-    }
-    decode_canonical_definition(&revision.canonical_json)
-        .map_err(|error| ActivateRevisionError::InvalidRevision(error.to_string()))
-}
-
-fn decode_evolution_revision(
-    revision: &DefinitionRevision,
-) -> Result<CanonicalDefinition, PlanEvolutionError> {
-    if !verify_digest(&revision.canonical_json, &revision.digest) {
-        return Err(PlanEvolutionError::InvalidRevision(
-            "stored digest does not match canonical content".to_owned(),
-        ));
-    }
-    decode_canonical_definition(&revision.canonical_json)
-        .map_err(|error| PlanEvolutionError::InvalidRevision(error.to_string()))
-}
-
-fn reference(revision: &DefinitionRevision) -> DefinitionReference {
-    DefinitionReference {
-        definition_id: revision.definition_id.clone(),
-        digest: revision.digest.clone(),
-        revision: revision.revision,
     }
 }
 

@@ -606,6 +606,9 @@ fn adapter_error(error: StoreError) -> QueryError {
         StoreError::OperationMismatch => {
             QueryError::Corrupt("unexpected Action operation mismatch".to_owned())
         }
+        StoreError::StalePrecondition => {
+            QueryError::Corrupt("unexpected stale activation precondition".to_owned())
+        }
         StoreError::Unavailable(message) => QueryError::Unavailable(message),
     }
 }
