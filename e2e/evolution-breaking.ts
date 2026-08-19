@@ -2,24 +2,30 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError } from "@connectrpc/connect";
-import { z } from "zod";
+import { Code } from "@connectrpc/connect";
 import {
   DefinitionActivationKind,
-  DefinitionElementKind,
+  DefinitionImpactArea,
   EvolutionClassification,
-  MigrationDependencySchema,
   MigrationPlanSchema,
-  MigrationPostconditionSchema,
   MigrationRuleKind,
   MigrationStatus,
   type EvolutionPlan,
-  type MigrationPlan,
 } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import {
-  ExactValueSchema,
-  QuantityValueSchema,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+  assertMutantsKilled,
+  createMutantKills,
+  expectConnectCode,
+  migrationAuthorityCommitCount,
+  rejectImmutableHistoryUpdate,
+  rejectLaterOperationDelete,
+  sourceLineCountsUnderLimit,
+  usesSingleAuthorityLedger,
+} from "./evolution-breaking/acceptance.js";
+import {
+  actionContractOnlyRevision,
+  parseActionContracts,
+} from "./evolution-breaking/contracts.js";
 import {
   assertAssessment,
   assertV1ToV2Assessment,
@@ -27,7 +33,19 @@ import {
   buildMigrationPlan,
 } from "./evolution-breaking/plan.js";
 import {
+  activate,
+  activateInitial,
+  entity,
+  integer,
+  latestClaim,
+  migrationDependency,
+  postcondition,
+  quantity,
+  targetRuleId,
+} from "./evolution-breaking/scenario.js";
+import {
   actionClient,
+  actionProposal,
   adminClient,
   command,
   commitAction,
@@ -48,7 +66,6 @@ import {
   rebuildProjection,
   recordEvidence,
   repositoryRoot,
-  resourceId,
   sha256,
   startServer,
   stopServer,
@@ -56,47 +73,15 @@ import {
   tenantB,
   worldClient,
   writePolicyManifest,
-  type CompiledDefinition,
-  type DefinitionClient,
   type ServerProcess,
 } from "./evolution-breaking/support.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
-const actionContractsSchema = z
-  .object({
-    actions: z.array(
-      z
-        .object({
-          effects: z.array(
-            z.object({ relationId: z.string() }).passthrough(),
-          ),
-          id: z.string(),
-          inputs: z.array(z.object({ id: z.string() }).passthrough()),
-          outputs: z
-            .array(
-              z
-                .object({
-                  id: z.string(),
-                  valueType: z.object({ kind: z.string() }).passthrough(),
-                })
-                .strict(),
-            )
-            .optional(),
-        })
-        .passthrough(),
-    ),
-  })
-  .passthrough();
 
 function observe(name: string, condition: boolean): void {
   assert.ok(condition, name);
   assertions[name] = condition;
-}
-
-function parseActionContracts(source: string) {
-  const document: unknown = JSON.parse(source);
-  return actionContractsSchema.parse(document).actions;
 }
 
 function recordFailure(name: string): void {
@@ -105,6 +90,8 @@ function recordFailure(name: string): void {
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
+  const sourceLineCounts = await sourceLineCountsUnderLimit();
+  const mutants = createMutantKills();
   const v1 = await compileDefinition(
     path.join(fixtureDirectory, "inventory.zoen.ts"),
   );
@@ -114,9 +101,11 @@ async function main(): Promise<void> {
   const v3 = await compileDefinition(
     path.join(fixtureDirectory, "inventory-breaking-v3.zoen.ts"),
   );
+  const actionContractOnly = actionContractOnlyRevision(v1);
   assert.equal(v1.definition.revision, 1);
   assert.equal(v2.definition.revision, 2);
   assert.equal(v3.definition.revision, 3);
+  assert.equal(actionContractOnly.definition.revision, 4);
   assert.notEqual(v1.digest, v2.digest);
   assert.notEqual(v2.digest, v3.digest);
   const v1Actions = parseActionContracts(v1.canonicalJson);
@@ -151,7 +140,12 @@ async function main(): Promise<void> {
     generatedDirectory,
     "policies.json",
   );
-  await writePolicyManifest(policyManifestPath, [v1, v2, v3]);
+  await writePolicyManifest(policyManifestPath, [
+    v1,
+    v2,
+    v3,
+    actionContractOnly,
+  ]);
   const adminAToken = await oidcToken("admin-a");
   const adminBToken = await oidcToken("admin-b");
   const definitionA = definitionClient(adminAToken);
@@ -207,6 +201,7 @@ async function main(): Promise<void> {
 
     await publish(definitionA, tenantA, v2);
     await publish(definitionA, tenantA, v3);
+    await publish(definitionA, tenantA, actionContractOnly);
     await publish(definitionB, tenantB, v2);
     const firstPlan = await definitionA.planEvolution({
       definitionId,
@@ -226,6 +221,24 @@ async function main(): Promise<void> {
       v1ToV2Assessment.classification ===
         EvolutionClassification.BREAKING,
     );
+    const actionContractPlan = await definitionA.planEvolution({
+      definitionId,
+      fromDigest: v1.digest,
+      tenantId: tenantA,
+      toDigest: actionContractOnly.digest,
+    });
+    const authorityImpact = actionContractPlan.plan?.impacts.find(
+      (impact) =>
+        impact.area === DefinitionImpactArea.POLICY_AND_AUTHORITY_CONTRACTS,
+    );
+    mutants.classifierIgnoresActionMeaning =
+      actionContractPlan.plan?.classification ===
+        EvolutionClassification.BREAKING &&
+      actionContractPlan.plan.changes.length === 1 &&
+      actionContractPlan.plan.changes[0]?.id === "inventory.replenish" &&
+      authorityImpact?.affected.join(",") === "inventory.replenish";
+    assert.equal(mutants.classifierIgnoresActionMeaning, true);
+    recordFailure("classifier-action-contract-authority-lifecycle");
     const reversePlan = await definitionA.planEvolution({
       definitionId,
       fromDigest: v2.digest,
@@ -241,7 +254,7 @@ async function main(): Promise<void> {
             change.classification === EvolutionClassification.FORBIDDEN,
         ),
     );
-    await expectConnectCode(
+    mutants.activationBeforeMigration = await expectConnectCode(
       () => activate(definitionA, tenantA, v1.digest, v2.digest),
       Code.FailedPrecondition,
     );
@@ -285,7 +298,7 @@ async function main(): Promise<void> {
         },
       ],
     });
-    await expectConnectCode(
+    mutants.impactGraphMissesDependencies = await expectConnectCode(
       () =>
         definitionA.prepareMigration({
           plan: create(MigrationPlanSchema, {
@@ -379,6 +392,14 @@ async function main(): Promise<void> {
         },
       ],
     });
+    const foreignPrepareDenied = await expectConnectCode(
+      () =>
+        definitionB.prepareMigration({
+          plan: realPlan,
+          tenantId: tenantA,
+        }),
+      Code.PermissionDenied,
+    );
     await definitionA.prepareMigration({ plan: realPlan, tenantId: tenantA });
     await expectConnectCode(
       () =>
@@ -433,6 +454,14 @@ async function main(): Promise<void> {
       ],
       tenantId: tenantA,
     };
+    const foreignApplyDenied = await expectConnectCode(
+      () =>
+        definitionB.applyMigrationBatch({
+          ...firstBatchRequest,
+          tenantId: tenantA,
+        }),
+      Code.PermissionDenied,
+    );
     const firstBatch = await definitionA.applyMigrationBatch(
       firstBatchRequest,
     );
@@ -471,9 +500,11 @@ async function main(): Promise<void> {
       recovered.progress?.status === MigrationStatus.IN_PROGRESS &&
         recovered.progress.completedBatches.length === 1,
     );
+    const commitsBeforeReplay = await migrationAuthorityCommitCount(admin);
     const replayed = await definitionA.applyMigrationBatch(
       firstBatchRequest,
     );
+    const commitsAfterReplay = await migrationAuthorityCommitCount(admin);
     const replayCounts = await admin.query<{
       lineage_count: string;
       record_count: string;
@@ -488,12 +519,15 @@ async function main(): Promise<void> {
           WHERE tenant_id = $1 AND claim_id = $3) AS target_count`,
       [tenantA, realPlan.operationId, "claim.inventory.level.v2"],
     );
-    observe(
-      "migrationReplayIsIdempotent",
+    mutants.migrationReplayDuplicates =
       replayed.progress?.completedBatches.length === 1 &&
         replayCounts.rows[0]?.lineage_count === "2" &&
         replayCounts.rows[0]?.record_count === "2" &&
-        replayCounts.rows[0]?.target_count === "1",
+        replayCounts.rows[0]?.target_count === "1" &&
+        commitsAfterReplay === commitsBeforeReplay;
+    observe(
+      "migrationReplayIsIdempotent",
+      mutants.migrationReplayDuplicates,
     );
     recordFailure("migration-batch-replay");
     await expectConnectCode(
@@ -680,16 +714,45 @@ async function main(): Promise<void> {
         },
       },
     });
+    const historicalV1Action = await actionA.getOperationStatus({
+      operationId: v1ReceiptOperationId,
+    });
+    const historicalActionRejected = await expectConnectCode(
+      () =>
+        actionA.propose(
+          actionProposal(
+            definitionReference(v1),
+            "evolution.breaking.historical.v1",
+            "quantity",
+            quantity("1"),
+          ),
+        ),
+      Code.FailedPrecondition,
+    );
+    mutants.historicalResolutionUsesLatest =
+      historicalActionRejected &&
+      historicalV1Action.receipt?.definition?.digest === v1.digest &&
+      historicalV1.definition?.digest === v1.digest &&
+      historicalV1Amounts.length === historicalV1.values.length &&
+      historicalV1Amounts.sort().join(",") === "5,6" &&
+      v1Explanation.explanation?.subject.case === "action" &&
+      v1Explanation.explanation.subject.value.definition?.reference
+        ?.digest === v1.digest;
     observe(
       "historicalActionQueryAndExplainStayOnV1",
-      historicalV1.definition?.digest === v1.digest &&
-        historicalV1Amounts.length === historicalV1.values.length &&
-        historicalV1Amounts.sort().join(",") === "5,6" &&
-        v1Explanation.explanation?.subject.case === "action" &&
-        v1Explanation.explanation.subject.value.definition?.reference
-          ?.digest === v1.digest,
+      mutants.historicalResolutionUsesLatest,
     );
 
+    const foreignRollbackDenied = await expectConnectCode(
+      () =>
+        definitionB.rollbackRevision({
+          definitionId,
+          digest: v2.digest,
+          expectedActiveDigest: v3.digest,
+          tenantId: tenantA,
+        }),
+      Code.PermissionDenied,
+    );
     const rollback = await definitionA.rollbackRevision({
       definitionId,
       digest: v2.digest,
@@ -734,8 +797,37 @@ async function main(): Promise<void> {
         Number(coexistence.rows[0]?.v3_claim_count) > 0,
     );
     recordFailure("rollback-after-target-work");
-    await assertImmutableHistory(admin, v1.digest);
-    await assertSingleAuthorityLedger(admin);
+    mutants.rollbackDeletesNewHistory = await rejectLaterOperationDelete(
+      admin,
+      v3ReceiptOperationId,
+    );
+    assert.equal(mutants.rollbackDeletesNewHistory, true);
+    recordFailure("rollback-destructive-delete");
+    mutants.oldRowUpdatedInPlace = await rejectImmutableHistoryUpdate(
+      admin,
+      v1.digest,
+    );
+    observe(
+      "oldAuthoritativeRecordsRejectInPlaceRewrite",
+      mutants.oldRowUpdatedInPlace,
+    );
+    observe(
+      "migrationUsesExistingAuthorityCommitLedger",
+      await usesSingleAuthorityLedger(admin),
+    );
+    const foreignTenantRejections = {
+      apply: foreignApplyDenied,
+      prepare: foreignPrepareDenied,
+      rollback: foreignRollbackDenied,
+    };
+    assert.equal(
+      foreignTenantRejections.prepare &&
+        foreignTenantRejections.apply &&
+        foreignTenantRejections.rollback,
+      true,
+    );
+    recordFailure("cross-tenant-prepare-apply-rollback");
+    assertMutantsKilled(mutants);
 
     const postgresVersion = (
       await admin.query<{ server_version: string }>("SHOW server_version")
@@ -779,29 +871,15 @@ async function main(): Promise<void> {
         postgres: postgresVersion,
       },
       definitionDigests: {
+        actionContractOnly: actionContractOnly.digest,
         v1: v1.digest,
         v2: v2.digest,
         v3: v3.digest,
       },
       failureInjections,
       finishedAt: new Date().toISOString(),
-      mutants: {
-        activationBeforeMigration:
-          failureInjections.includes("activation-before-migration"),
-        classifierIgnoresActionMeaning:
-          assertions.physicalSchemaDoesNotOverrideSemanticClassification ===
-          true,
-        historicalResolutionUsesLatest:
-          assertions.historicalActionQueryAndExplainStayOnV1 === true,
-        impactGraphMissesDependencies:
-          failureInjections.includes("incomplete-impact-graph"),
-        migrationReplayDuplicates:
-          assertions.migrationReplayIsIdempotent === true,
-        oldRowUpdatedInPlace:
-          assertions.firstMigrationBatchCreatesExplicitLineage === true,
-        rollbackDeletesNewHistory:
-          assertions.rollbackPreservesV3HistoryAndV1V2V3Coexistence === true,
-      },
+      foreignTenantRejections,
+      mutants,
       observedOperations: {
         migrationV1ToV2: realPlan.operationId,
         migrationV2ToV3: v2ToV3Plan.operationId,
@@ -811,6 +889,7 @@ async function main(): Promise<void> {
       },
       protocolDigest: sha256(protocol),
       scenario: "evolution-breaking",
+      sourceLineCounts,
       sourceCommit,
       startedAt,
     };
@@ -826,173 +905,6 @@ async function main(): Promise<void> {
     }
     await admin.end();
   }
-}
-
-function targetRuleId(plan: MigrationPlan, relationId: string): string {
-  const rule = plan.rules.find((item) =>
-    item.targets.some(
-      (target) =>
-        target.element === DefinitionElementKind.RELATION &&
-        target.id === relationId,
-    ),
-  );
-  assert.ok(rule);
-  return rule.ruleId;
-}
-
-function migrationDependency(claim: DurableClaim) {
-  return create(MigrationDependencySchema, {
-    claimId: claim.claim_id,
-    commitSequence: BigInt(claim.commit_sequence),
-    entityId: resourceId,
-    relationId: claim.relation_id,
-  });
-}
-
-function postcondition(relationId: string) {
-  return create(MigrationPostconditionSchema, {
-    minimumRecordCount: 1n,
-    relationId,
-  });
-}
-
-interface DurableClaim {
-  readonly claim_id: string;
-  readonly commit_sequence: string;
-  readonly definition_revision: string;
-  readonly relation_id: string;
-}
-
-async function latestClaim(
-  admin: ReturnType<typeof adminClient>,
-  digest: string,
-  relationId: string,
-): Promise<DurableClaim> {
-  const result = await admin.query<DurableClaim>(
-    `SELECT claim_id, commit_sequence::text, definition_revision::text,
-            relation_id
-     FROM semantic_claims
-     WHERE tenant_id = $1
-       AND definition_digest = $2
-       AND entity_id = $3
-       AND relation_id = $4
-     ORDER BY commit_sequence DESC, claim_id DESC
-     LIMIT 1`,
-    [tenantA, digest, resourceId, relationId],
-  );
-  assert.equal(result.rows.length, 1);
-  const claim = result.rows[0];
-  assert.ok(claim);
-  return claim;
-}
-
-async function activateInitial(
-  client: DefinitionClient,
-  tenantId: string,
-  definition: CompiledDefinition,
-) {
-  return client.activateRevision({
-    activeRevisionPrecondition: {
-      case: "expectNoActiveRevision",
-      value: true,
-    },
-    definitionId,
-    digest: definition.digest,
-    tenantId,
-  });
-}
-
-function activate(
-  client: DefinitionClient,
-  tenantId: string,
-  fromDigest: string,
-  toDigest: string,
-) {
-  return client.activateRevision({
-    activeRevisionPrecondition: {
-      case: "expectedActiveDigest",
-      value: fromDigest,
-    },
-    definitionId,
-    digest: toDigest,
-    tenantId,
-  });
-}
-
-async function expectConnectCode(
-  operation: () => Promise<unknown>,
-  expected: Code,
-): Promise<void> {
-  try {
-    await operation();
-    assert.fail(`expected Connect error ${Code[expected]}`);
-  } catch (error: unknown) {
-    if (!(error instanceof ConnectError)) {
-      throw error;
-    }
-    assert.equal(error.code, expected, error.message);
-  }
-}
-
-async function assertImmutableHistory(
-  admin: ReturnType<typeof adminClient>,
-  v1Digest: string,
-): Promise<void> {
-  const rejected = await admin
-    .query(
-      `UPDATE semantic_claims
-       SET value_text = 'rewritten'
-       WHERE tenant_id = $1 AND definition_digest = $2`,
-      [tenantA, v1Digest],
-    )
-    .then(
-      () => false,
-      (error: unknown) =>
-        /semantic history and projection manifests are immutable/.test(
-          String(error),
-        ),
-    );
-  observe("oldAuthoritativeRecordsRejectInPlaceRewrite", rejected);
-}
-
-async function assertSingleAuthorityLedger(
-  admin: ReturnType<typeof adminClient>,
-): Promise<void> {
-  const commits = await admin.query<{ count: string }>(
-    `SELECT count(*)::text AS count
-     FROM authority_commits
-     WHERE tenant_id = $1
-       AND commit_kind IN (
-         'definition_migration_plan',
-         'definition_migration_batch'
-       )`,
-    [tenantA],
-  );
-  observe(
-    "migrationUsesExistingAuthorityCommitLedger",
-    Number(commits.rows[0]?.count) >= 6,
-  );
-}
-
-function quantity(amount: string) {
-  return create(ExactValueSchema, {
-    value: {
-      case: "quantityValue",
-      value: create(QuantityValueSchema, { amount, unit: "kg" }),
-    },
-  });
-}
-
-function integer(value: string) {
-  return create(ExactValueSchema, {
-    value: { case: "integerValue", value },
-  });
-}
-
-function entity(value: string) {
-  return create(ExactValueSchema, {
-    value: { case: "entityRefValue", value },
-  });
 }
 
 main().catch((error: unknown) => {

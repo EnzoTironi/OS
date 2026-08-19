@@ -641,32 +641,61 @@ mod tests {
     }
 
     #[test]
-    fn action_contract_change_is_breaking() {
+    fn action_contract_changes_are_breaking_and_require_authority_review() {
+        enum ContractChange {
+            CommittedEffect,
+            Output,
+            Precondition,
+        }
+
         let from_definition = definition(1);
-        let mut to_definition = definition(2);
-        to_definition.actions[0]
-            .outputs
-            .push(ActionOutputDefinition {
-                id: OutputId::parse("acceptedUnits").expect("output"),
-                value_type: ValueType::Integer,
-            });
+        let cases = [
+            ("committed effect", ContractChange::CommittedEffect),
+            ("output", ContractChange::Output),
+            ("authority precondition", ContractChange::Precondition),
+        ];
 
-        let result = plan(
-            &revision(1, "a"),
-            &from_definition,
-            &revision(2, "b"),
-            &to_definition,
-        );
-
-        assert_eq!(result.classification, EvolutionClassification::Breaking);
-        assert!(result.migration_required());
-        assert!(
-            result
-                .changes
+        for (name, change) in cases {
+            let mut to_definition = definition(2);
+            match change {
+                ContractChange::CommittedEffect => {
+                    to_definition.actions[0].effects[0].value = Expression::Literal(
+                        ExactValue::Integer(ExactInteger::parse("2").expect("integer")),
+                    );
+                }
+                ContractChange::Output => {
+                    to_definition.actions[0]
+                        .outputs
+                        .push(ActionOutputDefinition {
+                            id: OutputId::parse("acceptedUnits").expect("output"),
+                            value_type: ValueType::Integer,
+                        });
+                }
+                ContractChange::Precondition => {
+                    to_definition.actions[0].precondition =
+                        Expression::Literal(ExactValue::Bool(false));
+                }
+            }
+            let result = plan(
+                &revision(1, "a"),
+                &from_definition,
+                &revision(2, "b"),
+                &to_definition,
+            );
+            let authority = result
+                .impacts
                 .iter()
-                .any(|change| change.element == DefinitionElementKind::Action
-                    && change.rationale.contains("output"))
-        );
+                .find(|impact| impact.area == DefinitionImpactArea::PolicyAndAuthorityContracts)
+                .expect("authority impact");
+
+            assert_eq!(
+                result.classification,
+                EvolutionClassification::Breaking,
+                "{name}"
+            );
+            assert!(result.migration_required(), "{name}");
+            assert_eq!(authority.affected, ["inventory.replenish"], "{name}");
+        }
     }
 
     fn definition(revision: u64) -> CanonicalDefinition {

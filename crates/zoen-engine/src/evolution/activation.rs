@@ -1,8 +1,8 @@
 use zoen_core::{
     ActionId, ActivationPrecondition, CanonicalDefinition, DefinitionActivation,
-    DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevision, EvolutionClassification, EvolutionPlan, ExecutionContext, PolicyEvaluation,
-    PolicyEvidence, ResourceId, TimestampMicros,
+    DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionRevision,
+    EvolutionClassification, EvolutionPlan, ExecutionContext, PolicyEvaluation, PolicyEvidence,
+    ResourceId, TimestampMicros,
 };
 
 use super::{plan, reference};

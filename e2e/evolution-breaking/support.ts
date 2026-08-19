@@ -178,23 +178,34 @@ export async function commitAction(
   inputId: string,
   value: ExactValue,
 ) {
-  const operationId = `operation.${suffix}`;
-  const proposalId = `proposal.${suffix}`;
-  const proposed = await client.propose({
+  const request = actionProposal(definition, suffix, inputId, value);
+  const proposed = await client.propose(request);
+  assert.equal(proposed.decision, PolicyDecision.PERMIT);
+  assert.ok(proposed.proposal);
+  const committed = await client.commit({
+    operationId: request.operationId,
+    proposalId: request.proposalId,
+  });
+  assert.ok(committed.receipt);
+  return committed.receipt;
+}
+
+export function actionProposal(
+  definition: DefinitionReference,
+  suffix: string,
+  inputId: string,
+  value: ExactValue,
+) {
+  return {
     actionId: "inventory.replenish",
     definition,
     expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
     inputs: [{ inputId, value }],
-    operationId,
-    proposalId,
+    operationId: `operation.${suffix}`,
+    proposalId: `proposal.${suffix}`,
     resourceId,
     validAt: timestampFromDate(validAt),
-  });
-  assert.equal(proposed.decision, PolicyDecision.PERMIT);
-  assert.ok(proposed.proposal);
-  const committed = await client.commit({ operationId, proposalId });
-  assert.ok(committed.receipt);
-  return committed.receipt;
+  };
 }
 
 export async function queryValues(

@@ -8,7 +8,7 @@ use zoen_core::{
     DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
     DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EntityId, EvidenceClaim,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExecutionContext, ExplanationTarget,
-    OperationId, ProposalId, RelationId, SourceId, TenantId, TimestampMicros,
+    OperationId, ProposalId, RelationId, SourceId, TenantId,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore,
