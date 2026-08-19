@@ -6,6 +6,7 @@ import { Code } from "@connectrpc/connect";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Client as PostgresClient } from "pg";
 import {
+  CommitIdentityKind,
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
@@ -304,13 +305,22 @@ async function main(): Promise<void> {
       operationId: "operation.duplicateIntent",
       proposalId: "proposal.duplicateIntent",
     });
-    assert.equal(duplicateIntentCommit.status, CommitStatus.CONFLICT);
+    assert.equal(
+      duplicateIntentCommit.status,
+      CommitStatus.IDENTITY_COLLISION,
+    );
+    assert.equal(
+      duplicateIntentCommit.collisionKind,
+      CommitIdentityKind.SEMANTIC_RECORD,
+    );
     const afterDuplicateIntent = await databaseSnapshot(admin, tenantA);
     assert.deepEqual(afterDuplicateIntent, beforeDuplicateIntent);
     recordFailureInjection("action-record-identity-collision");
     recordAssertion(
       "actionRecordIdentityCollisionTyped",
-      duplicateIntentCommit.status === CommitStatus.CONFLICT &&
+      duplicateIntentCommit.status === CommitStatus.IDENTITY_COLLISION &&
+        duplicateIntentCommit.collisionKind ===
+          CommitIdentityKind.SEMANTIC_RECORD &&
         isDeepStrictEqual(afterDuplicateIntent, beforeDuplicateIntent),
     );
 
