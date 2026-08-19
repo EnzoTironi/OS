@@ -1,8 +1,10 @@
 use crate::{
-    ActionApproval, ActionId, ActionProposal, ClaimId, CommitReceipt, CommitSequence,
-    ComputationId, DefinitionReference, EffectAttemptId, EffectEvidenceId, EffectRequestId,
-    EffectSnapshot, EvidenceClaim, OperationId, PayloadDigest, PolicyRevision, ProposalId,
-    RelationId, StateBasis, StateBasisDigest,
+    ActionApproval, ActionId, ClaimId, CommitReceipt, CommitSequence, ComputationId,
+    DefinitionReference, EffectAttempt, EffectAttemptId, EffectEvidence, EffectEvidenceId,
+    EffectIdempotencyKey, EffectKnowledgeState, EffectReconciliation, EffectRequestDigest,
+    EffectRequestId, EntityId, EvidenceProvenance, ExactValue, InputId, IntentDigest, OperationId,
+    PayloadDigest, PolicyRevision, ProposalAuthority, ProposalId, RelationId, ResourceId,
+    StateBasis, StateBasisDigest, TimestampMicros, TrustedExecutionContext, ValidTime,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16,12 +18,6 @@ pub enum ExplanationTarget {
     Claim(ClaimId),
     EffectRequest(EffectRequestId),
     Decision(DecisionReference),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExplanationDisclosure {
-    Full,
-    RedactPayloads,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,6 +44,12 @@ pub struct PayloadRedaction {
     pub reason: RedactionReason,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExplanationPayload<T> {
+    Value(T),
+    Redacted(PayloadRedaction),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EffectDispatchOutcome {
     Accepted,
@@ -65,9 +67,48 @@ pub struct EffectDispatchEvidence {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CausalActionInput {
+    pub id: InputId,
+    pub payload: ExplanationPayload<ExactValue>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionProposalStructure {
+    pub action_id: ActionId,
+    pub authority: ProposalAuthority,
+    pub definition: DefinitionReference,
+    pub expires_at: TimestampMicros,
+    pub intent_digest: IntentDigest,
+    pub operation_id: OperationId,
+    pub proposal_id: ProposalId,
+    pub proposed_at: TimestampMicros,
+    pub proposed_by: TrustedExecutionContext,
+    pub resource_id: ResourceId,
+    pub state_basis: StateBasis,
+    pub valid_at: TimestampMicros,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CausalActionProposal {
+    pub inputs: Vec<CausalActionInput>,
+    pub structure: ActionProposalStructure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CausalClaimStructure {
+    pub claim_id: ClaimId,
+    pub commit_sequence: CommitSequence,
+    pub definition: DefinitionReference,
+    pub entity_id: EntityId,
+    pub provenance: EvidenceProvenance,
+    pub relation_id: RelationId,
+    pub valid_time: ValidTime,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CausalClaim {
-    pub claim: EvidenceClaim,
-    pub value_redaction: Option<PayloadRedaction>,
+    pub payload: ExplanationPayload<ExactValue>,
+    pub structure: CausalClaimStructure,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -95,10 +136,29 @@ pub struct PolicyDecisionEvidence {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CausalEffectRequestStructure {
+    pub commit_sequence: CommitSequence,
+    pub effect_request_id: EffectRequestId,
+    pub idempotency_key: EffectIdempotencyKey,
+    pub intent_digest: IntentDigest,
+    pub operation_id: OperationId,
+    pub request_digest: EffectRequestDigest,
+    pub state: EffectKnowledgeState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CausalEffectRequest {
+    pub payload: ExplanationPayload<Vec<u8>>,
+    pub structure: CausalEffectRequestStructure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CausalEffect {
+    pub attempts: Vec<EffectAttempt>,
     pub dispatches: Vec<EffectDispatchEvidence>,
-    pub payload_redaction: Option<PayloadRedaction>,
-    pub snapshot: EffectSnapshot,
+    pub evidence: Vec<EffectEvidence>,
+    pub reconciliations: Vec<EffectReconciliation>,
+    pub request: CausalEffectRequest,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -115,7 +175,7 @@ pub struct CausalActionExplanation {
     pub definition: Option<DefinitionEvidence>,
     pub effects: Vec<CausalEffect>,
     pub policies: Vec<PolicyDecisionEvidence>,
-    pub proposal: ActionProposal,
+    pub proposal: CausalActionProposal,
     pub proposal_state_basis: CausalStateBasis,
 }
 
@@ -131,7 +191,7 @@ pub enum ExplanationSubject {
     Claim(Box<CausalClaimExplanation>),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum EvidenceClass {
     Action,
     Approval,

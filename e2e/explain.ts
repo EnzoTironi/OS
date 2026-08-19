@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
 import {
@@ -11,7 +12,6 @@ import {
 } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
   EvidenceClass,
-  ExplanationDisclosure,
   GapReason,
   PolicyDecisionStage,
   StateBasisStage,
@@ -19,8 +19,16 @@ import {
   type CausalExplanation,
   type ExplanationTarget,
 } from "../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
-import { LineageRole } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
+  DefinitionReferenceSchema,
+  EvidenceClaimSchema,
+  EvidenceProvenanceSchema,
+  ExactValueSchema,
+  LineageRole,
+  ValidTimeSchema,
+} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
+  type DefinitionFixture,
   loadFixture,
   publishDefinition,
   recordAvailable,
@@ -56,6 +64,7 @@ import {
   tenantB,
   worldClient,
   type ManagedProcess,
+  type WorldClient,
 } from "./effects/support.js";
 import { historyClient, type HistoryClient } from "./explain/support.js";
 
@@ -64,9 +73,68 @@ type Target = Exclude<
   { case: undefined; value?: undefined }
 >;
 
+function crossRelationFixture(fixture: DefinitionFixture): DefinitionFixture {
+  const directPrecondition =
+    '"precondition":{"kind":"binary","left":{"kind":"relation","relationId":"inventory.available"},"operator":"greater_than","right":{"inputId":"quantity","kind":"input"}}';
+  const crossRelationPrecondition =
+    '"precondition":{"kind":"binary","left":{"kind":"binary","left":{"kind":"relation","relationId":"inventory.available"},"operator":"subtract","right":{"kind":"relation","relationId":"inventory.requested"}},"operator":"greater_than","right":{"inputId":"quantity","kind":"input"}}';
+  const canonicalJson = fixture.canonicalJson
+    .replace(directPrecondition, crossRelationPrecondition)
+    .replace(
+      '"cardinality":"many","id":"inventory.requested"',
+      '"cardinality":"one","id":"inventory.requested"',
+    );
+  assert.notEqual(canonicalJson, fixture.canonicalJson);
+  const digest = sha256(canonicalJson);
+  return {
+    ...fixture,
+    canonicalJson,
+    definition: create(DefinitionReferenceSchema, {
+      definitionId: fixture.definition.definitionId,
+      digest,
+      revision: fixture.definition.revision,
+    }),
+    digest,
+  };
+}
+
+async function recordRequested(
+  client: WorldClient,
+  fixture: DefinitionFixture,
+): Promise<string> {
+  const claimId = "claim.requested.explain.computation-input";
+  const response = await client.recordEvidence({
+    claim: create(EvidenceClaimSchema, {
+      claimId,
+      definition: fixture.definition,
+      entityId: resourceId,
+      provenance: create(EvidenceProvenanceSchema, {
+        sourceDigest: sha256(claimId),
+        sourceId: "source.explainE2e",
+        sourceRef: `urn:zoen:e2e:${claimId}`,
+      }),
+      relationId: "inventory.requested",
+      validTime: create(ValidTimeSchema, {
+        value: {
+          case: "instant",
+          value: timestampFromDate(
+            new Date("2026-08-19T00:00:00.000Z"),
+          ),
+        },
+      }),
+      value: create(ExactValueSchema, {
+        value: { case: "integerValue", value: "5" },
+      }),
+    }),
+    tenantId: tenantA,
+  });
+  assert.equal(response.claimId, claimId);
+  return claimId;
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  const fixture = await loadFixture("direct", 1);
+  const fixture = crossRelationFixture(await loadFixture("direct", 1));
   const laterFixture = await loadFixture("self", 2);
   const policyManifestPath = path.join(
     repositoryRoot,
@@ -135,6 +203,7 @@ async function main(): Promise<void> {
       tenantId: tenantB,
       value: "100",
     });
+    const crossRelationClaimId = await recordRequested(worldA, fixture);
 
     await setProviderMode("accepted_pending");
     const contradicted = await commitEffect(
@@ -205,12 +274,12 @@ async function main(): Promise<void> {
 
     const historyA = historyClient(agentAToken);
     const historyB = historyClient(agentBToken);
+    const historyForbidden = historyClient(reconcilerAToken);
     const operation = await explain(historyA, {
       case: "operationId",
       value: contradicted.operationId,
     });
-    const claimId = contradicted.receipt.recordIds[0];
-    assert.ok(claimId);
+    const claimId = crossRelationClaimId;
     const claim = await explain(historyA, {
       case: "claimId",
       value: claimId,
@@ -227,11 +296,10 @@ async function main(): Promise<void> {
       case: "effectRequestId",
       value: unknown.effectRequestId,
     });
-    const redacted = await explain(
-      historyA,
-      { case: "operationId", value: contradicted.operationId },
-      ExplanationDisclosure.REDACT_PAYLOADS,
-    );
+    const redacted = await explain(historyForbidden, {
+      case: "operationId",
+      value: contradicted.operationId,
+    });
 
     const operationAction = actionSubject(operation);
     const claimAction = actionSubject(claim);
@@ -267,7 +335,7 @@ async function main(): Promise<void> {
     const dependencies =
       operationAction.proposalStateBasis?.basis?.dependencies ?? [];
     observe(
-      "materialRivalAndCrossPredicateDependenciesArePresent",
+      "materialRivalEvidenceIsPresent",
       dependencies.some(
         (dependency) =>
           dependency.role === LineageRole.SUPPORTING &&
@@ -277,15 +345,16 @@ async function main(): Promise<void> {
           (dependency) =>
             dependency.role === LineageRole.RIVAL &&
             dependency.relationId === "inventory.available",
-        ) &&
-        operationAction.commit?.records.every(
-          (record) =>
-            record.structure?.relationId === "inventory.requested" &&
-            !dependencies.some(
-              (dependency) =>
-                dependency.relationId === record.structure?.relationId,
-            ),
-        ) === true,
+        ),
+    );
+    observe(
+      "crossRelationCalculationHasDurableLineage",
+      dependencies.some(
+        (dependency) =>
+          dependency.claimId === crossRelationClaimId &&
+          dependency.role === LineageRole.SUPPORTING &&
+          dependency.relationId === "inventory.requested",
+      ),
     );
     observe(
       "historicalDefinitionAndComponentsStayPinned",
@@ -294,10 +363,9 @@ async function main(): Promise<void> {
         operationAction.definition.digestVerified &&
         operationAction.definition.relationIds.includes("inventory.available") &&
         operationAction.definition.relationIds.includes("inventory.requested") &&
-        operationAction.definition.computationIds.includes(
-          "inventory.remaining",
-        ) &&
-        operationAction.proposal?.definition?.digest === fixture.digest &&
+        operationAction.definition.computationIds.length === 0 &&
+        operationAction.proposal?.structure?.definition?.digest ===
+          fixture.digest &&
         laterFixture.digest !== fixture.digest,
     );
     observe(
@@ -372,7 +440,14 @@ async function main(): Promise<void> {
         ) &&
         redactedEffect.request?.payload.case === "redaction" &&
         redactedEffect.request.payload.value.digest.length === 64 &&
-        redactedEffect.request.structure?.payload.length === 0,
+        redactedEffect.request.structure?.payload.length === 0 &&
+        (redactedAction.proposal?.inputs.length ?? 0) > 0 &&
+        redactedAction.proposal?.inputs.every(
+          (input) =>
+            input.payload.case === "redaction" &&
+            input.payload.value.digest.length === 64,
+        ) === true &&
+        redactedAction.proposal?.structure?.inputs.length === 0,
     );
     observe(
       "allTargetFormsResolveTheSameDurableOperation",
@@ -401,6 +476,34 @@ async function main(): Promise<void> {
         )
       ).rows[0]?.count === "0" && operation.complete,
     );
+    await admin.query("BEGIN");
+    try {
+      await admin.query("SET LOCAL session_replication_role = replica");
+      const withheld = await admin.query(
+        "DELETE FROM effect_requests WHERE tenant_id = $1 AND effect_request_id = $2",
+        [tenantA, unknown.effectRequestId],
+      );
+      assert.equal(withheld.rowCount, 1);
+      await admin.query("COMMIT");
+    } catch (error: unknown) {
+      await admin.query("ROLLBACK");
+      throw error;
+    }
+    const missingRequiredEffect = await explain(historyA, {
+      case: "operationId",
+      value: unknown.operationId,
+    });
+    observe(
+      "missingRequiredEffectRequestMakesExplanationIncomplete",
+      !missingRequiredEffect.complete &&
+        missingRequiredEffect.gaps.some(
+          (gap) =>
+            gap.class === EvidenceClass.EFFECT_REQUEST &&
+            gap.reason === GapReason.MISSING &&
+            gap.reference?.reference.case === "effectRequestId" &&
+            gap.reference.reference.value === unknown.effectRequestId,
+        ),
+    );
 
     const postgresVersion = (
       await admin.query<{ server_version: string }>("SHOW server_version")
@@ -412,8 +515,8 @@ async function main(): Promise<void> {
     }).trim();
     const mutants = {
       completeBasedOnlyOnReachability:
-        assertions.redactionHidesValuesButKeepsStructureAndReason === true &&
-        !redacted.complete,
+        assertions.missingRequiredEffectRequestMakesExplanationIncomplete ===
+        true,
       currentDefinitionUsedForOldAction:
         assertions.historicalDefinitionAndComponentsStayPinned === true,
       effectRequestAndAttemptConflated:
@@ -424,9 +527,9 @@ async function main(): Promise<void> {
       policyRevisionOmitted:
         assertions.policyRevisionAndDeterminingPoliciesArePresent === true,
       rivalEvidenceOmitted:
-        assertions.materialRivalAndCrossPredicateDependenciesArePresent === true,
+        assertions.materialRivalEvidenceIsPresent === true,
       samePredicateOnly:
-        assertions.materialRivalAndCrossPredicateDependenciesArePresent === true,
+        assertions.crossRelationCalculationHasDurableLineage === true,
     };
     assert.ok(Object.values(mutants).every(Boolean));
     const manifest = {
@@ -473,10 +576,8 @@ async function main(): Promise<void> {
 async function explain(
   client: HistoryClient,
   target: Target,
-  disclosure = ExplanationDisclosure.FULL,
 ): Promise<CausalExplanation> {
   const response = await client.explain({
-    disclosure,
     target: { target },
   });
   assert.ok(response.explanation);

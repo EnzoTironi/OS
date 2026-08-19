@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file zoen/history/v1/history.proto.
  */
 export const file_zoen_history_v1_history: GenFile = /*@__PURE__*/
-  fileDesc("Ch16b2VuL2hpc3RvcnkvdjEvaGlzdG9yeS5wcm90bxIPem9lbi5oaXN0b3J5LnYxIn0KEUV4cGxhbmF0aW9uVGFyZ2V0EhYKDG9wZXJhdGlvbl9pZBgBIAEoCUgAEhIKCGNsYWltX2lkGAIgASgJSAASGwoRZWZmZWN0X3JlcXVlc3RfaWQYAyABKAlIABIVCgtwcm9wb3NhbF9pZBgEIAEoCUgAQggKBnRhcmdldCKAAQoORXhwbGFpblJlcXVlc3QSMgoGdGFyZ2V0GAEgASgLMiIuem9lbi5oaXN0b3J5LnYxLkV4cGxhbmF0aW9uVGFyZ2V0EjoKCmRpc2Nsb3N1cmUYAiABKA4yJi56b2VuLmhpc3RvcnkudjEuRXhwbGFuYXRpb25EaXNjbG9zdXJlIkoKD0V4cGxhaW5SZXNwb25zZRI3CgtleHBsYW5hdGlvbhgBIAEoCzIiLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxFeHBsYW5hdGlvbiJUChBQYXlsb2FkUmVkYWN0aW9uEg4KBmRpZ2VzdBgBIAEoCRIwCgZyZWFzb24YAiABKA4yIC56b2VuLmhpc3RvcnkudjEuUmVkYWN0aW9uUmVhc29uIsYBCgtDYXVzYWxDbGFpbRIvCglzdHJ1Y3R1cmUYASABKAsyHC56b2VuLndvcmxkLnYxLkV2aWRlbmNlQ2xhaW0SFwoPY29tbWl0X3NlcXVlbmNlGAIgASgEEioKBXZhbHVlGAMgASgLMhkuem9lbi53b3JsZC52MS5FeGFjdFZhbHVlSAASNgoJcmVkYWN0aW9uGAQgASgLMiEuem9lbi5oaXN0b3J5LnYxLlBheWxvYWRSZWRhY3Rpb25IAEIJCgdwYXlsb2FkIpwBChBDYXVzYWxTdGF0ZUJhc2lzEikKBWJhc2lzGAEgASgLMhouem9lbi5hY3Rpb24udjEuU3RhdGVCYXNpcxIsCgZjbGFpbXMYAiADKAsyHC56b2VuLmhpc3RvcnkudjEuQ2F1c2FsQ2xhaW0SLwoFc3RhZ2UYAyABKA4yIC56b2VuLmhpc3RvcnkudjEuU3RhdGVCYXNpc1N0YWdlIswBChJEZWZpbml0aW9uRXZpZGVuY2USNQoJcmVmZXJlbmNlGAEgASgLMiIuem9lbi53b3JsZC52MS5EZWZpbml0aW9uUmVmZXJlbmNlEhEKCWFjdGlvbl9pZBgCIAEoCRIUCgxyZWxhdGlvbl9pZHMYAyADKAkSFwoPY29tcHV0YXRpb25faWRzGAQgAygJEiQKHHB1Ymxpc2hlZF9hdF9jb21taXRfc2VxdWVuY2UYBSABKAQSFwoPZGlnZXN0X3ZlcmlmaWVkGAYgASgIIn0KFlBvbGljeURlY2lzaW9uRXZpZGVuY2USLgoGcG9saWN5GAEgASgLMh4uem9lbi5hY3Rpb24udjEuUG9saWN5RXZpZGVuY2USMwoFc3RhZ2UYAiABKA4yJC56b2VuLmhpc3RvcnkudjEuUG9saWN5RGVjaXNpb25TdGFnZSKZAQoWRWZmZWN0RGlzcGF0Y2hFdmlkZW5jZRIWCg5hdHRlbXB0X251bWJlchgBIAEoDRI3CgdvdXRjb21lGAIgASgOMiYuem9lbi5oaXN0b3J5LnYxLkVmZmVjdERpc3BhdGNoT3V0Y29tZRIfChdzY2hlZHVsZXJfaW52b2NhdGlvbl9pZBgDIAEoCRINCgVlcnJvchgEIAEoCSKbAQoTQ2F1c2FsRWZmZWN0UmVxdWVzdBIwCglzdHJ1Y3R1cmUYASABKAsyHS56b2VuLmVmZmVjdC52MS5FZmZlY3RSZXF1ZXN0Eg8KBXZhbHVlGAIgASgMSAASNgoJcmVkYWN0aW9uGAMgASgLMiEuem9lbi5oaXN0b3J5LnYxLlBheWxvYWRSZWRhY3Rpb25IAEIJCgdwYXlsb2FkIqQCCgxDYXVzYWxFZmZlY3QSNQoHcmVxdWVzdBgBIAEoCzIkLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxFZmZlY3RSZXF1ZXN0EjsKCmRpc3BhdGNoZXMYAiADKAsyJy56b2VuLmhpc3RvcnkudjEuRWZmZWN0RGlzcGF0Y2hFdmlkZW5jZRIvCghhdHRlbXB0cxgDIAMoCzIdLnpvZW4uZWZmZWN0LnYxLkVmZmVjdEF0dGVtcHQSMAoIZXZpZGVuY2UYBCADKAsyHi56b2VuLmVmZmVjdC52MS5FZmZlY3RFdmlkZW5jZRI9Cg9yZWNvbmNpbGlhdGlvbnMYBSADKAsyJC56b2VuLmVmZmVjdC52MS5FZmZlY3RSZWNvbmNpbGlhdGlvbiLbAQoMQ2F1c2FsQ29tbWl0Ei4KB3JlY2VpcHQYASABKAsyHS56b2VuLmFjdGlvbi52MS5Db21taXRSZWNlaXB0EjQKDGNvbW1pdHRlZF9ieRgCIAEoCzIeLnpvZW4uYWN0aW9uLnYxLlRydXN0ZWRDb250ZXh0EjYKC3N0YXRlX2Jhc2lzGAMgASgLMiEuem9lbi5oaXN0b3J5LnYxLkNhdXNhbFN0YXRlQmFzaXMSLQoHcmVjb3JkcxgEIAMoCzIcLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxDbGFpbSLvAwoXQ2F1c2FsQWN0aW9uRXhwbGFuYXRpb24SKgoIcHJvcG9zYWwYASABKAsyGC56b2VuLmFjdGlvbi52MS5Qcm9wb3NhbBIzCgtwcm9wb3NlZF9ieRgCIAEoCzIeLnpvZW4uYWN0aW9uLnYxLlRydXN0ZWRDb250ZXh0Ej8KFHByb3Bvc2FsX3N0YXRlX2Jhc2lzGAMgASgLMiEuem9lbi5oaXN0b3J5LnYxLkNhdXNhbFN0YXRlQmFzaXMSKgoIYXBwcm92YWwYBCABKAsyGC56b2VuLmFjdGlvbi52MS5BcHByb3ZhbBIzCgthcHByb3ZlZF9ieRgFIAEoCzIeLnpvZW4uYWN0aW9uLnYxLlRydXN0ZWRDb250ZXh0Ei0KBmNvbW1pdBgGIAEoCzIdLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxDb21taXQSNwoKZGVmaW5pdGlvbhgHIAEoCzIjLnpvZW4uaGlzdG9yeS52MS5EZWZpbml0aW9uRXZpZGVuY2USOQoIcG9saWNpZXMYCCADKAsyJy56b2VuLmhpc3RvcnkudjEuUG9saWN5RGVjaXNpb25FdmlkZW5jZRIuCgdlZmZlY3RzGAkgAygLMh0uem9lbi5oaXN0b3J5LnYxLkNhdXNhbEVmZmVjdCJ+ChZDYXVzYWxDbGFpbUV4cGxhbmF0aW9uEisKBWNsYWltGAEgASgLMhwuem9lbi5oaXN0b3J5LnYxLkNhdXNhbENsYWltEjcKCmRlZmluaXRpb24YAiABKAsyIy56b2VuLmhpc3RvcnkudjEuRGVmaW5pdGlvbkV2aWRlbmNlIu8CCg9DYXVzYWxSZWZlcmVuY2USEwoJYWN0aW9uX2lkGAEgASgJSAASFQoLYXBwcm92YWxfaWQYAiABKAlIABISCghjbGFpbV9pZBgDIAEoCUgAEjgKCmRlZmluaXRpb24YBCABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2VIABIbChFlZmZlY3RfYXR0ZW1wdF9pZBgFIAEoCUgAEhwKEmVmZmVjdF9ldmlkZW5jZV9pZBgGIAEoCUgAEhsKEWVmZmVjdF9yZXF1ZXN0X2lkGAcgASgJSAASFgoMb3BlcmF0aW9uX2lkGAggASgJSAASMAoGcG9saWN5GAkgASgLMh4uem9lbi5hY3Rpb24udjEuUG9saWN5UmV2aXNpb25IABIVCgtwcm9wb3NhbF9pZBgKIAEoCUgAEhwKEnN0YXRlX2Jhc2lzX2RpZ2VzdBgLIAEoCUgAQgsKCXJlZmVyZW5jZSKwAQoORXhwbGFuYXRpb25HYXASLQoFY2xhc3MYASABKA4yHi56b2VuLmhpc3RvcnkudjEuRXZpZGVuY2VDbGFzcxIqCgZyZWFzb24YAiABKA4yGi56b2VuLmhpc3RvcnkudjEuR2FwUmVhc29uEjMKCXJlZmVyZW5jZRgDIAEoCzIgLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxSZWZlcmVuY2USDgoGZGV0YWlsGAQgASgJIokCChFDYXVzYWxFeHBsYW5hdGlvbhIyCgZ0YXJnZXQYASABKAsyIi56b2VuLmhpc3RvcnkudjEuRXhwbGFuYXRpb25UYXJnZXQSEAoIY29tcGxldGUYAiABKAgSLQoEZ2FwcxgDIAMoCzIfLnpvZW4uaGlzdG9yeS52MS5FeHBsYW5hdGlvbkdhcBI6CgZhY3Rpb24YBCABKAsyKC56b2VuLmhpc3RvcnkudjEuQ2F1c2FsQWN0aW9uRXhwbGFuYXRpb25IABI4CgVjbGFpbRgFIAEoCzInLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxDbGFpbUV4cGxhbmF0aW9uSABCCQoHc3ViamVjdCqMAQoVRXhwbGFuYXRpb25EaXNjbG9zdXJlEiYKIkVYUExBTkFUSU9OX0RJU0NMT1NVUkVfVU5TUEVDSUZJRUQQABIfChtFWFBMQU5BVElPTl9ESVNDTE9TVVJFX0ZVTEwQARIqCiZFWFBMQU5BVElPTl9ESVNDTE9TVVJFX1JFREFDVF9QQVlMT0FEUxACKnIKD1N0YXRlQmFzaXNTdGFnZRIhCh1TVEFURV9CQVNJU19TVEFHRV9VTlNQRUNJRklFRBAAEh4KGlNUQVRFX0JBU0lTX1NUQUdFX1BST1BPU0FMEAESHAoYU1RBVEVfQkFTSVNfU1RBR0VfQ09NTUlUEAIqpgEKE1BvbGljeURlY2lzaW9uU3RhZ2USJQohUE9MSUNZX0RFQ0lTSU9OX1NUQUdFX1VOU1BFQ0lGSUVEEAASIgoeUE9MSUNZX0RFQ0lTSU9OX1NUQUdFX1BST1BPU0FMEAESIgoeUE9MSUNZX0RFQ0lTSU9OX1NUQUdFX0FQUFJPVkFMEAISIAocUE9MSUNZX0RFQ0lTSU9OX1NUQUdFX0NPTU1JVBADKlsKD1JlZGFjdGlvblJlYXNvbhIgChxSRURBQ1RJT05fUkVBU09OX1VOU1BFQ0lGSUVEEAASJgoiUkVEQUNUSU9OX1JFQVNPTl9QUk9URUNURURfUEFZTE9BRBABKu0BChVFZmZlY3REaXNwYXRjaE91dGNvbWUSJwojRUZGRUNUX0RJU1BBVENIX09VVENPTUVfVU5TUEVDSUZJRUQQABIkCiBFRkZFQ1RfRElTUEFUQ0hfT1VUQ09NRV9BQ0NFUFRFRBABEiwKKEVGRkVDVF9ESVNQQVRDSF9PVVRDT01FX0lOVkFMSURfUkVTUE9OU0UQAhIkCiBFRkZFQ1RfRElTUEFUQ0hfT1VUQ09NRV9SRUpFQ1RFRBADEjEKLUVGRkVDVF9ESVNQQVRDSF9PVVRDT01FX1NDSEVEVUxFUl9VTkFWQUlMQUJMRRAEKrkFCg1FdmlkZW5jZUNsYXNzEh4KGkVWSURFTkNFX0NMQVNTX1VOU1BFQ0lGSUVEEAASGQoVRVZJREVOQ0VfQ0xBU1NfQUNUSU9OEAESGwoXRVZJREVOQ0VfQ0xBU1NfQVBQUk9WQUwQAhIiCh5FVklERU5DRV9DTEFTU19DT01NSVRfU0VRVUVOQ0UQAxIlCiFFVklERU5DRV9DTEFTU19DT01NSVRfU1RBVEVfQkFTSVMQBBIjCh9FVklERU5DRV9DTEFTU19DT01NSVRURURfUkVDT1JEEAUSJgoiRVZJREVOQ0VfQ0xBU1NfREVGSU5JVElPTl9SRVZJU0lPThAGEh0KGUVWSURFTkNFX0NMQVNTX0RFUEVOREVOQ1kQBxIhCh1FVklERU5DRV9DTEFTU19FRkZFQ1RfQVRURU1QVBAIEiIKHkVWSURFTkNFX0NMQVNTX0VGRkVDVF9ESVNQQVRDSBAJEiIKHkVWSURFTkNFX0NMQVNTX0VGRkVDVF9FVklERU5DRRAKEigKJEVWSURFTkNFX0NMQVNTX0VGRkVDVF9SRUNPTkNJTElBVElPThALEiEKHUVWSURFTkNFX0NMQVNTX0VGRkVDVF9SRVFVRVNUEAwSGQoVRVZJREVOQ0VfQ0xBU1NfSU5URU5UEA0SHAoYRVZJREVOQ0VfQ0xBU1NfT1BFUkFUSU9OEA4SGgoWRVZJREVOQ0VfQ0xBU1NfUEFZTE9BRBAPEiIKHkVWSURFTkNFX0NMQVNTX1BPTElDWV9SRVZJU0lPThAQEhsKF0VWSURFTkNFX0NMQVNTX1BST1BPU0FMEBESJwojRVZJREVOQ0VfQ0xBU1NfUFJPUE9TQUxfU1RBVEVfQkFTSVMQEhIiCh5FVklERU5DRV9DTEFTU19UUlVTVEVEX0NPTlRFWFQQEyqMAQoJR2FwUmVhc29uEhoKFkdBUF9SRUFTT05fVU5TUEVDSUZJRUQQABIWChJHQVBfUkVBU09OX0NPUlJVUFQQARIWChJHQVBfUkVBU09OX01JU1NJTkcQAhIXChNHQVBfUkVBU09OX1JFREFDVEVEEAMSGgoWR0FQX1JFQVNPTl9VTkFWQUlMQUJMRRAEMl4KDkhpc3RvcnlTZXJ2aWNlEkwKB0V4cGxhaW4SHy56b2VuLmhpc3RvcnkudjEuRXhwbGFpblJlcXVlc3QaIC56b2VuLmhpc3RvcnkudjEuRXhwbGFpblJlc3BvbnNlYgZwcm90bzM", [file_zoen_action_v1_action, file_zoen_effect_v1_effect, file_zoen_world_v1_world]);
+  fileDesc("Ch16b2VuL2hpc3RvcnkvdjEvaGlzdG9yeS5wcm90bxIPem9lbi5oaXN0b3J5LnYxIn0KEUV4cGxhbmF0aW9uVGFyZ2V0EhYKDG9wZXJhdGlvbl9pZBgBIAEoCUgAEhIKCGNsYWltX2lkGAIgASgJSAASGwoRZWZmZWN0X3JlcXVlc3RfaWQYAyABKAlIABIVCgtwcm9wb3NhbF9pZBgEIAEoCUgAQggKBnRhcmdldCJKCg5FeHBsYWluUmVxdWVzdBIyCgZ0YXJnZXQYASABKAsyIi56b2VuLmhpc3RvcnkudjEuRXhwbGFuYXRpb25UYXJnZXRKBAgCEAMiSgoPRXhwbGFpblJlc3BvbnNlEjcKC2V4cGxhbmF0aW9uGAEgASgLMiIuem9lbi5oaXN0b3J5LnYxLkNhdXNhbEV4cGxhbmF0aW9uIlQKEFBheWxvYWRSZWRhY3Rpb24SDgoGZGlnZXN0GAEgASgJEjAKBnJlYXNvbhgCIAEoDjIgLnpvZW4uaGlzdG9yeS52MS5SZWRhY3Rpb25SZWFzb24ixgEKC0NhdXNhbENsYWltEi8KCXN0cnVjdHVyZRgBIAEoCzIcLnpvZW4ud29ybGQudjEuRXZpZGVuY2VDbGFpbRIXCg9jb21taXRfc2VxdWVuY2UYAiABKAQSKgoFdmFsdWUYAyABKAsyGS56b2VuLndvcmxkLnYxLkV4YWN0VmFsdWVIABI2CglyZWRhY3Rpb24YBCABKAsyIS56b2VuLmhpc3RvcnkudjEuUGF5bG9hZFJlZGFjdGlvbkgAQgkKB3BheWxvYWQilAEKEUNhdXNhbEFjdGlvbklucHV0EhAKCGlucHV0X2lkGAEgASgJEioKBXZhbHVlGAIgASgLMhkuem9lbi53b3JsZC52MS5FeGFjdFZhbHVlSAASNgoJcmVkYWN0aW9uGAMgASgLMiEuem9lbi5oaXN0b3J5LnYxLlBheWxvYWRSZWRhY3Rpb25IAEIJCgdwYXlsb2FkIncKFENhdXNhbEFjdGlvblByb3Bvc2FsEisKCXN0cnVjdHVyZRgBIAEoCzIYLnpvZW4uYWN0aW9uLnYxLlByb3Bvc2FsEjIKBmlucHV0cxgCIAMoCzIiLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxBY3Rpb25JbnB1dCKcAQoQQ2F1c2FsU3RhdGVCYXNpcxIpCgViYXNpcxgBIAEoCzIaLnpvZW4uYWN0aW9uLnYxLlN0YXRlQmFzaXMSLAoGY2xhaW1zGAIgAygLMhwuem9lbi5oaXN0b3J5LnYxLkNhdXNhbENsYWltEi8KBXN0YWdlGAMgASgOMiAuem9lbi5oaXN0b3J5LnYxLlN0YXRlQmFzaXNTdGFnZSLMAQoSRGVmaW5pdGlvbkV2aWRlbmNlEjUKCXJlZmVyZW5jZRgBIAEoCzIiLnpvZW4ud29ybGQudjEuRGVmaW5pdGlvblJlZmVyZW5jZRIRCglhY3Rpb25faWQYAiABKAkSFAoMcmVsYXRpb25faWRzGAMgAygJEhcKD2NvbXB1dGF0aW9uX2lkcxgEIAMoCRIkChxwdWJsaXNoZWRfYXRfY29tbWl0X3NlcXVlbmNlGAUgASgEEhcKD2RpZ2VzdF92ZXJpZmllZBgGIAEoCCJ9ChZQb2xpY3lEZWNpc2lvbkV2aWRlbmNlEi4KBnBvbGljeRgBIAEoCzIeLnpvZW4uYWN0aW9uLnYxLlBvbGljeUV2aWRlbmNlEjMKBXN0YWdlGAIgASgOMiQuem9lbi5oaXN0b3J5LnYxLlBvbGljeURlY2lzaW9uU3RhZ2UimQEKFkVmZmVjdERpc3BhdGNoRXZpZGVuY2USFgoOYXR0ZW1wdF9udW1iZXIYASABKA0SNwoHb3V0Y29tZRgCIAEoDjImLnpvZW4uaGlzdG9yeS52MS5FZmZlY3REaXNwYXRjaE91dGNvbWUSHwoXc2NoZWR1bGVyX2ludm9jYXRpb25faWQYAyABKAkSDQoFZXJyb3IYBCABKAkimwEKE0NhdXNhbEVmZmVjdFJlcXVlc3QSMAoJc3RydWN0dXJlGAEgASgLMh0uem9lbi5lZmZlY3QudjEuRWZmZWN0UmVxdWVzdBIPCgV2YWx1ZRgCIAEoDEgAEjYKCXJlZGFjdGlvbhgDIAEoCzIhLnpvZW4uaGlzdG9yeS52MS5QYXlsb2FkUmVkYWN0aW9uSABCCQoHcGF5bG9hZCKkAgoMQ2F1c2FsRWZmZWN0EjUKB3JlcXVlc3QYASABKAsyJC56b2VuLmhpc3RvcnkudjEuQ2F1c2FsRWZmZWN0UmVxdWVzdBI7CgpkaXNwYXRjaGVzGAIgAygLMicuem9lbi5oaXN0b3J5LnYxLkVmZmVjdERpc3BhdGNoRXZpZGVuY2USLwoIYXR0ZW1wdHMYAyADKAsyHS56b2VuLmVmZmVjdC52MS5FZmZlY3RBdHRlbXB0EjAKCGV2aWRlbmNlGAQgAygLMh4uem9lbi5lZmZlY3QudjEuRWZmZWN0RXZpZGVuY2USPQoPcmVjb25jaWxpYXRpb25zGAUgAygLMiQuem9lbi5lZmZlY3QudjEuRWZmZWN0UmVjb25jaWxpYXRpb24i2wEKDENhdXNhbENvbW1pdBIuCgdyZWNlaXB0GAEgASgLMh0uem9lbi5hY3Rpb24udjEuQ29tbWl0UmVjZWlwdBI0Cgxjb21taXR0ZWRfYnkYAiABKAsyHi56b2VuLmFjdGlvbi52MS5UcnVzdGVkQ29udGV4dBI2CgtzdGF0ZV9iYXNpcxgDIAEoCzIhLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxTdGF0ZUJhc2lzEi0KB3JlY29yZHMYBCADKAsyHC56b2VuLmhpc3RvcnkudjEuQ2F1c2FsQ2xhaW0i/AMKF0NhdXNhbEFjdGlvbkV4cGxhbmF0aW9uEjcKCHByb3Bvc2FsGAEgASgLMiUuem9lbi5oaXN0b3J5LnYxLkNhdXNhbEFjdGlvblByb3Bvc2FsEjMKC3Byb3Bvc2VkX2J5GAIgASgLMh4uem9lbi5hY3Rpb24udjEuVHJ1c3RlZENvbnRleHQSPwoUcHJvcG9zYWxfc3RhdGVfYmFzaXMYAyABKAsyIS56b2VuLmhpc3RvcnkudjEuQ2F1c2FsU3RhdGVCYXNpcxIqCghhcHByb3ZhbBgEIAEoCzIYLnpvZW4uYWN0aW9uLnYxLkFwcHJvdmFsEjMKC2FwcHJvdmVkX2J5GAUgASgLMh4uem9lbi5hY3Rpb24udjEuVHJ1c3RlZENvbnRleHQSLQoGY29tbWl0GAYgASgLMh0uem9lbi5oaXN0b3J5LnYxLkNhdXNhbENvbW1pdBI3CgpkZWZpbml0aW9uGAcgASgLMiMuem9lbi5oaXN0b3J5LnYxLkRlZmluaXRpb25FdmlkZW5jZRI5Cghwb2xpY2llcxgIIAMoCzInLnpvZW4uaGlzdG9yeS52MS5Qb2xpY3lEZWNpc2lvbkV2aWRlbmNlEi4KB2VmZmVjdHMYCSADKAsyHS56b2VuLmhpc3RvcnkudjEuQ2F1c2FsRWZmZWN0In4KFkNhdXNhbENsYWltRXhwbGFuYXRpb24SKwoFY2xhaW0YASABKAsyHC56b2VuLmhpc3RvcnkudjEuQ2F1c2FsQ2xhaW0SNwoKZGVmaW5pdGlvbhgCIAEoCzIjLnpvZW4uaGlzdG9yeS52MS5EZWZpbml0aW9uRXZpZGVuY2Ui7wIKD0NhdXNhbFJlZmVyZW5jZRITCglhY3Rpb25faWQYASABKAlIABIVCgthcHByb3ZhbF9pZBgCIAEoCUgAEhIKCGNsYWltX2lkGAMgASgJSAASOAoKZGVmaW5pdGlvbhgEIAEoCzIiLnpvZW4ud29ybGQudjEuRGVmaW5pdGlvblJlZmVyZW5jZUgAEhsKEWVmZmVjdF9hdHRlbXB0X2lkGAUgASgJSAASHAoSZWZmZWN0X2V2aWRlbmNlX2lkGAYgASgJSAASGwoRZWZmZWN0X3JlcXVlc3RfaWQYByABKAlIABIWCgxvcGVyYXRpb25faWQYCCABKAlIABIwCgZwb2xpY3kYCSABKAsyHi56b2VuLmFjdGlvbi52MS5Qb2xpY3lSZXZpc2lvbkgAEhUKC3Byb3Bvc2FsX2lkGAogASgJSAASHAoSc3RhdGVfYmFzaXNfZGlnZXN0GAsgASgJSABCCwoJcmVmZXJlbmNlIrABCg5FeHBsYW5hdGlvbkdhcBItCgVjbGFzcxgBIAEoDjIeLnpvZW4uaGlzdG9yeS52MS5FdmlkZW5jZUNsYXNzEioKBnJlYXNvbhgCIAEoDjIaLnpvZW4uaGlzdG9yeS52MS5HYXBSZWFzb24SMwoJcmVmZXJlbmNlGAMgASgLMiAuem9lbi5oaXN0b3J5LnYxLkNhdXNhbFJlZmVyZW5jZRIOCgZkZXRhaWwYBCABKAkiiQIKEUNhdXNhbEV4cGxhbmF0aW9uEjIKBnRhcmdldBgBIAEoCzIiLnpvZW4uaGlzdG9yeS52MS5FeHBsYW5hdGlvblRhcmdldBIQCghjb21wbGV0ZRgCIAEoCBItCgRnYXBzGAMgAygLMh8uem9lbi5oaXN0b3J5LnYxLkV4cGxhbmF0aW9uR2FwEjoKBmFjdGlvbhgEIAEoCzIoLnpvZW4uaGlzdG9yeS52MS5DYXVzYWxBY3Rpb25FeHBsYW5hdGlvbkgAEjgKBWNsYWltGAUgASgLMicuem9lbi5oaXN0b3J5LnYxLkNhdXNhbENsYWltRXhwbGFuYXRpb25IAEIJCgdzdWJqZWN0KnIKD1N0YXRlQmFzaXNTdGFnZRIhCh1TVEFURV9CQVNJU19TVEFHRV9VTlNQRUNJRklFRBAAEh4KGlNUQVRFX0JBU0lTX1NUQUdFX1BST1BPU0FMEAESHAoYU1RBVEVfQkFTSVNfU1RBR0VfQ09NTUlUEAIqpgEKE1BvbGljeURlY2lzaW9uU3RhZ2USJQohUE9MSUNZX0RFQ0lTSU9OX1NUQUdFX1VOU1BFQ0lGSUVEEAASIgoeUE9MSUNZX0RFQ0lTSU9OX1NUQUdFX1BST1BPU0FMEAESIgoeUE9MSUNZX0RFQ0lTSU9OX1NUQUdFX0FQUFJPVkFMEAISIAocUE9MSUNZX0RFQ0lTSU9OX1NUQUdFX0NPTU1JVBADKlsKD1JlZGFjdGlvblJlYXNvbhIgChxSRURBQ1RJT05fUkVBU09OX1VOU1BFQ0lGSUVEEAASJgoiUkVEQUNUSU9OX1JFQVNPTl9QUk9URUNURURfUEFZTE9BRBABKu0BChVFZmZlY3REaXNwYXRjaE91dGNvbWUSJwojRUZGRUNUX0RJU1BBVENIX09VVENPTUVfVU5TUEVDSUZJRUQQABIkCiBFRkZFQ1RfRElTUEFUQ0hfT1VUQ09NRV9BQ0NFUFRFRBABEiwKKEVGRkVDVF9ESVNQQVRDSF9PVVRDT01FX0lOVkFMSURfUkVTUE9OU0UQAhIkCiBFRkZFQ1RfRElTUEFUQ0hfT1VUQ09NRV9SRUpFQ1RFRBADEjEKLUVGRkVDVF9ESVNQQVRDSF9PVVRDT01FX1NDSEVEVUxFUl9VTkFWQUlMQUJMRRAEKrkFCg1FdmlkZW5jZUNsYXNzEh4KGkVWSURFTkNFX0NMQVNTX1VOU1BFQ0lGSUVEEAASGQoVRVZJREVOQ0VfQ0xBU1NfQUNUSU9OEAESGwoXRVZJREVOQ0VfQ0xBU1NfQVBQUk9WQUwQAhIiCh5FVklERU5DRV9DTEFTU19DT01NSVRfU0VRVUVOQ0UQAxIlCiFFVklERU5DRV9DTEFTU19DT01NSVRfU1RBVEVfQkFTSVMQBBIjCh9FVklERU5DRV9DTEFTU19DT01NSVRURURfUkVDT1JEEAUSJgoiRVZJREVOQ0VfQ0xBU1NfREVGSU5JVElPTl9SRVZJU0lPThAGEh0KGUVWSURFTkNFX0NMQVNTX0RFUEVOREVOQ1kQBxIhCh1FVklERU5DRV9DTEFTU19FRkZFQ1RfQVRURU1QVBAIEiIKHkVWSURFTkNFX0NMQVNTX0VGRkVDVF9ESVNQQVRDSBAJEiIKHkVWSURFTkNFX0NMQVNTX0VGRkVDVF9FVklERU5DRRAKEigKJEVWSURFTkNFX0NMQVNTX0VGRkVDVF9SRUNPTkNJTElBVElPThALEiEKHUVWSURFTkNFX0NMQVNTX0VGRkVDVF9SRVFVRVNUEAwSGQoVRVZJREVOQ0VfQ0xBU1NfSU5URU5UEA0SHAoYRVZJREVOQ0VfQ0xBU1NfT1BFUkFUSU9OEA4SGgoWRVZJREVOQ0VfQ0xBU1NfUEFZTE9BRBAPEiIKHkVWSURFTkNFX0NMQVNTX1BPTElDWV9SRVZJU0lPThAQEhsKF0VWSURFTkNFX0NMQVNTX1BST1BPU0FMEBESJwojRVZJREVOQ0VfQ0xBU1NfUFJPUE9TQUxfU1RBVEVfQkFTSVMQEhIiCh5FVklERU5DRV9DTEFTU19UUlVTVEVEX0NPTlRFWFQQEyqMAQoJR2FwUmVhc29uEhoKFkdBUF9SRUFTT05fVU5TUEVDSUZJRUQQABIWChJHQVBfUkVBU09OX0NPUlJVUFQQARIWChJHQVBfUkVBU09OX01JU1NJTkcQAhIXChNHQVBfUkVBU09OX1JFREFDVEVEEAMSGgoWR0FQX1JFQVNPTl9VTkFWQUlMQUJMRRAEMl4KDkhpc3RvcnlTZXJ2aWNlEkwKB0V4cGxhaW4SHy56b2VuLmhpc3RvcnkudjEuRXhwbGFpblJlcXVlc3QaIC56b2VuLmhpc3RvcnkudjEuRXhwbGFpblJlc3BvbnNlYgZwcm90bzM", [file_zoen_action_v1_action, file_zoen_effect_v1_effect, file_zoen_world_v1_world]);
 
 /**
  * @generated from message zoen.history.v1.ExplanationTarget
@@ -67,11 +67,6 @@ export type ExplainRequest = Message<"zoen.history.v1.ExplainRequest"> & {
    * @generated from field: zoen.history.v1.ExplanationTarget target = 1;
    */
   target?: ExplanationTarget | undefined;
-
-  /**
-   * @generated from field: zoen.history.v1.ExplanationDisclosure disclosure = 2;
-   */
-  disclosure: ExplanationDisclosure;
 };
 
 /**
@@ -160,6 +155,62 @@ export const CausalClaimSchema: GenMessage<CausalClaim> = /*@__PURE__*/
   messageDesc(file_zoen_history_v1_history, 4);
 
 /**
+ * @generated from message zoen.history.v1.CausalActionInput
+ */
+export type CausalActionInput = Message<"zoen.history.v1.CausalActionInput"> & {
+  /**
+   * @generated from field: string input_id = 1;
+   */
+  inputId: string;
+
+  /**
+   * @generated from oneof zoen.history.v1.CausalActionInput.payload
+   */
+  payload: {
+    /**
+     * @generated from field: zoen.world.v1.ExactValue value = 2;
+     */
+    value: ExactValue;
+    case: "value";
+  } | {
+    /**
+     * @generated from field: zoen.history.v1.PayloadRedaction redaction = 3;
+     */
+    value: PayloadRedaction;
+    case: "redaction";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message zoen.history.v1.CausalActionInput.
+ * Use `create(CausalActionInputSchema)` to create a new message.
+ */
+export const CausalActionInputSchema: GenMessage<CausalActionInput> = /*@__PURE__*/
+  messageDesc(file_zoen_history_v1_history, 5);
+
+/**
+ * @generated from message zoen.history.v1.CausalActionProposal
+ */
+export type CausalActionProposal = Message<"zoen.history.v1.CausalActionProposal"> & {
+  /**
+   * @generated from field: zoen.action.v1.Proposal structure = 1;
+   */
+  structure?: Proposal | undefined;
+
+  /**
+   * @generated from field: repeated zoen.history.v1.CausalActionInput inputs = 2;
+   */
+  inputs: CausalActionInput[];
+};
+
+/**
+ * Describes the message zoen.history.v1.CausalActionProposal.
+ * Use `create(CausalActionProposalSchema)` to create a new message.
+ */
+export const CausalActionProposalSchema: GenMessage<CausalActionProposal> = /*@__PURE__*/
+  messageDesc(file_zoen_history_v1_history, 6);
+
+/**
  * @generated from message zoen.history.v1.CausalStateBasis
  */
 export type CausalStateBasis = Message<"zoen.history.v1.CausalStateBasis"> & {
@@ -184,7 +235,7 @@ export type CausalStateBasis = Message<"zoen.history.v1.CausalStateBasis"> & {
  * Use `create(CausalStateBasisSchema)` to create a new message.
  */
 export const CausalStateBasisSchema: GenMessage<CausalStateBasis> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 5);
+  messageDesc(file_zoen_history_v1_history, 7);
 
 /**
  * @generated from message zoen.history.v1.DefinitionEvidence
@@ -226,7 +277,7 @@ export type DefinitionEvidence = Message<"zoen.history.v1.DefinitionEvidence"> &
  * Use `create(DefinitionEvidenceSchema)` to create a new message.
  */
 export const DefinitionEvidenceSchema: GenMessage<DefinitionEvidence> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 6);
+  messageDesc(file_zoen_history_v1_history, 8);
 
 /**
  * @generated from message zoen.history.v1.PolicyDecisionEvidence
@@ -248,7 +299,7 @@ export type PolicyDecisionEvidence = Message<"zoen.history.v1.PolicyDecisionEvid
  * Use `create(PolicyDecisionEvidenceSchema)` to create a new message.
  */
 export const PolicyDecisionEvidenceSchema: GenMessage<PolicyDecisionEvidence> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 7);
+  messageDesc(file_zoen_history_v1_history, 9);
 
 /**
  * @generated from message zoen.history.v1.EffectDispatchEvidence
@@ -280,7 +331,7 @@ export type EffectDispatchEvidence = Message<"zoen.history.v1.EffectDispatchEvid
  * Use `create(EffectDispatchEvidenceSchema)` to create a new message.
  */
 export const EffectDispatchEvidenceSchema: GenMessage<EffectDispatchEvidence> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 8);
+  messageDesc(file_zoen_history_v1_history, 10);
 
 /**
  * @generated from message zoen.history.v1.CausalEffectRequest
@@ -314,7 +365,7 @@ export type CausalEffectRequest = Message<"zoen.history.v1.CausalEffectRequest">
  * Use `create(CausalEffectRequestSchema)` to create a new message.
  */
 export const CausalEffectRequestSchema: GenMessage<CausalEffectRequest> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 9);
+  messageDesc(file_zoen_history_v1_history, 11);
 
 /**
  * @generated from message zoen.history.v1.CausalEffect
@@ -351,7 +402,7 @@ export type CausalEffect = Message<"zoen.history.v1.CausalEffect"> & {
  * Use `create(CausalEffectSchema)` to create a new message.
  */
 export const CausalEffectSchema: GenMessage<CausalEffect> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 10);
+  messageDesc(file_zoen_history_v1_history, 12);
 
 /**
  * @generated from message zoen.history.v1.CausalCommit
@@ -383,16 +434,16 @@ export type CausalCommit = Message<"zoen.history.v1.CausalCommit"> & {
  * Use `create(CausalCommitSchema)` to create a new message.
  */
 export const CausalCommitSchema: GenMessage<CausalCommit> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 11);
+  messageDesc(file_zoen_history_v1_history, 13);
 
 /**
  * @generated from message zoen.history.v1.CausalActionExplanation
  */
 export type CausalActionExplanation = Message<"zoen.history.v1.CausalActionExplanation"> & {
   /**
-   * @generated from field: zoen.action.v1.Proposal proposal = 1;
+   * @generated from field: zoen.history.v1.CausalActionProposal proposal = 1;
    */
-  proposal?: Proposal | undefined;
+  proposal?: CausalActionProposal | undefined;
 
   /**
    * @generated from field: zoen.action.v1.TrustedContext proposed_by = 2;
@@ -440,7 +491,7 @@ export type CausalActionExplanation = Message<"zoen.history.v1.CausalActionExpla
  * Use `create(CausalActionExplanationSchema)` to create a new message.
  */
 export const CausalActionExplanationSchema: GenMessage<CausalActionExplanation> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 12);
+  messageDesc(file_zoen_history_v1_history, 14);
 
 /**
  * @generated from message zoen.history.v1.CausalClaimExplanation
@@ -462,7 +513,7 @@ export type CausalClaimExplanation = Message<"zoen.history.v1.CausalClaimExplana
  * Use `create(CausalClaimExplanationSchema)` to create a new message.
  */
 export const CausalClaimExplanationSchema: GenMessage<CausalClaimExplanation> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 13);
+  messageDesc(file_zoen_history_v1_history, 15);
 
 /**
  * @generated from message zoen.history.v1.CausalReference
@@ -545,7 +596,7 @@ export type CausalReference = Message<"zoen.history.v1.CausalReference"> & {
  * Use `create(CausalReferenceSchema)` to create a new message.
  */
 export const CausalReferenceSchema: GenMessage<CausalReference> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 14);
+  messageDesc(file_zoen_history_v1_history, 16);
 
 /**
  * @generated from message zoen.history.v1.ExplanationGap
@@ -577,7 +628,7 @@ export type ExplanationGap = Message<"zoen.history.v1.ExplanationGap"> & {
  * Use `create(ExplanationGapSchema)` to create a new message.
  */
 export const ExplanationGapSchema: GenMessage<ExplanationGap> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 15);
+  messageDesc(file_zoen_history_v1_history, 17);
 
 /**
  * @generated from message zoen.history.v1.CausalExplanation
@@ -621,33 +672,7 @@ export type CausalExplanation = Message<"zoen.history.v1.CausalExplanation"> & {
  * Use `create(CausalExplanationSchema)` to create a new message.
  */
 export const CausalExplanationSchema: GenMessage<CausalExplanation> = /*@__PURE__*/
-  messageDesc(file_zoen_history_v1_history, 16);
-
-/**
- * @generated from enum zoen.history.v1.ExplanationDisclosure
- */
-export enum ExplanationDisclosure {
-  /**
-   * @generated from enum value: EXPLANATION_DISCLOSURE_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: EXPLANATION_DISCLOSURE_FULL = 1;
-   */
-  FULL = 1,
-
-  /**
-   * @generated from enum value: EXPLANATION_DISCLOSURE_REDACT_PAYLOADS = 2;
-   */
-  REDACT_PAYLOADS = 2,
-}
-
-/**
- * Describes the enum zoen.history.v1.ExplanationDisclosure.
- */
-export const ExplanationDisclosureSchema: GenEnum<ExplanationDisclosure> = /*@__PURE__*/
-  enumDesc(file_zoen_history_v1_history, 0);
+  messageDesc(file_zoen_history_v1_history, 18);
 
 /**
  * @generated from enum zoen.history.v1.StateBasisStage
@@ -673,7 +698,7 @@ export enum StateBasisStage {
  * Describes the enum zoen.history.v1.StateBasisStage.
  */
 export const StateBasisStageSchema: GenEnum<StateBasisStage> = /*@__PURE__*/
-  enumDesc(file_zoen_history_v1_history, 1);
+  enumDesc(file_zoen_history_v1_history, 0);
 
 /**
  * @generated from enum zoen.history.v1.PolicyDecisionStage
@@ -704,7 +729,7 @@ export enum PolicyDecisionStage {
  * Describes the enum zoen.history.v1.PolicyDecisionStage.
  */
 export const PolicyDecisionStageSchema: GenEnum<PolicyDecisionStage> = /*@__PURE__*/
-  enumDesc(file_zoen_history_v1_history, 2);
+  enumDesc(file_zoen_history_v1_history, 1);
 
 /**
  * @generated from enum zoen.history.v1.RedactionReason
@@ -725,7 +750,7 @@ export enum RedactionReason {
  * Describes the enum zoen.history.v1.RedactionReason.
  */
 export const RedactionReasonSchema: GenEnum<RedactionReason> = /*@__PURE__*/
-  enumDesc(file_zoen_history_v1_history, 3);
+  enumDesc(file_zoen_history_v1_history, 2);
 
 /**
  * @generated from enum zoen.history.v1.EffectDispatchOutcome
@@ -761,7 +786,7 @@ export enum EffectDispatchOutcome {
  * Describes the enum zoen.history.v1.EffectDispatchOutcome.
  */
 export const EffectDispatchOutcomeSchema: GenEnum<EffectDispatchOutcome> = /*@__PURE__*/
-  enumDesc(file_zoen_history_v1_history, 4);
+  enumDesc(file_zoen_history_v1_history, 3);
 
 /**
  * @generated from enum zoen.history.v1.EvidenceClass
@@ -872,7 +897,7 @@ export enum EvidenceClass {
  * Describes the enum zoen.history.v1.EvidenceClass.
  */
 export const EvidenceClassSchema: GenEnum<EvidenceClass> = /*@__PURE__*/
-  enumDesc(file_zoen_history_v1_history, 5);
+  enumDesc(file_zoen_history_v1_history, 4);
 
 /**
  * @generated from enum zoen.history.v1.GapReason
@@ -908,7 +933,7 @@ export enum GapReason {
  * Describes the enum zoen.history.v1.GapReason.
  */
 export const GapReasonSchema: GenEnum<GapReason> = /*@__PURE__*/
-  enumDesc(file_zoen_history_v1_history, 6);
+  enumDesc(file_zoen_history_v1_history, 5);
 
 /**
  * @generated from service zoen.history.v1.HistoryService

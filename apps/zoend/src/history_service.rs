@@ -2,17 +2,19 @@ use buffa::MessageView;
 use connectrpc::{ConnectError, RequestContext, Response, ServiceRequest, ServiceResult};
 use zoen_adapters::PostgresAuthorityStore;
 use zoen_core::{
-    CausalActionExplanation as CoreCausalActionExplanation, CausalClaim as CoreCausalClaim,
-    CausalClaimExplanation as CoreCausalClaimExplanation, CausalCommit as CoreCausalCommit,
-    CausalEffect as CoreCausalEffect, CausalExplanation as CoreCausalExplanation,
+    ActionProposal as CoreActionProposal, ActionProposalStructure,
+    CausalActionExplanation as CoreCausalActionExplanation,
+    CausalActionInput as CoreCausalActionInput, CausalActionProposal as CoreCausalActionProposal,
+    CausalClaim as CoreCausalClaim, CausalClaimExplanation as CoreCausalClaimExplanation,
+    CausalCommit as CoreCausalCommit, CausalEffect as CoreCausalEffect,
+    CausalEffectRequestStructure, CausalExplanation as CoreCausalExplanation,
     CausalReference as CoreCausalReference, CausalStateBasis as CoreCausalStateBasis,
     DecisionReference, DefinitionEvidence as CoreDefinitionEvidence,
     EffectDispatchEvidence as CoreEffectDispatchEvidence,
-    EffectDispatchOutcome as CoreEffectDispatchOutcome, EvidenceClaim,
-    EvidenceClass as CoreEvidenceClass, ExplanationDisclosure as CoreExplanationDisclosure,
-    ExplanationGap as CoreExplanationGap, ExplanationSubject, ExplanationTarget as CoreTarget,
-    GapReason as CoreGapReason, PayloadRedaction as CorePayloadRedaction,
-    PolicyDecisionEvidence as CorePolicyDecisionEvidence,
+    EffectDispatchOutcome as CoreEffectDispatchOutcome, EffectRequest as CoreEffectRequest,
+    EvidenceClass as CoreEvidenceClass, ExplanationGap as CoreExplanationGap, ExplanationPayload,
+    ExplanationSubject, ExplanationTarget as CoreTarget, GapReason as CoreGapReason,
+    PayloadRedaction as CorePayloadRedaction, PolicyDecisionEvidence as CorePolicyDecisionEvidence,
     PolicyDecisionStage as CorePolicyDecisionStage, PolicyEvidence as CorePolicyEvidence,
     PolicyRevision as CorePolicyRevision, RedactionReason as CoreRedactionReason,
     StateBasisStage as CoreStateBasisStage, ValidTime as CoreValidTime,
@@ -27,13 +29,13 @@ use crate::auth::SessionRegistry;
 use crate::effect_service::{to_attempt, to_evidence, to_reconciliation, to_request};
 use crate::proto::zoen::action::v1::PolicyRevision;
 use crate::proto::zoen::history::v1::{
-    CausalActionExplanation, CausalClaim, CausalClaimExplanation, CausalCommit, CausalEffect,
-    CausalEffectRequest, CausalExplanation, CausalReference, CausalStateBasis, DefinitionEvidence,
-    EffectDispatchEvidence, EffectDispatchOutcome, EvidenceClass, ExplainRequest, ExplainResponse,
-    ExplanationDisclosure, ExplanationGap, ExplanationTarget, GapReason, HistoryService,
-    PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage, RedactionReason,
-    StateBasisStage, causal_claim, causal_effect_request, causal_explanation, causal_reference,
-    explanation_target,
+    CausalActionExplanation, CausalActionInput, CausalActionProposal, CausalClaim,
+    CausalClaimExplanation, CausalCommit, CausalEffect, CausalEffectRequest, CausalExplanation,
+    CausalReference, CausalStateBasis, DefinitionEvidence, EffectDispatchEvidence,
+    EffectDispatchOutcome, EvidenceClass, ExplainRequest, ExplainResponse, ExplanationGap,
+    ExplanationTarget, GapReason, HistoryService, PayloadRedaction, PolicyDecisionEvidence,
+    PolicyDecisionStage, RedactionReason, StateBasisStage, causal_action_input, causal_claim,
+    causal_effect_request, causal_explanation, causal_reference, explanation_target,
 };
 use crate::proto::zoen::world::v1::{
     EvidenceClaim as ProtocolEvidenceClaim, EvidenceProvenance, TemporalInterval,
@@ -66,18 +68,9 @@ impl HistoryService for HistoryServiceImpl {
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
         let target = parse_target(target)?;
-        let disclosure = match request.disclosure.as_known() {
-            Some(ExplanationDisclosure::Full) => CoreExplanationDisclosure::Full,
-            Some(ExplanationDisclosure::RedactPayloads) => {
-                CoreExplanationDisclosure::RedactPayloads
-            }
-            Some(ExplanationDisclosure::Unspecified) | None => {
-                return Err(invalid("explanation disclosure is required"));
-            }
-        };
         let explanation = self
             .engine
-            .explain(&trusted, target, disclosure)
+            .explain(&trusted, target)
             .await
             .map_err(map_history_error)?;
         Response::ok(ExplainResponse {
@@ -128,7 +121,7 @@ fn to_explanation(explanation: CoreCausalExplanation) -> CausalExplanation {
 }
 
 fn to_action(action: CoreCausalActionExplanation) -> CausalActionExplanation {
-    let proposed_by = to_trusted_context(&action.proposal.proposed_by);
+    let proposed_by = to_trusted_context(&action.proposal.structure.proposed_by);
     let (approval, approved_by) = match action.approval {
         Some(approval) => {
             let approved_by = to_trusted_context(&approval.approved_by);
@@ -143,9 +136,65 @@ fn to_action(action: CoreCausalActionExplanation) -> CausalActionExplanation {
         definition: action.definition.map(to_definition).into(),
         effects: action.effects.into_iter().map(to_effect).collect(),
         policies: action.policies.into_iter().map(to_policy).collect(),
-        proposal: Some(to_proposal(action.proposal)).into(),
+        proposal: Some(to_causal_proposal(action.proposal)).into(),
         proposal_state_basis: Some(to_causal_state_basis(action.proposal_state_basis)).into(),
         proposed_by: Some(proposed_by).into(),
+        ..Default::default()
+    }
+}
+
+fn to_causal_proposal(proposal: CoreCausalActionProposal) -> CausalActionProposal {
+    let ActionProposalStructure {
+        action_id,
+        authority,
+        definition,
+        expires_at,
+        intent_digest,
+        operation_id,
+        proposal_id,
+        proposed_at,
+        proposed_by,
+        resource_id,
+        state_basis,
+        valid_at,
+    } = proposal.structure;
+    let structure = to_proposal(CoreActionProposal {
+        action_id,
+        authority,
+        definition,
+        expires_at,
+        inputs: Vec::new(),
+        intent_digest,
+        operation_id,
+        proposal_id,
+        proposed_at,
+        proposed_by,
+        resource_id,
+        state_basis,
+        valid_at,
+    });
+    CausalActionProposal {
+        inputs: proposal
+            .inputs
+            .into_iter()
+            .map(to_causal_action_input)
+            .collect(),
+        structure: Some(structure).into(),
+        ..Default::default()
+    }
+}
+
+fn to_causal_action_input(input: CoreCausalActionInput) -> CausalActionInput {
+    CausalActionInput {
+        input_id: input.id.as_str().to_owned(),
+        payload: Some(match input.payload {
+            ExplanationPayload::Value(value) => {
+                causal_action_input::Payload::Value(Box::new(to_exact_value(value)))
+            }
+            ExplanationPayload::Redacted(redaction) => {
+                causal_action_input::Payload::Redaction(Box::new(to_payload_redaction(redaction)))
+            }
+        }),
         ..Default::default()
     }
 }
@@ -187,32 +236,31 @@ fn to_causal_state_basis(state_basis: CoreCausalStateBasis) -> CausalStateBasis 
 }
 
 fn to_causal_claim(causal: CoreCausalClaim) -> CausalClaim {
-    let EvidenceClaim {
-        commit_sequence,
-        draft,
-    } = causal.claim;
-    let payload = match causal.value_redaction {
-        Some(redaction) => {
+    let structure = causal.structure;
+    let payload = match causal.payload {
+        ExplanationPayload::Value(value) => {
+            causal_claim::Payload::Value(Box::new(to_exact_value(value)))
+        }
+        ExplanationPayload::Redacted(redaction) => {
             causal_claim::Payload::Redaction(Box::new(to_payload_redaction(redaction)))
         }
-        None => causal_claim::Payload::Value(Box::new(to_exact_value(draft.value.clone()))),
     };
     CausalClaim {
-        commit_sequence: commit_sequence.get(),
+        commit_sequence: structure.commit_sequence.get(),
         payload: Some(payload),
         structure: Some(ProtocolEvidenceClaim {
-            claim_id: draft.claim_id.as_str().to_owned(),
-            definition: Some(to_definition_reference(draft.definition)).into(),
-            entity_id: draft.entity_id.as_str().to_owned(),
+            claim_id: structure.claim_id.as_str().to_owned(),
+            definition: Some(to_definition_reference(structure.definition)).into(),
+            entity_id: structure.entity_id.as_str().to_owned(),
             provenance: Some(EvidenceProvenance {
-                source_digest: draft.provenance.source_digest.as_str().to_owned(),
-                source_id: draft.provenance.source_id.as_str().to_owned(),
-                source_ref: draft.provenance.source_ref,
+                source_digest: structure.provenance.source_digest.as_str().to_owned(),
+                source_id: structure.provenance.source_id.as_str().to_owned(),
+                source_ref: structure.provenance.source_ref,
                 ..Default::default()
             })
             .into(),
-            relation_id: draft.relation_id.as_str().to_owned(),
-            valid_time: Some(to_valid_time(draft.valid_time)).into(),
+            relation_id: structure.relation_id.as_str().to_owned(),
+            valid_time: Some(to_valid_time(structure.valid_time)).into(),
             ..Default::default()
         })
         .into(),
@@ -277,25 +325,42 @@ fn to_policy(policy: CorePolicyDecisionEvidence) -> PolicyDecisionEvidence {
 }
 
 fn to_effect(effect: CoreCausalEffect) -> CausalEffect {
-    let snapshot = effect.snapshot;
-    let payload = snapshot.request.payload.clone();
-    let mut request = to_request(snapshot.request);
-    request.payload.clear();
+    let CausalEffectRequestStructure {
+        commit_sequence,
+        effect_request_id,
+        idempotency_key,
+        intent_digest,
+        operation_id,
+        request_digest,
+        state,
+    } = effect.request.structure;
+    let request = to_request(CoreEffectRequest {
+        commit_sequence,
+        effect_request_id,
+        idempotency_key,
+        intent_digest,
+        operation_id,
+        payload: Vec::new(),
+        request_digest,
+        state,
+    });
     CausalEffect {
-        attempts: snapshot.attempts.into_iter().map(to_attempt).collect(),
+        attempts: effect.attempts.into_iter().map(to_attempt).collect(),
         dispatches: effect.dispatches.into_iter().map(to_dispatch).collect(),
-        evidence: snapshot.evidence.into_iter().map(to_evidence).collect(),
-        reconciliations: snapshot
+        evidence: effect.evidence.into_iter().map(to_evidence).collect(),
+        reconciliations: effect
             .reconciliations
             .into_iter()
             .map(to_reconciliation)
             .collect(),
         request: Some(CausalEffectRequest {
-            payload: Some(match effect.payload_redaction {
-                Some(redaction) => causal_effect_request::Payload::Redaction(Box::new(
-                    to_payload_redaction(redaction),
-                )),
-                None => causal_effect_request::Payload::Value(payload),
+            payload: Some(match effect.request.payload {
+                ExplanationPayload::Value(value) => causal_effect_request::Payload::Value(value),
+                ExplanationPayload::Redacted(redaction) => {
+                    causal_effect_request::Payload::Redaction(Box::new(to_payload_redaction(
+                        redaction,
+                    )))
+                }
             }),
             structure: Some(request).into(),
             ..Default::default()

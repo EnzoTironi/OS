@@ -22,7 +22,7 @@ pub use action::{
     CommitPreparation, CommitStoreOutcome, PolicyEvaluator, PolicyOperation, PolicyRequest,
     ProposeCommand, ProposeOutcome, QueryExecutor, QueryPortError, SemanticClaim,
     calculate_state_basis_digest, evaluate_action_state_basis, evaluate_semantic_claims,
-    read_action_state_basis,
+    read_action_state_basis, state_basis_digest_matches,
 };
 pub use effect::{
     EffectAttemptClaim, EffectAttemptClaimCommand, EffectAttemptCommand, EffectEngine, EffectError,

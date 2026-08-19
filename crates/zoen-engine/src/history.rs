@@ -1,21 +1,100 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    ActionApproval, ActionId, ActionProposal, CausalActionExplanation, CausalClaim,
-    CausalClaimExplanation, CausalCommit, CausalEffect, CausalExplanation, CausalReference,
-    CausalStateBasis, CommitReceipt, DecisionReference, DefinitionEvidence, DefinitionReference,
-    DefinitionRevision, EffectDispatchEvidence, EffectKnowledgeState, EffectSnapshot,
-    EvidenceClaim, EvidenceClass, ExactValue, ExplanationDisclosure, ExplanationGap,
-    ExplanationSubject, ExplanationTarget, GapReason, PayloadDigest, PayloadRedaction,
-    PolicyDecisionEvidence, PolicyDecisionStage, ProposalAuthority, RedactionReason,
-    StateBasisStage, StateDependency, TrustedExecutionContext, expression_relations,
+    ActionApproval, ActionId, ActionProposal, ActionProposalStructure, CausalActionExplanation,
+    CausalActionInput, CausalActionProposal, CausalClaim, CausalClaimExplanation,
+    CausalClaimStructure, CausalCommit, CausalEffect, CausalEffectRequest,
+    CausalEffectRequestStructure, CausalExplanation, CausalReference, CausalStateBasis,
+    CommitReceipt, DecisionReference, DefinitionEvidence, DefinitionReference, DefinitionRevision,
+    EffectDispatchEvidence, EffectKnowledgeState, EffectSnapshot, EvidenceClaim, EvidenceClass,
+    ExactValue, ExplanationGap, ExplanationPayload, ExplanationSubject, ExplanationTarget,
+    GapReason, LineageRole, PayloadDigest, PayloadRedaction, PolicyDecisionEvidence,
+    PolicyDecisionStage, ProposalAuthority, RedactionReason, StateBasisStage, StateDependency,
+    TrustedExecutionContext, expression_relations,
 };
 
-use crate::{
-    AuthorityStore, StoreError, calculate_state_basis_digest, decode_canonical_definition,
-};
+use crate::{AuthorityStore, StoreError, decode_canonical_definition, state_basis_digest_matches};
+
+const DECISION_REQUIRED_CLASSES: &[EvidenceClass] = &[
+    EvidenceClass::Action,
+    EvidenceClass::DefinitionRevision,
+    EvidenceClass::Dependency,
+    EvidenceClass::Payload,
+    EvidenceClass::PolicyRevision,
+    EvidenceClass::Proposal,
+    EvidenceClass::ProposalStateBasis,
+    EvidenceClass::TrustedContext,
+];
+
+const OPERATION_REQUIRED_CLASSES: &[EvidenceClass] = &[
+    EvidenceClass::Action,
+    EvidenceClass::CommitSequence,
+    EvidenceClass::CommitStateBasis,
+    EvidenceClass::CommittedRecord,
+    EvidenceClass::DefinitionRevision,
+    EvidenceClass::Dependency,
+    EvidenceClass::EffectAttempt,
+    EvidenceClass::EffectDispatch,
+    EvidenceClass::EffectRequest,
+    EvidenceClass::Operation,
+    EvidenceClass::Payload,
+    EvidenceClass::PolicyRevision,
+    EvidenceClass::Proposal,
+    EvidenceClass::ProposalStateBasis,
+    EvidenceClass::TrustedContext,
+];
+
+const ACTION_CLAIM_REQUIRED_CLASSES: &[EvidenceClass] = &[
+    EvidenceClass::Action,
+    EvidenceClass::CommitSequence,
+    EvidenceClass::CommitStateBasis,
+    EvidenceClass::CommittedRecord,
+    EvidenceClass::DefinitionRevision,
+    EvidenceClass::Dependency,
+    EvidenceClass::EffectAttempt,
+    EvidenceClass::EffectDispatch,
+    EvidenceClass::EffectRequest,
+    EvidenceClass::Operation,
+    EvidenceClass::Payload,
+    EvidenceClass::PolicyRevision,
+    EvidenceClass::Proposal,
+    EvidenceClass::ProposalStateBasis,
+    EvidenceClass::TrustedContext,
+];
+
+const EFFECT_REQUEST_REQUIRED_CLASSES: &[EvidenceClass] = &[
+    EvidenceClass::Action,
+    EvidenceClass::CommitSequence,
+    EvidenceClass::CommitStateBasis,
+    EvidenceClass::CommittedRecord,
+    EvidenceClass::DefinitionRevision,
+    EvidenceClass::Dependency,
+    EvidenceClass::EffectAttempt,
+    EvidenceClass::EffectDispatch,
+    EvidenceClass::EffectRequest,
+    EvidenceClass::Operation,
+    EvidenceClass::Payload,
+    EvidenceClass::PolicyRevision,
+    EvidenceClass::Proposal,
+    EvidenceClass::ProposalStateBasis,
+    EvidenceClass::TrustedContext,
+];
+
+const WORLD_CLAIM_REQUIRED_CLASSES: &[EvidenceClass] = &[
+    EvidenceClass::CommitSequence,
+    EvidenceClass::CommittedRecord,
+    EvidenceClass::DefinitionRevision,
+    EvidenceClass::Payload,
+];
+
+#[derive(Clone, Copy)]
+enum PayloadAccess {
+    Full,
+    Redacted,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectHistorySnapshot {
@@ -83,24 +162,26 @@ where
         &self,
         context: &TrustedExecutionContext,
         target: ExplanationTarget,
-        disclosure: ExplanationDisclosure,
     ) -> Result<CausalExplanation, HistoryError> {
         let snapshot = self
             .store
             .load_history(context, &target)
             .await
             .map_err(HistoryError::Store)?;
+        ensure_snapshot_tenant(context, &snapshot).map_err(HistoryError::Store)?;
+        let access = payload_access(context, &snapshot);
         let mut gaps = Vec::new();
         let subject = match snapshot {
             HistorySnapshot::Action(snapshot) => ExplanationSubject::Action(Box::new(
-                explain_action(context, &target, *snapshot, disclosure, &mut gaps),
+                explain_action(&target, *snapshot, access, &mut gaps),
             )),
             HistorySnapshot::Claim(snapshot) => {
-                ExplanationSubject::Claim(Box::new(explain_claim(*snapshot, disclosure, &mut gaps)))
+                ExplanationSubject::Claim(Box::new(explain_claim(*snapshot, access, &mut gaps)))
             }
         };
+        let complete = explanation_complete(&target, &subject, &gaps);
         Ok(CausalExplanation {
-            complete: gaps.is_empty(),
+            complete,
             gaps,
             subject,
             target,
@@ -109,32 +190,34 @@ where
 }
 
 fn explain_action(
-    context: &TrustedExecutionContext,
     target: &ExplanationTarget,
     snapshot: ActionHistorySnapshot,
-    disclosure: ExplanationDisclosure,
+    access: PayloadAccess,
     gaps: &mut Vec<ExplanationGap>,
 ) -> CausalActionExplanation {
     let proposal_reference = CausalReference::Proposal(snapshot.proposal.proposal_id.clone());
-    verify_context(
-        context,
-        &snapshot.proposal.proposed_by,
-        proposal_reference.clone(),
-        gaps,
-    );
     verify_target(target, &snapshot, gaps);
 
+    let mut dependencies = snapshot.proposal.state_basis.dependencies.clone();
+    if let Some(commit_basis) = snapshot
+        .commit
+        .as_ref()
+        .and_then(|receipt| receipt.commit_state_basis.as_ref())
+    {
+        dependencies.extend(commit_basis.dependencies.iter().cloned());
+    }
     let definition = definition_evidence(
         snapshot.definition,
         Some(&snapshot.proposal.action_id),
         &snapshot.proposal.definition,
+        &dependencies,
         gaps,
     );
     let proposal_state_basis = state_basis(
         snapshot.proposal.state_basis.clone(),
         snapshot.proposal_claims,
         StateBasisStage::Proposal,
-        disclosure,
+        access,
         gaps,
     );
 
@@ -159,28 +242,16 @@ fn explain_action(
     }
 
     if let Some(approval) = &snapshot.approval {
-        verify_context(
-            context,
-            &approval.approved_by,
-            CausalReference::Approval(approval.approval_id.clone()),
-            gaps,
-        );
         let approval_policy = policy_evidence(&approval.policy, PolicyDecisionStage::Approval);
         verify_policy(&approval_policy, gaps);
         policies.push(approval_policy);
     }
 
     let commit = snapshot.commit.map(|receipt| {
-        verify_context(
-            context,
-            &receipt.committed_by,
-            CausalReference::Operation(receipt.operation_id.clone()),
-            gaps,
-        );
         let commit_policy = policy_evidence(&receipt.policy, PolicyDecisionStage::Commit);
         verify_policy(&commit_policy, gaps);
         policies.push(commit_policy);
-        commit_evidence(receipt, snapshot.commit_claims, disclosure, gaps)
+        commit_evidence(receipt, snapshot.commit_claims, access, gaps)
     });
 
     if requires_commit(target) && commit.is_none() {
@@ -195,13 +266,13 @@ fn explain_action(
     let effects = snapshot
         .effects
         .into_iter()
-        .map(|effect| effect_evidence(effect, disclosure, gaps))
+        .map(|effect| effect_evidence(effect, access, gaps))
         .collect::<Vec<_>>();
     if let Some(commit) = &commit {
         for effect_request_id in &commit.receipt.effect_request_ids {
             if !effects
                 .iter()
-                .any(|effect| effect.snapshot.request.effect_request_id == *effect_request_id)
+                .any(|effect| effect.request.structure.effect_request_id == *effect_request_id)
             {
                 gaps.push(gap(
                     EvidenceClass::EffectRequest,
@@ -219,25 +290,26 @@ fn explain_action(
         definition,
         effects,
         policies,
-        proposal: snapshot.proposal,
+        proposal: causal_proposal(snapshot.proposal, access, gaps),
         proposal_state_basis,
     }
 }
 
 fn explain_claim(
     snapshot: ClaimHistorySnapshot,
-    disclosure: ExplanationDisclosure,
+    access: PayloadAccess,
     gaps: &mut Vec<ExplanationGap>,
 ) -> CausalClaimExplanation {
     let reference = snapshot.claim.draft.definition.clone();
     let relation = snapshot.claim.draft.relation_id.clone();
-    let definition =
-        definition_evidence(snapshot.definition, None, &reference, gaps).map(|mut evidence| {
+    let definition = definition_evidence(snapshot.definition, None, &reference, &[], gaps).map(
+        |mut evidence| {
             evidence.relation_ids = vec![relation];
             evidence
-        });
+        },
+    );
     CausalClaimExplanation {
-        claim: causal_claim(snapshot.claim, disclosure, gaps),
+        claim: causal_claim(snapshot.claim, access, gaps),
         definition,
     }
 }
@@ -246,6 +318,7 @@ fn definition_evidence(
     revision: Option<DefinitionRevision>,
     action_id: Option<&ActionId>,
     expected: &DefinitionReference,
+    dependencies: &[StateDependency],
     gaps: &mut Vec<ExplanationGap>,
 ) -> Option<DefinitionEvidence> {
     let Some(revision) = revision else {
@@ -284,25 +357,16 @@ fn definition_evidence(
             None
         }
     };
-    let mut relation_ids = Vec::new();
+    let mut relation_ids = dependencies
+        .iter()
+        .map(|dependency| dependency.relation_id.clone())
+        .collect::<Vec<_>>();
+    relation_ids.sort();
+    relation_ids.dedup();
     let mut computation_ids = Vec::new();
     if let Some(decoded) = decoded {
         if let Some(action_id) = action_id {
-            if let Some(action) = decoded
-                .actions
-                .iter()
-                .find(|action| action.id == *action_id)
-            {
-                relation_ids.extend(expression_relations(&action.precondition));
-                relation_ids.extend(
-                    action
-                        .effects
-                        .iter()
-                        .map(|effect| effect.relation_id.clone()),
-                );
-                relation_ids.sort();
-                relation_ids.dedup();
-            } else {
+            if !decoded.actions.iter().any(|action| action.id == *action_id) {
                 gaps.push(gap(
                     EvidenceClass::Action,
                     GapReason::Corrupt,
@@ -311,16 +375,25 @@ fn definition_evidence(
                 ));
             }
         }
-        computation_ids = decoded
-            .computations
+        let computation_relations = dependencies
             .iter()
-            .filter(|computation| {
-                expression_relations(&computation.expression)
-                    .iter()
-                    .any(|relation| relation_ids.contains(relation))
-            })
-            .map(|computation| computation.id.clone())
-            .collect();
+            .filter(|dependency| dependency.role == LineageRole::ComputationDependency)
+            .map(|dependency| dependency.relation_id.clone())
+            .collect::<BTreeSet<_>>();
+        if !computation_relations.is_empty() {
+            computation_ids = decoded
+                .computations
+                .iter()
+                .filter(|computation| {
+                    let required = expression_relations(&computation.expression);
+                    !required.is_empty()
+                        && required
+                            .iter()
+                            .all(|relation| computation_relations.contains(relation))
+                })
+                .map(|computation| computation.id.clone())
+                .collect();
+        }
     }
     Some(DefinitionEvidence {
         action_id: action_id.cloned(),
@@ -336,13 +409,13 @@ fn state_basis(
     basis: zoen_core::StateBasis,
     claims: Vec<EvidenceClaim>,
     stage: StateBasisStage,
-    disclosure: ExplanationDisclosure,
+    access: PayloadAccess,
     gaps: &mut Vec<ExplanationGap>,
 ) -> CausalStateBasis {
     let reference = CausalReference::StateBasis(basis.digest.clone());
-    match calculate_state_basis_digest(&basis.dependencies) {
-        Ok(actual) if actual == basis.digest => {}
-        Ok(_) | Err(_) => gaps.push(gap(
+    match state_basis_digest_matches(&basis.dependencies, &basis.digest) {
+        Ok(true) => {}
+        Ok(false) | Err(_) => gaps.push(gap(
             match stage {
                 StateBasisStage::Proposal => EvidenceClass::ProposalStateBasis,
                 StateBasisStage::Commit => EvidenceClass::CommitStateBasis,
@@ -374,7 +447,7 @@ fn state_basis(
     }
     let claims = claims
         .into_iter()
-        .map(|claim| causal_claim(claim, disclosure, gaps))
+        .map(|claim| causal_claim(claim, access, gaps))
         .collect();
     CausalStateBasis {
         basis,
@@ -386,7 +459,7 @@ fn state_basis(
 fn commit_evidence(
     receipt: CommitReceipt,
     claims: Vec<EvidenceClaim>,
-    disclosure: ExplanationDisclosure,
+    access: PayloadAccess,
     gaps: &mut Vec<ExplanationGap>,
 ) -> CausalCommit {
     let operation_reference = CausalReference::Operation(receipt.operation_id.clone());
@@ -395,7 +468,7 @@ fn commit_evidence(
             basis,
             claims_for_dependencies(&claims, receipt.commit_state_basis.as_ref()),
             StateBasisStage::Commit,
-            disclosure,
+            access,
             gaps,
         )
     });
@@ -420,7 +493,7 @@ fn commit_evidence(
     let records = claims
         .into_iter()
         .filter(|claim| receipt.record_ids.contains(&claim.draft.claim_id))
-        .map(|claim| causal_claim(claim, disclosure, gaps))
+        .map(|claim| causal_claim(claim, access, gaps))
         .collect();
     CausalCommit {
         receipt,
@@ -431,10 +504,19 @@ fn commit_evidence(
 
 fn effect_evidence(
     snapshot: EffectHistorySnapshot,
-    disclosure: ExplanationDisclosure,
+    access: PayloadAccess,
     gaps: &mut Vec<ExplanationGap>,
 ) -> CausalEffect {
-    let request = &snapshot.snapshot.request;
+    let EffectHistorySnapshot {
+        dispatches,
+        snapshot,
+    } = snapshot;
+    let EffectSnapshot {
+        attempts,
+        evidence,
+        reconciliations,
+        request,
+    } = snapshot;
     let reference = CausalReference::EffectRequest(request.effect_request_id.clone());
     let actual_digest_bytes: [u8; 32] = Sha256::digest(&request.payload).into();
     let actual_digest = hex_digest(actual_digest_bytes);
@@ -446,7 +528,7 @@ fn effect_evidence(
             "the EffectRequest payload does not match its durable digest",
         ));
     }
-    if snapshot.dispatches.is_empty() {
+    if dispatches.is_empty() {
         gaps.push(gap(
             EvidenceClass::EffectDispatch,
             GapReason::Missing,
@@ -454,7 +536,7 @@ fn effect_evidence(
             "the EffectRequest has no durable scheduler dispatch evidence",
         ));
     }
-    for attempt in &snapshot.snapshot.attempts {
+    for attempt in &attempts {
         if attempt.request_digest != request.request_digest {
             gaps.push(gap(
                 EvidenceClass::EffectAttempt,
@@ -464,9 +546,7 @@ fn effect_evidence(
             ));
         }
     }
-    if !matches!(request.state, EffectKnowledgeState::NotAttempted)
-        && snapshot.snapshot.attempts.is_empty()
-    {
+    if !matches!(request.state, EffectKnowledgeState::NotAttempted) && attempts.is_empty() {
         gaps.push(gap(
             EvidenceClass::EffectAttempt,
             GapReason::Missing,
@@ -474,32 +554,30 @@ fn effect_evidence(
             "the effect knowledge state requires connector attempt evidence",
         ));
     }
-    for evidence in &snapshot.snapshot.evidence {
-        if evidence.idempotency_key != request.idempotency_key {
+    for item in &evidence {
+        if item.idempotency_key != request.idempotency_key {
             gaps.push(gap(
                 EvidenceClass::EffectEvidence,
                 GapReason::Corrupt,
-                CausalReference::EffectEvidence(evidence.evidence_id.clone()),
+                CausalReference::EffectEvidence(item.evidence_id.clone()),
                 "the reconciliation evidence references a different idempotency key",
             ));
         }
-        if !snapshot
-            .snapshot
-            .reconciliations
+        if !reconciliations
             .iter()
-            .any(|reconciliation| reconciliation.evidence_id == evidence.evidence_id)
+            .any(|reconciliation| reconciliation.evidence_id == item.evidence_id)
         {
             gaps.push(gap(
                 EvidenceClass::EffectReconciliation,
                 GapReason::Missing,
-                CausalReference::EffectEvidence(evidence.evidence_id.clone()),
+                CausalReference::EffectEvidence(item.evidence_id.clone()),
                 "effect evidence has no durable reconciliation record",
             ));
         }
     }
-    let payload_redaction = match disclosure {
-        ExplanationDisclosure::Full => None,
-        ExplanationDisclosure::RedactPayloads => {
+    let payload = match access {
+        PayloadAccess::Full => ExplanationPayload::Value(request.payload),
+        PayloadAccess::Redacted => {
             let redaction = PayloadRedaction {
                 digest: PayloadDigest::from_sha256(actual_digest_bytes),
                 reason: RedactionReason::ProtectedPayload,
@@ -510,40 +588,114 @@ fn effect_evidence(
                 reference,
                 "the EffectRequest payload is protected",
             ));
-            Some(redaction)
+            ExplanationPayload::Redacted(redaction)
         }
     };
     CausalEffect {
-        dispatches: snapshot.dispatches,
-        payload_redaction,
-        snapshot: snapshot.snapshot,
+        attempts,
+        dispatches,
+        evidence,
+        reconciliations,
+        request: CausalEffectRequest {
+            payload,
+            structure: CausalEffectRequestStructure {
+                commit_sequence: request.commit_sequence,
+                effect_request_id: request.effect_request_id,
+                idempotency_key: request.idempotency_key,
+                intent_digest: request.intent_digest,
+                operation_id: request.operation_id,
+                request_digest: request.request_digest,
+                state: request.state,
+            },
+        },
     }
 }
 
 fn causal_claim(
     claim: EvidenceClaim,
-    disclosure: ExplanationDisclosure,
+    access: PayloadAccess,
     gaps: &mut Vec<ExplanationGap>,
 ) -> CausalClaim {
-    let value_redaction = match disclosure {
-        ExplanationDisclosure::Full => None,
-        ExplanationDisclosure::RedactPayloads => {
+    let commit_sequence = claim.commit_sequence;
+    let draft = claim.draft;
+    let payload = match access {
+        PayloadAccess::Full => ExplanationPayload::Value(draft.value),
+        PayloadAccess::Redacted => {
             let redaction = PayloadRedaction {
-                digest: payload_digest(&claim.draft.value),
+                digest: payload_digest(&draft.value),
                 reason: RedactionReason::ProtectedPayload,
             };
             gaps.push(gap(
                 EvidenceClass::Payload,
                 GapReason::Redacted,
-                CausalReference::Claim(claim.draft.claim_id.clone()),
+                CausalReference::Claim(draft.claim_id.clone()),
                 "the semantic claim value is protected",
             ));
-            Some(redaction)
+            ExplanationPayload::Redacted(redaction)
         }
     };
     CausalClaim {
-        claim,
-        value_redaction,
+        payload,
+        structure: CausalClaimStructure {
+            claim_id: draft.claim_id,
+            commit_sequence,
+            definition: draft.definition,
+            entity_id: draft.entity_id,
+            provenance: draft.provenance,
+            relation_id: draft.relation_id,
+            valid_time: draft.valid_time,
+        },
+    }
+}
+
+fn causal_proposal(
+    proposal: ActionProposal,
+    access: PayloadAccess,
+    gaps: &mut Vec<ExplanationGap>,
+) -> CausalActionProposal {
+    let reference = CausalReference::Proposal(proposal.proposal_id.clone());
+    let inputs = proposal
+        .inputs
+        .into_iter()
+        .map(|input| {
+            let payload = match access {
+                PayloadAccess::Full => ExplanationPayload::Value(input.value),
+                PayloadAccess::Redacted => {
+                    let redaction = PayloadRedaction {
+                        digest: payload_digest(&input.value),
+                        reason: RedactionReason::ProtectedPayload,
+                    };
+                    gaps.push(gap(
+                        EvidenceClass::Payload,
+                        GapReason::Redacted,
+                        reference.clone(),
+                        "the Action proposal input is protected",
+                    ));
+                    ExplanationPayload::Redacted(redaction)
+                }
+            };
+            CausalActionInput {
+                id: input.id,
+                payload,
+            }
+        })
+        .collect();
+    CausalActionProposal {
+        inputs,
+        structure: ActionProposalStructure {
+            action_id: proposal.action_id,
+            authority: proposal.authority,
+            definition: proposal.definition,
+            expires_at: proposal.expires_at,
+            intent_digest: proposal.intent_digest,
+            operation_id: proposal.operation_id,
+            proposal_id: proposal.proposal_id,
+            proposed_at: proposal.proposed_at,
+            proposed_by: proposal.proposed_by,
+            resource_id: proposal.resource_id,
+            state_basis: proposal.state_basis,
+            valid_at: proposal.valid_at,
+        },
     }
 }
 
@@ -557,10 +709,28 @@ fn verify_target(
             .commit
             .as_ref()
             .is_some_and(|receipt| receipt.operation_id == *operation_id),
-        ExplanationTarget::Claim(claim_id) => snapshot
-            .commit_claims
-            .iter()
-            .any(|claim| claim.draft.claim_id == *claim_id),
+        ExplanationTarget::Claim(claim_id) => {
+            snapshot
+                .proposal
+                .state_basis
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.claim_id == *claim_id)
+                || snapshot
+                    .commit_claims
+                    .iter()
+                    .any(|claim| claim.draft.claim_id == *claim_id)
+                || snapshot
+                    .commit
+                    .as_ref()
+                    .and_then(|receipt| receipt.commit_state_basis.as_ref())
+                    .is_some_and(|basis| {
+                        basis
+                            .dependencies
+                            .iter()
+                            .any(|dependency| dependency.claim_id == *claim_id)
+                    })
+        }
         ExplanationTarget::EffectRequest(effect_request_id) => snapshot
             .effects
             .iter()
@@ -579,20 +749,196 @@ fn verify_target(
     }
 }
 
-fn verify_context(
+fn ensure_snapshot_tenant(
     request: &TrustedExecutionContext,
-    historical: &TrustedExecutionContext,
-    reference: CausalReference,
-    gaps: &mut Vec<ExplanationGap>,
-) {
-    if request.tenant_id() != historical.tenant_id() {
-        gaps.push(gap(
-            EvidenceClass::TrustedContext,
-            GapReason::Corrupt,
-            reference,
-            "the durable trusted context belongs to a different tenant",
-        ));
+    snapshot: &HistorySnapshot,
+) -> Result<(), StoreError> {
+    let HistorySnapshot::Action(snapshot) = snapshot else {
+        return Ok(());
+    };
+    let tenant_matches = snapshot.proposal.proposed_by.tenant_id() == request.tenant_id()
+        && snapshot
+            .approval
+            .as_ref()
+            .is_none_or(|approval| approval.approved_by.tenant_id() == request.tenant_id())
+        && snapshot
+            .commit
+            .as_ref()
+            .is_none_or(|receipt| receipt.committed_by.tenant_id() == request.tenant_id());
+    if tenant_matches {
+        Ok(())
+    } else {
+        Err(StoreError::NotFound)
     }
+}
+
+fn payload_access(request: &TrustedExecutionContext, snapshot: &HistorySnapshot) -> PayloadAccess {
+    match snapshot {
+        HistorySnapshot::Action(snapshot)
+            if snapshot.proposal.proposed_by.principal_id() == request.principal_id() =>
+        {
+            PayloadAccess::Full
+        }
+        HistorySnapshot::Action(_) | HistorySnapshot::Claim(_) => PayloadAccess::Redacted,
+    }
+}
+
+fn explanation_complete(
+    target: &ExplanationTarget,
+    subject: &ExplanationSubject,
+    gaps: &[ExplanationGap],
+) -> bool {
+    let required = required_classes(target, subject);
+    let observed = observed_classes(subject);
+    required.iter().all(|required_class| {
+        observed.contains(required_class) && !gaps.iter().any(|gap| gap.class == *required_class)
+    })
+}
+
+fn required_classes(
+    target: &ExplanationTarget,
+    subject: &ExplanationSubject,
+) -> Vec<EvidenceClass> {
+    let base = match (target, subject) {
+        (ExplanationTarget::Decision(_), _) => DECISION_REQUIRED_CLASSES,
+        (ExplanationTarget::Operation(_), _) => OPERATION_REQUIRED_CLASSES,
+        (ExplanationTarget::Claim(_), ExplanationSubject::Action(_)) => {
+            ACTION_CLAIM_REQUIRED_CLASSES
+        }
+        (ExplanationTarget::Claim(_), ExplanationSubject::Claim(_)) => WORLD_CLAIM_REQUIRED_CLASSES,
+        (ExplanationTarget::EffectRequest(_), _) => EFFECT_REQUEST_REQUIRED_CLASSES,
+    };
+    let mut required = base.to_vec();
+    if base.contains(&EvidenceClass::EffectRequest)
+        && matches!(subject, ExplanationSubject::Action(action) if action.effects.iter().any(|effect| {
+            matches!(
+                effect.request.structure.state,
+                EffectKnowledgeState::Confirmed
+                    | EffectKnowledgeState::ConfirmedNoEffect
+                    | EffectKnowledgeState::Contradicted
+            )
+        }))
+    {
+        required.push(EvidenceClass::EffectEvidence);
+        required.push(EvidenceClass::EffectReconciliation);
+    }
+    required
+}
+
+fn observed_classes(subject: &ExplanationSubject) -> BTreeSet<EvidenceClass> {
+    match subject {
+        ExplanationSubject::Action(action) => observed_action_classes(action),
+        ExplanationSubject::Claim(claim) => observed_claim_classes(claim),
+    }
+}
+
+fn observed_action_classes(action: &CausalActionExplanation) -> BTreeSet<EvidenceClass> {
+    let mut observed = BTreeSet::from([
+        EvidenceClass::Action,
+        EvidenceClass::Proposal,
+        EvidenceClass::ProposalStateBasis,
+        EvidenceClass::TrustedContext,
+    ]);
+    if action.approval.is_some() {
+        observed.insert(EvidenceClass::Approval);
+    }
+    if action.definition.is_some() {
+        observed.insert(EvidenceClass::DefinitionRevision);
+    }
+    if !action.proposal_state_basis.basis.dependencies.is_empty() {
+        observed.insert(EvidenceClass::Dependency);
+    }
+    if !action.policies.is_empty() {
+        observed.insert(EvidenceClass::PolicyRevision);
+    }
+    if action_payloads_are_visible(action) {
+        observed.insert(EvidenceClass::Payload);
+    }
+    if let Some(commit) = &action.commit {
+        observed.insert(EvidenceClass::CommitSequence);
+        observed.insert(EvidenceClass::Operation);
+        if commit.state_basis.is_some() {
+            observed.insert(EvidenceClass::CommitStateBasis);
+        }
+        if !commit.records.is_empty() {
+            observed.insert(EvidenceClass::CommittedRecord);
+        }
+    }
+    if !action.effects.is_empty() {
+        observed.insert(EvidenceClass::EffectRequest);
+    }
+    if action
+        .effects
+        .iter()
+        .any(|effect| !effect.dispatches.is_empty())
+    {
+        observed.insert(EvidenceClass::EffectDispatch);
+    }
+    if action
+        .effects
+        .iter()
+        .any(|effect| !effect.attempts.is_empty())
+    {
+        observed.insert(EvidenceClass::EffectAttempt);
+    }
+    if action
+        .effects
+        .iter()
+        .any(|effect| !effect.evidence.is_empty())
+    {
+        observed.insert(EvidenceClass::EffectEvidence);
+    }
+    if action
+        .effects
+        .iter()
+        .any(|effect| !effect.reconciliations.is_empty())
+    {
+        observed.insert(EvidenceClass::EffectReconciliation);
+    }
+    observed
+}
+
+fn observed_claim_classes(claim: &CausalClaimExplanation) -> BTreeSet<EvidenceClass> {
+    let mut observed = BTreeSet::from([
+        EvidenceClass::CommitSequence,
+        EvidenceClass::CommittedRecord,
+    ]);
+    if claim.definition.is_some() {
+        observed.insert(EvidenceClass::DefinitionRevision);
+    }
+    if matches!(&claim.claim.payload, ExplanationPayload::Value(_)) {
+        observed.insert(EvidenceClass::Payload);
+    }
+    observed
+}
+
+fn action_payloads_are_visible(action: &CausalActionExplanation) -> bool {
+    action
+        .proposal
+        .inputs
+        .iter()
+        .all(|input| matches!(&input.payload, ExplanationPayload::Value(_)))
+        && action
+            .proposal_state_basis
+            .claims
+            .iter()
+            .all(|claim| matches!(&claim.payload, ExplanationPayload::Value(_)))
+        && action.commit.as_ref().is_none_or(|commit| {
+            commit
+                .records
+                .iter()
+                .all(|claim| matches!(&claim.payload, ExplanationPayload::Value(_)))
+                && commit.state_basis.as_ref().is_none_or(|basis| {
+                    basis
+                        .claims
+                        .iter()
+                        .all(|claim| matches!(&claim.payload, ExplanationPayload::Value(_)))
+                })
+        })
+        && action
+            .effects
+            .iter()
+            .all(|effect| matches!(&effect.request.payload, ExplanationPayload::Value(_)))
 }
 
 fn verify_policy(policy: &PolicyDecisionEvidence, gaps: &mut Vec<ExplanationGap>) {

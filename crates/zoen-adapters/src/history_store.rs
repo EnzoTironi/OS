@@ -11,6 +11,11 @@ use crate::action_store::{load_approval, load_operation, load_proposal};
 use crate::effect_store::load_snapshot;
 use crate::{row_to_claim, row_to_revision, set_tenant, store_unavailable};
 
+enum ClaimActionOwner {
+    Operation(OperationId),
+    Proposal(ProposalId),
+}
+
 pub(crate) async fn load(
     pool: &PgPool,
     context: &ExecutionContext,
@@ -31,9 +36,12 @@ pub(crate) async fn load(
             load_action_by_proposal(&mut transaction, context, proposal_id).await?
         }
         ExplanationTarget::Claim(claim_id) => {
-            match operation_for_claim(&mut transaction, context, claim_id).await? {
-                Some(operation_id) => {
+            match action_for_claim(&mut transaction, context, claim_id).await? {
+                Some(ClaimActionOwner::Operation(operation_id)) => {
                     load_action_by_operation(&mut transaction, context, &operation_id).await?
+                }
+                Some(ClaimActionOwner::Proposal(proposal_id)) => {
+                    load_action_by_proposal(&mut transaction, context, &proposal_id).await?
                 }
                 None => {
                     let claim = load_claim(&mut transaction, context, claim_id)
@@ -132,7 +140,11 @@ async fn load_action(
     let mut effects = Vec::new();
     if let Some(receipt) = &commit {
         for effect_request_id in &receipt.effect_request_ids {
-            let snapshot = load_snapshot(transaction, context, effect_request_id).await?;
+            let snapshot = match load_snapshot(transaction, context, effect_request_id).await {
+                Ok(snapshot) => snapshot,
+                Err(StoreError::NotFound) => continue,
+                Err(error) => return Err(error),
+            };
             let dispatches = load_dispatches(transaction, context, effect_request_id).await?;
             effects.push(EffectHistorySnapshot {
                 dispatches,
@@ -171,24 +183,54 @@ async fn operation_for_effect(
     OperationId::parse(operation_id).map_err(corrupt)
 }
 
-async fn operation_for_claim(
+async fn action_for_claim(
     transaction: &mut Transaction<'_, Postgres>,
     context: &ExecutionContext,
     claim_id: &ClaimId,
-) -> Result<Option<OperationId>, StoreError> {
-    sqlx::query_scalar::<_, String>(
-        "SELECT operation_id
-         FROM action_operation_records
-         WHERE tenant_id = $1 AND claim_id = $2",
+) -> Result<Option<ClaimActionOwner>, StoreError> {
+    let row = sqlx::query(
+        "SELECT owner_kind, owner_id
+         FROM (
+             SELECT 1 AS priority, 'operation' AS owner_kind, operation_id AS owner_id
+             FROM action_operation_records
+             WHERE tenant_id = $1 AND claim_id = $2
+             UNION ALL
+             SELECT 2 AS priority, 'operation' AS owner_kind, operation_id AS owner_id
+             FROM action_operation_dependencies
+             WHERE tenant_id = $1 AND claim_id = $2
+             UNION ALL
+             SELECT 3 AS priority, 'proposal' AS owner_kind, proposal_id AS owner_id
+             FROM action_proposal_dependencies
+             WHERE tenant_id = $1 AND claim_id = $2
+         ) AS owners
+         ORDER BY priority, owner_id
+         LIMIT 1",
     )
     .bind(context.tenant_id().as_str())
     .bind(claim_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(store_unavailable)?
-    .map(OperationId::parse)
+    .map_err(store_unavailable)?;
+    row.map(|row| {
+        let owner_kind = row
+            .try_get::<String, _>("owner_kind")
+            .map_err(store_unavailable)?;
+        let owner_id = row
+            .try_get::<String, _>("owner_id")
+            .map_err(store_unavailable)?;
+        match owner_kind.as_str() {
+            "operation" => OperationId::parse(owner_id)
+                .map(ClaimActionOwner::Operation)
+                .map_err(corrupt),
+            "proposal" => ProposalId::parse(owner_id)
+                .map(ClaimActionOwner::Proposal)
+                .map_err(corrupt),
+            value => Err(StoreError::Corrupt(format!(
+                "unknown claim Action owner: {value}"
+            ))),
+        }
+    })
     .transpose()
-    .map_err(corrupt)
 }
 
 async fn load_definition(

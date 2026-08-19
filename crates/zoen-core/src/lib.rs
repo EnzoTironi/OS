@@ -11,11 +11,13 @@ pub use effect::{
     EffectSnapshot, UnknownEffectReason,
 };
 pub use history::{
-    CausalActionExplanation, CausalClaim, CausalClaimExplanation, CausalCommit, CausalEffect,
-    CausalExplanation, CausalReference, CausalStateBasis, DecisionReference, DefinitionEvidence,
-    EffectDispatchEvidence, EffectDispatchOutcome, EvidenceClass, ExplanationDisclosure,
-    ExplanationGap, ExplanationSubject, ExplanationTarget, GapReason, PayloadRedaction,
-    PolicyDecisionEvidence, PolicyDecisionStage, RedactionReason, StateBasisStage,
+    ActionProposalStructure, CausalActionExplanation, CausalActionInput, CausalActionProposal,
+    CausalClaim, CausalClaimExplanation, CausalClaimStructure, CausalCommit, CausalEffect,
+    CausalEffectRequest, CausalEffectRequestStructure, CausalExplanation, CausalReference,
+    CausalStateBasis, DecisionReference, DefinitionEvidence, EffectDispatchEvidence,
+    EffectDispatchOutcome, EvidenceClass, ExplanationGap, ExplanationPayload, ExplanationSubject,
+    ExplanationTarget, GapReason, PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage,
+    RedactionReason, StateBasisStage,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
