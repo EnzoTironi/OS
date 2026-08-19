@@ -633,7 +633,9 @@ function normalize(bundle: RawDefinitionBundle): CanonicalDefinitionBundle {
   return {
     actions: sortById(bundle.actions).map((definition) => ({
       effects: [...definition.effects]
-        .sort((left, right) => left.relationId.localeCompare(right.relationId))
+        .sort((left, right) =>
+          compareCodePoints(left.relationId, right.relationId),
+        )
         .map((effect) => ({
           relationId: effect.relationId,
           value: copyExpression(effect.value),
@@ -667,7 +669,13 @@ function normalize(bundle: RawDefinitionBundle): CanonicalDefinitionBundle {
 function sortById<T extends { readonly id: string }>(
   values: readonly T[],
 ): T[] {
-  return [...values].sort((left, right) => left.id.localeCompare(right.id));
+  return [...values].sort((left, right) =>
+    compareCodePoints(left.id, right.id),
+  );
+}
+
+function compareCodePoints(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function normalizeInputs(

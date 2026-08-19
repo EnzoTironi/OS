@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { compileDefinition } from "./compiler.js";
 
+const execFileAsync = promisify(execFile);
 const fixtureDirectory = path.join(
   process.cwd(),
   "packages",
@@ -27,6 +30,26 @@ test("canonical compilation is deterministic and order independent", async () =>
   assert.equal(first.digest, second.digest);
   assert.equal(first.canonicalJson, reordered.canonicalJson);
   assert.equal(first.digest, reordered.digest);
+});
+
+test("host ICU locale cannot change canonical identity", async () => {
+  const source = await readFile(
+    path.join(fixtureDirectory, "inventory.zoen.ts"),
+    "utf8",
+  );
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "zoen-compiler-locale-"),
+  );
+  const fixturePath = path.join(temporaryDirectory, "locale-order.zoen.ts");
+  await writeFile(
+    fixturePath,
+    source.replaceAll("inventory.Warehouse", "inventory.item"),
+  );
+
+  const english = await compileWithLocale(fixturePath, "en");
+  const danish = await compileWithLocale(fixturePath, "da");
+
+  assert.equal(english, danish);
 });
 
 test("executable changes alter the digest", async () => {
@@ -55,3 +78,26 @@ test("nondeterministic authoring syntax is rejected", async () => {
     /nondeterministic or unsupported syntax/,
   );
 });
+
+async function compileWithLocale(
+  sourcePath: string,
+  locale: string,
+): Promise<string> {
+  const cliPath = path.join(
+    process.cwd(),
+    "dist",
+    "packages",
+    "ontology",
+    "src",
+    "cli.js",
+  );
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [cliPath, "compile", sourcePath],
+    {
+      cwd: process.cwd(),
+      env: { ...process.env, LANG: locale, LC_ALL: locale },
+    },
+  );
+  return stdout;
+}
