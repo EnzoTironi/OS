@@ -9,12 +9,10 @@ use zoen_core::{
     EffectEvidenceId, EffectEvidenceOutcome as CoreEffectEvidenceOutcome,
     EffectKnowledgeState as CoreEffectKnowledgeState,
     EffectReconciliation as CoreEffectReconciliation, EffectRequest as CoreEffectRequest,
-    EffectRequestDigest, EffectRequestId, EffectResponseDigest, EffectSnapshot as CoreEffectSnapshot,
-    ExternalOperationId, SourceId,
+    EffectRequestDigest, EffectRequestId, EffectResponseDigest,
+    EffectSnapshot as CoreEffectSnapshot, ExternalOperationId, SourceId,
 };
-use zoen_engine::{
-    EffectAttemptCommand, EffectEngine, EffectError, EffectReconcileCommand,
-};
+use zoen_engine::{EffectAttemptCommand, EffectEngine, EffectError, EffectReconcileCommand};
 
 use crate::auth::SessionRegistry;
 use crate::proto::zoen::effect::v1::{
@@ -129,29 +127,23 @@ fn parse_attempt(attempt: EffectAttemptInput) -> Result<EffectAttemptCommand, Co
         .as_known()
         .ok_or_else(|| invalid("attempt reason is unknown"))?;
     let result = match (outcome, reason, attempt.response_digest.as_str()) {
-        (
-            EffectAttemptOutcome::DefinitelyNotSent,
-            EffectAttemptReason::CredentialRevoked,
-            "",
-        ) => EffectAttemptResult::DefinitelyNotSent {
-            reason: DefinitelyNotSentReason::CredentialRevoked,
-        },
-        (
-            EffectAttemptOutcome::DefinitelyNotSent,
-            EffectAttemptReason::TimeoutBeforeSend,
-            "",
-        ) => EffectAttemptResult::DefinitelyNotSent {
-            reason: DefinitelyNotSentReason::TimeoutBeforeSend,
-        },
-        (EffectAttemptOutcome::Unknown, reason, response_digest) => {
-            EffectAttemptResult::Unknown {
-                reason: parse_unknown_reason(reason)?,
-                response_digest: (!response_digest.is_empty())
-                    .then(|| EffectResponseDigest::parse(response_digest))
-                    .transpose()
-                    .map_err(|error| invalid(error.to_string()))?,
+        (EffectAttemptOutcome::DefinitelyNotSent, EffectAttemptReason::CredentialRevoked, "") => {
+            EffectAttemptResult::DefinitelyNotSent {
+                reason: DefinitelyNotSentReason::CredentialRevoked,
             }
         }
+        (EffectAttemptOutcome::DefinitelyNotSent, EffectAttemptReason::TimeoutBeforeSend, "") => {
+            EffectAttemptResult::DefinitelyNotSent {
+                reason: DefinitelyNotSentReason::TimeoutBeforeSend,
+            }
+        }
+        (EffectAttemptOutcome::Unknown, reason, response_digest) => EffectAttemptResult::Unknown {
+            reason: parse_unknown_reason(reason)?,
+            response_digest: (!response_digest.is_empty())
+                .then(|| EffectResponseDigest::parse(response_digest))
+                .transpose()
+                .map_err(|error| invalid(error.to_string()))?,
+        },
         (
             EffectAttemptOutcome::AcceptedPending,
             EffectAttemptReason::Unspecified,
@@ -159,13 +151,11 @@ fn parse_attempt(attempt: EffectAttemptInput) -> Result<EffectAttemptCommand, Co
         ) => EffectAttemptResult::AcceptedPending {
             response_digest: parse_response_digest(response_digest)?,
         },
-        (
-            EffectAttemptOutcome::Confirmed,
-            EffectAttemptReason::Unspecified,
-            response_digest,
-        ) => EffectAttemptResult::Confirmed {
-            response_digest: parse_response_digest(response_digest)?,
-        },
+        (EffectAttemptOutcome::Confirmed, EffectAttemptReason::Unspecified, response_digest) => {
+            EffectAttemptResult::Confirmed {
+                response_digest: parse_response_digest(response_digest)?,
+            }
+        }
         (
             EffectAttemptOutcome::ConfirmedNoEffect,
             EffectAttemptReason::Unspecified,
@@ -236,9 +226,9 @@ fn parse_unknown_reason(
         }
         EffectAttemptReason::Unspecified
         | EffectAttemptReason::CredentialRevoked
-        | EffectAttemptReason::TimeoutBeforeSend => {
-            Err(invalid("attempt reason does not describe an unknown outcome"))
-        }
+        | EffectAttemptReason::TimeoutBeforeSend => Err(invalid(
+            "attempt reason does not describe an unknown outcome",
+        )),
     }
 }
 
@@ -371,9 +361,7 @@ fn to_reconciliation(reconciliation: CoreEffectReconciliation) -> EffectReconcil
 fn to_state(state: CoreEffectKnowledgeState) -> EffectKnowledgeState {
     match state {
         CoreEffectKnowledgeState::NotAttempted => EffectKnowledgeState::NotAttempted,
-        CoreEffectKnowledgeState::DefinitelyNotSent => {
-            EffectKnowledgeState::DefinitelyNotSent
-        }
+        CoreEffectKnowledgeState::DefinitelyNotSent => EffectKnowledgeState::DefinitelyNotSent,
         CoreEffectKnowledgeState::Unknown => EffectKnowledgeState::Unknown,
         CoreEffectKnowledgeState::AcceptedPending => EffectKnowledgeState::AcceptedPending,
         CoreEffectKnowledgeState::Confirmed => EffectKnowledgeState::Confirmed,
