@@ -30,6 +30,5 @@ permit (
     resource
 )
 when {
-    context.approved == true &&
-    context.inputs.accepted == true
+    context.approved == true
 };

@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  cp,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -109,22 +117,18 @@ export type {
 
 export interface QualityVocabulary {
   readonly acceptanceComputation: string;
-  readonly acceptedMeasurementBasisRelation: string;
   readonly acceptedMeasurementRelation: string;
   readonly correctionRelation: string;
   readonly definitionId: string;
   readonly dispositionRelation: string;
-  readonly measurementBasisRelation: string;
   readonly measurementRelation: string;
   readonly nonconformanceRelation: string;
   readonly quarantineAction: string;
   readonly releaseAction: string;
   readonly releaseStatusRelation: string;
-  readonly specificationMinimumBasisRelation: string;
   readonly resourceId: string;
   readonly specificationMinimumRelation: string;
   readonly specificationVersionRelation: string;
-  readonly uncertaintyBasisRelation: string;
   readonly uncertaintyRelation: string;
 }
 
@@ -163,44 +167,36 @@ export type EvidenceTime =
 
 export const qualityVocabulary: QualityVocabulary = {
   acceptanceComputation: "quality.acceptance",
-  acceptedMeasurementBasisRelation: "quality.acceptedMeasurementBasisKpa",
-  acceptedMeasurementRelation: "quality.acceptedMeasurement",
+  acceptedMeasurementRelation: "quality.acceptedMeasurementBasisKpa",
   correctionRelation: "quality.correctionOf",
   definitionId: "quality.assurance",
   dispositionRelation: "quality.disposition",
-  measurementBasisRelation: "quality.measurementBasisKpa",
-  measurementRelation: "quality.measurement",
+  measurementRelation: "quality.measurementBasisKpa",
   nonconformanceRelation: "quality.nonconformance",
   quarantineAction: "quality.quarantineLot",
   releaseAction: "quality.releaseLot",
   releaseStatusRelation: "quality.releaseStatus",
   resourceId: "quality.inspection.lot-42",
-  specificationMinimumBasisRelation: "quality.specificationMinimumBasisKpa",
-  specificationMinimumRelation: "quality.specificationMinimum",
+  specificationMinimumRelation: "quality.specificationMinimumBasisKpa",
   specificationVersionRelation: "quality.specificationVersion",
-  uncertaintyBasisRelation: "quality.uncertaintyBasisKpa",
-  uncertaintyRelation: "quality.uncertainty",
+  uncertaintyRelation: "quality.uncertaintyBasisKpa",
 };
 
 export const remappedVocabulary: QualityVocabulary = {
   acceptanceComputation: "lab.acceptance",
-  acceptedMeasurementBasisRelation: "lab.acceptedMeasurementBasisKpa",
-  acceptedMeasurementRelation: "lab.acceptedMeasurement",
+  acceptedMeasurementRelation: "lab.acceptedMeasurementBasisKpa",
   correctionRelation: "lab.correctionOf",
   definitionId: "lab.assurance",
   dispositionRelation: "lab.disposition",
-  measurementBasisRelation: "lab.measurementBasisKpa",
-  measurementRelation: "lab.measurement",
+  measurementRelation: "lab.measurementBasisKpa",
   nonconformanceRelation: "lab.nonconformance",
   quarantineAction: "lab.quarantineLot",
   releaseAction: "lab.releaseLot",
   releaseStatusRelation: "lab.releaseStatus",
   resourceId: "lab.inspection.lot-42",
-  specificationMinimumBasisRelation: "lab.specificationMinimumBasisKpa",
-  specificationMinimumRelation: "lab.specificationMinimum",
+  specificationMinimumRelation: "lab.specificationMinimumBasisKpa",
   specificationVersionRelation: "lab.specificationVersion",
-  uncertaintyBasisRelation: "lab.uncertaintyBasisKpa",
-  uncertaintyRelation: "lab.uncertainty",
+  uncertaintyRelation: "lab.uncertaintyBasisKpa",
 };
 
 const compiledDefinitionSchema = z
@@ -484,6 +480,23 @@ export function runLeakageGate(target?: string): Promise<ProcessResult> {
     path.join(repositoryRoot, "scripts", "check-domain-leakage.mjs"),
     ...(target === undefined ? [] : [target]),
   ]);
+}
+
+export async function runLeakageMutant(): Promise<ProcessResult> {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "zoen-leakage-"));
+  const crate = path.join(temporaryRoot, "zoen-engine");
+  try {
+    await cp(path.join(repositoryRoot, "crates", "zoen-engine"), crate, {
+      recursive: true,
+    });
+    await appendFile(
+      path.join(crate, "src", "lib.rs"),
+      '\nconst DOMAIN_ACTION_BRANCH: &str = "quality.releaseLot";\n',
+    );
+    return await runLeakageGate(path.join(crate, "src"));
+  } finally {
+    await rm(temporaryRoot, { force: true, recursive: true });
+  }
 }
 
 export function command(

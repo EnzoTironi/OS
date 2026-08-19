@@ -49,31 +49,11 @@ const lotProduct = defineRelation({
   target: { kind: "value", valueType: { kind: "text" } },
 });
 
-const measurement = defineRelation({
-  cardinality: "many",
-  id: "quality.measurement",
-  sourceType: "quality.Inspection",
-  target: {
-    kind: "value",
-    valueType: { kind: "quantity", unit: "MPa" },
-  },
-});
-
 const measurementBasisKpa = defineRelation({
   cardinality: "many",
   id: "quality.measurementBasisKpa",
   sourceType: "quality.Inspection",
   target: { kind: "value", valueType: { kind: "integer" } },
-});
-
-const uncertainty = defineRelation({
-  cardinality: "many",
-  id: "quality.uncertainty",
-  sourceType: "quality.Inspection",
-  target: {
-    kind: "value",
-    valueType: { kind: "quantity", unit: "MPa" },
-  },
 });
 
 const uncertaintyBasisKpa = defineRelation({
@@ -83,31 +63,11 @@ const uncertaintyBasisKpa = defineRelation({
   target: { kind: "value", valueType: { kind: "integer" } },
 });
 
-const acceptedMeasurement = defineRelation({
-  cardinality: "one",
-  id: "quality.acceptedMeasurement",
-  sourceType: "quality.Inspection",
-  target: {
-    kind: "value",
-    valueType: { kind: "quantity", unit: "MPa" },
-  },
-});
-
 const acceptedMeasurementBasisKpa = defineRelation({
   cardinality: "one",
   id: "quality.acceptedMeasurementBasisKpa",
   sourceType: "quality.Inspection",
   target: { kind: "value", valueType: { kind: "integer" } },
-});
-
-const specificationMinimum = defineRelation({
-  cardinality: "one",
-  id: "quality.specificationMinimum",
-  sourceType: "quality.Inspection",
-  target: {
-    kind: "value",
-    valueType: { kind: "quantity", unit: "MPa" },
-  },
 });
 
 const specificationMinimumBasisKpa = defineRelation({
@@ -186,28 +146,17 @@ const releaseLot = defineAction({
     },
   ],
   id: "quality.releaseLot",
-  inputs: [
-    { id: "accepted", valueType: { kind: "bool" } },
-    { id: "status", valueType: { kind: "text" } },
-  ],
+  inputs: [{ id: "status", valueType: { kind: "text" } }],
   precondition: {
     kind: "binary",
     left: {
-      kind: "binary",
-      left: {
-        kind: "relation",
-        relationId: "quality.acceptedMeasurementBasisKpa",
-      },
-      operator: "add",
-      right: {
-        kind: "relation",
-        relationId: "quality.specificationMinimumBasisKpa",
-      },
+      kind: "relation",
+      relationId: "quality.acceptedMeasurementBasisKpa",
     },
     operator: "greater_than",
     right: {
-      kind: "literal",
-      value: { kind: "integer", value: "0" },
+      kind: "relation",
+      relationId: "quality.specificationMinimumBasisKpa",
     },
   },
 });
@@ -242,19 +191,15 @@ export default defineBundle({
   computations: [acceptance],
   id: "quality.assurance",
   relations: [
-    acceptedMeasurement,
     acceptedMeasurementBasisKpa,
     correctionOf,
     disposition,
     lotProduct,
-    measurement,
     measurementBasisKpa,
     nonconformance,
     releaseStatus,
-    specificationMinimum,
     specificationMinimumBasisKpa,
     specificationVersion,
-    uncertainty,
     uncertaintyBasisKpa,
   ],
   revision: 1,

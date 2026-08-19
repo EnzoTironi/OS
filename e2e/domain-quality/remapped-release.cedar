@@ -10,7 +10,4 @@ permit (
     principal,
     action == Action::"commit",
     resource
-)
-when {
-    context.inputs.accepted == true
-};
+);

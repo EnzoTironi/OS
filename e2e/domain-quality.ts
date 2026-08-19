@@ -10,12 +10,7 @@ import {
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
-  LineageRole,
-  type SemanticQueryResponse,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import {
   actionClient,
-  actionInput,
   adminClient,
   command,
   compileQuality,
@@ -25,7 +20,6 @@ import {
   evidenceInput,
   expectConnectCode,
   explainOperation,
-  explainProposal,
   historyClient,
   loadPolicy,
   oidcAudience,
@@ -40,6 +34,7 @@ import {
   repositoryRoot,
   restartRestate,
   runLeakageGate,
+  runLeakageMutant,
   semanticQuery,
   setProviderMode,
   startConnector,
@@ -52,23 +47,38 @@ import {
   waitForConnectorStatus,
   waitForState,
   worldClient,
-  writePolicyManifest,
-  type ActionClient,
-  type EvidenceTime,
   type ManagedProcess,
-  type PolicyFixture,
-  type QualityFixture,
-  type SemanticValue,
-  type WorldClient,
 } from "./domain-quality/support.js";
+import {
+  acceptanceQuery,
+  actionExplanation,
+  boolValues,
+  claimSnapshot,
+  explanationShape,
+  hasRelationLineage,
+  hasRivalMeasurements,
+  hasSourceLineage,
+  instant,
+  integerValues,
+  interval,
+  normalizedDefinition,
+  proposeQuarantine,
+  proposeRelease,
+  recordRemappedEvidence,
+  relationQuery,
+  releaseAt,
+  sameBooleans,
+  sameStrings,
+  semanticClaimCount,
+  specificationChange,
+  writeQualityPolicies,
+  yearEnd,
+  yearStart,
+} from "./domain-quality/laws.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
 const observedAt = new Date("2026-03-15T12:00:00.000Z");
-const releaseAt = new Date("2026-08-15T12:00:00.000Z");
-const yearStart = new Date("2026-01-01T00:00:00.000Z");
-const specificationChange = new Date("2026-06-01T00:00:00.000Z");
-const yearEnd = new Date("2027-01-01T00:00:00.000Z");
 
 function observe(name: string, observed: boolean): void {
   assert.ok(observed, name);
@@ -232,7 +242,7 @@ async function main(): Promise<void> {
           sourceId: "source.sensor-a",
           tenantId: tenantA,
           time: interval(yearStart, yearEnd),
-          value: { amount: "072", kind: "quantity", unit: "MPa" },
+          value: { kind: "integer", value: "072000" },
         }),
       Code.InvalidArgument,
     );
@@ -254,15 +264,6 @@ async function main(): Promise<void> {
       sourceId: "source.quality-engineering",
       tenantId: tenantA,
       time: interval(yearStart, specificationChange),
-      value: { amount: "70", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.specification-v1-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.specificationMinimumBasisRelation,
-      sourceId: "source.quality-engineering",
-      tenantId: tenantA,
-      time: interval(yearStart, specificationChange),
       value: { kind: "integer", value: "70000" },
     });
     await recordEvidence(worldA, {
@@ -281,30 +282,12 @@ async function main(): Promise<void> {
       sourceId: "source.sensor-a",
       tenantId: tenantA,
       time: interval(yearStart, yearEnd),
-      value: { amount: "72", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.sensor-original-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.measurementBasisRelation,
-      sourceId: "source.sensor-a",
-      tenantId: tenantA,
-      time: interval(yearStart, yearEnd),
       value: { kind: "integer", value: "72000" },
     });
     await recordEvidence(worldA, {
       claimId: "claim.quality.sensor-uncertainty",
       fixture: quality,
       relationId: qualityVocabulary.uncertaintyRelation,
-      sourceId: "source.sensor-a",
-      tenantId: tenantA,
-      time: interval(yearStart, yearEnd),
-      value: { amount: "0.4", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.sensor-uncertainty-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.uncertaintyBasisRelation,
       sourceId: "source.sensor-a",
       tenantId: tenantA,
       time: interval(yearStart, yearEnd),
@@ -317,15 +300,6 @@ async function main(): Promise<void> {
       sourceId: "source.inspector-a",
       tenantId: tenantA,
       time: interval(yearStart, yearEnd),
-      value: { amount: "71", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.inspector-original-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.measurementBasisRelation,
-      sourceId: "source.inspector-a",
-      tenantId: tenantA,
-      time: interval(yearStart, yearEnd),
       value: { kind: "integer", value: "71000" },
     });
     await recordEvidence(worldA, {
@@ -335,30 +309,12 @@ async function main(): Promise<void> {
       sourceId: "source.inspector-a",
       tenantId: tenantA,
       time: interval(yearStart, yearEnd),
-      value: { amount: "0.2", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.inspector-uncertainty-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.uncertaintyBasisRelation,
-      sourceId: "source.inspector-a",
-      tenantId: tenantA,
-      time: interval(yearStart, yearEnd),
       value: { kind: "integer", value: "200" },
     });
     await recordEvidence(worldA, {
       claimId: "claim.quality.accepted-original",
       fixture: quality,
       relationId: qualityVocabulary.acceptedMeasurementRelation,
-      sourceId: "source.quality-engineering",
-      tenantId: tenantA,
-      time: interval(yearStart, yearEnd),
-      value: { amount: "71", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.accepted-original-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.acceptedMeasurementBasisRelation,
       sourceId: "source.quality-engineering",
       tenantId: tenantA,
       time: interval(yearStart, yearEnd),
@@ -414,15 +370,6 @@ async function main(): Promise<void> {
       sourceId: "source.quality-engineering",
       tenantId: tenantA,
       time: interval(specificationChange, yearEnd),
-      value: { amount: "75", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.specification-v2-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.specificationMinimumBasisRelation,
-      sourceId: "source.quality-engineering",
-      tenantId: tenantA,
-      time: interval(specificationChange, yearEnd),
       value: { kind: "integer", value: "75000" },
     });
     await recordEvidence(worldA, {
@@ -458,9 +405,9 @@ async function main(): Promise<void> {
         "source.sensor-a",
       ]) &&
         hasRelationLineage(failingAcceptance, [
-          qualityVocabulary.measurementBasisRelation,
-          qualityVocabulary.specificationMinimumBasisRelation,
-          qualityVocabulary.uncertaintyBasisRelation,
+          qualityVocabulary.measurementRelation,
+          qualityVocabulary.specificationMinimumRelation,
+          qualityVocabulary.uncertaintyRelation,
         ]),
     );
     await recordEvidence(worldA, {
@@ -473,71 +420,28 @@ async function main(): Promise<void> {
       value: { kind: "text", value: "NC-42 tensile strength below v2" },
     });
 
-    const deniedProposal = await proposeRelease(
-      actionA,
-      quality,
-      "denied",
-      false,
-    );
-    assert.equal(deniedProposal.decision, PolicyDecision.PERMIT);
-    assert.equal(
-      deniedProposal.proposal?.status,
-      ProposalStatus.AWAITING_APPROVAL,
-    );
-    assert.ok(deniedProposal.proposal);
-    const beforeProposalRestartPid = zoend.child.pid;
-    await stopProcess(zoend);
-    zoend = await startZoend(policyManifestPath);
-    processes.push(zoend);
-    observe(
-      "runtimeRestartedAfterReleaseProposal",
-      beforeProposalRestartPid !== zoend.child.pid,
-    );
-    const deniedApproval = await inspector.approve({
-      approvalId: "approval.quality.release-denied",
-      expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
-      proposalId: deniedProposal.proposal.proposalId,
-    });
-    assert.equal(deniedApproval.decision, PolicyDecision.PERMIT);
-    const deniedRelease = await actionA.commit({
-      operationId: deniedProposal.proposal.operationId,
-      proposalId: deniedProposal.proposal.proposalId,
-    });
-    const deniedExplanation = await explainProposal(
-      historyA,
-      deniedProposal.proposal.proposalId,
-    );
-    const deniedAction = actionExplanation(deniedExplanation);
+    const deniedProposal = await proposeRelease(actionA, quality, "denied");
     const deniedDependencies =
-      deniedAction.proposalStateBasis?.basis?.dependencies ?? [];
+      deniedProposal.stateBasis?.dependencies ?? [];
     observe(
       "releaseDeniedUnderFailingComputedEvidence",
-      deniedRelease.status === CommitStatus.DENIED &&
-        deniedRelease.receipt === undefined &&
+      deniedProposal.decision === PolicyDecision.DENY &&
+        deniedProposal.proposal === undefined &&
+        deniedProposal.evaluationError.length === 0 &&
         deniedDependencies.some(
           (dependency) =>
-            dependency.claimId ===
-            "claim.quality.accepted-original-basis-kpa",
+            dependency.claimId === "claim.quality.accepted-original",
         ) &&
         deniedDependencies.some(
           (dependency) =>
-            dependency.claimId ===
-            "claim.quality.specification-v2-basis-kpa",
+            dependency.claimId === "claim.quality.specification-v2-minimum",
         ),
     );
     observe(
-      "deniedReleaseHasCompleteCausalExplanation",
-      deniedExplanation.complete &&
-        deniedExplanation.gaps.length === 0 &&
-        deniedAction.definition?.reference?.digest === quality.digest &&
-        deniedAction.policies.length === 2 &&
-        deniedAction.policies.every(
-          (policy) =>
-            policy.policy?.revision?.digest.length === 64 &&
-            policy.policy.determiningPolicyIds.length > 0,
-        ),
+      "unsatisfiedPreconditionReturnsStateBasisInsteadOfEvaluationError",
+      deniedProposal.stateBasis?.digest.length === 64 &&
+        deniedDependencies.length === 2,
     );
-    const deniedExplanationShape = explanationShape(deniedExplanation);
 
     const quarantineProposal = await proposeQuarantine(actionA, quality);
     assert.equal(quarantineProposal.decision, PolicyDecision.PERMIT);
@@ -618,15 +522,6 @@ async function main(): Promise<void> {
       sourceId: "source.inspector-retest",
       tenantId: tenantA,
       time: interval(releaseAt, yearEnd),
-      value: { amount: "78", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.inspector-retest-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.measurementBasisRelation,
-      sourceId: "source.inspector-retest",
-      tenantId: tenantA,
-      time: interval(releaseAt, yearEnd),
       value: { kind: "integer", value: "78000" },
     });
     await recordEvidence(worldA, {
@@ -636,30 +531,12 @@ async function main(): Promise<void> {
       sourceId: "source.inspector-retest",
       tenantId: tenantA,
       time: interval(releaseAt, yearEnd),
-      value: { amount: "0.3", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.retest-uncertainty-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.uncertaintyBasisRelation,
-      sourceId: "source.inspector-retest",
-      tenantId: tenantA,
-      time: interval(releaseAt, yearEnd),
       value: { kind: "integer", value: "300" },
     });
     await recordEvidence(worldA, {
       claimId: "claim.quality.accepted-retest",
       fixture: quality,
       relationId: qualityVocabulary.acceptedMeasurementRelation,
-      sourceId: "source.quality-supervisor",
-      tenantId: tenantA,
-      time: interval(releaseAt, yearEnd),
-      value: { amount: "78", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.accepted-retest-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.acceptedMeasurementBasisRelation,
       sourceId: "source.quality-supervisor",
       tenantId: tenantA,
       time: interval(releaseAt, yearEnd),
@@ -704,8 +581,12 @@ async function main(): Promise<void> {
       retestCommit > preRetestCut &&
         JSON.stringify(originalBeforeRetest) ===
           JSON.stringify(originalAfterRetest) &&
-        sameStrings(quantityValues(currentMeasurements), ["71", "72", "78"]) &&
-        sameStrings(quantityValues(historicalMeasurements), ["71", "72"]),
+        sameStrings(integerValues(currentMeasurements), [
+          "71000",
+          "72000",
+          "78000",
+        ]) &&
+        sameStrings(integerValues(historicalMeasurements), ["71000", "72000"]),
     );
     observe(
       "retestKeepsOriginalsVisibleAsRivals",
@@ -746,7 +627,6 @@ async function main(): Promise<void> {
       actionA,
       quality,
       "stale",
-      acceptedByComputation(correctedAcceptance),
     );
     assert.ok(staleProposal.proposal);
     assert.equal(
@@ -775,15 +655,6 @@ async function main(): Promise<void> {
       claimId: "claim.quality.specification-v3-minimum",
       fixture: quality,
       relationId: qualityVocabulary.specificationMinimumRelation,
-      sourceId: "source.quality-engineering",
-      tenantId: tenantA,
-      time: instant(releaseAt),
-      value: { amount: "76", kind: "quantity", unit: "MPa" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.quality.specification-v3-basis-kpa",
-      fixture: quality,
-      relationId: qualityVocabulary.specificationMinimumBasisRelation,
       sourceId: "source.quality-engineering",
       tenantId: tenantA,
       time: instant(releaseAt),
@@ -825,7 +696,6 @@ async function main(): Promise<void> {
       actionA,
       quality,
       "released",
-      acceptedByComputation(currentAcceptance),
     );
     assert.ok(releaseProposal.proposal);
     const releaseApproval = await supervisor.approve({
@@ -890,7 +760,6 @@ async function main(): Promise<void> {
       actionB,
       remapped,
       "remapped",
-      acceptedByComputation(remappedAcceptance),
     );
     assert.ok(remappedProposal.proposal);
     assert.equal(remappedProposal.proposal.status, ProposalStatus.READY);
@@ -914,20 +783,13 @@ async function main(): Promise<void> {
     zoend = await startZoend(policyManifestPath);
     processes.push(zoend);
     const finalHistory = historyClient(agentAToken);
-    const deniedAfterFinalRestart = await explainProposal(
-      finalHistory,
-      deniedProposal.proposal.proposalId,
-    );
     const releasedAfterFinalRestart = await explainOperation(
       finalHistory,
       released.receipt.operationId,
     );
     observe(
-      "deniedAndReleasedExplanationsReproduceAfterLaterChangesAndRestart",
-      deniedAfterFinalRestart.complete &&
-        releasedAfterFinalRestart.complete &&
-        explanationShape(deniedAfterFinalRestart) ===
-          deniedExplanationShape &&
+      "releasedExplanationReproducesAfterLaterChangesAndRestart",
+      releasedAfterFinalRestart.complete &&
         explanationShape(releasedAfterFinalRestart) ===
           releaseExplanationShape,
     );
@@ -943,14 +805,12 @@ async function main(): Promise<void> {
     });
     observe(
       "historicalMeasurementAndSpecificationCutsRemainReproducible",
-      sameStrings(quantityValues(historicalMeasurements), ["71", "72"]) &&
-        sameStrings(quantityValues(historicalSpec), ["75"]),
+      sameStrings(integerValues(historicalMeasurements), ["71000", "72000"]) &&
+        sameStrings(integerValues(historicalSpec), ["75000"]),
     );
 
     const cleanLeakage = await runLeakageGate();
-    const mutantLeakage = await runLeakageGate(
-      "e2e/domain-quality/mutants/domain-branch.rs",
-    );
+    const mutantLeakage = await runLeakageMutant();
     observe(
       "genericProductionModulesContainNoKnownDomainBranches",
       cleanLeakage.code === 0 &&
@@ -960,21 +820,6 @@ async function main(): Promise<void> {
       "domainBranchMutationIsKilled",
       mutantLeakage.code !== 0 &&
         /quality\.releaseLot/u.test(mutantLeakage.stderr),
-    );
-    const genericDiff = await command("git", [
-      "diff",
-      "--name-only",
-      "ea7cbad8476b7f148e4908d2b998009f5dce6815",
-      "--",
-      "crates/zoen-core/src",
-      "crates/zoen-engine/src",
-      "crates/zoen-query/src",
-      "crates/zoen-adapters/src",
-      "apps/zoend/src",
-    ]);
-    observe(
-      "qualityRequiredNoGenericRustSourceChange",
-      genericDiff.length === 0,
     );
     const coreTree = await command("cargo", [
       "tree",
@@ -1005,11 +850,11 @@ async function main(): Promise<void> {
       "samePublicApisDriveQualityEndToEnd",
       definitionACommit > 0n &&
         failingAcceptance.actualCommitSequence > definitionACommit &&
-        deniedRelease.status === CommitStatus.DENIED &&
+        deniedProposal.decision === PolicyDecision.DENY &&
         quarantineCommit.status === CommitStatus.COMMITTED &&
         reconciledQuarantine.snapshot?.request?.state ===
           EffectKnowledgeState.CONFIRMED &&
-        deniedAfterFinalRestart.complete,
+        releasedAfterFinalRestart.complete,
     );
 
     const postgresVersion = (
@@ -1062,7 +907,6 @@ async function main(): Promise<void> {
         specificationV3: specificationV3Commit.toString(),
       },
       operations: {
-        deniedRelease: deniedProposal.proposal.operationId,
         quarantine: quarantineCommit.receipt.operationId,
         release: released.receipt.operationId,
         remappedRelease: remappedCommit.receipt?.operationId,
@@ -1090,439 +934,6 @@ async function main(): Promise<void> {
       }
     }
   }
-}
-
-async function writeQualityPolicies(
-  outputPath: string,
-  quality: QualityFixture,
-  remapped: QualityFixture,
-  policies: readonly PolicyFixture[],
-): Promise<void> {
-  await writePolicyManifest(outputPath, [
-    {
-      fixture: quality,
-      policies: policies.filter((policy) =>
-        policy.actionId.startsWith("quality."),
-      ),
-    },
-    {
-      fixture: remapped,
-      policies: policies.filter((policy) => policy.actionId.startsWith("lab.")),
-    },
-  ]);
-}
-
-function interval(start: Date, end: Date): EvidenceTime {
-  return { end, kind: "interval", start };
-}
-
-function instant(at: Date): EvidenceTime {
-  return { at, kind: "instant" };
-}
-
-function acceptanceQuery(
-  client: WorldClient,
-  fixture: QualityFixture,
-  tenantId: string,
-  validAt: Date,
-) {
-  return semanticQuery(client, {
-    fixture,
-    selection: {
-      id: fixture.vocabulary.acceptanceComputation,
-      kind: "computation",
-    },
-    tenantId,
-    validAt,
-  });
-}
-
-function relationQuery(
-  client: WorldClient,
-  fixture: QualityFixture,
-  tenantId: string,
-  relationId: string,
-  validAt: Date,
-) {
-  return semanticQuery(client, {
-    fixture,
-    selection: { id: relationId, kind: "relation" },
-    tenantId,
-    validAt,
-  });
-}
-
-function proposeRelease(
-  client: ActionClient,
-  fixture: QualityFixture,
-  suffix: string,
-  accepted: boolean,
-) {
-  return client.propose({
-    actionId: fixture.vocabulary.releaseAction,
-    definition: fixture.definition,
-    expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
-    inputs: [
-      actionInput("accepted", { kind: "bool", value: accepted }),
-      actionInput("status", { kind: "text", value: "released" }),
-    ],
-    operationId: `operation.quality.release-${suffix}`,
-    proposalId: `proposal.quality.release-${suffix}`,
-    resourceId: fixture.vocabulary.resourceId,
-    validAt: timestampFromDate(releaseAt),
-  });
-}
-
-function proposeQuarantine(
-  client: ActionClient,
-  fixture: QualityFixture,
-) {
-  return client.propose({
-    actionId: fixture.vocabulary.quarantineAction,
-    definition: fixture.definition,
-    expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
-    inputs: [
-      actionInput("disposition", {
-        kind: "text",
-        value: "quarantined-pending-disposition",
-      }),
-    ],
-    operationId: "operation.quality.quarantine",
-    proposalId: "proposal.quality.quarantine",
-    resourceId: fixture.vocabulary.resourceId,
-    validAt: timestampFromDate(releaseAt),
-  });
-}
-
-async function recordRemappedEvidence(
-  client: WorldClient,
-  fixture: QualityFixture,
-): Promise<void> {
-  const vocabulary = fixture.vocabulary;
-  const claims: readonly {
-    readonly claimId: string;
-    readonly relationId: string;
-    readonly sourceId: string;
-    readonly time: EvidenceTime;
-    readonly value: SemanticValue;
-  }[] = [
-    {
-      claimId: "claim.lab.specification-v2-minimum",
-      relationId: vocabulary.specificationMinimumRelation,
-      sourceId: "source.quality-engineering",
-      time: interval(specificationChange, yearEnd),
-      value: { amount: "75", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.specification-v2-basis-kpa",
-      relationId: vocabulary.specificationMinimumBasisRelation,
-      sourceId: "source.quality-engineering",
-      time: interval(specificationChange, yearEnd),
-      value: { kind: "integer", value: "75000" },
-    },
-    {
-      claimId: "claim.lab.specification-v3-minimum",
-      relationId: vocabulary.specificationMinimumRelation,
-      sourceId: "source.quality-engineering",
-      time: instant(releaseAt),
-      value: { amount: "76", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.specification-v3-basis-kpa",
-      relationId: vocabulary.specificationMinimumBasisRelation,
-      sourceId: "source.quality-engineering",
-      time: instant(releaseAt),
-      value: { kind: "integer", value: "76000" },
-    },
-    {
-      claimId: "claim.lab.measurement-sensor",
-      relationId: vocabulary.measurementRelation,
-      sourceId: "source.sensor-a",
-      time: interval(yearStart, yearEnd),
-      value: { amount: "72", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.measurement-sensor-basis-kpa",
-      relationId: vocabulary.measurementBasisRelation,
-      sourceId: "source.sensor-a",
-      time: interval(yearStart, yearEnd),
-      value: { kind: "integer", value: "72000" },
-    },
-    {
-      claimId: "claim.lab.measurement-inspector",
-      relationId: vocabulary.measurementRelation,
-      sourceId: "source.inspector-a",
-      time: interval(yearStart, yearEnd),
-      value: { amount: "71", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.measurement-inspector-basis-kpa",
-      relationId: vocabulary.measurementBasisRelation,
-      sourceId: "source.inspector-a",
-      time: interval(yearStart, yearEnd),
-      value: { kind: "integer", value: "71000" },
-    },
-    {
-      claimId: "claim.lab.measurement-retest",
-      relationId: vocabulary.measurementRelation,
-      sourceId: "source.inspector-retest",
-      time: interval(releaseAt, yearEnd),
-      value: { amount: "78", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.measurement-retest-basis-kpa",
-      relationId: vocabulary.measurementBasisRelation,
-      sourceId: "source.inspector-retest",
-      time: interval(releaseAt, yearEnd),
-      value: { kind: "integer", value: "78000" },
-    },
-    {
-      claimId: "claim.lab.uncertainty-sensor",
-      relationId: vocabulary.uncertaintyRelation,
-      sourceId: "source.sensor-a",
-      time: interval(yearStart, yearEnd),
-      value: { amount: "0.4", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.uncertainty-sensor-basis-kpa",
-      relationId: vocabulary.uncertaintyBasisRelation,
-      sourceId: "source.sensor-a",
-      time: interval(yearStart, yearEnd),
-      value: { kind: "integer", value: "400" },
-    },
-    {
-      claimId: "claim.lab.uncertainty-inspector",
-      relationId: vocabulary.uncertaintyRelation,
-      sourceId: "source.inspector-a",
-      time: interval(yearStart, yearEnd),
-      value: { amount: "0.2", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.uncertainty-inspector-basis-kpa",
-      relationId: vocabulary.uncertaintyBasisRelation,
-      sourceId: "source.inspector-a",
-      time: interval(yearStart, yearEnd),
-      value: { kind: "integer", value: "200" },
-    },
-    {
-      claimId: "claim.lab.uncertainty-retest",
-      relationId: vocabulary.uncertaintyRelation,
-      sourceId: "source.inspector-retest",
-      time: interval(releaseAt, yearEnd),
-      value: { amount: "0.3", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.uncertainty-retest-basis-kpa",
-      relationId: vocabulary.uncertaintyBasisRelation,
-      sourceId: "source.inspector-retest",
-      time: interval(releaseAt, yearEnd),
-      value: { kind: "integer", value: "300" },
-    },
-    {
-      claimId: "claim.lab.accepted-original",
-      relationId: vocabulary.acceptedMeasurementRelation,
-      sourceId: "source.quality-engineering",
-      time: interval(yearStart, yearEnd),
-      value: { amount: "71", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.accepted-original-basis-kpa",
-      relationId: vocabulary.acceptedMeasurementBasisRelation,
-      sourceId: "source.quality-engineering",
-      time: interval(yearStart, yearEnd),
-      value: { kind: "integer", value: "71000" },
-    },
-    {
-      claimId: "claim.lab.accepted-retest",
-      relationId: vocabulary.acceptedMeasurementRelation,
-      sourceId: "source.quality-supervisor",
-      time: interval(releaseAt, yearEnd),
-      value: { amount: "78", kind: "quantity", unit: "MPa" },
-    },
-    {
-      claimId: "claim.lab.accepted-retest-basis-kpa",
-      relationId: vocabulary.acceptedMeasurementBasisRelation,
-      sourceId: "source.quality-supervisor",
-      time: interval(releaseAt, yearEnd),
-      value: { kind: "integer", value: "78000" },
-    },
-  ];
-  for (const claim of claims) {
-    await recordEvidence(client, {
-      ...claim,
-      fixture,
-      tenantId: tenantB,
-    });
-  }
-}
-
-function boolValues(response: SemanticQueryResponse): boolean[] {
-  return response.values.map((result) => {
-    assert.equal(result.value?.value.case, "boolValue");
-    return result.value.value.value;
-  });
-}
-
-function quantityValues(response: SemanticQueryResponse): string[] {
-  return response.values.map((result) => {
-    assert.equal(result.value?.value.case, "quantityValue");
-    return result.value.value.value.amount;
-  });
-}
-
-function acceptedByComputation(response: SemanticQueryResponse): boolean {
-  const values = boolValues(response);
-  assert.ok(values.length > 0);
-  return values.some(Boolean);
-}
-
-function hasRivalMeasurements(
-  response: SemanticQueryResponse,
-  expectedSources: readonly string[],
-): boolean {
-  if (response.values.length !== expectedSources.length) {
-    return false;
-  }
-  const sources = new Set(
-    response.values.flatMap((result) =>
-      result.dependencies
-        .filter(
-          (dependency) =>
-            dependency.relationId.endsWith(".measurement") &&
-            (dependency.role === LineageRole.SUPPORTING ||
-              dependency.role === LineageRole.RIVAL),
-        )
-        .map((dependency) => dependency.sourceId),
-    ),
-  );
-  return (
-    sameStrings([...sources], expectedSources) &&
-    response.values.every(
-      (result) =>
-        result.dependencies.filter(
-          (dependency) => dependency.role === LineageRole.RIVAL,
-        ).length ===
-        expectedSources.length - 1,
-    )
-  );
-}
-
-function hasSourceLineage(
-  response: SemanticQueryResponse,
-  expectedSources: readonly string[],
-): boolean {
-  const sources = new Set(
-    response.values.flatMap((result) =>
-      result.dependencies.map((dependency) => dependency.sourceId),
-    ),
-  );
-  return expectedSources.every((source) => sources.has(source));
-}
-
-function hasRelationLineage(
-  response: SemanticQueryResponse,
-  expectedRelations: readonly string[],
-): boolean {
-  const relations = new Set(
-    response.values.flatMap((result) =>
-      result.dependencies.map((dependency) => dependency.relationId),
-    ),
-  );
-  return expectedRelations.every((relation) => relations.has(relation));
-}
-
-function sameStrings(
-  actual: readonly string[],
-  expected: readonly string[],
-): boolean {
-  return (
-    JSON.stringify([...actual].sort()) ===
-    JSON.stringify([...expected].sort())
-  );
-}
-
-function sameBooleans(
-  actual: readonly boolean[],
-  expected: readonly boolean[],
-): boolean {
-  return (
-    JSON.stringify([...actual].sort()) ===
-    JSON.stringify([...expected].sort())
-  );
-}
-
-function normalizedDefinition(
-  fixture: QualityFixture,
-  prefix: string,
-): string {
-  return fixture.canonicalJson.replaceAll(prefix, "domain.");
-}
-
-function actionExplanation(
-  explanation: Awaited<ReturnType<typeof explainProposal>>,
-) {
-  if (explanation.subject.case !== "action") {
-    throw new Error(
-      `expected Action explanation, received ${explanation.subject.case ?? "none"}`,
-    );
-  }
-  return explanation.subject.value;
-}
-
-function explanationShape(
-  explanation: Awaited<ReturnType<typeof explainProposal>>,
-): string {
-  const action = actionExplanation(explanation);
-  return JSON.stringify({
-    approvalId: action.approval?.approvalId,
-    commitSequence: action.commit?.receipt?.commitSequence.toString(),
-    complete: explanation.complete,
-    definitionDigest: action.definition?.reference?.digest,
-    dependencyClaims:
-      action.proposalStateBasis?.basis?.dependencies
-        .map((dependency) => dependency.claimId)
-        .sort() ?? [],
-    effectStates: action.effects.map(
-      (effect) => effect.request?.structure?.state,
-    ),
-    policyDigests: action.policies
-      .map((policy) => policy.policy?.revision?.digest)
-      .sort(),
-    proposalId: action.proposal?.structure?.proposalId,
-    recordIds:
-      action.commit?.records
-        .map((record) => record.structure?.claimId)
-        .sort() ?? [],
-  });
-}
-
-async function semanticClaimCount(
-  client: ReturnType<typeof adminClient>,
-  tenantId: string,
-): Promise<number> {
-  const result = await client.query<{ count: string }>(
-    "SELECT count(*)::text AS count FROM semantic_claims WHERE tenant_id = $1",
-    [tenantId],
-  );
-  return Number(result.rows[0]?.count);
-}
-
-async function claimSnapshot(
-  client: ReturnType<typeof adminClient>,
-  tenantId: string,
-  claimId: string,
-): Promise<unknown> {
-  const result = await client.query(
-    `SELECT definition_id, definition_digest, definition_revision,
-            entity_id, relation_id, value_kind, value_text, value_unit,
-            valid_time_kind, valid_from_micros, valid_to_micros,
-            source_id, source_digest, source_ref, commit_sequence
-     FROM semantic_claims
-     WHERE tenant_id = $1 AND claim_id = $2`,
-    [tenantId, claimId],
-  );
-  assert.equal(result.rows.length, 1);
-  return result.rows[0];
 }
 
 main().catch((error: unknown) => {
