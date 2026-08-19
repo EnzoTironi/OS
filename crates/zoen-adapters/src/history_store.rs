@@ -1,8 +1,8 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    ClaimId, DecisionReference, DefinitionDigest, DefinitionId, DefinitionRevision,
-    EffectDispatchEvidence, EffectDispatchOutcome, EffectRequestId, EvidenceClaim,
-    ExecutionContext, ExplanationTarget, OperationId, ProposalId,
+    ClaimId, DecisionReference, DefinitionRevision, EffectDispatchEvidence,
+    EffectDispatchOutcome, EffectRequestId, EvidenceClaim, ExecutionContext, ExplanationTarget,
+    OperationId, ProposalId,
 };
 use zoen_engine::{
     ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistorySnapshot,

@@ -1,0 +1,206 @@
+syntax = "proto3";
+
+package zoen.history.v1;
+
+import "zoen/action/v1/action.proto";
+import "zoen/effect/v1/effect.proto";
+import "zoen/world/v1/world.proto";
+
+service HistoryService {
+  rpc Explain(ExplainRequest) returns (ExplainResponse);
+}
+
+enum ExplanationDisclosure {
+  EXPLANATION_DISCLOSURE_UNSPECIFIED = 0;
+  EXPLANATION_DISCLOSURE_FULL = 1;
+  EXPLANATION_DISCLOSURE_REDACT_PAYLOADS = 2;
+}
+
+message ExplanationTarget {
+  oneof target {
+    string operation_id = 1;
+    string claim_id = 2;
+    string effect_request_id = 3;
+    string proposal_id = 4;
+  }
+}
+
+message ExplainRequest {
+  ExplanationTarget target = 1;
+  ExplanationDisclosure disclosure = 2;
+}
+
+message ExplainResponse {
+  CausalExplanation explanation = 1;
+}
+
+enum StateBasisStage {
+  STATE_BASIS_STAGE_UNSPECIFIED = 0;
+  STATE_BASIS_STAGE_PROPOSAL = 1;
+  STATE_BASIS_STAGE_COMMIT = 2;
+}
+
+enum PolicyDecisionStage {
+  POLICY_DECISION_STAGE_UNSPECIFIED = 0;
+  POLICY_DECISION_STAGE_PROPOSAL = 1;
+  POLICY_DECISION_STAGE_APPROVAL = 2;
+  POLICY_DECISION_STAGE_COMMIT = 3;
+}
+
+enum RedactionReason {
+  REDACTION_REASON_UNSPECIFIED = 0;
+  REDACTION_REASON_PROTECTED_PAYLOAD = 1;
+}
+
+message PayloadRedaction {
+  string digest = 1;
+  RedactionReason reason = 2;
+}
+
+message CausalClaim {
+  zoen.world.v1.EvidenceClaim structure = 1;
+  uint64 commit_sequence = 2;
+  oneof payload {
+    zoen.world.v1.ExactValue value = 3;
+    PayloadRedaction redaction = 4;
+  }
+}
+
+message CausalStateBasis {
+  zoen.action.v1.StateBasis basis = 1;
+  repeated CausalClaim claims = 2;
+  StateBasisStage stage = 3;
+}
+
+message DefinitionEvidence {
+  zoen.world.v1.DefinitionReference reference = 1;
+  string action_id = 2;
+  repeated string relation_ids = 3;
+  repeated string computation_ids = 4;
+  uint64 published_at_commit_sequence = 5;
+  bool digest_verified = 6;
+}
+
+message PolicyDecisionEvidence {
+  zoen.action.v1.PolicyEvidence policy = 1;
+  PolicyDecisionStage stage = 2;
+}
+
+enum EffectDispatchOutcome {
+  EFFECT_DISPATCH_OUTCOME_UNSPECIFIED = 0;
+  EFFECT_DISPATCH_OUTCOME_ACCEPTED = 1;
+  EFFECT_DISPATCH_OUTCOME_INVALID_RESPONSE = 2;
+  EFFECT_DISPATCH_OUTCOME_REJECTED = 3;
+  EFFECT_DISPATCH_OUTCOME_SCHEDULER_UNAVAILABLE = 4;
+}
+
+message EffectDispatchEvidence {
+  uint32 attempt_number = 1;
+  EffectDispatchOutcome outcome = 2;
+  string scheduler_invocation_id = 3;
+  string error = 4;
+}
+
+message CausalEffectRequest {
+  zoen.effect.v1.EffectRequest structure = 1;
+  oneof payload {
+    bytes value = 2;
+    PayloadRedaction redaction = 3;
+  }
+}
+
+message CausalEffect {
+  CausalEffectRequest request = 1;
+  repeated EffectDispatchEvidence dispatches = 2;
+  repeated zoen.effect.v1.EffectAttempt attempts = 3;
+  repeated zoen.effect.v1.EffectEvidence evidence = 4;
+  repeated zoen.effect.v1.EffectReconciliation reconciliations = 5;
+}
+
+message CausalCommit {
+  zoen.action.v1.CommitReceipt receipt = 1;
+  zoen.action.v1.TrustedContext committed_by = 2;
+  CausalStateBasis state_basis = 3;
+  repeated CausalClaim records = 4;
+}
+
+message CausalActionExplanation {
+  zoen.action.v1.Proposal proposal = 1;
+  zoen.action.v1.TrustedContext proposed_by = 2;
+  CausalStateBasis proposal_state_basis = 3;
+  zoen.action.v1.Approval approval = 4;
+  zoen.action.v1.TrustedContext approved_by = 5;
+  CausalCommit commit = 6;
+  DefinitionEvidence definition = 7;
+  repeated PolicyDecisionEvidence policies = 8;
+  repeated CausalEffect effects = 9;
+}
+
+message CausalClaimExplanation {
+  CausalClaim claim = 1;
+  DefinitionEvidence definition = 2;
+}
+
+enum EvidenceClass {
+  EVIDENCE_CLASS_UNSPECIFIED = 0;
+  EVIDENCE_CLASS_ACTION = 1;
+  EVIDENCE_CLASS_APPROVAL = 2;
+  EVIDENCE_CLASS_COMMIT_SEQUENCE = 3;
+  EVIDENCE_CLASS_COMMIT_STATE_BASIS = 4;
+  EVIDENCE_CLASS_COMMITTED_RECORD = 5;
+  EVIDENCE_CLASS_DEFINITION_REVISION = 6;
+  EVIDENCE_CLASS_DEPENDENCY = 7;
+  EVIDENCE_CLASS_EFFECT_ATTEMPT = 8;
+  EVIDENCE_CLASS_EFFECT_DISPATCH = 9;
+  EVIDENCE_CLASS_EFFECT_EVIDENCE = 10;
+  EVIDENCE_CLASS_EFFECT_RECONCILIATION = 11;
+  EVIDENCE_CLASS_EFFECT_REQUEST = 12;
+  EVIDENCE_CLASS_INTENT = 13;
+  EVIDENCE_CLASS_OPERATION = 14;
+  EVIDENCE_CLASS_PAYLOAD = 15;
+  EVIDENCE_CLASS_POLICY_REVISION = 16;
+  EVIDENCE_CLASS_PROPOSAL = 17;
+  EVIDENCE_CLASS_PROPOSAL_STATE_BASIS = 18;
+  EVIDENCE_CLASS_TRUSTED_CONTEXT = 19;
+}
+
+enum GapReason {
+  GAP_REASON_UNSPECIFIED = 0;
+  GAP_REASON_CORRUPT = 1;
+  GAP_REASON_MISSING = 2;
+  GAP_REASON_REDACTED = 3;
+  GAP_REASON_UNAVAILABLE = 4;
+}
+
+message CausalReference {
+  oneof reference {
+    string action_id = 1;
+    string approval_id = 2;
+    string claim_id = 3;
+    zoen.world.v1.DefinitionReference definition = 4;
+    string effect_attempt_id = 5;
+    string effect_evidence_id = 6;
+    string effect_request_id = 7;
+    string operation_id = 8;
+    zoen.action.v1.PolicyRevision policy = 9;
+    string proposal_id = 10;
+    string state_basis_digest = 11;
+  }
+}
+
+message ExplanationGap {
+  EvidenceClass class = 1;
+  GapReason reason = 2;
+  CausalReference reference = 3;
+  string detail = 4;
+}
+
+message CausalExplanation {
+  ExplanationTarget target = 1;
+  bool complete = 2;
+  repeated ExplanationGap gaps = 3;
+  oneof subject {
+    CausalActionExplanation action = 4;
+    CausalClaimExplanation claim = 5;
+  }
+}
