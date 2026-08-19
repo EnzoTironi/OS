@@ -143,9 +143,15 @@ message CausalActionExplanation {
   repeated CausalEffect effects = 9;
 }
 
+message CausalMigration {
+  zoen.world.v1.MigrationOrigin origin = 1;
+  repeated CausalClaim source_claims = 2;
+}
+
 message CausalClaimExplanation {
   CausalClaim claim = 1;
   DefinitionEvidence definition = 2;
+  CausalMigration migration = 3;
 }
 
 enum EvidenceClass {

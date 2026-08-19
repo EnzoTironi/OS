@@ -1,24 +1,35 @@
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 mod effect;
+mod expression;
 mod history;
+mod migration;
 
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
     EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation, EffectRequest,
     EffectSnapshot, UnknownEffectReason,
 };
+pub use expression::{
+    BinaryOperator, ExactDecimal, ExactDecimalError, ExactInteger, ExactIntegerError, ExactValue,
+    Expression, ExpressionEvaluationError, ValueType, evaluate_expression, expression_relations,
+};
 pub use history::{
     ActionProposalStructure, CausalActionExplanation, CausalActionInput, CausalActionProposal,
     CausalClaim, CausalClaimExplanation, CausalClaimStructure, CausalCommit, CausalEffect,
-    CausalEffectRequest, CausalEffectRequestStructure, CausalExplanation, CausalReference,
-    CausalStateBasis, DecisionReference, DefinitionEvidence, EffectDispatchEvidence,
-    EffectDispatchOutcome, EvidenceClass, ExplanationGap, ExplanationPayload, ExplanationSubject,
-    ExplanationTarget, GapReason, PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage,
-    RedactionReason, StateBasisStage,
+    CausalEffectRequest, CausalEffectRequestStructure, CausalExplanation, CausalMigration,
+    CausalReference, CausalStateBasis, DecisionReference, DefinitionEvidence,
+    EffectDispatchEvidence, EffectDispatchOutcome, EvidenceClass, ExplanationGap,
+    ExplanationPayload, ExplanationSubject, ExplanationTarget, GapReason, PayloadRedaction,
+    PolicyDecisionEvidence, PolicyDecisionStage, RedactionReason, StateBasisStage,
+};
+pub use migration::{
+    MigrationArtifactDependency, MigrationDependency, MigrationElement, MigrationLineage,
+    MigrationObligation, MigrationObligationSource, MigrationOrigin, MigrationPlan,
+    MigrationPostcondition, MigrationProgress, MigrationRecipe, MigrationRecord, MigrationRule,
+    MigrationRuleKind, MigrationStatus,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -71,7 +82,9 @@ semantic_id!(EffectEvidenceId);
 semantic_id!(EffectIdempotencyKey);
 semantic_id!(EffectRequestId);
 semantic_id!(InputId);
+semantic_id!(MigrationRuleId);
 semantic_id!(OperationId);
+semantic_id!(OutputId);
 semantic_id!(PolicyId);
 semantic_id!(PrincipalId);
 semantic_id!(ProposalId);
@@ -256,468 +269,6 @@ impl CanonicalJson {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExactIntegerError(String);
-
-impl Display for ExactIntegerError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "noncanonical exact integer: {:?}", self.0)
-    }
-}
-
-impl Error for ExactIntegerError {}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExactInteger(String);
-
-impl ExactInteger {
-    pub fn parse(value: impl Into<String>) -> Result<Self, ExactIntegerError> {
-        let value = value.into();
-        if is_canonical_integer(&value) {
-            Ok(Self(value))
-        } else {
-            Err(ExactIntegerError(value))
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-fn is_canonical_integer(value: &str) -> bool {
-    match value.as_bytes() {
-        [b'0'] => true,
-        [b'-', first, rest @ ..] | [first, rest @ ..] => {
-            matches!(first, b'1'..=b'9') && rest.iter().all(u8::is_ascii_digit)
-        }
-        [] => false,
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExactDecimalError(String);
-
-impl Display for ExactDecimalError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "noncanonical exact decimal: {:?}", self.0)
-    }
-}
-
-impl Error for ExactDecimalError {}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExactDecimal(String);
-
-impl ExactDecimal {
-    pub fn parse(value: impl Into<String>) -> Result<Self, ExactDecimalError> {
-        let value = value.into();
-        if is_canonical_decimal(&value) {
-            Ok(Self(value))
-        } else {
-            Err(ExactDecimalError(value))
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-fn is_canonical_decimal(value: &str) -> bool {
-    let magnitude = value.strip_prefix('-').unwrap_or(value);
-    if magnitude.is_empty() || magnitude == "0" && value.starts_with('-') {
-        return false;
-    }
-
-    let mut parts = magnitude.split('.');
-    let integer = parts.next().unwrap_or_default();
-    let fraction = parts.next();
-    if parts.next().is_some()
-        || integer.is_empty()
-        || !integer.bytes().all(|byte| byte.is_ascii_digit())
-        || integer.len() > 1 && integer.starts_with('0')
-    {
-        return false;
-    }
-
-    match fraction {
-        None => true,
-        Some(fraction) => {
-            !fraction.is_empty()
-                && fraction.bytes().all(|byte| byte.is_ascii_digit())
-                && !fraction.ends_with('0')
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ValueType {
-    Bool,
-    Decimal,
-    Integer,
-    Quantity { unit: UnitId },
-    Text,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExactValue {
-    Bool(bool),
-    Decimal(ExactDecimal),
-    Integer(ExactInteger),
-    Quantity { amount: ExactDecimal, unit: UnitId },
-    Text(String),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BinaryOperator {
-    Add,
-    GreaterThan,
-    Multiply,
-    Subtract,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Expression {
-    Binary {
-        left: Box<Expression>,
-        operator: BinaryOperator,
-        right: Box<Expression>,
-    },
-    Input(InputId),
-    Literal(ExactValue),
-    Relation(RelationId),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExpressionEvaluationError {
-    IntegerOutOfRange(&'static str),
-    IntegerOverflow(&'static str),
-    InvalidOperands,
-    MissingInput(InputId),
-}
-
-impl Display for ExpressionEvaluationError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IntegerOutOfRange(side) => {
-                write!(formatter, "{side} integer exceeds i128")
-            }
-            Self::IntegerOverflow(operation) => {
-                write!(formatter, "integer {operation} overflowed i128")
-            }
-            Self::InvalidOperands => {
-                formatter.write_str("expression operator does not support these exact operands")
-            }
-            Self::MissingInput(input_id) => {
-                write!(formatter, "missing expression input {}", input_id.as_str())
-            }
-        }
-    }
-}
-
-impl Error for ExpressionEvaluationError {}
-
-pub fn expression_relations(expression: &Expression) -> BTreeSet<RelationId> {
-    let mut relations = BTreeSet::new();
-    collect_expression_relations(expression, &mut relations);
-    relations
-}
-
-pub fn evaluate_expression(
-    expression: &Expression,
-    inputs: &BTreeMap<InputId, ExactValue>,
-    relations: &BTreeMap<RelationId, Vec<SemanticValue>>,
-) -> Result<Vec<SemanticValue>, ExpressionEvaluationError> {
-    match expression {
-        Expression::Binary {
-            left,
-            operator,
-            right,
-        } => {
-            let left = evaluate_expression(left, inputs, relations)?;
-            let right = evaluate_expression(right, inputs, relations)?;
-            let mut values = Vec::with_capacity(left.len().saturating_mul(right.len()));
-            for left in &left {
-                for right in &right {
-                    let mut dependencies =
-                        Vec::with_capacity(left.dependencies.len() + right.dependencies.len());
-                    dependencies.extend(left.dependencies.iter().cloned());
-                    dependencies.extend(right.dependencies.iter().cloned());
-                    values.push(SemanticValue {
-                        dependencies,
-                        value: apply_expression_operator(*operator, &left.value, &right.value)?,
-                    });
-                }
-            }
-            Ok(values)
-        }
-        Expression::Input(input_id) => inputs
-            .get(input_id)
-            .cloned()
-            .map(|value| {
-                vec![SemanticValue {
-                    dependencies: Vec::new(),
-                    value,
-                }]
-            })
-            .ok_or_else(|| ExpressionEvaluationError::MissingInput(input_id.clone())),
-        Expression::Literal(value) => Ok(vec![SemanticValue {
-            dependencies: Vec::new(),
-            value: value.clone(),
-        }]),
-        Expression::Relation(relation_id) => {
-            Ok(relations.get(relation_id).cloned().unwrap_or_default())
-        }
-    }
-}
-
-fn collect_expression_relations(expression: &Expression, relations: &mut BTreeSet<RelationId>) {
-    match expression {
-        Expression::Binary { left, right, .. } => {
-            collect_expression_relations(left, relations);
-            collect_expression_relations(right, relations);
-        }
-        Expression::Relation(relation_id) => {
-            relations.insert(relation_id.clone());
-        }
-        Expression::Input(_) | Expression::Literal(_) => {}
-    }
-}
-
-fn apply_expression_operator(
-    operator: BinaryOperator,
-    left: &ExactValue,
-    right: &ExactValue,
-) -> Result<ExactValue, ExpressionEvaluationError> {
-    match (left, right) {
-        (ExactValue::Integer(left), ExactValue::Integer(right)) => {
-            apply_integer_operator(operator, left, right)
-        }
-        (ExactValue::Decimal(left), ExactValue::Decimal(right)) => {
-            apply_decimal_operator(operator, left, right).map(ExactValue::Decimal)
-        }
-        (
-            ExactValue::Quantity {
-                amount: left,
-                unit: left_unit,
-            },
-            ExactValue::Quantity {
-                amount: right,
-                unit: right_unit,
-            },
-        ) if left_unit == right_unit => match operator {
-            BinaryOperator::Add | BinaryOperator::Subtract => {
-                apply_decimal_operator(operator, left, right).map(|amount| ExactValue::Quantity {
-                    amount,
-                    unit: left_unit.clone(),
-                })
-            }
-            BinaryOperator::GreaterThan => {
-                Ok(ExactValue::Bool(compare_decimals(left, right).is_gt()))
-            }
-            BinaryOperator::Multiply => Err(ExpressionEvaluationError::InvalidOperands),
-        },
-        _ => Err(ExpressionEvaluationError::InvalidOperands),
-    }
-}
-
-fn apply_integer_operator(
-    operator: BinaryOperator,
-    left: &ExactInteger,
-    right: &ExactInteger,
-) -> Result<ExactValue, ExpressionEvaluationError> {
-    let left = left
-        .as_str()
-        .parse::<i128>()
-        .map_err(|_| ExpressionEvaluationError::IntegerOutOfRange("left"))?;
-    let right = right
-        .as_str()
-        .parse::<i128>()
-        .map_err(|_| ExpressionEvaluationError::IntegerOutOfRange("right"))?;
-    match operator {
-        BinaryOperator::Add => checked_expression_integer(left.checked_add(right), "addition"),
-        BinaryOperator::GreaterThan => Ok(ExactValue::Bool(left > right)),
-        BinaryOperator::Multiply => {
-            checked_expression_integer(left.checked_mul(right), "multiplication")
-        }
-        BinaryOperator::Subtract => {
-            checked_expression_integer(left.checked_sub(right), "subtraction")
-        }
-    }
-}
-
-fn apply_decimal_operator(
-    operator: BinaryOperator,
-    left: &ExactDecimal,
-    right: &ExactDecimal,
-) -> Result<ExactDecimal, ExpressionEvaluationError> {
-    match operator {
-        BinaryOperator::Add => Ok(add_decimals(left, right, false)),
-        BinaryOperator::Subtract => Ok(add_decimals(left, right, true)),
-        BinaryOperator::GreaterThan | BinaryOperator::Multiply => {
-            Err(ExpressionEvaluationError::InvalidOperands)
-        }
-    }
-}
-
-#[derive(Clone)]
-struct DecimalParts {
-    digits: Vec<u8>,
-    negative: bool,
-    scale: usize,
-}
-
-fn decimal_parts(value: &ExactDecimal) -> DecimalParts {
-    let (negative, magnitude) = value
-        .as_str()
-        .strip_prefix('-')
-        .map_or((false, value.as_str()), |magnitude| (true, magnitude));
-    let scale = magnitude
-        .split_once('.')
-        .map_or(0, |(_, fraction)| fraction.len());
-    let digits = magnitude
-        .bytes()
-        .filter(|byte| *byte != b'.')
-        .map(|byte| byte - b'0')
-        .collect();
-    DecimalParts {
-        digits,
-        negative,
-        scale,
-    }
-}
-
-fn add_decimals(left: &ExactDecimal, right: &ExactDecimal, subtract: bool) -> ExactDecimal {
-    let left = decimal_parts(left);
-    let mut right = decimal_parts(right);
-    right.negative ^= subtract;
-    let (left_digits, right_digits, scale) = aligned_magnitudes(&left, &right);
-    let (digits, negative) = if left.negative == right.negative {
-        (add_magnitudes(&left_digits, &right_digits), left.negative)
-    } else {
-        match left_digits.cmp(&right_digits) {
-            Ordering::Greater => (
-                subtract_magnitudes(&left_digits, &right_digits),
-                left.negative,
-            ),
-            Ordering::Less => (
-                subtract_magnitudes(&right_digits, &left_digits),
-                right.negative,
-            ),
-            Ordering::Equal => (vec![0], false),
-        }
-    };
-    ExactDecimal(render_decimal(digits, scale, negative))
-}
-
-fn compare_decimals(left: &ExactDecimal, right: &ExactDecimal) -> Ordering {
-    let left = decimal_parts(left);
-    let right = decimal_parts(right);
-    if left.negative != right.negative {
-        return if left.negative {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        };
-    }
-    let (left_digits, right_digits, _) = aligned_magnitudes(&left, &right);
-    let ordering = left_digits.cmp(&right_digits);
-    if left.negative {
-        ordering.reverse()
-    } else {
-        ordering
-    }
-}
-
-fn aligned_magnitudes(left: &DecimalParts, right: &DecimalParts) -> (Vec<u8>, Vec<u8>, usize) {
-    let scale = left.scale.max(right.scale);
-    let mut left_digits = left.digits.clone();
-    let mut right_digits = right.digits.clone();
-    left_digits.resize(left_digits.len() + scale - left.scale, 0);
-    right_digits.resize(right_digits.len() + scale - right.scale, 0);
-    let width = left_digits.len().max(right_digits.len());
-    (
-        left_pad(left_digits, width),
-        left_pad(right_digits, width),
-        scale,
-    )
-}
-
-fn left_pad(digits: Vec<u8>, width: usize) -> Vec<u8> {
-    let mut padded = vec![0; width - digits.len()];
-    padded.extend(digits);
-    padded
-}
-
-fn add_magnitudes(left: &[u8], right: &[u8]) -> Vec<u8> {
-    let mut result = vec![0; left.len() + 1];
-    let mut carry = 0;
-    for index in (0..left.len()).rev() {
-        let sum = left[index] + right[index] + carry;
-        result[index + 1] = sum % 10;
-        carry = sum / 10;
-    }
-    result[0] = carry;
-    result
-}
-
-fn subtract_magnitudes(left: &[u8], right: &[u8]) -> Vec<u8> {
-    let mut result = vec![0; left.len()];
-    let mut borrow = 0_i16;
-    for index in (0..left.len()).rev() {
-        let difference = i16::from(left[index]) - borrow - i16::from(right[index]);
-        if difference < 0 {
-            result[index] = (difference + 10) as u8;
-            borrow = 1;
-        } else {
-            result[index] = difference as u8;
-            borrow = 0;
-        }
-    }
-    result
-}
-
-fn render_decimal(mut digits: Vec<u8>, mut scale: usize, negative: bool) -> String {
-    while scale > 0 && digits.last() == Some(&0) {
-        digits.pop();
-        scale -= 1;
-    }
-    let first_significant = digits
-        .iter()
-        .position(|digit| *digit != 0)
-        .unwrap_or(digits.len().saturating_sub(1));
-    digits.drain(..first_significant);
-    if digits.iter().all(|digit| *digit == 0) {
-        return "0".to_owned();
-    }
-    if digits.len() <= scale {
-        digits = left_pad(digits, scale + 1);
-    }
-    let decimal_index = digits.len() - scale;
-    let mut rendered = String::with_capacity(digits.len() + 2);
-    if negative {
-        rendered.push('-');
-    }
-    for (index, digit) in digits.into_iter().enumerate() {
-        if scale > 0 && index == decimal_index {
-            rendered.push('.');
-        }
-        rendered.push(char::from(b'0' + digit));
-    }
-    rendered
-}
-
-fn checked_expression_integer(
-    value: Option<i128>,
-    operation: &'static str,
-) -> Result<ExactValue, ExpressionEvaluationError> {
-    let value = value.ok_or(ExpressionEvaluationError::IntegerOverflow(operation))?;
-    ExactInteger::parse(value.to_string())
-        .map(ExactValue::Integer)
-        .map_err(|_| ExpressionEvaluationError::IntegerOverflow(operation))
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputDefinition {
     pub id: InputId,
     pub value_type: ValueType,
@@ -764,10 +315,17 @@ pub struct ActionEffect {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionOutputDefinition {
+    pub id: OutputId,
+    pub value_type: ValueType,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActionDefinition {
     pub effects: Vec<ActionEffect>,
     pub id: ActionId,
     pub inputs: Vec<InputDefinition>,
+    pub outputs: Vec<ActionOutputDefinition>,
     pub precondition: Expression,
 }
 
@@ -839,11 +397,13 @@ pub enum DefinitionChangeKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefinitionChange {
     pub change: DefinitionChangeKind,
+    pub classification: EvolutionClassification,
     pub element: DefinitionElementKind,
     pub id: String,
+    pub rationale: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DefinitionImpactArea {
     Types,
     Relations,
@@ -854,6 +414,8 @@ pub enum DefinitionImpactArea {
     QueryAndMaterializationArtifacts,
     GeneratedSdkAndSurfaceArtifacts,
     PolicyAndWasmReferences,
+    PolicyAndAuthorityContracts,
+    WasmComponents,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1234,6 +796,7 @@ pub struct LineageDependency {
     pub claim_id: ClaimId,
     pub commit_sequence: CommitSequence,
     pub entity_id: EntityId,
+    pub migration: Option<MigrationOrigin>,
     pub relation_id: RelationId,
     pub role: LineageRole,
     pub source_digest: EvidenceDigest,
@@ -1282,6 +845,21 @@ pub struct PolicyEvidence {
     pub revision: PolicyRevision,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DefinitionActivationKind {
+    Activation,
+    Rollback,
+}
+
+impl DefinitionActivationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Activation => "activation",
+            Self::Rollback => "rollback",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefinitionActivation {
     pub activated_at: TimestampMicros,
@@ -1289,6 +867,8 @@ pub struct DefinitionActivation {
     pub active: DefinitionReference,
     pub classification: Option<EvolutionClassification>,
     pub commit_sequence: CommitSequence,
+    pub kind: DefinitionActivationKind,
+    pub migration_operation_id: Option<OperationId>,
     pub policy: PolicyEvidence,
     pub previous: Option<DefinitionReference>,
     pub principal_id: PrincipalId,
@@ -1391,272 +971,4 @@ pub struct CommitReceipt {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
-
-    use super::{
-        ActionId, BinaryOperator, DefinitionDigest, DelegationChain, DelegationError,
-        DelegationGrant, DelegationId, ExactDecimal, ExactInteger, ExactValue, Expression, InputId,
-        RelationId, ResourceId, SemanticValue, TimestampMicros, UnitId, ValidTime, WorkloadId,
-        apply_expression_operator, evaluate_expression,
-    };
-
-    #[test]
-    fn exact_integer_accepts_only_canonical_unbounded_forms() {
-        for accepted in [
-            "0",
-            "12",
-            "-12",
-            "9223372036854775808",
-            "-9223372036854775809",
-        ] {
-            let integer = ExactInteger::parse(accepted).expect("canonical integer");
-            assert_eq!(integer.as_str(), accepted);
-        }
-        for rejected in ["", "-0", "01", "001", "+1", "1.0", "1e2"] {
-            assert!(ExactInteger::parse(rejected).is_err(), "{rejected}");
-        }
-    }
-
-    #[test]
-    fn exact_decimal_accepts_only_canonical_forms() {
-        for accepted in ["0", "12", "-12", "0.125", "-0.125", "12.5"] {
-            assert!(ExactDecimal::parse(accepted).is_ok(), "{accepted}");
-        }
-        for rejected in ["", "-0", "01", "1.0", "1.", ".1", "+1", "1e2"] {
-            assert!(ExactDecimal::parse(rejected).is_err(), "{rejected}");
-        }
-    }
-
-    #[test]
-    fn expression_evaluation_uses_typed_input_and_relation_bindings() {
-        let input_id = InputId::parse("quantity").expect("input");
-        let relation_id = RelationId::parse("inventory.available").expect("relation");
-        let expression = Expression::Binary {
-            left: Box::new(Expression::Relation(relation_id.clone())),
-            operator: BinaryOperator::GreaterThan,
-            right: Box::new(Expression::Input(input_id.clone())),
-        };
-        let inputs = BTreeMap::from([(
-            input_id,
-            ExactValue::Integer(ExactInteger::parse("2").expect("integer")),
-        )]);
-        let relations = BTreeMap::from([(
-            relation_id,
-            vec![SemanticValue {
-                dependencies: Vec::new(),
-                value: ExactValue::Integer(ExactInteger::parse("6").expect("integer")),
-            }],
-        )]);
-
-        let values = evaluate_expression(&expression, &inputs, &relations).expect("evaluation");
-
-        assert_eq!(
-            values,
-            vec![SemanticValue {
-                dependencies: Vec::new(),
-                value: ExactValue::Bool(true),
-            }]
-        );
-    }
-
-    #[test]
-    fn expression_evaluation_preserves_exact_quantity_units() {
-        let unit = UnitId::parse("kg").expect("unit");
-        let quantity = |amount: &str| ExactValue::Quantity {
-            amount: ExactDecimal::parse(amount).expect("amount"),
-            unit: unit.clone(),
-        };
-
-        assert_eq!(
-            apply_expression_operator(
-                BinaryOperator::GreaterThan,
-                &quantity("5"),
-                &quantity("0.125"),
-            )
-            .expect("comparison"),
-            ExactValue::Bool(true)
-        );
-        assert_eq!(
-            apply_expression_operator(BinaryOperator::Subtract, &quantity("10"), &quantity("3"),)
-                .expect("subtraction"),
-            quantity("7")
-        );
-        assert_eq!(
-            apply_expression_operator(BinaryOperator::Add, &quantity("-0.5"), &quantity("1.125"),)
-                .expect("addition"),
-            quantity("0.625")
-        );
-    }
-
-    #[test]
-    fn digest_requires_lowercase_sha256_hex() {
-        assert!(DefinitionDigest::parse("a".repeat(64)).is_ok());
-        assert!(DefinitionDigest::parse("A".repeat(64)).is_err());
-        assert!(DefinitionDigest::parse("a".repeat(63)).is_err());
-    }
-
-    #[test]
-    fn child_delegation_cannot_expand_any_scope_dimension() {
-        let parent = delegation(
-            "delegation.parent",
-            ["action.purchase"],
-            ["resource.item"],
-            ["workload.agent"],
-            10,
-            100,
-        );
-        let child = delegation(
-            "delegation.child",
-            ["action.other"],
-            ["resource.item"],
-            ["workload.agent"],
-            20,
-            90,
-        );
-        assert!(matches!(
-            DelegationChain::new(vec![parent, child]),
-            Err(DelegationError::ExpandedAction(_))
-        ));
-
-        let parent = delegation(
-            "delegation.parent",
-            ["action.purchase"],
-            ["resource.item"],
-            ["workload.agent"],
-            10,
-            100,
-        );
-        let child = delegation(
-            "delegation.child",
-            ["action.purchase"],
-            ["resource.other"],
-            ["workload.agent"],
-            20,
-            90,
-        );
-        assert!(matches!(
-            DelegationChain::new(vec![parent, child]),
-            Err(DelegationError::ExpandedResource(_))
-        ));
-
-        let parent = delegation(
-            "delegation.parent",
-            ["action.purchase"],
-            ["resource.item"],
-            ["workload.agent"],
-            10,
-            100,
-        );
-        let child = delegation(
-            "delegation.child",
-            ["action.purchase"],
-            ["resource.item"],
-            ["workload.human"],
-            20,
-            90,
-        );
-        assert!(matches!(
-            DelegationChain::new(vec![parent, child]),
-            Err(DelegationError::ExpandedWorkload(_))
-        ));
-
-        let parent = delegation(
-            "delegation.parent",
-            ["action.purchase"],
-            ["resource.item"],
-            ["workload.agent"],
-            10,
-            100,
-        );
-        let child = delegation(
-            "delegation.child",
-            ["action.purchase"],
-            ["resource.item"],
-            ["workload.agent"],
-            5,
-            90,
-        );
-        assert!(matches!(
-            DelegationChain::new(vec![parent, child]),
-            Err(DelegationError::ExpandedTime(_))
-        ));
-    }
-
-    #[test]
-    fn narrowed_delegation_authorizes_only_the_leaf_scope() {
-        let chain = DelegationChain::new(vec![
-            delegation(
-                "delegation.parent",
-                ["action.purchase", "action.return"],
-                ["resource.item", "resource.other"],
-                ["workload.agent", "workload.human"],
-                10,
-                100,
-            ),
-            delegation(
-                "delegation.child",
-                ["action.purchase"],
-                ["resource.item"],
-                ["workload.agent"],
-                20,
-                90,
-            ),
-        ])
-        .expect("narrowed chain");
-        assert!(chain.permits(
-            &ActionId::parse("action.purchase").expect("action"),
-            &ResourceId::parse("resource.item").expect("resource"),
-            &WorkloadId::parse("workload.agent").expect("workload"),
-            TimestampMicros::new(50),
-        ));
-        assert!(!chain.permits(
-            &ActionId::parse("action.return").expect("action"),
-            &ResourceId::parse("resource.item").expect("resource"),
-            &WorkloadId::parse("workload.agent").expect("workload"),
-            TimestampMicros::new(50),
-        ));
-    }
-
-    #[test]
-    fn valid_time_distinguishes_instants_and_half_open_intervals() {
-        let instant = ValidTime::instant(TimestampMicros::new(10));
-        assert!(instant.contains(TimestampMicros::new(10)));
-        assert!(!instant.contains(TimestampMicros::new(11)));
-
-        let interval = ValidTime::interval(TimestampMicros::new(10), TimestampMicros::new(20))
-            .expect("ordered interval");
-        assert!(interval.contains(TimestampMicros::new(10)));
-        assert!(interval.contains(TimestampMicros::new(19)));
-        assert!(!interval.contains(TimestampMicros::new(20)));
-        assert!(ValidTime::interval(TimestampMicros::new(20), TimestampMicros::new(20)).is_err());
-    }
-
-    fn delegation<const A: usize, const R: usize, const W: usize>(
-        id: &str,
-        actions: [&str; A],
-        resources: [&str; R],
-        workloads: [&str; W],
-        not_before: i64,
-        expires_at: i64,
-    ) -> DelegationGrant {
-        DelegationGrant::new(
-            DelegationId::parse(id).expect("delegation"),
-            actions
-                .into_iter()
-                .map(|value| ActionId::parse(value).expect("action"))
-                .collect::<BTreeSet<_>>(),
-            resources
-                .into_iter()
-                .map(|value| ResourceId::parse(value).expect("resource"))
-                .collect::<BTreeSet<_>>(),
-            workloads
-                .into_iter()
-                .map(|value| WorkloadId::parse(value).expect("workload"))
-                .collect::<BTreeSet<_>>(),
-            TimestampMicros::new(not_before),
-            TimestampMicros::new(expires_at),
-        )
-        .expect("delegation grant")
-    }
-}
+mod tests;

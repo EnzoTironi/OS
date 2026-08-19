@@ -8,8 +8,9 @@ use zoen_core::{
     CausalClaim as CoreCausalClaim, CausalClaimExplanation as CoreCausalClaimExplanation,
     CausalCommit as CoreCausalCommit, CausalEffect as CoreCausalEffect,
     CausalEffectRequestStructure, CausalExplanation as CoreCausalExplanation,
-    CausalReference as CoreCausalReference, CausalStateBasis as CoreCausalStateBasis,
-    DecisionReference, DefinitionEvidence as CoreDefinitionEvidence,
+    CausalMigration as CoreCausalMigration, CausalReference as CoreCausalReference,
+    CausalStateBasis as CoreCausalStateBasis, DecisionReference,
+    DefinitionEvidence as CoreDefinitionEvidence,
     EffectDispatchEvidence as CoreEffectDispatchEvidence,
     EffectDispatchOutcome as CoreEffectDispatchOutcome, EffectRequest as CoreEffectRequest,
     EvidenceClass as CoreEvidenceClass, ExplanationGap as CoreExplanationGap, ExplanationPayload,
@@ -31,14 +32,14 @@ use crate::proto::zoen::action::v1::PolicyRevision;
 use crate::proto::zoen::history::v1::{
     CausalActionExplanation, CausalActionInput, CausalActionProposal, CausalClaim,
     CausalClaimExplanation, CausalCommit, CausalEffect, CausalEffectRequest, CausalExplanation,
-    CausalReference, CausalStateBasis, DefinitionEvidence, EffectDispatchEvidence,
+    CausalMigration, CausalReference, CausalStateBasis, DefinitionEvidence, EffectDispatchEvidence,
     EffectDispatchOutcome, EvidenceClass, ExplainRequest, ExplainResponse, ExplanationGap,
     ExplanationTarget, GapReason, HistoryService, PayloadRedaction, PolicyDecisionEvidence,
     PolicyDecisionStage, RedactionReason, StateBasisStage, causal_action_input, causal_claim,
     causal_effect_request, causal_explanation, causal_reference, explanation_target,
 };
 use crate::proto::zoen::world::v1::{
-    EvidenceClaim as ProtocolEvidenceClaim, EvidenceProvenance, TemporalInterval,
+    EvidenceClaim as ProtocolEvidenceClaim, EvidenceProvenance, MigrationOrigin, TemporalInterval,
     ValidTime as ProtocolValidTime, valid_time,
 };
 use crate::world_service::{invalid, to_definition_reference, to_exact_value, to_timestamp};
@@ -203,6 +204,31 @@ fn to_claim_explanation(explanation: CoreCausalClaimExplanation) -> CausalClaimE
     CausalClaimExplanation {
         claim: Some(to_causal_claim(explanation.claim)).into(),
         definition: explanation.definition.map(to_definition).into(),
+        migration: explanation.migration.map(to_migration).into(),
+        ..Default::default()
+    }
+}
+
+fn to_migration(migration: CoreCausalMigration) -> CausalMigration {
+    CausalMigration {
+        origin: Some(MigrationOrigin {
+            operation_id: migration.origin.operation_id.as_str().to_owned(),
+            rule_id: migration.origin.rule_id.as_str().to_owned(),
+            rule_kind: migration.origin.kind.as_str().to_owned(),
+            source_claim_ids: migration
+                .origin
+                .source_claim_ids
+                .iter()
+                .map(|claim_id| claim_id.as_str().to_owned())
+                .collect(),
+            ..Default::default()
+        })
+        .into(),
+        source_claims: migration
+            .source_claims
+            .into_iter()
+            .map(to_causal_claim)
+            .collect(),
         ..Default::default()
     }
 }

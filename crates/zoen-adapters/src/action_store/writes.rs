@@ -5,7 +5,8 @@ use zoen_core::{
 };
 use zoen_engine::{ActionCommitEffect, AdmittedEvidence, CommitPlan, StoreError};
 
-use crate::{store_unavailable, u64_to_i64, valid_time_columns, value_columns};
+use crate::semantic_claim_store::{self, RevisionRequirement};
+use crate::{store_unavailable, u64_to_i64};
 
 use super::{GrantOwner, ensure_context_tenant, insert_grants, ordinal_i32};
 
@@ -87,53 +88,14 @@ pub(super) async fn insert_semantic_record(
     commit_sequence: i64,
     evidence: &AdmittedEvidence,
 ) -> Result<(), StoreError> {
-    let draft = evidence.draft();
-    let (value_kind, value_text, value_unit) = value_columns(&draft.value);
-    let (valid_time_kind, valid_from_micros, valid_to_micros) =
-        valid_time_columns(&draft.valid_time);
-    sqlx::query(
-        "INSERT INTO semantic_claims (
-            tenant_id, claim_id, definition_id, definition_digest, definition_revision,
-            entity_id, relation_id, value_kind, value_text, value_unit,
-            valid_time_kind, valid_from_micros, valid_to_micros,
-            source_id, source_digest, source_ref, commit_sequence
-         ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8, $9, $10,
-            $11, $12, $13,
-            $14, $15, $16, $17
-         )",
+    semantic_claim_store::insert(
+        transaction,
+        tenant_id,
+        commit_sequence,
+        evidence,
+        RevisionRequirement::Active,
     )
-    .bind(tenant_id.as_str())
-    .bind(draft.claim_id.as_str())
-    .bind(draft.definition.definition_id.as_str())
-    .bind(draft.definition.digest.as_str())
-    .bind(u64_to_i64(
-        draft.definition.revision.get(),
-        "definition revision",
-    )?)
-    .bind(draft.entity_id.as_str())
-    .bind(draft.relation_id.as_str())
-    .bind(value_kind)
-    .bind(value_text)
-    .bind(value_unit)
-    .bind(valid_time_kind)
-    .bind(valid_from_micros)
-    .bind(valid_to_micros)
-    .bind(draft.provenance.source_id.as_str())
-    .bind(draft.provenance.source_digest.as_str())
-    .bind(&draft.provenance.source_ref)
-    .bind(commit_sequence)
-    .execute(&mut **transaction)
     .await
-    .map_err(|error| {
-        map_identity_insert(
-            error,
-            "semantic_claims_pkey",
-            CommitIdentityKind::SemanticRecord,
-        )
-    })?;
-    Ok(())
 }
 
 pub(super) async fn insert_effect_request(

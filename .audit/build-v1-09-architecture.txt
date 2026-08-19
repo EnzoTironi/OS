@@ -1,0 +1,96 @@
+BUILD V1-09 architecture sketch
+
+Problem
+
+Breaking definition changes need a durable migration operation without changing the authority model. The design must preserve immutable claims, exact definition pinning, tenant isolation, operation replay, activation gating, and pointer-only rollback. It must also keep SQL, Cedar, and Protobuf types outside zoen-core.
+
+Usage
+
+PlanEvolution(from, to) returns a server-derived assessment with a classification and rationale for each semantic change.
+
+PrepareMigration(operation_id, plan) validates the plan against a fresh assessment, checks Cedar and delegation, and commits the accepted plan through authority_commits.
+
+ApplyMigrationBatch(operation_id, batch_index, records) loads the accepted plan, checks Cedar, validates target evidence against the target revision, checks source dependencies, and commits new claims plus lineage links through authority_commits. An exact replay returns the durable result. Different content at the same batch identity returns an operation mismatch.
+
+GetMigration(operation_id) returns durable progress, completed batches, and source-to-target lineage.
+
+ActivateRevision(target) recomputes the assessment. A requires_migration or breaking target needs a completed migration for the exact active and target revisions.
+
+RollbackRevision(target, expected_active_digest) commits another immutable definition activation and moves only the active pointer. The target must have been active before.
+
+Shape
+
+zoen-core owns MigrationPlan, MigrationRule, MigrationDependency, MigrationPostcondition, MigrationRecord, MigrationProgress, and MigrationStatus. MigrationPlan is a sum of typed rules rather than optional fields. ExactValue gains an Entity variant so a Type-target relation can carry an entity reference. ActionDefinition gains typed outputs so output contract changes participate in canonical identity and evolution classification. zoen-core keeps no dependencies.
+
+zoen-engine owns assessment, plan validation, deterministic plan and batch intent digests, Cedar and delegation admission, target evidence admission, activation preconditions, and rollback rules. The engine exposes complete migration operations through the existing AuthorityStore deep port.
+
+zoen-adapters stores accepted plans, batches, migration lineage, and policy evidence in PostgreSQL. Every mutation appends to authority_commits and advances authority_heads in one transaction. Semantic claims remain immutable. Migration tables record progress but do not form another commit ledger.
+
+zoend parses Protobuf into core types and maps typed outcomes. Generated clients consume the versioned MigrationPlan protocol.
+
+zoen-query reads Entity values through the existing PostgreSQL and Parquet providers. Projection rows retain the producing definition digest and revision.
+
+The plan data shape is:
+
+MigrationPlan {
+  format_version
+  operation_id
+  from
+  to
+  classification
+  affected_elements[]
+  artifact_dependencies[]
+  rules[]
+  dependencies[]
+  postconditions[]
+  expected_batches
+}
+
+MigrationRule {
+  rule_id
+  kind: preserve_meaning | transform | supersede | recompute
+  sources[]
+  targets[]
+}
+
+MigrationDependency {
+  entity_id
+  relation_id
+  claim_id
+  commit_sequence
+}
+
+MigrationRecord {
+  rule_id
+  source_claim_ids[]
+  target_evidence
+}
+
+Synthesis decision
+
+Candidate A makes migration a universal DefinitionService operation backed by AuthorityStore and authority_commits. It hides plan admission, batching, replay, and storage behind four protocol calls. This is the selected base.
+
+Candidate B generates ordinary ontology Actions for each migration. It lost because an ordinary Action requires the active definition, while migration must write validated evidence under an inactive target before activation. It would also force callers to coordinate Action proposal, approval, batches, and migration completion as separate lifecycles.
+
+Candidate C activates first and lets clients call RecordEvidence. It lost because it removes the activation precondition, cannot bind output records to one plan identity, and permits partial current semantics.
+
+Candidate A adopts Candidate B's policy rule. Cedar evaluates migration and rollback through the existing PolicyEvaluator with the assessment classification in context. It rejects Candidate B's generated Action definitions and second lifecycle.
+
+Tradeoffs accepted
+
+- We accept dedicated migration progress tables in exchange for durable recovery and inspectable replay. authority_commits remains the only commit sequence.
+- We accept one new Entity ExactValue variant in exchange for executing scalar-to-entity migration through the real semantic query path.
+- We accept explicit client-authored target evidence in a governed batch. The engine validates it against the accepted plan and target revision, and stores it as new evidence with source lineage.
+- We do not use Restate because existing operation and batch identities provide durable mid-plan recovery.
+- We do not use Wasmtime because main has no component artifact or canonical component reference to revise.
+
+Risks
+
+- A plan that omits generated or query dependencies must fail before any migration commit.
+- Activation must recheck migration completion inside the same PostgreSQL transaction that changes the pointer.
+- A new ordinary claim on a declared dependency must make the next batch fail with a typed stale dependency outcome.
+- Projection failure must not alter migration completion or active history.
+
+Next implementation step
+
+Add the core and Protobuf types, then make classifier output explicit per-change rationale before adding persistence.

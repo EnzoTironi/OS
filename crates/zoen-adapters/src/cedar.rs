@@ -172,6 +172,9 @@ fn cedar_request(request: &PolicyRequest<'_>) -> Result<Request, String> {
             "actionId": request.action_id.as_str(),
             "actorId": request.context.actor_id().as_str(),
             "approved": request.approved,
+            "classification": request.classification
+                .map(zoen_core::EvolutionClassification::as_str)
+                .unwrap_or("none"),
             "inputs": inputs,
             "tenantId": request.context.tenant_id().as_str(),
             "workloadId": request.context.workload_id().as_str()
@@ -185,6 +188,7 @@ fn cedar_request(request: &PolicyRequest<'_>) -> Result<Request, String> {
 fn cedar_value(input_id: &str, value: &ExactValue) -> Result<serde_json::Value, String> {
     match value {
         ExactValue::Bool(value) => Ok(serde_json::Value::Bool(*value)),
+        ExactValue::Entity(value) => Ok(serde_json::Value::String(value.as_str().to_owned())),
         ExactValue::Integer(value) => value
             .as_str()
             .parse::<i64>()
@@ -202,10 +206,13 @@ fn cedar_value(input_id: &str, value: &ExactValue) -> Result<serde_json::Value, 
 fn operation_name(operation: PolicyOperation) -> &'static str {
     match operation {
         PolicyOperation::ActivateRevision => "activate_revision",
+        PolicyOperation::ApplyMigrationBatch => "apply_migration_batch",
         PolicyOperation::Approve => "approve",
         PolicyOperation::Commit => "commit",
         PolicyOperation::Discover => "discover",
+        PolicyOperation::PrepareMigration => "prepare_migration",
         PolicyOperation::RequestApproval => "request_approval",
+        PolicyOperation::RollbackRevision => "rollback_revision",
     }
 }
 
@@ -284,6 +291,7 @@ mod tests {
             .evaluate(&PolicyRequest {
                 action_id: &action,
                 approved: false,
+                classification: None,
                 context: &context,
                 definition: &definition,
                 inputs: &[input],
@@ -299,6 +307,7 @@ mod tests {
             .evaluate(&PolicyRequest {
                 action_id: &error_action,
                 approved: false,
+                classification: None,
                 context: &error_context,
                 definition: &definition,
                 inputs: &[],
@@ -341,6 +350,7 @@ mod tests {
             .evaluate(&PolicyRequest {
                 action_id: &action,
                 approved: false,
+                classification: None,
                 context: &context,
                 definition: &definition,
                 inputs: &[input],

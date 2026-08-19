@@ -16,9 +16,10 @@ use zoen_query::{QueryError, QueryRuntime};
 
 use crate::auth::SessionRegistry;
 use crate::proto::zoen::world::v1::{
-    DefinitionReference, EvidenceClaim, ExactValue, LineageDependency, LineageRole, QuantityValue,
-    RecordEvidenceRequest, RecordEvidenceResponse, SemanticQueryRequest, SemanticQueryResponse,
-    SemanticValueResult, WorldService, exact_value, query_consistency, query_selection, valid_time,
+    DefinitionReference, EvidenceClaim, ExactValue, LineageDependency, LineageRole,
+    MigrationOrigin, QuantityValue, RecordEvidenceRequest, RecordEvidenceResponse,
+    SemanticQueryRequest, SemanticQueryResponse, SemanticValueResult, WorldService, exact_value,
+    query_consistency, query_selection, valid_time,
 };
 
 pub struct WorldServiceImpl {
@@ -118,7 +119,7 @@ impl WorldService for WorldServiceImpl {
     }
 }
 
-fn parse_evidence_claim(claim: &EvidenceClaim) -> Result<EvidenceDraft, ConnectError> {
+pub(crate) fn parse_evidence_claim(claim: &EvidenceClaim) -> Result<EvidenceDraft, ConnectError> {
     let definition = claim
         .definition
         .as_option()
@@ -175,6 +176,9 @@ pub(crate) fn parse_exact_value(value: &ExactValue) -> Result<CoreExactValue, Co
         exact_value::Value::BoolValue(value) => Ok(CoreExactValue::Bool(*value)),
         exact_value::Value::DecimalValue(value) => ExactDecimal::parse(value)
             .map(CoreExactValue::Decimal)
+            .map_err(|error| invalid(error.to_string())),
+        exact_value::Value::EntityRefValue(value) => EntityId::parse(value)
+            .map(CoreExactValue::Entity)
             .map_err(|error| invalid(error.to_string())),
         exact_value::Value::IntegerValue(value) => ExactInteger::parse(value)
             .map(CoreExactValue::Integer)
@@ -279,6 +283,20 @@ fn to_query_response(result: SemanticResult) -> SemanticQueryResponse {
                         claim_id: dependency.claim_id.as_str().to_owned(),
                         commit_sequence: dependency.commit_sequence.get(),
                         entity_id: dependency.entity_id.as_str().to_owned(),
+                        migration: dependency
+                            .migration
+                            .map(|origin| MigrationOrigin {
+                                operation_id: origin.operation_id.as_str().to_owned(),
+                                rule_id: origin.rule_id.as_str().to_owned(),
+                                rule_kind: origin.kind.as_str().to_owned(),
+                                source_claim_ids: origin
+                                    .source_claim_ids
+                                    .into_iter()
+                                    .map(|claim_id| claim_id.as_str().to_owned())
+                                    .collect(),
+                                ..Default::default()
+                            })
+                            .into(),
                         relation_id: dependency.relation_id.as_str().to_owned(),
                         role: match dependency.role {
                             CoreLineageRole::ComputationDependency => {
@@ -316,6 +334,9 @@ pub(crate) fn to_exact_value(value: CoreExactValue) -> ExactValue {
         CoreExactValue::Bool(value) => exact_value::Value::BoolValue(value),
         CoreExactValue::Decimal(value) => {
             exact_value::Value::DecimalValue(value.as_str().to_owned())
+        }
+        CoreExactValue::Entity(value) => {
+            exact_value::Value::EntityRefValue(value.as_str().to_owned())
         }
         CoreExactValue::Integer(value) => {
             exact_value::Value::IntegerValue(value.as_str().to_owned())

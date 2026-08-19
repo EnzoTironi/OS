@@ -1,10 +1,12 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     ClaimId, DecisionReference, DefinitionRevision, EffectDispatchEvidence, EffectDispatchOutcome,
-    EffectRequestId, EvidenceClaim, ExecutionContext, ExplanationTarget, OperationId, ProposalId,
+    EffectRequestId, EvidenceClaim, ExecutionContext, ExplanationTarget, MigrationOrigin,
+    MigrationRuleId, MigrationRuleKind, OperationId, ProposalId,
 };
 use zoen_engine::{
-    ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistorySnapshot, StoreError,
+    ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistorySnapshot,
+    MigrationHistorySnapshot, StoreError,
 };
 
 use crate::action_store::{load_approval, load_operation, load_proposal};
@@ -49,7 +51,12 @@ pub(crate) async fn load(
                         .ok_or(StoreError::NotFound)?;
                     let definition =
                         load_definition(&mut transaction, context, &claim.draft.definition).await?;
-                    HistorySnapshot::Claim(Box::new(ClaimHistorySnapshot { claim, definition }))
+                    let migration = load_migration(&mut transaction, context, claim_id).await?;
+                    HistorySnapshot::Claim(Box::new(ClaimHistorySnapshot {
+                        claim,
+                        definition,
+                        migration,
+                    }))
                 }
             }
         }
@@ -278,6 +285,67 @@ async fn load_claim(
     .await
     .map_err(store_unavailable)?;
     row.as_ref().map(row_to_claim).transpose()
+}
+
+async fn load_migration(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: &ExecutionContext,
+    claim_id: &ClaimId,
+) -> Result<Option<MigrationHistorySnapshot>, StoreError> {
+    let row = sqlx::query(
+        "SELECT operation_id, rule_id, rule_kind
+         FROM definition_migration_records
+         WHERE tenant_id = $1 AND target_claim_id = $2",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(claim_id.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let operation_id = OperationId::parse(
+        row.try_get::<String, _>("operation_id")
+            .map_err(store_unavailable)?,
+    )
+    .map_err(corrupt)?;
+    let rule_id = MigrationRuleId::parse(
+        row.try_get::<String, _>("rule_id")
+            .map_err(store_unavailable)?,
+    )
+    .map_err(corrupt)?;
+    let rule_kind = row
+        .try_get::<String, _>("rule_kind")
+        .map_err(store_unavailable)?;
+    let kind = MigrationRuleKind::parse(&rule_kind)
+        .ok_or_else(|| StoreError::Corrupt(format!("unknown migration rule kind: {rule_kind}")))?;
+    let source_claim_ids = sqlx::query_scalar::<_, String>(
+        "SELECT source_claim_id
+         FROM definition_migration_lineage
+         WHERE tenant_id = $1 AND operation_id = $2 AND target_claim_id = $3
+         ORDER BY source_claim_id",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(operation_id.as_str())
+    .bind(claim_id.as_str())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?
+    .into_iter()
+    .map(ClaimId::parse)
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(corrupt)?;
+    let source_claims = load_claims(transaction, context, &source_claim_ids).await?;
+    Ok(Some(MigrationHistorySnapshot {
+        origin: MigrationOrigin {
+            kind,
+            operation_id,
+            rule_id,
+            source_claim_ids,
+        },
+        source_claims,
+    }))
 }
 
 async fn load_claims(

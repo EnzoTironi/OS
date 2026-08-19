@@ -3,17 +3,23 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 use zoen_core::{
-    ActionDefinition, ActionEffect, ActionId, BinaryOperator, CanonicalDefinition, CanonicalJson,
-    Cardinality, ComputationDefinition, ComputationId, DefinitionDigest, DefinitionId,
-    DefinitionRevision, DefinitionRevisionNumber, DefinitionSchema, EvidenceDraft, ExactDecimal,
-    ExactInteger, ExactValue, Expression, InputDefinition, InputId, RelationDefinition, RelationId,
-    RelationTarget, TypeDefinition, TypeId, UnitId, ValueType,
+    ActionDefinition, ActionEffect, ActionId, ActionOutputDefinition, BinaryOperator,
+    CanonicalDefinition, CanonicalJson, Cardinality, ComputationDefinition, ComputationId,
+    DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber, DefinitionSchema,
+    EvidenceDraft, ExactDecimal, ExactInteger, ExactValue, Expression, InputDefinition, InputId,
+    OutputId, RelationDefinition, RelationId, RelationTarget, TypeDefinition, TypeId, UnitId,
+    ValueType,
 };
 
 use crate::{
     AdmittedDefinitionPublication, AdmittedEvidence, EvidenceValidationError, ProjectionEvent,
-    PublishError, RecordEvidenceError, validate_definition, verify_digest,
+    PublishError, RecordEvidenceError, verify_digest,
 };
+
+mod validation;
+
+use validation::validate_definition;
+pub use validation::{DefinitionFamily, ReferenceKind, ValidationError};
 
 pub(crate) fn admit(
     bytes: &[u8],
@@ -102,12 +108,11 @@ fn admit_evidence_draft(
                 draft.relation_id.as_str().to_owned(),
             ))
         })?;
-    let RelationTarget::Value(value_type) = &relation.target else {
-        return Err(RecordEvidenceError::InvalidEvidence(
-            EvidenceValidationError::ValueTypeMismatch(draft.relation_id.as_str().to_owned()),
-        ));
+    let value_matches_target = match &relation.target {
+        RelationTarget::Type(_) => matches!(&draft.value, ExactValue::Entity(_)),
+        RelationTarget::Value(value_type) => value_matches(value_type, &draft.value),
     };
-    if !value_matches(value_type, &draft.value) {
+    if !value_matches_target {
         return Err(RecordEvidenceError::InvalidEvidence(
             EvidenceValidationError::ValueTypeMismatch(draft.relation_id.as_str().to_owned()),
         ));
@@ -117,7 +122,13 @@ fn admit_evidence_draft(
     Ok(AdmittedEvidence::new(draft, event))
 }
 
-pub(crate) fn decode(canonical_json: &CanonicalJson) -> Result<CanonicalDefinition, PublishError> {
+pub fn decode_canonical_definition(
+    canonical_json: &CanonicalJson,
+) -> Result<CanonicalDefinition, PublishError> {
+    decode(canonical_json)
+}
+
+fn decode(canonical_json: &CanonicalJson) -> Result<CanonicalDefinition, PublishError> {
     let dto = serde_json::from_str::<CanonicalDefinitionDto>(canonical_json.as_str())
         .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
     let definition = convert_definition(dto)?;
@@ -146,6 +157,9 @@ fn normalize(dto: &mut CanonicalDefinitionDto) {
             .effects
             .sort_by(|left, right| compare_code_points(&left.relation_id, &right.relation_id));
         sort_inputs(&mut action.inputs);
+        action
+            .outputs
+            .sort_by(|left, right| compare_code_points(&left.id, &right.id));
     }
     dto.computations
         .sort_by(|left, right| compare_code_points(&left.id, &right.id));
@@ -303,7 +317,16 @@ struct ActionDefinitionDto {
     effects: Vec<ActionEffectDto>,
     id: String,
     inputs: Vec<InputDefinitionDto>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    outputs: Vec<ActionOutputDefinitionDto>,
     precondition: ExpressionDto,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ActionOutputDefinitionDto {
+    id: String,
+    value_type: ValueTypeDto,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -464,6 +487,16 @@ fn convert_action(dto: ActionDefinitionDto) -> Result<ActionDefinition, PublishE
             .into_iter()
             .map(convert_input)
             .collect::<Result<_, _>>()?,
+        outputs: dto
+            .outputs
+            .into_iter()
+            .map(|output| {
+                Ok(ActionOutputDefinition {
+                    id: OutputId::parse(output.id).map_err(invalid)?,
+                    value_type: convert_value_type(output.value_type)?,
+                })
+            })
+            .collect::<Result<_, PublishError>>()?,
         precondition: convert_expression(dto.precondition)?,
     })
 }

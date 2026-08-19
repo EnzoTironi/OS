@@ -22,6 +22,7 @@ message ExactValue {
     string integer_value = 3;
     QuantityValue quantity_value = 4;
     string text_value = 5;
+    string entity_ref_value = 6;
   }
 }
 
@@ -104,6 +105,13 @@ enum LineageRole {
   LINEAGE_ROLE_COMPUTATION_DEPENDENCY = 3;
 }
 
+message MigrationOrigin {
+  string operation_id = 1;
+  string rule_id = 2;
+  string rule_kind = 3;
+  repeated string source_claim_ids = 4;
+}
+
 message LineageDependency {
   string claim_id = 1;
   string entity_id = 2;
@@ -113,6 +121,7 @@ message LineageDependency {
   string source_id = 6;
   string source_digest = 7;
   string source_ref = 8;
+  MigrationOrigin migration = 9;
 }
 
 message SemanticValueResult {

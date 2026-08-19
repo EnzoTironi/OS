@@ -1,168 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use zoen_core::{
-    ActionDefinition, ActionId, ActivationPrecondition, CanonicalDefinition, ComputationDefinition,
-    DefinitionActivation, DefinitionChange, DefinitionChangeKind, DefinitionDigest,
-    DefinitionElementKind, DefinitionId, DefinitionImpact, DefinitionImpactApplicability,
+    ActionDefinition, CanonicalDefinition, ComputationDefinition, DefinitionChange,
+    DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactApplicability,
     DefinitionImpactArea, DefinitionReference, DefinitionRevision, EvolutionClassification,
-    EvolutionPlan, ExecutionContext, PolicyEvaluation, PolicyEvidence, RelationDefinition,
-    RelationTarget, ResourceId, TimestampMicros, expression_relations,
+    EvolutionPlan, RelationDefinition, RelationTarget, expression_relations,
 };
 
-use crate::{
-    ActivateRevisionError, AdmittedDefinitionActivation, AuthorityStore, DefinitionEngine,
-    PlanEvolutionError, PolicyEvaluator, PolicyOperation, PolicyRequest, StoreError,
-    decode_canonical_definition, verify_digest,
-};
-
-const DEFINITION_ACTIVATION_ACTION_ID: &str = "zoen.definition.activate";
-
-impl<S, P> DefinitionEngine<S, P>
-where
-    S: AuthorityStore,
-    P: PolicyEvaluator,
-{
-    pub async fn activate_revision(
-        &self,
-        context: &ExecutionContext,
-        definition_id: &DefinitionId,
-        digest: &DefinitionDigest,
-        precondition: &ActivationPrecondition,
-        activated_at: TimestampMicros,
-    ) -> Result<DefinitionActivation, ActivateRevisionError> {
-        let target = self
-            .store
-            .get_revision(context.tenant_id(), definition_id, digest)
-            .await
-            .map_err(ActivateRevisionError::Store)?;
-        let target_definition =
-            decode_revision(&target).map_err(ActivateRevisionError::InvalidRevision)?;
-        let previous = self
-            .store
-            .get_active_revision(context.tenant_id(), definition_id)
-            .await
-            .map_err(ActivateRevisionError::Store)?;
-        if !precondition_matches(precondition, previous.as_ref()) {
-            return Err(ActivateRevisionError::StalePrecondition);
-        }
-        let classification = previous
-            .as_ref()
-            .map(|previous_revision| {
-                let previous_definition = decode_revision(previous_revision)
-                    .map_err(ActivateRevisionError::InvalidRevision)?;
-                Ok(plan(
-                    previous_revision,
-                    &previous_definition,
-                    &target,
-                    &target_definition,
-                )
-                .classification)
-            })
-            .transpose()?;
-        if let Some(classification) = classification
-            && classification != EvolutionClassification::Compatible
-        {
-            return Err(ActivateRevisionError::Incompatible(classification));
-        }
-
-        let action_id = ActionId::parse(DEFINITION_ACTIVATION_ACTION_ID)
-            .map_err(|error| ActivateRevisionError::Configuration(error.to_string()))?;
-        let resource_id = ResourceId::parse(definition_id.as_str())
-            .map_err(|error| ActivateRevisionError::Configuration(error.to_string()))?;
-        if !context.delegation().permits(
-            &action_id,
-            &resource_id,
-            context.workload_id(),
-            activated_at,
-        ) {
-            return Err(ActivateRevisionError::DelegationDenied);
-        }
-        let target_reference = reference(&target);
-        let policy = match self
-            .policy
-            .evaluate(&PolicyRequest {
-                action_id: &action_id,
-                approved: false,
-                context,
-                definition: &target_reference,
-                inputs: &[],
-                operation: PolicyOperation::ActivateRevision,
-                resource_id: &resource_id,
-            })
-            .await
-        {
-            PolicyEvaluation::Permit(policy) => policy,
-            PolicyEvaluation::Deny(policy) => {
-                return Err(ActivateRevisionError::PolicyDenied(policy));
-            }
-            PolicyEvaluation::EvaluationError { message, revision } => {
-                return Err(ActivateRevisionError::PolicyEvaluation {
-                    message,
-                    policy: revision.map(|revision| PolicyEvidence {
-                        determining_policies: Vec::new(),
-                        revision,
-                    }),
-                });
-            }
-        };
-        let activation = AdmittedDefinitionActivation::new(
-            context.clone(),
-            previous.as_ref().map(reference),
-            target,
-            classification,
-            policy,
-            activated_at,
-        )?;
-        self.store
-            .activate_revision(&activation)
-            .await
-            .map_err(|error| match error {
-                StoreError::StalePrecondition => ActivateRevisionError::StalePrecondition,
-                error => ActivateRevisionError::Store(error),
-            })
-    }
-
-    pub async fn plan_evolution(
-        &self,
-        context: &ExecutionContext,
-        definition_id: &DefinitionId,
-        from_digest: &DefinitionDigest,
-        to_digest: &DefinitionDigest,
-    ) -> Result<EvolutionPlan, PlanEvolutionError> {
-        let from_revision = self
-            .store
-            .get_revision(context.tenant_id(), definition_id, from_digest)
-            .await
-            .map_err(PlanEvolutionError::Store)?;
-        let to_revision = self
-            .store
-            .get_revision(context.tenant_id(), definition_id, to_digest)
-            .await
-            .map_err(PlanEvolutionError::Store)?;
-        let from = decode_revision(&from_revision).map_err(PlanEvolutionError::InvalidRevision)?;
-        let to = decode_revision(&to_revision).map_err(PlanEvolutionError::InvalidRevision)?;
-        Ok(plan(&from_revision, &from, &to_revision, &to))
-    }
-}
-
-fn decode_revision(revision: &DefinitionRevision) -> Result<CanonicalDefinition, String> {
-    if !verify_digest(&revision.canonical_json, &revision.digest) {
-        return Err("stored digest does not match canonical content".to_owned());
-    }
-    decode_canonical_definition(&revision.canonical_json).map_err(|error| error.to_string())
-}
-
-fn precondition_matches(
-    precondition: &ActivationPrecondition,
-    active: Option<&DefinitionRevision>,
-) -> bool {
-    match precondition {
-        ActivationPrecondition::NoActiveRevision => active.is_none(),
-        ActivationPrecondition::ActiveDigest(expected) => {
-            active.is_some_and(|revision| revision.digest == *expected)
-        }
-    }
-}
+mod activation;
 
 pub(crate) fn plan(
     from_revision: &DefinitionRevision,
@@ -200,7 +45,8 @@ pub(crate) fn plan(
         relation_type_dependencies(&from.relations, &to.relations, &changed_relations);
     let computation_dependencies =
         computation_relation_dependencies(&to.computations, &changed_relations);
-    let action_dependencies = action_relation_dependencies(&to.actions, &changed_relations);
+    let action_dependencies =
+        action_relation_dependencies(&from.actions, &to.actions, &changed_relations);
 
     let affected_types = union(&types.affected, &type_dependencies);
     let affected_computations = union(&computations.affected, &computation_dependencies);
@@ -220,7 +66,8 @@ pub(crate) fn plan(
             .then_with(|| left.id.cmp(&right.id))
     });
 
-    let classification = classify(from, to, &changes);
+    classify_changes(from, to, &mut changes);
+    let classification = classify(from, to, &changes, !action_dependencies.is_empty());
     let changed_query_elements = union(&relations.affected, &affected_computations);
     let unchanged_query_elements = union(&relations.unaffected, &unaffected_computations);
     let changed_generated_elements = union(
@@ -265,11 +112,11 @@ pub(crate) fn plan(
                 unaffected: unaffected_computations.into_iter().collect(),
             },
             DefinitionImpact {
-                affected: affected_actions.into_iter().collect(),
+                affected: affected_actions.iter().cloned().collect(),
                 applicability: DefinitionImpactApplicability::Applicable,
                 area: DefinitionImpactArea::Actions,
                 rationale: "Actions are affected by contract changes and by changed Relations referenced by preconditions or effects; unchanged contracts remain explicit.".to_owned(),
-                unaffected: unaffected_actions.into_iter().collect(),
+                unaffected: unaffected_actions.iter().cloned().collect(),
             },
             DefinitionImpact {
                 affected: Vec::new(),
@@ -304,6 +151,20 @@ pub(crate) fn plan(
                 applicability: DefinitionImpactApplicability::NotApplicable,
                 area: DefinitionImpactArea::PolicyAndWasmReferences,
                 rationale: "Canonical v1 has no policy or Wasm reference fields, so these revisions cannot report policy or Wasm impact.".to_owned(),
+                unaffected: Vec::new(),
+            },
+            DefinitionImpact {
+                affected: affected_actions.iter().cloned().collect(),
+                applicability: DefinitionImpactApplicability::Applicable,
+                area: DefinitionImpactArea::PolicyAndAuthorityContracts,
+                rationale: "Every affected Action requires policy and delegated-authority review under the target revision.".to_owned(),
+                unaffected: unaffected_actions.iter().cloned().collect(),
+            },
+            DefinitionImpact {
+                affected: Vec::new(),
+                applicability: DefinitionImpactApplicability::NotApplicable,
+                area: DefinitionImpactArea::WasmComponents,
+                rationale: "Canonical v1 has no Wasm component or capability reference, so no component revision can be assessed.".to_owned(),
                 unaffected: Vec::new(),
             },
         ],
@@ -352,8 +213,10 @@ fn analyze_family<T: Eq>(
             affected.insert(element_id.clone());
             changes.push(DefinitionChange {
                 change,
+                classification: EvolutionClassification::Compatible,
                 element,
                 id: element_id,
+                rationale: String::new(),
             });
         } else {
             unaffected.insert(element_id);
@@ -367,27 +230,149 @@ fn analyze_family<T: Eq>(
     }
 }
 
+fn classify_changes(
+    from: &CanonicalDefinition,
+    to: &CanonicalDefinition,
+    changes: &mut [DefinitionChange],
+) {
+    let forbidden = from.id != to.id || from.schema != to.schema || to.revision <= from.revision;
+    for change in changes {
+        if forbidden {
+            change.classification = EvolutionClassification::Forbidden;
+            change.rationale =
+                "The revision pair changes definition identity or does not advance its revision."
+                    .to_owned();
+            continue;
+        }
+        let (classification, rationale) = classify_change(from, to, change);
+        change.classification = classification;
+        change.rationale = rationale;
+    }
+}
+
+fn classify_change(
+    from: &CanonicalDefinition,
+    to: &CanonicalDefinition,
+    change: &DefinitionChange,
+) -> (EvolutionClassification, String) {
+    match change.change {
+        DefinitionChangeKind::Added => (
+            EvolutionClassification::Compatible,
+            format!(
+                "Adding {} {} does not reinterpret an existing semantic identity.",
+                element_name(change.element),
+                change.id
+            ),
+        ),
+        DefinitionChangeKind::Removed => {
+            let classification = if change.element == DefinitionElementKind::Action {
+                EvolutionClassification::Breaking
+            } else {
+                EvolutionClassification::RequiresMigration
+            };
+            (
+                classification,
+                format!(
+                    "Removing {} {} retires an existing semantic identity and requires explicit supersession.",
+                    element_name(change.element),
+                    change.id
+                ),
+            )
+        }
+        DefinitionChangeKind::Modified => match change.element {
+            DefinitionElementKind::Type => (
+                EvolutionClassification::RequiresMigration,
+                format!(
+                    "Type {} changes its declared attributes or value contracts.",
+                    change.id
+                ),
+            ),
+            DefinitionElementKind::Relation => (
+                EvolutionClassification::RequiresMigration,
+                relation_change_rationale(from, to, &change.id),
+            ),
+            DefinitionElementKind::Computation => (
+                EvolutionClassification::RequiresMigration,
+                format!(
+                    "Computation {} changes its inputs, result type, or executable expression.",
+                    change.id
+                ),
+            ),
+            DefinitionElementKind::Action => (
+                EvolutionClassification::Breaking,
+                format!(
+                    "Action {} changes its input, output, authority precondition, or committed effects.",
+                    change.id
+                ),
+            ),
+        },
+    }
+}
+
 fn classify(
     from: &CanonicalDefinition,
     to: &CanonicalDefinition,
     changes: &[DefinitionChange],
+    action_dependency_changed: bool,
 ) -> EvolutionClassification {
     if from.id != to.id || from.schema != to.schema || to.revision <= from.revision {
         return EvolutionClassification::Forbidden;
     }
-    if changes.iter().any(|change| {
-        change.element == DefinitionElementKind::Action
-            && change.change != DefinitionChangeKind::Added
-    }) {
+    if action_dependency_changed
+        || changes
+            .iter()
+            .any(|change| change.classification == EvolutionClassification::Breaking)
+    {
         return EvolutionClassification::Breaking;
     }
     if changes
         .iter()
-        .any(|change| change.change != DefinitionChangeKind::Added)
+        .any(|change| change.classification == EvolutionClassification::RequiresMigration)
     {
         return EvolutionClassification::RequiresMigration;
     }
     EvolutionClassification::Compatible
+}
+
+fn relation_change_rationale(
+    from: &CanonicalDefinition,
+    to: &CanonicalDefinition,
+    id: &str,
+) -> String {
+    let from_relation = from
+        .relations
+        .iter()
+        .find(|relation| relation.id.as_str() == id);
+    let to_relation = to
+        .relations
+        .iter()
+        .find(|relation| relation.id.as_str() == id);
+    let Some((from_relation, to_relation)) = from_relation.zip(to_relation) else {
+        return format!("Relation {id} changes its semantic contract.");
+    };
+    let mut changes = Vec::new();
+    if from_relation.cardinality != to_relation.cardinality {
+        changes.push("cardinality");
+    }
+    if from_relation.source_type != to_relation.source_type {
+        changes.push("source Type");
+    }
+    if from_relation.target != to_relation.target {
+        changes.push("target value or entity representation");
+    }
+    format!(
+        "Relation {id} changes {}; stored claims keep the source revision meaning.",
+        changes.join(", ")
+    )
+}
+
+fn element_name(element: DefinitionElementKind) -> &'static str {
+    match element {
+        DefinitionElementKind::Type => "Type",
+        DefinitionElementKind::Relation => "Relation",
+        DefinitionElementKind::Computation => "Computation",
+        DefinitionElementKind::Action => "Action",
+    }
 }
 
 fn relation_type_dependencies(
@@ -424,11 +409,17 @@ fn computation_relation_dependencies(
 }
 
 fn action_relation_dependencies(
+    from: &[ActionDefinition],
     actions: &[ActionDefinition],
     changed_relations: &BTreeSet<String>,
 ) -> BTreeSet<String> {
+    let existing = from
+        .iter()
+        .map(|action| action.id.as_str())
+        .collect::<BTreeSet<_>>();
     actions
         .iter()
+        .filter(|action| existing.contains(action.id.as_str()))
         .filter(|action| {
             let precondition_affected = expression_relations(&action.precondition)
                 .iter()
@@ -497,13 +488,13 @@ fn without(values: &BTreeSet<String>, excluded: &BTreeSet<String>) -> BTreeSet<S
 #[cfg(test)]
 mod tests {
     use zoen_core::{
-        ActionDefinition, ActionEffect, ActionId, CanonicalDefinition, CanonicalJson, Cardinality,
-        CommitSequence, ComputationDefinition, ComputationId, DefinitionChange,
-        DefinitionChangeKind, DefinitionDigest, DefinitionElementKind, DefinitionId,
-        DefinitionImpactApplicability, DefinitionImpactArea, DefinitionRevision,
+        ActionDefinition, ActionEffect, ActionId, ActionOutputDefinition, CanonicalDefinition,
+        CanonicalJson, Cardinality, CommitSequence, ComputationDefinition, ComputationId,
+        DefinitionChange, DefinitionChangeKind, DefinitionDigest, DefinitionElementKind,
+        DefinitionId, DefinitionImpactApplicability, DefinitionImpactArea, DefinitionRevision,
         DefinitionRevisionNumber, DefinitionSchema, EvolutionClassification, ExactInteger,
-        ExactValue, Expression, RelationDefinition, RelationId, RelationTarget, TypeDefinition,
-        TypeId, ValueType,
+        ExactValue, Expression, OutputId, RelationDefinition, RelationId, RelationTarget,
+        TypeDefinition, TypeId, ValueType,
     };
 
     use super::{classify, plan};
@@ -535,6 +526,7 @@ mod tests {
             }],
             id: ActionId::parse("inventory.reserve").expect("action"),
             inputs: Vec::new(),
+            outputs: Vec::new(),
             precondition: Expression::Literal(ExactValue::Bool(true)),
         });
 
@@ -644,25 +636,66 @@ mod tests {
         ];
 
         for (name, changes, expected) in cases {
-            assert_eq!(classify(&from, &to, &changes), expected, "{name}");
+            assert_eq!(classify(&from, &to, &changes, false), expected, "{name}");
         }
     }
 
     #[test]
-    fn action_contract_change_is_breaking() {
+    fn action_contract_changes_are_breaking_and_require_authority_review() {
+        enum ContractChange {
+            CommittedEffect,
+            Output,
+            Precondition,
+        }
+
         let from_definition = definition(1);
-        let mut to_definition = definition(2);
-        to_definition.actions[0].precondition = Expression::Literal(ExactValue::Bool(false));
+        let cases = [
+            ("committed effect", ContractChange::CommittedEffect),
+            ("output", ContractChange::Output),
+            ("authority precondition", ContractChange::Precondition),
+        ];
 
-        let result = plan(
-            &revision(1, "a"),
-            &from_definition,
-            &revision(2, "b"),
-            &to_definition,
-        );
+        for (name, change) in cases {
+            let mut to_definition = definition(2);
+            match change {
+                ContractChange::CommittedEffect => {
+                    to_definition.actions[0].effects[0].value = Expression::Literal(
+                        ExactValue::Integer(ExactInteger::parse("2").expect("integer")),
+                    );
+                }
+                ContractChange::Output => {
+                    to_definition.actions[0]
+                        .outputs
+                        .push(ActionOutputDefinition {
+                            id: OutputId::parse("acceptedUnits").expect("output"),
+                            value_type: ValueType::Integer,
+                        });
+                }
+                ContractChange::Precondition => {
+                    to_definition.actions[0].precondition =
+                        Expression::Literal(ExactValue::Bool(false));
+                }
+            }
+            let result = plan(
+                &revision(1, "a"),
+                &from_definition,
+                &revision(2, "b"),
+                &to_definition,
+            );
+            let authority = result
+                .impacts
+                .iter()
+                .find(|impact| impact.area == DefinitionImpactArea::PolicyAndAuthorityContracts)
+                .expect("authority impact");
 
-        assert_eq!(result.classification, EvolutionClassification::Breaking);
-        assert!(result.migration_required());
+            assert_eq!(
+                result.classification,
+                EvolutionClassification::Breaking,
+                "{name}"
+            );
+            assert!(result.migration_required(), "{name}");
+            assert_eq!(authority.affected, ["inventory.replenish"], "{name}");
+        }
     }
 
     fn definition(revision: u64) -> CanonicalDefinition {
@@ -676,6 +709,7 @@ mod tests {
                 }],
                 id: ActionId::parse("inventory.replenish").expect("action"),
                 inputs: Vec::new(),
+                outputs: Vec::new(),
                 precondition: Expression::Literal(ExactValue::Bool(true)),
             }],
             computations: Vec::new(),
@@ -706,10 +740,22 @@ mod tests {
     }
 
     fn change(element: DefinitionElementKind, change: DefinitionChangeKind) -> DefinitionChange {
+        let classification = match (element, change) {
+            (
+                DefinitionElementKind::Action,
+                DefinitionChangeKind::Modified | DefinitionChangeKind::Removed,
+            ) => EvolutionClassification::Breaking,
+            (_, DefinitionChangeKind::Modified | DefinitionChangeKind::Removed) => {
+                EvolutionClassification::RequiresMigration
+            }
+            (_, DefinitionChangeKind::Added) => EvolutionClassification::Compatible,
+        };
         DefinitionChange {
             change,
+            classification,
             element,
             id: "inventory.changed".to_owned(),
+            rationale: "test change".to_owned(),
         }
     }
 }

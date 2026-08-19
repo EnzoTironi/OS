@@ -57,8 +57,15 @@ case "$scenario" in
     project="zoen-evolution-compatible"
     runner="dist/e2e/evolution-compatible.js"
     ;;
+  evolution-breaking)
+    compose_file="e2e/evolution-breaking/compose.yaml"
+    generated_directory="e2e/evolution-breaking/.generated"
+    prepare="e2e/evolution-breaking/prepare-realm.mjs"
+    project="zoen-evolution-breaking"
+    runner="dist/e2e/evolution-breaking.js"
+    ;;
   *)
-    echo "usage: just e2e <definition-publication|domain-quality|durable-commit|effects|evolution-compatible|explain|governed-action|semantic-query>" >&2
+    echo "usage: just e2e <definition-publication|domain-quality|durable-commit|effects|evolution-breaking|evolution-compatible|explain|governed-action|semantic-query>" >&2
     exit 2
     ;;
 esac

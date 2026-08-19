@@ -23,6 +23,7 @@ impl From<EvidenceClaim> for SemanticClaim {
                 claim_id: draft.claim_id,
                 commit_sequence: claim.commit_sequence,
                 entity_id: draft.entity_id,
+                migration: None,
                 relation_id: draft.relation_id,
                 role: LineageRole::Supporting,
                 source_digest: draft.provenance.source_digest,

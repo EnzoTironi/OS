@@ -11,7 +11,11 @@ service DefinitionService {
   rpc GetRevision(GetRevisionRequest) returns (GetRevisionResponse);
   rpc GetActiveRevision(GetActiveRevisionRequest) returns (GetActiveRevisionResponse);
   rpc PlanEvolution(PlanEvolutionRequest) returns (PlanEvolutionResponse);
+  rpc PrepareMigration(PrepareMigrationRequest) returns (PrepareMigrationResponse);
+  rpc ApplyMigrationBatch(ApplyMigrationBatchRequest) returns (ApplyMigrationBatchResponse);
+  rpc GetMigration(GetMigrationRequest) returns (GetMigrationResponse);
   rpc ActivateRevision(ActivateRevisionRequest) returns (ActivateRevisionResponse);
+  rpc RollbackRevision(RollbackRevisionRequest) returns (RollbackRevisionResponse);
 }
 
 message PublishRequest {
@@ -68,6 +72,17 @@ message ActivateRevisionResponse {
   DefinitionActivation activation = 1;
 }
 
+message RollbackRevisionRequest {
+  string tenant_id = 1;
+  string definition_id = 2;
+  string digest = 3;
+  string expected_active_digest = 4;
+}
+
+message RollbackRevisionResponse {
+  DefinitionActivation activation = 1;
+}
+
 message DefinitionRevision {
   string definition_id = 1;
   uint64 revision = 2;
@@ -110,6 +125,8 @@ enum DefinitionImpactArea {
   DEFINITION_IMPACT_AREA_QUERY_AND_MATERIALIZATION_ARTIFACTS = 7;
   DEFINITION_IMPACT_AREA_GENERATED_SDK_AND_SURFACE_ARTIFACTS = 8;
   DEFINITION_IMPACT_AREA_POLICY_AND_WASM_REFERENCES = 9;
+  DEFINITION_IMPACT_AREA_POLICY_AND_AUTHORITY_CONTRACTS = 10;
+  DEFINITION_IMPACT_AREA_WASM_COMPONENTS = 11;
 }
 
 enum DefinitionImpactApplicability {
@@ -122,6 +139,8 @@ message DefinitionChange {
   DefinitionChangeKind change = 1;
   DefinitionElementKind element = 2;
   string id = 3;
+  EvolutionClassification classification = 4;
+  string rationale = 5;
 }
 
 message DefinitionImpact {
@@ -141,6 +160,148 @@ message EvolutionPlan {
   bool migration_required = 6;
 }
 
+enum MigrationRuleKind {
+  MIGRATION_RULE_KIND_UNSPECIFIED = 0;
+  MIGRATION_RULE_KIND_PRESERVE_MEANING = 1;
+  MIGRATION_RULE_KIND_TRANSFORM = 2;
+  MIGRATION_RULE_KIND_SUPERSEDE = 3;
+  MIGRATION_RULE_KIND_RECOMPUTE = 4;
+}
+
+enum MigrationStatus {
+  MIGRATION_STATUS_UNSPECIFIED = 0;
+  MIGRATION_STATUS_PREPARED = 1;
+  MIGRATION_STATUS_IN_PROGRESS = 2;
+  MIGRATION_STATUS_COMPLETED = 3;
+}
+
+message MigrationElement {
+  DefinitionElementKind element = 1;
+  string id = 2;
+}
+
+message MigrationArtifactDependency {
+  DefinitionImpactArea area = 1;
+  string id = 2;
+}
+
+message MigrationRule {
+  string rule_id = 1;
+  MigrationRuleKind kind = 2;
+  repeated MigrationElement sources = 3;
+  repeated MigrationElement targets = 4;
+}
+
+message MigrationDependency {
+  string entity_id = 1;
+  string relation_id = 2;
+  string claim_id = 3;
+  uint64 commit_sequence = 4;
+}
+
+message MigrationPostcondition {
+  string relation_id = 1;
+  uint64 minimum_record_count = 2;
+}
+
+message MigrationRecipe {
+  uint32 format_version = 1;
+  string operation_id = 2;
+  string definition_id = 3;
+  string from_digest = 4;
+  string to_digest = 5;
+  repeated MigrationRule rules = 6;
+  repeated MigrationDependency dependencies = 7;
+  repeated MigrationPostcondition postconditions = 8;
+}
+
+message MigrationObligationSource {
+  string relation_id = 1;
+  string rule_id = 2;
+  MigrationRuleKind kind = 3;
+}
+
+message MigrationPlan {
+  uint32 format_version = 1;
+  string operation_id = 2;
+  zoen.world.v1.DefinitionReference from = 3;
+  zoen.world.v1.DefinitionReference to = 4;
+  EvolutionClassification classification = 5;
+  repeated MigrationElement affected_elements = 6;
+  repeated MigrationArtifactDependency artifact_dependencies = 7;
+  repeated MigrationRule rules = 8;
+  repeated MigrationDependency dependencies = 9;
+  repeated MigrationPostcondition postconditions = 10;
+  string assessment_digest = 11;
+  repeated MigrationObligationSource obligation_sources = 12;
+}
+
+message MigrationRecord {
+  string rule_id = 1;
+  repeated string source_claim_ids = 2;
+  zoen.world.v1.EvidenceClaim target_evidence = 3;
+}
+
+message MigrationLineage {
+  string rule_id = 1;
+  MigrationRuleKind kind = 2;
+  repeated string source_claim_ids = 3;
+  string target_claim_id = 4;
+}
+
+message MigrationObligation {
+  string source_claim_id = 1;
+  string relation_id = 2;
+  string rule_id = 3;
+  MigrationRuleKind kind = 4;
+}
+
+message MigrationProgress {
+  MigrationPlan plan = 1;
+  string intent_digest = 2;
+  MigrationStatus status = 3;
+  uint64 commit_sequence = 4;
+  repeated uint32 completed_batches = 5;
+  repeated MigrationLineage lineage = 6;
+  repeated MigrationObligation remaining_obligations = 7;
+  uint64 total_obligations = 8;
+}
+
+message PrepareMigrationRequest {
+  string tenant_id = 1;
+  MigrationRecipe recipe = 2;
+}
+
+message PrepareMigrationResponse {
+  MigrationProgress progress = 1;
+}
+
+message ApplyMigrationBatchRequest {
+  string tenant_id = 1;
+  string operation_id = 2;
+  uint32 batch_index = 3;
+  repeated MigrationRecord records = 4;
+}
+
+message ApplyMigrationBatchResponse {
+  MigrationProgress progress = 1;
+}
+
+message GetMigrationRequest {
+  string tenant_id = 1;
+  string operation_id = 2;
+}
+
+message GetMigrationResponse {
+  MigrationProgress progress = 1;
+}
+
+enum DefinitionActivationKind {
+  DEFINITION_ACTIVATION_KIND_UNSPECIFIED = 0;
+  DEFINITION_ACTIVATION_KIND_ACTIVATION = 1;
+  DEFINITION_ACTIVATION_KIND_ROLLBACK = 2;
+}
+
 message DefinitionActivation {
   zoen.world.v1.DefinitionReference active = 1;
   zoen.world.v1.DefinitionReference previous = 2;
@@ -151,4 +312,6 @@ message DefinitionActivation {
   string workload_id = 7;
   zoen.action.v1.PolicyEvidence policy = 8;
   EvolutionClassification classification = 9;
+  DefinitionActivationKind kind = 10;
+  string migration_operation_id = 11;
 }

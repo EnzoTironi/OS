@@ -2,9 +2,10 @@ use crate::{
     ActionApproval, ActionId, ClaimId, CommitReceipt, CommitSequence, ComputationId,
     DefinitionReference, EffectAttempt, EffectAttemptId, EffectEvidence, EffectEvidenceId,
     EffectIdempotencyKey, EffectKnowledgeState, EffectReconciliation, EffectRequestDigest,
-    EffectRequestId, EntityId, EvidenceProvenance, ExactValue, InputId, IntentDigest, OperationId,
-    PayloadDigest, PolicyRevision, ProposalAuthority, ProposalId, RelationId, ResourceId,
-    StateBasis, StateBasisDigest, TimestampMicros, TrustedExecutionContext, ValidTime,
+    EffectRequestId, EntityId, EvidenceProvenance, ExactValue, InputId, IntentDigest,
+    MigrationOrigin, OperationId, PayloadDigest, PolicyRevision, ProposalAuthority, ProposalId,
+    RelationId, ResourceId, StateBasis, StateBasisDigest, TimestampMicros, TrustedExecutionContext,
+    ValidTime,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -180,9 +181,16 @@ pub struct CausalActionExplanation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CausalMigration {
+    pub origin: MigrationOrigin,
+    pub source_claims: Vec<CausalClaim>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CausalClaimExplanation {
     pub claim: CausalClaim,
     pub definition: Option<DefinitionEvidence>,
+    pub migration: Option<CausalMigration>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

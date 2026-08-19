@@ -7,9 +7,8 @@ use zoen_core::{
     ActionApproval, ActionProposal, CanonicalJson, ClaimId, CommitReceipt, CommitSequence,
     DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
     DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EntityId, EvidenceClaim,
-    EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger, ExactValue,
-    ExecutionContext, ExplanationTarget, OperationId, ProposalId, RelationId, SourceId, TenantId,
-    TimestampMicros, UnitId, ValidTime,
+    EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExecutionContext, ExplanationTarget,
+    OperationId, ProposalId, RelationId, SourceId, TenantId,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore,
@@ -22,7 +21,10 @@ mod claim_store;
 mod effect_dispatcher;
 mod effect_store;
 mod history_store;
+mod migration_store;
 mod restate;
+mod semantic_claim_store;
+mod value_store;
 
 pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
@@ -33,6 +35,8 @@ pub use effect_dispatcher::{
 };
 pub use effect_store::PostgresEffectUpdate;
 pub use restate::{RestateEffectScheduler, restate_effect_key};
+use value_store::row_to_valid_time;
+pub(crate) use value_store::{row_to_value, valid_time_columns, value_columns};
 
 #[derive(Debug)]
 pub enum PostgresInitError {
@@ -147,6 +151,7 @@ impl AuthorityStore for PostgresAuthorityStore {
         }) {
             return Err(StoreError::StalePrecondition);
         }
+        migration_store::validate_activation(&mut transaction, activation).await?;
 
         let next_sequence = head
             .checked_add(1)
@@ -175,13 +180,13 @@ impl AuthorityStore for PostgresAuthorityStore {
                 previous_revision, previous_digest, commit_sequence,
                 activated_at_micros, actor_id, principal_id, workload_id,
                 policy_id, policy_revision, policy_digest, determining_policies,
-                classification
+                classification, activation_kind, migration_operation_id
              ) VALUES (
                 $1, $2, $3, $4,
                 $5, $6, $7,
                 $8, $9, $10, $11,
                 $12, $13, $14, $15,
-                $16
+                $16, $17, $18
              )",
         )
         .bind(context.tenant_id().as_str())
@@ -207,6 +212,8 @@ impl AuthorityStore for PostgresAuthorityStore {
                 .classification()
                 .map(zoen_core::EvolutionClassification::as_str),
         )
+        .bind(activation.kind().as_str())
+        .bind(activation.migration_operation_id().map(OperationId::as_str))
         .execute(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
@@ -280,11 +287,20 @@ impl AuthorityStore for PostgresAuthorityStore {
                 "activation commit sequence",
             )?)
             .ok_or_else(|| StoreError::Corrupt("zero activation commit sequence".to_owned()))?,
+            kind: activation.kind(),
+            migration_operation_id: activation.migration_operation_id().cloned(),
             policy: policy.clone(),
             previous: activation.previous().cloned(),
             principal_id: context.principal_id().clone(),
             workload_id: context.workload_id().clone(),
         })
+    }
+
+    async fn apply_migration_batch(
+        &self,
+        batch: &zoen_engine::AdmittedMigrationBatch,
+    ) -> Result<zoen_core::MigrationProgress, StoreError> {
+        migration_store::apply(self, batch).await
     }
 
     async fn begin_action_commit(
@@ -329,6 +345,23 @@ impl AuthorityStore for PostgresAuthorityStore {
         let revision = row.as_ref().map(row_to_revision).transpose()?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(revision)
+    }
+
+    async fn get_migration(
+        &self,
+        tenant_id: &TenantId,
+        operation_id: &OperationId,
+    ) -> Result<zoen_core::MigrationProgress, StoreError> {
+        migration_store::get(self, tenant_id, operation_id).await
+    }
+
+    async fn get_completed_migration(
+        &self,
+        tenant_id: &TenantId,
+        from: &DefinitionReference,
+        to: &DefinitionReference,
+    ) -> Result<Option<zoen_core::MigrationProgress>, StoreError> {
+        migration_store::completed(self, tenant_id, from, to).await
     }
 
     async fn begin_effect_update(
@@ -518,6 +551,23 @@ impl AuthorityStore for PostgresAuthorityStore {
         })
     }
 
+    async fn prepare_migration(
+        &self,
+        migration: &zoen_engine::AdmittedMigrationPlan,
+    ) -> Result<zoen_core::MigrationProgress, StoreError> {
+        migration_store::prepare(self, migration).await
+    }
+
+    async fn preflight_migration_batch(
+        &self,
+        tenant_id: &TenantId,
+        operation_id: &OperationId,
+        batch_index: u32,
+        intent_digest: &zoen_core::IntentDigest,
+    ) -> Result<zoen_engine::MigrationBatchPreflight, StoreError> {
+        migration_store::preflight(self, tenant_id, operation_id, batch_index, intent_digest).await
+    }
+
     async fn get_revision(
         &self,
         tenant_id: &TenantId,
@@ -596,13 +646,6 @@ impl AuthorityStore for PostgresAuthorityStore {
             transaction.commit().await.map_err(store_unavailable)?;
             return Ok(claim);
         }
-        require_active_revision(
-            &mut transaction,
-            context.tenant_id(),
-            &evidence.draft().definition,
-        )
-        .await?;
-
         let next_sequence = head
             .checked_add(1)
             .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
@@ -617,45 +660,14 @@ impl AuthorityStore for PostgresAuthorityStore {
         .map_err(store_unavailable)?;
 
         let draft = evidence.draft();
-        let (value_kind, value_text, value_unit) = value_columns(&draft.value);
-        let (valid_time_kind, valid_from_micros, valid_to_micros) =
-            valid_time_columns(&draft.valid_time);
-        sqlx::query(
-            "INSERT INTO semantic_claims (
-                tenant_id, claim_id, definition_id, definition_digest, definition_revision,
-                entity_id, relation_id, value_kind, value_text, value_unit,
-                valid_time_kind, valid_from_micros, valid_to_micros,
-                source_id, source_digest, source_ref, commit_sequence
-             ) VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7, $8, $9, $10,
-                $11, $12, $13,
-                $14, $15, $16, $17
-             )",
+        semantic_claim_store::insert(
+            &mut transaction,
+            context.tenant_id(),
+            next_sequence,
+            evidence,
+            semantic_claim_store::RevisionRequirement::Active,
         )
-        .bind(context.tenant_id().as_str())
-        .bind(draft.claim_id.as_str())
-        .bind(draft.definition.definition_id.as_str())
-        .bind(draft.definition.digest.as_str())
-        .bind(u64_to_i64(
-            draft.definition.revision.get(),
-            "definition revision",
-        )?)
-        .bind(draft.entity_id.as_str())
-        .bind(draft.relation_id.as_str())
-        .bind(value_kind)
-        .bind(value_text)
-        .bind(value_unit)
-        .bind(valid_time_kind)
-        .bind(valid_from_micros)
-        .bind(valid_to_micros)
-        .bind(draft.provenance.source_id.as_str())
-        .bind(draft.provenance.source_digest.as_str())
-        .bind(&draft.provenance.source_ref)
-        .bind(next_sequence)
-        .execute(&mut *transaction)
-        .await
-        .map_err(store_unavailable)?;
+        .await?;
 
         let event = evidence.projection_event();
         sqlx::query(
@@ -710,6 +722,14 @@ impl AuthorityStore for PostgresAuthorityStore {
         proposal: &ActionProposal,
     ) -> Result<ActionProposal, StoreError> {
         action_store::save_proposal(&self.pool, context, proposal).await
+    }
+
+    async fn revision_was_active(
+        &self,
+        tenant_id: &TenantId,
+        revision: &DefinitionReference,
+    ) -> Result<bool, StoreError> {
+        migration_store::revision_was_active(self, tenant_id, revision).await
     }
 }
 
@@ -899,79 +919,6 @@ pub(crate) fn row_to_claim(row: &PgRow) -> Result<EvidenceClaim, StoreError> {
             value,
         },
     })
-}
-
-fn value_columns(value: &ExactValue) -> (&'static str, String, Option<&str>) {
-    match value {
-        ExactValue::Bool(value) => ("bool", value.to_string(), None),
-        ExactValue::Decimal(value) => ("decimal", value.as_str().to_owned(), None),
-        ExactValue::Integer(value) => ("integer", value.as_str().to_owned(), None),
-        ExactValue::Quantity { amount, unit } => {
-            ("quantity", amount.as_str().to_owned(), Some(unit.as_str()))
-        }
-        ExactValue::Text(value) => ("text", value.clone(), None),
-    }
-}
-
-fn valid_time_columns(valid_time: &ValidTime) -> (&'static str, i64, Option<i64>) {
-    match valid_time {
-        ValidTime::Instant(at) => ("instant", at.get(), None),
-        ValidTime::Interval { start, end } => ("interval", start.get(), Some(end.get())),
-    }
-}
-
-pub(crate) fn row_to_value(row: &PgRow) -> Result<ExactValue, StoreError> {
-    let kind = row_string(row, "value_kind")?;
-    let value = row_string(row, "value_text")?;
-    match kind.as_str() {
-        "bool" => match value.as_str() {
-            "true" => Ok(ExactValue::Bool(true)),
-            "false" => Ok(ExactValue::Bool(false)),
-            _ => Err(StoreError::Corrupt(format!(
-                "invalid stored boolean: {value}"
-            ))),
-        },
-        "decimal" => ExactDecimal::parse(value)
-            .map(ExactValue::Decimal)
-            .map_err(|error| StoreError::Corrupt(error.to_string())),
-        "integer" => ExactInteger::parse(value)
-            .map(ExactValue::Integer)
-            .map_err(|error| StoreError::Corrupt(error.to_string())),
-        "quantity" => {
-            let unit = row
-                .try_get::<Option<String>, _>("value_unit")
-                .map_err(store_unavailable)?
-                .ok_or_else(|| StoreError::Corrupt("quantity has no unit".to_owned()))?;
-            Ok(ExactValue::Quantity {
-                amount: ExactDecimal::parse(value)
-                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
-                unit: UnitId::parse(unit)
-                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
-            })
-        }
-        "text" => Ok(ExactValue::Text(value)),
-        _ => Err(StoreError::Corrupt(format!(
-            "unknown stored value kind: {kind}"
-        ))),
-    }
-}
-
-fn row_to_valid_time(row: &PgRow) -> Result<ValidTime, StoreError> {
-    let kind = row_string(row, "valid_time_kind")?;
-    let start = TimestampMicros::new(row_i64(row, "valid_from_micros")?);
-    let end = row
-        .try_get::<Option<i64>, _>("valid_to_micros")
-        .map_err(store_unavailable)?
-        .map(TimestampMicros::new);
-    match (kind.as_str(), end) {
-        ("instant", None) => Ok(ValidTime::instant(start)),
-        ("interval", Some(end)) => {
-            ValidTime::interval(start, end).map_err(|error| StoreError::Corrupt(error.to_string()))
-        }
-        _ => Err(StoreError::Corrupt(
-            "stored valid-time shape is inconsistent".to_owned(),
-        )),
-    }
 }
 
 fn row_string(row: &PgRow, column: &str) -> Result<String, StoreError> {

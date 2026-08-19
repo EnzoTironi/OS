@@ -8,7 +8,7 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { PolicyEvidence } from "../../action/v1/action_pb.js";
 import { file_zoen_action_v1_action } from "../../action/v1/action_pb.js";
-import type { DefinitionReference } from "../../world/v1/world_pb.js";
+import type { DefinitionReference, EvidenceClaim } from "../../world/v1/world_pb.js";
 import { file_zoen_world_v1_world } from "../../world/v1/world_pb.js";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file zoen/definition/v1/definition.proto.
  */
 export const file_zoen_definition_v1_definition: GenFile = /*@__PURE__*/
-  fileDesc("CiN6b2VuL2RlZmluaXRpb24vdjEvZGVmaW5pdGlvbi5wcm90bxISem9lbi5kZWZpbml0aW9uLnYxIksKDlB1Ymxpc2hSZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRIWCg5jYW5vbmljYWxfanNvbhgCIAEoDBIOCgZkaWdlc3QYAyABKAkiVgoPUHVibGlzaFJlc3BvbnNlEkMKE2RlZmluaXRpb25fcmV2aXNpb24YASABKAsyJi56b2VuLmRlZmluaXRpb24udjEuRGVmaW5pdGlvblJldmlzaW9uIk4KEkdldFJldmlzaW9uUmVxdWVzdBIRCgl0ZW5hbnRfaWQYASABKAkSFQoNZGVmaW5pdGlvbl9pZBgCIAEoCRIOCgZkaWdlc3QYAyABKAkiWgoTR2V0UmV2aXNpb25SZXNwb25zZRJDChNkZWZpbml0aW9uX3JldmlzaW9uGAEgASgLMiYuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25SZXZpc2lvbiJEChhHZXRBY3RpdmVSZXZpc2lvblJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEhUKDWRlZmluaXRpb25faWQYAiABKAkiYAoZR2V0QWN0aXZlUmV2aXNpb25SZXNwb25zZRJDChNkZWZpbml0aW9uX3JldmlzaW9uGAEgASgLMiYuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25SZXZpc2lvbiJoChRQbGFuRXZvbHV0aW9uUmVxdWVzdBIRCgl0ZW5hbnRfaWQYASABKAkSFQoNZGVmaW5pdGlvbl9pZBgCIAEoCRITCgtmcm9tX2RpZ2VzdBgDIAEoCRIRCgl0b19kaWdlc3QYBCABKAkiSAoVUGxhbkV2b2x1dGlvblJlc3BvbnNlEi8KBHBsYW4YASABKAsyIS56b2VuLmRlZmluaXRpb24udjEuRXZvbHV0aW9uUGxhbiK6AQoXQWN0aXZhdGVSZXZpc2lvblJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEhUKDWRlZmluaXRpb25faWQYAiABKAkSDgoGZGlnZXN0GAMgASgJEiMKGWV4cGVjdF9ub19hY3RpdmVfcmV2aXNpb24YBCABKAhIABIgChZleHBlY3RlZF9hY3RpdmVfZGlnZXN0GAUgASgJSABCHgocYWN0aXZlX3JldmlzaW9uX3ByZWNvbmRpdGlvbiJYChhBY3RpdmF0ZVJldmlzaW9uUmVzcG9uc2USPAoKYWN0aXZhdGlvbhgBIAEoCzIoLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uQWN0aXZhdGlvbiJ+ChJEZWZpbml0aW9uUmV2aXNpb24SFQoNZGVmaW5pdGlvbl9pZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZkaWdlc3QYAyABKAkSFgoOY2Fub25pY2FsX2pzb24YBCABKAwSFwoPY29tbWl0X3NlcXVlbmNlGAUgASgEIpQBChBEZWZpbml0aW9uQ2hhbmdlEjgKBmNoYW5nZRgBIAEoDjIoLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uQ2hhbmdlS2luZBI6CgdlbGVtZW50GAIgASgOMikuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25FbGVtZW50S2luZBIKCgJpZBgDIAEoCSLNAQoQRGVmaW5pdGlvbkltcGFjdBI2CgRhcmVhGAEgASgOMiguem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25JbXBhY3RBcmVhEhAKCGFmZmVjdGVkGAIgAygJEhIKCnVuYWZmZWN0ZWQYAyADKAkSEQoJcmF0aW9uYWxlGAQgASgJEkgKDWFwcGxpY2FiaWxpdHkYBSABKA4yMS56b2VuLmRlZmluaXRpb24udjEuRGVmaW5pdGlvbkltcGFjdEFwcGxpY2FiaWxpdHkiwAIKDUV2b2x1dGlvblBsYW4SMAoEZnJvbRgBIAEoCzIiLnpvZW4ud29ybGQudjEuRGVmaW5pdGlvblJlZmVyZW5jZRIuCgJ0bxgCIAEoCzIiLnpvZW4ud29ybGQudjEuRGVmaW5pdGlvblJlZmVyZW5jZRJDCg5jbGFzc2lmaWNhdGlvbhgDIAEoDjIrLnpvZW4uZGVmaW5pdGlvbi52MS5Fdm9sdXRpb25DbGFzc2lmaWNhdGlvbhI1CgdjaGFuZ2VzGAQgAygLMiQuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25DaGFuZ2USNQoHaW1wYWN0cxgFIAMoCzIkLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uSW1wYWN0EhoKEm1pZ3JhdGlvbl9yZXF1aXJlZBgGIAEoCCKBAwoURGVmaW5pdGlvbkFjdGl2YXRpb24SMgoGYWN0aXZlGAEgASgLMiIuem9lbi53b3JsZC52MS5EZWZpbml0aW9uUmVmZXJlbmNlEjQKCHByZXZpb3VzGAIgASgLMiIuem9lbi53b3JsZC52MS5EZWZpbml0aW9uUmVmZXJlbmNlEhcKD2NvbW1pdF9zZXF1ZW5jZRgDIAEoBBIwCgxhY3RpdmF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDGFjdGl2YXRlZF9ieRgFIAEoCRIUCgxwcmluY2lwYWxfaWQYBiABKAkSEwoLd29ya2xvYWRfaWQYByABKAkSLgoGcG9saWN5GAggASgLMh4uem9lbi5hY3Rpb24udjEuUG9saWN5RXZpZGVuY2USQwoOY2xhc3NpZmljYXRpb24YCSABKA4yKy56b2VuLmRlZmluaXRpb24udjEuRXZvbHV0aW9uQ2xhc3NpZmljYXRpb24q7AEKF0V2b2x1dGlvbkNsYXNzaWZpY2F0aW9uEigKJEVWT0xVVElPTl9DTEFTU0lGSUNBVElPTl9VTlNQRUNJRklFRBAAEicKI0VWT0xVVElPTl9DTEFTU0lGSUNBVElPTl9DT01QQVRJQkxFEAESLworRVZPTFVUSU9OX0NMQVNTSUZJQ0FUSU9OX1JFUVVJUkVTX01JR1JBVElPThACEiUKIUVWT0xVVElPTl9DTEFTU0lGSUNBVElPTl9CUkVBS0lORxADEiYKIkVWT0xVVElPTl9DTEFTU0lGSUNBVElPTl9GT1JCSURERU4QBCrVAQoVRGVmaW5pdGlvbkVsZW1lbnRLaW5kEicKI0RFRklOSVRJT05fRUxFTUVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASIAocREVGSU5JVElPTl9FTEVNRU5UX0tJTkRfVFlQRRABEiQKIERFRklOSVRJT05fRUxFTUVOVF9LSU5EX1JFTEFUSU9OEAISJwojREVGSU5JVElPTl9FTEVNRU5UX0tJTkRfQ09NUFVUQVRJT04QAxIiCh5ERUZJTklUSU9OX0VMRU1FTlRfS0lORF9BQ1RJT04QBCqpAQoURGVmaW5pdGlvbkNoYW5nZUtpbmQSJgoiREVGSU5JVElPTl9DSEFOR0VfS0lORF9VTlNQRUNJRklFRBAAEiAKHERFRklOSVRJT05fQ0hBTkdFX0tJTkRfQURERUQQARIiCh5ERUZJTklUSU9OX0NIQU5HRV9LSU5EX1JFTU9WRUQQAhIjCh9ERUZJTklUSU9OX0NIQU5HRV9LSU5EX01PRElGSUVEEAMq9gMKFERlZmluaXRpb25JbXBhY3RBcmVhEiYKIkRFRklOSVRJT05fSU1QQUNUX0FSRUFfVU5TUEVDSUZJRUQQABIgChxERUZJTklUSU9OX0lNUEFDVF9BUkVBX1RZUEVTEAESJAogREVGSU5JVElPTl9JTVBBQ1RfQVJFQV9SRUxBVElPTlMQAhInCiNERUZJTklUSU9OX0lNUEFDVF9BUkVBX0NPTVBVVEFUSU9OUxADEiIKHkRFRklOSVRJT05fSU1QQUNUX0FSRUFfQUNUSU9OUxAEEjYKMkRFRklOSVRJT05fSU1QQUNUX0FSRUFfRE9NQUlOX1BBQ0tBR0VfREVQRU5ERU5DSUVTEAUSMgouREVGSU5JVElPTl9JTVBBQ1RfQVJFQV9TVE9SRURfU0VNQU5USUNfUkVDT1JEUxAGEj4KOkRFRklOSVRJT05fSU1QQUNUX0FSRUFfUVVFUllfQU5EX01BVEVSSUFMSVpBVElPTl9BUlRJRkFDVFMQBxI+CjpERUZJTklUSU9OX0lNUEFDVF9BUkVBX0dFTkVSQVRFRF9TREtfQU5EX1NVUkZBQ0VfQVJUSUZBQ1RTEAgSNQoxREVGSU5JVElPTl9JTVBBQ1RfQVJFQV9QT0xJQ1lfQU5EX1dBU01fUkVGRVJFTkNFUxAJKrQBCh1EZWZpbml0aW9uSW1wYWN0QXBwbGljYWJpbGl0eRIvCitERUZJTklUSU9OX0lNUEFDVF9BUFBMSUNBQklMSVRZX1VOU1BFQ0lGSUVEEAASLgoqREVGSU5JVElPTl9JTVBBQ1RfQVBQTElDQUJJTElUWV9BUFBMSUNBQkxFEAESMgouREVGSU5JVElPTl9JTVBBQ1RfQVBQTElDQUJJTElUWV9OT1RfQVBQTElDQUJMRRACMo4EChFEZWZpbml0aW9uU2VydmljZRJSCgdQdWJsaXNoEiIuem9lbi5kZWZpbml0aW9uLnYxLlB1Ymxpc2hSZXF1ZXN0GiMuem9lbi5kZWZpbml0aW9uLnYxLlB1Ymxpc2hSZXNwb25zZRJeCgtHZXRSZXZpc2lvbhImLnpvZW4uZGVmaW5pdGlvbi52MS5HZXRSZXZpc2lvblJlcXVlc3QaJy56b2VuLmRlZmluaXRpb24udjEuR2V0UmV2aXNpb25SZXNwb25zZRJwChFHZXRBY3RpdmVSZXZpc2lvbhIsLnpvZW4uZGVmaW5pdGlvbi52MS5HZXRBY3RpdmVSZXZpc2lvblJlcXVlc3QaLS56b2VuLmRlZmluaXRpb24udjEuR2V0QWN0aXZlUmV2aXNpb25SZXNwb25zZRJkCg1QbGFuRXZvbHV0aW9uEiguem9lbi5kZWZpbml0aW9uLnYxLlBsYW5Fdm9sdXRpb25SZXF1ZXN0Gikuem9lbi5kZWZpbml0aW9uLnYxLlBsYW5Fdm9sdXRpb25SZXNwb25zZRJtChBBY3RpdmF0ZVJldmlzaW9uEisuem9lbi5kZWZpbml0aW9uLnYxLkFjdGl2YXRlUmV2aXNpb25SZXF1ZXN0Giwuem9lbi5kZWZpbml0aW9uLnYxLkFjdGl2YXRlUmV2aXNpb25SZXNwb25zZWIGcHJvdG8z", [file_google_protobuf_timestamp, file_zoen_action_v1_action, file_zoen_world_v1_world]);
+  fileDesc("CiN6b2VuL2RlZmluaXRpb24vdjEvZGVmaW5pdGlvbi5wcm90bxISem9lbi5kZWZpbml0aW9uLnYxIksKDlB1Ymxpc2hSZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRIWCg5jYW5vbmljYWxfanNvbhgCIAEoDBIOCgZkaWdlc3QYAyABKAkiVgoPUHVibGlzaFJlc3BvbnNlEkMKE2RlZmluaXRpb25fcmV2aXNpb24YASABKAsyJi56b2VuLmRlZmluaXRpb24udjEuRGVmaW5pdGlvblJldmlzaW9uIk4KEkdldFJldmlzaW9uUmVxdWVzdBIRCgl0ZW5hbnRfaWQYASABKAkSFQoNZGVmaW5pdGlvbl9pZBgCIAEoCRIOCgZkaWdlc3QYAyABKAkiWgoTR2V0UmV2aXNpb25SZXNwb25zZRJDChNkZWZpbml0aW9uX3JldmlzaW9uGAEgASgLMiYuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25SZXZpc2lvbiJEChhHZXRBY3RpdmVSZXZpc2lvblJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEhUKDWRlZmluaXRpb25faWQYAiABKAkiYAoZR2V0QWN0aXZlUmV2aXNpb25SZXNwb25zZRJDChNkZWZpbml0aW9uX3JldmlzaW9uGAEgASgLMiYuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25SZXZpc2lvbiJoChRQbGFuRXZvbHV0aW9uUmVxdWVzdBIRCgl0ZW5hbnRfaWQYASABKAkSFQoNZGVmaW5pdGlvbl9pZBgCIAEoCRITCgtmcm9tX2RpZ2VzdBgDIAEoCRIRCgl0b19kaWdlc3QYBCABKAkiSAoVUGxhbkV2b2x1dGlvblJlc3BvbnNlEi8KBHBsYW4YASABKAsyIS56b2VuLmRlZmluaXRpb24udjEuRXZvbHV0aW9uUGxhbiK6AQoXQWN0aXZhdGVSZXZpc2lvblJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEhUKDWRlZmluaXRpb25faWQYAiABKAkSDgoGZGlnZXN0GAMgASgJEiMKGWV4cGVjdF9ub19hY3RpdmVfcmV2aXNpb24YBCABKAhIABIgChZleHBlY3RlZF9hY3RpdmVfZGlnZXN0GAUgASgJSABCHgocYWN0aXZlX3JldmlzaW9uX3ByZWNvbmRpdGlvbiJYChhBY3RpdmF0ZVJldmlzaW9uUmVzcG9uc2USPAoKYWN0aXZhdGlvbhgBIAEoCzIoLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uQWN0aXZhdGlvbiJzChdSb2xsYmFja1JldmlzaW9uUmVxdWVzdBIRCgl0ZW5hbnRfaWQYASABKAkSFQoNZGVmaW5pdGlvbl9pZBgCIAEoCRIOCgZkaWdlc3QYAyABKAkSHgoWZXhwZWN0ZWRfYWN0aXZlX2RpZ2VzdBgEIAEoCSJYChhSb2xsYmFja1JldmlzaW9uUmVzcG9uc2USPAoKYWN0aXZhdGlvbhgBIAEoCzIoLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uQWN0aXZhdGlvbiJ+ChJEZWZpbml0aW9uUmV2aXNpb24SFQoNZGVmaW5pdGlvbl9pZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZkaWdlc3QYAyABKAkSFgoOY2Fub25pY2FsX2pzb24YBCABKAwSFwoPY29tbWl0X3NlcXVlbmNlGAUgASgEIuwBChBEZWZpbml0aW9uQ2hhbmdlEjgKBmNoYW5nZRgBIAEoDjIoLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uQ2hhbmdlS2luZBI6CgdlbGVtZW50GAIgASgOMikuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25FbGVtZW50S2luZBIKCgJpZBgDIAEoCRJDCg5jbGFzc2lmaWNhdGlvbhgEIAEoDjIrLnpvZW4uZGVmaW5pdGlvbi52MS5Fdm9sdXRpb25DbGFzc2lmaWNhdGlvbhIRCglyYXRpb25hbGUYBSABKAkizQEKEERlZmluaXRpb25JbXBhY3QSNgoEYXJlYRgBIAEoDjIoLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uSW1wYWN0QXJlYRIQCghhZmZlY3RlZBgCIAMoCRISCgp1bmFmZmVjdGVkGAMgAygJEhEKCXJhdGlvbmFsZRgEIAEoCRJICg1hcHBsaWNhYmlsaXR5GAUgASgOMjEuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25JbXBhY3RBcHBsaWNhYmlsaXR5IsACCg1Fdm9sdXRpb25QbGFuEjAKBGZyb20YASABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USLgoCdG8YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USQwoOY2xhc3NpZmljYXRpb24YAyABKA4yKy56b2VuLmRlZmluaXRpb24udjEuRXZvbHV0aW9uQ2xhc3NpZmljYXRpb24SNQoHY2hhbmdlcxgEIAMoCzIkLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uQ2hhbmdlEjUKB2ltcGFjdHMYBSADKAsyJC56b2VuLmRlZmluaXRpb24udjEuRGVmaW5pdGlvbkltcGFjdBIaChJtaWdyYXRpb25fcmVxdWlyZWQYBiABKAgiWgoQTWlncmF0aW9uRWxlbWVudBI6CgdlbGVtZW50GAEgASgOMikuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25FbGVtZW50S2luZBIKCgJpZBgCIAEoCSJhChtNaWdyYXRpb25BcnRpZmFjdERlcGVuZGVuY3kSNgoEYXJlYRgBIAEoDjIoLnpvZW4uZGVmaW5pdGlvbi52MS5EZWZpbml0aW9uSW1wYWN0QXJlYRIKCgJpZBgCIAEoCSLDAQoNTWlncmF0aW9uUnVsZRIPCgdydWxlX2lkGAEgASgJEjMKBGtpbmQYAiABKA4yJS56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uUnVsZUtpbmQSNQoHc291cmNlcxgDIAMoCzIkLnpvZW4uZGVmaW5pdGlvbi52MS5NaWdyYXRpb25FbGVtZW50EjUKB3RhcmdldHMYBCADKAsyJC56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uRWxlbWVudCJoChNNaWdyYXRpb25EZXBlbmRlbmN5EhEKCWVudGl0eV9pZBgBIAEoCRITCgtyZWxhdGlvbl9pZBgCIAEoCRIQCghjbGFpbV9pZBgDIAEoCRIXCg9jb21taXRfc2VxdWVuY2UYBCABKAQiSwoWTWlncmF0aW9uUG9zdGNvbmRpdGlvbhITCgtyZWxhdGlvbl9pZBgBIAEoCRIcChRtaW5pbXVtX3JlY29yZF9jb3VudBgCIAEoBCKzAgoPTWlncmF0aW9uUmVjaXBlEhYKDmZvcm1hdF92ZXJzaW9uGAEgASgNEhQKDG9wZXJhdGlvbl9pZBgCIAEoCRIVCg1kZWZpbml0aW9uX2lkGAMgASgJEhMKC2Zyb21fZGlnZXN0GAQgASgJEhEKCXRvX2RpZ2VzdBgFIAEoCRIwCgVydWxlcxgGIAMoCzIhLnpvZW4uZGVmaW5pdGlvbi52MS5NaWdyYXRpb25SdWxlEj0KDGRlcGVuZGVuY2llcxgHIAMoCzInLnpvZW4uZGVmaW5pdGlvbi52MS5NaWdyYXRpb25EZXBlbmRlbmN5EkIKDnBvc3Rjb25kaXRpb25zGAggAygLMiouem9lbi5kZWZpbml0aW9uLnYxLk1pZ3JhdGlvblBvc3Rjb25kaXRpb24idgoZTWlncmF0aW9uT2JsaWdhdGlvblNvdXJjZRITCgtyZWxhdGlvbl9pZBgBIAEoCRIPCgdydWxlX2lkGAIgASgJEjMKBGtpbmQYAyABKA4yJS56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uUnVsZUtpbmQikAUKDU1pZ3JhdGlvblBsYW4SFgoOZm9ybWF0X3ZlcnNpb24YASABKA0SFAoMb3BlcmF0aW9uX2lkGAIgASgJEjAKBGZyb20YAyABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USLgoCdG8YBCABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USQwoOY2xhc3NpZmljYXRpb24YBSABKA4yKy56b2VuLmRlZmluaXRpb24udjEuRXZvbHV0aW9uQ2xhc3NpZmljYXRpb24SPwoRYWZmZWN0ZWRfZWxlbWVudHMYBiADKAsyJC56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uRWxlbWVudBJOChVhcnRpZmFjdF9kZXBlbmRlbmNpZXMYByADKAsyLy56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uQXJ0aWZhY3REZXBlbmRlbmN5EjAKBXJ1bGVzGAggAygLMiEuem9lbi5kZWZpbml0aW9uLnYxLk1pZ3JhdGlvblJ1bGUSPQoMZGVwZW5kZW5jaWVzGAkgAygLMicuem9lbi5kZWZpbml0aW9uLnYxLk1pZ3JhdGlvbkRlcGVuZGVuY3kSQgoOcG9zdGNvbmRpdGlvbnMYCiADKAsyKi56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uUG9zdGNvbmRpdGlvbhIZChFhc3Nlc3NtZW50X2RpZ2VzdBgLIAEoCRJJChJvYmxpZ2F0aW9uX3NvdXJjZXMYDCADKAsyLS56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uT2JsaWdhdGlvblNvdXJjZSJzCg9NaWdyYXRpb25SZWNvcmQSDwoHcnVsZV9pZBgBIAEoCRIYChBzb3VyY2VfY2xhaW1faWRzGAIgAygJEjUKD3RhcmdldF9ldmlkZW5jZRgDIAEoCzIcLnpvZW4ud29ybGQudjEuRXZpZGVuY2VDbGFpbSKLAQoQTWlncmF0aW9uTGluZWFnZRIPCgdydWxlX2lkGAEgASgJEjMKBGtpbmQYAiABKA4yJS56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uUnVsZUtpbmQSGAoQc291cmNlX2NsYWltX2lkcxgDIAMoCRIXCg90YXJnZXRfY2xhaW1faWQYBCABKAkiiQEKE01pZ3JhdGlvbk9ibGlnYXRpb24SFwoPc291cmNlX2NsYWltX2lkGAEgASgJEhMKC3JlbGF0aW9uX2lkGAIgASgJEg8KB3J1bGVfaWQYAyABKAkSMwoEa2luZBgEIAEoDjIlLnpvZW4uZGVmaW5pdGlvbi52MS5NaWdyYXRpb25SdWxlS2luZCLeAgoRTWlncmF0aW9uUHJvZ3Jlc3MSLwoEcGxhbhgBIAEoCzIhLnpvZW4uZGVmaW5pdGlvbi52MS5NaWdyYXRpb25QbGFuEhUKDWludGVudF9kaWdlc3QYAiABKAkSMwoGc3RhdHVzGAMgASgOMiMuem9lbi5kZWZpbml0aW9uLnYxLk1pZ3JhdGlvblN0YXR1cxIXCg9jb21taXRfc2VxdWVuY2UYBCABKAQSGQoRY29tcGxldGVkX2JhdGNoZXMYBSADKA0SNQoHbGluZWFnZRgGIAMoCzIkLnpvZW4uZGVmaW5pdGlvbi52MS5NaWdyYXRpb25MaW5lYWdlEkYKFXJlbWFpbmluZ19vYmxpZ2F0aW9ucxgHIAMoCzInLnpvZW4uZGVmaW5pdGlvbi52MS5NaWdyYXRpb25PYmxpZ2F0aW9uEhkKEXRvdGFsX29ibGlnYXRpb25zGAggASgEImEKF1ByZXBhcmVNaWdyYXRpb25SZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRIzCgZyZWNpcGUYAiABKAsyIy56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uUmVjaXBlIlMKGFByZXBhcmVNaWdyYXRpb25SZXNwb25zZRI3Cghwcm9ncmVzcxgBIAEoCzIlLnpvZW4uZGVmaW5pdGlvbi52MS5NaWdyYXRpb25Qcm9ncmVzcyKQAQoaQXBwbHlNaWdyYXRpb25CYXRjaFJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEhQKDG9wZXJhdGlvbl9pZBgCIAEoCRITCgtiYXRjaF9pbmRleBgDIAEoDRI0CgdyZWNvcmRzGAQgAygLMiMuem9lbi5kZWZpbml0aW9uLnYxLk1pZ3JhdGlvblJlY29yZCJWChtBcHBseU1pZ3JhdGlvbkJhdGNoUmVzcG9uc2USNwoIcHJvZ3Jlc3MYASABKAsyJS56b2VuLmRlZmluaXRpb24udjEuTWlncmF0aW9uUHJvZ3Jlc3MiPgoTR2V0TWlncmF0aW9uUmVxdWVzdBIRCgl0ZW5hbnRfaWQYASABKAkSFAoMb3BlcmF0aW9uX2lkGAIgASgJIk8KFEdldE1pZ3JhdGlvblJlc3BvbnNlEjcKCHByb2dyZXNzGAEgASgLMiUuem9lbi5kZWZpbml0aW9uLnYxLk1pZ3JhdGlvblByb2dyZXNzIt0DChREZWZpbml0aW9uQWN0aXZhdGlvbhIyCgZhY3RpdmUYASABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USNAoIcHJldmlvdXMYAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USFwoPY29tbWl0X3NlcXVlbmNlGAMgASgEEjAKDGFjdGl2YXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFAoMYWN0aXZhdGVkX2J5GAUgASgJEhQKDHByaW5jaXBhbF9pZBgGIAEoCRITCgt3b3JrbG9hZF9pZBgHIAEoCRIuCgZwb2xpY3kYCCABKAsyHi56b2VuLmFjdGlvbi52MS5Qb2xpY3lFdmlkZW5jZRJDCg5jbGFzc2lmaWNhdGlvbhgJIAEoDjIrLnpvZW4uZGVmaW5pdGlvbi52MS5Fdm9sdXRpb25DbGFzc2lmaWNhdGlvbhI6CgRraW5kGAogASgOMiwuem9lbi5kZWZpbml0aW9uLnYxLkRlZmluaXRpb25BY3RpdmF0aW9uS2luZBIeChZtaWdyYXRpb25fb3BlcmF0aW9uX2lkGAsgASgJKuwBChdFdm9sdXRpb25DbGFzc2lmaWNhdGlvbhIoCiRFVk9MVVRJT05fQ0xBU1NJRklDQVRJT05fVU5TUEVDSUZJRUQQABInCiNFVk9MVVRJT05fQ0xBU1NJRklDQVRJT05fQ09NUEFUSUJMRRABEi8KK0VWT0xVVElPTl9DTEFTU0lGSUNBVElPTl9SRVFVSVJFU19NSUdSQVRJT04QAhIlCiFFVk9MVVRJT05fQ0xBU1NJRklDQVRJT05fQlJFQUtJTkcQAxImCiJFVk9MVVRJT05fQ0xBU1NJRklDQVRJT05fRk9SQklEREVOEAQq1QEKFURlZmluaXRpb25FbGVtZW50S2luZBInCiNERUZJTklUSU9OX0VMRU1FTlRfS0lORF9VTlNQRUNJRklFRBAAEiAKHERFRklOSVRJT05fRUxFTUVOVF9LSU5EX1RZUEUQARIkCiBERUZJTklUSU9OX0VMRU1FTlRfS0lORF9SRUxBVElPThACEicKI0RFRklOSVRJT05fRUxFTUVOVF9LSU5EX0NPTVBVVEFUSU9OEAMSIgoeREVGSU5JVElPTl9FTEVNRU5UX0tJTkRfQUNUSU9OEAQqqQEKFERlZmluaXRpb25DaGFuZ2VLaW5kEiYKIkRFRklOSVRJT05fQ0hBTkdFX0tJTkRfVU5TUEVDSUZJRUQQABIgChxERUZJTklUSU9OX0NIQU5HRV9LSU5EX0FEREVEEAESIgoeREVGSU5JVElPTl9DSEFOR0VfS0lORF9SRU1PVkVEEAISIwofREVGSU5JVElPTl9DSEFOR0VfS0lORF9NT0RJRklFRBADKt0EChREZWZpbml0aW9uSW1wYWN0QXJlYRImCiJERUZJTklUSU9OX0lNUEFDVF9BUkVBX1VOU1BFQ0lGSUVEEAASIAocREVGSU5JVElPTl9JTVBBQ1RfQVJFQV9UWVBFUxABEiQKIERFRklOSVRJT05fSU1QQUNUX0FSRUFfUkVMQVRJT05TEAISJwojREVGSU5JVElPTl9JTVBBQ1RfQVJFQV9DT01QVVRBVElPTlMQAxIiCh5ERUZJTklUSU9OX0lNUEFDVF9BUkVBX0FDVElPTlMQBBI2CjJERUZJTklUSU9OX0lNUEFDVF9BUkVBX0RPTUFJTl9QQUNLQUdFX0RFUEVOREVOQ0lFUxAFEjIKLkRFRklOSVRJT05fSU1QQUNUX0FSRUFfU1RPUkVEX1NFTUFOVElDX1JFQ09SRFMQBhI+CjpERUZJTklUSU9OX0lNUEFDVF9BUkVBX1FVRVJZX0FORF9NQVRFUklBTElaQVRJT05fQVJUSUZBQ1RTEAcSPgo6REVGSU5JVElPTl9JTVBBQ1RfQVJFQV9HRU5FUkFURURfU0RLX0FORF9TVVJGQUNFX0FSVElGQUNUUxAIEjUKMURFRklOSVRJT05fSU1QQUNUX0FSRUFfUE9MSUNZX0FORF9XQVNNX1JFRkVSRU5DRVMQCRI5CjVERUZJTklUSU9OX0lNUEFDVF9BUkVBX1BPTElDWV9BTkRfQVVUSE9SSVRZX0NPTlRSQUNUUxAKEioKJkRFRklOSVRJT05fSU1QQUNUX0FSRUFfV0FTTV9DT01QT05FTlRTEAsqtAEKHURlZmluaXRpb25JbXBhY3RBcHBsaWNhYmlsaXR5Ei8KK0RFRklOSVRJT05fSU1QQUNUX0FQUExJQ0FCSUxJVFlfVU5TUEVDSUZJRUQQABIuCipERUZJTklUSU9OX0lNUEFDVF9BUFBMSUNBQklMSVRZX0FQUExJQ0FCTEUQARIyCi5ERUZJTklUSU9OX0lNUEFDVF9BUFBMSUNBQklMSVRZX05PVF9BUFBMSUNBQkxFEAIqywEKEU1pZ3JhdGlvblJ1bGVLaW5kEiMKH01JR1JBVElPTl9SVUxFX0tJTkRfVU5TUEVDSUZJRUQQABIoCiRNSUdSQVRJT05fUlVMRV9LSU5EX1BSRVNFUlZFX01FQU5JTkcQARIhCh1NSUdSQVRJT05fUlVMRV9LSU5EX1RSQU5TRk9STRACEiEKHU1JR1JBVElPTl9SVUxFX0tJTkRfU1VQRVJTRURFEAMSIQodTUlHUkFUSU9OX1JVTEVfS0lORF9SRUNPTVBVVEUQBCqUAQoPTWlncmF0aW9uU3RhdHVzEiAKHE1JR1JBVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIdChlNSUdSQVRJT05fU1RBVFVTX1BSRVBBUkVEEAESIAocTUlHUkFUSU9OX1NUQVRVU19JTl9QUk9HUkVTUxACEh4KGk1JR1JBVElPTl9TVEFUVVNfQ09NUExFVEVEEAMqmgEKGERlZmluaXRpb25BY3RpdmF0aW9uS2luZBIqCiZERUZJTklUSU9OX0FDVElWQVRJT05fS0lORF9VTlNQRUNJRklFRBAAEikKJURFRklOSVRJT05fQUNUSVZBVElPTl9LSU5EX0FDVElWQVRJT04QARInCiNERUZJTklUSU9OX0FDVElWQVRJT05fS0lORF9ST0xMQkFDSxACMscHChFEZWZpbml0aW9uU2VydmljZRJSCgdQdWJsaXNoEiIuem9lbi5kZWZpbml0aW9uLnYxLlB1Ymxpc2hSZXF1ZXN0GiMuem9lbi5kZWZpbml0aW9uLnYxLlB1Ymxpc2hSZXNwb25zZRJeCgtHZXRSZXZpc2lvbhImLnpvZW4uZGVmaW5pdGlvbi52MS5HZXRSZXZpc2lvblJlcXVlc3QaJy56b2VuLmRlZmluaXRpb24udjEuR2V0UmV2aXNpb25SZXNwb25zZRJwChFHZXRBY3RpdmVSZXZpc2lvbhIsLnpvZW4uZGVmaW5pdGlvbi52MS5HZXRBY3RpdmVSZXZpc2lvblJlcXVlc3QaLS56b2VuLmRlZmluaXRpb24udjEuR2V0QWN0aXZlUmV2aXNpb25SZXNwb25zZRJkCg1QbGFuRXZvbHV0aW9uEiguem9lbi5kZWZpbml0aW9uLnYxLlBsYW5Fdm9sdXRpb25SZXF1ZXN0Gikuem9lbi5kZWZpbml0aW9uLnYxLlBsYW5Fdm9sdXRpb25SZXNwb25zZRJtChBQcmVwYXJlTWlncmF0aW9uEisuem9lbi5kZWZpbml0aW9uLnYxLlByZXBhcmVNaWdyYXRpb25SZXF1ZXN0Giwuem9lbi5kZWZpbml0aW9uLnYxLlByZXBhcmVNaWdyYXRpb25SZXNwb25zZRJ2ChNBcHBseU1pZ3JhdGlvbkJhdGNoEi4uem9lbi5kZWZpbml0aW9uLnYxLkFwcGx5TWlncmF0aW9uQmF0Y2hSZXF1ZXN0Gi8uem9lbi5kZWZpbml0aW9uLnYxLkFwcGx5TWlncmF0aW9uQmF0Y2hSZXNwb25zZRJhCgxHZXRNaWdyYXRpb24SJy56b2VuLmRlZmluaXRpb24udjEuR2V0TWlncmF0aW9uUmVxdWVzdBooLnpvZW4uZGVmaW5pdGlvbi52MS5HZXRNaWdyYXRpb25SZXNwb25zZRJtChBBY3RpdmF0ZVJldmlzaW9uEisuem9lbi5kZWZpbml0aW9uLnYxLkFjdGl2YXRlUmV2aXNpb25SZXF1ZXN0Giwuem9lbi5kZWZpbml0aW9uLnYxLkFjdGl2YXRlUmV2aXNpb25SZXNwb25zZRJtChBSb2xsYmFja1JldmlzaW9uEisuem9lbi5kZWZpbml0aW9uLnYxLlJvbGxiYWNrUmV2aXNpb25SZXF1ZXN0Giwuem9lbi5kZWZpbml0aW9uLnYxLlJvbGxiYWNrUmV2aXNpb25SZXNwb25zZWIGcHJvdG8z", [file_google_protobuf_timestamp, file_zoen_action_v1_action, file_zoen_world_v1_world]);
 
 /**
  * @generated from message zoen.definition.v1.PublishRequest
@@ -256,6 +256,55 @@ export const ActivateRevisionResponseSchema: GenMessage<ActivateRevisionResponse
   messageDesc(file_zoen_definition_v1_definition, 9);
 
 /**
+ * @generated from message zoen.definition.v1.RollbackRevisionRequest
+ */
+export type RollbackRevisionRequest = Message<"zoen.definition.v1.RollbackRevisionRequest"> & {
+  /**
+   * @generated from field: string tenant_id = 1;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string definition_id = 2;
+   */
+  definitionId: string;
+
+  /**
+   * @generated from field: string digest = 3;
+   */
+  digest: string;
+
+  /**
+   * @generated from field: string expected_active_digest = 4;
+   */
+  expectedActiveDigest: string;
+};
+
+/**
+ * Describes the message zoen.definition.v1.RollbackRevisionRequest.
+ * Use `create(RollbackRevisionRequestSchema)` to create a new message.
+ */
+export const RollbackRevisionRequestSchema: GenMessage<RollbackRevisionRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 10);
+
+/**
+ * @generated from message zoen.definition.v1.RollbackRevisionResponse
+ */
+export type RollbackRevisionResponse = Message<"zoen.definition.v1.RollbackRevisionResponse"> & {
+  /**
+   * @generated from field: zoen.definition.v1.DefinitionActivation activation = 1;
+   */
+  activation?: DefinitionActivation | undefined;
+};
+
+/**
+ * Describes the message zoen.definition.v1.RollbackRevisionResponse.
+ * Use `create(RollbackRevisionResponseSchema)` to create a new message.
+ */
+export const RollbackRevisionResponseSchema: GenMessage<RollbackRevisionResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 11);
+
+/**
  * @generated from message zoen.definition.v1.DefinitionRevision
  */
 export type DefinitionRevision = Message<"zoen.definition.v1.DefinitionRevision"> & {
@@ -290,7 +339,7 @@ export type DefinitionRevision = Message<"zoen.definition.v1.DefinitionRevision"
  * Use `create(DefinitionRevisionSchema)` to create a new message.
  */
 export const DefinitionRevisionSchema: GenMessage<DefinitionRevision> = /*@__PURE__*/
-  messageDesc(file_zoen_definition_v1_definition, 10);
+  messageDesc(file_zoen_definition_v1_definition, 12);
 
 /**
  * @generated from message zoen.definition.v1.DefinitionChange
@@ -310,6 +359,16 @@ export type DefinitionChange = Message<"zoen.definition.v1.DefinitionChange"> & 
    * @generated from field: string id = 3;
    */
   id: string;
+
+  /**
+   * @generated from field: zoen.definition.v1.EvolutionClassification classification = 4;
+   */
+  classification: EvolutionClassification;
+
+  /**
+   * @generated from field: string rationale = 5;
+   */
+  rationale: string;
 };
 
 /**
@@ -317,7 +376,7 @@ export type DefinitionChange = Message<"zoen.definition.v1.DefinitionChange"> & 
  * Use `create(DefinitionChangeSchema)` to create a new message.
  */
 export const DefinitionChangeSchema: GenMessage<DefinitionChange> = /*@__PURE__*/
-  messageDesc(file_zoen_definition_v1_definition, 11);
+  messageDesc(file_zoen_definition_v1_definition, 13);
 
 /**
  * @generated from message zoen.definition.v1.DefinitionImpact
@@ -354,7 +413,7 @@ export type DefinitionImpact = Message<"zoen.definition.v1.DefinitionImpact"> & 
  * Use `create(DefinitionImpactSchema)` to create a new message.
  */
 export const DefinitionImpactSchema: GenMessage<DefinitionImpact> = /*@__PURE__*/
-  messageDesc(file_zoen_definition_v1_definition, 12);
+  messageDesc(file_zoen_definition_v1_definition, 14);
 
 /**
  * @generated from message zoen.definition.v1.EvolutionPlan
@@ -396,7 +455,558 @@ export type EvolutionPlan = Message<"zoen.definition.v1.EvolutionPlan"> & {
  * Use `create(EvolutionPlanSchema)` to create a new message.
  */
 export const EvolutionPlanSchema: GenMessage<EvolutionPlan> = /*@__PURE__*/
-  messageDesc(file_zoen_definition_v1_definition, 13);
+  messageDesc(file_zoen_definition_v1_definition, 15);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationElement
+ */
+export type MigrationElement = Message<"zoen.definition.v1.MigrationElement"> & {
+  /**
+   * @generated from field: zoen.definition.v1.DefinitionElementKind element = 1;
+   */
+  element: DefinitionElementKind;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationElement.
+ * Use `create(MigrationElementSchema)` to create a new message.
+ */
+export const MigrationElementSchema: GenMessage<MigrationElement> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 16);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationArtifactDependency
+ */
+export type MigrationArtifactDependency = Message<"zoen.definition.v1.MigrationArtifactDependency"> & {
+  /**
+   * @generated from field: zoen.definition.v1.DefinitionImpactArea area = 1;
+   */
+  area: DefinitionImpactArea;
+
+  /**
+   * @generated from field: string id = 2;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationArtifactDependency.
+ * Use `create(MigrationArtifactDependencySchema)` to create a new message.
+ */
+export const MigrationArtifactDependencySchema: GenMessage<MigrationArtifactDependency> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 17);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationRule
+ */
+export type MigrationRule = Message<"zoen.definition.v1.MigrationRule"> & {
+  /**
+   * @generated from field: string rule_id = 1;
+   */
+  ruleId: string;
+
+  /**
+   * @generated from field: zoen.definition.v1.MigrationRuleKind kind = 2;
+   */
+  kind: MigrationRuleKind;
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationElement sources = 3;
+   */
+  sources: MigrationElement[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationElement targets = 4;
+   */
+  targets: MigrationElement[];
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationRule.
+ * Use `create(MigrationRuleSchema)` to create a new message.
+ */
+export const MigrationRuleSchema: GenMessage<MigrationRule> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 18);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationDependency
+ */
+export type MigrationDependency = Message<"zoen.definition.v1.MigrationDependency"> & {
+  /**
+   * @generated from field: string entity_id = 1;
+   */
+  entityId: string;
+
+  /**
+   * @generated from field: string relation_id = 2;
+   */
+  relationId: string;
+
+  /**
+   * @generated from field: string claim_id = 3;
+   */
+  claimId: string;
+
+  /**
+   * @generated from field: uint64 commit_sequence = 4;
+   */
+  commitSequence: bigint;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationDependency.
+ * Use `create(MigrationDependencySchema)` to create a new message.
+ */
+export const MigrationDependencySchema: GenMessage<MigrationDependency> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 19);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationPostcondition
+ */
+export type MigrationPostcondition = Message<"zoen.definition.v1.MigrationPostcondition"> & {
+  /**
+   * @generated from field: string relation_id = 1;
+   */
+  relationId: string;
+
+  /**
+   * @generated from field: uint64 minimum_record_count = 2;
+   */
+  minimumRecordCount: bigint;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationPostcondition.
+ * Use `create(MigrationPostconditionSchema)` to create a new message.
+ */
+export const MigrationPostconditionSchema: GenMessage<MigrationPostcondition> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 20);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationRecipe
+ */
+export type MigrationRecipe = Message<"zoen.definition.v1.MigrationRecipe"> & {
+  /**
+   * @generated from field: uint32 format_version = 1;
+   */
+  formatVersion: number;
+
+  /**
+   * @generated from field: string operation_id = 2;
+   */
+  operationId: string;
+
+  /**
+   * @generated from field: string definition_id = 3;
+   */
+  definitionId: string;
+
+  /**
+   * @generated from field: string from_digest = 4;
+   */
+  fromDigest: string;
+
+  /**
+   * @generated from field: string to_digest = 5;
+   */
+  toDigest: string;
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationRule rules = 6;
+   */
+  rules: MigrationRule[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationDependency dependencies = 7;
+   */
+  dependencies: MigrationDependency[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationPostcondition postconditions = 8;
+   */
+  postconditions: MigrationPostcondition[];
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationRecipe.
+ * Use `create(MigrationRecipeSchema)` to create a new message.
+ */
+export const MigrationRecipeSchema: GenMessage<MigrationRecipe> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 21);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationObligationSource
+ */
+export type MigrationObligationSource = Message<"zoen.definition.v1.MigrationObligationSource"> & {
+  /**
+   * @generated from field: string relation_id = 1;
+   */
+  relationId: string;
+
+  /**
+   * @generated from field: string rule_id = 2;
+   */
+  ruleId: string;
+
+  /**
+   * @generated from field: zoen.definition.v1.MigrationRuleKind kind = 3;
+   */
+  kind: MigrationRuleKind;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationObligationSource.
+ * Use `create(MigrationObligationSourceSchema)` to create a new message.
+ */
+export const MigrationObligationSourceSchema: GenMessage<MigrationObligationSource> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 22);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationPlan
+ */
+export type MigrationPlan = Message<"zoen.definition.v1.MigrationPlan"> & {
+  /**
+   * @generated from field: uint32 format_version = 1;
+   */
+  formatVersion: number;
+
+  /**
+   * @generated from field: string operation_id = 2;
+   */
+  operationId: string;
+
+  /**
+   * @generated from field: zoen.world.v1.DefinitionReference from = 3;
+   */
+  from?: DefinitionReference | undefined;
+
+  /**
+   * @generated from field: zoen.world.v1.DefinitionReference to = 4;
+   */
+  to?: DefinitionReference | undefined;
+
+  /**
+   * @generated from field: zoen.definition.v1.EvolutionClassification classification = 5;
+   */
+  classification: EvolutionClassification;
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationElement affected_elements = 6;
+   */
+  affectedElements: MigrationElement[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationArtifactDependency artifact_dependencies = 7;
+   */
+  artifactDependencies: MigrationArtifactDependency[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationRule rules = 8;
+   */
+  rules: MigrationRule[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationDependency dependencies = 9;
+   */
+  dependencies: MigrationDependency[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationPostcondition postconditions = 10;
+   */
+  postconditions: MigrationPostcondition[];
+
+  /**
+   * @generated from field: string assessment_digest = 11;
+   */
+  assessmentDigest: string;
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationObligationSource obligation_sources = 12;
+   */
+  obligationSources: MigrationObligationSource[];
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationPlan.
+ * Use `create(MigrationPlanSchema)` to create a new message.
+ */
+export const MigrationPlanSchema: GenMessage<MigrationPlan> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 23);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationRecord
+ */
+export type MigrationRecord = Message<"zoen.definition.v1.MigrationRecord"> & {
+  /**
+   * @generated from field: string rule_id = 1;
+   */
+  ruleId: string;
+
+  /**
+   * @generated from field: repeated string source_claim_ids = 2;
+   */
+  sourceClaimIds: string[];
+
+  /**
+   * @generated from field: zoen.world.v1.EvidenceClaim target_evidence = 3;
+   */
+  targetEvidence?: EvidenceClaim | undefined;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationRecord.
+ * Use `create(MigrationRecordSchema)` to create a new message.
+ */
+export const MigrationRecordSchema: GenMessage<MigrationRecord> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 24);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationLineage
+ */
+export type MigrationLineage = Message<"zoen.definition.v1.MigrationLineage"> & {
+  /**
+   * @generated from field: string rule_id = 1;
+   */
+  ruleId: string;
+
+  /**
+   * @generated from field: zoen.definition.v1.MigrationRuleKind kind = 2;
+   */
+  kind: MigrationRuleKind;
+
+  /**
+   * @generated from field: repeated string source_claim_ids = 3;
+   */
+  sourceClaimIds: string[];
+
+  /**
+   * @generated from field: string target_claim_id = 4;
+   */
+  targetClaimId: string;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationLineage.
+ * Use `create(MigrationLineageSchema)` to create a new message.
+ */
+export const MigrationLineageSchema: GenMessage<MigrationLineage> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 25);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationObligation
+ */
+export type MigrationObligation = Message<"zoen.definition.v1.MigrationObligation"> & {
+  /**
+   * @generated from field: string source_claim_id = 1;
+   */
+  sourceClaimId: string;
+
+  /**
+   * @generated from field: string relation_id = 2;
+   */
+  relationId: string;
+
+  /**
+   * @generated from field: string rule_id = 3;
+   */
+  ruleId: string;
+
+  /**
+   * @generated from field: zoen.definition.v1.MigrationRuleKind kind = 4;
+   */
+  kind: MigrationRuleKind;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationObligation.
+ * Use `create(MigrationObligationSchema)` to create a new message.
+ */
+export const MigrationObligationSchema: GenMessage<MigrationObligation> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 26);
+
+/**
+ * @generated from message zoen.definition.v1.MigrationProgress
+ */
+export type MigrationProgress = Message<"zoen.definition.v1.MigrationProgress"> & {
+  /**
+   * @generated from field: zoen.definition.v1.MigrationPlan plan = 1;
+   */
+  plan?: MigrationPlan | undefined;
+
+  /**
+   * @generated from field: string intent_digest = 2;
+   */
+  intentDigest: string;
+
+  /**
+   * @generated from field: zoen.definition.v1.MigrationStatus status = 3;
+   */
+  status: MigrationStatus;
+
+  /**
+   * @generated from field: uint64 commit_sequence = 4;
+   */
+  commitSequence: bigint;
+
+  /**
+   * @generated from field: repeated uint32 completed_batches = 5;
+   */
+  completedBatches: number[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationLineage lineage = 6;
+   */
+  lineage: MigrationLineage[];
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationObligation remaining_obligations = 7;
+   */
+  remainingObligations: MigrationObligation[];
+
+  /**
+   * @generated from field: uint64 total_obligations = 8;
+   */
+  totalObligations: bigint;
+};
+
+/**
+ * Describes the message zoen.definition.v1.MigrationProgress.
+ * Use `create(MigrationProgressSchema)` to create a new message.
+ */
+export const MigrationProgressSchema: GenMessage<MigrationProgress> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 27);
+
+/**
+ * @generated from message zoen.definition.v1.PrepareMigrationRequest
+ */
+export type PrepareMigrationRequest = Message<"zoen.definition.v1.PrepareMigrationRequest"> & {
+  /**
+   * @generated from field: string tenant_id = 1;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: zoen.definition.v1.MigrationRecipe recipe = 2;
+   */
+  recipe?: MigrationRecipe | undefined;
+};
+
+/**
+ * Describes the message zoen.definition.v1.PrepareMigrationRequest.
+ * Use `create(PrepareMigrationRequestSchema)` to create a new message.
+ */
+export const PrepareMigrationRequestSchema: GenMessage<PrepareMigrationRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 28);
+
+/**
+ * @generated from message zoen.definition.v1.PrepareMigrationResponse
+ */
+export type PrepareMigrationResponse = Message<"zoen.definition.v1.PrepareMigrationResponse"> & {
+  /**
+   * @generated from field: zoen.definition.v1.MigrationProgress progress = 1;
+   */
+  progress?: MigrationProgress | undefined;
+};
+
+/**
+ * Describes the message zoen.definition.v1.PrepareMigrationResponse.
+ * Use `create(PrepareMigrationResponseSchema)` to create a new message.
+ */
+export const PrepareMigrationResponseSchema: GenMessage<PrepareMigrationResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 29);
+
+/**
+ * @generated from message zoen.definition.v1.ApplyMigrationBatchRequest
+ */
+export type ApplyMigrationBatchRequest = Message<"zoen.definition.v1.ApplyMigrationBatchRequest"> & {
+  /**
+   * @generated from field: string tenant_id = 1;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string operation_id = 2;
+   */
+  operationId: string;
+
+  /**
+   * @generated from field: uint32 batch_index = 3;
+   */
+  batchIndex: number;
+
+  /**
+   * @generated from field: repeated zoen.definition.v1.MigrationRecord records = 4;
+   */
+  records: MigrationRecord[];
+};
+
+/**
+ * Describes the message zoen.definition.v1.ApplyMigrationBatchRequest.
+ * Use `create(ApplyMigrationBatchRequestSchema)` to create a new message.
+ */
+export const ApplyMigrationBatchRequestSchema: GenMessage<ApplyMigrationBatchRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 30);
+
+/**
+ * @generated from message zoen.definition.v1.ApplyMigrationBatchResponse
+ */
+export type ApplyMigrationBatchResponse = Message<"zoen.definition.v1.ApplyMigrationBatchResponse"> & {
+  /**
+   * @generated from field: zoen.definition.v1.MigrationProgress progress = 1;
+   */
+  progress?: MigrationProgress | undefined;
+};
+
+/**
+ * Describes the message zoen.definition.v1.ApplyMigrationBatchResponse.
+ * Use `create(ApplyMigrationBatchResponseSchema)` to create a new message.
+ */
+export const ApplyMigrationBatchResponseSchema: GenMessage<ApplyMigrationBatchResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 31);
+
+/**
+ * @generated from message zoen.definition.v1.GetMigrationRequest
+ */
+export type GetMigrationRequest = Message<"zoen.definition.v1.GetMigrationRequest"> & {
+  /**
+   * @generated from field: string tenant_id = 1;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string operation_id = 2;
+   */
+  operationId: string;
+};
+
+/**
+ * Describes the message zoen.definition.v1.GetMigrationRequest.
+ * Use `create(GetMigrationRequestSchema)` to create a new message.
+ */
+export const GetMigrationRequestSchema: GenMessage<GetMigrationRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 32);
+
+/**
+ * @generated from message zoen.definition.v1.GetMigrationResponse
+ */
+export type GetMigrationResponse = Message<"zoen.definition.v1.GetMigrationResponse"> & {
+  /**
+   * @generated from field: zoen.definition.v1.MigrationProgress progress = 1;
+   */
+  progress?: MigrationProgress | undefined;
+};
+
+/**
+ * Describes the message zoen.definition.v1.GetMigrationResponse.
+ * Use `create(GetMigrationResponseSchema)` to create a new message.
+ */
+export const GetMigrationResponseSchema: GenMessage<GetMigrationResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_definition_v1_definition, 33);
 
 /**
  * @generated from message zoen.definition.v1.DefinitionActivation
@@ -446,6 +1056,16 @@ export type DefinitionActivation = Message<"zoen.definition.v1.DefinitionActivat
    * @generated from field: zoen.definition.v1.EvolutionClassification classification = 9;
    */
   classification: EvolutionClassification;
+
+  /**
+   * @generated from field: zoen.definition.v1.DefinitionActivationKind kind = 10;
+   */
+  kind: DefinitionActivationKind;
+
+  /**
+   * @generated from field: string migration_operation_id = 11;
+   */
+  migrationOperationId: string;
 };
 
 /**
@@ -453,7 +1073,7 @@ export type DefinitionActivation = Message<"zoen.definition.v1.DefinitionActivat
  * Use `create(DefinitionActivationSchema)` to create a new message.
  */
 export const DefinitionActivationSchema: GenMessage<DefinitionActivation> = /*@__PURE__*/
-  messageDesc(file_zoen_definition_v1_definition, 14);
+  messageDesc(file_zoen_definition_v1_definition, 34);
 
 /**
  * @generated from enum zoen.definition.v1.EvolutionClassification
@@ -611,6 +1231,16 @@ export enum DefinitionImpactArea {
    * @generated from enum value: DEFINITION_IMPACT_AREA_POLICY_AND_WASM_REFERENCES = 9;
    */
   POLICY_AND_WASM_REFERENCES = 9,
+
+  /**
+   * @generated from enum value: DEFINITION_IMPACT_AREA_POLICY_AND_AUTHORITY_CONTRACTS = 10;
+   */
+  POLICY_AND_AUTHORITY_CONTRACTS = 10,
+
+  /**
+   * @generated from enum value: DEFINITION_IMPACT_AREA_WASM_COMPONENTS = 11;
+   */
+  WASM_COMPONENTS = 11,
 }
 
 /**
@@ -644,6 +1274,99 @@ export enum DefinitionImpactApplicability {
  */
 export const DefinitionImpactApplicabilitySchema: GenEnum<DefinitionImpactApplicability> = /*@__PURE__*/
   enumDesc(file_zoen_definition_v1_definition, 4);
+
+/**
+ * @generated from enum zoen.definition.v1.MigrationRuleKind
+ */
+export enum MigrationRuleKind {
+  /**
+   * @generated from enum value: MIGRATION_RULE_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: MIGRATION_RULE_KIND_PRESERVE_MEANING = 1;
+   */
+  PRESERVE_MEANING = 1,
+
+  /**
+   * @generated from enum value: MIGRATION_RULE_KIND_TRANSFORM = 2;
+   */
+  TRANSFORM = 2,
+
+  /**
+   * @generated from enum value: MIGRATION_RULE_KIND_SUPERSEDE = 3;
+   */
+  SUPERSEDE = 3,
+
+  /**
+   * @generated from enum value: MIGRATION_RULE_KIND_RECOMPUTE = 4;
+   */
+  RECOMPUTE = 4,
+}
+
+/**
+ * Describes the enum zoen.definition.v1.MigrationRuleKind.
+ */
+export const MigrationRuleKindSchema: GenEnum<MigrationRuleKind> = /*@__PURE__*/
+  enumDesc(file_zoen_definition_v1_definition, 5);
+
+/**
+ * @generated from enum zoen.definition.v1.MigrationStatus
+ */
+export enum MigrationStatus {
+  /**
+   * @generated from enum value: MIGRATION_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: MIGRATION_STATUS_PREPARED = 1;
+   */
+  PREPARED = 1,
+
+  /**
+   * @generated from enum value: MIGRATION_STATUS_IN_PROGRESS = 2;
+   */
+  IN_PROGRESS = 2,
+
+  /**
+   * @generated from enum value: MIGRATION_STATUS_COMPLETED = 3;
+   */
+  COMPLETED = 3,
+}
+
+/**
+ * Describes the enum zoen.definition.v1.MigrationStatus.
+ */
+export const MigrationStatusSchema: GenEnum<MigrationStatus> = /*@__PURE__*/
+  enumDesc(file_zoen_definition_v1_definition, 6);
+
+/**
+ * @generated from enum zoen.definition.v1.DefinitionActivationKind
+ */
+export enum DefinitionActivationKind {
+  /**
+   * @generated from enum value: DEFINITION_ACTIVATION_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: DEFINITION_ACTIVATION_KIND_ACTIVATION = 1;
+   */
+  ACTIVATION = 1,
+
+  /**
+   * @generated from enum value: DEFINITION_ACTIVATION_KIND_ROLLBACK = 2;
+   */
+  ROLLBACK = 2,
+}
+
+/**
+ * Describes the enum zoen.definition.v1.DefinitionActivationKind.
+ */
+export const DefinitionActivationKindSchema: GenEnum<DefinitionActivationKind> = /*@__PURE__*/
+  enumDesc(file_zoen_definition_v1_definition, 7);
 
 /**
  * @generated from service zoen.definition.v1.DefinitionService
@@ -682,12 +1405,44 @@ export const DefinitionService: GenService<{
     output: typeof PlanEvolutionResponseSchema;
   },
   /**
+   * @generated from rpc zoen.definition.v1.DefinitionService.PrepareMigration
+   */
+  prepareMigration: {
+    methodKind: "unary";
+    input: typeof PrepareMigrationRequestSchema;
+    output: typeof PrepareMigrationResponseSchema;
+  },
+  /**
+   * @generated from rpc zoen.definition.v1.DefinitionService.ApplyMigrationBatch
+   */
+  applyMigrationBatch: {
+    methodKind: "unary";
+    input: typeof ApplyMigrationBatchRequestSchema;
+    output: typeof ApplyMigrationBatchResponseSchema;
+  },
+  /**
+   * @generated from rpc zoen.definition.v1.DefinitionService.GetMigration
+   */
+  getMigration: {
+    methodKind: "unary";
+    input: typeof GetMigrationRequestSchema;
+    output: typeof GetMigrationResponseSchema;
+  },
+  /**
    * @generated from rpc zoen.definition.v1.DefinitionService.ActivateRevision
    */
   activateRevision: {
     methodKind: "unary";
     input: typeof ActivateRevisionRequestSchema;
     output: typeof ActivateRevisionResponseSchema;
+  },
+  /**
+   * @generated from rpc zoen.definition.v1.DefinitionService.RollbackRevision
+   */
+  rollbackRevision: {
+    methodKind: "unary";
+    input: typeof RollbackRevisionRequestSchema;
+    output: typeof RollbackRevisionResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_zoen_definition_v1_definition, 0);
