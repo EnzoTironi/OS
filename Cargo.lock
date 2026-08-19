@@ -4724,6 +4724,7 @@ dependencies = [
  "tokio",
  "uuid",
  "zoen-core",
+ "zoen-engine",
 ]
 
 [[package]]
