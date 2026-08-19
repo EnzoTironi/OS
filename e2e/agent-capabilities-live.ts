@@ -21,16 +21,19 @@ import {
   actionClient,
   actionId,
   adminClient,
+  availableStockCapabilityAlias,
   artifactsDirectory,
   command,
   composeOutput,
   definitionClient,
   directProposal,
+  deniedResourceId,
   disableCapability,
   disableProvider,
   historyClient,
   injectCommitResponseLoss,
   invokeSession,
+  invokeSessionWithWrongBinding,
   killWorker,
   loadDefinition,
   oidcAudience,
@@ -45,6 +48,7 @@ import {
   releaseCommitRecovery,
   repositoryRoot,
   resourceId,
+  requestStockCapabilityAlias,
   restrictedActionId,
   sessionCommand,
   startResponseLossProxy,
@@ -53,6 +57,7 @@ import {
   stopProcess,
   tenantA,
   tenantB,
+  taskExcludedActionId,
   trackedFilesContain,
   validAt,
   waitFor,
@@ -75,6 +80,15 @@ const environment = z
   .parse(process.env);
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
+type RecoveryStart =
+  | {
+      readonly kind: "response_dropped";
+      readonly status: Awaited<ReturnType<typeof proxyStatus>>;
+    }
+  | {
+      readonly kind: "session_completed";
+      readonly result: AgentSessionResult;
+    };
 
 function observe(name: string, condition: boolean): void {
   assert.ok(condition, name);
@@ -135,6 +149,10 @@ async function main(): Promise<void> {
       definition: definition.definition,
       resourceId,
     });
+    const deniedResourceDiscovery = await actionA.discover({
+      definition: definition.definition,
+      resourceId: deniedResourceId,
+    });
     const agentActions = agentDiscovery.actions
       .map((action) => action.actionId)
       .sort();
@@ -145,11 +163,19 @@ async function main(): Promise<void> {
       "authorityScopedCapabilityDiscovery",
       agentDiscovery.trustedContext?.tenantId === tenantA &&
         agentDiscovery.trustedContext.principalId === "principal.agent.a" &&
-        agentActions.length === 1 &&
-        agentActions[0] === actionId &&
-        humanActions.length === 2 &&
+        agentActions.length === 2 &&
+        agentActions.includes(actionId) &&
+        agentActions.includes(taskExcludedActionId) &&
+        humanActions.length === 3 &&
         humanActions.includes(actionId) &&
-        humanActions.includes(restrictedActionId),
+        humanActions.includes(restrictedActionId) &&
+        humanActions.includes(taskExcludedActionId),
+    );
+    observe(
+      "resourceScopedDiscoveryDoesNotUnionPermits",
+      deniedResourceDiscovery.actions.length === 0 &&
+        deniedResourceDiscovery.trustedContext?.principalId ===
+          "principal.agent.a",
     );
 
     const proposalsBeforeRestricted = await proposalCount(
@@ -204,28 +230,67 @@ async function main(): Promise<void> {
     const registration = await registerWorker();
     assert.match(registration, /ZoenAgentSession|deployment/i);
     const initialHealth = await workerHealth();
+    const requestStockAlias = requestStockCapabilityAlias(definition.digest);
+    const deniedResourceAlias = requestStockCapabilityAlias(
+      definition.digest,
+      deniedResourceId,
+    );
+    const availableStockAlias = availableStockCapabilityAlias(
+      definition.digest,
+    );
     observe(
       "agentWorkerMountsOnlyScopedCapabilities",
       initialHealth.trustedContext.tenantId === tenantA &&
         initialHealth.trustedContext.principalId === "principal.agent.a" &&
-        initialHealth.capabilities.join(",") ===
-          "available-stock,request-stock" &&
+        initialHealth.capabilities.length === 2 &&
+        initialHealth.capabilities.includes(availableStockAlias) &&
+        initialHealth.capabilities.includes(requestStockAlias) &&
+        !initialHealth.capabilities.includes(deniedResourceAlias) &&
         initialHealth.providers.includes(environment.ZOEN_PROVIDER_A_ID) &&
         initialHealth.providers.includes(environment.ZOEN_PROVIDER_B_ID),
+    );
+    observe(
+      "discoverAuthorityAndTaskScopeIntersection",
+      agentActions.includes(taskExcludedActionId) &&
+        !initialHealth.capabilities.some((alias) =>
+          alias.includes("taskExcludedAction"),
+        ),
+    );
+
+    const wrongBindingCommand = sessionCommand({
+      modelCapability: "reasoning-fast",
+      suffix: "wrong-principal-binding",
+    });
+    const wrongBindingStatus = await invokeSessionWithWrongBinding(
+      wrongBindingCommand,
+      tokens.agentB,
+    );
+    const wrongBindingEvidence = await operationEvidence(
+      admin,
+      tenantA,
+      wrongBindingCommand.operationId,
+    );
+    observe(
+      "restateSessionRejectsMismatchedOidcBinding",
+      wrongBindingStatus >= 400 &&
+        wrongBindingEvidence.operations === 0 &&
+        wrongBindingEvidence.records === 0,
     );
 
     await injectCommitResponseLoss();
     inject("ordinary-action-commit-response-loss");
     const providerACommand = sessionCommand({
       modelCapability: "reasoning-fast",
-      providerRoute: environment.ZOEN_PROVIDER_A_ID,
       suffix: "zen-a-recovery",
     });
-    const providerAInvocation = invokeSession(providerACommand);
+    const providerAInvocation = invokeSession(
+      providerACommand,
+      tokens.agentA,
+    );
     void providerAInvocation.catch(() => undefined);
     const recoveryStart = await Promise.race([
-      providerAInvocation.then((result) => ({
-        kind: "session_completed" as const,
+      providerAInvocation.then((result): RecoveryStart => ({
+        kind: "session_completed",
         result,
       })),
       waitFor(
@@ -235,7 +300,9 @@ async function main(): Promise<void> {
         },
         "the committed Action response to be dropped",
         7_200,
-      ).then((status) => ({ kind: "response_dropped" as const, status })),
+      ).then(
+        (status): RecoveryStart => ({ kind: "response_dropped", status }),
+      ),
     ]);
     if (recoveryStart.kind === "session_completed") {
       throw new Error(
@@ -244,8 +311,12 @@ async function main(): Promise<void> {
     }
     await killWorker(worker);
     inject("agent-worker-sigkill-after-commit");
-    worker = await startWorker(tokens.agentA, definition.digest);
+    worker = await startWorker(tokens.agentA, definition.digest, {
+      disableCapabilities: true,
+      disableProviders: true,
+    });
     processes.push(worker);
+    const recoveryHealth = await workerHealth();
     await releaseCommitRecovery();
     const providerAResult = await providerAInvocation;
     assert.equal(providerAResult.kind, "committed");
@@ -268,6 +339,13 @@ async function main(): Promise<void> {
         providerAEvidence.records === 1,
     );
     observe(
+      "durableCapabilitySnapshotSurvivesRegistryUnmount",
+      recoveryHealth.capabilities.length === 0 &&
+        recoveryHealth.providers.length === 0 &&
+        providerAResult.recoveredByOperationId &&
+        providerAEvidence.authorityCommits === 1,
+    );
+    observe(
       "autoCommitUsesCedarAndOrdinaryActionCommit",
       matchesPolicy(
         providerAResult.receipt.policy,
@@ -277,12 +355,17 @@ async function main(): Promise<void> {
         providerAEvidence.principalId === "principal.agent.a",
     );
 
+    await stopProcess(worker);
+    worker = await startWorker(tokens.agentA, definition.digest);
+    processes.push(worker);
     const providerBCommand = sessionCommand({
       modelCapability: "reasoning-high",
-      providerRoute: environment.ZOEN_PROVIDER_B_ID,
       suffix: "zen-b-auto",
     });
-    const providerBResult = await invokeSession(providerBCommand);
+    const providerBResult = await invokeSession(
+      providerBCommand,
+      tokens.agentA,
+    );
     assert.equal(providerBResult.kind, "committed");
     if (providerBResult.kind !== "committed") {
       assert.fail("provider B did not commit");
@@ -336,10 +419,12 @@ async function main(): Promise<void> {
     const tenantBHealth = await workerHealth();
     const tenantBCommand = sessionCommand({
       modelCapability: "reasoning-high",
-      providerRoute: environment.ZOEN_PROVIDER_B_ID,
       suffix: "zen-b-tenant-b",
     });
-    const tenantBResult = await invokeSession(tenantBCommand);
+    const tenantBResult = await invokeSession(
+      tenantBCommand,
+      tokens.agentB,
+    );
     assert.equal(tenantBResult.kind, "committed");
     if (tenantBResult.kind !== "committed") {
       assert.fail("tenant B agent did not commit");
@@ -371,10 +456,12 @@ async function main(): Promise<void> {
     processes.push(worker);
     const approvalCommand = sessionCommand({
       modelCapability: "reasoning-fast",
-      providerRoute: environment.ZOEN_PROVIDER_A_ID,
       suffix: "approval",
     });
-    const approvalResult = await invokeSession(approvalCommand);
+    const approvalResult = await invokeSession(
+      approvalCommand,
+      tokens.agentA,
+    );
     assert.equal(approvalResult.kind, "awaiting_approval");
     if (approvalResult.kind !== "awaiting_approval") {
       assert.fail("approval policy did not pause the agent");
@@ -412,10 +499,9 @@ async function main(): Promise<void> {
     processes.push(worker);
     const denyCommand = sessionCommand({
       modelCapability: "reasoning-high",
-      providerRoute: environment.ZOEN_PROVIDER_B_ID,
       suffix: "deny",
     });
-    const denyResult = await invokeSession(denyCommand);
+    const denyResult = await invokeSession(denyCommand, tokens.agentA);
     assert.equal(denyResult.kind, "denied");
     if (denyResult.kind !== "denied") {
       assert.fail("deny policy did not deny the agent");
@@ -446,32 +532,31 @@ async function main(): Promise<void> {
     const disabledProvider = await invokeSession(
       sessionCommand({
         modelCapability: "reasoning-high",
-        providerRoute: environment.ZOEN_PROVIDER_B_ID,
         suffix: "provider-disabled",
       }),
+      tokens.agentA,
     );
-    await disableCapability("request-stock");
+    await disableCapability(requestStockAlias);
     const disabledCapability = await invokeSession(
       sessionCommand({
         modelCapability: "reasoning-fast",
-        providerRoute: environment.ZOEN_PROVIDER_A_ID,
         suffix: "capability-disabled",
       }),
+      tokens.agentA,
     );
     const healthAfterUnmount = await workerHealth();
     observe(
       "disabledRegistrationsDisappearFromFutureSessions",
       disabledProvider.kind === "provider_unavailable" &&
         disabledCapability.kind === "capability_unavailable" &&
-        disabledCapability.missing.includes("request-stock") &&
         !healthAfterUnmount.providers.includes(
           environment.ZOEN_PROVIDER_B_ID,
         ) &&
-        !healthAfterUnmount.capabilities.includes("request-stock"),
+        !healthAfterUnmount.capabilities.includes(requestStockAlias),
     );
 
     const forgedActionPlan = actionPlanSchema.safeParse({
-      action: "request-stock",
+      action: requestStockAlias,
       inputs: [
         { id: "quantity", value: { kind: "integer", value: "2" } },
       ],
@@ -576,16 +661,22 @@ async function main(): Promise<void> {
         autoCommitBypassesCedar:
           assertions.autoCommitUsesCedarAndOrdinaryActionCommit === true,
         capabilityRemainsAfterUnmount:
-          assertions.disabledRegistrationsDisappearFromFutureSessions === true,
+          assertions.disabledRegistrationsDisappearFromFutureSessions ===
+            true &&
+          assertions.durableCapabilitySnapshotSurvivesRegistryUnmount === true,
         exposeAllActions:
           assertions.agentWorkerMountsOnlyScopedCapabilities === true &&
-          assertions.craftedInvisibleActionRejectedByAuthority === true,
+          assertions.craftedInvisibleActionRejectedByAuthority === true &&
+          assertions.discoverAuthorityAndTaskScopeIntersection === true &&
+          assertions.resourceScopedDiscoveryDoesNotUnionPermits === true,
         providerBranchChangesSemanticIntent:
           assertions.bothZenProvidersExecuteSameCapabilityContract === true,
         repeatActionAfterLostResponse:
-          assertions.committedOperationRecoveredAfterWorkerRestart === true,
+          assertions.committedOperationRecoveredAfterWorkerRestart === true &&
+          assertions.durableCapabilitySnapshotSurvivesRegistryUnmount === true,
         trustModelTenantOrPrincipal:
-          assertions.modelSuppliedIdentityCannotEnterTrustedContext === true,
+          assertions.modelSuppliedIdentityCannotEnterTrustedContext === true &&
+          assertions.restateSessionRejectsMismatchedOidcBinding === true,
       },
       oidc: {
         audience: oidcAudience,

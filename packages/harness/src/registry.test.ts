@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { registerLiveProviders } from "./providers.js";
+import {
+  planningRequestDigest,
+  registerLiveProviders,
+} from "./providers.js";
 import { AgentRegistry } from "./registry.js";
 import {
   actionPlanSchema,
+  exactInputSchema,
   providerRouteSchema,
   semanticCapabilitySchema,
+  semanticCapabilityScopeSchema,
   taskScopeSchema,
   type ModelPlanner,
   type PlanningRequest,
@@ -17,6 +22,20 @@ const definition = {
   digest: "a".repeat(64),
   revision: 1,
 };
+const actionScope = semanticCapabilityScopeSchema.parse({
+  actionId: "inventory.requestStock",
+  definition,
+  kind: "action",
+  resourceId: "inventory.item.1",
+  validAt: "2026-08-19T00:00:00.000Z",
+});
+const queryScope = semanticCapabilityScopeSchema.parse({
+  definition,
+  entityId: "inventory.item.1",
+  kind: "query",
+  selection: { id: "inventory.available", kind: "relation" },
+  validAt: "2026-08-19T00:00:00.000Z",
+});
 const parsedAction = semanticCapabilitySchema.parse({
   actionId: "inventory.requestStock",
   alias: "request-stock",
@@ -31,15 +50,6 @@ if (parsedAction.kind !== "action") {
   throw new Error("expected an Action capability");
 }
 const action = parsedAction;
-const query = semanticCapabilitySchema.parse({
-  alias: "available-stock",
-  definition,
-  description: "Read available stock.",
-  entityId: "inventory.item.1",
-  kind: "query",
-  selection: { id: "inventory.available", kind: "relation" },
-  validAt: "2026-08-19T00:00:00.000Z",
-});
 const openAiRoute = providerRouteSchema.parse({
   capability: "reasoning-fast",
   id: "openai-live",
@@ -59,43 +69,33 @@ const compatibleRoute = providerRouteSchema.parse({
   provider: "openai-compatible",
 });
 
-test("registrations disappear from future registry resolutions", () => {
+test("future resolutions reflect provider and task-scope disposal", () => {
   const registry = new AgentRegistry();
   const provider = registry.registerProvider(openAiRoute, new FixedPlanner());
-  const capability = registry.registerCapability(action);
-  const task = taskScopeSchema.parse({
-    capabilities: ["request-stock"],
-    instruction: "Request one unit.",
-    modelCapability: "reasoning-fast",
-    providerRoute: "openai-live",
-    taskId: "task.registry",
-  });
+  const capability = registry.registerCapabilityScope(actionScope);
+  registry.registerCapabilityScope(queryScope);
 
-  assert.equal(registry.resolve(task).kind, "available");
+  assert.equal(registry.resolveProvider("reasoning-fast").kind, "available");
+  assert.equal(registry.capabilityScopes().length, 2);
   capability.dispose();
-  assert.equal(registry.resolve(task).kind, "capability_unavailable");
+  assert.deepEqual(registry.capabilityScopes(), [queryScope]);
   provider.dispose();
-  assert.equal(registry.resolve(task).kind, "provider_unavailable");
+  assert.equal(registry.resolveProvider("reasoning-fast").kind, "unavailable");
 });
 
-test("provider routes execute the same planning contract", async () => {
-  const registry = new AgentRegistry();
-  registry.registerProvider(openAiRoute, new FixedPlanner("call.openai"));
-  registry.registerProvider(anthropicRoute, new FixedPlanner("call.anthropic"));
-  registry.registerCapability(action);
-  registry.registerCapability(query);
-  const baseTask = {
-    capabilities: ["available-stock", "request-stock"],
-    instruction: "Request one unit.",
-    modelCapability: "reasoning-fast",
-    taskId: "task.providers",
-  };
-  const openAi = registry.resolve(
-    taskScopeSchema.parse({ ...baseTask, providerRoute: "openai-live" }),
+test("provider kinds execute the same planning contract", async () => {
+  const openAiRegistry = new AgentRegistry();
+  const anthropicRegistry = new AgentRegistry();
+  openAiRegistry.registerProvider(
+    openAiRoute,
+    new FixedPlanner("call.openai"),
   );
-  const anthropic = registry.resolve(
-    taskScopeSchema.parse({ ...baseTask, providerRoute: "anthropic-live" }),
+  anthropicRegistry.registerProvider(
+    anthropicRoute,
+    new FixedPlanner("call.anthropic"),
   );
+  const openAi = openAiRegistry.resolveProvider("reasoning-fast");
+  const anthropic = anthropicRegistry.resolveProvider("reasoning-fast");
   assert.equal(openAi.kind, "available");
   assert.equal(anthropic.kind, "available");
   if (openAi.kind !== "available" || anthropic.kind !== "available") {
@@ -104,7 +104,7 @@ test("provider routes execute the same planning contract", async () => {
 
   const request: PlanningRequest = {
     actions: [action],
-    instruction: baseTask.instruction,
+    instruction: "Request one unit.",
     queries: [],
   };
   const openAiResult = await openAi.planner.plan(request);
@@ -114,7 +114,47 @@ test("provider routes execute the same planning contract", async () => {
   assert.equal(anthropic.route.provider, "anthropic");
 });
 
-test("model output cannot carry trusted identity fields", () => {
+test("provider request attribution includes the visible tool menu", () => {
+  const request: PlanningRequest = {
+    actions: [action],
+    instruction: "Request one unit.",
+    queries: [],
+  };
+  const renamed = semanticCapabilitySchema.parse({
+    ...action,
+    alias: "different-visible-tool",
+  });
+  if (renamed.kind !== "action") {
+    assert.fail("expected an Action capability");
+  }
+  assert.notEqual(
+    planningRequestDigest(request),
+    planningRequestDigest({ ...request, actions: [renamed] }),
+  );
+});
+
+test("task commands cannot choose provider routes or capability menus", () => {
+  const valid = {
+    instruction: "Request one unit.",
+    modelCapability: "reasoning-fast",
+    taskId: "task.registry",
+  };
+  assert.equal(taskScopeSchema.safeParse(valid).success, true);
+  assert.equal(
+    taskScopeSchema.safeParse({
+      ...valid,
+      capabilities: ["request-stock"],
+    }).success,
+    false,
+  );
+  assert.equal(
+    taskScopeSchema.safeParse({ ...valid, providerRoute: "openai-live" })
+      .success,
+    false,
+  );
+});
+
+test("model output cannot carry identity or noncanonical exact values", () => {
   const parsed = actionPlanSchema.safeParse({
     action: "request-stock",
     inputs: [{ id: "quantity", value: { kind: "integer", value: "1" } }],
@@ -122,6 +162,14 @@ test("model output cannot carry trusted identity fields", () => {
     tenantId: "tenant.other",
   });
   assert.equal(parsed.success, false);
+  assert.equal(
+    exactInputSchema.safeParse({ kind: "integer", value: "01" }).success,
+    false,
+  );
+  assert.equal(
+    exactInputSchema.safeParse({ kind: "decimal", value: "1.10" }).success,
+    false,
+  );
 });
 
 test("OpenAI-compatible routes register without other provider secrets", () => {
@@ -137,29 +185,9 @@ test("OpenAI-compatible routes register without other provider secrets", () => {
       },
     ],
   );
-  const resolution = registry.resolve(
-    taskScopeSchema.parse({
-      capabilities: [],
-      instruction: "Select the visible action.",
-      modelCapability: "reasoning-high",
-      providerRoute: "compatible-live",
-      taskId: "task.compatible",
-    }),
-  );
-  assert.equal(resolution.kind, "available");
+  assert.equal(registry.resolveProvider("reasoning-high").kind, "available");
   registrations[0]?.dispose();
-  assert.equal(
-    registry.resolve(
-      taskScopeSchema.parse({
-        capabilities: [],
-        instruction: "Select the visible action.",
-        modelCapability: "reasoning-high",
-        providerRoute: "compatible-live",
-        taskId: "task.compatible.after-dispose",
-      }),
-    ).kind,
-    "provider_unavailable",
-  );
+  assert.equal(registry.resolveProvider("reasoning-high").kind, "unavailable");
 });
 
 class FixedPlanner implements ModelPlanner {

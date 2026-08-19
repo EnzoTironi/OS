@@ -1,28 +1,24 @@
 import {
   type CapabilityAlias,
+  capabilityAliasForScope,
+  type ModelCapabilityAlias,
   type ModelPlanner,
   type ProviderRoute,
-  type SemanticCapability,
-  type TaskScope,
+  type SemanticCapabilityScope,
 } from "./types.js";
 
 export interface Registration {
   dispose(): void;
 }
 
-export type RegistryResolution =
+export type ProviderResolution =
   | {
-      readonly capabilities: readonly SemanticCapability[];
       readonly kind: "available";
       readonly planner: ModelPlanner;
       readonly route: ProviderRoute;
     }
   | {
-      readonly kind: "capability_unavailable";
-      readonly missing: readonly CapabilityAlias[];
-    }
-  | {
-      readonly kind: "provider_unavailable";
+      readonly kind: "unavailable";
     };
 
 interface ProviderRegistration {
@@ -31,16 +27,20 @@ interface ProviderRegistration {
 }
 
 export class AgentRegistry {
-  readonly #capabilities = new Map<CapabilityAlias, SemanticCapability>();
+  readonly #capabilityScopes = new Map<
+    CapabilityAlias,
+    SemanticCapabilityScope
+  >();
   readonly #providers = new Map<string, ProviderRegistration>();
 
-  registerCapability(capability: SemanticCapability): Registration {
-    if (this.#capabilities.has(capability.alias)) {
-      throw new Error(`capability ${capability.alias} is already registered`);
+  registerCapabilityScope(scope: SemanticCapabilityScope): Registration {
+    const alias = capabilityAliasForScope(scope);
+    if (this.#capabilityScopes.has(alias)) {
+      throw new Error(`capability scope ${alias} is already registered`);
     }
-    this.#capabilities.set(capability.alias, capability);
+    this.#capabilityScopes.set(alias, scope);
     return disposable(() => {
-      this.#capabilities.delete(capability.alias);
+      this.#capabilityScopes.delete(alias);
     });
   }
 
@@ -51,40 +51,42 @@ export class AgentRegistry {
     if (this.#providers.has(route.id)) {
       throw new Error(`provider route ${route.id} is already registered`);
     }
+    for (const registered of this.#providers.values()) {
+      if (registered.route.capability === route.capability) {
+        throw new Error(
+          `model capability ${route.capability} already has a provider route`,
+        );
+      }
+    }
     this.#providers.set(route.id, { planner, route });
     return disposable(() => {
       this.#providers.delete(route.id);
     });
   }
 
-  resolve(task: TaskScope): RegistryResolution {
-    const provider = this.#providers.get(task.providerRoute);
-    if (
-      provider === undefined ||
-      provider.route.capability !== task.modelCapability
-    ) {
-      return { kind: "provider_unavailable" };
-    }
+  capabilityAliases(): readonly CapabilityAlias[] {
+    return [...this.#capabilityScopes.keys()];
+  }
 
-    const capabilities: SemanticCapability[] = [];
-    const missing: CapabilityAlias[] = [];
-    for (const alias of new Set(task.capabilities)) {
-      const capability = this.#capabilities.get(alias);
-      if (capability === undefined) {
-        missing.push(alias);
-      } else {
-        capabilities.push(capability);
+  capabilityScopes(): readonly SemanticCapabilityScope[] {
+    return [...this.#capabilityScopes.values()];
+  }
+
+  providerRouteIds(): readonly string[] {
+    return [...this.#providers.keys()];
+  }
+
+  resolveProvider(modelCapability: ModelCapabilityAlias): ProviderResolution {
+    for (const provider of this.#providers.values()) {
+      if (provider.route.capability === modelCapability) {
+        return {
+          kind: "available",
+          planner: provider.planner,
+          route: provider.route,
+        };
       }
     }
-    if (missing.length > 0) {
-      return { kind: "capability_unavailable", missing };
-    }
-    return {
-      capabilities,
-      kind: "available",
-      planner: provider.planner,
-      route: provider.route,
-    };
+    return { kind: "unavailable" };
   }
 }
 

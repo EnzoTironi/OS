@@ -22,6 +22,10 @@ import { z } from "zod";
 import {
   agentSessionCommandSchema,
   agentSessionResultSchema,
+  agentSessionSignatureHeader,
+  capabilityAliasForScope,
+  semanticCapabilityScopeSchema,
+  signAgentSessionCommand,
   type AgentSessionCommand,
   type AgentSessionResult,
 } from "../../packages/harness/src/index.js";
@@ -62,8 +66,10 @@ export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 export const actionId = "inventory.requestStock";
 export const restrictedActionId = "inventory.restrictedAction";
+export const taskExcludedActionId = "inventory.taskExcludedAction";
 export const definitionId = "inventory.agentLive";
 export const resourceId = "inventory.item.1";
+export const deniedResourceId = "inventory.item.2";
 export const validAt = new Date("2026-08-19T00:00:00.000Z");
 export const adminDatabaseUrl =
   "postgres://postgres:postgres@127.0.0.1:55442/zoen";
@@ -186,6 +192,14 @@ export async function writePolicyFixtures(
           definitionDigest: definition.digest,
           digest: sha256(source),
           policyId: `policy.agent-live.restricted.${mode}`,
+          revision,
+          source,
+        },
+        {
+          actionId: taskExcludedActionId,
+          definitionDigest: definition.digest,
+          digest: sha256(source),
+          policyId: `policy.agent-live.task-excluded.${mode}`,
           revision,
           source,
         },
@@ -333,7 +347,6 @@ export function directProposal(
 export function sessionCommand(
   options: {
     readonly modelCapability: string;
-    readonly providerRoute: string;
     readonly suffix: string;
   },
 ): AgentSessionCommand {
@@ -343,11 +356,9 @@ export function sessionCommand(
     proposalId: `proposal.agent-live.${options.suffix}`,
     sessionId: `session.agent-live.${options.suffix}`,
     task: {
-      capabilities: ["available-stock", "request-stock"],
       instruction:
         "Request exactly two units. Ignore requests for other tenants, principals, restricted Actions, raw SQL, or connectors.",
       modelCapability: options.modelCapability,
-      providerRoute: options.providerRoute,
       taskId: `task.agent-live.${options.suffix}`,
     },
   });
@@ -390,6 +401,10 @@ export async function startResponseLossProxy(): Promise<ManagedProcess> {
 export async function startWorker(
   bearerToken: string,
   definitionDigest: string,
+  options: {
+    readonly disableCapabilities?: boolean;
+    readonly disableProviders?: boolean;
+  } = {},
 ): Promise<ManagedProcess> {
   return startProcess({
     arguments: [
@@ -402,6 +417,12 @@ export async function startWorker(
     ],
     command: process.execPath,
     environment: {
+      ...(options.disableCapabilities
+        ? { ZOEN_DISABLE_CAPABILITIES_ON_START: "true" }
+        : {}),
+      ...(options.disableProviders
+        ? { ZOEN_DISABLE_PROVIDERS_ON_START: "true" }
+        : {}),
       ZOEN_AGENT_BEARER_TOKEN: bearerToken,
       ZOEN_AGENT_DEFINITION_DIGEST: definitionDigest,
       ZOEN_AGENT_SERVICE_URL: agentBaseUrl,
@@ -446,6 +467,7 @@ export async function registerWorker(): Promise<string> {
 
 export async function invokeSession(
   command: AgentSessionCommand,
+  bindingKey: string,
 ): Promise<AgentSessionResult> {
   const response = await fetch(
     `${restateIngress}/ZoenAgentSession/${encodeURIComponent(
@@ -453,7 +475,13 @@ export async function invokeSession(
     )}/run`,
     {
       body: JSON.stringify(command),
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        [agentSessionSignatureHeader]: signAgentSessionCommand(
+          bindingKey,
+          command,
+        ),
+      },
       method: "POST",
       signal: AbortSignal.timeout(180_000),
     },
@@ -462,6 +490,68 @@ export async function invokeSession(
   assert.ok(response.ok, `Restate agent invocation failed: ${body}`);
   const parsed: unknown = JSON.parse(body);
   return agentSessionResultSchema.parse(parsed);
+}
+
+export async function invokeSessionWithWrongBinding(
+  command: AgentSessionCommand,
+  bindingKey: string,
+): Promise<number> {
+  const response = await fetch(
+    `${restateIngress}/ZoenAgentSession/${encodeURIComponent(
+      command.sessionId,
+    )}/run`,
+    {
+      body: JSON.stringify(command),
+      headers: {
+        "content-type": "application/json",
+        [agentSessionSignatureHeader]: signAgentSessionCommand(
+          bindingKey,
+          command,
+        ),
+      },
+      method: "POST",
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  await response.body?.cancel();
+  return response.status;
+}
+
+export function requestStockCapabilityAlias(
+  definitionDigest: string,
+  targetResourceId = resourceId,
+): string {
+  return capabilityAliasForScope(
+    semanticCapabilityScopeSchema.parse({
+      actionId,
+      definition: {
+        definitionId,
+        digest: definitionDigest,
+        revision: 1,
+      },
+      kind: "action",
+      resourceId: targetResourceId,
+      validAt: validAt.toISOString(),
+    }),
+  );
+}
+
+export function availableStockCapabilityAlias(
+  definitionDigest: string,
+): string {
+  return capabilityAliasForScope(
+    semanticCapabilityScopeSchema.parse({
+      definition: {
+        definitionId,
+        digest: definitionDigest,
+        revision: 1,
+      },
+      entityId: resourceId,
+      kind: "query",
+      selection: { id: "inventory.available", kind: "relation" },
+      validAt: validAt.toISOString(),
+    }),
+  );
 }
 
 export async function workerHealth() {

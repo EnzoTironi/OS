@@ -9,6 +9,7 @@ const outputDirectory = path.join(
 const definitionId = "inventory.agentLive";
 const requestStock = "inventory.requestStock";
 const restrictedAction = "inventory.restrictedAction";
+const taskExcludedAction = "inventory.taskExcludedAction";
 const resourceId = "inventory.item.1";
 const farFuture = 4_102_444_800;
 
@@ -103,7 +104,7 @@ const realm = {
     },
     confidentialClient({
       actorId: "actor.agent.a",
-      actionIds: [requestStock],
+      actionIds: [requestStock, taskExcludedAction],
       clientId: "agent-a",
       principalId: "principal.agent.a",
       resourceIds: [resourceId],
@@ -112,7 +113,7 @@ const realm = {
     }),
     confidentialClient({
       actorId: "actor.agent.b",
-      actionIds: [requestStock],
+      actionIds: [requestStock, taskExcludedAction],
       clientId: "agent-b",
       principalId: "principal.agent.b",
       resourceIds: [resourceId],
@@ -121,7 +122,7 @@ const realm = {
     }),
     confidentialClient({
       actorId: "actor.human.a",
-      actionIds: [requestStock, restrictedAction],
+      actionIds: [requestStock, restrictedAction, taskExcludedAction],
       clientId: "human-a",
       principalId: "principal.human.a",
       resourceIds: [resourceId],

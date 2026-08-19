@@ -16,22 +16,27 @@ import {
   PolicyDecision,
   type PolicyEvidence as WirePolicyEvidence,
   ProposalStatus,
+  type TrustedContext as WireTrustedContext,
 } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
   DefinitionReferenceSchema,
   ExactValueSchema,
+  type ExactValue as WireExactValue,
   QuantityValueSchema,
   QueryConsistencySchema,
   QuerySelectionSchema,
   SemanticQueryResponseSchema,
-  SemanticValueResultSchema,
   StrongConsistencySchema,
   WorldService,
 } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
+import { DefinitionService } from "../../sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import {
   agentCommitReceiptSchema,
+  type AgentCapabilityDiscovery,
   type AgentAuthority,
+  type AgentCommitCommand,
   type AgentCommitOutcome,
   type AgentProposalCommand,
   type AgentProposalOutcome,
@@ -40,98 +45,117 @@ import {
 } from "./session.js";
 import {
   type ActionCapability,
+  type CapabilityAlias,
   type DefinitionReferenceConfig,
   type ExactInput,
   type QueryCapability,
   type QueryContext,
+  capabilityAliasForScope,
+  semanticCapabilitySchema,
+  semanticValueSchema,
+  type SemanticCapability,
+  type SemanticCapabilityScope,
+  type SemanticValue,
+  type TrustedAgentContext,
 } from "./types.js";
+
+const identifier = z.string().min(1).max(200);
+const publishedValueTypeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("bool") }).passthrough(),
+  z.object({ kind: z.literal("decimal") }).passthrough(),
+  z.object({ kind: z.literal("integer") }).passthrough(),
+  z
+    .object({ kind: z.literal("quantity"), unit: identifier })
+    .passthrough(),
+  z.object({ kind: z.literal("text") }).passthrough(),
+]);
+const publishedDefinitionSchema = z
+  .object({
+    actions: z.array(
+      z
+        .object({
+          id: identifier,
+          inputs: z.array(
+            z
+              .object({
+                id: identifier,
+                valueType: publishedValueTypeSchema,
+              })
+              .passthrough(),
+          ),
+        })
+        .passthrough(),
+    ),
+    computations: z.array(z.object({ id: identifier }).passthrough()),
+    definitionId: identifier,
+    relations: z.array(z.object({ id: identifier }).passthrough()),
+    revision: z.number().int().positive().safe(),
+    schema: z.literal("zoen.definition.v1"),
+  })
+  .passthrough();
+type PublishedDefinition = z.infer<typeof publishedDefinitionSchema>;
 
 export interface ZoenConnectionOptions {
   readonly baseUrl: string;
   readonly bearerToken: string;
 }
 
-export interface TrustedAgentContext {
-  readonly actorId: string;
-  readonly delegationIds: readonly string[];
-  readonly principalId: string;
-  readonly tenantId: string;
-  readonly workloadId: string;
-}
-
 export interface ConnectedZoenAgent {
-  readonly actions: readonly ActionCapability[];
   readonly authority: AgentAuthority;
   readonly trustedContext: TrustedAgentContext;
 }
 
 export async function connectZoenAgent(
   options: ZoenConnectionOptions,
-  candidates: readonly ActionCapability[],
+  scopes: readonly SemanticCapabilityScope[],
 ): Promise<ConnectedZoenAgent> {
   const transport = connectTransport(options);
   const actionClient = createClient(ActionService, transport);
-  const groups = groupCandidates(candidates);
-  const visibleActionIds = new Set<string>();
-  let trustedContext: TrustedAgentContext | undefined;
-  for (const group of groups.values()) {
-    const response = await actionClient.discover({
-      definition: definitionReference(group.definition),
-      resourceId: group.resourceId,
-    });
-    const context = response.trustedContext;
-    if (context === undefined) {
-      throw new Error("Action discovery returned no trusted context");
-    }
-    const parsedContext = {
-      actorId: context.actorId,
-      delegationIds: context.delegation.map((grant) => grant.delegationId),
-      principalId: context.principalId,
-      tenantId: context.tenantId,
-      workloadId: context.workloadId,
-    };
-    if (
-      trustedContext !== undefined &&
-      JSON.stringify(trustedContext) !== JSON.stringify(parsedContext)
-    ) {
-      throw new Error("Action discovery returned inconsistent trusted context");
-    }
-    trustedContext = parsedContext;
-    for (const action of response.actions) {
-      if (action.decision === PolicyDecision.PERMIT) {
-        visibleActionIds.add(action.actionId);
-      }
-    }
-  }
-  if (trustedContext === undefined) {
-    throw new Error("at least one Action candidate is required");
-  }
+  const definitionClient = createClient(DefinitionService, transport);
+  const worldClient = createClient(WorldService, transport);
+  const initial = await discoverCapabilities(
+    actionClient,
+    definitionClient,
+    scopes,
+  );
   return {
-    actions: candidates.filter((action) =>
-      visibleActionIds.has(action.actionId),
-    ),
     authority: new ZoenConnectAuthority(
       actionClient,
-      createClient(WorldService, transport),
-      trustedContext.tenantId,
+      definitionClient,
+      worldClient,
+      initial.trustedContext,
     ),
-    trustedContext,
+    trustedContext: initial.trustedContext,
   };
 }
 
 class ZoenConnectAuthority implements AgentAuthority {
   readonly #actionClient: Client<typeof ActionService>;
-  readonly #tenantId: string;
+  readonly #definitionClient: Client<typeof DefinitionService>;
+  readonly #trustedContext: TrustedAgentContext;
   readonly #worldClient: Client<typeof WorldService>;
 
   constructor(
     actionClient: Client<typeof ActionService>,
+    definitionClient: Client<typeof DefinitionService>,
     worldClient: Client<typeof WorldService>,
-    tenantId: string,
+    trustedContext: TrustedAgentContext,
   ) {
     this.#actionClient = actionClient;
+    this.#definitionClient = definitionClient;
+    this.#trustedContext = trustedContext;
     this.#worldClient = worldClient;
-    this.#tenantId = tenantId;
+  }
+
+  async discover(
+    scopes: readonly SemanticCapabilityScope[],
+  ): Promise<AgentCapabilityDiscovery> {
+    return discoverCapabilities(
+      this.#actionClient,
+      this.#definitionClient,
+      scopes,
+      this.#trustedContext,
+    );
   }
 
   async query(capability: QueryCapability): Promise<QueryContext> {
@@ -145,7 +169,7 @@ class ZoenConnectAuthority implements AgentAuthority {
       definition: definitionReference(capability.definition),
       entityId: capability.entityId,
       selection: querySelection(capability),
-      tenantId: this.#tenantId,
+      tenantId: this.#trustedContext.tenantId,
       validAt: timestampFromDate(new Date(capability.validAt)),
     });
     const json = toJson(SemanticQueryResponseSchema, response);
@@ -153,9 +177,7 @@ class ZoenConnectAuthority implements AgentAuthority {
     return {
       alias: capability.alias,
       resultDigest: sha256(encoded),
-      values: response.values.map((value) =>
-        toJson(SemanticValueResultSchema, value),
-      ),
+      values: response.values.map((value) => semanticValue(value.value)),
     };
   }
 
@@ -221,23 +243,29 @@ class ZoenConnectAuthority implements AgentAuthority {
   }
 
   async commitOrRecover(
-    operationId: string,
-    proposalId: string,
+    command: AgentCommitCommand,
   ): Promise<AgentCommitOutcome> {
     try {
       const status = await this.#actionClient.getOperationStatus({
-        operationId,
+        operationId: command.operationId,
       });
       if (
         status.status === CommitStatus.COMMITTED &&
         status.receipt !== undefined
       ) {
+        if (!receiptMatchesExpectedCommit(status.receipt, command)) {
+          return { kind: "rejected", reason: "operation_mismatch" };
+        }
         return {
           kind: "committed",
           receipt: commitReceipt(status.receipt),
           recoveredByOperationId: true,
         };
       }
+      return {
+        kind: "rejected",
+        reason: rejectedCommitReason(status.status),
+      };
     } catch (error: unknown) {
       if (!(error instanceof ConnectError) || error.code !== Code.NotFound) {
         throw error;
@@ -245,13 +273,16 @@ class ZoenConnectAuthority implements AgentAuthority {
     }
 
     const response = await this.#actionClient.commit({
-      operationId,
-      proposalId,
+      operationId: command.operationId,
+      proposalId: command.proposalId,
     });
     if (
       response.status === CommitStatus.COMMITTED &&
       response.receipt !== undefined
     ) {
+      if (!receiptMatchesExpectedCommit(response.receipt, command)) {
+        return { kind: "rejected", reason: "operation_mismatch" };
+      }
       return {
         kind: "committed",
         receipt: commitReceipt(response.receipt),
@@ -266,28 +297,253 @@ class ZoenConnectAuthority implements AgentAuthority {
   }
 }
 
-interface CandidateGroup {
+type ActionCapabilityScope = Extract<
+  SemanticCapabilityScope,
+  { kind: "action" }
+>;
+
+interface ActionScopeGroup {
   readonly definition: DefinitionReferenceConfig;
   readonly resourceId: string;
 }
 
-function groupCandidates(
-  candidates: readonly ActionCapability[],
-): ReadonlyMap<string, CandidateGroup> {
-  const groups = new Map<string, CandidateGroup>();
-  for (const candidate of candidates) {
-    const key = [
-      candidate.definition.definitionId,
-      candidate.definition.revision,
-      candidate.definition.digest,
-      candidate.resourceId,
-    ].join(":");
-    groups.set(key, {
-      definition: candidate.definition,
-      resourceId: candidate.resourceId,
+async function discoverCapabilities(
+  actionClient: Client<typeof ActionService>,
+  definitionClient: Client<typeof DefinitionService>,
+  scopes: readonly SemanticCapabilityScope[],
+  expectedContext?: TrustedAgentContext,
+): Promise<AgentCapabilityDiscovery> {
+  const groups = groupActionScopes(scopes);
+  const permittedByGroup = new Map<string, ReadonlySet<string>>();
+  let trustedContext = expectedContext;
+  for (const [key, group] of groups) {
+    const response = await actionClient.discover({
+      definition: definitionReference(group.definition),
+      resourceId: group.resourceId,
     });
+    const responseContext = parsedTrustedContext(response.trustedContext);
+    if (
+      trustedContext !== undefined &&
+      !sameTrustedContext(trustedContext, responseContext)
+    ) {
+      throw new Error("Action discovery returned inconsistent trusted context");
+    }
+    trustedContext = responseContext;
+    permittedByGroup.set(
+      key,
+      new Set(
+        response.actions
+          .filter((action) => action.decision === PolicyDecision.PERMIT)
+          .map((action) => action.actionId),
+      ),
+    );
+  }
+  if (trustedContext === undefined) {
+    throw new Error("at least one Action capability scope is required");
+  }
+  const definitions = await loadDefinitions(
+    definitionClient,
+    trustedContext.tenantId,
+    scopes,
+  );
+  const capabilities: SemanticCapability[] = [];
+  const missing: CapabilityAlias[] = [];
+  for (const scope of scopes) {
+    const definition = definitions.get(definitionKey(scope.definition));
+    if (definition === undefined) {
+      throw new Error(
+        `published definition ${scope.definition.definitionId} was not loaded`,
+      );
+    }
+    switch (scope.kind) {
+      case "action": {
+        const action = definition.actions.find(
+          (candidate) => candidate.id === scope.actionId,
+        );
+        if (action === undefined) {
+          throw new Error(
+            `published definition has no Action ${scope.actionId}`,
+          );
+        }
+        const permitted = permittedByGroup.get(actionGroupKey(scope));
+        const alias = capabilityAliasForScope(scope);
+        if (permitted?.has(scope.actionId) !== true) {
+          missing.push(alias);
+          break;
+        }
+        const capability = semanticCapabilitySchema.parse({
+          actionId: scope.actionId,
+          alias,
+          definition: scope.definition,
+          description: `Governed Action ${scope.actionId} on ${scope.resourceId}.`,
+          inputs: action.inputs.map((input) =>
+            actionInputSpec(input.id, input.valueType),
+          ),
+          kind: "action",
+          resourceId: scope.resourceId,
+          validAt: scope.validAt,
+        });
+        if (capability.kind !== "action") {
+          throw new Error("Action scope produced a Query capability");
+        }
+        capabilities.push(capability);
+        break;
+      }
+      case "query": {
+        const selectionExists =
+          scope.selection.kind === "computation"
+            ? definition.computations.some(
+                (candidate) => candidate.id === scope.selection.id,
+              )
+            : definition.relations.some(
+                (candidate) => candidate.id === scope.selection.id,
+              );
+        if (!selectionExists) {
+          throw new Error(
+            `published definition has no ${scope.selection.kind} ${scope.selection.id}`,
+          );
+        }
+        capabilities.push(
+          semanticCapabilitySchema.parse({
+            alias: capabilityAliasForScope(scope),
+            definition: scope.definition,
+            description: `Governed ${scope.selection.kind} query ${scope.selection.id} for ${scope.entityId}.`,
+            entityId: scope.entityId,
+            kind: "query",
+            selection: scope.selection,
+            validAt: scope.validAt,
+          }),
+        );
+        break;
+      }
+      default: {
+        const exhaustive: never = scope;
+        return exhaustive;
+      }
+    }
+  }
+  return { capabilities, missing, trustedContext };
+}
+
+function groupActionScopes(
+  scopes: readonly SemanticCapabilityScope[],
+): ReadonlyMap<string, ActionScopeGroup> {
+  const groups = new Map<string, ActionScopeGroup>();
+  for (const scope of scopes) {
+    if (scope.kind !== "action") {
+      continue;
+    }
+    const key = actionGroupKey(scope);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        definition: scope.definition,
+        resourceId: scope.resourceId,
+      });
+    }
   }
   return groups;
+}
+
+async function loadDefinitions(
+  client: Client<typeof DefinitionService>,
+  tenantId: string,
+  scopes: readonly SemanticCapabilityScope[],
+): Promise<ReadonlyMap<string, PublishedDefinition>> {
+  const references = new Map<string, DefinitionReferenceConfig>();
+  for (const scope of scopes) {
+    references.set(definitionKey(scope.definition), scope.definition);
+  }
+  const definitions = new Map<string, PublishedDefinition>();
+  for (const [key, reference] of references) {
+    const response = await client.getRevision({
+      definitionId: reference.definitionId,
+      digest: reference.digest,
+      tenantId,
+    });
+    const revision = response.definitionRevision;
+    if (
+      revision === undefined ||
+      revision.definitionId !== reference.definitionId ||
+      revision.digest !== reference.digest ||
+      revision.revision !== BigInt(reference.revision)
+    ) {
+      throw new Error("DefinitionService returned the wrong revision");
+    }
+    const canonicalJson = new TextDecoder().decode(revision.canonicalJson);
+    if (sha256(canonicalJson) !== reference.digest) {
+      throw new Error("published definition digest does not match its bytes");
+    }
+    const rawDefinition: unknown = JSON.parse(canonicalJson);
+    const definition = publishedDefinitionSchema.parse(rawDefinition);
+    if (
+      definition.definitionId !== reference.definitionId ||
+      definition.revision !== reference.revision
+    ) {
+      throw new Error("published definition identity does not match its ref");
+    }
+    definitions.set(key, definition);
+  }
+  return definitions;
+}
+
+function actionInputSpec(
+  id: string,
+  valueType: z.infer<typeof publishedValueTypeSchema>,
+): ActionCapability["inputs"][number] {
+  switch (valueType.kind) {
+    case "bool":
+    case "decimal":
+    case "integer":
+    case "text":
+      return { id, kind: valueType.kind };
+    case "quantity":
+      return { id, kind: "quantity", unit: valueType.unit };
+    default: {
+      const exhaustive: never = valueType;
+      return exhaustive;
+    }
+  }
+}
+
+function parsedTrustedContext(
+  context: WireTrustedContext | undefined,
+): TrustedAgentContext {
+  if (context === undefined) {
+    throw new Error("Action discovery returned no trusted context");
+  }
+  return {
+    actorId: context.actorId,
+    delegationIds: context.delegation
+      .map((grant) => grant.delegationId)
+      .sort(),
+    principalId: context.principalId,
+    tenantId: context.tenantId,
+    workloadId: context.workloadId,
+  };
+}
+
+function sameTrustedContext(
+  left: TrustedAgentContext,
+  right: TrustedAgentContext,
+): boolean {
+  return (
+    left.actorId === right.actorId &&
+    left.principalId === right.principalId &&
+    left.tenantId === right.tenantId &&
+    left.workloadId === right.workloadId &&
+    left.delegationIds.join("\n") === right.delegationIds.join("\n")
+  );
+}
+
+function actionGroupKey(scope: ActionCapabilityScope): string {
+  return JSON.stringify({
+    definition: scope.definition,
+    resourceId: scope.resourceId,
+  });
+}
+
+function definitionKey(definition: DefinitionReferenceConfig): string {
+  return JSON.stringify(definition);
 }
 
 function connectTransport(options: ZoenConnectionOptions) {
@@ -343,10 +599,6 @@ function exactValue(input: ExactInput) {
       return create(ExactValueSchema, {
         value: { case: "decimalValue", value: input.value },
       });
-    case "entity":
-      return create(ExactValueSchema, {
-        value: { case: "entityRefValue", value: input.value },
-      });
     case "integer":
       return create(ExactValueSchema, {
         value: { case: "integerValue", value: input.value },
@@ -367,6 +619,51 @@ function exactValue(input: ExactInput) {
       });
     default: {
       const exhaustive: never = input;
+      return exhaustive;
+    }
+  }
+}
+
+function semanticValue(value: WireExactValue | undefined): SemanticValue {
+  if (value === undefined) {
+    throw new Error("semantic query returned no exact value");
+  }
+  switch (value.value.case) {
+    case "boolValue":
+      return semanticValueSchema.parse({
+        kind: "bool",
+        value: value.value.value,
+      });
+    case "decimalValue":
+      return semanticValueSchema.parse({
+        kind: "decimal",
+        value: value.value.value,
+      });
+    case "integerValue":
+      return semanticValueSchema.parse({
+        kind: "integer",
+        value: value.value.value,
+      });
+    case "quantityValue":
+      return semanticValueSchema.parse({
+        amount: value.value.value.amount,
+        kind: "quantity",
+        unit: value.value.value.unit,
+      });
+    case "textValue":
+      return semanticValueSchema.parse({
+        kind: "text",
+        value: value.value.value,
+      });
+    case "entityRefValue":
+      return semanticValueSchema.parse({
+        kind: "entity",
+        value: value.value.value,
+      });
+    case undefined:
+      throw new Error("semantic query returned an unspecified exact value");
+    default: {
+      const exhaustive: never = value.value;
       return exhaustive;
     }
   }
@@ -407,6 +704,21 @@ function commitReceipt(receipt: CommitReceipt) {
     proposalId: receipt.proposalId,
     recordIds: receipt.recordIds,
   });
+}
+
+export function receiptMatchesExpectedCommit(
+  receipt: Pick<
+    CommitReceipt,
+    "actionId" | "intentDigest" | "operationId" | "proposalId"
+  >,
+  command: AgentCommitCommand,
+): boolean {
+  return (
+    receipt.actionId === command.actionId &&
+    receipt.intentDigest === command.intentDigest &&
+    receipt.operationId === command.operationId &&
+    receipt.proposalId === command.proposalId
+  );
 }
 
 function rejectedCommitReason(

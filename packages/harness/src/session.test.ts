@@ -1,21 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AgentRegistry } from "./registry.js";
+import { AgentRegistry, type Registration } from "./registry.js";
 import {
   agentSessionCommandSchema,
   type AgentAuthority,
+  type AgentCapabilityDiscovery,
+  type AgentCommitCommand,
   type AgentCommitOutcome,
   type AgentProposalCommand,
   type AgentProposalOutcome,
   runAgentSession,
   type SessionJournal,
+  signAgentSessionCommand,
 } from "./session.js";
 import {
   actionPlanSchema,
+  capabilityAliasForScope,
   providerRouteSchema,
   semanticCapabilitySchema,
+  semanticCapabilityScopeSchema,
   type ModelPlanner,
   type PlanningResult,
+  type QueryContext,
 } from "./types.js";
 
 const definition = {
@@ -23,28 +29,42 @@ const definition = {
   digest: "a".repeat(64),
   revision: 1,
 };
-const parsedAction = semanticCapabilitySchema.parse({
+const actionScope = semanticCapabilityScopeSchema.parse({
   actionId: "action.session",
-  alias: "request-change",
+  definition,
+  kind: "action",
+  resourceId: "resource.session",
+  validAt: "2026-08-19T00:00:00.000Z",
+});
+const queryScope = semanticCapabilityScopeSchema.parse({
+  definition,
+  entityId: "resource.session",
+  kind: "query",
+  selection: { id: "relation.session", kind: "relation" },
+  validAt: "2026-08-19T00:00:00.000Z",
+});
+const parsedAction = semanticCapabilitySchema.parse({
+  actionId: actionScope.actionId,
+  alias: capabilityAliasForScope(actionScope),
   definition,
   description: "Request a governed change.",
   inputs: [{ id: "quantity", kind: "integer" }],
   kind: "action",
-  resourceId: "resource.session",
-  validAt: "2026-08-19T00:00:00.000Z",
+  resourceId: actionScope.resourceId,
+  validAt: actionScope.validAt,
 });
 if (parsedAction.kind !== "action") {
   throw new Error("expected Action capability");
 }
 const action = parsedAction;
 const parsedQuery = semanticCapabilitySchema.parse({
-  alias: "read-state",
+  alias: capabilityAliasForScope(queryScope),
   definition,
   description: "Read the governed state.",
-  entityId: "resource.session",
+  entityId: queryScope.entityId,
   kind: "query",
-  selection: { id: "relation.session", kind: "relation" },
-  validAt: "2026-08-19T00:00:00.000Z",
+  selection: queryScope.selection,
+  validAt: queryScope.validAt,
 });
 if (parsedQuery.kind !== "query") {
   throw new Error("expected Query capability");
@@ -68,15 +88,13 @@ const command = agentSessionCommandSchema.parse({
   proposalId: "proposal.session",
   sessionId: "session.test",
   task: {
-    capabilities: ["read-state", "request-change"],
     instruction: "Request one unit.",
     modelCapability: "reasoning-fast",
-    providerRoute: "provider.session",
     taskId: "task.session",
   },
 });
 
-test("ready policy uses ordinary commit and returns correlation", async () => {
+test("ready policy uses journaled discovery and ordinary commit", async () => {
   const authority = new FixedAuthority({
     kind: "ready",
     intentDigest: "c".repeat(64),
@@ -84,7 +102,7 @@ test("ready policy uses ordinary commit and returns correlation", async () => {
     proposalId: command.proposalId,
   });
   const journal = new RecordingJournal();
-  const result = await runAgentSession(runtime(authority), command, journal);
+  const result = await runAgentSession(runtime(authority).runtime, command, journal);
   assert.equal(result.kind, "committed");
   if (result.kind !== "committed") {
     assert.fail("session must commit");
@@ -93,6 +111,7 @@ test("ready policy uses ordinary commit and returns correlation", async () => {
   assert.equal(result.provider.providerRouteId, route.id);
   assert.equal(result.recoveredByOperationId, true);
   assert.deepEqual(journal.names, [
+    "discover scoped capabilities",
     "query scoped capabilities",
     "select scoped Action tool",
     "propose ordinary Action",
@@ -101,55 +120,103 @@ test("ready policy uses ordinary commit and returns correlation", async () => {
   assert.equal(authority.commitCalls, 1);
 });
 
-test("approval policy stops before commit", async () => {
+test("approval and deny policy outcomes stop before commit", async () => {
+  for (const proposal of [
+    {
+      kind: "awaiting_approval",
+      intentDigest: "c".repeat(64),
+      policy,
+      proposalId: command.proposalId,
+    },
+    { kind: "denied", policy },
+  ] satisfies readonly AgentProposalOutcome[]) {
+    const authority = new FixedAuthority(proposal);
+    const result = await runAgentSession(
+      runtime(authority).runtime,
+      command,
+      new RecordingJournal(),
+    );
+    assert.equal(
+      result.kind,
+      proposal.kind === "denied" ? "denied" : "awaiting_approval",
+    );
+    assert.equal(authority.commitCalls, 0);
+  }
+});
+
+test("journaled scope and provider survive registry unmount", async () => {
   const authority = new FixedAuthority({
-    kind: "awaiting_approval",
+    kind: "ready",
     intentDigest: "c".repeat(64),
     policy,
     proposalId: command.proposalId,
   });
+  const configured = runtime(authority);
   const result = await runAgentSession(
-    runtime(authority),
+    configured.runtime,
     command,
-    new RecordingJournal(),
+    new UnmountingJournal({
+      capabilities: [configured.action, configured.query],
+      provider: configured.provider,
+    }),
   );
-  assert.equal(result.kind, "awaiting_approval");
-  assert.equal(authority.commitCalls, 0);
+  assert.equal(result.kind, "committed");
+  assert.equal(configured.runtime.registry.capabilityScopes().length, 0);
+  assert.equal(
+    configured.runtime.registry.resolveProvider("reasoning-fast").kind,
+    "unavailable",
+  );
+  assert.equal(authority.discoveryCalls, 1);
+  assert.equal(authority.commitCalls, 1);
 });
 
-test("deny policy stops before commit", async () => {
-  const authority = new FixedAuthority({ kind: "denied", policy });
-  const result = await runAgentSession(
-    runtime(authority),
-    command,
-    new RecordingJournal(),
-  );
-  assert.equal(result.kind, "denied");
-  assert.equal(authority.commitCalls, 0);
-});
-
-test("session commands reject model-style trusted identity fields", () => {
+test("session commands reject model identity and caller capability fields", () => {
   const parsed = agentSessionCommandSchema.safeParse({
     ...command,
+    capabilities: [action.alias],
     principalId: "principal.forged",
     tenantId: "tenant.forged",
   });
   assert.equal(parsed.success, false);
 });
 
+test("session signatures bind the complete command to one OIDC credential", () => {
+  const signature = signAgentSessionCommand("oidc-token-a", command);
+  assert.match(signature, /^[0-9a-f]{64}$/);
+  assert.notEqual(
+    signature,
+    signAgentSessionCommand("oidc-token-b", command),
+  );
+  assert.notEqual(
+    signature,
+    signAgentSessionCommand("oidc-token-a", {
+      ...command,
+      task: { ...command.task, instruction: "Request two units." },
+    }),
+  );
+});
+
 function runtime(authority: AgentAuthority) {
   const registry = new AgentRegistry();
-  registry.registerCapability(action);
-  registry.registerCapability(query);
-  registry.registerProvider(route, new FixedPlanner());
-  return { authority, registry };
+  const actionRegistration = registry.registerCapabilityScope(actionScope);
+  const queryRegistration = registry.registerCapabilityScope(queryScope);
+  const providerRegistration = registry.registerProvider(
+    route,
+    new FixedPlanner(),
+  );
+  return {
+    action: actionRegistration,
+    provider: providerRegistration,
+    query: queryRegistration,
+    runtime: { authority, registry },
+  };
 }
 
 class FixedPlanner implements ModelPlanner {
   async plan(): Promise<PlanningResult> {
     return {
       plan: actionPlanSchema.parse({
-        action: "request-change",
+        action: action.alias,
         inputs: [
           { id: "quantity", value: { kind: "integer", value: "1" } },
         ],
@@ -163,17 +230,33 @@ class FixedPlanner implements ModelPlanner {
 
 class FixedAuthority implements AgentAuthority {
   commitCalls = 0;
+  discoveryCalls = 0;
   readonly #proposal: AgentProposalOutcome;
 
   constructor(proposal: AgentProposalOutcome) {
     this.#proposal = proposal;
   }
 
-  async query() {
+  async discover(): Promise<AgentCapabilityDiscovery> {
+    this.discoveryCalls += 1;
+    return {
+      capabilities: [action, query],
+      missing: [],
+      trustedContext: {
+        actorId: "actor.session",
+        delegationIds: ["delegation.session"],
+        principalId: "principal.session",
+        tenantId: "tenant.session",
+        workloadId: "workload.session",
+      },
+    };
+  }
+
+  async query(): Promise<QueryContext> {
     return {
       alias: query.alias,
       resultDigest: "e".repeat(64),
-      values: [{ integer: "10" }],
+      values: [{ kind: "integer", value: "10" }],
     };
   }
 
@@ -183,8 +266,16 @@ class FixedAuthority implements AgentAuthority {
     return this.#proposal;
   }
 
-  async commitOrRecover(): Promise<AgentCommitOutcome> {
+  async commitOrRecover(
+    command_: AgentCommitCommand,
+  ): Promise<AgentCommitOutcome> {
     this.commitCalls += 1;
+    assert.deepEqual(command_, {
+      actionId: action.actionId,
+      intentDigest: "c".repeat(64),
+      operationId: command.operationId,
+      proposalId: command.proposalId,
+    });
     return {
       kind: "committed",
       receipt: {
@@ -207,5 +298,31 @@ class RecordingJournal implements SessionJournal {
   async run<T>(name: string, action_: () => Promise<T>): Promise<T> {
     this.names.push(name);
     return action_();
+  }
+}
+
+class UnmountingJournal implements SessionJournal {
+  readonly #capabilities: readonly Registration[];
+  readonly #provider: Registration;
+
+  constructor(options: {
+    readonly capabilities: readonly Registration[];
+    readonly provider: Registration;
+  }) {
+    this.#capabilities = options.capabilities;
+    this.#provider = options.provider;
+  }
+
+  async run<T>(name: string, action_: () => Promise<T>): Promise<T> {
+    const result = await action_();
+    if (name === "discover scoped capabilities") {
+      for (const registration of this.#capabilities) {
+        registration.dispose();
+      }
+    }
+    if (name === "select scoped Action tool") {
+      this.#provider.dispose();
+    }
+    return result;
   }
 }

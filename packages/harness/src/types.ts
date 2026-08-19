@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { ExactValue } from "@zoen/ontology";
 import { z } from "zod";
 
 const identifier = z
@@ -6,6 +8,14 @@ const identifier = z
   .max(200)
   .regex(/^[A-Za-z0-9._:-]+$/);
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
+export const canonicalDecimalSchema = z
+  .string()
+  .regex(
+    /^(0|-[1-9][0-9]*|[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$/,
+  );
+export const canonicalIntegerSchema = z
+  .string()
+  .regex(/^(0|-[1-9][0-9]*|[1-9][0-9]*)$/);
 
 export const capabilityAliasSchema = identifier.brand<"CapabilityAlias">();
 export const modelCapabilityAliasSchema =
@@ -40,25 +50,29 @@ export type DefinitionReferenceConfig = z.infer<
   typeof definitionReferenceSchema
 >;
 
-export const exactInputSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("bool"), value: z.boolean() }).strict(),
-  z.object({ kind: z.literal("decimal"), value: z.string().min(1) }).strict(),
-  z.object({ kind: z.literal("entity"), value: identifier }).strict(),
-  z
-    .object({
-      kind: z.literal("integer"),
-      value: z.string().regex(/^-?[0-9]+$/),
-    })
-    .strict(),
-  z
-    .object({
-      amount: z.string().min(1),
-      kind: z.literal("quantity"),
-      unit: z.string().min(1),
-    })
-    .strict(),
-  z.object({ kind: z.literal("text"), value: z.string() }).strict(),
-]);
+export const exactInputSchema: z.ZodType<ExactValue> = z.discriminatedUnion(
+  "kind",
+  [
+    z.object({ kind: z.literal("bool"), value: z.boolean() }).strict(),
+    z
+      .object({
+        kind: z.literal("decimal"),
+        value: canonicalDecimalSchema,
+      })
+      .strict(),
+    z
+      .object({ kind: z.literal("integer"), value: canonicalIntegerSchema })
+      .strict(),
+    z
+      .object({
+        amount: canonicalDecimalSchema,
+        kind: z.literal("quantity"),
+        unit: identifier,
+      })
+      .strict(),
+    z.object({ kind: z.literal("text"), value: z.string() }).strict(),
+  ],
+);
 export type ExactInput = z.infer<typeof exactInputSchema>;
 
 export const actionPlanSchema = z
@@ -78,12 +92,19 @@ export const actionPlanSchema = z
   .strict();
 export type ActionPlan = z.infer<typeof actionPlanSchema>;
 
-const actionInputSpecSchema = z
-  .object({
-    id: identifier,
-    kind: z.enum(["bool", "decimal", "entity", "integer", "quantity", "text"]),
-  })
-  .strict();
+const actionInputSpecSchema = z.discriminatedUnion("kind", [
+  z.object({ id: identifier, kind: z.literal("bool") }).strict(),
+  z.object({ id: identifier, kind: z.literal("decimal") }).strict(),
+  z.object({ id: identifier, kind: z.literal("integer") }).strict(),
+  z
+    .object({
+      id: identifier,
+      kind: z.literal("quantity"),
+      unit: identifier,
+    })
+    .strict(),
+  z.object({ id: identifier, kind: z.literal("text") }).strict(),
+]);
 
 export const semanticCapabilitySchema = z.discriminatedUnion("kind", [
   z
@@ -123,6 +144,57 @@ export type QueryCapability = Extract<
   { kind: "query" }
 >;
 
+export const semanticCapabilityScopeSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      actionId: identifier,
+      definition: definitionReferenceSchema,
+      kind: z.literal("action"),
+      resourceId: identifier,
+      validAt: z.iso.datetime(),
+    })
+    .strict(),
+  z
+    .object({
+      definition: definitionReferenceSchema,
+      entityId: identifier,
+      kind: z.literal("query"),
+      selection: z.discriminatedUnion("kind", [
+        z.object({ id: identifier, kind: z.literal("computation") }).strict(),
+        z.object({ id: identifier, kind: z.literal("relation") }).strict(),
+      ]),
+      validAt: z.iso.datetime(),
+    })
+    .strict(),
+]);
+export type SemanticCapabilityScope = z.infer<
+  typeof semanticCapabilityScopeSchema
+>;
+
+export function capabilityAliasForScope(
+  scope: SemanticCapabilityScope,
+): CapabilityAlias {
+  let semanticId: string;
+  switch (scope.kind) {
+    case "action":
+      semanticId = scope.actionId;
+      break;
+    case "query":
+      semanticId = scope.selection.id;
+      break;
+    default: {
+      const exhaustive: never = scope;
+      return exhaustive;
+    }
+  }
+  const slug = semanticId.replace(/[^A-Za-z0-9_-]/g, "-").slice(-80);
+  const suffix = createHash("sha256")
+    .update(JSON.stringify(scope))
+    .digest("hex")
+    .slice(0, 12);
+  return capabilityAliasSchema.parse(`${scope.kind}-${slug}-${suffix}`);
+}
+
 export const providerRouteSchema = z
   .object({
     capability: modelCapabilityAliasSchema,
@@ -135,19 +207,34 @@ export type ProviderRoute = z.infer<typeof providerRouteSchema>;
 
 export const taskScopeSchema = z
   .object({
-    capabilities: z.array(capabilityAliasSchema),
     instruction: z.string().min(1).max(16_000),
     modelCapability: modelCapabilityAliasSchema,
-    providerRoute: providerRouteIdSchema,
     taskId: taskIdSchema,
   })
   .strict();
 export type TaskScope = z.infer<typeof taskScopeSchema>;
 
+export const semanticValueSchema = z.union([
+  exactInputSchema,
+  z.object({ kind: z.literal("entity"), value: identifier }).strict(),
+]);
+export type SemanticValue = z.infer<typeof semanticValueSchema>;
+
+export const trustedAgentContextSchema = z
+  .object({
+    actorId: identifier,
+    delegationIds: z.array(identifier),
+    principalId: identifier,
+    tenantId: identifier,
+    workloadId: identifier,
+  })
+  .strict();
+export type TrustedAgentContext = z.infer<typeof trustedAgentContextSchema>;
+
 export interface QueryContext {
   readonly alias: CapabilityAlias;
   readonly resultDigest: string;
-  readonly values: readonly unknown[];
+  readonly values: readonly SemanticValue[];
 }
 
 export interface PlanningRequest {

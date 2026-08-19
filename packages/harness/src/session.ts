@@ -1,12 +1,18 @@
 import * as restate from "@restatedev/restate-sdk";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { AgentRegistry } from "./registry.js";
 import {
   type ActionCapability,
   type ActionPlan,
+  type CapabilityAlias,
   type PlanningResult,
+  type ProviderRoute,
   type QueryCapability,
   type QueryContext,
+  type SemanticCapability,
+  type SemanticCapabilityScope,
+  type TrustedAgentContext,
   providerKindSchema,
   sessionIdSchema,
   taskIdSchema,
@@ -150,6 +156,12 @@ export const agentSessionResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type AgentSessionResult = z.infer<typeof agentSessionResultSchema>;
 
+export interface AgentCapabilityDiscovery {
+  readonly capabilities: readonly SemanticCapability[];
+  readonly missing: readonly CapabilityAlias[];
+  readonly trustedContext: TrustedAgentContext;
+}
+
 export interface AgentProposalCommand {
   readonly action: ActionCapability;
   readonly expiresAt: string;
@@ -198,11 +210,18 @@ export type AgentCommitOutcome =
         | "stale";
     };
 
+export interface AgentCommitCommand {
+  readonly actionId: string;
+  readonly intentDigest: string;
+  readonly operationId: string;
+  readonly proposalId: string;
+}
+
 export interface AgentAuthority {
-  commitOrRecover(
-    operationId: string,
-    proposalId: string,
-  ): Promise<AgentCommitOutcome>;
+  commitOrRecover(command: AgentCommitCommand): Promise<AgentCommitOutcome>;
+  discover(
+    scopes: readonly SemanticCapabilityScope[],
+  ): Promise<AgentCapabilityDiscovery>;
   propose(command: AgentProposalCommand): Promise<AgentProposalOutcome>;
   query(capability: QueryCapability): Promise<QueryContext>;
 }
@@ -216,52 +235,69 @@ export interface AgentSessionRuntime {
   readonly registry: AgentRegistry;
 }
 
+type PlanningSelection =
+  | {
+      readonly kind: "planned";
+      readonly planning: PlanningResult;
+      readonly route: ProviderRoute;
+    }
+  | {
+      readonly kind: "provider_unavailable";
+    };
+
 export async function runAgentSession(
   runtime: AgentSessionRuntime,
   command: AgentSessionCommand,
   journal: SessionJournal,
 ): Promise<AgentSessionResult> {
-  const resolution = runtime.registry.resolve(command.task);
-  switch (resolution.kind) {
-    case "provider_unavailable":
-      return {
-        kind: "provider_unavailable",
-        sessionId: command.sessionId,
-        taskId: command.task.taskId,
-      };
-    case "capability_unavailable":
-      return {
-        kind: "capability_unavailable",
-        missing: [...resolution.missing],
-        sessionId: command.sessionId,
-        taskId: command.task.taskId,
-      };
-    case "available":
-      break;
-    default: {
-      const exhaustive: never = resolution;
-      return exhaustive;
-    }
-  }
-
-  const actions = resolution.capabilities.filter(
+  const discovery = await journal.run("discover scoped capabilities", () =>
+    runtime.authority.discover(runtime.registry.capabilityScopes()),
+  );
+  const actions = discovery.capabilities.filter(
     (capability): capability is ActionCapability => capability.kind === "action",
   );
-  const queries = resolution.capabilities.filter(
+  if (actions.length === 0) {
+    return {
+      kind: "capability_unavailable",
+      missing: [...discovery.missing],
+      sessionId: command.sessionId,
+      taskId: command.task.taskId,
+    };
+  }
+  const queries = discovery.capabilities.filter(
     (capability): capability is QueryCapability => capability.kind === "query",
   );
   const queryContexts = await journal.run("query scoped capabilities", () =>
     Promise.all(queries.map((query) => runtime.authority.query(query))),
   );
 
-  let planning: PlanningResult;
+  let selection: PlanningSelection;
   try {
-    planning = await journal.run("select scoped Action tool", () =>
-      resolution.planner.plan({
-        actions,
-        instruction: command.task.instruction,
-        queries: queryContexts,
-      }),
+    selection = await journal.run(
+      "select scoped Action tool",
+      async (): Promise<PlanningSelection> => {
+        const provider = runtime.registry.resolveProvider(
+          command.task.modelCapability,
+        );
+        switch (provider.kind) {
+          case "unavailable":
+            return { kind: "provider_unavailable" };
+          case "available":
+            return {
+              kind: "planned",
+              planning: await provider.planner.plan({
+                actions,
+                instruction: command.task.instruction,
+                queries: queryContexts,
+              }),
+              route: provider.route,
+            };
+          default: {
+            const exhaustive: never = provider;
+            return exhaustive;
+          }
+        }
+      },
     );
   } catch {
     return {
@@ -271,6 +307,14 @@ export async function runAgentSession(
       taskId: command.task.taskId,
     };
   }
+  if (selection.kind === "provider_unavailable") {
+    return {
+      kind: "provider_unavailable",
+      sessionId: command.sessionId,
+      taskId: command.task.taskId,
+    };
+  }
+  const { planning, route } = selection;
 
   const action = actions.find(
     (candidate) => candidate.alias === planning.plan.action,
@@ -284,12 +328,12 @@ export async function runAgentSession(
     };
   }
   const provider = {
-    configuredModelId: resolution.route.modelId,
-    modelCapability: resolution.route.capability,
+    configuredModelId: route.modelId,
+    modelCapability: route.capability,
     promptDigest: planning.promptDigest,
     providerCallId: planning.providerCallId,
-    providerKind: resolution.route.provider,
-    providerRouteId: resolution.route.id,
+    providerKind: route.provider,
+    providerRouteId: route.id,
     responseModelId: planning.responseModelId,
   };
   const proposal = await journal.run("propose ordinary Action", () =>
@@ -338,10 +382,12 @@ export async function runAgentSession(
   }
 
   const commit = await journal.run("commit or recover ordinary Action", () =>
-    runtime.authority.commitOrRecover(
-      command.operationId,
-      command.proposalId,
-    ),
+    runtime.authority.commitOrRecover({
+      actionId: action.actionId,
+      intentDigest: proposal.intentDigest,
+      operationId: command.operationId,
+      proposalId: command.proposalId,
+    }),
   );
   switch (commit.kind) {
     case "committed":
@@ -369,7 +415,24 @@ export async function runAgentSession(
   }
 }
 
-export function createAgentSessionService(runtime: AgentSessionRuntime) {
+export const agentSessionSignatureHeader = "x-zoen-agent-signature";
+
+export function signAgentSessionCommand(
+  bindingKey: string,
+  command: AgentSessionCommand,
+): string {
+  return createHmac("sha256", bindingKey)
+    .update(serializedSessionCommand(command))
+    .digest("hex");
+}
+
+export function createAgentSessionService(
+  runtime: AgentSessionRuntime,
+  bindingKey: string,
+) {
+  if (bindingKey.length === 0) {
+    throw new Error("agent session binding key is required");
+  }
   return restate.object({
     name: "ZoenAgentSession",
     handlers: {
@@ -377,6 +440,17 @@ export function createAgentSessionService(runtime: AgentSessionRuntime) {
         const parsed = agentSessionCommandSchema.safeParse(input);
         if (!parsed.success) {
           throw new restate.TerminalError("invalid agent session command");
+        }
+        const signature = context
+          .request()
+          .headers.get(agentSessionSignatureHeader);
+        if (
+          signature === undefined ||
+          !validSessionSignature(bindingKey, parsed.data, signature)
+        ) {
+          throw new restate.TerminalError(
+            "agent session principal binding is invalid",
+          );
         }
         if (context.key !== parsed.data.sessionId) {
           throw new restate.TerminalError(
@@ -393,6 +467,33 @@ export function createAgentSessionService(runtime: AgentSessionRuntime) {
         });
         return agentSessionResultSchema.parse(result);
       },
+    },
+  });
+}
+
+function validSessionSignature(
+  bindingKey: string,
+  command: AgentSessionCommand,
+  signature: string,
+): boolean {
+  if (!/^[0-9a-f]{64}$/.test(signature)) {
+    return false;
+  }
+  const expected = Buffer.from(signAgentSessionCommand(bindingKey, command));
+  const actual = Buffer.from(signature);
+  return timingSafeEqual(expected, actual);
+}
+
+function serializedSessionCommand(command: AgentSessionCommand): string {
+  return JSON.stringify({
+    expiresAt: command.expiresAt,
+    operationId: command.operationId,
+    proposalId: command.proposalId,
+    sessionId: command.sessionId,
+    task: {
+      instruction: command.task.instruction,
+      modelCapability: command.task.modelCapability,
+      taskId: command.task.taskId,
     },
   });
 }

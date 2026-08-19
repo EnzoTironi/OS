@@ -13,6 +13,8 @@ import { AgentRegistry, type Registration } from "./registry.js";
 import {
   actionPlanSchema,
   type ActionCapability,
+  canonicalDecimalSchema,
+  canonicalIntegerSchema,
   type ModelPlanner,
   type PlanningRequest,
   type PlanningResult,
@@ -112,7 +114,7 @@ class AiSdkPlanner implements ModelPlanner {
     validatePlanInputs(action, plan.inputs);
     return {
       plan,
-      promptDigest: sha256(prompt),
+      promptDigest: planningRequestDigest(request),
       providerCallId: result.finalStep.response.id,
       responseModelId: result.finalStep.response.modelId,
     };
@@ -169,30 +171,135 @@ function capabilityTools(actions: readonly ActionCapability[]): ToolSet {
           inputs: action.inputs,
           resourceId: action.resourceId,
         }),
-        inputSchema: actionPlanSchema.pick({ inputs: true }),
+        inputSchema: capabilityToolInputSchema(action),
       }),
     ]),
   );
 }
 
+function capabilityToolInputSchema(action: ActionCapability): z.ZodType {
+  const first = action.inputs[0];
+  if (first === undefined) {
+    return z.object({ inputs: z.tuple([]) }).strict();
+  }
+  let inputSchema: z.ZodType = actionToolInputSchema(first);
+  for (const input of action.inputs.slice(1)) {
+    inputSchema = z.union([inputSchema, actionToolInputSchema(input)]);
+  }
+  return z
+    .object({
+      inputs: z.array(inputSchema).length(action.inputs.length),
+    })
+    .strict();
+}
+
+function actionToolInputSchema(
+  input: ActionCapability["inputs"][number],
+): z.ZodType {
+  switch (input.kind) {
+    case "bool":
+      return z
+        .object({
+          id: z.literal(input.id),
+          value: z
+            .object({ kind: z.literal("bool"), value: z.boolean() })
+            .strict(),
+        })
+        .strict();
+    case "decimal":
+      return z
+        .object({
+          id: z.literal(input.id),
+          value: z
+            .object({
+              kind: z.literal("decimal"),
+              value: canonicalDecimalSchema,
+            })
+            .strict(),
+        })
+        .strict();
+    case "integer":
+      return z
+        .object({
+          id: z.literal(input.id),
+          value: z
+            .object({
+              kind: z.literal("integer"),
+              value: canonicalIntegerSchema,
+            })
+            .strict(),
+        })
+        .strict();
+    case "quantity":
+      return z
+        .object({
+          id: z.literal(input.id),
+          value: z
+            .object({
+              amount: canonicalDecimalSchema,
+              kind: z.literal("quantity"),
+              unit: z.literal(input.unit),
+            })
+            .strict(),
+        })
+        .strict();
+    case "text":
+      return z
+        .object({
+          id: z.literal(input.id),
+          value: z
+            .object({ kind: z.literal("text"), value: z.string() })
+            .strict(),
+        })
+        .strict();
+    default: {
+      const exhaustive: never = input;
+      return exhaustive;
+    }
+  }
+}
+
 function validatePlanInputs(
   action: ActionCapability,
-  inputs: readonly {
-    readonly id: string;
-    readonly value: { readonly kind: string };
-  }[],
+  inputs: ActionPlan["inputs"],
 ): void {
-  const expected = new Map(action.inputs.map((input) => [input.id, input.kind]));
+  const expected = new Map(action.inputs.map((input) => [input.id, input]));
   if (inputs.length !== expected.size) {
     throw new Error(`Action ${action.alias} requires ${expected.size} inputs`);
   }
   for (const input of inputs) {
-    const expectedKind = expected.get(input.id);
-    if (expectedKind === undefined || expectedKind !== input.value.kind) {
+    const expectedInput = expected.get(input.id);
+    if (
+      expectedInput === undefined ||
+      expectedInput.kind !== input.value.kind
+    ) {
+      throw new Error(`invalid input ${input.id} for Action ${action.alias}`);
+    }
+    if (
+      expectedInput.kind === "quantity" &&
+      input.value.kind === "quantity" &&
+      input.value.unit !== expectedInput.unit
+    ) {
       throw new Error(`invalid input ${input.id} for Action ${action.alias}`);
     }
     expected.delete(input.id);
   }
+}
+
+export function planningRequestDigest(request: PlanningRequest): string {
+  return sha256(
+    JSON.stringify({
+      prompt: planningPrompt(request),
+      tools: request.actions.map((action) => ({
+        actionId: action.actionId,
+        alias: action.alias,
+        definition: action.definition,
+        inputs: action.inputs,
+        resourceId: action.resourceId,
+        validAt: action.validAt,
+      })),
+    }),
+  );
 }
 
 function sha256(value: string): string {
