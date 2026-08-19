@@ -223,10 +223,25 @@ async function main(): Promise<void> {
     });
     const providerAInvocation = invokeSession(providerACommand);
     void providerAInvocation.catch(() => undefined);
-    await waitFor(async () => {
-      const status = await proxyStatus();
-      return status.droppedCommitResponses === 1 ? status : undefined;
-    }, "the committed Action response to be dropped");
+    const recoveryStart = await Promise.race([
+      providerAInvocation.then((result) => ({
+        kind: "session_completed" as const,
+        result,
+      })),
+      waitFor(
+        async () => {
+          const status = await proxyStatus();
+          return status.droppedCommitResponses === 1 ? status : undefined;
+        },
+        "the committed Action response to be dropped",
+        7_200,
+      ).then((status) => ({ kind: "response_dropped" as const, status })),
+    ]);
+    if (recoveryStart.kind === "session_completed") {
+      throw new Error(
+        `agent session completed before fault injection: ${recoveryStart.result.kind}`,
+      );
+    }
     await killWorker(worker);
     inject("agent-worker-sigkill-after-commit");
     worker = await startWorker(tokens.agentA, definition.digest);
