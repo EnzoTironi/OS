@@ -1,0 +1,7 @@
+ts	phase	decision	why	evidence	result
+2026-08-19T05:37:00Z	frame	Verified origin/main before creating the exclusive branch	The ticket fixes the required base commit	eea4cf220d00dd05d7290b7b3009889da0379301	base verified
+2026-08-19T05:38:00Z	frame	Set the exit condition to both official E2E scenarios passing on a pushed draft PR	The real PostgreSQL, Connect, and OIDC path is the acceptance boundary	just e2e durable-commit; just e2e governed-action	open
+2026-08-19T06:04:00Z	design	Chose one typed commit protocol across core, engine, Postgres, and Connect	A generic conflict-only patch cannot represent operation mismatch, record collision, effect collision, or canonical effect ordering	docs/adr/0006-operation-identity-durable-commit.md; crates/zoen-adapters/src/action_store.rs	ready to implement
+2026-08-19T05:55:00Z	implementation	Committed and pushed the first complete protocol, store, and E2E unit	The generated protocol and all Rust crates compile together	commit 2842af7; npm run build; cargo test --locked --workspace	TypeScript build and 14 Rust tests green
+2026-08-19T05:55:34Z	audit	Flagged the design row timestamp as incorrect	The row was stamped manually beyond the current clock	.audit/build-v1-04.tsv	design decision is valid; timestamp is not
+2026-08-19T06:05:16Z	verification	Confirmed the Compose project flag works against the nested vfs daemon	The earlier flag error came from the local toolchain state before Compose was available	docker compose --project-name zoen-probe version	infrastructure gate cleared
