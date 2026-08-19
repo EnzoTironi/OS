@@ -5,10 +5,11 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
-import { once } from "node:events";
+import { isDeepStrictEqual } from "node:util";
 import {
   Code,
   ConnectError,
@@ -104,8 +105,9 @@ const tokenResponseSchema = z
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
 
-function recordAssertion(name: string): void {
-  assertions[name] = true;
+function recordAssertion(name: string, observed: boolean): void {
+  assert.ok(observed, name);
+  assertions[name] = observed;
 }
 
 function recordFailureInjection(name: string): void {
@@ -205,9 +207,28 @@ async function main(): Promise<void> {
     assert.ok(directCapability);
     assert.equal(directCapability.decision, PolicyDecision.PERMIT);
     assertPolicy(directCapability.policy, fixtures.direct);
-    recordAssertion("oidcTrustedContextDerived");
-    recordAssertion("delegationScopeExposed");
-    recordAssertion("cedarDeterminingPolicyRecorded");
+    recordAssertion(
+      "oidcTrustedContextDerived",
+      trusted.tenantId === tenantA &&
+        trusted.actorId === "actor.agent.a" &&
+        trusted.principalId === "principal.agent.a" &&
+        trusted.workloadId === "workload.agent.a",
+    );
+    recordAssertion(
+      "delegationScopeExposed",
+      trusted.delegation.length === 1 &&
+        isDeepStrictEqual(trusted.delegation[0]?.actionIds, [actionId]) &&
+        isDeepStrictEqual(trusted.delegation[0]?.resourceIds, [resourceId]) &&
+        isDeepStrictEqual(trusted.delegation[0]?.workloadIds, [
+          "workload.agent.a",
+        ]),
+    );
+    recordAssertion(
+      "cedarDeterminingPolicyRecorded",
+      directCapability.policy?.revision?.policyId ===
+        fixtures.direct.policyId &&
+        directCapability.policy.determiningPolicyIds.length > 0,
+    );
 
     const actionProtocol = await readFile(
       path.join(
@@ -228,7 +249,12 @@ async function main(): Promise<void> {
       proposeRequest,
       /\b(?:actor_id|principal_id|tenant_id|workload_id)\b/,
     );
-    recordAssertion("identityFieldsAbsentFromActionRequest");
+    recordAssertion(
+      "identityFieldsAbsentFromActionRequest",
+      !/\b(?:actor_id|principal_id|tenant_id|workload_id)\b/.test(
+        proposeRequest,
+      ),
+    );
 
     const direct = await propose(actionA, {
       expiresAt: minutesFromNow(5),
@@ -266,8 +292,16 @@ async function main(): Promise<void> {
       directReplay.receipt?.commitSequence,
       directCommit.receipt.commitSequence,
     );
-    recordAssertion("directPermitCommitted");
-    recordAssertion("operationIdempotencyPreserved");
+    recordAssertion(
+      "directPermitCommitted",
+      directCommit.status === CommitStatus.COMMITTED &&
+        directCommit.receipt.definition?.digest === fixtures.direct.digest,
+    );
+    recordAssertion(
+      "operationIdempotencyPreserved",
+      directReplay.receipt?.commitSequence ===
+        directCommit.receipt.commitSequence,
+    );
 
     const beforeThresholdDeny = await databaseSnapshot(admin, tenantA);
     const thresholdDeny = await propose(actionA, {
@@ -279,12 +313,17 @@ async function main(): Promise<void> {
     });
     assert.equal(thresholdDeny.decision, PolicyDecision.DENY);
     assert.equal(thresholdDeny.proposal, undefined);
-    assert.deepEqual(
-      await databaseSnapshot(admin, tenantA),
-      beforeThresholdDeny,
+    const afterThresholdDeny = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterThresholdDeny, beforeThresholdDeny);
+    recordAssertion(
+      "cedarThresholdControlsPermit",
+      thresholdDeny.decision === PolicyDecision.DENY &&
+        thresholdDeny.proposal === undefined,
     );
-    recordAssertion("cedarThresholdControlsPermit");
-    recordAssertion("deniedProposalHasNoWrites");
+    recordAssertion(
+      "deniedProposalHasNoWrites",
+      isDeepStrictEqual(afterThresholdDeny, beforeThresholdDeny),
+    );
 
     const human = await propose(actionA, {
       expiresAt: minutesFromNow(5),
@@ -321,9 +360,19 @@ async function main(): Promise<void> {
       proposalId: "proposal.human",
     });
     assert.equal(humanCommit.status, CommitStatus.COMMITTED);
-    recordAssertion("proposalRecoveredAcrossRestart");
-    recordAssertion("unrelatedStateDidNotFalseStale");
-    recordAssertion("humanApprovalCommitted");
+    recordAssertion(
+      "proposalRecoveredAcrossRestart",
+      humanApproval.approval?.proposalId === "proposal.human",
+    );
+    recordAssertion(
+      "unrelatedStateDidNotFalseStale",
+      humanCommit.status === CommitStatus.COMMITTED,
+    );
+    recordAssertion(
+      "humanApprovalCommitted",
+      humanApproval.decision === PolicyDecision.PERMIT &&
+        humanCommit.status === CommitStatus.COMMITTED,
+    );
 
     const boundedProposal = await propose(actionA, {
       expiresAt: minutesFromNow(1),
@@ -338,7 +387,7 @@ async function main(): Promise<void> {
       "action_approvals",
       tenantA,
     );
-    await expectConnectCode(
+    const approvalBoundsCode = await expectConnectCode(
       () =>
         approverA.approve({
           approvalId: "approval.outsideBounds",
@@ -347,12 +396,18 @@ async function main(): Promise<void> {
         }),
       Code.FailedPrecondition,
     );
-    assert.equal(
-      await rowCount(admin, "action_approvals", tenantA),
-      approvalsBeforeBounds,
+    const approvalsAfterBounds = await rowCount(
+      admin,
+      "action_approvals",
+      tenantA,
     );
+    assert.equal(approvalsAfterBounds, approvalsBeforeBounds);
     recordFailureInjection("approval-outside-bounds");
-    recordAssertion("approvalBoundsEnforced");
+    recordAssertion(
+      "approvalBoundsEnforced",
+      approvalBoundsCode === Code.FailedPrecondition &&
+        approvalsAfterBounds === approvalsBeforeBounds,
+    );
 
     const expiringProposal = await propose(actionA, {
       expiresAt: minutesFromNow(1),
@@ -370,7 +425,7 @@ async function main(): Promise<void> {
     assert.equal(expiringApproval.decision, PolicyDecision.PERMIT);
     await delay(1_200);
     const beforeExpiredCommit = await databaseSnapshot(admin, tenantA);
-    await expectConnectCode(
+    const expiredApprovalCode = await expectConnectCode(
       () =>
         actionA.commit({
           operationId: "operation.expiredApproval",
@@ -378,12 +433,14 @@ async function main(): Promise<void> {
         }),
       Code.FailedPrecondition,
     );
-    assert.deepEqual(
-      await databaseSnapshot(admin, tenantA),
-      beforeExpiredCommit,
-    );
+    const afterExpiredCommit = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterExpiredCommit, beforeExpiredCommit);
     recordFailureInjection("expired-approval");
-    recordAssertion("expiredApprovalRejectedWithoutWrites");
+    recordAssertion(
+      "expiredApprovalRejectedWithoutWrites",
+      expiredApprovalCode === Code.FailedPrecondition &&
+        isDeepStrictEqual(afterExpiredCommit, beforeExpiredCommit),
+    );
 
     const stale = await propose(actionA, {
       expiresAt: minutesFromNow(5),
@@ -415,9 +472,15 @@ async function main(): Promise<void> {
     assert.ok(staleCommit.currentStateBasis);
     assert.notEqual(staleCommit.currentStateBasis.digest, humanBasisDigest);
     assert.equal(staleCommit.currentStateBasis.dependencies.length, 2);
-    assert.deepEqual(await databaseSnapshot(admin, tenantA), beforeStaleCommit);
+    const afterStaleCommit = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterStaleCommit, beforeStaleCommit);
     recordFailureInjection("relevant-state-change");
-    recordAssertion("relevantDependencyChangeRejectedBeforeMutation");
+    recordAssertion(
+      "relevantDependencyChangeRejectedBeforeMutation",
+      staleCommit.status === CommitStatus.STALE &&
+        staleCommit.currentStateBasis.digest !== humanBasisDigest &&
+        isDeepStrictEqual(afterStaleCommit, beforeStaleCommit),
+    );
 
     const underChangedState = await propose(actionA, {
       expiresAt: minutesFromNow(5),
@@ -440,7 +503,12 @@ async function main(): Promise<void> {
       proposalId: "proposal.changed",
     });
     assert.equal(changedCommit.status, CommitStatus.COMMITTED);
-    recordAssertion("secondProposalUnderChangedStateCommitted");
+    recordAssertion(
+      "secondProposalUnderChangedStateCommitted",
+      underChangedState.proposal?.stateBasis?.digest ===
+        staleCommit.currentStateBasis.digest &&
+        changedCommit.status === CommitStatus.COMMITTED,
+    );
 
     const denyDiscovery = await actionA.discover({
       definition: fixtures.deny.definition,
@@ -457,9 +525,19 @@ async function main(): Promise<void> {
     });
     assert.equal(denied.decision, PolicyDecision.DENY);
     assertPolicy(denied.policy, fixtures.deny);
-    assert.deepEqual(await databaseSnapshot(admin, tenantA), beforePolicyDeny);
-    recordAssertion("visibleActionStillRequiredCommitAuthorization");
-    recordAssertion("explicitDenyDistinguished");
+    const afterPolicyDeny = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterPolicyDeny, beforePolicyDeny);
+    recordAssertion(
+      "visibleActionStillRequiredCommitAuthorization",
+      denyDiscovery.actions[0]?.decision === PolicyDecision.PERMIT &&
+        denied.decision === PolicyDecision.DENY,
+    );
+    recordAssertion(
+      "explicitDenyDistinguished",
+      denied.decision === PolicyDecision.DENY &&
+        (denied.policy?.determiningPolicyIds.length ?? 0) > 0 &&
+        isDeepStrictEqual(afterPolicyDeny, beforePolicyDeny),
+    );
 
     const beforeEvaluationError = await databaseSnapshot(admin, tenantA);
     const evaluationError = await propose(actionA, {
@@ -475,15 +553,18 @@ async function main(): Promise<void> {
     );
     assert.match(evaluationError.evaluationError, /missing/);
     assertPolicy(evaluationError.policy, fixtures.error, false);
-    assert.deepEqual(
-      await databaseSnapshot(admin, tenantA),
-      beforeEvaluationError,
-    );
+    const afterEvaluationError = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterEvaluationError, beforeEvaluationError);
     recordFailureInjection("cedar-evaluation-error");
-    recordAssertion("cedarEvaluationErrorDistinguished");
+    recordAssertion(
+      "cedarEvaluationErrorDistinguished",
+      evaluationError.decision === PolicyDecision.EVALUATION_ERROR &&
+        /missing/.test(evaluationError.evaluationError) &&
+        isDeepStrictEqual(afterEvaluationError, beforeEvaluationError),
+    );
 
     const beforeForgedInput = await databaseSnapshot(admin, tenantA);
-    await expectConnectCode(
+    const forgedInputCode = await expectConnectCode(
       () =>
         propose(actionA, {
           expiresAt: minutesFromNow(5),
@@ -495,12 +576,17 @@ async function main(): Promise<void> {
         }),
       Code.InvalidArgument,
     );
-    assert.deepEqual(await databaseSnapshot(admin, tenantA), beforeForgedInput);
+    const afterForgedInput = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterForgedInput, beforeForgedInput);
     recordFailureInjection("caller-supplied-principal");
-    recordAssertion("callerIdentityInputRejected");
+    recordAssertion(
+      "callerIdentityInputRejected",
+      forgedInputCode === Code.InvalidArgument &&
+        isDeepStrictEqual(afterForgedInput, beforeForgedInput),
+    );
 
     const beforeTokenFailures = await databaseSnapshot(admin, tenantA);
-    await expectConnectCode(
+    const invalidSignatureCode = await expectConnectCode(
       () =>
         actionClient(corruptToken(agentAToken)).discover({
           definition: fixtures.direct.definition,
@@ -508,7 +594,7 @@ async function main(): Promise<void> {
         }),
       Code.Unauthenticated,
     );
-    await expectConnectCode(
+    const wrongAudienceCode = await expectConnectCode(
       () =>
         actionClient(wrongAudienceToken).discover({
           definition: fixtures.direct.definition,
@@ -517,7 +603,7 @@ async function main(): Promise<void> {
       Code.Unauthenticated,
     );
     await delay(1_100);
-    await expectConnectCode(
+    const expiredTokenCode = await expectConnectCode(
       () =>
         actionClient(expiredToken).discover({
           definition: fixtures.direct.definition,
@@ -525,7 +611,7 @@ async function main(): Promise<void> {
         }),
       Code.Unauthenticated,
     );
-    await expectConnectCode(
+    const expandedDelegationCode = await expectConnectCode(
       () =>
         actionClient(expandedToken).discover({
           definition: fixtures.direct.definition,
@@ -533,16 +619,26 @@ async function main(): Promise<void> {
         }),
       Code.Unauthenticated,
     );
-    assert.deepEqual(
-      await databaseSnapshot(admin, tenantA),
-      beforeTokenFailures,
-    );
+    const afterTokenFailures = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterTokenFailures, beforeTokenFailures);
     recordFailureInjection("invalid-token-signature");
     recordFailureInjection("wrong-token-audience");
     recordFailureInjection("expired-token");
     recordFailureInjection("child-delegation-expansion");
-    recordAssertion("oidcFailuresRejectedWithoutWrites");
-    recordAssertion("childDelegationExpansionRejected");
+    recordAssertion(
+      "oidcFailuresRejectedWithoutWrites",
+      [
+        invalidSignatureCode,
+        wrongAudienceCode,
+        expiredTokenCode,
+        expandedDelegationCode,
+      ].every((code) => code === Code.Unauthenticated) &&
+        isDeepStrictEqual(afterTokenFailures, beforeTokenFailures),
+    );
+    recordAssertion(
+      "childDelegationExpansionRejected",
+      expandedDelegationCode === Code.Unauthenticated,
+    );
 
     const foreignOperation = await propose(actionA, {
       expiresAt: minutesFromNow(5),
@@ -553,7 +649,7 @@ async function main(): Promise<void> {
     });
     assert.ok(foreignOperation.proposal);
     const beforeForeignOperation = await databaseSnapshot(admin, tenantA);
-    await expectConnectCode(
+    const foreignOperationCode = await expectConnectCode(
       () =>
         actionA.commit({
           operationId: "operation.other",
@@ -561,17 +657,20 @@ async function main(): Promise<void> {
         }),
       Code.InvalidArgument,
     );
-    assert.deepEqual(
-      await databaseSnapshot(admin, tenantA),
-      beforeForeignOperation,
-    );
+    const afterForeignOperation = await databaseSnapshot(admin, tenantA);
+    assert.deepEqual(afterForeignOperation, beforeForeignOperation);
     const foreignRecovery = await actionA.commit({
       operationId: "operation.foreign",
       proposalId: "proposal.foreign",
     });
     assert.equal(foreignRecovery.status, CommitStatus.COMMITTED);
     recordFailureInjection("foreign-operation-identity");
-    recordAssertion("foreignOperationRejectedWithoutWrites");
+    recordAssertion(
+      "foreignOperationRejectedWithoutWrites",
+      foreignOperationCode === Code.InvalidArgument &&
+        isDeepStrictEqual(afterForeignOperation, beforeForeignOperation) &&
+        foreignRecovery.status === CommitStatus.COMMITTED,
+    );
 
     const tenantACollision = await propose(actionA, {
       expiresAt: minutesFromNow(5),
@@ -582,7 +681,7 @@ async function main(): Promise<void> {
     });
     assert.ok(tenantACollision.proposal);
     const tenantBBeforeCrossAttempt = await databaseSnapshot(admin, tenantB);
-    await expectConnectCode(
+    const crossTenantCommitCode = await expectConnectCode(
       () =>
         actionB.commit({
           operationId: "operation.tenantCollision",
@@ -590,10 +689,8 @@ async function main(): Promise<void> {
         }),
       Code.NotFound,
     );
-    assert.deepEqual(
-      await databaseSnapshot(admin, tenantB),
-      tenantBBeforeCrossAttempt,
-    );
+    const tenantBAfterCrossAttempt = await databaseSnapshot(admin, tenantB);
+    assert.deepEqual(tenantBAfterCrossAttempt, tenantBBeforeCrossAttempt);
     const tenantBCollision = await propose(actionB, {
       expiresAt: minutesFromNow(5),
       fixture: fixtures.direct,
@@ -612,7 +709,7 @@ async function main(): Promise<void> {
       proposalId: "proposal.tenantCollision",
     });
     assert.equal(tenantACommit.status, CommitStatus.COMMITTED);
-    await expectConnectCode(
+    const crossTenantDefinitionCode = await expectConnectCode(
       () =>
         definitionA.getRevision({
           definitionId,
@@ -622,7 +719,17 @@ async function main(): Promise<void> {
       Code.PermissionDenied,
     );
     recordFailureInjection("cross-tenant-proposal-lookup");
-    recordAssertion("identicalActionAndOperationIdsIsolatedByTenant");
+    recordAssertion(
+      "identicalActionAndOperationIdsIsolatedByTenant",
+      crossTenantCommitCode === Code.NotFound &&
+        crossTenantDefinitionCode === Code.PermissionDenied &&
+        isDeepStrictEqual(
+          tenantBAfterCrossAttempt,
+          tenantBBeforeCrossAttempt,
+        ) &&
+        tenantBCommit.status === CommitStatus.COMMITTED &&
+        tenantACommit.status === CommitStatus.COMMITTED,
+    );
 
     await stopServer(server);
     server = await startServer(policyManifestPath);
@@ -634,7 +741,12 @@ async function main(): Promise<void> {
       recoveredStatus.receipt?.proposalId,
       changedCommit.receipt?.proposalId,
     );
-    recordAssertion("receiptRecoveredAfterRestart");
+    recordAssertion(
+      "receiptRecoveredAfterRestart",
+      recoveredStatus.status === CommitStatus.COMMITTED &&
+        recoveredStatus.receipt?.proposalId ===
+          changedCommit.receipt?.proposalId,
+    );
 
     const postgresVersion = (
       await admin.query<{ server_version: string }>("SHOW server_version")
@@ -1029,7 +1141,7 @@ function canConnect(): Promise<boolean> {
 async function expectConnectCode(
   action: () => Promise<unknown>,
   expected: Code,
-): Promise<void> {
+): Promise<Code> {
   try {
     await action();
     assert.fail(`expected Connect error ${Code[expected]}`);
@@ -1038,6 +1150,7 @@ async function expectConnectCode(
       throw error;
     }
     assert.equal(error.code, expected, error.message);
+    return error.code;
   }
 }
 
