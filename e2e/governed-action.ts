@@ -6,7 +6,6 @@ import { Code } from "@connectrpc/connect";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Client as PostgresClient } from "pg";
 import {
-  CommitIdentityKind,
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
@@ -300,28 +299,29 @@ async function main(): Promise<void> {
       duplicateIntent.proposal?.intentDigest,
       directCommit.receipt.intentDigest,
     );
-    const beforeDuplicateIntent = await databaseSnapshot(admin, tenantA);
     const duplicateIntentCommit = await actionA.commit({
       operationId: "operation.duplicateIntent",
       proposalId: "proposal.duplicateIntent",
     });
-    assert.equal(
-      duplicateIntentCommit.status,
-      CommitStatus.IDENTITY_COLLISION,
+    assert.equal(duplicateIntentCommit.status, CommitStatus.COMMITTED);
+    assert.ok(duplicateIntentCommit.receipt);
+    assert.deepEqual(
+      duplicateIntentCommit.receipt.recordIds,
+      ["claim.action.operation.duplicateIntent.0"],
     );
-    assert.equal(
-      duplicateIntentCommit.collisionKind,
-      CommitIdentityKind.SEMANTIC_RECORD,
+    assert.deepEqual(
+      duplicateIntentCommit.receipt.effectRequestIds,
+      ["effect.action.operation.duplicateIntent.0"],
     );
-    const afterDuplicateIntent = await databaseSnapshot(admin, tenantA);
-    assert.deepEqual(afterDuplicateIntent, beforeDuplicateIntent);
-    recordFailureInjection("action-record-identity-collision");
     recordAssertion(
-      "actionRecordIdentityCollisionTyped",
-      duplicateIntentCommit.status === CommitStatus.IDENTITY_COLLISION &&
-        duplicateIntentCommit.collisionKind ===
-          CommitIdentityKind.SEMANTIC_RECORD &&
-        isDeepStrictEqual(afterDuplicateIntent, beforeDuplicateIntent),
+      "independentSameIntentOperationsCommitted",
+      duplicateIntentCommit.status === CommitStatus.COMMITTED &&
+        isDeepStrictEqual(duplicateIntentCommit.receipt.recordIds, [
+          "claim.action.operation.duplicateIntent.0",
+        ]) &&
+        isDeepStrictEqual(duplicateIntentCommit.receipt.effectRequestIds, [
+          "effect.action.operation.duplicateIntent.0",
+        ]),
     );
 
     const selfMutating = await propose(actionA, {
