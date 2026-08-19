@@ -48,32 +48,35 @@ function audienceMapper() {
   };
 }
 
-function delegation(workloadId, grants, canActivate = false) {
-  const defaultGrants = [
+function delegation(workloadId, grants) {
+  return JSON.stringify(
+    grants ?? [
+      {
+        actionIds: [actionId],
+        delegationId: `delegation.${workloadId}`,
+        expiresAt: farFuture,
+        notBefore: 0,
+        resourceIds: [resourceId],
+        workloadIds: [workloadId],
+      },
+    ],
+  );
+}
+
+function activationDelegation(workloadId) {
+  return delegation(workloadId, [
     {
-      actionIds: [actionId],
-      delegationId: `delegation.${workloadId}`,
-      expiresAt: farFuture,
-      notBefore: 0,
-      resourceIds: [resourceId],
-      workloadIds: [workloadId],
-    },
-  ];
-  if (canActivate) {
-    defaultGrants.push({
       actionIds: [activationActionId],
       delegationId: `delegation.activation.${workloadId}`,
       expiresAt: farFuture,
       notBefore: 0,
       resourceIds: definitionIds,
       workloadIds: [workloadId],
-    });
-  }
-  return JSON.stringify(grants ?? defaultGrants);
+    },
+  ]);
 }
 
 function confidentialClient({
-  canActivate = false,
   actorId,
   audience = true,
   clientId,
@@ -90,7 +93,7 @@ function confidentialClient({
     hardcodedClaim("workload_id", workloadId),
     hardcodedClaim(
       "zoen_delegation",
-      delegationClaim ?? delegation(workloadId, undefined, canActivate),
+      delegationClaim ?? delegation(workloadId),
     ),
   ];
   if (audience) {
@@ -144,11 +147,18 @@ const realm = {
     },
     confidentialClient({
       actorId: "actor.agent.a",
-      canActivate: true,
       clientId: "agent-a",
       principalId: "principal.agent.a",
       tenantId: "tenant.a",
       workloadId: "workload.agent.a",
+    }),
+    confidentialClient({
+      actorId: "actor.admin.a",
+      clientId: "admin-a",
+      delegationClaim: activationDelegation("workload.admin.a"),
+      principalId: "principal.admin.a",
+      tenantId: "tenant.a",
+      workloadId: "workload.admin.a",
     }),
     confidentialClient({
       actorId: "actor.approver.a",
@@ -159,11 +169,18 @@ const realm = {
     }),
     confidentialClient({
       actorId: "actor.agent.b",
-      canActivate: true,
       clientId: "agent-b",
       principalId: "principal.agent.b",
       tenantId: "tenant.b",
       workloadId: "workload.agent.b",
+    }),
+    confidentialClient({
+      actorId: "actor.admin.b",
+      clientId: "admin-b",
+      delegationClaim: activationDelegation("workload.admin.b"),
+      principalId: "principal.admin.b",
+      tenantId: "tenant.b",
+      workloadId: "workload.admin.b",
     }),
     confidentialClient({
       actorId: "actor.effect-worker.a",

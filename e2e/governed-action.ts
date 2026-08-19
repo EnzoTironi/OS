@@ -75,12 +75,16 @@ async function main(): Promise<void> {
   const agentAToken = await oidcToken("agent-a");
   const approverAToken = await oidcToken("approver-a");
   const agentBToken = await oidcToken("agent-b");
+  const adminAToken = await oidcToken("admin-a");
+  const adminBToken = await oidcToken("admin-b");
   const expandedToken = await oidcToken("expanded-a");
   const wrongAudienceToken = await oidcToken("wrong-audience-a");
   const expiredToken = await oidcToken("expired-a");
 
   const definitionA = definitionClient(agentAToken);
   const definitionB = definitionClient(agentBToken);
+  const definitionAdminA = definitionClient(adminAToken);
+  const definitionAdminB = definitionClient(adminBToken);
   const worldA = worldClient(agentAToken);
   const worldB = worldClient(agentBToken);
   const actionA = actionClient(agentAToken);
@@ -93,10 +97,10 @@ async function main(): Promise<void> {
   try {
     for (const fixture of Object.values(fixtures)) {
       await publishDefinition(definitionA, tenantA, fixture);
-      await activateDefinition(definitionA, tenantA, fixture);
+      await activateDefinition(definitionAdminA, tenantA, fixture);
     }
     await publishDefinition(definitionB, tenantB, fixtures.direct);
-    await activateDefinition(definitionB, tenantB, fixtures.direct);
+    await activateDefinition(definitionAdminB, tenantB, fixtures.direct);
 
     await recordAvailable(worldA, {
       claimId: "claim.available.direct.a",

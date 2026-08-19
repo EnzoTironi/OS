@@ -4,6 +4,6 @@ permit (
     resource
 )
 when {
-    principal == Zoen::Principal::"principal.agent.a" ||
-    principal == Zoen::Principal::"principal.agent.b"
+    principal == Zoen::Principal::"principal.admin.a" ||
+    principal == Zoen::Principal::"principal.admin.b"
 };

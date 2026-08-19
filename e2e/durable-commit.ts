@@ -59,10 +59,14 @@ async function main(): Promise<void> {
 
   const agentAToken = await oidcToken("agent-a");
   const agentBToken = await oidcToken("agent-b");
+  const adminAToken = await oidcToken("admin-a");
+  const adminBToken = await oidcToken("admin-b");
   const actionA = actionClient(agentAToken);
   const actionB = actionClient(agentBToken);
   const definitionA = definitionClient(agentAToken);
   const definitionB = definitionClient(agentBToken);
+  const definitionAdminA = definitionClient(adminAToken);
+  const definitionAdminB = definitionClient(adminBToken);
   const worldA = worldClient(agentAToken);
   const worldB = worldClient(agentBToken);
   const runtime = {
@@ -75,8 +79,8 @@ async function main(): Promise<void> {
     for (const fixture of Object.values(fixtures)) {
       await publishDefinition(definitionA, tenantA, fixture);
       await publishDefinition(definitionB, tenantB, fixture);
-      await activateDefinition(definitionA, tenantA, fixture);
-      await activateDefinition(definitionB, tenantB, fixture);
+      await activateDefinition(definitionAdminA, tenantA, fixture);
+      await activateDefinition(definitionAdminB, tenantB, fixture);
       await recordAvailable(worldA, {
         claimId: `claim.available.${fixture.definition.revision}.a`,
         fixture,
