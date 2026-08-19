@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./action/v1": "./src/gen/zoen/action/v1/action_pb.ts",
+    "./definition/v1": "./src/gen/zoen/definition/v1/definition_pb.ts",
+    "./history/v1": "./src/gen/zoen/history/v1/history_pb.ts",
+    "./world/v1": "./src/gen/zoen/world/v1/world_pb.ts"
   }
 }

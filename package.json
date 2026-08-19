@@ -11,7 +11,7 @@
     "buf:generate": "buf generate",
     "buf:lint": "buf lint",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test dist/packages/ontology/src/compiler.test.js"
+    "test": "node --test dist/packages/ontology/src/compiler.test.js dist/packages/harness/src/*.test.js"
   },
   "devDependencies": {
     "@babel/parser": "7.29.8",
