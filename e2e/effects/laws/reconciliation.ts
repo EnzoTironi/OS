@@ -8,6 +8,8 @@ import {
 import {
   dispatchOnce,
   setProviderMode,
+  startConnector,
+  stopProcess,
 } from "../support.js";
 import {
   actionCommitCount,
@@ -110,6 +112,9 @@ export async function verifyReconciliation(
       actionCommitsBeforeReconcile,
   );
 
+  await stopProcess(scenario.runtime.connector);
+  scenario.runtime.connector = await startConnector({ timeoutMs: 3_000 });
+  scenario.processes.push(scenario.runtime.connector);
   await setProviderMode("hold_confirmed");
   const claimedRace = await commitEffect(
     scenario.actionA,
@@ -159,6 +164,9 @@ export async function verifyReconciliation(
         EffectKnowledgeState.CONFIRMED_NO_EFFECT &&
       raceContradicted.attempts.length === 1,
   );
+  await stopProcess(scenario.runtime.connector);
+  scenario.runtime.connector = await startConnector();
+  scenario.processes.push(scenario.runtime.connector);
 
   await setProviderMode("timeout_after_delivery");
   const ambiguous = await commitEffect(
