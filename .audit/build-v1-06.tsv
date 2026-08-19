@@ -9,3 +9,7 @@ ts	phase	decision	why	evidence	result
 2026-08-19T12:09:43Z	harness	Added a standalone explain scenario over Postgres 18, OIDC, Restate, and Connect	The official command must prove the production path and required mutants	e2e/explain.ts	ready to run
 2026-08-19T12:19:43Z	verify	Ran the official scenario through the first explanation assertion	The run reached every production dependency and exposed an incorrect identity expectation	just e2e explain	exit 1, trustedContextComesFromDurableAuthority
 2026-08-19T12:19:43Z	harness	Aligned the identity assertion with the OIDC realm claims	The durable authority rows retain dotted actor and principal IDs from Keycloak	e2e/governed-action/prepare-realm.mjs	corrected
+2026-08-19T12:24:10Z	verify	Passed the official explain scenario from a clean product state	The evidence records all required assertions and mutant kills from the running system	just e2e explain	exit 0 at 288c913
+2026-08-19T12:24:10Z	verify	Passed the governed Action regression	The causal persistence changes preserve the shared Action path	just e2e governed-action	exit 0
+2026-08-19T12:24:10Z	verify	Passed the effects regression	The history loader changes preserve durable Restate dispatch and reconciliation	just e2e effects	exit 0
+2026-08-19T12:24:10Z	quality	Reviewed branch comments and suppressions after deslop	The hand-authored diff contains no comments, lint suppressions, or production placeholders	no-comments scan	0 deletions, 0 open findings
