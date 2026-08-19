@@ -145,10 +145,7 @@ async fn execute(
         .bearer_auth(credential)
         .header(
             "idempotency-key",
-            format!(
-                "{}:{}",
-                request.tenant_id, request.effect_request_id
-            ),
+            format!("{}:{}", request.tenant_id, request.effect_request_id),
         )
         .json(&ProviderRequest {
             effect_request_id: &request.effect_request_id,
@@ -244,13 +241,11 @@ async fn execute(
             observed_at_micros,
             response_digest,
         })),
-        (StatusCode::OK, "confirmed_no_effect") => {
-            Ok(Json(ConnectorResponse::ConfirmedNoEffect {
-                external_operation_id: provider.external_operation_id,
-                observed_at_micros,
-                response_digest,
-            }))
-        }
+        (StatusCode::OK, "confirmed_no_effect") => Ok(Json(ConnectorResponse::ConfirmedNoEffect {
+            external_operation_id: provider.external_operation_id,
+            observed_at_micros,
+            response_digest,
+        })),
         _ => Ok(Json(ConnectorResponse::Unknown {
             observed_at_micros,
             reason: "response_schema_error",

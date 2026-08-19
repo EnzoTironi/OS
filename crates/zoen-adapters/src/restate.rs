@@ -1,8 +1,6 @@
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
-use zoen_engine::{
-    EffectScheduleCommand, EffectScheduleError, EffectScheduler, ScheduledEffect,
-};
+use zoen_engine::{EffectScheduleCommand, EffectScheduleError, EffectScheduler, ScheduledEffect};
 
 #[derive(Clone)]
 pub struct RestateEffectScheduler {

@@ -3,9 +3,7 @@ use std::error::Error;
 use std::time::Duration;
 
 use reqwest::Url;
-use zoen_adapters::{
-    PostgresAuthorityStore, PostgresEffectDispatcher, RestateEffectScheduler,
-};
+use zoen_adapters::{PostgresAuthorityStore, PostgresEffectDispatcher, RestateEffectScheduler};
 use zoen_core::TenantId;
 
 #[tokio::main]
