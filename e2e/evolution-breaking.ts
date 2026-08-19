@@ -655,7 +655,13 @@ async function main(): Promise<void> {
       EvolutionClassification.REQUIRES_MIGRATION,
     );
     assertV2ToV3Assessment(v2ToV3Assessment, observe);
-    const v2Level = await latestClaim(admin, v2.digest, "inventory.level");
+    const v2Levels = await claims(admin, v2.digest, "inventory.level");
+    assert.deepEqual(
+      v2Levels.map((claim) => claim.claim_id),
+      ["claim.inventory.level.v2", "claim.inventory.level.v2.original"],
+    );
+    const v2Level = v2Levels.at(-1);
+    assert.ok(v2Level);
     const v2ToV3Recipe = buildMigrationRecipe({
       assessment: v2ToV3Assessment,
       dependencies: [migrationDependency(v2Level)],
@@ -675,23 +681,24 @@ async function main(): Promise<void> {
     const completedV3 = await definitionA.applyMigrationBatch({
       batchIndex: 0,
       operationId: v2ToV3Recipe.operationId,
-      records: [
-        {
-          ruleId: targetRuleId(
-            v2ToV3Recipe,
-            "inventory.primaryWarehouse",
-          ),
-          sourceClaimIds: [v2Level.claim_id],
-          targetEvidence: evidenceClaim(
-            definitionReference(v3),
-            "inventory.primaryWarehouse",
-            entity("inventory.warehouse.primary"),
-            "claim.inventory.primaryWarehouse.v3",
-          ),
-        },
-      ],
+      records: v2Levels.map((source) => ({
+        ruleId: targetRuleId(v2ToV3Recipe, "inventory.primaryWarehouse"),
+        sourceClaimIds: [source.claim_id],
+        targetEvidence: evidenceClaim(
+          definitionReference(v3),
+          "inventory.primaryWarehouse",
+          entity("inventory.warehouse.primary"),
+          source.claim_id === "claim.inventory.level.v2"
+            ? "claim.inventory.primaryWarehouse.v3"
+            : "claim.inventory.primaryWarehouse.v3.original",
+        ),
+      })),
       tenantId: tenantA,
     });
+    const primaryWarehouseLineage = completedV3.progress?.lineage.find(
+      (lineage) =>
+        lineage.targetClaimId === "claim.inventory.primaryWarehouse.v3",
+    );
     const migratedClaimExplanation = await historyClient(adminAToken).explain({
       target: {
         target: {
@@ -703,12 +710,11 @@ async function main(): Promise<void> {
     observe(
       "meaningPreservingRenameCreatesNewEvidence",
       completedV3.progress?.status === MigrationStatus.COMPLETED &&
-        completedV3.progress.lineage[0]?.kind ===
-          MigrationRuleKind.PRESERVE_MEANING &&
-        completedV3.progress.lineage[0]?.sourceClaimIds[0] ===
+        completedV3.progress.remainingObligations.length === 0 &&
+        completedV3.progress.totalObligations === 2n &&
+        primaryWarehouseLineage?.kind === MigrationRuleKind.PRESERVE_MEANING &&
+        primaryWarehouseLineage.sourceClaimIds[0] ===
           "claim.inventory.level.v2" &&
-        completedV3.progress.lineage[0]?.targetClaimId ===
-          "claim.inventory.primaryWarehouse.v3" &&
         migratedClaimExplanation.explanation?.subject.case === "claim" &&
         migratedClaimExplanation.explanation.subject.value.migration?.origin
           ?.operationId === v2ToV3Recipe.operationId &&
@@ -734,10 +740,13 @@ async function main(): Promise<void> {
       v3Current.definition?.digest === v3.digest &&
         v3Current.value.value.case === "entityRefValue" &&
         v3Current.value.value.value === "inventory.warehouse.primary" &&
-        v3Current.dependencies[0]?.migration?.operationId ===
-          v2ToV3Recipe.operationId &&
-        v3Current.dependencies[0]?.migration?.sourceClaimIds[0] ===
-          "claim.inventory.level.v2",
+        v3Current.dependencies.some(
+          (dependency) =>
+            dependency.migration?.operationId === v2ToV3Recipe.operationId &&
+            dependency.migration.sourceClaimIds.some((sourceClaimId) =>
+              v2Levels.some((source) => source.claim_id === sourceClaimId),
+            ),
+        ),
     );
 
     await expectProjectionFailure(tenantA);
