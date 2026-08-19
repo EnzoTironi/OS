@@ -2596,6 +2596,7 @@ dependencies = [
  "connectrpc",
  "connectrpc-build",
  "serde",
+ "serde_json",
  "tokio",
  "zoen-adapters",
  "zoen-core",
