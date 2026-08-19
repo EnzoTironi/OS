@@ -27,5 +27,8 @@
     "pg": "8.23.0",
     "typescript": "7.0.2",
     "zod": "4.4.3"
+  },
+  "dependencies": {
+    "@restatedev/restate-sdk": "^1.16.7"
   }
 }

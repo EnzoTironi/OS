@@ -5,6 +5,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .files(&[
             "zoen/action/v1/action.proto",
             "zoen/definition/v1/definition.proto",
+            "zoen/effect/v1/effect.proto",
             "zoen/world/v1/world.proto",
         ])
         .descriptor_set("../../proto/definition_descriptor.binpb")
@@ -13,6 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=../../proto/definition_descriptor.binpb");
     println!("cargo:rerun-if-changed=../../proto/zoen/action/v1/action.proto");
     println!("cargo:rerun-if-changed=../../proto/zoen/definition/v1/definition.proto");
+    println!("cargo:rerun-if-changed=../../proto/zoen/effect/v1/effect.proto");
     println!("cargo:rerun-if-changed=../../proto/zoen/world/v1/world.proto");
     Ok(())
 }
