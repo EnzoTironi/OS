@@ -22,6 +22,7 @@ message ExactValue {
     string integer_value = 3;
     QuantityValue quantity_value = 4;
     string text_value = 5;
+    string entity_ref_value = 6;
   }
 }
 

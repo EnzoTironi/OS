@@ -1022,6 +1022,7 @@ fn payload_digest(value: &ExactValue) -> PayloadDigest {
     let encoded = match value {
         ExactValue::Bool(value) => format!("bool:{value}"),
         ExactValue::Decimal(value) => format!("decimal:{}", value.as_str()),
+        ExactValue::Entity(value) => format!("entity:{}", value.as_str()),
         ExactValue::Integer(value) => format!("integer:{}", value.as_str()),
         ExactValue::Quantity { amount, unit } => {
             format!("quantity:{}:{}", amount.as_str(), unit.as_str())

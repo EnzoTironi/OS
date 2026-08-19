@@ -22,6 +22,7 @@ mod claim_store;
 mod effect_dispatcher;
 mod effect_store;
 mod history_store;
+mod migration_store;
 mod restate;
 
 pub use action_store::PostgresActionCommit;
@@ -147,6 +148,7 @@ impl AuthorityStore for PostgresAuthorityStore {
         }) {
             return Err(StoreError::StalePrecondition);
         }
+        migration_store::validate_activation(&mut transaction, activation).await?;
 
         let next_sequence = head
             .checked_add(1)
@@ -175,13 +177,13 @@ impl AuthorityStore for PostgresAuthorityStore {
                 previous_revision, previous_digest, commit_sequence,
                 activated_at_micros, actor_id, principal_id, workload_id,
                 policy_id, policy_revision, policy_digest, determining_policies,
-                classification
+                classification, activation_kind, migration_operation_id
              ) VALUES (
                 $1, $2, $3, $4,
                 $5, $6, $7,
                 $8, $9, $10, $11,
                 $12, $13, $14, $15,
-                $16
+                $16, $17, $18
              )",
         )
         .bind(context.tenant_id().as_str())
@@ -207,6 +209,8 @@ impl AuthorityStore for PostgresAuthorityStore {
                 .classification()
                 .map(zoen_core::EvolutionClassification::as_str),
         )
+        .bind(activation.kind().as_str())
+        .bind(activation.migration_operation_id().map(OperationId::as_str))
         .execute(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
@@ -280,11 +284,20 @@ impl AuthorityStore for PostgresAuthorityStore {
                 "activation commit sequence",
             )?)
             .ok_or_else(|| StoreError::Corrupt("zero activation commit sequence".to_owned()))?,
+            kind: activation.kind(),
+            migration_operation_id: activation.migration_operation_id().cloned(),
             policy: policy.clone(),
             previous: activation.previous().cloned(),
             principal_id: context.principal_id().clone(),
             workload_id: context.workload_id().clone(),
         })
+    }
+
+    async fn apply_migration_batch(
+        &self,
+        batch: &zoen_engine::AdmittedMigrationBatch,
+    ) -> Result<zoen_core::MigrationProgress, StoreError> {
+        migration_store::apply(self, batch).await
     }
 
     async fn begin_action_commit(
@@ -329,6 +342,23 @@ impl AuthorityStore for PostgresAuthorityStore {
         let revision = row.as_ref().map(row_to_revision).transpose()?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(revision)
+    }
+
+    async fn get_migration(
+        &self,
+        tenant_id: &TenantId,
+        operation_id: &OperationId,
+    ) -> Result<zoen_core::MigrationProgress, StoreError> {
+        migration_store::get(self, tenant_id, operation_id).await
+    }
+
+    async fn get_completed_migration(
+        &self,
+        tenant_id: &TenantId,
+        from: &DefinitionReference,
+        to: &DefinitionReference,
+    ) -> Result<Option<zoen_core::MigrationProgress>, StoreError> {
+        migration_store::completed(self, tenant_id, from, to).await
     }
 
     async fn begin_effect_update(
@@ -516,6 +546,13 @@ impl AuthorityStore for PostgresAuthorityStore {
             digest: publication.digest().clone(),
             revision: publication.revision(),
         })
+    }
+
+    async fn prepare_migration(
+        &self,
+        migration: &zoen_engine::AdmittedMigrationPlan,
+    ) -> Result<zoen_core::MigrationProgress, StoreError> {
+        migration_store::prepare(self, migration).await
     }
 
     async fn get_revision(
@@ -711,6 +748,14 @@ impl AuthorityStore for PostgresAuthorityStore {
     ) -> Result<ActionProposal, StoreError> {
         action_store::save_proposal(&self.pool, context, proposal).await
     }
+
+    async fn revision_was_active(
+        &self,
+        tenant_id: &TenantId,
+        revision: &DefinitionReference,
+    ) -> Result<bool, StoreError> {
+        migration_store::revision_was_active(self, tenant_id, revision).await
+    }
 }
 
 async fn set_tenant(
@@ -905,6 +950,7 @@ fn value_columns(value: &ExactValue) -> (&'static str, String, Option<&str>) {
     match value {
         ExactValue::Bool(value) => ("bool", value.to_string(), None),
         ExactValue::Decimal(value) => ("decimal", value.as_str().to_owned(), None),
+        ExactValue::Entity(value) => ("entity", value.as_str().to_owned(), None),
         ExactValue::Integer(value) => ("integer", value.as_str().to_owned(), None),
         ExactValue::Quantity { amount, unit } => {
             ("quantity", amount.as_str().to_owned(), Some(unit.as_str()))
@@ -933,6 +979,9 @@ pub(crate) fn row_to_value(row: &PgRow) -> Result<ExactValue, StoreError> {
         },
         "decimal" => ExactDecimal::parse(value)
             .map(ExactValue::Decimal)
+            .map_err(|error| StoreError::Corrupt(error.to_string())),
+        "entity" => EntityId::parse(value)
+            .map(ExactValue::Entity)
             .map_err(|error| StoreError::Corrupt(error.to_string())),
         "integer" => ExactInteger::parse(value)
             .map(ExactValue::Integer)

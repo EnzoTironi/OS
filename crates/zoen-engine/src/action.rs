@@ -27,16 +27,20 @@ pub use state_basis::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyOperation {
     ActivateRevision,
+    ApplyMigrationBatch,
     Approve,
     Commit,
     Discover,
+    PrepareMigration,
     RequestApproval,
+    RollbackRevision,
 }
 
 #[derive(Clone, Debug)]
 pub struct PolicyRequest<'a> {
     pub action_id: &'a ActionId,
     pub approved: bool,
+    pub classification: Option<zoen_core::EvolutionClassification>,
     pub context: &'a TrustedExecutionContext,
     pub definition: &'a DefinitionReference,
     pub inputs: &'a [ActionInput],
@@ -275,6 +279,7 @@ where
                 .evaluate(&PolicyRequest {
                     action_id: &action.id,
                     approved: false,
+                    classification: None,
                     context,
                     definition,
                     inputs: &[],
@@ -329,6 +334,7 @@ where
             .evaluate(&PolicyRequest {
                 action_id: &command.action_id,
                 approved: false,
+                classification: None,
                 context,
                 definition: &command.definition,
                 inputs: &command.inputs,
@@ -353,6 +359,7 @@ where
                     .evaluate(&PolicyRequest {
                         action_id: &command.action_id,
                         approved: false,
+                        classification: None,
                         context,
                         definition: &command.definition,
                         inputs: &command.inputs,
@@ -439,6 +446,7 @@ where
             .evaluate(&PolicyRequest {
                 action_id: &proposal.action_id,
                 approved: false,
+                classification: None,
                 context,
                 definition: &proposal.definition,
                 inputs: &proposal.inputs,
@@ -540,6 +548,7 @@ where
             .evaluate(&PolicyRequest {
                 action_id: &proposal.action_id,
                 approved: approval.is_some(),
+                classification: None,
                 context,
                 definition: &proposal.definition,
                 inputs: &proposal.inputs,
@@ -880,6 +889,7 @@ fn value_key(value: &ExactValue) -> String {
     match value {
         ExactValue::Bool(value) => format!("bool:{value}"),
         ExactValue::Decimal(value) => format!("decimal:{}", value.as_str()),
+        ExactValue::Entity(value) => format!("entity:{}", value.as_str()),
         ExactValue::Integer(value) => format!("integer:{}", value.as_str()),
         ExactValue::Quantity { amount, unit } => {
             format!("quantity:{}:{}", amount.as_str(), unit.as_str())

@@ -17,6 +17,7 @@ mod admission;
 mod effect;
 mod evolution;
 mod history;
+mod migration;
 
 pub use action::{
     ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
@@ -34,6 +35,10 @@ pub use effect::{
 pub use history::{
     ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistoryEngine,
     HistoryError, HistorySnapshot,
+};
+pub use migration::{
+    AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord, MigrationError,
+    decode_migration_plan,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -331,7 +336,9 @@ pub enum ActivateRevisionError {
     DelegationDenied,
     EventEncoding(String),
     Incompatible(EvolutionClassification),
+    InvalidRollbackTarget,
     InvalidRevision(String),
+    MigrationIncomplete,
     PolicyDenied(PolicyEvidence),
     PolicyEvaluation {
         message: String,
@@ -368,6 +375,12 @@ impl Display for ActivateRevisionError {
             Self::InvalidRevision(message) => {
                 write!(formatter, "invalid activation revision: {message}")
             }
+            Self::InvalidRollbackTarget => {
+                formatter.write_str("rollback target was not a prior active revision")
+            }
+            Self::MigrationIncomplete => {
+                formatter.write_str("required migration is not complete for the revision pair")
+            }
             Self::PolicyDenied(_) => formatter.write_str("definition activation was denied"),
             Self::PolicyEvaluation { message, .. } => {
                 write!(formatter, "definition activation policy failed: {message}")
@@ -388,7 +401,9 @@ impl Error for ActivateRevisionError {
             | Self::DelegationDenied
             | Self::EventEncoding(_)
             | Self::Incompatible(_)
+            | Self::InvalidRollbackTarget
             | Self::InvalidRevision(_)
+            | Self::MigrationIncomplete
             | Self::PolicyDenied(_)
             | Self::PolicyEvaluation { .. }
             | Self::StalePrecondition => None,
@@ -475,6 +490,8 @@ pub struct AdmittedDefinitionActivation {
     activated_at: TimestampMicros,
     classification: Option<EvolutionClassification>,
     context: ExecutionContext,
+    kind: zoen_core::DefinitionActivationKind,
+    migration_operation_id: Option<OperationId>,
     policy: PolicyEvidence,
     previous: Option<DefinitionReference>,
     projection_event: ProjectionEvent,
@@ -487,6 +504,8 @@ impl AdmittedDefinitionActivation {
         previous: Option<DefinitionReference>,
         target: DefinitionRevision,
         classification: Option<EvolutionClassification>,
+        kind: zoen_core::DefinitionActivationKind,
+        migration_operation_id: Option<OperationId>,
         policy: PolicyEvidence,
         activated_at: TimestampMicros,
     ) -> Result<Self, ActivateRevisionError> {
@@ -495,6 +514,8 @@ impl AdmittedDefinitionActivation {
             classification: classification.map(EvolutionClassification::as_str),
             definition_id: target.definition_id.as_str(),
             digest: target.digest.as_str(),
+            kind: kind.as_str(),
+            migration_operation_id: migration_operation_id.as_ref().map(OperationId::as_str),
             policy_digest: policy.revision.digest.as_str(),
             policy_id: policy.revision.id.as_str(),
             policy_revision: policy.revision.revision.get(),
@@ -509,6 +530,8 @@ impl AdmittedDefinitionActivation {
             activated_at,
             classification,
             context,
+            kind,
+            migration_operation_id,
             policy,
             previous,
             projection_event: ProjectionEvent {
@@ -526,6 +549,14 @@ impl AdmittedDefinitionActivation {
 
     pub fn context(&self) -> &ExecutionContext {
         &self.context
+    }
+
+    pub fn kind(&self) -> zoen_core::DefinitionActivationKind {
+        self.kind
+    }
+
+    pub fn migration_operation_id(&self) -> Option<&OperationId> {
+        self.migration_operation_id.as_ref()
     }
 
     pub fn classification(&self) -> Option<EvolutionClassification> {
@@ -556,6 +587,8 @@ struct DefinitionActivatedV1<'a> {
     classification: Option<&'a str>,
     definition_id: &'a str,
     digest: &'a str,
+    kind: &'a str,
+    migration_operation_id: Option<&'a str>,
     policy_digest: &'a str,
     policy_id: &'a str,
     policy_revision: u64,
@@ -599,6 +632,11 @@ pub trait AuthorityStore: Send + Sync {
         activation: &AdmittedDefinitionActivation,
     ) -> Result<DefinitionActivation, StoreError>;
 
+    async fn apply_migration_batch(
+        &self,
+        batch: &AdmittedMigrationBatch,
+    ) -> Result<zoen_core::MigrationProgress, StoreError>;
+
     async fn begin_action_commit(
         &self,
         context: &ExecutionContext,
@@ -616,6 +654,19 @@ pub trait AuthorityStore: Send + Sync {
         tenant_id: &TenantId,
         definition_id: &DefinitionId,
     ) -> Result<Option<DefinitionRevision>, StoreError>;
+
+    async fn get_migration(
+        &self,
+        tenant_id: &TenantId,
+        operation_id: &OperationId,
+    ) -> Result<zoen_core::MigrationProgress, StoreError>;
+
+    async fn get_completed_migration(
+        &self,
+        tenant_id: &TenantId,
+        from: &DefinitionReference,
+        to: &DefinitionReference,
+    ) -> Result<Option<zoen_core::MigrationProgress>, StoreError>;
 
     async fn begin_effect_update(
         &self,
@@ -653,6 +704,11 @@ pub trait AuthorityStore: Send + Sync {
         publication: &AdmittedDefinitionPublication,
     ) -> Result<DefinitionRevision, StoreError>;
 
+    async fn prepare_migration(
+        &self,
+        migration: &AdmittedMigrationPlan,
+    ) -> Result<zoen_core::MigrationProgress, StoreError>;
+
     async fn get_revision(
         &self,
         tenant_id: &TenantId,
@@ -677,6 +733,12 @@ pub trait AuthorityStore: Send + Sync {
         context: &ExecutionContext,
         proposal: &ActionProposal,
     ) -> Result<ActionProposal, StoreError>;
+
+    async fn revision_was_active(
+        &self,
+        tenant_id: &TenantId,
+        revision: &DefinitionReference,
+    ) -> Result<bool, StoreError>;
 }
 
 pub struct DefinitionEngine<S, P> {

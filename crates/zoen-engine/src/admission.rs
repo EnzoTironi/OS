@@ -102,12 +102,11 @@ fn admit_evidence_draft(
                 draft.relation_id.as_str().to_owned(),
             ))
         })?;
-    let RelationTarget::Value(value_type) = &relation.target else {
-        return Err(RecordEvidenceError::InvalidEvidence(
-            EvidenceValidationError::ValueTypeMismatch(draft.relation_id.as_str().to_owned()),
-        ));
+    let value_matches_target = match &relation.target {
+        RelationTarget::Type(_) => matches!(&draft.value, ExactValue::Entity(_)),
+        RelationTarget::Value(value_type) => value_matches(value_type, &draft.value),
     };
-    if !value_matches(value_type, &draft.value) {
+    if !value_matches_target {
         return Err(RecordEvidenceError::InvalidEvidence(
             EvidenceValidationError::ValueTypeMismatch(draft.relation_id.as_str().to_owned()),
         ));

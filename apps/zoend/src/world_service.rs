@@ -176,6 +176,9 @@ pub(crate) fn parse_exact_value(value: &ExactValue) -> Result<CoreExactValue, Co
         exact_value::Value::DecimalValue(value) => ExactDecimal::parse(value)
             .map(CoreExactValue::Decimal)
             .map_err(|error| invalid(error.to_string())),
+        exact_value::Value::EntityRefValue(value) => EntityId::parse(value)
+            .map(CoreExactValue::Entity)
+            .map_err(|error| invalid(error.to_string())),
         exact_value::Value::IntegerValue(value) => ExactInteger::parse(value)
             .map(CoreExactValue::Integer)
             .map_err(|error| invalid(error.to_string())),
@@ -316,6 +319,9 @@ pub(crate) fn to_exact_value(value: CoreExactValue) -> ExactValue {
         CoreExactValue::Bool(value) => exact_value::Value::BoolValue(value),
         CoreExactValue::Decimal(value) => {
             exact_value::Value::DecimalValue(value.as_str().to_owned())
+        }
+        CoreExactValue::Entity(value) => {
+            exact_value::Value::EntityRefValue(value.as_str().to_owned())
         }
         CoreExactValue::Integer(value) => {
             exact_value::Value::IntegerValue(value.as_str().to_owned())

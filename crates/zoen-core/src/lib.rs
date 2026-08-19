@@ -71,6 +71,7 @@ semantic_id!(EffectEvidenceId);
 semantic_id!(EffectIdempotencyKey);
 semantic_id!(EffectRequestId);
 semantic_id!(InputId);
+semantic_id!(MigrationRuleId);
 semantic_id!(OperationId);
 semantic_id!(PolicyId);
 semantic_id!(PrincipalId);
@@ -363,6 +364,7 @@ pub enum ValueType {
 pub enum ExactValue {
     Bool(bool),
     Decimal(ExactDecimal),
+    Entity(EntityId),
     Integer(ExactInteger),
     Quantity { amount: ExactDecimal, unit: UnitId },
     Text(String),
@@ -839,11 +841,13 @@ pub enum DefinitionChangeKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefinitionChange {
     pub change: DefinitionChangeKind,
+    pub classification: EvolutionClassification,
     pub element: DefinitionElementKind,
     pub id: String,
+    pub rationale: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DefinitionImpactArea {
     Types,
     Relations,
@@ -854,6 +858,8 @@ pub enum DefinitionImpactArea {
     QueryAndMaterializationArtifacts,
     GeneratedSdkAndSurfaceArtifacts,
     PolicyAndWasmReferences,
+    PolicyAndAuthorityContracts,
+    WasmComponents,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -889,6 +895,116 @@ impl EvolutionPlan {
                 | EvolutionClassification::Forbidden
         )
     }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct MigrationElement {
+    pub element: DefinitionElementKind,
+    pub id: String,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct MigrationArtifactDependency {
+    pub area: DefinitionImpactArea,
+    pub id: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MigrationRuleKind {
+    PreserveMeaning,
+    Recompute,
+    Supersede,
+    Transform,
+}
+
+impl MigrationRuleKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PreserveMeaning => "preserve_meaning",
+            Self::Recompute => "recompute",
+            Self::Supersede => "supersede",
+            Self::Transform => "transform",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigrationRule {
+    pub id: MigrationRuleId,
+    pub kind: MigrationRuleKind,
+    pub sources: Vec<MigrationElement>,
+    pub targets: Vec<MigrationElement>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigrationDependency {
+    pub claim_id: ClaimId,
+    pub commit_sequence: CommitSequence,
+    pub entity_id: EntityId,
+    pub relation_id: RelationId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigrationPostcondition {
+    pub minimum_record_count: u64,
+    pub relation_id: RelationId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigrationPlan {
+    pub affected_elements: Vec<MigrationElement>,
+    pub artifact_dependencies: Vec<MigrationArtifactDependency>,
+    pub classification: EvolutionClassification,
+    pub dependencies: Vec<MigrationDependency>,
+    pub expected_batches: u32,
+    pub format_version: u32,
+    pub from: DefinitionReference,
+    pub operation_id: OperationId,
+    pub postconditions: Vec<MigrationPostcondition>,
+    pub rules: Vec<MigrationRule>,
+    pub to: DefinitionReference,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigrationRecord {
+    pub rule_id: MigrationRuleId,
+    pub source_claim_ids: Vec<ClaimId>,
+    pub target: EvidenceDraft,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigrationLineage {
+    pub kind: MigrationRuleKind,
+    pub rule_id: MigrationRuleId,
+    pub source_claim_ids: Vec<ClaimId>,
+    pub target_claim_id: ClaimId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MigrationStatus {
+    InProgress,
+    Prepared,
+    Completed,
+}
+
+impl MigrationStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::InProgress => "in_progress",
+            Self::Prepared => "prepared",
+            Self::Completed => "completed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigrationProgress {
+    pub commit_sequence: CommitSequence,
+    pub completed_batches: Vec<u32>,
+    pub intent_digest: IntentDigest,
+    pub lineage: Vec<MigrationLineage>,
+    pub plan: MigrationPlan,
+    pub status: MigrationStatus,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1282,6 +1398,21 @@ pub struct PolicyEvidence {
     pub revision: PolicyRevision,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DefinitionActivationKind {
+    Activation,
+    Rollback,
+}
+
+impl DefinitionActivationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Activation => "activation",
+            Self::Rollback => "rollback",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefinitionActivation {
     pub activated_at: TimestampMicros,
@@ -1289,6 +1420,8 @@ pub struct DefinitionActivation {
     pub active: DefinitionReference,
     pub classification: Option<EvolutionClassification>,
     pub commit_sequence: CommitSequence,
+    pub kind: DefinitionActivationKind,
+    pub migration_operation_id: Option<OperationId>,
     pub policy: PolicyEvidence,
     pub previous: Option<DefinitionReference>,
     pub principal_id: PrincipalId,

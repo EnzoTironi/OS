@@ -536,6 +536,9 @@ fn parse_value(physical: &PhysicalClaim) -> Result<ExactValue, QueryError> {
         "decimal" => ExactDecimal::parse(&physical.value_text)
             .map(ExactValue::Decimal)
             .map_err(|error| QueryError::Corrupt(error.to_string())),
+        "entity" => EntityId::parse(&physical.value_text)
+            .map(ExactValue::Entity)
+            .map_err(|error| QueryError::Corrupt(error.to_string())),
         "integer" => ExactInteger::parse(&physical.value_text)
             .map(ExactValue::Integer)
             .map_err(|error| QueryError::Corrupt(error.to_string())),
