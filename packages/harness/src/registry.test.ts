@@ -75,12 +75,18 @@ test("future resolutions reflect provider and task-scope disposal", () => {
   const capability = registry.registerCapabilityScope(actionScope);
   registry.registerCapabilityScope(queryScope);
 
-  assert.equal(registry.resolveProvider("reasoning-fast").kind, "available");
+  assert.equal(
+    registry.resolveProvider(openAiRoute.capability).kind,
+    "available",
+  );
   assert.equal(registry.capabilityScopes().length, 2);
   capability.dispose();
   assert.deepEqual(registry.capabilityScopes(), [queryScope]);
   provider.dispose();
-  assert.equal(registry.resolveProvider("reasoning-fast").kind, "unavailable");
+  assert.equal(
+    registry.resolveProvider(openAiRoute.capability).kind,
+    "unavailable",
+  );
 });
 
 test("provider kinds execute the same planning contract", async () => {
@@ -94,8 +100,10 @@ test("provider kinds execute the same planning contract", async () => {
     anthropicRoute,
     new FixedPlanner("call.anthropic"),
   );
-  const openAi = openAiRegistry.resolveProvider("reasoning-fast");
-  const anthropic = anthropicRegistry.resolveProvider("reasoning-fast");
+  const openAi = openAiRegistry.resolveProvider(openAiRoute.capability);
+  const anthropic = anthropicRegistry.resolveProvider(
+    anthropicRoute.capability,
+  );
   assert.equal(openAi.kind, "available");
   assert.equal(anthropic.kind, "available");
   if (openAi.kind !== "available" || anthropic.kind !== "available") {
@@ -185,9 +193,15 @@ test("OpenAI-compatible routes register without other provider secrets", () => {
       },
     ],
   );
-  assert.equal(registry.resolveProvider("reasoning-high").kind, "available");
+  assert.equal(
+    registry.resolveProvider(compatibleRoute.capability).kind,
+    "available",
+  );
   registrations[0]?.dispose();
-  assert.equal(registry.resolveProvider("reasoning-high").kind, "unavailable");
+  assert.equal(
+    registry.resolveProvider(compatibleRoute.capability).kind,
+    "unavailable",
+  );
 });
 
 class FixedPlanner implements ModelPlanner {

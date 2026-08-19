@@ -36,6 +36,9 @@ const actionScope = semanticCapabilityScopeSchema.parse({
   resourceId: "resource.session",
   validAt: "2026-08-19T00:00:00.000Z",
 });
+if (actionScope.kind !== "action") {
+  throw new Error("expected an Action capability scope");
+}
 const queryScope = semanticCapabilityScopeSchema.parse({
   definition,
   entityId: "resource.session",
@@ -43,6 +46,9 @@ const queryScope = semanticCapabilityScopeSchema.parse({
   selection: { id: "relation.session", kind: "relation" },
   validAt: "2026-08-19T00:00:00.000Z",
 });
+if (queryScope.kind !== "query") {
+  throw new Error("expected a Query capability scope");
+}
 const parsedAction = semanticCapabilitySchema.parse({
   actionId: actionScope.actionId,
   alias: capabilityAliasForScope(actionScope),
@@ -163,7 +169,7 @@ test("journaled scope and provider survive registry unmount", async () => {
   assert.equal(result.kind, "committed");
   assert.equal(configured.runtime.registry.capabilityScopes().length, 0);
   assert.equal(
-    configured.runtime.registry.resolveProvider("reasoning-fast").kind,
+    configured.runtime.registry.resolveProvider(route.capability).kind,
     "unavailable",
   );
   assert.equal(authority.discoveryCalls, 1);

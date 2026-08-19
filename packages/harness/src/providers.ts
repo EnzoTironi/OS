@@ -13,6 +13,7 @@ import { AgentRegistry, type Registration } from "./registry.js";
 import {
   actionPlanSchema,
   type ActionCapability,
+  type ActionPlan,
   canonicalDecimalSchema,
   canonicalIntegerSchema,
   type ModelPlanner,
