@@ -613,7 +613,7 @@ async fn insert_operation(
     .bind(&receipt.policy.determining_policies)
     .execute(&mut **transaction)
     .await
-    .map_err(|error| map_commit_operation_insert(error))?;
+    .map_err(map_commit_operation_insert)?;
     insert_grants(
         transaction,
         tenant_id,
