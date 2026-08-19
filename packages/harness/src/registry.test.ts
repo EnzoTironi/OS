@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { registerLiveProviders } from "./providers.js";
 import { AgentRegistry } from "./registry.js";
 import {
   actionPlanSchema,
@@ -50,6 +51,12 @@ const anthropicRoute = providerRouteSchema.parse({
   id: "anthropic-live",
   modelId: "configured-anthropic-model",
   provider: "anthropic",
+});
+const compatibleRoute = providerRouteSchema.parse({
+  capability: "reasoning-high",
+  id: "compatible-live",
+  modelId: "configured-compatible-model",
+  provider: "openai-compatible",
 });
 
 test("registrations disappear from future registry resolutions", () => {
@@ -115,6 +122,44 @@ test("model output cannot carry trusted identity fields", () => {
     tenantId: "tenant.other",
   });
   assert.equal(parsed.success, false);
+});
+
+test("OpenAI-compatible routes register without other provider secrets", () => {
+  const registry = new AgentRegistry();
+  const registrations = registerLiveProviders(
+    registry,
+    { routes: [compatibleRoute] },
+    [
+      {
+        apiKey: "test-key",
+        baseURL: "https://provider.invalid/v1",
+        kind: "openai-compatible",
+      },
+    ],
+  );
+  const resolution = registry.resolve(
+    taskScopeSchema.parse({
+      capabilities: [],
+      instruction: "Select the visible action.",
+      modelCapability: "reasoning-high",
+      providerRoute: "compatible-live",
+      taskId: "task.compatible",
+    }),
+  );
+  assert.equal(resolution.kind, "available");
+  registrations[0]?.dispose();
+  assert.equal(
+    registry.resolve(
+      taskScopeSchema.parse({
+        capabilities: [],
+        instruction: "Select the visible action.",
+        modelCapability: "reasoning-high",
+        providerRoute: "compatible-live",
+        taskId: "task.compatible.after-dispose",
+      }),
+    ).kind,
+    "provider_unavailable",
+  );
 });
 
 class FixedPlanner implements ModelPlanner {

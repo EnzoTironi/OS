@@ -22,7 +22,11 @@ export type ProviderRouteId = z.infer<typeof providerRouteIdSchema>;
 export type SessionId = z.infer<typeof sessionIdSchema>;
 export type TaskId = z.infer<typeof taskIdSchema>;
 
-export const providerKindSchema = z.enum(["anthropic", "openai"]);
+export const providerKindSchema = z.enum([
+  "anthropic",
+  "openai",
+  "openai-compatible",
+]);
 export type ProviderKind = z.infer<typeof providerKindSchema>;
 
 export const definitionReferenceSchema = z
