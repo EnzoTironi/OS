@@ -105,15 +105,17 @@ async function route(
   }
 
   providerCalls += 1;
+  const mutation = nextMutation;
+  nextMutation = undefined;
   const upstream = await fetch(upstreamUrl(url), {
     body: request.method === "GET" ? undefined : await readBody(request),
     headers: forwardedHeaders(request.headers),
     method: request.method,
   });
   let body = await upstream.text();
-  if (upstream.ok && nextMutation !== undefined) {
-    body = mutateProviderResponse(body, nextMutation);
-    switch (nextMutation.kind) {
+  if (upstream.ok && mutation !== undefined) {
+    body = mutateProviderResponse(body, mutation);
+    switch (mutation.kind) {
       case "action_ref":
         actionRefMutations += 1;
         break;
@@ -121,12 +123,11 @@ async function route(
         identityMutations += 1;
         break;
       default: {
-        const exhaustive: never = nextMutation;
+        const exhaustive: never = mutation;
         return exhaustive;
       }
     }
     providerCallsAtLastMutation = providerCalls;
-    nextMutation = undefined;
   }
   const responseHeaders = new Headers(upstream.headers);
   responseHeaders.delete("content-encoding");

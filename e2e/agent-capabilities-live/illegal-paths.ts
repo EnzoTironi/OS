@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import type { AgentSessionResult } from "../../packages/harness/src/index.js";
 import {
   deniedResourceId,
@@ -186,7 +187,7 @@ async function runMutatedSession(
     tenantA,
     command.operationId,
   );
-  return {
+  const evidence: MutatedSessionEvidence = {
     actionRefMutations:
       after.actionRefMutations - before.actionRefMutations,
     identityMutations: after.identityMutations - before.identityMutations,
@@ -199,6 +200,17 @@ async function runMutatedSession(
     records: operations.records,
     result,
   };
+  assert.equal(
+    evidence.mutationPending,
+    false,
+    `${scenario.suffix} left a provider response mutation pending`,
+  );
+  assert.equal(
+    mutationCount(evidence, scenario.mutation.kind),
+    1,
+    `${scenario.suffix} did not mutate exactly one provider response: ${JSON.stringify(result)}`,
+  );
+  return evidence;
 }
 
 function terminalInvalidPlan(
