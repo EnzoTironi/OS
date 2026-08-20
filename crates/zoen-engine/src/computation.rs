@@ -18,7 +18,9 @@ pub enum ComputationCapability {
     Action {
         action_id: ActionId,
         definition: DefinitionReference,
+        expires_at: TimestampMicros,
         id: CapabilityId,
+        proposed_at: TimestampMicros,
         resource_id: ResourceId,
         valid_at: TimestampMicros,
     },
@@ -429,6 +431,7 @@ pub enum ComponentAdmissionError {
     Malformed,
     Store(String),
     TooLarge,
+    UndeclaredImport(String),
 }
 
 impl Display for ComponentAdmissionError {
@@ -444,6 +447,9 @@ impl Display for ComponentAdmissionError {
             Self::Malformed => formatter.write_str("component bytes are malformed"),
             Self::Store(message) => write!(formatter, "component store unavailable: {message}"),
             Self::TooLarge => formatter.write_str("component exceeds the configured size limit"),
+            Self::UndeclaredImport(name) => {
+                write!(formatter, "component imports undeclared capability {name}")
+            }
         }
     }
 }
@@ -500,7 +506,9 @@ enum CapabilityView<'a> {
     Action {
         action_id: &'a str,
         definition: DefinitionView<'a>,
+        expires_at_micros: i64,
         id: &'a str,
+        proposed_at_micros: i64,
         resource_id: &'a str,
         valid_at_micros: i64,
     },
@@ -541,13 +549,17 @@ fn canonical_manifest(
             ComputationCapability::Action {
                 action_id,
                 definition,
+                expires_at,
                 id,
+                proposed_at,
                 resource_id,
                 valid_at,
             } => CapabilityView::Action {
                 action_id: action_id.as_str(),
                 definition: definition_view(definition),
+                expires_at_micros: expires_at.get(),
                 id: id.as_str(),
+                proposed_at_micros: proposed_at.get(),
                 resource_id: resource_id.as_str(),
                 valid_at_micros: valid_at.get(),
             },

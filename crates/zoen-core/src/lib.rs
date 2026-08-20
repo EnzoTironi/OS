@@ -263,6 +263,12 @@ impl CapabilityManifestDigest {
     }
 }
 
+impl ComponentDigest {
+    pub fn from_sha256(bytes: [u8; 32]) -> Self {
+        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
+}
+
 impl ExecutionRequestDigest {
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
         Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())

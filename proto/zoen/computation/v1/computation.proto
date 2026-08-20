@@ -24,6 +24,7 @@ enum ComponentAdmissionStatus {
   COMPONENT_ADMISSION_STATUS_MALFORMED = 3;
   COMPONENT_ADMISSION_STATUS_INTERFACE_MISMATCH = 4;
   COMPONENT_ADMISSION_STATUS_TOO_LARGE = 5;
+  COMPONENT_ADMISSION_STATUS_UNDECLARED_CAPABILITY = 6;
 }
 
 message PublishComponentResponse {
@@ -31,6 +32,7 @@ message PublishComponentResponse {
   string component_digest = 2;
   string component_interface = 3;
   uint64 size_bytes = 4;
+  string denied_capability = 5;
 }
 
 message QueryCapability {
@@ -51,6 +53,8 @@ message ActionCapability {
   string action_id = 3;
   string resource_id = 4;
   google.protobuf.Timestamp valid_at = 5;
+  google.protobuf.Timestamp proposed_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
 }
 
 message Capability {
@@ -71,6 +75,7 @@ message ExecuteRequest {
   string component_digest = 2;
   CapabilityManifest manifest = 3;
   bytes input = 4;
+  ResourceLimits limits = 5;
 }
 
 message ResourceLimits {
