@@ -6,8 +6,8 @@ use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionId, ActionInput, CapabilityId, CapabilityManifestDigest, ClaimId, CommitSequence,
     ComponentDigest, ComponentExecutionEvidence, ComponentInterface, DefinitionReference, EntityId,
-    ExecutionContext, ExecutionId, ExecutionRequestDigest, ExecutionResultDigest, ExactInteger,
-    ExactValue, IntentDigest, OperationId, ProposalId, ResourceId, SemanticSelection,
+    ExactInteger, ExactValue, ExecutionContext, ExecutionId, ExecutionRequestDigest,
+    ExecutionResultDigest, IntentDigest, OperationId, ProposalId, ResourceId, SemanticSelection,
     TimestampMicros,
 };
 
@@ -227,10 +227,7 @@ impl ComputationRequest {
         hash_field(&mut hasher, &self.limits.instances().to_string());
         hash_field(&mut hasher, &self.limits.tables().to_string());
         hash_field(&mut hasher, &self.limits.memories().to_string());
-        hash_field(
-            &mut hasher,
-            &self.limits.deadline_millis().to_string(),
-        );
+        hash_field(&mut hasher, &self.limits.deadline_millis().to_string());
         ExecutionRequestDigest::from_sha256(hasher.finalize().into())
     }
 }
@@ -328,10 +325,7 @@ pub enum HostCallError {
 
 #[allow(async_fn_in_trait)]
 pub trait ComputationHost: Send {
-    async fn query(
-        &mut self,
-        request: HostQueryRequest,
-    ) -> Result<HostQueryResult, HostCallError>;
+    async fn query(&mut self, request: HostQueryRequest) -> Result<HostQueryResult, HostCallError>;
 
     async fn explain(
         &mut self,
@@ -440,7 +434,9 @@ pub enum ComponentAdmissionError {
 impl Display for ComponentAdmissionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DigestMismatch => formatter.write_str("component digest does not match its bytes"),
+            Self::DigestMismatch => {
+                formatter.write_str("component digest does not match its bytes")
+            }
             Self::Empty => formatter.write_str("component bytes are empty"),
             Self::InterfaceMismatch => {
                 formatter.write_str("component does not implement the declared interface")
@@ -648,8 +644,7 @@ mod tests {
         let ordered =
             CapabilityManifest::new(interface.clone(), vec![first.clone(), second.clone()])
                 .expect("manifest");
-        let reversed =
-            CapabilityManifest::new(interface, vec![second, first]).expect("manifest");
+        let reversed = CapabilityManifest::new(interface, vec![second, first]).expect("manifest");
         assert_eq!(ordered.digest(), reversed.digest());
         assert_eq!(ordered.canonical_json(), reversed.canonical_json());
     }

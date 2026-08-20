@@ -108,7 +108,8 @@ impl ComponentInterface {
         let valid = !value.is_empty()
             && value.len() <= 200
             && value.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b':' | b'/' | b'@' | b'_' | b'-')
+                byte.is_ascii_alphanumeric()
+                    || matches!(byte, b'.' | b':' | b'/' | b'@' | b'_' | b'-')
             });
         if valid {
             Ok(Self(value))

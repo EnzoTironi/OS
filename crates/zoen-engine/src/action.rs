@@ -6,8 +6,8 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
-    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
-    ComponentExecutionEvidence, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
+    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, ComponentExecutionEvidence,
+    Consistency, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
     LineageRole, OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation,
     ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult,
@@ -826,10 +826,7 @@ fn intent_digest(
         hash_field(&mut hasher, execution.execution_id().as_str());
         hash_field(&mut hasher, execution.component_digest().as_str());
         hash_field(&mut hasher, execution.interface().as_str());
-        hash_field(
-            &mut hasher,
-            execution.capability_manifest_digest().as_str(),
-        );
+        hash_field(&mut hasher, execution.capability_manifest_digest().as_str());
         for capability_id in execution.capability_ids() {
             hash_field(&mut hasher, capability_id.as_str());
         }
