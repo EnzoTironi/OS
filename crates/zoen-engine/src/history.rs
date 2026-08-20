@@ -1074,5 +1074,6 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
 }
 
 #[cfg(test)]
-#[path = "history_access_tests.rs"]
-mod tests;
+mod tests {
+    include!("tests/history_access.rs");
+}

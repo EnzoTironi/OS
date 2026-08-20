@@ -97,7 +97,7 @@ fn world_claim(definition: DefinitionReference) -> EvidenceClaim {
 
 fn definition_revision() -> DefinitionRevision {
     let canonical_json = CanonicalJson::new(
-        include_str!("../../../e2e/governed-action/definition-direct.canonical.json")
+        include_str!("../../../../e2e/governed-action/definition-direct.canonical.json")
             .trim()
             .to_owned(),
     )
