@@ -5,7 +5,7 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import { once } from "node:events";
@@ -40,6 +40,7 @@ import {
   type ValidTime,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
+  e2eGeneratedDirectory,
   e2eHttpUrl,
   e2eListenAddr,
   e2ePort,
@@ -128,7 +129,8 @@ async function main(): Promise<void> {
   const worldA = worldClient(tokenA);
   const worldB = worldClient(tokenB);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
-  let server = await startServer();
+  const policyManifestPath = await writeActivationManifest(definitionDigest);
+  let server = await startServer(policyManifestPath);
   await admin.connect();
 
   try {
@@ -326,7 +328,7 @@ async function main(): Promise<void> {
     recordAssertion("postgresParquetLineageEquivalent");
 
     await stopServer(server);
-    server = await startServer();
+    server = await startServer(policyManifestPath);
     const rivalsAfterRestart = await query(worldA, {
       consistency: strong(),
       definition,
@@ -663,7 +665,7 @@ async function main(): Promise<void> {
     recordAssertion("projectionRebuildAddsNoBusinessHistory");
 
     await stopServer(server);
-    server = await startServer();
+    server = await startServer(policyManifestPath);
     const finalRivals = await query(worldA, {
       consistency: strong(),
       definition,
@@ -998,18 +1000,65 @@ function assertComputationLineage(
   }
 }
 
-async function startServer(): Promise<ServerProcess> {
+/**
+ * Bind the published definition digest to the session-token activation policy.
+ *
+ * Session worlds have no Keycloak realm, so the runner writes the Cedar
+ * manifest that `activateRevision` evaluates after the kernel grant check.
+ */
+async function writeActivationManifest(definitionDigest: string): Promise<string> {
+  const source = await readFile(
+    path.join(repositoryRoot, "e2e", "semantic-query", "activation.cedar"),
+    "utf8",
+  );
+  const outputPath = path.join(
+    e2eGeneratedDirectory(repositoryRoot, "semantic-query"),
+    "policies.json",
+  );
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(
+    outputPath,
+    `${JSON.stringify(
+      {
+        policies: [
+          {
+            actionId: "zoen.definition.activate",
+            definitionDigest,
+            digest: sha256(source),
+            policyId: "policy.activation.v1",
+            revision: 1,
+            source,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  return outputPath;
+}
+
+function sessionTokens(): string {
+  const grant = {
+    actionIds: ["action.legacy", "zoen.definition.activate"],
+    resourceIds: ["resource.legacy", definitionId],
+  };
+  return JSON.stringify({
+    [tokenA]: { ...grant, tenantId: tenantA },
+    [tokenB]: { ...grant, tenantId: tenantB },
+  });
+}
+
+async function startServer(policyManifestPath: string): Promise<ServerProcess> {
   const output: string[] = [];
   const child = spawn(serverPath, [], {
     cwd: repositoryRoot,
     env: {
       ...process.env,
       ...workerEnvironment(),
+      ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
-      ZOEN_SESSION_TOKENS: JSON.stringify({
-        [tokenA]: tenantA,
-        [tokenB]: tenantB,
-      }),
+      ZOEN_SESSION_TOKENS: sessionTokens(),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });

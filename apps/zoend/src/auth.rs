@@ -74,13 +74,11 @@ enum AuthenticationError {
 
 impl SessionRegistry {
     pub fn from_json(value: &str) -> Result<Self, SessionConfigError> {
-        let raw = serde_json::from_str::<HashMap<String, String>>(value)
+        let raw = serde_json::from_str::<HashMap<String, SessionTokenBinding>>(value)
             .map_err(SessionConfigError::InvalidJson)?;
         let mut contexts_by_token = HashMap::with_capacity(raw.len());
-        for (token, tenant) in raw {
-            let tenant_id =
-                TenantId::parse(&tenant).map_err(|_| SessionConfigError::InvalidTenant(tenant))?;
-            contexts_by_token.insert(token, legacy_context(tenant_id)?);
+        for (token, binding) in raw {
+            contexts_by_token.insert(token, session_context(binding)?);
         }
         Ok(Self {
             provider: AuthProvider::Legacy(Arc::new(contexts_by_token)),
@@ -279,12 +277,31 @@ fn seconds_to_micros(value: i64) -> Result<TimestampMicros, AuthenticationError>
         .ok_or(AuthenticationError::InvalidClaim)
 }
 
-fn legacy_context(tenant_id: TenantId) -> Result<ExecutionContext, SessionConfigError> {
+fn session_context(binding: SessionTokenBinding) -> Result<ExecutionContext, SessionConfigError> {
+    match binding {
+        SessionTokenBinding::Tenant(tenant) => execution_context(
+            parse_tenant(&tenant)?,
+            parse_session_ids(vec!["action.legacy".to_owned()], ActionId::parse)?,
+            parse_session_ids(vec!["resource.legacy".to_owned()], ResourceId::parse)?,
+        ),
+        SessionTokenBinding::Delegated(binding) => execution_context(
+            parse_tenant(&binding.tenant_id)?,
+            parse_session_ids(binding.action_ids, ActionId::parse)?,
+            parse_session_ids(binding.resource_ids, ResourceId::parse)?,
+        ),
+    }
+}
+
+fn execution_context(
+    tenant_id: TenantId,
+    actions: BTreeSet<ActionId>,
+    resources: BTreeSet<ResourceId>,
+) -> Result<ExecutionContext, SessionConfigError> {
     let workload_id = WorkloadId::parse("workload.legacy").map_err(invalid_claim)?;
     let grant = DelegationGrant::new(
         DelegationId::parse("delegation.legacy").map_err(invalid_claim)?,
-        BTreeSet::from([ActionId::parse("action.legacy").map_err(invalid_claim)?]),
-        BTreeSet::from([ResourceId::parse("resource.legacy").map_err(invalid_claim)?]),
+        actions,
+        resources,
         BTreeSet::from([workload_id.clone()]),
         TimestampMicros::new(i64::MIN),
         TimestampMicros::new(i64::MAX),
@@ -297,6 +314,24 @@ fn legacy_context(tenant_id: TenantId) -> Result<ExecutionContext, SessionConfig
         workload_id,
         DelegationChain::new(vec![grant]).map_err(invalid_claim)?,
     ))
+}
+
+fn parse_tenant(tenant: &str) -> Result<TenantId, SessionConfigError> {
+    TenantId::parse(tenant).map_err(|_| SessionConfigError::InvalidTenant(tenant.to_owned()))
+}
+
+fn parse_session_ids<T, E>(
+    values: Vec<String>,
+    parse: impl Fn(String) -> Result<T, E>,
+) -> Result<BTreeSet<T>, SessionConfigError>
+where
+    T: Ord,
+    E: Display,
+{
+    values
+        .into_iter()
+        .map(|value| parse(value).map_err(invalid_claim))
+        .collect()
 }
 
 fn invalid_claim(error: impl Display) -> SessionConfigError {
@@ -328,4 +363,59 @@ struct DelegationClaim {
     not_before: i64,
     resource_ids: Vec<String>,
     workload_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SessionTokenBinding {
+    Tenant(String),
+    Delegated(DelegatedSessionBinding),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DelegatedSessionBinding {
+    action_ids: Vec<String>,
+    resource_ids: Vec<String>,
+    tenant_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionRegistry;
+
+    #[test]
+    fn session_json_accepts_a_tenant_string() {
+        SessionRegistry::from_json(r#"{"tok":"tenant.a"}"#).expect("legacy session");
+    }
+
+    #[test]
+    fn session_json_accepts_an_explicit_delegation() {
+        SessionRegistry::from_json(
+            r#"{
+              "tok": {
+                "actionIds": ["action.legacy", "zoen.definition.activate"],
+                "resourceIds": ["resource.legacy", "world.definition"],
+                "tenantId": "tenant.a"
+              }
+            }"#,
+        )
+        .expect("delegated session");
+    }
+
+    #[test]
+    fn session_json_rejects_an_empty_delegation_scope() {
+        assert!(
+            SessionRegistry::from_json(
+                r#"{
+                  "tok": {
+                    "actionIds": [],
+                    "resourceIds": ["resource.legacy"],
+                    "tenantId": "tenant.a"
+                  }
+                }"#,
+            )
+            .is_err()
+        );
+    }
 }
