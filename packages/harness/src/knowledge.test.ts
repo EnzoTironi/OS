@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractPdfMarkdown, type ConvertError } from "./knowledge.js";
+import { S3Client } from "@aws-sdk/client-s3";
+import { Pool } from "pg";
+import {
+  extractPdfMarkdown,
+  type ConvertError,
+} from "./extraction.js";
+import {
+  CompanyBrain,
+  IngestFailure,
+} from "./knowledge.js";
+import { AgentRegistry } from "./registry.js";
 
 test("PDF extraction detects the format from bytes", async () => {
   await assert.rejects(
@@ -17,6 +27,32 @@ test("image-only PDFs fail closed as unsupported", async () => {
     extractPdfMarkdown(imageOnlyPdf()),
     (error: unknown) => isConvertError(error) && error.code === "unsupported",
   );
+});
+
+test("invalid ingest input has a typed corrupt-source failure", async () => {
+  const pool = new Pool();
+  const brain = new CompanyBrain({
+    bucket: "unused",
+    embeddingCapability: "embedding-default",
+    pool,
+    registry: new AgentRegistry(),
+    s3: new S3Client({
+      credentials: {
+        accessKeyId: "unused",
+        secretAccessKey: "unused",
+      },
+      region: "us-east-1",
+    }),
+  });
+  try {
+    await assert.rejects(
+      brain.ingest("tenant.a", { kind: "pdf" }),
+      (error: unknown) =>
+        error instanceof IngestFailure && error.code === "corrupt_source",
+    );
+  } finally {
+    await pool.end();
+  }
 });
 
 function isConvertError(error: unknown): error is ConvertError {

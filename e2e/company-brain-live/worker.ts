@@ -247,7 +247,7 @@ await restate.serve({
   services: [
     createCompanyBrainIngestService(
       brain,
-      connected.trustedContext.tenantId,
+      connected.trustedContext,
       environment.ZOEN_AGENT_BEARER_TOKEN,
       ingestHooks,
     ),

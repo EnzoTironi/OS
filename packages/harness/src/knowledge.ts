@@ -4,14 +4,17 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import {
-  Format,
-  formatFromBytes,
-  toMarkdownBytes,
-  type ConvertErrorCode,
-} from "@firecrawl/anydoc";
 import { Pool, type PoolClient } from "pg";
 import { z } from "zod";
+import {
+  companyIdentifierSchema,
+  extractCompanySource,
+  isConvertError,
+  parserForSource,
+  sourceBytes,
+  sourceInputSchema,
+  type SourceInput,
+} from "./extraction.js";
 import { AgentRegistry } from "./registry.js";
 import {
   modelCapabilityAliasSchema,
@@ -21,56 +24,10 @@ import {
   type ModelCapabilityAlias,
 } from "./types.js";
 
-const identifier = z
-  .string()
-  .min(1)
-  .max(200)
-  .regex(/^[A-Za-z0-9._:-]+$/);
+const identifier = companyIdentifierSchema;
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
-const base64 = z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/);
 const scoreSchema = z.number().finite().nullable();
 const rankSchema = z.number().int().positive().nullable();
-const anydocParser = parserProvenance(
-  "@firecrawl/anydoc",
-  "0.2.0",
-  "gfm-v1",
-);
-const messageParser = parserProvenance(
-  "zoen-message-json",
-  "1.0.0",
-  "gfm-v1",
-);
-const messageSchema = z
-  .object({
-    channel: z.string().min(1).max(200),
-    messageId: identifier,
-    sender: z.string().min(1).max(500),
-    sentAt: z.iso.datetime(),
-    subject: z.string().min(1).max(1_000),
-    text: z.string().min(1).max(100_000),
-  })
-  .strict();
-
-export const sourceInputSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      contentBase64: base64,
-      filename: z.string().min(1).max(500),
-      kind: z.literal("pdf"),
-      sourceId: identifier,
-    })
-    .strict(),
-  z
-    .object({
-      filename: z.string().min(1).max(500),
-      kind: z.literal("message"),
-      message: messageSchema,
-      sourceId: identifier,
-    })
-    .strict(),
-]);
-export type SourceInput = z.infer<typeof sourceInputSchema>;
-
 export interface RawSourceObject {
   readonly contentDigest: string;
   readonly extractionVersion: string;
@@ -145,15 +102,55 @@ interface RetrievalRow {
   readonly vector_score: number | null;
 }
 
+interface StorageCatalogRow {
+  readonly embedding_type: string | null;
+  readonly extversion: string;
+  readonly fragment_table: string | null;
+  readonly source_table: string | null;
+  readonly trace_table: string | null;
+}
+
 const directJournal: IngestJournal = {
   run: (_name, action) => action(),
 };
 
 export const companyBrainIndexVersion = "hybrid-rrf-v1";
 
+export const ingestFailureCodes = [
+  "corrupt_source",
+  "embedding_unavailable",
+  "extraction_failed",
+  "metadata_store_unavailable",
+  "object_store_unavailable",
+  "unsupported_source",
+] as const;
+export type IngestFailureCode = (typeof ingestFailureCodes)[number];
+
+export class IngestFailure extends Error {
+  readonly code: IngestFailureCode;
+
+  constructor(
+    code: IngestFailureCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.code = code;
+    this.name = "IngestFailure";
+  }
+}
+
+export class CompanyBrainConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CompanyBrainConfigurationError";
+  }
+}
+
 export class CompanyBrain {
   readonly #bucket: string;
   readonly #embeddingCapability: ModelCapabilityAlias;
+  #embeddingDimensions: number | undefined;
   readonly #pool: Pool;
   readonly #registry: AgentRegistry;
   readonly #s3: S3Client;
@@ -170,68 +167,46 @@ export class CompanyBrain {
 
   async initialize(): Promise<void> {
     const embedding = this.embeddingProvider();
-    await this.#pool.query("CREATE EXTENSION IF NOT EXISTS vector");
-    await this.#pool.query(`
-      CREATE TABLE IF NOT EXISTS company_sources (
-        tenant_id TEXT NOT NULL,
-        source_id TEXT NOT NULL,
-        source_revision TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        filename TEXT NOT NULL,
-        media_type TEXT NOT NULL,
-        content_digest TEXT NOT NULL,
-        object_key TEXT NOT NULL,
-        extraction_version TEXT NOT NULL,
-        parser_name TEXT NOT NULL,
-        parser_version_digest TEXT NOT NULL,
-        status TEXT NOT NULL,
-        failure_code TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-        PRIMARY KEY (tenant_id, source_id, source_revision)
-      );
-
-      CREATE TABLE IF NOT EXISTS company_fragments (
-        tenant_id TEXT NOT NULL,
-        fragment_id TEXT NOT NULL,
-        fragment_digest TEXT NOT NULL,
-        source_id TEXT NOT NULL,
-        source_revision TEXT NOT NULL,
-        ordinal INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        extraction_version TEXT NOT NULL,
-        parser_name TEXT NOT NULL,
-        parser_version_digest TEXT NOT NULL,
-        index_version TEXT NOT NULL,
-        embedding_model_id TEXT NOT NULL,
-        embedding_model_revision TEXT NOT NULL,
-        embedding_version_digest TEXT NOT NULL,
-        embedding vector(${embedding.route.dimensions}) NOT NULL,
-        search_vector tsvector GENERATED ALWAYS AS (
-          to_tsvector('english', text)
-        ) STORED,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-        PRIMARY KEY (tenant_id, fragment_id),
-        UNIQUE (tenant_id, source_id, source_revision, ordinal),
-        FOREIGN KEY (tenant_id, source_id, source_revision)
-          REFERENCES company_sources (tenant_id, source_id, source_revision)
-          ON DELETE CASCADE
-      );
-
-      CREATE TABLE IF NOT EXISTS company_retrieval_traces (
-        tenant_id TEXT NOT NULL,
-        trace_id TEXT NOT NULL,
-        query_digest TEXT NOT NULL,
-        index_version TEXT NOT NULL,
-        embedding_model_id TEXT NOT NULL,
-        embedding_model_revision TEXT NOT NULL,
-        embedding_version_digest TEXT NOT NULL,
-        trace JSONB NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-        PRIMARY KEY (tenant_id, trace_id)
-      );
+    const catalog = await this.#pool.query<StorageCatalogRow>(`
+      SELECT extension.extversion,
+             format_type(attribute.atttypid, attribute.atttypmod)
+               AS embedding_type,
+             to_regclass('public.company_sources')::text AS source_table,
+             to_regclass('public.company_fragments')::text AS fragment_table,
+             to_regclass('public.company_retrieval_traces')::text AS trace_table
+      FROM pg_extension AS extension
+      LEFT JOIN pg_class AS relation
+        ON relation.oid = to_regclass('public.company_fragments')
+      LEFT JOIN pg_attribute AS attribute
+        ON attribute.attrelid = relation.oid
+       AND attribute.attname = 'embedding'
+       AND NOT attribute.attisdropped
+      WHERE extension.extname = 'vector'
     `);
-    await this.createIndexes();
+    const row = catalog.rows[0];
+    if (row === undefined) {
+      throw new CompanyBrainConfigurationError(
+        "pgvector extension is not installed",
+      );
+    }
+    if (
+      row.source_table === null ||
+      row.fragment_table === null ||
+      row.trace_table === null
+    ) {
+      throw new CompanyBrainConfigurationError(
+        "Company Brain storage migration is incomplete",
+      );
+    }
+    const expectedType = `vector(${embedding.route.dimensions})`;
+    if (row.embedding_type !== expectedType) {
+      throw new CompanyBrainConfigurationError(
+        `Company Brain embedding column is ${
+          row.embedding_type ?? "missing"
+        }; expected ${expectedType}`,
+      );
+    }
+    this.#embeddingDimensions = embedding.route.dimensions;
   }
 
   async ingest(
@@ -240,7 +215,15 @@ export class CompanyBrain {
     journal: IngestJournal = directJournal,
   ): Promise<IngestionResult> {
     const tenantId = identifier.parse(trustedTenantId);
-    const input = sourceInputSchema.parse(value);
+    const parsedInput = sourceInputSchema.safeParse(value);
+    if (!parsedInput.success) {
+      throw new IngestFailure(
+        "corrupt_source",
+        "company source input is invalid",
+        { cause: parsedInput.error },
+      );
+    }
+    const input = parsedInput.data;
     const raw = rawSource(tenantId, input);
     try {
       const source = await journal.run("store raw company source", () =>
@@ -254,8 +237,17 @@ export class CompanyBrain {
       );
       return { fragments, source };
     } catch (error: unknown) {
-      await this.markFailed(raw, failureCode(error));
-      throw error;
+      const failure = asIngestFailure(error);
+      try {
+        await this.markFailed(raw, failure.code);
+      } catch (statusError: unknown) {
+        throw new IngestFailure(
+          "metadata_store_unavailable",
+          "ingest failed and its terminal status could not be persisted",
+          { cause: new AggregateError([failure, statusError]) },
+        );
+      }
+      throw failure;
     }
   }
 
@@ -449,76 +441,88 @@ export class CompanyBrain {
     source: RawSourceObject,
     input: SourceInput,
   ): Promise<RawSourceObject> {
-    await this.#pool.query(
-      `
-        INSERT INTO company_sources (
-          tenant_id,
-          source_id,
-          source_revision,
-          kind,
-          filename,
-          media_type,
-          content_digest,
-          object_key,
-          extraction_version,
-          parser_name,
-          parser_version_digest,
-          status,
-          failure_code
-        )
-        VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', NULL
-        )
-        ON CONFLICT (tenant_id, source_id, source_revision)
-        DO UPDATE SET
-          filename = EXCLUDED.filename,
-          media_type = EXCLUDED.media_type,
-          object_key = EXCLUDED.object_key,
-          extraction_version = EXCLUDED.extraction_version,
-          parser_name = EXCLUDED.parser_name,
-          parser_version_digest = EXCLUDED.parser_version_digest,
-          status = 'pending',
-          failure_code = NULL,
-          updated_at = clock_timestamp()
-      `,
-      [
-        source.tenantId,
-        source.sourceId,
-        source.sourceRevision,
-        input.kind,
-        source.filename,
-        source.mediaType,
-        source.contentDigest,
-        source.objectKey,
-        source.extractionVersion,
-        source.parserName,
-        source.parserVersionDigest,
-      ],
+    await metadataOperation(
+      "store pending company source metadata",
+      () =>
+        this.#pool.query(
+          `
+            INSERT INTO company_sources (
+              tenant_id,
+              source_id,
+              source_revision,
+              kind,
+              filename,
+              media_type,
+              content_digest,
+              object_key,
+              extraction_version,
+              parser_name,
+              parser_version_digest,
+              status,
+              failure_code
+            )
+            VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', NULL
+            )
+            ON CONFLICT (tenant_id, source_id, source_revision)
+            DO UPDATE SET
+              filename = EXCLUDED.filename,
+              media_type = EXCLUDED.media_type,
+              object_key = EXCLUDED.object_key,
+              extraction_version = EXCLUDED.extraction_version,
+              parser_name = EXCLUDED.parser_name,
+              parser_version_digest = EXCLUDED.parser_version_digest,
+              status = 'pending',
+              failure_code = NULL,
+              updated_at = clock_timestamp()
+          `,
+          [
+            source.tenantId,
+            source.sourceId,
+            source.sourceRevision,
+            input.kind,
+            source.filename,
+            source.mediaType,
+            source.contentDigest,
+            source.objectKey,
+            source.extractionVersion,
+            source.parserName,
+            source.parserVersionDigest,
+          ],
+        ),
     );
     const body = sourceBytes(input);
-    await this.#s3.send(
-      new PutObjectCommand({
-        Body: body,
-        Bucket: this.#bucket,
-        ContentType: source.mediaType,
-        Key: source.objectKey,
-        Metadata: {
-          "content-digest": source.contentDigest,
-          "source-id": source.sourceId,
-          "source-revision": source.sourceRevision,
-          "tenant-id": source.tenantId,
-        },
-      }),
+    await objectStoreOperation(
+      "store raw company source",
+      () =>
+        this.#s3.send(
+          new PutObjectCommand({
+            Body: body,
+            Bucket: this.#bucket,
+            ContentType: source.mediaType,
+            Key: source.objectKey,
+            Metadata: {
+              "content-digest": source.contentDigest,
+              "source-id": source.sourceId,
+              "source-revision": source.sourceRevision,
+              "tenant-id": source.tenantId,
+            },
+          }),
+        ),
     );
-    await this.#pool.query(
-      `
-        UPDATE company_sources
-        SET status = 'stored', updated_at = clock_timestamp()
-        WHERE tenant_id = $1
-          AND source_id = $2
-          AND source_revision = $3
-      `,
-      [source.tenantId, source.sourceId, source.sourceRevision],
+    await metadataOperation(
+      "mark company source as stored",
+      () =>
+        this.#pool.query(
+          `
+            UPDATE company_sources
+            SET status = 'stored', updated_at = clock_timestamp()
+            WHERE tenant_id = $1
+              AND source_id = $2
+              AND source_revision = $3
+          `,
+          [source.tenantId, source.sourceId, source.sourceRevision],
+        ),
     );
     return source;
   }
@@ -528,16 +532,26 @@ export class CompanyBrain {
   ): Promise<readonly ExtractedFragment[]> {
     const bytes = await this.readObject(source.objectKey);
     if (sha256(bytes) !== source.contentDigest) {
-      throw new Error("stored source digest does not match source metadata");
+      throw new IngestFailure(
+        "corrupt_source",
+        "stored source digest does not match source metadata",
+      );
     }
-    const texts =
-      source.mediaType === "application/pdf"
-        ? [await extractPdfMarkdown(bytes)]
-        : extractMessage(bytes);
+    let texts: readonly string[];
+    try {
+      texts = await extractCompanySource(source.mediaType, bytes);
+    } catch (error: unknown) {
+      throw extractionFailure(error);
+    }
     if (texts.length === 0) {
-      throw new Error("source extraction produced no text fragments");
+      throw new IngestFailure(
+        "extraction_failed",
+        "source extraction produced no text fragments",
+      );
     }
-    return texts.map((text, ordinal) => fragmentFor(source, text.trim(), ordinal));
+    return texts.map((text, ordinal) =>
+      fragmentFor(source, text.trim(), ordinal),
+    );
   }
 
   private async index(
@@ -545,11 +559,19 @@ export class CompanyBrain {
     fragments: readonly ExtractedFragment[],
   ): Promise<void> {
     const embedding = this.embeddingProvider();
-    const vectors = await embedding.embed(fragments.map((fragment) => fragment.text));
+    const vectors = await embeddingOperation(() =>
+      embedding.embed(fragments.map((fragment) => fragment.text)),
+    );
     if (vectors.length !== fragments.length) {
-      throw new Error("embedding provider returned the wrong fragment count");
+      throw new IngestFailure(
+        "embedding_unavailable",
+        "embedding provider returned the wrong fragment count",
+      );
     }
-    const client = await this.#pool.connect();
+    const client = await metadataOperation(
+      "connect to Company Brain metadata store",
+      () => this.#pool.connect(),
+    );
     try {
       await client.query("BEGIN");
       await client.query(
@@ -564,7 +586,10 @@ export class CompanyBrain {
       for (const [index, fragment] of fragments.entries()) {
         const vector = vectors[index];
         if (vector === undefined) {
-          throw new Error(`missing embedding for fragment ${fragment.fragmentId}`);
+          throw new IngestFailure(
+            "embedding_unavailable",
+            `missing embedding for fragment ${fragment.fragmentId}`,
+          );
         }
         await insertFragment(client, fragment, embedding, vector);
       }
@@ -581,8 +606,23 @@ export class CompanyBrain {
       );
       await client.query("COMMIT");
     } catch (error: unknown) {
-      await client.query("ROLLBACK");
-      throw error;
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError: unknown) {
+        throw new IngestFailure(
+          "metadata_store_unavailable",
+          "Company Brain index transaction and rollback both failed",
+          { cause: new AggregateError([error, rollbackError]) },
+        );
+      }
+      if (error instanceof IngestFailure) {
+        throw error;
+      }
+      throw new IngestFailure(
+        "metadata_store_unavailable",
+        "Company Brain index transaction failed",
+        { cause: error },
+      );
     } finally {
       client.release();
     }
@@ -603,9 +643,19 @@ export class CompanyBrain {
     );
     switch (resolution.kind) {
       case "available":
+        if (
+          this.#embeddingDimensions !== undefined &&
+          resolution.route.dimensions !== this.#embeddingDimensions
+        ) {
+          throw new CompanyBrainConfigurationError(
+            `embedding route width ${resolution.route.dimensions} does not ` +
+              `match initialized storage width ${this.#embeddingDimensions}`,
+          );
+        }
         return resolution.provider;
       case "unavailable":
-        throw new Error(
+        throw new IngestFailure(
+          "embedding_unavailable",
           `embedding provider ${this.#embeddingCapability} is unavailable`,
         );
       default: {
@@ -616,16 +666,26 @@ export class CompanyBrain {
   }
 
   private async readObject(objectKey: string): Promise<Uint8Array> {
-    const response = await this.#s3.send(
-      new GetObjectCommand({
-        Bucket: this.#bucket,
-        Key: objectKey,
-      }),
+    const response = await objectStoreOperation(
+      "read raw company source",
+      () =>
+        this.#s3.send(
+          new GetObjectCommand({
+            Bucket: this.#bucket,
+            Key: objectKey,
+          }),
+        ),
     );
     if (response.Body === undefined) {
-      throw new Error(`object ${objectKey} returned no body`);
+      throw new IngestFailure(
+        "object_store_unavailable",
+        `object ${objectKey} returned no body`,
+      );
     }
-    return response.Body.transformToByteArray();
+    const body = response.Body;
+    return objectStoreOperation("read raw company source body", () =>
+      body.transformToByteArray(),
+    );
   }
 
   private async loadSource(
@@ -665,11 +725,13 @@ export class CompanyBrain {
 
   private async markFailed(
     source: RawSourceObject,
-    code: string,
+    code: IngestFailureCode,
   ): Promise<void> {
-    await this.#pool
-      .query(
-        `
+    const result = await metadataOperation(
+      "persist failed company ingest status",
+      () =>
+        this.#pool.query(
+          `
           UPDATE company_sources
           SET status = 'failed', failure_code = $4,
               updated_at = clock_timestamp()
@@ -677,9 +739,15 @@ export class CompanyBrain {
             AND source_id = $2
             AND source_revision = $3
         `,
-        [source.tenantId, source.sourceId, source.sourceRevision, code],
-      )
-      .catch(() => undefined);
+          [source.tenantId, source.sourceId, source.sourceRevision, code],
+        ),
+    );
+    if (result.rowCount !== 1) {
+      throw new IngestFailure(
+        "metadata_store_unavailable",
+        "failed ingest source metadata was unavailable for status update",
+      );
+    }
   }
 }
 
@@ -735,7 +803,7 @@ async function insertFragment(
 function rawSource(tenantId: string, input: SourceInput): RawSourceObject {
   const bytes = sourceBytes(input);
   const contentDigest = sha256(bytes);
-  const parser = input.kind === "pdf" ? anydocParser : messageParser;
+  const parser = parserForSource(input);
   const mediaType =
     input.kind === "pdf" ? "application/pdf" : "application/vnd.zoen.message+json";
   return {
@@ -745,69 +813,11 @@ function rawSource(tenantId: string, input: SourceInput): RawSourceObject {
     mediaType,
     objectKey: `company-brain/${tenantId}/${contentDigest}`,
     parserName: parser.name,
-    parserVersionDigest: parser.versionDigest,
+    parserVersionDigest: sha256(parser.versionDigestInput),
     sourceId: input.sourceId,
     sourceRevision: contentDigest,
     tenantId,
   };
-}
-
-function sourceBytes(input: SourceInput): Uint8Array {
-  switch (input.kind) {
-    case "pdf":
-      return Buffer.from(input.contentBase64, "base64");
-    case "message":
-      return new TextEncoder().encode(
-        JSON.stringify({
-          channel: input.message.channel,
-          messageId: input.message.messageId,
-          sender: input.message.sender,
-          sentAt: input.message.sentAt,
-          subject: input.message.subject,
-          text: input.message.text,
-        }),
-      );
-    default: {
-      const exhaustive: never = input;
-      return exhaustive;
-    }
-  }
-}
-
-export interface ConvertError extends Error {
-  readonly code: ConvertErrorCode;
-}
-
-export async function extractPdfMarkdown(bytes: Uint8Array): Promise<string> {
-  if (formatFromBytes(bytes) !== "pdf") {
-    throw convertError(
-      "unsupported",
-      "source bytes do not contain a supported PDF signature",
-    );
-  }
-  const markdown = (await toMarkdownBytes(bytes, Format.pdf)).trim();
-  if (markdown.length === 0) {
-    throw convertError(
-      "unsupported",
-      "PDF contains no extractable text and may require OCR",
-    );
-  }
-  return markdown;
-}
-
-function extractMessage(bytes: Uint8Array): readonly string[] {
-  const raw: unknown = JSON.parse(new TextDecoder().decode(bytes));
-  const message = messageSchema.parse(raw);
-  return [
-    [
-      `Subject: ${message.subject}`,
-      `From: ${message.sender}`,
-      `Channel: ${message.channel}`,
-      `Sent: ${message.sentAt}`,
-      "",
-      message.text,
-    ].join("\n"),
-  ];
 }
 
 function fragmentFor(
@@ -865,61 +875,103 @@ function retrievalResult(row: RetrievalRow): KnowledgeContextResult {
 
 function vectorLiteral(vector: readonly number[]): string {
   if (vector.length === 0 || vector.some((value) => !Number.isFinite(value))) {
-    throw new Error("embedding vector must contain finite values");
+    throw new IngestFailure(
+      "embedding_unavailable",
+      "embedding vector must contain finite values",
+    );
   }
   return `[${vector.join(",")}]`;
 }
 
-function failureCode(error: unknown): string {
-  if (isConvertError(error)) {
-    return error.code === "unsupported"
-      ? "unsupported_source"
-      : `convert_${error.code}`;
+function asIngestFailure(error: unknown): IngestFailure {
+  return error instanceof IngestFailure
+    ? error
+    : new IngestFailure(
+        "extraction_failed",
+        "Company Brain ingest failed unexpectedly",
+        { cause: error },
+      );
+}
+
+function extractionFailure(error: unknown): IngestFailure {
+  if (error instanceof IngestFailure) {
+    return error;
   }
-  if (error instanceof Error) {
-    if (/embedding provider/u.test(error.message)) {
-      return "embedding_provider_unavailable";
-    }
-    if (/PDF|pdf/u.test(error.message)) {
-      return "extraction_failed";
+  if (!isConvertError(error)) {
+    return new IngestFailure(
+      "extraction_failed",
+      "company source extraction failed",
+      { cause: error },
+    );
+  }
+  switch (error.code) {
+    case "unsupported":
+      return new IngestFailure("unsupported_source", error.message, {
+        cause: error,
+      });
+    case "encrypted":
+    case "malformed":
+    case "missingPart":
+      return new IngestFailure("corrupt_source", error.message, {
+        cause: error,
+      });
+    case "io":
+    case "resourceLimit":
+      return new IngestFailure("extraction_failed", error.message, {
+        cause: error,
+      });
+    default: {
+      const exhaustive: never = error.code;
+      return exhaustive;
     }
   }
-  return "ingestion_failed";
 }
 
-function parserProvenance(
-  name: string,
-  version: string,
-  renderer: string,
-): {
-  readonly extractionVersion: string;
-  readonly name: string;
-  readonly versionDigest: string;
-} {
-  return {
-    extractionVersion: `${name}@${version}:${renderer}`,
-    name,
-    versionDigest: sha256(`${name}\0${version}\0${renderer}`),
-  };
+async function embeddingOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error: unknown) {
+    if (error instanceof IngestFailure) {
+      throw error;
+    }
+    throw new IngestFailure(
+      "embedding_unavailable",
+      "company source embedding failed",
+      { cause: error },
+    );
+  }
 }
 
-function convertError(code: ConvertErrorCode, message: string): ConvertError {
-  return Object.assign(new Error(message), { code });
+async function metadataOperation<T>(
+  description: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error: unknown) {
+    if (error instanceof IngestFailure) {
+      throw error;
+    }
+    throw new IngestFailure("metadata_store_unavailable", description, {
+      cause: error,
+    });
+  }
 }
 
-function isConvertError(error: unknown): error is ConvertError {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    [
-      "encrypted",
-      "io",
-      "malformed",
-      "missingPart",
-      "resourceLimit",
-      "unsupported",
-    ].includes(String(error.code))
-  );
+async function objectStoreOperation<T>(
+  description: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error: unknown) {
+    if (error instanceof IngestFailure) {
+      throw error;
+    }
+    throw new IngestFailure("object_store_unavailable", description, {
+      cause: error,
+    });
+  }
 }
 
 function sha256(value: string | Uint8Array): string {

@@ -1,12 +1,9 @@
-import * as restate from "@restatedev/restate-sdk";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import * as restate from "@restatedev/restate-sdk";
 import { z } from "zod";
-import {
-  CompanyBrain,
-  sourceInputSchema,
-  type IngestJournal,
-  type SourceInput,
-} from "./knowledge.js";
+import { sourceInputSchema, type SourceInput } from "./extraction.js";
+import { CompanyBrain, type IngestJournal } from "./knowledge.js";
+import type { TrustedAgentContext } from "./types.js";
 
 const identifier = z
   .string()
@@ -18,6 +15,7 @@ export const companyBrainIngestCommandSchema = z
   .object({
     ingestId: identifier,
     source: sourceInputSchema,
+    tenantId: identifier,
   })
   .strict();
 export type CompanyBrainIngestCommand = z.infer<
@@ -40,9 +38,17 @@ export function signCompanyBrainIngestCommand(
     .digest("hex");
 }
 
+export function companyBrainIngestObjectKey(
+  command: Pick<CompanyBrainIngestCommand, "ingestId" | "tenantId">,
+): string {
+  return `${encodeURIComponent(command.tenantId)}:${encodeURIComponent(
+    command.ingestId,
+  )}`;
+}
+
 export function createCompanyBrainIngestService(
   brain: CompanyBrain,
-  trustedTenantId: string,
+  trustedContext: Pick<TrustedAgentContext, "tenantId">,
   bindingKey: string,
   hooks: CompanyBrainIngestHooks = {},
 ) {
@@ -68,7 +74,12 @@ export function createCompanyBrainIngestService(
             "company ingest principal binding is invalid",
           );
         }
-        if (context.key !== parsed.data.ingestId) {
+        if (parsed.data.tenantId !== trustedContext.tenantId) {
+          throw new restate.TerminalError(
+            "signed tenant does not match the trusted OIDC tenant",
+          );
+        }
+        if (context.key !== companyBrainIngestObjectKey(parsed.data)) {
           throw new restate.TerminalError(
             "ingest key does not match the command",
           );
@@ -86,7 +97,11 @@ export function createCompanyBrainIngestService(
             });
           },
         };
-        return brain.ingest(trustedTenantId, parsed.data.source, journal);
+        return brain.ingest(
+          trustedContext.tenantId,
+          parsed.data.source,
+          journal,
+        );
       },
     },
   });
@@ -100,7 +115,9 @@ function validSignature(
   if (!/^[0-9a-f]{64}$/u.test(signature)) {
     return false;
   }
-  const expected = Buffer.from(signCompanyBrainIngestCommand(bindingKey, command));
+  const expected = Buffer.from(
+    signCompanyBrainIngestCommand(bindingKey, command),
+  );
   const actual = Buffer.from(signature);
   return timingSafeEqual(expected, actual);
 }
@@ -108,9 +125,11 @@ function validSignature(
 function serializedCommand(command: {
   readonly ingestId: string;
   readonly source: SourceInput;
+  readonly tenantId: string;
 }): string {
   return JSON.stringify({
     ingestId: command.ingestId,
     source: command.source,
+    tenantId: command.tenantId,
   });
 }

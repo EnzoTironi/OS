@@ -15,6 +15,7 @@ import { z } from "zod";
 import {
   agentSessionResultSchema,
   agentSessionSignatureHeader,
+  companyBrainIngestObjectKey,
   companyBrainIngestSignatureHeader,
   signAgentSessionCommand,
   signCompanyBrainIngestCommand,
@@ -297,9 +298,30 @@ export async function invokeIngest(
   command: CompanyBrainIngestCommand,
   bindingKey: string,
 ) {
-  const response = await fetch(
+  const response = await requestIngest(command, bindingKey);
+  const body = await response.text();
+  assert.ok(response.ok, body);
+  const raw: unknown = JSON.parse(body);
+  return ingestionResultSchema.parse(raw);
+}
+
+export async function invokeRejectedIngest(
+  command: CompanyBrainIngestCommand,
+  bindingKey: string,
+): Promise<string> {
+  const response = await requestIngest(command, bindingKey);
+  const body = await response.text();
+  assert.equal(response.ok, false, body);
+  return body;
+}
+
+function requestIngest(
+  command: CompanyBrainIngestCommand,
+  bindingKey: string,
+): Promise<Response> {
+  return fetch(
     `${restateIngress}/ZoenCompanyIngest/${encodeURIComponent(
-      command.ingestId,
+      companyBrainIngestObjectKey(command),
     )}/run`,
     {
       body: JSON.stringify(command),
@@ -314,10 +336,6 @@ export async function invokeIngest(
       signal: AbortSignal.timeout(600_000),
     },
   );
-  const body = await response.text();
-  assert.ok(response.ok, body);
-  const raw: unknown = JSON.parse(body);
-  return ingestionResultSchema.parse(raw);
 }
 
 export async function invokeSession(

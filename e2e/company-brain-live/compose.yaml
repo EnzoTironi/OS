@@ -9,6 +9,7 @@ services:
       - "127.0.0.1:${ZOEN_E2E_POSTGRES_PORT}:5432"
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - ../../packages/harness/sql/company-brain/0001_company_brain.sql:/docker-entrypoint-initdb.d/002-company-brain.sql:ro
     healthcheck:
       test:
         - CMD-SHELL
