@@ -13,7 +13,7 @@ export class RendererBoundary extends Component<
   RendererBoundaryProps,
   RendererBoundaryState
 > {
-  state: RendererBoundaryState = { error: undefined };
+  override state: RendererBoundaryState = { error: undefined };
 
   static getDerivedStateFromError(error: unknown): RendererBoundaryState {
     return {
@@ -21,7 +21,7 @@ export class RendererBoundary extends Component<
     };
   }
 
-  render() {
+  override render() {
     if (this.state.error !== undefined) {
       return (
         <div className="renderer-error" role="alert">
