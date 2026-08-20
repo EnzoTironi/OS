@@ -526,7 +526,10 @@ async function verifyExecutionFailures(
     "execution.failure.deadline",
     "spin",
     emptyManifest(),
-    resourceLimits({ deadlineMillis: 1n, fuel: 5_000_000_000n }),
+    resourceLimits({
+      deadlineMillis: 1n,
+      fuel: 9_000_000_000_000_000_000n,
+    }),
   );
   assert.equal(deadline.status, ExecutionStatus.DEADLINE_EXCEEDED);
   inject("deadline");
