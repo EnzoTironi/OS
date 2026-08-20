@@ -214,9 +214,9 @@ async function main(): Promise<void> {
       Code.InvalidArgument,
     );
     recordFailureInjection("unknown-relation");
-    assert.equal(await rowCount(admin, "authority_commits", tenantA), 1);
+    assert.equal(await rowCount(admin, "authority_commits", tenantA), 2);
     assert.equal(await rowCount(admin, "semantic_claims", tenantA), 0);
-    assert.equal(await rowCount(admin, "projection_outbox", tenantA), 1);
+    assert.equal(await rowCount(admin, "projection_outbox", tenantA), 2);
     recordAssertion("invalidEvidenceAtomic");
 
     assert.equal(
@@ -231,7 +231,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "10",
       }),
-      2n,
+      3n,
     );
     assert.equal(
       await recordInterval(worldA, {
@@ -245,7 +245,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "12",
       }),
-      3n,
+      4n,
     );
     assert.equal(
       await recordInterval(worldA, {
@@ -259,7 +259,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "3",
       }),
-      4n,
+      5n,
     );
 
     await compose("stop", "minio");
@@ -286,7 +286,7 @@ async function main(): Promise<void> {
     recordAssertion("projectionFailureLeavesNoPublishedWatermark");
 
     const firstProjection = await runProjection(["--once", tenantA]);
-    assert.equal(firstProjection.throughCommit, 4);
+    assert.equal(firstProjection.throughCommit, 5);
     assert.equal(firstProjection.projectedRows, 3);
     assert.equal(firstProjection.wroteManifest, true);
     const firstManifestCount = await rowCount(
@@ -303,7 +303,7 @@ async function main(): Promise<void> {
     recordFailureInjection("duplicate-projection-delivery");
     recordAssertion("duplicateOutboxDeliveryIdempotent");
 
-    const strongAtFour = await query(worldA, {
+    const strongAfterReserved = await query(worldA, {
       consistency: strong(),
       definition,
       entityId,
@@ -311,19 +311,22 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       validAt,
     });
-    const snapshotFour = await query(worldA, {
-      consistency: snapshot(4n),
+    const snapshotAfterReserved = await query(worldA, {
+      consistency: snapshot(5n),
       definition,
       entityId,
       selection: computation(available),
       tenantId: tenantA,
       validAt,
     });
-    assert.equal(strongAtFour.actualCommitSequence, 4n);
-    assert.equal(snapshotFour.actualCommitSequence, 4n);
-    assert.deepEqual(semanticShape(strongAtFour), semanticShape(snapshotFour));
-    assert.deepEqual(integerValues(strongAtFour), ["7", "9"]);
-    assertComputationLineage(strongAtFour, 2);
+    assert.equal(strongAfterReserved.actualCommitSequence, 5n);
+    assert.equal(snapshotAfterReserved.actualCommitSequence, 5n);
+    assert.deepEqual(
+      semanticShape(strongAfterReserved),
+      semanticShape(snapshotAfterReserved),
+    );
+    assert.deepEqual(integerValues(strongAfterReserved), ["7", "9"]);
+    assertComputationLineage(strongAfterReserved, 2);
     recordAssertion("crossRelationLineageComplete");
     recordAssertion("postgresParquetLineageEquivalent");
 
@@ -354,10 +357,10 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "11",
       }),
-      5n,
+      6n,
     );
     const knownThen = await query(worldA, {
-      consistency: snapshot(4n),
+      consistency: snapshot(5n),
       definition,
       entityId,
       selection: relation(onHand),
@@ -374,8 +377,8 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(integerValues(knownThen), ["10", "12"]);
     assert.deepEqual(integerValues(nowBelievedThen), ["10", "11", "12"]);
-    const snapshotFiveFromAuthority = await query(worldA, {
-      consistency: snapshot(5n),
+    const snapshotAfterLate = await query(worldA, {
+      consistency: snapshot(6n),
       definition,
       entityId,
       selection: relation(onHand),
@@ -383,7 +386,7 @@ async function main(): Promise<void> {
       validAt,
     });
     assert.deepEqual(
-      semanticShape(snapshotFiveFromAuthority),
+      semanticShape(snapshotAfterLate),
       semanticShape(nowBelievedThen),
     );
     recordAssertion("lateEvidenceSeparatesKnowledgeCuts");
@@ -396,12 +399,12 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       validAt,
     });
-    assert.equal(eventualBehind.actualCommitSequence, 4n);
+    assert.equal(eventualBehind.actualCommitSequence, 5n);
     assert.deepEqual(integerValues(eventualBehind), ["10", "12"]);
     await expectConnectCode(
       () =>
         query(worldA, {
-          consistency: atLeast(5n),
+          consistency: atLeast(6n),
           definition,
           entityId,
           selection: relation(onHand),
@@ -414,19 +417,19 @@ async function main(): Promise<void> {
     recordAssertion("staleAtLeastRejected");
 
     const caughtUp = await runProjection(["--once", tenantA]);
-    assert.equal(caughtUp.throughCommit, 5);
-    const atLeastFive = await query(worldA, {
-      consistency: atLeast(5n),
+    assert.equal(caughtUp.throughCommit, 6);
+    const atLeastAfterLate = await query(worldA, {
+      consistency: atLeast(6n),
       definition,
       entityId,
       selection: relation(onHand),
       tenantId: tenantA,
       validAt,
     });
-    assert.equal(atLeastFive.actualCommitSequence, 5n);
-    assert.deepEqual(integerValues(atLeastFive), ["10", "11", "12"]);
-    const snapshotFourAfterProjectionFive = await query(worldA, {
-      consistency: snapshot(4n),
+    assert.equal(atLeastAfterLate.actualCommitSequence, 6n);
+    assert.deepEqual(integerValues(atLeastAfterLate), ["10", "11", "12"]);
+    const snapshotReservedAfterLateProjection = await query(worldA, {
+      consistency: snapshot(5n),
       definition,
       entityId,
       selection: computation(available),
@@ -434,8 +437,8 @@ async function main(): Promise<void> {
       validAt,
     });
     assert.deepEqual(
-      semanticShape(snapshotFourAfterProjectionFive),
-      semanticShape(snapshotFour),
+      semanticShape(snapshotReservedAfterLateProjection),
+      semanticShape(snapshotAfterReserved),
     );
     recordAssertion("snapshotCutFiltersAheadProjection");
 
@@ -450,7 +453,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "99",
       }),
-      6n,
+      7n,
     );
     const atInstant = await query(worldA, {
       consistency: strong(),
@@ -484,7 +487,7 @@ async function main(): Promise<void> {
         tenantId: tenantB,
         value: "100",
       }),
-      2n,
+      3n,
     );
     assert.equal(
       await recordInterval(worldB, {
@@ -498,11 +501,11 @@ async function main(): Promise<void> {
         tenantId: tenantB,
         value: "1",
       }),
-      3n,
+      4n,
     );
     await runProjection(["--once", tenantB]);
     const tenantBResult = await query(worldB, {
-      consistency: snapshot(3n),
+      consistency: snapshot(4n),
       definition,
       entityId,
       selection: relation(onHand),
@@ -537,7 +540,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "170141183460469231731687303715884105728",
       }),
-      7n,
+      8n,
     );
     assert.equal(
       await recordInterval(worldA, {
@@ -551,7 +554,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "1",
       }),
-      8n,
+      9n,
     );
     await expectConnectCode(
       () =>
@@ -568,9 +571,9 @@ async function main(): Promise<void> {
     recordFailureInjection("computation-overflow");
     recordAssertion("computationEvaluationErrorTyped");
     const latestProjection = await runProjection(["--once", tenantA]);
-    assert.equal(latestProjection.throughCommit, 8);
+    assert.equal(latestProjection.throughCommit, 9);
 
-    const strongAtEight = await query(worldA, {
+    const strongAfterHuge = await query(worldA, {
       consistency: strong(),
       definition,
       entityId,
@@ -578,17 +581,17 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       validAt,
     });
-    const snapshotEight = await query(worldA, {
-      consistency: snapshot(8n),
+    const snapshotAfterHuge = await query(worldA, {
+      consistency: snapshot(9n),
       definition,
       entityId,
       selection: computation(available),
       tenantId: tenantA,
       validAt,
     });
-    assert.deepEqual(semanticShape(strongAtEight), semanticShape(snapshotEight));
-    assert.deepEqual(integerValues(strongAtEight), ["7", "8", "9"]);
-    assertComputationLineage(strongAtEight, 3);
+    assert.deepEqual(semanticShape(strongAfterHuge), semanticShape(snapshotAfterHuge));
+    assert.deepEqual(integerValues(strongAfterHuge), ["7", "8", "9"]);
+    assertComputationLineage(strongAfterHuge, 3);
 
     const activeBeforeLoss = await projectionState(admin, tenantA);
     assert.ok(activeBeforeLoss);
@@ -596,7 +599,7 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         query(worldA, {
-          consistency: snapshot(8n),
+          consistency: snapshot(9n),
           definition,
           entityId,
           selection: relation(onHand),
@@ -611,7 +614,7 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         query(worldA, {
-          consistency: snapshot(8n),
+          consistency: snapshot(9n),
           definition,
           entityId,
           selection: relation(onHand),
@@ -643,7 +646,7 @@ async function main(): Promise<void> {
       tenantA,
     );
     const rebuilt = await runProjection(["--rebuild", tenantA]);
-    assert.equal(rebuilt.throughCommit, 8);
+    assert.equal(rebuilt.throughCommit, 9);
     assert.notEqual(rebuilt.manifestDigest, activeBeforeLoss.manifestDigest);
     assert.equal(
       await rowCount(admin, "authority_commits", tenantA),
@@ -654,14 +657,14 @@ async function main(): Promise<void> {
       claimsBeforeRebuild,
     );
     const rebuiltResult = await query(worldA, {
-      consistency: snapshot(8n),
+      consistency: snapshot(9n),
       definition,
       entityId,
       selection: computation(available),
       tenantId: tenantA,
       validAt,
     });
-    assert.deepEqual(semanticShape(strongAtEight), semanticShape(rebuiltResult));
+    assert.deepEqual(semanticShape(strongAfterHuge), semanticShape(rebuiltResult));
     recordAssertion("projectionRebuildAddsNoBusinessHistory");
 
     await stopServer(server);
@@ -705,7 +708,7 @@ async function main(): Promise<void> {
       failureInjections,
       finishedAt: new Date().toISOString(),
       observedCuts: {
-        authoritative: strongAtEight.actualCommitSequence.toString(),
+        authoritative: strongAfterHuge.actualCommitSequence.toString(),
         knownThen: knownThen.knowledgeCut.toString(),
         nowBelievedThen: nowBelievedThen.knowledgeCut.toString(),
         projected: rebuiltResult.actualCommitSequence.toString(),
