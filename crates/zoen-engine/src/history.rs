@@ -797,7 +797,8 @@ fn payload_access(request: &TrustedExecutionContext, snapshot: &HistorySnapshot)
         {
             PayloadAccess::Full
         }
-        HistorySnapshot::Action(_) | HistorySnapshot::Claim(_) => PayloadAccess::Redacted,
+        HistorySnapshot::Claim(_) => PayloadAccess::Full,
+        HistorySnapshot::Action(_) => PayloadAccess::Redacted,
     }
 }
 
