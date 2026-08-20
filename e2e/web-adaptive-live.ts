@@ -223,6 +223,7 @@ async function main(): Promise<void> {
     failureInjections.push("commit-response-loss");
     await jsonForm.getByRole("button", { name: "Commit Action" }).click();
     await jsonForm.getByText(/Commit response was lost/u).waitFor();
+    await proxy.waitForBlockedStatus();
     proxy.allowStatusRecovery();
     await page.reload();
     await page.getByText(/Committed locally at sequence/u).first().waitFor();

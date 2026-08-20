@@ -34,6 +34,7 @@ export interface ResponseLossProxy {
   allowStatusRecovery: () => void;
   close: () => Promise<void>;
   dropNextCommitResponse: () => void;
+  waitForBlockedStatus: () => Promise<void>;
 }
 
 export interface CredentialSink {
@@ -61,6 +62,8 @@ export async function startResponseLossProxy(): Promise<ResponseLossProxy> {
   const requests: string[] = [];
   let dropCommit = false;
   let blockStatus = false;
+  let blockedStatusResponses = 0;
+  const blockedStatusWaiters: Array<() => void> = [];
   const server = createServer((request, response) => {
     void forward(request, response);
   });
@@ -76,6 +79,12 @@ export async function startResponseLossProxy(): Promise<ResponseLossProxy> {
     requests.push(pathname);
     if (blockStatus && pathname.endsWith(operationStatusPath)) {
       response.statusCode = 503;
+      response.once("finish", () => {
+        blockedStatusResponses += 1;
+        for (const resolve of blockedStatusWaiters.splice(0)) {
+          resolve();
+        }
+      });
       response.end("Operation status is temporarily unavailable");
       return;
     }
@@ -125,6 +134,19 @@ export async function startResponseLossProxy(): Promise<ResponseLossProxy> {
     },
     origin,
     requests,
+    waitForBlockedStatus: () =>
+      blockedStatusResponses > 0
+        ? Promise.resolve()
+        : new Promise((resolve, reject) => {
+            const timeout = setTimeout(
+              () => reject(new Error("blocked OperationStatus request did not finish")),
+              30_000,
+            );
+            blockedStatusWaiters.push(() => {
+              clearTimeout(timeout);
+              resolve();
+            });
+          }),
   };
 }
 
