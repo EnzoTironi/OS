@@ -16,6 +16,7 @@ import {
   capabilityAliasForScope,
   companyBrainIngestCommandSchema,
   semanticCapabilityScopeSchema,
+  type PolicyEvidence,
 } from "../packages/harness/src/index.js";
 import {
   ActionInputSchema,
@@ -106,6 +107,13 @@ interface DefinitionFixture {
   readonly digest: string;
 }
 
+interface PolicyFixture {
+  readonly digest: string;
+  readonly manifestPath: string;
+  readonly policyId: string;
+  readonly revision: number;
+}
+
 const tokenResponseSchema = z
   .object({ access_token: z.string().min(1) })
   .passthrough();
@@ -113,7 +121,7 @@ const tokenResponseSchema = z
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const definition = await loadDefinition();
-  const policyManifestPath = await writePolicyManifest(definition.digest);
+  const autoCommitPolicy = await writePolicyManifest(definition.digest);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
   const processes: ManagedProcess[] = [];
   const providerProxy = await startProviderProxy();
@@ -122,9 +130,10 @@ async function main(): Promise<void> {
   processes.push(effectProvider);
   const connector = await startConnector();
   processes.push(connector);
-  const zoend = await startZoend(policyManifestPath);
+  const zoend = await startZoend(autoCommitPolicy.manifestPath);
   processes.push(zoend);
   await admin.connect();
+  let authorityFailureDiagnostics: (() => void) | undefined;
 
   try {
     const tokens = {
@@ -456,6 +465,22 @@ async function main(): Promise<void> {
       tenantA,
       session.operationId,
     );
+    authorityFailureDiagnostics = () => {
+      process.stderr.write(
+        `${JSON.stringify(
+          {
+            operationEvidence: finalEvidence,
+            receipt: {
+              actionId: agentResult.receipt.actionId,
+              policy: agentResult.receipt.policy,
+              recordIds: agentResult.receipt.recordIds,
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    };
     observe(
       "hybridDecisionRecordsAllMaterialContextClasses",
       agentResult.provider.context.knowledge?.sourceDigests.includes(
@@ -468,9 +493,7 @@ async function main(): Promise<void> {
     observe(
       "ordinaryActionServiceAndCedarCommitTheDecision",
       agentResult.receipt.actionId === actionId &&
-        agentResult.receipt.policy.determiningPolicyIds.includes(
-          "company-brain-auto-commit",
-        ) &&
+        matchesPolicy(agentResult.receipt.policy, autoCommitPolicy) &&
         finalEvidence.operations === 1 &&
         finalEvidence.records === 1 &&
         finalEvidence.principalId === "principal.agent.a",
@@ -599,6 +622,9 @@ async function main(): Promise<void> {
     );
     await writeScenarioArtifact(repositoryRoot, scenario, manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
+  } catch (error: unknown) {
+    authorityFailureDiagnostics?.();
+    throw error;
   } finally {
     await admin.end();
     for (const process of processes.reverse()) {
@@ -633,7 +659,7 @@ async function loadDefinition(): Promise<DefinitionFixture> {
 
 async function writePolicyManifest(
   definitionDigest: string,
-): Promise<string> {
+): Promise<PolicyFixture> {
   const actionSource = await readFile(
     path.join(scenarioDirectory, "auto-commit.cedar"),
     "utf8",
@@ -643,6 +669,12 @@ async function writePolicyManifest(
     "utf8",
   );
   const manifestPath = path.join(generatedDirectory, "policies.json");
+  const autoCommitPolicy = {
+    digest: sha256(actionSource),
+    manifestPath,
+    policyId: "policy.company-brain.auto-commit",
+    revision: 1,
+  } satisfies PolicyFixture;
   await mkdir(generatedDirectory, { recursive: true });
   await writeFile(
     manifestPath,
@@ -652,9 +684,9 @@ async function writePolicyManifest(
           {
             actionId,
             definitionDigest,
-            digest: sha256(actionSource),
-            policyId: "policy.company-brain.auto-commit",
-            revision: 1,
+            digest: autoCommitPolicy.digest,
+            policyId: autoCommitPolicy.policyId,
+            revision: autoCommitPolicy.revision,
             source: actionSource,
           },
           {
@@ -671,7 +703,19 @@ async function writePolicyManifest(
       2,
     )}\n`,
   );
-  return manifestPath;
+  return autoCommitPolicy;
+}
+
+function matchesPolicy(
+  policy: PolicyEvidence,
+  expected: PolicyFixture,
+): boolean {
+  return (
+    policy.policyId === expected.policyId &&
+    policy.digest === expected.digest &&
+    policy.revision === expected.revision.toString() &&
+    policy.determiningPolicyIds.length > 0
+  );
 }
 
 async function oidcToken(clientId: string): Promise<string> {
