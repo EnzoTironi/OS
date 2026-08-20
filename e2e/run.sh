@@ -20,6 +20,7 @@ scenario_table=(
   "governed-action:governed-action:"
   "semantic-query::"
   "wasm-code-mode:wasm-code-mode:"
+  "web-deterministic:web-deterministic:"
 )
 
 scenario=""

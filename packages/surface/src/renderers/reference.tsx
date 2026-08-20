@@ -21,7 +21,11 @@ export function ReferenceRenderer(props: {
     <RendererBoundary name="Reference renderer">
       <div
         className={`reference-renderer density-${props.document.presentation.density}`}
+        data-definition-digest={
+          props.document.semanticContext.definition.digest
+        }
         data-renderer="reference"
+        data-surface-id={props.document.id}
       >
         {renderNode(
           props.document.nodes[props.document.root],

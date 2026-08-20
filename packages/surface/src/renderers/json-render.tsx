@@ -155,7 +155,11 @@ export function JsonRenderAdapter(props: {
     <RendererBoundary name="json-render adapter">
       <div
         className={`json-renderer density-${props.document.presentation.density}`}
+        data-definition-digest={
+          props.document.semanticContext.definition.digest
+        }
         data-renderer="json-render"
+        data-surface-id={props.document.id}
       >
         <Renderer registry={registry} spec={toJsonRenderSpec(props.document)} />
       </div>

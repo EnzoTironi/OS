@@ -144,7 +144,13 @@ function AuthorityPage() {
   };
 
   return (
-    <main className="app-shell">
+    <main
+      className="app-shell"
+      data-compiler={state.document.attribution.compiler}
+      data-generated-without-llm={
+        state.document.attribution.generatedWithoutLlm
+      }
+    >
       <header className="app-header">
         <div>
           <span className="eyebrow">Deterministic Surface IR</span>
