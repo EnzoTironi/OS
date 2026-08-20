@@ -1,11 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const outputDirectory = path.join(
-  "e2e",
-  "company-brain-live",
-  ".generated",
-);
+const outputDirectory =
+  process.env.ZOEN_E2E_GENERATED_DIR ??
+  path.join("e2e", "company-brain-live", ".generated");
 const definitionId = "inventory.companyBrain";
 const actionId = "inventory.requestStock";
 const resourceId = "inventory.item.1";
