@@ -145,6 +145,27 @@ async function main(): Promise<void> {
     });
     assert.equal(publishedB.definitionRevision?.commitSequence, 1n);
 
+    const activatedA = await clientA.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectNoActiveRevision",
+        value: true,
+      },
+      definitionId,
+      digest: definitionDigest,
+      tenantId: tenantA,
+    });
+    assert.equal(activatedA.activation?.active?.digest, definitionDigest);
+    const activatedB = await clientB.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectNoActiveRevision",
+        value: true,
+      },
+      definitionId,
+      digest: definitionDigest,
+      tenantId: tenantB,
+    });
+    assert.equal(activatedB.activation?.active?.digest, definitionDigest);
+
     await expectConnectCode(
       () =>
         query(worldA, {

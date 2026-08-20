@@ -5,10 +5,20 @@ const outputDirectory =
   process.env.ZOEN_E2E_GENERATED_DIR ??
   path.join("e2e", "domain-quality", ".generated");
 const farFuture = 4_102_444_800;
-const qualityActions = ["quality.quarantineLot", "quality.releaseLot"];
-const remappedActions = ["lab.quarantineLot", "lab.releaseLot"];
+const qualityActions = [
+  "quality.quarantineLot",
+  "quality.releaseLot",
+  "zoen.definition.activate",
+];
+const remappedActions = [
+  "lab.quarantineLot",
+  "lab.releaseLot",
+  "zoen.definition.activate",
+];
 const qualityResource = "quality.inspection.lot-42";
 const remappedResource = "lab.inspection.lot-42";
+const qualityDefinition = "quality.assurance";
+const remappedDefinition = "lab.assurance";
 
 function hardcodedClaim(name, value) {
   return {
@@ -104,7 +114,7 @@ const realm = {
       actorId: "actor.quality-agent.a",
       clientId: "quality-agent-a",
       principalId: "principal.quality-agent.a",
-      resourceIds: [qualityResource],
+      resourceIds: [qualityResource, qualityDefinition],
       tenantId: "tenant.a",
       workloadId: "workload.quality-agent.a",
     }),
@@ -113,7 +123,7 @@ const realm = {
       actorId: "actor.quality-agent.b",
       clientId: "quality-agent-b",
       principalId: "principal.quality-agent.b",
-      resourceIds: [remappedResource],
+      resourceIds: [remappedResource, remappedDefinition],
       tenantId: "tenant.b",
       workloadId: "workload.quality-agent.b",
     }),

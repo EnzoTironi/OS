@@ -362,14 +362,18 @@ export async function stopRestate(): Promise<void> {
 
 export async function startRestate(): Promise<void> {
   await compose("start", "restate");
-  await waitForPort(59_070);
-  await waitForPort(58_085);
+  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
+  await waitForPort(
+    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
+  );
 }
 
 export async function restartRestate(): Promise<void> {
   await compose("restart", "restate");
-  await waitForPort(59_070);
-  await waitForPort(58_085);
+  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
+  await waitForPort(
+    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
+  );
 }
 
 export async function waitFor<T>(

@@ -79,6 +79,7 @@ import {
   waitForConnectorStatus,
   waitForState,
 } from "../effects/scenario.js";
+import { e2ePort } from "../host-env.js";
 
 export {
   actionClient,
@@ -306,6 +307,27 @@ export async function publishDefinition(
   return revision.commitSequence;
 }
 
+export async function activateDefinition(
+  client: DefinitionClient,
+  tenantId: string,
+  fixture: QualityFixture,
+): Promise<void> {
+  const response = await client.activateRevision({
+    activeRevisionPrecondition: {
+      case: "expectNoActiveRevision",
+      value: true,
+    },
+    definitionId: fixture.definition.definitionId,
+    digest: fixture.digest,
+    tenantId,
+  });
+  assert.equal(response.activation?.active?.digest, fixture.digest);
+  assert.equal(
+    response.activation?.active?.revision,
+    fixture.definition.revision,
+  );
+}
+
 export async function recordEvidence(
   client: WorldClient,
   input: {
@@ -459,11 +481,17 @@ export async function restartRestate(): Promise<void> {
     "restate",
   ]);
   await waitFor(
-    async () => ((await canConnect(59_070)) ? true : undefined),
+    async () =>
+      (await canConnect(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", 59_073)))
+        ? true
+        : undefined,
     "Restate admin port after restart",
   );
   await waitFor(
-    async () => ((await canConnect(58_085)) ? true : undefined),
+    async () =>
+      (await canConnect(e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", 58_132)))
+        ? true
+        : undefined,
     "Restate ingress port after restart",
   );
 }
