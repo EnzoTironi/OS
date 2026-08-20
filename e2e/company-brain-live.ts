@@ -131,13 +131,12 @@ async function main(): Promise<void> {
       agentB: await oidcToken("agent-b"),
       effectWorkerA: await oidcToken("effect-worker-a"),
       effectWorkerB: await oidcToken("effect-worker-b"),
-      humanA: await oidcToken("human-a"),
     };
     const definitionA = definitionClient(tokens.adminA);
     const definitionB = definitionClient(tokens.adminB);
     const worldA = worldClient(tokens.agentA);
     const worldB = worldClient(tokens.agentB);
-    const humanA = actionClient(tokens.humanA);
+    const actionA = actionClient(tokens.agentA);
     const historyA = historyClient(tokens.agentA);
     await publishAndActivate(definitionA, tenantA, definition);
     await publishAndActivate(definitionB, tenantB, definition);
@@ -149,10 +148,10 @@ async function main(): Promise<void> {
       [tenantB]: tokens.effectWorkerB,
     });
     processes.push(effectWorker);
-    await setProviderMode("accepted_pending");
-    const baseline = await commitBaseline(humanA, definition);
     const effectRegistration = await registerEffectWorker();
     assert.match(effectRegistration, /ZoenEffect|deployment/iu);
+    await setProviderMode("accepted_pending");
+    const baseline = await commitBaseline(actionA, definition);
     await dispatchOnce(tenantA);
     const baselineEffect = await waitForState(
       effectClient(tokens.agentA),
