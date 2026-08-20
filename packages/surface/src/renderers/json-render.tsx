@@ -1,5 +1,9 @@
 import { defineCatalog } from "@json-render/core";
-import { defineRegistry, Renderer } from "@json-render/react";
+import {
+  defineRegistry,
+  JSONUIProvider,
+  Renderer,
+} from "@json-render/react";
 import { schema } from "@json-render/react/schema";
 import { z } from "zod";
 import type { SurfaceDocument, SurfaceNode } from "../model.js";
@@ -161,7 +165,12 @@ export function JsonRenderAdapter(props: {
         data-renderer="json-render"
         data-surface-id={props.document.id}
       >
-        <Renderer registry={registry} spec={toJsonRenderSpec(props.document)} />
+        <JSONUIProvider registry={registry}>
+          <Renderer
+            registry={registry}
+            spec={toJsonRenderSpec(props.document)}
+          />
+        </JSONUIProvider>
       </div>
     </RendererBoundary>
   );
