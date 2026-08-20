@@ -198,6 +198,11 @@ async function main(): Promise<void> {
         pureFirst.resultDigest === pureSecond.resultDigest,
     );
 
+    const ordinaryRead = await readOrdinaryPath(
+      historyA,
+      worldA,
+      fixtures.direct,
+    );
     const allowedManifest = scopedManifest(fixtures.direct.definition);
     const wasmAllowed = await execute(
       computationA,
@@ -231,12 +236,13 @@ async function main(): Promise<void> {
     ]);
     observe("wasmQueriesFiltersAggregatesExplainsAndCommits", true);
 
-    const ordinary = await runOrdinaryPath(
-      actionA,
-      historyA,
-      worldA,
-      fixtures.direct,
-    );
+    await runOrdinaryActionPath(actionA, fixtures.direct);
+    const ordinary = {
+      actionId,
+      ...ordinaryRead,
+      quantity: "2",
+      resourceId,
+    };
     assert.deepEqual(
       {
         actionId: wasmAllowed.output?.action?.actionId,
@@ -612,8 +618,7 @@ async function verifyExecutionFailures(
   };
 }
 
-async function runOrdinaryPath(
-  action: ReturnType<typeof actionClient>,
+async function readOrdinaryPath(
   history: ReturnType<typeof historyClient>,
   world: ReturnType<typeof worldClient>,
   fixture: Awaited<ReturnType<typeof loadFixture>>,
@@ -649,7 +654,18 @@ async function runOrdinaryPath(
     target: { target: { case: "claimId", value: selectedClaim } },
   });
   assert.equal(explanation.explanation?.complete, true);
+  return {
+    aggregate,
+    explanationComplete: explanation.explanation.complete,
+    selectedValues: selected.length,
+    valuesScanned: query.values.length,
+  };
+}
 
+async function runOrdinaryActionPath(
+  action: ReturnType<typeof actionClient>,
+  fixture: Awaited<ReturnType<typeof loadFixture>>,
+): Promise<void> {
   const proposal = await action.propose({
     actionId,
     definition: fixture.definition,
@@ -674,15 +690,6 @@ async function runOrdinaryPath(
     proposalId: "proposal.ordinary.allowed",
   });
   assert.equal(committed.status, CommitStatus.COMMITTED);
-  return {
-    actionId,
-    aggregate,
-    explanationComplete: explanation.explanation.complete,
-    quantity: "2",
-    resourceId,
-    selectedValues: selected.length,
-    valuesScanned: query.values.length,
-  };
 }
 
 function assertCompleted(response: {
