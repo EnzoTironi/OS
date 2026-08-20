@@ -117,6 +117,11 @@ test("provider kinds execute the same planning contract", async () => {
   };
   const openAiResult = await openAi.planner.plan(request);
   const anthropicResult = await anthropic.planner.plan(request);
+  assert.equal(openAiResult.kind, "planned");
+  assert.equal(anthropicResult.kind, "planned");
+  if (openAiResult.kind !== "planned" || anthropicResult.kind !== "planned") {
+    assert.fail("fixed planners must return plans");
+  }
   assert.deepEqual(openAiResult.plan, anthropicResult.plan);
   assert.equal(openAi.route.provider, "openai");
   assert.equal(anthropic.route.provider, "anthropic");
