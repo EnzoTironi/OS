@@ -38,8 +38,8 @@ mod bindings {
 }
 
 use bindings::Computation;
+use bindings::exports::zoen::code_mode::program as wit_program;
 use bindings::zoen::code_mode::host as wit_host;
-use bindings::zoen::code_mode::program as wit_program;
 
 #[derive(Debug)]
 pub struct WasmtimeConfigError(String);
@@ -64,7 +64,6 @@ impl WasmtimeComputationExecutor {
         config.consume_fuel(true);
         config.epoch_interruption(true);
         config.wasm_component_model(true);
-        config.wasm_component_model_async(true);
         let engine =
             Engine::new(&config).map_err(|error| WasmtimeConfigError(error.to_string()))?;
         Ok(Self { engine, pool })
@@ -226,70 +225,66 @@ where
     async fn query(
         &mut self,
         request: wit_host::QueryRequest,
-    ) -> wasmtime::Result<Result<wit_host::QueryResult, wit_host::HostError>> {
+    ) -> Result<wit_host::QueryResult, wit_host::HostError> {
         let request = match host_query_request(request) {
             Ok(request) => request,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return Err(error),
         };
-        Ok(self
-            .host
+        self.host
             .query(request)
             .await
             .map(wit_query_result)
-            .map_err(wit_host_error))
+            .map_err(wit_host_error)
     }
 
     async fn explain(
         &mut self,
         request: wit_host::ExplainRequest,
-    ) -> wasmtime::Result<Result<wit_host::ExplainResult, wit_host::HostError>> {
+    ) -> Result<wit_host::ExplainResult, wit_host::HostError> {
         let request = match host_explain_request(request) {
             Ok(request) => request,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return Err(error),
         };
-        Ok(self
-            .host
+        self.host
             .explain(request)
             .await
             .map(|result| wit_host::ExplainResult {
                 complete: result.complete,
                 explanation_digest: result.explanation_digest.as_str().to_owned(),
             })
-            .map_err(wit_host_error))
+            .map_err(wit_host_error)
     }
 
     async fn propose(
         &mut self,
         request: wit_host::ProposeRequest,
-    ) -> wasmtime::Result<Result<wit_host::ProposalOutcome, wit_host::HostError>> {
+    ) -> Result<wit_host::ProposalOutcome, wit_host::HostError> {
         let request = match host_propose_request(request) {
             Ok(request) => request,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return Err(error),
         };
         self.action_requested = true;
-        Ok(self
-            .host
+        self.host
             .propose(request, &self.evidence)
             .await
             .map(wit_proposal_outcome)
-            .map_err(wit_host_error))
+            .map_err(wit_host_error)
     }
 
     async fn commit(
         &mut self,
         request: wit_host::CommitRequest,
-    ) -> wasmtime::Result<Result<wit_host::CommitOutcome, wit_host::HostError>> {
+    ) -> Result<wit_host::CommitOutcome, wit_host::HostError> {
         let request = match host_commit_request(request) {
             Ok(request) => request,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return Err(error),
         };
         self.action_requested = true;
-        Ok(self
-            .host
+        self.host
             .commit(request)
             .await
             .map(wit_commit_outcome)
-            .map_err(wit_host_error))
+            .map_err(wit_host_error)
     }
 }
 

@@ -1,5 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::future::Future;
+use std::pin::Pin;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -325,26 +327,30 @@ pub enum HostCallError {
     ProviderUnavailable(String),
 }
 
-#[allow(async_fn_in_trait)]
 pub trait ComputationHost: Send {
-    async fn query(&mut self, request: HostQueryRequest) -> Result<HostQueryResult, HostCallError>;
+    fn query(
+        &mut self,
+        request: HostQueryRequest,
+    ) -> HostCallFuture<'_, Result<HostQueryResult, HostCallError>>;
 
-    async fn explain(
+    fn explain(
         &mut self,
         request: HostExplainRequest,
-    ) -> Result<HostExplainResult, HostCallError>;
+    ) -> HostCallFuture<'_, Result<HostExplainResult, HostCallError>>;
 
-    async fn propose(
-        &mut self,
+    fn propose<'a>(
+        &'a mut self,
         request: HostProposeRequest,
-        evidence: &ComponentExecutionEvidence,
-    ) -> Result<HostProposalOutcome, HostCallError>;
+        evidence: &'a ComponentExecutionEvidence,
+    ) -> HostCallFuture<'a, Result<HostProposalOutcome, HostCallError>>;
 
-    async fn commit(
+    fn commit(
         &mut self,
         request: HostCommitRequest,
-    ) -> Result<HostCommitOutcome, HostCallError>;
+    ) -> HostCallFuture<'_, Result<HostCommitOutcome, HostCallError>>;
 }
+
+pub type HostCallFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProgramActionOutcome {

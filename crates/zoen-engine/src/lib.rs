@@ -33,10 +33,10 @@ pub use computation::{
     COMPONENT_INTERFACE_V1, CapabilityManifest, CompletedComputation, ComponentAdmissionError,
     ComponentArtifact, ComputationCapability, ComputationContractError, ComputationError,
     ComputationExecution, ComputationExecutor, ComputationHost, ComputationLimits,
-    ComputationOutcome, ComputationOutput, ComputationRequest, HostCallError, HostCommitOutcome,
-    HostCommitRequest, HostExplainRequest, HostExplainResult, HostProposalOutcome,
-    HostProposeRequest, HostQueryRequest, HostQueryResult, HostSemanticValue, ProgramActionOutcome,
-    PublishedComponent,
+    ComputationOutcome, ComputationOutput, ComputationRequest, HostCallError, HostCallFuture,
+    HostCommitOutcome, HostCommitRequest, HostExplainRequest, HostExplainResult,
+    HostProposalOutcome, HostProposeRequest, HostQueryRequest, HostQueryResult, HostSemanticValue,
+    ProgramActionOutcome, PublishedComponent,
 };
 pub use effect::{
     EffectAttemptClaim, EffectAttemptClaimCommand, EffectAttemptCommand, EffectEngine, EffectError,
