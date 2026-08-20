@@ -6,9 +6,11 @@ import type {
 import { RendererBoundary } from "./boundary.js";
 import {
   ActionFormView,
+  DecisionSummaryView,
   EffectStatusViewList,
   EvidenceView,
   ExplanationView,
+  FreshnessStatusView,
   HistoryView,
   QueryTableView,
   RelationView,
@@ -103,11 +105,42 @@ function renderNode(
     case "history-timeline":
       return <HistoryView bindingId={node.bindingId} key={node.id} />;
     case "evidence-panel":
-      return <EvidenceView bindingIds={node.bindingIds} key={node.id} />;
+      return (
+        <EvidenceView
+          bindingIds={node.bindingIds}
+          key={node.id}
+          refs={node.refs}
+        />
+      );
     case "explanation-panel":
-      return <ExplanationView bindingId={node.bindingId} key={node.id} />;
+      return (
+        <ExplanationView
+          bindingId={node.bindingId}
+          key={node.id}
+          ref={node.ref}
+        />
+      );
     case "effect-status":
       return <EffectStatusViewList bindingId={node.bindingId} key={node.id} />;
+    case "decision-summary":
+      return (
+        <DecisionSummaryView
+          key={node.id}
+          summary={node.summary}
+          title={node.title}
+          uncertainty={node.uncertainty}
+        />
+      );
+    case "freshness-status":
+      return (
+        <FreshnessStatusView
+          bindingId={node.bindingId}
+          generatedAt={node.generatedAt}
+          generatedCommitSequence={node.generatedCommitSequence}
+          key={node.id}
+          label={node.label}
+        />
+      );
     default: {
       const exhaustive: never = node;
       return exhaustive;

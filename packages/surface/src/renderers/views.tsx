@@ -2,7 +2,9 @@ import type { FormEvent } from "react";
 import type {
   ActionOperationView,
   EffectStatusView,
+  ExplanationRef,
   QueryBindingView,
+  SurfaceEvidenceRef,
   SurfaceExactValue,
 } from "../model.js";
 import { useSurfaceInteraction } from "./interaction.js";
@@ -247,27 +249,54 @@ export function HistoryView(props: { readonly bindingId: string }) {
 
 export function EvidenceView(props: {
   readonly bindingIds: readonly string[];
+  readonly refs: readonly SurfaceEvidenceRef[];
 }) {
   const { data } = useSurfaceInteraction();
-  const evidence = props.bindingIds.flatMap((bindingId) =>
+  const semanticEvidence = props.bindingIds.flatMap((bindingId) =>
     (data.queries[bindingId]?.values ?? []).flatMap((value) => value.evidence),
+  );
+  const sourceEvidence = props.refs.filter(
+    (reference) => reference.kind === "company-source",
   );
   return (
     <ul className="evidence-list" aria-label="Evidence references">
-      {evidence.map((item) => (
+      {sourceEvidence.map((reference) => (
+        <li key={`${reference.fragmentId}.${reference.sourceRevision}`}>
+          <code>{reference.sourceId}</code>
+          <span>Company source</span>
+          <small>
+            revision {reference.sourceRevision} · fragment{" "}
+            {reference.fragmentDigest}
+          </small>
+        </li>
+      ))}
+      {semanticEvidence.map((item) => (
         <li key={`${item.claimId}.${item.role}`}>
           <code>{item.claimId}</code>
           <span>{item.role}</span>
           <a href={item.sourceRef}>{item.sourceRef}</a>
         </li>
       ))}
-      {evidence.length === 0 ? <li>No evidence references.</li> : null}
+      {sourceEvidence.length === 0 && semanticEvidence.length === 0 ? (
+        <li>No evidence references.</li>
+      ) : null}
     </ul>
   );
 }
 
-export function ExplanationView(props: { readonly bindingId: string }) {
+export function ExplanationView(props: {
+  readonly bindingId: string;
+  readonly ref: ExplanationRef;
+}) {
   const { data } = useSurfaceInteraction();
+  if (props.ref.kind === "operation-explanation") {
+    return (
+      <p className="explanation-ref" data-action-binding={props.bindingId}>
+        Causal explanation <code>{props.ref.operationId}</code>
+        <small>digest {props.ref.explanationDigest}</small>
+      </p>
+    );
+  }
   const operation = data.actions[props.bindingId];
   const operationId =
     operation !== undefined && "operationId" in operation
@@ -282,6 +311,45 @@ export function ExplanationView(props: { readonly bindingId: string }) {
           Explanation reference <code>{operationId}</code>
         </>
       )}
+    </p>
+  );
+}
+
+export function DecisionSummaryView(props: {
+  readonly summary: string;
+  readonly title: string;
+  readonly uncertainty: string;
+}) {
+  return (
+    <article className="decision-summary">
+      <h4>{props.title}</h4>
+      <p>{props.summary}</p>
+      <p className="decision-uncertainty">
+        <strong>Uncertainty</strong> {props.uncertainty}
+      </p>
+    </article>
+  );
+}
+
+export function FreshnessStatusView(props: {
+  readonly bindingId: string;
+  readonly generatedAt: string;
+  readonly generatedCommitSequence: string;
+  readonly label: string;
+}) {
+  const { data } = useSurfaceInteraction();
+  const current = data.queries[props.bindingId]?.actualCommitSequence;
+  const stale =
+    current !== undefined && current !== props.generatedCommitSequence;
+  return (
+    <p
+      className={`freshness-status ${stale ? "status-stale" : "status-fresh"}`}
+      role="status"
+    >
+      <strong>{props.label}</strong>{" "}
+      {stale
+        ? `Generated from commit ${props.generatedCommitSequence}; current semantic query is commit ${current}. Regenerate before acting.`
+        : `Generated at ${props.generatedAt} from semantic commit ${props.generatedCommitSequence}.`}
     </p>
   );
 }

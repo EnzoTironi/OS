@@ -1,3 +1,4 @@
+export * from "./adaptive.js";
 export * from "./cache.js";
 export * from "./compiler.js";
 export * from "./model.js";

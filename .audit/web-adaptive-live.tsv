@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-08-20T21:37:26Z	frame	based the exclusive branch on the required V1-13 merge	the ticket fixes the baseline for its production proof	9eef5f5c846f00c7bcdc234311d50a98c0ac2a2b	baseline confirmed
+2026-08-20T21:37:26Z	design	kept the adaptive document schema prompt contract validation and renderers in TypeScript	ADRs 0012 and 0019 assign experience intelligence to TypeScript while Rust remains semantic authority	docs/adr/0012-surface-ir-replaceable-renderers.md,docs/adr/0019-v1-authoring-intelligence-and-surfaces.md	ownership fixed
+2026-08-20T21:37:26Z	design	required the model to emit one complete Surface IR document and validated every semantic reference against recorded capability context	a layout fragment compiled afterward would not prove the model emitted Surface IR	packages/surface/src/adaptive.ts	selected over layout-only generation

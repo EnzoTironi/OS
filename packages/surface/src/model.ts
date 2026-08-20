@@ -37,10 +37,28 @@ export interface EvidenceRef {
   readonly query: QueryRef;
 }
 
-export interface ExplanationRef {
-  readonly action: ActionRef;
-  readonly kind: "latest-action-explanation";
+export interface CompanySourceEvidenceRef {
+  readonly fragmentDigest: string;
+  readonly fragmentId: string;
+  readonly kind: "company-source";
+  readonly retrievalTraceId: string;
+  readonly sourceDigest: string;
+  readonly sourceId: string;
+  readonly sourceRevision: string;
 }
+
+export type SurfaceEvidenceRef = EvidenceRef | CompanySourceEvidenceRef;
+
+export type ExplanationRef =
+  | {
+      readonly action: ActionRef;
+      readonly kind: "latest-action-explanation";
+    }
+  | {
+      readonly explanationDigest: string;
+      readonly kind: "operation-explanation";
+      readonly operationId: string;
+    };
 
 export interface HistoryRef {
   readonly action: ActionRef;
@@ -125,7 +143,7 @@ export interface HistoryTimelineNode extends BaseNode {
 export interface EvidencePanelNode extends BaseNode {
   readonly bindingIds: readonly string[];
   readonly kind: "evidence-panel";
-  readonly refs: readonly EvidenceRef[];
+  readonly refs: readonly SurfaceEvidenceRef[];
 }
 
 export interface ExplanationPanelNode extends BaseNode {
@@ -140,6 +158,21 @@ export interface EffectStatusNode extends BaseNode {
   readonly ref: EffectRef;
 }
 
+export interface DecisionSummaryNode extends BaseNode {
+  readonly kind: "decision-summary";
+  readonly summary: string;
+  readonly title: string;
+  readonly uncertainty: string;
+}
+
+export interface FreshnessStatusNode extends BaseNode {
+  readonly bindingId: string;
+  readonly generatedAt: string;
+  readonly generatedCommitSequence: string;
+  readonly kind: "freshness-status";
+  readonly label: string;
+}
+
 export type SurfaceNode =
   | SectionNode
   | DataTableNode
@@ -150,15 +183,28 @@ export type SurfaceNode =
   | HistoryTimelineNode
   | EvidencePanelNode
   | ExplanationPanelNode
-  | EffectStatusNode;
+  | EffectStatusNode
+  | DecisionSummaryNode
+  | FreshnessStatusNode;
+
+export type SurfaceAttribution =
+  | {
+      readonly compiler: "deterministic";
+      readonly definitionDigest: string;
+      readonly generatedWithoutLlm: true;
+    }
+  | {
+      readonly compiler: "adaptive-model";
+      readonly definitionDigest: string;
+      readonly explanationDigest: string;
+      readonly generatedWithoutLlm: false;
+      readonly knowledgeTraceId: string;
+      readonly queryContextDigest: string;
+    };
 
 export interface SurfaceDocument {
   readonly actionBindings: readonly ActionBinding[];
-  readonly attribution: {
-    readonly compiler: "deterministic";
-    readonly definitionDigest: string;
-    readonly generatedWithoutLlm: true;
-  };
+  readonly attribution: SurfaceAttribution;
   readonly catalog: typeof surfaceCatalog;
   readonly id: string;
   readonly nodes: Readonly<Record<string, SurfaceNode>>;
@@ -249,4 +295,61 @@ export interface CompileSurfaceInput {
   readonly entityId: string;
   readonly metadata: DefinitionMetadata;
   readonly presentation?: Partial<SurfacePresentation>;
+}
+
+export interface AdaptiveQueryContext {
+  readonly actualCommitSequence: string;
+  readonly binding: QueryBinding;
+  readonly knowledgeCut: string;
+  readonly resultDigest: string;
+  readonly validAt: string;
+  readonly values: readonly SurfaceExactValue[];
+}
+
+export interface AdaptiveSurfaceContext {
+  readonly actions: readonly ActionBinding[];
+  readonly definition: SurfaceDefinitionRef;
+  readonly entityId: string;
+  readonly evidence: readonly CompanySourceEvidenceRef[];
+  readonly explanations: readonly ExplanationRef[];
+  readonly generatedAt: string;
+  readonly knowledgeTraceId: string;
+  readonly queryContextDigest: string;
+  readonly queries: readonly AdaptiveQueryContext[];
+}
+
+export interface AdaptiveSurfaceModelRequest {
+  readonly maxOutputTokens: number;
+  readonly prompt: string;
+  readonly system: string;
+}
+
+export interface AdaptiveSurfaceModelResponse {
+  readonly document: unknown;
+  readonly providerCallId: string;
+  readonly responseModelId: string;
+}
+
+export interface AdaptiveSurfaceModel {
+  composeSurface(
+    request: AdaptiveSurfaceModelRequest,
+  ): Promise<AdaptiveSurfaceModelResponse>;
+}
+
+export interface AdaptiveSurfaceProviderEvidence {
+  readonly configuredModelId: string;
+  readonly promptDigest: string;
+  readonly providerCallId: string;
+  readonly providerRouteId: string;
+  readonly responseModelId: string;
+}
+
+export interface AdaptiveSurfaceSession {
+  readonly context: AdaptiveSurfaceContext;
+  readonly createdAt: string;
+  readonly document: SurfaceDocument;
+  readonly provider: AdaptiveSurfaceProviderEvidence;
+  readonly questionDigest: string;
+  readonly schema: "zoen.surface.session.v1";
+  readonly sessionId: string;
 }

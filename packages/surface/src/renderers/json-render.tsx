@@ -7,13 +7,19 @@ import {
 import { schema } from "@json-render/react/schema";
 import { z } from "zod";
 import type { SurfaceDocument, SurfaceNode } from "../model.js";
+import {
+  surfaceEvidenceRefSchema,
+  surfaceExplanationRefSchema,
+} from "../schema.js";
 import { RendererBoundary } from "./boundary.js";
 import { useSurfaceInteraction } from "./interaction.js";
 import {
   ActionFormView,
+  DecisionSummaryView,
   EffectStatusViewList,
   EvidenceView,
   ExplanationView,
+  FreshnessStatusView,
   HistoryView,
   QueryTableView,
   RelationView,
@@ -77,15 +83,46 @@ const catalog = defineCatalog(schema, {
     },
     EvidencePanel: {
       description: "Displays evidence references from semantic query lineage.",
-      props: z.object({ bindingIds: z.array(z.string()) }).strict(),
+      props: z
+        .object({
+          bindingIds: z.array(z.string()),
+          refs: z.array(surfaceEvidenceRefSchema),
+        })
+        .strict(),
     },
     ExplanationPanel: {
       description: "Displays the stable explanation reference for an Action.",
-      props: z.object({ bindingId: z.string() }).strict(),
+      props: z
+        .object({
+          bindingId: z.string(),
+          ref: surfaceExplanationRefSchema,
+        })
+        .strict(),
     },
     EffectStatus: {
       description: "Distinguishes local commit from external effect knowledge.",
       props: z.object({ bindingId: z.string() }).strict(),
+    },
+    DecisionSummary: {
+      description: "Displays model-composed decision text and uncertainty.",
+      props: z
+        .object({
+          summary: z.string(),
+          title: z.string(),
+          uncertainty: z.string(),
+        })
+        .strict(),
+    },
+    FreshnessStatus: {
+      description: "Compares generated and current semantic query cuts.",
+      props: z
+        .object({
+          bindingId: z.string(),
+          generatedAt: z.string(),
+          generatedCommitSequence: z.string(),
+          label: z.string(),
+        })
+        .strict(),
     },
   },
 });
@@ -141,14 +178,16 @@ const { registry } = defineRegistry(catalog, {
       <HistoryView bindingId={props.bindingId} />
     ),
     EvidencePanel: ({ props }) => (
-      <EvidenceView bindingIds={props.bindingIds} />
+      <EvidenceView bindingIds={props.bindingIds} refs={props.refs} />
     ),
     ExplanationPanel: ({ props }) => (
-      <ExplanationView bindingId={props.bindingId} />
+      <ExplanationView bindingId={props.bindingId} ref={props.ref} />
     ),
     EffectStatus: ({ props }) => (
       <EffectStatusViewList bindingId={props.bindingId} />
     ),
+    DecisionSummary: ({ props }) => <DecisionSummaryView {...props} />,
+    FreshnessStatus: ({ props }) => <FreshnessStatusView {...props} />,
   },
 });
 
@@ -250,13 +289,13 @@ function jsonElement(node: SurfaceNode) {
     case "evidence-panel":
       return {
         children: [],
-        props: { bindingIds: [...node.bindingIds] },
+        props: { bindingIds: [...node.bindingIds], refs: [...node.refs] },
         type: "EvidencePanel",
       };
     case "explanation-panel":
       return {
         children: [],
-        props: { bindingId: node.bindingId },
+        props: { bindingId: node.bindingId, ref: node.ref },
         type: "ExplanationPanel",
       };
     case "effect-status":
@@ -264,6 +303,27 @@ function jsonElement(node: SurfaceNode) {
         children: [],
         props: { bindingId: node.bindingId },
         type: "EffectStatus",
+      };
+    case "decision-summary":
+      return {
+        children: [],
+        props: {
+          summary: node.summary,
+          title: node.title,
+          uncertainty: node.uncertainty,
+        },
+        type: "DecisionSummary",
+      };
+    case "freshness-status":
+      return {
+        children: [],
+        props: {
+          bindingId: node.bindingId,
+          generatedAt: node.generatedAt,
+          generatedCommitSequence: node.generatedCommitSequence,
+          label: node.label,
+        },
+        type: "FreshnessStatus",
       };
     default: {
       const exhaustive: never = node;

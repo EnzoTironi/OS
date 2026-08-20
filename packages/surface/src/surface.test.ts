@@ -8,11 +8,18 @@ import {
 } from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import { parseDefinitionMetadata } from "../../sdk/src/definition.js";
 import {
+  adaptiveSurfaceTemplate,
   compileDeterministicSurface,
   effectStatusView,
+  generateAdaptiveSurface,
+  parseAdaptiveSurfaceDocument,
+  parseAdaptiveSurfaceSession,
   parseSurfaceDocument,
   semanticQueryCacheKey,
   toJsonRenderSpec,
+  type AdaptiveSurfaceContext,
+  type AdaptiveSurfaceModel,
+  type SurfaceDocument,
 } from "./index.js";
 
 const canonicalDefinition = JSON.stringify({
@@ -211,4 +218,254 @@ test("unknown effects never become completed presentation state", () => {
     effectRequestId: "effect.action.operation.1",
     kind: "unknown",
   });
+});
+
+const adaptiveContext = (() => {
+  const deterministic = compileDeterministicSurface(compileInput);
+  const action = deterministic.actionBindings[0];
+  const query = deterministic.queryBindings[0];
+  assert.ok(action);
+  assert.ok(query);
+  return {
+    actions: [action],
+    definition,
+    entityId: compileInput.entityId,
+    evidence: [
+      {
+        fragmentDigest: "b".repeat(64),
+        fragmentId: "c".repeat(64),
+        kind: "company-source",
+        retrievalTraceId: "d".repeat(64),
+        sourceDigest: "e".repeat(64),
+        sourceId: "source.operations-policy",
+        sourceRevision: "f".repeat(64),
+      },
+    ],
+    explanations: [
+      {
+        explanationDigest: "1".repeat(64),
+        kind: "operation-explanation",
+        operationId: "operation.inventory.baseline",
+      },
+    ],
+    generatedAt: "2026-08-20T21:00:00.000Z",
+    knowledgeTraceId: "d".repeat(64),
+    queries: [
+      {
+        actualCommitSequence: "3",
+        binding: query,
+        knowledgeCut: "3",
+        resultDigest: "2".repeat(64),
+        validAt: "2026-08-20T00:00:00.000Z",
+        values: [{ kind: "integer", value: "10" }],
+      },
+    ],
+    queryContextDigest: "3".repeat(64),
+  } satisfies AdaptiveSurfaceContext;
+})();
+
+function composedAdaptiveDocument(): SurfaceDocument {
+  const template = adaptiveSurfaceTemplate(adaptiveContext);
+  const decision = template.nodes["node.decision"];
+  assert.equal(decision?.kind, "decision-summary");
+  if (decision?.kind !== "decision-summary") {
+    assert.fail("adaptive template lacks its decision summary");
+  }
+  return {
+    ...template,
+    nodes: {
+      ...template.nodes,
+      [decision.id]: {
+        ...decision,
+        summary:
+          "Request two units because governed stock is ten and the recorded operating policy supports replenishment.",
+        uncertainty:
+          "The source is planning evidence and the current semantic cut must still match before proposal.",
+      },
+    },
+  };
+}
+
+function surfaceModel(document: unknown): AdaptiveSurfaceModel {
+  return {
+    composeSurface: async () => ({
+      document,
+      providerCallId: "provider-call-1",
+      responseModelId: "model-live-1",
+    }),
+  };
+}
+
+test("adaptive generation records attributable context and survives reload", async () => {
+  const document = composedAdaptiveDocument();
+  const result = await generateAdaptiveSurface({
+    configuredModelId: "configured-live-model",
+    context: adaptiveContext,
+    model: surfaceModel(document),
+    providerRouteId: "provider-live",
+    question: "Should operations request replenishment?",
+    sessionId: "session.adaptive.test",
+  });
+  assert.equal(result.kind, "generated");
+  if (result.kind !== "generated") {
+    assert.fail("valid adaptive generation did not produce a session");
+  }
+  assert.deepEqual(
+    parseAdaptiveSurfaceSession(result.session, metadata),
+    result.session,
+  );
+  assert.equal(result.session.document.attribution.compiler, "adaptive-model");
+  assert.equal(
+    result.session.document.attribution.knowledgeTraceId,
+    adaptiveContext.knowledgeTraceId,
+  );
+});
+
+test("adaptive validation rejects invented and executable bindings", () => {
+  const document = composedAdaptiveDocument();
+  const decision = document.nodes["node.decision"];
+  const action = document.actionBindings[0];
+  const query = document.queryBindings[0];
+  const evidence = document.nodes["node.evidence"];
+  assert.ok(decision);
+  assert.ok(action);
+  assert.ok(query);
+  assert.equal(evidence?.kind, "evidence-panel");
+  if (evidence?.kind !== "evidence-panel") {
+    assert.fail("adaptive document lacks evidence");
+  }
+  const invalidDocuments: readonly unknown[] = [
+    { ...document, catalog: "unknown.catalog" },
+    {
+      ...document,
+      nodes: {
+        ...document.nodes,
+        [decision.id]: { ...decision, kind: "network-callback" },
+      },
+    },
+    {
+      ...document,
+      queryBindings: [
+        {
+          ...query,
+          ref: { ...query.ref, entityId: "inventory.item.invented" },
+        },
+      ],
+    },
+    {
+      ...document,
+      actionBindings: [
+        {
+          ...action,
+          ref: { ...action.ref, actionId: "inventory.adminAction" },
+        },
+      ],
+    },
+    {
+      ...document,
+      actionBindings: [{ ...action, callback: "window.fetch" }],
+    },
+    {
+      ...document,
+      actionBindings: [
+        {
+          ...action,
+          ref: { ...action.ref, actionId: "https://evil.example/mutate" },
+        },
+      ],
+    },
+    {
+      ...document,
+      actionBindings: [{ ...action, sql: "UPDATE authority SET value = 1" }],
+    },
+    {
+      ...document,
+      nodes: {
+        ...document.nodes,
+        [evidence.id]: {
+          ...evidence,
+          refs: evidence.refs.map((reference) =>
+            reference.kind === "company-source"
+              ? { ...reference, sourceId: "source.foreign-tenant" }
+              : reference,
+          ),
+        },
+      },
+    },
+    {
+      ...document,
+      semanticContext: {
+        ...document.semanticContext,
+        entityId: "inventory.item.invented",
+      },
+    },
+    {
+      ...document,
+      nodes: {
+        ...document.nodes,
+        [decision.id]: {
+          ...decision,
+          summary: "x".repeat(70_000),
+        },
+      },
+    },
+  ];
+  for (const invalid of invalidDocuments) {
+    assert.throws(() => parseAdaptiveSurfaceDocument(invalid, adaptiveContext));
+  }
+});
+
+test("provider failure and invalid output never produce a renderable session", async () => {
+  const failed = await generateAdaptiveSurface({
+    configuredModelId: "configured-live-model",
+    context: adaptiveContext,
+    model: {
+      composeSurface: () => Promise.reject(new Error("provider unavailable")),
+    },
+    providerRouteId: "provider-live",
+    question: "Should operations request replenishment?",
+    sessionId: "session.adaptive.provider-failure",
+  });
+  assert.equal(failed.kind, "model_error");
+
+  const template = adaptiveSurfaceTemplate(adaptiveContext);
+  const invalid = await generateAdaptiveSurface({
+    configuredModelId: "configured-live-model",
+    context: adaptiveContext,
+    model: surfaceModel(template),
+    providerRouteId: "provider-live",
+    question: "Should operations request replenishment?",
+    sessionId: "session.adaptive.invalid-output",
+  });
+  assert.equal(invalid.kind, "invalid_surface");
+});
+
+test("adaptive layout can change without changing semantic identities", () => {
+  const first = composedAdaptiveDocument();
+  const root = first.nodes[first.root];
+  assert.equal(root?.kind, "section");
+  if (root?.kind !== "section") {
+    assert.fail("adaptive document root is not a section");
+  }
+  const second = parseAdaptiveSurfaceDocument(
+    {
+      ...first,
+      nodes: {
+        ...first.nodes,
+        [root.id]: {
+          ...root,
+          children: [...root.children].reverse(),
+          title: "Recomposed operational decision",
+        },
+      },
+      presentation: {
+        ...first.presentation,
+        density: "compact",
+      },
+    },
+    adaptiveContext,
+  );
+  assert.notDeepEqual(first.presentation, second.presentation);
+  assert.deepEqual(first.queryBindings, second.queryBindings);
+  assert.deepEqual(first.actionBindings, second.actionBindings);
 });
