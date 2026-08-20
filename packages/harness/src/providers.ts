@@ -37,7 +37,7 @@ const liveProviderConfigSchema = z
   .strict();
 const adaptiveSurfaceToolInputSchema = z
   .object({
-    document: z.unknown(),
+    document: z.string().min(1).max(65_536),
   })
   .strict();
 
@@ -203,7 +203,7 @@ export class AiSdkPlanner implements ModelPlanner, AdaptiveSurfaceModel {
       tools: {
         emit_surface: tool({
           description:
-            "Emit one complete Zoen Surface IR document in the document field.",
+            "Emit one complete Zoen Surface IR document as JSON in the document field.",
           inputSchema: adaptiveSurfaceToolInputSchema,
         }),
       },
@@ -216,8 +216,10 @@ export class AiSdkPlanner implements ModelPlanner, AdaptiveSurfaceModel {
     ) {
       throw new Error("model did not emit exactly one Surface IR document");
     }
+    const input = adaptiveSurfaceToolInputSchema.parse(toolCall.input);
+    const document: unknown = JSON.parse(input.document);
     return {
-      document: adaptiveSurfaceToolInputSchema.parse(toolCall.input).document,
+      document,
       providerCallId: result.finalStep.response.id,
       responseModelId: result.finalStep.response.modelId,
     };

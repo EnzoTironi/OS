@@ -224,7 +224,7 @@ test("adaptive composition uses one required tool and unwraps Surface IR", async
       return {
         content: [
           {
-            input: JSON.stringify({ document }),
+            input: JSON.stringify({ document: JSON.stringify(document) }),
             toolCallId: "call.surface",
             toolName: "emit_surface",
             type: "tool-call",
