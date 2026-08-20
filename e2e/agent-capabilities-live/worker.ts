@@ -33,6 +33,7 @@ const environmentSchema = z
     ZOEN_PROVIDER_B_MODEL: z.string().min(1),
   })
   .parse(process.env);
+const workerControlPort = e2ePort("ZOEN_E2E_WORKER_CONTROL_PORT", 58_156);
 const workerPort = e2ePort("ZOEN_E2E_WORKER_PORT", 58_155);
 
 const definition = {
@@ -122,7 +123,7 @@ const controlServer = createServer((request, response) => {
     sendJson(response, 500, { error: "control request failed" });
   });
 });
-controlServer.listen(58_106, "127.0.0.1");
+controlServer.listen(workerControlPort, "127.0.0.1");
 
 async function routeControl(
   request: IncomingMessage,

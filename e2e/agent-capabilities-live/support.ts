@@ -70,6 +70,7 @@ const restateUiPortFallback = 59_074;
 const responseLossProxyPortFallback = 58_153;
 const providerProxyPortFallback = 58_154;
 const workerPortFallback = 58_155;
+const workerControlPortFallback = 58_156;
 const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 const responseLossProxyPort = e2ePort(
   "ZOEN_E2E_CONNECTOR_PORT",
@@ -80,6 +81,11 @@ const providerProxyPort = e2ePort(
   providerProxyPortFallback,
 );
 const workerPort = e2ePort("ZOEN_E2E_WORKER_PORT", workerPortFallback);
+const workerControlPort = e2ePort(
+  "ZOEN_E2E_WORKER_CONTROL_PORT",
+  workerControlPortFallback,
+);
+const workerControlBaseUrl = `http://127.0.0.1:${workerControlPort}`;
 export const agentBaseUrl = e2eHttpUrl(
   "ZOEN_E2E_CONNECTOR_PORT",
   responseLossProxyPortFallback,
@@ -499,7 +505,7 @@ export async function startWorker(
     readonly disableProviders?: boolean;
   } = {},
 ): Promise<ManagedProcess> {
-  return startProcess({
+  const worker = await startProcess({
     arguments: [
       path.join(
         distDirectory,
@@ -524,6 +530,9 @@ export async function startWorker(
     name: "Restate agent worker",
     port: workerPort,
   });
+  await waitForPort(workerControlPort, worker);
+  await workerHealth();
+  return worker;
 }
 
 export async function stopProcess(process: ManagedProcess): Promise<void> {
@@ -667,7 +676,7 @@ export function availableStockCapabilityAlias(
 }
 
 export async function workerHealth() {
-  const response = await fetch("http://127.0.0.1:58106/health");
+  const response = await fetch(`${workerControlBaseUrl}/health`);
   const body: unknown = await response.json();
   assert.equal(response.ok, true, JSON.stringify(body));
   return workerHealthSchema.parse(body);
@@ -675,13 +684,13 @@ export async function workerHealth() {
 
 export async function disableProvider(routeId: string): Promise<void> {
   await postControl(
-    `http://127.0.0.1:58106/disable-provider/${encodeURIComponent(routeId)}`,
+    `${workerControlBaseUrl}/disable-provider/${encodeURIComponent(routeId)}`,
   );
 }
 
 export async function disableCapability(alias: string): Promise<void> {
   await postControl(
-    `http://127.0.0.1:58106/disable-capability/${encodeURIComponent(alias)}`,
+    `${workerControlBaseUrl}/disable-capability/${encodeURIComponent(alias)}`,
   );
 }
 
