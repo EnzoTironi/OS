@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { parseAdaptiveSurfaceSession } from "@zoen/surface";
-import type { AdaptiveSurfaceSession } from "@zoen/surface";
 import type { Pool } from "pg";
 import { z } from "zod";
+import {
+  parseAdaptiveSurfaceSession,
+  type AdaptiveSurfaceSession,
+} from "../../surface/src/index.js";
 import type { AdaptiveSurfaceSessionPersistence } from "./adaptive-surface.js";
 
 const identifierSchema = z

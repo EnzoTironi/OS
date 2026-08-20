@@ -16,7 +16,7 @@ import {
   type AdaptiveSurfaceModel,
   type AdaptiveSurfaceModelRequest,
   type AdaptiveSurfaceModelResponse,
-} from "@zoen/surface";
+} from "../../surface/src/index.js";
 import { AgentRegistry, type Registration } from "./registry.js";
 import {
   actionPlanSchema,

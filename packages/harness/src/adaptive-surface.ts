@@ -9,7 +9,7 @@ import {
   type QueryBinding,
   type SurfaceDefinitionRef,
   type SurfaceExactValue,
-} from "@zoen/surface";
+} from "../../surface/src/index.js";
 import type { AgentRegistry } from "./registry.js";
 import type { AgentAuthority } from "./session.js";
 import {

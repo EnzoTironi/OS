@@ -5,7 +5,7 @@ import {
   adaptiveSurfaceDocumentSchema,
   type AdaptiveSurfaceModel,
   type AdaptiveSurfaceSession,
-} from "@zoen/surface";
+} from "../../surface/src/index.js";
 import {
   generateAdaptiveDecisionSurface,
   type AdaptiveSurfaceSessionPersistence,
