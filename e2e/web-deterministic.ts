@@ -101,7 +101,8 @@ async function main(): Promise<void> {
     proxy = await startResponseLossProxy();
     web = await startWeb(proxy.origin);
     browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    const context = await browser.newContext();
+    const page = await context.newPage();
     const browserFailures: string[] = [];
     page.on("requestfailed", (request) => {
       browserFailures.push(
