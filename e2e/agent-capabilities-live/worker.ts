@@ -16,6 +16,7 @@ import {
   semanticCapabilityScopeSchema,
   type Registration,
 } from "../../packages/harness/src/index.js";
+import { e2ePort } from "../host-env.js";
 
 const environmentSchema = z
   .object({
@@ -32,6 +33,7 @@ const environmentSchema = z
     ZOEN_PROVIDER_B_MODEL: z.string().min(1),
   })
   .parse(process.env);
+const workerPort = e2ePort("ZOEN_E2E_WORKER_PORT", 58_155);
 
 const definition = {
   definitionId: "inventory.agentLive",
@@ -199,7 +201,7 @@ function sendJson(
 }
 
 await restate.serve({
-  port: 58_104,
+  port: workerPort,
   services: [
     createAgentSessionService(
       {

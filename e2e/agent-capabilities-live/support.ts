@@ -44,6 +44,12 @@ import {
   WorldService,
   type DefinitionReference,
 } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
+  e2eHttpUrl,
+  e2eListenAddr,
+  e2ePort,
+  e2ePostgresUrl,
+} from "../host-env.js";
 
 export const repositoryRoot = process.cwd();
 export const scenarioDirectory = path.join(
@@ -56,13 +62,50 @@ export const generatedDirectory = path.join(
   ".generated",
 );
 export const artifactsDirectory = path.join(repositoryRoot, "artifacts");
-export const agentBaseUrl = "http://127.0.0.1:58105";
-export const zoenBaseUrl = "http://127.0.0.1:58103";
-export const oidcIssuer = "http://127.0.0.1:58092/realms/zoen";
+const postgresPortFallback = 55_445;
+const keycloakPortFallback = 58_150;
+const zoendPortFallback = 58_151;
+const restateIngressPortFallback = 58_152;
+const restateUiPortFallback = 59_074;
+const responseLossProxyPortFallback = 58_153;
+const providerProxyPortFallback = 58_154;
+const workerPortFallback = 58_155;
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const responseLossProxyPort = e2ePort(
+  "ZOEN_E2E_CONNECTOR_PORT",
+  responseLossProxyPortFallback,
+);
+const providerProxyPort = e2ePort(
+  "ZOEN_E2E_PROVIDER_PORT",
+  providerProxyPortFallback,
+);
+const workerPort = e2ePort("ZOEN_E2E_WORKER_PORT", workerPortFallback);
+export const agentBaseUrl = e2eHttpUrl(
+  "ZOEN_E2E_CONNECTOR_PORT",
+  responseLossProxyPortFallback,
+);
+export const zoenBaseUrl = e2eHttpUrl(
+  "ZOEN_E2E_ZOEND_PORT",
+  zoendPortFallback,
+);
+export const oidcIssuer = e2eHttpUrl(
+  "ZOEN_E2E_KEYCLOAK_PORT",
+  keycloakPortFallback,
+  "/realms/zoen",
+);
 export const oidcAudience = "zoend";
-export const restateIngress = "http://127.0.0.1:58093";
-export const restateAdmin = "http://127.0.0.1:59073";
-export const providerProxyBaseUrl = "http://127.0.0.1:58107";
+export const restateIngress = e2eHttpUrl(
+  "ZOEN_E2E_RESTATE_INGRESS_PORT",
+  restateIngressPortFallback,
+);
+export const restateAdmin = e2eHttpUrl(
+  "ZOEN_E2E_RESTATE_UI_PORT",
+  restateUiPortFallback,
+);
+export const providerProxyBaseUrl = e2eHttpUrl(
+  "ZOEN_E2E_PROVIDER_PORT",
+  providerProxyPortFallback,
+);
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 export const actionId = "inventory.requestStock";
@@ -72,11 +115,17 @@ export const definitionId = "inventory.agentLive";
 export const resourceId = "inventory.item.1";
 export const deniedResourceId = "inventory.item.2";
 export const validAt = new Date("2026-08-19T00:00:00.000Z");
-export const adminDatabaseUrl =
-  "postgres://postgres:postgres@127.0.0.1:55442/zoen";
+export const adminDatabaseUrl = e2ePostgresUrl(
+  "postgres",
+  "postgres",
+  postgresPortFallback,
+);
 
-const applicationDatabaseUrl =
-  "postgres://zoen_app:zoen_app@127.0.0.1:55442/zoen";
+const applicationDatabaseUrl = e2ePostgresUrl(
+  "zoen_app",
+  "zoen_app",
+  postgresPortFallback,
+);
 const composeFile = path.join(
   "e2e",
   "agent-capabilities-live",
@@ -394,12 +443,15 @@ export async function startZoend(
     environment: {
       DATABASE_URL: applicationDatabaseUrl,
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
-      ZOEN_LISTEN_ADDR: "127.0.0.1:58103",
+      ZOEN_LISTEN_ADDR: e2eListenAddr(
+        "ZOEN_E2E_ZOEND_PORT",
+        zoendPortFallback,
+      ),
       ZOEN_OIDC_AUDIENCE: oidcAudience,
       ZOEN_OIDC_ISSUER: oidcIssuer,
     },
     name: "zoend",
-    port: 58_103,
+    port: zoendPort,
   });
 }
 
@@ -416,7 +468,7 @@ export async function startResponseLossProxy(): Promise<ManagedProcess> {
     command: process.execPath,
     environment: {},
     name: "Action response-loss proxy",
-    port: 58_105,
+    port: responseLossProxyPort,
   });
 }
 
@@ -435,7 +487,7 @@ export async function startProviderResponseProxy(): Promise<ManagedProcess> {
       ZOEN_UPSTREAM_PROVIDER_BASE_URL: process.env.OPENCODE_BASE_URL ?? "",
     },
     name: "provider response proxy",
-    port: 58_107,
+    port: providerProxyPort,
   });
 }
 
@@ -470,7 +522,7 @@ export async function startWorker(
       ZOEN_AGENT_SERVICE_URL: agentBaseUrl,
     },
     name: "Restate agent worker",
-    port: 58_104,
+    port: workerPort,
   });
 }
 
@@ -497,7 +549,7 @@ export async function killWorker(process: ManagedProcess): Promise<void> {
 export async function registerWorker(): Promise<string> {
   const response = await fetch(`${restateAdmin}/deployments`, {
     body: JSON.stringify({
-      uri: "http://host.docker.internal:58104",
+      uri: `http://host.docker.internal:${workerPort}`,
     }),
     headers: { "content-type": "application/json" },
     method: "POST",
@@ -634,17 +686,15 @@ export async function disableCapability(alias: string): Promise<void> {
 }
 
 export async function injectCommitResponseLoss(): Promise<void> {
-  await postControl(
-    "http://127.0.0.1:58105/control/drop-next-commit-response",
-  );
+  await postControl(`${agentBaseUrl}/control/drop-next-commit-response`);
 }
 
 export async function releaseCommitRecovery(): Promise<void> {
-  await postControl("http://127.0.0.1:58105/control/release-recovery");
+  await postControl(`${agentBaseUrl}/control/release-recovery`);
 }
 
 export async function proxyStatus() {
-  const response = await fetch("http://127.0.0.1:58105/control/status");
+  const response = await fetch(`${agentBaseUrl}/control/status`);
   const body: unknown = await response.json();
   assert.equal(response.ok, true, JSON.stringify(body));
   return proxyStatusSchema.parse(body);

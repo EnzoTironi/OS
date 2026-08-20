@@ -8,6 +8,7 @@ set -euo pipefail
 # never share host ports or generated files with another scenario.
 
 scenario_table=(
+  "agent-capabilities-live:agent-capabilities-live:"
   "definition-publication::"
   "domain-quality:domain-quality:"
   "durable-commit:governed-action:failpoints"

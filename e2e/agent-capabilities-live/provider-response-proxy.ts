@@ -5,9 +5,10 @@ import {
   type ServerResponse,
 } from "node:http";
 import { z } from "zod";
+import { e2ePort } from "../host-env.js";
 
 const listenHost = "127.0.0.1";
-const listenPort = 58_107;
+const listenPort = e2ePort("ZOEN_E2E_PROVIDER_PORT", 58_154);
 const environment = z
   .object({
     ZOEN_UPSTREAM_PROVIDER_BASE_URL: z.url(),

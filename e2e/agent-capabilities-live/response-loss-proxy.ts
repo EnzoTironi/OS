@@ -4,11 +4,12 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { e2ePort } from "../host-env.js";
 
 const listenHost = "127.0.0.1";
-const listenPort = 58_105;
+const listenPort = e2ePort("ZOEN_E2E_CONNECTOR_PORT", 58_153);
 const targetHost = "127.0.0.1";
-const targetPort = 58_103;
+const targetPort = e2ePort("ZOEN_E2E_ZOEND_PORT", 58_151);
 const commitPath = "/zoen.action.v1.ActionService/Commit";
 const operationStatusPath =
   "/zoen.action.v1.ActionService/GetOperationStatus";
