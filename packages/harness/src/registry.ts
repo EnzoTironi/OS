@@ -1,6 +1,8 @@
 import {
   type CapabilityAlias,
   capabilityAliasForScope,
+  type EmbeddingProvider,
+  type EmbeddingProviderRoute,
   type ModelCapabilityAlias,
   type ModelPlanner,
   type ProviderRoute,
@@ -21,6 +23,16 @@ export type ProviderResolution =
       readonly kind: "unavailable";
     };
 
+export type EmbeddingProviderResolution =
+  | {
+      readonly kind: "available";
+      readonly provider: EmbeddingProvider;
+      readonly route: EmbeddingProviderRoute;
+    }
+  | {
+      readonly kind: "unavailable";
+    };
+
 interface ProviderRegistration {
   readonly planner: ModelPlanner;
   readonly route: ProviderRoute;
@@ -30,6 +42,13 @@ export class AgentRegistry {
   readonly #capabilityScopes = new Map<
     CapabilityAlias,
     SemanticCapabilityScope
+  >();
+  readonly #embeddingProviders = new Map<
+    string,
+    {
+      readonly provider: EmbeddingProvider;
+      readonly route: EmbeddingProviderRoute;
+    }
   >();
   readonly #providers = new Map<string, ProviderRegistration>();
 
@@ -64,6 +83,26 @@ export class AgentRegistry {
     });
   }
 
+  registerEmbeddingProvider(
+    provider: EmbeddingProvider,
+  ): Registration {
+    const { route } = provider;
+    if (this.#embeddingProviders.has(route.id)) {
+      throw new Error(`embedding provider route ${route.id} is already registered`);
+    }
+    for (const registered of this.#embeddingProviders.values()) {
+      if (registered.route.capability === route.capability) {
+        throw new Error(
+          `embedding capability ${route.capability} already has a provider route`,
+        );
+      }
+    }
+    this.#embeddingProviders.set(route.id, { provider, route });
+    return disposable(() => {
+      this.#embeddingProviders.delete(route.id);
+    });
+  }
+
   capabilityAliases(): readonly CapabilityAlias[] {
     return [...this.#capabilityScopes.keys()];
   }
@@ -73,7 +112,10 @@ export class AgentRegistry {
   }
 
   providerRouteIds(): readonly string[] {
-    return [...this.#providers.keys()];
+    return [
+      ...this.#providers.keys(),
+      ...this.#embeddingProviders.keys(),
+    ];
   }
 
   resolveProvider(modelCapability: ModelCapabilityAlias): ProviderResolution {
@@ -82,6 +124,21 @@ export class AgentRegistry {
         return {
           kind: "available",
           planner: provider.planner,
+          route: provider.route,
+        };
+      }
+    }
+    return { kind: "unavailable" };
+  }
+
+  resolveEmbeddingProvider(
+    modelCapability: ModelCapabilityAlias,
+  ): EmbeddingProviderResolution {
+    for (const provider of this.#embeddingProviders.values()) {
+      if (provider.route.capability === modelCapability) {
+        return {
+          kind: "available",
+          provider: provider.provider,
           route: provider.route,
         };
       }

@@ -33,8 +33,14 @@ const providerPortFallback = 58_114;
 const workerPortFallback = 58_115;
 const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 const connectorPort = e2ePort("ZOEN_E2E_CONNECTOR_PORT", connectorPortFallback);
-const providerPort = e2ePort("ZOEN_E2E_PROVIDER_PORT", providerPortFallback);
-const workerPort = e2ePort("ZOEN_E2E_WORKER_PORT", workerPortFallback);
+const providerPort = e2ePort(
+  "ZOEN_E2E_EFFECT_PROVIDER_PORT",
+  e2ePort("ZOEN_E2E_PROVIDER_PORT", providerPortFallback),
+);
+const workerPort = e2ePort(
+  "ZOEN_E2E_EFFECT_WORKER_PORT",
+  e2ePort("ZOEN_E2E_WORKER_PORT", workerPortFallback),
+);
 export const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
   "zoen_app",
@@ -66,8 +72,8 @@ export const connectorUrl = e2eHttpUrl(
   "/v1/effects",
 );
 export const providerUrl = e2eHttpUrl(
-  "ZOEN_E2E_PROVIDER_PORT",
-  providerPortFallback,
+  "ZOEN_E2E_EFFECT_PROVIDER_PORT",
+  providerPort,
   "/v1/operations",
 );
 export const connectorCallerToken = "connector-worker-token";
@@ -108,6 +114,7 @@ export interface ManagedProcess {
   child: ChildProcessWithoutNullStreams;
   name: string;
   output: string[];
+  stderr: string[];
 }
 
 export function adminClient(): PostgresClient {
@@ -166,7 +173,9 @@ export async function startFaultProvider(): Promise<ManagedProcess> {
     arguments: [
       path.join(distDirectory, "e2e", "effects", "fault-provider.js"),
     ],
-    environment: {},
+    environment: {
+      ZOEN_E2E_PROVIDER_PORT: providerPort.toString(),
+    },
     name: "fault provider",
     port: providerPort,
   });
@@ -310,11 +319,14 @@ export async function setProviderMode(
     | "timeout_after_delivery"
     | "unavailable",
 ): Promise<void> {
-  const response = await fetch(`${e2eHttpUrl("ZOEN_E2E_PROVIDER_PORT", providerPortFallback)}/control`, {
-    body: JSON.stringify({ mode }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
+  const response = await fetch(
+    `${e2eHttpUrl("ZOEN_E2E_EFFECT_PROVIDER_PORT", providerPort)}/control`,
+    {
+      body: JSON.stringify({ mode }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
   assert.equal(response.ok, true, await response.text());
 }
 
@@ -322,7 +334,7 @@ export async function providerOperation(
   idempotencyKey: string,
 ): Promise<ProviderOperation | undefined> {
   const response = await fetch(
-    `${e2eHttpUrl("ZOEN_E2E_PROVIDER_PORT", providerPortFallback)}/v1/operations/by-idempotency/${encodeURIComponent(idempotencyKey)}`,
+    `${e2eHttpUrl("ZOEN_E2E_EFFECT_PROVIDER_PORT", providerPort)}/v1/operations/by-idempotency/${encodeURIComponent(idempotencyKey)}`,
     { headers: { authorization: "Bearer provider-secret" } },
   );
   if (response.status === 404) {
@@ -399,6 +411,7 @@ async function startProcess(options: {
   port: number;
 }): Promise<ManagedProcess> {
   const output: string[] = [];
+  const stderr: string[] = [];
   const child = spawn(options.command, [...(options.arguments ?? [])], {
     cwd: repositoryRoot,
     env: { ...process.env, ...options.environment },
@@ -406,8 +419,12 @@ async function startProcess(options: {
   });
   child.stdin.end();
   child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  const managedProcess = { child, name: options.name, output };
+  child.stderr.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    output.push(text);
+    stderr.push(text);
+  });
+  const managedProcess = { child, name: options.name, output, stderr };
   await waitForPort(options.port, managedProcess);
   return managedProcess;
 }
