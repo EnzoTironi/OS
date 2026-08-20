@@ -269,6 +269,8 @@ export interface KnowledgeContextResult {
   readonly indexVersion: string;
   readonly lexicalRank: number | null;
   readonly lexicalScore: number | null;
+  readonly parserName: string;
+  readonly parserVersionDigest: string;
   readonly sourceDigest: string;
   readonly sourceId: string;
   readonly sourceRevision: string;

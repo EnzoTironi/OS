@@ -4,7 +4,11 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { getDocument, version as pdfjsVersion } from "pdfjs-dist/legacy/build/pdf.mjs";
+import {
+  formatFromBytes,
+  toMarkdownBytes,
+  type ConvertErrorCode,
+} from "@firecrawl/anydoc";
 import { Pool, type PoolClient } from "pg";
 import { z } from "zod";
 import { AgentRegistry } from "./registry.js";
@@ -25,6 +29,16 @@ const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const base64 = z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/);
 const scoreSchema = z.number().finite().nullable();
 const rankSchema = z.number().int().positive().nullable();
+const anydocParser = parserProvenance(
+  "@firecrawl/anydoc",
+  "0.2.0",
+  "gfm-v1",
+);
+const messageParser = parserProvenance(
+  "zoen-message-json",
+  "1.0.0",
+  "gfm-v1",
+);
 const messageSchema = z
   .object({
     channel: z.string().min(1).max(200),
@@ -62,6 +76,8 @@ export interface RawSourceObject {
   readonly filename: string;
   readonly mediaType: string;
   readonly objectKey: string;
+  readonly parserName: string;
+  readonly parserVersionDigest: string;
   readonly sourceId: string;
   readonly sourceRevision: string;
   readonly tenantId: string;
@@ -73,6 +89,8 @@ export interface ExtractedFragment {
   readonly fragmentId: string;
   readonly indexVersion: string;
   readonly ordinal: number;
+  readonly parserName: string;
+  readonly parserVersionDigest: string;
   readonly sourceId: string;
   readonly sourceRevision: string;
   readonly tenantId: string;
@@ -102,6 +120,8 @@ interface StoredSourceRow {
   readonly filename: string;
   readonly media_type: string;
   readonly object_key: string;
+  readonly parser_name: string;
+  readonly parser_version_digest: string;
   readonly source_id: string;
   readonly source_revision: string;
   readonly tenant_id: string;
@@ -114,6 +134,8 @@ interface RetrievalRow {
   readonly index_version: string;
   readonly lexical_rank: string | null;
   readonly lexical_score: number | null;
+  readonly parser_name: string;
+  readonly parser_version_digest: string;
   readonly source_digest: string;
   readonly source_id: string;
   readonly source_revision: string;
@@ -159,6 +181,8 @@ export class CompanyBrain {
         content_digest TEXT NOT NULL,
         object_key TEXT NOT NULL,
         extraction_version TEXT NOT NULL,
+        parser_name TEXT NOT NULL,
+        parser_version_digest TEXT NOT NULL,
         status TEXT NOT NULL,
         failure_code TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -175,6 +199,8 @@ export class CompanyBrain {
         ordinal INTEGER NOT NULL,
         text TEXT NOT NULL,
         extraction_version TEXT NOT NULL,
+        parser_name TEXT NOT NULL,
+        parser_version_digest TEXT NOT NULL,
         index_version TEXT NOT NULL,
         embedding_model_id TEXT NOT NULL,
         embedding_model_revision TEXT NOT NULL,
@@ -291,6 +317,8 @@ export class CompanyBrain {
                fragment.fragment_digest,
                fragment.text,
                fragment.extraction_version,
+               fragment.parser_name,
+               fragment.parser_version_digest,
                fragment.index_version,
                source.source_id,
                source.source_revision,
@@ -432,16 +460,22 @@ export class CompanyBrain {
           content_digest,
           object_key,
           extraction_version,
+          parser_name,
+          parser_version_digest,
           status,
           failure_code
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NULL)
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', NULL
+        )
         ON CONFLICT (tenant_id, source_id, source_revision)
         DO UPDATE SET
           filename = EXCLUDED.filename,
           media_type = EXCLUDED.media_type,
           object_key = EXCLUDED.object_key,
           extraction_version = EXCLUDED.extraction_version,
+          parser_name = EXCLUDED.parser_name,
+          parser_version_digest = EXCLUDED.parser_version_digest,
           status = 'pending',
           failure_code = NULL,
           updated_at = clock_timestamp()
@@ -456,6 +490,8 @@ export class CompanyBrain {
         source.contentDigest,
         source.objectKey,
         source.extractionVersion,
+        source.parserName,
+        source.parserVersionDigest,
       ],
     );
     const body = sourceBytes(input);
@@ -495,14 +531,12 @@ export class CompanyBrain {
     }
     const texts =
       source.mediaType === "application/pdf"
-        ? await extractPdf(bytes)
+        ? [await extractPdfMarkdown(bytes)]
         : extractMessage(bytes);
     if (texts.length === 0) {
       throw new Error("source extraction produced no text fragments");
     }
-    return texts.map((text, ordinal) =>
-      fragmentFor(source, normalizeText(text), ordinal),
-    );
+    return texts.map((text, ordinal) => fragmentFor(source, text.trim(), ordinal));
   }
 
   private async index(
@@ -601,7 +635,8 @@ export class CompanyBrain {
     const result = await this.#pool.query<StoredSourceRow>(
       `
         SELECT tenant_id, source_id, source_revision, filename, media_type,
-               content_digest, object_key, extraction_version
+               content_digest, object_key, extraction_version,
+               parser_name, parser_version_digest
         FROM company_sources
         WHERE tenant_id = $1
           AND source_id = $2
@@ -619,6 +654,8 @@ export class CompanyBrain {
       filename: row.filename,
       mediaType: row.media_type,
       objectKey: row.object_key,
+      parserName: row.parser_name,
+      parserVersionDigest: row.parser_version_digest,
       sourceId: row.source_id,
       sourceRevision: row.source_revision,
       tenantId: row.tenant_id,
@@ -662,6 +699,8 @@ async function insertFragment(
         ordinal,
         text,
         extraction_version,
+        parser_name,
+        parser_version_digest,
         index_version,
         embedding_model_id,
         embedding_model_revision,
@@ -669,7 +708,7 @@ async function insertFragment(
         embedding
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::vector
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::vector
       )
     `,
     [
@@ -681,6 +720,8 @@ async function insertFragment(
       fragment.ordinal,
       fragment.text,
       fragment.extractionVersion,
+      fragment.parserName,
+      fragment.parserVersionDigest,
       fragment.indexVersion,
       embedding.route.modelId,
       embedding.route.modelRevision,
@@ -693,16 +734,17 @@ async function insertFragment(
 function rawSource(tenantId: string, input: SourceInput): RawSourceObject {
   const bytes = sourceBytes(input);
   const contentDigest = sha256(bytes);
-  const extractionVersion =
-    input.kind === "pdf" ? `pdfjs-${pdfjsVersion}` : "message-v1";
+  const parser = input.kind === "pdf" ? anydocParser : messageParser;
   const mediaType =
     input.kind === "pdf" ? "application/pdf" : "application/vnd.zoen.message+json";
   return {
     contentDigest,
-    extractionVersion,
+    extractionVersion: parser.extractionVersion,
     filename: input.filename,
     mediaType,
     objectKey: `company-brain/${tenantId}/${contentDigest}`,
+    parserName: parser.name,
+    parserVersionDigest: parser.versionDigest,
     sourceId: input.sourceId,
     sourceRevision: contentDigest,
     tenantId,
@@ -731,28 +773,25 @@ function sourceBytes(input: SourceInput): Uint8Array {
   }
 }
 
-async function extractPdf(bytes: Uint8Array): Promise<readonly string[]> {
-  const loading = getDocument({
-    data: bytes,
-    useSystemFonts: true,
-  });
-  const document = await loading.promise;
-  try {
-    const pages: string[] = [];
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const text = content.items
-        .map((item) => ("str" in item ? item.str : ""))
-        .join(" ");
-      if (normalizeText(text).length > 0) {
-        pages.push(text);
-      }
-    }
-    return pages;
-  } finally {
-    await loading.destroy();
+export interface ConvertError extends Error {
+  readonly code: ConvertErrorCode;
+}
+
+export async function extractPdfMarkdown(bytes: Uint8Array): Promise<string> {
+  if (formatFromBytes(bytes) !== "pdf") {
+    throw convertError(
+      "unsupported",
+      "source bytes do not contain a supported PDF signature",
+    );
   }
+  const markdown = (await toMarkdownBytes(bytes, "pdf")).trim();
+  if (markdown.length === 0) {
+    throw convertError(
+      "unsupported",
+      "PDF contains no extractable text and may require OCR",
+    );
+  }
+  return markdown;
 }
 
 function extractMessage(bytes: Uint8Array): readonly string[] {
@@ -792,6 +831,8 @@ function fragmentFor(
     fragmentId,
     indexVersion: companyBrainIndexVersion,
     ordinal,
+    parserName: source.parserName,
+    parserVersionDigest: source.parserVersionDigest,
     sourceId: source.sourceId,
     sourceRevision: source.sourceRevision,
     tenantId: source.tenantId,
@@ -808,6 +849,8 @@ function retrievalResult(row: RetrievalRow): KnowledgeContextResult {
       row.lexical_rank === null ? null : Number(row.lexical_rank),
     ),
     lexicalScore: scoreSchema.parse(row.lexical_score),
+    parserName: row.parser_name,
+    parserVersionDigest: digest.parse(row.parser_version_digest),
     sourceDigest: digest.parse(row.source_digest),
     sourceId: identifier.parse(row.source_id),
     sourceRevision: digest.parse(row.source_revision),
@@ -826,11 +869,12 @@ function vectorLiteral(vector: readonly number[]): string {
   return `[${vector.join(",")}]`;
 }
 
-function normalizeText(value: string): string {
-  return value.replace(/\s+/gu, " ").trim();
-}
-
 function failureCode(error: unknown): string {
+  if (isConvertError(error)) {
+    return error.code === "unsupported"
+      ? "unsupported_source"
+      : `convert_${error.code}`;
+  }
   if (error instanceof Error) {
     if (/embedding provider/u.test(error.message)) {
       return "embedding_provider_unavailable";
@@ -840,6 +884,41 @@ function failureCode(error: unknown): string {
     }
   }
   return "ingestion_failed";
+}
+
+function parserProvenance(
+  name: string,
+  version: string,
+  renderer: string,
+): {
+  readonly extractionVersion: string;
+  readonly name: string;
+  readonly versionDigest: string;
+} {
+  return {
+    extractionVersion: `${name}@${version}:${renderer}`,
+    name,
+    versionDigest: sha256(`${name}\0${version}\0${renderer}`),
+  };
+}
+
+function convertError(code: ConvertErrorCode, message: string): ConvertError {
+  return Object.assign(new Error(message), { code });
+}
+
+function isConvertError(error: unknown): error is ConvertError {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    [
+      "encrypted",
+      "io",
+      "malformed",
+      "missingPart",
+      "resourceLimit",
+      "unsupported",
+    ].includes(String(error.code))
+  );
 }
 
 function sha256(value: string | Uint8Array): string {
