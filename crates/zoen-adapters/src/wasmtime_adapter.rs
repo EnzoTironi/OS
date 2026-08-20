@@ -694,16 +694,61 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use wasmtime::{Config, Engine, Instance, Module, Store, Trap};
+    use wasmtime::component::{Component, Linker as ComponentLinker};
+    use wasmtime::{
+        Config, Engine, Instance, Module, Store, StoreLimits, StoreLimitsBuilder, Trap,
+    };
     use zoen_engine::ComputationOutcome;
 
     use super::{EpochClock, classify_runtime_error};
 
+    const ABORT_COMPONENT: &[u8] = &[
+        0, 97, 115, 109, 13, 0, 1, 0, 1, 52, 0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2,
+        1, 0, 7, 9, 1, 5, 97, 98, 111, 114, 116, 0, 0, 10, 5, 1, 3, 0, 0, 11, 0, 14, 4, 110, 97,
+        109, 101, 0, 7, 6, 109, 111, 100, 117, 108, 101, 2, 4, 1, 0, 0, 0, 7, 5, 1, 64, 0, 1, 0, 6,
+        11, 1, 0, 0, 1, 0, 5, 97, 98, 111, 114, 116, 8, 6, 1, 0, 0, 0, 0, 0, 11, 11, 1, 0, 5, 97,
+        98, 111, 114, 116, 1, 0, 0, 0, 43, 14, 99, 111, 109, 112, 111, 110, 101, 110, 116, 45, 110,
+        97, 109, 101, 1, 11, 0, 17, 1, 0, 6, 109, 111, 100, 117, 108, 101, 1, 13, 0, 18, 1, 0, 8,
+        105, 110, 115, 116, 97, 110, 99, 101,
+    ];
+    const GROW_COMPONENT: &[u8] = &[
+        0, 97, 115, 109, 13, 0, 1, 0, 1, 65, 0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2,
+        1, 0, 5, 3, 1, 0, 1, 7, 8, 1, 4, 103, 114, 111, 119, 0, 0, 10, 14, 1, 12, 0, 3, 64, 65, 1,
+        64, 0, 26, 12, 0, 11, 11, 0, 14, 4, 110, 97, 109, 101, 0, 7, 6, 109, 111, 100, 117, 108,
+        101, 2, 4, 1, 0, 0, 0, 7, 5, 1, 64, 0, 1, 0, 6, 10, 1, 0, 0, 1, 0, 4, 103, 114, 111, 119,
+        8, 6, 1, 0, 0, 0, 0, 0, 11, 10, 1, 0, 4, 103, 114, 111, 119, 1, 0, 0, 0, 43, 14, 99, 111,
+        109, 112, 111, 110, 101, 110, 116, 45, 110, 97, 109, 101, 1, 11, 0, 17, 1, 0, 6, 109, 111,
+        100, 117, 108, 101, 1, 13, 0, 18, 1, 0, 8, 105, 110, 115, 116, 97, 110, 99, 101,
+    ];
     const TIGHT_LOOP_MODULE: &[u8] = &[
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03,
         0x02, 0x01, 0x00, 0x07, 0x08, 0x01, 0x04, 0x73, 0x70, 0x69, 0x6e, 0x00, 0x00, 0x0a, 0x09,
         0x01, 0x07, 0x00, 0x03, 0x40, 0x0c, 0x00, 0x0b, 0x0b,
     ];
+
+    struct ComponentStore {
+        limits: StoreLimits,
+    }
+
+    #[tokio::test]
+    async fn component_memory_limit_and_abort_errors_are_distinct() {
+        let memory_error = run_component(GROW_COMPONENT, "grow").await;
+        let abort_error = run_component(ABORT_COMPONENT, "abort").await;
+
+        println!("memory display: {memory_error}");
+        println!("memory debug: {memory_error:?}");
+        println!("abort display: {abort_error}");
+        println!("abort debug: {abort_error:?}");
+
+        assert!(matches!(
+            classify_runtime_error(&memory_error, false),
+            ComputationOutcome::MemoryLimitExceeded
+        ));
+        assert!(matches!(
+            classify_runtime_error(&abort_error, false),
+            ComputationOutcome::TrapBeforeActionRequest
+        ));
+    }
 
     #[test]
     fn independent_epoch_clock_interrupts_single_worker_guest() {
@@ -721,6 +766,37 @@ mod tests {
         ));
         let outcome = classify_runtime_error(&error, false);
         assert!(matches!(outcome, ComputationOutcome::DeadlineExceeded));
+    }
+
+    async fn run_component(bytes: &[u8], export: &str) -> wasmtime::Error {
+        let mut config = Config::new();
+        config.async_support(true);
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).expect("Wasmtime engine must initialize");
+        let component =
+            Component::new(&engine, bytes).expect("test component must compile successfully");
+        let linker = ComponentLinker::new(&engine);
+        let mut store = Store::new(
+            &engine,
+            ComponentStore {
+                limits: StoreLimitsBuilder::new()
+                    .memory_size(2 * 1024 * 1024)
+                    .trap_on_grow_failure(true)
+                    .build(),
+            },
+        );
+        store.limiter(|state| &mut state.limits);
+        let instance = linker
+            .instantiate_async(&mut store, &component)
+            .await
+            .expect("test component must instantiate");
+        let function = instance
+            .get_typed_func::<(), ()>(&mut store, export)
+            .expect("test component export must match");
+        function
+            .call_async(&mut store, ())
+            .await
+            .expect_err("test component must trap")
     }
 
     fn run_tight_loop() -> wasmtime::Error {
