@@ -265,6 +265,33 @@ test("unknown rewritten tool names are rejected as not visible", async () => {
   }
 });
 
+test("missing tool names are invalid arguments, not visibility misses", async () => {
+  const request: PlanningRequest = {
+    actions: [action],
+    instruction: "Request one unit.",
+    queries: [],
+  };
+
+  for (const toolName of ["", undefined]) {
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        const error = new InvalidToolInputError({
+          cause: new Error("invalid tool input"),
+          toolInput: "{}",
+          toolName: toolName ?? "",
+        });
+        Object.defineProperty(error, "toolName", { value: toolName });
+        throw error;
+      },
+    });
+    assert.deepEqual(await new AiSdkPlanner(model).plan(request), {
+      kind: "rejected",
+      promptDigest: planningRequestDigest(request),
+      reason: "invalid_arguments",
+    });
+  }
+});
+
 class FixedPlanner implements ModelPlanner {
   readonly #providerCallId: string;
 

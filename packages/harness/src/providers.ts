@@ -110,14 +110,16 @@ export class AiSdkPlanner implements ModelPlanner {
         };
       }
       if (InvalidToolInputError.isInstance(error)) {
+        const toolName = error.toolName;
         return {
           kind: "rejected",
           promptDigest,
-          reason: request.actions.some(
-            (action) => action.alias === error.toolName,
-          )
-            ? "invalid_arguments"
-            : "action_not_visible",
+          reason:
+            typeof toolName === "string" &&
+            toolName.length > 0 &&
+            !request.actions.some((action) => action.alias === toolName)
+              ? "action_not_visible"
+              : "invalid_arguments",
         };
       }
       throw error;
