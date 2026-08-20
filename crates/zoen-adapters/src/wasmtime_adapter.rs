@@ -121,7 +121,7 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
         let (stored_interface, bytes) =
             wasm_store::load_component(&self.pool, context, &request.component_digest).await?;
         match wasm_store::begin_execution(&self.pool, context, &request).await? {
-            BeginExecution::Completed(execution) => return Ok(execution),
+            BeginExecution::Completed(execution) => return Ok(*execution),
             BeginExecution::Run => {}
         }
         if stored_interface != *request.manifest.interface()

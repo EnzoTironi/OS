@@ -15,7 +15,7 @@ use zoen_engine::{
 use crate::{set_tenant, u64_to_i64};
 
 pub(crate) enum BeginExecution {
-    Completed(ComputationExecution),
+    Completed(Box<ComputationExecution>),
     Run,
 }
 
@@ -182,11 +182,11 @@ pub(crate) async fn begin_execution(
                 .map_err(|error| ComputationError::Store(error.to_string()))?;
             let stored = serde_json::from_value::<StoredOutcome>(value)
                 .map_err(|error| ComputationError::Store(error.to_string()))?;
-            BeginExecution::Completed(ComputationExecution {
+            BeginExecution::Completed(Box::new(ComputationExecution {
                 evidence: request.evidence(),
                 outcome: stored.try_into()?,
                 request_digest: request.request_digest(),
-            })
+            }))
         } else if status == "running" {
             BeginExecution::Run
         } else {
