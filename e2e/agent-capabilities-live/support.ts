@@ -157,9 +157,18 @@ const providerProxyStatusSchema = z
   .object({
     actionRefMutations: z.number().int().nonnegative(),
     identityMutations: z.number().int().nonnegative(),
+    lastProxyError: z.string().nullable(),
+    lastProxyStatus: z.number().int().nullable(),
+    lastRateLimitRetryDelayMs: z.number().int().nonnegative().nullable(),
+    lastUpstreamAttempts: z.number().int().nonnegative(),
+    lastUpstreamBodyHadToolCalls: z.boolean().nullable(),
+    lastUpstreamStatus: z.number().int().nullable(),
     mutationPending: z.boolean(),
     providerCalls: z.number().int().nonnegative(),
     providerCallsAtLastMutation: z.number().int().nonnegative(),
+    providerResponsesWithToolCalls: z.number().int().nonnegative(),
+    rateLimitRetries: z.number().int().nonnegative(),
+    upstreamAttempts: z.number().int().nonnegative(),
   })
   .strict();
 const workerHealthSchema = z
@@ -724,6 +733,12 @@ export async function injectProviderResponseMutation(
   mutation: ProviderResponseMutation,
 ): Promise<void> {
   await postControl(`${providerProxyBaseUrl}/control/mutate-next`, mutation);
+}
+
+export async function clearProviderResponseMutation(): Promise<void> {
+  await postControl(
+    `${providerProxyBaseUrl}/control/clear-pending-mutation`,
+  );
 }
 
 export async function invokeAgentOnlyBusinessHandler(

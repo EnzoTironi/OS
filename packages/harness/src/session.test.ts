@@ -156,6 +156,30 @@ test("out-of-scope Action plans are terminal", async () => {
   assert.equal(authority.commitCalls, 0);
 });
 
+test("unexpected provider failures become model errors", async () => {
+  const authority = new FixedAuthority({
+    kind: "ready",
+    intentDigest: "c".repeat(64),
+    policy,
+    proposalId: command.proposalId,
+  });
+  const planner: ModelPlanner = {
+    plan: () => Promise.reject(new Error("provider failed")),
+  };
+  const result = await runAgentSession(
+    runtime(authority, planner).runtime,
+    command,
+    new RecordingJournal(),
+  );
+  assert.deepEqual(result, {
+    kind: "model_error",
+    reason: "provider_call_failed",
+    sessionId: command.sessionId,
+    taskId: command.task.taskId,
+  });
+  assert.equal(authority.commitCalls, 0);
+});
+
 test("approval and deny policy outcomes stop before commit", async () => {
   for (const proposal of [
     {

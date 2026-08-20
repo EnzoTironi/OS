@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { AgentSessionResult } from "../../packages/harness/src/index.js";
 import {
+  clearProviderResponseMutation,
   deniedResourceId,
   injectProviderResponseMutation,
   invokeAgentOnlyBusinessHandler,
@@ -15,6 +16,8 @@ import {
   type AdminClient,
   type ProviderResponseMutation,
 } from "./support.js";
+
+const illegalPathCooldownMs = 20_000;
 
 export interface IllegalPathEvidence {
   readonly agentOnlyBusinessHandlerRejected: boolean;
@@ -84,6 +87,7 @@ export async function exerciseIllegalPaths(
     },
     suffix: "invented-action-ref",
   });
+  await sleep(illegalPathCooldownMs);
   const outOfScopeActionRef = await runMutatedSession(options, {
     modelCapability: "reasoning-fast",
     mutation: {
@@ -95,6 +99,7 @@ export async function exerciseIllegalPaths(
     },
     suffix: "out-of-scope-action-ref",
   });
+  await sleep(illegalPathCooldownMs);
   const providerSpecificActionRefDrift = await runMutatedSession(options, {
     modelCapability: "reasoning-high",
     mutation: {
@@ -103,6 +108,7 @@ export async function exerciseIllegalPaths(
     },
     suffix: "provider-specific-action-ref-drift",
   });
+  await sleep(illegalPathCooldownMs);
   const liveModelIdentityInjection = await runMutatedSession(options, {
     modelCapability: "reasoning-fast",
     mutation: {
@@ -181,7 +187,13 @@ async function runMutatedSession(
     suffix: scenario.suffix,
   });
   const result = await invokeSession(command, options.bindingKey);
-  const after = await providerProxyStatus();
+  const afterSession = await providerProxyStatus();
+  if (afterSession.mutationPending) {
+    await clearProviderResponseMutation();
+  }
+  const after = afterSession.mutationPending
+    ? await providerProxyStatus()
+    : afterSession;
   const operations = await operationEvidence(
     options.admin,
     tenantA,
@@ -208,9 +220,13 @@ async function runMutatedSession(
   assert.equal(
     mutationCount(evidence, scenario.mutation.kind),
     1,
-    `${scenario.suffix} did not mutate exactly one provider response: ${JSON.stringify(result)}`,
+    `${scenario.suffix} did not mutate exactly one provider response: ${JSON.stringify({ provider: afterSession, result })}`,
   );
   return evidence;
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 function terminalInvalidPlan(
