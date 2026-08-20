@@ -226,7 +226,18 @@ async function main(): Promise<void> {
     await proxy.waitForBlockedStatus();
     proxy.allowStatusRecovery();
     await page.reload();
-    await page.getByText(/Committed locally at sequence/u).first().waitFor();
+    try {
+      await page.getByText(/Committed locally at sequence/u).first().waitFor();
+    } catch (cause: unknown) {
+      throw new Error(
+        [
+          "RECOVERY_VIEW_FAILED",
+          await page.locator("body").innerText(),
+          `Protocol requests:\n${proxy.requests.join("\n")}`,
+        ].join("\n\n"),
+        { cause },
+      );
+    }
 
     const callsAfterReload = (await providerProxyStatus()).providerCalls;
     observe(

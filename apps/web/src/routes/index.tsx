@@ -537,13 +537,23 @@ async function recoverStoredActions(
     }
     try {
       const recovered = await recoverAuthorityAction(client, session.identity);
-      if (recovered?.kind === "committed") {
-        actions[binding.id] = recovered;
+      if (recovered?.kind !== "committed") {
+        actions[binding.id] = {
+          kind: "recovering",
+          operationId: session.identity.operationId,
+          proposalId: session.identity.proposalId,
+        };
+        continue;
+      }
+      actions[binding.id] = recovered;
+      committedSequences.push(recovered.commitSequence);
+      try {
         history[binding.id] = await operationHistory(
           client,
           recovered.operationId,
         );
-        committedSequences.push(recovered.commitSequence);
+      } catch {
+        history[binding.id] = [];
       }
       clearStoredActionSession(
         { client, document },
