@@ -283,7 +283,14 @@ async function verifyInitialSurface(
 ): Promise<void> {
   const jsonRenderer = page.locator('[data-renderer="json-render"]');
   const referenceRenderer = page.locator('[data-renderer="reference"]');
-  await jsonRenderer.locator("form").waitFor();
+  try {
+    await jsonRenderer.locator("form").waitFor();
+  } catch (cause: unknown) {
+    throw new Error(
+      `Surface renderers did not produce the Action form:\n${await page.locator("body").innerText()}`,
+      { cause },
+    );
+  }
   const jsonInput = jsonRenderer.locator('input[name="quantity"]');
   const referenceInput = referenceRenderer.locator('input[name="quantity"]');
   observe(
