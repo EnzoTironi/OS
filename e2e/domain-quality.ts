@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
@@ -11,6 +10,7 @@ import {
 import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
   actionClient,
+  activateDefinition,
   adminClient,
   command,
   compileQuality,
@@ -75,6 +75,7 @@ import {
   yearEnd,
   yearStart,
 } from "./domain-quality/laws.js";
+import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -126,17 +127,21 @@ async function main(): Promise<void> {
     "policy.lab.quarantine",
     8,
   );
+  const activationPolicy = await loadPolicy(
+    "activation.cedar",
+    "zoen.definition.activate",
+    "policy.quality.activate",
+    1,
+  );
   const initialPolicies = [
     releasePolicy,
     quarantinePolicy,
     remappedReleasePolicy,
     remappedQuarantinePolicy,
+    activationPolicy,
   ];
   const policyManifestPath = path.join(
-    repositoryRoot,
-    "e2e",
-    "domain-quality",
-    ".generated",
+    e2eGeneratedDirectory(repositoryRoot, "domain-quality"),
     "policies.json",
   );
   await writeQualityPolicies(
@@ -194,6 +199,8 @@ async function main(): Promise<void> {
       tenantB,
       remapped,
     );
+    await activateDefinition(definitionA, tenantA, quality);
+    await activateDefinition(definitionB, tenantB, remapped);
     observe(
       "qualityPackagesPublishedThroughDefinitionService",
       definitionACommit > 0n &&
@@ -920,11 +927,7 @@ async function main(): Promise<void> {
       startedAt,
       tenants: [tenantA, tenantB],
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "domain-quality.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "domain-quality", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     await admin.end();

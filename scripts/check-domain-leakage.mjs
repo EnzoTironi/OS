@@ -67,9 +67,11 @@ async function rustFiles(root) {
     entry.map(async (item) => {
       const itemPath = path.join(root, item.name);
       if (item.isDirectory()) {
-        return rustFiles(itemPath);
+        return item.name === "tests" ? [] : rustFiles(itemPath);
       }
-      return item.isFile() && item.name.endsWith(".rs") ? [itemPath] : [];
+      return item.isFile() && item.name.endsWith(".rs") && item.name !== "tests.rs"
+        ? [itemPath]
+        : [];
     }),
   );
   return files.flat();
@@ -81,7 +83,7 @@ function productionSource(source, file) {
     return source;
   }
   const testModule = source.slice(marker);
-  if (!/^#\[cfg\(test\)\]\s*mod\s+tests\s*\{/u.test(testModule)) {
+  if (!/^#\[cfg\(test\)\]\s*mod\s+tests\s*(?:;|\{)/u.test(testModule)) {
     throw new Error(
       `${path.relative(repositoryRoot, file)} has an unsupported cfg(test) item`,
     );

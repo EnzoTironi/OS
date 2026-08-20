@@ -1,11 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const outputDirectory = path.join(
-  "e2e",
-  "evolution-compatible",
-  ".generated",
-);
+const outputDirectory =
+  process.env.ZOEN_E2E_GENERATED_DIR ??
+  path.join("e2e", "evolution-compatible", ".generated");
 const farFuture = 4_102_444_800;
 const actionIds = ["inventory.replenish", "zoen.definition.activate"];
 const resourceIds = ["inventory.definition", "inventory.item.1"];

@@ -17,6 +17,13 @@ import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import { DefinitionService } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+import {
+  e2eHttpUrl,
+  e2eListenAddr,
+  e2ePort,
+  e2ePostgresUrl,
+  writeScenarioArtifact,
+} from "./host-env.js";
 
 const repositoryRoot = process.cwd();
 const fixtureDirectory = path.join(
@@ -34,11 +41,20 @@ const compilerPath = path.join(
   "cli.js",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
-const applicationDatabaseUrl =
-  "postgres://zoen_app:zoen_app@127.0.0.1:55432/zoen";
-const adminDatabaseUrl =
-  "postgres://postgres:postgres@127.0.0.1:55432/zoen";
-const baseUrl = "http://127.0.0.1:58080";
+const postgresPortFallback = 55_432;
+const zoendPortFallback = 58_080;
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const applicationDatabaseUrl = e2ePostgresUrl(
+  "zoen_app",
+  "zoen_app",
+  postgresPortFallback,
+);
+const adminDatabaseUrl = e2ePostgresUrl(
+  "postgres",
+  "postgres",
+  postgresPortFallback,
+);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 const tenantA = "tenant.a";
 const tenantB = "tenant.b";
 const tokenA = "definition-session-a";
@@ -341,11 +357,7 @@ async function main(): Promise<void> {
       sourceCommit,
       startedAt,
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "definition-publication.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "definition-publication", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     await admin.end();
@@ -439,7 +451,7 @@ async function startServer(): Promise<ServerProcess> {
     env: {
       ...process.env,
       DATABASE_URL: applicationDatabaseUrl,
-      ZOEN_LISTEN_ADDR: "127.0.0.1:58080",
+      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
       ZOEN_SESSION_TOKENS: JSON.stringify({
         [tokenA]: tenantA,
         [tokenB]: tenantB,
@@ -467,12 +479,12 @@ async function waitForPort(
     }
     await delay(100);
   }
-  throw new Error(`zoend did not listen on port 58080:\n${output.join("")}`);
+  throw new Error(`zoend did not listen on port ${zoendPort}:\n${output.join("")}`);
 }
 
 function canConnect(): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port: 58080 });
+    const socket = createConnection({ host: "127.0.0.1", port: zoendPort });
     let settled = false;
     const finish = (connected: boolean) => {
       if (!settled) {

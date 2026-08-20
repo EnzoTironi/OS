@@ -1,113 +1,229 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-scenario="${1:-}"
+# Ticket command stays `just e2e <scenario>` (check + native build + run).
+# `just verify` runs check and native build once, then each scenario runner.
+# `just e2e-run` executes a built workspace against Compose and does not lint.
+# Each scenario loads `e2e/<scenario>/.env` so Compose, zoend, and artifacts
+# never share host ports or generated files with another scenario.
+
+scenario_table=(
+  "definition-publication::"
+  "domain-quality:domain-quality:"
+  "durable-commit:governed-action:failpoints"
+  "effects:governed-action:"
+  "evolution-breaking:evolution-breaking:"
+  "evolution-compatible:evolution-compatible:"
+  "explain:governed-action:"
+  "governed-action:governed-action:"
+  "semantic-query::"
+)
+
+scenario=""
+compose_file=""
+project=""
+runner=""
 generated_directory=""
 prepare=""
-case "$scenario" in
-  definition-publication)
-    compose_file="e2e/definition-publication/compose.yaml"
-    project="zoen-definition-publication"
-    runner="dist/e2e/definition-publication.js"
-    ;;
-  semantic-query)
-    compose_file="e2e/semantic-query/compose.yaml"
-    project="zoen-semantic-query"
-    runner="dist/e2e/semantic-query.js"
-    ;;
-  governed-action)
-    compose_file="e2e/governed-action/compose.yaml"
-    generated_directory="e2e/governed-action/.generated"
-    prepare="e2e/governed-action/prepare-realm.mjs"
-    project="zoen-governed-action"
-    runner="dist/e2e/governed-action.js"
-    ;;
-  durable-commit)
-    compose_file="e2e/durable-commit/compose.yaml"
-    generated_directory="e2e/governed-action/.generated"
-    prepare="e2e/governed-action/prepare-realm.mjs"
-    project="zoen-durable-commit"
-    runner="dist/e2e/durable-commit.js"
-    ;;
-  effects)
-    compose_file="e2e/effects/compose.yaml"
-    generated_directory="e2e/governed-action/.generated"
-    prepare="e2e/governed-action/prepare-realm.mjs"
-    project="zoen-effects"
-    runner="dist/e2e/effects.js"
-    ;;
-  agent-capabilities-live)
-    compose_file="e2e/agent-capabilities-live/compose.yaml"
-    generated_directory="e2e/agent-capabilities-live/.generated"
-    prepare="e2e/agent-capabilities-live/prepare-realm.mjs"
-    project="zoen-agent-capabilities-live"
-    runner="dist/e2e/agent-capabilities-live.js"
-    ;;
-  explain)
-    compose_file="e2e/explain/compose.yaml"
-    generated_directory="e2e/governed-action/.generated"
-    prepare="e2e/governed-action/prepare-realm.mjs"
-    project="zoen-explain"
-    runner="dist/e2e/explain.js"
-    ;;
-  domain-quality)
-    compose_file="e2e/domain-quality/compose.yaml"
-    generated_directory="e2e/domain-quality/.generated"
-    prepare="e2e/domain-quality/prepare-realm.mjs"
-    project="zoen-domain-quality"
-    runner="dist/e2e/domain-quality.js"
-    ;;
-  evolution-compatible)
-    compose_file="e2e/evolution-compatible/compose.yaml"
-    generated_directory="e2e/evolution-compatible/.generated"
-    prepare="e2e/evolution-compatible/prepare-realm.mjs"
-    project="zoen-evolution-compatible"
-    runner="dist/e2e/evolution-compatible.js"
-    ;;
-  evolution-breaking)
-    compose_file="e2e/evolution-breaking/compose.yaml"
-    generated_directory="e2e/evolution-breaking/.generated"
-    prepare="e2e/evolution-breaking/prepare-realm.mjs"
-    project="zoen-evolution-breaking"
-    runner="dist/e2e/evolution-breaking.js"
-    ;;
-  *)
-    echo "usage: just e2e <agent-capabilities-live|definition-publication|domain-quality|durable-commit|effects|evolution-breaking|evolution-compatible|explain|governed-action|semantic-query>" >&2
-    exit 2
-    ;;
-esac
 
-cleanup() {
+usage() {
+  local row
+  local names=()
+  for row in "${scenario_table[@]}"; do
+    names+=("${row%%:*}")
+  done
+  echo "usage: just lint" >&2
+  echo "       just clippy" >&2
+  echo "       just check" >&2
+  echo "       just build [scenario|all]" >&2
+  echo "       just e2e-run <scenario>" >&2
+  echo "       just e2e <scenario>" >&2
+  echo "       just verify" >&2
+  echo "scenarios: ${names[*]}" >&2
+  exit 2
+}
+
+load_scenario_env() {
+  local env_file="e2e/${scenario}/.env"
+  if [[ ! -f "$env_file" ]]; then
+    echo "missing ${env_file}" >&2
+    exit 1
+  fi
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+  export ZOEN_E2E_ARTIFACTS_DIR="artifacts/${scenario}"
+  export ZOEN_E2E_GENERATED_DIR="e2e/${scenario}/.generated"
+  generated_directory="${ZOEN_E2E_GENERATED_DIR}"
+}
+
+resolve_scenario() {
+  local candidate="${1:-}"
+  local row
+  local name
+  local realm
+  for row in "${scenario_table[@]}"; do
+    IFS=: read -r name realm _ <<< "$row"
+    if [[ "$name" == "$candidate" ]]; then
+      scenario="$name"
+      compose_file="e2e/${scenario}/compose.yaml"
+      project="zoen-${scenario}"
+      runner="dist/e2e/${scenario}.js"
+      prepare=""
+      if [[ -n "$realm" ]]; then
+        prepare="e2e/${realm}/prepare-realm.mjs"
+      fi
+      load_scenario_env
+      return
+    fi
+  done
+  usage
+}
+
+build_needs_failpoints() {
+  local target="$1"
+  local row
+  local name
+  local variant
+  for row in "${scenario_table[@]}"; do
+    IFS=: read -r name _ variant <<< "$row"
+    if [[ "$variant" == "failpoints" && ( "$target" == "all" || "$target" == "$name" ) ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+run_lint() {
+  npm ci
+  npm run buf:lint
+  npm run buf:breaking
+  npm run buf:generate
+  npm exec -- buf build --as-file-descriptor-set -o proto/definition_descriptor.binpb
+  git diff --exit-code -- packages/sdk/src/gen proto/definition_descriptor.binpb
+  npm run build
+  npm test
+  cargo fmt --all --check
+  cargo test --locked --workspace
+  test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
+  ./e2e/assert-unique-ports.sh
+}
+
+run_clippy() {
+  cargo clippy --locked --workspace --all-targets -- -D warnings
+}
+
+run_check() {
+  run_lint
+  run_clippy
+}
+
+run_native_build() {
+  local target="${1:-}"
+  cargo build --locked --workspace
+  if build_needs_failpoints "$target"; then
+    CARGO_TARGET_DIR=target/failpoints cargo build --locked --package zoend --features failpoints
+  fi
+}
+
+run_build() {
+  local target="${1:-}"
+  npm run buf:generate
+  npm run build
+  run_native_build "$target"
+}
+
+require_built() {
+  if [[ ! -x target/debug/zoend ]]; then
+    echo "missing target/debug/zoend; run \`just build\` or \`just e2e ${scenario}\`" >&2
+    exit 1
+  fi
+  if [[ ! -f "$runner" ]]; then
+    echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
+    exit 1
+  fi
+}
+
+cleanup_scenario() {
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
   if [[ -n "$generated_directory" ]]; then
     rm -rf "$generated_directory"
   fi
 }
 
-trap cleanup EXIT
-cleanup
-rm -rf artifacts
-mkdir -p artifacts
-if [[ -n "$prepare" ]]; then
-  node "$prepare"
-fi
+run_scenario() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "e2e-run requires docker; check/build do not" >&2
+    exit 1
+  fi
+  require_built
+  trap cleanup_scenario EXIT
+  cleanup_scenario
+  mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
+  if [[ -n "$prepare" ]]; then
+    node "$prepare"
+  fi
+  if build_needs_failpoints "$scenario" && [[ ! -x target/failpoints/debug/zoend ]]; then
+    echo "missing failpoints zoend; run \`just build ${scenario}\`" >&2
+    exit 1
+  fi
+  docker compose --project-name "$project" --file "$compose_file" up --detach --wait
+  node "$runner"
+  cleanup_scenario
+  trap - EXIT
+}
 
-npm ci
-npm run buf:lint
-npm run buf:breaking
-npm run buf:generate
-npm exec -- buf build --as-file-descriptor-set -o proto/definition_descriptor.binpb
-git diff --exit-code -- packages/sdk/src/gen proto/definition_descriptor.binpb
-npm run build
+run_e2e() {
+  resolve_scenario "$1"
+  rm -rf "${ZOEN_E2E_ARTIFACTS_DIR}"
+  run_check
+  run_native_build "$scenario"
+  run_scenario
+}
 
-cargo fmt --all --check
-cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo build --locked --workspace
-cargo test --locked --workspace
-test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
-if [[ "$scenario" == "durable-commit" ]]; then
-  CARGO_TARGET_DIR=target/failpoints cargo build --locked --package zoend --features failpoints
-fi
+run_verify() {
+  rm -rf artifacts
+  run_check
+  run_native_build all
+  local row
+  local name
+  for row in "${scenario_table[@]}"; do
+    IFS=: read -r name _ <<< "$row"
+    resolve_scenario "$name"
+    run_scenario
+  done
+}
 
-docker compose --project-name "$project" --file "$compose_file" up --detach --wait
-node "$runner"
+command="${1:-}"
+case "$command" in
+  lint)
+    run_lint
+    ;;
+  clippy)
+    run_clippy
+    ;;
+  check)
+    run_check
+    ;;
+  build)
+    run_build "${2:-}"
+    ;;
+  run | e2e-run)
+    resolve_scenario "${2:-}"
+    rm -rf "${ZOEN_E2E_ARTIFACTS_DIR}"
+    run_scenario
+    ;;
+  e2e)
+    run_e2e "${2:-}"
+    ;;
+  verify)
+    run_verify
+    ;;
+  -h | --help | help | "")
+    usage
+    ;;
+  *)
+    run_e2e "$command"
+    ;;
+esac

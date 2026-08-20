@@ -39,6 +39,14 @@ import {
   type QuerySelection,
   type ValidTime,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
+  e2eGeneratedDirectory,
+  e2eHttpUrl,
+  e2eListenAddr,
+  e2ePort,
+  e2ePostgresUrl,
+  writeScenarioArtifact,
+} from "./host-env.js";
 
 const repositoryRoot = process.cwd();
 const composeFile = path.join("e2e", "semantic-query", "compose.yaml");
@@ -56,11 +64,21 @@ const workerPath = path.join(
   "debug",
   "zoen-projection",
 );
-const applicationDatabaseUrl =
-  "postgres://zoen_app:zoen_app@127.0.0.1:55433/zoen";
-const adminDatabaseUrl =
-  "postgres://postgres:postgres@127.0.0.1:55433/zoen";
-const baseUrl = "http://127.0.0.1:58081";
+const postgresPortFallback = 55_433;
+const zoendPortFallback = 58_081;
+const minioPortFallback = 59_000;
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const applicationDatabaseUrl = e2ePostgresUrl(
+  "zoen_app",
+  "zoen_app",
+  postgresPortFallback,
+);
+const adminDatabaseUrl = e2ePostgresUrl(
+  "postgres",
+  "postgres",
+  postgresPortFallback,
+);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 const tenantA = "tenant.a";
 const tenantB = "tenant.b";
 const tokenA = "semantic-session-a";
@@ -111,7 +129,8 @@ async function main(): Promise<void> {
   const worldA = worldClient(tokenA);
   const worldB = worldClient(tokenB);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
-  let server = await startServer();
+  const policyManifestPath = await writeActivationManifest(definitionDigest);
+  let server = await startServer(policyManifestPath);
   await admin.connect();
 
   try {
@@ -127,6 +146,27 @@ async function main(): Promise<void> {
       tenantId: tenantB,
     });
     assert.equal(publishedB.definitionRevision?.commitSequence, 1n);
+
+    const activatedA = await clientA.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectNoActiveRevision",
+        value: true,
+      },
+      definitionId,
+      digest: definitionDigest,
+      tenantId: tenantA,
+    });
+    assert.equal(activatedA.activation?.active?.digest, definitionDigest);
+    const activatedB = await clientB.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectNoActiveRevision",
+        value: true,
+      },
+      definitionId,
+      digest: definitionDigest,
+      tenantId: tenantB,
+    });
+    assert.equal(activatedB.activation?.active?.digest, definitionDigest);
 
     await expectConnectCode(
       () =>
@@ -174,9 +214,9 @@ async function main(): Promise<void> {
       Code.InvalidArgument,
     );
     recordFailureInjection("unknown-relation");
-    assert.equal(await rowCount(admin, "authority_commits", tenantA), 1);
+    assert.equal(await rowCount(admin, "authority_commits", tenantA), 2);
     assert.equal(await rowCount(admin, "semantic_claims", tenantA), 0);
-    assert.equal(await rowCount(admin, "projection_outbox", tenantA), 1);
+    assert.equal(await rowCount(admin, "projection_outbox", tenantA), 2);
     recordAssertion("invalidEvidenceAtomic");
 
     assert.equal(
@@ -191,7 +231,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "10",
       }),
-      2n,
+      3n,
     );
     assert.equal(
       await recordInterval(worldA, {
@@ -205,7 +245,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "12",
       }),
-      3n,
+      4n,
     );
     assert.equal(
       await recordInterval(worldA, {
@@ -219,7 +259,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "3",
       }),
-      4n,
+      5n,
     );
 
     await compose("stop", "minio");
@@ -246,7 +286,7 @@ async function main(): Promise<void> {
     recordAssertion("projectionFailureLeavesNoPublishedWatermark");
 
     const firstProjection = await runProjection(["--once", tenantA]);
-    assert.equal(firstProjection.throughCommit, 4);
+    assert.equal(firstProjection.throughCommit, 5);
     assert.equal(firstProjection.projectedRows, 3);
     assert.equal(firstProjection.wroteManifest, true);
     const firstManifestCount = await rowCount(
@@ -263,7 +303,7 @@ async function main(): Promise<void> {
     recordFailureInjection("duplicate-projection-delivery");
     recordAssertion("duplicateOutboxDeliveryIdempotent");
 
-    const strongAtFour = await query(worldA, {
+    const strongAfterReserved = await query(worldA, {
       consistency: strong(),
       definition,
       entityId,
@@ -271,24 +311,27 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       validAt,
     });
-    const snapshotFour = await query(worldA, {
-      consistency: snapshot(4n),
+    const snapshotAfterReserved = await query(worldA, {
+      consistency: snapshot(5n),
       definition,
       entityId,
       selection: computation(available),
       tenantId: tenantA,
       validAt,
     });
-    assert.equal(strongAtFour.actualCommitSequence, 4n);
-    assert.equal(snapshotFour.actualCommitSequence, 4n);
-    assert.deepEqual(semanticShape(strongAtFour), semanticShape(snapshotFour));
-    assert.deepEqual(integerValues(strongAtFour), ["7", "9"]);
-    assertComputationLineage(strongAtFour, 2);
+    assert.equal(strongAfterReserved.actualCommitSequence, 5n);
+    assert.equal(snapshotAfterReserved.actualCommitSequence, 5n);
+    assert.deepEqual(
+      semanticShape(strongAfterReserved),
+      semanticShape(snapshotAfterReserved),
+    );
+    assert.deepEqual(integerValues(strongAfterReserved), ["7", "9"]);
+    assertComputationLineage(strongAfterReserved, 2);
     recordAssertion("crossRelationLineageComplete");
     recordAssertion("postgresParquetLineageEquivalent");
 
     await stopServer(server);
-    server = await startServer();
+    server = await startServer(policyManifestPath);
     const rivalsAfterRestart = await query(worldA, {
       consistency: strong(),
       definition,
@@ -314,10 +357,10 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "11",
       }),
-      5n,
+      6n,
     );
     const knownThen = await query(worldA, {
-      consistency: snapshot(4n),
+      consistency: snapshot(5n),
       definition,
       entityId,
       selection: relation(onHand),
@@ -334,8 +377,8 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(integerValues(knownThen), ["10", "12"]);
     assert.deepEqual(integerValues(nowBelievedThen), ["10", "11", "12"]);
-    const snapshotFiveFromAuthority = await query(worldA, {
-      consistency: snapshot(5n),
+    const snapshotAfterLate = await query(worldA, {
+      consistency: snapshot(6n),
       definition,
       entityId,
       selection: relation(onHand),
@@ -343,7 +386,7 @@ async function main(): Promise<void> {
       validAt,
     });
     assert.deepEqual(
-      semanticShape(snapshotFiveFromAuthority),
+      semanticShape(snapshotAfterLate),
       semanticShape(nowBelievedThen),
     );
     recordAssertion("lateEvidenceSeparatesKnowledgeCuts");
@@ -356,12 +399,12 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       validAt,
     });
-    assert.equal(eventualBehind.actualCommitSequence, 4n);
+    assert.equal(eventualBehind.actualCommitSequence, 5n);
     assert.deepEqual(integerValues(eventualBehind), ["10", "12"]);
     await expectConnectCode(
       () =>
         query(worldA, {
-          consistency: atLeast(5n),
+          consistency: atLeast(6n),
           definition,
           entityId,
           selection: relation(onHand),
@@ -374,19 +417,19 @@ async function main(): Promise<void> {
     recordAssertion("staleAtLeastRejected");
 
     const caughtUp = await runProjection(["--once", tenantA]);
-    assert.equal(caughtUp.throughCommit, 5);
-    const atLeastFive = await query(worldA, {
-      consistency: atLeast(5n),
+    assert.equal(caughtUp.throughCommit, 6);
+    const atLeastAfterLate = await query(worldA, {
+      consistency: atLeast(6n),
       definition,
       entityId,
       selection: relation(onHand),
       tenantId: tenantA,
       validAt,
     });
-    assert.equal(atLeastFive.actualCommitSequence, 5n);
-    assert.deepEqual(integerValues(atLeastFive), ["10", "11", "12"]);
-    const snapshotFourAfterProjectionFive = await query(worldA, {
-      consistency: snapshot(4n),
+    assert.equal(atLeastAfterLate.actualCommitSequence, 6n);
+    assert.deepEqual(integerValues(atLeastAfterLate), ["10", "11", "12"]);
+    const snapshotReservedAfterLateProjection = await query(worldA, {
+      consistency: snapshot(5n),
       definition,
       entityId,
       selection: computation(available),
@@ -394,8 +437,8 @@ async function main(): Promise<void> {
       validAt,
     });
     assert.deepEqual(
-      semanticShape(snapshotFourAfterProjectionFive),
-      semanticShape(snapshotFour),
+      semanticShape(snapshotReservedAfterLateProjection),
+      semanticShape(snapshotAfterReserved),
     );
     recordAssertion("snapshotCutFiltersAheadProjection");
 
@@ -410,7 +453,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "99",
       }),
-      6n,
+      7n,
     );
     const atInstant = await query(worldA, {
       consistency: strong(),
@@ -444,7 +487,7 @@ async function main(): Promise<void> {
         tenantId: tenantB,
         value: "100",
       }),
-      2n,
+      3n,
     );
     assert.equal(
       await recordInterval(worldB, {
@@ -458,11 +501,11 @@ async function main(): Promise<void> {
         tenantId: tenantB,
         value: "1",
       }),
-      3n,
+      4n,
     );
     await runProjection(["--once", tenantB]);
     const tenantBResult = await query(worldB, {
-      consistency: snapshot(3n),
+      consistency: snapshot(4n),
       definition,
       entityId,
       selection: relation(onHand),
@@ -497,7 +540,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "170141183460469231731687303715884105728",
       }),
-      7n,
+      8n,
     );
     assert.equal(
       await recordInterval(worldA, {
@@ -511,7 +554,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
         value: "1",
       }),
-      8n,
+      9n,
     );
     await expectConnectCode(
       () =>
@@ -528,9 +571,9 @@ async function main(): Promise<void> {
     recordFailureInjection("computation-overflow");
     recordAssertion("computationEvaluationErrorTyped");
     const latestProjection = await runProjection(["--once", tenantA]);
-    assert.equal(latestProjection.throughCommit, 8);
+    assert.equal(latestProjection.throughCommit, 9);
 
-    const strongAtEight = await query(worldA, {
+    const strongAfterHuge = await query(worldA, {
       consistency: strong(),
       definition,
       entityId,
@@ -538,17 +581,17 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       validAt,
     });
-    const snapshotEight = await query(worldA, {
-      consistency: snapshot(8n),
+    const snapshotAfterHuge = await query(worldA, {
+      consistency: snapshot(9n),
       definition,
       entityId,
       selection: computation(available),
       tenantId: tenantA,
       validAt,
     });
-    assert.deepEqual(semanticShape(strongAtEight), semanticShape(snapshotEight));
-    assert.deepEqual(integerValues(strongAtEight), ["7", "8", "9"]);
-    assertComputationLineage(strongAtEight, 3);
+    assert.deepEqual(semanticShape(strongAfterHuge), semanticShape(snapshotAfterHuge));
+    assert.deepEqual(integerValues(strongAfterHuge), ["7", "8", "9"]);
+    assertComputationLineage(strongAfterHuge, 3);
 
     const activeBeforeLoss = await projectionState(admin, tenantA);
     assert.ok(activeBeforeLoss);
@@ -556,7 +599,7 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         query(worldA, {
-          consistency: snapshot(8n),
+          consistency: snapshot(9n),
           definition,
           entityId,
           selection: relation(onHand),
@@ -571,7 +614,7 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         query(worldA, {
-          consistency: snapshot(8n),
+          consistency: snapshot(9n),
           definition,
           entityId,
           selection: relation(onHand),
@@ -603,7 +646,7 @@ async function main(): Promise<void> {
       tenantA,
     );
     const rebuilt = await runProjection(["--rebuild", tenantA]);
-    assert.equal(rebuilt.throughCommit, 8);
+    assert.equal(rebuilt.throughCommit, 9);
     assert.notEqual(rebuilt.manifestDigest, activeBeforeLoss.manifestDigest);
     assert.equal(
       await rowCount(admin, "authority_commits", tenantA),
@@ -614,18 +657,18 @@ async function main(): Promise<void> {
       claimsBeforeRebuild,
     );
     const rebuiltResult = await query(worldA, {
-      consistency: snapshot(8n),
+      consistency: snapshot(9n),
       definition,
       entityId,
       selection: computation(available),
       tenantId: tenantA,
       validAt,
     });
-    assert.deepEqual(semanticShape(strongAtEight), semanticShape(rebuiltResult));
+    assert.deepEqual(semanticShape(strongAfterHuge), semanticShape(rebuiltResult));
     recordAssertion("projectionRebuildAddsNoBusinessHistory");
 
     await stopServer(server);
-    server = await startServer();
+    server = await startServer(policyManifestPath);
     const finalRivals = await query(worldA, {
       consistency: strong(),
       definition,
@@ -665,7 +708,7 @@ async function main(): Promise<void> {
       failureInjections,
       finishedAt: new Date().toISOString(),
       observedCuts: {
-        authoritative: strongAtEight.actualCommitSequence.toString(),
+        authoritative: strongAfterHuge.actualCommitSequence.toString(),
         knownThen: knownThen.knowledgeCut.toString(),
         nowBelievedThen: nowBelievedThen.knowledgeCut.toString(),
         projected: rebuiltResult.actualCommitSequence.toString(),
@@ -681,11 +724,7 @@ async function main(): Promise<void> {
       sourceCommit,
       startedAt,
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "semantic-query.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "semantic-query", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     await admin.end();
@@ -964,18 +1003,65 @@ function assertComputationLineage(
   }
 }
 
-async function startServer(): Promise<ServerProcess> {
+/**
+ * Bind the published definition digest to the session-token activation policy.
+ *
+ * Session worlds have no Keycloak realm, so the runner writes the Cedar
+ * manifest that `activateRevision` evaluates after the kernel grant check.
+ */
+async function writeActivationManifest(definitionDigest: string): Promise<string> {
+  const source = await readFile(
+    path.join(repositoryRoot, "e2e", "semantic-query", "activation.cedar"),
+    "utf8",
+  );
+  const outputPath = path.join(
+    e2eGeneratedDirectory(repositoryRoot, "semantic-query"),
+    "policies.json",
+  );
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(
+    outputPath,
+    `${JSON.stringify(
+      {
+        policies: [
+          {
+            actionId: "zoen.definition.activate",
+            definitionDigest,
+            digest: sha256(source),
+            policyId: "policy.activation.v1",
+            revision: 1,
+            source,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  return outputPath;
+}
+
+function sessionTokens(): string {
+  const grant = {
+    actionIds: ["action.legacy", "zoen.definition.activate"],
+    resourceIds: ["resource.legacy", definitionId],
+  };
+  return JSON.stringify({
+    [tokenA]: { ...grant, tenantId: tenantA },
+    [tokenB]: { ...grant, tenantId: tenantB },
+  });
+}
+
+async function startServer(policyManifestPath: string): Promise<ServerProcess> {
   const output: string[] = [];
   const child = spawn(serverPath, [], {
     cwd: repositoryRoot,
     env: {
       ...process.env,
       ...workerEnvironment(),
-      ZOEN_LISTEN_ADDR: "127.0.0.1:58081",
-      ZOEN_SESSION_TOKENS: JSON.stringify({
-        [tokenA]: tenantA,
-        [tokenB]: tenantB,
-      }),
+      ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
+      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
+      ZOEN_SESSION_TOKENS: sessionTokens(),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -1012,12 +1098,12 @@ async function waitForPort(
     }
     await delay(100);
   }
-  throw new Error(`zoend did not listen on port 58081:\n${output.join("")}`);
+  throw new Error(`zoend did not listen on port ${zoendPort}:\n${output.join("")}`);
 }
 
 function canConnect(): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port: 58081 });
+    const socket = createConnection({ host: "127.0.0.1", port: zoendPort });
     let settled = false;
     const finish = (connected: boolean) => {
       if (!settled) {
@@ -1039,7 +1125,7 @@ function workerEnvironment(): NodeJS.ProcessEnv {
     S3_ACCESS_KEY_ID: "zoen-access",
     S3_ALLOW_HTTP: "true",
     S3_BUCKET: "zoen-projections",
-    S3_ENDPOINT: "http://127.0.0.1:59000",
+    S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT", minioPortFallback),
     S3_REGION: "us-east-1",
     S3_SECRET_ACCESS_KEY: "zoen-secret",
   };

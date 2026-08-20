@@ -38,6 +38,13 @@ import {
   WorldService,
   type DefinitionReference,
 } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
+  e2eGeneratedDirectory,
+  e2eHttpUrl,
+  e2eListenAddr,
+  e2ePort,
+  e2ePostgresUrl,
+} from "../host-env.js";
 
 export const repositoryRoot = process.cwd();
 export const scenarioDirectory = path.join(
@@ -45,9 +52,9 @@ export const scenarioDirectory = path.join(
   "e2e",
   "governed-action",
 );
-export const generatedDirectory = path.join(
-  scenarioDirectory,
-  ".generated",
+export const generatedDirectory = e2eGeneratedDirectory(
+  repositoryRoot,
+  "governed-action",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
 const failpointServerPath = path.join(
@@ -59,12 +66,26 @@ const failpointServerPath = path.join(
 );
 const composeFile = path.join("e2e", "governed-action", "compose.yaml");
 const composeProject = "zoen-governed-action";
-export const applicationDatabaseUrl =
-  "postgres://zoen_app:zoen_app@127.0.0.1:55434/zoen";
-export const adminDatabaseUrl =
-  "postgres://postgres:postgres@127.0.0.1:55434/zoen";
-const baseUrl = "http://127.0.0.1:58083";
-export const oidcIssuer = "http://127.0.0.1:58082/realms/zoen";
+const postgresPortFallback = 55_434;
+const zoendPortFallback = 58_083;
+const keycloakPortFallback = 58_082;
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+export const applicationDatabaseUrl = e2ePostgresUrl(
+  "zoen_app",
+  "zoen_app",
+  postgresPortFallback,
+);
+export const adminDatabaseUrl = e2ePostgresUrl(
+  "postgres",
+  "postgres",
+  postgresPortFallback,
+);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+export const oidcIssuer = e2eHttpUrl(
+  "ZOEN_E2E_KEYCLOAK_PORT",
+  keycloakPortFallback,
+  "/realms/zoen",
+);
 export const oidcAudience = "zoend";
 export const actionId = "inventory.requestStock";
 export const activationActionId = "zoen.definition.activate";
@@ -493,7 +514,7 @@ export async function startServer(
       ...process.env,
       DATABASE_URL: applicationDatabaseUrl,
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
-      ZOEN_LISTEN_ADDR: "127.0.0.1:58083",
+      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
       ZOEN_OIDC_AUDIENCE: oidcAudience,
       ZOEN_OIDC_ISSUER: oidcIssuer,
       ...(failpoint === undefined
@@ -543,12 +564,12 @@ async function waitForPort(
     }
     await delay(100);
   }
-  throw new Error(`zoend did not listen on port 58083:\n${output.join("")}`);
+  throw new Error(`zoend did not listen on port ${zoendPort}:\n${output.join("")}`);
 }
 
 function canConnect(): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port: 58083 });
+    const socket = createConnection({ host: "127.0.0.1", port: zoendPort });
     let settled = false;
     const finish = (connected: boolean) => {
       if (!settled) {

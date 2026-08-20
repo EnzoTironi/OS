@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
@@ -76,6 +76,7 @@ import {
   writePolicyManifest,
   type ServerProcess,
 } from "./evolution-breaking/support.js";
+import { writeScenarioArtifact } from "./host-env.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -973,11 +974,7 @@ async function main(): Promise<void> {
       sourceCommit,
       startedAt,
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "evolution-breaking.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "evolution-breaking", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     if (server !== undefined) {

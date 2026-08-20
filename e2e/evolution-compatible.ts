@@ -42,6 +42,7 @@ import {
   type CompiledDefinition,
   type ServerProcess,
 } from "./evolution-compatible/support.js";
+import { writeScenarioArtifact } from "./host-env.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -719,11 +720,7 @@ async function main(): Promise<void> {
       sourceCommit,
       startedAt,
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "evolution-compatible.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "evolution-compatible", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     if (server !== undefined) {

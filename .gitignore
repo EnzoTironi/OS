@@ -2,6 +2,7 @@
 /dist/
 /node_modules/
 /target/
+e2e/**/.generated/
 .DS_Store
 *.log
 node_modules/
