@@ -14,6 +14,7 @@ import { AgentRegistry } from "./registry.js";
 import type { AgentAuthority } from "./session.js";
 import {
   providerRouteSchema,
+  modelCapabilityAliasSchema,
   semanticCapabilitySchema,
   semanticCapabilityScopeSchema,
   type ModelPlanner,
@@ -26,21 +27,29 @@ const definition = {
   revision: 1,
 };
 const validAt = "2026-08-20T00:00:00.000Z";
-const actionScope = semanticCapabilityScopeSchema.parse({
+const parsedActionScope = semanticCapabilityScopeSchema.parse({
   actionId: "inventory.requestStock",
   definition,
   kind: "action",
   resourceId: "inventory.item.1",
   validAt,
 });
-const queryScope = semanticCapabilityScopeSchema.parse({
+if (parsedActionScope.kind !== "action") {
+  throw new Error("Action scope parsed as a Query scope");
+}
+const actionScope = parsedActionScope;
+const parsedQueryScope = semanticCapabilityScopeSchema.parse({
   definition,
   entityId: "inventory.item.1",
   kind: "query",
   selection: { id: "inventory.available", kind: "relation" },
   validAt,
 });
-const action = semanticCapabilitySchema.parse({
+if (parsedQueryScope.kind !== "query") {
+  throw new Error("Query scope parsed as an Action scope");
+}
+const queryScope = parsedQueryScope;
+const parsedAction = semanticCapabilitySchema.parse({
   actionId: actionScope.actionId,
   alias: "action-request-stock",
   definition,
@@ -50,7 +59,11 @@ const action = semanticCapabilitySchema.parse({
   resourceId: actionScope.resourceId,
   validAt,
 });
-const query = semanticCapabilitySchema.parse({
+if (parsedAction.kind !== "action") {
+  throw new Error("Action capability parsed as a Query capability");
+}
+const action = parsedAction;
+const parsedQuery = semanticCapabilitySchema.parse({
   alias: "query-available",
   definition,
   description: "Read governed available inventory.",
@@ -59,6 +72,10 @@ const query = semanticCapabilitySchema.parse({
   selection: queryScope.selection,
   validAt,
 });
+if (parsedQuery.kind !== "query") {
+  throw new Error("Query capability parsed as an Action capability");
+}
+const query = parsedQuery;
 
 test("adaptive decision uses trusted retrieval context and persists validation", async () => {
   const registry = new AgentRegistry();
@@ -121,7 +138,7 @@ test("adaptive decision uses trusted retrieval context and persists validation",
     explainOperationId: "operation.baseline",
     generatedAt: "2026-08-20T21:00:00.000Z",
     knowledgeQuery: "inventory replenishment policy",
-    modelCapability: "reasoning-fast",
+    modelCapability: modelCapabilityAliasSchema.parse("reasoning-fast"),
     question: "Should operations request replenishment?",
     registry,
     sessionId: "session.adaptive",
