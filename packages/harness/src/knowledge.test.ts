@@ -11,6 +11,7 @@ import {
   IngestFailure,
 } from "./knowledge.js";
 import { AgentRegistry } from "./registry.js";
+import { modelCapabilityAliasSchema } from "./types.js";
 
 test("PDF extraction detects the format from bytes", async () => {
   await assert.rejects(
@@ -33,7 +34,7 @@ test("invalid ingest input has a typed corrupt-source failure", async () => {
   const pool = new Pool();
   const brain = new CompanyBrain({
     bucket: "unused",
-    embeddingCapability: "embedding-default",
+    embeddingCapability: modelCapabilityAliasSchema.parse("embedding-default"),
     pool,
     registry: new AgentRegistry(),
     s3: new S3Client({
