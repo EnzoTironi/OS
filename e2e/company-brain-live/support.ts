@@ -36,11 +36,12 @@ export const environment = z
     OPENCODE_API_KEY: z.string().min(1),
     OPENCODE_BASE_URL: z.literal("https://opencode.ai/zen/v1"),
     ZOEN_PROVIDER_A_ID: z.literal("zen-a"),
-    ZOEN_PROVIDER_A_MODEL: z.literal("deepseek-v4-flash-free"),
+    ZOEN_PROVIDER_A_MODEL: z.literal("hy3-free"),
     ZOEN_PROVIDER_B_ID: z.literal("zen-b"),
-    ZOEN_PROVIDER_B_MODEL: z.literal("big-pickle"),
+    ZOEN_PROVIDER_B_MODEL: z.literal("laguna-s-2.1-free"),
   })
   .parse(process.env);
+delete process.env.OPENCODE_API_KEY;
 export const repositoryRoot = process.cwd();
 export const scenario = "company-brain-live";
 export const scenarioDirectory = path.join(repositoryRoot, "e2e", scenario);
@@ -112,7 +113,10 @@ export interface ManagedProcess {
   readonly child: ChildProcessWithoutNullStreams;
   readonly name: string;
   readonly output: string[];
+  readonly stderr: string[];
 }
+
+let activeAgentWorker: ManagedProcess | undefined;
 
 const workerHealthSchema = z
   .object({
@@ -261,6 +265,7 @@ export async function startAgentWorker(
     command: process.execPath,
     environment: {
       DATABASE_URL: applicationDatabaseUrl,
+      OPENCODE_API_KEY: environment.OPENCODE_API_KEY,
       OPENCODE_BASE_URL: providerBaseUrl,
       S3_ACCESS_KEY_ID: "zoen-access",
       S3_BUCKET: "zoen-company-brain",
@@ -270,6 +275,10 @@ export async function startAgentWorker(
       ZOEN_AGENT_BEARER_TOKEN: bearerToken,
       ZOEN_AGENT_DEFINITION_DIGEST: definitionDigest,
       ZOEN_AGENT_SERVICE_URL: baseUrl,
+      ZOEN_PROVIDER_A_ID: environment.ZOEN_PROVIDER_A_ID,
+      ZOEN_PROVIDER_A_MODEL: environment.ZOEN_PROVIDER_A_MODEL,
+      ZOEN_PROVIDER_B_ID: environment.ZOEN_PROVIDER_B_ID,
+      ZOEN_PROVIDER_B_MODEL: environment.ZOEN_PROVIDER_B_MODEL,
       ...(pauseBeforeIndex
         ? { ZOEN_PAUSE_INGEST_BEFORE_INDEX: "true" }
         : {}),
@@ -277,6 +286,7 @@ export async function startAgentWorker(
     name: "Company Brain Restate worker",
     port: workerPort,
   });
+  activeAgentWorker = worker;
   await waitForPort(workerControlPort, worker);
   const health = await workerHealth();
   assert.ok(health.providers.includes("local-minilm"));
@@ -342,23 +352,29 @@ export async function invokeSession(
   command: AgentSessionCommand,
   bindingKey: string,
 ): Promise<AgentSessionResult> {
-  const response = await fetch(
-    `${restateIngress}/ZoenAgentSession/${encodeURIComponent(
-      command.sessionId,
-    )}/run`,
-    {
-      body: JSON.stringify(command),
-      headers: {
-        "content-type": "application/json",
-        [agentSessionSignatureHeader]: signAgentSessionCommand(
-          bindingKey,
-          command,
-        ),
+  let response: Response;
+  try {
+    response = await fetch(
+      `${restateIngress}/ZoenAgentSession/${encodeURIComponent(
+        command.sessionId,
+      )}/run`,
+      {
+        body: JSON.stringify(command),
+        headers: {
+          "content-type": "application/json",
+          [agentSessionSignatureHeader]: signAgentSessionCommand(
+            bindingKey,
+            command,
+          ),
+        },
+        method: "POST",
+        signal: AbortSignal.timeout(300_000),
       },
-      method: "POST",
-      signal: AbortSignal.timeout(300_000),
-    },
-  );
+    );
+  } catch (error: unknown) {
+    await dumpSessionAbortDiagnostics();
+    throw error;
+  }
   const body = await response.text();
   assert.ok(response.ok, body);
   const raw: unknown = JSON.parse(body);
@@ -410,6 +426,29 @@ export async function providerProxyStatus() {
     })
     .passthrough()
     .parse(raw);
+}
+
+async function dumpSessionAbortDiagnostics(): Promise<void> {
+  let status: unknown;
+  try {
+    status = await providerProxyStatus();
+  } catch (error: unknown) {
+    status = {
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const workerStderr = activeAgentWorker?.stderr.join("") ?? "";
+  const recentWorkerStderr = workerStderr
+    .split(/\r?\n/u)
+    .slice(-100)
+    .join("\n")
+    .slice(-20_000);
+  const diagnostics = JSON.stringify(
+    { providerProxyStatus: status, recentWorkerStderr },
+    null,
+    2,
+  ).replaceAll(environment.OPENCODE_API_KEY, "[REDACTED]");
+  process.stderr.write(`${diagnostics}\n`);
 }
 
 export async function operationEvidence(
@@ -649,6 +688,7 @@ async function startProcess(options: {
   readonly port: number;
 }): Promise<ManagedProcess> {
   const output: string[] = [];
+  const stderr: string[] = [];
   const child = spawn(options.command, [...(options.arguments ?? [])], {
     cwd: repositoryRoot,
     env: { ...process.env, ...options.environment },
@@ -656,8 +696,12 @@ async function startProcess(options: {
   });
   child.stdin.end();
   child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  const managed = { child, name: options.name, output };
+  child.stderr.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    output.push(text);
+    stderr.push(text);
+  });
+  const managed = { child, name: options.name, output, stderr };
   await waitForPort(options.port, managed);
   return managed;
 }
