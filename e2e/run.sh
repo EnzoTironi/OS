@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ticket command stays `just e2e <scenario>` (check + build + run).
-# `just verify` runs check and build once, then each scenario runner.
+# Ticket command stays `just e2e <scenario>` (check + native build + run).
+# `just verify` runs check and native build once, then each scenario runner.
 # `just e2e-run` executes a built workspace against Compose and does not lint.
 # Each scenario loads `e2e/<scenario>/.env` so Compose, zoend, and artifacts
 # never share host ports or generated files with another scenario.
@@ -119,14 +119,19 @@ run_check() {
   run_clippy
 }
 
-run_build() {
+run_native_build() {
   local target="${1:-}"
-  npm run buf:generate
-  npm run build
   cargo build --locked --workspace
   if build_needs_failpoints "$target"; then
     CARGO_TARGET_DIR=target/failpoints cargo build --locked --package zoend --features failpoints
   fi
+}
+
+run_build() {
+  local target="${1:-}"
+  npm run buf:generate
+  npm run build
+  run_native_build "$target"
 }
 
 require_built() {
@@ -173,14 +178,14 @@ run_e2e() {
   resolve_scenario "$1"
   rm -rf "${ZOEN_E2E_ARTIFACTS_DIR}"
   run_check
-  run_build "$scenario"
+  run_native_build "$scenario"
   run_scenario
 }
 
 run_verify() {
   rm -rf artifacts
   run_check
-  run_build all
+  run_native_build all
   local row
   local name
   for row in "${scenario_table[@]}"; do
