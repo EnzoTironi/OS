@@ -163,6 +163,7 @@ function incomingHeaders(request: IncomingMessage): Headers {
       headers.set(name, value);
     }
   }
+  headers.delete("accept-encoding");
   headers.delete("connection");
   headers.delete("content-length");
   headers.delete("host");

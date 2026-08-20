@@ -18,6 +18,7 @@ async function proxyConnect(request: Request): Promise<Response> {
   const path = incoming.pathname.replace(/^\/rpc/u, "");
   const target = new URL(`${path}${incoming.search}`, targetOrigin);
   const headers = new Headers(request.headers);
+  headers.delete("accept-encoding");
   headers.delete("content-length");
   headers.delete("host");
   const body =
