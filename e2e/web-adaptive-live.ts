@@ -84,6 +84,9 @@ const requestStockBinding = "action.inventory.requestStock";
 const requestStockForm = `form[data-action-binding="${requestStockBinding}"]`;
 const observations: Record<string, boolean> = {};
 const failureInjections: string[] = [];
+type AdaptiveGenerationWaitResult =
+  | { readonly kind: "ready" }
+  | { readonly kind: "failed"; readonly message: string };
 const storedActionSessionSchema = z
   .object({
     identity: z
@@ -568,9 +571,33 @@ async function signInAndGenerate(page: Page): Promise<void> {
       "Based on supplier lead time and governed inventory availability, should operations request replenishment?",
     );
   await page.getByRole("button", { name: "Generate decision" }).click();
-  await page
-    .locator('main[data-compiler="adaptive-model"]')
-    .waitFor({ timeout: 300_000 });
+  const ready = page.locator('main[data-compiler="adaptive-model"]');
+  const error = page.getByRole("alert");
+  const result = await Promise.race([
+    ready
+      .waitFor({ timeout: 330_000 })
+      .then(
+        () =>
+          ({ kind: "ready" }) satisfies AdaptiveGenerationWaitResult,
+      ),
+    error.waitFor({ timeout: 330_000 }).then(
+      async () =>
+        ({
+          kind: "failed",
+          message: await error.innerText(),
+        }) satisfies AdaptiveGenerationWaitResult,
+    ),
+  ]);
+  if (result.kind === "ready") {
+    return;
+  }
+  const provider = await providerProxyStatus();
+  if (provider.lastUpstreamStatus === 429) {
+    throw new Error("LIVE_PROVIDER_MISS: 429 FreeUsageLimitError");
+  }
+  throw new Error(
+    `ADAPTIVE_GENERATION_FAILED: ${result.message}; upstream status ${provider.lastUpstreamStatus ?? "unavailable"}`,
+  );
 }
 
 async function verifyGeneratedSurface(
