@@ -3,17 +3,19 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "apps/web",
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run build --workspace @zoen/web",
     "buf:breaking": "buf breaking --against .buf-baseline",
     "buf:generate": "buf generate",
     "buf:lint": "buf lint",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test dist/packages/ontology/src/compiler.test.js dist/packages/harness/src/*.test.js"
+    "test": "node --test dist/packages/ontology/src/compiler.test.js dist/packages/harness/src/*.test.js dist/packages/surface/src/surface.test.js"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@babel/parser": "7.29.8",
     "@babel/types": "7.29.8",
     "@bufbuild/buf": "1.72.0",
@@ -23,8 +25,11 @@
     "@connectrpc/connect-node": "2.1.2",
     "@types/node": "26.2.0",
     "@types/pg": "8.23.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "canonicalize": "4.0.0",
     "pg": "8.23.0",
+    "playwright": "^1.62.1",
     "typescript": "7.0.2",
     "zod": "4.4.3"
   }

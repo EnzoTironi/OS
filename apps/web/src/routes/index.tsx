@@ -1,0 +1,519 @@
+import { Code, ConnectError } from "@connectrpc/connect";
+import { createFileRoute } from "@tanstack/react-router";
+import { createZoenBrowserClient, type ZoenBrowserClient } from "@zoen/sdk";
+import {
+  JsonRenderAdapter,
+  ReferenceRenderer,
+  SurfaceInteractionProvider,
+  type ActionOperationView,
+  type SurfaceDocument,
+  type SurfaceInteraction,
+  type SurfaceRuntimeData,
+} from "@zoen/surface";
+import {
+  useEffect,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
+import {
+  clearActionSession,
+  createActionIdentity,
+  loadActionSession,
+  saveActionSession,
+} from "../action-session.js";
+import {
+  actionErrorView,
+  commitAuthorityAction,
+  commitResponseOperationView,
+  loadAuthoritySurface,
+  operationHistory,
+  proposedOperationView,
+  proposeAuthorityAction,
+  recoverAuthorityAction,
+  refreshQueries,
+  type ActionIdentity,
+} from "../authority.js";
+import {
+  beginOidcLogin,
+  clearSession,
+  currentAccessToken,
+} from "../auth.js";
+import { loadRuntimeConfig, type RuntimeConfig } from "../config.js";
+import { queryClient } from "../query-client.js";
+
+interface ReadyState {
+  readonly client: ZoenBrowserClient;
+  readonly config: RuntimeConfig;
+  readonly data: SurfaceRuntimeData;
+  readonly document: SurfaceDocument;
+  readonly fields: Readonly<Record<string, string | boolean>>;
+}
+
+type PageState =
+  | { readonly kind: "loading" }
+  | { readonly config: RuntimeConfig; readonly kind: "signed-out" }
+  | { readonly error: string; readonly kind: "failed" }
+  | ({ readonly kind: "ready" } & ReadyState);
+type SetPageState = Dispatch<SetStateAction<PageState>>;
+
+export const Route = createFileRoute("/")({
+  component: AuthorityPage,
+});
+
+function AuthorityPage() {
+  const [state, setState] = useState<PageState>({ kind: "loading" });
+
+  useEffect(() => {
+    void initialize();
+
+    async function initialize(): Promise<void> {
+      try {
+        const config = await loadRuntimeConfig();
+        const token = currentAccessToken();
+        if (token === undefined) {
+          setState({ config, kind: "signed-out" });
+          return;
+        }
+        const client = createZoenBrowserClient({
+          accessToken: token,
+          baseUrl: config.rpcBaseUrl,
+        });
+        const loaded = await loadAuthoritySurface(client, config, queryClient);
+        const recovered = await recoverStoredActions(
+          client,
+          config,
+          loaded.document,
+          loaded.data,
+        );
+        setState({
+          client,
+          config,
+          document: loaded.document,
+          kind: "ready",
+          ...recovered,
+        });
+      } catch (cause: unknown) {
+        setState({ error: errorText(cause), kind: "failed" });
+      }
+    }
+  }, []);
+
+  if (state.kind === "loading") {
+    return <StatusShell message="Loading semantic authority." />;
+  }
+  if (state.kind === "failed") {
+    return <StatusShell error message={state.error} />;
+  }
+  if (state.kind === "signed-out") {
+    return (
+      <main className="auth-shell">
+        <section className="auth-card">
+          <span className="eyebrow">Governed semantic interface</span>
+          <h1>Zoen Surface</h1>
+          <p>
+            Sign in through the configured OIDC authority. The server derives
+            tenant and authority from the resulting token.
+          </p>
+          <button
+            onClick={() => void beginOidcLogin(state.config)}
+            type="button"
+          >
+            Sign in with OIDC
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  const interaction: SurfaceInteraction = {
+    commit: (bindingId) => commit(state, bindingId, setState),
+    data: state.data,
+    document: state.document,
+    fieldValue: (bindingId, inputId) =>
+      state.fields[fieldKey(bindingId, inputId)] ?? "",
+    propose: (bindingId) => propose(state, bindingId, setState),
+    setFieldValue: (bindingId, inputId, value) =>
+      updateReady(setState, (current) => ({
+        ...current,
+        fields: {
+          ...current.fields,
+          [fieldKey(bindingId, inputId)]: value,
+        },
+      })),
+  };
+
+  return (
+    <main
+      className="app-shell"
+      data-compiler={state.document.attribution.compiler}
+      data-generated-without-llm={
+        state.document.attribution.generatedWithoutLlm
+      }
+    >
+      <header className="app-header">
+        <div>
+          <span className="eyebrow">Deterministic Surface IR</span>
+          <h1>{state.document.presentation.title}</h1>
+          <p>
+            Definition <code>{state.document.semanticContext.definition.digest}</code>
+          </p>
+        </div>
+        <div className="header-actions">
+          <label className="visibility-control">
+            <input
+              checked={state.document.presentation.actionsVisible}
+              onChange={(event) =>
+                setActionsVisible(setState, event.currentTarget.checked)
+              }
+              type="checkbox"
+            />
+            Show Action controls
+          </label>
+          <button
+            className="secondary"
+            onClick={() => {
+              clearSession();
+              setState({ config: state.config, kind: "signed-out" });
+            }}
+            type="button"
+          >
+            Sign out
+          </button>
+        </div>
+      </header>
+      <aside className="authority-note" role="note">
+        Presentation controls do not grant authority. Every proposal and commit
+        returns to ActionService for enforcement.
+      </aside>
+      <SurfaceInteractionProvider value={interaction}>
+        <div className="renderer-grid">
+          <section aria-labelledby="json-render-heading" className="renderer-card">
+            <header>
+              <span className="renderer-tag">Production adapter</span>
+              <h2 id="json-render-heading">json-render</h2>
+            </header>
+            <JsonRenderAdapter document={state.document} />
+          </section>
+          <section aria-labelledby="reference-heading" className="renderer-card">
+            <header>
+              <span className="renderer-tag">Reference implementation</span>
+              <h2 id="reference-heading">Reference renderer</h2>
+            </header>
+            <ReferenceRenderer document={state.document} />
+          </section>
+        </div>
+      </SurfaceInteractionProvider>
+    </main>
+  );
+}
+
+async function propose(
+  state: ReadyState,
+  bindingId: string,
+  setState: SetPageState,
+): Promise<void> {
+  const identity = createActionIdentity(bindingId);
+  const values = fieldValues(state.fields, bindingId);
+  saveActionSession({
+    definitionDigest: state.document.semanticContext.definition.digest,
+    identity,
+    tenantId: state.client.tenantId,
+    values,
+  });
+  updateReady(setState, (current) => ({
+    ...current,
+    data: withAction(current.data, bindingId, {
+      kind: "proposing",
+      operationId: identity.operationId,
+      proposalId: identity.proposalId,
+    }),
+  }));
+  try {
+    const response = await proposeAuthorityAction(
+      state.client,
+      state.config,
+      state.document,
+      identity,
+      values,
+    );
+    const operation = proposedOperationView(response, identity);
+    updateReady(setState, (current) => ({
+      ...current,
+      data: withAction(current.data, bindingId, operation),
+    }));
+    if (operation.kind !== "proposed") {
+      clearStoredActionSession(state, bindingId);
+    }
+  } catch (cause: unknown) {
+    updateReady(setState, (current) => ({
+      ...current,
+      data: withAction(current.data, bindingId, actionErrorView(cause)),
+    }));
+    clearStoredActionSession(state, bindingId);
+  }
+}
+
+async function commit(
+  state: ReadyState,
+  bindingId: string,
+  setState: SetPageState,
+): Promise<void> {
+  const proposal = state.data.actions[bindingId];
+  if (proposal?.kind !== "proposed") {
+    updateReady(setState, (current) => ({
+      ...current,
+      data: withAction(current.data, bindingId, {
+        error: "The proposal identity is unavailable.",
+        kind: "failed",
+      }),
+    }));
+    return;
+  }
+  const identity: ActionIdentity = {
+    bindingId,
+    operationId: proposal.operationId,
+    proposalId: proposal.proposalId,
+  };
+  updateReady(setState, (current) => ({
+    ...current,
+    data: withAction(current.data, bindingId, {
+      kind: "committing",
+      operationId: identity.operationId,
+      proposalId: identity.proposalId,
+    }),
+  }));
+  try {
+    const response = await commitAuthorityAction(state.client, identity);
+    const operation = await commitResponseOperationView(state.client, response);
+    await applyOperation(state, bindingId, operation, setState);
+    clearStoredActionSession(state, bindingId);
+  } catch {
+    updateReady(setState, (current) => ({
+      ...current,
+      data: withAction(current.data, bindingId, {
+        kind: "recovering",
+        operationId: identity.operationId,
+        proposalId: identity.proposalId,
+      }),
+    }));
+    try {
+      const recovered = await recoverAuthorityAction(state.client, identity);
+      const operation =
+        recovered ??
+        ({
+          error: "The commit response was lost and no committed receipt is available.",
+          kind: "failed",
+        } satisfies ActionOperationView);
+      await applyOperation(state, bindingId, operation, setState);
+      clearStoredActionSession(state, bindingId);
+    } catch (cause: unknown) {
+      if (isDefinitiveRecoveryFailure(cause)) {
+        updateReady(setState, (current) => ({
+          ...current,
+          data: withAction(current.data, bindingId, actionErrorView(cause)),
+        }));
+        clearStoredActionSession(state, bindingId);
+      }
+    }
+  }
+}
+
+async function applyOperation(
+  state: ReadyState,
+  bindingId: string,
+  operation: ActionOperationView,
+  setState: SetPageState,
+): Promise<void> {
+  if (operation.kind !== "committed") {
+    updateReady(setState, (current) => ({
+      ...current,
+      data: withAction(current.data, bindingId, operation),
+    }));
+    return;
+  }
+  const [queries, history] = await Promise.all([
+    refreshQueries(
+      state.client,
+      state.config,
+      state.document,
+      queryClient,
+      operation.commitSequence,
+    ),
+    operationHistory(state.client, operation.operationId),
+  ]);
+  updateReady(setState, (current) => ({
+    ...current,
+    data: {
+      actions: { ...current.data.actions, [bindingId]: operation },
+      history: { ...current.data.history, [bindingId]: history },
+      queries,
+    },
+  }));
+}
+
+async function recoverStoredActions(
+  client: ZoenBrowserClient,
+  config: RuntimeConfig,
+  document: SurfaceDocument,
+  initial: SurfaceRuntimeData,
+): Promise<
+  Pick<ReadyState, "data" | "fields">
+> {
+  const actions = { ...initial.actions };
+  const history = { ...initial.history };
+  const fields: Record<string, string | boolean> = {};
+  const committedSequences: string[] = [];
+  for (const binding of document.actionBindings) {
+    const session = loadActionSession({
+      bindingId: binding.id,
+      definitionDigest: document.semanticContext.definition.digest,
+      tenantId: client.tenantId,
+    });
+    if (session === undefined) {
+      continue;
+    }
+    for (const [inputId, value] of Object.entries(session.values)) {
+      fields[fieldKey(binding.id, inputId)] = value;
+    }
+    try {
+      const recovered = await recoverAuthorityAction(client, session.identity);
+      if (recovered?.kind === "committed") {
+        actions[binding.id] = recovered;
+        history[binding.id] = await operationHistory(
+          client,
+          recovered.operationId,
+        );
+        committedSequences.push(recovered.commitSequence);
+      }
+      clearStoredActionSession(
+        { client, document },
+        binding.id,
+      );
+    } catch (cause: unknown) {
+      if (cause instanceof ConnectError && cause.code === Code.NotFound) {
+        clearStoredActionSession(
+          { client, document },
+          binding.id,
+        );
+      } else {
+        actions[binding.id] = {
+          kind: "recovering",
+          operationId: session.identity.operationId,
+          proposalId: session.identity.proposalId,
+        };
+      }
+    }
+  }
+  const latestSequence = committedSequences.reduce<string | undefined>(
+    (latest, sequence) =>
+      latest === undefined || BigInt(sequence) > BigInt(latest)
+        ? sequence
+        : latest,
+    undefined,
+  );
+  const queries =
+    latestSequence === undefined
+      ? initial.queries
+      : await refreshQueries(
+          client,
+          config,
+          document,
+          queryClient,
+          latestSequence,
+        );
+  return {
+    data: { actions, history, queries },
+    fields,
+  };
+}
+
+function setActionsVisible(
+  setState: SetPageState,
+  actionsVisible: boolean,
+): void {
+  updateReady(setState, (current) => ({
+    ...current,
+    document: {
+      ...current.document,
+      presentation: {
+        ...current.document.presentation,
+        actionsVisible,
+      },
+    },
+  }));
+}
+
+function updateReady(
+  setState: SetPageState,
+  update: (current: ReadyState & { readonly kind: "ready" }) => PageState,
+): void {
+  setState((current) => (current.kind === "ready" ? update(current) : current));
+}
+
+function withAction(
+  data: SurfaceRuntimeData,
+  bindingId: string,
+  operation: ActionOperationView,
+): SurfaceRuntimeData {
+  return {
+    ...data,
+    actions: { ...data.actions, [bindingId]: operation },
+  };
+}
+
+function fieldValues(
+  fields: Readonly<Record<string, string | boolean>>,
+  bindingId: string,
+): Readonly<Record<string, string | boolean>> {
+  return Object.fromEntries(
+    Object.entries(fields)
+      .filter(([key]) => key.startsWith(`${bindingId}\u0000`))
+      .map(([key, value]) => [key.slice(bindingId.length + 1), value]),
+  );
+}
+
+function fieldKey(bindingId: string, inputId: string): string {
+  return `${bindingId}\u0000${inputId}`;
+}
+
+function clearStoredActionSession(
+  state: Pick<ReadyState, "client" | "document">,
+  bindingId: string,
+): void {
+  clearActionSession({
+    bindingId,
+    definitionDigest: state.document.semanticContext.definition.digest,
+    tenantId: state.client.tenantId,
+  });
+}
+
+function isDefinitiveRecoveryFailure(cause: unknown): boolean {
+  return (
+    cause instanceof ConnectError &&
+    cause.code !== Code.Aborted &&
+    cause.code !== Code.DeadlineExceeded &&
+    cause.code !== Code.Internal &&
+    cause.code !== Code.Unavailable &&
+    cause.code !== Code.Unknown
+  );
+}
+
+function errorText(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+function StatusShell(props: {
+  readonly error?: boolean;
+  readonly message: string;
+}) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <span className="eyebrow">Zoen Surface</span>
+        <h1>{props.error === true ? "Surface unavailable" : "Loading"}</h1>
+        <p role={props.error === true ? "alert" : "status"}>{props.message}</p>
+      </section>
+    </main>
+  );
+}
