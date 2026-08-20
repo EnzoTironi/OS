@@ -14,6 +14,7 @@ use zoend::config::object_store_config;
 
 use crate::action_service::ActionServiceImpl;
 use crate::auth::SessionRegistry;
+use crate::computation_service::ComputationServiceImpl;
 use crate::effect_service::EffectServiceImpl;
 use crate::history_service::HistoryServiceImpl;
 use crate::service::DefinitionServiceImpl;
@@ -21,6 +22,7 @@ use crate::world_service::WorldServiceImpl;
 
 mod action_service;
 mod auth;
+mod computation_service;
 mod effect_service;
 mod history_service;
 mod service;
@@ -54,6 +56,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         ActionEngine::new(store.clone(), query.clone(), policy.clone()),
         sessions.clone(),
     );
+    let computation_service = ComputationServiceImpl::new(
+        store.clone(),
+        query.clone(),
+        policy.clone(),
+        sessions.clone(),
+    )?;
     let definition_service = DefinitionServiceImpl::new(
         DefinitionEngine::new(store.clone(), policy),
         sessions.clone(),
@@ -79,6 +87,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let world_service = WorldServiceImpl::new(WorldEngine::new(store), query, sessions);
     let application = Router::new()
         .add_service(Arc::new(action_service))
+        .add_service(Arc::new(computation_service))
         .add_service(Arc::new(definition_service))
         .add_service(Arc::new(effect_service))
         .add_service(Arc::new(history_service))

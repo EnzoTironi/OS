@@ -415,7 +415,9 @@ pub(crate) fn to_proposal(proposal: ActionProposal) -> Proposal {
     }
 }
 
-fn to_component_execution(evidence: CoreComponentExecutionEvidence) -> ComponentExecutionEvidence {
+pub(crate) fn to_component_execution(
+    evidence: CoreComponentExecutionEvidence,
+) -> ComponentExecutionEvidence {
     ComponentExecutionEvidence {
         capability_ids: evidence
             .capability_ids()

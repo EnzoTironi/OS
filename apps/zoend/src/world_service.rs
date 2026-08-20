@@ -216,7 +216,7 @@ fn parse_valid_time(
     }
 }
 
-fn parse_selection(
+pub(crate) fn parse_selection(
     selection: &crate::proto::zoen::world::v1::QuerySelection,
 ) -> Result<SemanticSelection, ConnectError> {
     match selection
