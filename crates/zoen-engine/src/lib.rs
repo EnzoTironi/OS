@@ -12,6 +12,7 @@ use zoen_core::{
 
 mod action;
 mod admission;
+mod computation;
 mod effect;
 mod evolution;
 mod history;
@@ -27,6 +28,15 @@ pub use action::{
 };
 pub use admission::{
     DefinitionFamily, ReferenceKind, ValidationError, decode_canonical_definition,
+};
+pub use computation::{
+    COMPONENT_INTERFACE_V1, CapabilityManifest, CompletedComputation, ComponentAdmissionError,
+    ComponentArtifact, ComputationCapability, ComputationContractError, ComputationError,
+    ComputationExecution, ComputationExecutor, ComputationHost, ComputationLimits,
+    ComputationOutcome, ComputationOutput, ComputationRequest, HostCallError, HostCallFuture,
+    HostCommitOutcome, HostCommitRequest, HostExplainRequest, HostExplainResult,
+    HostProposalOutcome, HostProposeRequest, HostQueryRequest, HostQueryResult, HostSemanticValue,
+    ProgramActionOutcome, PublishedComponent,
 };
 pub use effect::{
     EffectAttemptClaim, EffectAttemptClaimCommand, EffectAttemptCommand, EffectEngine, EffectError,

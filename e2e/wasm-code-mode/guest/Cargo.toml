@@ -1,0 +1,16 @@
+[package]
+name = "zoen-code-mode-fixture"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sha2 = "0.11.0"
+wat = "1.257.1"
+wit-bindgen = "0.60.0"
+wit-component = "0.257.1"
+
+[workspace]

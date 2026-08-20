@@ -703,6 +703,7 @@ fn causal_proposal(
             action_id: proposal.action_id,
             authority: proposal.authority,
             definition: proposal.definition,
+            execution: proposal.execution,
             expires_at: proposal.expires_at,
             intent_digest: proposal.intent_digest,
             operation_id: proposal.operation_id,
@@ -796,7 +797,8 @@ fn payload_access(request: &TrustedExecutionContext, snapshot: &HistorySnapshot)
         {
             PayloadAccess::Full
         }
-        HistorySnapshot::Action(_) | HistorySnapshot::Claim(_) => PayloadAccess::Redacted,
+        HistorySnapshot::Claim(_) => PayloadAccess::Full,
+        HistorySnapshot::Action(_) => PayloadAccess::Redacted,
     }
 }
 
@@ -1069,4 +1071,9 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    include!("tests/history_access.rs");
 }

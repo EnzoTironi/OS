@@ -25,6 +25,8 @@ mod migration_store;
 mod restate;
 mod semantic_claim_store;
 mod value_store;
+mod wasm_store;
+mod wasmtime_adapter;
 
 pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
@@ -37,6 +39,7 @@ pub use effect_store::PostgresEffectUpdate;
 pub use restate::{RestateEffectScheduler, restate_effect_key};
 use value_store::row_to_valid_time;
 pub(crate) use value_store::{row_to_value, valid_time_columns, value_columns};
+pub use wasmtime_adapter::{WasmtimeComputationExecutor, WasmtimeConfigError};
 
 #[derive(Debug)]
 pub enum PostgresInitError {

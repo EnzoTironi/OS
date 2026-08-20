@@ -12,10 +12,13 @@ failpoints = []
 cedar-policy = "4.7.1"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_jcs = "0.2.0"
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "migrate", "macros"] }
-tokio = { version = "1.53.1", features = ["time"] }
+stacker = "0.1.25"
+tokio = { version = "1.53.1", features = ["macros", "rt", "sync", "time"] }
+wasmtime = { version = "38.0.4", default-features = false, features = ["async", "component-model", "cranelift", "runtime", "std"] }
 zoen-core = { path = "../zoen-core" }
 zoen-engine = { path = "../zoen-engine" }
 

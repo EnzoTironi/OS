@@ -14,6 +14,9 @@ use zoen_core::{
 };
 use zoen_engine::{PolicyEvaluator, PolicyOperation, PolicyRequest};
 
+const CEDAR_STACK_RED_ZONE: usize = 1024 * 1024;
+const CEDAR_STACK_SIZE: usize = 2 * 1024 * 1024;
+
 #[derive(Debug)]
 pub enum CedarConfigError {
     Invalid(String),
@@ -116,8 +119,15 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
                 revision: None,
             };
         };
-        let cedar_request = match cedar_request(request) {
-            Ok(request) => request,
+        let response = match stacker::maybe_grow(CEDAR_STACK_RED_ZONE, CEDAR_STACK_SIZE, || {
+            let cedar_request = cedar_request(request)?;
+            Ok::<_, String>(Authorizer::new().is_authorized(
+                &cedar_request,
+                &policy.policies,
+                &Entities::empty(),
+            ))
+        }) {
+            Ok(response) => response,
             Err(message) => {
                 return PolicyEvaluation::EvaluationError {
                     message,
@@ -125,8 +135,6 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
                 };
             }
         };
-        let response =
-            Authorizer::new().is_authorized(&cedar_request, &policy.policies, &Entities::empty());
         let errors = response
             .diagnostics()
             .errors()

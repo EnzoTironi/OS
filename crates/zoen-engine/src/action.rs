@@ -6,13 +6,14 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
-    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, Consistency,
-    DefinitionReference, DefinitionRevision, EffectRequestId, EntityId, EvidenceDigest,
-    EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest, LineageRole,
-    OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation, ProposalAuthority,
-    ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult, SemanticSelection,
-    SemanticValue, StateBasis, StateBasisDigest, StateDependency, TimestampMicros,
-    TrustedExecutionContext, ValidTime, ValueType, evaluate_expression, expression_relations,
+    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, ComponentExecutionEvidence,
+    Consistency, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
+    EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
+    LineageRole, OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation,
+    ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult,
+    SemanticSelection, SemanticValue, StateBasis, StateBasisDigest, StateDependency,
+    TimestampMicros, TrustedExecutionContext, ValidTime, ValueType, evaluate_expression,
+    expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
@@ -225,6 +226,7 @@ pub struct ActionEngine<S, Q, P> {
 pub struct ProposeCommand {
     pub action_id: ActionId,
     pub definition: DefinitionReference,
+    pub execution: Option<ComponentExecutionEvidence>,
     pub expires_at: TimestampMicros,
     pub inputs: Vec<ActionInput>,
     pub operation_id: OperationId,
@@ -391,6 +393,7 @@ where
             action_id: command.action_id,
             authority,
             definition: command.definition,
+            execution: command.execution,
             expires_at: command.expires_at,
             inputs: command.inputs,
             intent_digest,
@@ -819,6 +822,15 @@ fn intent_digest(
     hash_field(&mut hasher, command.action_id.as_str());
     hash_field(&mut hasher, command.resource_id.as_str());
     hash_field(&mut hasher, &command.valid_at.get().to_string());
+    if let Some(execution) = &command.execution {
+        hash_field(&mut hasher, execution.execution_id().as_str());
+        hash_field(&mut hasher, execution.component_digest().as_str());
+        hash_field(&mut hasher, execution.interface().as_str());
+        hash_field(&mut hasher, execution.capability_manifest_digest().as_str());
+        for capability_id in execution.capability_ids() {
+            hash_field(&mut hasher, capability_id.as_str());
+        }
+    }
     let mut inputs = command.inputs.iter().collect::<Vec<_>>();
     inputs.sort_by(|left, right| left.id.cmp(&right.id));
     for input in inputs {

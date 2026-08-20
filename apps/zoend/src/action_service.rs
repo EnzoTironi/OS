@@ -8,7 +8,8 @@ use connectrpc::{
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
     ActionApproval, ActionInput as CoreActionInput, ActionProposal, ApprovalId,
-    CommitIdentityKind as CoreCommitIdentityKind, CommitReceipt, LineageRole as CoreLineageRole,
+    CommitIdentityKind as CoreCommitIdentityKind, CommitReceipt,
+    ComponentExecutionEvidence as CoreComponentExecutionEvidence, LineageRole as CoreLineageRole,
     OperationId, PolicyEvaluation, PolicyEvidence as CorePolicyEvidence, ProposalAuthority,
     ProposalId, ResourceId, StateBasis as CoreStateBasis, TimestampMicros, TrustedExecutionContext,
 };
@@ -22,9 +23,10 @@ use crate::auth::SessionRegistry;
 use crate::proto::zoen::action::v1::{
     ActionCapability, ActionInput, ActionService, Approval, ApproveRequest, ApproveResponse,
     CommitIdentityKind, CommitReceipt as ProtocolCommitReceipt, CommitRequest, CommitResponse,
-    CommitStatus, DelegationGrant, DiscoverRequest, DiscoverResponse, GetOperationStatusRequest,
-    GetOperationStatusResponse, PolicyDecision, PolicyEvidence, PolicyRevision, Proposal,
-    ProposalStatus, ProposeRequest, ProposeResponse, StateBasis, StateDependency, TrustedContext,
+    CommitStatus, ComponentExecutionEvidence, DelegationGrant, DiscoverRequest, DiscoverResponse,
+    GetOperationStatusRequest, GetOperationStatusResponse, PolicyDecision, PolicyEvidence,
+    PolicyRevision, Proposal, ProposalStatus, ProposeRequest, ProposeResponse, StateBasis,
+    StateDependency, TrustedContext,
 };
 use crate::world_service::{
     invalid, parse_definition_reference, parse_exact_value, parse_timestamp,
@@ -128,6 +130,7 @@ impl ActionService for ActionServiceImpl {
                     action_id: zoen_core::ActionId::parse(request.action_id)
                         .map_err(|error| invalid(error.to_string()))?,
                     definition: parse_definition_reference(&definition)?,
+                    execution: None,
                     expires_at: parse_timestamp(&expires_at)?,
                     inputs,
                     operation_id: OperationId::parse(request.operation_id)
@@ -387,6 +390,7 @@ pub(crate) fn to_proposal(proposal: ActionProposal) -> Proposal {
     Proposal {
         action_id: proposal.action_id.as_str().to_owned(),
         definition: Some(to_definition_reference(proposal.definition)).into(),
+        execution: proposal.execution.map(to_component_execution).into(),
         expires_at: Some(to_timestamp(proposal.expires_at)).into(),
         inputs: proposal
             .inputs
@@ -407,6 +411,23 @@ pub(crate) fn to_proposal(proposal: ActionProposal) -> Proposal {
         state_basis: Some(to_state_basis(proposal.state_basis)).into(),
         status: status.into(),
         valid_at: Some(to_timestamp(proposal.valid_at)).into(),
+        ..Default::default()
+    }
+}
+
+pub(crate) fn to_component_execution(
+    evidence: CoreComponentExecutionEvidence,
+) -> ComponentExecutionEvidence {
+    ComponentExecutionEvidence {
+        capability_ids: evidence
+            .capability_ids()
+            .iter()
+            .map(|capability| capability.as_str().to_owned())
+            .collect(),
+        capability_manifest_digest: evidence.capability_manifest_digest().as_str().to_owned(),
+        component_digest: evidence.component_digest().as_str().to_owned(),
+        component_interface: evidence.interface().as_str().to_owned(),
+        execution_id: evidence.execution_id().as_str().to_owned(),
         ..Default::default()
     }
 }
