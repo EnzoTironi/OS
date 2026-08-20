@@ -736,13 +736,12 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .expect("Tokio runtime must initialize");
-        let error = runtime
+        runtime
             .block_on(async {
                 let instance = Instance::new_async(&mut store, &module, &[]).await?;
                 let spin = instance.get_typed_func::<(), ()>(&mut store, "spin")?;
                 spin.call_async(&mut store, ()).await
             })
-            .expect_err("tight guest loop must trap");
-        error
+            .expect_err("tight guest loop must trap")
     }
 }
