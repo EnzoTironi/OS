@@ -187,7 +187,7 @@ async function routeControl(
         .sort(),
       embedding: embeddingRoute,
       ingestPaused,
-      providers: registry.providerRouteIds().sort(),
+      providers: [...registry.providerRouteIds()].sort(),
       trustedContext: discovery.trustedContext,
     });
     return;

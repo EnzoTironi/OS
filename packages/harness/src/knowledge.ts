@@ -734,7 +734,6 @@ function sourceBytes(input: SourceInput): Uint8Array {
 async function extractPdf(bytes: Uint8Array): Promise<readonly string[]> {
   const loading = getDocument({
     data: bytes,
-    isEvalSupported: false,
     useSystemFonts: true,
   });
   const document = await loading.promise;
@@ -752,7 +751,7 @@ async function extractPdf(bytes: Uint8Array): Promise<readonly string[]> {
     }
     return pages;
   } finally {
-    await document.destroy();
+    await loading.destroy();
   }
 }
 
