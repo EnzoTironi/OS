@@ -7,6 +7,8 @@ export const Route = createFileRoute("/api/config")({
       GET: () =>
         Response.json(
           runtimeConfigSchema.parse({
+            adaptiveSurfaceEnabled:
+              process.env.ZOEN_WEB_ADAPTIVE_SURFACE_URL !== undefined,
             definitionId: requiredEnvironment("ZOEN_WEB_DEFINITION_ID"),
             oidcClientId: requiredEnvironment("ZOEN_WEB_OIDC_CLIENT_ID"),
             oidcIssuer: requiredEnvironment("ZOEN_WEB_OIDC_ISSUER"),

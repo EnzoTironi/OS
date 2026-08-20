@@ -16,6 +16,7 @@ import {
   type ActionInput,
   type CommitReceipt,
   type CommitResponse,
+  type DefinitionRevision,
   type ProposeResponse,
   type ZoenBrowserClient,
   parseDefinitionMetadata,
@@ -23,12 +24,14 @@ import {
 import {
   compileDeterministicSurface,
   effectStatusView,
+  parseAdaptiveSurfaceSession,
   parseSurfaceDocument,
   queryBindingView,
   semanticQueryCacheKey,
   type ActionBinding,
   type ActionInputControl,
   type ActionOperationView,
+  type AdaptiveSurfaceSession,
   type HistoryEntryView,
   type QueryBinding,
   type QueryBindingView,
@@ -37,10 +40,28 @@ import {
 } from "@zoen/surface";
 import type { RuntimeConfig } from "./config.js";
 
-export interface LoadedAuthoritySurface {
-  readonly data: SurfaceRuntimeData;
-  readonly document: SurfaceDocument;
-}
+export type LoadedAuthoritySurface =
+  | {
+      readonly data: SurfaceRuntimeData;
+      readonly document: SurfaceDocument;
+      readonly kind: "deterministic";
+    }
+  | {
+      readonly data: SurfaceRuntimeData;
+      readonly document: SurfaceDocument;
+      readonly kind: "adaptive";
+      readonly sessionId: string;
+    };
+
+export type AdaptiveSurfaceLoadRequest =
+  | {
+      readonly kind: "generate";
+      readonly question: string;
+    }
+  | {
+      readonly kind: "reload";
+      readonly sessionId: string;
+    };
 
 export interface ActionIdentity {
   readonly bindingId: string;
@@ -74,26 +95,7 @@ export async function loadAuthoritySurface(
     metadata,
   });
   const document = parseSurfaceDocument(compiled, metadata);
-  const discovery = await client.actions.discover({
-    definition: protocolDefinition(document),
-    resourceId: config.resourceId,
-  });
-  const actions = Object.fromEntries(
-    document.actionBindings.map((binding): [string, ActionOperationView] => {
-      const capability = discovery.actions.find(
-        (candidate) => candidate.actionId === binding.ref.actionId,
-      );
-      return [
-        binding.id,
-        capability?.decision === PolicyDecision.PERMIT
-          ? { kind: "idle" }
-          : {
-              error: "Server discovery did not return an available capability.",
-              kind: "unavailable",
-            },
-      ];
-    }),
-  );
+  const actions = await discoverActionViews(client, document);
   const queries = await refreshQueries(
     client,
     config,
@@ -108,7 +110,149 @@ export async function loadAuthoritySurface(
       queries,
     },
     document,
+    kind: "deterministic",
   };
+}
+
+export async function loadAdaptiveAuthoritySurface(
+  client: ZoenBrowserClient,
+  config: RuntimeConfig,
+  queryClient: QueryClient,
+  accessToken: string,
+  request: AdaptiveSurfaceLoadRequest,
+): Promise<LoadedAuthoritySurface> {
+  const response = await fetch(adaptiveSurfaceRequestUrl(request), {
+    body:
+      request.kind === "generate"
+        ? JSON.stringify({ question: request.question })
+        : undefined,
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      ...(request.kind === "generate"
+        ? { "content-type": "application/json" }
+        : {}),
+    },
+    method: request.kind === "generate" ? "POST" : "GET",
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(body || "Adaptive Surface generation failed");
+  }
+  const raw: unknown = JSON.parse(body);
+  const active = await client.definitions.getActiveRevision({
+    definitionId: config.definitionId,
+    tenantId: client.tenantId,
+  });
+  const revision = active.definitionRevision;
+  if (revision === undefined) {
+    throw new Error(`Unknown definition ${config.definitionId}`);
+  }
+  const metadata = parseDefinitionMetadata(revision.canonicalJson);
+  const session = parseAdaptiveSurfaceSession(raw, metadata);
+  requireActiveAdaptiveSession(session, config, revision);
+  const queries = await refreshQueries(
+    client,
+    config,
+    session.document,
+    queryClient,
+    revision.commitSequence.toString(),
+  );
+  const actions = adaptiveSessionIsStale(session, queries)
+    ? Object.fromEntries(
+        session.document.actionBindings.map(
+          (binding): [string, ActionOperationView] => [
+            binding.id,
+            {
+              error:
+                "The generated decision is stale. Regenerate it before proposing an Action.",
+              kind: "unavailable",
+            },
+          ],
+        ),
+      )
+    : await discoverActionViews(client, session.document);
+  return {
+    data: {
+      actions,
+      history: {},
+      queries,
+    },
+    document: session.document,
+    kind: "adaptive",
+    sessionId: session.sessionId,
+  };
+}
+
+async function discoverActionViews(
+  client: ZoenBrowserClient,
+  document: SurfaceDocument,
+): Promise<Readonly<Record<string, ActionOperationView>>> {
+  const entries = await Promise.all(
+    document.actionBindings.map(
+      async (binding): Promise<[string, ActionOperationView]> => {
+        const discovery = await client.actions.discover({
+          definition: protocolDefinition(document),
+          resourceId: binding.ref.resourceId,
+        });
+        const capability = discovery.actions.find(
+          (candidate) => candidate.actionId === binding.ref.actionId,
+        );
+        return [
+          binding.id,
+          capability?.decision === PolicyDecision.PERMIT
+            ? { kind: "idle" }
+            : {
+                error:
+                  "Server discovery did not return an available capability.",
+                kind: "unavailable",
+              },
+        ];
+      },
+    ),
+  );
+  return Object.fromEntries(entries);
+}
+
+function adaptiveSurfaceRequestUrl(request: AdaptiveSurfaceLoadRequest): string {
+  switch (request.kind) {
+    case "generate":
+      return "/api/adaptive-surface";
+    case "reload":
+      return `/api/adaptive-surface?${new URLSearchParams({
+        sessionId: request.sessionId,
+      }).toString()}`;
+    default: {
+      const exhaustive: never = request;
+      return exhaustive;
+    }
+  }
+}
+
+function requireActiveAdaptiveSession(
+  session: AdaptiveSurfaceSession,
+  config: RuntimeConfig,
+  revision: DefinitionRevision,
+): void {
+  const definition = session.document.semanticContext.definition;
+  if (
+    definition.definitionId !== revision.definitionId ||
+    definition.digest !== revision.digest ||
+    definition.revision !== revision.revision.toString() ||
+    session.document.semanticContext.entityId !== config.resourceId
+  ) {
+    throw new Error("Adaptive Surface does not match the active semantic context");
+  }
+}
+
+function adaptiveSessionIsStale(
+  session: AdaptiveSurfaceSession,
+  queries: Readonly<Record<string, QueryBindingView>>,
+): boolean {
+  return session.context.queries.some(
+    (query) =>
+      queries[query.binding.id]?.actualCommitSequence !==
+      query.actualCommitSequence,
+  );
 }
 
 export async function refreshQueries(
