@@ -46,6 +46,8 @@ import {
 
 const scenario = "web-deterministic";
 const webOrigin = e2eHttpUrl("ZOEN_E2E_WEB_PORT", 58_187);
+const requestStockBinding = "action.inventory.requestStock";
+const requestStockForm = `form[data-action-binding="${requestStockBinding}"]`;
 const sessionSchema = z
   .object({
     identity: z
@@ -123,7 +125,7 @@ async function main(): Promise<void> {
 
     const jsonRenderer = page.locator('[data-renderer="json-render"]');
     const referenceRenderer = page.locator('[data-renderer="reference"]');
-    const jsonForm = jsonRenderer.locator("form");
+    const jsonForm = jsonRenderer.locator(requestStockForm);
     await jsonForm.locator('input[name="quantity"]').fill("2");
     await jsonForm.getByRole("button", { name: "Propose Action" }).click();
     await jsonForm.getByText(/Proposal .* is ready for commit/u).waitFor();
@@ -189,12 +191,17 @@ async function main(): Promise<void> {
         afterAction.actionOperations === beforeAction.actionOperations + 1,
     );
 
-    const jsonStatus = await jsonRenderer.locator(".operation-status").innerText();
+    const jsonStatus = await jsonForm.locator(".operation-status").innerText();
     const referenceStatus = await referenceRenderer
+      .locator(requestStockForm)
       .locator(".operation-status")
       .innerText();
     assert.equal(jsonStatus, referenceStatus);
-    const effectText = await jsonRenderer.locator(".effect-list").innerText();
+    const effectText = await jsonRenderer
+      .locator(
+        `.effect-list[data-action-binding="${requestStockBinding}"]`,
+      )
+      .innerText();
     assert.match(effectText, /pending|unknown/u);
     assert.doesNotMatch(effectText, /confirmed|completed/u);
     observe(
@@ -207,7 +214,9 @@ async function main(): Promise<void> {
     assert.equal(jsonRows, referenceRows);
     assert.match(jsonRows, /2/u);
     assert.match(
-      await jsonRenderer.locator(".timeline").innerText(),
+      await jsonRenderer
+        .locator(`.timeline[data-action-binding="${requestStockBinding}"]`)
+        .innerText(),
       /Action committed locally/u,
     );
     observe(
@@ -284,15 +293,19 @@ async function verifyInitialSurface(
   const jsonRenderer = page.locator('[data-renderer="json-render"]');
   const referenceRenderer = page.locator('[data-renderer="reference"]');
   try {
-    await jsonRenderer.locator("form").waitFor();
+    await jsonRenderer.locator(requestStockForm).waitFor();
   } catch (cause: unknown) {
     throw new Error(
       `Surface renderers did not produce the Action form:\n${await page.locator("body").innerText()}`,
       { cause },
     );
   }
-  const jsonInput = jsonRenderer.locator('input[name="quantity"]');
-  const referenceInput = referenceRenderer.locator('input[name="quantity"]');
+  const jsonInput = jsonRenderer
+    .locator(requestStockForm)
+    .locator('input[name="quantity"]');
+  const referenceInput = referenceRenderer
+    .locator(requestStockForm)
+    .locator('input[name="quantity"]');
   observe(
     "deterministicSurfaceGeneratedWithoutLlm",
     (await page.locator("main").getAttribute("data-compiler")) ===
@@ -321,7 +334,7 @@ async function verifyInitialSurface(
     resourceId,
   });
   await visibility.check();
-  await jsonRenderer.locator("form").waitFor();
+  await jsonRenderer.locator(requestStockForm).waitFor();
   observe(
     "hidingOrShowingControlDoesNotChangeServerAuthority",
     discovery.actions.some(

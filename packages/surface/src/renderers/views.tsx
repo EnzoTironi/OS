@@ -101,7 +101,11 @@ export function ActionFormView(props: {
   };
 
   return (
-    <form className="action-form" onSubmit={submit}>
+    <form
+      className="action-form"
+      data-action-binding={binding.id}
+      onSubmit={submit}
+    >
       <fieldset disabled={isBusy(operation)}>
         <legend>{props.label}</legend>
         {binding.inputs.map((input) => {
@@ -195,13 +199,25 @@ export function EffectStatusViewList(props: {
   const { data } = useSurfaceInteraction();
   const operation = data.actions[props.bindingId];
   if (operation?.kind !== "committed") {
-    return <p className="effect-status">No committed effect.</p>;
+    return (
+      <p className="effect-status" data-action-binding={props.bindingId}>
+        No committed effect.
+      </p>
+    );
   }
   if (operation.effects.length === 0) {
-    return <p className="effect-status">Committed. No external effect.</p>;
+    return (
+      <p className="effect-status" data-action-binding={props.bindingId}>
+        Committed. No external effect.
+      </p>
+    );
   }
   return (
-    <ul className="effect-list" aria-label="External effect status">
+    <ul
+      aria-label="External effect status"
+      className="effect-list"
+      data-action-binding={props.bindingId}
+    >
       {operation.effects.map((effect, index) => (
         <li key={`${effect.kind}.${index}`}>{effectText(effect)}</li>
       ))}
@@ -213,7 +229,11 @@ export function HistoryView(props: { readonly bindingId: string }) {
   const { data } = useSurfaceInteraction();
   const entries = data.history[props.bindingId] ?? [];
   return (
-    <ol className="timeline" aria-label="Action history">
+    <ol
+      aria-label="Action history"
+      className="timeline"
+      data-action-binding={props.bindingId}
+    >
       {entries.map((entry) => (
         <li key={`${entry.sequence}.${entry.label}`}>
           <span>{entry.label}</span>
@@ -254,7 +274,7 @@ export function ExplanationView(props: { readonly bindingId: string }) {
       ? operation.operationId
       : undefined;
   return (
-    <p className="explanation-ref">
+    <p className="explanation-ref" data-action-binding={props.bindingId}>
       {operationId === undefined ? (
         "No explanation reference yet."
       ) : (
