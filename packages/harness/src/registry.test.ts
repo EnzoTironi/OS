@@ -3,6 +3,10 @@ import test from "node:test";
 import { InvalidToolInputError } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import {
+  adaptiveSurfaceTemplate,
+  type QueryBinding,
+} from "../../surface/src/index.js";
+import {
   AiSdkPlanner,
   planningRequestDigest,
   registerLiveProviders,
@@ -213,7 +217,7 @@ test("OpenAI-compatible routes register without other provider secrets", () => {
 });
 
 test("adaptive composition uses one required tool and unwraps Surface IR", async () => {
-  const document = { schema: "zoen.surface.v1" };
+  const document = adaptiveTestDocument();
   const model = new MockLanguageModelV3({
     doGenerate: async (options) => {
       assert.deepEqual(options.toolChoice, { type: "required" });
@@ -224,7 +228,7 @@ test("adaptive composition uses one required tool and unwraps Surface IR", async
       return {
         content: [
           {
-            input: JSON.stringify({ document: JSON.stringify(document) }),
+            input: JSON.stringify(document),
             toolCallId: "call.surface",
             toolName: "emit_surface",
             type: "tool-call",
@@ -333,6 +337,75 @@ test("missing tool names are invalid arguments, not visibility misses", async ()
     });
   }
 });
+
+function adaptiveTestDocument() {
+  const surfaceDefinition = {
+    definitionId: definition.definitionId,
+    digest: definition.digest,
+    revision: definition.revision.toString(),
+  };
+  const queryBinding = {
+    id: "query.relation.inventory.available",
+    ref: {
+      definition: surfaceDefinition,
+      entityId: "inventory.item.1",
+      kind: "relation",
+      relationId: "inventory.available",
+    },
+  } satisfies QueryBinding;
+  return adaptiveSurfaceTemplate({
+    actions: [
+      {
+        id: "action.inventory.requestStock",
+        inputs: [
+          {
+            inputId: "quantity",
+            label: "Quantity",
+            valueType: { kind: "integer" },
+          },
+        ],
+        ref: {
+          actionId: "inventory.requestStock",
+          definition: surfaceDefinition,
+          resourceId: "inventory.item.1",
+        },
+      },
+    ],
+    definition: surfaceDefinition,
+    entityId: "inventory.item.1",
+    evidence: [
+      {
+        fragmentDigest: "b".repeat(64),
+        fragmentId: "c".repeat(64),
+        kind: "company-source",
+        retrievalTraceId: "d".repeat(64),
+        sourceDigest: "e".repeat(64),
+        sourceId: "source.inventory.policy",
+        sourceRevision: "f".repeat(64),
+      },
+    ],
+    explanations: [
+      {
+        explanationDigest: "1".repeat(64),
+        kind: "operation-explanation",
+        operationId: "operation.inventory.baseline",
+      },
+    ],
+    generatedAt: "2026-08-20T00:00:00.000Z",
+    knowledgeTraceId: "d".repeat(64),
+    queries: [
+      {
+        actualCommitSequence: "1",
+        binding: queryBinding,
+        knowledgeCut: "2".repeat(64),
+        resultDigest: "3".repeat(64),
+        validAt: "2026-08-20T00:00:00.000Z",
+        values: [{ kind: "integer", value: "10" }],
+      },
+    ],
+    queryContextDigest: "4".repeat(64),
+  });
+}
 
 class FixedPlanner implements ModelPlanner {
   readonly #providerCallId: string;
