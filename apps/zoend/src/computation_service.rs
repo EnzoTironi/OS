@@ -126,7 +126,7 @@ impl ComputationService for ComputationServiceImpl {
                     manifest: manifest.clone(),
                 },
                 ScopedComputationHost::new(
-                    trusted,
+                    trusted.clone(),
                     manifest,
                     self.store.clone(),
                     self.query.clone(),
