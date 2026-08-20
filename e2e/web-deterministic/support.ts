@@ -66,11 +66,12 @@ export async function startResponseLossProxy(): Promise<ResponseLossProxy> {
     try {
       const body = await incomingBody(request);
       const headers = incomingHeaders(request);
+      const requestBody = new Uint8Array(body);
       const upstream = await fetch(new URL(requestPath, targetOrigin), {
         body:
           request.method === "GET" || request.method === "HEAD"
             ? undefined
-            : body,
+            : requestBody,
         headers,
         method: request.method,
         redirect: "manual",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
-import AxeBuilder from "@axe-core/playwright";
+import { AxeBuilder } from "@axe-core/playwright";
 import { Client as PostgresClient } from "pg";
 import {
   chromium,
