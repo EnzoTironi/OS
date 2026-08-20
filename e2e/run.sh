@@ -7,16 +7,16 @@ set -euo pipefail
 # Each scenario loads `e2e/<scenario>/.env` so Compose, zoend, and artifacts
 # never share host ports or generated files with another scenario.
 
-scenarios=(
-  definition-publication
-  domain-quality
-  durable-commit
-  effects
-  evolution-breaking
-  evolution-compatible
-  explain
-  governed-action
-  semantic-query
+scenario_table=(
+  "definition-publication::"
+  "domain-quality:domain-quality:"
+  "durable-commit:governed-action:failpoints"
+  "effects:governed-action:"
+  "evolution-breaking:evolution-breaking:"
+  "evolution-compatible:evolution-compatible:"
+  "explain:governed-action:"
+  "governed-action:governed-action:"
+  "semantic-query::"
 )
 
 scenario=""
@@ -27,6 +27,11 @@ generated_directory=""
 prepare=""
 
 usage() {
+  local row
+  local names=()
+  for row in "${scenario_table[@]}"; do
+    names+=("${row%%:*}")
+  done
   echo "usage: just lint" >&2
   echo "       just clippy" >&2
   echo "       just check" >&2
@@ -34,19 +39,8 @@ usage() {
   echo "       just e2e-run <scenario>" >&2
   echo "       just e2e <scenario>" >&2
   echo "       just verify" >&2
-  echo "scenarios: ${scenarios[*]}" >&2
+  echo "scenarios: ${names[*]}" >&2
   exit 2
-}
-
-is_scenario() {
-  local candidate="$1"
-  local name
-  for name in "${scenarios[@]}"; do
-    if [[ "$name" == "$candidate" ]]; then
-      return 0
-    fi
-  done
-  return 1
 }
 
 load_scenario_env() {
@@ -65,67 +59,40 @@ load_scenario_env() {
 }
 
 resolve_scenario() {
-  scenario="${1:-}"
-  generated_directory=""
-  prepare=""
-  case "$scenario" in
-    definition-publication)
-      compose_file="e2e/definition-publication/compose.yaml"
-      project="zoen-definition-publication"
-      runner="dist/e2e/definition-publication.js"
-      ;;
-    semantic-query)
-      compose_file="e2e/semantic-query/compose.yaml"
-      project="zoen-semantic-query"
-      runner="dist/e2e/semantic-query.js"
-      ;;
-    governed-action)
-      compose_file="e2e/governed-action/compose.yaml"
-      prepare="e2e/governed-action/prepare-realm.mjs"
-      project="zoen-governed-action"
-      runner="dist/e2e/governed-action.js"
-      ;;
-    durable-commit)
-      compose_file="e2e/durable-commit/compose.yaml"
-      prepare="e2e/governed-action/prepare-realm.mjs"
-      project="zoen-durable-commit"
-      runner="dist/e2e/durable-commit.js"
-      ;;
-    effects)
-      compose_file="e2e/effects/compose.yaml"
-      prepare="e2e/governed-action/prepare-realm.mjs"
-      project="zoen-effects"
-      runner="dist/e2e/effects.js"
-      ;;
-    explain)
-      compose_file="e2e/explain/compose.yaml"
-      prepare="e2e/governed-action/prepare-realm.mjs"
-      project="zoen-explain"
-      runner="dist/e2e/explain.js"
-      ;;
-    domain-quality)
-      compose_file="e2e/domain-quality/compose.yaml"
-      prepare="e2e/domain-quality/prepare-realm.mjs"
-      project="zoen-domain-quality"
-      runner="dist/e2e/domain-quality.js"
-      ;;
-    evolution-compatible)
-      compose_file="e2e/evolution-compatible/compose.yaml"
-      prepare="e2e/evolution-compatible/prepare-realm.mjs"
-      project="zoen-evolution-compatible"
-      runner="dist/e2e/evolution-compatible.js"
-      ;;
-    evolution-breaking)
-      compose_file="e2e/evolution-breaking/compose.yaml"
-      prepare="e2e/evolution-breaking/prepare-realm.mjs"
-      project="zoen-evolution-breaking"
-      runner="dist/e2e/evolution-breaking.js"
-      ;;
-    *)
-      usage
-      ;;
-  esac
-  load_scenario_env
+  local candidate="${1:-}"
+  local row
+  local name
+  local realm
+  for row in "${scenario_table[@]}"; do
+    IFS=: read -r name realm _ <<< "$row"
+    if [[ "$name" == "$candidate" ]]; then
+      scenario="$name"
+      compose_file="e2e/${scenario}/compose.yaml"
+      project="zoen-${scenario}"
+      runner="dist/e2e/${scenario}.js"
+      prepare=""
+      if [[ -n "$realm" ]]; then
+        prepare="e2e/${realm}/prepare-realm.mjs"
+      fi
+      load_scenario_env
+      return
+    fi
+  done
+  usage
+}
+
+build_needs_failpoints() {
+  local target="$1"
+  local row
+  local name
+  local variant
+  for row in "${scenario_table[@]}"; do
+    IFS=: read -r name _ variant <<< "$row"
+    if [[ "$variant" == "failpoints" && ( "$target" == "all" || "$target" == "$name" ) ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 run_lint() {
@@ -157,7 +124,7 @@ run_build() {
   npm run buf:generate
   npm run build
   cargo build --locked --workspace
-  if [[ "$target" == "durable-commit" || "$target" == "all" ]]; then
+  if build_needs_failpoints "$target"; then
     CARGO_TARGET_DIR=target/failpoints cargo build --locked --package zoend --features failpoints
   fi
 }
@@ -192,8 +159,8 @@ run_scenario() {
   if [[ -n "$prepare" ]]; then
     node "$prepare"
   fi
-  if [[ "$scenario" == "durable-commit" && ! -x target/failpoints/debug/zoend ]]; then
-    echo "missing failpoints zoend; run \`just build durable-commit\`" >&2
+  if build_needs_failpoints "$scenario" && [[ ! -x target/failpoints/debug/zoend ]]; then
+    echo "missing failpoints zoend; run \`just build ${scenario}\`" >&2
     exit 1
   fi
   docker compose --project-name "$project" --file "$compose_file" up --detach --wait
@@ -214,8 +181,10 @@ run_verify() {
   rm -rf artifacts
   run_check
   run_build all
+  local row
   local name
-  for name in "${scenarios[@]}"; do
+  for row in "${scenario_table[@]}"; do
+    IFS=: read -r name _ <<< "$row"
     resolve_scenario "$name"
     run_scenario
   done
@@ -250,10 +219,6 @@ case "$command" in
     usage
     ;;
   *)
-    if is_scenario "$command"; then
-      run_e2e "$command"
-    else
-      usage
-    fi
+    run_e2e "$command"
     ;;
 esac
