@@ -1,3 +1,4 @@
+import type { AdaptiveSurfaceModel } from "@zoen/surface";
 import {
   type CapabilityAlias,
   capabilityAliasForScope,
@@ -18,6 +19,7 @@ export type ProviderResolution =
       readonly kind: "available";
       readonly planner: ModelPlanner;
       readonly route: ProviderRoute;
+      readonly surfaceModel?: AdaptiveSurfaceModel;
     }
   | {
       readonly kind: "unavailable";
@@ -36,6 +38,7 @@ export type EmbeddingProviderResolution =
 interface ProviderRegistration {
   readonly planner: ModelPlanner;
   readonly route: ProviderRoute;
+  readonly surfaceModel?: AdaptiveSurfaceModel;
 }
 
 export class AgentRegistry {
@@ -66,6 +69,7 @@ export class AgentRegistry {
   registerProvider(
     route: ProviderRoute,
     planner: ModelPlanner,
+    surfaceModel?: AdaptiveSurfaceModel,
   ): Registration {
     if (this.#providers.has(route.id)) {
       throw new Error(`provider route ${route.id} is already registered`);
@@ -77,7 +81,7 @@ export class AgentRegistry {
         );
       }
     }
-    this.#providers.set(route.id, { planner, route });
+    this.#providers.set(route.id, { planner, route, surfaceModel });
     return disposable(() => {
       this.#providers.delete(route.id);
     });
@@ -125,6 +129,7 @@ export class AgentRegistry {
           kind: "available",
           planner: provider.planner,
           route: provider.route,
+          surfaceModel: provider.surfaceModel,
         };
       }
     }

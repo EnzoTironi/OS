@@ -71,6 +71,15 @@ CREATE TABLE company_retrieval_traces (
     PRIMARY KEY (tenant_id, trace_id)
 );
 
+CREATE TABLE company_surface_sessions (
+    tenant_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    session_digest TEXT NOT NULL,
+    surface_session JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (tenant_id, session_id)
+);
+
 CREATE INDEX company_fragments_fts_idx
     ON company_fragments USING gin (search_vector);
 CREATE INDEX company_fragments_vector_idx

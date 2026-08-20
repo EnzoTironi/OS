@@ -11,6 +11,12 @@ import {
   type ToolSet,
 } from "ai";
 import { z } from "zod";
+import {
+  adaptiveSurfaceDocumentSchema,
+  type AdaptiveSurfaceModel,
+  type AdaptiveSurfaceModelRequest,
+  type AdaptiveSurfaceModelResponse,
+} from "@zoen/surface";
 import { AgentRegistry, type Registration } from "./registry.js";
 import {
   actionPlanSchema,
@@ -59,12 +65,12 @@ export function registerLiveProviders(
   config: LiveProviderConfig,
   authentications: readonly ProviderAuthentication[],
 ): readonly Registration[] {
-  return config.routes.map((route) =>
-    registry.registerProvider(
-      route,
-      new AiSdkPlanner(modelForRoute(route, authentications)),
-    ),
-  );
+  return config.routes.map((route) => {
+    const provider = new AiSdkPlanner(
+      modelForRoute(route, authentications),
+    );
+    return registry.registerProvider(route, provider, provider);
+  });
 }
 
 export function providerConfigDigest(route: ProviderRoute): string {
@@ -78,7 +84,7 @@ export function providerConfigDigest(route: ProviderRoute): string {
   );
 }
 
-export class AiSdkPlanner implements ModelPlanner {
+export class AiSdkPlanner implements ModelPlanner, AdaptiveSurfaceModel {
   readonly #model: LanguageModel;
 
   constructor(model: LanguageModel) {
@@ -179,6 +185,81 @@ export class AiSdkPlanner implements ModelPlanner {
       responseModelId: result.finalStep.response.modelId,
     };
   }
+
+  async composeSurface(
+    request: AdaptiveSurfaceModelRequest,
+  ): Promise<AdaptiveSurfaceModelResponse> {
+    const result = await generateText({
+      maxOutputTokens: request.maxOutputTokens,
+      maxRetries: 0,
+      model: this.#model,
+      prompt: request.prompt,
+      system: request.system,
+      toolChoice: {
+        type: "tool",
+        toolName: "emit_surface",
+      },
+      tools: {
+        emit_surface: tool({
+          description:
+            "Emit one complete validated-catalog Zoen Surface IR document.",
+          inputSchema: adaptiveSurfaceDocumentSchema,
+        }),
+      },
+    });
+    const toolCall = result.toolCalls[0];
+    if (
+      toolCall === undefined ||
+      result.toolCalls.length !== 1 ||
+      toolCall.toolName !== "emit_surface"
+    ) {
+      throw new Error("model did not emit exactly one Surface IR document");
+    }
+    return {
+      document: toolCall.input,
+      providerCallId: result.finalStep.response.id,
+      responseModelId: result.finalStep.response.modelId,
+    };
+  }
+}
+
+export type LiveProviderProbeResult =
+  | { readonly kind: "available"; readonly status: 200 }
+  | { readonly kind: "rate_limited"; readonly status: 429 }
+  | { readonly kind: "failed"; readonly status: number };
+
+export async function probeOpenAiCompatibleProvider(input: {
+  readonly apiKey: string;
+  readonly baseURL: string;
+  readonly modelId: string;
+}): Promise<LiveProviderProbeResult> {
+  const response = await fetch(
+    new URL(
+      "chat/completions",
+      `${input.baseURL.replace(/\/?$/u, "/")}`,
+    ),
+    {
+      body: JSON.stringify({
+        max_tokens: 1,
+        messages: [{ content: "Reply with OK.", role: "user" }],
+        model: input.modelId,
+      }),
+      headers: {
+        authorization: `Bearer ${input.apiKey}`,
+        "content-type": "application/json",
+      },
+      method: "POST",
+      signal: AbortSignal.timeout(120_000),
+    },
+  );
+  await response.body?.cancel();
+  if (response.status === 200) {
+    return { kind: "available", status: 200 };
+  }
+  if (response.status === 429) {
+    return { kind: "rate_limited", status: 429 };
+  }
+  return { kind: "failed", status: response.status };
 }
 
 function planningPrompt(request: PlanningRequest): string {
