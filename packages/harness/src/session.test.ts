@@ -126,6 +126,36 @@ test("ready policy uses journaled discovery and ordinary commit", async () => {
   assert.equal(authority.commitCalls, 1);
 });
 
+test("out-of-scope Action plans are terminal", async () => {
+  const authority = new FixedAuthority({
+    kind: "ready",
+    intentDigest: "c".repeat(64),
+    policy,
+    proposalId: command.proposalId,
+  });
+  const planner = new InventedActionPlanner();
+  const result = await runAgentSession(
+    runtime(authority, planner).runtime,
+    command,
+    new RecordingJournal(),
+  );
+  assert.deepEqual(result, {
+    kind: "invalid_plan",
+    provider: {
+      configuredModelId: route.modelId,
+      modelCapability: route.capability,
+      promptDigest: "d".repeat(64),
+      providerKind: route.provider,
+      providerRouteId: route.id,
+    },
+    reason: "action_not_visible",
+    sessionId: command.sessionId,
+    taskId: command.task.taskId,
+  });
+  assert.equal(planner.calls, 1);
+  assert.equal(authority.commitCalls, 0);
+});
+
 test("approval and deny policy outcomes stop before commit", async () => {
   for (const proposal of [
     {
@@ -202,13 +232,16 @@ test("session signatures bind the complete command to one OIDC credential", () =
   );
 });
 
-function runtime(authority: AgentAuthority) {
+function runtime(
+  authority: AgentAuthority,
+  planner: ModelPlanner = new FixedPlanner(),
+) {
   const registry = new AgentRegistry();
   const actionRegistration = registry.registerCapabilityScope(actionScope);
   const queryRegistration = registry.registerCapabilityScope(queryScope);
   const providerRegistration = registry.registerProvider(
     route,
-    new FixedPlanner(),
+    planner,
   );
   return {
     action: actionRegistration,
@@ -223,6 +256,25 @@ class FixedPlanner implements ModelPlanner {
     return {
       plan: actionPlanSchema.parse({
         action: action.alias,
+        inputs: [
+          { id: "quantity", value: { kind: "integer", value: "1" } },
+        ],
+      }),
+      promptDigest: "d".repeat(64),
+      providerCallId: "provider-call.session",
+      responseModelId: "model.session.response",
+    };
+  }
+}
+
+class InventedActionPlanner implements ModelPlanner {
+  calls = 0;
+
+  async plan(): Promise<PlanningResult> {
+    this.calls += 1;
+    return {
+      plan: actionPlanSchema.parse({
+        action: "action-invented",
         inputs: [
           { id: "quantity", value: { kind: "integer", value: "1" } },
         ],
