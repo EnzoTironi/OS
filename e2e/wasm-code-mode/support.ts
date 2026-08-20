@@ -1,0 +1,204 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import {
+  createClient,
+  type Client,
+  type Interceptor,
+} from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-node";
+import {
+  ActionCapabilitySchema,
+  CapabilityManifestSchema,
+  CapabilitySchema,
+  ComputationService,
+  ExplainCapabilitySchema,
+  QueryCapabilitySchema,
+  ResourceLimitsSchema,
+  type CapabilityManifest,
+  type ExecuteResponse,
+  type ResourceLimits,
+} from "../../packages/sdk/src/gen/zoen/computation/v1/computation_pb.js";
+import {
+  QuerySelectionSchema,
+  type DefinitionReference,
+} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import { e2eHttpUrl } from "../host-env.js";
+
+export const componentInterface = "zoen:code-mode/computation@1.0.0";
+export const entityId = "inventory.item.1";
+export const relationId = "inventory.available";
+export const validAt = new Date("2026-08-19T00:00:00.000Z");
+
+const repositoryRoot = process.cwd();
+const fixtureDirectory = path.join(
+  repositoryRoot,
+  "e2e",
+  "wasm-code-mode",
+  "fixtures",
+);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171);
+
+export type ComputationClient = Client<typeof ComputationService>;
+
+export interface ComponentFixture {
+  bytes: Uint8Array;
+  digest: string;
+  name: string;
+}
+
+export interface ManifestOverrides {
+  actionId?: string;
+  componentInterface?: string;
+  entityId?: string;
+  resourceId?: string;
+}
+
+export interface LimitsOverrides {
+  deadlineMillis?: bigint;
+  fuel?: bigint;
+  instances?: bigint;
+  memories?: bigint;
+  memoryBytes?: bigint;
+  tableElements?: bigint;
+  tables?: bigint;
+}
+
+export function computationClient(token: string): ComputationClient {
+  const authorization: Interceptor = (next) => async (request) => {
+    request.header.set("authorization", `Bearer ${token}`);
+    return next(request);
+  };
+  return createClient(
+    ComputationService,
+    createConnectTransport({
+      baseUrl,
+      httpVersion: "1.1",
+      interceptors: [authorization],
+    }),
+  );
+}
+
+export async function loadComponentFixture(
+  name: string,
+): Promise<ComponentFixture> {
+  const bytes = await readFile(
+    path.join(fixtureDirectory, `${name}.component.wasm`),
+  );
+  const expectedDigest = (
+    await readFile(
+      path.join(fixtureDirectory, `${name}.component.sha256`),
+      "utf8",
+    )
+  ).trim();
+  const digest = sha256(bytes);
+  assert.equal(digest, expectedDigest);
+  return { bytes, digest, name };
+}
+
+export function emptyManifest(
+  interfaceName = componentInterface,
+): CapabilityManifest {
+  return create(CapabilityManifestSchema, {
+    componentInterface: interfaceName,
+  });
+}
+
+export function scopedManifest(
+  definition: DefinitionReference,
+  overrides: ManifestOverrides = {},
+): CapabilityManifest {
+  const proposedAt = new Date();
+  const expiresAt = new Date(proposedAt.getTime() + 5 * 60_000);
+  return create(CapabilityManifestSchema, {
+    capabilities: [
+      create(CapabilitySchema, {
+        capability: {
+          case: "query",
+          value: create(QueryCapabilitySchema, {
+            capabilityId: "query.available",
+            definition,
+            entityId: overrides.entityId ?? entityId,
+            selection: create(QuerySelectionSchema, {
+              value: { case: "relationId", value: relationId },
+            }),
+            validAt: timestampFromDate(validAt),
+          }),
+        },
+      }),
+      create(CapabilitySchema, {
+        capability: {
+          case: "explain",
+          value: create(ExplainCapabilitySchema, {
+            capabilityId: "explain.selected",
+          }),
+        },
+      }),
+      create(CapabilitySchema, {
+        capability: {
+          case: "action",
+          value: create(ActionCapabilitySchema, {
+            actionId: overrides.actionId ?? "inventory.requestStock",
+            capabilityId: "action.request-stock",
+            definition,
+            expiresAt: timestampFromDate(expiresAt),
+            proposedAt: timestampFromDate(proposedAt),
+            resourceId: overrides.resourceId ?? entityId,
+            validAt: timestampFromDate(validAt),
+          }),
+        },
+      }),
+    ],
+    componentInterface: overrides.componentInterface ?? componentInterface,
+  });
+}
+
+export function resourceLimits(
+  overrides: LimitsOverrides = {},
+): ResourceLimits {
+  return create(ResourceLimitsSchema, {
+    deadlineMillis: overrides.deadlineMillis ?? 2_000n,
+    fuel: overrides.fuel ?? 5_000_000n,
+    instances: overrides.instances ?? 4n,
+    memories: overrides.memories ?? 2n,
+    memoryBytes: overrides.memoryBytes ?? 8n * 1_024n * 1_024n,
+    tableElements: overrides.tableElements ?? 1_024n,
+    tables: overrides.tables ?? 2n,
+  });
+}
+
+export async function execute(
+  client: ComputationClient,
+  fixture: ComponentFixture,
+  executionId: string,
+  input: string,
+  manifest: CapabilityManifest,
+  limits = resourceLimits(),
+): Promise<ExecuteResponse> {
+  return client.execute({
+    componentDigest: fixture.digest,
+    executionId,
+    input: new TextEncoder().encode(input),
+    limits,
+    manifest,
+  });
+}
+
+export async function publish(
+  client: ComputationClient,
+  fixture: ComponentFixture,
+  interfaceName = componentInterface,
+) {
+  return client.publishComponent({
+    claimedDigest: fixture.digest,
+    component: fixture.bytes,
+    componentInterface: interfaceName,
+  });
+}
+
+export function sha256(value: Uint8Array | string): string {
+  return createHash("sha256").update(value).digest("hex");
+}

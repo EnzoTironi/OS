@@ -19,6 +19,7 @@ scenario_table=(
   "explain:governed-action:"
   "governed-action:governed-action:"
   "semantic-query::"
+  "wasm-code-mode:wasm-code-mode:"
 )
 
 scenario=""

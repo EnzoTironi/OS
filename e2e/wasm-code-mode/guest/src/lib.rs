@@ -94,12 +94,22 @@ fn run_program(fields: &[&str]) -> Result<ComputationOutput, ProgramError> {
         }
         None => false,
     };
+    if selected_values == 0 {
+        return Ok(output(
+            ProgramActionOutcome::NotRequested,
+            aggregate.to_string(),
+            selected_claim_id,
+            explanation_complete,
+            selected_values,
+            values_scanned,
+        ));
+    }
     let proposed = host::propose(&ProposeRequest {
         action_id: "inventory.requestStock".to_owned(),
         capability_id: "action.request-stock".to_owned(),
         inputs: vec![ActionInput {
             id: "quantity".to_owned(),
-            value: ExactValue::Integer(aggregate.to_string()),
+            value: ExactValue::Integer(selected_values.to_string()),
         }],
         operation_id: operation_id.clone(),
         proposal_id: proposal_id.clone(),
