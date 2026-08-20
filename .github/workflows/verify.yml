@@ -103,7 +103,6 @@ jobs:
           cache: npm
           node-version: "22"
       - uses: dtolnay/rust-toolchain@master
-        if: matrix.scenario == 'domain-quality'
         with:
           toolchain: "1.88.0"
       - run: npm ci
