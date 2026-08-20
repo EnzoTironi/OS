@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import canonicalize from "canonicalize";
 import type { Pool } from "pg";
 import { z } from "zod";
 import {
@@ -33,7 +34,8 @@ export class PostgresAdaptiveSurfaceSessionStore
   ): Promise<void> {
     const tenantId = identifierSchema.parse(trustedTenantId);
     const session = parseAdaptiveSurfaceSession(value);
-    const sessionDigest = sha256(JSON.stringify(session));
+    const encoded = canonicalSurfaceSession(session);
+    const sessionDigest = sha256(encoded);
     const inserted = await this.#pool.query(
       `
         INSERT INTO company_surface_sessions (
@@ -45,7 +47,7 @@ export class PostgresAdaptiveSurfaceSessionStore
         VALUES ($1, $2, $3, $4::jsonb)
         ON CONFLICT (tenant_id, session_id) DO NOTHING
       `,
-      [tenantId, session.sessionId, sessionDigest, JSON.stringify(session)],
+      [tenantId, session.sessionId, sessionDigest, encoded],
     );
     if (inserted.rowCount === 1) {
       return;
@@ -68,7 +70,7 @@ export class PostgresAdaptiveSurfaceSessionStore
       return undefined;
     }
     const session = parseAdaptiveSurfaceSession(row.surface_session);
-    if (sha256(JSON.stringify(session)) !== row.session_digest) {
+    if (sha256(canonicalSurfaceSession(session)) !== row.session_digest) {
       throw new Error("Adaptive Surface session digest mismatch");
     }
     return session;
@@ -92,4 +94,12 @@ export class PostgresAdaptiveSurfaceSessionStore
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function canonicalSurfaceSession(session: AdaptiveSurfaceSession): string {
+  const encoded = canonicalize(session);
+  if (encoded === undefined) {
+    throw new Error("Adaptive Surface session is not canonicalizable");
+  }
+  return encoded;
 }
