@@ -1,0 +1,4 @@
+{
+  "name": "Zoen OS",
+  "install": "./scripts/cursor-cloud-install.sh"
+}

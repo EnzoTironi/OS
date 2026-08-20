@@ -42,6 +42,13 @@ import {
   type DefinitionReference,
   type QueryConsistency,
 } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
+  e2eGeneratedDirectory,
+  e2eHttpUrl,
+  e2eListenAddr,
+  e2ePort,
+  e2ePostgresUrl,
+} from "../host-env.js";
 
 export const repositoryRoot = process.cwd();
 export const scenarioDirectory = path.join(
@@ -55,20 +62,35 @@ export const fixtureDirectory = path.join(
   "ontology",
   "fixtures",
 );
-export const generatedDirectory = path.join(
-  scenarioDirectory,
-  ".generated",
+export const generatedDirectory = e2eGeneratedDirectory(
+  repositoryRoot,
+  "evolution-compatible",
 );
 export const definitionId = "inventory.definition";
 export const resourceId = "inventory.item.1";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
-export const adminDatabaseUrl =
-  "postgres://postgres:postgres@127.0.0.1:55438/zoen";
-const applicationDatabaseUrl =
-  "postgres://zoen_app:zoen_app@127.0.0.1:55438/zoen";
-const baseUrl = "http://127.0.0.1:58089";
-const oidcIssuer = "http://127.0.0.1:58088/realms/zoen";
+const postgresPortFallback = 55_438;
+const zoendPortFallback = 58_089;
+const keycloakPortFallback = 58_088;
+const minioPortFallback = 59_005;
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+export const adminDatabaseUrl = e2ePostgresUrl(
+  "postgres",
+  "postgres",
+  postgresPortFallback,
+);
+const applicationDatabaseUrl = e2ePostgresUrl(
+  "zoen_app",
+  "zoen_app",
+  postgresPortFallback,
+);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const oidcIssuer = e2eHttpUrl(
+  "ZOEN_E2E_KEYCLOAK_PORT",
+  keycloakPortFallback,
+  "/realms/zoen",
+);
 const oidcAudience = "zoend";
 const compilerPath = path.join(
   repositoryRoot,
@@ -411,7 +433,7 @@ export async function startServer(
       ...projectionEnvironment(),
       DATABASE_URL: applicationDatabaseUrl,
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
-      ZOEN_LISTEN_ADDR: "127.0.0.1:58089",
+      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
       ZOEN_OIDC_AUDIENCE: oidcAudience,
       ZOEN_OIDC_ISSUER: oidcIssuer,
     },
@@ -450,12 +472,12 @@ async function waitForPort(
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`zoend did not listen on port 58089:\n${output.join("")}`);
+  throw new Error(`zoend did not listen on port ${zoendPort}:\n${output.join("")}`);
 }
 
 function canConnect(): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port: 58089 });
+    const socket = createConnection({ host: "127.0.0.1", port: zoendPort });
     let settled = false;
     const finish = (connected: boolean) => {
       if (!settled) {
@@ -528,7 +550,7 @@ function projectionEnvironment(): NodeJS.ProcessEnv {
     S3_ACCESS_KEY_ID: "zoen-access",
     S3_ALLOW_HTTP: "true",
     S3_BUCKET: "zoen-projections",
-    S3_ENDPOINT: "http://127.0.0.1:59005",
+    S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT", minioPortFallback),
     S3_REGION: "us-east-1",
     S3_SECRET_ACCESS_KEY: "zoen-secret",
   };

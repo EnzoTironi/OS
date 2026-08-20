@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { Client as PostgresClient } from "pg";
@@ -41,6 +41,7 @@ import {
   type DurableFixtures,
   type DurableScenario,
 } from "./durable-commit/scenario.js";
+import { writeScenarioArtifact } from "./host-env.js";
 
 const scenarioDirectory = path.join(repositoryRoot, "e2e", "durable-commit");
 
@@ -200,11 +201,7 @@ async function main(): Promise<void> {
         independentTenantCommitsMs,
       },
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "durable-commit.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "durable-commit", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     await runtime.admin.end();

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -68,6 +67,7 @@ import {
   type WorldClient,
 } from "./effects/support.js";
 import { historyClient, type HistoryClient } from "./explain/support.js";
+import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
 
 type Target = Exclude<
   ExplanationTarget["target"],
@@ -138,10 +138,7 @@ async function main(): Promise<void> {
   const fixture = crossRelationFixture(await loadFixture("direct", 1));
   const laterFixture = await loadFixture("self", 2);
   const policyManifestPath = path.join(
-    repositoryRoot,
-    "e2e",
-    "governed-action",
-    ".generated",
+    e2eGeneratedDirectory(repositoryRoot, "explain"),
     "explain-policies.json",
   );
   await writePolicyManifest(policyManifestPath, [fixture, laterFixture]);
@@ -564,11 +561,7 @@ async function main(): Promise<void> {
       },
       tenants: [tenantA, tenantB],
     };
-    await mkdir(path.join(repositoryRoot, "artifacts"), { recursive: true });
-    await writeFile(
-      path.join(repositoryRoot, "artifacts", "explain.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    await writeScenarioArtifact(repositoryRoot, "explain", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
     await admin.end();

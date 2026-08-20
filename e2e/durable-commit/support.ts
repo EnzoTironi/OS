@@ -9,6 +9,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { Client as PostgresClient } from "pg";
 import { delay, repositoryRoot } from "../governed-action/support.js";
+import { e2eHttpUrl } from "../host-env.js";
 
 const clientPath = path.join(
   repositoryRoot,
@@ -19,7 +20,7 @@ const clientPath = path.join(
 );
 const composeFile = path.join("e2e", "durable-commit", "compose.yaml");
 const composeProject = "zoen-durable-commit";
-const baseUrl = "http://127.0.0.1:58083";
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_101);
 
 const commitResultSchema = z.object({
   collisionKind: z.number().int(),

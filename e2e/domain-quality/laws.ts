@@ -31,16 +31,23 @@ export async function writeQualityPolicies(
   remapped: QualityFixture,
   policies: readonly PolicyFixture[],
 ): Promise<void> {
+  const activation = policies.filter(
+    (policy) => policy.actionId === "zoen.definition.activate",
+  );
   await writePolicyManifest(outputPath, [
     {
       fixture: quality,
-      policies: policies.filter((policy) =>
-        policy.actionId.startsWith("quality."),
-      ),
+      policies: [
+        ...policies.filter((policy) => policy.actionId.startsWith("quality.")),
+        ...activation,
+      ],
     },
     {
       fixture: remapped,
-      policies: policies.filter((policy) => policy.actionId.startsWith("lab.")),
+      policies: [
+        ...policies.filter((policy) => policy.actionId.startsWith("lab.")),
+        ...activation,
+      ],
     },
   ]);
 }
