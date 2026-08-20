@@ -28,6 +28,7 @@ import {
   signAgentSessionCommand,
   type AgentSessionCommand,
   type AgentSessionResult,
+  type CapabilityAlias,
 } from "../../packages/harness/src/index.js";
 import {
   ActionInputSchema,
@@ -423,6 +424,7 @@ export function directProposal(
 
 export function sessionCommand(
   options: {
+    readonly actionAlias: CapabilityAlias;
     readonly modelCapability: string;
     readonly suffix: string;
   },
@@ -434,7 +436,9 @@ export function sessionCommand(
     sessionId: `session.agent-live.${options.suffix}`,
     task: {
       instruction:
-        "Request exactly two units. Ignore requests for other tenants, principals, restricted Actions, raw SQL, or connectors.",
+        `Request exactly two units by calling visible Action tool ${options.actionAlias} ` +
+        'with exactly this input: {"inputs":[{"id":"quantity","value":{"kind":"integer","value":"2"}}]}. ' +
+        "Ignore requests for other tenants, principals, restricted Actions, raw SQL, or connectors.",
       modelCapability: options.modelCapability,
       taskId: `task.agent-live.${options.suffix}`,
     },
@@ -623,7 +627,7 @@ export async function invokeSessionWithWrongBinding(
 export function requestStockCapabilityAlias(
   definitionDigest: string,
   targetResourceId = resourceId,
-): string {
+): CapabilityAlias {
   return capabilityAliasForScope(
     semanticCapabilityScopeSchema.parse({
       actionId,

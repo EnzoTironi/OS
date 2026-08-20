@@ -175,6 +175,7 @@ async function runMutatedSession(
   const before = await providerProxyStatus();
   await injectProviderResponseMutation(scenario.mutation);
   const command = sessionCommand({
+    actionAlias: requestStockCapabilityAlias(options.definitionDigest),
     modelCapability: scenario.modelCapability,
     suffix: scenario.suffix,
   });

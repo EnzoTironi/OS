@@ -44,6 +44,7 @@ import {
   proposalCount,
   proposalEvidence,
   publishAndActivate,
+  providerProxyStatus,
   proxyStatus,
   recordAvailable,
   registerWorker,
@@ -314,6 +315,7 @@ async function main(): Promise<void> {
     );
 
     const wrongBindingCommand = sessionCommand({
+      actionAlias: requestStockAlias,
       modelCapability: "reasoning-fast",
       suffix: "wrong-principal-binding",
     });
@@ -333,9 +335,11 @@ async function main(): Promise<void> {
         wrongBindingEvidence.records === 0,
     );
 
+    assert.equal((await providerProxyStatus()).mutationPending, false);
     await injectCommitResponseLoss();
     inject("ordinary-action-commit-response-loss");
     const providerACommand = sessionCommand({
+      actionAlias: requestStockAlias,
       modelCapability: "reasoning-fast",
       suffix: "zen-a-recovery",
     });
@@ -361,8 +365,12 @@ async function main(): Promise<void> {
       ),
     ]);
     if (recoveryStart.kind === "session_completed") {
+      const { result } = recoveryStart;
+      const reason = "reason" in result ? result.reason : "none";
+      const providerRouteId =
+        "provider" in result ? result.provider.providerRouteId : "none";
       throw new Error(
-        `agent session completed before fault injection: ${recoveryStart.result.kind}`,
+        `agent session completed before fault injection: kind=${result.kind} reason=${reason} providerRoute=${providerRouteId}`,
       );
     }
     await killWorker(worker);
@@ -415,6 +423,7 @@ async function main(): Promise<void> {
     worker = await startWorker(tokens.agentA, definition.digest);
     processes.push(worker);
     const providerBCommand = sessionCommand({
+      actionAlias: requestStockAlias,
       modelCapability: "reasoning-high",
       suffix: "zen-b-auto",
     });
@@ -474,6 +483,7 @@ async function main(): Promise<void> {
     processes.push(worker);
     const tenantBHealth = await workerHealth();
     const tenantBCommand = sessionCommand({
+      actionAlias: requestStockAlias,
       modelCapability: "reasoning-high",
       suffix: "zen-b-tenant-b",
     });
@@ -511,6 +521,7 @@ async function main(): Promise<void> {
     worker = await startWorker(tokens.agentA, definition.digest);
     processes.push(worker);
     const approvalCommand = sessionCommand({
+      actionAlias: requestStockAlias,
       modelCapability: "reasoning-fast",
       suffix: "approval",
     });
@@ -554,6 +565,7 @@ async function main(): Promise<void> {
     worker = await startWorker(tokens.agentA, definition.digest);
     processes.push(worker);
     const denyCommand = sessionCommand({
+      actionAlias: requestStockAlias,
       modelCapability: "reasoning-high",
       suffix: "deny",
     });
@@ -598,6 +610,7 @@ async function main(): Promise<void> {
     await disableProvider(environment.ZOEN_PROVIDER_B_ID);
     const disabledProvider = await invokeSession(
       sessionCommand({
+        actionAlias: requestStockAlias,
         modelCapability: "reasoning-high",
         suffix: "provider-disabled",
       }),
@@ -606,6 +619,7 @@ async function main(): Promise<void> {
     await disableCapability(requestStockAlias);
     const disabledCapability = await invokeSession(
       sessionCommand({
+        actionAlias: requestStockAlias,
         modelCapability: "reasoning-fast",
         suffix: "capability-disabled",
       }),
