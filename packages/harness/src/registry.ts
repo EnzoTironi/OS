@@ -1,0 +1,104 @@
+import {
+  type CapabilityAlias,
+  capabilityAliasForScope,
+  type ModelCapabilityAlias,
+  type ModelPlanner,
+  type ProviderRoute,
+  type SemanticCapabilityScope,
+} from "./types.js";
+
+export interface Registration {
+  dispose(): void;
+}
+
+export type ProviderResolution =
+  | {
+      readonly kind: "available";
+      readonly planner: ModelPlanner;
+      readonly route: ProviderRoute;
+    }
+  | {
+      readonly kind: "unavailable";
+    };
+
+interface ProviderRegistration {
+  readonly planner: ModelPlanner;
+  readonly route: ProviderRoute;
+}
+
+export class AgentRegistry {
+  readonly #capabilityScopes = new Map<
+    CapabilityAlias,
+    SemanticCapabilityScope
+  >();
+  readonly #providers = new Map<string, ProviderRegistration>();
+
+  registerCapabilityScope(scope: SemanticCapabilityScope): Registration {
+    const alias = capabilityAliasForScope(scope);
+    if (this.#capabilityScopes.has(alias)) {
+      throw new Error(`capability scope ${alias} is already registered`);
+    }
+    this.#capabilityScopes.set(alias, scope);
+    return disposable(() => {
+      this.#capabilityScopes.delete(alias);
+    });
+  }
+
+  registerProvider(
+    route: ProviderRoute,
+    planner: ModelPlanner,
+  ): Registration {
+    if (this.#providers.has(route.id)) {
+      throw new Error(`provider route ${route.id} is already registered`);
+    }
+    for (const registered of this.#providers.values()) {
+      if (registered.route.capability === route.capability) {
+        throw new Error(
+          `model capability ${route.capability} already has a provider route`,
+        );
+      }
+    }
+    this.#providers.set(route.id, { planner, route });
+    return disposable(() => {
+      this.#providers.delete(route.id);
+    });
+  }
+
+  capabilityAliases(): readonly CapabilityAlias[] {
+    return [...this.#capabilityScopes.keys()];
+  }
+
+  capabilityScopes(): readonly SemanticCapabilityScope[] {
+    return [...this.#capabilityScopes.values()];
+  }
+
+  providerRouteIds(): readonly string[] {
+    return [...this.#providers.keys()];
+  }
+
+  resolveProvider(modelCapability: ModelCapabilityAlias): ProviderResolution {
+    for (const provider of this.#providers.values()) {
+      if (provider.route.capability === modelCapability) {
+        return {
+          kind: "available",
+          planner: provider.planner,
+          route: provider.route,
+        };
+      }
+    }
+    return { kind: "unavailable" };
+  }
+}
+
+function disposable(remove: () => void): Registration {
+  let disposed = false;
+  return {
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      remove();
+    },
+  };
+}
