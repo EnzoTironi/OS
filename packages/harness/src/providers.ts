@@ -93,6 +93,7 @@ class AiSdkPlanner implements ModelPlanner {
     try {
       result = await generateText({
         maxOutputTokens: 2_048,
+        maxRetries: 0,
         model: this.#model,
         prompt,
         system:
