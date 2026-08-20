@@ -53,8 +53,12 @@ realm.users = [
         value: "web-password",
       },
     ],
+    email: "web-user@example.test",
     emailVerified: true,
     enabled: true,
+    firstName: "Web",
+    lastName: "User",
+    requiredActions: [],
     username: "web-user",
   },
 ];
