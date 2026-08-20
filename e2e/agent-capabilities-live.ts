@@ -288,6 +288,11 @@ async function main(): Promise<void> {
       "outOfScopeActionRefRejectedBeforeAuthority",
       illegalPaths.outOfScopeActionRefRejectedBeforeAuthority,
     );
+    assert.equal(
+      illegalPaths.providerSpecificActionRefDriftRejected,
+      true,
+      JSON.stringify(illegalPaths.attempts.providerSpecificActionRefDrift),
+    );
     observe(
       "providerSpecificActionRefDriftRejected",
       illegalPaths.providerSpecificActionRefDriftRejected,

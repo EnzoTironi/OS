@@ -17,6 +17,12 @@ import {
 
 export interface IllegalPathEvidence {
   readonly agentOnlyBusinessHandlerRejected: boolean;
+  readonly attempts: {
+    readonly inventedActionRef: MutatedSessionEvidence;
+    readonly liveModelIdentityInjection: MutatedSessionEvidence;
+    readonly outOfScopeActionRef: MutatedSessionEvidence;
+    readonly providerSpecificActionRefDrift: MutatedSessionEvidence;
+  };
   readonly failureInjections: readonly string[];
   readonly inventedActionRefIsTerminalWithoutRetry: boolean;
   readonly liveModelIdentityInjectionRejected: boolean;
@@ -111,6 +117,12 @@ export async function exerciseIllegalPaths(
       agentOnlyOperations.operations === 0 &&
       agentOnlyOperations.records === 0 &&
       agentOnlyProposals === 0,
+    attempts: {
+      inventedActionRef,
+      liveModelIdentityInjection,
+      outOfScopeActionRef,
+      providerSpecificActionRefDrift,
+    },
     failureInjections: [
       "agent-only-business-handler-route",
       "live-provider-invented-action-ref",
