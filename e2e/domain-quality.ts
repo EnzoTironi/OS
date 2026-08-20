@@ -10,6 +10,7 @@ import {
 import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
   actionClient,
+  activateDefinition,
   adminClient,
   command,
   compileQuality,
@@ -126,11 +127,18 @@ async function main(): Promise<void> {
     "policy.lab.quarantine",
     8,
   );
+  const activationPolicy = await loadPolicy(
+    "activation.cedar",
+    "zoen.definition.activate",
+    "policy.quality.activate",
+    1,
+  );
   const initialPolicies = [
     releasePolicy,
     quarantinePolicy,
     remappedReleasePolicy,
     remappedQuarantinePolicy,
+    activationPolicy,
   ];
   const policyManifestPath = path.join(
     e2eGeneratedDirectory(repositoryRoot, "domain-quality"),
@@ -191,6 +199,8 @@ async function main(): Promise<void> {
       tenantB,
       remapped,
     );
+    await activateDefinition(definitionA, tenantA, quality);
+    await activateDefinition(definitionB, tenantB, remapped);
     observe(
       "qualityPackagesPublishedThroughDefinitionService",
       definitionACommit > 0n &&
