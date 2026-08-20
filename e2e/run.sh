@@ -147,6 +147,10 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
+  if [[ "$scenario" == "web-deterministic" && ! -f apps/web/.output/server/index.mjs ]]; then
+    echo "missing apps/web/.output/server/index.mjs; run \`just build\` or \`just e2e ${scenario}\`" >&2
+    exit 1
+  fi
 }
 
 cleanup_scenario() {
