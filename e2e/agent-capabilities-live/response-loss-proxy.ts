@@ -12,12 +12,14 @@ const targetPort = 58_103;
 const commitPath = "/zoen.action.v1.ActionService/Commit";
 const operationStatusPath =
   "/zoen.action.v1.ActionService/GetOperationStatus";
+const proposePath = "/zoen.action.v1.ActionService/Propose";
 
 let commitAttempts = 0;
 let dropNextCommitResponse = false;
 let droppedCommitResponses = 0;
 let holdRecovery = false;
 let operationStatusAttempts = 0;
+let proposeAttempts = 0;
 const releaseWaiters = new Set<() => void>();
 
 const server = createServer((request, response) => {
@@ -65,12 +67,14 @@ async function route(
       droppedCommitResponses,
       holdingRecovery: holdRecovery,
       operationStatusAttempts,
+      proposeAttempts,
     });
     return;
   }
 
   const isCommit = url.pathname === commitPath;
   const isOperationStatus = url.pathname === operationStatusPath;
+  const isPropose = url.pathname === proposePath;
   if (isCommit) {
     commitAttempts += 1;
   }
@@ -79,6 +83,9 @@ async function route(
     if (holdRecovery) {
       await waitForRecoveryRelease();
     }
+  }
+  if (isPropose) {
+    proposeAttempts += 1;
   }
   await forward(request, response, isCommit);
 }

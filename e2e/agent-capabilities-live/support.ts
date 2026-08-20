@@ -62,6 +62,7 @@ export const oidcIssuer = "http://127.0.0.1:58092/realms/zoen";
 export const oidcAudience = "zoend";
 export const restateIngress = "http://127.0.0.1:58093";
 export const restateAdmin = "http://127.0.0.1:59073";
+export const providerProxyBaseUrl = "http://127.0.0.1:58107";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 export const actionId = "inventory.requestStock";
@@ -93,6 +94,15 @@ const proxyStatusSchema = z
     droppedCommitResponses: z.number().int().nonnegative(),
     holdingRecovery: z.boolean(),
     operationStatusAttempts: z.number().int().nonnegative(),
+    proposeAttempts: z.number().int().nonnegative(),
+  })
+  .strict();
+const providerProxyStatusSchema = z
+  .object({
+    actionRefMutations: z.number().int().nonnegative(),
+    identityMutations: z.number().int().nonnegative(),
+    mutationPending: z.boolean(),
+    providerCalls: z.number().int().nonnegative(),
   })
   .strict();
 const workerHealthSchema = z
@@ -112,10 +122,21 @@ const workerHealthSchema = z
   .strict();
 
 export type ActionClient = Client<typeof ActionService>;
+export type AdminClient = PostgresClient;
 export type DefinitionClient = Client<typeof DefinitionService>;
 export type HistoryClient = Client<typeof HistoryService>;
 export type WorldClient = Client<typeof WorldService>;
 export type PolicyMode = "auto-commit" | "approval" | "deny";
+export type ProviderResponseMutation =
+  | {
+      readonly actionRef: string;
+      readonly kind: "action_ref";
+    }
+  | {
+      readonly kind: "identity";
+      readonly principalId: string;
+      readonly tenantId: string;
+    };
 
 export interface DefinitionFixture {
   readonly canonicalJson: string;
@@ -398,6 +419,25 @@ export async function startResponseLossProxy(): Promise<ManagedProcess> {
   });
 }
 
+export async function startProviderResponseProxy(): Promise<ManagedProcess> {
+  return startProcess({
+    arguments: [
+      path.join(
+        distDirectory,
+        "e2e",
+        "agent-capabilities-live",
+        "provider-response-proxy.js",
+      ),
+    ],
+    command: process.execPath,
+    environment: {
+      ZOEN_UPSTREAM_PROVIDER_BASE_URL: process.env.OPENCODE_BASE_URL ?? "",
+    },
+    name: "provider response proxy",
+    port: 58_107,
+  });
+}
+
 export async function startWorker(
   bearerToken: string,
   definitionDigest: string,
@@ -417,6 +457,7 @@ export async function startWorker(
     ],
     command: process.execPath,
     environment: {
+      OPENCODE_BASE_URL: providerProxyBaseUrl,
       ...(options.disableCapabilities
         ? { ZOEN_DISABLE_CAPABILITIES_ON_START: "true" }
         : {}),
@@ -536,6 +577,24 @@ export function requestStockCapabilityAlias(
   );
 }
 
+export function restrictedActionCapabilityAlias(
+  definitionDigest: string,
+): string {
+  return capabilityAliasForScope(
+    semanticCapabilityScopeSchema.parse({
+      actionId: restrictedActionId,
+      definition: {
+        definitionId,
+        digest: definitionDigest,
+        revision: 1,
+      },
+      kind: "action",
+      resourceId,
+      validAt: validAt.toISOString(),
+    }),
+  );
+}
+
 export function availableStockCapabilityAlias(
   definitionDigest: string,
 ): string {
@@ -588,6 +647,38 @@ export async function proxyStatus() {
   const body: unknown = await response.json();
   assert.equal(response.ok, true, JSON.stringify(body));
   return proxyStatusSchema.parse(body);
+}
+
+export async function providerProxyStatus() {
+  const response = await fetch(`${providerProxyBaseUrl}/control/status`);
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return providerProxyStatusSchema.parse(body);
+}
+
+export async function injectProviderResponseMutation(
+  mutation: ProviderResponseMutation,
+): Promise<void> {
+  await postControl(`${providerProxyBaseUrl}/control/mutate-next`, mutation);
+}
+
+export async function invokeAgentOnlyBusinessHandler(
+  token: string,
+  operationId: string,
+): Promise<number> {
+  const response = await fetch(
+    `${agentBaseUrl}/zoen.agent.v1.AgentActionService/Commit`,
+    {
+      body: JSON.stringify({ operationId }),
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+  await response.body?.cancel();
+  return response.status;
 }
 
 export async function waitFor<T>(
@@ -683,6 +774,20 @@ export async function proposalEvidence(
   };
 }
 
+export async function proposalCount(
+  admin: PostgresClient,
+  tenantId: string,
+  operationId: string,
+): Promise<number> {
+  const result = await admin.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM action_proposals
+     WHERE tenant_id = $1 AND operation_id = $2`,
+    [tenantId, operationId],
+  );
+  return Number(result.rows[0]?.count);
+}
+
 export async function trackedFilesContain(
   value: string,
 ): Promise<boolean> {
@@ -750,8 +855,13 @@ function transport(token: string) {
   });
 }
 
-async function postControl(url: string): Promise<void> {
-  const response = await fetch(url, { method: "POST" });
+async function postControl(url: string, body?: unknown): Promise<void> {
+  const response = await fetch(url, {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers:
+      body === undefined ? undefined : { "content-type": "application/json" },
+    method: "POST",
+  });
   assert.equal(response.ok, true, await response.text());
 }
 

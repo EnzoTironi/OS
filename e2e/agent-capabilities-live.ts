@@ -17,6 +17,7 @@ import {
   type PolicyEvidence as WirePolicyEvidence,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import type { CausalExplanation } from "../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
+import { exerciseIllegalPaths } from "./agent-capabilities-live/illegal-paths.js";
 import {
   actionClient,
   actionId,
@@ -40,6 +41,7 @@ import {
   oidcIssuer,
   oidcToken,
   operationEvidence,
+  proposalCount,
   proposalEvidence,
   publishAndActivate,
   proxyStatus,
@@ -51,6 +53,7 @@ import {
   requestStockCapabilityAlias,
   restrictedActionId,
   sessionCommand,
+  startProviderResponseProxy,
   startResponseLossProxy,
   startWorker,
   startZoend,
@@ -109,6 +112,8 @@ async function main(): Promise<void> {
   processes.push(zoend);
   const proxy = await startResponseLossProxy();
   processes.push(proxy);
+  const providerProxy = await startProviderResponseProxy();
+  processes.push(providerProxy);
   await admin.connect();
 
   try {
@@ -255,6 +260,37 @@ async function main(): Promise<void> {
         !initialHealth.capabilities.some((alias) =>
           alias.includes("taskExcludedAction"),
         ),
+    );
+
+    const illegalPaths = await exerciseIllegalPaths({
+      admin,
+      bindingKey: tokens.agentA,
+      definitionDigest: definition.digest,
+      providerAId: environment.ZOEN_PROVIDER_A_ID,
+      providerBId: environment.ZOEN_PROVIDER_B_ID,
+    });
+    for (const failure of illegalPaths.failureInjections) {
+      inject(failure);
+    }
+    observe(
+      "agentOnlyBusinessHandlerRejected",
+      illegalPaths.agentOnlyBusinessHandlerRejected,
+    );
+    observe(
+      "inventedActionRefIsTerminalWithoutRetry",
+      illegalPaths.inventedActionRefIsTerminalWithoutRetry,
+    );
+    observe(
+      "liveModelIdentityInjectionRejected",
+      illegalPaths.liveModelIdentityInjectionRejected,
+    );
+    observe(
+      "outOfScopeActionRefRejectedBeforeAuthority",
+      illegalPaths.outOfScopeActionRefRejectedBeforeAuthority,
+    );
+    observe(
+      "providerSpecificActionRefDriftRejected",
+      illegalPaths.providerSpecificActionRefDriftRejected,
     );
 
     const wrongBindingCommand = sessionCommand({
@@ -501,7 +537,10 @@ async function main(): Promise<void> {
       modelCapability: "reasoning-high",
       suffix: "deny",
     });
+    const proxyBeforeDeny = await proxyStatus();
+    inject("deny-policy-auto-commit-attempt");
     const denyResult = await invokeSession(denyCommand, tokens.agentA);
+    const proxyAfterDeny = await proxyStatus();
     assert.equal(denyResult.kind, "denied");
     if (denyResult.kind !== "denied") {
       assert.fail("deny policy did not deny the agent");
@@ -514,6 +553,14 @@ async function main(): Promise<void> {
     observe(
       "denyPolicyPreventsBusinessMutation",
       matchesPolicy(denyResult.policy, policies.deny) &&
+        deniedEvidence.operations === 0 &&
+        deniedEvidence.records === 0,
+    );
+    observe(
+      "denyPolicyBlocksAutoCommitBeforeCommitEndpoint",
+      proxyAfterDeny.proposeAttempts ===
+        proxyBeforeDeny.proposeAttempts + 1 &&
+        proxyAfterDeny.commitAttempts === proxyBeforeDeny.commitAttempts &&
         deniedEvidence.operations === 0 &&
         deniedEvidence.records === 0,
     );
@@ -657,26 +704,22 @@ async function main(): Promise<void> {
       finishedAt: new Date().toISOString(),
       mutants: {
         agentOnlyBusinessHandler:
-          assertions.autoCommitUsesCedarAndOrdinaryActionCommit === true,
+          assertions.agentOnlyBusinessHandlerRejected === true,
         autoCommitBypassesCedar:
-          assertions.autoCommitUsesCedarAndOrdinaryActionCommit === true,
+          assertions.denyPolicyBlocksAutoCommitBeforeCommitEndpoint === true,
         capabilityRemainsAfterUnmount:
           assertions.disabledRegistrationsDisappearFromFutureSessions ===
             true &&
           assertions.durableCapabilitySnapshotSurvivesRegistryUnmount === true,
         exposeAllActions:
-          assertions.agentWorkerMountsOnlyScopedCapabilities === true &&
-          assertions.craftedInvisibleActionRejectedByAuthority === true &&
-          assertions.discoverAuthorityAndTaskScopeIntersection === true &&
-          assertions.resourceScopedDiscoveryDoesNotUnionPermits === true,
+          assertions.outOfScopeActionRefRejectedBeforeAuthority === true,
         providerBranchChangesSemanticIntent:
-          assertions.bothZenProvidersExecuteSameCapabilityContract === true,
+          assertions.providerSpecificActionRefDriftRejected === true,
         repeatActionAfterLostResponse:
           assertions.committedOperationRecoveredAfterWorkerRestart === true &&
           assertions.durableCapabilitySnapshotSurvivesRegistryUnmount === true,
         trustModelTenantOrPrincipal:
-          assertions.modelSuppliedIdentityCannotEnterTrustedContext === true &&
-          assertions.restateSessionRejectsMismatchedOidcBinding === true,
+          assertions.liveModelIdentityInjectionRejected === true,
       },
       oidc: {
         audience: oidcAudience,
@@ -712,6 +755,12 @@ async function main(): Promise<void> {
         autoCommitProviderA: providerAResult,
         autoCommitProviderB: providerBResult,
         deny: denyResult,
+        inventedActionRef: illegalPaths.sessions.inventedActionRef,
+        liveModelIdentityInjection:
+          illegalPaths.sessions.liveModelIdentityInjection,
+        outOfScopeActionRef: illegalPaths.sessions.outOfScopeActionRef,
+        providerSpecificActionRefDrift:
+          illegalPaths.sessions.providerSpecificActionRefDrift,
         tenantB: tenantBResult,
       },
       sourceCommit,
@@ -807,20 +856,6 @@ function explanationHasPolicy(
   return explanation.subject.value.policies.some((entry) =>
     matchesPolicy(entry.policy, expected),
   );
-}
-
-async function proposalCount(
-  admin: ReturnType<typeof adminClient>,
-  tenantId: string,
-  operationId: string,
-): Promise<number> {
-  const result = await admin.query<{ count: string }>(
-    `SELECT count(*)::text AS count
-     FROM action_proposals
-     WHERE tenant_id = $1 AND operation_id = $2`,
-    [tenantId, operationId],
-  );
-  return Number(result.rows[0]?.count);
 }
 
 async function expectConnectCode(
