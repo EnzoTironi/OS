@@ -113,7 +113,11 @@ export class AiSdkPlanner implements ModelPlanner {
         return {
           kind: "rejected",
           promptDigest,
-          reason: "invalid_arguments",
+          reason: request.actions.some(
+            (action) => action.alias === error.toolName,
+          )
+            ? "invalid_arguments"
+            : "action_not_visible",
         };
       }
       throw error;
@@ -124,6 +128,16 @@ export class AiSdkPlanner implements ModelPlanner {
         kind: "rejected",
         promptDigest,
         reason: "invalid_tool_selection",
+      };
+    }
+    const action = request.actions.find(
+      (candidate) => candidate.alias === toolCall.toolName,
+    );
+    if (action === undefined) {
+      return {
+        kind: "rejected",
+        promptDigest,
+        reason: "action_not_visible",
       };
     }
     const toolInput = actionPlanSchema
@@ -148,16 +162,6 @@ export class AiSdkPlanner implements ModelPlanner {
       };
     }
     const plan = parsedPlan.data;
-    const action = request.actions.find(
-      (candidate) => candidate.alias === plan.action,
-    );
-    if (action === undefined) {
-      return {
-        kind: "rejected",
-        promptDigest,
-        reason: "action_not_visible",
-      };
-    }
     if (!planInputsAreValid(action, plan.inputs)) {
       return {
         kind: "rejected",
