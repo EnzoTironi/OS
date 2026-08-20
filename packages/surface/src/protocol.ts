@@ -1,10 +1,12 @@
 import {
-  EffectKnowledgeState,
   LineageRole,
-  type EffectSnapshot,
   type ExactValue,
   type SemanticQueryResponse,
-} from "@zoen/sdk";
+} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
+  EffectKnowledgeState,
+  type EffectSnapshot,
+} from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import type {
   EffectStatusView,
   QueryBindingView,
