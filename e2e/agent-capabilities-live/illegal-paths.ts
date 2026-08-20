@@ -51,6 +51,7 @@ interface MutatedSessionEvidence {
   readonly operations: number;
   readonly proposals: number;
   readonly providerCalls: number;
+  readonly providerCallsAfterMutation: number;
   readonly records: number;
   readonly result: AgentSessionResult;
 }
@@ -192,6 +193,8 @@ async function runMutatedSession(
     operations: operations.operations,
     proposals: await proposalCount(options.admin, tenantA, command.operationId),
     providerCalls: after.providerCalls - before.providerCalls,
+    providerCallsAfterMutation:
+      after.providerCalls - after.providerCallsAtLastMutation,
     records: operations.records,
     result,
   };
@@ -207,7 +210,8 @@ function terminalInvalidPlan(
     evidence.result.kind === "invalid_plan" &&
     evidence.result.reason === reason &&
     evidence.result.provider.providerRouteId === providerRouteId &&
-    evidence.providerCalls === 1 &&
+    evidence.providerCalls >= 1 &&
+    evidence.providerCallsAfterMutation === 0 &&
     mutationCount(evidence, mutationKind) === 1 &&
     !evidence.mutationPending &&
     evidence.proposals === 0 &&

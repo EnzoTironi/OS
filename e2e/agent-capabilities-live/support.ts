@@ -103,6 +103,7 @@ const providerProxyStatusSchema = z
     identityMutations: z.number().int().nonnegative(),
     mutationPending: z.boolean(),
     providerCalls: z.number().int().nonnegative(),
+    providerCallsAtLastMutation: z.number().int().nonnegative(),
   })
   .strict();
 const workerHealthSchema = z

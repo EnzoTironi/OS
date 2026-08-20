@@ -61,6 +61,7 @@ let actionRefMutations = 0;
 let identityMutations = 0;
 let nextMutation: ProviderMutation | undefined;
 let providerCalls = 0;
+let providerCallsAtLastMutation = 0;
 
 const server = createServer((request, response) => {
   void route(request, response).catch((error: unknown) => {
@@ -87,6 +88,7 @@ async function route(
       identityMutations,
       mutationPending: nextMutation !== undefined,
       providerCalls,
+      providerCallsAtLastMutation,
     });
     return;
   }
@@ -122,6 +124,7 @@ async function route(
         return exhaustive;
       }
     }
+    providerCallsAtLastMutation = providerCalls;
     nextMutation = undefined;
   }
   const responseHeaders = new Headers(upstream.headers);

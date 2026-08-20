@@ -276,13 +276,28 @@ async function main(): Promise<void> {
       "agentOnlyBusinessHandlerRejected",
       illegalPaths.agentOnlyBusinessHandlerRejected,
     );
+    assert.equal(
+      illegalPaths.inventedActionRefIsTerminalWithoutRetry,
+      true,
+      JSON.stringify(illegalPaths.attempts.inventedActionRef),
+    );
     observe(
       "inventedActionRefIsTerminalWithoutRetry",
       illegalPaths.inventedActionRefIsTerminalWithoutRetry,
     );
+    assert.equal(
+      illegalPaths.liveModelIdentityInjectionRejected,
+      true,
+      JSON.stringify(illegalPaths.attempts.liveModelIdentityInjection),
+    );
     observe(
       "liveModelIdentityInjectionRejected",
       illegalPaths.liveModelIdentityInjectionRejected,
+    );
+    assert.equal(
+      illegalPaths.outOfScopeActionRefRejectedBeforeAuthority,
+      true,
+      JSON.stringify(illegalPaths.attempts.outOfScopeActionRef),
     );
     observe(
       "outOfScopeActionRefRejectedBeforeAuthority",
