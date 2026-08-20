@@ -132,19 +132,23 @@ export async function generateAdaptiveDecisionSurface(
       values: result.values.map(surfaceValue),
     };
   });
-  const context: AdaptiveSurfaceContext = {
-    actions: actions.map(actionBinding),
-    definition,
-    entityId: queries[0]?.entityId ?? actions[0]?.resourceId ?? "",
-    evidence: knowledge.results.map((result) => ({
+  const evidence = knowledge.results.map((result) => ({
+    reference: {
       fragmentDigest: result.fragmentDigest,
       fragmentId: result.fragmentId,
-      kind: "company-source",
+      kind: "company-source" as const,
       retrievalTraceId: knowledge.traceId,
       sourceDigest: result.sourceDigest,
       sourceId: result.sourceId,
       sourceRevision: result.sourceRevision,
-    })),
+    },
+    text: result.text,
+  }));
+  const context: AdaptiveSurfaceContext = {
+    actions: actions.map(actionBinding),
+    definition,
+    entityId: queries[0]?.entityId ?? actions[0]?.resourceId ?? "",
+    evidence: evidence.map((item) => item.reference),
     explanations: [
       {
         explanationDigest: explanation.explanationDigest,
@@ -160,6 +164,7 @@ export async function generateAdaptiveDecisionSurface(
   const generated = await generateAdaptiveSurface({
     configuredModelId: provider.route.modelId,
     context,
+    evidence,
     model: provider.surfaceModel,
     providerRouteId: provider.route.id,
     question: input.question,

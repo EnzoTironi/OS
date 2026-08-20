@@ -10,6 +10,7 @@ import {
   adaptiveSurfaceDocumentSchema,
   parseAdaptiveSurfaceDocument,
   surfaceActionBindingSchema,
+  surfaceCompanySourceEvidenceRefSchema,
   surfaceDefinitionRefSchema,
   surfaceEvidenceRefSchema,
   surfaceExplanationRefSchema,
@@ -94,10 +95,35 @@ const adaptiveSurfaceSessionSchema = z
       .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
   })
   .strict();
+const promptEvidenceSchema = z
+  .array(
+    z
+      .object({
+        reference: surfaceCompanySourceEvidenceRefSchema,
+        text: z.string().min(1).max(16_000),
+      })
+      .strict(),
+  )
+  .min(1)
+  .max(40)
+  .refine(
+    (evidence) =>
+      evidence.reduce(
+        (total, item) => total + new TextEncoder().encode(item.text).byteLength,
+        0,
+      ) <= 65_536,
+    "Company Brain prompt evidence exceeds 65536 bytes",
+  );
+
+export interface AdaptiveSurfacePromptEvidence {
+  readonly reference: AdaptiveSurfaceContext["evidence"][number];
+  readonly text: string;
+}
 
 export interface GenerateAdaptiveSurfaceInput {
   readonly configuredModelId: string;
   readonly context: AdaptiveSurfaceContext;
+  readonly evidence: readonly AdaptiveSurfacePromptEvidence[];
   readonly model: AdaptiveSurfaceModel;
   readonly providerRouteId: string;
   readonly question: string;
@@ -125,8 +151,10 @@ export async function generateAdaptiveSurface(
 ): Promise<GenerateAdaptiveSurfaceResult> {
   const question = z.string().min(1).max(16_000).parse(input.question);
   const context = adaptiveSurfaceContextSchema.parse(input.context);
+  const evidence = promptEvidenceSchema.parse(input.evidence);
+  validatePromptEvidence(evidence, context);
   const template = adaptiveSurfaceTemplate(context);
-  const request = modelRequest(question, context, template);
+  const request = modelRequest(question, context, evidence, template);
   const promptDigest = await sha256(request.prompt);
   let response;
   try {
@@ -315,6 +343,7 @@ export function adaptiveSurfaceTemplate(
 function modelRequest(
   question: string,
   context: AdaptiveSurfaceContext,
+  evidence: readonly AdaptiveSurfacePromptEvidence[],
   template: SurfaceDocument,
 ) {
   return {
@@ -322,7 +351,7 @@ function modelRequest(
     prompt: JSON.stringify({
       authorizedContext: {
         actions: context.actions,
-        evidence: context.evidence,
+        evidence,
         explanations: context.explanations,
         queries: context.queries,
       },
@@ -347,6 +376,24 @@ function modelRequest(
   };
 }
 
+function validatePromptEvidence(
+  evidence: readonly AdaptiveSurfacePromptEvidence[],
+  context: AdaptiveSurfaceContext,
+): void {
+  const authorized = new Set(context.evidence.map(stableKey));
+  const supplied = new Set<string>();
+  for (const item of evidence) {
+    const key = stableKey(item.reference);
+    if (!authorized.has(key) || supplied.has(key)) {
+      throw new Error("Company Brain prompt evidence is outside authorized context");
+    }
+    supplied.add(key);
+  }
+  if (supplied.size !== authorized.size) {
+    throw new Error("Company Brain prompt evidence is incomplete");
+  }
+}
+
 function rejectUnfilledModelText(document: SurfaceDocument): void {
   for (const node of Object.values(document.nodes)) {
     if (
@@ -357,6 +404,10 @@ function rejectUnfilledModelText(document: SurfaceDocument): void {
       throw new Error("Model did not compose the decision text");
     }
   }
+}
+
+function stableKey(value: unknown): string {
+  return JSON.stringify(value);
 }
 
 async function sha256(value: string): Promise<string> {

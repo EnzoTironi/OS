@@ -92,24 +92,26 @@ const historyRefSchema = z
     kind: z.literal("action-history"),
   })
   .strict();
+const queryEvidenceRefSchema = z
+  .object({
+    kind: z.literal("query-evidence"),
+    query: queryRefSchema,
+  })
+  .strict();
+export const surfaceCompanySourceEvidenceRefSchema = z
+  .object({
+    fragmentDigest: digestSchema,
+    fragmentId: digestSchema,
+    kind: z.literal("company-source"),
+    retrievalTraceId: digestSchema,
+    sourceDigest: digestSchema,
+    sourceId: semanticIdSchema,
+    sourceRevision: digestSchema,
+  })
+  .strict();
 export const surfaceEvidenceRefSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("query-evidence"),
-      query: queryRefSchema,
-    })
-    .strict(),
-  z
-    .object({
-      fragmentDigest: digestSchema,
-      fragmentId: digestSchema,
-      kind: z.literal("company-source"),
-      retrievalTraceId: digestSchema,
-      sourceDigest: digestSchema,
-      sourceId: semanticIdSchema,
-      sourceRevision: digestSchema,
-    })
-    .strict(),
+  queryEvidenceRefSchema,
+  surfaceCompanySourceEvidenceRefSchema,
 ]);
 export const surfaceExplanationRefSchema = z.discriminatedUnion("kind", [
   z
