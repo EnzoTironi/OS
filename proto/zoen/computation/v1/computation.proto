@@ -1,0 +1,135 @@
+syntax = "proto3";
+
+package zoen.computation.v1;
+
+import "google/protobuf/timestamp.proto";
+import "zoen/action/v1/action.proto";
+import "zoen/world/v1/world.proto";
+
+service ComputationService {
+  rpc PublishComponent(PublishComponentRequest) returns (PublishComponentResponse);
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+}
+
+message PublishComponentRequest {
+  bytes component = 1;
+  string claimed_digest = 2;
+  string component_interface = 3;
+}
+
+enum ComponentAdmissionStatus {
+  COMPONENT_ADMISSION_STATUS_UNSPECIFIED = 0;
+  COMPONENT_ADMISSION_STATUS_PUBLISHED = 1;
+  COMPONENT_ADMISSION_STATUS_DIGEST_MISMATCH = 2;
+  COMPONENT_ADMISSION_STATUS_MALFORMED = 3;
+  COMPONENT_ADMISSION_STATUS_INTERFACE_MISMATCH = 4;
+  COMPONENT_ADMISSION_STATUS_TOO_LARGE = 5;
+}
+
+message PublishComponentResponse {
+  ComponentAdmissionStatus status = 1;
+  string component_digest = 2;
+  string component_interface = 3;
+  uint64 size_bytes = 4;
+}
+
+message QueryCapability {
+  string capability_id = 1;
+  zoen.world.v1.DefinitionReference definition = 2;
+  string entity_id = 3;
+  zoen.world.v1.QuerySelection selection = 4;
+  google.protobuf.Timestamp valid_at = 5;
+}
+
+message ExplainCapability {
+  string capability_id = 1;
+}
+
+message ActionCapability {
+  string capability_id = 1;
+  zoen.world.v1.DefinitionReference definition = 2;
+  string action_id = 3;
+  string resource_id = 4;
+  google.protobuf.Timestamp valid_at = 5;
+}
+
+message Capability {
+  oneof capability {
+    QueryCapability query = 1;
+    ExplainCapability explain = 2;
+    ActionCapability action = 3;
+  }
+}
+
+message CapabilityManifest {
+  string component_interface = 1;
+  repeated Capability capabilities = 2;
+}
+
+message ExecuteRequest {
+  string execution_id = 1;
+  string component_digest = 2;
+  CapabilityManifest manifest = 3;
+  bytes input = 4;
+}
+
+message ResourceLimits {
+  uint64 fuel = 1;
+  uint64 memory_bytes = 2;
+  uint64 table_elements = 3;
+  uint64 instances = 4;
+  uint64 tables = 5;
+  uint64 memories = 6;
+  uint64 deadline_millis = 7;
+}
+
+enum ProgramActionStatus {
+  PROGRAM_ACTION_STATUS_UNSPECIFIED = 0;
+  PROGRAM_ACTION_STATUS_NOT_REQUESTED = 1;
+  PROGRAM_ACTION_STATUS_AWAITING_APPROVAL = 2;
+  PROGRAM_ACTION_STATUS_COMMITTED = 3;
+  PROGRAM_ACTION_STATUS_DENIED = 4;
+}
+
+message ProgramActionOutcome {
+  ProgramActionStatus status = 1;
+  string action_id = 2;
+  string proposal_id = 3;
+  string operation_id = 4;
+  string intent_digest = 5;
+  uint64 commit_sequence = 6;
+  bool recovered = 7;
+}
+
+message ComputationOutput {
+  uint32 values_scanned = 1;
+  uint32 selected_values = 2;
+  string aggregate = 3;
+  string selected_claim_id = 4;
+  bool explanation_complete = 5;
+  ProgramActionOutcome action = 6;
+}
+
+enum ExecutionStatus {
+  EXECUTION_STATUS_UNSPECIFIED = 0;
+  EXECUTION_STATUS_COMPLETED = 1;
+  EXECUTION_STATUS_FUEL_EXHAUSTED = 2;
+  EXECUTION_STATUS_DEADLINE_EXCEEDED = 3;
+  EXECUTION_STATUS_MEMORY_LIMIT_EXCEEDED = 4;
+  EXECUTION_STATUS_CAPABILITY_DENIED = 5;
+  EXECUTION_STATUS_CAPABILITY_UNAVAILABLE = 6;
+  EXECUTION_STATUS_HOST_UNAVAILABLE = 7;
+  EXECUTION_STATUS_TRAP_BEFORE_ACTION_REQUEST = 8;
+  EXECUTION_STATUS_TRAP_AFTER_ACTION_REQUEST = 9;
+}
+
+message ExecuteResponse {
+  ExecutionStatus status = 1;
+  zoen.action.v1.ComponentExecutionEvidence evidence = 2;
+  string request_digest = 3;
+  ResourceLimits limits = 4;
+  ComputationOutput output = 5;
+  string denied_capability = 6;
+  uint64 fuel_consumed = 7;
+  string result_digest = 8;
+}

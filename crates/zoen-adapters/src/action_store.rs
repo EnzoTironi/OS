@@ -4,13 +4,15 @@ use std::fmt::Display;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    ActionApproval, ActionId, ActionInput, ActionProposal, ActorId, ApprovalId, ClaimId,
-    CommitReceipt, CommitSequence, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EffectRequestId,
-    EntityId, EvidenceDigest, ExecutionContext, InputId, IntentDigest, LineageRole, OperationId,
-    PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
-    ProposalAuthority, ProposalId, RelationId, ResourceId, SourceId, StateBasis, StateBasisDigest,
-    StateDependency, TenantId, TimestampMicros, TrustedExecutionContext, WorkloadId,
+    ActionApproval, ActionId, ActionInput, ActionProposal, ActorId, ApprovalId, CapabilityId,
+    CapabilityManifestDigest, ClaimId, CommitReceipt, CommitSequence, ComponentDigest,
+    ComponentExecutionEvidence, ComponentInterface, DefinitionDigest, DefinitionId,
+    DefinitionReference, DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId,
+    EffectRequestId, EntityId, EvidenceDigest, ExecutionContext, ExecutionId, InputId, IntentDigest,
+    LineageRole, OperationId, PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision,
+    PolicyRevisionNumber, PrincipalId, ProposalAuthority, ProposalId, RelationId, ResourceId,
+    SourceId, StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
+    TrustedExecutionContext, WorkloadId,
 };
 use zoen_engine::StoreError;
 
@@ -68,14 +70,17 @@ pub(crate) async fn save_proposal(
             proposed_at_micros, expires_at_micros, valid_at_micros,
             proposed_actor_id, proposed_principal_id, proposed_workload_id,
             authority_kind, policy_id, policy_digest, policy_revision,
-            determining_policies, state_basis_digest, observed_commit_sequence
+            determining_policies, state_basis_digest, observed_commit_sequence,
+            execution_id, component_digest, component_interface,
+            capability_manifest_digest, capability_ids
          ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
             $10, $11, $12,
             $13, $14, $15,
             $16, $17, $18, $19,
-            $20, $21, $22
+            $20, $21, $22,
+            $23, $24, $25, $26, $27
          )",
     )
     .bind(context.tenant_id().as_str())
@@ -109,6 +114,37 @@ pub(crate) async fn save_proposal(
         proposal.state_basis.observed_commit_sequence.get(),
         "observed commit sequence",
     )?)
+    .bind(
+        proposal
+            .execution
+            .as_ref()
+            .map(|execution| execution.execution_id().as_str()),
+    )
+    .bind(
+        proposal
+            .execution
+            .as_ref()
+            .map(|execution| execution.component_digest().as_str()),
+    )
+    .bind(
+        proposal
+            .execution
+            .as_ref()
+            .map(|execution| execution.interface().as_str()),
+    )
+    .bind(
+        proposal
+            .execution
+            .as_ref()
+            .map(|execution| execution.capability_manifest_digest().as_str()),
+    )
+    .bind(proposal.execution.as_ref().map(|execution| {
+        execution
+            .capability_ids()
+            .iter()
+            .map(|capability| capability.as_str().to_owned())
+            .collect::<Vec<_>>()
+    }))
     .execute(&mut *transaction)
     .await
     .map_err(map_action_insert)?;
@@ -297,7 +333,9 @@ pub(crate) async fn load_proposal(
                 proposed_at_micros, expires_at_micros, valid_at_micros,
                 proposed_actor_id, proposed_principal_id, proposed_workload_id,
                 authority_kind, policy_id, policy_digest, policy_revision,
-                determining_policies, state_basis_digest, observed_commit_sequence
+                determining_policies, state_basis_digest, observed_commit_sequence,
+                execution_id, component_digest, component_interface,
+                capability_manifest_digest, capability_ids
          FROM action_proposals
          WHERE tenant_id = $1 AND proposal_id = $2",
     )
@@ -331,6 +369,7 @@ pub(crate) async fn load_proposal(
         action_id: ActionId::parse(row_string(&row, "action_id")?).map_err(corrupt)?,
         authority,
         definition: definition_from_row(&row)?,
+        execution: execution_from_row(&row)?,
         expires_at: TimestampMicros::new(row_i64(&row, "expires_at_micros")?),
         inputs: load_inputs(transaction, tenant_id, proposal_id).await?,
         intent_digest: IntentDigest::parse(row_string(&row, "intent_digest")?).map_err(corrupt)?,
@@ -803,6 +842,52 @@ fn definition_from_row(row: &PgRow) -> Result<DefinitionReference, StoreError> {
         )?)
         .ok_or_else(|| StoreError::Corrupt("zero definition revision".to_owned()))?,
     })
+}
+
+fn execution_from_row(row: &PgRow) -> Result<Option<ComponentExecutionEvidence>, StoreError> {
+    let execution_id = row
+        .try_get::<Option<String>, _>("execution_id")
+        .map_err(store_unavailable)?;
+    let component_digest = row
+        .try_get::<Option<String>, _>("component_digest")
+        .map_err(store_unavailable)?;
+    let interface = row
+        .try_get::<Option<String>, _>("component_interface")
+        .map_err(store_unavailable)?;
+    let manifest_digest = row
+        .try_get::<Option<String>, _>("capability_manifest_digest")
+        .map_err(store_unavailable)?;
+    let capability_ids = row
+        .try_get::<Option<Vec<String>>, _>("capability_ids")
+        .map_err(store_unavailable)?;
+    match (
+        execution_id,
+        component_digest,
+        interface,
+        manifest_digest,
+        capability_ids,
+    ) {
+        (None, None, None, None, None) => Ok(None),
+        (
+            Some(execution_id),
+            Some(component_digest),
+            Some(interface),
+            Some(manifest_digest),
+            Some(capability_ids),
+        ) => Ok(Some(ComponentExecutionEvidence::new(
+            capability_ids
+                .into_iter()
+                .map(|value| CapabilityId::parse(value).map_err(corrupt))
+                .collect::<Result<Vec<_>, _>>()?,
+            CapabilityManifestDigest::parse(manifest_digest).map_err(corrupt)?,
+            ComponentDigest::parse(component_digest).map_err(corrupt)?,
+            ExecutionId::parse(execution_id).map_err(corrupt)?,
+            ComponentInterface::parse(interface).map_err(corrupt)?,
+        ))),
+        _ => Err(StoreError::Corrupt(
+            "Action proposal has partial component execution evidence".to_owned(),
+        )),
+    }
 }
 
 fn policy_from_row(row: &PgRow) -> Result<PolicyEvidence, StoreError> {

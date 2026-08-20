@@ -1,0 +1,160 @@
+package zoen:code-mode@1.0.0;
+
+interface host {
+  record quantity {
+    amount: string,
+    unit: string,
+  }
+
+  variant exact-value {
+    bool(bool),
+    decimal(string),
+    integer(string),
+    quantity(quantity),
+    text(string),
+    entity(string),
+  }
+
+  variant selection {
+    relation(string),
+    computation(string),
+  }
+
+  record query-request {
+    capability-id: string,
+    entity-id: string,
+    selection: selection,
+  }
+
+  record semantic-value {
+    value: exact-value,
+    claim-ids: list<string>,
+  }
+
+  record query-result {
+    actual-commit-sequence: u64,
+    values: list<semantic-value>,
+  }
+
+  record explain-request {
+    capability-id: string,
+    claim-id: string,
+  }
+
+  record explain-result {
+    complete: bool,
+    explanation-digest: string,
+  }
+
+  record action-input {
+    id: string,
+    value: exact-value,
+  }
+
+  record propose-request {
+    capability-id: string,
+    action-id: string,
+    resource-id: string,
+    proposal-id: string,
+    operation-id: string,
+    inputs: list<action-input>,
+  }
+
+  record proposal {
+    proposal-id: string,
+    operation-id: string,
+    intent-digest: string,
+  }
+
+  variant proposal-outcome {
+    ready(proposal),
+    awaiting-approval(proposal),
+    denied,
+    evaluation-error,
+    precondition-denied,
+  }
+
+  record commit-request {
+    capability-id: string,
+    proposal-id: string,
+    operation-id: string,
+    intent-digest: string,
+  }
+
+  record committed-action {
+    action-id: string,
+    proposal-id: string,
+    operation-id: string,
+    intent-digest: string,
+    commit-sequence: u64,
+    recovered: bool,
+  }
+
+  variant commit-outcome {
+    committed(committed-action),
+    denied,
+    evaluation-error,
+    identity-collision,
+    operation-mismatch,
+    stale,
+  }
+
+  variant host-error {
+    capability-denied(string),
+    capability-unavailable(string),
+    invalid-request(string),
+    provider-unavailable(string),
+  }
+
+  query: func(request: query-request) -> result<query-result, host-error>;
+  explain: func(request: explain-request) -> result<explain-result, host-error>;
+  propose: func(request: propose-request) -> result<proposal-outcome, host-error>;
+  commit: func(request: commit-request) -> result<commit-outcome, host-error>;
+}
+
+interface program {
+  record proposal {
+    proposal-id: string,
+    operation-id: string,
+    intent-digest: string,
+  }
+
+  record committed-action {
+    action-id: string,
+    proposal-id: string,
+    operation-id: string,
+    intent-digest: string,
+    commit-sequence: u64,
+    recovered: bool,
+  }
+
+  variant program-action-outcome {
+    awaiting-approval(proposal),
+    committed(committed-action),
+    denied,
+    not-requested,
+  }
+
+  record computation-output {
+    values-scanned: u32,
+    selected-values: u32,
+    aggregate: string,
+    selected-claim-id: option<string>,
+    explanation-complete: bool,
+    action: program-action-outcome,
+  }
+
+  variant program-error {
+    capability-denied(string),
+    capability-unavailable(string),
+    host-unavailable(string),
+    invalid-result(string),
+  }
+
+  run: func(input: list<u8>) -> result<computation-output, program-error>;
+}
+
+world computation {
+  import host;
+  export program;
+}

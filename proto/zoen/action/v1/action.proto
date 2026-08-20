@@ -87,6 +87,14 @@ message StateBasis {
   uint64 observed_commit_sequence = 3;
 }
 
+message ComponentExecutionEvidence {
+  string execution_id = 1;
+  string component_digest = 2;
+  string component_interface = 3;
+  string capability_manifest_digest = 4;
+  repeated string capability_ids = 5;
+}
+
 enum ProposalStatus {
   PROPOSAL_STATUS_UNSPECIFIED = 0;
   PROPOSAL_STATUS_READY = 1;
@@ -108,6 +116,7 @@ message Proposal {
   google.protobuf.Timestamp expires_at = 12;
   google.protobuf.Timestamp valid_at = 13;
   string proposed_by = 14;
+  ComponentExecutionEvidence execution = 15;
 }
 
 message ProposeRequest {

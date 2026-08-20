@@ -72,6 +72,7 @@ macro_rules! semantic_id {
 semantic_id!(ActionId);
 semantic_id!(ActorId);
 semantic_id!(ApprovalId);
+semantic_id!(CapabilityId);
 semantic_id!(ClaimId);
 semantic_id!(ComputationId);
 semantic_id!(DelegationId);
@@ -84,6 +85,7 @@ semantic_id!(EffectRequestId);
 semantic_id!(InputId);
 semantic_id!(MigrationRuleId);
 semantic_id!(OperationId);
+semantic_id!(ExecutionId);
 semantic_id!(OutputId);
 semantic_id!(PolicyId);
 semantic_id!(PrincipalId);
@@ -96,6 +98,38 @@ semantic_id!(TenantId);
 semantic_id!(TypeId);
 semantic_id!(UnitId);
 semantic_id!(WorkloadId);
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ComponentInterface(String);
+
+impl ComponentInterface {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
+        let value = value.into();
+        let valid = !value.is_empty()
+            && value.len() <= 200
+            && value.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b':' | b'/' | b'@' | b'_' | b'-')
+            });
+        if valid {
+            Ok(Self(value))
+        } else {
+            Err(IdentifierError {
+                kind: "ComponentInterface",
+                value,
+            })
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for ComponentInterface {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 fn parse_identifier(value: String, kind: &'static str) -> Result<String, IdentifierError> {
     let mut characters = value.chars();
@@ -211,12 +245,34 @@ macro_rules! sha256_digest {
 }
 
 sha256_digest!(IntentDigest);
+sha256_digest!(CapabilityManifestDigest);
+sha256_digest!(ComponentDigest);
 sha256_digest!(EffectEvidenceDigest);
 sha256_digest!(EffectRequestDigest);
 sha256_digest!(EffectResponseDigest);
 sha256_digest!(PayloadDigest);
 sha256_digest!(PolicyDigest);
+sha256_digest!(ExecutionRequestDigest);
+sha256_digest!(ExecutionResultDigest);
 sha256_digest!(StateBasisDigest);
+
+impl CapabilityManifestDigest {
+    pub fn from_sha256(bytes: [u8; 32]) -> Self {
+        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
+}
+
+impl ExecutionRequestDigest {
+    pub fn from_sha256(bytes: [u8; 32]) -> Self {
+        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
+}
+
+impl ExecutionResultDigest {
+    pub fn from_sha256(bytes: [u8; 32]) -> Self {
+        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
+}
 
 impl PayloadDigest {
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
@@ -923,10 +979,60 @@ pub enum ProposalAuthority {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComponentExecutionEvidence {
+    capability_ids: Vec<CapabilityId>,
+    capability_manifest_digest: CapabilityManifestDigest,
+    component_digest: ComponentDigest,
+    execution_id: ExecutionId,
+    interface: ComponentInterface,
+}
+
+impl ComponentExecutionEvidence {
+    pub fn new(
+        mut capability_ids: Vec<CapabilityId>,
+        capability_manifest_digest: CapabilityManifestDigest,
+        component_digest: ComponentDigest,
+        execution_id: ExecutionId,
+        interface: ComponentInterface,
+    ) -> Self {
+        capability_ids.sort();
+        capability_ids.dedup();
+        Self {
+            capability_ids,
+            capability_manifest_digest,
+            component_digest,
+            execution_id,
+            interface,
+        }
+    }
+
+    pub fn capability_ids(&self) -> &[CapabilityId] {
+        &self.capability_ids
+    }
+
+    pub fn capability_manifest_digest(&self) -> &CapabilityManifestDigest {
+        &self.capability_manifest_digest
+    }
+
+    pub fn component_digest(&self) -> &ComponentDigest {
+        &self.component_digest
+    }
+
+    pub fn execution_id(&self) -> &ExecutionId {
+        &self.execution_id
+    }
+
+    pub fn interface(&self) -> &ComponentInterface {
+        &self.interface
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActionProposal {
     pub action_id: ActionId,
     pub authority: ProposalAuthority,
     pub definition: DefinitionReference,
+    pub execution: Option<ComponentExecutionEvidence>,
     pub expires_at: TimestampMicros,
     pub inputs: Vec<ActionInput>,
     pub intent_digest: IntentDigest,

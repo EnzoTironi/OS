@@ -703,6 +703,7 @@ fn causal_proposal(
             action_id: proposal.action_id,
             authority: proposal.authority,
             definition: proposal.definition,
+            execution: proposal.execution,
             expires_at: proposal.expires_at,
             intent_digest: proposal.intent_digest,
             operation_id: proposal.operation_id,
