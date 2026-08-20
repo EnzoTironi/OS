@@ -1,11 +1,12 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use tokio::sync::oneshot;
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap};
 use zoen_core::{
@@ -26,7 +27,7 @@ use crate::wasm_store::{self, BeginExecution};
 const HOST_INTERFACE_V1: &str = "zoen:code-mode/host@1.0.0";
 const PROGRAM_INTERFACE_V1: &str = "zoen:code-mode/program@1.0.0";
 const MAX_COMPONENT_BYTES: usize = 2 * 1024 * 1024;
-const EPOCH_INTERVAL_MILLIS: u64 = 5;
+const EPOCH_INTERVAL: Duration = Duration::from_millis(1);
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -54,6 +55,7 @@ impl Error for WasmtimeConfigError {}
 
 pub struct WasmtimeComputationExecutor {
     engine: Engine,
+    _epoch_clock: EpochClock,
     pool: PgPool,
 }
 
@@ -66,7 +68,12 @@ impl WasmtimeComputationExecutor {
         config.wasm_component_model(true);
         let engine =
             Engine::new(&config).map_err(|error| WasmtimeConfigError(error.to_string()))?;
-        Ok(Self { engine, pool })
+        let epoch_clock = EpochClock::start(engine.clone())?;
+        Ok(Self {
+            engine,
+            _epoch_clock: epoch_clock,
+            pool,
+        })
     }
 
     async fn finish(
@@ -168,10 +175,7 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
         store
             .set_fuel(request.limits.fuel())
             .map_err(|error| ComputationError::Store(error.to_string()))?;
-        store.set_epoch_deadline(1);
-        store.epoch_deadline_async_yield_and_update(1);
-        let (stop_sender, stop_receiver) = oneshot::channel();
-        let ticker = tokio::spawn(epoch_ticker(self.engine.clone(), stop_receiver));
+        store.set_epoch_deadline(request.limits.deadline_millis());
         let run = async {
             let instance = Computation::instantiate_async(&mut store, &component, &linker).await?;
             instance
@@ -179,21 +183,16 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
                 .call_run(&mut store, &request.input)
                 .await
         };
-        let result =
-            tokio::time::timeout(Duration::from_millis(request.limits.deadline_millis()), run)
-                .await;
-        let _ = stop_sender.send(());
-        let _ = ticker.await;
+        let result = run.await;
         let fuel_remaining = store
             .get_fuel()
             .map_err(|error| ComputationError::Store(error.to_string()))?;
         let fuel_consumed = request.limits.fuel().saturating_sub(fuel_remaining);
         let action_requested = store.data().action_requested;
         let outcome = match result {
-            Err(_) => ComputationOutcome::DeadlineExceeded,
-            Ok(Err(error)) => classify_runtime_error(&error, action_requested),
-            Ok(Ok(Err(error))) => program_error(error, action_requested),
-            Ok(Ok(Ok(output))) => match computation_output(output) {
+            Err(error) => classify_runtime_error(&error, action_requested),
+            Ok(Err(error)) => program_error(error, action_requested),
+            Ok(Ok(output)) => match computation_output(output) {
                 Ok(output) => match output_digest(&output) {
                     Ok(result_digest) => ComputationOutcome::Completed(CompletedComputation {
                         fuel_consumed,
@@ -208,6 +207,43 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
             },
         };
         self.finish(context, &request, outcome).await
+    }
+}
+
+struct EpochClock {
+    stop_sender: Sender<()>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl EpochClock {
+    fn start(engine: Engine) -> Result<Self, WasmtimeConfigError> {
+        let (stop_sender, stop_receiver) = mpsc::channel();
+        let thread = thread::Builder::new()
+            .name("zoen-wasmtime-epoch".to_owned())
+            .spawn(move || {
+                loop {
+                    match stop_receiver.recv_timeout(EPOCH_INTERVAL) {
+                        Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                        Err(RecvTimeoutError::Timeout) => engine.increment_epoch(),
+                    }
+                }
+            })
+            .map_err(|error| {
+                WasmtimeConfigError(format!("failed to start epoch clock: {error}"))
+            })?;
+        Ok(Self {
+            stop_sender,
+            thread: Some(thread),
+        })
+    }
+}
+
+impl Drop for EpochClock {
+    fn drop(&mut self) {
+        let _ = self.stop_sender.send(());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -285,16 +321,6 @@ where
             .await
             .map(wit_commit_outcome)
             .map_err(wit_host_error)
-    }
-}
-
-async fn epoch_ticker(engine: Engine, mut stop: oneshot::Receiver<()>) {
-    let mut interval = tokio::time::interval(Duration::from_millis(EPOCH_INTERVAL_MILLIS));
-    loop {
-        tokio::select! {
-            _ = interval.tick() => engine.increment_epoch(),
-            _ = &mut stop => break,
-        }
     }
 }
 
@@ -660,4 +686,63 @@ fn output_digest(
     Ok(zoen_core::ExecutionResultDigest::from_sha256(
         Sha256::digest(bytes).into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    use wasmtime::{Config, Engine, Instance, Module, Store, Trap};
+    use zoen_engine::ComputationOutcome;
+
+    use super::{EpochClock, classify_runtime_error};
+
+    const TIGHT_LOOP_MODULE: &[u8] = &[
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03,
+        0x02, 0x01, 0x00, 0x07, 0x08, 0x01, 0x04, 0x73, 0x70, 0x69, 0x6e, 0x00, 0x00, 0x0a, 0x09,
+        0x01, 0x07, 0x00, 0x03, 0x40, 0x0c, 0x00, 0x0b, 0x0b,
+    ];
+
+    #[test]
+    fn independent_epoch_clock_interrupts_single_worker_guest() {
+        let (result_sender, result_receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = result_sender.send(run_tight_loop());
+        });
+
+        let error = result_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("tight guest loop must be interrupted");
+        assert!(matches!(
+            error.downcast_ref::<Trap>(),
+            Some(Trap::Interrupt)
+        ));
+        let outcome = classify_runtime_error(&error, false);
+        assert!(matches!(outcome, ComputationOutcome::DeadlineExceeded));
+    }
+
+    fn run_tight_loop() -> wasmtime::Error {
+        let mut config = Config::new();
+        config.async_support(true);
+        config.epoch_interruption(true);
+        let engine = Engine::new(&config).expect("Wasmtime engine must initialize");
+        let _epoch_clock = EpochClock::start(engine.clone()).expect("epoch clock must initialize");
+        let module =
+            Module::new(&engine, TIGHT_LOOP_MODULE).expect("tight loop module must compile");
+        let mut store = Store::new(&engine, ());
+        store.set_epoch_deadline(1);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("Tokio runtime must initialize");
+        let error = runtime
+            .block_on(async {
+                let instance = Instance::new_async(&mut store, &module, &[]).await?;
+                let spin = instance.get_typed_func::<(), ()>(&mut store, "spin")?;
+                spin.call_async(&mut store, ()).await
+            })
+            .expect_err("tight guest loop must trap");
+        error
+    }
 }
