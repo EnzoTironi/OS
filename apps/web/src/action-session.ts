@@ -57,6 +57,14 @@ export function saveActionSession(session: StoredActionSession): void {
   );
 }
 
+export function clearActionSession(input: {
+  readonly bindingId: string;
+  readonly definitionDigest: string;
+  readonly tenantId: string;
+}): void {
+  localStorage.removeItem(actionSessionKey(input));
+}
+
 function actionSessionKey(input: {
   readonly bindingId: string;
   readonly definitionDigest: string;

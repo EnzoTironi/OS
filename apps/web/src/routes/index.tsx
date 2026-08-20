@@ -17,6 +17,7 @@ import {
   type SetStateAction,
 } from "react";
 import {
+  clearActionSession,
   createActionIdentity,
   loadActionSession,
   saveActionSession,
@@ -47,7 +48,6 @@ interface ReadyState {
   readonly data: SurfaceRuntimeData;
   readonly document: SurfaceDocument;
   readonly fields: Readonly<Record<string, string | boolean>>;
-  readonly identities: Readonly<Record<string, ActionIdentity>>;
 }
 
 type PageState =
@@ -213,8 +213,7 @@ async function propose(
   bindingId: string,
   setState: SetPageState,
 ): Promise<void> {
-  const identity =
-    state.identities[bindingId] ?? createActionIdentity(bindingId);
+  const identity = createActionIdentity(bindingId);
   const values = fieldValues(state.fields, bindingId);
   saveActionSession({
     definitionDigest: state.document.semanticContext.definition.digest,
@@ -229,7 +228,6 @@ async function propose(
       operationId: identity.operationId,
       proposalId: identity.proposalId,
     }),
-    identities: { ...current.identities, [bindingId]: identity },
   }));
   try {
     const response = await proposeAuthorityAction(
@@ -239,19 +237,20 @@ async function propose(
       identity,
       values,
     );
+    const operation = proposedOperationView(response, identity);
     updateReady(setState, (current) => ({
       ...current,
-      data: withAction(
-        current.data,
-        bindingId,
-        proposedOperationView(response, identity),
-      ),
+      data: withAction(current.data, bindingId, operation),
     }));
+    if (operation.kind !== "proposed") {
+      clearStoredActionSession(state, bindingId);
+    }
   } catch (cause: unknown) {
     updateReady(setState, (current) => ({
       ...current,
       data: withAction(current.data, bindingId, actionErrorView(cause)),
     }));
+    clearStoredActionSession(state, bindingId);
   }
 }
 
@@ -260,8 +259,8 @@ async function commit(
   bindingId: string,
   setState: SetPageState,
 ): Promise<void> {
-  const identity = state.identities[bindingId];
-  if (identity === undefined) {
+  const proposal = state.data.actions[bindingId];
+  if (proposal?.kind !== "proposed") {
     updateReady(setState, (current) => ({
       ...current,
       data: withAction(current.data, bindingId, {
@@ -271,6 +270,11 @@ async function commit(
     }));
     return;
   }
+  const identity: ActionIdentity = {
+    bindingId,
+    operationId: proposal.operationId,
+    proposalId: proposal.proposalId,
+  };
   updateReady(setState, (current) => ({
     ...current,
     data: withAction(current.data, bindingId, {
@@ -283,6 +287,7 @@ async function commit(
     const response = await commitAuthorityAction(state.client, identity);
     const operation = await commitResponseOperationView(state.client, response);
     await applyOperation(state, bindingId, operation, setState);
+    clearStoredActionSession(state, bindingId);
   } catch {
     updateReady(setState, (current) => ({
       ...current,
@@ -301,11 +306,15 @@ async function commit(
           kind: "failed",
         } satisfies ActionOperationView);
       await applyOperation(state, bindingId, operation, setState);
+      clearStoredActionSession(state, bindingId);
     } catch (cause: unknown) {
-      updateReady(setState, (current) => ({
-        ...current,
-        data: withAction(current.data, bindingId, actionErrorView(cause)),
-      }));
+      if (isDefinitiveRecoveryFailure(cause)) {
+        updateReady(setState, (current) => ({
+          ...current,
+          data: withAction(current.data, bindingId, actionErrorView(cause)),
+        }));
+        clearStoredActionSession(state, bindingId);
+      }
     }
   }
 }
@@ -349,12 +358,11 @@ async function recoverStoredActions(
   document: SurfaceDocument,
   initial: SurfaceRuntimeData,
 ): Promise<
-  Pick<ReadyState, "data" | "fields" | "identities">
+  Pick<ReadyState, "data" | "fields">
 > {
   const actions = { ...initial.actions };
   const history = { ...initial.history };
   const fields: Record<string, string | boolean> = {};
-  const identities: Record<string, ActionIdentity> = {};
   const committedSequences: string[] = [];
   for (const binding of document.actionBindings) {
     const session = loadActionSession({
@@ -365,7 +373,6 @@ async function recoverStoredActions(
     if (session === undefined) {
       continue;
     }
-    identities[binding.id] = session.identity;
     for (const [inputId, value] of Object.entries(session.values)) {
       fields[fieldKey(binding.id, inputId)] = value;
     }
@@ -379,9 +386,22 @@ async function recoverStoredActions(
         );
         committedSequences.push(recovered.commitSequence);
       }
+      clearStoredActionSession(
+        { client, document },
+        binding.id,
+      );
     } catch (cause: unknown) {
-      if (!(cause instanceof ConnectError && cause.code === Code.NotFound)) {
-        actions[binding.id] = actionErrorView(cause);
+      if (cause instanceof ConnectError && cause.code === Code.NotFound) {
+        clearStoredActionSession(
+          { client, document },
+          binding.id,
+        );
+      } else {
+        actions[binding.id] = {
+          kind: "recovering",
+          operationId: session.identity.operationId,
+          proposalId: session.identity.proposalId,
+        };
       }
     }
   }
@@ -405,7 +425,6 @@ async function recoverStoredActions(
   return {
     data: { actions, history, queries },
     fields,
-    identities,
   };
 }
 
@@ -456,6 +475,28 @@ function fieldValues(
 
 function fieldKey(bindingId: string, inputId: string): string {
   return `${bindingId}\u0000${inputId}`;
+}
+
+function clearStoredActionSession(
+  state: Pick<ReadyState, "client" | "document">,
+  bindingId: string,
+): void {
+  clearActionSession({
+    bindingId,
+    definitionDigest: state.document.semanticContext.definition.digest,
+    tenantId: state.client.tenantId,
+  });
+}
+
+function isDefinitiveRecoveryFailure(cause: unknown): boolean {
+  return (
+    cause instanceof ConnectError &&
+    cause.code !== Code.Aborted &&
+    cause.code !== Code.DeadlineExceeded &&
+    cause.code !== Code.Internal &&
+    cause.code !== Code.Unavailable &&
+    cause.code !== Code.Unknown
+  );
 }
 
 function errorText(cause: unknown): string {

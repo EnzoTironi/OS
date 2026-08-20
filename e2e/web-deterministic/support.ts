@@ -36,6 +36,15 @@ export interface ResponseLossProxy {
   dropNextCommitResponse: () => void;
 }
 
+export interface CredentialSink {
+  readonly close: () => Promise<void>;
+  readonly origin: string;
+  readonly requests: readonly {
+    readonly authorization: string | undefined;
+    readonly path: string;
+  }[];
+}
+
 export interface WebProcess {
   readonly child: ChildProcessWithoutNullStreams;
   readonly output: string[];
@@ -108,6 +117,32 @@ export async function startResponseLossProxy(): Promise<ResponseLossProxy> {
       dropCommit = true;
     },
     origin,
+    requests,
+  };
+}
+
+export async function startCredentialSink(): Promise<CredentialSink> {
+  const requests: {
+    authorization: string | undefined;
+    path: string;
+  }[] = [];
+  const server = createServer((request, response) => {
+    requests.push({
+      authorization: request.headers.authorization,
+      path: request.url ?? "/",
+    });
+    response.statusCode = 204;
+    response.end();
+  });
+  await listen(server, 0);
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    await closeServer(server);
+    throw new Error("Credential sink did not bind a TCP port");
+  }
+  return {
+    close: () => closeServer(server),
+    origin: `http://127.0.0.1:${address.port}`,
     requests,
   };
 }

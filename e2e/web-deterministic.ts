@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { AxeBuilder } from "@axe-core/playwright";
+import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code } from "@connectrpc/connect";
 import { Client as PostgresClient } from "pg";
 import {
   chromium,
@@ -13,13 +16,21 @@ import {
   PolicyDecision,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
+  QueryConsistencySchema,
+  QuerySelectionSchema,
+  StrongConsistencySchema,
+} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
   actionClient,
   activateDefinition,
   adminDatabaseUrl,
   databaseSnapshot,
   definitionClient,
+  expectConnectCode,
   loadFixture,
+  minutesFromNow,
   oidcToken,
+  propose,
   publishDefinition,
   recordAvailable,
   repositoryRoot,
@@ -27,6 +38,7 @@ import {
   startServer,
   stopServer,
   tenantA,
+  tenantB,
   worldClient,
   writePolicyManifest,
   type ServerProcess,
@@ -38,8 +50,10 @@ import {
 } from "./host-env.js";
 import {
   startResponseLossProxy,
+  startCredentialSink,
   startWeb,
   stopWeb,
+  type CredentialSink,
   type ResponseLossProxy,
   type WebProcess,
 } from "./web-deterministic/support.js";
@@ -48,6 +62,8 @@ const scenario = "web-deterministic";
 const webOrigin = e2eHttpUrl("ZOEN_E2E_WEB_PORT", 58_187);
 const requestStockBinding = "action.inventory.requestStock";
 const requestStockForm = `form[data-action-binding="${requestStockBinding}"]`;
+const restrictedActionId = "inventory.restrictedAction";
+const validAt = new Date("2026-08-19T00:00:00.000Z");
 const sessionSchema = z
   .object({
     identity: z
@@ -83,6 +99,7 @@ async function main(): Promise<void> {
   let authority: ServerProcess | undefined;
   let web: WebProcess | undefined;
   let proxy: ResponseLossProxy | undefined;
+  let credentialSink: CredentialSink | undefined;
   let browser: Browser | undefined;
 
   await admin.connect();
@@ -97,9 +114,12 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       value: "10",
     });
+    await verifyServerAdmission(actions, world, fixture, admin);
     const beforeAction = await databaseSnapshot(admin, tenantA);
     proxy = await startResponseLossProxy();
+    credentialSink = await startCredentialSink();
     web = await startWeb(proxy.origin);
+    await verifyRpcProxyConfinement(credentialSink, proxy);
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -134,7 +154,7 @@ async function main(): Promise<void> {
     proxy.dropNextCommitResponse();
     failureInjections.push("commit-response-loss");
     await jsonForm.getByRole("button", { name: "Commit Action" }).click();
-    await jsonForm.getByText(/Action failed/u).waitFor();
+    await jsonForm.getByText(/Commit response was lost/u).waitFor();
 
     const directStatus = await actions.getOperationStatus({
       operationId: session.identity.operationId,
@@ -249,6 +269,23 @@ async function main(): Promise<void> {
       ),
     );
 
+    const recoveredSession = await storedActionSessionOrUndefined(page);
+    assert.equal(recoveredSession, undefined);
+    await jsonForm.locator('input[name="quantity"]').fill("6");
+    await jsonForm.getByRole("button", { name: "Propose Action" }).click();
+    await jsonForm.getByText(/Server denied the Action/u).waitFor();
+    const deniedSession = await storedActionSessionOrUndefined(page);
+    assert.equal(deniedSession, undefined);
+    await jsonForm.locator('input[name="quantity"]').fill("1");
+    await jsonForm.getByRole("button", { name: "Propose Action" }).click();
+    await jsonForm.getByText(/is ready for commit/u).waitFor();
+    const nextSession = await storedActionSession(page);
+    observe(
+      "terminalActionOutcomeMintsNewIdentity",
+      nextSession.identity.operationId !== session.identity.operationId &&
+        nextSession.identity.proposalId !== session.identity.proposalId,
+    );
+
     const artifactPath = await writeScenarioArtifact(
       repositoryRoot,
       scenario,
@@ -271,6 +308,7 @@ async function main(): Promise<void> {
     if (web !== undefined) {
       await stopWeb(web);
     }
+    await credentialSink?.close();
     await proxy?.close();
     if (authority !== undefined) {
       await stopServer(authority);
@@ -362,14 +400,170 @@ async function verifyInitialSurface(
   );
 }
 
+async function verifyServerAdmission(
+  actions: ReturnType<typeof actionClient>,
+  world: ReturnType<typeof worldClient>,
+  fixture: Awaited<ReturnType<typeof loadFixture>>,
+  admin: PostgresClient,
+): Promise<void> {
+  const before = await databaseSnapshot(admin, tenantA);
+  const hiddenIdentity = {
+    operationId: "operation.web.hidden",
+    proposalId: "proposal.web.hidden",
+  };
+  const hiddenCode = await expectConnectCode(
+    () =>
+      proposeActionRef(
+        actions,
+        fixture,
+        restrictedActionId,
+        hiddenIdentity,
+      ),
+    Code.PermissionDenied,
+  );
+  const unknownCode = await expectConnectCode(
+    () =>
+      proposeActionRef(actions, fixture, "inventory.unknownAction", {
+        operationId: "operation.web.unknown",
+        proposalId: "proposal.web.unknown",
+      }),
+    Code.PermissionDenied,
+  );
+  const policyDenied = await propose(actions, {
+    expiresAt: minutesFromNow(5),
+    fixture,
+    operationId: "operation.web.policyDenied",
+    proposalId: "proposal.web.policyDenied",
+    quantity: "6",
+  });
+  assert.equal(policyDenied.decision, PolicyDecision.DENY);
+  const hiddenCommitCode = await expectConnectCode(
+    () => actions.commit(hiddenIdentity),
+    Code.NotFound,
+  );
+  const deniedCommitCode = await expectConnectCode(
+    () =>
+      actions.commit({
+        operationId: "operation.web.policyDenied",
+        proposalId: "proposal.web.policyDenied",
+      }),
+    Code.NotFound,
+  );
+  const urlActionCode = await expectConnectCode(
+    () =>
+      proposeActionRef(actions, fixture, "https://evil.example/steal", {
+        operationId: "operation.web.urlAction",
+        proposalId: "proposal.web.urlAction",
+      }),
+    Code.InvalidArgument,
+  );
+  const crossTenantCode = await expectConnectCode(
+    () =>
+      world.semanticQuery({
+        consistency: create(QueryConsistencySchema, {
+          value: {
+            case: "strong",
+            value: create(StrongConsistencySchema),
+          },
+        }),
+        definition: fixture.definition,
+        entityId: resourceId,
+        selection: create(QuerySelectionSchema, {
+          value: {
+            case: "relationId",
+            value: "inventory.available",
+          },
+        }),
+        tenantId: tenantB,
+        validAt: timestampFromDate(validAt),
+      }),
+    Code.PermissionDenied,
+  );
+  const after = await databaseSnapshot(admin, tenantA);
+  const unchanged = JSON.stringify(after) === JSON.stringify(before);
+  observe(
+    "serverDeniesUnknownHiddenAndDeniedActionRefs",
+    hiddenCode === Code.PermissionDenied &&
+      unknownCode === Code.PermissionDenied &&
+      policyDenied.decision === PolicyDecision.DENY &&
+      hiddenCommitCode === Code.NotFound &&
+      deniedCommitCode === Code.NotFound &&
+      unchanged,
+  );
+  observe(
+    "serverRejectsCrossTenantSemanticQuery",
+    crossTenantCode === Code.PermissionDenied && unchanged,
+  );
+  observe(
+    "serverRejectsUrlShapedActionRef",
+    urlActionCode === Code.InvalidArgument && unchanged,
+  );
+}
+
+function proposeActionRef(
+  actions: ReturnType<typeof actionClient>,
+  fixture: Awaited<ReturnType<typeof loadFixture>>,
+  proposedActionId: string,
+  identity: {
+    readonly operationId: string;
+    readonly proposalId: string;
+  },
+) {
+  return actions.propose({
+    actionId: proposedActionId,
+    definition: fixture.definition,
+    expiresAt: timestampFromDate(minutesFromNow(5)),
+    inputs: [],
+    operationId: identity.operationId,
+    proposalId: identity.proposalId,
+    resourceId,
+    validAt: timestampFromDate(validAt),
+  });
+}
+
+async function verifyRpcProxyConfinement(
+  credentialSink: CredentialSink,
+  proxy: ResponseLossProxy,
+): Promise<void> {
+  const proxyRequestsBefore = proxy.requests.length;
+  const sinkAuthority = new URL(credentialSink.origin).host;
+  const authorization = "Bearer must-not-leave-zoen-web";
+  const paths = [
+    `/rpc//${sinkAuthority}/steal`,
+    `/rpc/http://${sinkAuthority}/steal`,
+  ];
+  const responses = await Promise.all(
+    paths.map((requestPath) =>
+      fetch(new URL(requestPath, webOrigin), {
+        headers: { authorization },
+        redirect: "manual",
+      }),
+    ),
+  );
+  observe(
+    "rpcProxyRejectsOffOriginPathsWithoutForwardingAuthorization",
+    responses.every((response) => response.status === 400) &&
+      credentialSink.requests.length === 0 &&
+      proxy.requests.length === proxyRequestsBefore,
+  );
+}
+
 async function storedActionSession(page: Page) {
+  const session = await storedActionSessionOrUndefined(page);
+  assert.ok(session);
+  return session;
+}
+
+async function storedActionSessionOrUndefined(page: Page) {
   const encoded = await page.evaluate(() => {
     const key = Object.keys(localStorage).find((candidate) =>
       candidate.startsWith("zoen.web.action.v1:"),
     );
     return key === undefined ? null : localStorage.getItem(key);
   });
-  assert.ok(encoded);
+  if (encoded === null) {
+    return undefined;
+  }
   const value: unknown = JSON.parse(encoded);
   return sessionSchema.parse(value);
 }
