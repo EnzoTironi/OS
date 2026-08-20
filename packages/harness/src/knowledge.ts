@@ -5,6 +5,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import {
+  Format,
   formatFromBytes,
   toMarkdownBytes,
   type ConvertErrorCode,
@@ -784,7 +785,7 @@ export async function extractPdfMarkdown(bytes: Uint8Array): Promise<string> {
       "source bytes do not contain a supported PDF signature",
     );
   }
-  const markdown = (await toMarkdownBytes(bytes, "pdf")).trim();
+  const markdown = (await toMarkdownBytes(bytes, Format.pdf)).trim();
   if (markdown.length === 0) {
     throw convertError(
       "unsupported",
