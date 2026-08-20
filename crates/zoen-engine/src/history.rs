@@ -1071,3 +1071,7 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
+
+#[cfg(test)]
+#[path = "history_access_tests.rs"]
+mod tests;
