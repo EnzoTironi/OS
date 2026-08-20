@@ -212,6 +212,48 @@ test("OpenAI-compatible routes register without other provider secrets", () => {
   );
 });
 
+test("adaptive composition uses one required tool and unwraps Surface IR", async () => {
+  const document = { schema: "zoen.surface.v1" };
+  const model = new MockLanguageModelV3({
+    doGenerate: async (options) => {
+      assert.deepEqual(options.toolChoice, { type: "required" });
+      assert.deepEqual(
+        options.tools?.map((candidate) => candidate.name),
+        ["emit_surface"],
+      );
+      return {
+        content: [
+          {
+            input: JSON.stringify({ document }),
+            toolCallId: "call.surface",
+            toolName: "emit_surface",
+            type: "tool-call",
+          },
+        ],
+        finishReason: { raw: "tool_calls", unified: "tool-calls" },
+        usage: {
+          inputTokens: {
+            cacheRead: undefined,
+            cacheWrite: undefined,
+            noCache: 1,
+            total: 1,
+          },
+          outputTokens: { reasoning: undefined, text: 1, total: 1 },
+        },
+        warnings: [],
+      };
+    },
+  });
+
+  const result = await new AiSdkPlanner(model).composeSurface({
+    maxOutputTokens: 1_024,
+    prompt: "{}",
+    system: "Emit Surface IR.",
+  });
+
+  assert.deepEqual(result.document, document);
+});
+
 test("unknown rewritten tool names are rejected as not visible", async () => {
   const request: PlanningRequest = {
     actions: [action],

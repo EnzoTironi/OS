@@ -12,7 +12,6 @@ import {
 } from "ai";
 import { z } from "zod";
 import {
-  adaptiveSurfaceDocumentSchema,
   type AdaptiveSurfaceModel,
   type AdaptiveSurfaceModelRequest,
   type AdaptiveSurfaceModelResponse,
@@ -34,6 +33,11 @@ import {
 const liveProviderConfigSchema = z
   .object({
     routes: z.array(providerRouteSchema),
+  })
+  .strict();
+const adaptiveSurfaceToolInputSchema = z
+  .object({
+    document: z.unknown(),
   })
   .strict();
 
@@ -195,15 +199,12 @@ export class AiSdkPlanner implements ModelPlanner, AdaptiveSurfaceModel {
       model: this.#model,
       prompt: request.prompt,
       system: request.system,
-      toolChoice: {
-        type: "tool",
-        toolName: "emit_surface",
-      },
+      toolChoice: "required",
       tools: {
         emit_surface: tool({
           description:
-            "Emit one complete validated-catalog Zoen Surface IR document.",
-          inputSchema: adaptiveSurfaceDocumentSchema,
+            "Emit one complete Zoen Surface IR document in the document field.",
+          inputSchema: adaptiveSurfaceToolInputSchema,
         }),
       },
     });
@@ -216,7 +217,7 @@ export class AiSdkPlanner implements ModelPlanner, AdaptiveSurfaceModel {
       throw new Error("model did not emit exactly one Surface IR document");
     }
     return {
-      document: toolCall.input,
+      document: toolCall.input.document,
       providerCallId: result.finalStep.response.id,
       responseModelId: result.finalStep.response.modelId,
     };
