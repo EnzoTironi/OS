@@ -217,7 +217,7 @@ export class AiSdkPlanner implements ModelPlanner, AdaptiveSurfaceModel {
       throw new Error("model did not emit exactly one Surface IR document");
     }
     return {
-      document: toolCall.input.document,
+      document: adaptiveSurfaceToolInputSchema.parse(toolCall.input).document,
       providerCallId: result.finalStep.response.id,
       responseModelId: result.finalStep.response.modelId,
     };
