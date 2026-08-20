@@ -198,8 +198,8 @@ export function EffectStatusViewList(props: {
   }
   return (
     <ul className="effect-list" aria-label="External effect status">
-      {operation.effects.map((effect) => (
-        <li key={effect.effectRequestId}>{effectText(effect)}</li>
+      {operation.effects.map((effect, index) => (
+        <li key={`${effect.kind}.${index}`}>{effectText(effect)}</li>
       ))}
     </ul>
   );
