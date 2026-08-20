@@ -78,7 +78,7 @@ export function providerConfigDigest(route: ProviderRoute): string {
   );
 }
 
-class AiSdkPlanner implements ModelPlanner {
+export class AiSdkPlanner implements ModelPlanner {
   readonly #model: LanguageModel;
 
   constructor(model: LanguageModel) {

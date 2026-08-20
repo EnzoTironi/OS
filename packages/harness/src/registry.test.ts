@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { InvalidToolInputError } from "ai";
+import { MockLanguageModelV3 } from "ai/test";
 import {
+  AiSdkPlanner,
   planningRequestDigest,
   registerLiveProviders,
 } from "./providers.js";
@@ -207,6 +210,59 @@ test("OpenAI-compatible routes register without other provider secrets", () => {
     registry.resolveProvider(compatibleRoute.capability).kind,
     "unavailable",
   );
+});
+
+test("unknown rewritten tool names are rejected as not visible", async () => {
+  const request: PlanningRequest = {
+    actions: [action],
+    instruction: "Request one unit.",
+    queries: [],
+  };
+  const toolName = "action-invented-by-provider";
+  const invalidCallModel = new MockLanguageModelV3({
+    doGenerate: {
+      content: [
+        {
+          input: JSON.stringify({
+            inputs: [
+              { id: "quantity", value: { kind: "integer", value: "1" } },
+            ],
+          }),
+          toolCallId: "call.invented",
+          toolName,
+          type: "tool-call",
+        },
+      ],
+      finishReason: { raw: "tool_calls", unified: "tool-calls" },
+      usage: {
+        inputTokens: {
+          cacheRead: undefined,
+          cacheWrite: undefined,
+          noCache: 1,
+          total: 1,
+        },
+        outputTokens: { reasoning: undefined, text: 1, total: 1 },
+      },
+      warnings: [],
+    },
+  });
+  const invalidInputModel = new MockLanguageModelV3({
+    doGenerate: async () => {
+      throw new InvalidToolInputError({
+        cause: new Error("invalid tool input"),
+        toolInput: "{}",
+        toolName,
+      });
+    },
+  });
+
+  for (const model of [invalidCallModel, invalidInputModel]) {
+    assert.deepEqual(await new AiSdkPlanner(model).plan(request), {
+      kind: "rejected",
+      promptDigest: planningRequestDigest(request),
+      reason: "action_not_visible",
+    });
+  }
 });
 
 class FixedPlanner implements ModelPlanner {
