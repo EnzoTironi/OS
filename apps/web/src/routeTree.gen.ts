@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiAdaptiveSurfaceRouteImport } from './routes/api.adaptive-surface'
 import { Route as ApiConfigRouteImport } from './routes/api.config'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as RpcSplatRouteImport } from './routes/rpc.$'
@@ -17,6 +18,11 @@ import { Route as RpcSplatRouteImport } from './routes/rpc.$'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdaptiveSurfaceRoute = ApiAdaptiveSurfaceRouteImport.update({
+  id: '/api/adaptive-surface',
+  path: '/api/adaptive-surface',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiConfigRoute = ApiConfigRouteImport.update({
@@ -37,12 +43,14 @@ const RpcSplatRoute = RpcSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/adaptive-surface': typeof ApiAdaptiveSurfaceRoute
   '/api/config': typeof ApiConfigRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/rpc/$': typeof RpcSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/adaptive-surface': typeof ApiAdaptiveSurfaceRoute
   '/api/config': typeof ApiConfigRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/rpc/$': typeof RpcSplatRoute
@@ -50,20 +58,30 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/adaptive-surface': typeof ApiAdaptiveSurfaceRoute
   '/api/config': typeof ApiConfigRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/rpc/$': typeof RpcSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/config' | '/auth/callback' | '/rpc/$'
+  fullPaths:
+    '/' | '/api/adaptive-surface' | '/api/config' | '/auth/callback' | '/rpc/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/config' | '/auth/callback' | '/rpc/$'
-  id: '__root__' | '/' | '/api/config' | '/auth/callback' | '/rpc/$'
+  to:
+    '/' | '/api/adaptive-surface' | '/api/config' | '/auth/callback' | '/rpc/$'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/adaptive-surface'
+    | '/api/config'
+    | '/auth/callback'
+    | '/rpc/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiAdaptiveSurfaceRoute: typeof ApiAdaptiveSurfaceRoute
   ApiConfigRoute: typeof ApiConfigRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   RpcSplatRoute: typeof RpcSplatRoute
@@ -76,6 +94,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/adaptive-surface': {
+      id: '/api/adaptive-surface'
+      path: '/api/adaptive-surface'
+      fullPath: '/api/adaptive-surface'
+      preLoaderRoute: typeof ApiAdaptiveSurfaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/config': {
@@ -104,6 +129,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiAdaptiveSurfaceRoute: ApiAdaptiveSurfaceRoute,
   ApiConfigRoute: ApiConfigRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   RpcSplatRoute: RpcSplatRoute,
