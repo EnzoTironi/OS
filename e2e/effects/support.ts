@@ -114,6 +114,7 @@ export interface ManagedProcess {
   child: ChildProcessWithoutNullStreams;
   name: string;
   output: string[];
+  stderr: string[];
 }
 
 export function adminClient(): PostgresClient {
@@ -410,6 +411,7 @@ async function startProcess(options: {
   port: number;
 }): Promise<ManagedProcess> {
   const output: string[] = [];
+  const stderr: string[] = [];
   const child = spawn(options.command, [...(options.arguments ?? [])], {
     cwd: repositoryRoot,
     env: { ...process.env, ...options.environment },
@@ -417,8 +419,12 @@ async function startProcess(options: {
   });
   child.stdin.end();
   child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  const managedProcess = { child, name: options.name, output };
+  child.stderr.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    output.push(text);
+    stderr.push(text);
+  });
+  const managedProcess = { child, name: options.name, output, stderr };
   await waitForPort(options.port, managedProcess);
   return managedProcess;
 }

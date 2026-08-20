@@ -38,8 +38,11 @@ import {
   WorldService,
   type DefinitionReference,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
-import { waitForState } from "./effects/scenario.js";
+import {
+  EffectKnowledgeState,
+  type EffectSnapshot,
+} from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import { stateName, waitForState } from "./effects/scenario.js";
 import {
   dispatchOnce,
   effectClient,
@@ -153,11 +156,48 @@ async function main(): Promise<void> {
     await setProviderMode("accepted_pending");
     const baseline = await commitBaseline(actionA, definition);
     await dispatchOnce(tenantA);
-    const baselineEffect = await waitForState(
-      effectClient(tokens.agentA),
-      baseline.effectRequestId,
-      EffectKnowledgeState.ACCEPTED_PENDING,
-    );
+    const effectA = effectClient(tokens.agentA);
+    let baselineEffect: EffectSnapshot;
+    try {
+      baselineEffect = await waitForState(
+        effectA,
+        baseline.effectRequestId,
+        EffectKnowledgeState.ACCEPTED_PENDING,
+      );
+    } catch (error: unknown) {
+      let getEffectState: unknown;
+      try {
+        const failedEffect = await effectA.getEffect({
+          effectRequestId: baseline.effectRequestId,
+        });
+        getEffectState = {
+          attemptCount: failedEffect.snapshot?.attempts.length ?? 0,
+          state:
+            failedEffect.snapshot?.request === undefined
+              ? "missing"
+              : stateName(failedEffect.snapshot.request.state),
+        };
+      } catch (diagnosticError: unknown) {
+        getEffectState = {
+          error:
+            diagnosticError instanceof Error
+              ? diagnosticError.message
+              : String(diagnosticError),
+        };
+      }
+      process.stderr.write(
+        `${JSON.stringify(
+          {
+            effectWorkerStderr: effectWorker.stderr.join(""),
+            getEffectState,
+            restateDeploymentBody: effectRegistration,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      throw error;
+    }
     assert.ok(baselineEffect.attempts.length > 0);
     const causalAnswer = await historyA.explain({
       target: {
