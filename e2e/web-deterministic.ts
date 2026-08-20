@@ -248,7 +248,14 @@ async function signIn(page: Page): Promise<void> {
   await page.locator("#username").fill("web-user");
   await page.locator("#password").fill("web-password");
   await page.locator("#kc-login").click();
-  await page.locator('main[data-generated-without-llm="true"]').waitFor();
+  try {
+    await page.locator('main[data-generated-without-llm="true"]').waitFor();
+  } catch (cause: unknown) {
+    throw new Error(
+      `OIDC browser flow stopped at ${page.url()}:\n${await page.locator("body").innerText()}`,
+      { cause },
+    );
+  }
 }
 
 async function verifyInitialSurface(
