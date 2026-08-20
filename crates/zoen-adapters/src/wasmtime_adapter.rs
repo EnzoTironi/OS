@@ -8,7 +8,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use wasmtime::component::{Component, HasSelf, Linker};
-use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap};
+use wasmtime::{Config, Engine, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder, Trap};
 use zoen_core::{
     ActionId, ActionInput, CapabilityId, ClaimId, CommitSequence, ComponentDigest,
     ComponentExecutionEvidence, EntityId, ExactDecimal, ExactInteger, ExactValue, InputId,
@@ -168,10 +168,10 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
                 action_requested: false,
                 evidence: request.evidence(),
                 host,
-                limits,
+                limiter: ExecutionLimiter::new(limits),
             },
         );
-        store.limiter(|state| &mut state.limits);
+        store.limiter(|state| &mut state.limiter);
         store
             .set_fuel(request.limits.fuel())
             .map_err(|error| ComputationError::Store(error.to_string()))?;
@@ -189,8 +189,9 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
             .map_err(|error| ComputationError::Store(error.to_string()))?;
         let fuel_consumed = request.limits.fuel().saturating_sub(fuel_remaining);
         let action_requested = store.data().action_requested;
+        let memory_denied = store.data().limiter.memory_denied();
         let outcome = match result {
-            Err(error) => classify_runtime_error(&error, action_requested),
+            Err(error) => classify_runtime_error(&error, action_requested, memory_denied),
             Ok(Err(error)) => program_error(error, action_requested),
             Ok(Ok(output)) => match computation_output(output) {
                 Ok(output) => match output_digest(&output) {
@@ -207,6 +208,68 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
             },
         };
         self.finish(context, &request, outcome).await
+    }
+}
+
+struct ExecutionLimiter {
+    limits: StoreLimits,
+    memory_denied: bool,
+}
+
+impl ExecutionLimiter {
+    fn new(limits: StoreLimits) -> Self {
+        Self {
+            limits,
+            memory_denied: false,
+        }
+    }
+
+    fn memory_denied(&self) -> bool {
+        self.memory_denied
+    }
+}
+
+impl ResourceLimiter for ExecutionLimiter {
+    fn memory_growing(
+        &mut self,
+        current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        let result = self.limits.memory_growing(current, desired, maximum);
+        if !matches!(&result, Ok(true)) {
+            self.memory_denied = true;
+        }
+        result
+    }
+
+    fn memory_grow_failed(&mut self, error: wasmtime::Error) -> wasmtime::Result<()> {
+        self.limits.memory_grow_failed(error)
+    }
+
+    fn table_growing(
+        &mut self,
+        current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        self.limits.table_growing(current, desired, maximum)
+    }
+
+    fn table_grow_failed(&mut self, error: wasmtime::Error) -> wasmtime::Result<()> {
+        self.limits.table_grow_failed(error)
+    }
+
+    fn instances(&self) -> usize {
+        self.limits.instances()
+    }
+
+    fn tables(&self) -> usize {
+        self.limits.tables()
+    }
+
+    fn memories(&self) -> usize {
+        self.limits.memories()
     }
 }
 
@@ -251,7 +314,7 @@ struct StoreState<H> {
     action_requested: bool,
     evidence: ComponentExecutionEvidence,
     host: H,
-    limits: StoreLimits,
+    limiter: ExecutionLimiter,
 }
 
 impl<H> wit_host::Host for StoreState<H>
@@ -585,7 +648,14 @@ fn program_error(error: wit_program::ProgramError, action_requested: bool) -> Co
     }
 }
 
-fn classify_runtime_error(error: &wasmtime::Error, action_requested: bool) -> ComputationOutcome {
+fn classify_runtime_error(
+    error: &wasmtime::Error,
+    action_requested: bool,
+    memory_denied: bool,
+) -> ComputationOutcome {
+    if memory_denied {
+        return ComputationOutcome::MemoryLimitExceeded;
+    }
     match error.downcast_ref::<Trap>() {
         Some(Trap::OutOfFuel) => return ComputationOutcome::FuelExhausted,
         Some(Trap::Interrupt) => return ComputationOutcome::DeadlineExceeded,
@@ -695,12 +765,10 @@ mod tests {
     use std::time::Duration;
 
     use wasmtime::component::{Component, Linker as ComponentLinker};
-    use wasmtime::{
-        Config, Engine, Instance, Module, Store, StoreLimits, StoreLimitsBuilder, Trap,
-    };
+    use wasmtime::{Config, Engine, Instance, Module, Store, StoreLimitsBuilder, Trap};
     use zoen_engine::ComputationOutcome;
 
-    use super::{EpochClock, classify_runtime_error};
+    use super::{EpochClock, ExecutionLimiter, classify_runtime_error};
 
     const ABORT_COMPONENT: &[u8] = &[
         0, 97, 115, 109, 13, 0, 1, 0, 1, 52, 0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2,
@@ -726,26 +794,24 @@ mod tests {
         0x01, 0x07, 0x00, 0x03, 0x40, 0x0c, 0x00, 0x0b, 0x0b,
     ];
 
-    struct ComponentStore {
-        limits: StoreLimits,
-    }
-
     #[tokio::test]
     async fn component_memory_limit_and_abort_errors_are_distinct() {
-        let memory_error = run_component(GROW_COMPONENT, "grow").await;
-        let abort_error = run_component(ABORT_COMPONENT, "abort").await;
+        let (memory_error, memory_denied) = run_component(GROW_COMPONENT, "grow").await;
+        let (abort_error, abort_memory_denied) = run_component(ABORT_COMPONENT, "abort").await;
 
         println!("memory display: {memory_error}");
         println!("memory debug: {memory_error:?}");
         println!("abort display: {abort_error}");
         println!("abort debug: {abort_error:?}");
 
+        assert!(memory_denied);
+        assert!(!abort_memory_denied);
         assert!(matches!(
-            classify_runtime_error(&memory_error, false),
+            classify_runtime_error(&memory_error, false, memory_denied),
             ComputationOutcome::MemoryLimitExceeded
         ));
         assert!(matches!(
-            classify_runtime_error(&abort_error, false),
+            classify_runtime_error(&abort_error, false, abort_memory_denied),
             ComputationOutcome::TrapBeforeActionRequest
         ));
     }
@@ -764,11 +830,11 @@ mod tests {
             error.downcast_ref::<Trap>(),
             Some(Trap::Interrupt)
         ));
-        let outcome = classify_runtime_error(&error, false);
+        let outcome = classify_runtime_error(&error, false, false);
         assert!(matches!(outcome, ComputationOutcome::DeadlineExceeded));
     }
 
-    async fn run_component(bytes: &[u8], export: &str) -> wasmtime::Error {
+    async fn run_component(bytes: &[u8], export: &str) -> (wasmtime::Error, bool) {
         let mut config = Config::new();
         config.async_support(true);
         config.wasm_component_model(true);
@@ -778,14 +844,14 @@ mod tests {
         let linker = ComponentLinker::new(&engine);
         let mut store = Store::new(
             &engine,
-            ComponentStore {
-                limits: StoreLimitsBuilder::new()
+            ExecutionLimiter::new(
+                StoreLimitsBuilder::new()
                     .memory_size(2 * 1024 * 1024)
                     .trap_on_grow_failure(true)
                     .build(),
-            },
+            ),
         );
-        store.limiter(|state| &mut state.limits);
+        store.limiter(|limiter| limiter);
         let instance = linker
             .instantiate_async(&mut store, &component)
             .await
@@ -793,10 +859,11 @@ mod tests {
         let function = instance
             .get_typed_func::<(), ()>(&mut store, export)
             .expect("test component export must match");
-        function
+        let error = function
             .call_async(&mut store, ())
             .await
-            .expect_err("test component must trap")
+            .expect_err("test component must trap");
+        (error, store.data().memory_denied())
     }
 
     fn run_tight_loop() -> wasmtime::Error {
