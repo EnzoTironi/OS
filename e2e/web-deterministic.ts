@@ -185,9 +185,18 @@ async function main(): Promise<void> {
       replay.receipt?.commitSequence,
       directStatus.receipt.commitSequence,
     );
+    const explanationSelector =
+      `.explanation-ref[data-action-binding="${requestStockBinding}"]`;
+    const jsonExplanation = await jsonRenderer
+      .locator(explanationSelector)
+      .innerText();
+    const referenceExplanation = await referenceRenderer
+      .locator(explanationSelector)
+      .innerText();
     observe(
       "responseLossRecoversSameOperation",
-      (await page.getByText(session.identity.operationId).count()) === 2 &&
+      jsonExplanation.includes(session.identity.operationId) &&
+        referenceExplanation.includes(session.identity.operationId) &&
         afterAction.actionOperations === beforeAction.actionOperations + 1,
     );
 
