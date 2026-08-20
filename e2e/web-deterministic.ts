@@ -100,7 +100,25 @@ async function main(): Promise<void> {
     web = await startWeb(proxy.origin);
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
-    await signIn(page);
+    const browserFailures: string[] = [];
+    page.on("requestfailed", (request) => {
+      browserFailures.push(
+        `${request.method()} ${request.url()} ${request.failure()?.errorText ?? "unknown"}`,
+      );
+    });
+    try {
+      await signIn(page);
+    } catch (cause: unknown) {
+      throw new Error(
+        [
+          errorText(cause),
+          `Browser request failures:\n${browserFailures.join("\n")}`,
+          `Protocol requests:\n${proxy.requests.join("\n")}`,
+          `Web output:\n${web.output.join("")}`,
+        ].join("\n\n"),
+        { cause },
+      );
+    }
     await verifyInitialSurface(page, actions, fixture.digest);
 
     const jsonRenderer = page.locator('[data-renderer="json-render"]');
@@ -330,6 +348,10 @@ function observe(name: string, value: boolean): void {
   assert.equal(value, true, name);
   observations[name] = value;
   console.log(`observe.${name}=true`);
+}
+
+function errorText(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 void main();
