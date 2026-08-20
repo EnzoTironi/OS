@@ -383,7 +383,7 @@ fn host_commit_request(
 
 fn exact_value(value: wit_host::ExactValue) -> Result<ExactValue, wit_host::HostError> {
     match value {
-        wit_host::ExactValue::Bool(value) => Ok(ExactValue::Bool(value)),
+        wit_host::ExactValue::Boolean(value) => Ok(ExactValue::Bool(value)),
         wit_host::ExactValue::Decimal(value) => ExactDecimal::parse(value)
             .map(ExactValue::Decimal)
             .map_err(invalid_request),
@@ -403,7 +403,7 @@ fn exact_value(value: wit_host::ExactValue) -> Result<ExactValue, wit_host::Host
 
 fn wit_exact_value(value: ExactValue) -> wit_host::ExactValue {
     match value {
-        ExactValue::Bool(value) => wit_host::ExactValue::Bool(value),
+        ExactValue::Bool(value) => wit_host::ExactValue::Boolean(value),
         ExactValue::Decimal(value) => wit_host::ExactValue::Decimal(value.as_str().to_owned()),
         ExactValue::Integer(value) => wit_host::ExactValue::Integer(value.as_str().to_owned()),
         ExactValue::Quantity { amount, unit } => {

@@ -7,7 +7,7 @@ interface host {
   }
 
   variant exact-value {
-    bool(bool),
+    boolean(bool),
     decimal(string),
     integer(string),
     quantity(quantity),
