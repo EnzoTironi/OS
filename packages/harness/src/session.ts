@@ -6,6 +6,7 @@ import {
   type ActionCapability,
   type ActionPlan,
   type CapabilityAlias,
+  type PlanningRejectionReason,
   type PlanningResult,
   type ProviderRoute,
   type QueryCapability,
@@ -47,17 +48,19 @@ export const policyEvidenceSchema = z
   .strict();
 export type PolicyEvidence = z.infer<typeof policyEvidenceSchema>;
 
-const providerCorrelationSchema = z
+const providerAttemptSchema = z
   .object({
     configuredModelId: z.string().min(1),
     modelCapability: identifier,
     promptDigest: digest,
-    providerCallId: z.string().min(1),
     providerKind: providerKindSchema,
     providerRouteId: identifier,
-    responseModelId: z.string().min(1),
   })
   .strict();
+const providerCorrelationSchema = providerAttemptSchema.extend({
+  providerCallId: z.string().min(1),
+  responseModelId: z.string().min(1),
+});
 
 export const agentCommitReceiptSchema = z
   .object({
@@ -92,6 +95,19 @@ export const agentSessionResultSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("model_error"),
       reason: z.literal("provider_call_failed"),
+      sessionId: sessionIdSchema,
+      taskId: taskIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("invalid_plan"),
+      provider: providerAttemptSchema,
+      reason: z.enum([
+        "action_not_visible",
+        "invalid_arguments",
+        "invalid_tool_selection",
+      ]),
       sessionId: sessionIdSchema,
       taskId: taskIdSchema,
     })
@@ -238,7 +254,13 @@ export interface AgentSessionRuntime {
 type PlanningSelection =
   | {
       readonly kind: "planned";
-      readonly planning: PlanningResult;
+      readonly planning: Extract<PlanningResult, { kind: "planned" }>;
+      readonly route: ProviderRoute;
+    }
+  | {
+      readonly kind: "invalid_plan";
+      readonly promptDigest: string;
+      readonly reason: PlanningRejectionReason;
       readonly route: ProviderRoute;
     }
   | {
@@ -283,15 +305,32 @@ export async function runAgentSession(
           case "unavailable":
             return { kind: "provider_unavailable" };
           case "available":
-            return {
-              kind: "planned",
-              planning: await provider.planner.plan({
+            {
+              const planning = await provider.planner.plan({
                 actions,
                 instruction: command.task.instruction,
                 queries: queryContexts,
-              }),
-              route: provider.route,
-            };
+              });
+              switch (planning.kind) {
+                case "planned":
+                  return {
+                    kind: "planned",
+                    planning,
+                    route: provider.route,
+                  };
+                case "rejected":
+                  return {
+                    kind: "invalid_plan",
+                    promptDigest: planning.promptDigest,
+                    reason: planning.reason,
+                    route: provider.route,
+                  };
+                default: {
+                  const exhaustive: never = planning;
+                  return exhaustive;
+                }
+              }
+            }
           default: {
             const exhaustive: never = provider;
             return exhaustive;
@@ -314,6 +353,15 @@ export async function runAgentSession(
       taskId: command.task.taskId,
     };
   }
+  if (selection.kind === "invalid_plan") {
+    return {
+      kind: "invalid_plan",
+      provider: providerAttempt(selection.route, selection.promptDigest),
+      reason: selection.reason,
+      sessionId: command.sessionId,
+      taskId: command.task.taskId,
+    };
+  }
   const { planning, route } = selection;
 
   const action = actions.find(
@@ -321,19 +369,16 @@ export async function runAgentSession(
   );
   if (action === undefined) {
     return {
-      kind: "model_error",
-      reason: "provider_call_failed",
+      kind: "invalid_plan",
+      provider: providerAttempt(route, planning.promptDigest),
+      reason: "action_not_visible",
       sessionId: command.sessionId,
       taskId: command.task.taskId,
     };
   }
   const provider = {
-    configuredModelId: route.modelId,
-    modelCapability: route.capability,
-    promptDigest: planning.promptDigest,
+    ...providerAttempt(route, planning.promptDigest),
     providerCallId: planning.providerCallId,
-    providerKind: route.provider,
-    providerRouteId: route.id,
     responseModelId: planning.responseModelId,
   };
   const proposal = await journal.run("propose ordinary Action", () =>
@@ -413,6 +458,16 @@ export async function runAgentSession(
       return exhaustive;
     }
   }
+}
+
+function providerAttempt(route: ProviderRoute, promptDigest: string) {
+  return {
+    configuredModelId: route.modelId,
+    modelCapability: route.capability,
+    promptDigest,
+    providerKind: route.provider,
+    providerRouteId: route.id,
+  };
 }
 
 export const agentSessionSignatureHeader = "x-zoen-agent-signature";

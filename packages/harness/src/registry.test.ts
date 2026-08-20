@@ -213,6 +213,7 @@ class FixedPlanner implements ModelPlanner {
 
   async plan(): Promise<PlanningResult> {
     return {
+      kind: "planned",
       plan: actionPlanSchema.parse({
         action: "request-stock",
         inputs: [

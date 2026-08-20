@@ -254,6 +254,7 @@ function runtime(
 class FixedPlanner implements ModelPlanner {
   async plan(): Promise<PlanningResult> {
     return {
+      kind: "planned",
       plan: actionPlanSchema.parse({
         action: action.alias,
         inputs: [
@@ -273,6 +274,7 @@ class InventedActionPlanner implements ModelPlanner {
   async plan(): Promise<PlanningResult> {
     this.calls += 1;
     return {
+      kind: "planned",
       plan: actionPlanSchema.parse({
         action: "action-invented",
         inputs: [

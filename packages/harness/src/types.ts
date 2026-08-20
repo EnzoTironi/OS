@@ -243,12 +243,24 @@ export interface PlanningRequest {
   readonly queries: readonly QueryContext[];
 }
 
-export interface PlanningResult {
-  readonly plan: ActionPlan;
-  readonly promptDigest: string;
-  readonly providerCallId: string;
-  readonly responseModelId: string;
-}
+export type PlanningRejectionReason =
+  | "action_not_visible"
+  | "invalid_arguments"
+  | "invalid_tool_selection";
+
+export type PlanningResult =
+  | {
+      readonly kind: "planned";
+      readonly plan: ActionPlan;
+      readonly promptDigest: string;
+      readonly providerCallId: string;
+      readonly responseModelId: string;
+    }
+  | {
+      readonly kind: "rejected";
+      readonly promptDigest: string;
+      readonly reason: PlanningRejectionReason;
+    };
 
 export interface ModelPlanner {
   plan(request: PlanningRequest): Promise<PlanningResult>;
