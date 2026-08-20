@@ -204,12 +204,14 @@ run_scenario() {
 
 run_e2e() {
   resolve_scenario "$1"
+  rm -rf "${ZOEN_E2E_ARTIFACTS_DIR}"
   run_check
   run_build "$scenario"
   run_scenario
 }
 
 run_verify() {
+  rm -rf artifacts
   run_check
   run_build all
   local name
@@ -235,6 +237,7 @@ case "$command" in
     ;;
   run | e2e-run)
     resolve_scenario "${2:-}"
+    rm -rf "${ZOEN_E2E_ARTIFACTS_DIR}"
     run_scenario
     ;;
   e2e)
