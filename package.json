@@ -3,10 +3,11 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "apps/web",
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run build --workspace @zoen/web",
     "buf:breaking": "buf breaking --against .buf-baseline",
     "buf:generate": "buf generate",
     "buf:lint": "buf lint",

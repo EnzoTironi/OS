@@ -90,7 +90,11 @@ export function ActionFormView(props: {
       void interaction.commit(binding.id);
       return;
     }
-    if (operation.kind === "committing" || operation.kind === "recovering") {
+    if (
+      operation.kind === "committing" ||
+      operation.kind === "proposing" ||
+      operation.kind === "recovering"
+    ) {
       return;
     }
     void interaction.propose(binding.id);
@@ -295,7 +299,11 @@ function bindingLabel(bindingId: string): string {
 }
 
 function isBusy(operation: ActionOperationView): boolean {
-  return operation.kind === "committing" || operation.kind === "recovering";
+  return (
+    operation.kind === "committing" ||
+    operation.kind === "proposing" ||
+    operation.kind === "recovering"
+  );
 }
 
 function operationText(operation: ActionOperationView): string {
@@ -304,6 +312,8 @@ function operationText(operation: ActionOperationView): string {
       return "Ready for proposal.";
     case "proposed":
       return `Proposal ${operation.proposalId} is ready for commit.`;
+    case "proposing":
+      return `Proposing ${operation.operationId}.`;
     case "committing":
       return `Committing ${operation.operationId}.`;
     case "recovering":

@@ -221,7 +221,7 @@ export type ActionOperationView =
       readonly proposalId: string;
     }
   | {
-      readonly kind: "committing" | "recovering";
+      readonly kind: "committing" | "proposing" | "recovering";
       readonly operationId: string;
       readonly proposalId: string;
     }
