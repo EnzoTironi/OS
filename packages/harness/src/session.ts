@@ -1,5 +1,5 @@
 import * as restate from "@restatedev/restate-sdk";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { AgentRegistry } from "./registry.js";
 import {
@@ -7,6 +7,7 @@ import {
   type ActionPlan,
   type CapabilityAlias,
   type PlanningRejectionReason,
+  type PlanningRequest,
   type PlanningResult,
   type ProviderRoute,
   type QueryCapability,
@@ -18,6 +19,8 @@ import {
   sessionIdSchema,
   taskIdSchema,
   taskScopeSchema,
+  type CausalContext,
+  type KnowledgeContext,
 } from "./types.js";
 
 const identifier = z
@@ -29,6 +32,13 @@ const digest = z.string().regex(/^[0-9a-f]{64}$/);
 
 export const agentSessionCommandSchema = z
   .object({
+    context: z
+      .object({
+        explainOperationId: identifier,
+        knowledgeQuery: z.string().min(1).max(16_000),
+      })
+      .strict()
+      .optional(),
     expiresAt: z.iso.datetime(),
     operationId: identifier,
     proposalId: identifier,
@@ -57,7 +67,37 @@ const providerAttemptSchema = z
     providerRouteId: identifier,
   })
   .strict();
+const materialContextSchema = z
+  .object({
+    digest,
+    history: z
+      .object({
+        explanationDigest: digest,
+        operationId: identifier,
+      })
+      .strict()
+      .optional(),
+    knowledge: z
+      .object({
+        fragmentDigests: z.array(digest),
+        sourceDigests: z.array(digest),
+        traceId: digest,
+      })
+      .strict()
+      .optional(),
+    world: z.array(
+      z
+        .object({
+          alias: identifier,
+          definitionDigest: digest,
+          resultDigest: digest,
+        })
+        .strict(),
+    ),
+  })
+  .strict();
 const providerCorrelationSchema = providerAttemptSchema.extend({
+  context: materialContextSchema,
   providerCallId: z.string().min(1),
   responseModelId: z.string().min(1),
 });
@@ -87,6 +127,14 @@ export const agentSessionResultSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("capability_unavailable"),
       missing: z.array(identifier),
+      sessionId: sessionIdSchema,
+      taskId: taskIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("context_error"),
+      reason: z.literal("knowledge_or_history_unavailable"),
       sessionId: sessionIdSchema,
       taskId: taskIdSchema,
     })
@@ -238,8 +286,16 @@ export interface AgentAuthority {
   discover(
     scopes: readonly SemanticCapabilityScope[],
   ): Promise<AgentCapabilityDiscovery>;
+  explain(operationId: string): Promise<CausalContext>;
   propose(command: AgentProposalCommand): Promise<AgentProposalOutcome>;
   query(capability: QueryCapability): Promise<QueryContext>;
+}
+
+export interface AgentContextAssembler {
+  assemble(input: {
+    readonly knowledgeQuery: string;
+    readonly trustedContext: TrustedAgentContext;
+  }): Promise<KnowledgeContext>;
 }
 
 export interface SessionJournal {
@@ -248,6 +304,7 @@ export interface SessionJournal {
 
 export interface AgentSessionRuntime {
   readonly authority: AgentAuthority;
+  readonly contextAssembler?: AgentContextAssembler;
   readonly registry: AgentRegistry;
 }
 
@@ -292,6 +349,50 @@ export async function runAgentSession(
   const queryContexts = await journal.run("query scoped capabilities", () =>
     Promise.all(queries.map((query) => runtime.authority.query(query))),
   );
+  let planningRequest: PlanningRequest = {
+    actions,
+    instruction: command.task.instruction,
+    queries: queryContexts,
+  };
+  if (command.context !== undefined) {
+    const contextAssembler = runtime.contextAssembler;
+    const contextRequest = command.context;
+    if (contextAssembler === undefined) {
+      return {
+        kind: "context_error",
+        reason: "knowledge_or_history_unavailable",
+        sessionId: command.sessionId,
+        taskId: command.task.taskId,
+      };
+    }
+    try {
+      const [knowledge, history] = await journal.run(
+        "assemble attributable company context",
+        () =>
+          Promise.all([
+            contextAssembler.assemble({
+              knowledgeQuery: contextRequest.knowledgeQuery,
+              trustedContext: discovery.trustedContext,
+            }),
+            runtime.authority.explain(
+              contextRequest.explainOperationId,
+            ),
+          ]),
+      );
+      planningRequest = {
+        ...planningRequest,
+        history,
+        knowledge,
+      };
+    } catch {
+      return {
+        kind: "context_error",
+        reason: "knowledge_or_history_unavailable",
+        sessionId: command.sessionId,
+        taskId: command.task.taskId,
+      };
+    }
+  }
 
   let selection: PlanningSelection;
   try {
@@ -306,11 +407,7 @@ export async function runAgentSession(
             return { kind: "provider_unavailable" };
           case "available":
             {
-              const planning = await provider.planner.plan({
-                actions,
-                instruction: command.task.instruction,
-                queries: queryContexts,
-              });
+              const planning = await provider.planner.plan(planningRequest);
               switch (planning.kind) {
                 case "planned":
                   return {
@@ -378,6 +475,7 @@ export async function runAgentSession(
   }
   const provider = {
     ...providerAttempt(route, planning.promptDigest),
+    context: materialContext(planningRequest),
     providerCallId: planning.providerCallId,
     responseModelId: planning.responseModelId,
   };
@@ -542,6 +640,7 @@ function validSessionSignature(
 function serializedSessionCommand(command: AgentSessionCommand): string {
   return JSON.stringify({
     expiresAt: command.expiresAt,
+    context: command.context,
     operationId: command.operationId,
     proposalId: command.proposalId,
     sessionId: command.sessionId,
@@ -550,5 +649,42 @@ function serializedSessionCommand(command: AgentSessionCommand): string {
       modelCapability: command.task.modelCapability,
       taskId: command.task.taskId,
     },
+  });
+}
+
+function materialContext(request: PlanningRequest) {
+  const material = {
+    history:
+      request.history === undefined
+        ? undefined
+        : {
+            explanationDigest: request.history.explanationDigest,
+            operationId: request.history.operationId,
+          },
+    knowledge:
+      request.knowledge === undefined
+        ? undefined
+        : {
+            fragmentDigests: request.knowledge.results.map(
+              (result) => result.fragmentDigest,
+            ),
+            sourceDigests: [
+              ...new Set(
+                request.knowledge.results.map((result) => result.sourceDigest),
+              ),
+            ].sort(),
+            traceId: request.knowledge.traceId,
+          },
+    world: request.queries.map((query) => ({
+      alias: query.alias,
+      definitionDigest: query.definition.digest,
+      resultDigest: query.resultDigest,
+    })),
+  };
+  return materialContextSchema.parse({
+    ...material,
+    digest: createHash("sha256")
+      .update(JSON.stringify(material))
+      .digest("hex"),
   });
 }

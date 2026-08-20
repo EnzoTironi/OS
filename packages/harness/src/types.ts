@@ -205,6 +205,26 @@ export const providerRouteSchema = z
   .strict();
 export type ProviderRoute = z.infer<typeof providerRouteSchema>;
 
+export const embeddingProviderRouteSchema = z
+  .object({
+    capability: modelCapabilityAliasSchema,
+    dimensions: z.number().int().positive(),
+    id: providerRouteIdSchema,
+    kind: z.literal("local-embedding"),
+    modelId: z.string().min(1),
+    modelRevision: z.string().regex(/^[0-9a-f]{40}$/),
+    versionDigest: digest,
+  })
+  .strict();
+export type EmbeddingProviderRoute = z.infer<
+  typeof embeddingProviderRouteSchema
+>;
+
+export interface EmbeddingProvider {
+  readonly route: EmbeddingProviderRoute;
+  embed(texts: readonly string[]): Promise<readonly (readonly number[])[]>;
+}
+
 export const taskScopeSchema = z
   .object({
     instruction: z.string().min(1).max(16_000),
@@ -232,14 +252,55 @@ export const trustedAgentContextSchema = z
 export type TrustedAgentContext = z.infer<typeof trustedAgentContextSchema>;
 
 export interface QueryContext {
+  readonly actualCommitSequence: string;
   readonly alias: CapabilityAlias;
+  readonly definition: DefinitionReferenceConfig;
+  readonly entityId: string;
+  readonly knowledgeCut: string;
   readonly resultDigest: string;
+  readonly selection: QueryCapability["selection"];
+  readonly validAt: string;
   readonly values: readonly SemanticValue[];
+}
+
+export interface KnowledgeContextResult {
+  readonly fragmentDigest: string;
+  readonly fragmentId: string;
+  readonly indexVersion: string;
+  readonly lexicalRank: number | null;
+  readonly lexicalScore: number | null;
+  readonly sourceDigest: string;
+  readonly sourceId: string;
+  readonly sourceRevision: string;
+  readonly text: string;
+  readonly vectorRank: number | null;
+  readonly vectorScore: number | null;
+}
+
+export interface KnowledgeContext {
+  readonly embeddingModel: {
+    readonly modelId: string;
+    readonly modelRevision: string;
+    readonly versionDigest: string;
+  };
+  readonly queryDigest: string;
+  readonly results: readonly KnowledgeContextResult[];
+  readonly traceId: string;
+}
+
+export interface CausalContext {
+  readonly actionId: string;
+  readonly commitSequence: string;
+  readonly complete: boolean;
+  readonly explanationDigest: string;
+  readonly operationId: string;
 }
 
 export interface PlanningRequest {
   readonly actions: readonly ActionCapability[];
+  readonly history?: CausalContext;
   readonly instruction: string;
+  readonly knowledge?: KnowledgeContext;
   readonly queries: readonly QueryContext[];
 }
 

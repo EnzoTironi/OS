@@ -30,6 +30,10 @@ import {
   WorldService,
 } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import { DefinitionService } from "../../sdk/src/gen/zoen/definition/v1/definition_pb.js";
+import {
+  CausalExplanationSchema,
+  HistoryService,
+} from "../../sdk/src/gen/zoen/history/v1/history_pb.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -45,6 +49,7 @@ import {
 } from "./session.js";
 import {
   type ActionCapability,
+  type CausalContext,
   type CapabilityAlias,
   type DefinitionReferenceConfig,
   type ExactInput,
@@ -112,6 +117,7 @@ export async function connectZoenAgent(
   const transport = connectTransport(options);
   const actionClient = createClient(ActionService, transport);
   const definitionClient = createClient(DefinitionService, transport);
+  const historyClient = createClient(HistoryService, transport);
   const worldClient = createClient(WorldService, transport);
   const initial = await discoverCapabilities(
     actionClient,
@@ -122,6 +128,7 @@ export async function connectZoenAgent(
     authority: new ZoenConnectAuthority(
       actionClient,
       definitionClient,
+      historyClient,
       worldClient,
       initial.trustedContext,
     ),
@@ -132,17 +139,20 @@ export async function connectZoenAgent(
 class ZoenConnectAuthority implements AgentAuthority {
   readonly #actionClient: Client<typeof ActionService>;
   readonly #definitionClient: Client<typeof DefinitionService>;
+  readonly #historyClient: Client<typeof HistoryService>;
   readonly #trustedContext: TrustedAgentContext;
   readonly #worldClient: Client<typeof WorldService>;
 
   constructor(
     actionClient: Client<typeof ActionService>,
     definitionClient: Client<typeof DefinitionService>,
+    historyClient: Client<typeof HistoryService>,
     worldClient: Client<typeof WorldService>,
     trustedContext: TrustedAgentContext,
   ) {
     this.#actionClient = actionClient;
     this.#definitionClient = definitionClient;
+    this.#historyClient = historyClient;
     this.#trustedContext = trustedContext;
     this.#worldClient = worldClient;
   }
@@ -175,9 +185,50 @@ class ZoenConnectAuthority implements AgentAuthority {
     const json = toJson(SemanticQueryResponseSchema, response);
     const encoded = JSON.stringify(json);
     return {
+      actualCommitSequence: response.actualCommitSequence.toString(),
       alias: capability.alias,
+      definition: capability.definition,
+      entityId: capability.entityId,
+      knowledgeCut: response.knowledgeCut.toString(),
       resultDigest: sha256(encoded),
+      selection: capability.selection,
+      validAt: capability.validAt,
       values: response.values.map((value) => semanticValue(value.value)),
+    };
+  }
+
+  async explain(operationId: string): Promise<CausalContext> {
+    const response = await this.#historyClient.explain({
+      target: {
+        target: {
+          case: "operationId",
+          value: operationId,
+        },
+      },
+    });
+    const explanation = response.explanation;
+    if (explanation === undefined || explanation.subject.case !== "action") {
+      throw new Error("HistoryService returned no Action explanation");
+    }
+    const action = explanation.subject.value;
+    const actionId = action.proposal?.structure?.actionId;
+    const commitSequence = action.commit?.receipt?.commitSequence;
+    if (
+      actionId === undefined ||
+      actionId.length === 0 ||
+      commitSequence === undefined ||
+      commitSequence === 0n
+    ) {
+      throw new Error("Action explanation lacks committed Action identity");
+    }
+    return {
+      actionId,
+      commitSequence: commitSequence.toString(),
+      complete: explanation.complete,
+      explanationDigest: sha256(
+        JSON.stringify(toJson(CausalExplanationSchema, explanation)),
+      ),
+      operationId,
     };
   }
 

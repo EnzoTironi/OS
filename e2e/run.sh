@@ -9,6 +9,7 @@ set -euo pipefail
 
 scenario_table=(
   "agent-capabilities-live:agent-capabilities-live:"
+  "company-brain-live:company-brain-live:"
   "definition-publication::"
   "domain-quality:domain-quality:"
   "durable-commit:governed-action:failpoints"

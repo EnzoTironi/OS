@@ -338,9 +338,25 @@ class FixedAuthority implements AgentAuthority {
 
   async query(): Promise<QueryContext> {
     return {
+      actualCommitSequence: "1",
       alias: query.alias,
+      definition,
+      entityId: query.entityId,
+      knowledgeCut: "1",
       resultDigest: "e".repeat(64),
+      selection: query.selection,
+      validAt: query.validAt,
       values: [{ kind: "integer", value: "10" }],
+    };
+  }
+
+  async explain(operationId: string) {
+    return {
+      actionId: action.actionId,
+      commitSequence: "1",
+      complete: true,
+      explanationDigest: "f".repeat(64),
+      operationId,
     };
   }
 

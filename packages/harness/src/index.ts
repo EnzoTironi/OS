@@ -1,3 +1,7 @@
+export * from "./context.js";
+export * from "./embeddings.js";
+export * from "./ingestion.js";
+export * from "./knowledge.js";
 export * from "./providers.js";
 export * from "./registry.js";
 export * from "./session.js";
