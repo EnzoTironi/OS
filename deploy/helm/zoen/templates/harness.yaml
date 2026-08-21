@@ -71,6 +71,8 @@ spec:
               value: "8081"
             - name: ZOEN_HARNESS_DEFINITION_DIGEST
               value: {{ required "definitionDigest is required" $.Values.definitionDigest | quote }}
+            - name: ZOEN_HARNESS_DEFINITION_ID
+              value: {{ $.Values.web.definitionId | quote }}
             - name: ZOEN_HARNESS_SERVICE_SUFFIX
               value: {{ $tenant.suffix | quote }}
             - name: ZOEN_HARNESS_TOKEN_ENDPOINT
