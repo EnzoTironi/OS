@@ -1,0 +1,14 @@
+{
+  "name": "@zoen/accounting-foundation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zoen/commercial": "1.0.0",
+    "@zoen/manufacturing": "1.0.0",
+    "@zoen/party": "1.0.0"
+  },
+  "exports": {
+    ".": "./src/accounting-foundation.zoen.ts"
+  }
+}

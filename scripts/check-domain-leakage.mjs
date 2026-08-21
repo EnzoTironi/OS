@@ -10,9 +10,9 @@ const genericRoots = [
   "apps/zoend/src",
 ];
 const knownDomainLiteral =
-  /"(?:[^"\\]|\\.)*(?:commercial|party|procurement|product|quality|inventory|erp|human[-_.]?factors|hf)[._:-](?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*(?:commercial|party|procurement|product|quality|inventory|erp|human[-_.]?factors|hf)[._:-](?:[^'\\]|\\.)*'/giu;
+  /"(?:[^"\\]|\\.)*(?:accounting(?:[-_.]?foundation)?|commercial|party|procurement|product|quality|inventory|manufacturing|erp|human[-_.]?factors|hf)[._:-](?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*(?:accounting(?:[-_.]?foundation)?|commercial|party|procurement|product|quality|inventory|manufacturing|erp|human[-_.]?factors|hf)[._:-](?:[^'\\]|\\.)*'/giu;
 const knownActionLiteral =
-  /"(?:action\.(?:purchase|return|reserve[-_.]?inventory|release[-_.]?lot|quarantine[-_.]?lot|replenish)|(?:commercial|party|procurement|product|quality|inventory|erp|hf)\.[a-z0-9._-]+)"|'(?:action\.(?:purchase|return|reserve[-_.]?inventory|release[-_.]?lot|quarantine[-_.]?lot|replenish)|(?:commercial|party|procurement|product|quality|inventory|erp|hf)\.[a-z0-9._-]+)'/giu;
+  /"(?:action\.(?:complete[-_.]?work|post[-_.]?receivable|settle[-_.]?claim|purchase|return|reserve[-_.]?inventory|release[-_.]?lot|quarantine[-_.]?lot|replenish)|(?:accounting|commercial|party|procurement|product|quality|inventory|manufacturing|erp|hf)\.[a-z0-9._-]+)"|'(?:action\.(?:complete[-_.]?work|post[-_.]?receivable|settle[-_.]?claim|purchase|return|reserve[-_.]?inventory|release[-_.]?lot|quarantine[-_.]?lot|replenish)|(?:accounting|commercial|party|procurement|product|quality|inventory|manufacturing|erp|hf)\.[a-z0-9._-]+)'/giu;
 
 const requestedPaths = process.argv.slice(2);
 const roots = requestedPaths.length === 0 ? genericRoots : requestedPaths;

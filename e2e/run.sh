@@ -13,6 +13,7 @@ scenario_table=(
   "definition-publication::"
   "domain-commercial:domain-commercial:"
   "domain-inventory-procurement:domain-inventory-procurement:"
+  "domain-manufacturing-accounting:domain-manufacturing-accounting:"
   "domain-quality:domain-quality:"
   "durable-commit:governed-action:failpoints"
   "effects:governed-action:"
