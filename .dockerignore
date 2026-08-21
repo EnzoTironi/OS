@@ -1,0 +1,12 @@
+.git
+.audit
+.cache
+artifacts
+dist
+node_modules
+target
+apps/web/.nitro
+apps/web/.output
+apps/web/dist
+e2e/**/.generated
+*.log

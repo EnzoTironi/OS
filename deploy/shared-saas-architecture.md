@@ -39,7 +39,3 @@ An application-only chart plus separate test manifests would split the productio
 ## Risks
 
 The run depends on Docker registry, kind, Helm, and cosign startup in one process. The lifecycle script owns cleanup and records each artifact digest before Helm installation.
-
-## Next implementation step
-
-Add tenant-scoped projection and Restate session keys before the chart starts using those paths.

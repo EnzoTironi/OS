@@ -1,0 +1,12 @@
+profile: shared-saas
+
+zoend:
+  replicas: 2
+
+tenants:
+  - id: tenant.a
+    suffix: A
+    clientId: harness-a
+  - id: tenant.b
+    suffix: B
+    clientId: harness-b

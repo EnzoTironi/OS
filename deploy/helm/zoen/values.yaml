@@ -1,0 +1,46 @@
+profile: shared-saas
+definitionDigest: ""
+
+global:
+  keycloakClusterIp: 10.96.0.90
+  publicOidcIssuer: http://keycloak.127.0.0.1.nip.io:32090/realms/zoen
+
+images:
+  rust:
+    repository: zoen-rust
+    digest: ""
+  node:
+    repository: zoen-node
+    digest: ""
+  postgres: pgvector/pgvector:pg18
+  keycloak: quay.io/keycloak/keycloak:26.0.7
+  minio: minio/minio:RELEASE.2025-07-23T15-54-02Z
+  minioClient: minio/mc:RELEASE.2025-07-21T05-28-08Z
+  restate: docker.restate.dev/restatedev/restate:1.7.2
+
+zoend:
+  replicas: 2
+  nodePort: 32081
+
+postgres:
+  nodePort: 32085
+
+keycloak:
+  nodePort: 32090
+  realmJson: ""
+
+minio:
+  nodePort: 32086
+
+restate:
+  ingressNodePort: 32082
+  adminNodePort: 32092
+
+harness:
+  tenantA:
+    nodePort: 32083
+  tenantB:
+    nodePort: 32084
+
+web:
+  nodePort: 32080
