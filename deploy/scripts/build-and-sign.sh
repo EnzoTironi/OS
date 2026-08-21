@@ -2,8 +2,10 @@
 set -euo pipefail
 
 registry="${1:?registry host is required}"
-cosign_key="${2:?cosign private key path is required}"
+cosign_key_prefix="${2:?cosign key prefix is required}"
 output="${3:?output path is required}"
+cosign_private_key="${cosign_key_prefix}.key"
+cosign_public_key="${cosign_key_prefix}.pub"
 source_sha="$(git rev-parse HEAD)"
 tag="${source_sha:0:12}"
 rust_image="${registry}/zoen/rust:${tag}"
@@ -36,13 +38,13 @@ cosign sign \
   --yes \
   --allow-insecure-registry \
   --signing-config "${signing_config}" \
-  --key "${cosign_key}" \
+  --key "${cosign_private_key}" \
   "${rust_ref}"
 cosign sign \
   --yes \
   --allow-insecure-registry \
   --signing-config "${signing_config}" \
-  --key "${cosign_key}" \
+  --key "${cosign_private_key}" \
   "${node_ref}"
 
 helm package deploy/helm/zoen --destination "${output_directory}"
@@ -61,23 +63,23 @@ cosign sign \
   --yes \
   --allow-insecure-registry \
   --signing-config "${signing_config}" \
-  --key "${cosign_key}" \
+  --key "${cosign_private_key}" \
   "${chart_ref}"
 
 cosign verify \
   --allow-insecure-registry \
   --insecure-ignore-tlog \
-  --key "${cosign_key}.pub" \
+  --key "${cosign_public_key}" \
   "${rust_ref}" >/dev/null
 cosign verify \
   --allow-insecure-registry \
   --insecure-ignore-tlog \
-  --key "${cosign_key}.pub" \
+  --key "${cosign_public_key}" \
   "${node_ref}" >/dev/null
 cosign verify \
   --allow-insecure-registry \
   --insecure-ignore-tlog \
-  --key "${cosign_key}.pub" \
+  --key "${cosign_public_key}" \
   "${chart_ref}" >/dev/null
 
 rust_digest="${rust_ref##*@}"
