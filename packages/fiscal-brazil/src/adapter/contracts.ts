@@ -188,7 +188,7 @@ export type ProviderStatusResult =
         readonly evidenceDigest: string;
         readonly idempotencyKey: string;
         readonly observedAtMicros: string;
-        readonly outcome: "effect" | "no_effect" | "pending";
+        readonly outcome: "confirmed" | "no_effect" | "pending";
         readonly providerOperationId: string;
         readonly sourceRef: string;
       };

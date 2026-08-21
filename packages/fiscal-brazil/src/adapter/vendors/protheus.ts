@@ -195,12 +195,12 @@ function dispatchOutcome(
 
 function observedOutcome(
   status: ProtheusStatus,
-): "effect" | "no_effect" | "pending" {
+): "confirmed" | "no_effect" | "pending" {
   switch (status) {
     case "AUTHORIZED":
     case "CANCELLED":
     case "CORRECTED":
-      return "effect";
+      return "confirmed";
     case "PENDING":
       return "pending";
     case "REJECTED":

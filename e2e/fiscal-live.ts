@@ -85,7 +85,7 @@ const statusSchema = z.object({
   evidenceDigest: z.string().regex(/^[a-f0-9]{64}$/u),
   idempotencyKey: z.string().min(1),
   observedAtMicros: z.string().regex(/^[0-9]+$/u),
-  outcome: z.enum(["effect", "no_effect", "pending"]),
+  outcome: z.enum(["confirmed", "no_effect", "pending"]),
   providerOperationId: z.string().min(1),
   sourceRef: z.string().min(1),
 });
@@ -238,7 +238,7 @@ export async function runFiscalLive(provider: LiveProvider): Promise<void> {
             new Date(Number(BigInt(observed.observedAtMicros) / 1_000n)),
           ),
           outcome:
-            observed.outcome === "effect"
+            observed.outcome === "confirmed"
               ? EffectEvidenceOutcome.CONFIRMED
               : EffectEvidenceOutcome.NO_EFFECT,
           providerOperationId: observed.providerOperationId,

@@ -314,11 +314,11 @@ function statusPath(
 
 function observedOutcome(
   status: PlugNotasStatus,
-): "effect" | "no_effect" | "pending" {
+): "confirmed" | "no_effect" | "pending" {
   switch (status) {
     case "CANCELADO":
     case "CONCLUIDO":
-      return "effect";
+      return "confirmed";
     case "REJEITADO":
       return "no_effect";
     case "AGENDADO":

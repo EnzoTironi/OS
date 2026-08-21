@@ -134,10 +134,10 @@ export class SystaxAdapter implements VendorAdapter {
     if (!parsed.success) {
       return providerError(502, "tax determination status schema changed");
     }
-    let outcome: "effect" | "no_effect" | "pending";
+    let outcome: "confirmed" | "no_effect" | "pending";
     switch (parsed.data.situacao) {
       case "CONCLUIDO":
-        outcome = "effect";
+        outcome = "confirmed";
         break;
       case "ERRO":
       case "INVALIDO":
