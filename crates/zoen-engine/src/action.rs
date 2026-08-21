@@ -6,14 +6,14 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
-    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, CommitSequence,
-    ComponentExecutionEvidence, Consistency, DefinitionReference, DefinitionRevision,
-    EffectRequestId, EntityId, EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue,
-    ExecutionContext, IntentDigest, LineageRole, OperationId, PolicyEvaluation, PolicyEvidence,
-    PreconditionEvaluation, ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery,
-    SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
-    StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime, ValueType,
-    evaluate_expression, expression_relations,
+    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, ComponentExecutionEvidence,
+    Consistency, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
+    EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
+    LineageRole, OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation,
+    ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult,
+    SemanticSelection, SemanticValue, StateBasis, StateBasisDigest, StateDependency,
+    TimestampMicros, TrustedExecutionContext, ValidTime, ValueType, evaluate_expression,
+    expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
@@ -318,7 +318,6 @@ where
         let precondition = self
             .evaluate_precondition(
                 context,
-                &command.definition,
                 &command.resource_id,
                 &loaded,
                 &command.inputs,
@@ -583,11 +582,10 @@ where
         let snapshot = self
             .load_relation_snapshot(
                 context,
-                &proposal.definition,
+                &loaded,
                 &proposal.resource_id,
                 relation_ids,
                 proposal.valid_at,
-                loaded.revision.commit_sequence,
                 "Action effect relations used different authority cuts",
             )
             .await?;
@@ -673,7 +671,6 @@ where
     async fn evaluate_precondition(
         &self,
         context: &TrustedExecutionContext,
-        definition: &DefinitionReference,
         resource_id: &ResourceId,
         loaded: &LoadedAction,
         inputs: &[ActionInput],
@@ -682,11 +679,10 @@ where
         let snapshot = self
             .load_relation_snapshot(
                 context,
-                definition,
+                loaded,
                 resource_id,
                 expression_relations(&loaded.action.precondition),
                 valid_at,
-                loaded.revision.commit_sequence,
                 "Action precondition relations used different authority cuts",
             )
             .await?;
@@ -696,11 +692,10 @@ where
     async fn load_relation_snapshot(
         &self,
         context: &TrustedExecutionContext,
-        definition: &DefinitionReference,
+        loaded: &LoadedAction,
         resource_id: &ResourceId,
         relations: BTreeSet<RelationId>,
         valid_at: TimestampMicros,
-        fallback_commit_sequence: CommitSequence,
         authority_cut_error: &'static str,
     ) -> Result<ActionStateSnapshot, ActionError> {
         let entity_id = EntityId::parse(resource_id.as_str())
@@ -718,7 +713,11 @@ where
                     context,
                     &SemanticQuery {
                         consistency,
-                        definition: definition.clone(),
+                        definition: DefinitionReference {
+                            definition_id: loaded.revision.definition_id.clone(),
+                            digest: loaded.revision.digest.clone(),
+                            revision: loaded.revision.revision,
+                        },
                         entity_id: entity_id.clone(),
                         selection: SemanticSelection::Relation(relation_id.clone()),
                         valid_at,
@@ -733,7 +732,7 @@ where
             values.insert(relation_id, result.values);
         }
         Ok(ActionStateSnapshot {
-            observed_commit_sequence: observed.unwrap_or(fallback_commit_sequence),
+            observed_commit_sequence: observed.unwrap_or(loaded.revision.commit_sequence),
             relations: values,
         })
     }
