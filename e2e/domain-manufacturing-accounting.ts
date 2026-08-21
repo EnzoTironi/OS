@@ -588,18 +588,18 @@ async function main(): Promise<void> {
       "startUsesOrdinaryCedarAuthorityAndPinsBomRevision",
       started.receipt.policy?.revision?.policyId ===
         "policy.manufacturing.startWork.r1" &&
-        [
-          "manufacturing.materialAvailableQuantity",
-          "manufacturing.consumedInputQuantity",
-        ].every((relationId) =>
-          started.proposal.stateBasis?.dependencies.some(
-            (dependency) => dependency.relationId === relationId,
-          ),
-        ) &&
+        started.proposal.stateBasis?.dependencies.some(
+          (dependency) =>
+            dependency.relationId ===
+            "manufacturing.materialAvailableQuantity",
+        ) === true &&
         started.proposal.stateBasis?.dependencies.every(
           (dependency) =>
+            dependency.relationId !==
+              "manufacturing.consumedInputQuantity" &&
             dependency.relationId !== "manufacturing.currentBomRevision" &&
-            dependency.relationId !== "manufacturing.plannedOutputQuantity",
+            dependency.relationId !== "manufacturing.plannedOutputQuantity" &&
+            dependency.relationId !== "manufacturing.producedOutputQuantity",
         ) === true,
     );
 
