@@ -126,6 +126,7 @@ export interface DomainFixture extends Omit<InventoryDomainFixture, "packageName
 
 export interface PolicySet {
   readonly accounting: PolicySource;
+  readonly accountingGovernance: PolicySource;
   readonly activation: PolicySource;
   readonly domain: PolicySource;
   readonly execution: PolicySource;
@@ -328,9 +329,28 @@ function actionPolicy(
         ? policySet.execution
         : policySet.manufacturing;
     case "accounting-foundation":
-      return actionId === "accounting.applySettlement"
-        ? policySet.settlement
-        : policySet.accounting;
+      if (actionId === "accounting.applySettlement") {
+        return policySet.settlement;
+      }
+      if (
+        ["accounting.postPayable", "accounting.postReceivable"].includes(
+          actionId,
+        )
+      ) {
+        return policySet.accounting;
+      }
+      if (
+        [
+          "accounting.correctPosting",
+          "accounting.recordAccountIdentity",
+          "accounting.recordBookIdentity",
+          "accounting.recordLedgerIdentity",
+          "accounting.reversePosting",
+        ].includes(actionId)
+      ) {
+        return policySet.accountingGovernance;
+      }
+      throw new Error(`missing policy mapping for ${actionId}`);
     default: {
       const exhaustive: never = packageName;
       return exhaustive;

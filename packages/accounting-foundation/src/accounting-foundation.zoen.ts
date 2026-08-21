@@ -338,6 +338,100 @@ const postingDifference = defineComputation({
   returns: { kind: "decimal" },
 });
 
+const recordBookIdentity = defineAction({
+  effects: [
+    {
+      relationId: "accounting.bookCode",
+      value: { inputId: "code", kind: "input" },
+    },
+    {
+      relationId: "accounting.functionalCurrency",
+      value: { inputId: "currency", kind: "input" },
+    },
+    {
+      relationId: "accounting.historicalBookMeaning",
+      value: { inputId: "meaning", kind: "input" },
+    },
+  ],
+  id: "accounting.recordBookIdentity",
+  inputs: [
+    { id: "code", valueType: { kind: "text" } },
+    { id: "currency", valueType: { kind: "text" } },
+    { id: "meaning", valueType: { kind: "text" } },
+    { id: "revision", valueType: { kind: "integer" } },
+  ],
+  precondition: {
+    kind: "binary",
+    left: { inputId: "revision", kind: "input" },
+    operator: "greater_than",
+    right: {
+      kind: "literal",
+      value: { kind: "integer", value: "0" },
+    },
+  },
+});
+
+const recordLedgerIdentity = defineAction({
+  effects: [
+    {
+      relationId: "accounting.ledgerBookReference",
+      value: { inputId: "bookReference", kind: "input" },
+    },
+    {
+      relationId: "accounting.ledgerCode",
+      value: { inputId: "code", kind: "input" },
+    },
+  ],
+  id: "accounting.recordLedgerIdentity",
+  inputs: [
+    { id: "bookReference", valueType: { kind: "text" } },
+    { id: "code", valueType: { kind: "text" } },
+    { id: "revision", valueType: { kind: "integer" } },
+  ],
+  precondition: {
+    kind: "binary",
+    left: { inputId: "revision", kind: "input" },
+    operator: "greater_than",
+    right: {
+      kind: "literal",
+      value: { kind: "integer", value: "0" },
+    },
+  },
+});
+
+const recordAccountIdentity = defineAction({
+  effects: [
+    {
+      relationId: "accounting.accountClassification",
+      value: { inputId: "classification", kind: "input" },
+    },
+    {
+      relationId: "accounting.accountCode",
+      value: { inputId: "code", kind: "input" },
+    },
+    {
+      relationId: "accounting.accountName",
+      value: { inputId: "name", kind: "input" },
+    },
+  ],
+  id: "accounting.recordAccountIdentity",
+  inputs: [
+    { id: "classification", valueType: { kind: "text" } },
+    { id: "code", valueType: { kind: "text" } },
+    { id: "name", valueType: { kind: "text" } },
+    { id: "revision", valueType: { kind: "integer" } },
+  ],
+  precondition: {
+    kind: "binary",
+    left: { inputId: "revision", kind: "input" },
+    operator: "greater_than",
+    right: {
+      kind: "literal",
+      value: { kind: "integer", value: "0" },
+    },
+  },
+});
+
 const postReceivable = defineAction({
   effects: [
     {
@@ -637,7 +731,10 @@ const reversePosting = defineAction({
     },
     {
       relationId: "accounting.creditAmount",
-      value: { inputId: "creditAmount", kind: "input" },
+      value: {
+        kind: "relation",
+        relationId: "accounting.originalAmount",
+      },
     },
     {
       relationId: "accounting.debitAccountReference",
@@ -645,7 +742,10 @@ const reversePosting = defineAction({
     },
     {
       relationId: "accounting.debitAmount",
-      value: { inputId: "debitAmount", kind: "input" },
+      value: {
+        kind: "relation",
+        relationId: "accounting.originalAmount",
+      },
     },
     {
       relationId: "accounting.eventDate",
@@ -664,7 +764,10 @@ const reversePosting = defineAction({
           relationId: "accounting.postedCreditTotal",
         },
         operator: "add",
-        right: { inputId: "creditAmount", kind: "input" },
+        right: {
+          kind: "relation",
+          relationId: "accounting.originalAmount",
+        },
       },
     },
     {
@@ -676,7 +779,10 @@ const reversePosting = defineAction({
           relationId: "accounting.postedDebitTotal",
         },
         operator: "add",
-        right: { inputId: "debitAmount", kind: "input" },
+        right: {
+          kind: "relation",
+          relationId: "accounting.originalAmount",
+        },
       },
     },
     {
@@ -695,10 +801,7 @@ const reversePosting = defineAction({
   id: "accounting.reversePosting",
   inputs: [
     { id: "creditAccountReference", valueType: { kind: "text" } },
-    { id: "creditAmount", valueType: { kind: "decimal" } },
-    { id: "currency", valueType: { kind: "text" } },
     { id: "debitAccountReference", valueType: { kind: "text" } },
-    { id: "debitAmount", valueType: { kind: "decimal" } },
     { id: "eventDate", valueType: { kind: "text" } },
     { id: "originatingOperationReference", valueType: { kind: "text" } },
     { id: "postingDate", valueType: { kind: "text" } },
@@ -710,23 +813,21 @@ const reversePosting = defineAction({
     left: {
       kind: "binary",
       left: {
-        kind: "binary",
-        left: {
-          kind: "relation",
-          relationId: "accounting.postedDebitTotal",
-        },
-        operator: "add",
-        right: { inputId: "debitAmount", kind: "input" },
+        kind: "relation",
+        relationId: "accounting.originalAmount",
       },
       operator: "add",
       right: {
         kind: "binary",
         left: {
           kind: "relation",
-          relationId: "accounting.postedCreditTotal",
+          relationId: "accounting.postedDebitTotal",
         },
         operator: "add",
-        right: { inputId: "creditAmount", kind: "input" },
+        right: {
+          kind: "relation",
+          relationId: "accounting.postedCreditTotal",
+        },
       },
     },
     operator: "greater_than",
@@ -765,7 +866,10 @@ const correctPosting = defineAction({
     },
     {
       relationId: "accounting.creditAmount",
-      value: { inputId: "creditAmount", kind: "input" },
+      value: {
+        kind: "relation",
+        relationId: "accounting.originalAmount",
+      },
     },
     {
       relationId: "accounting.debitAccountReference",
@@ -773,7 +877,10 @@ const correctPosting = defineAction({
     },
     {
       relationId: "accounting.debitAmount",
-      value: { inputId: "debitAmount", kind: "input" },
+      value: {
+        kind: "relation",
+        relationId: "accounting.originalAmount",
+      },
     },
     {
       relationId: "accounting.originatingOperationReference",
@@ -788,7 +895,10 @@ const correctPosting = defineAction({
           relationId: "accounting.postedCreditTotal",
         },
         operator: "add",
-        right: { inputId: "creditAmount", kind: "input" },
+        right: {
+          kind: "relation",
+          relationId: "accounting.originalAmount",
+        },
       },
     },
     {
@@ -800,7 +910,10 @@ const correctPosting = defineAction({
           relationId: "accounting.postedDebitTotal",
         },
         operator: "add",
-        right: { inputId: "debitAmount", kind: "input" },
+        right: {
+          kind: "relation",
+          relationId: "accounting.originalAmount",
+        },
       },
     },
     {
@@ -812,10 +925,7 @@ const correctPosting = defineAction({
   inputs: [
     { id: "correctionOf", valueType: { kind: "text" } },
     { id: "creditAccountReference", valueType: { kind: "text" } },
-    { id: "creditAmount", valueType: { kind: "decimal" } },
-    { id: "currency", valueType: { kind: "text" } },
     { id: "debitAccountReference", valueType: { kind: "text" } },
-    { id: "debitAmount", valueType: { kind: "decimal" } },
     { id: "originatingOperationReference", valueType: { kind: "text" } },
     { id: "postingDate", valueType: { kind: "text" } },
     { id: "postingReference", valueType: { kind: "text" } },
@@ -826,23 +936,21 @@ const correctPosting = defineAction({
     left: {
       kind: "binary",
       left: {
-        kind: "binary",
-        left: {
-          kind: "relation",
-          relationId: "accounting.postedDebitTotal",
-        },
-        operator: "add",
-        right: { inputId: "debitAmount", kind: "input" },
+        kind: "relation",
+        relationId: "accounting.originalAmount",
       },
       operator: "add",
       right: {
         kind: "binary",
         left: {
           kind: "relation",
-          relationId: "accounting.postedCreditTotal",
+          relationId: "accounting.postedDebitTotal",
         },
         operator: "add",
-        right: { inputId: "creditAmount", kind: "input" },
+        right: {
+          kind: "relation",
+          relationId: "accounting.postedCreditTotal",
+        },
       },
     },
     operator: "greater_than",
@@ -867,6 +975,9 @@ export default defineBundle({
     correctPosting,
     postPayable,
     postReceivable,
+    recordAccountIdentity,
+    recordBookIdentity,
+    recordLedgerIdentity,
     reversePosting,
   ],
   computations: [postingDifference, remainingClaim],

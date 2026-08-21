@@ -77,7 +77,7 @@ const finishedProductId = "product.item.finished-widget";
 const orderLineId = "commercial.order-line.3001";
 const inputPositionId = "inventory.position.component.wh-1";
 const outputPositionId = "inventory.position.finished.wh-1";
-const bomId = "manufacturing.bom.widget.v1";
+const bomId = "manufacturing.bom.widget";
 const workId = "manufacturing.work.3001";
 const claimId = "accounting.claim.receivable.3001";
 const bookId = "accounting.book.primary";
@@ -165,9 +165,7 @@ async function main(): Promise<void> {
     "definitionsPreserveBomPlanWorkOccurrenceAndAccountingHistory",
     [
       "manufacturing.BillOfMaterial",
-      "manufacturing.WorkRequirement",
       "manufacturing.Work",
-      "manufacturing.WorkOccurrence",
       "manufacturing.bomVersion",
       "manufacturing.bomEffectiveFrom",
       "manufacturing.requirementReference",
@@ -229,27 +227,25 @@ async function main(): Promise<void> {
     'relationId: "accounting.originalAmount",\n      value: { kind: "literal", value: { kind: "decimal", value: "199.899999999" } }',
   );
   observe(
-    "floatingAmountAndUnbalancedPolicyMutantsAreKilled",
+    "floatingAmountMutantIsKilledByExactDefinitionContract",
     exactAmountContract(accountingSource) &&
-      !exactAmountContract(roundedAmountMutant) &&
-      accountingPolicySource.source.includes(
-        "context.inputs.debitAmount == context.inputs.creditAmount",
-      ) &&
-      !accountingPolicySource.source
-        .replace(
-          "context.inputs.debitAmount == context.inputs.creditAmount",
-          "true",
-        )
-        .includes("context.inputs.debitAmount == context.inputs.creditAmount"),
+      !exactAmountContract(roundedAmountMutant),
+  );
+  observe(
+    "manufacturingDefinitionsContainNoQuantityEncodedRevisionBasis",
+    !manufacturingSource.includes("RevisionBasis") &&
+      !manufacturingSource.includes("bomRevisionBasis"),
   );
 
   const [
+    accountingGovernancePolicy,
     activationPolicy,
     domainPolicy,
     executionPolicy,
     manufacturingPolicy,
     settlementPolicy,
   ] = await Promise.all([
+    loadPolicy("accounting-governance.cedar"),
     loadPolicy("activation.cedar"),
     loadPolicy("domain.cedar"),
     loadPolicy("execution.cedar"),
@@ -262,6 +258,7 @@ async function main(): Promise<void> {
   );
   await writePolicyManifest(policyManifestPath, fixtures, {
     accounting: accountingPolicySource,
+    accountingGovernance: accountingGovernancePolicy,
     activation: activationPolicy,
     domain: domainPolicy,
     execution: executionPolicy,
@@ -388,7 +385,7 @@ async function main(): Promise<void> {
 
     await recordProductIdentity(worldA, product, tenantA);
     await recordInventoryIdentity(worldA, inventory, tenantA);
-    await commitReadyAction(
+    const inputAcceptance = await commitReadyAction(
       inventoryAction,
       inventoryAcceptedRequest(inventory, inputPositionId, "input", "11"),
     );
@@ -396,23 +393,54 @@ async function main(): Promise<void> {
       inventoryAction,
       inventoryAcceptedRequest(inventory, outputPositionId, "output-seed", "1"),
     );
+    const acceptedInputQuantity = await relationQuery(
+      worldA,
+      inventory,
+      inputPositionId,
+      "inventory.acceptedPhysicalQuantity",
+      changedAt,
+      tenantA,
+    );
+    const initialAvailableAmount = quantityAmount(
+      currentQuantity(acceptedInputQuantity, [
+        "inventory.acceptedPhysicalQuantity",
+      ]),
+    );
     const commercialCommitment = await commitReadyAction(
       commercialAction,
       commercialCommitmentRequest(commercial),
     );
 
-    await recordBom(worldA, manufacturing, tenantA);
+    const bom = await commitReadyAction(
+      manufacturingAction,
+      manufacturingBomRequest(manufacturing, "tenant-a", "1", lifecycleAt),
+    );
     const requirement = await commitReadyAction(
       manufacturingAction,
       manufacturingRequirementRequest(manufacturing, "tenant-a"),
+    );
+    const exactPlan = await manufacturingAction.propose(
+      manufacturingPlanRequest(manufacturing, "exact", "11"),
     );
     const plan = await commitReadyAction(
       manufacturingAction,
       manufacturingPlanRequest(manufacturing, "tenant-a"),
     );
-    await recordMaterialBasis(worldA, manufacturing, tenantA, "initial", "11");
-    const [requirementReferences, planReferences, occurrencesBeforeStart] =
-      await Promise.all([
+    const materialAvailability = await commitReadyAction(
+      manufacturingAction,
+      manufacturingMaterialAvailabilityRequest(
+        manufacturing,
+        "initial",
+        initialAvailableAmount,
+      ),
+    );
+    const [
+      requirementReferences,
+      planReferences,
+      occurrencesBeforeStart,
+      bomVersions,
+      bomEffectiveDates,
+    ] = await Promise.all([
         relationQuery(
           worldA,
           manufacturing,
@@ -437,6 +465,22 @@ async function main(): Promise<void> {
           changedAt,
           tenantA,
         ),
+        relationQuery(
+          worldA,
+          manufacturing,
+          bomId,
+          "manufacturing.bomVersion",
+          lifecycleAt,
+          tenantA,
+        ),
+        relationQuery(
+          worldA,
+          manufacturing,
+          bomId,
+          "manufacturing.bomEffectiveFrom",
+          lifecycleAt,
+          tenantA,
+        ),
       ]);
     observe(
       "requirementPlanAndOccurrenceRemainDistinct",
@@ -446,6 +490,21 @@ async function main(): Promise<void> {
         ]) &&
         sameStrings(textValues(planReferences), ["manufacturing.plan.3001"]) &&
         occurrencesBeforeStart.values.length === 0,
+    );
+    observe(
+      "bomAndMaterialAvailabilityUseGovernedActions",
+      inputAcceptance.receipt.commitSequence < bom.receipt.commitSequence &&
+        bom.receipt.commitSequence < materialAvailability.receipt.commitSequence &&
+        bom.receipt.recordIds.length === 8 &&
+        materialAvailability.receipt.recordIds.length === 1 &&
+        initialAvailableAmount === "11" &&
+        sameStrings(integerValues(bomVersions), ["1"]) &&
+        sameStrings(textValues(bomEffectiveDates), ["2026-01-01"]),
+    );
+    observe(
+      "exactPlanAtRequiredQuantityRemainsDeniedByStrictBound",
+      exactPlan.decision === PolicyDecision.DENY &&
+        exactPlan.proposal === undefined,
     );
 
     const staleMaterialRequest = manufacturingStartRequest(
@@ -459,12 +518,30 @@ async function main(): Promise<void> {
     assert.equal(staleMaterial.decision, PolicyDecision.PERMIT);
     assert.equal(staleMaterial.proposal?.status, ProposalStatus.READY);
     assert.ok(staleMaterial.proposal);
-    await recordMaterialBasis(
+    const inventoryShortage = await commitReadyAction(
+      inventoryAction,
+      inventoryCorrectionRequest(inventory, "shortage", "5"),
+    );
+    const reducedInputQuantity = await relationQuery(
       worldA,
-      manufacturing,
+      inventory,
+      inputPositionId,
+      "inventory.acceptedPhysicalQuantity",
+      changedAt,
       tenantA,
-      "insufficient",
-      "5",
+    );
+    const reducedAvailableAmount = quantityAmount(
+      currentQuantity(reducedInputQuantity, [
+        "inventory.acceptedPhysicalQuantity",
+      ]),
+    );
+    await commitReadyAction(
+      manufacturingAction,
+      manufacturingMaterialAvailabilityRequest(
+        manufacturing,
+        "insufficient",
+        reducedAvailableAmount,
+      ),
     );
     const staleMaterialCommit = await manufacturingAction.commit({
       operationId: staleMaterialRequest.operationId,
@@ -475,89 +552,63 @@ async function main(): Promise<void> {
       "materialChangeMakesManufacturingBasisStale",
       staleMaterialCommit.status === CommitStatus.STALE &&
         staleMaterialCommit.receipt === undefined &&
+        inventoryShortage.receipt.definition?.digest === inventory.digest &&
+        reducedAvailableAmount === "5" &&
         staleMaterial.proposal.stateBasis?.dependencies.some(
           (dependency) =>
             dependency.relationId ===
             "manufacturing.materialAvailableQuantity",
         ) === true,
     );
-    await recordMaterialBasis(
+    await commitReadyAction(
+      inventoryAction,
+      inventoryCorrectionRequest(inventory, "restored", "11"),
+    );
+    const restoredInputQuantity = await relationQuery(
       worldA,
-      manufacturing,
+      inventory,
+      inputPositionId,
+      "inventory.acceptedPhysicalQuantity",
+      changedAt,
       tenantA,
-      "restored",
-      "11",
+    );
+    const restoredAvailableAmount = quantityAmount(
+      currentQuantity(restoredInputQuantity, [
+        "inventory.acceptedPhysicalQuantity",
+      ]),
+    );
+    await commitReadyAction(
+      manufacturingAction,
+      manufacturingMaterialAvailabilityRequest(
+        manufacturing,
+        "restored",
+        restoredAvailableAmount,
+      ),
     );
 
-    const staleBomRequest = manufacturingStartRequest(
-      manufacturing,
-      "stale-bom",
-      "6",
+    const wrongBomRevision = await manufacturingAction.propose(
+      manufacturingStartRequest(manufacturing, "wrong-bom", "6", "2"),
     );
-    const staleBom = await manufacturingAction.propose(staleBomRequest);
-    assert.equal(staleBom.decision, PolicyDecision.PERMIT);
-    assert.ok(staleBom.proposal);
-    await recordEvidence(worldA, {
-      claimId: "claim.manufacturing.current-bom-revision-2",
-      entityId: workId,
-      fixture: manufacturing,
-      relationId: "manufacturing.currentBomRevision",
-      sourceId: "source.engineering-change",
-      tenantId: tenantA,
-      time: instant(changedAt),
-      value: { kind: "integer", value: "2" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.manufacturing.current-bom-revision-basis-2",
-      entityId: workId,
-      fixture: manufacturing,
-      relationId: "manufacturing.currentBomRevisionBasis",
-      sourceId: "source.engineering-change",
-      tenantId: tenantA,
-      time: instant(changedAt),
-      value: { amount: "2", kind: "quantity", unit: "each" },
-    });
-    const staleBomCommit = await manufacturingAction.commit({
-      operationId: staleBomRequest.operationId,
-      proposalId: staleBomRequest.proposalId,
-    });
-    inject("bom-revision-change-after-start-proposal");
+    const exactRemainingStart = await manufacturingAction.propose(
+      manufacturingStartRequest(manufacturing, "exact-remaining", "11"),
+    );
+    inject("bom-revision-2-denied-by-cedar");
     observe(
-      "bomRevisionChangeMakesManufacturingBasisStale",
-      staleBomCommit.status === CommitStatus.STALE &&
-        staleBomCommit.receipt === undefined &&
-        staleBom.proposal.stateBasis?.dependencies.some(
-          (dependency) =>
-            dependency.relationId ===
-            "manufacturing.currentBomRevisionBasis",
-        ) === true,
+      "bomRevisionPinIsEnforcedOnlyByCedar",
+      wrongBomRevision.decision === PolicyDecision.DENY &&
+        wrongBomRevision.proposal === undefined,
     );
-    await recordEvidence(worldA, {
-      claimId: "claim.manufacturing.current-bom-revision-restored",
-      entityId: workId,
-      fixture: manufacturing,
-      relationId: "manufacturing.currentBomRevision",
-      sourceId: "source.engineering-release",
-      tenantId: tenantA,
-      time: instant(changedAt),
-      value: { kind: "integer", value: "1" },
-    });
-    await recordEvidence(worldA, {
-      claimId: "claim.manufacturing.current-bom-revision-basis-restored",
-      entityId: workId,
-      fixture: manufacturing,
-      relationId: "manufacturing.currentBomRevisionBasis",
-      sourceId: "source.engineering-release",
-      tenantId: tenantA,
-      time: instant(changedAt),
-      value: { amount: "1", kind: "quantity", unit: "each" },
-    });
+    observe(
+      "exactRemainingStartStaysDeniedByStrictMaterialBound",
+      exactRemainingStart.decision === PolicyDecision.DENY &&
+        exactRemainingStart.proposal === undefined,
+    );
 
     const excessiveStart = await manufacturingAction.propose(
       manufacturingStartRequest(manufacturing, "insufficient", "100"),
     );
     observe(
-      "insufficientMaterialIsDeniedByStateBasisAndCedarPath",
+      "insufficientMaterialIsDeniedByActionStateBasis",
       excessiveStart.decision === PolicyDecision.DENY &&
         excessiveStart.proposal === undefined &&
         excessiveStart.stateBasis?.dependencies.some(
@@ -575,16 +626,33 @@ async function main(): Promise<void> {
       started.receipt.policy?.revision?.policyId ===
         "policy.manufacturing.startWork.r1" &&
         [
-          "manufacturing.currentBomRevisionBasis",
           "manufacturing.materialAvailableQuantity",
           "manufacturing.consumedInputQuantity",
         ].every((relationId) =>
           started.proposal.stateBasis?.dependencies.some(
             (dependency) => dependency.relationId === relationId,
           ),
-        ),
+        ) &&
+        started.proposal.stateBasis?.dependencies.every(
+          (dependency) =>
+            dependency.relationId !== "manufacturing.currentBomRevision" &&
+            dependency.relationId !== "manufacturing.plannedOutputQuantity",
+        ) === true,
     );
 
+    const exactRemainingPartial = await manufacturingAction.propose(
+      manufacturingCompletionRequest(
+        manufacturing,
+        "exact-partial",
+        "manufacturing.recordPartialCompletion",
+        "11",
+        "1",
+        "inventory.lot.COMP-3001",
+        "inventory.serial.COMP-S-EXACT-PARTIAL",
+        "inventory.lot.FIN-EXACT-PARTIAL",
+        "inventory.serial.FIN-S-EXACT-PARTIAL",
+      ),
+    );
     const partialRequest = manufacturingCompletionRequest(
       manufacturing,
       "partial",
@@ -612,6 +680,30 @@ async function main(): Promise<void> {
         partialReplay.receipt.recordIds.length ===
           partial.receipt.recordIds.length,
     );
+    const exactRemainingCompletion = await manufacturingAction.propose(
+      manufacturingCompletionRequest(
+        manufacturing,
+        "exact-completion",
+        "manufacturing.recordCompletion",
+        "7",
+        "1",
+        "inventory.lot.COMP-3001",
+        "inventory.serial.COMP-S-EXACT-COMPLETION",
+        "inventory.lot.FIN-EXACT-COMPLETION",
+        "inventory.serial.FIN-S-EXACT-COMPLETION",
+      ),
+    );
+    observe(
+      "strictMaterialBoundDeniesExactPartialAndCompletionAmounts",
+      exactRemainingPartial.decision === PolicyDecision.DENY &&
+        exactRemainingPartial.proposal === undefined &&
+        exactRemainingCompletion.decision === PolicyDecision.DENY &&
+        exactRemainingCompletion.proposal === undefined,
+    );
+    const bomRevisionTwo = await commitReadyAction(
+      manufacturingAction,
+      manufacturingBomRequest(manufacturing, "tenant-a-v2", "2", changedAt),
+    );
     const [
       partialRemaining,
       partialOutput,
@@ -620,6 +712,7 @@ async function main(): Promise<void> {
       genealogyInputs,
       genealogyOutputs,
       completionRevisions,
+      currentBomVersions,
     ] = await Promise.all([
       computationQuery(
         worldA,
@@ -677,6 +770,14 @@ async function main(): Promise<void> {
         changedAt,
         tenantA,
       ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        bomId,
+        "manufacturing.bomVersion",
+        changedAt,
+        tenantA,
+      ),
     ]);
     observe(
       "partialCompletionDoesNotImplyFullConsumptionOrOutput",
@@ -696,7 +797,9 @@ async function main(): Promise<void> {
         sameStrings(textValues(genealogyOutputs), [
           "inventory.lot.FIN-3001",
         ]) &&
-        sameStrings(integerValues(completionRevisions), ["1"]),
+        sameStrings(integerValues(completionRevisions), ["1"]) &&
+        sameStrings(integerValues(currentBomVersions), ["2"]) &&
+        bomRevisionTwo.receipt.commitSequence > partial.receipt.commitSequence,
     );
 
     const serverBeforeManufacturingEffect = server.child.pid;
@@ -795,13 +898,26 @@ async function main(): Promise<void> {
         outputProduction.receipt.definition?.digest === inventory.digest,
     );
 
+    const excessiveScrap = await manufacturingAction.propose(
+      manufacturingScrapRequest(manufacturing, "excessive", "1000000"),
+    );
+    const excessiveRework = await manufacturingAction.propose(
+      manufacturingReworkRequest(manufacturing, "excessive", "1000000"),
+    );
+    observe(
+      "scrapAndReworkCannotExceedNetProducedQuantity",
+      excessiveScrap.decision === PolicyDecision.DENY &&
+        excessiveScrap.proposal === undefined &&
+        excessiveRework.decision === PolicyDecision.DENY &&
+        excessiveRework.proposal === undefined,
+    );
     const scrap = await commitReadyAction(
       manufacturingAction,
-      manufacturingScrapRequest(manufacturing),
+      manufacturingScrapRequest(manufacturing, "accepted", "0.5"),
     );
     const rework = await commitReadyAction(
       manufacturingAction,
-      manufacturingReworkRequest(manufacturing),
+      manufacturingReworkRequest(manufacturing, "accepted", "0.25"),
     );
     const correction = await commitReadyAction(
       manufacturingAction,
@@ -812,6 +928,11 @@ async function main(): Promise<void> {
       scrapHistory,
       reworkHistory,
       correctionHistory,
+      consumedAfterCorrection,
+      producedAfterCorrection,
+      consumedAdjustments,
+      producedAdjustments,
+      netProducedAfterCorrection,
     ] = await Promise.all([
       relationQuery(
         worldA,
@@ -845,6 +966,46 @@ async function main(): Promise<void> {
         changedAt,
         tenantA,
       ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.consumedInputQuantity",
+        changedAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.producedOutputQuantity",
+        changedAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.consumedQuantityAdjustment",
+        changedAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.producedQuantityAdjustment",
+        changedAt,
+        tenantA,
+      ),
+      computationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.netProducedOutput",
+        changedAt,
+        tenantA,
+      ),
     ]);
     observe(
       "partialCompletionReworkScrapAndCorrectionAppendHistory",
@@ -857,21 +1018,51 @@ async function main(): Promise<void> {
           "manufacturing.occurrence.final-3001",
         ]) &&
         sameStrings(textValues(scrapHistory), [
-          "manufacturing.occurrence.scrap-3001",
+          "manufacturing.occurrence.scrap-accepted-3001",
         ]) &&
         sameStrings(textValues(reworkHistory), [
           "manufacturing.occurrence.partial-3001",
         ]) &&
         sameStrings(textValues(correctionHistory), [
           "manufacturing.occurrence.partial-3001",
-        ]),
+        ]) &&
+        currentQuantity(consumedAfterCorrection, [
+          "manufacturing.consumedInputQuantity",
+        ]) === "5.75 each" &&
+        currentQuantity(producedAfterCorrection, [
+          "manufacturing.producedOutputQuantity",
+        ]) === "4.5 each" &&
+        sameStrings(quantityValues(consumedAdjustments), ["-0.25 each"]) &&
+        sameStrings(quantityValues(producedAdjustments), ["-0.5 each"]) &&
+        currentQuantity(netProducedAfterCorrection, [
+          "manufacturing.producedOutputQuantity",
+          "manufacturing.scrapQuantity",
+          "manufacturing.reworkQuantity",
+        ]) === "3.75 each",
     );
 
     const fulfillment = await commitReadyAction(
       commercialAction,
       commercialFulfillmentRequest(commercial),
     );
-    await recordAccountingIdentity(worldA, accounting, tenantA, "PRIMARY");
+    const accountingIdentity = await commitAccountingIdentity(
+      accountingAction,
+      accounting,
+      "tenant-a",
+      "PRIMARY",
+    );
+    const bookIdentityOperation = accountingIdentity[0];
+    assert.ok(bookIdentityOperation);
+    observe(
+      "bookLedgerAndAccountIdentityUseGovernedActions",
+      accountingIdentity.every(
+        (entry) =>
+          entry.receipt.definition?.digest === accounting.digest &&
+          entry.receipt.policy?.revision?.policyId.startsWith(
+            "policy.accounting.record",
+          ) === true,
+      ),
+    );
 
     const unbalancedRequest = receivableRequest(
       accounting,
@@ -924,7 +1115,7 @@ async function main(): Promise<void> {
       ],
     );
     observe(
-      "unbalancedCurrencyAndDecimalMismatchesWriteNothingAtomically",
+      "cedarRejectsUnbalancedCurrencyAndDecimalMismatchesAtomically",
       unbalanced.decision === PolicyDecision.DENY &&
         unbalanced.proposal === undefined &&
         wrongCurrency.decision === PolicyDecision.DENY &&
@@ -1041,11 +1232,19 @@ async function main(): Promise<void> {
     const excessiveSettlement = await accountingAction.propose(
       settlementRequest(accounting, "excessive", "300", "BRL"),
     );
+    const exactSettlement = await accountingAction.propose(
+      settlementRequest(accounting, "exact-open-claim", "199.9", "BRL"),
+    );
     const settlementRequestAccepted = settlementRequest(
       accounting,
       "accepted",
       "100",
       "BRL",
+    );
+    observe(
+      "exactOpenClaimSettlementRemainsDeniedByStrictBound",
+      exactSettlement.decision === PolicyDecision.DENY &&
+        exactSettlement.proposal === undefined,
     );
     const settlementProposal = await accountingAction.propose(
       settlementRequestAccepted,
@@ -1127,8 +1326,14 @@ async function main(): Promise<void> {
         reversal.receipt.operationId,
       ),
     );
-    const [postingHistory, reversals, postingCorrections, balancedAfterHistory] =
-      await Promise.all([
+    const [
+      postingHistory,
+      reversals,
+      postingCorrections,
+      debitHistory,
+      creditHistory,
+      balancedAfterHistory,
+    ] = await Promise.all([
         relationQuery(
           worldA,
           accounting,
@@ -1153,6 +1358,22 @@ async function main(): Promise<void> {
           changedAt,
           tenantA,
         ),
+        relationQuery(
+          worldA,
+          accounting,
+          claimId,
+          "accounting.debitAmount",
+          changedAt,
+          tenantA,
+        ),
+        relationQuery(
+          worldA,
+          accounting,
+          claimId,
+          "accounting.creditAmount",
+          changedAt,
+          tenantA,
+        ),
         computationQuery(
           worldA,
           accounting,
@@ -1163,7 +1384,7 @@ async function main(): Promise<void> {
         ),
       ]);
     observe(
-      "reversalAndCorrectionPreserveOriginalPostingHistory",
+      "reversalAndCorrectionUseOriginalAmountAndPreserveHistory",
       sameStrings(textValues(postingHistory), [
         "accounting.posting.receivable.3001",
       ]) &&
@@ -1175,6 +1396,27 @@ async function main(): Promise<void> {
         ]) &&
         reversal.receipt.commitSequence <
           postingCorrection.receipt.commitSequence &&
+        sameStrings(decimalValues(debitHistory), [
+          "199.9",
+          "199.9",
+          "199.9",
+        ]) &&
+        sameStrings(decimalValues(creditHistory), [
+          "199.9",
+          "199.9",
+          "199.9",
+        ]) &&
+        [reversal, postingCorrection].every((entry) =>
+          [
+            "accounting.originalAmount",
+            "accounting.postedDebitTotal",
+            "accounting.postedCreditTotal",
+          ].every((relationId) =>
+            entry.proposal.stateBasis?.dependencies.some(
+              (dependency) => dependency.relationId === relationId,
+            ),
+          ),
+        ) &&
         currentDecimal(balancedAfterHistory, [
           "accounting.postedDebitTotal",
           "accounting.postedCreditTotal",
@@ -1211,7 +1453,27 @@ async function main(): Promise<void> {
 
     await recordProductIdentity(worldB, product, tenantB);
     await recordInventoryIdentity(worldB, inventory, tenantB);
-    await recordBom(worldB, manufacturing, tenantB);
+    await commitReadyAction(
+      inventoryActionB,
+      inventoryAcceptedRequest(inventory, inputPositionId, "tenant-b", "77"),
+    );
+    const tenantBAcceptedInput = await relationQuery(
+      worldB,
+      inventory,
+      inputPositionId,
+      "inventory.acceptedPhysicalQuantity",
+      changedAt,
+      tenantB,
+    );
+    const tenantBAvailableAmount = quantityAmount(
+      currentQuantity(tenantBAcceptedInput, [
+        "inventory.acceptedPhysicalQuantity",
+      ]),
+    );
+    await commitReadyAction(
+      manufacturingActionB,
+      manufacturingBomRequest(manufacturing, "tenant-b", "1", lifecycleAt),
+    );
     await commitReadyAction(
       manufacturingActionB,
       manufacturingRequirementRequest(manufacturing, "tenant-b"),
@@ -1220,18 +1482,24 @@ async function main(): Promise<void> {
       manufacturingActionB,
       manufacturingPlanRequest(manufacturing, "tenant-b"),
     );
-    await recordMaterialBasis(
-      worldB,
-      manufacturing,
-      tenantB,
-      "tenant-b",
-      "77",
+    await commitReadyAction(
+      manufacturingActionB,
+      manufacturingMaterialAvailabilityRequest(
+        manufacturing,
+        "tenant-b",
+        tenantBAvailableAmount,
+      ),
     );
     const tenantBStart = await commitReadyAction(
       manufacturingActionB,
       manufacturingStartRequest(manufacturing, "tenant-b", "6"),
     );
-    await recordAccountingIdentity(worldB, accounting, tenantB, "SECONDARY");
+    await commitAccountingIdentity(
+      accountingActionB,
+      accounting,
+      "tenant-b",
+      "SECONDARY",
+    );
     const tenantBReceivable = await commitReadyAction(
       accountingActionB,
       receivableRequest(
@@ -1543,9 +1811,10 @@ async function main(): Promise<void> {
     const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
     const manifest = {
       architectureDeviations: [
-        "The v1 expression algebra has strict greater_than but no greater_than_or_equal, so exact final material consumption and full claim settlement remain the parked kernel follow-up.",
+        "The v1 expression algebra has strict greater_than but no greater_than_or_equal, so exact remaining material, exact plan-to-required output, and exact open-claim settlement remain parked.",
         "Cross-package entity references use named Relation values because canonical definition validation currently resolves Type targets only inside one immutable definition bundle.",
-        "One Action precondition cannot conjunct material, planned-output, and BOM equality checks. The definition includes every relation in one arithmetic StateBasis, while Cedar pins the accepted BOM revision for the execution policy.",
+        "The Action algebra cannot combine the material bound with BOM equality. Execution StateBasis covers material availability and consumed quantity, Cedar pins revision 1, and stale-on-BOM-change remains a parked kernel follow-up.",
+        "Debit and credit equality for receivable and payable posting is enforced only by Cedar. Reversal and correction Actions read the original posting amount and emit the same bounded amount to both sides.",
       ],
       assertions,
       componentVersions: {
@@ -1565,10 +1834,14 @@ async function main(): Promise<void> {
       finishedAt: new Date().toISOString(),
       operations: {
         accountingCorrection: postingCorrection.receipt.operationId,
+        accountingIdentity: bookIdentityOperation.receipt.operationId,
+        bomRevisionOne: bom.receipt.operationId,
+        bomRevisionTwo: bomRevisionTwo.receipt.operationId,
         commercialCommitment: commercialCommitment.receipt.operationId,
         finalCompletion: finalCompletion.receipt.operationId,
         fulfillment: fulfillment.receipt.operationId,
         manufacturingCorrection: correction.receipt.operationId,
+        materialAvailability: materialAvailability.receipt.operationId,
         partialCompletion: partial.receipt.operationId,
         receivable: receivable.receipt.operationId,
         reversal: reversal.receipt.operationId,
@@ -1759,166 +2032,169 @@ async function recordInventoryIdentity(
   }
 }
 
-async function recordBom(
-  client: ReturnType<typeof worldClient>,
+function manufacturingBomRequest(
   fixture: DomainFixture,
-  tenantId: string,
-): Promise<void> {
-  const records: readonly {
-    readonly claimId: string;
-    readonly relationId: string;
-    readonly value: SemanticValue;
-  }[] = [
-    {
-      claimId: "claim.manufacturing.bom-version",
-      relationId: "manufacturing.bomVersion",
-      value: { kind: "integer", value: "1" },
-    },
-    {
-      claimId: "claim.manufacturing.bom-effective-from",
-      relationId: "manufacturing.bomEffectiveFrom",
-      value: { kind: "text", value: "2026-01-01" },
-    },
-    {
-      claimId: "claim.manufacturing.bom-effective-to",
-      relationId: "manufacturing.bomEffectiveTo",
-      value: { kind: "text", value: "2027-01-01" },
-    },
-    {
-      claimId: "claim.manufacturing.bom-input-product",
-      relationId: "manufacturing.bomInputProductReference",
-      value: { kind: "text", value: componentProductId },
-    },
-    {
-      claimId: "claim.manufacturing.bom-input-quantity",
-      relationId: "manufacturing.bomInputQuantity",
-      value: { amount: "6", kind: "quantity", unit: "each" },
-    },
-    {
-      claimId: "claim.manufacturing.bom-output-product",
-      relationId: "manufacturing.bomOutputProductReference",
-      value: { kind: "text", value: finishedProductId },
-    },
-    {
-      claimId: "claim.manufacturing.bom-output-quantity",
-      relationId: "manufacturing.bomOutputQuantity",
-      value: { amount: "10", kind: "quantity", unit: "each" },
-    },
-    {
-      claimId: "claim.manufacturing.bom-operation",
-      relationId: "manufacturing.bomOperationReference",
-      value: { kind: "text", value: "operation.press-and-assemble" },
-    },
-  ];
-  for (const record of records) {
-    await recordEvidence(client, {
-      ...record,
-      claimId: `${record.claimId}.${tenantId}`,
-      entityId: bomId,
-      fixture,
-      sourceId: "source.engineering-release",
-      tenantId,
-      time: instant(lifecycleAt),
-    });
-  }
-}
-
-function recordMaterialBasis(
-  client: ReturnType<typeof worldClient>,
-  fixture: DomainFixture,
-  tenantId: string,
   suffix: string,
-  quantity: string,
-): Promise<bigint> {
-  return recordEvidence(client, {
-    claimId: `claim.manufacturing.material-basis.${suffix}.${tenantId}`,
-    entityId: workId,
+  version: string,
+  validAt: Date,
+) {
+  return proposalRequest({
+    actionId: "manufacturing.recordBillOfMaterial",
     fixture,
-    relationId: "manufacturing.materialAvailableQuantity",
-    sourceId: "source.inventory.safeAvailability",
-    tenantId,
-    time: instant(changedAt),
-    value: { amount: quantity, kind: "quantity", unit: "each" },
+    inputs: [
+      {
+        id: "effectiveFrom",
+        value: {
+          kind: "text",
+          value: version === "1" ? "2026-01-01" : "2026-09-01",
+        },
+      },
+      {
+        id: "effectiveTo",
+        value: { kind: "text", value: "2027-01-01" },
+      },
+      {
+        id: "inputProductReference",
+        value: { kind: "text", value: componentProductId },
+      },
+      {
+        id: "inputQuantity",
+        value: { amount: "6", kind: "quantity", unit: "each" },
+      },
+      {
+        id: "operationReference",
+        value: {
+          kind: "text",
+          value: `operation.press-and-assemble.r${version}`,
+        },
+      },
+      {
+        id: "outputProductReference",
+        value: { kind: "text", value: finishedProductId },
+      },
+      {
+        id: "outputQuantity",
+        value: { amount: "10", kind: "quantity", unit: "each" },
+      },
+      { id: "version", value: { kind: "integer", value: version } },
+    ],
+    resourceId: bomId,
+    suffix: `bom-${suffix}`,
+    validAt,
   });
 }
 
-async function recordAccountingIdentity(
-  client: ReturnType<typeof worldClient>,
+function manufacturingMaterialAvailabilityRequest(
   fixture: DomainFixture,
-  tenantId: string,
+  suffix: string,
+  quantity: string,
+) {
+  return proposalRequest({
+    actionId: "manufacturing.recordMaterialAvailability",
+    fixture,
+    inputs: [
+      {
+        id: "quantity",
+        value: { amount: quantity, kind: "quantity", unit: "each" },
+      },
+    ],
+    resourceId: workId,
+    suffix: `material-availability-${suffix}`,
+    validAt: changedAt,
+  });
+}
+
+function commitAccountingIdentity(
+  client: ActionClient,
+  fixture: DomainFixture,
+  suffix: string,
   bookCode: string,
-): Promise<void> {
-  const records: readonly {
-    readonly claimId: string;
-    readonly entityId: string;
-    readonly relationId: string;
-    readonly value: SemanticValue;
-  }[] = [
-    {
-      claimId: "claim.accounting.book-code",
-      entityId: bookId,
-      relationId: "accounting.bookCode",
-      value: { kind: "text", value: bookCode },
-    },
-    {
-      claimId: "claim.accounting.book-currency",
-      entityId: bookId,
-      relationId: "accounting.functionalCurrency",
-      value: { kind: "text", value: "BRL" },
-    },
-    {
-      claimId: "claim.accounting.book-history",
-      entityId: bookId,
-      relationId: "accounting.historicalBookMeaning",
-      value: { kind: "text", value: "Brazil commercial book 2026" },
-    },
-    {
-      claimId: "claim.accounting.ledger-code",
-      entityId: ledgerId,
-      relationId: "accounting.ledgerCode",
-      value: { kind: "text", value: "SALES" },
-    },
-    {
-      claimId: "claim.accounting.ledger-book",
-      entityId: ledgerId,
-      relationId: "accounting.ledgerBookReference",
-      value: { kind: "text", value: bookId },
-    },
-    {
-      claimId: "claim.accounting.receivable-code",
-      entityId: receivableAccountId,
-      relationId: "accounting.accountCode",
-      value: { kind: "text", value: "1.1.2" },
-    },
-    {
-      claimId: "claim.accounting.receivable-class",
-      entityId: receivableAccountId,
-      relationId: "accounting.accountClassification",
-      value: { kind: "text", value: "asset" },
-    },
-    {
-      claimId: "claim.accounting.revenue-code",
-      entityId: revenueAccountId,
-      relationId: "accounting.accountCode",
-      value: { kind: "text", value: "3.1.1" },
-    },
-    {
-      claimId: "claim.accounting.revenue-class",
-      entityId: revenueAccountId,
-      relationId: "accounting.accountClassification",
-      value: { kind: "text", value: "revenue" },
-    },
-  ];
-  for (const record of records) {
-    await recordEvidence(client, {
-      ...record,
-      claimId: `${record.claimId}.${tenantId}`,
-      fixture,
-      sourceId: "source.accounting-policy",
-      tenantId,
-      time: instant(lifecycleAt),
-    });
-  }
+) {
+  return Promise.all([
+    commitReadyAction(
+      client,
+      proposalRequest({
+        actionId: "accounting.recordBookIdentity",
+        fixture,
+        inputs: [
+          { id: "code", value: { kind: "text", value: bookCode } },
+          { id: "currency", value: { kind: "text", value: "BRL" } },
+          {
+            id: "meaning",
+            value: { kind: "text", value: "Brazil commercial book 2026" },
+          },
+          { id: "revision", value: { kind: "integer", value: "1" } },
+        ],
+        resourceId: bookId,
+        suffix: `book-${suffix}`,
+        validAt: lifecycleAt,
+      }),
+    ),
+    commitReadyAction(
+      client,
+      proposalRequest({
+        actionId: "accounting.recordLedgerIdentity",
+        fixture,
+        inputs: [
+          { id: "bookReference", value: { kind: "text", value: bookId } },
+          { id: "code", value: { kind: "text", value: "SALES" } },
+          { id: "revision", value: { kind: "integer", value: "1" } },
+        ],
+        resourceId: ledgerId,
+        suffix: `ledger-${suffix}`,
+        validAt: lifecycleAt,
+      }),
+    ),
+    commitReadyAction(
+      client,
+      accountingAccountIdentityRequest({
+        classification: "asset",
+        code: "1.1.2",
+        fixture,
+        name: "Trade receivables",
+        resourceId: receivableAccountId,
+        suffix,
+      }),
+    ),
+    commitReadyAction(
+      client,
+      accountingAccountIdentityRequest({
+        classification: "revenue",
+        code: "3.1.1",
+        fixture,
+        name: "Product revenue",
+        resourceId: revenueAccountId,
+        suffix,
+      }),
+    ),
+  ]);
+}
+
+function accountingAccountIdentityRequest(input: {
+  readonly classification: string;
+  readonly code: string;
+  readonly fixture: DomainFixture;
+  readonly name: string;
+  readonly resourceId: string;
+  readonly suffix: string;
+}) {
+  const { classification, code, fixture, name, resourceId, suffix } = input;
+  return proposalRequest({
+    actionId: "accounting.recordAccountIdentity",
+    fixture,
+    inputs: [
+      {
+        id: "classification",
+        value: { kind: "text", value: classification },
+      },
+      { id: "code", value: { kind: "text", value: code } },
+      { id: "name", value: { kind: "text", value: name } },
+      { id: "revision", value: { kind: "integer", value: "1" } },
+    ],
+    resourceId,
+    suffix: `account-${suffix}-${code}`,
+    validAt: lifecycleAt,
+  });
 }
 
 function commercialCommitmentRequest(fixture: DomainFixture) {
@@ -1985,6 +2261,34 @@ function inventoryAcceptedRequest(
   });
 }
 
+function inventoryCorrectionRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  quantity: string,
+) {
+  return proposalRequest({
+    actionId: "inventory.correctInventory",
+    fixture,
+    inputs: [
+      {
+        id: "acceptedQuantity",
+        value: { amount: quantity, kind: "quantity", unit: "each" },
+      },
+      {
+        id: "correctionOf",
+        value: { kind: "text", value: "inventory-source.input" },
+      },
+      {
+        id: "reason",
+        value: { kind: "text", value: `manufacturing-${suffix}` },
+      },
+    ],
+    resourceId: inputPositionId,
+    suffix: `inventory-${suffix}`,
+    validAt: changedAt,
+  });
+}
+
 function inventoryMovementRequest(
   fixture: DomainFixture,
   resourceId: string,
@@ -2046,10 +2350,6 @@ function manufacturingRequirementRequest(
       { id: "bomReference", value: { kind: "text", value: bomId } },
       { id: "bomRevision", value: { kind: "integer", value: "1" } },
       {
-        id: "bomRevisionBasis",
-        value: { amount: "1", kind: "quantity", unit: "each" },
-      },
-      {
         id: "inputProductReference",
         value: { kind: "text", value: componentProductId },
       },
@@ -2079,7 +2379,11 @@ function manufacturingRequirementRequest(
   });
 }
 
-function manufacturingPlanRequest(fixture: DomainFixture, suffix: string) {
+function manufacturingPlanRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  outputQuantity = "10",
+) {
   return proposalRequest({
     actionId: "manufacturing.planWork",
     fixture,
@@ -2090,7 +2394,7 @@ function manufacturingPlanRequest(fixture: DomainFixture, suffix: string) {
       },
       {
         id: "outputQuantity",
-        value: { amount: "10", kind: "quantity", unit: "each" },
+        value: { amount: outputQuantity, kind: "quantity", unit: "each" },
       },
       {
         id: "planReference",
@@ -2107,16 +2411,13 @@ function manufacturingStartRequest(
   fixture: DomainFixture,
   suffix: string,
   inputQuantity: string,
+  bomRevision = "1",
 ) {
   return proposalRequest({
     actionId: "manufacturing.startWork",
     fixture,
     inputs: [
-      { id: "bomRevision", value: { kind: "integer", value: "1" } },
-      {
-        id: "bomRevisionBasis",
-        value: { amount: "1", kind: "quantity", unit: "each" },
-      },
+      { id: "bomRevision", value: { kind: "integer", value: bomRevision } },
       {
         id: "capabilityReference",
         value: { kind: "text", value: "manufacturing.capability.press-01" },
@@ -2156,10 +2457,6 @@ function manufacturingCompletionRequest(
     fixture,
     inputs: [
       { id: "bomRevision", value: { kind: "integer", value: "1" } },
-      {
-        id: "bomRevisionBasis",
-        value: { amount: "1", kind: "quantity", unit: "each" },
-      },
       {
         id: "consumedQuantity",
         value: { amount: consumedQuantity, kind: "quantity", unit: "each" },
@@ -2202,7 +2499,11 @@ function manufacturingCompletionRequest(
   });
 }
 
-function manufacturingScrapRequest(fixture: DomainFixture) {
+function manufacturingScrapRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  quantity: string,
+) {
   return proposalRequest({
     actionId: "manufacturing.recordScrap",
     fixture,
@@ -2211,21 +2512,25 @@ function manufacturingScrapRequest(fixture: DomainFixture) {
         id: "occurrenceReference",
         value: {
           kind: "text",
-          value: "manufacturing.occurrence.scrap-3001",
+          value: `manufacturing.occurrence.scrap-${suffix}-3001`,
         },
       },
       {
         id: "quantity",
-        value: { amount: "0.5", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
     ],
     resourceId: workId,
-    suffix: "scrap-3001",
+    suffix: `scrap-${suffix}-3001`,
     validAt: changedAt,
   });
 }
 
-function manufacturingReworkRequest(fixture: DomainFixture) {
+function manufacturingReworkRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  quantity: string,
+) {
   return proposalRequest({
     actionId: "manufacturing.recordRework",
     fixture,
@@ -2234,12 +2539,12 @@ function manufacturingReworkRequest(fixture: DomainFixture) {
         id: "occurrenceReference",
         value: {
           kind: "text",
-          value: "manufacturing.occurrence.rework-3001",
+          value: `manufacturing.occurrence.rework-${suffix}-3001`,
         },
       },
       {
         id: "quantity",
-        value: { amount: "0.25", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
       {
         id: "reworkOf",
@@ -2250,7 +2555,7 @@ function manufacturingReworkRequest(fixture: DomainFixture) {
       },
     ],
     resourceId: workId,
-    suffix: "rework-3001",
+    suffix: `rework-${suffix}-3001`,
     validAt: changedAt,
   });
 }
@@ -2268,12 +2573,12 @@ function manufacturingCorrectionRequest(fixture: DomainFixture) {
         },
       },
       {
-        id: "inputQuantity",
-        value: { amount: "3.75", kind: "quantity", unit: "each" },
+        id: "consumedQuantityAdjustment",
+        value: { amount: "-0.25", kind: "quantity", unit: "each" },
       },
       {
-        id: "outputQuantity",
-        value: { amount: "2.75", kind: "quantity", unit: "each" },
+        id: "producedQuantityAdjustment",
+        value: { amount: "-0.5", kind: "quantity", unit: "each" },
       },
       {
         id: "reason",
@@ -2408,17 +2713,8 @@ function reversalRequest(
         value: { kind: "text", value: receivableAccountId },
       },
       {
-        id: "creditAmount",
-        value: { kind: "decimal", value: "199.9" },
-      },
-      { id: "currency", value: { kind: "text", value: "BRL" } },
-      {
         id: "debitAccountReference",
         value: { kind: "text", value: revenueAccountId },
-      },
-      {
-        id: "debitAmount",
-        value: { kind: "decimal", value: "199.9" },
       },
       { id: "eventDate", value: { kind: "text", value: "2026-08-23" } },
       {
@@ -2459,15 +2755,9 @@ function accountingCorrectionRequest(
         value: { kind: "text", value: revenueAccountId },
       },
       {
-        id: "creditAmount",
-        value: { kind: "decimal", value: "0.1" },
-      },
-      { id: "currency", value: { kind: "text", value: "BRL" } },
-      {
         id: "debitAccountReference",
         value: { kind: "text", value: receivableAccountId },
       },
-      { id: "debitAmount", value: { kind: "decimal", value: "0.1" } },
       {
         id: "originatingOperationReference",
         value: { kind: "text", value: origin },
@@ -2579,6 +2869,14 @@ function currentQuantity(
   relationIds: readonly string[],
 ): string | undefined {
   return currentValue(response, relationIds, "quantity");
+}
+
+function quantityAmount(value: string | undefined): string {
+  const match = /^(-?(?:0|[1-9]\d*)(?:\.\d+)?) each$/u.exec(value ?? "");
+  assert.ok(match);
+  const amount = match[1];
+  assert.ok(amount);
+  return amount;
 }
 
 function currentDecimal(
