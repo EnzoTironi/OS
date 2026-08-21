@@ -27,23 +27,26 @@ docker push "${node_image}"
 
 rust_ref="$(docker image inspect --format '{{index .RepoDigests 0}}' "${rust_image}")"
 node_ref="$(docker image inspect --format '{{index .RepoDigests 0}}' "${node_image}")"
+output_directory="$(dirname "${output}")"
+signing_config="${output_directory}/cosign-signing-config.json"
+mkdir -p "${output_directory}"
+cosign signing-config create --out "${signing_config}"
 
 cosign sign \
   --yes \
   --allow-insecure-registry \
-  --tlog-upload=false \
+  --signing-config "${signing_config}" \
   --key "${cosign_key}" \
   "${rust_ref}"
 cosign sign \
   --yes \
   --allow-insecure-registry \
-  --tlog-upload=false \
+  --signing-config "${signing_config}" \
   --key "${cosign_key}" \
   "${node_ref}"
 
-mkdir -p "$(dirname "${output}")"
-helm package deploy/helm/zoen --destination "$(dirname "${output}")"
-chart_package="$(dirname "${output}")/zoen-${chart_version}.tgz"
+helm package deploy/helm/zoen --destination "${output_directory}"
+chart_package="${output_directory}/zoen-${chart_version}.tgz"
 helm push "${chart_package}" "oci://${registry}/zoen/charts" --plain-http
 chart_repository="${registry}/zoen/charts/zoen"
 chart_digest="$(
@@ -57,7 +60,7 @@ chart_ref="${chart_repository}@${chart_digest}"
 cosign sign \
   --yes \
   --allow-insecure-registry \
-  --tlog-upload=false \
+  --signing-config "${signing_config}" \
   --key "${cosign_key}" \
   "${chart_ref}"
 
