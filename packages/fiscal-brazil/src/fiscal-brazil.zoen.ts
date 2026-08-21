@@ -635,8 +635,16 @@ const submitDocument = defineAction({
   precondition: {
     kind: "binary",
     left: {
-      kind: "relation",
-      relationId: "fiscal.intentDeterminedTaxTotal",
+      kind: "binary",
+      left: {
+        kind: "relation",
+        relationId: "fiscal.intentDeterminedTaxTotal",
+      },
+      operator: "add",
+      right: {
+        kind: "literal",
+        value: { kind: "decimal", value: "0" },
+      },
     },
     operator: "greater_than",
     right: {
@@ -658,8 +666,16 @@ const cancelDocument = defineAction({
   precondition: {
     kind: "binary",
     left: {
-      kind: "relation",
-      relationId: "fiscal.remoteDocumentRevision",
+      kind: "binary",
+      left: {
+        kind: "relation",
+        relationId: "fiscal.remoteDocumentRevision",
+      },
+      operator: "add",
+      right: {
+        kind: "literal",
+        value: { kind: "integer", value: "0" },
+      },
     },
     operator: "greater_than",
     right: {
@@ -681,8 +697,16 @@ const correctDocument = defineAction({
   precondition: {
     kind: "binary",
     left: {
-      kind: "relation",
-      relationId: "fiscal.remoteDocumentRevision",
+      kind: "binary",
+      left: {
+        kind: "relation",
+        relationId: "fiscal.remoteDocumentRevision",
+      },
+      operator: "add",
+      right: {
+        kind: "literal",
+        value: { kind: "integer", value: "0" },
+      },
     },
     operator: "greater_than",
     right: {

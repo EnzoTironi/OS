@@ -10,6 +10,7 @@ import { canonicalDecimal } from "../decimal.js";
 import {
   fallbackOperationId,
   observedAtMicros,
+  sha256,
   VendorHttpClient,
 } from "../http.js";
 
@@ -77,16 +78,24 @@ export class SystaxAdapter implements VendorAdapter {
       return invalidResponse(input.idempotencyKey);
     }
     switch (parsed.data.situacao) {
-      case "CONCLUIDO":
+      case "CONCLUIDO": {
+        const body = {
+          outcome: "confirmed",
+          providerOperationId: parsed.data.idCalculo,
+        } satisfies Extract<
+          ProviderDispatchResult,
+          { kind: "confirmed" }
+        >["body"];
         return {
-          body: {
-            outcome: "confirmed",
-            providerOperationId: parsed.data.idCalculo,
-          },
+          body,
           kind: "confirmed",
           status: 200,
-          writeback: taxWriteback(parsed.data, response.bodyDigest),
+          writeback: taxWriteback(
+            parsed.data,
+            sha256(JSON.stringify(body)),
+          ),
         };
+      }
       case "ERRO":
       case "INVALIDO":
         return {

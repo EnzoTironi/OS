@@ -286,7 +286,7 @@ export class FiscalContextReader {
       client: clients.world,
       definition,
       entityId: proposal.resourceId,
-      snapshotCommit: commit.receipt.commitSequence,
+      stateBasisCommit: commit.stateBasis.basis.observedCommitSequence,
       tenantId: identity.tenantId,
       validAt,
     });
@@ -483,7 +483,7 @@ class SemanticReader {
   readonly #client: ReturnType<typeof serviceClients>["world"];
   readonly #definition: DefinitionReference;
   readonly #entityId: string;
-  readonly #snapshotCommit: bigint;
+  readonly #stateBasisCommit: bigint;
   readonly #tenantId: string;
   readonly #validAt: Date;
 
@@ -491,14 +491,14 @@ class SemanticReader {
     readonly client: ReturnType<typeof serviceClients>["world"];
     readonly definition: DefinitionReference;
     readonly entityId: string;
-    readonly snapshotCommit: bigint;
+    readonly stateBasisCommit: bigint;
     readonly tenantId: string;
     readonly validAt: Date;
   }) {
     this.#client = input.client;
     this.#definition = input.definition;
     this.#entityId = input.entityId;
-    this.#snapshotCommit = input.snapshotCommit;
+    this.#stateBasisCommit = input.stateBasisCommit;
     this.#tenantId = input.tenantId;
     this.#validAt = input.validAt;
   }
@@ -531,7 +531,7 @@ class SemanticReader {
     claimId: string,
     commitSequence: bigint,
   ): Promise<string> {
-    const values = await this.#values(relationId);
+    const values = await this.#values(relationId, commitSequence);
     const matches = values.filter((value) =>
       value.dependencies.some(
         (dependency) =>
@@ -554,47 +554,27 @@ class SemanticReader {
 
   async #one(relationId: string): Promise<SemanticValueResult> {
     const values = await this.#values(relationId);
-    const ranked = values
-      .map((value) => ({
-        commitSequence: latestSupportingCommit(value),
-        value,
-      }))
-      .filter(
-        (
-          candidate,
-        ): candidate is {
-          readonly commitSequence: bigint;
-          readonly value: SemanticValueResult;
-        } => candidate.commitSequence !== undefined,
-      )
-      .sort((left, right) =>
-        left.commitSequence === right.commitSequence
-          ? 0
-          : left.commitSequence > right.commitSequence
-            ? -1
-            : 1,
-      );
-    const result = ranked[0];
+    const [result] = values;
     if (result === undefined) {
       throw new Error(
         `${relationId} has no committed value in the Action state basis`,
       );
     }
-    if (
-      ranked[1]?.commitSequence === result.commitSequence &&
-      exactValueKey(ranked[1].value) !== exactValueKey(result.value)
-    ) {
+    if (values.length !== 1) {
       throw new Error(`${relationId} is ambiguous in the Action state basis`);
     }
-    return result.value;
+    return result;
   }
 
-  async #values(relationId: string): Promise<SemanticValueResult[]> {
+  async #values(
+    relationId: string,
+    snapshotCommit: bigint = this.#stateBasisCommit,
+  ): Promise<SemanticValueResult[]> {
     const response = await this.#client.semanticQuery({
       consistency: create(QueryConsistencySchema, {
         value: {
           case: "snapshotCommit",
-          value: this.#snapshotCommit,
+          value: snapshotCommit,
         },
       }),
       definition: this.#definition,
@@ -608,7 +588,7 @@ class SemanticReader {
       tenantId: this.#tenantId,
       validAt: timestampFromDate(this.#validAt),
     });
-    if (response.actualCommitSequence !== this.#snapshotCommit) {
+    if (response.actualCommitSequence !== snapshotCommit) {
       throw new Error("semantic query did not honor the Action state basis");
     }
     return response.values;
@@ -707,41 +687,6 @@ function integerInput(inputId: string, value: string) {
       value: { case: "integerValue", value },
     }),
   });
-}
-
-function latestSupportingCommit(
-  result: SemanticValueResult,
-): bigint | undefined {
-  let latest: bigint | undefined;
-  for (const dependency of result.dependencies) {
-    if (
-      dependency.role === LineageRole.SUPPORTING &&
-      (latest === undefined || dependency.commitSequence > latest)
-    ) {
-      latest = dependency.commitSequence;
-    }
-  }
-  return latest;
-}
-
-function exactValueKey(result: SemanticValueResult): string {
-  const value = result.value?.value;
-  switch (value?.case) {
-    case "boolValue":
-    case "decimalValue":
-    case "entityRefValue":
-    case "integerValue":
-    case "textValue":
-      return `${value.case}:${String(value.value)}`;
-    case "quantityValue":
-      return `${value.case}:${value.value.amount}:${value.value.unit}`;
-    case undefined:
-      return "undefined";
-    default: {
-      const exhaustive: never = value;
-      return exhaustive;
-    }
-  }
 }
 
 function verifyEffectPointer(

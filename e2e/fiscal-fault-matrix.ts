@@ -526,17 +526,59 @@ async function main(): Promise<void> {
     const taxProxyOperation = taxMetrics.operations.find(
       (operation) => operation.idempotencyKey === taxSuccess.idempotencyKey,
     );
+    const taxEvidenceValues = {
+      federalTax: decimalValues(federalTax),
+      intentTaxTotal: decimalValues(intentTaxTotal),
+      municipalTax: decimalValues(municipalTax),
+      providerOperation: textValues(providerOperation),
+      responseDigest: textValues(responseDigest),
+      ruleVersion: textValues(ruleVersion),
+      stateTax: decimalValues(stateTax),
+      taxTotal: decimalValues(taxTotal),
+    };
+    const taxEvidenceChecks = {
+      federalTax: taxEvidenceValues.federalTax.includes("1.1"),
+      intentTaxTotal: taxEvidenceValues.intentTaxTotal.includes("3.3"),
+      municipalTax: taxEvidenceValues.municipalTax.includes("0"),
+      providerOperation: taxEvidenceValues.providerOperation.includes(
+        taxAttempt.providerOperationId,
+      ),
+      proxyIssuer:
+        taxProxyOperation?.issuerRegistration === "12345678000190",
+      responseDigest: taxEvidenceValues.responseDigest.includes(
+        taxAttempt.responseDigest,
+      ),
+      ruleVersion: taxEvidenceValues.ruleVersion.includes("contract-v1"),
+      stateTax: taxEvidenceValues.stateTax.includes("2.2"),
+      taxTotal: taxEvidenceValues.taxTotal.includes("3.3"),
+    };
+    const taxEvidencePasses = Object.values(taxEvidenceChecks).every(Boolean);
+    if (!taxEvidencePasses) {
+      process.stderr.write(
+        `${JSON.stringify(
+          {
+            checks: taxEvidenceChecks,
+            event: "systax_tax_evidence_observation_failed",
+            taxAttempt: {
+              attemptId: taxAttempt.attemptId,
+              commitSequence: taxAttempt.commitSequence.toString(),
+              outcome: taxAttempt.outcome,
+              providerOperationId: taxAttempt.providerOperationId,
+              reason: taxAttempt.reason,
+              requestDigest: taxAttempt.requestDigest,
+              responseDigest: taxAttempt.responseDigest,
+            },
+            taxProxyOperation,
+            values: taxEvidenceValues,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    }
     observe(
       "systaxProductionAdapterMapsProviderNeutralTaxContextAndEvidence",
-      textValues(providerOperation).includes(taxAttempt.providerOperationId) &&
-        textValues(ruleVersion).includes("contract-v1") &&
-        textValues(responseDigest).includes(taxAttempt.responseDigest) &&
-        decimalValues(federalTax).includes("1.1") &&
-        decimalValues(stateTax).includes("2.2") &&
-        decimalValues(municipalTax).includes("0") &&
-        decimalValues(taxTotal).includes("3.3") &&
-        decimalValues(intentTaxTotal).includes("3.3") &&
-        taxProxyOperation?.issuerRegistration === "12345678000190",
+      taxEvidencePasses,
     );
 
     const protheusTax = await taxEffect({
