@@ -35,6 +35,31 @@ fn exact_decimal_accepts_only_canonical_forms() {
 }
 
 #[test]
+fn expression_operator_compares_exact_decimals() {
+    let decimal =
+        |value: &str| ExactValue::Decimal(ExactDecimal::parse(value).expect("canonical decimal"));
+
+    for (left, right, expected) in [
+        ("-1", "0", false),
+        ("0", "-1", true),
+        ("0.125", "0.5", false),
+        ("-0.125", "-1", true),
+        ("12.5", "12.5", false),
+    ] {
+        assert_eq!(
+            apply_expression_operator(
+                BinaryOperator::GreaterThan,
+                &decimal(left),
+                &decimal(right),
+            )
+            .expect("comparison"),
+            ExactValue::Bool(expected),
+            "{left} > {right}"
+        );
+    }
+}
+
+#[test]
 fn expression_evaluation_uses_typed_input_and_relation_bindings() {
     let input_id = InputId::parse("quantity").expect("input");
     let relation_id = RelationId::parse("inventory.available").expect("relation");

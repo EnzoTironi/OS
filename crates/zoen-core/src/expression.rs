@@ -244,9 +244,15 @@ pub(crate) fn apply_expression_operator(
         (ExactValue::Integer(left), ExactValue::Integer(right)) => {
             apply_integer_operator(operator, left, right)
         }
-        (ExactValue::Decimal(left), ExactValue::Decimal(right)) => {
-            apply_decimal_operator(operator, left, right).map(ExactValue::Decimal)
-        }
+        (ExactValue::Decimal(left), ExactValue::Decimal(right)) => match operator {
+            BinaryOperator::Add | BinaryOperator::Subtract => {
+                apply_decimal_operator(operator, left, right).map(ExactValue::Decimal)
+            }
+            BinaryOperator::GreaterThan => {
+                Ok(ExactValue::Bool(compare_decimals(left, right).is_gt()))
+            }
+            BinaryOperator::Multiply => Err(ExpressionEvaluationError::InvalidOperands),
+        },
         (
             ExactValue::Quantity {
                 amount: left,

@@ -10,9 +10,9 @@ const genericRoots = [
   "apps/zoend/src",
 ];
 const knownDomainLiteral =
-  /"(?:[^"\\]|\\.)*(?:commercial|procurement|quality|inventory|erp|human[-_.]?factors|hf)[._:-](?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*(?:commercial|procurement|quality|inventory|erp|human[-_.]?factors|hf)[._:-](?:[^'\\]|\\.)*'/giu;
+  /"(?:[^"\\]|\\.)*(?:commercial|party|procurement|product|quality|inventory|erp|human[-_.]?factors|hf)[._:-](?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*(?:commercial|party|procurement|product|quality|inventory|erp|human[-_.]?factors|hf)[._:-](?:[^'\\]|\\.)*'/giu;
 const knownActionLiteral =
-  /"(?:action\.(?:purchase|return|reserve[-_.]?inventory|release[-_.]?lot|quarantine[-_.]?lot|replenish)|(?:commercial|procurement|quality|inventory|erp|hf)\.[a-z0-9._-]+)"|'(?:action\.(?:purchase|return|reserve[-_.]?inventory|release[-_.]?lot|quarantine[-_.]?lot|replenish)|(?:commercial|procurement|quality|inventory|erp|hf)\.[a-z0-9._-]+)'/giu;
+  /"(?:action\.(?:purchase|return|reserve[-_.]?inventory|release[-_.]?lot|quarantine[-_.]?lot|replenish)|(?:commercial|party|procurement|product|quality|inventory|erp|hf)\.[a-z0-9._-]+)"|'(?:action\.(?:purchase|return|reserve[-_.]?inventory|release[-_.]?lot|quarantine[-_.]?lot|replenish)|(?:commercial|party|procurement|product|quality|inventory|erp|hf)\.[a-z0-9._-]+)'/giu;
 
 const requestedPaths = process.argv.slice(2);
 const roots = requestedPaths.length === 0 ? genericRoots : requestedPaths;

@@ -90,6 +90,7 @@ jobs:
       matrix:
         scenario:
           - definition-publication
+          - domain-commercial
           - domain-quality
           - durable-commit
           - effects
