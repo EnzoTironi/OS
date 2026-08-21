@@ -217,7 +217,14 @@ metadata_value() {
   ' "${artifact_metadata}" "$1"
 }
 
-definition_digest="$(sha256sum e2e/shared-tenancy/definition.canonical.json | awk '{print $1}')"
+definition_digest="$(
+  node -e '
+    const { createHash } = require("node:crypto");
+    const { readFileSync } = require("node:fs");
+    const canonicalJson = readFileSync(process.argv[1], "utf8").trim();
+    process.stdout.write(createHash("sha256").update(canonicalJson).digest("hex"));
+  ' e2e/shared-tenancy/definition.canonical.json
+)"
 chart_version="$(metadata_value chartVersion)"
 rust_repository="$(metadata_value rustRepository)"
 rust_digest="$(metadata_value rustDigest)"
