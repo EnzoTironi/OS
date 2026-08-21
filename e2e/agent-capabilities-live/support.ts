@@ -20,6 +20,7 @@ import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import {
+  agentSessionObjectKey,
   agentSessionCommandSchema,
   agentSessionResultSchema,
   agentSessionSignatureHeader,
@@ -587,7 +588,7 @@ export async function invokeSession(
 ): Promise<AgentSessionResult> {
   const response = await fetch(
     `${restateIngress}/ZoenAgentSession/${encodeURIComponent(
-      command.sessionId,
+      agentSessionObjectKey(tenantA, command.sessionId),
     )}/run`,
     {
       body: JSON.stringify(command),
@@ -614,7 +615,7 @@ export async function invokeSessionWithWrongBinding(
 ): Promise<number> {
   const response = await fetch(
     `${restateIngress}/ZoenAgentSession/${encodeURIComponent(
-      command.sessionId,
+      agentSessionObjectKey(tenantA, command.sessionId),
     )}/run`,
     {
       body: JSON.stringify(command),

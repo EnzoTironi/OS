@@ -29,6 +29,10 @@ export interface CompanyBrainIngestHooks {
   beforeStep?(name: string): Promise<void>;
 }
 
+export interface CompanyBrainIngestServiceOptions {
+  readonly serviceName?: string;
+}
+
 export function signCompanyBrainIngestCommand(
   bindingKey: string,
   command: CompanyBrainIngestCommand,
@@ -51,12 +55,13 @@ export function createCompanyBrainIngestService(
   trustedContext: Pick<TrustedAgentContext, "tenantId">,
   bindingKey: string,
   hooks: CompanyBrainIngestHooks = {},
+  options: CompanyBrainIngestServiceOptions = {},
 ) {
   if (bindingKey.length === 0) {
     throw new Error("company ingest binding key is required");
   }
   return restate.object({
-    name: "ZoenCompanyIngest",
+    name: options.serviceName ?? "ZoenCompanyIngest",
     handlers: {
       run: async (context: restate.ObjectContext, input: unknown) => {
         const parsed = companyBrainIngestCommandSchema.safeParse(input);

@@ -112,8 +112,7 @@ impl ProjectionWorker {
         let manifest_bytes = serde_json::to_vec(&manifest)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
         let manifest_digest = sha256(&manifest_bytes);
-        let manifest_object_key =
-            format!("projections/{PROJECTION_ID}/manifests/{manifest_digest}.json");
+        let manifest_object_key = projection_manifest_object_key(tenant_id, &manifest_digest);
         put_immutable(&*self.store, &manifest_object_key, manifest_bytes).await?;
 
         self.publish_manifest(
@@ -431,4 +430,34 @@ fn i64_to_u64(value: i64, name: &str) -> Result<u64, QueryError> {
 
 fn unavailable(error: sqlx::Error) -> QueryError {
     QueryError::Unavailable(error.to_string())
+}
+
+fn projection_manifest_object_key(tenant_id: &TenantId, manifest_digest: &str) -> String {
+    format!(
+        "projections/{PROJECTION_ID}/{}/manifests/{manifest_digest}.json",
+        tenant_id.as_str()
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use zoen_core::TenantId;
+
+    use super::projection_manifest_object_key;
+
+    #[test]
+    fn manifest_keys_include_the_tenant_even_when_digests_collide() {
+        let digest = "a".repeat(64);
+        let tenant_a = TenantId::parse("tenant.a").expect("tenant a");
+        let tenant_b = TenantId::parse("tenant.b").expect("tenant b");
+
+        assert_eq!(
+            projection_manifest_object_key(&tenant_a, &digest),
+            format!("projections/semantic_claims_v1/tenant.a/manifests/{digest}.json")
+        );
+        assert_ne!(
+            projection_manifest_object_key(&tenant_a, &digest),
+            projection_manifest_object_key(&tenant_b, &digest)
+        );
+    }
 }

@@ -13,6 +13,7 @@ import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import {
+  agentSessionObjectKey,
   agentSessionResultSchema,
   agentSessionSignatureHeader,
   companyBrainIngestObjectKey,
@@ -356,7 +357,7 @@ export async function invokeSession(
   try {
     response = await fetch(
       `${restateIngress}/ZoenAgentSession/${encodeURIComponent(
-        command.sessionId,
+        agentSessionObjectKey(tenantA, command.sessionId),
       )}/run`,
       {
         body: JSON.stringify(command),

@@ -209,6 +209,7 @@ await restate.serve({
         authority: connected.authority,
         registry,
       },
+      connected.trustedContext,
       environmentSchema.ZOEN_AGENT_BEARER_TOKEN,
     ),
   ],
