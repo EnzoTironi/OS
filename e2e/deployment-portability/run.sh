@@ -150,12 +150,11 @@ rust_digest="$(metadata_value rustDigest)"
 node_repository="$(metadata_value nodeRepository)"
 node_digest="$(metadata_value nodeDigest)"
 definition_digest="$(
-  node -e '
-    const { createHash } = require("node:crypto");
-    const { readFileSync } = require("node:fs");
-    const canonical = readFileSync(process.argv[1], "utf8").trimEnd();
-    process.stdout.write(createHash("sha256").update(canonical).digest("hex"));
-  ' e2e/governed-action/definition-direct.canonical.json
+  node --input-type=module -e '
+    import { loadFixture } from "./dist/e2e/governed-action/support.js";
+    const fixture = await loadFixture("direct", 1);
+    process.stdout.write(fixture.digest);
+  '
 )"
 
 cleanup_cluster
