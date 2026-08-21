@@ -322,6 +322,7 @@ function actionPolicy(
       return [
         "manufacturing.recordCompletion",
         "manufacturing.recordPartialCompletion",
+        "manufacturing.recordRequirement",
         "manufacturing.startWork",
       ].includes(actionId)
         ? policySet.execution

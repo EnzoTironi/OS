@@ -121,11 +121,31 @@ const currentBomRevision = defineRelation({
   target: { kind: "value", valueType: { kind: "integer" } },
 });
 
+const currentBomRevisionBasis = defineRelation({
+  cardinality: "one",
+  id: "manufacturing.currentBomRevisionBasis",
+  sourceType: "manufacturing.Work",
+  target: {
+    kind: "value",
+    valueType: { kind: "quantity", unit: "each" },
+  },
+});
+
 const pinnedBomRevision = defineRelation({
   cardinality: "one",
   id: "manufacturing.pinnedBomRevision",
   sourceType: "manufacturing.Work",
   target: { kind: "value", valueType: { kind: "integer" } },
+});
+
+const pinnedBomRevisionBasis = defineRelation({
+  cardinality: "one",
+  id: "manufacturing.pinnedBomRevisionBasis",
+  sourceType: "manufacturing.Work",
+  target: {
+    kind: "value",
+    valueType: { kind: "quantity", unit: "each" },
+  },
 });
 
 const requiredInputProductReference = defineRelation({
@@ -490,6 +510,10 @@ const recordRequirement = defineAction({
       value: { inputId: "bomRevision", kind: "input" },
     },
     {
+      relationId: "manufacturing.currentBomRevisionBasis",
+      value: { inputId: "bomRevisionBasis", kind: "input" },
+    },
+    {
       relationId: "manufacturing.producedOutputQuantity",
       value: {
         kind: "literal",
@@ -535,6 +559,10 @@ const recordRequirement = defineAction({
   inputs: [
     { id: "bomReference", valueType: { kind: "text" } },
     { id: "bomRevision", valueType: { kind: "integer" } },
+    {
+      id: "bomRevisionBasis",
+      valueType: { kind: "quantity", unit: "each" },
+    },
     { id: "inputProductReference", valueType: { kind: "text" } },
     { id: "inputQuantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "outputProductReference", valueType: { kind: "text" } },
@@ -591,6 +619,10 @@ const startWork = defineAction({
       value: { inputId: "bomRevision", kind: "input" },
     },
     {
+      relationId: "manufacturing.pinnedBomRevisionBasis",
+      value: { inputId: "bomRevisionBasis", kind: "input" },
+    },
+    {
       relationId: "manufacturing.resourceCapabilityReference",
       value: { inputId: "capabilityReference", kind: "input" },
     },
@@ -606,6 +638,10 @@ const startWork = defineAction({
   id: "manufacturing.startWork",
   inputs: [
     { id: "bomRevision", valueType: { kind: "integer" } },
+    {
+      id: "bomRevisionBasis",
+      valueType: { kind: "quantity", unit: "each" },
+    },
     { id: "capabilityReference", valueType: { kind: "text" } },
     { id: "inputQuantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "occurrenceReference", valueType: { kind: "text" } },
@@ -630,7 +666,7 @@ const startWork = defineAction({
       operator: "add",
       right: {
         kind: "relation",
-        relationId: "manufacturing.currentBomRevision",
+        relationId: "manufacturing.currentBomRevisionBasis",
       },
     },
     operator: "greater_than",
@@ -638,7 +674,7 @@ const startWork = defineAction({
       kind: "binary",
       left: { inputId: "inputQuantity", kind: "input" },
       operator: "add",
-      right: { inputId: "bomRevision", kind: "input" },
+      right: { inputId: "bomRevisionBasis", kind: "input" },
     },
   },
 });
@@ -725,6 +761,10 @@ const recordPartialCompletion = defineAction({
   inputs: [
     { id: "bomRevision", valueType: { kind: "integer" } },
     {
+      id: "bomRevisionBasis",
+      valueType: { kind: "quantity", unit: "each" },
+    },
+    {
       id: "consumedQuantity",
       valueType: { kind: "quantity", unit: "each" },
     },
@@ -774,7 +814,7 @@ const recordPartialCompletion = defineAction({
       operator: "add",
       right: {
         kind: "relation",
-        relationId: "manufacturing.pinnedBomRevision",
+        relationId: "manufacturing.pinnedBomRevisionBasis",
       },
     },
     operator: "greater_than",
@@ -787,7 +827,7 @@ const recordPartialCompletion = defineAction({
         right: { inputId: "producedQuantity", kind: "input" },
       },
       operator: "add",
-      right: { inputId: "bomRevision", kind: "input" },
+      right: { inputId: "bomRevisionBasis", kind: "input" },
     },
   },
 });
@@ -874,6 +914,10 @@ const recordCompletion = defineAction({
   inputs: [
     { id: "bomRevision", valueType: { kind: "integer" } },
     {
+      id: "bomRevisionBasis",
+      valueType: { kind: "quantity", unit: "each" },
+    },
+    {
       id: "consumedQuantity",
       valueType: { kind: "quantity", unit: "each" },
     },
@@ -923,7 +967,7 @@ const recordCompletion = defineAction({
       operator: "add",
       right: {
         kind: "relation",
-        relationId: "manufacturing.pinnedBomRevision",
+        relationId: "manufacturing.pinnedBomRevisionBasis",
       },
     },
     operator: "greater_than",
@@ -936,7 +980,7 @@ const recordCompletion = defineAction({
         right: { inputId: "producedQuantity", kind: "input" },
       },
       operator: "add",
-      right: { inputId: "bomRevision", kind: "input" },
+      right: { inputId: "bomRevisionBasis", kind: "input" },
     },
   },
 });
@@ -1112,6 +1156,7 @@ export default defineBundle({
     correctionOf,
     correctionReason,
     currentBomRevision,
+    currentBomRevisionBasis,
     genealogyOutputLotReference,
     inputLotReference,
     inputSerialReference,
@@ -1120,6 +1165,7 @@ export default defineBundle({
     outputLotReference,
     outputSerialReference,
     pinnedBomRevision,
+    pinnedBomRevisionBasis,
     plannedInputQuantity,
     plannedOutputQuantity,
     producedOutputQuantity,

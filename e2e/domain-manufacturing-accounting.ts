@@ -507,6 +507,16 @@ async function main(): Promise<void> {
       time: instant(changedAt),
       value: { kind: "integer", value: "2" },
     });
+    await recordEvidence(worldA, {
+      claimId: "claim.manufacturing.current-bom-revision-basis-2",
+      entityId: workId,
+      fixture: manufacturing,
+      relationId: "manufacturing.currentBomRevisionBasis",
+      sourceId: "source.engineering-change",
+      tenantId: tenantA,
+      time: instant(changedAt),
+      value: { amount: "2", kind: "quantity", unit: "each" },
+    });
     const staleBomCommit = await manufacturingAction.commit({
       operationId: staleBomRequest.operationId,
       proposalId: staleBomRequest.proposalId,
@@ -518,7 +528,8 @@ async function main(): Promise<void> {
         staleBomCommit.receipt === undefined &&
         staleBom.proposal.stateBasis?.dependencies.some(
           (dependency) =>
-            dependency.relationId === "manufacturing.currentBomRevision",
+            dependency.relationId ===
+            "manufacturing.currentBomRevisionBasis",
         ) === true,
     );
     await recordEvidence(worldA, {
@@ -530,6 +541,16 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       time: instant(changedAt),
       value: { kind: "integer", value: "1" },
+    });
+    await recordEvidence(worldA, {
+      claimId: "claim.manufacturing.current-bom-revision-basis-restored",
+      entityId: workId,
+      fixture: manufacturing,
+      relationId: "manufacturing.currentBomRevisionBasis",
+      sourceId: "source.engineering-release",
+      tenantId: tenantA,
+      time: instant(changedAt),
+      value: { amount: "1", kind: "quantity", unit: "each" },
     });
 
     const excessiveStart = await manufacturingAction.propose(
@@ -554,7 +575,7 @@ async function main(): Promise<void> {
       started.receipt.policy?.revision?.policyId ===
         "policy.manufacturing.startWork.r1" &&
         [
-          "manufacturing.currentBomRevision",
+          "manufacturing.currentBomRevisionBasis",
           "manufacturing.materialAvailableQuantity",
           "manufacturing.consumedInputQuantity",
         ].every((relationId) =>
@@ -1982,6 +2003,10 @@ function manufacturingRequirementRequest(
       { id: "bomReference", value: { kind: "text", value: bomId } },
       { id: "bomRevision", value: { kind: "integer", value: "1" } },
       {
+        id: "bomRevisionBasis",
+        value: { amount: "1", kind: "quantity", unit: "each" },
+      },
+      {
         id: "inputProductReference",
         value: { kind: "text", value: componentProductId },
       },
@@ -2046,6 +2071,10 @@ function manufacturingStartRequest(
     inputs: [
       { id: "bomRevision", value: { kind: "integer", value: "1" } },
       {
+        id: "bomRevisionBasis",
+        value: { amount: "1", kind: "quantity", unit: "each" },
+      },
+      {
         id: "capabilityReference",
         value: { kind: "text", value: "manufacturing.capability.press-01" },
       },
@@ -2084,6 +2113,10 @@ function manufacturingCompletionRequest(
     fixture,
     inputs: [
       { id: "bomRevision", value: { kind: "integer", value: "1" } },
+      {
+        id: "bomRevisionBasis",
+        value: { amount: "1", kind: "quantity", unit: "each" },
+      },
       {
         id: "consumedQuantity",
         value: { amount: consumedQuantity, kind: "quantity", unit: "each" },
