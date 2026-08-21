@@ -132,9 +132,15 @@ function tenantClients(suffix) {
       workloadId: `workload.fiscal-agent.${suffix}`,
     }),
     client({
+      actionIds: [
+        "zoen.effect.read",
+        "zoen.history.explain",
+        "zoen.world.query",
+      ],
       actorId: `actor.fiscal-adapter.${suffix}`,
       clientId: `fiscal-adapter-${suffix}`,
       principalId: `principal.fiscal-adapter.${suffix}`,
+      resourceIds: ["zoen.effect.request", ...resources],
       tenantId,
       workloadId: `workload.fiscal-adapter.${suffix}`,
     }),
