@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -6,14 +6,14 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
-    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, ComponentExecutionEvidence,
-    Consistency, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
-    EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
-    LineageRole, OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation,
-    ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult,
-    SemanticSelection, SemanticValue, StateBasis, StateBasisDigest, StateDependency,
-    TimestampMicros, TrustedExecutionContext, ValidTime, ValueType, evaluate_expression,
-    expression_relations,
+    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, CommitSequence,
+    ComponentExecutionEvidence, Consistency, DefinitionReference, DefinitionRevision,
+    EffectRequestId, EntityId, EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue,
+    ExecutionContext, IntentDigest, LineageRole, OperationId, PolicyEvaluation, PolicyEvidence,
+    PreconditionEvaluation, ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery,
+    SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
+    StateDependency, TimestampMicros, TrustedExecutionContext, ValidTime, ValueType,
+    evaluate_expression, expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
@@ -579,7 +579,21 @@ where
         let loaded = self
             .load_action(context, &proposal.definition, &proposal.action_id)
             .await?;
-        let effects = build_effects(&proposal, &loaded.action)?
+        let relation_ids = effect_evaluation_relations(&loaded.action)?;
+        let snapshot = self
+            .load_relation_snapshot(
+                context,
+                &proposal.definition,
+                &proposal.resource_id,
+                relation_ids,
+                proposal.valid_at,
+                loaded.revision.commit_sequence,
+                "Action effect relations used different authority cuts",
+            )
+            .await?;
+        let relation_values =
+            read_action_state_basis(&loaded.action, &loaded.definition, snapshot)?.values;
+        let effects = build_effects(&proposal, &loaded.action, &relation_values)?
             .into_iter()
             .enumerate()
             .map(|(index, draft)| {
@@ -665,9 +679,32 @@ where
         inputs: &[ActionInput],
         valid_at: TimestampMicros,
     ) -> Result<PreconditionEvaluation, ActionError> {
+        let snapshot = self
+            .load_relation_snapshot(
+                context,
+                definition,
+                resource_id,
+                expression_relations(&loaded.action.precondition),
+                valid_at,
+                loaded.revision.commit_sequence,
+                "Action precondition relations used different authority cuts",
+            )
+            .await?;
+        evaluate_action_state_basis(&loaded.action, &loaded.definition, inputs, snapshot)
+    }
+
+    async fn load_relation_snapshot(
+        &self,
+        context: &TrustedExecutionContext,
+        definition: &DefinitionReference,
+        resource_id: &ResourceId,
+        relations: BTreeSet<RelationId>,
+        valid_at: TimestampMicros,
+        fallback_commit_sequence: CommitSequence,
+        authority_cut_error: &'static str,
+    ) -> Result<ActionStateSnapshot, ActionError> {
         let entity_id = EntityId::parse(resource_id.as_str())
             .map_err(|error| ActionError::Input(error.to_string()))?;
-        let relations = expression_relations(&loaded.action.precondition);
         let mut values = BTreeMap::<RelationId, Vec<SemanticValue>>::new();
         let mut observed = None;
         for relation_id in relations {
@@ -690,23 +727,15 @@ where
                 .await
                 .map_err(|error| ActionError::Evaluation(error.to_string()))?;
             if observed.is_some_and(|cut| cut != result.actual_commit_sequence) {
-                return Err(ActionError::Evaluation(
-                    "Action precondition relations used different authority cuts".to_owned(),
-                ));
+                return Err(ActionError::Evaluation(authority_cut_error.to_owned()));
             }
             observed = Some(result.actual_commit_sequence);
             values.insert(relation_id, result.values);
         }
-        let observed_commit_sequence = observed.unwrap_or(loaded.revision.commit_sequence);
-        evaluate_action_state_basis(
-            &loaded.action,
-            &loaded.definition,
-            inputs,
-            ActionStateSnapshot {
-                observed_commit_sequence,
-                relations: values,
-            },
-        )
+        Ok(ActionStateSnapshot {
+            observed_commit_sequence: observed.unwrap_or(fallback_commit_sequence),
+            relations: values,
+        })
     }
 }
 
@@ -845,6 +874,7 @@ fn intent_digest(
 fn build_effects(
     proposal: &ActionProposal,
     action: &ActionDefinition,
+    relations: &BTreeMap<RelationId, Vec<SemanticValue>>,
 ) -> Result<Vec<EvidenceDraft>, ActionError> {
     let inputs = proposal
         .inputs
@@ -858,7 +888,7 @@ fn build_effects(
         .iter()
         .enumerate()
         .map(|(index, effect)| {
-            let values = evaluate_expression(&effect.value, &inputs, &BTreeMap::new())
+            let values = evaluate_expression(&effect.value, &inputs, relations)
                 .map_err(|error| ActionError::Evaluation(error.to_string()))?;
             let [value] = values.as_slice() else {
                 return Err(ActionError::Evaluation(
@@ -887,6 +917,24 @@ fn build_effects(
             })
         })
         .collect()
+}
+
+fn effect_evaluation_relations(
+    action: &ActionDefinition,
+) -> Result<BTreeSet<RelationId>, ActionError> {
+    let available = expression_relations(&action.precondition);
+    let required = action
+        .effects
+        .iter()
+        .flat_map(|effect| expression_relations(&effect.value))
+        .collect::<BTreeSet<_>>();
+    if let Some(relation_id) = required.difference(&available).next() {
+        return Err(ActionError::Definition(format!(
+            "Action effect relation {} must also be a precondition dependency",
+            relation_id.as_str()
+        )));
+    }
+    Ok(available)
 }
 
 fn effect_request_id(
@@ -933,7 +981,9 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use zoen_core::{CommitSequence, SourceId};
+    use zoen_core::{
+        ActionEffect, BinaryOperator, CommitSequence, ExactDecimal, Expression, SourceId, UnitId,
+    };
 
     use super::*;
 
@@ -962,5 +1012,60 @@ mod tests {
             calculate_state_basis_digest(&[dependency]).expect("current digest"),
             legacy
         );
+    }
+
+    #[test]
+    fn effect_relation_reads_use_precondition_dependencies() {
+        let relation_id = RelationId::parse("inventory.reserved").expect("relation");
+        let action = ActionDefinition {
+            effects: vec![ActionEffect {
+                relation_id: relation_id.clone(),
+                value: Expression::Binary {
+                    left: Box::new(Expression::Relation(relation_id.clone())),
+                    operator: BinaryOperator::Add,
+                    right: Box::new(Expression::Literal(ExactValue::Quantity {
+                        amount: ExactDecimal::parse("1").expect("quantity"),
+                        unit: UnitId::parse("each").expect("unit"),
+                    })),
+                },
+            }],
+            id: ActionId::parse("inventory.reserve").expect("action"),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            precondition: Expression::Binary {
+                left: Box::new(Expression::Relation(relation_id.clone())),
+                operator: BinaryOperator::GreaterThan,
+                right: Box::new(Expression::Literal(ExactValue::Quantity {
+                    amount: ExactDecimal::parse("0").expect("quantity"),
+                    unit: UnitId::parse("each").expect("unit"),
+                })),
+            },
+        };
+
+        assert_eq!(
+            effect_evaluation_relations(&action).expect("effect relations"),
+            BTreeSet::from([relation_id])
+        );
+    }
+
+    #[test]
+    fn effect_relation_reads_reject_untracked_dependencies() {
+        let relation_id = RelationId::parse("inventory.reserved").expect("relation");
+        let action = ActionDefinition {
+            effects: vec![ActionEffect {
+                relation_id: relation_id.clone(),
+                value: Expression::Relation(relation_id),
+            }],
+            id: ActionId::parse("inventory.reserve").expect("action"),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            precondition: Expression::Literal(ExactValue::Bool(true)),
+        };
+
+        assert!(matches!(
+            effect_evaluation_relations(&action),
+            Err(ActionError::Definition(message))
+                if message.contains("must also be a precondition dependency")
+        ));
     }
 }
