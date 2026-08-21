@@ -12,6 +12,13 @@ kind_version="v0.32.0"
 kubectl_version="v1.36.4"
 helm_version="v4.2.4"
 cosign_version="v3.1.3"
+third_party_images=(
+  "pgvector/pgvector:pg18"
+  "quay.io/keycloak/keycloak:26.0.7"
+  "minio/minio:RELEASE.2025-07-23T15-54-02Z"
+  "minio/mc:RELEASE.2025-07-21T05-28-08Z"
+  "docker.restate.dev/restatedev/restate:1.7.2"
+)
 
 cd "${repository_root}"
 mkdir -p "${generated_directory}" "${artifacts_directory}" "${tools_directory}"
@@ -128,6 +135,9 @@ install_helm
 install_cosign
 
 cleanup
+for image in "${third_party_images[@]}"; do
+  docker pull "${image}"
+done
 docker run --detach \
   --name "${registry_name}" \
   --publish 127.0.0.1:5001:5000 \
@@ -176,6 +186,7 @@ nodes:
 EOF
 
 kind create cluster --name "${cluster_name}" --config "${kind_config}" --wait 180s
+kind load docker-image --name "${cluster_name}" "${third_party_images[@]}"
 docker network connect kind "${registry_name}" 2>/dev/null || true
 node e2e/shared-tenancy/prepare-realm.mjs
 
