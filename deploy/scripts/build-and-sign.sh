@@ -136,10 +136,10 @@ signature_digest() {
   local repository="$1"
   local digest="$2"
   local repository_path="${repository#${registry}/}"
-  local signature_tag="${digest/:/-}.sig"
+  local referrer_tag="${digest/:/-}"
   curl --silent --show-error --head \
-    --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
-    "http://${registry}/v2/${repository_path}/manifests/${signature_tag}" |
+    --header 'Accept: application/vnd.oci.image.index.v1+json' \
+    "http://${registry}/v2/${repository_path}/manifests/${referrer_tag}" |
     awk 'tolower($1) == "docker-content-digest:" {gsub("\r", "", $2); print $2}'
 }
 rust_signature_digest="$(signature_digest "${rust_ref%@*}" "${rust_digest}")"
