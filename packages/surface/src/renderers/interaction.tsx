@@ -6,6 +6,7 @@ import {
 import type { SurfaceDocument, SurfaceRuntimeData } from "../model.js";
 
 export interface SurfaceInteraction {
+  readonly actionAvailable: (bindingId: string) => boolean;
   readonly commit: (bindingId: string) => Promise<void>;
   readonly data: SurfaceRuntimeData;
   readonly document: SurfaceDocument;

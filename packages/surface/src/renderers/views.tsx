@@ -86,8 +86,14 @@ export function ActionFormView(props: {
   const operation =
     interaction.data.actions[binding.id] ??
     ({ kind: "idle" } satisfies ActionOperationView);
+  const available =
+    operation.kind !== "unavailable" &&
+    interaction.actionAvailable(binding.id);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!available) {
+      return;
+    }
     if (operation.kind === "proposed") {
       void interaction.commit(binding.id);
       return;
@@ -108,7 +114,7 @@ export function ActionFormView(props: {
       data-action-binding={binding.id}
       onSubmit={submit}
     >
-      <fieldset disabled={isBusy(operation)}>
+      <fieldset disabled={!available || isBusy(operation)}>
         <legend>{props.label}</legend>
         {binding.inputs.map((input) => {
           const value = interaction.fieldValue(

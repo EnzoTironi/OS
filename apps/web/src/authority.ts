@@ -31,6 +31,7 @@ import {
   type ActionBinding,
   type ActionInputControl,
   type ActionOperationView,
+  type AdaptiveQueryContext,
   type AdaptiveSurfaceSession,
   type HistoryEntryView,
   type QueryBinding,
@@ -42,11 +43,13 @@ import type { RuntimeConfig } from "./config.js";
 
 export type LoadedAuthoritySurface =
   | {
+      readonly actionFreshness: ActionFreshness;
       readonly data: SurfaceRuntimeData;
       readonly document: SurfaceDocument;
       readonly kind: "deterministic";
     }
   | {
+      readonly actionFreshness: ActionFreshness;
       readonly data: SurfaceRuntimeData;
       readonly document: SurfaceDocument;
       readonly kind: "adaptive";
@@ -63,6 +66,13 @@ export type AdaptiveSurfaceLoadRequest =
       readonly sessionId: string;
     };
 
+export type ActionFreshness =
+  | { readonly kind: "deterministic" }
+  | {
+      readonly generatedQueries: readonly AdaptiveQueryContext[];
+      readonly kind: "generated";
+    };
+
 export interface ActionIdentity {
   readonly bindingId: string;
   readonly operationId: string;
@@ -70,6 +80,9 @@ export interface ActionIdentity {
 }
 
 export class ActionUnavailableError extends Error {}
+
+const staleActionError =
+  "The generated decision is stale. Regenerate it before proposing an Action.";
 
 export async function loadAuthoritySurface(
   client: ZoenBrowserClient,
@@ -104,6 +117,7 @@ export async function loadAuthoritySurface(
     revision.commitSequence.toString(),
   );
   return {
+    actionFreshness: { kind: "deterministic" },
     data: {
       actions,
       history: {},
@@ -157,21 +171,25 @@ export async function loadAdaptiveAuthoritySurface(
     queryClient,
     revision.commitSequence.toString(),
   );
-  const actions = adaptiveSessionIsStale(session, queries)
-    ? Object.fromEntries(
+  const actionFreshness = {
+    generatedQueries: session.context.queries,
+    kind: "generated",
+  } satisfies ActionFreshness;
+  const actions = generatedActionIsFresh(actionFreshness, queries)
+    ? await discoverActionViews(client, session.document)
+    : Object.fromEntries(
         session.document.actionBindings.map(
           (binding): [string, ActionOperationView] => [
             binding.id,
             {
-              error:
-                "The generated decision is stale. Regenerate it before proposing an Action.",
+              error: staleActionError,
               kind: "unavailable",
             },
           ],
         ),
-      )
-    : await discoverActionViews(client, session.document);
+      );
   return {
+    actionFreshness,
     data: {
       actions,
       history: {},
@@ -244,15 +262,24 @@ function requireActiveAdaptiveSession(
   }
 }
 
-function adaptiveSessionIsStale(
-  session: AdaptiveSurfaceSession,
+export function generatedActionIsFresh(
+  freshness: ActionFreshness,
   queries: Readonly<Record<string, QueryBindingView>>,
 ): boolean {
-  return session.context.queries.some(
-    (query) =>
-      queries[query.binding.id]?.actualCommitSequence !==
-      query.actualCommitSequence,
-  );
+  switch (freshness.kind) {
+    case "deterministic":
+      return true;
+    case "generated":
+      return freshness.generatedQueries.every(
+        (query) =>
+          queries[query.binding.id]?.actualCommitSequence ===
+          query.actualCommitSequence,
+      );
+    default: {
+      const exhaustive: never = freshness;
+      return exhaustive;
+    }
+  }
 }
 
 export async function refreshQueries(
@@ -291,16 +318,21 @@ export async function refreshQueries(
   return Object.fromEntries(entries);
 }
 
-export async function proposeAuthorityAction(
-  client: ZoenBrowserClient,
-  config: RuntimeConfig,
-  document: SurfaceDocument,
-  identity: ActionIdentity,
-  values: Readonly<Record<string, string | boolean>>,
-): Promise<ProposeResponse> {
-  const binding = requireActionBinding(document, identity.bindingId);
-  const discovery = await client.actions.discover({
-    definition: protocolDefinition(document),
+export async function proposeAuthorityAction(input: {
+  readonly actionFreshness: ActionFreshness;
+  readonly client: ZoenBrowserClient;
+  readonly config: RuntimeConfig;
+  readonly currentQueries: Readonly<Record<string, QueryBindingView>>;
+  readonly document: SurfaceDocument;
+  readonly identity: ActionIdentity;
+  readonly values: Readonly<Record<string, string | boolean>>;
+}): Promise<ProposeResponse> {
+  if (!generatedActionIsFresh(input.actionFreshness, input.currentQueries)) {
+    throw new ActionUnavailableError(staleActionError);
+  }
+  const binding = requireActionBinding(input.document, input.identity.bindingId);
+  const discovery = await input.client.actions.discover({
+    definition: protocolDefinition(input.document),
     resourceId: binding.ref.resourceId,
   });
   const capability = discovery.actions.find(
@@ -311,17 +343,17 @@ export async function proposeAuthorityAction(
       "Server discovery no longer permits this ActionRef.",
     );
   }
-  return client.actions.propose({
+  return input.client.actions.propose({
     actionId: binding.ref.actionId,
-    definition: protocolDefinition(document),
+    definition: protocolDefinition(input.document),
     expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
-    inputs: binding.inputs.map((input) =>
-      actionInput(input, values[input.inputId]),
+    inputs: binding.inputs.map((control) =>
+      actionInput(control, input.values[control.inputId]),
     ),
-    operationId: identity.operationId,
-    proposalId: identity.proposalId,
+    operationId: input.identity.operationId,
+    proposalId: input.identity.proposalId,
     resourceId: binding.ref.resourceId,
-    validAt: timestampFromDate(new Date(config.validAt)),
+    validAt: timestampFromDate(new Date(input.config.validAt)),
   });
 }
 

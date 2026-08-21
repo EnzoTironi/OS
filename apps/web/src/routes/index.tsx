@@ -32,6 +32,7 @@ import {
   actionErrorView,
   commitAuthorityAction,
   commitResponseOperationView,
+  generatedActionIsFresh,
   loadAdaptiveAuthoritySurface,
   loadAuthoritySurface,
   operationHistory,
@@ -39,6 +40,7 @@ import {
   proposeAuthorityAction,
   recoverAuthorityAction,
   refreshQueries,
+  type ActionFreshness,
   type ActionIdentity,
   type LoadedAuthoritySurface,
 } from "../authority.js";
@@ -51,6 +53,7 @@ import { loadRuntimeConfig, type RuntimeConfig } from "../config.js";
 import { queryClient } from "../query-client.js";
 
 type ReadyState = {
+  readonly actionFreshness: ActionFreshness;
   readonly client: ZoenBrowserClient;
   readonly config: RuntimeConfig;
   readonly data: SurfaceRuntimeData;
@@ -157,6 +160,7 @@ function AuthorityPage() {
   }
 
   const interaction: SurfaceInteraction = {
+    actionAvailable: (bindingId) => actionAvailable(state, bindingId),
     commit: (bindingId) => commit(state, bindingId, setState),
     data: state.data,
     document: state.document,
@@ -355,6 +359,7 @@ async function setLoadedState(
     loaded.data,
   );
   setState({
+    actionFreshness: loaded.actionFreshness,
     client,
     config,
     document: loaded.document,
@@ -372,6 +377,9 @@ async function propose(
   bindingId: string,
   setState: SetPageState,
 ): Promise<void> {
+  if (!actionAvailable(state, bindingId)) {
+    return;
+  }
   const identity = createActionIdentity(bindingId);
   const values = fieldValues(state.fields, bindingId);
   saveActionSession({
@@ -389,13 +397,15 @@ async function propose(
     }),
   }));
   try {
-    const response = await proposeAuthorityAction(
-      state.client,
-      state.config,
-      state.document,
+    const response = await proposeAuthorityAction({
+      actionFreshness: state.actionFreshness,
+      client: state.client,
+      config: state.config,
+      currentQueries: state.data.queries,
+      document: state.document,
       identity,
       values,
-    );
+    });
     const operation = proposedOperationView(response, identity);
     updateReady(setState, (current) => ({
       ...current,
@@ -644,6 +654,13 @@ function fieldValues(
 
 function fieldKey(bindingId: string, inputId: string): string {
   return `${bindingId}\u0000${inputId}`;
+}
+
+function actionAvailable(state: ReadyState, bindingId: string): boolean {
+  return (
+    generatedActionIsFresh(state.actionFreshness, state.data.queries) &&
+    state.data.actions[bindingId]?.kind !== "unavailable"
+  );
 }
 
 function clearStoredActionSession(
