@@ -579,15 +579,28 @@ export function signAgentSessionCommand(
     .digest("hex");
 }
 
+export function agentSessionObjectKey(
+  trustedTenantId: string,
+  sessionId: string,
+): string {
+  return `${encodeURIComponent(trustedTenantId)}:${encodeURIComponent(sessionId)}`;
+}
+
+export interface AgentSessionServiceOptions {
+  readonly serviceName?: string;
+}
+
 export function createAgentSessionService(
   runtime: AgentSessionRuntime,
+  trustedContext: Pick<TrustedAgentContext, "tenantId">,
   bindingKey: string,
+  options: AgentSessionServiceOptions = {},
 ) {
   if (bindingKey.length === 0) {
     throw new Error("agent session binding key is required");
   }
   return restate.object({
-    name: "ZoenAgentSession",
+    name: options.serviceName ?? "ZoenAgentSession",
     handlers: {
       run: async (context: restate.ObjectContext, input: unknown) => {
         const parsed = agentSessionCommandSchema.safeParse(input);
@@ -605,7 +618,13 @@ export function createAgentSessionService(
             "agent session principal binding is invalid",
           );
         }
-        if (context.key !== parsed.data.sessionId) {
+        if (
+          context.key !==
+          agentSessionObjectKey(
+            trustedContext.tenantId,
+            parsed.data.sessionId,
+          )
+        ) {
           throw new restate.TerminalError(
             "session key does not match the command",
           );

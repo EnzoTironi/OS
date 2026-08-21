@@ -257,6 +257,7 @@ await restate.serve({
         contextAssembler: new CompanyBrainContextAssembler(brain),
         registry,
       },
+      connected.trustedContext,
       environment.ZOEN_AGENT_BEARER_TOKEN,
     ),
   ],

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zoen-projection
+  labels:
+    {{- include "zoen.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zoen-projection
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zoen-projection
+        {{- include "zoen.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: projection
+          image: {{ include "zoen.rustImage" . }}
+          imagePullPolicy: Always
+          command: [/usr/local/bin/zoen-projection]
+          env:
+            - name: DATABASE_URL
+              value: postgres://zoen_app:zoen_app@postgres:5432/zoen
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: zoen-shared-secrets
+                  key: minioAccessKey
+            - name: S3_ALLOW_HTTP
+              value: "true"
+            - name: S3_BUCKET
+              value: zoen-projections
+            - name: S3_ENDPOINT
+              value: http://minio:9000
+            - name: S3_REGION
+              value: us-east-1
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zoen-shared-secrets
+                  key: minioSecretKey
+            - name: ZOEN_PROJECTION_INTERVAL_MS
+              value: "250"
+            - name: ZOEN_PROJECTION_TENANTS
+              value: tenant.a,tenant.b
+---
+{{- range $tenant := list "tenant.a" "tenant.b" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zoen-effect-dispatcher-{{ $tenant | replace "." "-" }}
+  labels:
+    {{- include "zoen.labels" $ | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zoen-effect-dispatcher-{{ $tenant | replace "." "-" }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zoen-effect-dispatcher-{{ $tenant | replace "." "-" }}
+        {{- include "zoen.labels" $ | nindent 8 }}
+    spec:
+      containers:
+        - name: effect-dispatcher
+          image: {{ include "zoen.rustImage" $ }}
+          imagePullPolicy: Always
+          command: [/usr/local/bin/zoen-effect-dispatcher]
+          env:
+            - name: DATABASE_URL
+              value: postgres://zoen_app:zoen_app@postgres:5432/zoen
+            - name: RESTATE_INGRESS
+              value: http://restate:8080
+            - name: ZOEN_EFFECT_DISPATCH_INTERVAL_MS
+              value: "250"
+            - name: ZOEN_TENANT_ID
+              value: {{ $tenant | quote }}
+---
+{{- end }}

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Ticket command stays `just e2e <scenario>` (check + native build + run).
 # `just verify` runs check and native build once, then each scenario runner.
-# `just e2e-run` executes a built workspace against Compose and does not lint.
+# `just e2e-run` executes a built workspace and does not lint.
 # Each scenario loads `e2e/<scenario>/.env` so Compose, zoend, and artifacts
 # never share host ports or generated files with another scenario.
 
@@ -26,6 +26,7 @@ scenario_table=(
   "fiscal-protheus-live:fiscal-protheus-live:"
   "governed-action:governed-action:"
   "semantic-query::"
+  "shared-tenancy::"
   "wasm-code-mode:wasm-code-mode:"
   "web-adaptive-live:web-adaptive-live:"
   "web-deterministic:web-deterministic:"
@@ -83,7 +84,10 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ -n "$realm" ]]; then
+      if [[ "$scenario" == "shared-tenancy" ]]; then
+        compose_file=""
+        project=""
+      elif [[ -n "$realm" ]]; then
         prepare="e2e/${realm}/prepare-realm.mjs"
       fi
       load_scenario_env
@@ -199,6 +203,9 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
+  if [[ "$scenario" == "shared-tenancy" ]]; then
+    return
+  fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
   if [[ -n "$generated_directory" ]]; then
     rm -rf "$generated_directory"
@@ -215,6 +222,11 @@ run_scenario() {
   trap cleanup_scenario EXIT
   cleanup_scenario
   mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
+  if [[ "$scenario" == "shared-tenancy" ]]; then
+    e2e/shared-tenancy/run.sh
+    trap - EXIT
+    return
+  fi
   if [[ -n "$prepare" ]]; then
     node "$prepare"
   fi

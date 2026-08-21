@@ -84,7 +84,7 @@ jobs:
   e2e:
     needs: [check, clippy, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.scenario == 'shared-tenancy' && 90 || 45 }}
     strategy:
       fail-fast: false
       matrix:
@@ -102,6 +102,7 @@ jobs:
           - fiscal-fault-matrix
           - governed-action
           - semantic-query
+          - shared-tenancy
           - wasm-code-mode
           - web-deterministic
     steps:

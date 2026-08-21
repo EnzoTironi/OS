@@ -1,0 +1,13 @@
+FROM node:22.18.0-bookworm-slim
+
+WORKDIR /app
+COPY . .
+RUN npm ci \
+    && npm run build \
+    && node deploy/scripts/preload-embedding-model.mjs \
+    && npm cache clean --force \
+    && chown -R node:node /app
+
+ENV NODE_ENV=production
+USER node
+CMD ["node", "apps/web/.output/server/index.mjs"]

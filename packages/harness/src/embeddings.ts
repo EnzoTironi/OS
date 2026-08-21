@@ -11,12 +11,21 @@ import {
 
 const embeddingBatchSchema = z.array(z.array(z.number().finite()));
 
+type EmbeddingModelSource =
+  | { readonly kind: "cache-or-remote" }
+  | { readonly kind: "local"; readonly path: string };
+
 export class LocalTransformerEmbeddingProvider implements EmbeddingProvider {
   readonly route: EmbeddingProviderRoute;
   #extractor: Promise<FeatureExtractionPipeline> | undefined;
+  readonly #source: EmbeddingModelSource;
 
-  constructor(route: EmbeddingProviderRoute) {
+  constructor(
+    route: EmbeddingProviderRoute,
+    source: EmbeddingModelSource = { kind: "cache-or-remote" },
+  ) {
     this.route = embeddingProviderRouteSchema.parse(route);
+    this.#source = source;
   }
 
   async embed(
@@ -44,11 +53,13 @@ export class LocalTransformerEmbeddingProvider implements EmbeddingProvider {
   }
 
   private extractor(): Promise<FeatureExtractionPipeline> {
+    const local = this.#source.kind === "local";
     this.#extractor ??= pipeline(
       "feature-extraction",
-      this.route.modelId,
+      local ? this.#source.path : this.route.modelId,
       {
         dtype: "q8",
+        local_files_only: local,
         revision: this.route.modelRevision,
       },
     );

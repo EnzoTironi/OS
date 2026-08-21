@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zoen-postgres-init
+  labels:
+    {{- include "zoen.labels" . | nindent 4 }}
+data:
+  001-roles.sql: |
+    CREATE EXTENSION vector;
+    CREATE ROLE zoen_app
+      LOGIN
+      PASSWORD 'zoen_app'
+      NOSUPERUSER
+      NOCREATEDB
+      NOCREATEROLE
+      NOINHERIT
+      NOBYPASSRLS;
+    CREATE ROLE zoen_platform_observer
+      LOGIN
+      PASSWORD 'observer'
+      NOSUPERUSER
+      NOCREATEDB
+      NOCREATEROLE
+      NOINHERIT
+      BYPASSRLS;
+    GRANT CONNECT ON DATABASE zoen TO zoen_app, zoen_platform_observer;
+    GRANT ALL ON SCHEMA public TO zoen_app;
+    GRANT USAGE ON SCHEMA public TO zoen_platform_observer;
+    ALTER DEFAULT PRIVILEGES FOR ROLE zoen_app IN SCHEMA public
+      GRANT SELECT ON TABLES TO zoen_platform_observer;
+  002-company-brain.sql: |
+    BEGIN;
+    SET LOCAL ROLE zoen_app;
+    CREATE TABLE company_sources (
+      tenant_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_revision TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      media_type TEXT NOT NULL,
+      content_digest TEXT NOT NULL,
+      object_key TEXT NOT NULL,
+      extraction_version TEXT NOT NULL,
+      parser_name TEXT NOT NULL,
+      parser_version_digest TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'stored', 'indexed', 'failed')),
+      failure_code TEXT CHECK (
+        failure_code IS NULL OR failure_code IN (
+          'corrupt_source',
+          'embedding_unavailable',
+          'extraction_failed',
+          'metadata_store_unavailable',
+          'object_store_unavailable',
+          'unsupported_source'
+        )
+      ),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (tenant_id, source_id, source_revision)
+    );
+    CREATE TABLE company_fragments (
+      tenant_id TEXT NOT NULL,
+      fragment_id TEXT NOT NULL,
+      fragment_digest TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_revision TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      extraction_version TEXT NOT NULL,
+      parser_name TEXT NOT NULL,
+      parser_version_digest TEXT NOT NULL,
+      index_version TEXT NOT NULL,
+      embedding_model_id TEXT NOT NULL,
+      embedding_model_revision TEXT NOT NULL,
+      embedding_version_digest TEXT NOT NULL,
+      embedding vector(384) NOT NULL,
+      search_vector tsvector GENERATED ALWAYS AS (
+        to_tsvector('english', text)
+      ) STORED,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (tenant_id, fragment_id),
+      UNIQUE (tenant_id, source_id, source_revision, ordinal),
+      FOREIGN KEY (tenant_id, source_id, source_revision)
+        REFERENCES company_sources (tenant_id, source_id, source_revision)
+        ON DELETE CASCADE
+    );
+    CREATE TABLE company_retrieval_traces (
+      tenant_id TEXT NOT NULL,
+      trace_id TEXT NOT NULL,
+      query_digest TEXT NOT NULL,
+      index_version TEXT NOT NULL,
+      embedding_model_id TEXT NOT NULL,
+      embedding_model_revision TEXT NOT NULL,
+      embedding_version_digest TEXT NOT NULL,
+      trace JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (tenant_id, trace_id)
+    );
+    CREATE TABLE company_surface_sessions (
+      tenant_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      session_digest TEXT NOT NULL,
+      surface_session JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (tenant_id, session_id)
+    );
+    CREATE INDEX company_fragments_fts_idx
+      ON company_fragments USING gin (search_vector);
+    CREATE INDEX company_fragments_vector_idx
+      ON company_fragments USING hnsw (embedding vector_cosine_ops);
+    GRANT SELECT ON company_sources, company_fragments,
+      company_retrieval_traces, company_surface_sessions
+      TO zoen_platform_observer;
+    COMMIT;
+  003-company-brain-rls.sql: |
+    ALTER TABLE company_sources ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE company_sources FORCE ROW LEVEL SECURITY;
+    CREATE POLICY company_sources_tenant ON company_sources
+      USING (tenant_id = current_setting('zoen.tenant_id', true))
+      WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
+    ALTER TABLE company_fragments ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE company_fragments FORCE ROW LEVEL SECURITY;
+    CREATE POLICY company_fragments_tenant ON company_fragments
+      USING (tenant_id = current_setting('zoen.tenant_id', true))
+      WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
+    ALTER TABLE company_retrieval_traces ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE company_retrieval_traces FORCE ROW LEVEL SECURITY;
+    CREATE POLICY company_retrieval_traces_tenant ON company_retrieval_traces
+      USING (tenant_id = current_setting('zoen.tenant_id', true))
+      WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
+    ALTER TABLE company_surface_sessions ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE company_surface_sessions FORCE ROW LEVEL SECURITY;
+    CREATE POLICY company_surface_sessions_tenant ON company_surface_sessions
+      USING (tenant_id = current_setting('zoen.tenant_id', true))
+      WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));

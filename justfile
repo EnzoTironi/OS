@@ -15,7 +15,7 @@ check:
 build scenario="":
     ./e2e/run.sh build {{scenario}}
 
-# Compose + runner only. Requires `just build` (or `just e2e`) first.
+# Scenario runner only. Requires `just build` or `just e2e` first.
 e2e-run scenario:
     ./e2e/run.sh run {{scenario}}
 

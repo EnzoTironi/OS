@@ -1,0 +1,13 @@
+FROM ubuntu:24.04
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY zoend /usr/local/bin/zoend
+COPY zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
+COPY zoen-http-connector /usr/local/bin/zoen-http-connector
+COPY zoen-projection /usr/local/bin/zoen-projection
+
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/zoend"]

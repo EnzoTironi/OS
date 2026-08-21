@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AgentRegistry, type Registration } from "./registry.js";
 import {
+  agentSessionObjectKey,
   agentSessionCommandSchema,
   type AgentAuthority,
   type AgentCapabilityDiscovery,
@@ -253,6 +254,21 @@ test("session signatures bind the complete command to one OIDC credential", () =
       ...command,
       task: { ...command.task, instruction: "Request two units." },
     }),
+  );
+});
+
+test("Restate session keys include unambiguous trusted tenant identity", () => {
+  assert.equal(
+    agentSessionObjectKey("tenant.a", command.sessionId),
+    `tenant.a:${command.sessionId}`,
+  );
+  assert.notEqual(
+    agentSessionObjectKey("tenant.a", command.sessionId),
+    agentSessionObjectKey("tenant.b", command.sessionId),
+  );
+  assert.notEqual(
+    agentSessionObjectKey("tenant.a:b", "c"),
+    agentSessionObjectKey("tenant.a", "b:c"),
   );
 });
 
