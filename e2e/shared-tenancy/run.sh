@@ -180,7 +180,7 @@ docker network connect kind "${registry_name}" 2>/dev/null || true
 node e2e/shared-tenancy/prepare-realm.mjs
 
 cosign_key="${generated_directory}/cosign"
-rm -f "${cosign_key}" "${cosign_key}.pub"
+rm -f "${cosign_key}.key" "${cosign_key}.pub"
 COSIGN_PASSWORD="" cosign generate-key-pair --output-key-prefix "${cosign_key}" >/dev/null
 artifact_metadata="${artifacts_directory}/signed-oci.json"
 COSIGN_PASSWORD="" deploy/scripts/build-and-sign.sh \
