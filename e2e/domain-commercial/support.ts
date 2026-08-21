@@ -104,12 +104,15 @@ export type {
 
 export type PackageName = "commercial" | "party" | "product";
 
-export interface DomainFixture {
+export interface DefinitionFixture {
   readonly canonicalJson: string;
   readonly compiled: CompiledDefinition;
   readonly definition: DefinitionReference;
   readonly digest: string;
   readonly metadata: ReturnType<typeof parseDefinitionMetadata>;
+}
+
+export interface DomainFixture extends DefinitionFixture {
   readonly packageName: PackageName;
 }
 
@@ -237,7 +240,7 @@ export async function writePolicyManifest(
 export async function publishDefinition(
   client: DefinitionClient,
   tenantId: string,
-  fixture: DomainFixture,
+  fixture: DefinitionFixture,
 ): Promise<bigint> {
   const published = await publish(client, tenantId, fixture.compiled);
   assert.equal(published.digest, fixture.digest);
@@ -248,7 +251,7 @@ export async function publishDefinition(
 export async function activateDefinition(
   client: DefinitionClient,
   tenantId: string,
-  fixture: DomainFixture,
+  fixture: DefinitionFixture,
 ): Promise<bigint> {
   const response = await client.activateRevision({
     activeRevisionPrecondition: {
@@ -271,7 +274,7 @@ export async function activateDefinition(
 export async function activeDigest(
   client: DefinitionClient,
   tenantId: string,
-  fixture: DomainFixture,
+  fixture: DefinitionFixture,
 ): Promise<string | undefined> {
   const response = await client.getActiveRevision({
     definitionId: fixture.metadata.definitionId,
@@ -285,8 +288,9 @@ export async function recordEvidence(
   input: {
     readonly claimId: string;
     readonly entityId: string;
-    readonly fixture: DomainFixture;
+    readonly fixture: DefinitionFixture;
     readonly relationId: string;
+    readonly sourceNamespace?: string;
     readonly sourceId: string;
     readonly tenantId: string;
     readonly time: EvidenceTime;
@@ -303,7 +307,7 @@ export async function recordEvidence(
           `${input.sourceId}:${input.claimId}:${valueDigest(input.value)}`,
         ),
         sourceId: input.sourceId,
-        sourceRef: `urn:zoen:domain-commercial:${input.claimId}`,
+        sourceRef: `urn:zoen:${input.sourceNamespace ?? "domain-commercial"}:${input.claimId}`,
       }),
       relationId: input.relationId,
       validTime: validTime(input.time),
@@ -321,7 +325,7 @@ export function semanticQuery(
   input: {
     readonly consistency?: QueryConsistency;
     readonly entityId: string;
-    readonly fixture: DomainFixture;
+    readonly fixture: DefinitionFixture;
     readonly selection:
       | { readonly id: string; readonly kind: "computation" }
       | { readonly id: string; readonly kind: "relation" };
@@ -353,7 +357,7 @@ export function semanticQuery(
 
 export function proposalRequest(input: {
   readonly actionId: string;
-  readonly fixture: DomainFixture;
+  readonly fixture: DefinitionFixture & { readonly packageName: string };
   readonly inputs: readonly {
     readonly id: string;
     readonly value: SemanticValue;
@@ -449,7 +453,7 @@ export function valueShapes(response: SemanticQueryResponse): SemanticValue[] {
 }
 
 export function compileSurface(
-  fixture: DomainFixture,
+  fixture: DefinitionFixture,
   entityId: string,
 ): SurfaceDocument {
   return compileDeterministicSurface({

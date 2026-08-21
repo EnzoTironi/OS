@@ -91,6 +91,7 @@ jobs:
         scenario:
           - definition-publication
           - domain-commercial
+          - domain-inventory-procurement
           - domain-quality
           - durable-commit
           - effects
