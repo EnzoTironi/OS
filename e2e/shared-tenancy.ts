@@ -1192,10 +1192,15 @@ async function restartAndRebuild(input: {
     "--rebuild",
     tenantB,
   ]);
-  await Promise.all([
-    harnessPost(harnessA, "/rebuild-indexes", input.tokens.agentA, {}),
-    harnessPost(harnessB, "/rebuild-indexes", input.tokens.agentB, {}),
-  ]);
+  try {
+    await Promise.all([
+      harnessPost(harnessA, "/rebuild-indexes", input.tokens.agentA, {}),
+      harnessPost(harnessB, "/rebuild-indexes", input.tokens.agentB, {}),
+    ]);
+  } catch (error: unknown) {
+    await dumpHarnessLogs();
+    throw error;
+  }
   const [a, b] = await Promise.all([
     queryAvailable(input.worldA, tenantA, input.definition, "eventual"),
     queryAvailable(input.worldB, tenantB, input.definition, "eventual"),
@@ -1220,6 +1225,22 @@ async function restartAndRebuild(input: {
     "shared application stack",
     "isolated",
   );
+}
+
+async function dumpHarnessLogs(): Promise<void> {
+  for (const deployment of [
+    "deployment/harness-tenant-a",
+    "deployment/harness-tenant-b",
+  ]) {
+    try {
+      const logs = await kubectl(["logs", deployment, "--tail=200"]);
+      process.stderr.write(`${deployment}\n${logs}\n`);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.stack ?? error.message : String(error);
+      process.stderr.write(`${deployment} log collection failed\n${message}\n`);
+    }
+  }
 }
 
 async function registerRestateServices(): Promise<void> {

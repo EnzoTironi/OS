@@ -403,10 +403,9 @@ export class CompanyBrain {
 
   async rebuildIndexes(): Promise<void> {
     await this.#pool.query(`
-      DROP INDEX IF EXISTS company_fragments_fts_idx;
-      DROP INDEX IF EXISTS company_fragments_vector_idx;
+      REINDEX INDEX company_fragments_fts_idx;
+      REINDEX INDEX company_fragments_vector_idx;
     `);
-    await this.createIndexes();
   }
 
   async sourceBytes(
@@ -626,15 +625,6 @@ export class CompanyBrain {
     } finally {
       client.release();
     }
-  }
-
-  private async createIndexes(): Promise<void> {
-    await this.#pool.query(`
-      CREATE INDEX IF NOT EXISTS company_fragments_fts_idx
-        ON company_fragments USING gin (search_vector);
-      CREATE INDEX IF NOT EXISTS company_fragments_vector_idx
-        ON company_fragments USING hnsw (embedding vector_cosine_ops);
-    `);
   }
 
   private embeddingProvider(): EmbeddingProvider {

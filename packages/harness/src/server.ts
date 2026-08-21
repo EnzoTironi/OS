@@ -114,6 +114,9 @@ await brain.initialize();
 
 const controlServer = createServer((request, response) => {
   void routeControl(request, response).catch((error: unknown) => {
+    if (!(error instanceof BoundaryError)) {
+      reportUnexpectedControlError(request, error);
+    }
     const status = error instanceof BoundaryError ? error.status : 500;
     sendJson(response, status, {
       code: status === 404 ? "not_found" : "request_denied",
@@ -285,6 +288,22 @@ function sendJson(
 ): void {
   response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify(body));
+}
+
+function reportUnexpectedControlError(
+  request: IncomingMessage,
+  error: unknown,
+): void {
+  const message =
+    error instanceof Error ? error.stack ?? error.message : String(error);
+  process.stderr.write(
+    `${JSON.stringify({
+      error: message,
+      event: "harness_control_request_failed",
+      method: request.method,
+      path: request.url ?? "/",
+    })}\n`,
+  );
 }
 
 class BoundaryError extends Error {
