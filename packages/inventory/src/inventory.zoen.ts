@@ -316,7 +316,10 @@ const reserveInventory = defineAction({
       relationId: "inventory.reservedQuantity",
       value: {
         kind: "binary",
-        left: { inputId: "currentReservedQuantity", kind: "input" },
+        left: {
+          kind: "relation",
+          relationId: "inventory.reservedQuantity",
+        },
         operator: "add",
         right: { inputId: "quantity", kind: "input" },
       },
@@ -326,10 +329,6 @@ const reserveInventory = defineAction({
   inputs: [
     { id: "allocationReference", valueType: { kind: "text" } },
     { id: "commitmentReference", valueType: { kind: "text" } },
-    {
-      id: "currentReservedQuantity",
-      valueType: { kind: "quantity", unit: "each" },
-    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "reservationReference", valueType: { kind: "text" } },
   ],
@@ -390,7 +389,10 @@ const recordReceipt = defineAction({
       relationId: "inventory.acceptedPhysicalQuantity",
       value: {
         kind: "binary",
-        left: { inputId: "currentAcceptedQuantity", kind: "input" },
+        left: {
+          kind: "relation",
+          relationId: "inventory.acceptedPhysicalQuantity",
+        },
         operator: "add",
         right: { inputId: "quantity", kind: "input" },
       },
@@ -406,10 +408,6 @@ const recordReceipt = defineAction({
   ],
   id: "inventory.recordReceipt",
   inputs: [
-    {
-      id: "currentAcceptedQuantity",
-      valueType: { kind: "quantity", unit: "each" },
-    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "receiptReference", valueType: { kind: "text" } },
   ],

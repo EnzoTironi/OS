@@ -173,8 +173,11 @@ async function main(): Promise<void> {
       /const governPurchase[\s\S]*relationId: "procurement\.requiredQuantity"[\s\S]*operator: "greater_than"[\s\S]*inputId: "quantity"/u.test(
         procurementSource,
       ) &&
-      /const recordPartialReceipt[\s\S]*currentReceivedQuantity[\s\S]*operator: "add"/u.test(
+      /const recordPartialReceipt[\s\S]*relationId: "procurement\.receivedQuantity"[\s\S]*operator: "add"/u.test(
         procurementSource,
+      ) &&
+      !/current(?:Accepted|Cancelled|Received|Reserved|Returned)Quantity/u.test(
+        `${inventorySource}\n${procurementSource}`,
       ) &&
       /const correctReceipt[\s\S]*relationId: "procurement\.receivedQuantity"/u.test(
         procurementSource,
@@ -423,7 +426,6 @@ async function main(): Promise<void> {
       inventory,
       "stale",
       lifecycleAt,
-      "0",
       "6",
     );
     const staleReservation = await inventoryAction.propose(
@@ -479,7 +481,6 @@ async function main(): Promise<void> {
       inventory,
       "accepted",
       afterCorrectionAt,
-      "0",
       "6",
     );
     const reservationProposal = await inventoryAction.propose(
@@ -513,7 +514,6 @@ async function main(): Promise<void> {
         inventory,
         "over-remaining",
         afterCorrectionAt,
-        "6",
         "3",
       ),
     );
@@ -862,7 +862,7 @@ async function main(): Promise<void> {
 
     const partialReceipt = await commitReadyAction(
       procurementAction,
-      partialReceiptRequest(procurement, "first", "0", "0.75"),
+      partialReceiptRequest(procurement, "first", "0.75"),
     );
     const remainingAfterPartial = await computationQuery(
       worldA,
@@ -888,7 +888,7 @@ async function main(): Promise<void> {
     );
     const secondPartialReceipt = await commitReadyAction(
       procurementAction,
-      partialReceiptRequest(procurement, "second", "0.75", "0.25"),
+      partialReceiptRequest(procurement, "second", "0.25"),
     );
     const [remainingAfterSecondPartial, receiptHistory] = await Promise.all([
       computationQuery(
@@ -958,11 +958,11 @@ async function main(): Promise<void> {
 
     const cancellation = await commitReadyAction(
       procurementAction,
-      cancellationRequest(procurement, "0", "0.25"),
+      cancellationRequest(procurement, "0.25"),
     );
     const returned = await commitReadyAction(
       procurementAction,
-      returnRequest(procurement, "0", "0.125"),
+      returnRequest(procurement, "0.125"),
     );
     const corrected = await commitReadyAction(
       procurementAction,
@@ -1005,7 +1005,7 @@ async function main(): Promise<void> {
 
     const inventoryReceipt = await commitReadyAction(
       inventoryAction,
-      inventoryReceiptRequest(inventory, "8", "0.75"),
+      inventoryReceiptRequest(inventory, "0.75"),
     );
     const availabilityAfterReceipt = await computationQuery(
       worldA,
@@ -1549,7 +1549,6 @@ function reservationRequest(
   fixture: DomainFixture,
   suffix: string,
   validAt: Date,
-  currentReservedQuantity: string,
   quantity: string,
 ) {
   return proposalRequest({
@@ -1563,14 +1562,6 @@ function reservationRequest(
       {
         id: "commitmentReference",
         value: { kind: "text", value: "commitment.order-2001" },
-      },
-      {
-        id: "currentReservedQuantity",
-        value: {
-          amount: currentReservedQuantity,
-          kind: "quantity",
-          unit: "each",
-        },
       },
       {
         id: "quantity",
@@ -1732,21 +1723,12 @@ function purchaseRequest(
 function partialReceiptRequest(
   fixture: DomainFixture,
   suffix: string,
-  currentReceivedQuantity: string,
   quantity: string,
 ) {
   return proposalRequest({
     actionId: "procurement.recordPartialReceipt",
     fixture,
     inputs: [
-      {
-        id: "currentReceivedQuantity",
-        value: {
-          amount: currentReceivedQuantity,
-          kind: "quantity",
-          unit: "each",
-        },
-      },
       {
         id: "quantity",
         value: { amount: quantity, kind: "quantity", unit: "each" },
@@ -1768,7 +1750,6 @@ function partialReceiptRequest(
 
 function cancellationRequest(
   fixture: DomainFixture,
-  currentCancelledQuantity: string,
   quantity: string,
 ) {
   return proposalRequest({
@@ -1778,14 +1759,6 @@ function cancellationRequest(
       {
         id: "cancellationReference",
         value: { kind: "text", value: "cancellation.purchase.2001" },
-      },
-      {
-        id: "currentCancelledQuantity",
-        value: {
-          amount: currentCancelledQuantity,
-          kind: "quantity",
-          unit: "each",
-        },
       },
       {
         id: "quantity",
@@ -1800,21 +1773,12 @@ function cancellationRequest(
 
 function returnRequest(
   fixture: DomainFixture,
-  currentReturnedQuantity: string,
   quantity: string,
 ) {
   return proposalRequest({
     actionId: "procurement.recordReturn",
     fixture,
     inputs: [
-      {
-        id: "currentReturnedQuantity",
-        value: {
-          amount: currentReturnedQuantity,
-          kind: "quantity",
-          unit: "each",
-        },
-      },
       {
         id: "quantity",
         value: { amount: quantity, kind: "quantity", unit: "each" },
@@ -1856,21 +1820,12 @@ function correctionRequest(fixture: DomainFixture, quantity: string) {
 
 function inventoryReceiptRequest(
   fixture: DomainFixture,
-  currentAcceptedQuantity: string,
   quantity: string,
 ) {
   return proposalRequest({
     actionId: "inventory.recordReceipt",
     fixture,
     inputs: [
-      {
-        id: "currentAcceptedQuantity",
-        value: {
-          amount: currentAcceptedQuantity,
-          kind: "quantity",
-          unit: "each",
-        },
-      },
       {
         id: "quantity",
         value: { amount: quantity, kind: "quantity", unit: "each" },

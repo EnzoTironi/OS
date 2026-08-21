@@ -429,7 +429,10 @@ const recordPartialReceipt = defineAction({
       relationId: "procurement.receivedQuantity",
       value: {
         kind: "binary",
-        left: { inputId: "currentReceivedQuantity", kind: "input" },
+        left: {
+          kind: "relation",
+          relationId: "procurement.receivedQuantity",
+        },
         operator: "add",
         right: { inputId: "quantity", kind: "input" },
       },
@@ -437,10 +440,6 @@ const recordPartialReceipt = defineAction({
   ],
   id: "procurement.recordPartialReceipt",
   inputs: [
-    {
-      id: "currentReceivedQuantity",
-      valueType: { kind: "quantity", unit: "each" },
-    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "receiptReference", valueType: { kind: "text" } },
     { id: "sourceReference", valueType: { kind: "text" } },
@@ -490,7 +489,10 @@ const cancelRemaining = defineAction({
       relationId: "procurement.cancelledQuantity",
       value: {
         kind: "binary",
-        left: { inputId: "currentCancelledQuantity", kind: "input" },
+        left: {
+          kind: "relation",
+          relationId: "procurement.cancelledQuantity",
+        },
         operator: "add",
         right: { inputId: "quantity", kind: "input" },
       },
@@ -499,10 +501,6 @@ const cancelRemaining = defineAction({
   id: "procurement.cancelRemaining",
   inputs: [
     { id: "cancellationReference", valueType: { kind: "text" } },
-    {
-      id: "currentCancelledQuantity",
-      valueType: { kind: "quantity", unit: "each" },
-    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
   ],
   precondition: {
@@ -550,7 +548,10 @@ const recordReturn = defineAction({
       relationId: "procurement.returnedQuantity",
       value: {
         kind: "binary",
-        left: { inputId: "currentReturnedQuantity", kind: "input" },
+        left: {
+          kind: "relation",
+          relationId: "procurement.returnedQuantity",
+        },
         operator: "add",
         right: { inputId: "quantity", kind: "input" },
       },
@@ -558,10 +559,6 @@ const recordReturn = defineAction({
   ],
   id: "procurement.recordReturn",
   inputs: [
-    {
-      id: "currentReturnedQuantity",
-      valueType: { kind: "quantity", unit: "each" },
-    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "returnReference", valueType: { kind: "text" } },
   ],
