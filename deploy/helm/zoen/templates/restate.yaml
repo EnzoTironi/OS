@@ -59,8 +59,9 @@ spec:
             - name: admin
               containerPort: 9070
           readinessProbe:
-            tcpSocket:
-              port: ingress
+            httpGet:
+              path: /health
+              port: admin
             initialDelaySeconds: 2
             periodSeconds: 2
           volumeMounts:
