@@ -36,9 +36,8 @@ fn exact_decimal_accepts_only_canonical_forms() {
 
 #[test]
 fn expression_operator_compares_exact_decimals() {
-    let decimal = |value: &str| {
-        ExactValue::Decimal(ExactDecimal::parse(value).expect("canonical decimal"))
-    };
+    let decimal =
+        |value: &str| ExactValue::Decimal(ExactDecimal::parse(value).expect("canonical decimal"));
 
     for (left, right, expected) in [
         ("-1", "0", false),
