@@ -32,7 +32,17 @@ import {
   compileDeterministicSurface,
   type SurfaceDocument,
 } from "../../packages/surface/src/index.js";
-import { dispatchOnce } from "../effects/support.js";
+import { waitForState } from "../effects/scenario.js";
+import {
+  dispatchOnce,
+  effectClient,
+  registerWorker,
+  startConnector,
+  startFaultProvider,
+  startWorker,
+  stopProcess,
+  type ManagedProcess,
+} from "../effects/support.js";
 import {
   actionClient,
   adminClient,
@@ -64,20 +74,28 @@ export {
   command,
   definitionClient,
   dispatchOnce,
+  effectClient,
   historyClient,
   oidcToken,
+  registerWorker,
   rebuildProjection,
   repositoryRoot,
+  startConnector,
+  startFaultProvider,
   startServer,
+  startWorker,
+  stopProcess,
   stopServer,
   tenantA,
   tenantB,
+  waitForState,
   worldClient,
 };
 export type {
   ActionClient,
   DefinitionClient,
   HistoryClient,
+  ManagedProcess,
   ServerProcess,
   WorldClient,
 };

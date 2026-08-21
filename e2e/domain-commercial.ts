@@ -6,6 +6,7 @@ import {
   PolicyDecision,
   ProposalStatus,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
   e2eGeneratedDirectory,
   writeScenarioArtifact,
@@ -20,6 +21,7 @@ import {
   compileSurface,
   definitionClient,
   dispatchOnce,
+  effectClient,
   expectConnectCode,
   explainOperation,
   explanationShape,
@@ -29,6 +31,7 @@ import {
   packageSource,
   proposalRequest,
   publishDefinition,
+  registerWorker,
   rebuildProjection,
   recordEvidence,
   repositoryRoot,
@@ -36,16 +39,22 @@ import {
   runLeakageMutant,
   semanticQuery,
   semanticShape,
+  startConnector,
+  startFaultProvider,
   startServer,
+  startWorker,
+  stopProcess,
   stopServer,
   tenantA,
   tenantB,
   valueShapes,
+  waitForState,
   worldClient,
   writePolicyManifest,
   type ActionClient,
   type DomainFixture,
   type EvidenceTime,
+  type ManagedProcess,
   type SemanticValue,
   type ServerProcess,
 } from "./domain-commercial/support.js";
@@ -136,27 +145,50 @@ async function main(): Promise<void> {
     identityPolicy,
   );
 
-  const [adminAToken, commercialAToken, adminBToken, commercialBToken] =
-    await Promise.all([
-      oidcToken("domain-admin-a"),
-      oidcToken("commercial-agent-a"),
-      oidcToken("domain-admin-b"),
-      oidcToken("commercial-agent-b"),
-    ]);
+  const [
+    adminAToken,
+    commercialAToken,
+    adminBToken,
+    commercialBToken,
+    workerAToken,
+    workerBToken,
+  ] = await Promise.all([
+    oidcToken("domain-admin-a"),
+    oidcToken("commercial-agent-a"),
+    oidcToken("domain-admin-b"),
+    oidcToken("commercial-agent-b"),
+    oidcToken("effect-worker-a"),
+    oidcToken("effect-worker-b"),
+  ]);
   const definitionA = definitionClient(adminAToken);
   const definitionB = definitionClient(adminBToken);
   const actionA = actionClient(commercialAToken);
   const actionB = actionClient(commercialBToken);
+  const effectA = effectClient(commercialAToken);
   const worldA = worldClient(adminAToken);
   const commercialWorldA = worldClient(commercialAToken);
   const commercialWorldB = worldClient(commercialBToken);
   const historyA = historyClient(commercialAToken);
   const admin = adminClient();
+  const processes: ManagedProcess[] = [];
   let server: ServerProcess | undefined;
   await admin.connect();
 
   try {
     server = await startServer(policyManifestPath);
+    processes.push(await startFaultProvider());
+    processes.push(await startConnector());
+    processes.push(
+      await startWorker({
+        [tenantA]: workerAToken,
+        [tenantB]: workerBToken,
+      }),
+    );
+    const registration = await registerWorker();
+    observe(
+      "realRestateWorkerRegistered",
+      /ZoenEffect|deployment/iu.test(registration),
+    );
     const inactiveBeforePublish = await Promise.all(
       [party, product, commercial].flatMap((fixture) => [
         activeDigest(definitionA, tenantA, fixture),
@@ -819,6 +851,11 @@ async function main(): Promise<void> {
       ),
     );
     await dispatchOnce();
+    await Promise.all(
+      changed.receipt.effectRequestIds.map((effectRequestId) =>
+        waitForState(effectA, effectRequestId, EffectKnowledgeState.CONFIRMED),
+      ),
+    );
     const commitmentAfterChange = await relationQuery(
       commercialWorldA,
       commercial,
@@ -1252,6 +1289,7 @@ async function main(): Promise<void> {
         keycloak: keycloakVersion.split("\n")[0],
         minio: "S3-compatible projection store",
         postgres: postgresVersion,
+        restate: "1.7.2",
       },
       definitions: {
         commercial: definitionEvidence(commercial),
@@ -1287,6 +1325,14 @@ async function main(): Promise<void> {
     await writeScenarioArtifact(repositoryRoot, scenario, manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
+    for (const managedProcess of processes.reverse()) {
+      if (
+        managedProcess.child.exitCode === null &&
+        managedProcess.child.signalCode === null
+      ) {
+        await stopProcess(managedProcess);
+      }
+    }
     if (server !== undefined) {
       await stopServer(server);
     }
