@@ -25,6 +25,7 @@ const modeSchema = z.enum([
   "timeout_after_receipt",
 ]);
 type ProxyMode = z.infer<typeof modeSchema>;
+const timeoutAfterReceiptDelayMs = 6_000;
 
 const plugDocumentSchema = z
   .array(
@@ -245,7 +246,7 @@ async function plugDispatch(
     return;
   }
   if (mode === "timeout_after_receipt") {
-    await delay(1_000);
+    await delay(timeoutAfterReceiptDelayMs);
   }
   const status =
     mode === "plug_authorized"

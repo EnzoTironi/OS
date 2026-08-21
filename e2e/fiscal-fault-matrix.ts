@@ -9,7 +9,10 @@ import {
   PolicyDecision,
   ProposalStatus,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
-import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import {
+  EffectKnowledgeState,
+  type EffectSnapshot,
+} from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
   QueryConsistencySchema,
   QuerySelectionSchema,
@@ -71,11 +74,12 @@ import {
   delay,
   evidenceCounts,
   evidenceInput,
-  waitForState,
 } from "./effects/scenario.js";
 
 const scenario = "fiscal-fault-matrix";
 const validAt = new Date("2026-08-21T15:00:00.000Z");
+const connectorAdapterTimeoutMs = 5_000;
+const vendorAdapterTimeoutMs = 10_000;
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
 
@@ -179,6 +183,17 @@ async function main(): Promise<void> {
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let connector: ManagedProcess | undefined;
   let protheusAdapter: ManagedProcess | undefined;
+  const waitForState = (
+    client: ReturnType<typeof effectClient>,
+    effectRequestId: string,
+    expected: EffectKnowledgeState,
+  ) =>
+    waitForFiscalState({
+      client,
+      effectRequestId,
+      expected,
+      processes,
+    });
   await admin.connect();
 
   try {
@@ -188,22 +203,25 @@ async function main(): Promise<void> {
       callerBindings,
       provider: "systax",
       providerCredential,
+      providerTimeoutMs: vendorAdapterTimeoutMs,
     });
     const plugNotasAdapter = await startFiscalAdapter({
       callerBindings,
       provider: "plugnotas",
       providerCredential,
+      providerTimeoutMs: vendorAdapterTimeoutMs,
     });
     protheusAdapter = await startFiscalAdapter({
       callerBindings,
       provider: "protheus",
       providerCredential,
+      providerTimeoutMs: vendorAdapterTimeoutMs,
     });
     processes.push(systaxAdapter, plugNotasAdapter, protheusAdapter);
     connector = await startConnector({
       credentials: connectorCredentials,
       providerUrl: adapterProviderUrl("systax"),
-      timeoutMs: 250,
+      timeoutMs: connectorAdapterTimeoutMs,
     });
     processes.push(connector);
     processes.push(
@@ -1028,6 +1046,103 @@ async function recordRelations(
   }
 }
 
+async function waitForFiscalState(input: {
+  readonly client: ReturnType<typeof effectClient>;
+  readonly effectRequestId: string;
+  readonly expected: EffectKnowledgeState;
+  readonly processes: readonly ManagedProcess[];
+}): Promise<EffectSnapshot> {
+  let getEffectError: string | undefined;
+  let snapshot: EffectSnapshot | undefined;
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    try {
+      snapshot = (
+        await input.client.getEffect({ effectRequestId: input.effectRequestId })
+      ).snapshot;
+      getEffectError = undefined;
+    } catch (error: unknown) {
+      getEffectError =
+        error instanceof Error
+          ? `${error.name}: ${error.message}`
+          : String(error);
+    }
+    if (snapshot?.request?.state === input.expected) {
+      return snapshot;
+    }
+    await delay(50);
+  }
+  process.stderr.write(
+    `${JSON.stringify(
+      {
+        effectRequestId: input.effectRequestId,
+        event: "fiscal_effect_wait_failed",
+        expectedState: input.expected,
+        getEffectError,
+        processes: input.processes.map((managed) => ({
+          exitCode: managed.child.exitCode,
+          name: managed.name,
+          signalCode: managed.child.signalCode,
+          stderr: managed.stderr.join(""),
+          stdout: managed.output.join(""),
+        })),
+        snapshot: effectSnapshotDiagnostic(snapshot),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  throw new Error(
+    `timed out waiting for ${input.effectRequestId} to reach ${input.expected}`,
+  );
+}
+
+function effectSnapshotDiagnostic(snapshot: EffectSnapshot | undefined) {
+  const request = snapshot?.request;
+  return {
+    attempts:
+      snapshot?.attempts.map((attempt) => ({
+        attemptId: attempt.attemptId,
+        commitSequence: attempt.commitSequence.toString(),
+        outcome: attempt.outcome,
+        providerOperationId: attempt.providerOperationId,
+        reason: attempt.reason,
+        requestDigest: attempt.requestDigest,
+        responseDigest: attempt.responseDigest,
+      })) ?? [],
+    evidence:
+      snapshot?.evidence.map((entry) => ({
+        commitSequence: entry.commitSequence.toString(),
+        evidenceDigest: entry.evidenceDigest,
+        evidenceId: entry.evidenceId,
+        idempotencyKey: entry.idempotencyKey,
+        outcome: entry.outcome,
+        providerOperationId: entry.providerOperationId,
+        sourceId: entry.sourceId,
+        sourceRef: entry.sourceRef,
+      })) ?? [],
+    reconciliations:
+      snapshot?.reconciliations.map((entry) => ({
+        commitSequence: entry.commitSequence.toString(),
+        evidenceId: entry.evidenceId,
+        previousState: entry.previousState,
+        resultingState: entry.resultingState,
+      })) ?? [],
+    request:
+      request === undefined
+        ? undefined
+        : {
+            commitSequence: request.commitSequence.toString(),
+            effectRequestId: request.effectRequestId,
+            idempotencyKey: request.idempotencyKey,
+            intentDigest: request.intentDigest,
+            operationId: request.operationId,
+            payloadBytes: request.payload.byteLength,
+            requestDigest: request.requestDigest,
+            state: request.state,
+          },
+  };
+}
+
 async function fiscalQuery(input: {
   readonly client: WorldClient;
   readonly computationId?: string;
@@ -1103,7 +1218,7 @@ async function switchConnector(
   const next = await startConnector({
     credentials,
     providerUrl: adapterProviderUrl(provider),
-    timeoutMs: 250,
+    timeoutMs: connectorAdapterTimeoutMs,
   });
   processes.push(next);
   return next;
