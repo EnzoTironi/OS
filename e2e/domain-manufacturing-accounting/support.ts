@@ -29,7 +29,6 @@ import {
   providerOperation,
   publishDefinition,
   rebuildProjection,
-  recordEvidence as recordInventoryEvidence,
   registerWorker,
   repositoryRoot,
   runLeakageGate,
@@ -57,6 +56,9 @@ import {
   type SemanticValue,
   type ServerProcess,
 } from "../domain-inventory-procurement/support.js";
+import {
+  recordEvidence as recordDomainEvidence,
+} from "../domain-commercial/support.js";
 import {
   compileDefinition,
   type DefinitionClient,
@@ -246,11 +248,11 @@ export async function writePolicyManifest(
 export function recordEvidence(
   client: WorldClient,
   input: Omit<
-    Parameters<typeof recordInventoryEvidence>[1],
+    Parameters<typeof recordDomainEvidence>[1],
     "sourceNamespace"
   >,
 ): Promise<bigint> {
-  return recordInventoryEvidence(client, {
+  return recordDomainEvidence(client, {
     ...input,
     sourceNamespace: "domain-manufacturing-accounting",
   });
