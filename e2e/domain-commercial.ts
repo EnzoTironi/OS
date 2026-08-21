@@ -39,6 +39,7 @@ import {
   runLeakageMutant,
   semanticQuery,
   semanticShape,
+  setProviderMode,
   startConnector,
   startFaultProvider,
   startServer,
@@ -850,10 +851,15 @@ async function main(): Promise<void> {
         "change-accepted",
       ),
     );
+    await setProviderMode("accepted_pending");
     await dispatchOnce();
     await Promise.all(
       changed.receipt.effectRequestIds.map((effectRequestId) =>
-        waitForState(effectA, effectRequestId, EffectKnowledgeState.CONFIRMED),
+        waitForState(
+          effectA,
+          effectRequestId,
+          EffectKnowledgeState.ACCEPTED_PENDING,
+        ),
       ),
     );
     const commitmentAfterChange = await relationQuery(
