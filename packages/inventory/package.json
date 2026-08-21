@@ -3,11 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "dependencies": {
-    "@zoen/commercial": "1.0.0",
-    "@zoen/party": "1.0.0",
-    "@zoen/product": "1.0.0"
-  },
   "exports": {
     ".": "./src/inventory.zoen.ts"
   }

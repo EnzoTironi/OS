@@ -24,7 +24,9 @@ const commercialActions = [
   "product.correctLifecycle",
 ];
 const inventoryActions = [
+  "inventory.acceptPhysicalQuantity",
   "inventory.correctInventory",
+  "inventory.recordCommercialCommitment",
   "inventory.recordMovement",
   "inventory.recordReceipt",
   "inventory.reserveInventory",
@@ -34,6 +36,7 @@ const procurementActions = [
   "procurement.correctReceipt",
   "procurement.governPurchase",
   "procurement.recordPartialReceipt",
+  "procurement.recordRequirement",
   "procurement.recordReturn",
   "procurement.requestSupplier",
 ];

@@ -6,44 +6,9 @@ import {
   defineType,
 } from "@zoen/ontology";
 
-const ProcurementRequirement = defineType({
-  attributes: [{ id: "requirementId", valueType: { kind: "text" } }],
-  id: "procurement.Requirement",
-});
-
-const SupplierRequest = defineType({
-  attributes: [{ id: "requestId", valueType: { kind: "text" } }],
-  id: "procurement.SupplierRequest",
-});
-
-const PurchaseCommitment = defineType({
-  attributes: [{ id: "purchaseId", valueType: { kind: "text" } }],
-  id: "procurement.PurchaseCommitment",
-});
-
 const PurchaseLine = defineType({
   attributes: [{ id: "purchaseLineId", valueType: { kind: "text" } }],
   id: "procurement.PurchaseLine",
-});
-
-const Receipt = defineType({
-  attributes: [{ id: "receiptId", valueType: { kind: "text" } }],
-  id: "procurement.Receipt",
-});
-
-const Cancellation = defineType({
-  attributes: [{ id: "cancellationId", valueType: { kind: "text" } }],
-  id: "procurement.Cancellation",
-});
-
-const Return = defineType({
-  attributes: [{ id: "returnId", valueType: { kind: "text" } }],
-  id: "procurement.Return",
-});
-
-const Correction = defineType({
-  attributes: [{ id: "correctionId", valueType: { kind: "text" } }],
-  id: "procurement.Correction",
 });
 
 const requirementReference = defineRelation({
@@ -160,6 +125,16 @@ const receiptSourceReference = defineRelation({
   target: { kind: "value", valueType: { kind: "text" } },
 });
 
+const receiptQuantity = defineRelation({
+  cardinality: "many",
+  id: "procurement.receiptQuantity",
+  sourceType: "procurement.PurchaseLine",
+  target: {
+    kind: "value",
+    valueType: { kind: "quantity", unit: "each" },
+  },
+});
+
 const receivedQuantity = defineRelation({
   cardinality: "one",
   id: "procurement.receivedQuantity",
@@ -252,19 +227,27 @@ const remainingCommitment = defineComputation({
     left: {
       kind: "binary",
       left: {
-        kind: "relation",
-        relationId: "procurement.committedQuantity",
+        kind: "binary",
+        left: {
+          kind: "relation",
+          relationId: "procurement.committedQuantity",
+        },
+        operator: "subtract",
+        right: {
+          kind: "relation",
+          relationId: "procurement.receivedQuantity",
+        },
       },
       operator: "subtract",
       right: {
         kind: "relation",
-        relationId: "procurement.receivedQuantity",
+        relationId: "procurement.cancelledQuantity",
       },
     },
-    operator: "subtract",
+    operator: "add",
     right: {
       kind: "relation",
-      relationId: "procurement.cancelledQuantity",
+      relationId: "procurement.returnedQuantity",
     },
   },
   id: "procurement.remainingCommitment",
@@ -288,6 +271,57 @@ const netReceivedQuantity = defineComputation({
   id: "procurement.netReceivedQuantity",
   inputs: [],
   returns: { kind: "quantity", unit: "each" },
+});
+
+const recordRequirement = defineAction({
+  effects: [
+    {
+      relationId: "procurement.cancelledQuantity",
+      value: {
+        kind: "literal",
+        value: { amount: "0", kind: "quantity", unit: "each" },
+      },
+    },
+    {
+      relationId: "procurement.receivedQuantity",
+      value: {
+        kind: "literal",
+        value: { amount: "0", kind: "quantity", unit: "each" },
+      },
+    },
+    {
+      relationId: "procurement.requiredQuantity",
+      value: { inputId: "quantity", kind: "input" },
+    },
+    {
+      relationId: "procurement.requirementReference",
+      value: { inputId: "requirementReference", kind: "input" },
+    },
+    {
+      relationId: "procurement.returnedQuantity",
+      value: {
+        kind: "literal",
+        value: { amount: "0", kind: "quantity", unit: "each" },
+      },
+    },
+  ],
+  id: "procurement.recordRequirement",
+  inputs: [
+    { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
+    { id: "requirementReference", valueType: { kind: "text" } },
+  ],
+  precondition: {
+    kind: "binary",
+    left: {
+      kind: "relation",
+      relationId: "procurement.supplierTermsRevision",
+    },
+    operator: "greater_than",
+    right: {
+      kind: "relation",
+      relationId: "procurement.requirementRevision",
+    },
+  },
 });
 
 const requestSupplier = defineAction({
@@ -369,22 +403,11 @@ const governPurchase = defineAction({
   precondition: {
     kind: "binary",
     left: {
-      kind: "binary",
-      left: {
-        kind: "relation",
-        relationId: "procurement.requirementRevision",
-      },
-      operator: "add",
-      right: {
-        kind: "relation",
-        relationId: "procurement.supplierTermsRevision",
-      },
+      kind: "relation",
+      relationId: "procurement.requiredQuantity",
     },
     operator: "greater_than",
-    right: {
-      kind: "literal",
-      value: { kind: "integer", value: "1" },
-    },
+    right: { inputId: "quantity", kind: "input" },
   },
 });
 
@@ -399,12 +422,25 @@ const recordPartialReceipt = defineAction({
       value: { inputId: "sourceReference", kind: "input" },
     },
     {
-      relationId: "procurement.receivedQuantity",
+      relationId: "procurement.receiptQuantity",
       value: { inputId: "quantity", kind: "input" },
+    },
+    {
+      relationId: "procurement.receivedQuantity",
+      value: {
+        kind: "binary",
+        left: { inputId: "currentReceivedQuantity", kind: "input" },
+        operator: "add",
+        right: { inputId: "quantity", kind: "input" },
+      },
     },
   ],
   id: "procurement.recordPartialReceipt",
   inputs: [
+    {
+      id: "currentReceivedQuantity",
+      valueType: { kind: "quantity", unit: "each" },
+    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "receiptReference", valueType: { kind: "text" } },
     { id: "sourceReference", valueType: { kind: "text" } },
@@ -412,8 +448,32 @@ const recordPartialReceipt = defineAction({
   precondition: {
     kind: "binary",
     left: {
-      kind: "relation",
-      relationId: "procurement.committedQuantity",
+      kind: "binary",
+      left: {
+        kind: "binary",
+        left: {
+          kind: "binary",
+          left: {
+            kind: "relation",
+            relationId: "procurement.committedQuantity",
+          },
+          operator: "subtract",
+          right: {
+            kind: "relation",
+            relationId: "procurement.receivedQuantity",
+          },
+        },
+        operator: "subtract",
+        right: {
+          kind: "relation",
+          relationId: "procurement.cancelledQuantity",
+        },
+      },
+      operator: "add",
+      right: {
+        kind: "relation",
+        relationId: "procurement.returnedQuantity",
+      },
     },
     operator: "greater_than",
     right: { inputId: "quantity", kind: "input" },
@@ -428,19 +488,52 @@ const cancelRemaining = defineAction({
     },
     {
       relationId: "procurement.cancelledQuantity",
-      value: { inputId: "quantity", kind: "input" },
+      value: {
+        kind: "binary",
+        left: { inputId: "currentCancelledQuantity", kind: "input" },
+        operator: "add",
+        right: { inputId: "quantity", kind: "input" },
+      },
     },
   ],
   id: "procurement.cancelRemaining",
   inputs: [
     { id: "cancellationReference", valueType: { kind: "text" } },
+    {
+      id: "currentCancelledQuantity",
+      valueType: { kind: "quantity", unit: "each" },
+    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
   ],
   precondition: {
     kind: "binary",
     left: {
-      kind: "relation",
-      relationId: "procurement.committedQuantity",
+      kind: "binary",
+      left: {
+        kind: "binary",
+        left: {
+          kind: "binary",
+          left: {
+            kind: "relation",
+            relationId: "procurement.committedQuantity",
+          },
+          operator: "subtract",
+          right: {
+            kind: "relation",
+            relationId: "procurement.receivedQuantity",
+          },
+        },
+        operator: "subtract",
+        right: {
+          kind: "relation",
+          relationId: "procurement.cancelledQuantity",
+        },
+      },
+      operator: "add",
+      right: {
+        kind: "relation",
+        relationId: "procurement.returnedQuantity",
+      },
     },
     operator: "greater_than",
     right: { inputId: "quantity", kind: "input" },
@@ -455,19 +548,36 @@ const recordReturn = defineAction({
     },
     {
       relationId: "procurement.returnedQuantity",
-      value: { inputId: "quantity", kind: "input" },
+      value: {
+        kind: "binary",
+        left: { inputId: "currentReturnedQuantity", kind: "input" },
+        operator: "add",
+        right: { inputId: "quantity", kind: "input" },
+      },
     },
   ],
   id: "procurement.recordReturn",
   inputs: [
+    {
+      id: "currentReturnedQuantity",
+      valueType: { kind: "quantity", unit: "each" },
+    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "returnReference", valueType: { kind: "text" } },
   ],
   precondition: {
     kind: "binary",
     left: {
-      kind: "relation",
-      relationId: "procurement.receivedQuantity",
+      kind: "binary",
+      left: {
+        kind: "relation",
+        relationId: "procurement.receivedQuantity",
+      },
+      operator: "subtract",
+      right: {
+        kind: "relation",
+        relationId: "procurement.returnedQuantity",
+      },
     },
     operator: "greater_than",
     right: { inputId: "quantity", kind: "input" },
@@ -476,6 +586,10 @@ const recordReturn = defineAction({
 
 const correctReceipt = defineAction({
   effects: [
+    {
+      relationId: "procurement.receivedQuantity",
+      value: { inputId: "quantity", kind: "input" },
+    },
     {
       relationId: "procurement.correctedReceivedQuantity",
       value: { inputId: "quantity", kind: "input" },
@@ -502,10 +616,7 @@ const correctReceipt = defineAction({
       relationId: "procurement.receivedQuantity",
     },
     operator: "greater_than",
-    right: {
-      kind: "literal",
-      value: { amount: "0", kind: "quantity", unit: "each" },
-    },
+    right: { inputId: "quantity", kind: "input" },
   },
 });
 
@@ -515,6 +626,7 @@ export default defineBundle({
     correctReceipt,
     governPurchase,
     recordPartialReceipt,
+    recordRequirement,
     recordReturn,
     requestSupplier,
   ],
@@ -535,6 +647,7 @@ export default defineBundle({
     productReference,
     purchaseCommitmentReference,
     purchaseUnitPrice,
+    receiptQuantity,
     receiptReference,
     receiptSourceReference,
     receivedQuantity,
@@ -550,14 +663,5 @@ export default defineBundle({
     supplierTermsRevision,
   ],
   revision: 1,
-  types: [
-    Cancellation,
-    Correction,
-    ProcurementRequirement,
-    PurchaseCommitment,
-    PurchaseLine,
-    Receipt,
-    Return,
-    SupplierRequest,
-  ],
+  types: [PurchaseLine],
 });

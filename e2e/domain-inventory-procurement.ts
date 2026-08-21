@@ -8,10 +8,8 @@ import {
   ProposalStatus,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
-import {
-  e2eGeneratedDirectory,
-  writeScenarioArtifact,
-} from "./host-env.js";
+import { LineageRole } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
 import {
   activeDigest,
   actionClient,
@@ -128,7 +126,8 @@ async function main(): Promise<void> {
         fixture.digest === repeated[index]?.digest &&
         fixture.canonicalJson === repeated[index]?.canonicalJson,
     ) &&
-      new Set(fixtures.map((fixture) => fixture.digest)).size === fixtures.length,
+      new Set(fixtures.map((fixture) => fixture.digest)).size ===
+        fixtures.length,
   );
   observe(
     "inventoryAndProcurementRetainTypeRelationComputationAction",
@@ -162,6 +161,24 @@ async function main(): Promise<void> {
       "procurement.cancelledQuantity",
       "procurement.returnedQuantity",
     ].every((relationId) => procurementSource.includes(relationId)),
+  );
+  observe(
+    "definitionsBindRemainingTotalsReceiptsAndPurchaseQuantity",
+    /const reserveInventory[\s\S]*operator: "subtract"[\s\S]*relationId: "inventory\.reservedQuantity"[\s\S]*operator: "greater_than"/u.test(
+      inventorySource,
+    ) &&
+      /const recordReceipt[\s\S]*relationId: "inventory\.acceptedPhysicalQuantity"[\s\S]*operator: "add"/u.test(
+        inventorySource,
+      ) &&
+      /const governPurchase[\s\S]*relationId: "procurement\.requiredQuantity"[\s\S]*operator: "greater_than"[\s\S]*inputId: "quantity"/u.test(
+        procurementSource,
+      ) &&
+      /const recordPartialReceipt[\s\S]*currentReceivedQuantity[\s\S]*operator: "add"/u.test(
+        procurementSource,
+      ) &&
+      /const correctReceipt[\s\S]*relationId: "procurement\.receivedQuantity"/u.test(
+        procurementSource,
+      ),
   );
 
   const [
@@ -302,13 +319,27 @@ async function main(): Promise<void> {
       commercialAction,
       commercialCommitmentRequest(commercial),
     );
-    observe(
-      "commercialCommitmentFromV115FeedsInventoryLifecycle",
-      commercialCommitment.receipt.definition?.digest === commercial.digest &&
-        commercialCommitment.receipt.policy?.revision?.policyId ===
-          "policy.commercial.createCommitment.r1" &&
-        commercialCommitment.receipt.recordIds.length === 5,
-    );
+    const [commercialQuantityResult, commercialReferenceResult] =
+      await Promise.all([
+        relationQuery(
+          worldA,
+          commercial,
+          orderLineId,
+          "commercial.committedQuantity",
+          lifecycleAt,
+          tenantA,
+        ),
+        relationQuery(
+          worldA,
+          commercial,
+          orderLineId,
+          "commercial.commitmentReference",
+          lifecycleAt,
+          tenantA,
+        ),
+      ]);
+    const commercialQuantity = singleQuantityValue(commercialQuantityResult);
+    const commercialReference = singleTextValue(commercialReferenceResult);
 
     await recordInventoryIdentity(worldA, inventory, tenantA);
     await Promise.all(
@@ -341,16 +372,26 @@ async function main(): Promise<void> {
         }),
       ),
     );
-    await recordEvidence(worldA, {
-      claimId: "claim.inventory.accepted-initial",
-      entityId: stockPositionId,
-      fixture: inventory,
-      relationId: "inventory.acceptedPhysicalQuantity",
-      sourceId: "source.inventory-control",
-      tenantId: tenantA,
-      time: instant(lifecycleAt),
-      value: { amount: "10", kind: "quantity", unit: "each" },
-    });
+    const commitmentFeedAtProposal = await commitReadyAction(
+      inventoryAction,
+      inventoryCommitmentRequest(
+        inventory,
+        "proposal-basis",
+        lifecycleAt,
+        commercialReference,
+        commercialQuantity,
+      ),
+    );
+    await commitReadyAction(
+      inventoryAction,
+      acceptedQuantityRequest(
+        inventory,
+        "initial",
+        lifecycleAt,
+        "reconciliation.erp-wms-manual.initial",
+        "10",
+      ),
+    );
     const rivals = await relationQuery(
       worldA,
       inventory,
@@ -366,11 +407,24 @@ async function main(): Promise<void> {
           hasSource(rivals, sourceId),
         ),
     );
+    observe(
+      "commercialCommitmentFromV115FeedsInventoryLifecycle",
+      commercialCommitment.receipt.definition?.digest === commercial.digest &&
+        commercialCommitment.receipt.policy?.revision?.policyId ===
+          "policy.commercial.createCommitment.r1" &&
+        commitmentFeedAtProposal.receipt.recordIds.length === 3 &&
+        sameStrings(quantityValues(commercialQuantityResult), ["10 each"]) &&
+        sameStrings(textValues(commercialReferenceResult), [
+          "commitment.order-2001",
+        ]),
+    );
 
     const staleReservationRequest = reservationRequest(
       inventory,
       "stale",
       lifecycleAt,
+      "0",
+      "6",
     );
     const staleReservation = await inventoryAction.propose(
       staleReservationRequest,
@@ -378,16 +432,16 @@ async function main(): Promise<void> {
     assert.equal(staleReservation.decision, PolicyDecision.PERMIT);
     assert.equal(staleReservation.proposal?.status, ProposalStatus.READY);
     assert.ok(staleReservation.proposal);
-    await recordEvidence(worldA, {
-      claimId: "claim.inventory.accepted-correction",
-      entityId: stockPositionId,
-      fixture: inventory,
-      relationId: "inventory.acceptedPhysicalQuantity",
-      sourceId: "source.inventory-reconciliation.erp-wms-manual",
-      tenantId: tenantA,
-      time: interval(lifecycleAt, yearEnd),
-      value: { amount: "8", kind: "quantity", unit: "each" },
-    });
+    await commitReadyAction(
+      inventoryAction,
+      acceptedQuantityRequest(
+        inventory,
+        "proposal-correction",
+        lifecycleAt,
+        "reconciliation.erp-wms-manual.corrected",
+        "8",
+      ),
+    );
     const staleReservationCommit = await inventoryAction.commit({
       operationId: staleReservationRequest.operationId,
       proposalId: staleReservationRequest.proposalId,
@@ -401,10 +455,32 @@ async function main(): Promise<void> {
           staleReservation.proposal.stateBasis?.digest,
     );
 
+    await commitReadyAction(
+      inventoryAction,
+      inventoryCommitmentRequest(
+        inventory,
+        "current",
+        afterCorrectionAt,
+        commercialReference,
+        commercialQuantity,
+      ),
+    );
+    await commitReadyAction(
+      inventoryAction,
+      acceptedQuantityRequest(
+        inventory,
+        "current",
+        afterCorrectionAt,
+        "reconciliation.erp-wms-manual.current",
+        "8",
+      ),
+    );
     const reservationRequestAfterCorrection = reservationRequest(
       inventory,
       "accepted",
       afterCorrectionAt,
+      "0",
+      "6",
     );
     const reservationProposal = await inventoryAction.propose(
       reservationRequestAfterCorrection,
@@ -432,29 +508,24 @@ async function main(): Promise<void> {
       reserved.receipt.commitStateBasis?.digest ===
         reservationProposal.proposal.stateBasis?.digest,
     );
-
-    await Promise.all([
-      recordEvidence(worldA, {
-        claimId: "claim.inventory.commercial-commitment-reference",
-        entityId: stockPositionId,
-        fixture: inventory,
-        relationId: "inventory.commercialCommitmentReference",
-        sourceId: commercialCommitment.receipt.operationId,
-        tenantId: tenantA,
-        time: instant(afterCorrectionAt),
-        value: { kind: "text", value: "commitment.order-2001" },
-      }),
-      recordEvidence(worldA, {
-        claimId: "claim.inventory.commercial-committed-quantity",
-        entityId: stockPositionId,
-        fixture: inventory,
-        relationId: "inventory.commercialCommittedQuantity",
-        sourceId: commercialCommitment.receipt.operationId,
-        tenantId: tenantA,
-        time: instant(afterCorrectionAt),
-        value: { amount: "10", kind: "quantity", unit: "each" },
-      }),
-    ]);
+    const overReservation = await inventoryAction.propose(
+      reservationRequest(
+        inventory,
+        "over-remaining",
+        afterCorrectionAt,
+        "6",
+        "3",
+      ),
+    );
+    observe(
+      "secondReservationBeyondRemainingIsDenied",
+      overReservation.decision === PolicyDecision.DENY &&
+        overReservation.proposal === undefined &&
+        overReservation.stateBasis?.dependencies.some(
+          (dependency) =>
+            dependency.relationId === "inventory.reservedQuantity",
+        ) === true,
+    );
     const [availability, shortage] = await Promise.all([
       computationQuery(
         worldA,
@@ -484,7 +555,11 @@ async function main(): Promise<void> {
     observe(
       "reservationLeavesRawStockUntouchedAndAvailabilityHasLineage",
       rawClaimCount.rows[0]?.count === "3" &&
-        sameStrings(quantityValues(availability), ["2 each"]) &&
+        sameStrings(quantityValues(availability), ["2 each", "8 each"]) &&
+        currentQuantity(availability, [
+          "inventory.acceptedPhysicalQuantity",
+          "inventory.reservedQuantity",
+        ]) === "2 each" &&
         hasRelation(availability, "inventory.acceptedPhysicalQuantity") &&
         hasRelation(availability, "inventory.reservedQuantity"),
     );
@@ -495,15 +570,28 @@ async function main(): Promise<void> {
         hasRelation(shortage, "inventory.acceptedPhysicalQuantity"),
     );
 
-    await recordProcurementBasis(worldA, procurement, tenantA);
+    await recordProcurementMetadata(worldA, procurement, tenantA);
+    const requirement = await commitReadyAction(
+      procurementAction,
+      requirementRequest(procurement, "initial", singleQuantityValue(shortage)),
+    );
     const supplierRequest = await commitReadyAction(
       procurementAction,
-      supplierRequestAction(procurement),
+      supplierRequestAction(procurement, singleQuantityValue(shortage)),
     );
     observe(
       "procurementRequirementAndSupplierRequestRemainDistinct",
       supplierRequest.receipt.recordIds.length === 2 &&
-        supplierRequest.receipt.definition?.digest === procurement.digest,
+        supplierRequest.receipt.definition?.digest === procurement.digest &&
+        requirement.receipt.recordIds.length === 5 &&
+        [
+          "procurement.requirementRevision",
+          "procurement.supplierTermsRevision",
+        ].every((relationId) =>
+          requirement.proposal.stateBasis?.dependencies.some(
+            (dependency) => dependency.relationId === relationId,
+          ),
+        ),
     );
 
     await setProviderMode("confirmed");
@@ -543,15 +631,23 @@ async function main(): Promise<void> {
           "actor.procurement-supervisor.a",
     );
     await recordEvidence(worldA, {
-      claimId: "claim.procurement.supplier-terms-revision-2",
+      claimId: "claim.procurement.supplier-terms-revision-3",
       entityId: purchaseLineId,
       fixture: procurement,
       relationId: "procurement.supplierTermsRevision",
       sourceId: "source.supplier-master",
       tenantId: tenantA,
       time: instant(afterCorrectionAt),
-      value: { kind: "integer", value: "2" },
+      value: { kind: "integer", value: "3" },
     });
+    const refreshedRequirement = await commitReadyAction(
+      procurementAction,
+      requirementRequest(procurement, "supplier-terms-refresh", {
+        amount: "1.75",
+        kind: "quantity",
+        unit: "each",
+      }),
+    );
     const stalePurchaseCommit = await procurementAction.commit({
       operationId: stalePurchaseRequest.operationId,
       proposalId: stalePurchaseRequest.proposalId,
@@ -562,7 +658,37 @@ async function main(): Promise<void> {
       stalePurchaseCommit.status === CommitStatus.STALE &&
         stalePurchaseCommit.receipt === undefined &&
         stalePurchaseCommit.currentStateBasis?.digest !==
-          stalePurchase.proposal.stateBasis?.digest,
+          stalePurchase.proposal.stateBasis?.digest &&
+        stalePurchase.proposal.stateBasis?.dependencies.some(
+          (dependency) =>
+            dependency.relationId === "procurement.requiredQuantity",
+        ) === true &&
+        [
+          "procurement.requirementRevision",
+          "procurement.supplierTermsRevision",
+        ].every((relationId) =>
+          refreshedRequirement.proposal.stateBasis?.dependencies.some(
+            (dependency) => dependency.relationId === relationId,
+          ),
+        ),
+    );
+
+    const excessivePurchase = await procurementAction.propose(
+      purchaseRequest(procurement, "excessive", "1000000", "18.5"),
+    );
+    const zeroPricePurchase = await procurementAction.propose(
+      purchaseRequest(procurement, "zero-price", "1", "0"),
+    );
+    observe(
+      "purchaseQuantityAndPriceAreGovernedByRequirementAndCedar",
+      excessivePurchase.decision === PolicyDecision.DENY &&
+        excessivePurchase.proposal === undefined &&
+        excessivePurchase.stateBasis?.dependencies.some(
+          (dependency) =>
+            dependency.relationId === "procurement.requiredQuantity",
+        ) === true &&
+        zeroPricePurchase.decision === PolicyDecision.DENY &&
+        zeroPricePurchase.proposal === undefined,
     );
 
     const purchaseRequestAfterReplan = purchaseRequest(procurement, "accepted");
@@ -615,10 +741,11 @@ async function main(): Promise<void> {
     await stopServer(server);
     server = undefined;
     server = await startServer(policyManifestPath);
-    const statusAfterCommitRestart =
-      await procurementAction.getOperationStatus({
+    const statusAfterCommitRestart = await procurementAction.getOperationStatus(
+      {
         operationId: purchaseCommit.receipt.operationId,
-      });
+      },
+    );
     observe(
       "restartAfterPurchaseCommitRecoversOneDurableOperation",
       serverBeforePurchaseRestart !== server.child.pid &&
@@ -636,8 +763,7 @@ async function main(): Promise<void> {
       firstPurchaseEffect,
       EffectKnowledgeState.UNKNOWN,
     );
-    const firstPurchaseIdempotencyKey =
-      `idempotency.${tenantA}.${firstPurchaseEffect}`;
+    const firstPurchaseIdempotencyKey = `idempotency.${tenantA}.${firstPurchaseEffect}`;
     const externalPurchase = await providerOperation(
       firstPurchaseIdempotencyKey,
     );
@@ -659,37 +785,36 @@ async function main(): Promise<void> {
     await stopServer(server);
     server = undefined;
     server = await startServer(policyManifestPath);
-    const recoveredPurchaseStatus =
-      await procurementAction.getOperationStatus({
-        operationId: purchaseCommit.receipt.operationId,
-      });
+    const recoveredPurchaseStatus = await procurementAction.getOperationStatus({
+      operationId: purchaseCommit.receipt.operationId,
+    });
     observe(
       "restartBetweenEffectAndReceiptDoesNotDuplicatePurchase",
       serverBeforeEffectRestart !== server.child.pid &&
         recoveredPurchaseStatus.status === CommitStatus.COMMITTED &&
-        (
-          await providerOperation(firstPurchaseIdempotencyKey)
-        )?.requests === 1,
+        (await providerOperation(firstPurchaseIdempotencyKey))?.requests === 1,
     );
 
     const purchaseEvidence = await Promise.all(
-      purchaseCommit.receipt.effectRequestIds.map(async (effectRequestId, index) => {
-        const idempotencyKey = `idempotency.${tenantA}.${effectRequestId}`;
-        const connectorStatus = await waitForConnectorStatus(idempotencyKey);
-        const evidence = evidenceInput(
-          connectorStatus,
-          `purchase-confirmed-${index}`,
-        );
-        const reconciled = await reconcilerA.reconcile({
-          effectRequestId,
-          evidence,
-        });
-        assert.equal(
-          reconciled.snapshot?.request?.state,
-          EffectKnowledgeState.CONFIRMED,
-        );
-        return { effectRequestId, evidence, idempotencyKey };
-      }),
+      purchaseCommit.receipt.effectRequestIds.map(
+        async (effectRequestId, index) => {
+          const idempotencyKey = `idempotency.${tenantA}.${effectRequestId}`;
+          const connectorStatus = await waitForConnectorStatus(idempotencyKey);
+          const evidence = evidenceInput(
+            connectorStatus,
+            `purchase-confirmed-${index}`,
+          );
+          const reconciled = await reconcilerA.reconcile({
+            effectRequestId,
+            evidence,
+          });
+          assert.equal(
+            reconciled.snapshot?.request?.state,
+            EffectKnowledgeState.CONFIRMED,
+          );
+          return { effectRequestId, evidence, idempotencyKey };
+        },
+      ),
     );
     const firstEvidence = purchaseEvidence[0];
     assert.ok(firstEvidence);
@@ -725,11 +850,7 @@ async function main(): Promise<void> {
         purchaseExplanation.subject.case === "action" &&
         purchaseExplanation.subject.value.proposalStateBasis?.basis?.dependencies.some(
           (dependency) =>
-            dependency.relationId === "procurement.requirementRevision",
-        ) === true &&
-        purchaseExplanation.subject.value.proposalStateBasis?.basis?.dependencies.some(
-          (dependency) =>
-            dependency.relationId === "procurement.supplierTermsRevision",
+            dependency.relationId === "procurement.requiredQuantity",
         ) === true &&
         purchaseExplanation.subject.value.effects.every(
           (effect) =>
@@ -741,7 +862,7 @@ async function main(): Promise<void> {
 
     const partialReceipt = await commitReadyAction(
       procurementAction,
-      partialReceiptRequest(procurement),
+      partialReceiptRequest(procurement, "first", "0", "0.75"),
     );
     const remainingAfterPartial = await computationQuery(
       worldA,
@@ -753,10 +874,51 @@ async function main(): Promise<void> {
     );
     observe(
       "partialReceiptLeavesRemainingSupplierCommitment",
-      partialReceipt.receipt.recordIds.length === 3 &&
-        sameStrings(quantityValues(remainingAfterPartial), ["1 each"]) &&
+      partialReceipt.receipt.recordIds.length === 4 &&
+        sameStrings(quantityValues(remainingAfterPartial), [
+          "0.75 each",
+          "1.5 each",
+          "1.5 each",
+        ]) &&
+        currentQuantity(remainingAfterPartial, [
+          "procurement.receivedQuantity",
+        ]) === "0.75 each" &&
         hasRelation(remainingAfterPartial, "procurement.committedQuantity") &&
         hasRelation(remainingAfterPartial, "procurement.receivedQuantity"),
+    );
+    const secondPartialReceipt = await commitReadyAction(
+      procurementAction,
+      partialReceiptRequest(procurement, "second", "0.75", "0.25"),
+    );
+    const [remainingAfterSecondPartial, receiptHistory] = await Promise.all([
+      computationQuery(
+        worldA,
+        procurement,
+        purchaseLineId,
+        "procurement.remainingAfterReceipt",
+        afterCorrectionAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldA,
+        procurement,
+        purchaseLineId,
+        "procurement.receiptQuantity",
+        afterCorrectionAt,
+        tenantA,
+      ),
+    ]);
+    observe(
+      "partialReceiptsAccumulateWithoutAssumingFullReceipt",
+      secondPartialReceipt.receipt.commitSequence >
+        partialReceipt.receipt.commitSequence &&
+        sameStrings(quantityValues(receiptHistory), [
+          "0.25 each",
+          "0.75 each",
+        ]) &&
+        currentQuantity(remainingAfterSecondPartial, [
+          "procurement.receivedQuantity",
+        ]) === "0.5 each",
     );
 
     await setProviderMode("accepted_pending");
@@ -796,15 +958,15 @@ async function main(): Promise<void> {
 
     const cancellation = await commitReadyAction(
       procurementAction,
-      cancellationRequest(procurement),
+      cancellationRequest(procurement, "0", "0.25"),
     );
     const returned = await commitReadyAction(
       procurementAction,
-      returnRequest(procurement),
+      returnRequest(procurement, "0", "0.125"),
     );
     const corrected = await commitReadyAction(
       procurementAction,
-      correctionRequest(procurement),
+      correctionRequest(procurement, "0.875"),
     );
     const [remainingAfterCancellation, netReceived] = await Promise.all([
       computationQuery(
@@ -826,15 +988,39 @@ async function main(): Promise<void> {
     ]);
     observe(
       "partialReceiptCancellationAndReturnAppendHistory",
-      cancellation.receipt.commitSequence < returned.receipt.commitSequence &&
+      secondPartialReceipt.receipt.commitSequence <
+        cancellation.receipt.commitSequence &&
+        cancellation.receipt.commitSequence < returned.receipt.commitSequence &&
         returned.receipt.commitSequence < corrected.receipt.commitSequence &&
-        sameStrings(quantityValues(remainingAfterCancellation), ["0 each"]) &&
-        sameStrings(quantityValues(netReceived), ["0.75 each"]),
+        currentQuantity(remainingAfterCancellation, [
+          "procurement.receivedQuantity",
+          "procurement.cancelledQuantity",
+          "procurement.returnedQuantity",
+        ]) === "0.5 each" &&
+        currentQuantity(netReceived, [
+          "procurement.receivedQuantity",
+          "procurement.returnedQuantity",
+        ]) === "0.75 each",
     );
 
     const inventoryReceipt = await commitReadyAction(
       inventoryAction,
-      inventoryReceiptRequest(inventory),
+      inventoryReceiptRequest(inventory, "8", "0.75"),
+    );
+    const availabilityAfterReceipt = await computationQuery(
+      worldA,
+      inventory,
+      stockPositionId,
+      "inventory.safeAvailability",
+      afterCorrectionAt,
+      tenantA,
+    );
+    observe(
+      "inventoryReceiptMovesAcceptedAvailability",
+      currentQuantity(availabilityAfterReceipt, [
+        "inventory.acceptedPhysicalQuantity",
+        "inventory.reservedQuantity",
+      ]) === "2.75 each",
     );
     const movement = await commitReadyAction(
       inventoryAction,
@@ -842,7 +1028,7 @@ async function main(): Promise<void> {
     );
     const inventoryCorrection = await commitReadyAction(
       inventoryAction,
-      inventoryCorrectionRequest(inventory),
+      inventoryCorrectionRequest(inventory, "8.625"),
     );
     const inventoryHistory = await Promise.all([
       relationQuery(
@@ -872,11 +1058,14 @@ async function main(): Promise<void> {
     ]);
     observe(
       "inventoryReceiptMovementAndCorrectionAreHistoricalActions",
-      inventoryReceipt.receipt.commitSequence < movement.receipt.commitSequence &&
+      inventoryReceipt.receipt.commitSequence <
+        movement.receipt.commitSequence &&
         movement.receipt.commitSequence <
           inventoryCorrection.receipt.commitSequence &&
         sameStrings(textValues(inventoryHistory[0]), ["receipt.erp.2001"]) &&
-        sameStrings(textValues(inventoryHistory[1]), ["movement.putaway.2001"]) &&
+        sameStrings(textValues(inventoryHistory[1]), [
+          "movement.putaway.2001",
+        ]) &&
         sameStrings(textValues(inventoryHistory[2]), ["receipt.erp.2001"]),
     );
 
@@ -891,7 +1080,15 @@ async function main(): Promise<void> {
       time: instant(afterCorrectionAt),
       value: { amount: "77", kind: "quantity", unit: "each" },
     });
-    await recordProcurementBasis(worldB, procurement, tenantB);
+    await recordProcurementMetadata(worldB, procurement, tenantB);
+    await commitReadyAction(
+      procurementActionB,
+      requirementRequest(procurement, "tenant-b", {
+        amount: "1.75",
+        kind: "quantity",
+        unit: "each",
+      }),
+    );
     const tenantBStock = await relationQuery(
       worldB,
       inventory,
@@ -971,14 +1168,32 @@ async function main(): Promise<void> {
       sameStrings(quantityValues(tenantBStock), ["77 each"]) &&
         crossTenantQuery === Code.PermissionDenied &&
         tenantBPurchase.status === CommitStatus.COMMITTED &&
-        sameStrings([...new Set(textValues(tenantASupplier))], [
+        sameStrings(textValues(tenantASupplier), [
+          supplierPartyId,
           supplierPartyId,
         ]) &&
-        sameStrings([...new Set(textValues(tenantBSupplier))], [
+        sameStrings(textValues(tenantBSupplier), [
+          supplierPartyId,
           supplierPartyId,
         ]) &&
-        sameStrings([...new Set(textValues(tenantAProduct))], [productId]) &&
-        sameStrings([...new Set(textValues(tenantBProduct))], [productId]) &&
+        sameStrings(textValues(tenantAProduct), [productId, productId]) &&
+        sameStrings(textValues(tenantBProduct), [productId, productId]) &&
+        sameStrings(sourceIds(tenantASupplier), [
+          "source.supplier-master",
+          "zoen.action",
+        ]) &&
+        sameStrings(sourceIds(tenantBSupplier), [
+          "source.supplier-master",
+          "zoen.action",
+        ]) &&
+        sameStrings(sourceIds(tenantAProduct), [
+          "source.product-catalog",
+          "zoen.action",
+        ]) &&
+        sameStrings(sourceIds(tenantBProduct), [
+          "source.product-catalog",
+          "zoen.action",
+        ]) &&
         !Object.hasOwn(tenantBPurchaseRequest, "tenantId"),
     );
 
@@ -1085,7 +1300,11 @@ async function main(): Promise<void> {
     assert.match(keycloakVersion, /Keycloak 26\.0\.7/u);
     const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
     const manifest = {
-      architectureDeviations: [],
+      architectureDeviations: [
+        "The v1 expression algebra has strict greater_than but no greater_than_or_equal, so exact remaining reservation, receipt, cancellation, and purchase quantities stay a parked kernel follow-up.",
+        "Semantic queries retain every valid card-one claim while Action admission selects the latest commit; the scenario asserts every candidate and derives the current result from commit provenance until the kernel exposes current-cardinality selection.",
+        "A single Action precondition cannot conjunct quantity, decimal price, and integer revision comparisons. governPurchase binds quantity to requiredQuantity, Cedar validates positive quantity and price, and recordRequirement pins both revisions in its StateBasis.",
+      ],
       assertions,
       componentVersions: {
         datafusion: "embedded zoen-query",
@@ -1108,10 +1327,12 @@ async function main(): Promise<void> {
         inventoryReceipt: inventoryReceipt.receipt.operationId,
         movement: movement.receipt.operationId,
         partialReceipt: partialReceipt.receipt.operationId,
+        secondPartialReceipt: secondPartialReceipt.receipt.operationId,
         purchase: purchaseCommit.receipt.operationId,
         purchaseCancellation: cancellation.receipt.operationId,
         purchaseCorrection: corrected.receipt.operationId,
         purchaseReturn: returned.receipt.operationId,
+        requirement: refreshedRequirement.receipt.operationId,
         reservation: reserved.receipt.operationId,
         supplierRequest: supplierRequest.receipt.operationId,
       },
@@ -1248,7 +1469,7 @@ async function recordInventoryIdentity(
   }
 }
 
-async function recordProcurementBasis(
+async function recordProcurementMetadata(
   client: ReturnType<typeof worldClient>,
   fixture: DomainFixture,
   tenantId: string,
@@ -1260,22 +1481,10 @@ async function recordProcurementBasis(
     readonly value: SemanticValue;
   }[] = [
     {
-      claimId: "claim.procurement.requirement-reference",
-      relationId: "procurement.requirementReference",
-      sourceId: "source.inventory-shortage",
-      value: { kind: "text", value: "requirement.inventory.2001" },
-    },
-    {
       claimId: "claim.procurement.requirement-revision",
       relationId: "procurement.requirementRevision",
       sourceId: "source.inventory-shortage",
       value: { kind: "integer", value: "1" },
-    },
-    {
-      claimId: "claim.procurement.required-quantity",
-      relationId: "procurement.requiredQuantity",
-      sourceId: "source.inventory-shortage",
-      value: { amount: "2", kind: "quantity", unit: "each" },
     },
     {
       claimId: "claim.procurement.supplier-party",
@@ -1293,7 +1502,7 @@ async function recordProcurementBasis(
       claimId: "claim.procurement.supplier-terms-revision",
       relationId: "procurement.supplierTermsRevision",
       sourceId: "source.supplier-master",
-      value: { kind: "integer", value: "1" },
+      value: { kind: "integer", value: "2" },
     },
     {
       claimId: "claim.procurement.product-reference",
@@ -1340,6 +1549,8 @@ function reservationRequest(
   fixture: DomainFixture,
   suffix: string,
   validAt: Date,
+  currentReservedQuantity: string,
+  quantity: string,
 ) {
   return proposalRequest({
     actionId: "inventory.reserveInventory",
@@ -1354,8 +1565,16 @@ function reservationRequest(
         value: { kind: "text", value: "commitment.order-2001" },
       },
       {
+        id: "currentReservedQuantity",
+        value: {
+          amount: currentReservedQuantity,
+          kind: "quantity",
+          unit: "each",
+        },
+      },
+      {
         id: "quantity",
-        value: { amount: "6", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
       {
         id: "reservationReference",
@@ -1368,14 +1587,87 @@ function reservationRequest(
   });
 }
 
-function supplierRequestAction(fixture: DomainFixture) {
+function acceptedQuantityRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  validAt: Date,
+  sourceReference: string,
+  quantity: string,
+) {
+  return proposalRequest({
+    actionId: "inventory.acceptPhysicalQuantity",
+    fixture,
+    inputs: [
+      {
+        id: "quantity",
+        value: { amount: quantity, kind: "quantity", unit: "each" },
+      },
+      {
+        id: "sourceReference",
+        value: { kind: "text", value: sourceReference },
+      },
+    ],
+    resourceId: stockPositionId,
+    suffix: `accept-${suffix}`,
+    validAt,
+  });
+}
+
+function inventoryCommitmentRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  validAt: Date,
+  commitmentReference: string,
+  quantity: SemanticValue,
+) {
+  return proposalRequest({
+    actionId: "inventory.recordCommercialCommitment",
+    fixture,
+    inputs: [
+      {
+        id: "commitmentReference",
+        value: { kind: "text", value: commitmentReference },
+      },
+      { id: "quantity", value: quantity },
+    ],
+    resourceId: stockPositionId,
+    suffix: `commercial-feed-${suffix}`,
+    validAt,
+  });
+}
+
+function requirementRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  quantity: SemanticValue,
+) {
+  return proposalRequest({
+    actionId: "procurement.recordRequirement",
+    fixture,
+    inputs: [
+      { id: "quantity", value: quantity },
+      {
+        id: "requirementReference",
+        value: { kind: "text", value: "requirement.inventory.2001" },
+      },
+    ],
+    resourceId: purchaseLineId,
+    suffix: `requirement-${suffix}`,
+    validAt: afterCorrectionAt,
+  });
+}
+
+function supplierRequestAction(
+  fixture: DomainFixture,
+  quantity: SemanticValue,
+) {
   return proposalRequest({
     actionId: "procurement.requestSupplier",
     fixture,
     inputs: [
       {
         id: "quantity",
-        value: { amount: "2", kind: "quantity", unit: "each" },
+        value: quantity,
       },
       {
         id: "supplierRequestReference",
@@ -1388,7 +1680,12 @@ function supplierRequestAction(fixture: DomainFixture) {
   });
 }
 
-function purchaseRequest(fixture: DomainFixture, suffix: string) {
+function purchaseRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  quantity = "1.5",
+  unitPrice = "18.5",
+) {
   return proposalRequest({
     actionId: "procurement.governPurchase",
     fixture,
@@ -1407,7 +1704,7 @@ function purchaseRequest(fixture: DomainFixture, suffix: string) {
       },
       {
         id: "quantity",
-        value: { amount: "2", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
       {
         id: "requirementReference",
@@ -1423,7 +1720,7 @@ function purchaseRequest(fixture: DomainFixture, suffix: string) {
       },
       {
         id: "unitPrice",
-        value: { kind: "decimal", value: "18.5" },
+        value: { kind: "decimal", value: unitPrice },
       },
     ],
     resourceId: purchaseLineId,
@@ -1432,31 +1729,48 @@ function purchaseRequest(fixture: DomainFixture, suffix: string) {
   });
 }
 
-function partialReceiptRequest(fixture: DomainFixture) {
+function partialReceiptRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  currentReceivedQuantity: string,
+  quantity: string,
+) {
   return proposalRequest({
     actionId: "procurement.recordPartialReceipt",
     fixture,
     inputs: [
       {
+        id: "currentReceivedQuantity",
+        value: {
+          amount: currentReceivedQuantity,
+          kind: "quantity",
+          unit: "each",
+        },
+      },
+      {
         id: "quantity",
-        value: { amount: "1", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
       {
         id: "receiptReference",
-        value: { kind: "text", value: "receipt.erp.2001" },
+        value: { kind: "text", value: `receipt.erp.2001.${suffix}` },
       },
       {
         id: "sourceReference",
-        value: { kind: "text", value: "erp-receipt:GRN-2001" },
+        value: { kind: "text", value: `erp-receipt:GRN-2001:${suffix}` },
       },
     ],
     resourceId: purchaseLineId,
-    suffix: "partial-receipt",
+    suffix: `partial-receipt-${suffix}`,
     validAt: afterCorrectionAt,
   });
 }
 
-function cancellationRequest(fixture: DomainFixture) {
+function cancellationRequest(
+  fixture: DomainFixture,
+  currentCancelledQuantity: string,
+  quantity: string,
+) {
   return proposalRequest({
     actionId: "procurement.cancelRemaining",
     fixture,
@@ -1466,8 +1780,16 @@ function cancellationRequest(fixture: DomainFixture) {
         value: { kind: "text", value: "cancellation.purchase.2001" },
       },
       {
+        id: "currentCancelledQuantity",
+        value: {
+          amount: currentCancelledQuantity,
+          kind: "quantity",
+          unit: "each",
+        },
+      },
+      {
         id: "quantity",
-        value: { amount: "1", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
     ],
     resourceId: purchaseLineId,
@@ -1476,14 +1798,26 @@ function cancellationRequest(fixture: DomainFixture) {
   });
 }
 
-function returnRequest(fixture: DomainFixture) {
+function returnRequest(
+  fixture: DomainFixture,
+  currentReturnedQuantity: string,
+  quantity: string,
+) {
   return proposalRequest({
     actionId: "procurement.recordReturn",
     fixture,
     inputs: [
       {
+        id: "currentReturnedQuantity",
+        value: {
+          amount: currentReturnedQuantity,
+          kind: "quantity",
+          unit: "each",
+        },
+      },
+      {
         id: "quantity",
-        value: { amount: "0.25", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
       {
         id: "returnReference",
@@ -1496,7 +1830,7 @@ function returnRequest(fixture: DomainFixture) {
   });
 }
 
-function correctionRequest(fixture: DomainFixture) {
+function correctionRequest(fixture: DomainFixture, quantity: string) {
   return proposalRequest({
     actionId: "procurement.correctReceipt",
     fixture,
@@ -1507,7 +1841,7 @@ function correctionRequest(fixture: DomainFixture) {
       },
       {
         id: "quantity",
-        value: { amount: "0.75", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
       {
         id: "reason",
@@ -1520,14 +1854,26 @@ function correctionRequest(fixture: DomainFixture) {
   });
 }
 
-function inventoryReceiptRequest(fixture: DomainFixture) {
+function inventoryReceiptRequest(
+  fixture: DomainFixture,
+  currentAcceptedQuantity: string,
+  quantity: string,
+) {
   return proposalRequest({
     actionId: "inventory.recordReceipt",
     fixture,
     inputs: [
       {
+        id: "currentAcceptedQuantity",
+        value: {
+          amount: currentAcceptedQuantity,
+          kind: "quantity",
+          unit: "each",
+        },
+      },
+      {
         id: "quantity",
-        value: { amount: "0.75", kind: "quantity", unit: "each" },
+        value: { amount: quantity, kind: "quantity", unit: "each" },
       },
       {
         id: "receiptReference",
@@ -1561,7 +1907,10 @@ function movementRequest(fixture: DomainFixture) {
   });
 }
 
-function inventoryCorrectionRequest(fixture: DomainFixture) {
+function inventoryCorrectionRequest(
+  fixture: DomainFixture,
+  acceptedQuantity: string,
+) {
   return proposalRequest({
     actionId: "inventory.correctInventory",
     fixture,
@@ -1571,8 +1920,12 @@ function inventoryCorrectionRequest(fixture: DomainFixture) {
         value: { kind: "text", value: "receipt.erp.2001" },
       },
       {
-        id: "quantity",
-        value: { amount: "0.75", kind: "quantity", unit: "each" },
+        id: "acceptedQuantity",
+        value: {
+          amount: acceptedQuantity,
+          kind: "quantity",
+          unit: "each",
+        },
       },
       {
         id: "reason",
@@ -1652,6 +2005,80 @@ function quantityValues(
   );
 }
 
+function singleQuantityValue(
+  response: Awaited<ReturnType<typeof semanticQuery>>,
+): SemanticValue {
+  const quantities = valueShapes(response).filter(
+    (value) => value.kind === "quantity",
+  );
+  assert.equal(quantities.length, 1);
+  const quantity = quantities[0];
+  assert.ok(quantity);
+  return quantity;
+}
+
+function singleTextValue(
+  response: Awaited<ReturnType<typeof semanticQuery>>,
+): string {
+  const values = textValues(response);
+  assert.equal(values.length, 1);
+  const value = values[0];
+  assert.ok(value);
+  return value;
+}
+
+function currentQuantity(
+  response: Awaited<ReturnType<typeof semanticQuery>>,
+  relationIds: readonly string[],
+): string | undefined {
+  const latestByRelation = new Map<string, bigint>();
+  for (const result of response.values) {
+    for (const dependency of result.dependencies) {
+      if (
+        dependency.role !== LineageRole.SUPPORTING ||
+        !relationIds.includes(dependency.relationId)
+      ) {
+        continue;
+      }
+      const latest = latestByRelation.get(dependency.relationId);
+      if (latest === undefined || dependency.commitSequence > latest) {
+        latestByRelation.set(dependency.relationId, dependency.commitSequence);
+      }
+    }
+  }
+  if (latestByRelation.size !== relationIds.length) {
+    return undefined;
+  }
+  const shapes = valueShapes(response);
+  const current = response.values.flatMap((result, index) => {
+    const hasEveryLatestDependency = relationIds.every((relationId) => {
+      const latest = latestByRelation.get(relationId);
+      return result.dependencies.some(
+        (dependency) =>
+          dependency.role === LineageRole.SUPPORTING &&
+          dependency.relationId === relationId &&
+          dependency.commitSequence === latest,
+      );
+    });
+    if (!hasEveryLatestDependency) {
+      return [];
+    }
+    const shape = shapes[index];
+    return shape?.kind === "quantity" ? [`${shape.amount} ${shape.unit}`] : [];
+  });
+  return current.length === 1 ? current[0] : undefined;
+}
+
+function sourceIds(
+  response: Awaited<ReturnType<typeof semanticQuery>>,
+): string[] {
+  return response.values.flatMap((value) =>
+    value.dependencies.flatMap((dependency) =>
+      dependency.role === LineageRole.SUPPORTING ? [dependency.sourceId] : [],
+    ),
+  );
+}
+
 function hasSource(
   response: Awaited<ReturnType<typeof semanticQuery>>,
   sourceId: string,
@@ -1677,8 +2104,7 @@ function sameStrings(
   expected: readonly string[],
 ): boolean {
   return (
-    JSON.stringify([...actual].sort()) ===
-    JSON.stringify([...expected].sort())
+    JSON.stringify([...actual].sort()) === JSON.stringify([...expected].sort())
   );
 }
 
@@ -1692,7 +2118,7 @@ function definitionEvidence(fixture: DomainFixture) {
 
 main().catch((error: unknown) => {
   const message =
-    error instanceof Error ? error.stack ?? error.message : String(error);
+    error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`${message}\n`);
   process.exitCode = 1;
 });
