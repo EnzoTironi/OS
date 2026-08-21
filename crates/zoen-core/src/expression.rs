@@ -187,6 +187,21 @@ pub fn evaluate_expression(
         } => {
             let left = evaluate_expression(left, inputs, relations)?;
             let right = evaluate_expression(right, inputs, relations)?;
+            if left.is_empty() || right.is_empty() {
+                return Ok(match operator {
+                    BinaryOperator::Add => {
+                        if left.is_empty() {
+                            right
+                        } else {
+                            left
+                        }
+                    }
+                    BinaryOperator::Subtract if right.is_empty() => left,
+                    BinaryOperator::GreaterThan
+                    | BinaryOperator::Multiply
+                    | BinaryOperator::Subtract => Vec::new(),
+                });
+            }
             let mut values = Vec::with_capacity(left.len().saturating_mul(right.len()));
             for left in &left {
                 for right in &right {
