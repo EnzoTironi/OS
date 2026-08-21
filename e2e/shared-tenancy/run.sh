@@ -148,6 +148,8 @@ kind_config="${generated_directory}/kind.yaml"
 cat >"${kind_config}" <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  kubeProxyMode: "nftables"
 containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri".containerd]
