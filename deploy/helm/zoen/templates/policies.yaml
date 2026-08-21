@@ -1,3 +1,4 @@
+{{- if .Values.applications.enabled }}
 {{- $definitionDigest := required "definitionDigest is required" .Values.definitionDigest -}}
 {{- $activation := `permit (
     principal,
@@ -38,7 +39,7 @@ data:
           "actionId": "zoen.definition.activate",
           "definitionDigest": {{ $definitionDigest | quote }},
           "digest": {{ sha256sum $activation | quote }},
-          "policyId": "policy.shared-saas.activation",
+          "policyId": {{ printf "policy.%s.activation" .Values.profile | quote }},
           "revision": 1,
           "source": {{ $activation | toJson }}
         },
@@ -46,9 +47,10 @@ data:
           "actionId": "inventory.requestStock",
           "definitionDigest": {{ $definitionDigest | quote }},
           "digest": {{ sha256sum $action | quote }},
-          "policyId": "policy.shared-saas.action",
+          "policyId": {{ printf "policy.%s.action" .Values.profile | quote }},
           "revision": 1,
           "source": {{ $action | toJson }}
         }
       ]
     }
+{{- end }}

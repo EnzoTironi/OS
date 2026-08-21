@@ -84,12 +84,14 @@ jobs:
   e2e:
     needs: [check, clippy, build]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.scenario == 'shared-tenancy' && 90 || 45 }}
+    timeout-minutes: ${{ (matrix.scenario == 'shared-tenancy' || startsWith(matrix.scenario, 'deploy-')) && 90 || 45 }}
     strategy:
       fail-fast: false
       matrix:
         scenario:
           - definition-publication
+          - deploy-dedicated
+          - deploy-self-hosted-isolated
           - domain-commercial
           - domain-inventory-procurement
           - domain-manufacturing-accounting
@@ -115,7 +117,7 @@ jobs:
         with:
           toolchain: "1.88.0"
       - run: npm ci
-      - if: matrix.scenario == 'web-deterministic'
+      - if: matrix.scenario == 'web-deterministic' || startsWith(matrix.scenario, 'deploy-')
         run: npx playwright install --with-deps chromium
       - uses: actions/download-artifact@v4
         with:

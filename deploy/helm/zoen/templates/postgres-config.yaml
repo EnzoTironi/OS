@@ -1,3 +1,4 @@
+{{- if .Values.reference.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -133,3 +134,4 @@ data:
     CREATE POLICY company_surface_sessions_tenant ON company_surface_sessions
       USING (tenant_id = current_setting('zoen.tenant_id', true))
       WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
+{{- end }}

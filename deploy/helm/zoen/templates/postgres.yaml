@@ -1,3 +1,4 @@
+{{- if .Values.reference.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -41,8 +42,8 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: postgresAdminPassword
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.postgresAdminPasswordKey }}
             - name: POSTGRES_USER
               value: postgres
           ports:
@@ -70,4 +71,5 @@ spec:
         accessModes: [ReadWriteOnce]
         resources:
           requests:
-            storage: 5Gi
+            storage: {{ .Values.postgres.storage }}
+{{- end }}

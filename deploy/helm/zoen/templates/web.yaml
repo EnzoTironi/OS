@@ -1,3 +1,4 @@
+{{- if .Values.applications.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -31,6 +32,7 @@ spec:
         app.kubernetes.io/name: web
         {{- include "zoen.labels" . | nindent 8 }}
     spec:
+      {{- include "zoen.preflight" . | nindent 6 }}
       containers:
         - name: web
           image: {{ include "zoen.nodeImage" . }}
@@ -45,14 +47,15 @@ spec:
               value: "3000"
             - name: PORT
               value: "3000"
+            {{- include "zoen.telemetryEnv" . | nindent 12 }}
             - name: ZOEN_WEB_DEFINITION_ID
-              value: inventory.companyBrain
+              value: {{ .Values.web.definitionId | quote }}
             - name: ZOEN_WEB_OIDC_CLIENT_ID
               value: zoen-web
             - name: ZOEN_WEB_OIDC_ISSUER
               value: {{ .Values.global.publicOidcIssuer | quote }}
             - name: ZOEN_WEB_RESOURCE_ID
-              value: inventory.item.1
+              value: {{ .Values.web.resourceId | quote }}
             - name: ZOEN_WEB_RPC_ORIGIN
               value: http://zoend:8080
             - name: ZOEN_WEB_VALID_AT
@@ -66,3 +69,4 @@ spec:
               port: http
             initialDelaySeconds: 2
             periodSeconds: 2
+{{- end }}

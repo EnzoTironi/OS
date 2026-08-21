@@ -1,0 +1,548 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "applications",
+    "configVersion",
+    "definitionDigest",
+    "effects",
+    "global",
+    "images",
+    "keycloak",
+    "migration",
+    "minio",
+    "networkPolicy",
+    "objectStorage",
+    "postgres",
+    "profile",
+    "reference",
+    "restate",
+    "runtimeSecret",
+    "telemetry",
+    "tenantAwareness",
+    "tenants",
+    "web",
+    "zoend"
+  ],
+  "properties": {
+    "applications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "configVersion": {
+      "const": "zoen.config.v1"
+    },
+    "definitionDigest": {
+      "type": "string",
+      "pattern": "^$|^[0-9a-f]{64}$"
+    },
+    "effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connectorProviderUrl"],
+      "properties": {
+        "connectorProviderUrl": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        }
+      }
+    },
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "durableNamespace",
+        "keycloakClusterIp",
+        "publicOidcIssuer"
+      ],
+      "properties": {
+        "durableNamespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 63
+        },
+        "keycloakClusterIp": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"
+        },
+        "publicOidcIssuer": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+/realms/[A-Za-z0-9._-]+$"
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keycloak",
+        "minio",
+        "minioClient",
+        "node",
+        "otelCollector",
+        "postgres",
+        "restate",
+        "rust"
+      ],
+      "properties": {
+        "keycloak": { "$ref": "#/definitions/taggedImage" },
+        "minio": { "$ref": "#/definitions/taggedImage" },
+        "minioClient": { "$ref": "#/definitions/taggedImage" },
+        "node": { "$ref": "#/definitions/applicationImage" },
+        "otelCollector": { "$ref": "#/definitions/taggedImage" },
+        "postgres": { "$ref": "#/definitions/taggedImage" },
+        "restate": { "$ref": "#/definitions/taggedImage" },
+        "rust": { "$ref": "#/definitions/applicationImage" }
+      }
+    },
+    "keycloak": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discoveryUrl", "nodePort", "realmJson", "tokenEndpoint"],
+      "properties": {
+        "discoveryUrl": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+/\\.well-known/openid-configuration$"
+        },
+        "nodePort": { "$ref": "#/definitions/nodePort" },
+        "realmJson": { "type": "string" },
+        "tokenEndpoint": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+/protocol/openid-connect/token$"
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatibility"],
+      "properties": {
+        "compatibility": {
+          "enum": ["current", "previous"]
+        }
+      }
+    },
+    "minio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodePort", "storage"],
+      "properties": {
+        "nodePort": { "$ref": "#/definitions/nodePort" },
+        "storage": { "$ref": "#/definitions/storageSize" }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "objectStorage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowHttp",
+        "brainBucket",
+        "endpoint",
+        "projectionBucket",
+        "region"
+      ],
+      "properties": {
+        "allowHttp": { "type": "boolean" },
+        "brainBucket": { "$ref": "#/definitions/bucketName" },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        },
+        "projectionBucket": { "$ref": "#/definitions/bucketName" },
+        "region": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"
+        }
+      }
+    },
+    "postgres": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicationUser",
+        "database",
+        "host",
+        "nodePort",
+        "port",
+        "storage"
+      ],
+      "properties": {
+        "applicationUser": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+        },
+        "database": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+        },
+        "host": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]([-.A-Za-z0-9]*[A-Za-z0-9])?$",
+          "maxLength": 253
+        },
+        "nodePort": { "$ref": "#/definitions/nodePort" },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "storage": { "$ref": "#/definitions/storageSize" }
+      }
+    },
+    "profile": {
+      "enum": ["dedicated", "self-hosted", "shared-saas"]
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "restate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adminNodePort",
+        "adminUrl",
+        "ingressNodePort",
+        "ingressUrl",
+        "storage",
+        "topology"
+      ],
+      "properties": {
+        "adminNodePort": { "$ref": "#/definitions/nodePort" },
+        "adminUrl": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        },
+        "ingressNodePort": { "$ref": "#/definitions/nodePort" },
+        "ingressUrl": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        },
+        "storage": { "$ref": "#/definitions/storageSize" },
+        "topology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "productionReplicas",
+            "referenceReplicas",
+            "replicationFactor"
+          ],
+          "properties": {
+            "productionReplicas": {
+              "type": "integer",
+              "minimum": 3
+            },
+            "referenceReplicas": {
+              "const": 1
+            },
+            "replicationFactor": {
+              "type": "integer",
+              "minimum": 2
+            }
+          }
+        }
+      }
+    },
+    "runtimeSecret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connectorCallerTokenKey",
+        "connectorCredentialsKey",
+        "databaseUrlKey",
+        "effectOidcClientsKey",
+        "harnessBindingKeyKey",
+        "name",
+        "postgresAdminPasswordKey",
+        "postgresApplicationPasswordKey",
+        "s3AccessKeyIdKey",
+        "s3SecretAccessKeyKey",
+        "workerCredentialRefsKey"
+      ],
+      "properties": {
+        "connectorCallerTokenKey": { "$ref": "#/definitions/secretKey" },
+        "connectorCredentialsKey": { "$ref": "#/definitions/secretKey" },
+        "databaseUrlKey": { "$ref": "#/definitions/secretKey" },
+        "effectOidcClientsKey": { "$ref": "#/definitions/secretKey" },
+        "harnessBindingKeyKey": { "$ref": "#/definitions/secretKey" },
+        "name": { "$ref": "#/definitions/kubernetesName" },
+        "postgresAdminPasswordKey": { "$ref": "#/definitions/secretKey" },
+        "postgresApplicationPasswordKey": { "$ref": "#/definitions/secretKey" },
+        "s3AccessKeyIdKey": { "$ref": "#/definitions/secretKey" },
+        "s3SecretAccessKeyKey": { "$ref": "#/definitions/secretKey" },
+        "workerCredentialRefsKey": { "$ref": "#/definitions/secretKey" }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "endpoint", "required"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        },
+        "required": {
+          "const": false
+        }
+      }
+    },
+    "tenantAwareness": {
+      "const": true
+    },
+    "tenants": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "clientId",
+          "clientSecretKey",
+          "databaseUrlKey",
+          "id",
+          "nodePort",
+          "suffix"
+        ],
+        "properties": {
+          "clientId": { "$ref": "#/definitions/kubernetesName" },
+          "clientSecretKey": { "$ref": "#/definitions/secretKey" },
+          "databaseUrlKey": { "$ref": "#/definitions/secretKey" },
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "nodePort": { "$ref": "#/definitions/nodePort" },
+          "suffix": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]{1,16}$"
+          }
+        }
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definitionId", "nodePort", "resourceId"],
+      "properties": {
+        "definitionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$"
+        },
+        "nodePort": { "$ref": "#/definitions/nodePort" },
+        "resourceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$"
+        }
+      }
+    },
+    "zoend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodePort", "replicas"],
+      "properties": {
+        "nodePort": { "$ref": "#/definitions/nodePort" },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        }
+      }
+    }
+  },
+  "definitions": {
+    "applicationImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "repository"],
+      "properties": {
+        "digest": {
+          "type": "string",
+          "pattern": "^$|^sha256:[0-9a-f]{64}$"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "bucketName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    },
+    "kubernetesName": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+      "maxLength": 63
+    },
+    "nodePort": {
+      "type": "integer",
+      "minimum": 30000,
+      "maximum": 32767
+    },
+    "secretKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,253}$"
+    },
+    "storageSize": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*(Mi|Gi|Ti)$"
+    },
+    "taggedImage": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9./_-]*:[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "maxLength": 255
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "applications": {
+            "properties": {
+              "enabled": { "const": true }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "definitionDigest": {
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "images": {
+            "properties": {
+              "node": {
+                "properties": {
+                  "digest": {
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "rust": {
+                "properties": {
+                  "digest": {
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": { "const": "shared-saas" }
+        }
+      },
+      "then": {
+        "properties": {
+          "reference": {
+            "properties": {
+              "enabled": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "applications": {
+            "properties": {
+              "enabled": { "const": true }
+            }
+          },
+          "profile": {
+            "enum": ["dedicated", "self-hosted"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reference": {
+            "properties": {
+              "enabled": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "applications": {
+            "properties": {
+              "enabled": { "const": true }
+            }
+          },
+          "profile": { "const": "self-hosted" }
+        }
+      },
+      "then": {
+        "properties": {
+          "global": {
+            "properties": {
+              "publicOidcIssuer": {
+                "not": {
+                  "pattern": "^https?://[^/]*zoen\\."
+                }
+              }
+            }
+          },
+          "networkPolicy": {
+            "properties": {
+              "enabled": { "const": true }
+            }
+          },
+          "objectStorage": {
+            "properties": {
+              "endpoint": {
+                "not": {
+                  "pattern": "^https?://[^/]*zoen\\."
+                }
+              }
+            }
+          },
+          "restate": {
+            "properties": {
+              "adminUrl": {
+                "not": {
+                  "pattern": "^https?://[^/]*zoen\\."
+                }
+              },
+              "ingressUrl": {
+                "not": {
+                  "pattern": "^https?://[^/]*zoen\\."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

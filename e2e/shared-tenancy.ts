@@ -153,12 +153,20 @@ const knowledgeSchema = z
 const signedArtifactSchema = z
   .object({
     chartDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    chartPackageDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     chartRepository: z.string().min(1),
+    chartSbomDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    chartSignatureDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     chartVersion: z.string().min(1),
     nodeDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     nodeRepository: z.string().min(1),
+    nodeSbomDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    nodeSignatureDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    publicKeyDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     rustDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     rustRepository: z.string().min(1),
+    rustSbomDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    rustSignatureDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   })
   .strict();
@@ -472,17 +480,25 @@ async function main(): Promise<void> {
       artifacts: {
         chart: {
           digest: signedArtifacts.chartDigest,
+          packageDigest: signedArtifacts.chartPackageDigest,
           repository: signedArtifacts.chartRepository,
+          sbomDigest: signedArtifacts.chartSbomDigest,
+          signatureDigest: signedArtifacts.chartSignatureDigest,
           version: signedArtifacts.chartVersion,
         },
         node: {
           digest: signedArtifacts.nodeDigest,
           repository: signedArtifacts.nodeRepository,
+          sbomDigest: signedArtifacts.nodeSbomDigest,
+          signatureDigest: signedArtifacts.nodeSignatureDigest,
         },
         rust: {
           digest: signedArtifacts.rustDigest,
           repository: signedArtifacts.rustRepository,
+          sbomDigest: signedArtifacts.rustSbomDigest,
+          signatureDigest: signedArtifacts.rustSignatureDigest,
         },
+        signingPublicKeyDigest: signedArtifacts.publicKeyDigest,
       },
       attacks,
       collisions: [

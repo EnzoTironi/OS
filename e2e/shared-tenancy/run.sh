@@ -4,100 +4,24 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 generated_directory="${ZOEN_E2E_GENERATED_DIR:-${repository_root}/e2e/shared-tenancy/.generated}"
 artifacts_directory="${ZOEN_E2E_ARTIFACTS_DIR:-${repository_root}/artifacts/shared-tenancy}"
-tools_directory="${repository_root}/.cache/shared-tenancy/bin"
+tools_directory="${repository_root}/.cache/zoen-e2e/bin"
 cluster_name="zoen-shared-tenancy"
 control_plane_node="${cluster_name}-control-plane"
 registry_name="zoen-shared-tenancy-registry"
 registry_address="localhost:5001"
-kind_version="v0.32.0"
-kubectl_version="v1.36.4"
-helm_version="v4.2.4"
-cosign_version="v3.1.3"
 third_party_images=(
   "pgvector/pgvector:pg18"
   "quay.io/keycloak/keycloak:26.0.7"
   "minio/minio:RELEASE.2025-07-23T15-54-02Z"
   "minio/mc:RELEASE.2025-07-21T05-28-08Z"
   "docker.restate.dev/restatedev/restate:1.7.2"
+  "otel/opentelemetry-collector-contrib:0.132.0"
 )
 
 cd "${repository_root}"
-mkdir -p "${generated_directory}" "${artifacts_directory}" "${tools_directory}"
-export PATH="${tools_directory}:${PATH}"
-
-require_command() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "shared-tenancy requires $1" >&2
-    exit 1
-  fi
-}
-
-download_file() {
-  local url="$1"
-  local output="$2"
-  curl --fail --location --silent --show-error "${url}" --output "${output}"
-}
-
-verify_digest() {
-  local file="$1"
-  local expected="$2"
-  test "$(sha256sum "${file}" | awk '{print $1}')" = "${expected}"
-}
-
-install_kind() {
-  local binary="${tools_directory}/kind"
-  if [[ -x "${binary}" ]]; then
-    return
-  fi
-  local url="https://github.com/kubernetes-sigs/kind/releases/download/${kind_version}/kind-linux-amd64"
-  download_file "${url}" "${binary}"
-  download_file "${url}.sha256sum" "${binary}.sha256sum"
-  verify_digest "${binary}" "$(awk '{print $1}' "${binary}.sha256sum")"
-  chmod +x "${binary}"
-}
-
-install_kubectl() {
-  local binary="${tools_directory}/kubectl"
-  if [[ -x "${binary}" ]]; then
-    return
-  fi
-  local url="https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl"
-  download_file "${url}" "${binary}"
-  download_file "${url}.sha256" "${binary}.sha256"
-  printf '%s  %s\n' "$(tr -d '\n' <"${binary}.sha256")" "$(basename "${binary}")" |
-    (cd "${tools_directory}" && sha256sum --check)
-  chmod +x "${binary}"
-}
-
-install_helm() {
-  local binary="${tools_directory}/helm"
-  if [[ -x "${binary}" ]]; then
-    return
-  fi
-  local archive="${generated_directory}/helm.tar.gz"
-  local url="https://get.helm.sh/helm-${helm_version}-linux-amd64.tar.gz"
-  download_file "${url}" "${archive}"
-  download_file "${url}.sha256sum" "${archive}.sha256sum"
-  verify_digest "${archive}" "$(awk '{print $1}' "${archive}.sha256sum")"
-  tar --extract --gzip --file "${archive}" --directory "${generated_directory}"
-  install -m 0755 "${generated_directory}/linux-amd64/helm" "${binary}"
-}
-
-install_cosign() {
-  local binary="${tools_directory}/cosign"
-  if [[ -x "${binary}" ]]; then
-    return
-  fi
-  local checksums="${generated_directory}/cosign_checksums.txt"
-  local url="https://github.com/sigstore/cosign/releases/download/${cosign_version}"
-  download_file "${url}/cosign-linux-amd64" "${binary}"
-  download_file "${url}/cosign_checksums.txt" "${checksums}"
-  local digest
-  digest="$(awk '$2 == "cosign-linux-amd64" {print $1}' "${checksums}")"
-  test -n "${digest}"
-  verify_digest "${binary}" "${digest}"
-  chmod +x "${binary}"
-}
+source e2e/lib/kubernetes.sh
+mkdir -p "${generated_directory}" "${artifacts_directory}"
+zoen_install_cluster_tools "${generated_directory}" "${tools_directory}"
 
 collect_diagnostics() {
   kubectl get pods,deployments,statefulsets,jobs --all-namespaces --output wide \
@@ -123,17 +47,6 @@ finish() {
 }
 
 trap finish EXIT
-
-require_command curl
-require_command docker
-require_command node
-require_command npm
-require_command sha256sum
-require_command tar
-install_kind
-install_kubectl
-install_helm
-install_cosign
 
 cleanup
 for image in "${third_party_images[@]}"; do
@@ -198,6 +111,7 @@ docker save "${third_party_images[@]}" |
     -
 docker network connect kind "${registry_name}" 2>/dev/null || true
 node e2e/shared-tenancy/prepare-realm.mjs
+zoen_create_runtime_secret default postgres
 
 cosign_key="${generated_directory}/cosign"
 rm -f "${cosign_key}.key" "${cosign_key}.pub"
@@ -261,7 +175,6 @@ definition_independent_workloads=(
 for workload in "${definition_independent_workloads[@]}"; do
   kubectl rollout status "${workload}" --timeout=5m
 done
-kubectl wait --for=condition=complete job/minio-buckets --timeout=5m
 test "$(kubectl get deployment zoend --output jsonpath='{.status.readyReplicas}')" -ge 2
 export ZOEN_SHARED_ARTIFACTS_METADATA="${artifact_metadata}"
 node dist/e2e/shared-tenancy.js
