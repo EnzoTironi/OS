@@ -1234,6 +1234,7 @@ async function registerRestateServices(): Promise<void> {
           body: JSON.stringify({ uri }),
           headers: { "content-type": "application/json" },
           method: "POST",
+          signal: AbortSignal.timeout(1_000),
         });
         if (response.ok || response.status === 409) {
           return true;
