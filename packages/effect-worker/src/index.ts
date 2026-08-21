@@ -16,14 +16,34 @@ import {
 } from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
 
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
-const environmentSchema = z.object({
-  ZOEN_CONNECTOR_CALLER_TOKEN: z.string().min(1),
-  ZOEN_CONNECTOR_CREDENTIAL_REFS: z.string().min(1),
-  ZOEN_EFFECT_CONNECTOR_URL: z.url(),
-  ZOEN_EFFECT_SERVICE_BEARER_TOKENS: z.string().min(1),
-  ZOEN_EFFECT_SERVICE_URL: z.url(),
-  ZOEN_EFFECT_WORKER_PORT: z.coerce.number().int().min(1).max(65_535),
-});
+const oidcClientSchema = z
+  .object({
+    clientId: z.string().min(1),
+    clientSecret: z.string().min(1),
+  })
+  .strict();
+const oidcClientMapSchema = z.record(z.string().min(1), oidcClientSchema);
+const environmentSchema = z.intersection(
+  z.object({
+    ZOEN_CONNECTOR_CALLER_TOKEN: z.string().min(1),
+    ZOEN_CONNECTOR_CREDENTIAL_REFS: z.string().min(1),
+    ZOEN_EFFECT_CONNECTOR_URL: z.url(),
+    ZOEN_EFFECT_SERVICE_URL: z.url(),
+    ZOEN_EFFECT_WORKER_PORT: z.coerce.number().int().min(1).max(65_535),
+  }),
+  z.union([
+    z.object({
+      ZOEN_EFFECT_SERVICE_BEARER_TOKENS: z.string().min(1),
+    }),
+    z.object({
+      ZOEN_EFFECT_SERVICE_OIDC_CLIENTS: z.string().min(1),
+      ZOEN_EFFECT_SERVICE_OIDC_TOKEN_ENDPOINT: z.url(),
+    }),
+  ]),
+);
+const tokenResponseSchema = z
+  .object({ access_token: z.string().min(1) })
+  .passthrough();
 
 const dispatchInputSchema = z
   .object({
@@ -106,14 +126,41 @@ type AttemptClaim =
       kind: "claimed";
     } & EffectDispatchRequest);
 
+type ServiceAuthentication =
+  | {
+      readonly kind: "bearer";
+      readonly tokens: Readonly<Record<string, string>>;
+    }
+  | {
+      readonly clients: Readonly<
+        Record<string, z.infer<typeof oidcClientSchema>>
+      >;
+      readonly kind: "oidc";
+      readonly tokenEndpoint: string;
+    };
+
 const rawEnvironment = environmentSchema.parse(process.env);
+const serviceAuthentication = (
+  "ZOEN_EFFECT_SERVICE_BEARER_TOKENS" in rawEnvironment
+    ? {
+        kind: "bearer",
+        tokens: parseStringMap(
+          rawEnvironment.ZOEN_EFFECT_SERVICE_BEARER_TOKENS,
+        ),
+      }
+    : {
+        clients: parseOidcClientMap(
+          rawEnvironment.ZOEN_EFFECT_SERVICE_OIDC_CLIENTS,
+        ),
+        kind: "oidc",
+        tokenEndpoint:
+          rawEnvironment.ZOEN_EFFECT_SERVICE_OIDC_TOKEN_ENDPOINT,
+      }
+) satisfies ServiceAuthentication;
 const environment = {
   ...rawEnvironment,
   ZOEN_CONNECTOR_CREDENTIAL_REFS: parseStringMap(
     rawEnvironment.ZOEN_CONNECTOR_CREDENTIAL_REFS,
-  ),
-  ZOEN_EFFECT_SERVICE_BEARER_TOKENS: parseStringMap(
-    rawEnvironment.ZOEN_EFFECT_SERVICE_BEARER_TOKENS,
   ),
 };
 
@@ -224,14 +271,11 @@ const zoenEffect = restate.object({
 });
 
 function effectClient(tenantId: string) {
-  const token = environment.ZOEN_EFFECT_SERVICE_BEARER_TOKENS[tenantId];
-  if (token === undefined) {
-    throw new restate.TerminalError(
-      "effect worker has no service credential for the invocation tenant",
-    );
-  }
   const authorization: Interceptor = (next) => async (request) => {
-    request.header.set("authorization", `Bearer ${token}`);
+    request.header.set(
+      "authorization",
+      `Bearer ${await serviceBearerToken(tenantId)}`,
+    );
     return next(request);
   };
   return createClient(
@@ -242,6 +286,48 @@ function effectClient(tenantId: string) {
       interceptors: [authorization],
     }),
   );
+}
+
+async function serviceBearerToken(tenantId: string): Promise<string> {
+  switch (serviceAuthentication.kind) {
+    case "bearer": {
+      const token = serviceAuthentication.tokens[tenantId];
+      if (token === undefined) {
+        throw new restate.TerminalError(
+          "effect worker has no service credential for the invocation tenant",
+        );
+      }
+      return token;
+    }
+    case "oidc": {
+      const client = serviceAuthentication.clients[tenantId];
+      if (client === undefined) {
+        throw new restate.TerminalError(
+          "effect worker has no OIDC client for the invocation tenant",
+        );
+      }
+      const response = await fetch(serviceAuthentication.tokenEndpoint, {
+        body: new URLSearchParams({
+          client_id: client.clientId,
+          client_secret: client.clientSecret,
+          grant_type: "client_credentials",
+        }),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(
+          `OIDC token endpoint returned HTTP ${response.status}`,
+        );
+      }
+      const body: unknown = await response.json();
+      return tokenResponseSchema.parse(body).access_token;
+    }
+    default: {
+      const exhaustive: never = serviceAuthentication;
+      return exhaustive;
+    }
+  }
 }
 
 async function invokeConnector(
@@ -409,6 +495,13 @@ function nowMicros(): string {
 function parseStringMap(value: string): Record<string, string> {
   const parsed: unknown = JSON.parse(value);
   return stringMapSchema.parse(parsed);
+}
+
+function parseOidcClientMap(
+  value: string,
+): z.infer<typeof oidcClientMapSchema> {
+  const parsed: unknown = JSON.parse(value);
+  return oidcClientMapSchema.parse(parsed);
 }
 
 await restate.serve({
