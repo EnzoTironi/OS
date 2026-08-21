@@ -4,7 +4,7 @@ ZOEN_KIND_VERSION="v0.32.0"
 ZOEN_KUBECTL_VERSION="v1.36.4"
 ZOEN_HELM_VERSION="v4.2.4"
 ZOEN_COSIGN_VERSION="v3.1.3"
-ZOEN_SYFT_VERSION="v1.33.0"
+ZOEN_SYFT_VERSION="v1.51.0"
 
 zoen_require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
