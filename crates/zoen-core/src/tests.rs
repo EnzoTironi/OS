@@ -92,6 +92,58 @@ fn expression_evaluation_uses_typed_input_and_relation_bindings() {
 }
 
 #[test]
+fn expression_evaluation_uses_additive_identity_for_missing_relations() {
+    let input_id = InputId::parse("quantity").expect("input");
+    let relation_id = RelationId::parse("inventory.accumulator").expect("relation");
+    let unit = UnitId::parse("each").expect("unit");
+    let quantity = |amount: &str| ExactValue::Quantity {
+        amount: ExactDecimal::parse(amount).expect("amount"),
+        unit: unit.clone(),
+    };
+    let inputs = BTreeMap::from([(input_id.clone(), quantity("3"))]);
+    let relations = BTreeMap::new();
+
+    let added = evaluate_expression(
+        &Expression::Binary {
+            left: Box::new(Expression::Relation(relation_id.clone())),
+            operator: BinaryOperator::Add,
+            right: Box::new(Expression::Input(input_id.clone())),
+        },
+        &inputs,
+        &relations,
+    )
+    .expect("missing accumulator addition");
+    let subtracted = evaluate_expression(
+        &Expression::Binary {
+            left: Box::new(Expression::Input(input_id.clone())),
+            operator: BinaryOperator::Subtract,
+            right: Box::new(Expression::Relation(relation_id.clone())),
+        },
+        &inputs,
+        &relations,
+    )
+    .expect("missing accumulator subtraction");
+    let compared = evaluate_expression(
+        &Expression::Binary {
+            left: Box::new(Expression::Relation(relation_id)),
+            operator: BinaryOperator::GreaterThan,
+            right: Box::new(Expression::Input(input_id)),
+        },
+        &inputs,
+        &relations,
+    )
+    .expect("missing comparison");
+
+    let expected = vec![SemanticValue {
+        dependencies: Vec::new(),
+        value: quantity("3"),
+    }];
+    assert_eq!(added, expected);
+    assert_eq!(subtracted, expected);
+    assert!(compared.is_empty());
+}
+
+#[test]
 fn expression_evaluation_preserves_exact_quantity_units() {
     let unit = UnitId::parse("kg").expect("unit");
     let quantity = |amount: &str| ExactValue::Quantity {

@@ -92,6 +92,7 @@ jobs:
           - definition-publication
           - domain-commercial
           - domain-inventory-procurement
+          - domain-manufacturing-accounting
           - domain-quality
           - durable-commit
           - effects

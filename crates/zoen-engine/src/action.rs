@@ -578,7 +578,7 @@ where
         let loaded = self
             .load_action(context, &proposal.definition, &proposal.action_id)
             .await?;
-        let relation_ids = effect_evaluation_relations(&loaded.action)?;
+        let relation_ids = effect_evaluation_relations(&loaded.action);
         let snapshot = self
             .load_relation_snapshot(
                 context,
@@ -918,22 +918,15 @@ fn build_effects(
         .collect()
 }
 
-fn effect_evaluation_relations(
-    action: &ActionDefinition,
-) -> Result<BTreeSet<RelationId>, ActionError> {
-    let available = expression_relations(&action.precondition);
-    let required = action
-        .effects
-        .iter()
-        .flat_map(|effect| expression_relations(&effect.value))
-        .collect::<BTreeSet<_>>();
-    if let Some(relation_id) = required.difference(&available).next() {
-        return Err(ActionError::Definition(format!(
-            "Action effect relation {} must also be a precondition dependency",
-            relation_id.as_str()
-        )));
-    }
-    Ok(available)
+fn effect_evaluation_relations(action: &ActionDefinition) -> BTreeSet<RelationId> {
+    let mut relations = expression_relations(&action.precondition);
+    relations.extend(
+        action
+            .effects
+            .iter()
+            .flat_map(|effect| expression_relations(&effect.value)),
+    );
+    relations
 }
 
 fn effect_request_id(
@@ -1042,29 +1035,36 @@ mod tests {
         };
 
         assert_eq!(
-            effect_evaluation_relations(&action).expect("effect relations"),
+            effect_evaluation_relations(&action),
             BTreeSet::from([relation_id])
         );
     }
 
     #[test]
-    fn effect_relation_reads_reject_untracked_dependencies() {
-        let relation_id = RelationId::parse("inventory.reserved").expect("relation");
+    fn effect_relation_reads_join_precondition_and_effect_snapshots() {
+        let available_id = RelationId::parse("inventory.available").expect("relation");
+        let reserved_id = RelationId::parse("inventory.reserved").expect("relation");
         let action = ActionDefinition {
             effects: vec![ActionEffect {
-                relation_id: relation_id.clone(),
-                value: Expression::Relation(relation_id),
+                relation_id: reserved_id.clone(),
+                value: Expression::Relation(reserved_id.clone()),
             }],
             id: ActionId::parse("inventory.reserve").expect("action"),
             inputs: Vec::new(),
             outputs: Vec::new(),
-            precondition: Expression::Literal(ExactValue::Bool(true)),
+            precondition: Expression::Binary {
+                left: Box::new(Expression::Relation(available_id.clone())),
+                operator: BinaryOperator::GreaterThan,
+                right: Box::new(Expression::Literal(ExactValue::Quantity {
+                    amount: ExactDecimal::parse("0").expect("quantity"),
+                    unit: UnitId::parse("each").expect("unit"),
+                })),
+            },
         };
 
-        assert!(matches!(
+        assert_eq!(
             effect_evaluation_relations(&action),
-            Err(ActionError::Definition(message))
-                if message.contains("must also be a precondition dependency")
-        ));
+            BTreeSet::from([available_id, reserved_id])
+        );
     }
 }

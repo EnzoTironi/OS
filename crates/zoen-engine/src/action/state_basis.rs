@@ -86,7 +86,9 @@ pub fn read_action_state_basis(
 ) -> Result<ActionStateRead, ActionError> {
     let mut values = BTreeMap::<RelationId, Vec<SemanticValue>>::new();
     let mut dependencies = Vec::new();
-    for relation_id in expression_relations(&action.precondition) {
+    let mut relation_ids = expression_relations(&action.precondition);
+    relation_ids.extend(snapshot.relations.keys().cloned());
+    for relation_id in relation_ids {
         let cardinality = definition
             .relations
             .iter()
