@@ -242,7 +242,6 @@ async function main(): Promise<void> {
       webA: await passwordToken("web-tenant.a"),
       webB: await passwordToken("web-tenant.b"),
     };
-    await registerRestateServices();
 
     const definitionA = definitionClient(tokens.adminA);
     const definitionB = definitionClient(tokens.adminB);
@@ -255,6 +254,21 @@ async function main(): Promise<void> {
 
     await publishAndActivate(definitionA, tenantA, canonicalJson, digest);
     await publishAndActivate(definitionB, tenantB, canonicalJson, digest);
+    await Promise.all([
+      kubectl([
+        "rollout",
+        "status",
+        "deployment/harness-tenant-a",
+        "--timeout=5m",
+      ]),
+      kubectl([
+        "rollout",
+        "status",
+        "deployment/harness-tenant-b",
+        "--timeout=5m",
+      ]),
+    ]);
+    await registerRestateServices();
     await expectConnectCode(
       () =>
         definitionA.getRevision({

@@ -224,6 +224,8 @@ rust_digest="$(metadata_value rustDigest)"
 node_repository="$(metadata_value nodeRepository)"
 node_digest="$(metadata_value nodeDigest)"
 
+npx playwright install --with-deps chromium
+
 helm upgrade --install zoen \
   "oci://${registry_address}/zoen/charts/zoen" \
   --version "${chart_version}" \
@@ -234,14 +236,26 @@ helm upgrade --install zoen \
   --set "images.rust.digest=${rust_digest}" \
   --set "images.node.repository=${node_repository}" \
   --set "images.node.digest=${node_digest}" \
-  --set-file "keycloak.realmJson=${generated_directory}/realm.json" \
-  --wait \
-  --wait-for-jobs \
-  --timeout 15m
+  --set-file "keycloak.realmJson=${generated_directory}/realm.json"
 
-kubectl rollout status deployment/zoend --timeout=5m
+definition_independent_workloads=(
+  "statefulset/postgres"
+  "deployment/keycloak"
+  "deployment/minio"
+  "deployment/restate"
+  "deployment/web"
+  "deployment/zoen-http-connector"
+  "deployment/zoen-effect-worker"
+  "deployment/zoen-effect-dispatcher-tenant-a"
+  "deployment/zoen-effect-dispatcher-tenant-b"
+  "deployment/zoen-projection"
+  "deployment/zoend"
+)
+for workload in "${definition_independent_workloads[@]}"; do
+  kubectl rollout status "${workload}" --timeout=5m
+done
+kubectl wait --for=condition=complete job/minio-buckets --timeout=5m
 test "$(kubectl get deployment zoend --output jsonpath='{.status.readyReplicas}')" -ge 2
-npx playwright install --with-deps chromium
 export ZOEN_SHARED_ARTIFACTS_METADATA="${artifact_metadata}"
 node dist/e2e/shared-tenancy.js
 
