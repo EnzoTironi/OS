@@ -219,7 +219,9 @@ if [[ "${profile}" == "self-hosted" ]]; then
   kubectl --namespace kube-system rollout status deployment/coredns --timeout=3m
 fi
 
-node e2e/shared-tenancy/prepare-realm.mjs
+node e2e/shared-tenancy/prepare-realm.mjs \
+  inventory.governed \
+  inventory.item.1
 kubectl create namespace "${durable_namespace}"
 zoen_create_runtime_secret "${durable_namespace}" postgres
 
