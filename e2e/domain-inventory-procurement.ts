@@ -1419,7 +1419,7 @@ function purchaseRequest(fixture: DomainFixture, suffix: string) {
       },
       {
         id: "unitPrice",
-        value: { kind: "decimal", value: "18.50" },
+        value: { kind: "decimal", value: "18.5" },
       },
     ],
     resourceId: purchaseLineId,
