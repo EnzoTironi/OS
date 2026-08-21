@@ -77,6 +77,8 @@ spec:
               value: {{ $tenant.suffix | quote }}
             - name: ZOEN_HARNESS_TOKEN_ENDPOINT
               value: {{ $.Values.keycloak.tokenEndpoint | quote }}
+            - name: ZOEN_HARNESS_VALID_AT
+              value: {{ $.Values.web.validAt | quote }}
             - name: ZOEN_HARNESS_WORKER_PORT
               value: "9080"
             - name: ZOEN_SERVICE_URL

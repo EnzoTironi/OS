@@ -343,7 +343,7 @@
     "web": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["definitionId", "nodePort", "resourceId"],
+      "required": ["definitionId", "nodePort", "resourceId", "validAt"],
       "properties": {
         "definitionId": {
           "type": "string",
@@ -353,6 +353,10 @@
         "resourceId": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$"
+        },
+        "validAt": {
+          "type": "string",
+          "format": "date-time"
         }
       }
     },

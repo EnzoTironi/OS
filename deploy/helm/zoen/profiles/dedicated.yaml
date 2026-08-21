@@ -75,3 +75,4 @@ web:
   nodePort: 32180
   definitionId: inventory.governed
   resourceId: inventory.item.1
+  validAt: "2026-08-19T00:00:00.000Z"

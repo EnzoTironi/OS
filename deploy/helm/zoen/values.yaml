@@ -113,3 +113,4 @@ web:
   nodePort: 32080
   definitionId: inventory.companyBrain
   resourceId: inventory.item.1
+  validAt: "2026-08-21T00:00:00.000Z"
