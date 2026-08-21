@@ -11,12 +11,23 @@ import {
 
 const embeddingBatchSchema = z.array(z.array(z.number().finite()));
 
+interface LocalTransformerEmbeddingProviderOptions {
+  readonly localFilesOnly: boolean;
+}
+
 export class LocalTransformerEmbeddingProvider implements EmbeddingProvider {
   readonly route: EmbeddingProviderRoute;
   #extractor: Promise<FeatureExtractionPipeline> | undefined;
+  readonly #localFilesOnly: boolean;
 
-  constructor(route: EmbeddingProviderRoute) {
+  constructor(
+    route: EmbeddingProviderRoute,
+    options: LocalTransformerEmbeddingProviderOptions = {
+      localFilesOnly: false,
+    },
+  ) {
     this.route = embeddingProviderRouteSchema.parse(route);
+    this.#localFilesOnly = options.localFilesOnly;
   }
 
   async embed(
@@ -49,6 +60,7 @@ export class LocalTransformerEmbeddingProvider implements EmbeddingProvider {
       this.route.modelId,
       {
         dtype: "q8",
+        local_files_only: this.#localFilesOnly,
         revision: this.route.modelRevision,
       },
     );

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -9,15 +8,13 @@ import * as restate from "@restatedev/restate-sdk";
 import { Pool } from "pg";
 import { z } from "zod";
 import { CompanyBrainContextAssembler } from "./context.js";
+import { defaultEmbeddingRoute } from "./default-embedding.js";
 import { LocalTransformerEmbeddingProvider } from "./embeddings.js";
 import { createCompanyBrainIngestService } from "./ingestion.js";
 import { CompanyBrain } from "./knowledge.js";
 import { AgentRegistry } from "./registry.js";
 import { createAgentSessionService } from "./session.js";
-import {
-  embeddingProviderRouteSchema,
-  semanticCapabilityScopeSchema,
-} from "./types.js";
+import { semanticCapabilityScopeSchema } from "./types.js";
 import { connectZoenAgent } from "./zoen.js";
 
 const environment = z
@@ -48,20 +45,6 @@ const environment = z
   })
   .parse(process.env);
 
-const embeddingModelId = "Xenova/all-MiniLM-L6-v2";
-const embeddingModelRevision = "751bff37182d3f1213fa05d7196b954e230abad9";
-const embeddingVersionDigest = createHash("sha256")
-  .update(
-    JSON.stringify({
-      dimensions: 384,
-      dtype: "q8",
-      modelId: embeddingModelId,
-      modelRevision: embeddingModelRevision,
-      normalize: true,
-      pooling: "mean",
-    }),
-  )
-  .digest("hex");
 const definition = {
   definitionId: "inventory.companyBrain",
   digest: environment.ZOEN_HARNESS_DEFINITION_DIGEST,
@@ -84,15 +67,6 @@ const scopes = [
     validAt,
   }),
 ];
-const embeddingRoute = embeddingProviderRouteSchema.parse({
-  capability: "embedding-default",
-  dimensions: 384,
-  id: "local-minilm",
-  kind: "local-embedding",
-  modelId: embeddingModelId,
-  modelRevision: embeddingModelRevision,
-  versionDigest: embeddingVersionDigest,
-});
 const tokenResponseSchema = z
   .object({ access_token: z.string().min(1) })
   .passthrough();
@@ -112,12 +86,14 @@ for (const scope of scopes) {
   registry.registerCapabilityScope(scope);
 }
 registry.registerEmbeddingProvider(
-  new LocalTransformerEmbeddingProvider(embeddingRoute),
+  new LocalTransformerEmbeddingProvider(defaultEmbeddingRoute, {
+    localFilesOnly: true,
+  }),
 );
 const pool = new Pool({ connectionString: environment.DATABASE_URL });
 const brain = new CompanyBrain({
   bucket: environment.S3_BUCKET,
-  embeddingCapability: embeddingRoute.capability,
+  embeddingCapability: defaultEmbeddingRoute.capability,
   pool,
   registry,
   s3: new S3Client({
@@ -176,7 +152,7 @@ async function routeControl(
   const url = new URL(request.url ?? "/", "http://harness");
   if (request.method === "GET" && url.pathname === "/health") {
     sendJson(response, 200, {
-      embeddingVersionDigest,
+      embeddingVersionDigest: defaultEmbeddingRoute.versionDigest,
       ready: true,
     });
     return;
