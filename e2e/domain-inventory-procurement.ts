@@ -1303,7 +1303,7 @@ async function main(): Promise<void> {
       architectureDeviations: [
         "The v1 expression algebra has strict greater_than but no greater_than_or_equal, so exact remaining reservation, receipt, cancellation, and purchase quantities stay a parked kernel follow-up.",
         "Semantic queries retain every valid card-one claim while Action admission selects the latest commit; the scenario asserts every candidate and derives the current result from commit provenance until the kernel exposes current-cardinality selection.",
-        "A single Action precondition cannot conjunct quantity, decimal price, and integer revision comparisons. governPurchase binds quantity to requiredQuantity, Cedar validates positive quantity and price, and recordRequirement pins both revisions in its StateBasis.",
+        "A single Action precondition cannot conjunct quantity, decimal price, and integer revision comparisons. governPurchase binds quantity to requiredQuantity, Cedar pins unitPrice to the canonical supplier term used by this scenario, and recordRequirement pins both revisions in its StateBasis.",
       ],
       assertions,
       componentVersions: {

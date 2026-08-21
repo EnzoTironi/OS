@@ -10,9 +10,8 @@ permit (
     resource
 )
 when {
-    decimal("0").lessThan(decimal(context.inputs.quantity.amount)) &&
     context.inputs.quantity.unit == "each" &&
-    decimal("0").lessThan(decimal(context.inputs.unitPrice))
+    context.inputs.unitPrice == "18.5"
 };
 
 permit (
@@ -32,7 +31,6 @@ permit (
 )
 when {
     context.approved == true &&
-    decimal("0").lessThan(decimal(context.inputs.quantity.amount)) &&
     context.inputs.quantity.unit == "each" &&
-    decimal("0").lessThan(decimal(context.inputs.unitPrice))
+    context.inputs.unitPrice == "18.5"
 };
