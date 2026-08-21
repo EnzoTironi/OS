@@ -6,6 +6,7 @@ generated_directory="${ZOEN_E2E_GENERATED_DIR:-${repository_root}/e2e/shared-ten
 artifacts_directory="${ZOEN_E2E_ARTIFACTS_DIR:-${repository_root}/artifacts/shared-tenancy}"
 tools_directory="${repository_root}/.cache/shared-tenancy/bin"
 cluster_name="zoen-shared-tenancy"
+control_plane_node="${cluster_name}-control-plane"
 registry_name="zoen-shared-tenancy-registry"
 registry_address="localhost:5001"
 kind_version="v0.32.0"
@@ -186,7 +187,13 @@ nodes:
 EOF
 
 kind create cluster --name "${cluster_name}" --config "${kind_config}" --wait 180s
-kind load docker-image --name "${cluster_name}" "${third_party_images[@]}"
+docker save "${third_party_images[@]}" |
+  docker exec --privileged --interactive "${control_plane_node}" \
+    ctr --namespace=k8s.io images import \
+    --local \
+    --snapshotter=native \
+    --platform linux/amd64 \
+    -
 docker network connect kind "${registry_name}" 2>/dev/null || true
 node e2e/shared-tenancy/prepare-realm.mjs
 
