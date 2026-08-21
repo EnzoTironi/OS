@@ -1308,18 +1308,30 @@ async function main(): Promise<void> {
       Code.PermissionDenied,
     );
     observe(
-      "sameProductionAndBookIdsRemainTenantIsolated",
+      "sameBookIdRetainsTenantScopedMeaning",
       sameStrings(textValues(tenantABook), ["PRIMARY"]) &&
-        sameStrings(textValues(tenantBBook), ["SECONDARY"]) &&
-        currentDecimal(tenantBRemaining, [
-          "accounting.originalAmount",
-          "accounting.appliedAmount",
-        ]) === "70" &&
+        sameStrings(textValues(tenantBBook), ["SECONDARY"]),
+    );
+    observe(
+      "crossTenantClaimQueryIsDenied",
+      crossTenantClaim === Code.PermissionDenied,
+    );
+    observe(
+      "tenantBClaimHasIndependentExactRemainingAmount",
+      currentDecimal(tenantBRemaining, [
+        "accounting.originalAmount",
+        "accounting.appliedAmount",
+      ]) === "70" &&
         tenantBReceivable.receipt.operationId !==
-          receivable.receipt.operationId &&
-        tenantBSettlement.status === CommitStatus.COMMITTED &&
-        crossTenantClaim === Code.PermissionDenied &&
-        !Object.hasOwn(tenantBSettlementRequest, "tenantId"),
+          receivable.receipt.operationId,
+    );
+    observe(
+      "tenantBSettlementCommitsUnderTenantAuthority",
+      tenantBSettlement.status === CommitStatus.COMMITTED,
+    );
+    observe(
+      "tenantIdentityIsAbsentFromSettlementPayload",
+      !Object.hasOwn(tenantBSettlementRequest, "tenantId"),
     );
 
     const strongGenealogy = await relationQuery(
