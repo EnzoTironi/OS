@@ -279,13 +279,18 @@ async function main(): Promise<void> {
     );
     observe(
       "personAndOrganizationIdentitiesUseGovernedActionService",
-      admittedOrganization.receipt.policy?.determiningPolicyIds.includes(
-        "identity-tenant-a-commit",
-      ) === true &&
-        admittedPerson.receipt.policy?.determiningPolicyIds.includes(
-          "identity-tenant-a-commit",
-        ) === true &&
-        sameStrings(textValues(organizationKind), ["organization"]) &&
+      admittedOrganization.receipt.definition?.digest === party.digest &&
+        admittedPerson.receipt.definition?.digest === party.digest &&
+        admittedOrganization.receipt.policy?.revision?.policyId ===
+          "policy.party.admitIdentity.r1" &&
+        admittedPerson.receipt.policy?.revision?.policyId ===
+          "policy.party.admitIdentity.r1" &&
+        admittedOrganization.receipt.recordIds.length === 2 &&
+        admittedPerson.receipt.recordIds.length === 2,
+    );
+    observe(
+      "personAndOrganizationIdentityKindsRoundTrip",
+      sameStrings(textValues(organizationKind), ["organization"]) &&
         sameStrings(textValues(personKind), ["person"]),
     );
     observe(
@@ -477,9 +482,8 @@ async function main(): Promise<void> {
     );
     observe(
       "productIdentityUnitAndLifecycleRoundTrip",
-      admittedProduct.receipt.policy?.determiningPolicyIds.includes(
-        "identity-tenant-a-commit",
-      ) === true &&
+      admittedProduct.receipt.policy?.revision?.policyId ===
+        "policy.product.admitItem.r1" &&
         sameStrings(textValues(productExternalIdentifier), ["sku:WIDGET-PRO"]) &&
         sameStrings(entityRefValues(productReference), [
           "product.reference.widget-pro",
@@ -703,9 +707,8 @@ async function main(): Promise<void> {
     observe(
       "commercialCreateUsesOidcCedarDelegationAndExactValues",
       created.receipt.definition?.digest === commercial.digest &&
-        created.receipt.policy?.determiningPolicyIds.includes(
-          "commercial-tenant-a-commit",
-        ) === true &&
+        created.receipt.policy?.revision?.policyId ===
+          "policy.commercial.createCommitment.r1" &&
         sameStrings(quantityValues(createdQuantity), ["10 each"]) &&
         sameStrings(decimalValues(createdPrice), ["19.99"]) &&
         sameStrings(textValues(createdReference), ["commitment.order-1001"]) &&
@@ -864,10 +867,10 @@ async function main(): Promise<void> {
             dependency.claimId === "claim.commercial.proposed-quantity-2" &&
             dependency.sourceId === "source.customer-message-confirmation",
         ) === true &&
-        changedExplanation.subject.value.policies.some((policy) =>
-          policy.policy?.determiningPolicyIds.includes(
-            "commercial-tenant-a-commit",
-          ),
+        changedExplanation.subject.value.policies.some(
+          (policy) =>
+            policy.policy?.revision?.policyId ===
+            "policy.commercial.changeCommitment.r1",
         ),
     );
     const changedExplanationBeforeRestart =
@@ -995,9 +998,8 @@ async function main(): Promise<void> {
         sameStrings(textValues(cancellationHistory), [
           "commitment.order-1002",
         ]) &&
-        cancelled.receipt.policy?.determiningPolicyIds.includes(
-          "commercial-tenant-a-commit",
-        ) === true,
+        cancelled.receipt.policy?.revision?.policyId ===
+          "policy.commercial.cancelCommitment.r1",
     );
 
     await recordEvidence(commercialWorldB, {
@@ -1053,14 +1055,15 @@ async function main(): Promise<void> {
         !Object.hasOwn(partnerRequest, "tenantId") &&
         partnerOperation.rows[0]?.tenant_id === tenantB,
     );
+    const tenantAPolicyIds =
+      created.receipt.policy?.determiningPolicyIds ?? [];
+    const tenantBPolicyIds =
+      partnerCreated.receipt.policy?.determiningPolicyIds ?? [];
     observe(
       "twoTenantsUseDifferentCedarPoliciesOnOneRuntime",
-      created.receipt.policy?.determiningPolicyIds.includes(
-        "commercial-tenant-a-commit",
-      ) === true &&
-        partnerCreated.receipt.policy?.determiningPolicyIds.includes(
-          "commercial-tenant-b-commit",
-        ) === true &&
+      tenantAPolicyIds.length === 1 &&
+        tenantBPolicyIds.length === 1 &&
+        tenantAPolicyIds[0] !== tenantBPolicyIds[0] &&
         created.receipt.definition?.digest ===
           partnerCreated.receipt.definition?.digest,
     );
