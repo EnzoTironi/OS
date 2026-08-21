@@ -92,7 +92,7 @@ const providerOperationSchema = z
     evidenceDigest: z.string().regex(/^[0-9a-f]{64}$/),
     idempotencyKey: z.string().min(1),
     observedAtMicros: z.string().regex(/^[0-9]+$/),
-    outcome: z.enum(["confirmed", "no_effect"]),
+    outcome: z.enum(["confirmed", "no_effect", "pending"]),
     providerOperationId: z.string().min(1),
     requests: z.number().int().positive(),
     sourceRef: z.string().min(1),

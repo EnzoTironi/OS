@@ -41,9 +41,12 @@ function parseDecimal(value: string): DecimalParts {
     throw new Error("fiscal decimal exceeds the supported length");
   }
   const match = decimalPattern.exec(value);
-  const whole = match?.groups?.whole;
-  if (whole === undefined) {
+  if (match === null) {
     throw new Error("fiscal decimal is invalid");
+  }
+  const whole = match.groups?.whole;
+  if (whole === undefined) {
+    throw new Error("fiscal decimal parser did not capture a whole part");
   }
   const fraction = match.groups?.fraction ?? "";
   const magnitude = BigInt(`${whole}${fraction}`);

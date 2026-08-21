@@ -134,7 +134,7 @@ async function handleRequest(input: {
       idempotencyKey: body.idempotencyKey,
       operation: context.operation,
     });
-    if (result.writeback !== undefined) {
+    if (result.kind === "confirmed" && result.writeback !== undefined) {
       await input.reader.commitProviderWriteback(context, result.writeback);
     }
     writeJson(input.response, result.status, result.body);
