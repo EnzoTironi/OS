@@ -20,6 +20,10 @@ scenario_table=(
   "evolution-breaking:evolution-breaking:"
   "evolution-compatible:evolution-compatible:"
   "explain:governed-action:"
+  "fiscal-fault-matrix:fiscal-fault-matrix:"
+  "fiscal-systax-live:fiscal-systax-live:"
+  "fiscal-plugnotas-live:fiscal-plugnotas-live:"
+  "fiscal-protheus-live:fiscal-protheus-live:"
   "governed-action:governed-action:"
   "semantic-query::"
   "wasm-code-mode:wasm-code-mode:"
@@ -157,6 +161,43 @@ require_built() {
   fi
 }
 
+require_fiscal_live_environment() {
+  local required=()
+  case "$scenario" in
+    fiscal-systax-live)
+      required=(
+        ZOEN_FISCAL_LIVE_CONTEXT_PATH
+        ZOEN_SYSTAX_BASE_URL
+        ZOEN_SYSTAX_API_TOKEN
+      )
+      ;;
+    fiscal-plugnotas-live)
+      required=(
+        ZOEN_FISCAL_LIVE_CONTEXT_PATH
+        ZOEN_PLUGNOTAS_BASE_URL
+        ZOEN_PLUGNOTAS_API_KEY
+      )
+      ;;
+    fiscal-protheus-live)
+      required=(
+        ZOEN_FISCAL_LIVE_CONTEXT_PATH
+        ZOEN_PROTHEUS_BASE_URL
+        ZOEN_PROTHEUS_API_TOKEN
+      )
+      ;;
+    *)
+      return
+      ;;
+  esac
+  local name
+  for name in "${required[@]}"; do
+    if [[ -z "${!name:-}" ]]; then
+      echo "${scenario} requires ${name}; no live provider evidence was produced" >&2
+      exit 1
+    fi
+  done
+}
+
 cleanup_scenario() {
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
   if [[ -n "$generated_directory" ]]; then
@@ -165,6 +206,7 @@ cleanup_scenario() {
 }
 
 run_scenario() {
+  require_fiscal_live_environment
   if ! command -v docker >/dev/null 2>&1; then
     echo "e2e-run requires docker; check/build do not" >&2
     exit 1
@@ -188,6 +230,7 @@ run_scenario() {
 
 run_e2e() {
   resolve_scenario "$1"
+  require_fiscal_live_environment
   rm -rf "${ZOEN_E2E_ARTIFACTS_DIR}"
   run_check
   run_native_build "$scenario"
@@ -202,6 +245,9 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live ]]; then
+      continue
+    fi
     resolve_scenario "$name"
     run_scenario
   done

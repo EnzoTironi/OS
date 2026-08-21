@@ -99,6 +99,7 @@ jobs:
           - evolution-breaking
           - evolution-compatible
           - explain
+          - fiscal-fault-matrix
           - governed-action
           - semantic-query
           - wasm-code-mode

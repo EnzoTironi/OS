@@ -185,6 +185,7 @@ export async function startConnector(options?: {
   credentials?: Readonly<
     Record<string, { readonly secret: string; readonly tenantId: string }>
   >;
+  providerUrl?: string;
   timeoutMs?: number;
 }): Promise<ManagedProcess> {
   return startProcess({
@@ -210,7 +211,7 @@ export async function startConnector(options?: {
       ZOEN_CONNECTOR_PROVIDER_TIMEOUT_MS: (
         options?.timeoutMs ?? 250
       ).toString(),
-      ZOEN_CONNECTOR_PROVIDER_URL: providerUrl,
+      ZOEN_CONNECTOR_PROVIDER_URL: options?.providerUrl ?? providerUrl,
     },
     name: "HTTP connector",
     port: connectorPort,
