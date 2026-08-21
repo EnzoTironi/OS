@@ -226,6 +226,13 @@ const producedOutputQuantity = defineRelation({
   target: { kind: "value", valueType: { kind: "quantity", unit: "each" } },
 });
 
+const productionTallyOf = defineRelation({
+  cardinality: "many",
+  id: "manufacturing.productionTallyOf",
+  sourceType: "manufacturing.Work",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
 const inputLotReference = defineRelation({
   cardinality: "many",
   id: "manufacturing.inputLotReference",
@@ -257,20 +264,6 @@ const outputSerialReference = defineRelation({
 const outputDerivedFromInputLot = defineRelation({
   cardinality: "many",
   id: "manufacturing.outputDerivedFromInputLot",
-  sourceType: "manufacturing.Work",
-  target: { kind: "value", valueType: { kind: "text" } },
-});
-
-const genealogyOutputLotReference = defineRelation({
-  cardinality: "many",
-  id: "manufacturing.genealogyOutputLotReference",
-  sourceType: "manufacturing.Work",
-  target: { kind: "value", valueType: { kind: "text" } },
-});
-
-const commercialFulfillmentReference = defineRelation({
-  cardinality: "many",
-  id: "manufacturing.commercialFulfillmentReference",
   sourceType: "manufacturing.Work",
   target: { kind: "value", valueType: { kind: "text" } },
 });
@@ -566,7 +559,6 @@ const startWork = defineAction({
 
 const recordPartialCompletion = defineAction({
   effects: [
-    { relationId: "manufacturing.commercialFulfillmentReference", value: { inputId: "fulfillmentReference", kind: "input" } },
     { relationId: "manufacturing.completionBomRevision", value: { inputId: "bomRevision", kind: "input" } },
     { relationId: "manufacturing.completionInputQuantity", value: { inputId: "consumedQuantity", kind: "input" } },
     {
@@ -590,24 +582,11 @@ const recordPartialCompletion = defineAction({
         right: { inputId: "consumedQuantity", kind: "input" },
       },
     },
-    { relationId: "manufacturing.genealogyOutputLotReference", value: { inputId: "outputLotReference", kind: "input" } },
     { relationId: "manufacturing.inputLotReference", value: { inputId: "inputLotReference", kind: "input" } },
     { relationId: "manufacturing.inputSerialReference", value: { inputId: "inputSerialReference", kind: "input" } },
     { relationId: "manufacturing.outputDerivedFromInputLot", value: { inputId: "inputLotReference", kind: "input" } },
     { relationId: "manufacturing.outputLotReference", value: { inputId: "outputLotReference", kind: "input" } },
     { relationId: "manufacturing.outputSerialReference", value: { inputId: "outputSerialReference", kind: "input" } },
-    {
-      relationId: "manufacturing.producedOutputQuantity",
-      value: {
-        kind: "binary",
-        left: {
-          kind: "relation",
-          relationId: "manufacturing.producedOutputQuantity",
-        },
-        operator: "add",
-        right: { inputId: "producedQuantity", kind: "input" },
-      },
-    },
   ],
   id: "manufacturing.recordPartialCompletion",
   inputs: [
@@ -616,7 +595,6 @@ const recordPartialCompletion = defineAction({
       id: "consumedQuantity",
       valueType: { kind: "quantity", unit: "each" },
     },
-    { id: "fulfillmentReference", valueType: { kind: "text" } },
     { id: "inputLotReference", valueType: { kind: "text" } },
     { id: "inputSerialReference", valueType: { kind: "text" } },
     { id: "occurrenceReference", valueType: { kind: "text" } },
@@ -648,7 +626,6 @@ const recordPartialCompletion = defineAction({
 
 const recordCompletion = defineAction({
   effects: [
-    { relationId: "manufacturing.commercialFulfillmentReference", value: { inputId: "fulfillmentReference", kind: "input" } },
     { relationId: "manufacturing.completionBomRevision", value: { inputId: "bomRevision", kind: "input" } },
     { relationId: "manufacturing.completionInputQuantity", value: { inputId: "consumedQuantity", kind: "input" } },
     {
@@ -672,24 +649,11 @@ const recordCompletion = defineAction({
         right: { inputId: "consumedQuantity", kind: "input" },
       },
     },
-    { relationId: "manufacturing.genealogyOutputLotReference", value: { inputId: "outputLotReference", kind: "input" } },
     { relationId: "manufacturing.inputLotReference", value: { inputId: "inputLotReference", kind: "input" } },
     { relationId: "manufacturing.inputSerialReference", value: { inputId: "inputSerialReference", kind: "input" } },
     { relationId: "manufacturing.outputDerivedFromInputLot", value: { inputId: "inputLotReference", kind: "input" } },
     { relationId: "manufacturing.outputLotReference", value: { inputId: "outputLotReference", kind: "input" } },
     { relationId: "manufacturing.outputSerialReference", value: { inputId: "outputSerialReference", kind: "input" } },
-    {
-      relationId: "manufacturing.producedOutputQuantity",
-      value: {
-        kind: "binary",
-        left: {
-          kind: "relation",
-          relationId: "manufacturing.producedOutputQuantity",
-        },
-        operator: "add",
-        right: { inputId: "producedQuantity", kind: "input" },
-      },
-    },
   ],
   id: "manufacturing.recordCompletion",
   inputs: [
@@ -698,7 +662,6 @@ const recordCompletion = defineAction({
       id: "consumedQuantity",
       valueType: { kind: "quantity", unit: "each" },
     },
-    { id: "fulfillmentReference", valueType: { kind: "text" } },
     { id: "inputLotReference", valueType: { kind: "text" } },
     { id: "inputSerialReference", valueType: { kind: "text" } },
     { id: "occurrenceReference", valueType: { kind: "text" } },
@@ -725,6 +688,46 @@ const recordCompletion = defineAction({
     },
     operator: "greater_than",
     right: { inputId: "consumedQuantity", kind: "input" },
+  },
+});
+
+const recordProductionTally = defineAction({
+  effects: [
+    {
+      relationId: "manufacturing.producedOutputQuantity",
+      value: {
+        kind: "binary",
+        left: {
+          kind: "relation",
+          relationId: "manufacturing.producedOutputQuantity",
+        },
+        operator: "add",
+        right: { inputId: "quantity", kind: "input" },
+      },
+    },
+    { relationId: "manufacturing.productionTallyOf", value: { inputId: "completionOperationReference", kind: "input" } },
+  ],
+  id: "manufacturing.recordProductionTally",
+  inputs: [
+    { id: "completionOperationReference", valueType: { kind: "text" } },
+    { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
+  ],
+  precondition: {
+    kind: "binary",
+    left: {
+      kind: "binary",
+      left: {
+        kind: "relation",
+        relationId: "manufacturing.producedOutputQuantity",
+      },
+      operator: "add",
+      right: { inputId: "quantity", kind: "input" },
+    },
+    operator: "greater_than",
+    right: {
+      kind: "relation",
+      relationId: "manufacturing.producedOutputQuantity",
+    },
   },
 });
 
@@ -933,6 +936,7 @@ export default defineBundle({
     recordCompletion,
     recordMaterialAvailability,
     recordPartialCompletion,
+    recordProductionTally,
     recordRequirement,
     recordRework,
     recordScrap,
@@ -950,7 +954,6 @@ export default defineBundle({
     bomOutputQuantity,
     bomReference,
     bomVersion,
-    commercialFulfillmentReference,
     completionBomRevision,
     completionInputQuantity,
     completionKind,
@@ -961,7 +964,6 @@ export default defineBundle({
     correctionOf,
     correctionReason,
     currentBomRevision,
-    genealogyOutputLotReference,
     inputLotReference,
     inputSerialReference,
     materialAvailableQuantity,
@@ -973,6 +975,7 @@ export default defineBundle({
     plannedOutputQuantity,
     producedOutputQuantity,
     producedQuantityAdjustment,
+    productionTallyOf,
     requirementReference,
     requiredInputProductReference,
     requiredInputQuantity,

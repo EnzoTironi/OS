@@ -189,7 +189,7 @@ async function main(): Promise<void> {
       completionContract(completionSource, "completion") &&
       !completionContract(
         partialSource.replace(
-          'relationId: "manufacturing.producedOutputQuantity"',
+          'relationId: "manufacturing.completionOutputQuantity"',
           'relationId: "manufacturing.plannedOutputQuantity"',
         ),
         "partial",
@@ -216,6 +216,9 @@ async function main(): Promise<void> {
     ) &&
       /const applySettlement[\s\S]*relationId: "accounting\.appliedAmount"[\s\S]*operator: "add"/u.test(
         accountingSource,
+      ) &&
+      /const recordProductionTally[\s\S]*relationId: "manufacturing\.producedOutputQuantity"[\s\S]*operator: "add"/u.test(
+        manufacturingSource,
       ) &&
       /const postReceivable[\s\S]*relationId: "accounting\.debitAmount"[\s\S]*relationId: "accounting\.creditAmount"/u.test(
         accountingSource,
@@ -669,6 +672,15 @@ async function main(): Promise<void> {
       manufacturingAction,
       partialRequest,
     );
+    const partialTally = await commitReadyAction(
+      manufacturingAction,
+      manufacturingProductionTallyRequest(
+        manufacturing,
+        "partial",
+        "3",
+        partial.receipt.operationId,
+      ),
+    );
     const partialReplay = await manufacturingAction.commit({
       operationId: partialRequest.operationId,
       proposalId: partialRequest.proposalId,
@@ -711,7 +723,7 @@ async function main(): Promise<void> {
       inputLots,
       outputLots,
       genealogyInputs,
-      genealogyOutputs,
+      productionTallies,
       completionRevisions,
       currentBomVersions,
     ] = await Promise.all([
@@ -759,7 +771,7 @@ async function main(): Promise<void> {
         worldA,
         manufacturing,
         workId,
-        "manufacturing.genealogyOutputLotReference",
+        "manufacturing.productionTallyOf",
         changedAt,
         tenantA,
       ),
@@ -795,9 +807,10 @@ async function main(): Promise<void> {
         sameStrings(textValues(genealogyInputs), [
           "inventory.lot.COMP-3001",
         ]) &&
-        sameStrings(textValues(genealogyOutputs), [
-          "inventory.lot.FIN-3001",
+        sameStrings(textValues(productionTallies), [
+          partial.receipt.operationId,
         ]) &&
+        partial.receipt.commitSequence < partialTally.receipt.commitSequence &&
         sameStrings(integerValues(completionRevisions), ["1"]) &&
         sameStrings(integerValues(currentBomVersions), ["2"]) &&
         bomRevisionTwo.receipt.commitSequence > partial.receipt.commitSequence,
@@ -881,6 +894,15 @@ async function main(): Promise<void> {
         "inventory.serial.COMP-S-3002",
         "inventory.lot.FIN-3002",
         "inventory.serial.FIN-S-3002",
+      ),
+    );
+    const finalTally = await commitReadyAction(
+      manufacturingAction,
+      manufacturingProductionTallyRequest(
+        manufacturing,
+        "final",
+        "2",
+        finalCompletion.receipt.operationId,
       ),
     );
     const inputConsumption = await commitReadyAction(
@@ -1011,7 +1033,8 @@ async function main(): Promise<void> {
     observe(
       "partialCompletionReworkScrapAndCorrectionAppendHistory",
       partial.receipt.commitSequence < finalCompletion.receipt.commitSequence &&
-        finalCompletion.receipt.commitSequence < scrap.receipt.commitSequence &&
+        finalCompletion.receipt.commitSequence < finalTally.receipt.commitSequence &&
+        finalTally.receipt.commitSequence < scrap.receipt.commitSequence &&
         scrap.receipt.commitSequence < rework.receipt.commitSequence &&
         rework.receipt.commitSequence < correction.receipt.commitSequence &&
         sameStrings(textValues(completionHistory), [
@@ -1815,6 +1838,7 @@ async function main(): Promise<void> {
         "The v1 expression algebra has strict greater_than but no greater_than_or_equal, so exact remaining material, exact plan-to-required output, and exact open-claim settlement remain parked.",
         "Cross-package entity references use named Relation values because canonical definition validation currently resolves Type targets only inside one immutable definition bundle.",
         "The Action algebra cannot combine the material bound with BOM equality. Execution StateBasis covers material availability and consumed quantity, Cedar pins revision 1, and stale-on-BOM-change remains a parked kernel follow-up.",
+        "Completion Actions append occurrence output under the material-only bound. A causally linked production tally Action advances producedOutputQuantity because every accumulator relation must belong to the Action StateBasis that updates it.",
         "Debit and credit equality for receivable and payable posting is enforced only by Cedar. Reversal and correction Actions read the original posting amount and emit the same bounded amount to both sides.",
       ],
       assertions,
@@ -1840,10 +1864,12 @@ async function main(): Promise<void> {
         bomRevisionTwo: bomRevisionTwo.receipt.operationId,
         commercialCommitment: commercialCommitment.receipt.operationId,
         finalCompletion: finalCompletion.receipt.operationId,
+        finalProductionTally: finalTally.receipt.operationId,
         fulfillment: fulfillment.receipt.operationId,
         manufacturingCorrection: correction.receipt.operationId,
         materialAvailability: materialAvailability.receipt.operationId,
         partialCompletion: partial.receipt.operationId,
+        partialProductionTally: partialTally.receipt.operationId,
         receivable: receivable.receipt.operationId,
         reversal: reversal.receipt.operationId,
         rework: rework.receipt.operationId,
@@ -1899,13 +1925,11 @@ function completionContract(source: string, kind: string): boolean {
       'relationId: "manufacturing.completionOccurrenceReference"',
     ) &&
     effects.includes('relationId: "manufacturing.completionBomRevision"') &&
+    effects.includes('relationId: "manufacturing.completionOutputQuantity"') &&
     effects.includes('relationId: "manufacturing.consumedInputQuantity"') &&
-    effects.includes('relationId: "manufacturing.producedOutputQuantity"') &&
     effects.includes('operator: "add"') &&
     effects.includes('relationId: "manufacturing.outputDerivedFromInputLot"') &&
-    effects.includes(
-      'relationId: "manufacturing.genealogyOutputLotReference"',
-    ) &&
+    effects.includes('relationId: "manufacturing.outputLotReference"') &&
     effects.includes(`value: { kind: "text", value: "${kind}" }`) &&
     !effects.includes('relationId: "manufacturing.plannedOutputQuantity"')
   );
@@ -2463,10 +2487,6 @@ function manufacturingCompletionRequest(
         value: { amount: consumedQuantity, kind: "quantity", unit: "each" },
       },
       {
-        id: "fulfillmentReference",
-        value: { kind: "text", value: "fulfillment.order-3001" },
-      },
-      {
         id: "inputLotReference",
         value: { kind: "text", value: inputLot },
       },
@@ -2496,6 +2516,31 @@ function manufacturingCompletionRequest(
     ],
     resourceId: workId,
     suffix: `completion-${suffix}`,
+    validAt: changedAt,
+  });
+}
+
+function manufacturingProductionTallyRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  quantity: string,
+  completionOperationReference: string,
+) {
+  return proposalRequest({
+    actionId: "manufacturing.recordProductionTally",
+    fixture,
+    inputs: [
+      {
+        id: "completionOperationReference",
+        value: { kind: "text", value: completionOperationReference },
+      },
+      {
+        id: "quantity",
+        value: { amount: quantity, kind: "quantity", unit: "each" },
+      },
+    ],
+    resourceId: workId,
+    suffix: `production-tally-${suffix}`,
     validAt: changedAt,
   });
 }

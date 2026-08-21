@@ -39,6 +39,7 @@ const manufacturingActions = [
   "manufacturing.recordCompletion",
   "manufacturing.recordMaterialAvailability",
   "manufacturing.recordPartialCompletion",
+  "manufacturing.recordProductionTally",
   "manufacturing.recordRequirement",
   "manufacturing.recordRework",
   "manufacturing.recordScrap",
