@@ -6,6 +6,12 @@ export type VendorHttpResponse = {
   readonly status: number;
 };
 
+export type VendorBytesResponse = {
+  readonly body: Uint8Array;
+  readonly bodyDigest: string;
+  readonly status: number;
+};
+
 export class VendorHttpClient {
   readonly #baseUrl: URL;
   readonly #credential: string;
@@ -28,10 +34,55 @@ export class VendorHttpClient {
     readonly method: "GET" | "POST";
     readonly path: string;
   }): Promise<VendorHttpResponse> {
-    const headers = new Headers({ accept: "application/json" });
+    const url = new URL(input.path, this.#baseUrl);
+    const headers = this.#headers({
+      accepts: "application/json",
+      credentialHeader: input.credentialHeader,
+      idempotencyKey: input.idempotencyKey,
+      url,
+    });
     if (input.body !== undefined) {
       headers.set("content-type", "application/json");
     }
+    return requestJson({
+      body: input.body,
+      headers,
+      method: input.method,
+      timeoutMs: this.#timeoutMs,
+      url,
+    });
+  }
+
+  requestBytes(input: {
+    readonly credentialHeader: "authorization" | "x-api-key";
+    readonly method: "GET";
+    readonly url: URL;
+  }): Promise<VendorBytesResponse> {
+    return requestBytes({
+      headers: this.#headers({
+        accepts: "application/xml",
+        credentialHeader: input.credentialHeader,
+        url: input.url,
+      }),
+      method: input.method,
+      timeoutMs: this.#timeoutMs,
+      url: input.url,
+    });
+  }
+
+  #headers(input: {
+    readonly accepts: string;
+    readonly credentialHeader: "authorization" | "x-api-key";
+    readonly idempotencyKey?: string;
+    readonly url: URL;
+  }): Headers {
+    if (
+      input.credentialHeader === "x-api-key" &&
+      input.url.origin !== this.#baseUrl.origin
+    ) {
+      throw new Error("refusing to send an API key across origins");
+    }
+    const headers = new Headers({ accept: input.accepts });
     if (input.idempotencyKey !== undefined) {
       headers.set("idempotency-key", input.idempotencyKey);
     }
@@ -40,13 +91,7 @@ export class VendorHttpClient {
     } else {
       headers.set("x-api-key", this.#credential);
     }
-    return requestJson({
-      body: input.body,
-      headers,
-      method: input.method,
-      timeoutMs: this.#timeoutMs,
-      url: new URL(input.path, this.#baseUrl),
-    });
+    return headers;
   }
 }
 
@@ -76,6 +121,7 @@ async function requestJson(input: {
     body: input.body === undefined ? undefined : JSON.stringify(input.body),
     headers: input.headers,
     method: input.method,
+    redirect: "error",
     signal: AbortSignal.timeout(input.timeoutMs),
   });
   const text = await response.text();
@@ -90,6 +136,26 @@ async function requestJson(input: {
   return {
     body,
     bodyDigest: sha256(text),
+    status: response.status,
+  };
+}
+
+async function requestBytes(input: {
+  readonly headers: Headers;
+  readonly method: "GET";
+  readonly timeoutMs: number;
+  readonly url: URL;
+}): Promise<VendorBytesResponse> {
+  const response = await fetch(input.url, {
+    headers: input.headers,
+    method: input.method,
+    redirect: "error",
+    signal: AbortSignal.timeout(input.timeoutMs),
+  });
+  const body = new Uint8Array(await response.arrayBuffer());
+  return {
+    body,
+    bodyDigest: sha256(body),
     status: response.status,
   };
 }

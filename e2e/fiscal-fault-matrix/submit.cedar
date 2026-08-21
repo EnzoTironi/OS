@@ -10,5 +10,14 @@ permit (
     resource
 )
 when {
-    context.inputs.requestReference like "document-request-*"
+    context.inputs.requestReference like "document-request-fault-*"
+};
+
+permit (
+    principal,
+    action == Action::"commit",
+    resource
+)
+when {
+    context.inputs.requestReference like "document-request-live-*"
 };

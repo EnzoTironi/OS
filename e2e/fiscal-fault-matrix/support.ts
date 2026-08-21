@@ -77,6 +77,7 @@ export {
 } from "../domain-manufacturing-accounting/support.js";
 export type {
   ActionClient,
+  DomainFixture,
   EvidenceTime,
   ManagedProcess,
   SemanticValue,
@@ -88,6 +89,7 @@ const proxyMetricsSchema = z.object({
   operations: z.array(
     z.object({
       idempotencyKey: z.string().min(1),
+      issuerRegistration: z.string().optional(),
       provider: z.enum(["plugnotas", "protheus", "systax"]),
       providerOperationId: z.string().min(1),
     }),
@@ -196,6 +198,14 @@ export function compileCommercialPackage(): Promise<DomainFixture> {
   return compileDomainPackage("commercial");
 }
 
+export function compilePartyPackage(): Promise<DomainFixture> {
+  return compileDomainPackage("party");
+}
+
+export function compileProductPackage(): Promise<DomainFixture> {
+  return compileDomainPackage("product");
+}
+
 export function fiscalPackageSource(): Promise<string> {
   return readFile(packageSourcePath, "utf8");
 }
@@ -229,6 +239,7 @@ export async function writeFiscalPolicyManifest(
   outputPath: string,
   commercial: DomainFixture,
   fiscal: FiscalFixture,
+  contextFixtures: readonly DomainFixture[] = [],
 ): Promise<void> {
   const [
     activation,
@@ -251,13 +262,13 @@ export async function writeFiscalPolicyManifest(
     ["fiscal.requestTaxDetermination", taxDetermination],
     ["fiscal.submitDocument", submission],
   ]);
-  const fixtures = [commercial, fiscal];
+  const fixtures = [...contextFixtures, commercial, fiscal];
   const policies = fixtures.flatMap((fixture) => [
     policyEntry(fixture, "zoen.definition.activate", activation),
     ...fixture.metadata.actions.map((action) => {
       const policy =
         fixture.metadata.definitionId === "fiscal.brazil"
-          ? actionPolicies.get(action.id)
+          ? (actionPolicies.get(action.id) ?? domain)
           : domain;
       if (policy === undefined) {
         throw new Error(`missing fiscal policy for ${action.id}`);
@@ -293,12 +304,67 @@ export async function startVendorFaultProxy(
 
 export async function startFiscalAdapter(input: {
   readonly callerBindings: Readonly<Record<string, string>>;
-  readonly provider: "plugnotas" | "protheus" | "systax";
+  readonly listenProvider?: "plugnotas" | "protheus" | "systax";
+  readonly provider?: "plugnotas" | "protheus" | "systax";
   readonly providerBaseUrl?: string;
-  readonly providerCredential: string;
+  readonly providerCredential?: string;
   readonly providerTimeoutMs?: number;
+  readonly routes?: {
+    readonly documents: Readonly<
+      Record<
+        string,
+        {
+          readonly provider: "plugnotas" | "protheus";
+          readonly providerBaseUrl?: string;
+          readonly providerCredential: string;
+          readonly providerTimeoutMs?: number;
+        }
+      >
+    >;
+    readonly tax?: {
+      readonly provider: "systax";
+      readonly providerBaseUrl?: string;
+      readonly providerCredential: string;
+      readonly providerTimeoutMs?: number;
+    };
+  };
 }): Promise<ManagedProcess> {
-  const port = fiscalAdapterPort(input.provider);
+  const listenProvider = input.listenProvider ?? input.provider ?? "systax";
+  const port = fiscalAdapterPort(listenProvider);
+  const routeEnvironment =
+    input.routes === undefined
+      ? legacyRouteEnvironment(input)
+      : {
+          ZOEN_FISCAL_ADAPTER_ROUTES: JSON.stringify({
+            documents: Object.fromEntries(
+              Object.entries(input.routes.documents).map(
+                ([issuerRegistration, route]) => [
+                  issuerRegistration,
+                  {
+                    baseUrl:
+                      route.providerBaseUrl ??
+                      `http://127.0.0.1:${proxyPort}`,
+                    credential: route.providerCredential,
+                    provider: route.provider,
+                    timeoutMs: route.providerTimeoutMs ?? 5_000,
+                  },
+                ],
+              ),
+            ),
+            tax:
+              input.routes.tax === undefined
+                ? undefined
+                : {
+                    baseUrl:
+                      input.routes.tax.providerBaseUrl ??
+                      `http://127.0.0.1:${proxyPort}`,
+                    credential: input.routes.tax.providerCredential,
+                    provider: input.routes.tax.provider,
+                    timeoutMs:
+                      input.routes.tax.providerTimeoutMs ?? 5_000,
+                  },
+          }),
+        };
   return startManagedProcess({
     arguments: [
       path.join(
@@ -327,24 +393,38 @@ export async function startFiscalAdapter(input: {
         },
       }),
       ZOEN_FISCAL_ADAPTER_OIDC_TOKEN_URL: oidcTokenUrl,
-      ZOEN_FISCAL_ADAPTER_PROVIDER: input.provider,
-      ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL:
-        input.providerBaseUrl ?? `http://127.0.0.1:${proxyPort}`,
-      ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL: input.providerCredential,
-      ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS: (
-        input.providerTimeoutMs ?? 5_000
-      ).toString(),
       ZOEN_FISCAL_ADAPTER_ZOEN_URL: zoenUrl,
+      ...routeEnvironment,
     },
-    name: `${input.provider} fiscal adapter`,
+    name: "fiscal adapter",
     port,
   });
 }
 
 export function adapterProviderUrl(
-  provider: "plugnotas" | "protheus" | "systax",
+  provider: "plugnotas" | "protheus" | "systax" = "systax",
 ): string {
   return `http://127.0.0.1:${fiscalAdapterPort(provider)}/v1/operations`;
+}
+
+function legacyRouteEnvironment(input: {
+  readonly provider?: "plugnotas" | "protheus" | "systax";
+  readonly providerBaseUrl?: string;
+  readonly providerCredential?: string;
+  readonly providerTimeoutMs?: number;
+}): Readonly<Record<string, string>> {
+  if (input.provider === undefined || input.providerCredential === undefined) {
+    throw new Error("a legacy fiscal adapter route requires a provider");
+  }
+  return {
+    ZOEN_FISCAL_ADAPTER_PROVIDER: input.provider,
+    ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL:
+      input.providerBaseUrl ?? `http://127.0.0.1:${proxyPort}`,
+    ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL: input.providerCredential,
+    ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS: (
+      input.providerTimeoutMs ?? 5_000
+    ).toString(),
+  };
 }
 
 export async function setFiscalProxyMode(mode: ProxyMode): Promise<void> {

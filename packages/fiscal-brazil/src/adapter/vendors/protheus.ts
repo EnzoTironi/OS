@@ -1,17 +1,22 @@
 import { z } from "zod";
 import {
+  type DocumentAuthorizationWriteback,
   type NeutralFiscalOperation,
   type ProviderDispatchResult,
   type ProviderStatusResult,
   type VendorAdapter,
 } from "../contracts.js";
+import { decimalJsonNumber } from "../decimal.js";
 import {
   fallbackOperationId,
   observedAtMicros,
+  sha256,
   VendorHttpClient,
 } from "../http.js";
 
 const protheusResponseSchema = z.object({
+  cAccessKey: z.string().min(1).optional(),
+  cAuthorityProtocol: z.string().min(1).optional(),
   cOperationId: z.string().min(1),
   cStatus: z.enum([
     "AUTHORIZED",
@@ -20,6 +25,8 @@ const protheusResponseSchema = z.object({
     "PENDING",
     "REJECTED",
   ]),
+  cXml: z.string().min(1).optional(),
+  nRevision: z.number().int().positive().optional(),
 });
 
 type ProtheusStatus =
@@ -61,7 +68,11 @@ export class ProtheusAdapter implements VendorAdapter {
     if (!parsed.success) {
       return invalidResponse(input.idempotencyKey);
     }
-    return dispatchOutcome(parsed.data.cOperationId, parsed.data.cStatus);
+    return dispatchOutcome(
+      input.idempotencyKey,
+      input.operation,
+      parsed.data,
+    );
   }
 
   async status(input: {
@@ -86,17 +97,25 @@ export class ProtheusAdapter implements VendorAdapter {
     if (!parsed.success) {
       return providerError(502, "Protheus fiscal status schema changed");
     }
-    return {
+    const outcome = observedOutcome(input.operation.kind, parsed.data.cStatus);
+    const result: Extract<ProviderStatusResult, { kind: "found" }> = {
       kind: "found",
       status: {
         evidenceDigest: response.bodyDigest,
         idempotencyKey: input.idempotencyKey,
         observedAtMicros: observedAtMicros(),
-        outcome: observedOutcome(parsed.data.cStatus),
+        outcome,
         providerOperationId: parsed.data.cOperationId,
-        sourceRef: `urn:zoen:fiscal:protheus:${parsed.data.cOperationId}:artifact-sha256:${response.bodyDigest}`,
+        sourceRef: `urn:zoen:fiscal:protheus:${parsed.data.cOperationId}:response-sha256:${response.bodyDigest}`,
       },
     };
+    if (outcome !== "confirmed" || input.operation.kind !== "submit_document") {
+      return result;
+    }
+    const writeback = authorizationWriteback(parsed.data);
+    return writeback === undefined
+      ? providerError(502, "Protheus authorization evidence is incomplete")
+      : { ...result, writeback };
   }
 }
 
@@ -114,11 +133,11 @@ function protheusRequest(
             cFiscalOperation: line.operationCode,
             cProductCode: line.productReference,
             cUnit: line.unit,
-            nCofinsAmount: jsonNumber(line.tax.cofinsAmount),
-            nIcmsAmount: jsonNumber(line.tax.icmsAmount),
-            nPisAmount: jsonNumber(line.tax.pisAmount),
-            nQuantity: jsonNumber(line.quantity),
-            nUnitPrice: jsonNumber(line.unitPrice),
+            nCofinsAmount: decimalJsonNumber(line.tax.cofinsAmount),
+            nIcmsAmount: decimalJsonNumber(line.tax.icmsAmount),
+            nPisAmount: decimalJsonNumber(line.tax.pisAmount),
+            nQuantity: decimalJsonNumber(line.quantity),
+            nUnitPrice: decimalJsonNumber(line.unitPrice),
           })),
           cAccountingClaim: operation.accountingClaimReference,
           cAuthorityEnvironment: operation.authorityEnvironment,
@@ -128,7 +147,7 @@ function protheusRequest(
           cIssuerTaxId: operation.issuerRegistration,
           cRecipientTaxId: operation.recipientRegistration,
           cTaxDetermination: operation.taxDeterminationReference,
-          nTotalAmount: jsonNumber(operation.totalAmount),
+          nTotalAmount: decimalJsonNumber(operation.totalAmount),
         },
         path: "/rest/zoen/fiscal/v1/documents",
       };
@@ -138,7 +157,7 @@ function protheusRequest(
           cAuthorityProtocol: operation.authorityProtocol,
           cExternalEventId: idempotencyKey,
           cReason: operation.reason,
-          nExpectedRevision: jsonNumber(operation.remoteRevision),
+          nExpectedRevision: decimalJsonNumber(operation.remoteRevision),
         },
         path: `/rest/zoen/fiscal/v1/documents/${encodeURIComponent(operation.providerOperationReference)}/cancel`,
       };
@@ -148,7 +167,7 @@ function protheusRequest(
           cAuthorityProtocol: operation.authorityProtocol,
           cCorrection: operation.correction,
           cExternalEventId: idempotencyKey,
-          nExpectedRevision: jsonNumber(operation.remoteRevision),
+          nExpectedRevision: decimalJsonNumber(operation.remoteRevision),
         },
         path: `/rest/zoen/fiscal/v1/documents/${encodeURIComponent(operation.providerOperationReference)}/correct`,
       };
@@ -162,54 +181,102 @@ function protheusRequest(
 }
 
 function dispatchOutcome(
-  providerOperationId: string,
-  status: ProtheusStatus,
+  idempotencyKey: string,
+  operation: NeutralFiscalOperation,
+  response: z.infer<typeof protheusResponseSchema>,
 ): ProviderDispatchResult {
-  switch (status) {
-    case "AUTHORIZED":
-    case "CANCELLED":
-    case "CORRECTED":
+  const outcome = observedOutcome(operation.kind, response.cStatus);
+  switch (outcome) {
+    case "confirmed": {
+      const writeback =
+        operation.kind === "submit_document"
+          ? authorizationWriteback(response)
+          : undefined;
+      if (operation.kind === "submit_document" && writeback === undefined) {
+        return invalidResponse(idempotencyKey);
+      }
       return {
-        body: { outcome: "confirmed", providerOperationId },
+        body: {
+          outcome: "confirmed",
+          providerOperationId: response.cOperationId,
+        },
         kind: "confirmed",
         status: 200,
+        writeback,
       };
-    case "PENDING":
+    }
+    case "pending":
       return {
-        body: { outcome: "accepted_pending", providerOperationId },
+        body: {
+          outcome: "accepted_pending",
+          providerOperationId: response.cOperationId,
+        },
         kind: "accepted_pending",
         status: 202,
       };
-    case "REJECTED":
+    case "no_effect":
       return {
-        body: { outcome: "confirmed_no_effect", providerOperationId },
+        body: {
+          outcome: "confirmed_no_effect",
+          providerOperationId: response.cOperationId,
+        },
         kind: "confirmed_no_effect",
         status: 200,
       };
     default: {
-      const exhaustive: never = status;
-      throw new Error(`unsupported Protheus status: ${String(exhaustive)}`);
+      const exhaustive: never = outcome;
+      throw new Error(`unsupported Protheus outcome: ${String(exhaustive)}`);
     }
   }
 }
 
 function observedOutcome(
+  operation: NeutralFiscalOperation["kind"],
   status: ProtheusStatus,
 ): "confirmed" | "no_effect" | "pending" {
-  switch (status) {
-    case "AUTHORIZED":
-    case "CANCELLED":
-    case "CORRECTED":
-      return "confirmed";
-    case "PENDING":
+  if (status === "REJECTED") {
+    return "no_effect";
+  }
+  if (status === "PENDING") {
+    return "pending";
+  }
+  switch (operation) {
+    case "submit_document":
+      return status === "AUTHORIZED" ? "confirmed" : "no_effect";
+    case "cancel_document":
+      return status === "CANCELLED" ? "confirmed" : "pending";
+    case "correct_document":
+      return status === "CORRECTED" ? "confirmed" : "pending";
+    case "tax_determination":
       return "pending";
-    case "REJECTED":
-      return "no_effect";
     default: {
-      const exhaustive: never = status;
-      throw new Error(`unsupported Protheus status: ${String(exhaustive)}`);
+      const exhaustive: never = operation;
+      throw new Error(`unsupported fiscal operation: ${String(exhaustive)}`);
     }
   }
+}
+
+function authorizationWriteback(
+  response: z.infer<typeof protheusResponseSchema>,
+): DocumentAuthorizationWriteback | undefined {
+  if (
+    response.cAccessKey === undefined ||
+    response.cAuthorityProtocol === undefined ||
+    response.cXml === undefined ||
+    response.nRevision === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    accessKey: response.cAccessKey,
+    artifactDigest: sha256(response.cXml),
+    authorityStatus: "authorized",
+    kind: "document_authorization",
+    protocol: response.cAuthorityProtocol,
+    provider: "protheus",
+    providerOperationId: response.cOperationId,
+    remoteRevision: response.nRevision.toString(),
+  };
 }
 
 function invalidResponse(idempotencyKey: string): ProviderDispatchResult {
@@ -233,12 +300,4 @@ function providerError(
     kind: "provider_error",
     status,
   };
-}
-
-function jsonNumber(value: string): number {
-  const number = Number(value);
-  if (!Number.isFinite(number)) {
-    throw new Error("fiscal decimal is outside the JSON number range");
-  }
-  return number;
 }

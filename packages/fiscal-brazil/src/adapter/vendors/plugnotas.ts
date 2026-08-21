@@ -1,11 +1,16 @@
 import { z } from "zod";
 import {
+  type DocumentAuthorizationWriteback,
   type NeutralFiscalOperation,
   type ProviderDispatchResult,
   type ProviderStatusResult,
   type SubmitDocumentOperation,
   type VendorAdapter,
 } from "../contracts.js";
+import {
+  decimalJsonNumber,
+  multiplyExactDecimals,
+} from "../decimal.js";
 import {
   fallbackOperationId,
   observedAtMicros,
@@ -50,8 +55,10 @@ const plugNotasStatusSchema = z
   .array(
     z.object({
       chave: z.string().optional(),
+      evento: z.enum(["CANCELAMENTO", "CARTA_CORRECAO"]).optional(),
       id: z.string().min(1),
       protocolo: z.string().optional(),
+      revisao: z.number().int().positive().optional(),
       status: z.enum([
         "AGENDADO",
         "CANCELADO",
@@ -90,14 +97,16 @@ export class PlugNotasAdapter implements VendorAdapter {
       case "cancel_document":
         return this.#event({
           body: { justificativa: input.operation.reason },
+          kind: input.operation.kind,
           idempotencyKey: input.idempotencyKey,
-          path: `/nfe/${encodeURIComponent(input.operation.providerOperationReference)}/cancelar`,
+          path: `/nfe/${encodeURIComponent(rawPlugNotasId(input.operation.providerOperationReference))}/cancelar`,
         });
       case "correct_document":
         return this.#event({
           body: { correcao: input.operation.correction },
+          kind: input.operation.kind,
           idempotencyKey: input.idempotencyKey,
-          path: `/nfe/${encodeURIComponent(input.operation.providerOperationReference)}/cce`,
+          path: `/nfe/${encodeURIComponent(rawPlugNotasId(input.operation.providerOperationReference))}/cce`,
         });
       case "tax_determination":
         return providerError(422, "PlugNotas cannot determine taxes");
@@ -135,17 +144,30 @@ export class PlugNotasAdapter implements VendorAdapter {
     if (document === undefined) {
       return providerError(502, "PlugNotas returned an empty status");
     }
-    return {
+    const outcome = observedOutcome(input.operation.kind, document);
+    const providerOperationId = plugNotasProviderId(document.id);
+    const result: Extract<ProviderStatusResult, { kind: "found" }> = {
       kind: "found",
       status: {
         evidenceDigest: response.bodyDigest,
         idempotencyKey: input.idempotencyKey,
         observedAtMicros: observedAtMicros(),
-        outcome: observedOutcome(document.status),
-        providerOperationId: document.id,
-        sourceRef: `urn:zoen:fiscal:plugnotas:${document.id}:artifact-sha256:${response.bodyDigest}`,
+        outcome,
+        providerOperationId,
+        sourceRef: `urn:zoen:fiscal:plugnotas:${document.id}:response-sha256:${response.bodyDigest}`,
       },
     };
+    if (
+      outcome !== "confirmed" ||
+      input.operation.kind !== "submit_document"
+    ) {
+      return result;
+    }
+    const writeback = await this.#authorizationWriteback(document);
+    if (writeback === undefined) {
+      return providerError(502, "PlugNotas authorization evidence is incomplete");
+    }
+    return { ...result, writeback };
   }
 
   async #submit(
@@ -177,19 +199,14 @@ export class PlugNotasAdapter implements VendorAdapter {
       return invalidResponse(idempotencyKey);
     }
     if (document.status === "REJEITADO") {
-      return confirmedNoEffect(document.id);
+      return confirmedNoEffect(plugNotasProviderId(document.id));
     }
-    if (
-      document.status === "CONCLUIDO" ||
-      document.status === "CANCELADO"
-    ) {
-      return confirmed(document.id);
-    }
-    return acceptedPending(document.id);
+    return acceptedPending(plugNotasProviderId(document.id));
   }
 
   async #event(input: {
     readonly body: unknown;
+    readonly kind: "cancel_document" | "correct_document";
     readonly idempotencyKey: string;
     readonly path: string;
   }): Promise<ProviderDispatchResult> {
@@ -211,15 +228,44 @@ export class PlugNotasAdapter implements VendorAdapter {
       return invalidResponse(input.idempotencyKey);
     }
     if (parsed.data.status === "REJEITADO") {
-      return confirmedNoEffect(parsed.data.id);
+      return confirmedNoEffect(plugNotasProviderId(parsed.data.id));
     }
+    const providerOperationId = plugNotasProviderId(parsed.data.id);
+    if (eventDispatchConfirmed(input.kind, parsed.data.status)) {
+      return confirmed(providerOperationId);
+    }
+    return acceptedPending(providerOperationId);
+  }
+
+  async #authorizationWriteback(
+    document: z.infer<typeof plugNotasStatusSchema>[number],
+  ): Promise<DocumentAuthorizationWriteback | undefined> {
     if (
-      parsed.data.status === "CONCLUIDO" ||
-      parsed.data.status === "CANCELADO"
+      document.chave === undefined ||
+      document.protocolo === undefined ||
+      document.revisao === undefined ||
+      document.xml === undefined
     ) {
-      return confirmed(parsed.data.id);
+      return undefined;
     }
-    return acceptedPending(parsed.data.id);
+    const artifact = await this.#http.requestBytes({
+      credentialHeader: "x-api-key",
+      method: "GET",
+      url: new URL(document.xml),
+    });
+    if (artifact.status < 200 || artifact.status >= 300) {
+      return undefined;
+    }
+    return {
+      accessKey: document.chave,
+      artifactDigest: artifact.bodyDigest,
+      authorityStatus: "authorized",
+      kind: "document_authorization",
+      protocol: document.protocolo,
+      provider: "plugnotas",
+      providerOperationId: plugNotasProviderId(document.id),
+      remoteRevision: document.revisao.toString(),
+    };
   }
 }
 
@@ -254,31 +300,33 @@ function plugNotasDocument(
         descricao: line.description,
         ncm: line.classificationCode,
         quantidade: {
-          comercial: jsonNumber(line.quantity),
-          tributavel: jsonNumber(line.quantity),
+          comercial: decimalJsonNumber(line.quantity),
+          tributavel: decimalJsonNumber(line.quantity),
         },
         tributos: {
           cofins: {
-            aliquota: jsonNumber(line.tax.cofinsRate),
-            valor: jsonNumber(line.tax.cofinsAmount),
+            aliquota: decimalJsonNumber(line.tax.cofinsRate),
+            valor: decimalJsonNumber(line.tax.cofinsAmount),
           },
           icms: {
-            aliquota: jsonNumber(line.tax.icmsRate),
-            valor: jsonNumber(line.tax.icmsAmount),
+            aliquota: decimalJsonNumber(line.tax.icmsRate),
+            valor: decimalJsonNumber(line.tax.icmsAmount),
           },
           pis: {
-            aliquota: jsonNumber(line.tax.pisRate),
-            valor: jsonNumber(line.tax.pisAmount),
+            aliquota: decimalJsonNumber(line.tax.pisRate),
+            valor: decimalJsonNumber(line.tax.pisAmount),
           },
         },
         unidade: {
           comercial: line.unit,
           tributavel: line.unit,
         },
-        valor: jsonNumber(line.unitPrice) * jsonNumber(line.quantity),
+        valor: decimalJsonNumber(
+          multiplyExactDecimals(line.unitPrice, line.quantity),
+        ),
         valorUnitario: {
-          comercial: jsonNumber(line.unitPrice),
-          tributavel: jsonNumber(line.unitPrice),
+          comercial: decimalJsonNumber(line.unitPrice),
+          tributavel: decimalJsonNumber(line.unitPrice),
         },
       })),
       natureza: content.nature,
@@ -286,7 +334,7 @@ function plugNotasDocument(
         {
           aVista: content.payment.paidAtSight,
           meio: content.payment.methodCode,
-          valor: jsonNumber(content.totals.amount),
+          valor: decimalJsonNumber(content.totals.amount),
         },
       ],
     },
@@ -302,7 +350,7 @@ function statusPath(
       return `/nfe/${encodeURIComponent(operation.issuerRegistration)}/${encodeURIComponent(idempotencyKey)}/resumo`;
     case "cancel_document":
     case "correct_document":
-      return `/nfe/${encodeURIComponent(operation.providerOperationReference)}/resumo`;
+      return `/nfe/${encodeURIComponent(rawPlugNotasId(operation.providerOperationReference))}/resumo`;
     case "tax_determination":
       return undefined;
     default: {
@@ -313,12 +361,45 @@ function statusPath(
 }
 
 function observedOutcome(
+  operation: NeutralFiscalOperation["kind"],
+  document: z.infer<typeof plugNotasStatusSchema>[number],
+): "confirmed" | "no_effect" | "pending" {
+  switch (operation) {
+    case "submit_document":
+      return submitOutcome(document.status);
+    case "cancel_document":
+      if (
+        document.status === "CANCELADO" ||
+        (document.status === "CONCLUIDO" &&
+          document.evento === "CANCELAMENTO")
+      ) {
+        return "confirmed";
+      }
+      return document.status === "REJEITADO" ? "no_effect" : "pending";
+    case "correct_document":
+      if (
+        document.status === "CONCLUIDO" &&
+        document.evento === "CARTA_CORRECAO"
+      ) {
+        return "confirmed";
+      }
+      return document.status === "REJEITADO" ? "no_effect" : "pending";
+    case "tax_determination":
+      return "pending";
+    default: {
+      const exhaustive: never = operation;
+      throw new Error(`unsupported fiscal operation: ${String(exhaustive)}`);
+    }
+  }
+}
+
+function submitOutcome(
   status: PlugNotasStatus,
 ): "confirmed" | "no_effect" | "pending" {
   switch (status) {
-    case "CANCELADO":
     case "CONCLUIDO":
       return "confirmed";
+    case "CANCELADO":
     case "REJEITADO":
       return "no_effect";
     case "AGENDADO":
@@ -330,6 +411,36 @@ function observedOutcome(
       throw new Error(`unsupported PlugNotas status: ${String(exhaustive)}`);
     }
   }
+}
+
+function eventDispatchConfirmed(
+  kind: "cancel_document" | "correct_document",
+  status: PlugNotasStatus,
+): boolean {
+  switch (kind) {
+    case "cancel_document":
+      return status === "CANCELADO" || status === "CONCLUIDO";
+    case "correct_document":
+      return status === "CONCLUIDO";
+    default: {
+      const exhaustive: never = kind;
+      throw new Error(`unsupported fiscal event: ${String(exhaustive)}`);
+    }
+  }
+}
+
+function plugNotasProviderId(raw: string): string {
+  return `plugnotas.${rawPlugNotasId(raw)}`;
+}
+
+function rawPlugNotasId(providerOperationId: string): string {
+  const raw = providerOperationId.startsWith("plugnotas.")
+    ? providerOperationId.slice("plugnotas.".length)
+    : providerOperationId;
+  if (raw === "") {
+    throw new Error("PlugNotas provider operation identity is empty");
+  }
+  return raw;
 }
 
 function acceptedPending(providerOperationId: string): ProviderDispatchResult {
@@ -377,12 +488,4 @@ function providerError(
     kind: "provider_error",
     status,
   };
-}
-
-function jsonNumber(value: string): number {
-  const number = Number(value);
-  if (!Number.isFinite(number)) {
-    throw new Error("fiscal decimal is outside the JSON number range");
-  }
-  return number;
 }

@@ -38,6 +38,13 @@ const originatingCommercialOperationReference = defineRelation({
   target: { kind: "value", valueType: { kind: "text" } },
 });
 
+const taxIntentReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.taxIntentReference",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
 const taxIssuerRegistration = defineRelation({
   cardinality: "one",
   id: "fiscal.taxIssuerRegistration",
@@ -181,6 +188,20 @@ const taxDeterminationReference = defineRelation({
   target: { kind: "value", valueType: { kind: "text" } },
 });
 
+const intentDocumentReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.intentDocumentReference",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const intentDeterminedTaxTotal = defineRelation({
+  cardinality: "one",
+  id: "fiscal.intentDeterminedTaxTotal",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "decimal" } },
+});
+
 const documentModel = defineRelation({
   cardinality: "one",
   id: "fiscal.documentModel",
@@ -233,6 +254,13 @@ const documentSubmissionRequestReference = defineRelation({
 const fiscalIntentReference = defineRelation({
   cardinality: "one",
   id: "fiscal.fiscalIntentReference",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const documentIssuerRegistration = defineRelation({
+  cardinality: "one",
+  id: "fiscal.documentIssuerRegistration",
   sourceType: "fiscal.FiscalDocument",
   target: { kind: "value", valueType: { kind: "text" } },
 });
@@ -424,6 +452,154 @@ const determinedTotalTaxAmount = defineComputation({
   returns: { kind: "decimal" },
 });
 
+const admitTaxDetermination = defineAction({
+  effects: [
+    {
+      relationId: "fiscal.determinationProviderReference",
+      value: { inputId: "providerReference", kind: "input" },
+    },
+    {
+      relationId: "fiscal.determinationProviderOperationReference",
+      value: { inputId: "providerOperationReference", kind: "input" },
+    },
+    {
+      relationId: "fiscal.determinationRuleVersion",
+      value: { inputId: "ruleVersion", kind: "input" },
+    },
+    {
+      relationId: "fiscal.determinationResponseDigest",
+      value: { inputId: "responseDigest", kind: "input" },
+    },
+    {
+      relationId: "fiscal.federalTaxAmount",
+      value: { inputId: "federalTaxAmount", kind: "input" },
+    },
+    {
+      relationId: "fiscal.stateTaxAmount",
+      value: { inputId: "stateTaxAmount", kind: "input" },
+    },
+    {
+      relationId: "fiscal.municipalTaxAmount",
+      value: { inputId: "municipalTaxAmount", kind: "input" },
+    },
+  ],
+  id: "fiscal.admitTaxDetermination",
+  inputs: [
+    { id: "providerReference", valueType: { kind: "text" } },
+    { id: "providerOperationReference", valueType: { kind: "text" } },
+    { id: "ruleVersion", valueType: { kind: "text" } },
+    { id: "responseDigest", valueType: { kind: "text" } },
+    { id: "federalTaxAmount", valueType: { kind: "decimal" } },
+    { id: "stateTaxAmount", valueType: { kind: "decimal" } },
+    { id: "municipalTaxAmount", valueType: { kind: "decimal" } },
+  ],
+  precondition: {
+    kind: "literal",
+    value: { kind: "bool", value: true },
+  },
+});
+
+const admitIntentTaxDetermination = defineAction({
+  effects: [
+    {
+      relationId: "fiscal.taxDeterminationReference",
+      value: { inputId: "taxDeterminationReference", kind: "input" },
+    },
+    {
+      relationId: "fiscal.intentDeterminedTaxTotal",
+      value: { inputId: "determinedTaxTotal", kind: "input" },
+    },
+  ],
+  id: "fiscal.admitIntentTaxDetermination",
+  inputs: [
+    { id: "taxDeterminationReference", valueType: { kind: "text" } },
+    { id: "determinedTaxTotal", valueType: { kind: "decimal" } },
+  ],
+  precondition: {
+    kind: "binary",
+    left: { inputId: "determinedTaxTotal", kind: "input" },
+    operator: "greater_than",
+    right: {
+      kind: "literal",
+      value: { kind: "decimal", value: "0" },
+    },
+  },
+});
+
+const admitDocumentAuthorization = defineAction({
+  effects: [
+    {
+      relationId: "fiscal.fiscalIntentReference",
+      value: { inputId: "fiscalIntentReference", kind: "input" },
+    },
+    {
+      relationId: "fiscal.documentIssuerRegistration",
+      value: { inputId: "issuerRegistration", kind: "input" },
+    },
+    {
+      relationId: "fiscal.documentProviderReference",
+      value: { inputId: "providerReference", kind: "input" },
+    },
+    {
+      relationId: "fiscal.documentProviderOperationReference",
+      value: { inputId: "providerOperationReference", kind: "input" },
+    },
+    {
+      relationId: "fiscal.remoteSubmissionStatus",
+      value: {
+        kind: "literal",
+        value: { kind: "text", value: "submitted" },
+      },
+    },
+    {
+      relationId: "fiscal.authorityStatus",
+      value: { inputId: "authorityStatus", kind: "input" },
+    },
+    {
+      relationId: "fiscal.authorityProtocol",
+      value: { inputId: "authorityProtocol", kind: "input" },
+    },
+    {
+      relationId: "fiscal.authorityAccessKey",
+      value: { inputId: "authorityAccessKey", kind: "input" },
+    },
+    {
+      relationId: "fiscal.authorizationEvidenceDigest",
+      value: { inputId: "artifactDigest", kind: "input" },
+    },
+    {
+      relationId: "fiscal.authorizedArtifactReference",
+      value: { inputId: "artifactReference", kind: "input" },
+    },
+    {
+      relationId: "fiscal.remoteDocumentRevision",
+      value: { inputId: "remoteDocumentRevision", kind: "input" },
+    },
+  ],
+  id: "fiscal.admitDocumentAuthorization",
+  inputs: [
+    { id: "fiscalIntentReference", valueType: { kind: "text" } },
+    { id: "issuerRegistration", valueType: { kind: "text" } },
+    { id: "providerReference", valueType: { kind: "text" } },
+    { id: "providerOperationReference", valueType: { kind: "text" } },
+    { id: "authorityStatus", valueType: { kind: "text" } },
+    { id: "authorityProtocol", valueType: { kind: "text" } },
+    { id: "authorityAccessKey", valueType: { kind: "text" } },
+    { id: "artifactDigest", valueType: { kind: "text" } },
+    { id: "artifactReference", valueType: { kind: "text" } },
+    { id: "remoteDocumentRevision", valueType: { kind: "integer" } },
+  ],
+  precondition: {
+    kind: "binary",
+    left: { inputId: "remoteDocumentRevision", kind: "input" },
+    operator: "greater_than",
+    right: {
+      kind: "literal",
+      value: { kind: "integer", value: "0" },
+    },
+  },
+});
+
 const requestTaxDetermination = defineAction({
   effects: [
     {
@@ -460,7 +636,7 @@ const submitDocument = defineAction({
     kind: "binary",
     left: {
       kind: "relation",
-      relationId: "fiscal.documentTotalAmount",
+      relationId: "fiscal.intentDeterminedTaxTotal",
     },
     operator: "greater_than",
     right: {
@@ -478,13 +654,13 @@ const cancelDocument = defineAction({
     },
   ],
   id: "fiscal.cancelDocument",
-  inputs: [
-    { id: "requestReference", valueType: { kind: "text" } },
-    { id: "revision", valueType: { kind: "integer" } },
-  ],
+  inputs: [{ id: "requestReference", valueType: { kind: "text" } }],
   precondition: {
     kind: "binary",
-    left: { inputId: "revision", kind: "input" },
+    left: {
+      kind: "relation",
+      relationId: "fiscal.remoteDocumentRevision",
+    },
     operator: "greater_than",
     right: {
       kind: "literal",
@@ -501,13 +677,13 @@ const correctDocument = defineAction({
     },
   ],
   id: "fiscal.correctDocument",
-  inputs: [
-    { id: "requestReference", valueType: { kind: "text" } },
-    { id: "revision", valueType: { kind: "integer" } },
-  ],
+  inputs: [{ id: "requestReference", valueType: { kind: "text" } }],
   precondition: {
     kind: "binary",
-    left: { inputId: "revision", kind: "input" },
+    left: {
+      kind: "relation",
+      relationId: "fiscal.remoteDocumentRevision",
+    },
     operator: "greater_than",
     right: {
       kind: "literal",
@@ -518,6 +694,9 @@ const correctDocument = defineAction({
 
 export default defineBundle({
   actions: [
+    admitDocumentAuthorization,
+    admitIntentTaxDetermination,
+    admitTaxDetermination,
     cancelDocument,
     correctDocument,
     requestTaxDetermination,
@@ -547,6 +726,7 @@ export default defineBundle({
     determinationResponseDigest,
     determinationRuleVersion,
     documentContent,
+    documentIssuerRegistration,
     documentModel,
     documentProviderOperationReference,
     documentProviderReference,
@@ -561,6 +741,8 @@ export default defineBundle({
     federalTaxAmount,
     fiscalIntentReference,
     intentCommercialOperationReference,
+    intentDeterminedTaxTotal,
+    intentDocumentReference,
     intentIssuerRegistration,
     intentRecipientRegistration,
     municipalTaxAmount,
@@ -573,6 +755,7 @@ export default defineBundle({
     taxDeterminationReference,
     taxDeterminationRequestReference,
     taxEffectiveAt,
+    taxIntentReference,
     taxIssuerRegistration,
     taxProductReference,
     taxQuantity,

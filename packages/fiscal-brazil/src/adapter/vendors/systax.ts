@@ -3,19 +3,19 @@ import {
   type NeutralFiscalOperation,
   type ProviderDispatchResult,
   type ProviderStatusResult,
+  type TaxDeterminationWriteback,
   type VendorAdapter,
 } from "../contracts.js";
+import { canonicalDecimal } from "../decimal.js";
 import {
   fallbackOperationId,
   observedAtMicros,
   VendorHttpClient,
 } from "../http.js";
 
-const systaxStatusSchema = z.object({
+const systaxDispatchSchema = z.object({
   idCalculo: z.string().min(1),
   situacao: z.enum(["CONCLUIDO", "ERRO", "INVALIDO", "PENDENTE"]),
-});
-const systaxDispatchSchema = systaxStatusSchema.extend({
   tributos: z.object({
     estadual: z.string().min(1),
     federal: z.string().min(1),
@@ -85,6 +85,7 @@ export class SystaxAdapter implements VendorAdapter {
           },
           kind: "confirmed",
           status: 200,
+          writeback: taxWriteback(parsed.data, response.bodyDigest),
         };
       case "ERRO":
       case "INVALIDO":
@@ -130,7 +131,7 @@ export class SystaxAdapter implements VendorAdapter {
     if (response.status < 200 || response.status >= 300) {
       return providerError(response.status, "tax determination status failed");
     }
-    const parsed = systaxStatusSchema.safeParse(response.body);
+    const parsed = systaxDispatchSchema.safeParse(response.body);
     if (!parsed.success) {
       return providerError(502, "tax determination status schema changed");
     }
@@ -151,7 +152,7 @@ export class SystaxAdapter implements VendorAdapter {
         throw new Error(`unsupported Systax status: ${String(exhaustive)}`);
       }
     }
-    return {
+    const result: Extract<ProviderStatusResult, { kind: "found" }> = {
       kind: "found",
       status: {
         evidenceDigest: response.bodyDigest,
@@ -162,7 +163,30 @@ export class SystaxAdapter implements VendorAdapter {
         sourceRef: `urn:zoen:fiscal:systax:${parsed.data.idCalculo}:response-sha256:${response.bodyDigest}`,
       },
     };
+    if (outcome === "confirmed") {
+      return {
+        ...result,
+        writeback: taxWriteback(parsed.data, response.bodyDigest),
+      };
+    }
+    return result;
   }
+}
+
+function taxWriteback(
+  result: z.infer<typeof systaxDispatchSchema>,
+  responseDigest: string,
+): TaxDeterminationWriteback {
+  return {
+    federalTaxAmount: canonicalDecimal(result.tributos.federal),
+    kind: "tax_determination",
+    municipalTaxAmount: canonicalDecimal(result.tributos.municipal),
+    provider: "systax",
+    providerOperationId: result.idCalculo,
+    responseDigest,
+    ruleVersion: result.versaoRegra,
+    stateTaxAmount: canonicalDecimal(result.tributos.estadual),
+  };
 }
 
 function invalidResponse(idempotencyKey: string): ProviderDispatchResult {

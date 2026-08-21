@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
 import {
+  type CommitReceipt,
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
@@ -31,6 +32,8 @@ import {
   assertProviderNeutralSource,
   compileCommercialPackage,
   compileFiscalPackage,
+  compilePartyPackage,
+  compileProductPackage,
   connectorStatusResponse,
   definitionClient,
   dispatchOnce,
@@ -62,6 +65,7 @@ import {
   worldClient,
   writeFiscalPolicyManifest,
   type ActionClient,
+  type DomainFixture,
   type FiscalFixture,
   type ManagedProcess,
   type SemanticValue,
@@ -100,12 +104,15 @@ function inject(name: string): void {
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  const [commercial, fiscal, repeatedFiscal, source] = await Promise.all([
-    compileCommercialPackage(),
-    compileFiscalPackage(),
-    compileFiscalPackage(),
-    fiscalPackageSource(),
-  ]);
+  const [commercial, fiscal, party, product, repeatedFiscal, source] =
+    await Promise.all([
+      compileCommercialPackage(),
+      compileFiscalPackage(),
+      compilePartyPackage(),
+      compileProductPackage(),
+      compileFiscalPackage(),
+      fiscalPackageSource(),
+    ]);
   assertProviderNeutralSource(source);
   observe(
     "fiscalPackageCompilesDeterministicallyWithFourCanonicalFamilies",
@@ -133,7 +140,10 @@ async function main(): Promise<void> {
     e2eGeneratedDirectory(repositoryRoot, scenario),
     "policies.json",
   );
-  await writeFiscalPolicyManifest(policyManifestPath, commercial, fiscal);
+  await writeFiscalPolicyManifest(policyManifestPath, commercial, fiscal, [
+    party,
+    product,
+  ]);
 
   const [
     adminAToken,
@@ -181,8 +191,7 @@ async function main(): Promise<void> {
 
   const processes: ManagedProcess[] = [];
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
-  let connector: ManagedProcess | undefined;
-  let protheusAdapter: ManagedProcess | undefined;
+  let fiscalAdapter: ManagedProcess | undefined;
   const waitForState = (
     client: ReturnType<typeof effectClient>,
     effectRequestId: string,
@@ -199,28 +208,33 @@ async function main(): Promise<void> {
   try {
     server = await startServer(policyManifestPath);
     processes.push(await startVendorFaultProxy(providerCredential));
-    const systaxAdapter = await startFiscalAdapter({
+    fiscalAdapter = await startFiscalAdapter({
       callerBindings,
-      provider: "systax",
-      providerCredential,
-      providerTimeoutMs: vendorAdapterTimeoutMs,
+      listenProvider: "systax",
+      routes: {
+        documents: {
+          "12345678000190": {
+            provider: "plugnotas",
+            providerCredential,
+            providerTimeoutMs: vendorAdapterTimeoutMs,
+          },
+          "22345678000190": {
+            provider: "protheus",
+            providerCredential,
+            providerTimeoutMs: vendorAdapterTimeoutMs,
+          },
+        },
+        tax: {
+          provider: "systax",
+          providerCredential,
+          providerTimeoutMs: vendorAdapterTimeoutMs,
+        },
+      },
     });
-    const plugNotasAdapter = await startFiscalAdapter({
-      callerBindings,
-      provider: "plugnotas",
-      providerCredential,
-      providerTimeoutMs: vendorAdapterTimeoutMs,
-    });
-    protheusAdapter = await startFiscalAdapter({
-      callerBindings,
-      provider: "protheus",
-      providerCredential,
-      providerTimeoutMs: vendorAdapterTimeoutMs,
-    });
-    processes.push(systaxAdapter, plugNotasAdapter, protheusAdapter);
-    connector = await startConnector({
+    processes.push(fiscalAdapter);
+    const connector = await startConnector({
       credentials: connectorCredentials,
-      providerUrl: adapterProviderUrl("systax"),
+      providerUrl: adapterProviderUrl(),
       timeoutMs: connectorAdapterTimeoutMs,
     });
     processes.push(connector);
@@ -237,22 +251,114 @@ async function main(): Promise<void> {
     );
 
     await Promise.all(
-      [commercial, fiscal].flatMap((fixture) => [
+      [party, product, commercial, fiscal].flatMap((fixture) => [
         publishDefinition(definitionA, tenantA, fixture),
         publishDefinition(definitionB, tenantB, fixture),
       ]),
     );
     await Promise.all(
-      [commercial, fiscal].flatMap((fixture) => [
+      [party, product, commercial, fiscal].flatMap((fixture) => [
         activateDefinition(definitionA, tenantA, fixture),
         activateDefinition(definitionB, tenantB, fixture),
       ]),
     );
 
+    const issuerPlug = await commitContextAction({
+      action: fiscalActionA,
+      actionId: "party.admitIdentity",
+      fixture: party,
+      inputs: [
+        { id: "externalIdentifier", value: text("12345678000190") },
+        { id: "identityKind", value: text("organization") },
+      ],
+      label: "issuer-plug",
+      resourceId: "party.issuer.plug",
+    });
+    const issuerProtheus = await commitContextAction({
+      action: fiscalActionA,
+      actionId: "party.admitIdentity",
+      fixture: party,
+      inputs: [
+        { id: "externalIdentifier", value: text("22345678000190") },
+        { id: "identityKind", value: text("organization") },
+      ],
+      label: "issuer-protheus",
+      resourceId: "party.issuer.protheus",
+    });
+    const recipient = await commitContextAction({
+      action: fiscalActionA,
+      actionId: "party.admitIdentity",
+      fixture: party,
+      inputs: [
+        { id: "externalIdentifier", value: text("98765432000110") },
+        { id: "identityKind", value: text("organization") },
+      ],
+      label: "recipient",
+      resourceId: "party.recipient.fiscal",
+    });
+    const productAdmission = await commitContextAction({
+      action: fiscalActionA,
+      actionId: "product.admitItem",
+      fixture: product,
+      inputs: [
+        { id: "externalIdentifier", value: text("sku:FISCAL-ITEM") },
+        { id: "lifecycleState", value: text("active") },
+        { id: "packQuantity", value: quantity("1", "each") },
+      ],
+      label: "product",
+      resourceId: "product.item.fiscal",
+    });
+    const commercialCommitment = await commitContextAction({
+      action: fiscalActionA,
+      actionId: "commercial.createCommitment",
+      fixture: commercial,
+      inputs: [
+        {
+          id: "commitmentReference",
+          value: text("commitment.fiscal.order-1"),
+        },
+        { id: "quantity", value: quantity("3", "each") },
+        { id: "revision", value: integer("1") },
+        { id: "terms", value: text("net-30") },
+        { id: "unitPrice", value: decimal("19.9") },
+      ],
+      label: "commercial-commitment",
+      resourceId: "commercial.order-line.fiscal",
+    });
+    const commercialOperationId = commercialCommitment.operationId;
+    observe(
+      "issuerRecipientProductAndCommercialContextUseActions",
+      issuerPlug.receipt.actionId === "party.admitIdentity" &&
+        issuerProtheus.receipt.actionId === "party.admitIdentity" &&
+        recipient.receipt.actionId === "party.admitIdentity" &&
+        productAdmission.receipt.actionId === "product.admitItem" &&
+        commercialCommitment.receipt.actionId ===
+          "commercial.createCommitment",
+    );
+    await prepareIntent({
+      commercialOperationId,
+      documentEntityId: "fiscal.document.a",
+      entityId: "fiscal.intent.plug",
+      fiscal,
+      issuerRegistration: "12345678000190",
+      world: worldA,
+    });
+    await prepareIntent({
+      commercialOperationId,
+      documentEntityId: "fiscal.document.protheus",
+      entityId: "fiscal.intent.protheus",
+      fiscal,
+      issuerRegistration: "22345678000190",
+      world: worldA,
+    });
+
     const taxValidation = await taxEffect({
       action: fiscalActionA,
+      commercialOperationId,
       entityId: "fiscal.tax.validation",
       fiscal,
+      intentEntityId: "fiscal.intent.plug",
+      issuerRegistration: "12345678000190",
       label: "validation",
       world: worldA,
     });
@@ -267,8 +373,11 @@ async function main(): Promise<void> {
 
     const taxError = await taxEffect({
       action: fiscalActionA,
+      commercialOperationId,
       entityId: "fiscal.tax.error",
       fiscal,
+      intentEntityId: "fiscal.intent.plug",
+      issuerRegistration: "12345678000190",
       label: "error",
       world: worldA,
     });
@@ -283,8 +392,11 @@ async function main(): Promise<void> {
 
     const taxOutage = await taxEffect({
       action: fiscalActionA,
+      commercialOperationId,
       entityId: "fiscal.tax.outage",
       fiscal,
+      intentEntityId: "fiscal.intent.plug",
+      issuerRegistration: "12345678000190",
       label: "outage",
       world: worldA,
     });
@@ -317,10 +429,22 @@ async function main(): Promise<void> {
 
     const taxSuccess = await taxEffect({
       action: fiscalActionA,
+      commercialOperationId,
       entityId: "fiscal.tax.success",
       fiscal,
+      intentEntityId: "fiscal.intent.plug",
+      issuerRegistration: "12345678000190",
       label: "success",
       world: worldA,
+    });
+    await recordFiscalEvidence(worldA, fiscal, {
+      at: validAt,
+      claimId: "claim.fiscal.tax.success.later-issuer",
+      entityId: "fiscal.tax.success",
+      relationId: "fiscal.taxIssuerRegistration",
+      sourceId: "source.fiscal.later-rival",
+      tenantId: tenantA,
+      value: text("00000000000000"),
     });
     await setFiscalProxyMode("systax_success");
     await dispatchOnce();
@@ -331,55 +455,113 @@ async function main(): Promise<void> {
     );
     const taxAttempt = taxSuccessSnapshot.attempts.at(-1);
     assert.ok(taxAttempt);
-    await recordRelations(worldA, fiscal, "fiscal.tax.success", [
-      ["fiscal.determinationProviderReference", text("tax-determination-provider")],
-      [
-        "fiscal.determinationProviderOperationReference",
-        text(taxAttempt.providerOperationId),
-      ],
-      ["fiscal.determinationRuleVersion", text("contract-v1")],
-      [
-        "fiscal.determinationResponseDigest",
-        text(taxAttempt.responseDigest),
-      ],
-      ["fiscal.federalTaxAmount", decimal("1.1")],
-      ["fiscal.stateTaxAmount", decimal("2.2")],
-      ["fiscal.municipalTaxAmount", decimal("0")],
+    const [
+      federalTax,
+      intentTaxTotal,
+      municipalTax,
+      providerOperation,
+      responseDigest,
+      ruleVersion,
+      stateTax,
+      taxTotal,
+    ] = await Promise.all([
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.tax.success",
+        fixture: fiscal,
+        relationId: "fiscal.federalTaxAmount",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.intent.plug",
+        fixture: fiscal,
+        relationId: "fiscal.intentDeterminedTaxTotal",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.tax.success",
+        fixture: fiscal,
+        relationId: "fiscal.municipalTaxAmount",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.tax.success",
+        fixture: fiscal,
+        relationId: "fiscal.determinationProviderOperationReference",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.tax.success",
+        fixture: fiscal,
+        relationId: "fiscal.determinationResponseDigest",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.tax.success",
+        fixture: fiscal,
+        relationId: "fiscal.determinationRuleVersion",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.tax.success",
+        fixture: fiscal,
+        relationId: "fiscal.stateTaxAmount",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        computationId: "fiscal.determinedTotalTaxAmount",
+        entityId: "fiscal.tax.success",
+        fixture: fiscal,
+        tenantId: tenantA,
+      }),
     ]);
-    const taxTotal = await fiscalQuery({
-      client: worldA,
-      computationId: "fiscal.determinedTotalTaxAmount",
-      entityId: "fiscal.tax.success",
-      fixture: fiscal,
-      tenantId: tenantA,
-    });
+    const taxMetrics = await fiscalProxyMetrics();
+    const taxProxyOperation = taxMetrics.operations.find(
+      (operation) => operation.idempotencyKey === taxSuccess.idempotencyKey,
+    );
     observe(
       "systaxProductionAdapterMapsProviderNeutralTaxContextAndEvidence",
-      textValues(
-        await fiscalQuery({
-          client: worldA,
-          entityId: "fiscal.tax.success",
-          fixture: fiscal,
-          relationId: "fiscal.determinationProviderOperationReference",
-          tenantId: tenantA,
-        }),
-      ).includes(taxAttempt.providerOperationId) &&
-        decimalValues(taxTotal).includes("3.3"),
+      textValues(providerOperation).includes(taxAttempt.providerOperationId) &&
+        textValues(ruleVersion).includes("contract-v1") &&
+        textValues(responseDigest).includes(taxAttempt.responseDigest) &&
+        decimalValues(federalTax).includes("1.1") &&
+        decimalValues(stateTax).includes("2.2") &&
+        decimalValues(municipalTax).includes("0") &&
+        decimalValues(taxTotal).includes("3.3") &&
+        decimalValues(intentTaxTotal).includes("3.3") &&
+        taxProxyOperation?.issuerRegistration === "12345678000190",
     );
 
-    connector = await switchConnector(
-      connector,
-      "plugnotas",
-      connectorCredentials,
-      processes,
+    const protheusTax = await taxEffect({
+      action: fiscalActionA,
+      commercialOperationId,
+      entityId: "fiscal.tax.protheus",
+      fiscal,
+      intentEntityId: "fiscal.intent.protheus",
+      issuerRegistration: "22345678000190",
+      label: "protheus",
+      world: worldA,
+    });
+    await setFiscalProxyMode("systax_success");
+    await dispatchOnce();
+    await waitForState(
+      effectA,
+      protheusTax.effectRequestId,
+      EffectKnowledgeState.CONFIRMED,
     );
 
     const credentialEffect = await submitEffect({
       action: fiscalActionA,
-      entityId: "fiscal.intent.credential",
+      entityId: "fiscal.intent.plug",
       fiscal,
       label: "credential",
-      world: worldA,
     });
     inject("credential-or-certificate-failure");
     await setFiscalProxyMode("credential_failure");
@@ -392,10 +574,9 @@ async function main(): Promise<void> {
 
     const schemaEffect = await submitEffect({
       action: fiscalActionA,
-      entityId: "fiscal.intent.schema",
+      entityId: "fiscal.intent.plug",
       fiscal,
       label: "schema",
-      world: worldA,
     });
     inject("provider-response-schema-drift");
     await setFiscalProxyMode("schema_drift");
@@ -412,10 +593,9 @@ async function main(): Promise<void> {
 
     const http200Effect = await submitEffect({
       action: fiscalActionA,
-      entityId: "fiscal.intent.http200",
+      entityId: "fiscal.intent.plug",
       fiscal,
       label: "http200",
-      world: worldA,
     });
     inject("http-200-with-pending-status");
     await setFiscalProxyMode("plug_http_200_pending");
@@ -432,10 +612,9 @@ async function main(): Promise<void> {
 
     const timeoutEffect = await submitEffect({
       action: fiscalActionA,
-      entityId: "fiscal.intent.timeout",
+      entityId: "fiscal.intent.plug",
       fiscal,
       label: "timeout",
-      world: worldA,
     });
     inject("timeout-after-possible-remote-receipt");
     await setFiscalProxyMode("timeout_after_receipt");
@@ -485,43 +664,82 @@ async function main(): Promise<void> {
       duplicateCounts.evidence === 1 && duplicateCounts.reconciliations === 1,
     );
 
+    const [
+      accessKey,
+      artifactDigest,
+      authorityProtocol,
+      authorityStatus,
+      documentProviderOperation,
+      remoteRevision,
+    ] = await Promise.all([
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.document.a",
+        fixture: fiscal,
+        relationId: "fiscal.authorityAccessKey",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.document.a",
+        fixture: fiscal,
+        relationId: "fiscal.authorizationEvidenceDigest",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.document.a",
+        fixture: fiscal,
+        relationId: "fiscal.authorityProtocol",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.document.a",
+        fixture: fiscal,
+        relationId: "fiscal.authorityStatus",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.document.a",
+        fixture: fiscal,
+        relationId: "fiscal.documentProviderOperationReference",
+        tenantId: tenantA,
+      }),
+      fiscalQuery({
+        client: worldA,
+        entityId: "fiscal.document.a",
+        fixture: fiscal,
+        relationId: "fiscal.remoteDocumentRevision",
+        tenantId: tenantA,
+      }),
+    ]);
+    const plugRawId = authorizedStatus.providerOperationId.slice(
+      "plugnotas.".length,
+    );
+    const expectedArtifactDigest = sha256(
+      `<fiscalDocument operation="${plugRawId}" status="authorized"/>`,
+    );
+    observe(
+      "authorizationEvidencePersistsProviderIdentityAndArtifactDigest",
+      /^plugnotas\.[a-f0-9]{24}$/u.test(
+        authorizedStatus.providerOperationId,
+      ) &&
+        textValues(documentProviderOperation).includes(
+          authorizedStatus.providerOperationId,
+        ) &&
+        textValues(authorityProtocol).includes(`protocol.${plugRawId}`) &&
+        textValues(accessKey).includes(`key.${plugRawId}`) &&
+        textValues(authorityStatus).includes("authorized") &&
+        textValues(artifactDigest).includes(expectedArtifactDigest) &&
+        integerValues(remoteRevision).includes("1") &&
+        expectedArtifactDigest !== authorizedStatus.evidenceDigest,
+    );
     await recordRelations(worldA, fiscal, "fiscal.document.a", [
-      ["fiscal.fiscalIntentReference", text("fiscal.intent.timeout")],
-      ["fiscal.documentProviderReference", text("fiscal-document-provider")],
-      [
-        "fiscal.documentProviderOperationReference",
-        text(authorizedStatus.providerOperationId),
-      ],
-      ["fiscal.remoteSubmissionStatus", text("submitted")],
-      ["fiscal.authorityStatus", text("authorized")],
-      [
-        "fiscal.authorityProtocol",
-        text(`protocol.${authorizedStatus.providerOperationId}`),
-      ],
-      [
-        "fiscal.authorityAccessKey",
-        text(`key.${authorizedStatus.providerOperationId}`),
-      ],
-      [
-        "fiscal.authorizationEvidenceDigest",
-        text(authorizedStatus.evidenceDigest),
-      ],
-      ["fiscal.authorizedArtifactReference", text("fiscal.artifact.a")],
-      ["fiscal.remoteDocumentRevision", integer("1")],
       ["fiscal.cancellationReason", text("duplicate issuance")],
       ["fiscal.correctionText", text("correct the product description")],
     ]);
-    await recordRelations(worldA, fiscal, "fiscal.artifact.a", [
-      ["fiscal.artifactDocumentReference", text("fiscal.document.a")],
-      ["fiscal.artifactDigest", text(authorizedStatus.evidenceDigest)],
-      ["fiscal.artifactMediaType", text("application/xml")],
-      ["fiscal.artifactSourceReference", text(authorizedStatus.sourceRef)],
-    ]);
-    observe(
-      "authorizationEvidencePersistsProviderIdentityAndArtifactDigest",
-      /^[a-f0-9]{64}$/u.test(authorizedStatus.evidenceDigest) &&
-        authorizedStatus.sourceRef.includes(":artifact-sha256:"),
-    );
 
     inject("remote-manual-change-conflict");
     await setFiscalProxyMode("plug_rejected");
@@ -540,10 +758,9 @@ async function main(): Promise<void> {
 
     const pendingEffect = await submitEffect({
       action: fiscalActionA,
-      entityId: "fiscal.intent.pending",
+      entityId: "fiscal.intent.plug",
       fiscal,
       label: "pending",
-      world: worldA,
     });
     inject("remote-202-style-acceptance");
     await setFiscalProxyMode("plug_accepted_pending");
@@ -556,10 +773,9 @@ async function main(): Promise<void> {
 
     const rejectedEffect = await submitEffect({
       action: fiscalActionA,
-      entityId: "fiscal.intent.rejected",
+      entityId: "fiscal.intent.plug",
       fiscal,
       label: "rejected",
-      world: worldA,
     });
     await setFiscalProxyMode("plug_accepted_pending");
     await dispatchOnce();
@@ -583,6 +799,48 @@ async function main(): Promise<void> {
         EffectKnowledgeState.CONFIRMED_NO_EFFECT,
     );
 
+    const emptyCancellation = await fiscalActionA.propose(
+      proposalRequest({
+        actionId: "fiscal.cancelDocument",
+        fixture: fiscal,
+        inputs: [
+          {
+            id: "requestReference",
+            value: text("cancellation-request-empty"),
+          },
+        ],
+        resourceId: "fiscal.document.empty",
+        suffix: "cancel-empty",
+        validAt,
+      }),
+    );
+    const emptyCorrection = await fiscalActionA.propose(
+      proposalRequest({
+        actionId: "fiscal.correctDocument",
+        fixture: fiscal,
+        inputs: [
+          {
+            id: "requestReference",
+            value: text("correction-request-empty"),
+          },
+        ],
+        resourceId: "fiscal.document.empty",
+        suffix: "correct-empty",
+        validAt,
+      }),
+    );
+    observe(
+      "cancelAndCorrectRequireStoredRemoteRevision",
+      emptyCancellation.decision === PolicyDecision.DENY &&
+        emptyCancellation.proposal === undefined &&
+        emptyCancellation.evaluationError === "" &&
+        emptyCancellation.stateBasis?.dependencies.length === 0 &&
+        emptyCorrection.decision === PolicyDecision.DENY &&
+        emptyCorrection.proposal === undefined &&
+        emptyCorrection.evaluationError === "" &&
+        emptyCorrection.stateBasis?.dependencies.length === 0,
+    );
+
     const cancellation = await documentEventEffect({
       action: fiscalActionA,
       actionId: "fiscal.cancelDocument",
@@ -598,6 +856,14 @@ async function main(): Promise<void> {
       effectA,
       cancellation.effectRequestId,
       EffectKnowledgeState.UNKNOWN,
+    );
+    await setFiscalProxyMode("plug_authorized");
+    const stillAuthorizedCancellation = await requireConnectorStatus(
+      cancellation.idempotencyKey,
+    );
+    observe(
+      "authorizedDocumentDoesNotConfirmCancellation",
+      stillAuthorizedCancellation.outcome === "pending",
     );
 
     const correction = await documentEventEffect({
@@ -628,18 +894,11 @@ async function main(): Promise<void> {
       textValues(authorityAfterFailedEvents).includes("authorized"),
     );
 
-    connector = await switchConnector(
-      connector,
-      "protheus",
-      connectorCredentials,
-      processes,
-    );
     const protheusEffect = await submitEffect({
       action: fiscalActionA,
       entityId: "fiscal.intent.protheus",
       fiscal,
       label: "protheus",
-      world: worldA,
     });
     await setFiscalProxyMode("protheus_pending");
     await dispatchOnce();
@@ -658,7 +917,7 @@ async function main(): Promise<void> {
     );
     const plugOrigin = await fiscalQuery({
       client: worldA,
-      entityId: "fiscal.intent.pending",
+      entityId: "fiscal.intent.plug",
       fixture: fiscal,
       relationId: "fiscal.intentCommercialOperationReference",
       tenantId: tenantA,
@@ -674,8 +933,8 @@ async function main(): Promise<void> {
       "providerSwitchPreservesCommercialAndFiscalActionIdentity",
       actionId(plugExplanation) === "fiscal.submitDocument" &&
         actionId(protheusExplanation) === "fiscal.submitDocument" &&
-        textValues(plugOrigin).includes("commercial.createCommitment") &&
-        textValues(protheusOrigin).includes("commercial.createCommitment"),
+        textValues(plugOrigin).includes(commercialOperationId) &&
+        textValues(protheusOrigin).includes(commercialOperationId),
     );
 
     await setFiscalProxyMode("protheus_authorized");
@@ -686,10 +945,33 @@ async function main(): Promise<void> {
       effectRequestId: protheusEffect.effectRequestId,
       evidence: evidenceInput(protheusStatus, "fiscal.protheus.authorized"),
     });
+    const [protheusArtifactDigest, protheusDocumentOperation] =
+      await Promise.all([
+        fiscalQuery({
+          client: worldA,
+          entityId: "fiscal.document.protheus",
+          fixture: fiscal,
+          relationId: "fiscal.authorizationEvidenceDigest",
+          tenantId: tenantA,
+        }),
+        fiscalQuery({
+          client: worldA,
+          entityId: "fiscal.document.protheus",
+          fixture: fiscal,
+          relationId: "fiscal.documentProviderOperationReference",
+          tenantId: tenantA,
+        }),
+      ]);
     observe(
       "protheusContractAdapterQueriesAuthorityStatusBeforeConfirmation",
       protheusConfirmed.snapshot?.request?.state ===
-        EffectKnowledgeState.CONFIRMED,
+        EffectKnowledgeState.CONFIRMED &&
+        textValues(protheusDocumentOperation).includes(
+          protheusStatus.providerOperationId,
+        ) &&
+        textValues(protheusArtifactDigest).some((digest) =>
+          /^[a-f0-9]{64}$/u.test(digest),
+        ),
     );
 
     const crossTenantCode = await expectConnectCode(
@@ -714,20 +996,33 @@ async function main(): Promise<void> {
         crossTenantStatus.status === 403,
     );
 
-    const secretMutant = await fiscalActionA.propose(
-      proposalRequest({
-        actionId: "fiscal.submitDocument",
-        fixture: fiscal,
-        inputs: [{ id: "requestReference", value: text(providerCredential) }],
-        resourceId: "fiscal.intent.protheus",
-        suffix: "secret-mutant",
-        validAt,
-      }),
+    const secretMutants = await Promise.all(
+      [providerCredential, `document-request-${providerCredential}`].map(
+        (requestReference, index) =>
+          fiscalActionA.propose(
+            proposalRequest({
+              actionId: "fiscal.submitDocument",
+              fixture: fiscal,
+              inputs: [
+                {
+                  id: "requestReference",
+                  value: text(requestReference),
+                },
+              ],
+              resourceId: "fiscal.intent.protheus",
+              suffix: `secret-mutant-${index}`,
+              validAt,
+            }),
+          ),
+      ),
     );
     observe(
       "apiSecretActionMutantIsDeniedBeforeHistoryWrite",
-      secretMutant.decision === PolicyDecision.DENY &&
-        secretMutant.proposal === undefined,
+      secretMutants.every(
+        (mutant) =>
+          mutant.decision === PolicyDecision.DENY &&
+          mutant.proposal === undefined,
+      ),
     );
 
     const crossBoundaryMutants = [
@@ -766,18 +1061,19 @@ async function main(): Promise<void> {
 
     const secretScan = await admin.query<{ leaked: boolean }>(
       `SELECT EXISTS (
-         SELECT 1 FROM action_proposal_inputs WHERE value_text = ANY($1::TEXT[])
+         SELECT 1 FROM action_proposal_inputs
+           WHERE value_text LIKE ANY($1::TEXT[])
          UNION ALL
-         SELECT 1 FROM semantic_claims WHERE value_text = ANY($1::TEXT[])
+         SELECT 1 FROM semantic_claims
+           WHERE value_text LIKE ANY($1::TEXT[])
          UNION ALL
          SELECT 1 FROM effect_requests
-           WHERE convert_from(payload, 'UTF8') LIKE ANY($2::TEXT[])
+           WHERE convert_from(payload, 'UTF8') LIKE ANY($1::TEXT[])
          UNION ALL
          SELECT 1 FROM projection_outbox
-           WHERE payload::text LIKE ANY($2::TEXT[])
+           WHERE payload::text LIKE ANY($1::TEXT[])
        ) AS leaked`,
       [
-        [providerCredential, adapterASecret, adapterBSecret],
         [
           `%${providerCredential}%`,
           `%${adapterASecret}%`,
@@ -795,14 +1091,13 @@ async function main(): Promise<void> {
 
     const preSendEffect = await submitEffect({
       action: fiscalActionA,
-      entityId: "fiscal.intent.presend",
+      entityId: "fiscal.intent.protheus",
       fiscal,
       label: "presend",
-      world: worldA,
     });
     inject("timeout-before-known-send");
-    assert.ok(protheusAdapter);
-    await stopProcess(protheusAdapter);
+    assert.ok(fiscalAdapter);
+    await stopProcess(fiscalAdapter);
     await dispatchOnce();
     await waitForState(
       effectA,
@@ -853,25 +1148,29 @@ async function main(): Promise<void> {
 
 async function taxEffect(input: {
   readonly action: ActionClient;
+  readonly commercialOperationId: string;
   readonly entityId: string;
   readonly fiscal: FiscalFixture;
+  readonly intentEntityId: string;
+  readonly issuerRegistration: string;
   readonly label: string;
   readonly world: WorldClient;
 }): Promise<CommittedFiscalEffect> {
   await recordRelations(input.world, input.fiscal, input.entityId, [
     [
       "fiscal.originatingCommercialOperationReference",
-      text("commercial.createCommitment"),
+      text(input.commercialOperationId),
     ],
-    ["fiscal.taxIssuerRegistration", text("12345678000190")],
+    ["fiscal.taxIntentReference", text(input.intentEntityId)],
+    ["fiscal.taxIssuerRegistration", text(input.issuerRegistration)],
     ["fiscal.taxRecipientRegistration", text("98765432000110")],
     ["fiscal.taxProductReference", text("product.item.fiscal")],
     ["fiscal.operationCode", text("5102")],
     ["fiscal.productClassificationCode", text("84713012")],
     ["fiscal.destinationRegion", text("SP")],
     ["fiscal.taxEffectiveAt", text(validAt.toISOString())],
-    ["fiscal.taxQuantity", quantity("2", "each")],
-    ["fiscal.taxUnitPrice", decimal("50")],
+    ["fiscal.taxQuantity", quantity("3", "each")],
+    ["fiscal.taxUnitPrice", decimal("19.9")],
   ]);
   return commitFiscalAction({
     action: input.action,
@@ -890,17 +1189,39 @@ async function submitEffect(input: {
   readonly entityId: string;
   readonly fiscal: FiscalFixture;
   readonly label: string;
-  readonly world: WorldClient;
 }): Promise<CommittedFiscalEffect> {
+  return commitFiscalAction({
+    action: input.action,
+    actionId: "fiscal.submitDocument",
+    entityId: input.entityId,
+    fiscal: input.fiscal,
+    inputs: [
+      {
+        id: "requestReference",
+        value: text(`document-request-fault-${input.label}`),
+      },
+    ],
+    label: `document-${input.label}`,
+  });
+}
+
+async function prepareIntent(input: {
+  readonly commercialOperationId: string;
+  readonly documentEntityId: string;
+  readonly entityId: string;
+  readonly fiscal: FiscalFixture;
+  readonly issuerRegistration: string;
+  readonly world: WorldClient;
+}): Promise<void> {
   const content = {
-    issuer: { taxRegistration: "12345678000190" },
+    issuer: { taxRegistration: input.issuerRegistration },
     lines: [
       {
         classificationCode: "84713012",
         description: "Fiscal contract item",
         operationCode: "5102",
         productReference: "product.item.fiscal",
-        quantity: "2",
+        quantity: "3",
         tax: {
           cofinsAmount: "0.00",
           cofinsRate: "0",
@@ -910,7 +1231,7 @@ async function submitEffect(input: {
           pisRate: "0",
         },
         unit: "UN",
-        unitPrice: "50.00",
+        unitPrice: "19.90",
       },
     ],
     nature: "sale of goods",
@@ -932,38 +1253,25 @@ async function submitEffect(input: {
       name: "Contract Recipient",
       taxRegistration: "98765432000110",
     },
-    totals: { amount: "100.00" },
+    totals: { amount: "59.70" },
   };
   await recordRelations(input.world, input.fiscal, input.entityId, [
     [
       "fiscal.intentCommercialOperationReference",
-      text("commercial.createCommitment"),
+      text(input.commercialOperationId),
     ],
     ["fiscal.accountingClaimReference", text("accounting.claim.receivable")],
-    [
-      "fiscal.taxDeterminationReference",
-      text("fiscal.tax.success"),
-    ],
+    ["fiscal.intentDocumentReference", text(input.documentEntityId)],
     ["fiscal.documentModel", text("nfe")],
     ["fiscal.authorityEnvironment", text("homologation")],
     ["fiscal.documentContent", text(JSON.stringify(content))],
-    ["fiscal.intentIssuerRegistration", text("12345678000190")],
-    ["fiscal.intentRecipientRegistration", text("98765432000110")],
-    ["fiscal.documentTotalAmount", decimal("100")],
-  ]);
-  return commitFiscalAction({
-    action: input.action,
-    actionId: "fiscal.submitDocument",
-    entityId: input.entityId,
-    fiscal: input.fiscal,
-    inputs: [
-      {
-        id: "requestReference",
-        value: text(`document-request-${input.label}`),
-      },
+    [
+      "fiscal.intentIssuerRegistration",
+      text(input.issuerRegistration),
     ],
-    label: `document-${input.label}`,
-  });
+    ["fiscal.intentRecipientRegistration", text("98765432000110")],
+    ["fiscal.documentTotalAmount", decimal("59.7")],
+  ]);
 }
 
 function documentEventEffect(input: {
@@ -979,12 +1287,49 @@ function documentEventEffect(input: {
     actionId: input.actionId,
     entityId: input.entityId,
     fiscal: input.fiscal,
-    inputs: [
-      { id: "requestReference", value: text(input.requestReference) },
-      { id: "revision", value: integer("1") },
-    ],
+    inputs: [{ id: "requestReference", value: text(input.requestReference) }],
     label: input.label,
   });
+}
+
+async function commitContextAction(input: {
+  readonly action: ActionClient;
+  readonly actionId:
+    | "commercial.createCommitment"
+    | "party.admitIdentity"
+    | "product.admitItem";
+  readonly fixture: DomainFixture;
+  readonly inputs: readonly {
+    readonly id: string;
+    readonly value: SemanticValue;
+  }[];
+  readonly label: string;
+  readonly resourceId: string;
+}): Promise<{
+  readonly operationId: string;
+  readonly receipt: CommitReceipt;
+}> {
+  const request = proposalRequest({
+    actionId: input.actionId,
+    fixture: input.fixture,
+    inputs: input.inputs,
+    resourceId: input.resourceId,
+    suffix: input.label,
+    validAt,
+  });
+  const proposed = await input.action.propose(request);
+  assert.equal(proposed.decision, PolicyDecision.PERMIT);
+  assert.equal(proposed.proposal?.status, ProposalStatus.READY);
+  const committed = await input.action.commit({
+    operationId: request.operationId,
+    proposalId: request.proposalId,
+  });
+  assert.equal(committed.status, CommitStatus.COMMITTED);
+  assert.ok(committed.receipt);
+  return {
+    operationId: request.operationId,
+    receipt: committed.receipt,
+  };
 }
 
 async function commitFiscalAction(input: {
@@ -1196,32 +1541,20 @@ function decimalValues(result: SemanticQueryResponse): string[] {
   );
 }
 
+function integerValues(result: SemanticQueryResponse): string[] {
+  return result.values.flatMap((entry) =>
+    entry.value?.value.case === "integerValue"
+      ? [entry.value.value.value]
+      : [],
+  );
+}
+
 async function requireConnectorStatus(idempotencyKey: string) {
   const status = await connectorStatus(idempotencyKey, tenantA);
   if (status === undefined) {
     throw new Error(`missing provider status for ${idempotencyKey}`);
   }
   return status;
-}
-
-async function switchConnector(
-  current: ManagedProcess | undefined,
-  provider: "plugnotas" | "protheus" | "systax",
-  credentials: Readonly<
-    Record<string, { readonly secret: string; readonly tenantId: string }>
-  >,
-  processes: ManagedProcess[],
-): Promise<ManagedProcess> {
-  if (current !== undefined) {
-    await stopProcess(current);
-  }
-  const next = await startConnector({
-    credentials,
-    providerUrl: adapterProviderUrl(provider),
-    timeoutMs: connectorAdapterTimeoutMs,
-  });
-  processes.push(next);
-  return next;
 }
 
 function actionId(
@@ -1246,6 +1579,10 @@ function integer(value: string): SemanticValue {
 
 function quantity(amount: string, unit: string): SemanticValue {
   return { amount, kind: "quantity", unit };
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function required(value: string | undefined, name: string): string {

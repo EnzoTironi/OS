@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   connectorDispatchSchema,
   type FiscalProvider,
+  type NeutralFiscalOperation,
   fiscalProviderSchema,
   type VendorAdapter,
 } from "./contracts.js";
@@ -21,16 +22,27 @@ const callerBindingsSchema = z.record(
   z.string().min(16),
   z.string().min(1),
 );
+const providerRouteSchema = z.object({
+  baseUrl: z.string().url(),
+  credential: z.string().min(1),
+  provider: fiscalProviderSchema,
+  timeoutMs: z.number().int().positive(),
+});
+const providerRoutesSchema = z.object({
+  documents: z
+    .record(z.string().min(1), providerRouteSchema)
+    .default({}),
+  tax: providerRouteSchema.optional(),
+});
+
+type ProviderRoute = z.infer<typeof providerRouteSchema>;
 
 export type FiscalAdapterConfig = {
   readonly callerBindings: unknown;
   readonly listenAddress: string;
   readonly oidcClients: unknown;
   readonly oidcTokenUrl: URL;
-  readonly provider: FiscalProvider;
-  readonly providerBaseUrl: URL;
-  readonly providerCredential: string;
-  readonly providerTimeoutMs: number;
+  readonly providerRoutes: unknown;
   readonly zoenUrl: URL;
 };
 
@@ -43,14 +55,7 @@ export async function startFiscalAdapter(
     tokenUrl: config.oidcTokenUrl,
     zoenUrl: config.zoenUrl,
   });
-  const vendor = vendorAdapter(
-    config.provider,
-    new VendorHttpClient({
-      baseUrl: config.providerBaseUrl,
-      credential: config.providerCredential,
-      timeoutMs: config.providerTimeoutMs,
-    }),
-  );
+  const vendor = routedVendorAdapter(config.providerRoutes);
   const server = createServer(async (request, response) => {
     try {
       await handleRequest({
@@ -84,7 +89,7 @@ export async function startFiscalAdapter(
   process.stdout.write(
     `${JSON.stringify({
       event: "fiscal_adapter_listening",
-      provider: config.provider,
+      providers: vendor.providers,
     })}\n`,
   );
   await new Promise<void>((resolve) => {
@@ -99,7 +104,7 @@ async function handleRequest(input: {
   readonly reader: FiscalContextReader;
   readonly request: IncomingMessage;
   readonly response: ServerResponse;
-  readonly vendor: VendorAdapter;
+  readonly vendor: RoutedVendorAdapter;
 }): Promise<void> {
   const url = new URL(input.request.url ?? "/", "http://fiscal-adapter.invalid");
   if (input.request.method === "GET" && url.pathname === "/health") {
@@ -124,11 +129,14 @@ async function handleRequest(input: {
       });
       return;
     }
-    const operation = await input.reader.read(body);
+    const context = await input.reader.read(body);
     const result = await input.vendor.dispatch({
       idempotencyKey: body.idempotencyKey,
-      operation,
+      operation: context.operation,
     });
+    if (result.writeback !== undefined) {
+      await input.reader.commitProviderWriteback(context, result.writeback);
+    }
     writeJson(input.response, result.status, result.body);
     return;
   }
@@ -140,16 +148,19 @@ async function handleRequest(input: {
     const idempotencyKey = decodeURIComponent(
       url.pathname.slice(statusPrefix.length),
     );
-    const operation = await input.reader.readStatus({
+    const context = await input.reader.readStatus({
       idempotencyKey,
       tenantId,
     });
     const result = await input.vendor.status({
       idempotencyKey,
-      operation,
+      operation: context.operation,
     });
     switch (result.kind) {
       case "found":
+        if (result.writeback !== undefined) {
+          await input.reader.commitProviderWriteback(context, result.writeback);
+        }
         writeJson(input.response, 200, result.status);
         return;
       case "not_found":
@@ -167,11 +178,99 @@ async function handleRequest(input: {
   writeJson(input.response, 404, { error: "route not found" });
 }
 
+class RoutedVendorAdapter implements VendorAdapter {
+  readonly #documents: ReadonlyMap<string, VendorAdapter>;
+  readonly #tax: VendorAdapter | undefined;
+  readonly providers: readonly FiscalProvider[];
+
+  constructor(input: {
+    readonly documents: ReadonlyMap<string, VendorAdapter>;
+    readonly providers: readonly FiscalProvider[];
+    readonly tax: VendorAdapter | undefined;
+  }) {
+    this.#documents = input.documents;
+    this.#tax = input.tax;
+    this.providers = input.providers;
+  }
+
+  dispatch(input: {
+    readonly idempotencyKey: string;
+    readonly operation: NeutralFiscalOperation;
+  }) {
+    return this.#vendor(input.operation).dispatch(input);
+  }
+
+  status(input: {
+    readonly idempotencyKey: string;
+    readonly operation: NeutralFiscalOperation;
+  }) {
+    return this.#vendor(input.operation).status(input);
+  }
+
+  #vendor(operation: NeutralFiscalOperation): VendorAdapter {
+    switch (operation.kind) {
+      case "tax_determination": {
+        if (this.#tax === undefined) {
+          throw new Error("no tax determination provider is configured");
+        }
+        return this.#tax;
+      }
+      case "cancel_document":
+      case "correct_document":
+      case "submit_document": {
+        const vendor =
+          this.#documents.get(operation.issuerRegistration) ??
+          this.#documents.get("*");
+        if (vendor === undefined) {
+          throw new Error(
+            `no fiscal document provider is configured for issuer ${operation.issuerRegistration}`,
+          );
+        }
+        return vendor;
+      }
+      default: {
+        const exhaustive: never = operation;
+        throw new Error(`unsupported fiscal operation: ${String(exhaustive)}`);
+      }
+    }
+  }
+}
+
+function routedVendorAdapter(routes: unknown): RoutedVendorAdapter {
+  const parsed = providerRoutesSchema.parse(routes);
+  if (parsed.tax?.provider !== undefined && parsed.tax.provider !== "systax") {
+    throw new Error("the tax determination route must use Systax");
+  }
+  const documents = new Map<string, VendorAdapter>();
+  const providers = new Set<FiscalProvider>();
+  for (const [issuerRegistration, route] of Object.entries(parsed.documents)) {
+    if (route.provider === "systax") {
+      throw new Error("a fiscal document route cannot use Systax");
+    }
+    documents.set(issuerRegistration, vendorAdapter(route));
+    providers.add(route.provider);
+  }
+  const tax =
+    parsed.tax === undefined ? undefined : vendorAdapter(parsed.tax);
+  if (parsed.tax !== undefined) {
+    providers.add(parsed.tax.provider);
+  }
+  return new RoutedVendorAdapter({
+    documents,
+    providers: [...providers].sort(),
+    tax,
+  });
+}
+
 function vendorAdapter(
-  provider: FiscalProvider,
-  http: VendorHttpClient,
+  route: ProviderRoute,
 ): VendorAdapter {
-  switch (provider) {
+  const http = new VendorHttpClient({
+    baseUrl: new URL(route.baseUrl),
+    credential: route.credential,
+    timeoutMs: route.timeoutMs,
+  });
+  switch (route.provider) {
     case "plugnotas":
       return new PlugNotasAdapter(http);
     case "protheus":
@@ -179,7 +278,7 @@ function vendorAdapter(
     case "systax":
       return new SystaxAdapter(http);
     default: {
-      const exhaustive: never = provider;
+      const exhaustive: never = route.provider;
       throw new Error(`unsupported fiscal provider: ${String(exhaustive)}`);
     }
   }
@@ -253,6 +352,10 @@ function splitListenAddress(value: string): [string, string] {
 export function configFromEnvironment(
   environment: NodeJS.ProcessEnv,
 ): FiscalAdapterConfig {
+  const providerTimeoutMs = positiveIntegerEnvironment(
+    environment.ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS ?? "5000",
+    "ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS",
+  );
   return {
     callerBindings: parseJsonEnvironment(
       environment.ZOEN_FISCAL_ADAPTER_CALLER_BINDINGS,
@@ -272,23 +375,13 @@ export function configFromEnvironment(
         "ZOEN_FISCAL_ADAPTER_OIDC_TOKEN_URL",
       ),
     ),
-    provider: fiscalProviderSchema.parse(
-      environment.ZOEN_FISCAL_ADAPTER_PROVIDER,
-    ),
-    providerBaseUrl: new URL(
-      requiredEnvironment(
-        environment.ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL,
-        "ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL",
-      ),
-    ),
-    providerCredential: requiredEnvironment(
-      environment.ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL,
-      "ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL",
-    ),
-    providerTimeoutMs: positiveIntegerEnvironment(
-      environment.ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS ?? "5000",
-      "ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS",
-    ),
+    providerRoutes:
+      environment.ZOEN_FISCAL_ADAPTER_ROUTES === undefined
+        ? legacyProviderRoutes(environment, providerTimeoutMs)
+        : parseJsonEnvironment(
+            environment.ZOEN_FISCAL_ADAPTER_ROUTES,
+            "ZOEN_FISCAL_ADAPTER_ROUTES",
+          ),
     zoenUrl: new URL(
       requiredEnvironment(
         environment.ZOEN_FISCAL_ADAPTER_ZOEN_URL,
@@ -296,6 +389,30 @@ export function configFromEnvironment(
       ),
     ),
   };
+}
+
+function legacyProviderRoutes(
+  environment: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): unknown {
+  const provider = fiscalProviderSchema.parse(
+    environment.ZOEN_FISCAL_ADAPTER_PROVIDER,
+  );
+  const route = {
+    baseUrl: requiredEnvironment(
+      environment.ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL,
+      "ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL",
+    ),
+    credential: requiredEnvironment(
+      environment.ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL,
+      "ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL",
+    ),
+    provider,
+    timeoutMs,
+  };
+  return provider === "systax"
+    ? { documents: {}, tax: route }
+    : { documents: { "*": route } };
 }
 
 function requiredEnvironment(

@@ -5,16 +5,32 @@ const outputDirectory =
   process.env.ZOEN_E2E_GENERATED_DIR ??
   path.join("e2e", "fiscal-fault-matrix", ".generated");
 const farFuture = 4_102_444_800;
-const definitionIds = ["commercial.sales", "fiscal.brazil"];
+const definitionIds = [
+  "commercial.sales",
+  "fiscal.brazil",
+  "party.core",
+  "product.catalog",
+];
 const fiscalActions = [
+  "commercial.createCommitment",
   "fiscal.cancelDocument",
   "fiscal.correctDocument",
   "fiscal.requestTaxDetermination",
   "fiscal.submitDocument",
+  "party.admitIdentity",
+  "product.admitItem",
+];
+const fiscalAdapterActions = [
+  "fiscal.admitDocumentAuthorization",
+  "fiscal.admitIntentTaxDetermination",
+  "fiscal.admitTaxDetermination",
 ];
 const resources = [
+  "commercial.order-line.fiscal",
   "fiscal.document.a",
   "fiscal.document.b",
+  "fiscal.document.empty",
+  "fiscal.document.protheus",
   "fiscal.intent.credential",
   "fiscal.intent.http200",
   "fiscal.intent.live",
@@ -24,11 +40,17 @@ const resources = [
   "fiscal.intent.rejected",
   "fiscal.intent.schema",
   "fiscal.intent.timeout",
+  "fiscal.intent.plug",
   "fiscal.tax.error",
   "fiscal.tax.live",
   "fiscal.tax.outage",
   "fiscal.tax.success",
+  "fiscal.tax.protheus",
   "fiscal.tax.validation",
+  "party.issuer.plug",
+  "party.issuer.protheus",
+  "party.recipient.fiscal",
+  "product.item.fiscal",
 ];
 
 function claim(name, value) {
@@ -133,6 +155,7 @@ function tenantClients(suffix) {
     }),
     client({
       actionIds: [
+        ...fiscalAdapterActions,
         "zoen.effect.read",
         "zoen.history.explain",
         "zoen.world.query",

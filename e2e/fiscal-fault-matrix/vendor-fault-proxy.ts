@@ -31,11 +31,22 @@ const plugDocumentSchema = z
   .array(
     z.object({
       idIntegracao: z.string().min(1),
-      itens: z.array(z.unknown()).min(1),
+      itens: z
+        .array(
+          z
+            .object({
+              valor: z.literal(59.7),
+            })
+            .passthrough(),
+        )
+        .min(1),
     }),
   )
   .min(1);
 const systaxRequestSchema = z.object({
+  emitente: z.object({
+    cpfCnpj: z.string().min(11),
+  }),
   idTransacao: z.string().min(1),
   itens: z.array(z.unknown()).min(1),
 });
@@ -46,6 +57,8 @@ const protheusRequestSchema = z.object({
 
 type Operation = {
   readonly idempotencyKey: string;
+  readonly issuerRegistration?: string;
+  readonly kind: "cancel" | "correct" | "submit" | "tax";
   readonly provider: "plugnotas" | "protheus" | "systax";
   readonly providerOperationId: string;
 };
@@ -182,6 +195,14 @@ async function route(
     protheusStatus(url, response);
     return;
   }
+  if (
+    request.method === "GET" &&
+    /^\/artifacts\/[a-f0-9]{24}\.xml$/u.test(url.pathname)
+  ) {
+    const rawId = url.pathname.slice("/artifacts/".length, -".xml".length);
+    writeBytes(response, 200, "application/xml", authorizedXml(rawId));
+    return;
+  }
   writeJson(response, 404, { error: "route not found" });
 }
 
@@ -190,7 +211,9 @@ async function systaxDispatch(
   response: ServerResponse,
 ): Promise<void> {
   const body = systaxRequestSchema.parse(await jsonBody(request));
-  const operation = remember("systax", body.idTransacao);
+  const operation = remember("systax", body.idTransacao, "tax", {
+    issuerRegistration: body.emitente.cpfCnpj,
+  });
   if (mode === "systax_outage") {
     writeJson(response, 503, { error: "tax engine unavailable" });
     return;
@@ -228,6 +251,12 @@ function systaxStatus(url: URL, response: ServerResponse): void {
   writeJson(response, 200, {
     idCalculo: operation.providerOperationId,
     situacao: mode === "systax_validation" ? "INVALIDO" : "CONCLUIDO",
+    tributos: {
+      estadual: "2.20",
+      federal: "1.10",
+      municipal: "0.00",
+    },
+    versaoRegra: "contract-v1",
   });
 }
 
@@ -240,7 +269,11 @@ async function plugDispatch(
   if (document === undefined) {
     throw new Error("PlugNotas request has no document");
   }
-  const operation = remember("plugnotas", document.idIntegracao);
+  const operation = remember(
+    "plugnotas",
+    document.idIntegracao,
+    "submit",
+  );
   if (mode === "schema_drift") {
     writeJson(response, 200, { changed: true });
     return;
@@ -287,7 +320,7 @@ async function plugEvent(
   if (typeof key !== "string" || key === "" || value === "") {
     throw new Error("fiscal event has no idempotency key");
   }
-  const operation = remember("plugnotas", key);
+  const operation = remember("plugnotas", key, event);
   if (event === "cancel" && mode === "cancellation_failure") {
     writeJson(response, 503, { error: "cancellation unavailable" });
     return;
@@ -325,8 +358,9 @@ function plugStatus(url: URL, response: ServerResponse): void {
       chave: `key.${operation.providerOperationId}`,
       id: operation.providerOperationId,
       protocolo: `protocol.${operation.providerOperationId}`,
+      revisao: 1,
       status,
-      xml: `https://artifact.invalid/${operation.providerOperationId}.xml`,
+      xml: `http://127.0.0.1:${port}/artifacts/${operation.providerOperationId}.xml`,
     },
   ]);
 }
@@ -340,7 +374,13 @@ async function protheusDispatch(
   if (key === undefined) {
     throw new Error("Protheus request has no external identity");
   }
-  const operation = remember("protheus", key);
+  const operation = remember(
+    "protheus",
+    key,
+    body.cExternalEventId === undefined
+      ? "submit"
+      : urlOperation(request.url ?? ""),
+  );
   if (mode === "schema_drift") {
     writeJson(response, 200, { changed: true });
     return;
@@ -356,6 +396,8 @@ async function protheusDispatch(
     cAuthorityProtocol: `protocol.${operation.providerOperationId}`,
     cOperationId: operation.providerOperationId,
     cStatus: status,
+    cXml: authorizedXml(operation.providerOperationId),
+    nRevision: 1,
   });
 }
 
@@ -378,12 +420,16 @@ function protheusStatus(url: URL, response: ServerResponse): void {
     cAuthorityProtocol: `protocol.${operation.providerOperationId}`,
     cOperationId: operation.providerOperationId,
     cStatus: status,
+    cXml: authorizedXml(operation.providerOperationId),
+    nRevision: 1,
   });
 }
 
 function remember(
   provider: Operation["provider"],
   idempotencyKey: string,
+  kind: Operation["kind"],
+  details: Pick<Operation, "issuerRegistration"> = {},
 ): Operation {
   increment(dispatchCounts, idempotencyKey);
   const existing = operations.get(idempotencyKey);
@@ -392,11 +438,24 @@ function remember(
   }
   const operation = {
     idempotencyKey,
+    ...details,
+    kind,
     provider,
-    providerOperationId: `${provider}.${sha256(idempotencyKey).slice(0, 20)}`,
+    providerOperationId:
+      provider === "plugnotas"
+        ? sha256(idempotencyKey).slice(0, 24)
+        : `${provider}.${sha256(idempotencyKey).slice(0, 20)}`,
   } satisfies Operation;
   operations.set(idempotencyKey, operation);
   return operation;
+}
+
+function urlOperation(pathname: string): "cancel" | "correct" {
+  return pathname.endsWith("/cancel") ? "cancel" : "correct";
+}
+
+function authorizedXml(providerOperationId: string): string {
+  return `<fiscalDocument operation="${providerOperationId}" status="authorized"/>`;
 }
 
 function findPlugKey(providerOperationId: string): string | undefined {
@@ -413,7 +472,9 @@ function findPlugKey(providerOperationId: string): string | undefined {
 
 function authenticated(request: IncomingMessage, pathname: string): boolean {
   const provided =
-    pathname.startsWith("/nfe") || pathname.startsWith("/nf")
+    pathname.startsWith("/nfe") ||
+    pathname.startsWith("/nf") ||
+    pathname.startsWith("/artifacts/")
       ? request.headers["x-api-key"]
       : request.headers.authorization?.replace(/^Bearer /u, "");
   if (typeof provided !== "string") {
@@ -452,6 +513,22 @@ function writeJson(
     "content-type": "application/json",
   });
   response.end(encoded);
+}
+
+function writeBytes(
+  response: ServerResponse,
+  status: number,
+  contentType: string,
+  body: string,
+): void {
+  if (response.headersSent || response.destroyed) {
+    return;
+  }
+  response.writeHead(status, {
+    "content-length": Buffer.byteLength(body),
+    "content-type": contentType,
+  });
+  response.end(body);
 }
 
 function requiredEnvironment(

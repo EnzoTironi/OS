@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DefinitionReference } from "../../../sdk/src/gen/zoen/world/v1/world_pb.js";
 
 export const fiscalProviderSchema = z.enum([
   "plugnotas",
@@ -13,7 +14,6 @@ export const fiscalActionSchema = z.enum([
   "fiscal.requestTaxDetermination",
   "fiscal.submitDocument",
 ]);
-export type FiscalAction = z.infer<typeof fiscalActionSchema>;
 
 const identifierSchema = z.string().min(1).max(256);
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -91,6 +91,7 @@ export type TaxDeterminationOperation = {
   readonly commercialOperationReference: string;
   readonly destinationRegion: string;
   readonly effectiveAt: string;
+  readonly intentReference: string;
   readonly issuerRegistration: string;
   readonly kind: "tax_determination";
   readonly operationCode: string;
@@ -110,6 +111,7 @@ export type SubmitDocumentOperation = {
   readonly authorityEnvironment: string;
   readonly commercialOperationReference: string;
   readonly content: FiscalDocumentContent;
+  readonly documentReference: string;
   readonly documentModel: string;
   readonly issuerRegistration: string;
   readonly kind: "submit_document";
@@ -121,6 +123,7 @@ export type SubmitDocumentOperation = {
 
 export type CancelDocumentOperation = {
   readonly authorityProtocol: string;
+  readonly issuerRegistration: string;
   readonly kind: "cancel_document";
   readonly providerOperationReference: string;
   readonly reason: string;
@@ -131,6 +134,7 @@ export type CancelDocumentOperation = {
 export type CorrectDocumentOperation = {
   readonly authorityProtocol: string;
   readonly correction: string;
+  readonly issuerRegistration: string;
   readonly kind: "correct_document";
   readonly providerOperationReference: string;
   readonly remoteRevision: string;
@@ -142,6 +146,41 @@ export type NeutralFiscalOperation =
   | CorrectDocumentOperation
   | SubmitDocumentOperation
   | TaxDeterminationOperation;
+
+export type FiscalOperationContext = {
+  readonly definition: DefinitionReference;
+  readonly entityId: string;
+  readonly operation: NeutralFiscalOperation;
+  readonly operationId: string;
+  readonly tenantId: string;
+  readonly validAt: Date;
+};
+
+export type TaxDeterminationWriteback = {
+  readonly federalTaxAmount: string;
+  readonly kind: "tax_determination";
+  readonly municipalTaxAmount: string;
+  readonly provider: "systax";
+  readonly providerOperationId: string;
+  readonly responseDigest: string;
+  readonly ruleVersion: string;
+  readonly stateTaxAmount: string;
+};
+
+export type DocumentAuthorizationWriteback = {
+  readonly accessKey: string;
+  readonly artifactDigest: string;
+  readonly authorityStatus: "authorized";
+  readonly kind: "document_authorization";
+  readonly provider: "plugnotas" | "protheus";
+  readonly providerOperationId: string;
+  readonly protocol: string;
+  readonly remoteRevision: string;
+};
+
+export type ProviderWriteback =
+  | DocumentAuthorizationWriteback
+  | TaxDeterminationWriteback;
 
 export type ProviderDispatchResult =
   | {
@@ -159,6 +198,7 @@ export type ProviderDispatchResult =
       };
       readonly kind: "confirmed";
       readonly status: 200;
+      readonly writeback?: ProviderWriteback;
     }
   | {
       readonly body: {
@@ -192,6 +232,7 @@ export type ProviderStatusResult =
         readonly providerOperationId: string;
         readonly sourceRef: string;
       };
+      readonly writeback?: ProviderWriteback;
     }
   | { readonly kind: "not_found" }
   | {
