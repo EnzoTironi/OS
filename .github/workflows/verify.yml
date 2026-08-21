@@ -124,6 +124,12 @@ jobs:
           name: e2e-binaries
       - run: chmod +x target/debug/zoend target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection target/failpoints/debug/zoend
       - run: ./e2e/run.sh run ${{ matrix.scenario }}
+      - if: always() && (matrix.scenario == 'shared-tenancy' || startsWith(matrix.scenario, 'deploy-'))
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: warn
+          name: e2e-evidence-${{ matrix.scenario }}
+          path: artifacts/${{ matrix.scenario }}/
 
   required:
     if: always()

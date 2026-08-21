@@ -101,7 +101,7 @@ nodes:
         listenAddress: "127.0.0.1"
 EOF
 
-kind create cluster --name "${cluster_name}" --config "${kind_config}" --wait 180s
+zoen_create_kind_cluster "${cluster_name}" "${kind_config}"
 docker save "${third_party_images[@]}" |
   docker exec --privileged --interactive "${control_plane_node}" \
     ctr --namespace=k8s.io images import \
@@ -173,7 +173,7 @@ definition_independent_workloads=(
   "deployment/zoend"
 )
 for workload in "${definition_independent_workloads[@]}"; do
-  kubectl rollout status "${workload}" --timeout=5m
+  kubectl rollout status "${workload}" --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
 done
 test "$(kubectl get deployment zoend --output jsonpath='{.status.readyReplicas}')" -ge 2
 export ZOEN_SHARED_ARTIFACTS_METADATA="${artifact_metadata}"

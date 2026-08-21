@@ -211,7 +211,7 @@ nodes:
         listenAddress: "127.0.0.1"
 EOF
 
-kind create cluster --name "${cluster_name}" --config "${kind_config}" --wait 180s
+zoen_create_kind_cluster "${cluster_name}" "${kind_config}"
 docker save "${third_party_images[@]}" |
   docker exec --privileged --interactive "${control_plane_node}" \
     ctr --namespace=k8s.io images import \
@@ -258,7 +258,9 @@ for workload in \
   deployment/keycloak \
   deployment/minio \
   deployment/otel-collector; do
-  kubectl --namespace "${durable_namespace}" rollout status "${workload}" --timeout=5m
+  kubectl --namespace "${durable_namespace}" rollout status \
+    "${workload}" \
+    --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
 done
 
 render_application() {
@@ -299,7 +301,9 @@ application_workloads=(
 wait_for_application() {
   local namespace="$1"
   for workload in "${application_workloads[@]}"; do
-    kubectl --namespace "${namespace}" rollout status "${workload}" --timeout=5m
+    kubectl --namespace "${namespace}" rollout status \
+      "${workload}" \
+      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
   done
   test "$(
     kubectl --namespace "${namespace}" get deployment zoend \
@@ -334,7 +338,7 @@ kubectl --namespace "${application_namespace}" rollout restart \
 wait_for_application "${application_namespace}"
 kubectl --namespace "${application_namespace}" rollout status \
   deployment/harness-tenant-a \
-  --timeout=5m
+  --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
 node dist/e2e/deployment-portability.js verify "${initial_state}"
 printf '%s\t%s\t%s\n' \
   stateless-restart \
@@ -510,7 +514,7 @@ install_application "${restored_namespace}"
 wait_for_application "${restored_namespace}"
 kubectl --namespace "${restored_namespace}" rollout status \
   deployment/harness-tenant-a \
-  --timeout=5m
+  --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
 export ZOEN_DEPLOYMENT_NAMESPACE="${restored_namespace}"
 node dist/e2e/deployment-portability.js verify "${initial_state}"
 printf '%s\t%s\t%s\n' \

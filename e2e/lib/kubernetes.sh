@@ -5,6 +5,7 @@ ZOEN_KUBECTL_VERSION="v1.36.4"
 ZOEN_HELM_VERSION="v4.2.4"
 ZOEN_COSIGN_VERSION="v3.1.3"
 ZOEN_SYFT_VERSION="v1.51.0"
+ZOEN_KUBERNETES_ROLLOUT_TIMEOUT="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT:-10m}"
 
 zoen_require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -124,6 +125,23 @@ zoen_install_cluster_tools() {
   zoen_install_helm "${generated_directory}" "${tools_directory}"
   zoen_install_cosign "${generated_directory}" "${tools_directory}"
   zoen_install_syft "${generated_directory}" "${tools_directory}"
+}
+
+zoen_create_kind_cluster() {
+  local cluster_name="$1"
+  local config="$2"
+  local attempt
+  for attempt in 1 2; do
+    if kind create cluster --name "${cluster_name}" --config "${config}" --wait 180s; then
+      return
+    fi
+    kind delete cluster --name "${cluster_name}" >/dev/null 2>&1 || true
+    if [[ "${attempt}" -eq 1 ]]; then
+      printf 'kind cluster creation failed; retrying once\n' >&2
+      sleep 5
+    fi
+  done
+  return 1
 }
 
 zoen_create_runtime_secret() {
