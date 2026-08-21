@@ -11,6 +11,7 @@ scenario_table=(
   "agent-capabilities-live:agent-capabilities-live:"
   "company-brain-live:company-brain-live:"
   "definition-publication::"
+  "domain-commercial:domain-commercial:"
   "domain-quality:domain-quality:"
   "durable-commit:governed-action:failpoints"
   "effects:governed-action:"

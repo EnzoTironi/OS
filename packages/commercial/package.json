@@ -1,0 +1,13 @@
+{
+  "name": "@zoen/commercial",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zoen/party": "1.0.0",
+    "@zoen/product": "1.0.0"
+  },
+  "exports": {
+    ".": "./src/commercial.zoen.ts"
+  }
+}
