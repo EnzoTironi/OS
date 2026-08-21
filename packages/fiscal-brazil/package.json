@@ -1,0 +1,10 @@
+{
+  "name": "@zoen/fiscal-brazil",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/fiscal-brazil.zoen.ts",
+    "./adapter": "./src/adapter/server.ts"
+  }
+}
