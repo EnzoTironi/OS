@@ -1269,13 +1269,19 @@ async function main(): Promise<void> {
       operationId: tenantBSettlementRequest.operationId,
       proposalId: tenantBSettlementRequest.proposalId,
     });
-    const [tenantABook, tenantBBook, tenantBRemaining] = await Promise.all([
+    const [
+      tenantABook,
+      tenantBBook,
+      tenantBRemaining,
+      tenantAStarts,
+      tenantBStarts,
+    ] = await Promise.all([
       relationQuery(
         worldA,
         accounting,
         bookId,
         "accounting.bookCode",
-        changedAt,
+        lifecycleAt,
         tenantA,
       ),
       relationQuery(
@@ -1283,7 +1289,7 @@ async function main(): Promise<void> {
         accounting,
         bookId,
         "accounting.bookCode",
-        changedAt,
+        lifecycleAt,
         tenantB,
       ),
       computationQuery(
@@ -1291,6 +1297,22 @@ async function main(): Promise<void> {
         accounting,
         claimId,
         "accounting.remainingClaim",
+        changedAt,
+        tenantB,
+      ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.startOccurrenceReference",
+        changedAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldB,
+        manufacturing,
+        workId,
+        "manufacturing.startOccurrenceReference",
         changedAt,
         tenantB,
       ),
@@ -1311,6 +1333,15 @@ async function main(): Promise<void> {
       "sameBookIdRetainsTenantScopedMeaning",
       sameStrings(textValues(tenantABook), ["PRIMARY"]) &&
         sameStrings(textValues(tenantBBook), ["SECONDARY"]),
+    );
+    observe(
+      "sameProductionIdRetainsTenantScopedOccurrences",
+      sameStrings(textValues(tenantAStarts), [
+        "manufacturing.start.accepted",
+      ]) &&
+        sameStrings(textValues(tenantBStarts), [
+          "manufacturing.start.tenant-b",
+        ]),
     );
     observe(
       "crossTenantClaimQueryIsDenied",
