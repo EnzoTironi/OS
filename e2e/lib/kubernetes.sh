@@ -96,9 +96,10 @@ zoen_install_syft() {
   local archive="${generated_directory}/syft.tar.gz"
   local checksums="${generated_directory}/syft_checksums.txt"
   local release="syft_${ZOEN_SYFT_VERSION#v}_linux_amd64.tar.gz"
+  local checksum_release="syft_${ZOEN_SYFT_VERSION#v}_checksums.txt"
   local url="https://github.com/anchore/syft/releases/download/${ZOEN_SYFT_VERSION}"
   zoen_download_file "${url}/${release}" "${archive}"
-  zoen_download_file "${url}/checksums.txt" "${checksums}"
+  zoen_download_file "${url}/${checksum_release}" "${checksums}"
   local digest
   digest="$(awk -v release="${release}" '$2 == release {print $1}' "${checksums}")"
   test -n "${digest}"
