@@ -70,6 +70,14 @@ export async function startFiscalAdapter(
         `${JSON.stringify({
           errorType: error instanceof Error ? error.name : "UnknownError",
           event: "fiscal_adapter_request_failed",
+          issues:
+            error instanceof z.ZodError
+              ? error.issues.map((issue) => ({
+                  code: issue.code,
+                  message: issue.message,
+                  path: issue.path,
+                }))
+              : undefined,
           method: request.method,
           path: request.url,
         })}\n`,
