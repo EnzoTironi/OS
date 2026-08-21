@@ -69,6 +69,7 @@ export {
   startServer,
   startWorker,
   stopProcess,
+  stopServer,
   tenantA,
   tenantB,
   valueShapes,

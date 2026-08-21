@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   createClient,
   type Interceptor,
@@ -384,7 +385,7 @@ class SemanticReader {
     if (value?.case !== "quantityValue") {
       throw new Error("semantic value is not quantityValue");
     }
-    return { amount: value.amount, unit: value.unit };
+    return { amount: value.value.amount, unit: value.value.unit };
   }
 
   async text(relationId: string): Promise<string> {
@@ -428,7 +429,7 @@ class SemanticReader {
         },
       }),
       tenantId: this.#tenantId,
-      validAt: this.#validAt,
+      validAt: timestampFromDate(this.#validAt),
     });
     return response.values;
   }

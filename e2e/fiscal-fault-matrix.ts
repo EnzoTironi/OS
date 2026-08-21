@@ -293,8 +293,8 @@ async function main(): Promise<void> {
       "taxValidationErrorAndOutageDoNotCorruptLocalActionCommit",
       textValues(outageRequest).includes("tax-request-outage") &&
         outageExplanation.subject.case === "action" &&
-        outageExplanation.subject.value.commit?.receipt?.status ===
-          CommitStatus.COMMITTED,
+        outageExplanation.subject.value.commit?.receipt?.operationId ===
+          taxOutage.operationId,
     );
 
     const taxSuccess = await taxEffect({
