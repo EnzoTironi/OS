@@ -402,10 +402,14 @@ async function main(): Promise<void> {
 
     await waitFor(async () => {
       const rows = await observer.query<{ tenant_id: string }>(
-        "SELECT tenant_id FROM effect_dispatches WHERE effect_request_id = $1 ORDER BY tenant_id",
+        "SELECT DISTINCT tenant_id FROM effect_dispatches WHERE effect_request_id = $1 ORDER BY tenant_id",
         [requiredEffectId(collisionA)],
       );
-      return rows.rows.length === 2 ? true : undefined;
+      return rows.rows.length === 2 &&
+        rows.rows[0]?.tenant_id === tenantA &&
+        rows.rows[1]?.tenant_id === tenantB
+        ? true
+        : undefined;
     }, "tenant-scoped Restate effect dispatches");
     recordAttack(
       "colliding-effect-identities",
