@@ -31,60 +31,62 @@ const FiscalArtifact = defineType({
   id: "fiscal.FiscalArtifact",
 });
 
-function textRelation(
-  id: string,
-  sourceType: string,
-  cardinality: "many" | "one" = "one",
-) {
-  return defineRelation({
-    cardinality,
-    id,
-    sourceType,
-    target: { kind: "value", valueType: { kind: "text" } },
-  });
-}
+const originatingCommercialOperationReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.originatingCommercialOperationReference",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
 
-function decimalRelation(id: string, sourceType: string) {
-  return defineRelation({
-    cardinality: "one",
-    id,
-    sourceType,
-    target: { kind: "value", valueType: { kind: "decimal" } },
-  });
-}
+const taxIssuerRegistration = defineRelation({
+  cardinality: "one",
+  id: "fiscal.taxIssuerRegistration",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
 
-const originatingCommercialOperationReference = textRelation(
-  "fiscal.originatingCommercialOperationReference",
-  "fiscal.TaxDetermination",
-);
-const taxIssuerRegistration = textRelation(
-  "fiscal.taxIssuerRegistration",
-  "fiscal.TaxDetermination",
-);
-const taxRecipientRegistration = textRelation(
-  "fiscal.taxRecipientRegistration",
-  "fiscal.TaxDetermination",
-);
-const taxProductReference = textRelation(
-  "fiscal.taxProductReference",
-  "fiscal.TaxDetermination",
-);
-const operationCode = textRelation(
-  "fiscal.operationCode",
-  "fiscal.TaxDetermination",
-);
-const productClassificationCode = textRelation(
-  "fiscal.productClassificationCode",
-  "fiscal.TaxDetermination",
-);
-const destinationRegion = textRelation(
-  "fiscal.destinationRegion",
-  "fiscal.TaxDetermination",
-);
-const taxEffectiveAt = textRelation(
-  "fiscal.taxEffectiveAt",
-  "fiscal.TaxDetermination",
-);
+const taxRecipientRegistration = defineRelation({
+  cardinality: "one",
+  id: "fiscal.taxRecipientRegistration",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const taxProductReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.taxProductReference",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const operationCode = defineRelation({
+  cardinality: "one",
+  id: "fiscal.operationCode",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const productClassificationCode = defineRelation({
+  cardinality: "one",
+  id: "fiscal.productClassificationCode",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const destinationRegion = defineRelation({
+  cardinality: "one",
+  id: "fiscal.destinationRegion",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const taxEffectiveAt = defineRelation({
+  cardinality: "one",
+  id: "fiscal.taxEffectiveAt",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
 const taxQuantity = defineRelation({
   cardinality: "one",
   id: "fiscal.taxQuantity",
@@ -94,202 +96,307 @@ const taxQuantity = defineRelation({
     valueType: { kind: "quantity", unit: "each" },
   },
 });
-const taxUnitPrice = decimalRelation(
-  "fiscal.taxUnitPrice",
-  "fiscal.TaxDetermination",
-);
-const taxDeterminationRequestReference = textRelation(
-  "fiscal.taxDeterminationRequestReference",
-  "fiscal.TaxDetermination",
-  "many",
-);
-const determinationProviderReference = textRelation(
-  "fiscal.determinationProviderReference",
-  "fiscal.TaxDetermination",
-  "many",
-);
-const determinationProviderOperationReference = textRelation(
-  "fiscal.determinationProviderOperationReference",
-  "fiscal.TaxDetermination",
-  "many",
-);
-const determinationRuleVersion = textRelation(
-  "fiscal.determinationRuleVersion",
-  "fiscal.TaxDetermination",
-  "many",
-);
-const determinationResponseDigest = textRelation(
-  "fiscal.determinationResponseDigest",
-  "fiscal.TaxDetermination",
-  "many",
-);
-const federalTaxAmount = decimalRelation(
-  "fiscal.federalTaxAmount",
-  "fiscal.TaxDetermination",
-);
-const stateTaxAmount = decimalRelation(
-  "fiscal.stateTaxAmount",
-  "fiscal.TaxDetermination",
-);
-const municipalTaxAmount = decimalRelation(
-  "fiscal.municipalTaxAmount",
-  "fiscal.TaxDetermination",
-);
 
-const intentCommercialOperationReference = textRelation(
-  "fiscal.intentCommercialOperationReference",
-  "fiscal.FiscalIntent",
-);
-const accountingClaimReference = textRelation(
-  "fiscal.accountingClaimReference",
-  "fiscal.FiscalIntent",
-);
-const taxDeterminationReference = textRelation(
-  "fiscal.taxDeterminationReference",
-  "fiscal.FiscalIntent",
-);
-const documentModel = textRelation(
-  "fiscal.documentModel",
-  "fiscal.FiscalIntent",
-);
-const authorityEnvironment = textRelation(
-  "fiscal.authorityEnvironment",
-  "fiscal.FiscalIntent",
-);
-const documentContent = textRelation(
-  "fiscal.documentContent",
-  "fiscal.FiscalIntent",
-);
-const intentIssuerRegistration = textRelation(
-  "fiscal.intentIssuerRegistration",
-  "fiscal.FiscalIntent",
-);
-const intentRecipientRegistration = textRelation(
-  "fiscal.intentRecipientRegistration",
-  "fiscal.FiscalIntent",
-);
-const documentTotalAmount = decimalRelation(
-  "fiscal.documentTotalAmount",
-  "fiscal.FiscalIntent",
-);
-const documentSubmissionRequestReference = textRelation(
-  "fiscal.documentSubmissionRequestReference",
-  "fiscal.FiscalIntent",
-  "many",
-);
+const taxUnitPrice = defineRelation({
+  cardinality: "one",
+  id: "fiscal.taxUnitPrice",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "decimal" } },
+});
 
-const fiscalIntentReference = textRelation(
-  "fiscal.fiscalIntentReference",
-  "fiscal.FiscalDocument",
-);
-const documentProviderReference = textRelation(
-  "fiscal.documentProviderReference",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const documentProviderOperationReference = textRelation(
-  "fiscal.documentProviderOperationReference",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const remoteSubmissionStatus = textRelation(
-  "fiscal.remoteSubmissionStatus",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const authorityStatus = textRelation(
-  "fiscal.authorityStatus",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const authorityProtocol = textRelation(
-  "fiscal.authorityProtocol",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const authorityAccessKey = textRelation(
-  "fiscal.authorityAccessKey",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const authorizationEvidenceDigest = textRelation(
-  "fiscal.authorizationEvidenceDigest",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const authorizedArtifactReference = textRelation(
-  "fiscal.authorizedArtifactReference",
-  "fiscal.FiscalDocument",
-  "many",
-);
+const taxDeterminationRequestReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.taxDeterminationRequestReference",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const determinationProviderReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.determinationProviderReference",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const determinationProviderOperationReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.determinationProviderOperationReference",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const determinationRuleVersion = defineRelation({
+  cardinality: "many",
+  id: "fiscal.determinationRuleVersion",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const determinationResponseDigest = defineRelation({
+  cardinality: "many",
+  id: "fiscal.determinationResponseDigest",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const federalTaxAmount = defineRelation({
+  cardinality: "one",
+  id: "fiscal.federalTaxAmount",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "decimal" } },
+});
+
+const stateTaxAmount = defineRelation({
+  cardinality: "one",
+  id: "fiscal.stateTaxAmount",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "decimal" } },
+});
+
+const municipalTaxAmount = defineRelation({
+  cardinality: "one",
+  id: "fiscal.municipalTaxAmount",
+  sourceType: "fiscal.TaxDetermination",
+  target: { kind: "value", valueType: { kind: "decimal" } },
+});
+
+const intentCommercialOperationReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.intentCommercialOperationReference",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const accountingClaimReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.accountingClaimReference",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const taxDeterminationReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.taxDeterminationReference",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const documentModel = defineRelation({
+  cardinality: "one",
+  id: "fiscal.documentModel",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const authorityEnvironment = defineRelation({
+  cardinality: "one",
+  id: "fiscal.authorityEnvironment",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const documentContent = defineRelation({
+  cardinality: "one",
+  id: "fiscal.documentContent",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const intentIssuerRegistration = defineRelation({
+  cardinality: "one",
+  id: "fiscal.intentIssuerRegistration",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const intentRecipientRegistration = defineRelation({
+  cardinality: "one",
+  id: "fiscal.intentRecipientRegistration",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const documentTotalAmount = defineRelation({
+  cardinality: "one",
+  id: "fiscal.documentTotalAmount",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "decimal" } },
+});
+
+const documentSubmissionRequestReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.documentSubmissionRequestReference",
+  sourceType: "fiscal.FiscalIntent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const fiscalIntentReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.fiscalIntentReference",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const documentProviderReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.documentProviderReference",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const documentProviderOperationReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.documentProviderOperationReference",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const remoteSubmissionStatus = defineRelation({
+  cardinality: "many",
+  id: "fiscal.remoteSubmissionStatus",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const authorityStatus = defineRelation({
+  cardinality: "many",
+  id: "fiscal.authorityStatus",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const authorityProtocol = defineRelation({
+  cardinality: "many",
+  id: "fiscal.authorityProtocol",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const authorityAccessKey = defineRelation({
+  cardinality: "many",
+  id: "fiscal.authorityAccessKey",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const authorizationEvidenceDigest = defineRelation({
+  cardinality: "many",
+  id: "fiscal.authorizationEvidenceDigest",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const authorizedArtifactReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.authorizedArtifactReference",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
 const remoteDocumentRevision = defineRelation({
   cardinality: "one",
   id: "fiscal.remoteDocumentRevision",
   sourceType: "fiscal.FiscalDocument",
   target: { kind: "value", valueType: { kind: "integer" } },
 });
-const cancellationReason = textRelation(
-  "fiscal.cancellationReason",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const correctionText = textRelation(
-  "fiscal.correctionText",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const cancellationRequestReference = textRelation(
-  "fiscal.cancellationRequestReference",
-  "fiscal.FiscalDocument",
-  "many",
-);
-const correctionRequestReference = textRelation(
-  "fiscal.correctionRequestReference",
-  "fiscal.FiscalDocument",
-  "many",
-);
 
-const eventDocumentReference = textRelation(
-  "fiscal.eventDocumentReference",
-  "fiscal.FiscalEvent",
-);
-const eventKind = textRelation(
-  "fiscal.eventKind",
-  "fiscal.FiscalEvent",
-);
-const eventProviderOperationReference = textRelation(
-  "fiscal.eventProviderOperationReference",
-  "fiscal.FiscalEvent",
-);
-const eventAuthorityStatus = textRelation(
-  "fiscal.eventAuthorityStatus",
-  "fiscal.FiscalEvent",
-);
-const eventAuthorityProtocol = textRelation(
-  "fiscal.eventAuthorityProtocol",
-  "fiscal.FiscalEvent",
-);
-const eventEvidenceDigest = textRelation(
-  "fiscal.eventEvidenceDigest",
-  "fiscal.FiscalEvent",
-);
+const cancellationReason = defineRelation({
+  cardinality: "many",
+  id: "fiscal.cancellationReason",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
 
-const artifactDocumentReference = textRelation(
-  "fiscal.artifactDocumentReference",
-  "fiscal.FiscalArtifact",
-);
-const artifactDigest = textRelation(
-  "fiscal.artifactDigest",
-  "fiscal.FiscalArtifact",
-);
-const artifactMediaType = textRelation(
-  "fiscal.artifactMediaType",
-  "fiscal.FiscalArtifact",
-);
-const artifactSourceReference = textRelation(
-  "fiscal.artifactSourceReference",
-  "fiscal.FiscalArtifact",
-);
+const correctionText = defineRelation({
+  cardinality: "many",
+  id: "fiscal.correctionText",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const cancellationRequestReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.cancellationRequestReference",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const correctionRequestReference = defineRelation({
+  cardinality: "many",
+  id: "fiscal.correctionRequestReference",
+  sourceType: "fiscal.FiscalDocument",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const eventDocumentReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.eventDocumentReference",
+  sourceType: "fiscal.FiscalEvent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const eventKind = defineRelation({
+  cardinality: "one",
+  id: "fiscal.eventKind",
+  sourceType: "fiscal.FiscalEvent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const eventProviderOperationReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.eventProviderOperationReference",
+  sourceType: "fiscal.FiscalEvent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const eventAuthorityStatus = defineRelation({
+  cardinality: "one",
+  id: "fiscal.eventAuthorityStatus",
+  sourceType: "fiscal.FiscalEvent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const eventAuthorityProtocol = defineRelation({
+  cardinality: "one",
+  id: "fiscal.eventAuthorityProtocol",
+  sourceType: "fiscal.FiscalEvent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const eventEvidenceDigest = defineRelation({
+  cardinality: "one",
+  id: "fiscal.eventEvidenceDigest",
+  sourceType: "fiscal.FiscalEvent",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const artifactDocumentReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.artifactDocumentReference",
+  sourceType: "fiscal.FiscalArtifact",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const artifactDigest = defineRelation({
+  cardinality: "one",
+  id: "fiscal.artifactDigest",
+  sourceType: "fiscal.FiscalArtifact",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const artifactMediaType = defineRelation({
+  cardinality: "one",
+  id: "fiscal.artifactMediaType",
+  sourceType: "fiscal.FiscalArtifact",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
+
+const artifactSourceReference = defineRelation({
+  cardinality: "one",
+  id: "fiscal.artifactSourceReference",
+  sourceType: "fiscal.FiscalArtifact",
+  target: { kind: "value", valueType: { kind: "text" } },
+});
 
 const determinedTotalTaxAmount = defineComputation({
   expression: {
