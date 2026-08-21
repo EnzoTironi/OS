@@ -1151,27 +1151,27 @@ async function restartAndRebuild(input: {
     "deployment/harness-tenant-a",
     "deployment/harness-tenant-b",
     "deployment/zoen-projection",
-    "deployment/restate",
+    "statefulset/restate",
     "deployment/web",
     "deployment/zoen-effect-worker",
     "deployment/zoen-effect-dispatcher-tenant-a",
     "deployment/zoen-effect-dispatcher-tenant-b",
   ]);
-  for (const deployment of [
-    "zoend",
-    "harness-tenant-a",
-    "harness-tenant-b",
-    "zoen-projection",
-    "restate",
-    "web",
-    "zoen-effect-worker",
-    "zoen-effect-dispatcher-tenant-a",
-    "zoen-effect-dispatcher-tenant-b",
+  for (const workload of [
+    "deployment/zoend",
+    "deployment/harness-tenant-a",
+    "deployment/harness-tenant-b",
+    "deployment/zoen-projection",
+    "statefulset/restate",
+    "deployment/web",
+    "deployment/zoen-effect-worker",
+    "deployment/zoen-effect-dispatcher-tenant-a",
+    "deployment/zoen-effect-dispatcher-tenant-b",
   ]) {
     await kubectl([
       "rollout",
       "status",
-      `deployment/${deployment}`,
+      workload,
       "--timeout=5m",
     ]);
   }

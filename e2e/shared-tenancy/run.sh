@@ -249,7 +249,7 @@ definition_independent_workloads=(
   "statefulset/postgres"
   "deployment/keycloak"
   "deployment/minio"
-  "deployment/restate"
+  "statefulset/restate"
   "deployment/web"
   "deployment/zoen-http-connector"
   "deployment/zoen-effect-worker"

@@ -35,6 +35,7 @@ minio:
 restate:
   ingressNodePort: 32082
   adminNodePort: 32092
+  storage: 5Gi
 
 harness:
   tenantA:
