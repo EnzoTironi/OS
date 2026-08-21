@@ -16,7 +16,6 @@ import {
 } from "../../../sdk/src/gen/zoen/action/v1/action_pb.js";
 import { EffectService } from "../../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
-  type CausalClaim,
   ExplanationTargetSchema,
   HistoryService,
 } from "../../../sdk/src/gen/zoen/history/v1/history_pb.js";
@@ -250,6 +249,8 @@ export class FiscalContextReader {
       proposal === undefined ||
       definition === undefined ||
       commit === undefined ||
+      commit.receipt === undefined ||
+      commit.receipt.commitSequence <= 0n ||
       commit.stateBasis?.basis === undefined ||
       proposal.validAt === undefined
     ) {
@@ -285,11 +286,15 @@ export class FiscalContextReader {
       client: clients.world,
       definition,
       entityId: proposal.resourceId,
-      snapshotCommit: commit.stateBasis.basis.observedCommitSequence,
+      snapshotCommit: commit.receipt.commitSequence,
       tenantId: identity.tenantId,
       validAt,
     });
-    const requestReference = exactCausalString(record, "textValue");
+    const requestReference = await query.textFromClaim(
+      expectedRelation,
+      pointer.claimId,
+      commit.receipt.commitSequence,
+    );
     const context = (
       operation: NeutralFiscalOperation,
     ): FiscalOperationContext => ({
@@ -521,6 +526,32 @@ class SemanticReader {
     return exactString(await this.#one(relationId), "textValue");
   }
 
+  async textFromClaim(
+    relationId: string,
+    claimId: string,
+    commitSequence: bigint,
+  ): Promise<string> {
+    const values = await this.#values(relationId);
+    const matches = values.filter((value) =>
+      value.dependencies.some(
+        (dependency) =>
+          dependency.role === LineageRole.SUPPORTING &&
+          dependency.claimId === claimId &&
+          dependency.commitSequence === commitSequence,
+      ),
+    );
+    if (matches.length !== 1) {
+      throw new Error(
+        `${relationId} must have one value supported by ${claimId} in the Action commit`,
+      );
+    }
+    const result = matches[0];
+    if (result === undefined) {
+      throw new Error(`${relationId} has no value in the Action commit`);
+    }
+    return exactString(result, "textValue");
+  }
+
   async #one(relationId: string): Promise<SemanticValueResult> {
     const values = await this.#values(relationId);
     const ranked = values
@@ -676,20 +707,6 @@ function integerInput(inputId: string, value: string) {
       value: { case: "integerValue", value },
     }),
   });
-}
-
-function exactCausalString(
-  claim: CausalClaim,
-  expected: "textValue",
-): string {
-  if (claim.payload.case !== "value") {
-    throw new Error("Action commit record is redacted");
-  }
-  const value = claim.payload.value.value;
-  if (value.case !== expected) {
-    throw new Error(`Action commit record is not ${expected}`);
-  }
-  return value.value;
 }
 
 function latestSupportingCommit(
