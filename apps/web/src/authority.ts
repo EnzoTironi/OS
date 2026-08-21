@@ -16,6 +16,7 @@ import {
   type ActionInput,
   type CommitReceipt,
   type CommitResponse,
+  type DefinitionRevision,
   type ProposeResponse,
   type ZoenBrowserClient,
   parseDefinitionMetadata,
@@ -23,12 +24,15 @@ import {
 import {
   compileDeterministicSurface,
   effectStatusView,
+  parseAdaptiveSurfaceSession,
   parseSurfaceDocument,
   queryBindingView,
   semanticQueryCacheKey,
   type ActionBinding,
   type ActionInputControl,
   type ActionOperationView,
+  type AdaptiveQueryContext,
+  type AdaptiveSurfaceSession,
   type HistoryEntryView,
   type QueryBinding,
   type QueryBindingView,
@@ -37,10 +41,37 @@ import {
 } from "@zoen/surface";
 import type { RuntimeConfig } from "./config.js";
 
-export interface LoadedAuthoritySurface {
-  readonly data: SurfaceRuntimeData;
-  readonly document: SurfaceDocument;
-}
+export type LoadedAuthoritySurface =
+  | {
+      readonly actionFreshness: ActionFreshness;
+      readonly data: SurfaceRuntimeData;
+      readonly document: SurfaceDocument;
+      readonly kind: "deterministic";
+    }
+  | {
+      readonly actionFreshness: ActionFreshness;
+      readonly data: SurfaceRuntimeData;
+      readonly document: SurfaceDocument;
+      readonly kind: "adaptive";
+      readonly sessionId: string;
+    };
+
+export type AdaptiveSurfaceLoadRequest =
+  | {
+      readonly kind: "generate";
+      readonly question: string;
+    }
+  | {
+      readonly kind: "reload";
+      readonly sessionId: string;
+    };
+
+export type ActionFreshness =
+  | { readonly kind: "deterministic" }
+  | {
+      readonly generatedQueries: readonly AdaptiveQueryContext[];
+      readonly kind: "generated";
+    };
 
 export interface ActionIdentity {
   readonly bindingId: string;
@@ -49,6 +80,9 @@ export interface ActionIdentity {
 }
 
 export class ActionUnavailableError extends Error {}
+
+const staleActionError =
+  "The generated decision is stale. Regenerate it before proposing an Action.";
 
 export async function loadAuthoritySurface(
   client: ZoenBrowserClient,
@@ -74,26 +108,7 @@ export async function loadAuthoritySurface(
     metadata,
   });
   const document = parseSurfaceDocument(compiled, metadata);
-  const discovery = await client.actions.discover({
-    definition: protocolDefinition(document),
-    resourceId: config.resourceId,
-  });
-  const actions = Object.fromEntries(
-    document.actionBindings.map((binding): [string, ActionOperationView] => {
-      const capability = discovery.actions.find(
-        (candidate) => candidate.actionId === binding.ref.actionId,
-      );
-      return [
-        binding.id,
-        capability?.decision === PolicyDecision.PERMIT
-          ? { kind: "idle" }
-          : {
-              error: "Server discovery did not return an available capability.",
-              kind: "unavailable",
-            },
-      ];
-    }),
-  );
+  const actions = await discoverActionViews(client, document);
   const queries = await refreshQueries(
     client,
     config,
@@ -102,13 +117,169 @@ export async function loadAuthoritySurface(
     revision.commitSequence.toString(),
   );
   return {
+    actionFreshness: { kind: "deterministic" },
     data: {
       actions,
       history: {},
       queries,
     },
     document,
+    kind: "deterministic",
   };
+}
+
+export async function loadAdaptiveAuthoritySurface(
+  client: ZoenBrowserClient,
+  config: RuntimeConfig,
+  queryClient: QueryClient,
+  accessToken: string,
+  request: AdaptiveSurfaceLoadRequest,
+): Promise<LoadedAuthoritySurface> {
+  const response = await fetch(adaptiveSurfaceRequestUrl(request), {
+    body:
+      request.kind === "generate"
+        ? JSON.stringify({ question: request.question })
+        : undefined,
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      ...(request.kind === "generate"
+        ? { "content-type": "application/json" }
+        : {}),
+    },
+    method: request.kind === "generate" ? "POST" : "GET",
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(body || "Adaptive Surface generation failed");
+  }
+  const raw: unknown = JSON.parse(body);
+  const active = await client.definitions.getActiveRevision({
+    definitionId: config.definitionId,
+    tenantId: client.tenantId,
+  });
+  const revision = active.definitionRevision;
+  if (revision === undefined) {
+    throw new Error(`Unknown definition ${config.definitionId}`);
+  }
+  const metadata = parseDefinitionMetadata(revision.canonicalJson);
+  const session = parseAdaptiveSurfaceSession(raw, metadata);
+  requireActiveAdaptiveSession(session, config, revision);
+  const queries = await refreshQueries(
+    client,
+    config,
+    session.document,
+    queryClient,
+    revision.commitSequence.toString(),
+  );
+  const actionFreshness = {
+    generatedQueries: session.context.queries,
+    kind: "generated",
+  } satisfies ActionFreshness;
+  const actions = generatedActionIsFresh(actionFreshness, queries)
+    ? await discoverActionViews(client, session.document)
+    : Object.fromEntries(
+        session.document.actionBindings.map(
+          (binding): [string, ActionOperationView] => [
+            binding.id,
+            {
+              error: staleActionError,
+              kind: "unavailable",
+            },
+          ],
+        ),
+      );
+  return {
+    actionFreshness,
+    data: {
+      actions,
+      history: {},
+      queries,
+    },
+    document: session.document,
+    kind: "adaptive",
+    sessionId: session.sessionId,
+  };
+}
+
+async function discoverActionViews(
+  client: ZoenBrowserClient,
+  document: SurfaceDocument,
+): Promise<Readonly<Record<string, ActionOperationView>>> {
+  const entries = await Promise.all(
+    document.actionBindings.map(
+      async (binding): Promise<[string, ActionOperationView]> => {
+        const discovery = await client.actions.discover({
+          definition: protocolDefinition(document),
+          resourceId: binding.ref.resourceId,
+        });
+        const capability = discovery.actions.find(
+          (candidate) => candidate.actionId === binding.ref.actionId,
+        );
+        return [
+          binding.id,
+          capability?.decision === PolicyDecision.PERMIT
+            ? { kind: "idle" }
+            : {
+                error:
+                  "Server discovery did not return an available capability.",
+                kind: "unavailable",
+              },
+        ];
+      },
+    ),
+  );
+  return Object.fromEntries(entries);
+}
+
+function adaptiveSurfaceRequestUrl(request: AdaptiveSurfaceLoadRequest): string {
+  switch (request.kind) {
+    case "generate":
+      return "/api/adaptive-surface";
+    case "reload":
+      return `/api/adaptive-surface?${new URLSearchParams({
+        sessionId: request.sessionId,
+      }).toString()}`;
+    default: {
+      const exhaustive: never = request;
+      return exhaustive;
+    }
+  }
+}
+
+function requireActiveAdaptiveSession(
+  session: AdaptiveSurfaceSession,
+  config: RuntimeConfig,
+  revision: DefinitionRevision,
+): void {
+  const definition = session.document.semanticContext.definition;
+  if (
+    definition.definitionId !== revision.definitionId ||
+    definition.digest !== revision.digest ||
+    definition.revision !== revision.revision.toString() ||
+    session.document.semanticContext.entityId !== config.resourceId
+  ) {
+    throw new Error("Adaptive Surface does not match the active semantic context");
+  }
+}
+
+export function generatedActionIsFresh(
+  freshness: ActionFreshness,
+  queries: Readonly<Record<string, QueryBindingView>>,
+): boolean {
+  switch (freshness.kind) {
+    case "deterministic":
+      return true;
+    case "generated":
+      return freshness.generatedQueries.every(
+        (query) =>
+          queries[query.binding.id]?.actualCommitSequence ===
+          query.actualCommitSequence,
+      );
+    default: {
+      const exhaustive: never = freshness;
+      return exhaustive;
+    }
+  }
 }
 
 export async function refreshQueries(
@@ -147,16 +318,21 @@ export async function refreshQueries(
   return Object.fromEntries(entries);
 }
 
-export async function proposeAuthorityAction(
-  client: ZoenBrowserClient,
-  config: RuntimeConfig,
-  document: SurfaceDocument,
-  identity: ActionIdentity,
-  values: Readonly<Record<string, string | boolean>>,
-): Promise<ProposeResponse> {
-  const binding = requireActionBinding(document, identity.bindingId);
-  const discovery = await client.actions.discover({
-    definition: protocolDefinition(document),
+export async function proposeAuthorityAction(input: {
+  readonly actionFreshness: ActionFreshness;
+  readonly client: ZoenBrowserClient;
+  readonly config: RuntimeConfig;
+  readonly currentQueries: Readonly<Record<string, QueryBindingView>>;
+  readonly document: SurfaceDocument;
+  readonly identity: ActionIdentity;
+  readonly values: Readonly<Record<string, string | boolean>>;
+}): Promise<ProposeResponse> {
+  if (!generatedActionIsFresh(input.actionFreshness, input.currentQueries)) {
+    throw new ActionUnavailableError(staleActionError);
+  }
+  const binding = requireActionBinding(input.document, input.identity.bindingId);
+  const discovery = await input.client.actions.discover({
+    definition: protocolDefinition(input.document),
     resourceId: binding.ref.resourceId,
   });
   const capability = discovery.actions.find(
@@ -167,17 +343,17 @@ export async function proposeAuthorityAction(
       "Server discovery no longer permits this ActionRef.",
     );
   }
-  return client.actions.propose({
+  return input.client.actions.propose({
     actionId: binding.ref.actionId,
-    definition: protocolDefinition(document),
+    definition: protocolDefinition(input.document),
     expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
-    inputs: binding.inputs.map((input) =>
-      actionInput(input, values[input.inputId]),
+    inputs: binding.inputs.map((control) =>
+      actionInput(control, input.values[control.inputId]),
     ),
-    operationId: identity.operationId,
-    proposalId: identity.proposalId,
+    operationId: input.identity.operationId,
+    proposalId: input.identity.proposalId,
     resourceId: binding.ref.resourceId,
-    validAt: timestampFromDate(new Date(config.validAt)),
+    validAt: timestampFromDate(new Date(input.config.validAt)),
   });
 }
 

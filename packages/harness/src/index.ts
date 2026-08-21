@@ -1,3 +1,4 @@
+export * from "./adaptive-surface.js";
 export * from "./context.js";
 export * from "./embeddings.js";
 export * from "./extraction.js";
@@ -6,5 +7,6 @@ export * from "./knowledge.js";
 export * from "./providers.js";
 export * from "./registry.js";
 export * from "./session.js";
+export * from "./surface-session-store.js";
 export * from "./types.js";
 export * from "./zoen.js";

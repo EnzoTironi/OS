@@ -20,6 +20,7 @@ scenario_table=(
   "governed-action:governed-action:"
   "semantic-query::"
   "wasm-code-mode:wasm-code-mode:"
+  "web-adaptive-live:web-adaptive-live:"
   "web-deterministic:web-deterministic:"
 )
 
@@ -147,7 +148,7 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
-  if [[ "$scenario" == "web-deterministic" && ! -f apps/web/.output/server/index.mjs ]]; then
+  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" ) && ! -f apps/web/.output/server/index.mjs ]]; then
     echo "missing apps/web/.output/server/index.mjs; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi

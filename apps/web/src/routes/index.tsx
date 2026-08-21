@@ -14,8 +14,14 @@ import {
   useEffect,
   useState,
   type Dispatch,
+  type FormEvent,
   type SetStateAction,
 } from "react";
+import {
+  clearAdaptiveSessionId,
+  loadAdaptiveSessionId,
+  saveAdaptiveSessionId,
+} from "../adaptive-session.js";
 import {
   clearActionSession,
   createActionIdentity,
@@ -26,13 +32,17 @@ import {
   actionErrorView,
   commitAuthorityAction,
   commitResponseOperationView,
+  generatedActionIsFresh,
+  loadAdaptiveAuthoritySurface,
   loadAuthoritySurface,
   operationHistory,
   proposedOperationView,
   proposeAuthorityAction,
   recoverAuthorityAction,
   refreshQueries,
+  type ActionFreshness,
   type ActionIdentity,
+  type LoadedAuthoritySurface,
 } from "../authority.js";
 import {
   beginOidcLogin,
@@ -42,17 +52,27 @@ import {
 import { loadRuntimeConfig, type RuntimeConfig } from "../config.js";
 import { queryClient } from "../query-client.js";
 
-interface ReadyState {
+type ReadyState = {
+  readonly actionFreshness: ActionFreshness;
   readonly client: ZoenBrowserClient;
   readonly config: RuntimeConfig;
   readonly data: SurfaceRuntimeData;
   readonly document: SurfaceDocument;
   readonly fields: Readonly<Record<string, string | boolean>>;
-}
+  readonly surface:
+    | { readonly kind: "deterministic" }
+    | { readonly kind: "adaptive"; readonly sessionId: string };
+};
 
 type PageState =
   | { readonly kind: "loading" }
   | { readonly config: RuntimeConfig; readonly kind: "signed-out" }
+  | {
+      readonly client: ZoenBrowserClient;
+      readonly config: RuntimeConfig;
+      readonly kind: "question";
+    }
+  | { readonly kind: "generating" }
   | { readonly error: string; readonly kind: "failed" }
   | ({ readonly kind: "ready" } & ReadyState);
 type SetPageState = Dispatch<SetStateAction<PageState>>;
@@ -79,20 +99,27 @@ function AuthorityPage() {
           accessToken: token,
           baseUrl: config.rpcBaseUrl,
         });
+        if (config.adaptiveSurfaceEnabled) {
+          const sessionId = loadAdaptiveSessionId({
+            definitionId: config.definitionId,
+            tenantId: client.tenantId,
+          });
+          if (sessionId === undefined) {
+            setState({ client, config, kind: "question" });
+            return;
+          }
+          const loaded = await loadAdaptiveAuthoritySurface(
+            client,
+            config,
+            queryClient,
+            token,
+            { kind: "reload", sessionId },
+          );
+          await setLoadedState(client, config, loaded, setState);
+          return;
+        }
         const loaded = await loadAuthoritySurface(client, config, queryClient);
-        const recovered = await recoverStoredActions(
-          client,
-          config,
-          loaded.document,
-          loaded.data,
-        );
-        setState({
-          client,
-          config,
-          document: loaded.document,
-          kind: "ready",
-          ...recovered,
-        });
+        await setLoadedState(client, config, loaded, setState);
       } catch (cause: unknown) {
         setState({ error: errorText(cause), kind: "failed" });
       }
@@ -104,6 +131,9 @@ function AuthorityPage() {
   }
   if (state.kind === "failed") {
     return <StatusShell error message={state.error} />;
+  }
+  if (state.kind === "generating") {
+    return <StatusShell message="Generating and validating the decision." />;
   }
   if (state.kind === "signed-out") {
     return (
@@ -125,8 +155,12 @@ function AuthorityPage() {
       </main>
     );
   }
+  if (state.kind === "question") {
+    return <QuestionShell state={state} setState={setState} />;
+  }
 
   const interaction: SurfaceInteraction = {
+    actionAvailable: (bindingId) => actionAvailable(state, bindingId),
     commit: (bindingId) => commit(state, bindingId, setState),
     data: state.data,
     document: state.document,
@@ -146,6 +180,11 @@ function AuthorityPage() {
   return (
     <main
       className="app-shell"
+      data-adaptive-session-id={
+        state.surface.kind === "adaptive"
+          ? state.surface.sessionId
+          : undefined
+      }
       data-compiler={state.document.attribution.compiler}
       data-generated-without-llm={
         state.document.attribution.generatedWithoutLlm
@@ -153,13 +192,36 @@ function AuthorityPage() {
     >
       <header className="app-header">
         <div>
-          <span className="eyebrow">Deterministic Surface IR</span>
+          <span className="eyebrow">
+            {state.surface.kind === "adaptive"
+              ? "Adaptive Surface IR"
+              : "Deterministic Surface IR"}
+          </span>
           <h1>{state.document.presentation.title}</h1>
           <p>
             Definition <code>{state.document.semanticContext.definition.digest}</code>
           </p>
         </div>
         <div className="header-actions">
+          {state.surface.kind === "adaptive" ? (
+            <button
+              className="secondary"
+              onClick={() => {
+                clearAdaptiveSessionId({
+                  definitionId: state.config.definitionId,
+                  tenantId: state.client.tenantId,
+                });
+                setState({
+                  client: state.client,
+                  config: state.config,
+                  kind: "question",
+                });
+              }}
+              type="button"
+            >
+              New decision
+            </button>
+          ) : null}
           <label className="visibility-control">
             <input
               checked={state.document.presentation.actionsVisible}
@@ -208,11 +270,116 @@ function AuthorityPage() {
   );
 }
 
+function QuestionShell(props: {
+  readonly setState: SetPageState;
+  readonly state: Extract<PageState, { readonly kind: "question" }>;
+}) {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const question = new FormData(event.currentTarget)
+      .get("question")
+      ?.toString()
+      .trim();
+    if (question === undefined || question === "") {
+      return;
+    }
+    void generateDecision(props.state, question, props.setState);
+  };
+  return (
+    <main className="auth-shell">
+      <section className="auth-card decision-question-card">
+        <span className="eyebrow">Adaptive Surface IR</span>
+        <h1>Ask an operational question</h1>
+        <p>
+          Zoen retrieves attributable Company Brain evidence, reads governed
+          semantic state, and asks the configured model to compose a validated
+          decision surface.
+        </p>
+        <form onSubmit={submit}>
+          <label className="field" htmlFor="decision-question">
+            <span>Question</span>
+            <textarea
+              defaultValue="Should operations request inventory replenishment?"
+              id="decision-question"
+              maxLength={16_000}
+              name="question"
+              required
+            />
+          </label>
+          <button type="submit">Generate decision</button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
+async function generateDecision(
+  state: Extract<PageState, { readonly kind: "question" }>,
+  question: string,
+  setState: SetPageState,
+): Promise<void> {
+  const token = currentAccessToken();
+  if (token === undefined) {
+    setState({ config: state.config, kind: "signed-out" });
+    return;
+  }
+  setState({ kind: "generating" });
+  try {
+    const loaded = await loadAdaptiveAuthoritySurface(
+      state.client,
+      state.config,
+      queryClient,
+      token,
+      { kind: "generate", question },
+    );
+    if (loaded.kind !== "adaptive") {
+      throw new Error("Adaptive endpoint returned a deterministic Surface");
+    }
+    saveAdaptiveSessionId({
+      definitionId: state.config.definitionId,
+      sessionId: loaded.sessionId,
+      tenantId: state.client.tenantId,
+    });
+    await setLoadedState(state.client, state.config, loaded, setState);
+  } catch (cause: unknown) {
+    setState({ error: errorText(cause), kind: "failed" });
+  }
+}
+
+async function setLoadedState(
+  client: ZoenBrowserClient,
+  config: RuntimeConfig,
+  loaded: LoadedAuthoritySurface,
+  setState: SetPageState,
+): Promise<void> {
+  const recovered = await recoverStoredActions(
+    client,
+    config,
+    loaded.document,
+    loaded.data,
+  );
+  setState({
+    actionFreshness: loaded.actionFreshness,
+    client,
+    config,
+    document: loaded.document,
+    kind: "ready",
+    surface:
+      loaded.kind === "adaptive"
+        ? { kind: "adaptive", sessionId: loaded.sessionId }
+        : { kind: "deterministic" },
+    ...recovered,
+  });
+}
+
 async function propose(
   state: ReadyState,
   bindingId: string,
   setState: SetPageState,
 ): Promise<void> {
+  if (!actionAvailable(state, bindingId)) {
+    return;
+  }
   const identity = createActionIdentity(bindingId);
   const values = fieldValues(state.fields, bindingId);
   saveActionSession({
@@ -230,13 +397,15 @@ async function propose(
     }),
   }));
   try {
-    const response = await proposeAuthorityAction(
-      state.client,
-      state.config,
-      state.document,
+    const response = await proposeAuthorityAction({
+      actionFreshness: state.actionFreshness,
+      client: state.client,
+      config: state.config,
+      currentQueries: state.data.queries,
+      document: state.document,
       identity,
       values,
-    );
+    });
     const operation = proposedOperationView(response, identity);
     updateReady(setState, (current) => ({
       ...current,
@@ -378,13 +547,23 @@ async function recoverStoredActions(
     }
     try {
       const recovered = await recoverAuthorityAction(client, session.identity);
-      if (recovered?.kind === "committed") {
-        actions[binding.id] = recovered;
+      if (recovered?.kind !== "committed") {
+        actions[binding.id] = {
+          kind: "recovering",
+          operationId: session.identity.operationId,
+          proposalId: session.identity.proposalId,
+        };
+        continue;
+      }
+      actions[binding.id] = recovered;
+      committedSequences.push(recovered.commitSequence);
+      try {
         history[binding.id] = await operationHistory(
           client,
           recovered.operationId,
         );
-        committedSequences.push(recovered.commitSequence);
+      } catch {
+        history[binding.id] = [];
       }
       clearStoredActionSession(
         { client, document },
@@ -475,6 +654,13 @@ function fieldValues(
 
 function fieldKey(bindingId: string, inputId: string): string {
   return `${bindingId}\u0000${inputId}`;
+}
+
+function actionAvailable(state: ReadyState, bindingId: string): boolean {
+  return (
+    generatedActionIsFresh(state.actionFreshness, state.data.queries) &&
+    state.data.actions[bindingId]?.kind !== "unavailable"
+  );
 }
 
 function clearStoredActionSession(

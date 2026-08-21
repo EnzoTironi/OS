@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const runtimeConfigSchema = z
   .object({
+    adaptiveSurfaceEnabled: z.boolean(),
     definitionId: z.string().min(1),
     oidcClientId: z.string().min(1),
     oidcIssuer: z.string().url(),

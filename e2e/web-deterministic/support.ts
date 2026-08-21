@@ -34,6 +34,7 @@ export interface ResponseLossProxy {
   allowStatusRecovery: () => void;
   close: () => Promise<void>;
   dropNextCommitResponse: () => void;
+  waitForBlockedStatus: () => Promise<void>;
 }
 
 export interface CredentialSink {
@@ -50,10 +51,19 @@ export interface WebProcess {
   readonly output: string[];
 }
 
+export interface WebProcessOptions {
+  readonly adaptiveSurfaceUrl?: string;
+  readonly definitionId?: string;
+  readonly resourceId?: string;
+  readonly validAt?: string;
+}
+
 export async function startResponseLossProxy(): Promise<ResponseLossProxy> {
   const requests: string[] = [];
   let dropCommit = false;
   let blockStatus = false;
+  let blockedStatusResponses = 0;
+  const blockedStatusWaiters: Array<() => void> = [];
   const server = createServer((request, response) => {
     void forward(request, response);
   });
@@ -69,6 +79,12 @@ export async function startResponseLossProxy(): Promise<ResponseLossProxy> {
     requests.push(pathname);
     if (blockStatus && pathname.endsWith(operationStatusPath)) {
       response.statusCode = 503;
+      response.once("finish", () => {
+        blockedStatusResponses += 1;
+        for (const resolve of blockedStatusWaiters.splice(0)) {
+          resolve();
+        }
+      });
       response.end("Operation status is temporarily unavailable");
       return;
     }
@@ -118,6 +134,19 @@ export async function startResponseLossProxy(): Promise<ResponseLossProxy> {
     },
     origin,
     requests,
+    waitForBlockedStatus: () =>
+      blockedStatusResponses > 0
+        ? Promise.resolve()
+        : new Promise((resolve, reject) => {
+            const timeout = setTimeout(
+              () => reject(new Error("blocked OperationStatus request did not finish")),
+              30_000,
+            );
+            blockedStatusWaiters.push(() => {
+              clearTimeout(timeout);
+              resolve();
+            });
+          }),
   };
 }
 
@@ -149,6 +178,7 @@ export async function startCredentialSink(): Promise<CredentialSink> {
 
 export async function startWeb(
   proxyOrigin: string,
+  options: WebProcessOptions = {},
 ): Promise<WebProcess> {
   const output: string[] = [];
   const webPort = e2ePort("ZOEN_E2E_WEB_PORT", webPortFallback);
@@ -163,12 +193,18 @@ export async function startWeb(
         NITRO_HOST: "127.0.0.1",
         NITRO_PORT: webPort.toString(),
         PORT: webPort.toString(),
-        ZOEN_WEB_DEFINITION_ID: definitionId,
+        ZOEN_WEB_DEFINITION_ID: options.definitionId ?? definitionId,
         ZOEN_WEB_OIDC_CLIENT_ID: "zoen-web",
         ZOEN_WEB_OIDC_ISSUER: oidcIssuer,
-        ZOEN_WEB_RESOURCE_ID: resourceId,
+        ZOEN_WEB_RESOURCE_ID: options.resourceId ?? resourceId,
         ZOEN_WEB_RPC_ORIGIN: proxyOrigin,
-        ZOEN_WEB_VALID_AT: "2026-08-19T00:00:00.000Z",
+        ZOEN_WEB_VALID_AT:
+          options.validAt ?? "2026-08-19T00:00:00.000Z",
+        ...(options.adaptiveSurfaceUrl === undefined
+          ? {}
+          : {
+              ZOEN_WEB_ADAPTIVE_SURFACE_URL: options.adaptiveSurfaceUrl,
+            }),
       },
       stdio: ["pipe", "pipe", "pipe"],
     },
