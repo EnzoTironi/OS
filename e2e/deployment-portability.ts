@@ -308,24 +308,28 @@ async function authorityDigestForTenant(): Promise<string> {
   await client.connect();
   try {
     const tables = [
-      "action_operations",
-      "action_proposals",
-      "authority_commits",
-      "authority_heads",
-      "definition_activations",
-      "definition_revisions",
-      "effect_requests",
-      "semantic_claims",
+      { name: "action_operations", volatileColumns: [] },
+      { name: "action_proposals", volatileColumns: [] },
+      { name: "definition_activations", volatileColumns: [] },
+      { name: "definition_revisions", volatileColumns: [] },
+      {
+        name: "effect_requests",
+        volatileColumns: ["last_commit_sequence", "updated_at"],
+      },
+      { name: "semantic_claims", volatileColumns: [] },
     ] as const;
     const rows: string[] = [];
     for (const table of tables) {
       const result = await client.query<{ row: string }>(
-        `SELECT row_to_json(value)::text AS row
-           FROM (SELECT * FROM ${table} WHERE tenant_id = $1) AS value
-          ORDER BY row_to_json(value)::text`,
-        [tenantA],
+        `SELECT normalized.row::text AS row
+           FROM (
+             SELECT to_jsonb(value) - $2::text[] AS row
+               FROM (SELECT * FROM ${table.name} WHERE tenant_id = $1) AS value
+           ) AS normalized
+          ORDER BY normalized.row::text`,
+        [tenantA, table.volatileColumns],
       );
-      rows.push(table, ...result.rows.map((row) => row.row));
+      rows.push(table.name, ...result.rows.map((row) => row.row));
     }
     return sha256(rows.join("\n"));
   } finally {
