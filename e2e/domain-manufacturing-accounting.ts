@@ -306,6 +306,7 @@ async function main(): Promise<void> {
   const accountingSupervisorAction = actionClient(
     accountingSupervisorAToken,
   );
+  const inventoryActionB = actionClient(inventoryBToken);
   const manufacturingActionB = actionClient(manufacturingBToken);
   const accountingActionB = actionClient(accountingBToken);
   const accountingSupervisorActionB = actionClient(
