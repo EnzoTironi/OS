@@ -63,10 +63,18 @@ metadata_value() {
 collect_diagnostics() {
   kubectl get pods,deployments,statefulsets,jobs --all-namespaces --output wide \
     >"${artifacts_directory}/kubernetes-resources.log" 2>&1 || true
-  kubectl logs --all-containers --prefix --tail=300 \
-    --selector app.kubernetes.io/part-of=zoen \
-    --all-namespaces \
-    >"${artifacts_directory}/kubernetes.log" 2>&1 || true
+  : >"${artifacts_directory}/kubernetes.log"
+  for namespace in \
+    "${application_namespace}" \
+    "${restored_namespace}" \
+    "${durable_namespace}"; do
+    if kubectl get namespace "${namespace}" >/dev/null 2>&1; then
+      kubectl logs --all-containers --prefix --tail=300 \
+        --selector app.kubernetes.io/part-of=zoen \
+        --namespace "${namespace}" \
+        >>"${artifacts_directory}/kubernetes.log" 2>&1 || true
+    fi
+  done
 }
 
 cleanup_cluster() {
