@@ -12,6 +12,7 @@ scenario_table=(
   "company-brain-live:company-brain-live:"
   "definition-publication::"
   "domain-commercial:domain-commercial:"
+  "domain-inventory-procurement:domain-inventory-procurement:"
   "domain-quality:domain-quality:"
   "durable-commit:governed-action:failpoints"
   "effects:governed-action:"

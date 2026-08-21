@@ -1,0 +1,14 @@
+{
+  "name": "@zoen/procurement",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zoen/inventory": "1.0.0",
+    "@zoen/party": "1.0.0",
+    "@zoen/product": "1.0.0"
+  },
+  "exports": {
+    ".": "./src/procurement.zoen.ts"
+  }
+}
