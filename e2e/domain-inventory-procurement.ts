@@ -2035,7 +2035,7 @@ function currentQuantity(
   for (const result of response.values) {
     for (const dependency of result.dependencies) {
       if (
-        dependency.role !== LineageRole.SUPPORTING ||
+        !isSelectedDependency(dependency.role) ||
         !relationIds.includes(dependency.relationId)
       ) {
         continue;
@@ -2055,7 +2055,7 @@ function currentQuantity(
       const latest = latestByRelation.get(relationId);
       return result.dependencies.some(
         (dependency) =>
-          dependency.role === LineageRole.SUPPORTING &&
+          isSelectedDependency(dependency.role) &&
           dependency.relationId === relationId &&
           dependency.commitSequence === latest,
       );
@@ -2067,6 +2067,13 @@ function currentQuantity(
     return shape?.kind === "quantity" ? [`${shape.amount} ${shape.unit}`] : [];
   });
   return current.length === 1 ? current[0] : undefined;
+}
+
+function isSelectedDependency(role: LineageRole): boolean {
+  return (
+    role === LineageRole.SUPPORTING ||
+    role === LineageRole.COMPUTATION_DEPENDENCY
+  );
 }
 
 function sourceIds(
