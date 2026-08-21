@@ -189,7 +189,8 @@ async function observeState(input: {
   const semanticResult = {
     definitionDigest: fixture.digest,
     effectRequestId,
-    effectState: effectSnapshot.request?.state ?? EffectKnowledgeState.UNSPECIFIED,
+    effectState:
+      effectSnapshot.snapshot?.request?.state ?? EffectKnowledgeState.UNSPECIFIED,
     explanationComplete: explanation.complete,
     operationId,
     proposalId,
@@ -211,11 +212,12 @@ async function waitForEffect(
   for (let attempt = 0; attempt < 180; attempt += 1) {
     const snapshot = await client.getEffect({ effectRequestId });
     if (
-      snapshot.request?.state === EffectKnowledgeState.DEFINITELY_NOT_SENT ||
-      snapshot.request?.state === EffectKnowledgeState.UNKNOWN ||
-      snapshot.request?.state === EffectKnowledgeState.ACCEPTED_PENDING ||
-      snapshot.request?.state === EffectKnowledgeState.CONFIRMED ||
-      snapshot.request?.state === EffectKnowledgeState.CONFIRMED_NO_EFFECT
+      snapshot.snapshot?.request?.state ===
+        EffectKnowledgeState.DEFINITELY_NOT_SENT ||
+      snapshot.snapshot?.request?.state === EffectKnowledgeState.UNKNOWN ||
+      snapshot.snapshot?.request?.state === EffectKnowledgeState.CONFIRMED ||
+      snapshot.snapshot?.request?.state ===
+        EffectKnowledgeState.CONFIRMED_NO_EFFECT
     ) {
       return snapshot;
     }
