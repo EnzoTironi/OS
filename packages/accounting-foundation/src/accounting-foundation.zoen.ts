@@ -435,13 +435,6 @@ const recordAccountIdentity = defineAction({
 const postReceivable = defineAction({
   effects: [
     {
-      relationId: "accounting.appliedAmount",
-      value: {
-        kind: "literal",
-        value: { kind: "decimal", value: "0" },
-      },
-    },
-    {
       relationId: "accounting.bookReference",
       value: { inputId: "bookReference", kind: "input" },
     },
@@ -555,13 +548,6 @@ const postReceivable = defineAction({
 
 const postPayable = defineAction({
   effects: [
-    {
-      relationId: "accounting.appliedAmount",
-      value: {
-        kind: "literal",
-        value: { kind: "decimal", value: "0" },
-      },
-    },
     {
       relationId: "accounting.bookReference",
       value: { inputId: "bookReference", kind: "input" },

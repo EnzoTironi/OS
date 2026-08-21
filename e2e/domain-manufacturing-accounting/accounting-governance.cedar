@@ -10,6 +10,15 @@ permit (
     resource
 )
 when {
-    principal == Zoen::Principal::"principal.accounting-agent.a" ||
-    principal == Zoen::Principal::"principal.accounting-agent.b"
+    (
+        context.actionId != "accounting.applySettlement" ||
+        (
+            context.inputs.amount != "0" &&
+            !(context.inputs.amount like "-*")
+        )
+    ) &&
+    (
+        principal == Zoen::Principal::"principal.accounting-agent.a" ||
+        principal == Zoen::Principal::"principal.accounting-agent.b"
+    )
 };

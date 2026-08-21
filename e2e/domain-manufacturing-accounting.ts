@@ -80,6 +80,7 @@ const outputPositionId = "inventory.position.finished.wh-1";
 const bomId = "manufacturing.bom.widget";
 const workId = "manufacturing.work.3001";
 const claimId = "accounting.claim.receivable.3001";
+const roundingClaimId = "accounting.claim.rounding-proof.3001";
 const bookId = "accounting.book.primary";
 const ledgerId = "accounting.ledger.sales";
 const receivableAccountId = "accounting.account.receivable";
@@ -151,16 +152,6 @@ async function main(): Promise<void> {
       packageSource("accounting-foundation"),
       loadPolicy("accounting.cedar"),
     ]);
-  const partialSource = actionSource(
-    manufacturingSource,
-    "const recordPartialCompletion",
-    "const recordCompletion",
-  );
-  const completionSource = actionSource(
-    manufacturingSource,
-    "const recordCompletion",
-    "const recordScrap",
-  );
   observe(
     "definitionsPreserveBomPlanWorkOccurrenceAndAccountingHistory",
     [
@@ -184,32 +175,6 @@ async function main(): Promise<void> {
       ].every((id) => accountingSource.includes(id)),
   );
   observe(
-    "completionPlanRewritePartialFullAndMissingGenealogyMutantsAreKilled",
-    completionContract(partialSource, "partial") &&
-      completionContract(completionSource, "completion") &&
-      !completionContract(
-        partialSource.replace(
-          'relationId: "manufacturing.completionOutputQuantity"',
-          'relationId: "manufacturing.plannedOutputQuantity"',
-        ),
-        "partial",
-      ) &&
-      !completionContract(
-        partialSource.replace(
-          'value: { kind: "text", value: "partial" }',
-          'value: { kind: "text", value: "completion" }',
-        ),
-        "partial",
-      ) &&
-      !completionContract(
-        partialSource.replace(
-          'relationId: "manufacturing.outputDerivedFromInputLot"',
-          'relationId: "manufacturing.correctionOf"',
-        ),
-        "partial",
-      ),
-  );
-  observe(
     "definitionsUseRelationAccumulatorsAndExactDecimalAmounts",
     !/current(?:Applied|Consumed|Credit|Debit|Produced|Rework|Scrap)Amount|current(?:Consumed|Produced|Rework|Scrap)Quantity/u.test(
       `${manufacturingSource}\n${accountingSource}`,
@@ -217,22 +182,16 @@ async function main(): Promise<void> {
       /const applySettlement[\s\S]*relationId: "accounting\.appliedAmount"[\s\S]*operator: "add"/u.test(
         accountingSource,
       ) &&
-      /const recordProductionTally[\s\S]*relationId: "manufacturing\.producedOutputQuantity"[\s\S]*operator: "add"/u.test(
+      /const recordPartialCompletion[\s\S]*relationId: "manufacturing\.producedOutputQuantity"[\s\S]*operator: "add"[\s\S]*const recordCompletion/u.test(
+        manufacturingSource,
+      ) &&
+      /const recordCompletion[\s\S]*relationId: "manufacturing\.producedOutputQuantity"[\s\S]*operator: "add"[\s\S]*const recordScrap/u.test(
         manufacturingSource,
       ) &&
       /const postReceivable[\s\S]*relationId: "accounting\.debitAmount"[\s\S]*relationId: "accounting\.creditAmount"/u.test(
         accountingSource,
       ) &&
       !/(?:parseFloat|parseInt|Number)\s*\(/u.test(accountingSource),
-  );
-  const roundedAmountMutant = accountingSource.replace(
-    'relationId: "accounting.originalAmount",\n      value: { inputId: "debitAmount", kind: "input" }',
-    'relationId: "accounting.originalAmount",\n      value: { kind: "literal", value: { kind: "decimal", value: "199.899999999" } }',
-  );
-  observe(
-    "floatingAmountMutantIsKilledByExactDefinitionContract",
-    exactAmountContract(accountingSource) &&
-      !exactAmountContract(roundedAmountMutant),
   );
   observe(
     "manufacturingDefinitionsContainNoQuantityEncodedRevisionBasis",
@@ -668,19 +627,32 @@ async function main(): Promise<void> {
       "inventory.lot.FIN-3001",
       "inventory.serial.FIN-S-3001",
     );
+    const competingCompletionRequest = manufacturingCompletionRequest(
+      manufacturing,
+      "competing",
+      "manufacturing.recordPartialCompletion",
+      "2",
+      "1",
+      "inventory.lot.COMP-3001",
+      "inventory.serial.COMP-S-COMPETING",
+      "inventory.lot.FIN-COMPETING",
+      "inventory.serial.FIN-S-COMPETING",
+    );
+    const competingCompletion = await manufacturingAction.propose(
+      competingCompletionRequest,
+    );
+    assert.equal(
+      competingCompletion.proposal?.status,
+      ProposalStatus.READY,
+    );
     const partial = await commitReadyAction(
       manufacturingAction,
       partialRequest,
     );
-    const partialTally = await commitReadyAction(
-      manufacturingAction,
-      manufacturingProductionTallyRequest(
-        manufacturing,
-        "partial",
-        "3",
-        partial.receipt.operationId,
-      ),
-    );
+    const staleCompetingCompletion = await manufacturingAction.commit({
+      operationId: competingCompletionRequest.operationId,
+      proposalId: competingCompletionRequest.proposalId,
+    });
     const partialReplay = await manufacturingAction.commit({
       operationId: partialRequest.operationId,
       proposalId: partialRequest.proposalId,
@@ -692,6 +664,15 @@ async function main(): Promise<void> {
           partial.receipt.commitSequence &&
         partialReplay.receipt.recordIds.length ===
           partial.receipt.recordIds.length,
+    );
+    observe(
+      "completionAddsProducedAtomicallyAndCompetingBasisBecomesStale",
+      staleCompetingCompletion.status === CommitStatus.STALE &&
+        partial.proposal.stateBasis?.dependencies.every(
+          (dependency) =>
+            dependency.relationId !==
+            "manufacturing.producedOutputQuantity",
+        ) === true,
     );
     const exactRemainingCompletion = await manufacturingAction.propose(
       manufacturingCompletionRequest(
@@ -723,7 +704,6 @@ async function main(): Promise<void> {
       inputLots,
       outputLots,
       genealogyInputs,
-      productionTallies,
       completionRevisions,
       currentBomVersions,
     ] = await Promise.all([
@@ -771,14 +751,6 @@ async function main(): Promise<void> {
         worldA,
         manufacturing,
         workId,
-        "manufacturing.productionTallyOf",
-        changedAt,
-        tenantA,
-      ),
-      relationQuery(
-        worldA,
-        manufacturing,
-        workId,
         "manufacturing.completionBomRevision",
         changedAt,
         tenantA,
@@ -807,10 +779,6 @@ async function main(): Promise<void> {
         sameStrings(textValues(genealogyInputs), [
           "inventory.lot.COMP-3001",
         ]) &&
-        sameStrings(textValues(productionTallies), [
-          partial.receipt.operationId,
-        ]) &&
-        partial.receipt.commitSequence < partialTally.receipt.commitSequence &&
         sameStrings(integerValues(completionRevisions), ["1"]) &&
         sameStrings(integerValues(currentBomVersions), ["2"]) &&
         bomRevisionTwo.receipt.commitSequence > partial.receipt.commitSequence,
@@ -894,15 +862,6 @@ async function main(): Promise<void> {
         "inventory.serial.COMP-S-3002",
         "inventory.lot.FIN-3002",
         "inventory.serial.FIN-S-3002",
-      ),
-    );
-    const finalTally = await commitReadyAction(
-      manufacturingAction,
-      manufacturingProductionTallyRequest(
-        manufacturing,
-        "final",
-        "2",
-        finalCompletion.receipt.operationId,
       ),
     );
     const inputConsumption = await commitReadyAction(
@@ -1033,8 +992,7 @@ async function main(): Promise<void> {
     observe(
       "partialCompletionReworkScrapAndCorrectionAppendHistory",
       partial.receipt.commitSequence < finalCompletion.receipt.commitSequence &&
-        finalCompletion.receipt.commitSequence < finalTally.receipt.commitSequence &&
-        finalTally.receipt.commitSequence < scrap.receipt.commitSequence &&
+        finalCompletion.receipt.commitSequence < scrap.receipt.commitSequence &&
         scrap.receipt.commitSequence < rework.receipt.commitSequence &&
         rework.receipt.commitSequence < correction.receipt.commitSequence &&
         sameStrings(textValues(completionHistory), [
@@ -1064,6 +1022,64 @@ async function main(): Promise<void> {
           "manufacturing.reworkQuantity",
         ]) === "3.75 each",
     );
+    const repeatedRequirement = await commitReadyAction(
+      manufacturingAction,
+      manufacturingRequirementRequest(manufacturing, "repeat-after-production"),
+    );
+    const [
+      consumedAfterRepeatedRequirement,
+      producedAfterRepeatedRequirement,
+      scrapAfterRepeatedRequirement,
+      reworkAfterRepeatedRequirement,
+    ] = await Promise.all([
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.consumedInputQuantity",
+        changedAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.producedOutputQuantity",
+        changedAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.scrapQuantity",
+        changedAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldA,
+        manufacturing,
+        workId,
+        "manufacturing.reworkQuantity",
+        changedAt,
+        tenantA,
+      ),
+    ]);
+    observe(
+      "repeatedRequirementCannotResetProductionAccumulators",
+      currentQuantity(consumedAfterRepeatedRequirement, [
+        "manufacturing.consumedInputQuantity",
+      ]) === "5.75 each" &&
+        currentQuantity(producedAfterRepeatedRequirement, [
+          "manufacturing.producedOutputQuantity",
+        ]) === "4.5 each" &&
+        currentQuantity(scrapAfterRepeatedRequirement, [
+          "manufacturing.scrapQuantity",
+        ]) === "0.5 each" &&
+        currentQuantity(reworkAfterRepeatedRequirement, [
+          "manufacturing.reworkQuantity",
+        ]) === "0.25 each",
+    );
 
     const fulfillment = await commitReadyAction(
       commercialAction,
@@ -1086,6 +1102,45 @@ async function main(): Promise<void> {
             "policy.accounting.record",
           ) === true,
       ),
+    );
+    const exactDecimalPosting = await commitReadyAction(
+      accountingAction,
+      receivableRequest(
+        accounting,
+        "exact-decimal-proof",
+        partial.receipt.operationId,
+        fulfillment.receipt.operationId,
+        "199.899999999",
+        "199.899999999",
+        "BRL",
+        roundingClaimId,
+        "accounting.posting.rounding-proof.3001",
+      ),
+    );
+    const [exactDecimalDebits, exactDecimalCredits] = await Promise.all([
+      relationQuery(
+        worldA,
+        accounting,
+        roundingClaimId,
+        "accounting.debitAmount",
+        changedAt,
+        tenantA,
+      ),
+      relationQuery(
+        worldA,
+        accounting,
+        roundingClaimId,
+        "accounting.creditAmount",
+        changedAt,
+        tenantA,
+      ),
+    ]);
+    observe(
+      "exactDecimalPostingPreservesSemanticAmountWithoutRounding",
+      exactDecimalPosting.receipt.operationId ===
+        "operation.accounting-foundation.exact-decimal-proof" &&
+        sameStrings(decimalValues(exactDecimalDebits), ["199.899999999"]) &&
+        sameStrings(decimalValues(exactDecimalCredits), ["199.899999999"]),
     );
 
     const unbalancedRequest = receivableRequest(
@@ -1256,6 +1311,12 @@ async function main(): Promise<void> {
     const excessiveSettlement = await accountingAction.propose(
       settlementRequest(accounting, "excessive", "300", "BRL"),
     );
+    const zeroSettlement = await accountingAction.propose(
+      settlementRequest(accounting, "zero", "0", "BRL"),
+    );
+    const negativeSettlement = await accountingAction.propose(
+      settlementRequest(accounting, "negative", "-1", "BRL"),
+    );
     const exactSettlement = await accountingAction.propose(
       settlementRequest(accounting, "exact-open-claim", "199.9", "BRL"),
     );
@@ -1269,6 +1330,13 @@ async function main(): Promise<void> {
       "exactOpenClaimSettlementRemainsDeniedByStrictBound",
       exactSettlement.decision === PolicyDecision.DENY &&
         exactSettlement.proposal === undefined,
+    );
+    observe(
+      "settlementCedarRejectsZeroAndNegativeAmounts",
+      zeroSettlement.decision === PolicyDecision.DENY &&
+        zeroSettlement.proposal === undefined &&
+        negativeSettlement.decision === PolicyDecision.DENY &&
+        negativeSettlement.proposal === undefined,
     );
     const settlementProposal = await accountingAction.propose(
       settlementRequestAccepted,
@@ -1329,6 +1397,63 @@ async function main(): Promise<void> {
         settlementRows.rows[0]?.operation === "1" &&
         settlementRows.rows[0]?.settlements === "1" &&
         currentDecimal(remainingAfterSettlement, [
+          "accounting.originalAmount",
+          "accounting.appliedAmount",
+        ]) === "99.9",
+    );
+    const repeatedPayable = await commitReadyAction(
+      accountingAction,
+      payableRequest(
+        accounting,
+        "payable-after-settlement",
+        receivable.receipt.operationId,
+        "199.9",
+        "199.9",
+      ),
+    );
+    const repeatedReceivable = await commitReadyAction(
+      accountingAction,
+      receivableRequest(
+        accounting,
+        "receivable-after-settlement",
+        partial.receipt.operationId,
+        fulfillment.receipt.operationId,
+        "199.9",
+        "199.9",
+        "BRL",
+        claimId,
+        "accounting.posting.receivable.repost.3001",
+      ),
+    );
+    const [appliedAfterRepeatedPosting, remainingAfterRepeatedPosting] =
+      await Promise.all([
+        relationQuery(
+          worldA,
+          accounting,
+          claimId,
+          "accounting.appliedAmount",
+          changedAt,
+          tenantA,
+        ),
+        computationQuery(
+          worldA,
+          accounting,
+          claimId,
+          "accounting.remainingClaim",
+          changedAt,
+          tenantA,
+        ),
+      ]);
+    observe(
+      "repeatedReceivableAndPayableCannotResetAppliedSettlement",
+      settlementCommit.receipt.commitSequence <
+        repeatedPayable.receipt.commitSequence &&
+        repeatedPayable.receipt.commitSequence <
+          repeatedReceivable.receipt.commitSequence &&
+        currentDecimal(appliedAfterRepeatedPosting, [
+          "accounting.appliedAmount",
+        ]) === "100" &&
+        currentDecimal(remainingAfterRepeatedPosting, [
           "accounting.originalAmount",
           "accounting.appliedAmount",
         ]) === "99.9",
@@ -1410,7 +1535,9 @@ async function main(): Promise<void> {
     observe(
       "reversalAndCorrectionUseOriginalAmountAndPreserveHistory",
       sameStrings(textValues(postingHistory), [
+        "accounting.posting.payable.repost.3001",
         "accounting.posting.receivable.3001",
+        "accounting.posting.receivable.repost.3001",
       ]) &&
         sameStrings(textValues(reversals), [
           "accounting.posting.receivable.3001",
@@ -1424,8 +1551,12 @@ async function main(): Promise<void> {
           "199.9",
           "199.9",
           "199.9",
+          "199.9",
+          "199.9",
         ]) &&
         sameStrings(decimalValues(creditHistory), [
+          "199.9",
+          "199.9",
           "199.9",
           "199.9",
           "199.9",
@@ -1838,7 +1969,7 @@ async function main(): Promise<void> {
         "The v1 expression algebra has strict greater_than but no greater_than_or_equal, so exact remaining material, exact plan-to-required output, and exact open-claim settlement remain parked.",
         "Cross-package entity references use named Relation values because canonical definition validation currently resolves Type targets only inside one immutable definition bundle.",
         "The Action algebra cannot combine the material bound with BOM equality. Execution StateBasis covers material availability and consumed quantity, Cedar pins revision 1, and stale-on-BOM-change remains a parked kernel follow-up.",
-        "Completion Actions append occurrence output under the material-only bound. A causally linked production tally Action advances producedOutputQuantity because every accumulator relation must belong to the Action StateBasis that updates it.",
+        "Absent additive relations use the present operand as the identity value. Commit reads effect-only accumulators at the locked authority cut without adding them to the proposal StateBasis.",
         "Debit and credit equality for receivable and payable posting is enforced only by Cedar. Reversal and correction Actions read the original posting amount and emit the same bounded amount to both sides.",
       ],
       assertions,
@@ -1863,14 +1994,16 @@ async function main(): Promise<void> {
         bomRevisionOne: bom.receipt.operationId,
         bomRevisionTwo: bomRevisionTwo.receipt.operationId,
         commercialCommitment: commercialCommitment.receipt.operationId,
+        exactDecimalPosting: exactDecimalPosting.receipt.operationId,
         finalCompletion: finalCompletion.receipt.operationId,
-        finalProductionTally: finalTally.receipt.operationId,
         fulfillment: fulfillment.receipt.operationId,
         manufacturingCorrection: correction.receipt.operationId,
         materialAvailability: materialAvailability.receipt.operationId,
         partialCompletion: partial.receipt.operationId,
-        partialProductionTally: partialTally.receipt.operationId,
         receivable: receivable.receipt.operationId,
+        repeatedPayable: repeatedPayable.receipt.operationId,
+        repeatedReceivable: repeatedReceivable.receipt.operationId,
+        repeatedRequirement: repeatedRequirement.receipt.operationId,
         reversal: reversal.receipt.operationId,
         rework: rework.receipt.operationId,
         scrap: scrap.receipt.operationId,
@@ -1904,54 +2037,6 @@ async function main(): Promise<void> {
     }
     await admin.end();
   }
-}
-
-function actionSource(source: string, start: string, end: string): string {
-  const startIndex = source.indexOf(start);
-  const endIndex = source.indexOf(end, startIndex);
-  assert.notEqual(startIndex, -1);
-  assert.notEqual(endIndex, -1);
-  return source.slice(startIndex, endIndex);
-}
-
-function completionContract(source: string, kind: string): boolean {
-  const effectEnd = source.indexOf(
-    `\n  id: "manufacturing.record${kind === "partial" ? "Partial" : ""}Completion"`,
-  );
-  const effects = source.slice(0, effectEnd);
-  return (
-    effectEnd > 0 &&
-    effects.includes(
-      'relationId: "manufacturing.completionOccurrenceReference"',
-    ) &&
-    effects.includes('relationId: "manufacturing.completionBomRevision"') &&
-    effects.includes('relationId: "manufacturing.completionOutputQuantity"') &&
-    effects.includes('relationId: "manufacturing.consumedInputQuantity"') &&
-    effects.includes('operator: "add"') &&
-    effects.includes('relationId: "manufacturing.outputDerivedFromInputLot"') &&
-    effects.includes('relationId: "manufacturing.outputLotReference"') &&
-    effects.includes(`value: { kind: "text", value: "${kind}" }`) &&
-    !effects.includes('relationId: "manufacturing.plannedOutputQuantity"')
-  );
-}
-
-function exactAmountContract(source: string): boolean {
-  const receivable = actionSource(
-    source,
-    "const postReceivable",
-    "const postPayable",
-  );
-  return (
-    receivable.includes(
-      'relationId: "accounting.originalAmount",\n      value: { inputId: "debitAmount", kind: "input" }',
-    ) &&
-    receivable.includes(
-      'relationId: "accounting.debitAmount",\n      value: { inputId: "debitAmount", kind: "input" }',
-    ) &&
-    receivable.includes(
-      'relationId: "accounting.creditAmount",\n      value: { inputId: "creditAmount", kind: "input" }',
-    )
-  );
 }
 
 function requireFixture(
@@ -2520,31 +2605,6 @@ function manufacturingCompletionRequest(
   });
 }
 
-function manufacturingProductionTallyRequest(
-  fixture: DomainFixture,
-  suffix: string,
-  quantity: string,
-  completionOperationReference: string,
-) {
-  return proposalRequest({
-    actionId: "manufacturing.recordProductionTally",
-    fixture,
-    inputs: [
-      {
-        id: "completionOperationReference",
-        value: { kind: "text", value: completionOperationReference },
-      },
-      {
-        id: "quantity",
-        value: { amount: quantity, kind: "quantity", unit: "each" },
-      },
-    ],
-    resourceId: workId,
-    suffix: `production-tally-${suffix}`,
-    validAt: changedAt,
-  });
-}
-
 function manufacturingScrapRequest(
   fixture: DomainFixture,
   suffix: string,
@@ -2648,6 +2708,8 @@ function receivableRequest(
   debitAmount: string,
   creditAmount: string,
   currency: string,
+  resourceId = claimId,
+  postingReference = "accounting.posting.receivable.3001",
 ) {
   return proposalRequest({
     actionId: "accounting.postReceivable",
@@ -2699,9 +2761,64 @@ function receivableRequest(
       { id: "postingDate", value: { kind: "text", value: "2026-08-21" } },
       {
         id: "postingReference",
+        value: { kind: "text", value: postingReference },
+      },
+    ],
+    resourceId,
+    suffix,
+    validAt: changedAt,
+  });
+}
+
+function payableRequest(
+  fixture: DomainFixture,
+  suffix: string,
+  originatingOperationReference: string,
+  debitAmount: string,
+  creditAmount: string,
+) {
+  return proposalRequest({
+    actionId: "accounting.postPayable",
+    fixture,
+    inputs: [
+      { id: "bookReference", value: { kind: "text", value: bookId } },
+      {
+        id: "claimReference",
+        value: { kind: "text", value: "payable.repost.customer-3001" },
+      },
+      {
+        id: "counterpartyReference",
+        value: { kind: "text", value: customerPartyId },
+      },
+      {
+        id: "creditAccountReference",
+        value: { kind: "text", value: receivableAccountId },
+      },
+      {
+        id: "creditAmount",
+        value: { kind: "decimal", value: creditAmount },
+      },
+      { id: "currency", value: { kind: "text", value: "BRL" } },
+      {
+        id: "debitAccountReference",
+        value: { kind: "text", value: revenueAccountId },
+      },
+      {
+        id: "debitAmount",
+        value: { kind: "decimal", value: debitAmount },
+      },
+      { id: "eventDate", value: { kind: "text", value: "2026-08-22" } },
+      { id: "ledgerReference", value: { kind: "text", value: ledgerId } },
+      {
+        id: "originatingOperationReference",
+        value: { kind: "text", value: originatingOperationReference },
+      },
+      { id: "postingDate", value: { kind: "text", value: "2026-08-22" } },
+      {
+        id: "postingReference",
         value: {
           kind: "text",
-          value: "accounting.posting.receivable.3001",
+          value: "accounting.posting.payable.repost.3001",
         },
       },
     ],

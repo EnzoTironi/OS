@@ -11,6 +11,8 @@ permit (
 )
 when {
     context.inputs.currency == "BRL" &&
+    context.inputs.amount != "0" &&
+    !(context.inputs.amount like "-*") &&
     (
         principal == Zoen::Principal::"principal.accounting-agent.a" ||
         principal == Zoen::Principal::"principal.accounting-agent.b"
@@ -35,6 +37,8 @@ permit (
 when {
     context.approved == true &&
     context.inputs.currency == "BRL" &&
+    context.inputs.amount != "0" &&
+    !(context.inputs.amount like "-*") &&
     (
         principal == Zoen::Principal::"principal.accounting-agent.a" ||
         principal == Zoen::Principal::"principal.accounting-agent.b"
