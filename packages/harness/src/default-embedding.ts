@@ -4,6 +4,9 @@ import { embeddingProviderRouteSchema } from "./types.js";
 const modelId = "Xenova/all-MiniLM-L6-v2";
 const modelRevision = "751bff37182d3f1213fa05d7196b954e230abad9";
 
+export const defaultEmbeddingModelPath =
+  "/app/models/Xenova/all-MiniLM-L6-v2";
+
 export const defaultEmbeddingRoute = embeddingProviderRouteSchema.parse({
   capability: "embedding-default",
   dimensions: 384,

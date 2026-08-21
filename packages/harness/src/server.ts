@@ -8,7 +8,10 @@ import * as restate from "@restatedev/restate-sdk";
 import { Pool } from "pg";
 import { z } from "zod";
 import { CompanyBrainContextAssembler } from "./context.js";
-import { defaultEmbeddingRoute } from "./default-embedding.js";
+import {
+  defaultEmbeddingModelPath,
+  defaultEmbeddingRoute,
+} from "./default-embedding.js";
 import { LocalTransformerEmbeddingProvider } from "./embeddings.js";
 import { createCompanyBrainIngestService } from "./ingestion.js";
 import { CompanyBrain } from "./knowledge.js";
@@ -87,7 +90,8 @@ for (const scope of scopes) {
 }
 registry.registerEmbeddingProvider(
   new LocalTransformerEmbeddingProvider(defaultEmbeddingRoute, {
-    localFilesOnly: true,
+    kind: "local",
+    path: defaultEmbeddingModelPath,
   }),
 );
 const pool = new Pool({ connectionString: environment.DATABASE_URL });
