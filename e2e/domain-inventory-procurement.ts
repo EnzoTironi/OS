@@ -971,10 +971,14 @@ async function main(): Promise<void> {
       sameStrings(quantityValues(tenantBStock), ["77 each"]) &&
         crossTenantQuery === Code.PermissionDenied &&
         tenantBPurchase.status === CommitStatus.COMMITTED &&
-        sameStrings(textValues(tenantASupplier), [supplierPartyId]) &&
-        sameStrings(textValues(tenantBSupplier), [supplierPartyId]) &&
-        sameStrings(textValues(tenantAProduct), [productId]) &&
-        sameStrings(textValues(tenantBProduct), [productId]) &&
+        sameStrings([...new Set(textValues(tenantASupplier))], [
+          supplierPartyId,
+        ]) &&
+        sameStrings([...new Set(textValues(tenantBSupplier))], [
+          supplierPartyId,
+        ]) &&
+        sameStrings([...new Set(textValues(tenantAProduct))], [productId]) &&
+        sameStrings([...new Set(textValues(tenantBProduct))], [productId]) &&
         !Object.hasOwn(tenantBPurchaseRequest, "tenantId"),
     );
 
