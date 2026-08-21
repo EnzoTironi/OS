@@ -32,6 +32,7 @@ import {
   compileDeterministicSurface,
   type SurfaceDocument,
 } from "../../packages/surface/src/index.js";
+import { dispatchOnce } from "../effects/support.js";
 import {
   actionClient,
   adminClient,
@@ -62,6 +63,7 @@ export {
   adminClient,
   command,
   definitionClient,
+  dispatchOnce,
   historyClient,
   oidcToken,
   rebuildProjection,

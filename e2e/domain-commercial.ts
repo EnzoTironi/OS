@@ -19,6 +19,7 @@ import {
   compilePackage,
   compileSurface,
   definitionClient,
+  dispatchOnce,
   expectConnectCode,
   explainOperation,
   explanationShape,
@@ -817,6 +818,7 @@ async function main(): Promise<void> {
         "change-accepted",
       ),
     );
+    await dispatchOnce();
     const commitmentAfterChange = await relationQuery(
       commercialWorldA,
       commercial,
