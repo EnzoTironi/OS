@@ -324,9 +324,9 @@ async function main(): Promise<void> {
         "fiscal.determinationResponseDigest",
         text(taxAttempt.responseDigest),
       ],
-      ["fiscal.federalTaxAmount", decimal("1.10")],
-      ["fiscal.stateTaxAmount", decimal("2.20")],
-      ["fiscal.municipalTaxAmount", decimal("0.00")],
+      ["fiscal.federalTaxAmount", decimal("1.1")],
+      ["fiscal.stateTaxAmount", decimal("2.2")],
+      ["fiscal.municipalTaxAmount", decimal("0")],
     ]);
     const taxTotal = await fiscalQuery({
       client: worldA,
@@ -346,7 +346,7 @@ async function main(): Promise<void> {
           tenantId: tenantA,
         }),
       ).includes(taxAttempt.providerOperationId) &&
-        decimalValues(taxTotal).includes("3.30"),
+        decimalValues(taxTotal).includes("3.3"),
     );
 
     connector = await switchConnector(
@@ -853,7 +853,7 @@ async function taxEffect(input: {
     ["fiscal.destinationRegion", text("SP")],
     ["fiscal.taxEffectiveAt", text(validAt.toISOString())],
     ["fiscal.taxQuantity", quantity("2", "each")],
-    ["fiscal.taxUnitPrice", decimal("50.00")],
+    ["fiscal.taxUnitPrice", decimal("50")],
   ]);
   return commitFiscalAction({
     action: input.action,
@@ -931,7 +931,7 @@ async function submitEffect(input: {
     ["fiscal.documentContent", text(JSON.stringify(content))],
     ["fiscal.intentIssuerRegistration", text("12345678000190")],
     ["fiscal.intentRecipientRegistration", text("98765432000110")],
-    ["fiscal.documentTotalAmount", decimal("100.00")],
+    ["fiscal.documentTotalAmount", decimal("100")],
   ]);
   return commitFiscalAction({
     action: input.action,
