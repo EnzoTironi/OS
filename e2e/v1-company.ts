@@ -96,6 +96,7 @@ import {
   worldClient,
   type ActionClient,
   type CompanyFixture,
+  type HistoryClient,
   type SemanticValue,
 } from "./v1-company/support.js";
 
@@ -190,6 +191,25 @@ async function waitRollout(workload: string): Promise<void> {
   ]);
 }
 
+async function waitForCompleteExplanation(
+  client: HistoryClient,
+  operationId: string,
+) {
+  const deadline = Date.now() + 180_000;
+  let explanation = await explainOperation(client, operationId);
+  while (!explanation.complete && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    explanation = await explainOperation(client, operationId);
+  }
+  if (!explanation.complete) {
+    const gaps = explanation.gaps
+      .map((gap) => `${gap.class}:${gap.reason}:${gap.detail}`)
+      .join("; ");
+    throw new Error(`explanation for ${operationId} stayed incomplete: ${gaps}`);
+  }
+  return explanation;
+}
+
 function quantity(
   response: Awaited<ReturnType<typeof semanticQuery>>,
 ): string[] {
@@ -263,7 +283,6 @@ async function main(): Promise<void> {
   const worldA = worldClient(adminA);
   const worldCommercialA = worldClient(commercialA);
   const worldB = worldClient(commercialB);
-  const historyA = historyClient(commercialA);
   const effectA = effectClient(commercialA);
   const computationA = computationClient(inventoryA);
   const admin = adminClient();
@@ -723,7 +742,7 @@ async function main(): Promise<void> {
       "submitDocument left fiscal.authorizationEvidenceDigest empty and admitDocumentAuthorization of HTTP 200 with revision 0 was denied",
     );
 
-    await commitReady(
+    const corrected = await commitReady(
       actionCommercialA,
       correctCommitment(commercial, "return-correction"),
     );
@@ -924,11 +943,35 @@ async function main(): Promise<void> {
         executed.status === ExecutionStatus.CAPABILITY_DENIED,
     );
 
-    const explanation = await explainOperation(
-      historyA,
+    const humanFresh = await oidcToken("human-a");
+    const commercialFresh = await oidcToken("commercial-agent-a");
+    const humanExplanation = await explainOperation(
+      historyClient(humanFresh),
       humanCommit.receipt.operationId,
     );
-    observe("causalExplanationReconstructsHumanCommit", explanation.complete === true);
+    if (humanExplanation.subject.case !== "action") {
+      throw new Error("human commit did not produce an Action explanation");
+    }
+    observe(
+      "causalExplanationReconstructsHumanCommit",
+      humanExplanation.subject.value.proposedBy?.principalId ===
+        "principal.human.a" &&
+        humanExplanation.subject.value.commit?.receipt?.operationId ===
+          humanCommit.receipt.operationId &&
+        humanExplanation.subject.value.definition?.reference?.digest ===
+          commercial.digest,
+    );
+    const correctionExplanation = await waitForCompleteExplanation(
+      historyClient(commercialFresh),
+      corrected.receipt.operationId,
+    );
+    observe(
+      "causalExplanationIsComplete",
+      correctionExplanation.complete === true &&
+        correctionExplanation.subject.case === "action" &&
+        correctionExplanation.subject.value.proposedBy?.principalId ===
+          "principal.commercial-agent.a",
+    );
 
     await waitRollout("deployment/web");
     const browser = await chromium.launch();
