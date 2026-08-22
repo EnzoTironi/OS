@@ -688,7 +688,7 @@ async function main(): Promise<void> {
       sourceId: "source.fiscal.integration",
       tenantId: tenantA,
       time: { at: manufacturingAt, kind: "instant" },
-      value: { kind: "decimal", value: "2.20" },
+      value: { kind: "decimal", value: "2.2" },
     });
     const submittedFiscal = await commitReady(
       actionFiscalA,

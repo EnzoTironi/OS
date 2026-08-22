@@ -683,7 +683,7 @@ export function applySettlement(fixture: CompanyFixture, suffix: string) {
     actionId: "accounting.applySettlement",
     fixture,
     inputs: [
-      { id: "amount", value: { kind: "decimal", value: "20.00" } },
+      { id: "amount", value: { kind: "decimal", value: "20" } },
       { id: "currency", value: { kind: "text", value: "BRL" } },
       {
         id: "operationReference",
