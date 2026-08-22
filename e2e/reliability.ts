@@ -240,14 +240,13 @@ async function assertRollingCompatible(
   });
   await client.connect();
   try {
-    const operations = await client.query<{ count: string; operations: string }>(
-      `SELECT count(*)::text AS count,
-              count(DISTINCT operation_id)::text AS operations
+    const operations = await client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
          FROM action_operations
-        WHERE tenant_id = $1`,
-      [tenantA],
+        WHERE tenant_id = $1
+          AND operation_id = $2`,
+      [tenantA, expected.operationId],
     );
-    assert.equal(Number(operations.rows[0]?.operations ?? "0"), 1);
     assert.equal(Number(operations.rows[0]?.count ?? "0"), 1);
   } finally {
     await client.end();

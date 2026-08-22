@@ -39,7 +39,7 @@ node --input-type=module -e '
 
 kubectl --namespace "${namespace}" exec "${primary}" -- \
   env PGUSER=postgres PGDATABASE=zoen PGHOST=/var/run/postgresql \
-  /wal-g/wal-g backup-push
+  /wal-g/wal-g backup-push /var/lib/postgresql/18/docker
 kubectl --namespace "${namespace}" exec "${primary}" -- \
   psql -U postgres -d zoen -c "SELECT pg_switch_wal();"
 

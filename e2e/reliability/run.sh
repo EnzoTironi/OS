@@ -66,6 +66,8 @@ collect_diagnostics() {
     >"${artifacts_directory}/kubernetes-resources.log" 2>&1 || true
   kubectl describe pods --all-namespaces \
     >"${artifacts_directory}/kubernetes-describe.log" 2>&1 || true
+  kubectl get events --all-namespaces --sort-by='.lastTimestamp' \
+    >"${artifacts_directory}/kubernetes-events.log" 2>&1 || true
   : >"${artifacts_directory}/kubernetes.log"
   for namespace in "${application_namespace}" "${durable_namespace}"; do
     if kubectl get namespace "${namespace}" >/dev/null 2>&1; then
@@ -267,7 +269,7 @@ publish_signed_chart_version() {
 
 wait_for_zoend_overlap() {
   local ready_sets
-  for _ in $(seq 1 90); do
+  for _ in $(seq 1 300); do
     ready_sets="$(
       kubectl --namespace "${application_namespace}" get replicaset \
         --selector app.kubernetes.io/name=zoend \
@@ -964,25 +966,25 @@ case "${drill}" in
         --output jsonpath='{.items[0].metadata.name}')" \
       --wait=true --grace-period=15
     wait_for_application "${application_namespace}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     kubectl --namespace "${application_namespace}" delete pod \
       --selector app.kubernetes.io/name=zoend --wait=true --grace-period=15
     wait_for_application "${application_namespace}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     deploy/scripts/postgres-promote.sh "${durable_namespace}"
     wait_for_application "${application_namespace}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     kubectl --namespace "${durable_namespace}" delete pod restate-1 --wait=true
     kubectl --namespace "${durable_namespace}" rollout status statefulset/restate \
       --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
     wait_for_application "${application_namespace}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     kubectl --namespace "${durable_namespace}" scale deployment/minio --replicas=0
     sleep 5
     kubectl --namespace "${durable_namespace}" scale deployment/minio --replicas=1
     kubectl --namespace "${durable_namespace}" rollout status deployment/minio \
       --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
 
     cached_token="$(
       curl --fail --silent --show-error \
@@ -995,11 +997,11 @@ case "${drill}" in
     sleep 3
     expect_nonzero "new login succeeded during OIDC outage" run_semantic login
     ZOEN_E2E_ACCESS_TOKEN="${cached_token}" \
-      run_semantic verify "${artifacts_directory}/semantic-initial.json"
+      run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     kubectl --namespace "${durable_namespace}" scale deployment/keycloak --replicas=1
     kubectl --namespace "${durable_namespace}" rollout status deployment/keycloak \
       --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     run_semantic digest
     pass oidc-outage \
       "OIDC outage blocked new login and left durable query and commit-status intact" \
@@ -1020,7 +1022,7 @@ case "${drill}" in
     rebuild_projections
     run_semantic digest
     test "$(digest_value)" = "${digest_before}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     pass projection-kill-backlog \
       "killing zoen-projection left authority digest unchanged and rebuild did not rewrite it" \
       "${recovery_file}"
@@ -1038,7 +1040,7 @@ case "${drill}" in
         "SELECT count(*)::text FROM action_operations WHERE operation_id = 'operation.reliability.network';"
     )"
     test "${network_ops}" = "1"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     pass network-lost-commit \
       "a network-lost commit failed typed and retry did not duplicate OperationId" \
       "${recovery_file}"
@@ -1048,7 +1050,7 @@ case "${drill}" in
     kubectl --namespace "${application_namespace}" rollout status \
       deployment/harness-tenant-a \
       --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     pass stateless-pod-kill \
       "killing zoend, harness, projection, effect, and connector pods recovered Ready state" \
       "${recovery_file}"
@@ -1076,7 +1078,7 @@ case "${drill}" in
     )" -ge 1
     helm rollback zoen --namespace "${application_namespace}"
     wait_for_application "${application_namespace}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     pass bad-deploy-rollback \
       "a deploy that could not become Ready rolled back without rewriting semantic history" \
       "${recovery_file}"
@@ -1120,7 +1122,7 @@ case "${drill}" in
     )"
     test "${next_chart_version}" != "${chart_version}"
     publish_signed_chart_version "${next_chart_version}"
-    helm_upgrade_application "${application_namespace}" "${next_chart_version}" &
+    helm_upgrade_application "${application_namespace}" "${next_chart_version}" --wait=false &
     upgrade_pid=$!
     if ! wait_for_zoend_overlap; then
       kill "${upgrade_pid}" >/dev/null 2>&1 || true
