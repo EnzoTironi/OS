@@ -33,6 +33,9 @@ metadata:
     {{- include "zoen.labels" . | nindent 4 }}
 data:
   policies.json: |
+{{- if .Values.policyManifest }}
+{{ .Values.policyManifest | nindent 4 }}
+{{- else }}
     {
       "policies": [
         {
@@ -53,4 +56,5 @@ data:
         }
       ]
     }
+{{- end }}
 {{- end }}

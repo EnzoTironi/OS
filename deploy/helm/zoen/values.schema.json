@@ -41,6 +41,9 @@
       "type": "string",
       "pattern": "^$|^[0-9a-f]{64}$"
     },
+    "policyManifest": {
+      "type": "string"
+    },
     "effects": {
       "type": "object",
       "additionalProperties": false,
