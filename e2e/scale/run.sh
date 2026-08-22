@@ -212,7 +212,8 @@ EOF
   zoen_create_kind_cluster "${cluster_name}" "${kind_config}"
   docker save "${third_party_images[@]}" |
     docker exec --privileged --interactive "${control_plane_node}" \
-      ctr --namespace=k8s.io images import --local --snapshotter=native --platform linux/amd64 -
+      ctr --namespace=k8s.io images import --local --snapshotter=native \
+      --platform "$(zoen_container_platform)" -
   docker network connect kind "${registry_name}" 2>/dev/null || true
 }
 
