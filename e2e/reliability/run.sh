@@ -369,7 +369,7 @@ assert_authority_rls() {
            JOIN pg_namespace AS n ON n.oid = c.relnamespace
           WHERE n.nspname = 'public' AND c.relname = '${table}';"
     )"
-    if [[ "${row}" != "t,t" ]]; then
+    if [[ "${row}" != "true,true" ]]; then
       echo "restore left RLS off on ${table}: ${row}" >&2
       exit 1
     fi
@@ -1037,9 +1037,13 @@ case "${drill}" in
       "OIDC outage blocked new login and left durable query and commit-status intact" \
       "${recovery_file}"
 
-    kubectl --namespace "${application_namespace}" scale deployment/harness-tenant-a --replicas=0
-    kubectl --namespace "${application_namespace}" wait --for=delete \
-      pod --selector app.kubernetes.io/name=harness-tenant-a --timeout=120s >/dev/null 2>&1 || true
+    for deploy in harness-tenant-a zoen-effect-dispatcher-tenant-a zoen-effect-worker; do
+      kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=0
+    done
+    for deploy in harness-tenant-a zoen-effect-dispatcher-tenant-a zoen-effect-worker; do
+      kubectl --namespace "${application_namespace}" wait --for=delete \
+        pod --selector "app.kubernetes.io/name=${deploy}" --timeout=120s
+    done
     digest_before="$(
       run_semantic digest
     )"
@@ -1056,9 +1060,11 @@ case "${drill}" in
     run_semantic digest
     test "$(digest_value)" = "${digest_before}"
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
-    kubectl --namespace "${application_namespace}" scale deployment/harness-tenant-a --replicas=1
-    kubectl --namespace "${application_namespace}" rollout status \
-      deployment/harness-tenant-a --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    for deploy in harness-tenant-a zoen-effect-dispatcher-tenant-a zoen-effect-worker; do
+      kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=1
+      kubectl --namespace "${application_namespace}" rollout status \
+        "deployment/${deploy}" --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    done
     pass projection-kill-backlog \
       "killing zoen-projection left authority digest unchanged and rebuild did not rewrite it" \
       "${recovery_file}"
