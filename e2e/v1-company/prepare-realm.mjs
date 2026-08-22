@@ -82,15 +82,22 @@ const commercialResources = [
   "commercial.order-line.1001",
   "party.organization.northstar",
   "party.person.ana",
+  "product.item.component",
+  "product.item.finished-widget",
   "product.item.widget-pro",
 ];
-const inventoryResources = ["inventory.position.widget-pro.wh-1"];
+const inventoryResources = [
+  "inventory.position.unrelated",
+  "inventory.position.widget-pro.wh-1",
+];
 const procurementResources = ["procurement.purchase-line.2001"];
 const manufacturingResources = [
   "manufacturing.bom.widget",
   "manufacturing.work.3001",
 ];
 const accountingResources = [
+  "accounting.account.receivable",
+  "accounting.account.revenue",
   "accounting.book.commercial",
   "accounting.claim.receivable.3001",
   "accounting.ledger.sales",
