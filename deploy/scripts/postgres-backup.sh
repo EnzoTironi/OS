@@ -22,8 +22,11 @@ node --input-type=module -e '
   import { readFile } from "node:fs/promises";
   import { parse } from "yaml";
   const classification = parse(await readFile(process.argv[1], "utf8"));
-  const tables = classification.authority?.postgresTables;
-  if (!Array.isArray(tables) || tables.length === 0) process.exit(1);
+  const tables = [
+    ...(classification.authority?.postgresTables ?? []),
+    ...(classification.authority?.referenceTables ?? []),
+  ];
+  if (tables.length === 0) process.exit(1);
   process.stdout.write(tables.join("\n"));
 ' "${classification}" |
   while IFS= read -r table; do
@@ -37,3 +40,17 @@ node --input-type=module -e '
       exit 1
     fi
   done
+
+sequence="$(
+  kubectl --namespace "${namespace}" exec "${primary}" -- \
+    psql -U postgres -d zoen -At -c \
+    "SELECT coalesce(max(commit_sequence), 0)::text FROM authority_commits;"
+)"
+if [[ -z "${sequence}" ]]; then
+  echo "backup could not read authority commit sequence" >&2
+  exit 1
+fi
+printf '%s\n' "${sequence}"
+if [[ -n "${ZOEN_E2E_ARTIFACTS_DIR:-}" ]]; then
+  printf '%s\n' "${sequence}" >"${ZOEN_E2E_ARTIFACTS_DIR}/backup-commit-sequence.txt"
+fi

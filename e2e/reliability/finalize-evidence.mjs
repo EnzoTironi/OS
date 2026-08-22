@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const [
@@ -39,6 +39,20 @@ try {
   rpoRto = null;
 }
 
+const backupSequencePath = path.join(
+  outputDirectory,
+  "backup-commit-sequence.txt",
+);
+let backupCommitSequence = null;
+try {
+  const raw = (await readFile(backupSequencePath, "utf8")).trim();
+  if (raw.length > 0) {
+    backupCommitSequence = Number(raw);
+  }
+} catch {
+  backupCommitSequence = null;
+}
+
 const evidence = {
   artifactSetDigest: sha256(metadataText.trim()),
   artifacts: {
@@ -64,6 +78,7 @@ const evidence = {
     },
     signingPublicKeyDigest: metadata.publicKeyDigest,
   },
+  backupCommitSequence,
   components: {
     kubernetes: "kind",
     objectStorage: "MinIO",
@@ -87,10 +102,9 @@ const evidence = {
   verdict: "PASS",
 };
 
-await writeFile(
-  path.join(outputDirectory, "evidence.json"),
-  `${JSON.stringify(evidence, null, 2)}\n`,
-);
+const evidencePath = path.join(outputDirectory, "evidence.json");
+await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+await assertNoSecrets(outputDirectory);
 process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 
 function parseRows(value) {
@@ -109,4 +123,67 @@ function parseRows(value) {
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+async function assertNoSecrets(directory) {
+  const forbidden = [
+    "postgres:postgres",
+    "zoen_app:zoen_app",
+    "zoen-secret",
+    "zoen-access",
+    "harness-a-secret",
+    "harness-b-secret",
+    "effect-worker-a-secret",
+    "effect-worker-b-secret",
+    "agent-a-secret",
+    "BEGIN COSIGN PRIVATE KEY",
+    "BEGIN RSA PRIVATE KEY",
+    "BEGIN OPENSSH PRIVATE KEY",
+    "BEGIN EC PRIVATE KEY",
+    "COSIGN_PRIVATE_KEY",
+  ];
+  const hits = [];
+  for (const file of await listEvidenceFiles(directory)) {
+    let text;
+    try {
+      text = await readFile(file, "utf8");
+    } catch {
+      continue;
+    }
+    for (const secret of forbidden) {
+      if (text.includes(secret)) {
+        hits.push(`${path.relative(directory, file)}:${secret}`);
+      }
+    }
+  }
+  if (hits.length > 0) {
+    throw new Error(`evidence contains secrets: ${hits.join(", ")}`);
+  }
+}
+
+async function listEvidenceFiles(directory) {
+  const files = [];
+  const entries = await readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "wal") {
+        continue;
+      }
+      files.push(...(await listEvidenceFiles(fullPath)));
+      continue;
+    }
+    if (entry.name.endsWith(".key")) {
+      throw new Error(`evidence contains private key file ${entry.name}`);
+    }
+    if (entry.name.endsWith(".tgz")) {
+      continue;
+    }
+    const info = await stat(fullPath);
+    if (info.size > 2_000_000) {
+      continue;
+    }
+    files.push(fullPath);
+  }
+  return files;
 }

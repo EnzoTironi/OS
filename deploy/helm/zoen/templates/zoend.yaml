@@ -36,6 +36,11 @@ metadata:
     {{- include "zoen.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.zoend.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: zoend
@@ -77,6 +82,10 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          lifecycle:
+            preStop:
+              exec:
+                command: [/bin/sleep, "5"]
           startupProbe:
             httpGet:
               path: /ready
@@ -88,6 +97,12 @@ spec:
               path: /ready
               port: http
             periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: policies
               mountPath: /etc/zoen/policies.json

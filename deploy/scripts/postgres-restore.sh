@@ -86,3 +86,28 @@ kubectl --namespace "${namespace}" scale statefulset postgres --replicas=1
 kubectl --namespace "${namespace}" rollout status statefulset/postgres --timeout=10m
 kubectl --namespace "${namespace}" exec "${primary}" -- \
   psql -U postgres -d zoen -c "SELECT pg_is_in_recovery();"
+
+if kubectl --namespace "${namespace}" get statefulset postgres-replica >/dev/null 2>&1; then
+  kubectl --namespace "${namespace}" exec "${primary}" -- \
+    psql -U postgres -d zoen -c \
+    "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = 'zoen_replica';" \
+    >/dev/null
+  kubectl --namespace "${namespace}" delete pvc data-postgres-replica-0 --ignore-not-found --wait=true
+  kubectl --namespace "${namespace}" scale statefulset postgres-replica --replicas=1
+  kubectl --namespace "${namespace}" rollout status statefulset/postgres-replica --timeout=10m
+  replica_ready="$(
+    kubectl --namespace "${namespace}" get statefulset postgres-replica \
+      --output jsonpath='{.status.readyReplicas}'
+  )"
+  running="$(
+    kubectl --namespace "${namespace}" get pods \
+      --selector app.kubernetes.io/name=postgres \
+      --field-selector status.phase=Running \
+      --no-headers |
+      wc -l | tr -d ' '
+  )"
+  if [[ "${replica_ready}" -lt 1 || "${running}" -lt 2 ]]; then
+    echo "HA restore left ${running} PostgreSQL instance(s); streaming replica is required" >&2
+    exit 1
+  fi
+fi

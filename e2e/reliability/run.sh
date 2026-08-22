@@ -153,6 +153,239 @@ pass() {
   printf '%s\t%s\t%s\n' "$1" PASS "$2" >>"$3"
 }
 
+digest_value() {
+  node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).authorityDigest)' \
+    "${artifacts_directory}/authority-digest.json"
+}
+
+classified_tables() {
+  node --input-type=module -e '
+    import { readFile } from "node:fs/promises";
+    import { parse } from "yaml";
+    const classification = parse(await readFile(process.argv[1], "utf8"));
+    const tables = [
+      ...(classification.authority?.postgresTables ?? []),
+      ...(classification.authority?.referenceTables ?? []),
+    ];
+    process.stdout.write(tables.join("\n"));
+  ' "${classification_file}"
+}
+
+postgres_primary_pod() {
+  kubectl --namespace "${durable_namespace}" get pod \
+    --selector 'app.kubernetes.io/name=postgres,zoen.dev/postgres-role=primary' \
+    --output jsonpath='{.items[0].metadata.name}'
+}
+
+postgres_exec() {
+  kubectl --namespace "${durable_namespace}" exec "$(postgres_primary_pod)" -- \
+    psql -U postgres -d zoen "$@"
+}
+
+backup_commit_sequence() {
+  tr -d '[:space:]' <"${artifacts_directory}/backup-commit-sequence.txt"
+}
+
+expect_nonzero() {
+  local description="$1"
+  shift
+  if ! command -v "$1" >/dev/null 2>&1 && ! declare -F "$1" >/dev/null 2>&1; then
+    echo "missing command $1 for ${description}" >&2
+    exit 1
+  fi
+  if "$@"; then
+    echo "${description}" >&2
+    exit 1
+  fi
+}
+
+helm_upgrade_application() {
+  local namespace="$1"
+  local version="$2"
+  shift 2
+  helm upgrade zoen \
+    "oci://${registry_address}/zoen/charts/zoen" \
+    --version "${version}" \
+    --plain-http \
+    --namespace "${namespace}" \
+    --values "${profile_values}" \
+    --values "${overlay_values}" \
+    --values "${generated_directory}/ports.yaml" \
+    "${artifact_flags[@]}" \
+    "$@"
+}
+
+publish_signed_chart_version() {
+  local version="$1"
+  local signing_config="${artifact_cache}/cosign-signing-config.json"
+  local chart_sbom="${artifact_cache}/chart.spdx.json"
+  local package_path="${artifact_cache}/zoen-${version}.tgz"
+  if [[ ! -f "${signing_config}" || ! -f "${chart_sbom}" ]]; then
+    echo "signed chart cache is missing signing config or SBOM" >&2
+    exit 1
+  fi
+  helm package deploy/helm/zoen \
+    --version "${version}" \
+    --app-version "${version}" \
+    --destination "${artifact_cache}"
+  helm push "${package_path}" "oci://${registry_address}/zoen/charts" --plain-http
+  local digest
+  digest="$(
+    curl --silent --show-error --head \
+      --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      "http://${registry_address}/v2/zoen/charts/zoen/manifests/${version}" |
+      awk 'tolower($1) == "docker-content-digest:" {gsub("\r", "", $2); print $2}'
+  )"
+  test -n "${digest}"
+  local chart_ref="${registry_address}/zoen/charts/zoen@${digest}"
+  COSIGN_PASSWORD="" cosign sign \
+    --yes \
+    --allow-insecure-registry \
+    --signing-config "${signing_config}" \
+    --key "${cosign_key}.key" \
+    "${chart_ref}"
+  COSIGN_PASSWORD="" cosign attest \
+    --yes \
+    --allow-insecure-registry \
+    --signing-config "${signing_config}" \
+    --key "${cosign_key}.key" \
+    --predicate "${chart_sbom}" \
+    --type spdxjson \
+    "${chart_ref}"
+  cosign verify \
+    --allow-insecure-registry \
+    --insecure-ignore-tlog \
+    --key "${cosign_key}.pub" \
+    "${chart_ref}" >/dev/null
+  cosign verify-attestation \
+    --allow-insecure-registry \
+    --insecure-ignore-tlog \
+    --key "${cosign_key}.pub" \
+    --type spdxjson \
+    "${chart_ref}" >/dev/null
+}
+
+wait_for_zoend_overlap() {
+  local ready_sets
+  for _ in $(seq 1 90); do
+    ready_sets="$(
+      kubectl --namespace "${application_namespace}" get replicaset \
+        --selector app.kubernetes.io/name=zoend \
+        --output jsonpath='{range .items[*]}{.status.readyReplicas}{"\n"}{end}' |
+        awk '$1+0 > 0 { count += 1 } END { print count+0 }'
+    )"
+    if [[ "${ready_sets}" -ge 2 ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "zoend old and new ReplicaSets did not overlap during rolling upgrade" >&2
+  return 1
+}
+
+drop_postgres_network() {
+  local postgres_ip
+  postgres_ip="$(
+    kubectl --namespace "${durable_namespace}" get pod \
+      --selector 'app.kubernetes.io/name=postgres,zoen.dev/postgres-role=primary' \
+      --output jsonpath='{.items[0].status.podIP}'
+  )"
+  if [[ -z "${postgres_ip}" ]]; then
+    echo "no postgres primary IP for network-loss mutant" >&2
+    exit 1
+  fi
+  printf '%s\n' "${postgres_ip}" >"${generated_directory}/blocked-postgres-ip"
+  cat <<EOF | kubectl apply --filename -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zoen-chaos-drop-postgres
+  namespace: ${application_namespace}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: zoend
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+EOF
+  docker exec "${control_plane_node}" \
+    iptables -I FORWARD 1 -p tcp -d "${postgres_ip}" --dport 5432 -j DROP
+  docker exec "${control_plane_node}" \
+    iptables -I OUTPUT 1 -p tcp -d "${postgres_ip}" --dport 5432 -j DROP
+}
+
+restore_postgres_network() {
+  kubectl --namespace "${application_namespace}" delete networkpolicy \
+    zoen-chaos-drop-postgres --ignore-not-found >/dev/null
+  local postgres_ip=""
+  if [[ -f "${generated_directory}/blocked-postgres-ip" ]]; then
+    postgres_ip="$(tr -d '[:space:]' <"${generated_directory}/blocked-postgres-ip")"
+  fi
+  if [[ -n "${postgres_ip}" ]]; then
+    docker exec "${control_plane_node}" \
+      iptables -D FORWARD -p tcp -d "${postgres_ip}" --dport 5432 -j DROP \
+      >/dev/null 2>&1 || true
+    docker exec "${control_plane_node}" \
+      iptables -D OUTPUT -p tcp -d "${postgres_ip}" --dport 5432 -j DROP \
+      >/dev/null 2>&1 || true
+  fi
+}
+
+kill_stateless_application() {
+  local name
+  for name in \
+    zoend \
+    harness-tenant-a \
+    zoen-projection \
+    zoen-effect-dispatcher-tenant-a \
+    zoen-effect-worker \
+    zoen-http-connector; do
+    kubectl --namespace "${application_namespace}" delete pod \
+      --selector "app.kubernetes.io/name=${name}" \
+      --wait=true --grace-period=15 --ignore-not-found >/dev/null
+  done
+}
+
+assert_authority_rls() {
+  local table
+  local row
+  while IFS= read -r table; do
+    [[ -z "${table}" ]] && continue
+    row="$(
+      postgres_exec -At -c \
+        "SELECT c.relrowsecurity::text || ',' || c.relforcerowsecurity::text
+           FROM pg_class AS c
+           JOIN pg_namespace AS n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relname = '${table}';"
+    )"
+    if [[ "${row}" != "t,t" ]]; then
+      echo "restore left RLS off on ${table}: ${row}" >&2
+      exit 1
+    fi
+  done < <(classified_tables)
+}
+
+ready_http() {
+  local body_file="${generated_directory}/ready-body.txt"
+  local code
+  code="$(
+    curl --silent --show-error --max-time 5 \
+      --output "${body_file}" \
+      --write-out '%{http_code}' \
+      "http://127.0.0.1:${ZOEN_E2E_ZOEND_PORT}/ready" || true
+  )"
+  printf '%s' "${code:-000}"
+}
+
 write_ports_values() {
   cat >"${generated_directory}/ports.yaml" <<EOF
 global:
@@ -284,13 +517,14 @@ install_dependencies() {
 
 install_application() {
   local namespace="$1"
+  local version="${2:-${chart_version}}"
   kubectl create namespace "${namespace}"
   zoen_create_runtime_secret \
     "${namespace}" \
     "postgres.${durable_namespace}.svc.cluster.local"
   helm upgrade --install zoen \
     "oci://${registry_address}/zoen/charts/zoen" \
-    --version "${chart_version}" \
+    --version "${version}" \
     --plain-http \
     --namespace "${namespace}" \
     --values "${profile_values}" \
@@ -327,23 +561,17 @@ run_semantic() {
 
 authority_tables_present() {
   local table
-  node --input-type=module -e '
-    import { readFile } from "node:fs/promises";
-    import { parse } from "yaml";
-    const classification = parse(await readFile(process.argv[1], "utf8"));
-    process.stdout.write(classification.authority.postgresTables.join("\n"));
-  ' "${classification_file}" |
-    while IFS= read -r table; do
-      [[ -z "${table}" ]] && continue
-      exists="$(
-        kubectl --namespace "${durable_namespace}" exec sts/postgres -- \
-          psql -U postgres -d zoen -At -c "SELECT to_regclass('public.${table}') IS NOT NULL;"
-      )"
-      if [[ "${exists}" != "t" ]]; then
-        echo "authority table ${table} missing after restore" >&2
-        exit 1
-      fi
-    done
+  local exists
+  while IFS= read -r table; do
+    [[ -z "${table}" ]] && continue
+    exists="$(
+      postgres_exec -At -c "SELECT to_regclass('public.${table}') IS NOT NULL;"
+    )"
+    if [[ "${exists}" != "t" ]]; then
+      echo "authority table ${table} missing after restore" >&2
+      exit 1
+    fi
+  done < <(classified_tables)
 }
 
 mirror_wal_to_host() {
@@ -392,14 +620,55 @@ fresh_restore() {
     ZOEN_WAL_BUCKET=zoen-wal \
     deploy/scripts/postgres-restore.sh "${durable_namespace}"
   authority_tables_present
-  if curl --silent --show-error "http://127.0.0.1:${ZOEN_E2E_ZOEND_PORT}/ready" >/dev/null 2>&1; then
-    echo "application accepted traffic before restore integrity" >&2
+  assert_authority_rls
+  local restored_sequence
+  restored_sequence="$(
+    postgres_exec -At -c \
+      "SELECT coalesce(max(commit_sequence), 0)::text FROM authority_commits;"
+  )"
+  test "${restored_sequence}" = "$(backup_commit_sequence)"
+  postgres_exec -c "ALTER TABLE definition_revisions RENAME TO definition_revisions_hidden;"
+  install_application "${application_namespace}"
+  local zoend_pod=""
+  local _attempt
+  for _attempt in $(seq 1 60); do
+    zoend_pod="$(
+      kubectl --namespace "${application_namespace}" get pod \
+        --selector app.kubernetes.io/name=zoend \
+        --output jsonpath='{.items[0].metadata.name}' 2>/dev/null || true
+    )"
+    if [[ -n "${zoend_pod}" ]]; then
+      break
+    fi
+    sleep 2
+  done
+  if [[ -z "${zoend_pod}" ]]; then
+    echo "zoend pod was never created after restore" >&2
     exit 1
   fi
+  kubectl --namespace "${application_namespace}" get service zoend >/dev/null
+  local ready_count
+  local ready_code
+  for _attempt in $(seq 1 15); do
+    ready_count="$(
+      kubectl --namespace "${application_namespace}" get deployment zoend \
+        --output jsonpath='{.status.readyReplicas}'
+    )"
+    if [[ "${ready_count:-0}" -gt 0 ]]; then
+      echo "zoend became Ready before restore integrity" >&2
+      exit 1
+    fi
+    ready_code="$(ready_http)"
+    if [[ "${ready_code}" == "200" ]]; then
+      echo "zoend /ready returned 200 before restore integrity" >&2
+      exit 1
+    fi
+    sleep 2
+  done
   pass traffic-before-integrity \
-    "the application was not Ready until restore integrity completed" \
+    "a Running zoend stayed unready until migrate and integrity succeeded" \
     "${mutants_file}"
-  install_application "${application_namespace}"
+  postgres_exec -c "ALTER TABLE definition_revisions_hidden RENAME TO definition_revisions;"
   wait_for_application "${application_namespace}"
   kubectl --namespace "${application_namespace}" rollout status \
     deployment/harness-tenant-a \
@@ -407,10 +676,7 @@ fresh_restore() {
   rebuild_projections
   run_semantic verify "${artifacts_directory}/semantic-before-restore.json"
   run_semantic digest
-  test "$(
-    node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).authorityDigest)' \
-      "${artifacts_directory}/authority-digest.json"
-  )" = "${digest_before}"
+  test "$(digest_value)" = "${digest_before}"
   if [[ -n "${cut_at}" ]]; then
     measure_rpo_rto "${cut_at}"
   fi
@@ -422,10 +688,10 @@ measure_rpo_rto() {
   healthy_at="$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
   local restored
   restored="$(
-    kubectl --namespace "${durable_namespace}" exec sts/postgres -- \
-      psql -U postgres -d zoen -At -c \
+    postgres_exec -At -c \
       "SELECT coalesce(string_agg(claim_id, ',' ORDER BY claim_id), '') FROM semantic_claims WHERE claim_id LIKE 'claim.canary.%';"
   )"
+  ZOEN_BACKUP_COMMIT_SEQUENCE="$(backup_commit_sequence)" \
   node --input-type=module -e '
     import { readFile, writeFile } from "node:fs/promises";
     const canaries = (await readFile(process.argv[1], "utf8"))
@@ -448,7 +714,12 @@ measure_rpo_rto() {
     if (measuredRTOSeconds >= 1800) {
       throw new Error(`measured RTO ${measuredRTOSeconds}s exceeds 30 minutes`);
     }
+    const backupCommitSequence = Number(process.env.ZOEN_BACKUP_COMMIT_SEQUENCE ?? "");
+    if (!Number.isInteger(backupCommitSequence)) {
+      throw new Error("backup commit sequence is required for RPO evidence");
+    }
     const report = {
+      backupCommitSequence,
       cutAt: process.argv[3],
       healthyAt: process.argv[4],
       measuredRPOSeconds,
@@ -509,11 +780,18 @@ EOF
 }
 
 live_mutants() {
-  kubectl --namespace "${durable_namespace}" exec sts/postgres -- \
-    psql -U postgres -d zoen -c "DROP TABLE definition_revisions CASCADE;"
+  postgres_exec -c "DROP TABLE definition_revisions CASCADE;"
   sleep 4
-  if curl --fail --silent --show-error "http://127.0.0.1:${ZOEN_E2E_ZOEND_PORT}/ready" >/dev/null; then
+  local body_file="${generated_directory}/ready-body.txt"
+  local code
+  code="$(ready_http)"
+  if [[ "${code}" == "200" ]]; then
     echo "restore missing definition revisions mutant survived /ready" >&2
+    exit 1
+  fi
+  if ! grep -q "authority table definition_revisions is missing" "${body_file}" \
+    && [[ "${code}" != "000" && "${code}" != "503" ]]; then
+    echo "missing definition revisions did not fail /ready: HTTP ${code}" >&2
     exit 1
   fi
   pass restore-missing-definition-revisions \
@@ -522,15 +800,78 @@ live_mutants() {
 }
 
 rls_mutant() {
-  kubectl --namespace "${durable_namespace}" exec sts/postgres -- \
-    psql -U postgres -d zoen -c "ALTER TABLE semantic_claims DISABLE ROW LEVEL SECURITY;"
+  assert_authority_rls
+  postgres_exec -At -c "SELECT to_regclass('public.semantic_claims') IS NOT NULL;" | grep -qx t
+  postgres_exec -c "ALTER TABLE semantic_claims DISABLE ROW LEVEL SECURITY;"
   sleep 4
-  if curl --fail --silent --show-error "http://127.0.0.1:${ZOEN_E2E_ZOEND_PORT}/ready" >/dev/null; then
+  local body_file="${generated_directory}/ready-body.txt"
+  local code
+  code="$(ready_http)"
+  if [[ "${code}" == "200" ]]; then
     echo "RLS disabled mutant survived /ready" >&2
     exit 1
   fi
+  if grep -q "authority table semantic_claims is missing" "${body_file}"; then
+    echo "RLS mutant failed as MissingTable instead of RlsDisabled" >&2
+    exit 1
+  fi
+  if ! grep -q "row-level security is disabled on semantic_claims" "${body_file}"; then
+    echo "RLS mutant did not return IntegrityError::RlsDisabled: HTTP ${code} $(cat "${body_file}")" >&2
+    exit 1
+  fi
+  postgres_exec -c "ALTER TABLE semantic_claims ENABLE ROW LEVEL SECURITY;"
+  postgres_exec -c "ALTER TABLE semantic_claims FORCE ROW LEVEL SECURITY;"
+  local restored_ready=""
+  local _attempt
+  for _attempt in $(seq 1 30); do
+    if [[ "$(ready_http)" == "200" ]]; then
+      restored_ready=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "${restored_ready}" != "1" ]]; then
+    echo "zoend did not become Ready after RLS was re-enabled" >&2
+    exit 1
+  fi
   pass rls-disabled-after-restore \
-    "/ready failed after RLS was disabled" \
+    "/ready failed with RlsDisabled on a restored semantic_claims table" \
+    "${mutants_file}"
+}
+
+effect_from_restate_only_mutant() {
+  local deployments
+  deployments="$(
+    curl --fail --silent --show-error \
+      "http://127.0.0.1:${ZOEN_E2E_RESTATE_UI_PORT}/deployments"
+  )"
+  if ! printf '%s' "${deployments}" | grep -q 'harness-tenant-a'; then
+    echo "Restate has no harness deployment; cannot prove Restate-as-authority mutant" >&2
+    exit 1
+  fi
+  local effect_count
+  effect_count="$(postgres_exec -At -c "SELECT count(*)::text FROM effect_requests;")"
+  if [[ "${effect_count}" -lt 1 ]]; then
+    echo "Postgres effect_requests is empty; cannot wipe authority while Restate has state" >&2
+    exit 1
+  fi
+  postgres_exec -c \
+    "TRUNCATE effect_dispatches, effect_dispatch_attempts, effect_reconciliations, effect_evidence, effect_attempt_claims, effect_attempts, effect_requests CASCADE;"
+  if ZOEN_E2E_EFFECT_WAIT_ATTEMPTS=5 \
+    run_semantic verify "${artifacts_directory}/semantic-before-restore.json"; then
+    echo "effect-from-restate-only mutant survived after wiping Postgres effect tables" >&2
+    exit 1
+  fi
+  deployments="$(
+    curl --fail --silent --show-error \
+      "http://127.0.0.1:${ZOEN_E2E_RESTATE_UI_PORT}/deployments"
+  )"
+  if ! printf '%s' "${deployments}" | grep -q 'harness-tenant-a'; then
+    echo "Restate lost deployments during the effect-authority mutant" >&2
+    exit 1
+  fi
+  pass effect-from-restate-only \
+    "wiping Postgres effect_* while Restate still had deployments failed semantic integrity" \
     "${mutants_file}"
 }
 
@@ -557,6 +898,7 @@ artifact_flags=(
   --set-string "images.node.digest=${node_digest}"
 )
 write_ports_values
+printf '{}\n' >"${generated_directory}/realm.json"
 
 helm template zoen-dependencies "${chart_package}" \
   --namespace "${durable_namespace}" \
@@ -565,6 +907,7 @@ helm template zoen-dependencies "${chart_package}" \
   --values "${generated_directory}/ports.yaml" \
   --set "applications.enabled=false" \
   --set "reference.enabled=true" \
+  --set-file "keycloak.realmJson=${generated_directory}/realm.json" \
   "${artifact_flags[@]}" \
   >"${generated_directory}/overlay-deps.yaml"
 helm template zoen-dependencies "${chart_package}" \
@@ -573,6 +916,7 @@ helm template zoen-dependencies "${chart_package}" \
   --values "${generated_directory}/ports.yaml" \
   --set "applications.enabled=false" \
   --set "reference.enabled=true" \
+  --set-file "keycloak.realmJson=${generated_directory}/realm.json" \
   "${artifact_flags[@]}" \
   >"${generated_directory}/reference-deps.yaml"
 helm template zoen "${chart_package}" \
@@ -639,12 +983,107 @@ case "${drill}" in
     kubectl --namespace "${durable_namespace}" rollout status deployment/minio \
       --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
     run_semantic verify "${artifacts_directory}/semantic-initial.json"
-    pass ha-failover \
-      "zoend, Postgres primary, Restate, and object-store faults kept semantic authority" \
+
+    cached_token="$(
+      curl --fail --silent --show-error \
+        --data 'client_id=agent-a&client_secret=agent-a-secret&grant_type=client_credentials' \
+        "http://127.0.0.1:${ZOEN_E2E_KEYCLOAK_PORT}/realms/zoen/protocol/openid-connect/token" |
+        node -e 'let s=""; process.stdin.on("data", (d) => s += d); process.stdin.on("end", () => process.stdout.write(JSON.parse(s).access_token));'
+    )"
+    test -n "${cached_token}"
+    kubectl --namespace "${durable_namespace}" scale deployment/keycloak --replicas=0
+    sleep 3
+    expect_nonzero "new login succeeded during OIDC outage" run_semantic login
+    ZOEN_E2E_ACCESS_TOKEN="${cached_token}" \
+      run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    kubectl --namespace "${durable_namespace}" scale deployment/keycloak --replicas=1
+    kubectl --namespace "${durable_namespace}" rollout status deployment/keycloak \
+      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    run_semantic digest
+    pass oidc-outage \
+      "OIDC outage blocked new login and left durable query and commit-status intact" \
       "${recovery_file}"
-    pass effect-from-restate-only \
-      "effect authority remained in Postgres through Restate restart" \
-      "${mutants_file}"
+
+    digest_before="$(
+      run_semantic digest
+    )"
+    kubectl --namespace "${application_namespace}" delete pod \
+      --selector app.kubernetes.io/name=zoen-projection --wait=true
+    kubectl --namespace "${application_namespace}" scale deployment/zoen-projection --replicas=0
+    sleep 2
+    kubectl --namespace "${application_namespace}" scale deployment/zoen-projection --replicas=1
+    kubectl --namespace "${application_namespace}" rollout status \
+      deployment/zoen-projection --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    run_semantic digest
+    test "$(digest_value)" = "${digest_before}"
+    rebuild_projections
+    run_semantic digest
+    test "$(digest_value)" = "${digest_before}"
+    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    pass projection-kill-backlog \
+      "killing zoen-projection left authority digest unchanged and rebuild did not rewrite it" \
+      "${recovery_file}"
+
+    run_semantic propose operation.reliability.network proposal.reliability.network
+    drop_postgres_network
+    expect_nonzero "commit succeeded while zoend could not reach postgres" \
+      timeout 30 node dist/e2e/reliability.js commit \
+      operation.reliability.network proposal.reliability.network
+    restore_postgres_network
+    sleep 2
+    run_semantic commit operation.reliability.network proposal.reliability.network
+    network_ops="$(
+      postgres_exec -At -c \
+        "SELECT count(*)::text FROM action_operations WHERE operation_id = 'operation.reliability.network';"
+    )"
+    test "${network_ops}" = "1"
+    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    pass network-lost-commit \
+      "a network-lost commit failed typed and retry did not duplicate OperationId" \
+      "${recovery_file}"
+
+    kill_stateless_application
+    wait_for_application "${application_namespace}"
+    kubectl --namespace "${application_namespace}" rollout status \
+      deployment/harness-tenant-a \
+      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    pass stateless-pod-kill \
+      "killing zoend, harness, projection, effect, and connector pods recovered Ready state" \
+      "${recovery_file}"
+
+    helm_upgrade_application "${application_namespace}" "${chart_version}" \
+      --set-string "images.rust.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    bad_deploy=0
+    for _ in $(seq 1 30); do
+      if kubectl --namespace "${application_namespace}" get pods \
+        --selector app.kubernetes.io/name=zoend \
+        --output jsonpath='{range .items[*]}{.status.containerStatuses[0].state.waiting.reason}{"\n"}{end}' |
+        grep -Eq 'ImagePullBackOff|ErrImagePull'; then
+        bad_deploy=1
+        break
+      fi
+      sleep 2
+    done
+    if [[ "${bad_deploy}" -ne 1 ]]; then
+      echo "bad deploy did not produce a non-Ready zoend" >&2
+      exit 1
+    fi
+    test "$(
+      kubectl --namespace "${application_namespace}" get deployment zoend \
+        --output jsonpath='{.status.readyReplicas}'
+    )" -ge 1
+    helm rollback zoen --namespace "${application_namespace}"
+    wait_for_application "${application_namespace}"
+    run_semantic verify "${artifacts_directory}/semantic-initial.json"
+    pass bad-deploy-rollback \
+      "a deploy that could not become Ready rolled back without rewriting semantic history" \
+      "${recovery_file}"
+
+    pass ha-failover \
+      "zoend, Postgres primary, Restate, object-store, OIDC, projection, network, and bad-deploy faults kept semantic authority" \
+      "${recovery_file}"
     ;;
   backup-restore)
     kubectl --namespace "${durable_namespace}" exec deploy/minio -- \
@@ -653,62 +1092,53 @@ case "${drill}" in
     pass backup-fresh-restore \
       "wal-g backup restored into a new kind cluster with an unchanged authority digest" \
       "${recovery_file}"
-    pass effect-from-restate-only \
+    pass effect-authority-postgres \
       "empty Restate after restore reconciled effects from Postgres authority" \
-      "${mutants_file}"
-    kubectl --namespace "${durable_namespace}" exec sts/postgres -- \
-      psql -U postgres -d zoen -c "TRUNCATE projection_watermarks, projection_manifests;"
+      "${recovery_file}"
+    rls_mutant
+    postgres_exec -c "TRUNCATE projection_watermarks, projection_manifests;"
     rebuild_projections
     run_semantic digest
-    test "$(
-      node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).authorityDigest)' \
-        "${artifacts_directory}/authority-digest.json"
-    )" = "$(tr -d '\n' <"${artifacts_directory}/authority-digest-before.txt")"
+    test "$(digest_value)" = "$(tr -d '\n' <"${artifacts_directory}/authority-digest-before.txt")"
     pass projection-rebuildable \
       "wiping projection watermarks and rebuilding left authority digest unchanged" \
       "${mutants_file}"
+    effect_from_restate_only_mutant
     live_mutants
-    rls_mutant
     ;;
   rolling-upgrade)
-    helm upgrade zoen \
-      "oci://${registry_address}/zoen/charts/zoen" \
-      --version "${chart_version}" \
-      --plain-http \
-      --namespace "${application_namespace}" \
-      --values "${profile_values}" \
-      --values "${overlay_values}" \
-      --values "${generated_directory}/ports.yaml" \
-      --set-string "migration.compatibility=previous" \
-      "${artifact_flags[@]}"
-    wait_for_application "${application_namespace}"
-    helm upgrade zoen \
-      "oci://${registry_address}/zoen/charts/zoen" \
-      --version "${chart_version}" \
-      --plain-http \
-      --namespace "${application_namespace}" \
-      --values "${profile_values}" \
-      --values "${overlay_values}" \
-      --values "${generated_directory}/ports.yaml" \
-      --set-string "migration.compatibility=current" \
-      "${artifact_flags[@]}"
+    npm run buf:breaking
+    next_chart_version="$(
+      node -e '
+        const parts = process.argv[1].split(".").map((value) => Number(value));
+        if (parts.length !== 3 || parts.some((value) => !Number.isInteger(value))) {
+          process.exit(1);
+        }
+        parts[2] += 1;
+        process.stdout.write(parts.join("."));
+      ' "${chart_version}"
+    )"
+    test "${next_chart_version}" != "${chart_version}"
+    publish_signed_chart_version "${next_chart_version}"
+    helm_upgrade_application "${application_namespace}" "${next_chart_version}" &
+    upgrade_pid=$!
+    if ! wait_for_zoend_overlap; then
+      kill "${upgrade_pid}" >/dev/null 2>&1 || true
+      wait "${upgrade_pid}" >/dev/null 2>&1 || true
+      exit 1
+    fi
+    wait "${upgrade_pid}"
     wait_for_application "${application_namespace}"
     run_semantic verify "${artifacts_directory}/semantic-initial.json"
     run_semantic digest
-    local_digest="$(
-      node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).authorityDigest)' \
-        "${artifacts_directory}/authority-digest.json"
-    )"
+    local_digest="$(digest_value)"
     helm rollback zoen --namespace "${application_namespace}"
     wait_for_application "${application_namespace}"
     run_semantic verify "${artifacts_directory}/semantic-initial.json"
     run_semantic digest
-    test "$(
-      node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).authorityDigest)' \
-        "${artifacts_directory}/authority-digest.json"
-    )" = "${local_digest}"
+    test "$(digest_value)" = "${local_digest}"
     pass rolling-upgrade \
-      "compatible rolling upgrade and application rollback preserved semantic history" \
+      "two sequential signed chart versions overlapped zoend replicas and application rollback preserved semantic history" \
       "${recovery_file}"
     ;;
   rpo-rto)
@@ -717,8 +1147,7 @@ case "${drill}" in
       run_semantic canary
       sleep 5
     done
-    kubectl --namespace "${durable_namespace}" exec sts/postgres -- \
-      psql -U postgres -d zoen -c "SELECT pg_switch_wal();"
+    postgres_exec -c "SELECT pg_switch_wal();"
     sleep 2
     cut_at="$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
     fresh_restore "${cut_at}"

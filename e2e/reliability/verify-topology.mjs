@@ -43,11 +43,16 @@ assert.equal(referenceRestate[0]?.spec?.replicas, 1);
 const zoend = deployments(application, "zoend");
 assert.equal(zoend.length, 1);
 assert.ok((zoend[0]?.spec?.replicas ?? 0) >= 2);
-const container = zoend[0]?.spec?.template?.spec?.containers?.[0];
+const spec = zoend[0]?.spec;
+const container = spec?.template?.spec?.containers?.[0];
+assert.equal(Number(spec?.strategy?.rollingUpdate?.maxUnavailable), 0);
 assert.equal(container?.readinessProbe?.httpGet?.path, "/ready");
 assert.equal(container?.startupProbe?.httpGet?.path, "/ready");
+assert.equal(container?.livenessProbe?.httpGet?.path, "/ready");
+assert.equal(container?.lifecycle?.preStop?.exec?.command?.[0], "/bin/sleep");
 assert.equal(container?.readinessProbe?.tcpSocket, undefined);
 assert.equal(container?.startupProbe?.tcpSocket, undefined);
+assert.equal(container?.livenessProbe?.tcpSocket, undefined);
 
 function parseManifest(text) {
   return parseAllDocuments(text)
