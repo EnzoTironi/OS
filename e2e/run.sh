@@ -108,6 +108,9 @@ resolve_scenario() {
       if [[ "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
         runner="dist/e2e/reliability.js"
       fi
+      if [[ "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
+        runner="dist/e2e/scale.js"
+      fi
       load_scenario_env
       return
     fi
