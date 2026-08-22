@@ -593,18 +593,21 @@ wal_host_directory() {
   (cd "${artifacts_directory}/wal" && pwd)
 }
 
-mirror_wal_to_host() {
+run_mc() {
   docker run --rm --network host \
+    --env "MC_HOST_local=http://zoen-access:zoen-secret@127.0.0.1:${ZOEN_E2E_MINIO_PORT}" \
     --volume "$(wal_host_directory):/wal" \
     minio/mc:RELEASE.2025-07-21T05-28-08Z \
-    sh -c "mc alias set local http://127.0.0.1:${ZOEN_E2E_MINIO_PORT} zoen-access zoen-secret && mc mirror --overwrite local/zoen-wal /wal"
+    "$@"
+}
+
+mirror_wal_to_host() {
+  run_mc mirror --overwrite local/zoen-wal /wal
 }
 
 restore_wal_to_cluster() {
-  docker run --rm --network host \
-    --volume "$(wal_host_directory):/wal" \
-    minio/mc:RELEASE.2025-07-21T05-28-08Z \
-    sh -c "mc alias set local http://127.0.0.1:${ZOEN_E2E_MINIO_PORT} zoen-access zoen-secret && mc mb --ignore-existing local/zoen-wal && mc mirror --overwrite /wal local/zoen-wal"
+  run_mc mb --ignore-existing local/zoen-wal
+  run_mc mirror --overwrite /wal local/zoen-wal
 }
 
 rebuild_projections() {
@@ -1019,18 +1022,15 @@ case "${drill}" in
         node -e 'let s=""; process.stdin.on("data", (d) => s += d); process.stdin.on("end", () => process.stdout.write(JSON.parse(s).access_token));'
     )"
     test -n "${cached_token}"
-    kubectl --namespace "${durable_namespace}" scale deployment/keycloak --replicas=0
+    kubectl --namespace "${durable_namespace}" patch service keycloak --type merge \
+      --patch '{"spec":{"selector":{"app.kubernetes.io/name":"keycloak-outage"}}}'
     sleep 3
     expect_nonzero "new login succeeded during OIDC outage" run_semantic login
     ZOEN_E2E_ACCESS_TOKEN="${cached_token}" \
       run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
-    kubectl --namespace "${durable_namespace}" scale deployment/keycloak --replicas=1
-    kubectl --namespace "${durable_namespace}" rollout status deployment/keycloak \
-      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    kubectl --namespace "${durable_namespace}" patch service keycloak --type merge \
+      --patch '{"spec":{"selector":{"app.kubernetes.io/name":"keycloak"}}}'
     wait_for_oidc
-    # zoend loads JWKS once at start; rolling it picks up Keycloak's new keys
-    kubectl --namespace "${application_namespace}" rollout restart deployment/zoend
-    wait_for_application "${application_namespace}"
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     run_semantic digest
     pass oidc-outage \

@@ -26,4 +26,5 @@ ts	phase	decision	why	evidence	result
 2026-08-22T03:59:31Z	fix	wal-g backup-push as postgres; classified tables checked before push; rolling verify ignores commit watermark and fails if OperationId duplicates	deploy/scripts/postgres-backup.sh,e2e/reliability.ts,e2e/reliability/run.sh	passed
 2026-08-22T04:33:21Z	fix	ha-chaos uses verify-rolling; wal-g backup-push of PGDATA; helm upgrade --wait=false with 10m overlap poll; events in diagnostics	e2e/reliability/run.sh,deploy/scripts/postgres-backup.sh	passed
 2026-08-22T04:58:00Z	fix	iterate classified tables in the backup script shell so a missing last table cannot skip the check; mutant requires the missing-table refusal	deploy/scripts/postgres-backup.sh,e2e/reliability/run.sh	passed
-2026-08-22T05:35:00Z	fix	bind-mount WAL mirror with an absolute host path; wait for Keycloak login then roll zoend so JWKS reloads; retry kind create four times	e2e/reliability/run.sh,e2e/lib/kubernetes.sh	implementing
+2026-08-22T05:35:00Z	fix	bind-mount WAL mirror with an absolute host path; wait for Keycloak login then roll zoend so JWKS reloads; retry kind create four times	e2e/reliability/run.sh,e2e/lib/kubernetes.sh	passed
+2026-08-22T06:05:00Z	fix	minio/mc uses MC_HOST instead of sh (image entrypoint is mc); OIDC outage detaches the Service selector so realm keys stay	e2e/reliability/run.sh	implementing
