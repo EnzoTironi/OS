@@ -3,7 +3,8 @@
 {{- fail "postgres HA topology requires productionReplicas >= 2" }}
 {{- end }}
 {{- $ha := eq .Values.postgres.topology.mode "ha" }}
-{{- $archive := .Values.postgres.walArchive.enabled }}
+{{- $archive := and $ha .Values.postgres.walArchive.enabled }}
+{{- if $ha }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,7 +14,6 @@ metadata:
 data:
   postgres-start.sh: |
 {{ .Files.Get "files/postgres-start.sh" | indent 4 }}
-{{- if $ha }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -23,8 +23,8 @@ metadata:
     {{- include "zoen.labels" . | nindent 4 }}
 data:
   primary: postgres-0
-{{- end }}
 ---
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -34,7 +34,9 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: postgres
+    {{- if $ha }}
     zoen.dev/postgres-role: primary
+    {{- end }}
   ports:
     - name: postgres
       port: 5432
@@ -54,12 +56,16 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: postgres
+      {{- if $ha }}
       zoen.dev/postgres-role: primary
+      {{- end }}
   template:
     metadata:
       labels:
         app.kubernetes.io/name: postgres
+        {{- if $ha }}
         zoen.dev/postgres-role: primary
+        {{- end }}
         {{- include "zoen.labels" . | nindent 8 }}
     spec:
       {{- if $archive }}
@@ -76,12 +82,10 @@ spec:
       containers:
         - name: postgres
           image: {{ .Values.images.postgres }}
+          {{- if $ha }}
           command: [/bin/bash, /scripts/postgres-start.sh]
+          {{- end }}
           env:
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
             - name: POSTGRES_DB
               value: zoen
             - name: POSTGRES_PASSWORD
@@ -89,16 +93,22 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.runtimeSecret.name }}
                   key: {{ .Values.runtimeSecret.postgresAdminPasswordKey }}
-            - name: POSTGRES_ROLE
-              value: primary
             - name: POSTGRES_USER
               value: postgres
+            {{- if $ha }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POSTGRES_ROLE
+              value: primary
             - name: PGDATA
               value: /var/lib/postgresql/18/docker
             - name: WAL_ARCHIVE_ENABLED
               value: {{ $archive | quote }}
             - name: WAL_ARCHIVE_TIMEOUT_SECONDS
               value: {{ .Values.postgres.walArchive.archiveTimeoutSeconds | quote }}
+            {{- end }}
             {{- if $archive }}
             {{- include "zoen.walGEnv" . | nindent 12 }}
             {{- end }}
@@ -116,10 +126,10 @@ spec:
             - name: init
               mountPath: /docker-entrypoint-initdb.d
               readOnly: true
+            {{- if $ha }}
             - name: start
               mountPath: /scripts
               readOnly: true
-            {{- if $ha }}
             - name: ha
               mountPath: /ha
               readOnly: true
@@ -132,11 +142,11 @@ spec:
         - name: init
           configMap:
             name: zoen-postgres-init
+        {{- if $ha }}
         - name: start
           configMap:
             name: zoen-postgres-start
             defaultMode: 0755
-        {{- if $ha }}
         - name: ha
           configMap:
             name: zoen-postgres-ha
@@ -175,21 +185,21 @@ spec:
         zoen.dev/postgres-role: replica
         {{- include "zoen.labels" . | nindent 8 }}
     spec:
-      {{- if $archive }}
-      initContainers:
-        - name: install-wal-g
-          image: {{ .Values.images.walG }}
-          securityContext:
-            runAsUser: 0
-          command: [/bin/bash, -c, cp /usr/local/bin/wal-g /wal-g/wal-g && chmod 0755 /wal-g/wal-g]
-          volumeMounts:
-            - name: wal-g
-              mountPath: /wal-g
-      {{- end }}
       containers:
         - name: postgres
           image: {{ .Values.images.postgres }}
           command: [/bin/bash, /scripts/postgres-start.sh]
+          args:
+            - -c
+            - wal_level=replica
+            - -c
+            - max_wal_senders=16
+            - -c
+            - max_replication_slots=16
+            - -c
+            - hot_standby=on
+            - -c
+            - listen_addresses=*
           env:
             - name: POD_NAME
               valueFrom:
@@ -212,13 +222,6 @@ spec:
               value: postgres
             - name: PGDATA
               value: /var/lib/postgresql/18/docker
-            - name: WAL_ARCHIVE_ENABLED
-              value: {{ $archive | quote }}
-            - name: WAL_ARCHIVE_TIMEOUT_SECONDS
-              value: {{ .Values.postgres.walArchive.archiveTimeoutSeconds | quote }}
-            {{- if $archive }}
-            {{- include "zoen.walGEnv" . | nindent 12 }}
-            {{- end }}
           ports:
             - name: postgres
               containerPort: 5432
@@ -236,10 +239,6 @@ spec:
             - name: ha
               mountPath: /ha
               readOnly: true
-            {{- if $archive }}
-            - name: wal-g
-              mountPath: /wal-g
-            {{- end }}
       volumes:
         - name: start
           configMap:
@@ -248,10 +247,6 @@ spec:
         - name: ha
           configMap:
             name: zoen-postgres-ha
-        {{- if $archive }}
-        - name: wal-g
-          emptyDir: {}
-        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data

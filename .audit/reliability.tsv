@@ -21,3 +21,4 @@ ts	phase	decision	why	evidence	result
 2026-08-22T02:02:24Z	official	kind drills remain UNPROVEN-PENDING-CI	macOS session; kind tools are linux-amd64	just e2e ha-chaos,just e2e backup-restore,just e2e rolling-upgrade,just release-drill rpo-rto	not run locally
 2026-08-22T02:06:23Z	fix	move IntegrityError and verify_integrity out of zoen-adapters lib.rs so evolution-breaking source length stays under 1000	crates/zoen-adapters/src/integrity.rs	passed
 2026-08-22T02:29:49Z	fix	remove duplicate PGDATA from walGEnv; topology check fails on duplicate container env names	deploy/helm/zoen/templates/_helpers.tpl,e2e/reliability/verify-topology.mjs	passed
+2026-08-22T02:59:01Z	fix	HA replica shares primary replication GUCs and drops wal-g restore_command; reference postgres uses the image entrypoint without replication init	deploy/helm/zoen/files/postgres-start.sh,deploy/helm/zoen/templates/postgres.yaml,deploy/helm/zoen/templates/postgres-config.yaml	passed

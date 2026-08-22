@@ -14,6 +14,14 @@ if [[ -f /ha/primary ]]; then
   fi
 fi
 
+replication_gucs=(
+  -c wal_level=replica
+  -c max_wal_senders=16
+  -c max_replication_slots=16
+  -c hot_standby=on
+  -c listen_addresses=*
+)
+
 append_hba() {
   local hba="${PGDATA}/pg_hba.conf"
   if [[ -f "${hba}" ]] && ! grep -q "replication replicator" "${hba}"; then
@@ -27,21 +35,15 @@ start_primary() {
     rm -f "${PGDATA}/standby.signal"
   fi
   append_hba
-  extra=(
-    -c wal_level=replica
-    -c max_wal_senders=16
-    -c max_replication_slots=16
-    -c hot_standby=on
-    -c listen_addresses=*
-  )
+  extra=("${replication_gucs[@]}")
   if [[ "${WAL_ARCHIVE_ENABLED:-false}" == "true" ]]; then
     extra+=(
       -c archive_mode=on
       -c "archive_timeout=${WAL_ARCHIVE_TIMEOUT_SECONDS:-30}"
       -c "archive_command=/wal-g/wal-g wal-push %p"
-      -c "restore_command=/wal-g/wal-g wal-fetch %f %p"
     )
   fi
+  extra+=("$@")
   exec docker-entrypoint.sh postgres "${extra[@]}"
 }
 
@@ -61,17 +63,13 @@ start_replica() {
       -C -S zoen_replica
   fi
   append_hba
-  extra=()
-  if [[ "${WAL_ARCHIVE_ENABLED:-false}" == "true" ]]; then
-    extra+=(
-      -c "restore_command=/wal-g/wal-g wal-fetch %f %p"
-    )
-  fi
+  extra=("${replication_gucs[@]}")
+  extra+=("$@")
   exec docker-entrypoint.sh postgres "${extra[@]}"
 }
 
 if [[ "${POSTGRES_ROLE}" == "replica" ]]; then
-  start_replica
+  start_replica "$@"
 else
-  start_primary
+  start_primary "$@"
 fi

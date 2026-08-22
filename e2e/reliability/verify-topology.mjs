@@ -32,6 +32,12 @@ assert.equal(
 );
 assertUniqueEnvNames(overlayPostgres[0], "postgres");
 assertUniqueEnvNames(overlayReplica[0], "postgres");
+const replicaCommand = containerCommand(overlayReplica[0], "postgres");
+assert.match(replicaCommand, /max_wal_senders=16/u);
+assert.match(replicaCommand, /max_replication_slots=16/u);
+assert.match(replicaCommand, /wal_level=replica/u);
+assert.doesNotMatch(replicaCommand, /restore_command/u);
+assert.doesNotMatch(replicaCommand, /wal-g/u);
 
 const referencePostgres = statefulSets(reference, "postgres");
 const referenceReplica = statefulSets(reference, "postgres-replica");
@@ -41,6 +47,18 @@ assert.equal(referencePostgres[0]?.spec?.replicas, 1);
 assert.equal(referenceReplica.length, 0);
 assert.equal(referenceRestate.length, 1);
 assert.equal(referenceRestate[0]?.spec?.replicas, 1);
+const referenceContainer =
+  referencePostgres[0]?.spec?.template?.spec?.containers?.[0];
+assert.equal(referenceContainer?.command, undefined);
+assert.equal(referenceContainer?.args, undefined);
+assert.ok(
+  configMap(overlay, "zoen-postgres-init")?.data?.["004-replication.sql"],
+);
+assert.equal(
+  configMap(reference, "zoen-postgres-init")?.data?.["004-replication.sql"],
+  undefined,
+);
+assert.equal(configMap(reference, "zoen-postgres-start"), undefined);
 
 const zoend = deployments(application, "zoend");
 assert.equal(zoend.length, 1);
@@ -69,11 +87,25 @@ function statefulSets(documents, name) {
   );
 }
 
+function configMap(documents, name) {
+  return documents.find(
+    (document) =>
+      document.kind === "ConfigMap" && document.metadata?.name === name,
+  );
+}
+
 function deployments(documents, name) {
   return documents.filter(
     (document) =>
       document.kind === "Deployment" && document.metadata?.name === name,
   );
+}
+
+function containerCommand(statefulSet, containerName) {
+  const container = statefulSet?.spec?.template?.spec?.containers?.find(
+    (item) => item.name === containerName,
+  );
+  return [...(container?.command ?? []), ...(container?.args ?? [])].join(" ");
 }
 
 function assertUniqueEnvNames(statefulSet, containerName) {
