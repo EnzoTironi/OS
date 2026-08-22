@@ -169,7 +169,7 @@ classified_tables() {
       ...(classification.authority?.postgresTables ?? []),
       ...(classification.authority?.referenceTables ?? []),
     ];
-    process.stdout.write(tables.join("\n"));
+    process.stdout.write(`${tables.join("\n")}\n`);
   ' "${classification_file}"
 }
 
@@ -557,6 +557,18 @@ wait_for_application() {
     "http://127.0.0.1:${ZOEN_E2E_ZOEND_PORT}/ready" >/dev/null
 }
 
+wait_for_oidc() {
+  local deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    if run_semantic login >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "keycloak did not issue a token after restore" >&2
+  return 1
+}
+
 run_semantic() {
   node dist/e2e/reliability.js "$@"
 }
@@ -576,17 +588,21 @@ authority_tables_present() {
   done < <(classified_tables)
 }
 
-mirror_wal_to_host() {
+wal_host_directory() {
   mkdir -p "${artifacts_directory}/wal"
+  (cd "${artifacts_directory}/wal" && pwd)
+}
+
+mirror_wal_to_host() {
   docker run --rm --network host \
-    --volume "${artifacts_directory}/wal:/wal" \
+    --volume "$(wal_host_directory):/wal" \
     minio/mc:RELEASE.2025-07-21T05-28-08Z \
     sh -c "mc alias set local http://127.0.0.1:${ZOEN_E2E_MINIO_PORT} zoen-access zoen-secret && mc mirror --overwrite local/zoen-wal /wal"
 }
 
 restore_wal_to_cluster() {
   docker run --rm --network host \
-    --volume "${artifacts_directory}/wal:/wal" \
+    --volume "$(wal_host_directory):/wal" \
     minio/mc:RELEASE.2025-07-21T05-28-08Z \
     sh -c "mc alias set local http://127.0.0.1:${ZOEN_E2E_MINIO_PORT} zoen-access zoen-secret && mc mb --ignore-existing local/zoen-wal && mc mirror --overwrite /wal local/zoen-wal"
 }
@@ -1011,6 +1027,10 @@ case "${drill}" in
     kubectl --namespace "${durable_namespace}" scale deployment/keycloak --replicas=1
     kubectl --namespace "${durable_namespace}" rollout status deployment/keycloak \
       --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    wait_for_oidc
+    # zoend loads JWKS once at start; rolling it picks up Keycloak's new keys
+    kubectl --namespace "${application_namespace}" rollout restart deployment/zoend
+    wait_for_application "${application_namespace}"
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     run_semantic digest
     pass oidc-outage \

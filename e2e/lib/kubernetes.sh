@@ -131,14 +131,14 @@ zoen_create_kind_cluster() {
   local cluster_name="$1"
   local config="$2"
   local attempt
-  for attempt in 1 2; do
+  for attempt in 1 2 3 4; do
     if kind create cluster --name "${cluster_name}" --config "${config}" --wait 180s; then
       return
     fi
     kind delete cluster --name "${cluster_name}" >/dev/null 2>&1 || true
-    if [[ "${attempt}" -eq 1 ]]; then
-      printf 'kind cluster creation failed; retrying once\n' >&2
-      sleep 5
+    if [[ "${attempt}" -lt 4 ]]; then
+      printf 'kind cluster creation failed (attempt %s); retrying\n' "${attempt}" >&2
+      sleep $((attempt * 10))
     fi
   done
   return 1
