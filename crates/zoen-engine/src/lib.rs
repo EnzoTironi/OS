@@ -668,6 +668,12 @@ pub trait AuthorityStore: Send + Sync {
         evidence: &AdmittedEvidence,
     ) -> Result<EvidenceClaim, StoreError>;
 
+    async fn record_evidence_batch(
+        &self,
+        context: &ExecutionContext,
+        evidence: &[AdmittedEvidence],
+    ) -> Result<Vec<EvidenceClaim>, StoreError>;
+
     async fn save_approval(
         &self,
         context: &ExecutionContext,
@@ -721,6 +727,35 @@ where
         let admitted = admission::admit_evidence(&revision, draft)?;
         self.store
             .record_evidence(context, &admitted)
+            .await
+            .map_err(RecordEvidenceError::Store)
+    }
+
+    pub async fn record_evidence_batch(
+        &self,
+        context: &ExecutionContext,
+        drafts: Vec<EvidenceDraft>,
+    ) -> Result<Vec<EvidenceClaim>, RecordEvidenceError> {
+        if drafts.is_empty() {
+            return Err(RecordEvidenceError::InvalidEvidence(
+                EvidenceValidationError::EmptySourceReference,
+            ));
+        }
+        let mut admitted = Vec::with_capacity(drafts.len());
+        for draft in drafts {
+            let revision = self
+                .store
+                .get_revision(
+                    context.tenant_id(),
+                    &draft.definition.definition_id,
+                    &draft.definition.digest,
+                )
+                .await
+                .map_err(RecordEvidenceError::Store)?;
+            admitted.push(admission::admit_evidence(&revision, draft)?);
+        }
+        self.store
+            .record_evidence_batch(context, &admitted)
             .await
             .map_err(RecordEvidenceError::Store)
     }

@@ -12,14 +12,53 @@ rust_image="${registry}/zoen/rust:${tag}"
 node_image="${registry}/zoen/node:${tag}"
 chart_version="$(awk '$1 == "version:" {print $2}' deploy/helm/zoen/Chart.yaml)"
 
-for binary in zoend zoen-effect-dispatcher zoen-http-connector zoen-projection; do
+rust_binaries=(zoend zoen-effect-dispatcher zoen-http-connector zoen-projection)
+for binary in "${rust_binaries[@]}"; do
   test -x "target/debug/${binary}"
+done
+
+# The rust OCI image is Ubuntu. Host `cargo build` on macOS produces Mach-O
+# and those binaries exit 126 in kind. Rebuild ELF when the host bins are not Linux.
+is_linux_elf() {
+  file -b "$1" | grep -q '^ELF '
+}
+
+rust_context="target/debug"
+if ! is_linux_elf "target/debug/zoend"; then
+  rust_context="target/container-linux/debug"
+  linux_bins_ready=1
+  for binary in "${rust_binaries[@]}"; do
+    if [[ ! -x "${rust_context}/${binary}" ]] || ! is_linux_elf "${rust_context}/${binary}"; then
+      linux_bins_ready=0
+      break
+    fi
+  done
+  if [[ "${linux_bins_ready}" -eq 0 ]]; then
+    rust_channel="$(awk -F'"' '/^channel =/ { print $2; exit }' rust-toolchain.toml)"
+    mkdir -p target/container-linux
+    docker run --rm \
+      --volume "${PWD}:/src" \
+      --volume zoen-cargo-registry:/usr/local/cargo/registry \
+      --volume zoen-cargo-git:/usr/local/cargo/git \
+      --workdir /src \
+      --env CARGO_TARGET_DIR=/src/target/container-linux \
+      "rust:${rust_channel}-bookworm" \
+      bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends pkg-config protobuf-compiler cmake clang binutils && cargo build --locked --package zoend && for binary in zoend zoen-effect-dispatcher zoen-http-connector zoen-projection; do strip --strip-debug "/src/target/container-linux/debug/${binary}"; done'
+  fi
+fi
+for binary in "${rust_binaries[@]}"; do
+  test -x "${rust_context}/${binary}"
+  if ! is_linux_elf "${rust_context}/${binary}"; then
+    echo "${rust_context}/${binary} is not a Linux ELF binary" >&2
+    file -b "${rust_context}/${binary}" >&2
+    exit 1
+  fi
 done
 
 docker build \
   --file deploy/images/Dockerfile.rust \
   --tag "${rust_image}" \
-  target/debug
+  "${rust_context}"
 docker build \
   --file deploy/images/Dockerfile.node \
   --tag "${node_image}" \

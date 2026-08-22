@@ -27,6 +27,10 @@ e2e scenario:
 release-drill drill:
     ./e2e/run.sh release-drill {{drill}}
 
+# V1-22 scale suite. ZOEN_SCALE=smoke|reference (default smoke).
+scale phase:
+    ./e2e/run.sh scale {{phase}}
+
 # Release gate: check and build once, then every serial scenario runner.
 verify:
     ./e2e/run.sh verify

@@ -17,9 +17,9 @@ use zoen_query::{QueryError, QueryRuntime};
 use crate::auth::SessionRegistry;
 use crate::proto::zoen::world::v1::{
     DefinitionReference, EvidenceClaim, ExactValue, LineageDependency, LineageRole,
-    MigrationOrigin, QuantityValue, RecordEvidenceRequest, RecordEvidenceResponse,
-    SemanticQueryRequest, SemanticQueryResponse, SemanticValueResult, WorldService, exact_value,
-    query_consistency, query_selection, valid_time,
+    MigrationOrigin, QuantityValue, RecordEvidenceBatchRequest, RecordEvidenceBatchResponse,
+    RecordEvidenceRequest, RecordEvidenceResponse, SemanticQueryRequest, SemanticQueryResponse,
+    SemanticValueResult, WorldService, exact_value, query_consistency, query_selection, valid_time,
 };
 
 pub struct WorldServiceImpl {
@@ -66,6 +66,43 @@ impl WorldService for WorldServiceImpl {
         Response::ok(RecordEvidenceResponse {
             claim_id: recorded.draft.claim_id.as_str().to_owned(),
             commit_sequence: recorded.commit_sequence.get(),
+            ..Default::default()
+        })
+    }
+
+    async fn record_evidence_batch(
+        &self,
+        context: RequestContext,
+        request: ServiceRequest<'_, RecordEvidenceBatchRequest>,
+    ) -> ServiceResult<RecordEvidenceBatchResponse> {
+        if request.claims.is_empty() {
+            return Err(invalid("claims are required"));
+        }
+        if request.claims.len() > 1_000 {
+            return Err(invalid("evidence batch exceeds 1000 claims"));
+        }
+        let execution_context = self
+            .sessions
+            .execution_context(&context, request.tenant_id)?;
+        let mut drafts = Vec::with_capacity(request.claims.len());
+        for claim in &request.claims {
+            let owned = claim
+                .to_owned_message()
+                .map_err(|error| invalid(error.to_string()))?;
+            drafts.push(parse_evidence_claim(&owned)?);
+        }
+        let recorded = self
+            .engine
+            .record_evidence_batch(&execution_context, drafts)
+            .await
+            .map_err(map_record_error)?;
+        let commit_sequence = recorded
+            .last()
+            .map(|claim| claim.commit_sequence.get())
+            .unwrap_or(0);
+        Response::ok(RecordEvidenceBatchResponse {
+            commit_sequence,
+            recorded_count: u32::try_from(recorded.len()).unwrap_or(u32::MAX),
             ..Default::default()
         })
     }

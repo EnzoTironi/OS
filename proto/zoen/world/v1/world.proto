@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 service WorldService {
   rpc RecordEvidence(RecordEvidenceRequest) returns (RecordEvidenceResponse);
+  rpc RecordEvidenceBatch(RecordEvidenceBatchRequest) returns (RecordEvidenceBatchResponse);
   rpc SemanticQuery(SemanticQueryRequest) returns (SemanticQueryResponse);
 }
 
@@ -67,6 +68,16 @@ message RecordEvidenceRequest {
 message RecordEvidenceResponse {
   string claim_id = 1;
   uint64 commit_sequence = 2;
+}
+
+message RecordEvidenceBatchRequest {
+  string tenant_id = 1;
+  repeated EvidenceClaim claims = 2;
+}
+
+message RecordEvidenceBatchResponse {
+  uint64 commit_sequence = 1;
+  uint32 recorded_count = 2;
 }
 
 message StrongConsistency {}

@@ -31,6 +31,10 @@ scenario_table=(
   "governed-action:governed-action:"
   "rolling-upgrade::"
   "rpo-rto::"
+  "scale-actions-v1::"
+  "scale-mixed-v1::"
+  "scale-query-v1::"
+  "scale-seed-v1::"
   "semantic-query::"
   "shared-tenancy::"
   "wasm-code-mode:wasm-code-mode:"
@@ -58,6 +62,7 @@ usage() {
   echo "       just e2e-run <scenario>" >&2
   echo "       just e2e <scenario>" >&2
   echo "       just release-drill rpo-rto" >&2
+  echo "       just scale seed-v1|query-v1|actions-v1|mixed-v1" >&2
   echo "       just verify" >&2
   echo "scenarios: ${names[*]}" >&2
   exit 2
@@ -91,7 +96,7 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
+      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
         compose_file=""
         project=""
       elif [[ -n "$realm" ]]; then
@@ -102,6 +107,9 @@ resolve_scenario() {
       fi
       if [[ "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
         runner="dist/e2e/reliability.js"
+      fi
+      if [[ "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
+        runner="dist/e2e/scale.js"
       fi
       load_scenario_env
       return
@@ -217,7 +225,7 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
-  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
+  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
     return
   fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -241,7 +249,7 @@ run_scenario() {
     trap - EXIT
     return
   fi
-  if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
+  if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
     "e2e/${scenario}/run.sh"
     trap - EXIT
     return
@@ -276,7 +284,7 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto ]]; then
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
       continue
     fi
     resolve_scenario "$name"
@@ -308,6 +316,9 @@ case "$command" in
     ;;
   release-drill)
     run_e2e "${2:-}"
+    ;;
+  scale)
+    run_e2e "scale-${2:-}"
     ;;
   verify)
     run_verify
