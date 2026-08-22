@@ -686,8 +686,11 @@ export function applySettlement(fixture: CompanyFixture, suffix: string) {
       { id: "amount", value: { kind: "decimal", value: "20.00" } },
       { id: "currency", value: { kind: "text", value: "BRL" } },
       {
-        id: "claimReference",
-        value: { kind: "text", value: "receivable.customer-3001" },
+        id: "operationReference",
+        value: {
+          kind: "text",
+          value: `operation.accounting-foundation.${suffix}`,
+        },
       },
       { id: "paymentDate", value: { kind: "text", value: "2026-08-22" } },
       {
