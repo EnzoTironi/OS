@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { promisify } from "node:util";
 import { parse } from "yaml";
 import canonicalize from "canonicalize";
 import { create } from "@bufbuild/protobuf";
@@ -89,7 +87,6 @@ const publishA = definitionClient(adminAToken);
 const publishB = definitionClient(adminBToken);
 const activateA = definitionClient(adminAToken);
 const activateB = definitionClient(adminBToken);
-const execFileAsync = promisify(execFile);
 const action = actionClient(agentAToken);
 const artifacts = environment.ZOEN_E2E_ARTIFACTS_DIR;
 const restateAdmin = `http://127.0.0.1:${environment.ZOEN_E2E_RESTATE_UI_PORT}`;
@@ -183,27 +180,9 @@ async function publishActive(tenantId: string): Promise<void> {
   });
 }
 
-async function waitForHarness(): Promise<void> {
-  const timeout = process.env.ZOEN_KUBERNETES_ROLLOUT_TIMEOUT ?? "10m";
-  await execFileAsync(
-    "kubectl",
-    [
-      "--namespace",
-      environment.ZOEN_SCALE_NAMESPACE,
-      "rollout",
-      "status",
-      "deployment/harness-tenant-a",
-      `--timeout=${timeout}`,
-    ],
-    { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 },
-  );
-}
-
 async function registerRestateServices(): Promise<void> {
-  await waitForHarness();
   const namespace = environment.ZOEN_SCALE_NAMESPACE;
   for (const uri of [
-    `http://harness-tenant-a.${namespace}.svc.cluster.local:9080`,
     `http://zoen-effect-worker.${namespace}.svc.cluster.local:9081`,
   ]) {
     let registered = false;
