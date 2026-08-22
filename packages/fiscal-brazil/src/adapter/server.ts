@@ -68,6 +68,8 @@ export async function startFiscalAdapter(
     } catch (error: unknown) {
       process.stderr.write(
         `${JSON.stringify({
+          errorMessage:
+            error instanceof Error ? error.message : String(error),
           errorType: error instanceof Error ? error.name : "UnknownError",
           event: "fiscal_adapter_request_failed",
           issues:

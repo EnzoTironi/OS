@@ -639,9 +639,7 @@ async function commitProviderAction(input: {
   const proposed = await input.action.propose({
     actionId: input.actionId,
     definition: input.context.definition,
-    expiresAt: timestampFromDate(
-      new Date(input.context.validAt.getTime() + 86_400_000),
-    ),
+    expiresAt: timestampFromDate(new Date(Date.now() + 86_400_000)),
     inputs: input.inputs,
     operationId,
     proposalId,
