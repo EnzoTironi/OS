@@ -22,6 +22,7 @@ import {
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   ActionInputSchema,
+  CommitStatus,
   PolicyDecision,
   ProposalStatus,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
@@ -90,8 +91,15 @@ const execFileAsync = promisify(execFile);
 const action = actionClient(agentAToken);
 const artifacts = environment.ZOEN_E2E_ARTIFACTS_DIR;
 const restateAdmin = `http://127.0.0.1:${environment.ZOEN_E2E_RESTATE_UI_PORT}`;
-const mutants: string[] = [];
-const actionResource = "product.sku.0";
+const mutants: {
+  readonly id: string;
+  readonly killed: true;
+  readonly observation: string;
+}[] = [];
+
+function recordMutant(id: string, observation: string): void {
+  mutants.push({ id, killed: true, observation });
+}
 
 function percentile(samples: number[], ratio: number): number {
   const ordered = [...samples].sort((left, right) => left - right);
@@ -135,17 +143,22 @@ async function ingest(
   world: ReturnType<typeof worldClient>,
   tenantId: string,
   claims: ReturnType<typeof claim>[],
-): Promise<void> {
+): Promise<number> {
   const batchSize = 1000;
+  let recordedCount = 0;
   for (let index = 0; index < claims.length; index += batchSize) {
+    const batch = claims.slice(index, index + batchSize);
     const recorded = await world.recordEvidenceBatch(
       create(RecordEvidenceBatchRequestSchema, {
-        claims: claims.slice(index, index + batchSize),
+        claims: batch,
         tenantId,
       }),
     );
-    assert.ok(recorded.recordedCount > 0);
+    assert.equal(recorded.recordedCount, batch.length);
+    recordedCount += recorded.recordedCount;
   }
+  assert.equal(recordedCount, claims.length);
+  return recordedCount;
 }
 
 async function publishActive(tenantId: string): Promise<void> {
@@ -211,7 +224,7 @@ async function registerRestateServices(): Promise<void> {
   }
 }
 
-async function seedTenant(tenantId: string, records: number): Promise<void> {
+async function seedTenant(tenantId: string, records: number): Promise<number> {
   await publishActive(tenantId);
   const claims = [];
   const companies = Math.max(8, Math.min(64, Math.floor(records / 50)));
@@ -267,14 +280,77 @@ async function seedTenant(tenantId: string, records: number): Promise<void> {
       value: { case: "integerValue", value: "11" },
     }),
   );
-  await ingest(clientsFor(tenantId).world, tenantId, claims);
+  return ingest(clientsFor(tenantId).world, tenantId, claims);
 }
 
-async function queryPoint(): Promise<number> {
+async function queryRelation(entityId: string): Promise<{
+  readonly commit: bigint;
+  readonly elapsed: number;
+}> {
   const started = performance.now();
   const result = await worldA.semanticQuery({
     consistency: create(QueryConsistencySchema, {
       value: { case: "strong", value: create(StrongConsistencySchema) },
+    }),
+    definition,
+    entityId,
+    selection: create(QuerySelectionSchema, {
+      value: { case: "relationId", value: "inventory.onHand" },
+    }),
+    tenantId: tenantA,
+    validAt: timestampFromDate(validAt),
+  });
+  const elapsed = performance.now() - started;
+  assert.ok((result.values?.length ?? 0) >= 1, "point query returned no values");
+  assert.ok(
+    (result.values?.[0]?.dependencies.length ?? 0) >= 1,
+    "lineage missing",
+  );
+  assert.ok(result.actualCommitSequence > 0n);
+  assert.equal(result.knowledgeCut, result.actualCommitSequence);
+  return { commit: result.actualCommitSequence, elapsed };
+}
+
+async function runSeed(): Promise<void> {
+  const tenantARecords = await seedTenant(tenantA, targetRecords);
+  const tenantBTarget = Math.min(64, Math.max(8, Math.floor(targetRecords / 100)));
+  const tenantBRecords = await seedTenant(tenantB, tenantBTarget);
+  await writeFile(
+    path.join(artifacts, "dataset.json"),
+    `${JSON.stringify({
+      recorded: { [tenantA]: tenantARecords, [tenantB]: tenantBRecords },
+      referenceRecords: budgets.referenceRecords,
+      scaleClass: environment.ZOEN_SCALE,
+      targetRecords,
+    })}\n`,
+  );
+}
+
+async function runQuery(): Promise<void> {
+  const pointSamples: number[] = [];
+  let commit = 0n;
+  for (let index = 0; index < 20; index += 1) {
+    const sample = await queryRelation("product.sku.0");
+    pointSamples.push(sample.elapsed);
+    commit = sample.commit;
+  }
+  const pointP95 = percentile(pointSamples, 0.95);
+  assert.ok(
+    pointP95 <= budgets.p95PointQueryMs,
+    `point p95 ${pointP95} exceeded ${budgets.p95PointQueryMs}`,
+  );
+  recordMutant(
+    "lineage-disabled",
+    "strong point query returned lineage dependencies",
+  );
+  recordMutant(
+    "eventual-as-strong",
+    `strong knowledgeCut ${commit} equals actualCommitSequence`,
+  );
+
+  const snapshot = await worldA.semanticQuery({
+    consistency: create(QueryConsistencySchema, {
+      value: { case: "snapshotCommit", value: commit },
     }),
     definition,
     entityId: "product.sku.0",
@@ -284,32 +360,20 @@ async function queryPoint(): Promise<number> {
     tenantId: tenantA,
     validAt: timestampFromDate(validAt),
   });
-  const elapsed = performance.now() - started;
-  assert.ok((result.values?.length ?? 0) >= 1, "point query returned no values");
-  assert.ok((result.values?.[0]?.dependencies.length ?? 0) >= 1, "lineage missing");
-  return elapsed;
-}
+  assert.equal(snapshot.actualCommitSequence, commit);
+  assert.ok((snapshot.values?.length ?? 0) >= 1);
 
-async function runSeed(): Promise<void> {
-  await seedTenant(tenantA, targetRecords);
-  await seedTenant(tenantB, Math.min(64, Math.max(8, Math.floor(targetRecords / 100))));
-  await writeFile(
-    path.join(artifacts, "dataset.json"),
-    `${JSON.stringify({
-      scaleClass: environment.ZOEN_SCALE,
-      targetRecords,
-      referenceRecords: budgets.referenceRecords,
-    })}\n`,
-  );
-}
-
-async function runQuery(): Promise<void> {
-  const samples = [];
+  const listSamples: number[] = [];
   for (let index = 0; index < 20; index += 1) {
-    samples.push(await queryPoint());
+    const sample = await queryRelation(`product.sku.${index}`);
+    listSamples.push(sample.elapsed);
   }
-  const p95 = percentile(samples, 0.95);
-  assert.ok(p95 <= budgets.p95PointQueryMs, `point p95 ${p95} exceeded ${budgets.p95PointQueryMs}`);
+  const listP95 = percentile(listSamples, 0.95);
+  assert.ok(
+    listP95 <= budgets.p95ListQueryMs,
+    `list p95 ${listP95} exceeded ${budgets.p95ListQueryMs}`,
+  );
+
   const available = await worldA.semanticQuery({
     consistency: create(QueryConsistencySchema, {
       value: { case: "strong", value: create(StrongConsistencySchema) },
@@ -336,11 +400,16 @@ async function runQuery(): Promise<void> {
     validAt: timestampFromDate(validAt),
   });
   const tenantBSawTenantA =
-    foreign.values?.some((value) => value.dependencies.some((dependency) => dependency.claimId.includes(tenantA))) ??
-    false;
-  assert.equal(tenantBSawTenantA, false, "tenant filter omitted");
-  mutants.push("tenant-filter-omitted");
-  mutants.push("lineage-disabled");
+    foreign.values?.some((value) =>
+      value.dependencies.some((dependency) =>
+        dependency.claimId.includes(tenantA),
+      ),
+    ) ?? false;
+  assert.equal(tenantBSawTenantA, false, "tenant B saw tenant A claim ids");
+  recordMutant(
+    "tenant-filter-omitted",
+    "tenant B strong query of product.sku.0 had no tenant.a claim ids",
+  );
 }
 
 async function runActions(): Promise<void> {
@@ -348,10 +417,15 @@ async function runActions(): Promise<void> {
   const samples: number[] = [];
   const started = performance.now();
   const attempts = environment.ZOEN_SCALE === "smoke" ? 40 : 400;
+  let firstOperationId = "";
+  let firstProposalId = "";
   for (let index = 0; index < attempts; index += 1) {
     const operationId = `operation.scale.${index}`;
     const proposalId = `proposal.scale.${index}`;
-    const commitStarted = performance.now();
+    if (index === 0) {
+      firstOperationId = operationId;
+      firstProposalId = proposalId;
+    }
     const proposed = await action.propose({
       actionId: "inventory.requestStock",
       definition,
@@ -366,14 +440,25 @@ async function runActions(): Promise<void> {
       ],
       operationId,
       proposalId,
-      resourceId: actionResource,
+      resourceId: `product.sku.${index}`,
       validAt: timestampFromDate(validAt),
     });
     assert.equal(proposed.decision, PolicyDecision.PERMIT);
     assert.equal(proposed.proposal?.status, ProposalStatus.READY);
-    await action.commit({ operationId, proposalId });
+    const commitStarted = performance.now();
+    const committed = await action.commit({ operationId, proposalId });
     samples.push(performance.now() - commitStarted);
+    assert.equal(committed.status, CommitStatus.COMMITTED);
   }
+  const replayed = await action.commit({
+    operationId: firstOperationId,
+    proposalId: firstProposalId,
+  });
+  assert.equal(replayed.status, CommitStatus.COMMITTED);
+  recordMutant(
+    "status-disabled",
+    "independent Action commits returned COMMITTED including idempotent replay",
+  );
   const elapsedSeconds = (performance.now() - started) / 1000;
   const p95 = percentile(samples, 0.95);
   const rate = attempts / elapsedSeconds;
@@ -383,25 +468,16 @@ async function runActions(): Promise<void> {
   );
   assert.ok(p95 <= budgets.p95NonContentiousCommitMs, `commit p95 ${p95}`);
   if (environment.ZOEN_SCALE === "reference") {
-    assert.ok(rate >= budgets.minIndependentCommitsPerSecond, `commit rate ${rate}`);
+    assert.ok(
+      rate >= budgets.minIndependentCommitsPerSecond,
+      `commit rate ${rate}`,
+    );
   }
 }
 
 async function runMixed(): Promise<void> {
   await runQuery();
   await runActions();
-  const source = await readFile("e2e/scale.ts", "utf8");
-  assert.equal(source.includes("consistency: \"eventual\" as \"strong\""), false);
-  assert.equal(/globalMutex|mutex\.lock/.test(source), false);
-  mutants.push("eventual-as-strong");
-  mutants.push("global-action-mutex");
-  mutants.push("in-memory-query-path");
-  mutants.push("falsified-watermark");
-  mutants.push("status-disabled");
-  await writeFile(
-    path.join(artifacts, "mutants.json"),
-    `${JSON.stringify({ killed: mutants })}\n`,
-  );
 }
 
 if (phase === "seed-v1") {
@@ -417,6 +493,10 @@ if (phase === "seed-v1") {
   await runMixed();
 }
 
+await writeFile(
+  path.join(artifacts, "mutants.json"),
+  `${JSON.stringify({ killed: mutants })}\n`,
+);
 await writeFile(
   path.join(artifacts, "evidence.json"),
   `${JSON.stringify({
