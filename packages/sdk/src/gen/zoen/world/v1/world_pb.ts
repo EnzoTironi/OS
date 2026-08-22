@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file zoen/world/v1/world.proto.
  */
 export const file_zoen_world_v1_world: GenFile = /*@__PURE__*/
-  fileDesc("Chl6b2VuL3dvcmxkL3YxL3dvcmxkLnByb3RvEg16b2VuLndvcmxkLnYxIk4KE0RlZmluaXRpb25SZWZlcmVuY2USFQoNZGVmaW5pdGlvbl9pZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZkaWdlc3QYAyABKAkixwEKCkV4YWN0VmFsdWUSFAoKYm9vbF92YWx1ZRgBIAEoCEgAEhcKDWRlY2ltYWxfdmFsdWUYAiABKAlIABIXCg1pbnRlZ2VyX3ZhbHVlGAMgASgJSAASNgoOcXVhbnRpdHlfdmFsdWUYBCABKAsyHC56b2VuLndvcmxkLnYxLlF1YW50aXR5VmFsdWVIABIUCgp0ZXh0X3ZhbHVlGAUgASgJSAASGgoQZW50aXR5X3JlZl92YWx1ZRgGIAEoCUgAQgcKBXZhbHVlIi0KDVF1YW50aXR5VmFsdWUSDgoGYW1vdW50GAEgASgJEgwKBHVuaXQYAiABKAkiZgoQVGVtcG9yYWxJbnRlcnZhbBIpCgVzdGFydBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoDZW5kGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJ4CglWYWxpZFRpbWUSLQoHaW5zdGFudBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIABIzCghpbnRlcnZhbBgCIAEoCzIfLnpvZW4ud29ybGQudjEuVGVtcG9yYWxJbnRlcnZhbEgAQgcKBXZhbHVlIlIKEkV2aWRlbmNlUHJvdmVuYW5jZRIRCglzb3VyY2VfaWQYASABKAkSFQoNc291cmNlX2RpZ2VzdBgCIAEoCRISCgpzb3VyY2VfcmVmGAMgASgJIpACCg1FdmlkZW5jZUNsYWltEhAKCGNsYWltX2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USEQoJZW50aXR5X2lkGAMgASgJEhMKC3JlbGF0aW9uX2lkGAQgASgJEigKBXZhbHVlGAUgASgLMhkuem9lbi53b3JsZC52MS5FeGFjdFZhbHVlEiwKCnZhbGlkX3RpbWUYBiABKAsyGC56b2VuLndvcmxkLnYxLlZhbGlkVGltZRI1Cgpwcm92ZW5hbmNlGAcgASgLMiEuem9lbi53b3JsZC52MS5FdmlkZW5jZVByb3ZlbmFuY2UiVwoVUmVjb3JkRXZpZGVuY2VSZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRIrCgVjbGFpbRgCIAEoCzIcLnpvZW4ud29ybGQudjEuRXZpZGVuY2VDbGFpbSJDChZSZWNvcmRFdmlkZW5jZVJlc3BvbnNlEhAKCGNsYWltX2lkGAEgASgJEhcKD2NvbW1pdF9zZXF1ZW5jZRgCIAEoBCITChFTdHJvbmdDb25zaXN0ZW5jeSIVChNFdmVudHVhbENvbnNpc3RlbmN5Ir0BChBRdWVyeUNvbnNpc3RlbmN5EjIKBnN0cm9uZxgBIAEoCzIgLnpvZW4ud29ybGQudjEuU3Ryb25nQ29uc2lzdGVuY3lIABIZCg9hdF9sZWFzdF9jb21taXQYAiABKARIABIZCg9zbmFwc2hvdF9jb21taXQYAyABKARIABI2CghldmVudHVhbBgEIAEoCzIiLnpvZW4ud29ybGQudjEuRXZlbnR1YWxDb25zaXN0ZW5jeUgAQgcKBXZhbHVlIkoKDlF1ZXJ5U2VsZWN0aW9uEhUKC3JlbGF0aW9uX2lkGAEgASgJSAASGAoOY29tcHV0YXRpb25faWQYAiABKAlIAEIHCgV2YWx1ZSKKAgoUU2VtYW50aWNRdWVyeVJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USMAoJc2VsZWN0aW9uGAMgASgLMh0uem9lbi53b3JsZC52MS5RdWVyeVNlbGVjdGlvbhIsCgh2YWxpZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNAoLY29uc2lzdGVuY3kYBSABKAsyHy56b2VuLndvcmxkLnYxLlF1ZXJ5Q29uc2lzdGVuY3kSEQoJZW50aXR5X2lkGAYgASgJImUKD01pZ3JhdGlvbk9yaWdpbhIUCgxvcGVyYXRpb25faWQYASABKAkSDwoHcnVsZV9pZBgCIAEoCRIRCglydWxlX2tpbmQYAyABKAkSGAoQc291cmNlX2NsYWltX2lkcxgEIAMoCSKBAgoRTGluZWFnZURlcGVuZGVuY3kSEAoIY2xhaW1faWQYASABKAkSEQoJZW50aXR5X2lkGAIgASgJEhMKC3JlbGF0aW9uX2lkGAMgASgJEhcKD2NvbW1pdF9zZXF1ZW5jZRgEIAEoBBIoCgRyb2xlGAUgASgOMhouem9lbi53b3JsZC52MS5MaW5lYWdlUm9sZRIRCglzb3VyY2VfaWQYBiABKAkSFQoNc291cmNlX2RpZ2VzdBgHIAEoCRISCgpzb3VyY2VfcmVmGAggASgJEjEKCW1pZ3JhdGlvbhgJIAEoCzIeLnpvZW4ud29ybGQudjEuTWlncmF0aW9uT3JpZ2luIncKE1NlbWFudGljVmFsdWVSZXN1bHQSKAoFdmFsdWUYASABKAsyGS56b2VuLndvcmxkLnYxLkV4YWN0VmFsdWUSNgoMZGVwZW5kZW5jaWVzGAIgAygLMiAuem9lbi53b3JsZC52MS5MaW5lYWdlRGVwZW5kZW5jeSLoAQoVU2VtYW50aWNRdWVyeVJlc3BvbnNlEjYKCmRlZmluaXRpb24YASABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USHgoWYWN0dWFsX2NvbW1pdF9zZXF1ZW5jZRgCIAEoBBIVCg1rbm93bGVkZ2VfY3V0GAMgASgEEiwKCHZhbGlkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIyCgZ2YWx1ZXMYBSADKAsyIi56b2VuLndvcmxkLnYxLlNlbWFudGljVmFsdWVSZXN1bHQqiQEKC0xpbmVhZ2VSb2xlEhwKGExJTkVBR0VfUk9MRV9VTlNQRUNJRklFRBAAEhsKF0xJTkVBR0VfUk9MRV9TVVBQT1JUSU5HEAESFgoSTElORUFHRV9ST0xFX1JJVkFMEAISJwojTElORUFHRV9ST0xFX0NPTVBVVEFUSU9OX0RFUEVOREVOQ1kQAzLJAQoMV29ybGRTZXJ2aWNlEl0KDlJlY29yZEV2aWRlbmNlEiQuem9lbi53b3JsZC52MS5SZWNvcmRFdmlkZW5jZVJlcXVlc3QaJS56b2VuLndvcmxkLnYxLlJlY29yZEV2aWRlbmNlUmVzcG9uc2USWgoNU2VtYW50aWNRdWVyeRIjLnpvZW4ud29ybGQudjEuU2VtYW50aWNRdWVyeVJlcXVlc3QaJC56b2VuLndvcmxkLnYxLlNlbWFudGljUXVlcnlSZXNwb25zZWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Chl6b2VuL3dvcmxkL3YxL3dvcmxkLnByb3RvEg16b2VuLndvcmxkLnYxIk4KE0RlZmluaXRpb25SZWZlcmVuY2USFQoNZGVmaW5pdGlvbl9pZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZkaWdlc3QYAyABKAkixwEKCkV4YWN0VmFsdWUSFAoKYm9vbF92YWx1ZRgBIAEoCEgAEhcKDWRlY2ltYWxfdmFsdWUYAiABKAlIABIXCg1pbnRlZ2VyX3ZhbHVlGAMgASgJSAASNgoOcXVhbnRpdHlfdmFsdWUYBCABKAsyHC56b2VuLndvcmxkLnYxLlF1YW50aXR5VmFsdWVIABIUCgp0ZXh0X3ZhbHVlGAUgASgJSAASGgoQZW50aXR5X3JlZl92YWx1ZRgGIAEoCUgAQgcKBXZhbHVlIi0KDVF1YW50aXR5VmFsdWUSDgoGYW1vdW50GAEgASgJEgwKBHVuaXQYAiABKAkiZgoQVGVtcG9yYWxJbnRlcnZhbBIpCgVzdGFydBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoDZW5kGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJ4CglWYWxpZFRpbWUSLQoHaW5zdGFudBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIABIzCghpbnRlcnZhbBgCIAEoCzIfLnpvZW4ud29ybGQudjEuVGVtcG9yYWxJbnRlcnZhbEgAQgcKBXZhbHVlIlIKEkV2aWRlbmNlUHJvdmVuYW5jZRIRCglzb3VyY2VfaWQYASABKAkSFQoNc291cmNlX2RpZ2VzdBgCIAEoCRISCgpzb3VyY2VfcmVmGAMgASgJIpACCg1FdmlkZW5jZUNsYWltEhAKCGNsYWltX2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USEQoJZW50aXR5X2lkGAMgASgJEhMKC3JlbGF0aW9uX2lkGAQgASgJEigKBXZhbHVlGAUgASgLMhkuem9lbi53b3JsZC52MS5FeGFjdFZhbHVlEiwKCnZhbGlkX3RpbWUYBiABKAsyGC56b2VuLndvcmxkLnYxLlZhbGlkVGltZRI1Cgpwcm92ZW5hbmNlGAcgASgLMiEuem9lbi53b3JsZC52MS5FdmlkZW5jZVByb3ZlbmFuY2UiVwoVUmVjb3JkRXZpZGVuY2VSZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRIrCgVjbGFpbRgCIAEoCzIcLnpvZW4ud29ybGQudjEuRXZpZGVuY2VDbGFpbSJDChZSZWNvcmRFdmlkZW5jZVJlc3BvbnNlEhAKCGNsYWltX2lkGAEgASgJEhcKD2NvbW1pdF9zZXF1ZW5jZRgCIAEoBCJdChpSZWNvcmRFdmlkZW5jZUJhdGNoUmVxdWVzdBIRCgl0ZW5hbnRfaWQYASABKAkSLAoGY2xhaW1zGAIgAygLMhwuem9lbi53b3JsZC52MS5FdmlkZW5jZUNsYWltIk4KG1JlY29yZEV2aWRlbmNlQmF0Y2hSZXNwb25zZRIXCg9jb21taXRfc2VxdWVuY2UYASABKAQSFgoOcmVjb3JkZWRfY291bnQYAiABKA0iEwoRU3Ryb25nQ29uc2lzdGVuY3kiFQoTRXZlbnR1YWxDb25zaXN0ZW5jeSK9AQoQUXVlcnlDb25zaXN0ZW5jeRIyCgZzdHJvbmcYASABKAsyIC56b2VuLndvcmxkLnYxLlN0cm9uZ0NvbnNpc3RlbmN5SAASGQoPYXRfbGVhc3RfY29tbWl0GAIgASgESAASGQoPc25hcHNob3RfY29tbWl0GAMgASgESAASNgoIZXZlbnR1YWwYBCABKAsyIi56b2VuLndvcmxkLnYxLkV2ZW50dWFsQ29uc2lzdGVuY3lIAEIHCgV2YWx1ZSJKCg5RdWVyeVNlbGVjdGlvbhIVCgtyZWxhdGlvbl9pZBgBIAEoCUgAEhgKDmNvbXB1dGF0aW9uX2lkGAIgASgJSABCBwoFdmFsdWUiigIKFFNlbWFudGljUXVlcnlSZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRI2CgpkZWZpbml0aW9uGAIgASgLMiIuem9lbi53b3JsZC52MS5EZWZpbml0aW9uUmVmZXJlbmNlEjAKCXNlbGVjdGlvbhgDIAEoCzIdLnpvZW4ud29ybGQudjEuUXVlcnlTZWxlY3Rpb24SLAoIdmFsaWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjQKC2NvbnNpc3RlbmN5GAUgASgLMh8uem9lbi53b3JsZC52MS5RdWVyeUNvbnNpc3RlbmN5EhEKCWVudGl0eV9pZBgGIAEoCSJlCg9NaWdyYXRpb25PcmlnaW4SFAoMb3BlcmF0aW9uX2lkGAEgASgJEg8KB3J1bGVfaWQYAiABKAkSEQoJcnVsZV9raW5kGAMgASgJEhgKEHNvdXJjZV9jbGFpbV9pZHMYBCADKAkigQIKEUxpbmVhZ2VEZXBlbmRlbmN5EhAKCGNsYWltX2lkGAEgASgJEhEKCWVudGl0eV9pZBgCIAEoCRITCgtyZWxhdGlvbl9pZBgDIAEoCRIXCg9jb21taXRfc2VxdWVuY2UYBCABKAQSKAoEcm9sZRgFIAEoDjIaLnpvZW4ud29ybGQudjEuTGluZWFnZVJvbGUSEQoJc291cmNlX2lkGAYgASgJEhUKDXNvdXJjZV9kaWdlc3QYByABKAkSEgoKc291cmNlX3JlZhgIIAEoCRIxCgltaWdyYXRpb24YCSABKAsyHi56b2VuLndvcmxkLnYxLk1pZ3JhdGlvbk9yaWdpbiJ3ChNTZW1hbnRpY1ZhbHVlUmVzdWx0EigKBXZhbHVlGAEgASgLMhkuem9lbi53b3JsZC52MS5FeGFjdFZhbHVlEjYKDGRlcGVuZGVuY2llcxgCIAMoCzIgLnpvZW4ud29ybGQudjEuTGluZWFnZURlcGVuZGVuY3ki6AEKFVNlbWFudGljUXVlcnlSZXNwb25zZRI2CgpkZWZpbml0aW9uGAEgASgLMiIuem9lbi53b3JsZC52MS5EZWZpbml0aW9uUmVmZXJlbmNlEh4KFmFjdHVhbF9jb21taXRfc2VxdWVuY2UYAiABKAQSFQoNa25vd2xlZGdlX2N1dBgDIAEoBBIsCgh2YWxpZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMgoGdmFsdWVzGAUgAygLMiIuem9lbi53b3JsZC52MS5TZW1hbnRpY1ZhbHVlUmVzdWx0KokBCgtMaW5lYWdlUm9sZRIcChhMSU5FQUdFX1JPTEVfVU5TUEVDSUZJRUQQABIbChdMSU5FQUdFX1JPTEVfU1VQUE9SVElORxABEhYKEkxJTkVBR0VfUk9MRV9SSVZBTBACEicKI0xJTkVBR0VfUk9MRV9DT01QVVRBVElPTl9ERVBFTkRFTkNZEAMytwIKDFdvcmxkU2VydmljZRJdCg5SZWNvcmRFdmlkZW5jZRIkLnpvZW4ud29ybGQudjEuUmVjb3JkRXZpZGVuY2VSZXF1ZXN0GiUuem9lbi53b3JsZC52MS5SZWNvcmRFdmlkZW5jZVJlc3BvbnNlEmwKE1JlY29yZEV2aWRlbmNlQmF0Y2gSKS56b2VuLndvcmxkLnYxLlJlY29yZEV2aWRlbmNlQmF0Y2hSZXF1ZXN0Giouem9lbi53b3JsZC52MS5SZWNvcmRFdmlkZW5jZUJhdGNoUmVzcG9uc2USWgoNU2VtYW50aWNRdWVyeRIjLnpvZW4ud29ybGQudjEuU2VtYW50aWNRdWVyeVJlcXVlc3QaJC56b2VuLndvcmxkLnYxLlNlbWFudGljUXVlcnlSZXNwb25zZWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message zoen.world.v1.DefinitionReference
@@ -286,6 +286,50 @@ export const RecordEvidenceResponseSchema: GenMessage<RecordEvidenceResponse> = 
   messageDesc(file_zoen_world_v1_world, 8);
 
 /**
+ * @generated from message zoen.world.v1.RecordEvidenceBatchRequest
+ */
+export type RecordEvidenceBatchRequest = Message<"zoen.world.v1.RecordEvidenceBatchRequest"> & {
+  /**
+   * @generated from field: string tenant_id = 1;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: repeated zoen.world.v1.EvidenceClaim claims = 2;
+   */
+  claims: EvidenceClaim[];
+};
+
+/**
+ * Describes the message zoen.world.v1.RecordEvidenceBatchRequest.
+ * Use `create(RecordEvidenceBatchRequestSchema)` to create a new message.
+ */
+export const RecordEvidenceBatchRequestSchema: GenMessage<RecordEvidenceBatchRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_world_v1_world, 9);
+
+/**
+ * @generated from message zoen.world.v1.RecordEvidenceBatchResponse
+ */
+export type RecordEvidenceBatchResponse = Message<"zoen.world.v1.RecordEvidenceBatchResponse"> & {
+  /**
+   * @generated from field: uint64 commit_sequence = 1;
+   */
+  commitSequence: bigint;
+
+  /**
+   * @generated from field: uint32 recorded_count = 2;
+   */
+  recordedCount: number;
+};
+
+/**
+ * Describes the message zoen.world.v1.RecordEvidenceBatchResponse.
+ * Use `create(RecordEvidenceBatchResponseSchema)` to create a new message.
+ */
+export const RecordEvidenceBatchResponseSchema: GenMessage<RecordEvidenceBatchResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_world_v1_world, 10);
+
+/**
  * @generated from message zoen.world.v1.StrongConsistency
  */
 export type StrongConsistency = Message<"zoen.world.v1.StrongConsistency"> & {
@@ -296,7 +340,7 @@ export type StrongConsistency = Message<"zoen.world.v1.StrongConsistency"> & {
  * Use `create(StrongConsistencySchema)` to create a new message.
  */
 export const StrongConsistencySchema: GenMessage<StrongConsistency> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 9);
+  messageDesc(file_zoen_world_v1_world, 11);
 
 /**
  * @generated from message zoen.world.v1.EventualConsistency
@@ -309,7 +353,7 @@ export type EventualConsistency = Message<"zoen.world.v1.EventualConsistency"> &
  * Use `create(EventualConsistencySchema)` to create a new message.
  */
 export const EventualConsistencySchema: GenMessage<EventualConsistency> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 10);
+  messageDesc(file_zoen_world_v1_world, 12);
 
 /**
  * @generated from message zoen.world.v1.QueryConsistency
@@ -350,7 +394,7 @@ export type QueryConsistency = Message<"zoen.world.v1.QueryConsistency"> & {
  * Use `create(QueryConsistencySchema)` to create a new message.
  */
 export const QueryConsistencySchema: GenMessage<QueryConsistency> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 11);
+  messageDesc(file_zoen_world_v1_world, 13);
 
 /**
  * @generated from message zoen.world.v1.QuerySelection
@@ -379,7 +423,7 @@ export type QuerySelection = Message<"zoen.world.v1.QuerySelection"> & {
  * Use `create(QuerySelectionSchema)` to create a new message.
  */
 export const QuerySelectionSchema: GenMessage<QuerySelection> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 12);
+  messageDesc(file_zoen_world_v1_world, 14);
 
 /**
  * @generated from message zoen.world.v1.SemanticQueryRequest
@@ -421,7 +465,7 @@ export type SemanticQueryRequest = Message<"zoen.world.v1.SemanticQueryRequest">
  * Use `create(SemanticQueryRequestSchema)` to create a new message.
  */
 export const SemanticQueryRequestSchema: GenMessage<SemanticQueryRequest> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 13);
+  messageDesc(file_zoen_world_v1_world, 15);
 
 /**
  * @generated from message zoen.world.v1.MigrationOrigin
@@ -453,7 +497,7 @@ export type MigrationOrigin = Message<"zoen.world.v1.MigrationOrigin"> & {
  * Use `create(MigrationOriginSchema)` to create a new message.
  */
 export const MigrationOriginSchema: GenMessage<MigrationOrigin> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 14);
+  messageDesc(file_zoen_world_v1_world, 16);
 
 /**
  * @generated from message zoen.world.v1.LineageDependency
@@ -510,7 +554,7 @@ export type LineageDependency = Message<"zoen.world.v1.LineageDependency"> & {
  * Use `create(LineageDependencySchema)` to create a new message.
  */
 export const LineageDependencySchema: GenMessage<LineageDependency> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 15);
+  messageDesc(file_zoen_world_v1_world, 17);
 
 /**
  * @generated from message zoen.world.v1.SemanticValueResult
@@ -532,7 +576,7 @@ export type SemanticValueResult = Message<"zoen.world.v1.SemanticValueResult"> &
  * Use `create(SemanticValueResultSchema)` to create a new message.
  */
 export const SemanticValueResultSchema: GenMessage<SemanticValueResult> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 16);
+  messageDesc(file_zoen_world_v1_world, 18);
 
 /**
  * @generated from message zoen.world.v1.SemanticQueryResponse
@@ -569,7 +613,7 @@ export type SemanticQueryResponse = Message<"zoen.world.v1.SemanticQueryResponse
  * Use `create(SemanticQueryResponseSchema)` to create a new message.
  */
 export const SemanticQueryResponseSchema: GenMessage<SemanticQueryResponse> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 17);
+  messageDesc(file_zoen_world_v1_world, 19);
 
 /**
  * @generated from enum zoen.world.v1.LineageRole
@@ -613,6 +657,14 @@ export const WorldService: GenService<{
     methodKind: "unary";
     input: typeof RecordEvidenceRequestSchema;
     output: typeof RecordEvidenceResponseSchema;
+  },
+  /**
+   * @generated from rpc zoen.world.v1.WorldService.RecordEvidenceBatch
+   */
+  recordEvidenceBatch: {
+    methodKind: "unary";
+    input: typeof RecordEvidenceBatchRequestSchema;
+    output: typeof RecordEvidenceBatchResponseSchema;
   },
   /**
    * @generated from rpc zoen.world.v1.WorldService.SemanticQuery
