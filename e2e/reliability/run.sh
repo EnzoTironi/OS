@@ -1129,14 +1129,10 @@ case "${drill}" in
     fi
     wait "${upgrade_pid}"
     wait_for_application "${application_namespace}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
-    run_semantic digest
-    local_digest="$(digest_value)"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     helm rollback zoen --namespace "${application_namespace}"
     wait_for_application "${application_namespace}"
-    run_semantic verify "${artifacts_directory}/semantic-initial.json"
-    run_semantic digest
-    test "$(digest_value)" = "${local_digest}"
+    run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     pass rolling-upgrade \
       "two sequential signed chart versions overlapped zoend replicas and application rollback preserved semantic history" \
       "${recovery_file}"

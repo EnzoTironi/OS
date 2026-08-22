@@ -62,6 +62,7 @@ const mode = z
     "canary",
     "digest",
     "verify",
+    "verify-rolling",
     "login",
     "propose",
     "commit",
@@ -199,17 +200,58 @@ if (mode === "seed") {
   await insertCompanySource();
 }
 
-if (mode === "observe" || mode === "verify" || mode === "seed") {
+if (
+  mode === "observe" ||
+  mode === "verify" ||
+  mode === "verify-rolling" ||
+  mode === "seed"
+) {
   await registerRestateServices(environment.ZOEN_RELIABILITY_NAMESPACE);
   const observed = await observeState({ effect, history, world });
-  if (mode === "verify") {
+  if (mode === "verify" || mode === "verify-rolling") {
     const expected = semanticStateSchema.parse(
       JSON.parse(await readFile(requiredExpectedPath(), "utf8")),
     );
-    assert.deepEqual(observed, expected);
+    if (mode === "verify") {
+      assert.deepEqual(observed, expected);
+    } else {
+      await assertRollingCompatible(observed, expected);
+    }
   }
   await writeFile(statePath, `${JSON.stringify(observed, null, 2)}\n`);
   process.stdout.write(`${JSON.stringify(observed, null, 2)}\n`);
+}
+
+async function assertRollingCompatible(
+  observed: z.infer<typeof semanticStateSchema>,
+  expected: z.infer<typeof semanticStateSchema>,
+): Promise<void> {
+  assert.equal(observed.definitionDigest, expected.definitionDigest);
+  assert.equal(observed.definitionHistoryCount, expected.definitionHistoryCount);
+  assert.equal(observed.operationId, expected.operationId);
+  assert.equal(observed.proposalId, expected.proposalId);
+  assert.deepEqual(observed.queryValues, expected.queryValues);
+  assert.equal(observed.tenantDerived, expected.tenantDerived);
+  assert.equal(observed.explanationComplete, expected.explanationComplete);
+  assert.equal(observed.companySourceCount, expected.companySourceCount);
+  assert.equal(observed.effectRequestId, expected.effectRequestId);
+  const client = new PostgresClient({
+    connectionString: `postgres://postgres:postgres@127.0.0.1:${environment.ZOEN_E2E_POSTGRES_PORT}/zoen`,
+  });
+  await client.connect();
+  try {
+    const operations = await client.query<{ count: string; operations: string }>(
+      `SELECT count(*)::text AS count,
+              count(DISTINCT operation_id)::text AS operations
+         FROM action_operations
+        WHERE tenant_id = $1`,
+      [tenantA],
+    );
+    assert.equal(Number(operations.rows[0]?.operations ?? "0"), 1);
+    assert.equal(Number(operations.rows[0]?.count ?? "0"), 1);
+  } finally {
+    await client.end();
+  }
 }
 
 async function observeState(input: {

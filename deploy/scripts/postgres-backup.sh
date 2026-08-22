@@ -14,10 +14,6 @@ if [[ -z "${primary}" ]]; then
   exit 1
 fi
 
-kubectl --namespace "${namespace}" exec "${primary}" -- /wal-g/wal-g backup-push
-kubectl --namespace "${namespace}" exec "${primary}" -- \
-  psql -U postgres -d zoen -c "SELECT pg_switch_wal();"
-
 node --input-type=module -e '
   import { readFile } from "node:fs/promises";
   import { parse } from "yaml";
@@ -40,6 +36,12 @@ node --input-type=module -e '
       exit 1
     fi
   done
+
+kubectl --namespace "${namespace}" exec "${primary}" -- \
+  env PGUSER=postgres PGDATABASE=zoen PGHOST=/var/run/postgresql \
+  /wal-g/wal-g backup-push
+kubectl --namespace "${namespace}" exec "${primary}" -- \
+  psql -U postgres -d zoen -c "SELECT pg_switch_wal();"
 
 sequence="$(
   kubectl --namespace "${namespace}" exec "${primary}" -- \
