@@ -6,6 +6,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { parse } from "yaml";
+import canonicalize from "canonicalize";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { z } from "zod";
@@ -71,6 +72,7 @@ const validStart = new Date("2025-01-01T00:00:00.000Z");
 const validEnd = new Date("2026-01-01T00:00:00.000Z");
 const validAt = new Date("2025-06-01T00:00:00.000Z");
 const canonicalJson = (await readFile("e2e/scale/definition.canonical.json", "utf8")).trim();
+assert.equal(canonicalJson, canonicalize(JSON.parse(canonicalJson)));
 const digest = createHash("sha256").update(canonicalJson).digest("hex");
 const definition = create(DefinitionReferenceSchema, {
   definitionId,
