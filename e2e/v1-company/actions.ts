@@ -19,6 +19,9 @@ export const ledgerId = "accounting.ledger.sales";
 export const receivableAccountId = "accounting.account.receivable";
 export const revenueAccountId = "accounting.account.revenue";
 export const claimId = "accounting.claim.receivable.3001";
+export const fiscalTaxId = "fiscal.tax.3001";
+export const fiscalIntentId = "fiscal.intent.3001";
+export const fiscalDocumentId = "fiscal.document.3001";
 
 export function partyAdmit(
   fixture: CompanyFixture,
@@ -583,6 +586,90 @@ export function postReceivable(
     ],
     resourceId: claimId,
     suffix,
+    validAt: manufacturingAt,
+  });
+}
+
+export function requestTaxDetermination(fixture: CompanyFixture, suffix: string) {
+  return proposalRequest({
+    actionId: "fiscal.requestTaxDetermination",
+    fixture,
+    inputs: [
+      {
+        id: "requestReference",
+        value: { kind: "text", value: `tax-request-${suffix}` },
+      },
+    ],
+    resourceId: fiscalTaxId,
+    suffix: `tax-${suffix}`,
+    validAt: manufacturingAt,
+  });
+}
+
+export function submitFiscalDocument(fixture: CompanyFixture, suffix: string) {
+  return proposalRequest({
+    actionId: "fiscal.submitDocument",
+    fixture,
+    inputs: [
+      {
+        id: "requestReference",
+        value: { kind: "text", value: `document-request-fault-${suffix}` },
+      },
+    ],
+    resourceId: fiscalIntentId,
+    suffix: `document-${suffix}`,
+    validAt: manufacturingAt,
+  });
+}
+
+export function admitDocumentAuthorization(fixture: CompanyFixture, suffix: string) {
+  return proposalRequest({
+    actionId: "fiscal.admitDocumentAuthorization",
+    fixture,
+    inputs: [
+      {
+        id: "artifactDigest",
+        value: { kind: "text", value: "http-200-is-not-authorization" },
+      },
+      {
+        id: "artifactReference",
+        value: { kind: "text", value: "artifact.http-200" },
+      },
+      {
+        id: "authorityAccessKey",
+        value: { kind: "text", value: "key.http-200" },
+      },
+      {
+        id: "authorityProtocol",
+        value: { kind: "text", value: "protocol.http-200" },
+      },
+      {
+        id: "authorityStatus",
+        value: { kind: "text", value: "authorized" },
+      },
+      {
+        id: "fiscalIntentReference",
+        value: { kind: "text", value: fiscalIntentId },
+      },
+      {
+        id: "issuerRegistration",
+        value: { kind: "text", value: "11222333000181" },
+      },
+      {
+        id: "providerOperationReference",
+        value: { kind: "text", value: "http.200" },
+      },
+      {
+        id: "providerReference",
+        value: { kind: "text", value: "http" },
+      },
+      {
+        id: "remoteDocumentRevision",
+        value: { kind: "integer", value: "0" },
+      },
+    ],
+    resourceId: fiscalDocumentId,
+    suffix: `admit-${suffix}`,
     validAt: manufacturingAt,
   });
 }

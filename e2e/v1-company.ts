@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { chromium } from "playwright";
@@ -16,6 +17,10 @@ import {
 } from "../packages/sdk/src/gen/zoen/computation/v1/computation_pb.js";
 import { EvolutionClassification } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import {
+  QueryConsistencySchema,
+  QuerySelectionSchema,
+} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import { runLeakageGate, runLeakageMutant } from "./domain-inventory-procurement/support.js";
 import { waitForState } from "./effects/scenario.js";
 import { writeScenarioArtifact } from "./host-env.js";
@@ -27,15 +32,20 @@ import {
 import {
   acceptPhysical,
   afterCorrectionAt,
+  admitDocumentAuthorization,
   applySettlement,
   completeWork,
   componentProductId,
   correctCommitment,
   createCommitment,
   finishedProductId,
+  fiscalDocumentId,
+  fiscalIntentId,
+  fiscalTaxId,
   governPurchase,
   inventoryCommitment,
   lifecycleAt,
+  manufacturingAt,
   manufacturingRequirement,
   materialAvailability,
   orderLineId,
@@ -54,11 +64,13 @@ import {
   recordRequirement,
   replenish,
   requestSupplier,
+  requestTaxDetermination,
   reserveInventory,
   revenueAccountId,
   receivableAccountId,
   startWork,
   stockPositionId,
+  submitFiscalDocument,
   supplierPartyId,
 } from "./v1-company/actions.js";
 import {
@@ -78,6 +90,7 @@ import {
   recordEvidence,
   repositoryRoot,
   semanticQuery,
+  sha256,
   tenantA,
   tenantB,
   worldClient,
@@ -199,6 +212,7 @@ async function main(): Promise<void> {
   const procurement = fixtures.procurement;
   const manufacturing = fixtures.manufacturing;
   const accounting = fixtures["accounting-foundation"];
+  const fiscal = fixtures["fiscal-brazil"];
   const compatibleV1 = fixtures["compatible-v1"];
   const compatibleV2 = fixtures["compatible-v2"];
   const migrationV1 = fixtures["migration-v1"];
@@ -333,6 +347,18 @@ async function main(): Promise<void> {
       agentReplay.status === CommitStatus.COMMITTED &&
         agentReplay.receipt?.operationId === humanCommit.receipt.operationId,
     );
+    const intentMismatch = {
+      ...createCommitment(commercial, "human-direct"),
+      proposalId: "proposal.commercial.intent-mismatch",
+    };
+    await expectConnectCode(
+      () => actionCommercialA.propose(intentMismatch),
+      Code.InvalidArgument,
+    );
+    recordMutant(
+      "intent-mismatch-accepted",
+      "propose of committed commercial.createCommitment with a different proposalId returned InvalidArgument",
+    );
 
     let deniedOutcome: PolicyDecision | Code = PolicyDecision.UNSPECIFIED;
     try {
@@ -459,6 +485,25 @@ async function main(): Promise<void> {
       reserved.status === CommitStatus.COMMITTED &&
         reserved.receipt?.commitStateBasis?.digest ===
           readyProposal.proposal?.stateBasis?.digest,
+    );
+    const reservationReplay = await actionInventoryA.commit({
+      operationId: readyReserve.operationId,
+      proposalId: readyReserve.proposalId,
+    });
+    observe(
+      "replayKeepsSemanticAndEffectIdentitiesTogether",
+      reservationReplay.status === CommitStatus.COMMITTED &&
+        (reserved.receipt?.recordIds.length ?? 0) > 0 &&
+        reservationReplay.receipt?.operationId ===
+          reserved.receipt?.operationId &&
+        JSON.stringify(reservationReplay.receipt?.recordIds) ===
+          JSON.stringify(reserved.receipt?.recordIds) &&
+        JSON.stringify(reservationReplay.receipt?.effectRequestIds) ===
+          JSON.stringify(reserved.receipt?.effectRequestIds),
+    );
+    recordMutant(
+      "partial-semantic-effect-commit",
+      "reservation commit and replay returned the same recordIds and effectRequestIds",
     );
 
     await recordEvidence(worldA, {
@@ -597,17 +642,12 @@ async function main(): Promise<void> {
     const settlementRequest = applySettlement(accounting, "partial-payment");
     const settlementProposal = await actionAccountingA.propose(settlementRequest);
     if (settlementProposal.proposal?.status === ProposalStatus.AWAITING_APPROVAL) {
-      await actionAccountingA.approve({
-        approvalId: "approval.settlement",
+      const settlementApproved = await actionClient(accountingSupervisorA).approve({
+        approvalId: "approval.settlement.supervisor",
         expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
         proposalId: settlementProposal.proposal.proposalId,
-      }).catch(async () => {
-        await actionClient(accountingSupervisorA).approve({
-          approvalId: "approval.settlement",
-          expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
-          proposalId: settlementProposal.proposal?.proposalId ?? "",
-        });
       });
+      assert.equal(settlementApproved.decision, PolicyDecision.PERMIT);
     }
     const settlement = await actionAccountingA.commit({
       operationId: settlementRequest.operationId,
@@ -618,6 +658,69 @@ async function main(): Promise<void> {
       receivable.receipt.definition?.digest === accounting.digest &&
         (settlement.status === CommitStatus.COMMITTED ||
           settlementProposal.decision === PolicyDecision.PERMIT),
+    );
+
+    const fiscalA = await oidcToken("fiscal-agent-a");
+    const actionFiscalA = actionClient(fiscalA);
+    await recordEvidence(worldA, {
+      claimId: "claim.fiscal.tax-quantity",
+      entityId: fiscalTaxId,
+      fixture: fiscal,
+      relationId: "fiscal.taxQuantity",
+      sourceId: "source.fiscal.integration",
+      tenantId: tenantA,
+      time: { at: manufacturingAt, kind: "instant" },
+      value: { amount: "3", kind: "quantity", unit: "each" },
+    });
+    const taxRequest = await commitReady(
+      actionFiscalA,
+      requestTaxDetermination(fiscal, "company"),
+    );
+    observe(
+      "fiscalTaxDeterminationUsesBrazilPackage",
+      taxRequest.receipt.definition?.digest === fiscal.digest,
+    );
+    await recordEvidence(worldA, {
+      claimId: "claim.fiscal.intent-tax-total",
+      entityId: fiscalIntentId,
+      fixture: fiscal,
+      relationId: "fiscal.intentDeterminedTaxTotal",
+      sourceId: "source.fiscal.integration",
+      tenantId: tenantA,
+      time: { at: manufacturingAt, kind: "instant" },
+      value: { kind: "decimal", value: "2.20" },
+    });
+    const submittedFiscal = await commitReady(
+      actionFiscalA,
+      submitFiscalDocument(fiscal, "company"),
+    );
+    const authorizationEvidence = await semanticQuery(worldA, {
+      entityId: fiscalDocumentId,
+      fixture: fiscal,
+      selection: { id: "fiscal.authorizationEvidenceDigest", kind: "relation" },
+      tenantId: tenantA,
+      validAt: manufacturingAt,
+    });
+    observe(
+      "fiscalSubmitDoesNotWriteAuthorizationEvidence",
+      submittedFiscal.receipt.actionId === "fiscal.submitDocument" &&
+        quantity(authorizationEvidence).length === 0 &&
+        authorizationEvidence.values.every((value) => {
+          const exact = value.value?.value;
+          return exact?.case !== "textValue" || exact.value.length === 0;
+        }),
+    );
+    const httpAdmission = await actionFiscalA.propose(
+      admitDocumentAuthorization(fiscal, "http-200"),
+    );
+    observe(
+      "httpAcceptanceIsNotFiscalAuthorization",
+      httpAdmission.decision === PolicyDecision.DENY ||
+        httpAdmission.proposal === undefined,
+    );
+    recordMutant(
+      "fiscal-http-acceptance-treated-as-authorization",
+      "submitDocument left fiscal.authorizationEvidenceDigest empty and admitDocumentAuthorization of HTTP 200 with revision 0 was denied",
     );
 
     await commitReady(
@@ -672,6 +775,33 @@ async function main(): Promise<void> {
       v1Replenish.receipt.definition?.digest === compatibleV1.digest &&
         v2Replenish.receipt.definition?.digest === compatibleV2.digest,
     );
+    const mutatedCommercial = commercial.canonicalJson.replace(
+      '"id":"commercial.createCommitment"',
+      '"id":"commercial.createCommitmentMutant"',
+    );
+    await expectConnectCode(
+      () =>
+        definitionA.publish({
+          canonicalJson: new TextEncoder().encode(mutatedCommercial),
+          digest: commercial.digest,
+          tenantId: tenantA,
+        }),
+      Code.InvalidArgument,
+    );
+    const originalCommercial = await definitionA.getRevision({
+      definitionId: commercial.metadata.definitionId,
+      digest: commercial.digest,
+      tenantId: tenantA,
+    });
+    observe(
+      "publishedDefinitionBytesStayPinnedToOriginalDigest",
+      originalCommercial.definitionRevision?.digest === commercial.digest &&
+        sha256(mutatedCommercial) !== commercial.digest,
+    );
+    recordMutant(
+      "mutable-published-definition",
+      "publish of mutated commercial bytes with the original digest returned InvalidArgument and getRevision still returned the original digest",
+    );
 
     const breakingPlan = await definitionA.planEvolution({
       definitionId: migrationV1.metadata.definitionId,
@@ -709,6 +839,29 @@ async function main(): Promise<void> {
     recordMutant(
       "tenant-filter-cache-key-omission",
       "tenant B query with tenant A payload returned PermissionDenied",
+    );
+    await expectConnectCode(
+      () =>
+        worldCommercialA.semanticQuery({
+          consistency: create(QueryConsistencySchema, {
+            value: { case: "atLeastCommit", value: 1_000_000n },
+          }),
+          definition: inventory.definition,
+          entityId: stockPositionId,
+          selection: create(QuerySelectionSchema, {
+            value: {
+              case: "relationId",
+              value: "inventory.physicalQuantityClaim",
+            },
+          }),
+          tenantId: tenantA,
+          validAt: timestampFromDate(afterCorrectionAt),
+        }),
+      Code.FailedPrecondition,
+    );
+    recordMutant(
+      "stale-projection-satisfies-requested-freshness",
+      "semanticQuery AtLeast(1000000) returned FailedPrecondition instead of serving a stale projection",
     );
 
     const effectId = reserved.receipt?.effectRequestIds[0];
@@ -800,7 +953,8 @@ async function main(): Promise<void> {
     await waitRollout("deployment/zoend");
     await kubectl(["rollout", "restart", "deployment/zoen-projection"]);
     await waitRollout("deployment/zoen-projection");
-    const afterRestart = await semanticQuery(worldClient(commercialA), {
+    const commercialRestart = await oidcToken("commercial-agent-a");
+    const afterRestart = await semanticQuery(worldClient(commercialRestart), {
       consistency: {
         commit: humanCommit.receipt.commitSequence,
         kind: "snapshot",
@@ -855,6 +1009,8 @@ async function main(): Promise<void> {
         manufacturing: completed.receipt.operationId,
         purchase: purchaseCommit.receipt?.operationId,
         reservation: reserved.receipt?.operationId,
+        taxDetermination: taxRequest.receipt.operationId,
+        fiscalSubmit: submittedFiscal.receipt.operationId,
       },
       scenario,
       sourceCommit: signed.sourceSha ?? "",

@@ -15,12 +15,12 @@ import {
   compileDefinition,
   repositoryRoot as evolutionRepositoryRoot,
 } from "../evolution-compatible/support.js";
-
-export const repositoryRoot = evolutionRepositoryRoot;
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
 } from "../host-env.js";
+
+export const repositoryRoot = evolutionRepositoryRoot;
 
 export {
   actionClient,
