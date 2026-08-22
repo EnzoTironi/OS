@@ -101,6 +101,8 @@ function recordMutant(id: string, observation: string): void {
   mutants.push({ id, killed: true, observation });
 }
 
+let tenantAHead = 0n;
+
 function percentile(samples: number[], ratio: number): number {
   const ordered = [...samples].sort((left, right) => left - right);
   return ordered[Math.min(ordered.length - 1, Math.floor((ordered.length - 1) * ratio))] ?? 0;
@@ -143,9 +145,10 @@ async function ingest(
   world: ReturnType<typeof worldClient>,
   tenantId: string,
   claims: ReturnType<typeof claim>[],
-): Promise<number> {
+): Promise<{ readonly commitSequence: bigint; readonly recordedCount: number }> {
   const batchSize = 1000;
   let recordedCount = 0;
+  let commitSequence = 0n;
   for (let index = 0; index < claims.length; index += batchSize) {
     const batch = claims.slice(index, index + batchSize);
     const recorded = await world.recordEvidenceBatch(
@@ -156,9 +159,11 @@ async function ingest(
     );
     assert.equal(recorded.recordedCount, batch.length);
     recordedCount += recorded.recordedCount;
+    commitSequence = recorded.commitSequence;
   }
   assert.equal(recordedCount, claims.length);
-  return recordedCount;
+  assert.ok(commitSequence > 0n);
+  return { commitSequence, recordedCount };
 }
 
 async function publishActive(tenantId: string): Promise<void> {
@@ -224,7 +229,10 @@ async function registerRestateServices(): Promise<void> {
   }
 }
 
-async function seedTenant(tenantId: string, records: number): Promise<number> {
+async function seedTenant(
+  tenantId: string,
+  records: number,
+): Promise<{ readonly commitSequence: bigint; readonly recordedCount: number }> {
   await publishActive(tenantId);
   const claims = [];
   const companies = Math.max(8, Math.min(64, Math.floor(records / 50)));
@@ -308,20 +316,33 @@ async function queryRelation(entityId: string): Promise<{
   );
   assert.ok(result.actualCommitSequence > 0n);
   assert.equal(result.knowledgeCut, result.actualCommitSequence);
+  assert.equal(
+    result.actualCommitSequence,
+    tenantAHead,
+    "strong query did not use the authority head from ingest",
+  );
   return { commit: result.actualCommitSequence, elapsed };
 }
 
 async function runSeed(): Promise<void> {
-  const tenantARecords = await seedTenant(tenantA, targetRecords);
-  const tenantBTarget = Math.min(64, Math.max(8, Math.floor(targetRecords / 100)));
-  const tenantBRecords = await seedTenant(tenantB, tenantBTarget);
+  const tenantASeed = await seedTenant(tenantA, targetRecords);
+  tenantAHead = tenantASeed.commitSequence;
+  const tenantBTarget = Math.min(
+    64,
+    Math.max(8, Math.floor(targetRecords / 100)),
+  );
+  const tenantBSeed = await seedTenant(tenantB, tenantBTarget);
   await writeFile(
     path.join(artifacts, "dataset.json"),
     `${JSON.stringify({
-      recorded: { [tenantA]: tenantARecords, [tenantB]: tenantBRecords },
+      recorded: {
+        [tenantA]: tenantASeed.recordedCount,
+        [tenantB]: tenantBSeed.recordedCount,
+      },
       referenceRecords: budgets.referenceRecords,
       scaleClass: environment.ZOEN_SCALE,
       targetRecords,
+      tenantAHead: tenantAHead.toString(),
     })}\n`,
   );
 }
@@ -345,7 +366,7 @@ async function runQuery(): Promise<void> {
   );
   recordMutant(
     "eventual-as-strong",
-    `strong knowledgeCut ${commit} equals actualCommitSequence`,
+    `strong actualCommitSequence ${commit} equals last ingest commit ${tenantAHead}`,
   );
 
   const snapshot = await worldA.semanticQuery({
@@ -455,9 +476,14 @@ async function runActions(): Promise<void> {
     proposalId: firstProposalId,
   });
   assert.equal(replayed.status, CommitStatus.COMMITTED);
+  const status = await action.getOperationStatus({
+    operationId: firstOperationId,
+  });
+  assert.equal(status.status, CommitStatus.COMMITTED);
+  assert.ok(status.receipt);
   recordMutant(
     "status-disabled",
-    "independent Action commits returned COMMITTED including idempotent replay",
+    "GetOperationStatus returned COMMITTED after independent commits and replay",
   );
   const elapsedSeconds = (performance.now() - started) / 1000;
   const p95 = percentile(samples, 0.95);
