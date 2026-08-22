@@ -276,7 +276,7 @@ zoen_workload_ready() {
   )"
   desired="${desired:-0}"
   ready="${ready:-0}"
-  ((desired > 0 && ready >= desired))
+  ((ready == desired))
 }
 
 zoen_rollout_status() {
