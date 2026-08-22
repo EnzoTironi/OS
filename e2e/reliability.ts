@@ -363,7 +363,7 @@ async function authoritySnapshot(): Promise<{
       { name: "definition_revisions", volatileColumns: [] },
       {
         name: "effect_requests",
-        volatileColumns: ["last_commit_sequence", "state", "updated_at"],
+        volatileColumns: ["last_commit_sequence", "knowledge_state", "updated_at"],
       },
       { name: "semantic_claims", volatileColumns: [] },
     ] as const;

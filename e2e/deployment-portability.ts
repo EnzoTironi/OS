@@ -337,11 +337,12 @@ async function authorityDigestForTenant(): Promise<string> {
       { name: "definition_revisions", volatileColumns: [] },
       {
         name: "effect_requests",
-        volatileColumns: ["last_commit_sequence", "state", "updated_at"],
+        volatileColumns: ["last_commit_sequence", "knowledge_state", "updated_at"],
       },
       { name: "semantic_claims", volatileColumns: [] },
     ] as const;
     const rows: string[] = [];
+    const tableDigests: Record<string, string> = {};
     for (const table of tables) {
       const result = await client.query<{ row: string }>(
         `SELECT normalized.row::text AS row
@@ -352,7 +353,37 @@ async function authorityDigestForTenant(): Promise<string> {
           ORDER BY normalized.row::text`,
         [tenantA, table.volatileColumns],
       );
-      rows.push(table.name, ...result.rows.map((row) => row.row));
+      const tableRows = result.rows.map((row) => row.row);
+      tableDigests[table.name] = sha256(tableRows.join("\n"));
+      rows.push(table.name, ...tableRows);
+    }
+    const tableDigestPath = path.join(
+      environment.ZOEN_DEPLOYMENT_ARTIFACTS_DIR,
+      "authority-table-digests.json",
+    );
+    if (mode === "verify") {
+      try {
+        const previous = JSON.parse(
+          await readFile(tableDigestPath, "utf8"),
+        ) as Record<string, string>;
+        const changed = Object.keys(tableDigests).filter(
+          (table) => tableDigests[table] !== previous[table],
+        );
+        if (changed.length > 0) {
+          process.stderr.write(
+            `${JSON.stringify({ changed, previous, current: tableDigests }, null, 2)}\n`,
+          );
+        }
+      } catch (error) {
+        process.stderr.write(
+          `authority table digests unavailable: ${String(error)}\n`,
+        );
+      }
+    } else {
+      await writeFile(
+        tableDigestPath,
+        `${JSON.stringify(tableDigests, null, 2)}\n`,
+      );
     }
     return sha256(rows.join("\n"));
   } finally {

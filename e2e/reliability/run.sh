@@ -945,10 +945,10 @@ node e2e/shared-tenancy/prepare-realm.mjs inventory.governed inventory.item.1
 install_dependencies
 install_application "${application_namespace}"
 wait_for_application "${application_namespace}"
+run_semantic seed
 kubectl --namespace "${application_namespace}" rollout status \
   deployment/harness-tenant-a \
   --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
-run_semantic seed
 install -m 0644 "${artifacts_directory}/semantic-state.json" \
   "${artifacts_directory}/semantic-initial.json"
 pass initial-conformance \
