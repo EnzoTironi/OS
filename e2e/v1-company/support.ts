@@ -46,7 +46,7 @@ export type {
   WorldClient,
 } from "../domain-commercial/support.js";
 export { computationClient, loadComponentFixture } from "../wasm-code-mode/support.js";
-export { effectClient } from "../effects/support.js";
+export { dispatchOnce, effectClient } from "../effects/support.js";
 
 export const scenario = "v1-company";
 export const generatedDirectory = e2eGeneratedDirectory(

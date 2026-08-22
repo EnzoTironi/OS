@@ -80,6 +80,7 @@ import {
   compileCompanyPackages,
   computationClient,
   definitionClient,
+  dispatchOnce,
   effectClient,
   expectConnectCode,
   explainOperation,
@@ -159,18 +160,31 @@ async function kubectl(args: readonly string[]): Promise<string> {
   });
 }
 
+function listsZoenEffect(body: string): boolean {
+  return /ZoenEffect/u.test(body);
+}
+
 async function registerRestateServices(): Promise<void> {
   const restateAdmin = `http://127.0.0.1:${process.env.ZOEN_E2E_RESTATE_UI_PORT ?? "31592"}`;
   const uri = `http://zoen-effect-worker.${applicationNamespace}.svc.cluster.local:9081`;
+  let lastBody = "";
   for (let attempt = 0; attempt < 120; attempt += 1) {
     try {
       const response = await fetch(`${restateAdmin}/deployments`, {
         body: JSON.stringify({ uri }),
         headers: { "content-type": "application/json" },
         method: "POST",
-        signal: AbortSignal.timeout(1_000),
+        signal: AbortSignal.timeout(2_000),
       });
-      if (response.ok || response.status === 409) {
+      lastBody = await response.text();
+      if ((response.ok || response.status === 409) && listsZoenEffect(lastBody)) {
+        return;
+      }
+      const listed = await fetch(`${restateAdmin}/deployments`, {
+        signal: AbortSignal.timeout(2_000),
+      });
+      lastBody = await listed.text();
+      if (listed.ok && listsZoenEffect(lastBody)) {
         return;
       }
     } catch {
@@ -179,7 +193,7 @@ async function registerRestateServices(): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  throw new Error(`Restate did not register ${uri}`);
+  throw new Error(`Restate did not register ZoenEffect at ${uri}: ${lastBody}`);
 }
 
 async function waitRollout(workload: string): Promise<void> {
@@ -198,8 +212,12 @@ async function waitForCompleteExplanation(
   const deadline = Date.now() + 180_000;
   let explanation = await explainOperation(client, operationId);
   while (!explanation.complete && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await dispatchOnce(tenantA);
     explanation = await explainOperation(client, operationId);
+    if (explanation.complete) {
+      return explanation;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   if (!explanation.complete) {
     const gaps = explanation.gaps
