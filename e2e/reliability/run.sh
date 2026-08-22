@@ -222,8 +222,7 @@ pause_deployments() {
       exit 1
     fi
     kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=0
-    kubectl --namespace "${application_namespace}" rollout status \
-      "deployment/${deploy}" --timeout=120s
+    zoen_rollout_status "${application_namespace}" "deployment/${deploy}" 120s
   done
   deadline=$((SECONDS + 120))
   while (( SECONDS < deadline )); do
@@ -250,8 +249,7 @@ resume_deployments() {
   local deploy
   for deploy in "$@"; do
     kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=1
-    kubectl --namespace "${application_namespace}" rollout status \
-      "deployment/${deploy}" --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${application_namespace}" "deployment/${deploy}"
   done
 }
 
@@ -564,16 +562,11 @@ install_dependencies() {
     --set "reference.enabled=true" \
     --set-file "keycloak.realmJson=${generated_directory}/realm.json" \
     "${artifact_flags[@]}"
-  kubectl --namespace "${durable_namespace}" rollout status statefulset/postgres \
-    --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
-  kubectl --namespace "${durable_namespace}" rollout status statefulset/postgres-replica \
-    --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
-  kubectl --namespace "${durable_namespace}" rollout status statefulset/restate \
-    --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+  zoen_rollout_status "${durable_namespace}" statefulset/postgres
+  zoen_rollout_status "${durable_namespace}" statefulset/postgres-replica
+  zoen_rollout_status "${durable_namespace}" statefulset/restate
   for workload in deployment/keycloak deployment/minio deployment/otel-collector; do
-    kubectl --namespace "${durable_namespace}" rollout status \
-      "${workload}" \
-      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${durable_namespace}" "${workload}"
   done
   test "$(
     kubectl --namespace "${durable_namespace}" get statefulset postgres-replica \
@@ -624,9 +617,7 @@ wait_for_stateless_application() {
     deployment/zoen-http-connector \
     deployment/zoen-projection \
     deployment/zoend; do
-    kubectl --namespace "${namespace}" rollout status \
-      "${workload}" \
-      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${namespace}" "${workload}"
   done
   test "$(
     kubectl --namespace "${namespace}" get deployment zoend \
@@ -645,9 +636,7 @@ wait_for_application() {
     deployment/zoen-http-connector \
     deployment/zoen-projection \
     deployment/zoend; do
-    kubectl --namespace "${namespace}" rollout status \
-      "${workload}" \
-      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${namespace}" "${workload}"
   done
   test "$(
     kubectl --namespace "${namespace}" get deployment zoend \
@@ -1093,9 +1082,7 @@ install_dependencies
 install_application "${application_namespace}"
 wait_for_application "${application_namespace}"
 run_semantic seed
-kubectl --namespace "${application_namespace}" rollout status \
-  deployment/harness-tenant-a \
-  --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+zoen_rollout_status "${application_namespace}" deployment/harness-tenant-a
 install -m 0644 "${artifacts_directory}/semantic-state.json" \
   "${artifacts_directory}/semantic-initial.json"
 pass initial-conformance \
@@ -1120,15 +1107,13 @@ case "${drill}" in
     wait_for_application "${application_namespace}"
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     kubectl --namespace "${durable_namespace}" delete pod restate-1 --wait=true
-    kubectl --namespace "${durable_namespace}" rollout status statefulset/restate \
-      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${durable_namespace}" statefulset/restate
     wait_for_application "${application_namespace}"
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     kubectl --namespace "${durable_namespace}" scale deployment/minio --replicas=0
     sleep 5
     kubectl --namespace "${durable_namespace}" scale deployment/minio --replicas=1
-    kubectl --namespace "${durable_namespace}" rollout status deployment/minio \
-      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${durable_namespace}" deployment/minio
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
 
     cached_token="$(
@@ -1162,8 +1147,7 @@ case "${drill}" in
     kubectl --namespace "${application_namespace}" scale deployment/zoen-projection --replicas=0
     sleep 2
     kubectl --namespace "${application_namespace}" scale deployment/zoen-projection --replicas=1
-    kubectl --namespace "${application_namespace}" rollout status \
-      deployment/zoen-projection --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${application_namespace}" deployment/zoen-projection
     run_semantic digest
     test "$(digest_value)" = "${digest_before}"
     rebuild_projections
@@ -1205,9 +1189,7 @@ case "${drill}" in
 
     kill_stateless_application
     wait_for_application "${application_namespace}"
-    kubectl --namespace "${application_namespace}" rollout status \
-      deployment/harness-tenant-a \
-      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${application_namespace}" deployment/harness-tenant-a
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     pass stateless-pod-kill \
       "killing zoend, harness, projection, effect, and connector pods recovered Ready state" \
