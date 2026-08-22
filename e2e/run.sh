@@ -11,6 +11,8 @@ scenario_table=(
   "agent-capabilities-live:agent-capabilities-live:"
   "company-brain-live:company-brain-live:"
   "definition-publication::"
+  "deploy-dedicated::"
+  "deploy-self-hosted-isolated::"
   "domain-commercial:domain-commercial:"
   "domain-inventory-procurement:domain-inventory-procurement:"
   "domain-manufacturing-accounting:domain-manufacturing-accounting:"
@@ -84,11 +86,14 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ "$scenario" == "shared-tenancy" ]]; then
+      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
         compose_file=""
         project=""
       elif [[ -n "$realm" ]]; then
         prepare="e2e/${realm}/prepare-realm.mjs"
+      fi
+      if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
+        runner="dist/e2e/deployment-portability.js"
       fi
       load_scenario_env
       return
@@ -119,6 +124,7 @@ run_lint() {
   npm exec -- buf build --as-file-descriptor-set -o proto/definition_descriptor.binpb
   git diff --exit-code -- packages/sdk/src/gen proto/definition_descriptor.binpb
   npm run build
+  npm run deployment-docs:check
   npm test
   cargo fmt --all --check
   cargo test --locked --workspace
@@ -203,7 +209,7 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
-  if [[ "$scenario" == "shared-tenancy" ]]; then
+  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
     return
   fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -224,6 +230,11 @@ run_scenario() {
   mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
   if [[ "$scenario" == "shared-tenancy" ]]; then
     e2e/shared-tenancy/run.sh
+    trap - EXIT
+    return
+  fi
+  if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
+    "e2e/${scenario}/run.sh"
     trap - EXIT
     return
   fi

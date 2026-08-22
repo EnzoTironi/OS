@@ -1,4 +1,18 @@
 profile: shared-saas
+tenantAwareness: true
+
+applications:
+  enabled: true
+
+reference:
+  enabled: true
+
+networkPolicy:
+  enabled: false
+
+telemetry:
+  enabled: true
+  required: false
 
 zoend:
   replicas: 2
@@ -7,6 +21,12 @@ tenants:
   - id: tenant.a
     suffix: A
     clientId: harness-a
+    clientSecretKey: harnessClientSecretA
+    databaseUrlKey: databaseUrlTenantA
+    nodePort: 32083
   - id: tenant.b
     suffix: B
     clientId: harness-b
+    clientSecretKey: harnessClientSecretB
+    databaseUrlKey: databaseUrlTenantB
+    nodePort: 32084

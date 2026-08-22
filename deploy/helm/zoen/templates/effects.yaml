@@ -1,3 +1,4 @@
+{{- if .Values.applications.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -38,16 +39,20 @@ spec:
             - name: ZOEN_CONNECTOR_CALLER_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: connectorCallerToken
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.connectorCallerTokenKey }}
             - name: ZOEN_CONNECTOR_CREDENTIALS
-              value: '{"secret.provider.a":{"secret":"unused","tenantId":"tenant.a"},"secret.provider.b":{"secret":"unused","tenantId":"tenant.b"}}'
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.connectorCredentialsKey }}
+            {{- include "zoen.telemetryEnv" . | nindent 12 }}
             - name: ZOEN_CONNECTOR_LISTEN_ADDR
               value: 0.0.0.0:8080
             - name: ZOEN_CONNECTOR_PROVIDER_TIMEOUT_MS
               value: "250"
             - name: ZOEN_CONNECTOR_PROVIDER_URL
-              value: http://provider.invalid/v1/operations
+              value: {{ .Values.effects.connectorProviderUrl | quote }}
           ports:
             - name: http
               containerPort: 8080
@@ -92,12 +97,30 @@ spec:
         - name: effect-worker
           image: {{ include "zoen.nodeImage" . }}
           imagePullPolicy: Always
-          command: [node, /app/deploy/scripts/start-effect-worker.mjs]
+          command: [node, /app/dist/packages/effect-worker/src/index.js]
           env:
+            - name: ZOEN_CONNECTOR_CALLER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.connectorCallerTokenKey }}
+            - name: ZOEN_CONNECTOR_CREDENTIAL_REFS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.workerCredentialRefsKey }}
+            - name: ZOEN_EFFECT_CONNECTOR_URL
+              value: http://zoen-http-connector:8080/v1/effects
+            - name: ZOEN_EFFECT_SERVICE_OIDC_CLIENTS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.effectOidcClientsKey }}
+            - name: ZOEN_EFFECT_SERVICE_OIDC_TOKEN_ENDPOINT
+              value: {{ .Values.keycloak.tokenEndpoint | quote }}
             - name: ZOEN_EFFECT_SERVICE_URL
               value: http://zoend:8080
-            - name: ZOEN_EFFECT_TOKEN_ENDPOINT
-              value: http://keycloak:{{ .Values.keycloak.nodePort }}/realms/zoen/protocol/openid-connect/token
+            {{- include "zoen.telemetryEnv" . | nindent 12 }}
             - name: ZOEN_EFFECT_WORKER_PORT
               value: "9081"
           ports:
@@ -108,3 +131,4 @@ spec:
               port: restate
             initialDelaySeconds: 5
             periodSeconds: 2
+{{- end }}

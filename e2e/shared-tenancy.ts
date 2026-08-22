@@ -153,12 +153,20 @@ const knowledgeSchema = z
 const signedArtifactSchema = z
   .object({
     chartDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    chartPackageDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     chartRepository: z.string().min(1),
+    chartSbomDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    chartSignatureDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     chartVersion: z.string().min(1),
     nodeDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     nodeRepository: z.string().min(1),
+    nodeSbomDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    nodeSignatureDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    publicKeyDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     rustDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     rustRepository: z.string().min(1),
+    rustSbomDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    rustSignatureDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   })
   .strict();
@@ -259,13 +267,13 @@ async function main(): Promise<void> {
         "rollout",
         "status",
         "deployment/harness-tenant-a",
-        "--timeout=5m",
+        `--timeout=${kubernetesRolloutTimeout()}`,
       ]),
       kubectl([
         "rollout",
         "status",
         "deployment/harness-tenant-b",
-        "--timeout=5m",
+        `--timeout=${kubernetesRolloutTimeout()}`,
       ]),
     ]);
     await registerRestateServices();
@@ -472,17 +480,25 @@ async function main(): Promise<void> {
       artifacts: {
         chart: {
           digest: signedArtifacts.chartDigest,
+          packageDigest: signedArtifacts.chartPackageDigest,
           repository: signedArtifacts.chartRepository,
+          sbomDigest: signedArtifacts.chartSbomDigest,
+          signatureDigest: signedArtifacts.chartSignatureDigest,
           version: signedArtifacts.chartVersion,
         },
         node: {
           digest: signedArtifacts.nodeDigest,
           repository: signedArtifacts.nodeRepository,
+          sbomDigest: signedArtifacts.nodeSbomDigest,
+          signatureDigest: signedArtifacts.nodeSignatureDigest,
         },
         rust: {
           digest: signedArtifacts.rustDigest,
           repository: signedArtifacts.rustRepository,
+          sbomDigest: signedArtifacts.rustSbomDigest,
+          signatureDigest: signedArtifacts.rustSignatureDigest,
         },
+        signingPublicKeyDigest: signedArtifacts.publicKeyDigest,
       },
       attacks,
       collisions: [
@@ -1144,19 +1160,6 @@ async function restartAndRebuild(input: {
   readonly worldA: WorldClient;
   readonly worldB: WorldClient;
 }): Promise<void> {
-  await kubectl([
-    "rollout",
-    "restart",
-    "deployment/zoend",
-    "deployment/harness-tenant-a",
-    "deployment/harness-tenant-b",
-    "deployment/zoen-projection",
-    "statefulset/restate",
-    "deployment/web",
-    "deployment/zoen-effect-worker",
-    "deployment/zoen-effect-dispatcher-tenant-a",
-    "deployment/zoen-effect-dispatcher-tenant-b",
-  ]);
   for (const workload of [
     "deployment/zoend",
     "deployment/harness-tenant-a",
@@ -1168,11 +1171,12 @@ async function restartAndRebuild(input: {
     "deployment/zoen-effect-dispatcher-tenant-a",
     "deployment/zoen-effect-dispatcher-tenant-b",
   ]) {
+    await kubectl(["rollout", "restart", workload]);
     await kubectl([
       "rollout",
       "status",
       workload,
-      "--timeout=5m",
+      `--timeout=${kubernetesRolloutTimeout()}`,
     ]);
   }
   await registerRestateServices();
@@ -1506,6 +1510,10 @@ async function kubernetesDeployment(name: string) {
     .passthrough()
     .transform((value) => ({ readyReplicas: value.status.readyReplicas }))
     .parse(JSON.parse(output));
+}
+
+function kubernetesRolloutTimeout(): string {
+  return process.env.ZOEN_KUBERNETES_ROLLOUT_TIMEOUT ?? "10m";
 }
 
 async function kubectl(arguments_: readonly string[]): Promise<string> {

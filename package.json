@@ -12,6 +12,7 @@
     "buf:generate": "buf generate",
     "buf:lint": "buf lint",
     "check": "tsc -p tsconfig.json --noEmit",
+    "deployment-docs:check": "node deploy/scripts/generate-deployment-docs.mjs --check",
     "test": "node --test dist/packages/ontology/src/compiler.test.js dist/packages/harness/src/*.test.js dist/packages/surface/src/surface.test.js"
   },
   "devDependencies": {
@@ -31,6 +32,7 @@
     "pg": "8.23.0",
     "playwright": "^1.62.1",
     "typescript": "7.0.2",
+    "yaml": "^2.9.0",
     "zod": "4.4.3"
   }
 }

@@ -11,3 +11,62 @@ zoen.dev/profile: {{ .Values.profile | quote }}
 {{- define "zoen.nodeImage" -}}
 {{- required "images.node.repository is required" .Values.images.node.repository -}}@{{- required "images.node.digest is required" .Values.images.node.digest -}}
 {{- end }}
+
+{{- define "zoen.databaseEnv" -}}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.runtimeSecret.name }}
+      key: {{ .Values.runtimeSecret.databaseUrlKey }}
+{{- end }}
+
+{{- define "zoen.objectStoreEnv" -}}
+- name: S3_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.runtimeSecret.name }}
+      key: {{ .Values.runtimeSecret.s3AccessKeyIdKey }}
+- name: S3_ALLOW_HTTP
+  value: {{ .Values.objectStorage.allowHttp | quote }}
+- name: S3_ENDPOINT
+  value: {{ .Values.objectStorage.endpoint | quote }}
+- name: S3_REGION
+  value: {{ .Values.objectStorage.region | quote }}
+- name: S3_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.runtimeSecret.name }}
+      key: {{ .Values.runtimeSecret.s3SecretAccessKeyKey }}
+{{- end }}
+
+{{- define "zoen.telemetryEnv" -}}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ .Values.telemetry.endpoint | quote }}
+- name: OTEL_SDK_DISABLED
+  value: {{ not .Values.telemetry.enabled | quote }}
+{{- end }}
+
+{{- define "zoen.preflight" -}}
+initContainers:
+  - name: dependency-preflight
+    image: {{ include "zoen.nodeImage" . }}
+    imagePullPolicy: Always
+    command: [node, /app/deploy/scripts/preflight-dependencies.mjs]
+    env:
+      {{- include "zoen.databaseEnv" . | nindent 6 }}
+      {{- include "zoen.objectStoreEnv" . | nindent 6 }}
+      - name: S3_BUCKET
+        value: {{ .Values.objectStorage.projectionBucket | quote }}
+      - name: ZOEN_CONFIG_VERSION
+        value: {{ .Values.configVersion | quote }}
+      - name: ZOEN_MIGRATION_COMPATIBILITY
+        value: {{ .Values.migration.compatibility | quote }}
+      - name: ZOEN_OIDC_ISSUER
+        value: {{ .Values.global.publicOidcIssuer | quote }}
+      - name: ZOEN_OIDC_DISCOVERY_URL
+        value: {{ .Values.keycloak.discoveryUrl | quote }}
+      - name: ZOEN_RESTATE_ADMIN_URL
+        value: {{ .Values.restate.adminUrl | quote }}
+      - name: ZOEN_TENANT_AWARENESS
+        value: {{ .Values.tenantAwareness | quote }}
+{{- end }}

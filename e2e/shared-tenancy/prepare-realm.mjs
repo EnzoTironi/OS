@@ -4,9 +4,11 @@ import path from "node:path";
 const outputDirectory =
   process.env.ZOEN_E2E_GENERATED_DIR ??
   path.join("e2e", "shared-tenancy", ".generated");
-const definitionId = "inventory.companyBrain";
+const authorityTargets = {
+  definitionId: process.argv[2] ?? "inventory.companyBrain",
+  resourceId: process.argv[3] ?? "inventory.item.1",
+};
 const actionId = "inventory.requestStock";
-const resourceId = "inventory.item.1";
 const farFuture = 4_102_444_800;
 
 function hardcodedClaim(name, value) {
@@ -116,7 +118,7 @@ function webUser(tenant) {
       tenant_id: [tenant],
       workload_id: [workloadId],
       zoen_delegation: [
-        delegation(workloadId, [actionId], [resourceId]),
+        delegation(workloadId, [actionId], [authorityTargets.resourceId]),
       ],
     },
     credentials: [
@@ -149,56 +151,56 @@ const realm = {
     confidentialClient({
       actionIds: ["zoen.definition.activate"],
       clientId: "admin-a",
-      resourceIds: [definitionId],
+      resourceIds: [authorityTargets.definitionId],
       tenantId: "tenant.a",
       workloadId: "workload.admin.a",
     }),
     confidentialClient({
       actionIds: ["zoen.definition.activate"],
       clientId: "admin-b",
-      resourceIds: [definitionId],
+      resourceIds: [authorityTargets.definitionId],
       tenantId: "tenant.b",
       workloadId: "workload.admin.b",
     }),
     confidentialClient({
       actionIds: [actionId],
       clientId: "agent-a",
-      resourceIds: [resourceId],
+      resourceIds: [authorityTargets.resourceId],
       tenantId: "tenant.a",
       workloadId: "workload.agent.a",
     }),
     confidentialClient({
       actionIds: [actionId],
       clientId: "agent-b",
-      resourceIds: [resourceId],
+      resourceIds: [authorityTargets.resourceId],
       tenantId: "tenant.b",
       workloadId: "workload.agent.b",
     }),
     confidentialClient({
       actionIds: [actionId],
       clientId: "harness-a",
-      resourceIds: [resourceId],
+      resourceIds: [authorityTargets.resourceId],
       tenantId: "tenant.a",
       workloadId: "workload.harness.a",
     }),
     confidentialClient({
       actionIds: [actionId],
       clientId: "harness-b",
-      resourceIds: [resourceId],
+      resourceIds: [authorityTargets.resourceId],
       tenantId: "tenant.b",
       workloadId: "workload.harness.b",
     }),
     confidentialClient({
       actionIds: [actionId],
       clientId: "effect-worker-a",
-      resourceIds: [resourceId],
+      resourceIds: [authorityTargets.resourceId],
       tenantId: "tenant.a",
       workloadId: "workload.effect-worker",
     }),
     confidentialClient({
       actionIds: [actionId],
       clientId: "effect-worker-b",
-      resourceIds: [resourceId],
+      resourceIds: [authorityTargets.resourceId],
       tenantId: "tenant.b",
       workloadId: "workload.effect-worker",
     }),

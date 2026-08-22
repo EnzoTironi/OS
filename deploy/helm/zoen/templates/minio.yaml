@@ -1,3 +1,16 @@
+{{- if .Values.reference.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  labels:
+    {{- include "zoen.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.minio.storage }}
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -39,13 +52,13 @@ spec:
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: minioAccessKey
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.s3AccessKeyIdKey }}
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: minioSecretKey
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.s3SecretAccessKeyKey }}
           ports:
             - name: api
               containerPort: 9000
@@ -60,7 +73,8 @@ spec:
               mountPath: /data
       volumes:
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: minio-data
 ---
 apiVersion: batch/v1
 kind: Job
@@ -68,6 +82,9 @@ metadata:
   name: minio-buckets
   labels:
     {{- include "zoen.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 6
   template:
@@ -90,10 +107,11 @@ spec:
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: minioAccessKey
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.s3AccessKeyIdKey }}
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: minioSecretKey
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.s3SecretAccessKeyKey }}
+{{- end }}

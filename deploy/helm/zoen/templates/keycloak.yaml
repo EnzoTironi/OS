@@ -1,3 +1,4 @@
+{{- if .Values.reference.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -74,3 +75,4 @@ spec:
         - name: realm
           configMap:
             name: zoen-keycloak-realm
+{{- end }}

@@ -1,3 +1,8 @@
+{{- if .Values.applications.enabled }}
+{{- $tenantIds := list -}}
+{{- range $tenant := .Values.tenants -}}
+{{- $tenantIds = append $tenantIds $tenant.id -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,47 +26,32 @@ spec:
           imagePullPolicy: Always
           command: [/usr/local/bin/zoen-projection]
           env:
-            - name: DATABASE_URL
-              value: postgres://zoen_app:zoen_app@postgres:5432/zoen
-            - name: S3_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: minioAccessKey
-            - name: S3_ALLOW_HTTP
-              value: "true"
+            {{- include "zoen.databaseEnv" . | nindent 12 }}
+            {{- include "zoen.objectStoreEnv" . | nindent 12 }}
             - name: S3_BUCKET
-              value: zoen-projections
-            - name: S3_ENDPOINT
-              value: http://minio:9000
-            - name: S3_REGION
-              value: us-east-1
-            - name: S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: minioSecretKey
+              value: {{ .Values.objectStorage.projectionBucket | quote }}
+            {{- include "zoen.telemetryEnv" . | nindent 12 }}
             - name: ZOEN_PROJECTION_INTERVAL_MS
               value: "250"
             - name: ZOEN_PROJECTION_TENANTS
-              value: tenant.a,tenant.b
+              value: {{ join "," $tenantIds | quote }}
 ---
-{{- range $tenant := list "tenant.a" "tenant.b" }}
+{{- range $tenant := .Values.tenants }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: zoen-effect-dispatcher-{{ $tenant | replace "." "-" }}
+  name: zoen-effect-dispatcher-{{ $tenant.id | replace "." "-" }}
   labels:
     {{- include "zoen.labels" $ | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: zoen-effect-dispatcher-{{ $tenant | replace "." "-" }}
+      app.kubernetes.io/name: zoen-effect-dispatcher-{{ $tenant.id | replace "." "-" }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: zoen-effect-dispatcher-{{ $tenant | replace "." "-" }}
+        app.kubernetes.io/name: zoen-effect-dispatcher-{{ $tenant.id | replace "." "-" }}
         {{- include "zoen.labels" $ | nindent 8 }}
     spec:
       containers:
@@ -70,13 +60,14 @@ spec:
           imagePullPolicy: Always
           command: [/usr/local/bin/zoen-effect-dispatcher]
           env:
-            - name: DATABASE_URL
-              value: postgres://zoen_app:zoen_app@postgres:5432/zoen
+            {{- include "zoen.databaseEnv" $ | nindent 12 }}
+            {{- include "zoen.telemetryEnv" $ | nindent 12 }}
             - name: RESTATE_INGRESS
-              value: http://restate:8080
+              value: {{ $.Values.restate.ingressUrl | quote }}
             - name: ZOEN_EFFECT_DISPATCH_INTERVAL_MS
               value: "250"
             - name: ZOEN_TENANT_ID
-              value: {{ $tenant | quote }}
+              value: {{ $tenant.id | quote }}
 ---
+{{- end }}
 {{- end }}

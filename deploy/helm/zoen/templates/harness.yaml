@@ -1,6 +1,6 @@
+{{- if .Values.applications.enabled }}
 {{- range $tenant := .Values.tenants }}
 {{- $name := $tenant.id | replace "." "-" }}
-{{- $nodePort := ternary $.Values.harness.tenantA.nodePort $.Values.harness.tenantB.nodePort (eq $tenant.id "tenant.a") }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,7 +14,7 @@ spec:
     - name: control
       port: 8081
       targetPort: control
-      nodePort: {{ $nodePort }}
+      nodePort: {{ $tenant.nodePort }}
     - name: restate
       port: 9080
       targetPort: restate
@@ -46,40 +46,38 @@ spec:
             - /app/dist/packages/harness/src/server.js
           env:
             - name: DATABASE_URL
-              value: postgres://zoen_app:zoen_app@postgres:5432/zoen?options=-c%20zoen.tenant_id%3D{{ $tenant.id }}
-            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: minioAccessKey
+                  name: {{ $.Values.runtimeSecret.name }}
+                  key: {{ $tenant.databaseUrlKey }}
+            {{- include "zoen.objectStoreEnv" $ | nindent 12 }}
             - name: S3_BUCKET
-              value: zoen-company-brain
-            - name: S3_ENDPOINT
-              value: http://minio:9000
-            - name: S3_REGION
-              value: us-east-1
-            - name: S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: minioSecretKey
+              value: {{ $.Values.objectStorage.brainBucket | quote }}
+            {{- include "zoen.telemetryEnv" $ | nindent 12 }}
             - name: ZOEN_HARNESS_BINDING_KEY
               valueFrom:
                 secretKeyRef:
-                  name: zoen-shared-secrets
-                  key: harnessBindingKey
+                  name: {{ $.Values.runtimeSecret.name }}
+                  key: {{ $.Values.runtimeSecret.harnessBindingKeyKey }}
             - name: ZOEN_HARNESS_CLIENT_ID
               value: {{ $tenant.clientId | quote }}
             - name: ZOEN_HARNESS_CLIENT_SECRET
-              value: {{ printf "%s-secret" $tenant.clientId | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.runtimeSecret.name }}
+                  key: {{ $tenant.clientSecretKey }}
             - name: ZOEN_HARNESS_CONTROL_PORT
               value: "8081"
             - name: ZOEN_HARNESS_DEFINITION_DIGEST
               value: {{ required "definitionDigest is required" $.Values.definitionDigest | quote }}
+            - name: ZOEN_HARNESS_DEFINITION_ID
+              value: {{ $.Values.web.definitionId | quote }}
             - name: ZOEN_HARNESS_SERVICE_SUFFIX
               value: {{ $tenant.suffix | quote }}
             - name: ZOEN_HARNESS_TOKEN_ENDPOINT
-              value: http://keycloak:{{ $.Values.keycloak.nodePort }}/realms/zoen/protocol/openid-connect/token
+              value: {{ $.Values.keycloak.tokenEndpoint | quote }}
+            - name: ZOEN_HARNESS_VALID_AT
+              value: {{ $.Values.web.validAt | quote }}
             - name: ZOEN_HARNESS_WORKER_PORT
               value: "9080"
             - name: ZOEN_SERVICE_URL
@@ -96,4 +94,5 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 2
 ---
+{{- end }}
 {{- end }}

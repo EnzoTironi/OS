@@ -37,8 +37,10 @@ const environment = z
       .min(1)
       .max(65_535),
     ZOEN_HARNESS_DEFINITION_DIGEST: z.string().regex(/^[0-9a-f]{64}$/u),
+    ZOEN_HARNESS_DEFINITION_ID: z.string().min(1),
     ZOEN_HARNESS_SERVICE_SUFFIX: z.string().regex(/^[A-Za-z0-9]+$/u),
     ZOEN_HARNESS_TOKEN_ENDPOINT: z.url(),
+    ZOEN_HARNESS_VALID_AT: z.iso.datetime(),
     ZOEN_HARNESS_WORKER_PORT: z.coerce
       .number()
       .int()
@@ -49,11 +51,11 @@ const environment = z
   .parse(process.env);
 
 const definition = {
-  definitionId: "inventory.companyBrain",
+  definitionId: environment.ZOEN_HARNESS_DEFINITION_ID,
   digest: environment.ZOEN_HARNESS_DEFINITION_DIGEST,
   revision: 1,
 };
-const validAt = "2026-08-21T00:00:00.000Z";
+const validAt = environment.ZOEN_HARNESS_VALID_AT;
 const scopes = [
   semanticCapabilityScopeSchema.parse({
     actionId: "inventory.requestStock",
