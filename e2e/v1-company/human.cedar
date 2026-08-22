@@ -1,28 +1,24 @@
 permit (
-    principal == Zoen::Principal::"principal.human.a",
+    principal,
     action == Action::"discover",
     resource
-);
+)
+when {
+    principal == Zoen::Principal::"principal.human.a" ||
+    principal == Zoen::Principal::"principal.commercial-agent.a" ||
+    principal == Zoen::Principal::"principal.commercial-agent.b"
+};
 
 permit (
-    principal == Zoen::Principal::"principal.human.a",
+    principal,
     action == Action::"commit",
     resource
-);
-
-permit (
+)
+when {
+    principal == Zoen::Principal::"principal.human.a" ||
     principal == Zoen::Principal::"principal.commercial-agent.a" ||
-    principal == Zoen::Principal::"principal.commercial-agent.b",
-    action == Action::"discover",
-    resource
-);
-
-permit (
-    principal == Zoen::Principal::"principal.commercial-agent.a" ||
-    principal == Zoen::Principal::"principal.commercial-agent.b",
-    action == Action::"commit",
-    resource
-);
+    principal == Zoen::Principal::"principal.commercial-agent.b"
+};
 
 forbid (
     principal == Zoen::Principal::"principal.denied.a",
