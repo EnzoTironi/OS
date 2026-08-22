@@ -63,6 +63,13 @@ start_replica() {
       -C -S zoen_replica
   fi
   append_hba
+  # pg_basebackup copies the primary auto.conf, including wal-g restore_command.
+  rm -f "${PGDATA}/recovery.signal"
+  if [[ -f "${PGDATA}/postgresql.auto.conf" ]]; then
+    grep -vE '^[[:space:]]*(restore_command|recovery_target)' \
+      "${PGDATA}/postgresql.auto.conf" >"${PGDATA}/postgresql.auto.conf.tmp" || true
+    mv "${PGDATA}/postgresql.auto.conf.tmp" "${PGDATA}/postgresql.auto.conf"
+  fi
   extra=("${replication_gucs[@]}")
   extra+=("$@")
   exec docker-entrypoint.sh postgres "${extra[@]}"

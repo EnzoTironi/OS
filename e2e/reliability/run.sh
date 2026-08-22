@@ -1037,6 +1037,9 @@ case "${drill}" in
       "OIDC outage blocked new login and left durable query and commit-status intact" \
       "${recovery_file}"
 
+    kubectl --namespace "${application_namespace}" scale deployment/harness-tenant-a --replicas=0
+    kubectl --namespace "${application_namespace}" wait --for=delete \
+      pod --selector app.kubernetes.io/name=harness-tenant-a --timeout=120s >/dev/null 2>&1 || true
     digest_before="$(
       run_semantic digest
     )"
@@ -1053,6 +1056,9 @@ case "${drill}" in
     run_semantic digest
     test "$(digest_value)" = "${digest_before}"
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
+    kubectl --namespace "${application_namespace}" scale deployment/harness-tenant-a --replicas=1
+    kubectl --namespace "${application_namespace}" rollout status \
+      deployment/harness-tenant-a --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
     pass projection-kill-backlog \
       "killing zoen-projection left authority digest unchanged and rebuild did not rewrite it" \
       "${recovery_file}"

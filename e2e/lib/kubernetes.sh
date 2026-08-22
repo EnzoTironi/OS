@@ -138,7 +138,7 @@ zoen_create_kind_cluster() {
     kind delete cluster --name "${cluster_name}" >/dev/null 2>&1 || true
     if [[ "${attempt}" -lt 4 ]]; then
       printf 'kind cluster creation failed (attempt %s); retrying\n' "${attempt}" >&2
-      sleep $((attempt * 10))
+      sleep $((attempt * 20))
     fi
   done
   return 1
