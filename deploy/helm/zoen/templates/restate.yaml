@@ -1,4 +1,9 @@
 {{- if .Values.reference.enabled }}
+{{- $production := eq .Values.restate.topology.mode "production" }}
+{{- $replicas := include "zoen.restateReplicas" . | int }}
+{{- if and $production (lt $replicas 3) }}
+{{- fail "Restate production topology requires 3 nodes" }}
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -22,6 +27,30 @@ spec:
       targetPort: admin
       nodePort: {{ .Values.restate.adminNodePort }}
   type: NodePort
+{{- if $production }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: restate-headless
+  labels:
+    {{- include "zoen.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: restate
+  ports:
+    - name: node
+      port: 5122
+      targetPort: node
+    - name: ingress
+      port: 8080
+      targetPort: ingress
+    - name: admin
+      port: 9070
+      targetPort: admin
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -30,8 +59,9 @@ metadata:
   labels:
     {{- include "zoen.labels" . | nindent 4 }}
 spec:
-  serviceName: restate
-  replicas: {{ .Values.restate.topology.referenceReplicas }}
+  serviceName: {{ if $production }}restate-headless{{ else }}restate{{ end }}
+  replicas: {{ $replicas }}
+  podManagementPolicy: OrderedReady
   selector:
     matchLabels:
       app.kubernetes.io/name: restate
@@ -44,7 +74,39 @@ spec:
       containers:
         - name: restate
           image: {{ .Values.images.restate }}
+          {{- if $production }}
+          command: [/bin/sh, -c]
+          args:
+            - |
+              ordinal="${HOSTNAME##*-}"
+              if [ "$ordinal" = "0" ]; then
+                export RESTATE_AUTO_PROVISION=true
+              else
+                export RESTATE_AUTO_PROVISION=false
+              fi
+              exec restate-server
+          {{- end }}
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if $production }}
+            - name: RESTATE_ADVERTISED_ADDRESS
+              value: http://$(POD_NAME).restate-headless:5122
+            - name: RESTATE_CLUSTER_NAME
+              value: zoen
+            - name: RESTATE_DEFAULT_NUM_PARTITIONS
+              value: {{ .Values.restate.topology.partitions | quote }}
+            - name: RESTATE_DEFAULT_REPLICATION
+              value: {{ .Values.restate.topology.replicationFactor | quote }}
+            - name: RESTATE_METADATA_CLIENT__ADDRESSES
+              value: {{ printf "[%s]" (include "zoen.restateMetadataAddresses" .) | quote }}
+            - name: RESTATE_METADATA_SERVER__TYPE
+              value: replicated
+            - name: RESTATE_NODE_NAME
+              value: $(POD_NAME)
+            {{- else }}
             - name: RESTATE_ADVERTISED_ADDRESS
               value: http://restate:5122
             - name: RESTATE_AUTO_PROVISION
@@ -53,6 +115,7 @@ spec:
               value: "1"
             - name: RESTATE_NODE_NAME
               value: restate
+            {{- end }}
           ports:
             - name: node
               containerPort: 5122

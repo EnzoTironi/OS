@@ -1,0 +1,50 @@
+# Durable semantic authority versus rebuildable operational state.
+# Backup automation and zoend GET /ready both read this file.
+authority:
+  postgresTables:
+    - authority_heads
+    - authority_commits
+    - definition_revisions
+    - projection_outbox
+    - semantic_claims
+    - action_proposals
+    - action_proposal_inputs
+    - action_proposal_dependencies
+    - action_proposal_grants
+    - action_approvals
+    - action_approval_grants
+    - action_operations
+    - action_operation_records
+    - action_operation_grants
+    - action_operation_dependencies
+    - action_operation_effect_requests
+    - effect_requests
+    - effect_attempt_claims
+    - effect_attempts
+    - effect_evidence
+    - effect_reconciliations
+    - effect_dispatch_attempts
+    - effect_dispatches
+    - definition_activations
+    - definition_activation_grants
+    - active_definition_revisions
+    - definition_migrations
+    - definition_migration_batches
+    - definition_migration_records
+    - definition_migration_lineage
+    - wasm_components
+    - wasm_executions
+  referenceTables:
+    - company_sources
+    - company_surface_sessions
+rebuildable:
+  postgresTables:
+    - projection_manifests
+    - projection_watermarks
+    - company_fragments
+    - company_retrieval_traces
+  orchestration:
+    - restate
+  objectStorage:
+    - zoen-projections
+    - zoen-company-brain

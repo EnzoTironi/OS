@@ -86,7 +86,11 @@ helm upgrade --install zoen-dependencies oci://REGISTRY/zoen/charts/zoen \\
   --set-file keycloak.realmJson=realm.json
 \`\`\`
 
-The reference release runs PostgreSQL 18 with pgvector, MinIO, Keycloak, Restate with persistent state, and an OpenTelemetry collector. The profile records the supported three-node Restate production topology with replication factor two. The E2E reference dependency uses one Restate node and does not claim the V1-21 failover drill.
+The reference release runs PostgreSQL 18 with pgvector, MinIO, Keycloak, Restate with persistent state, and an OpenTelemetry collector. The profile records the supported three-node Restate production topology with replication factor two. Dedicated and self-hosted deployment E2E still install the reference one-node PostgreSQL and Restate topology and do not claim the reliability drill.
+
+## Reliability overlay
+
+High availability is a topology overlay, not a fourth commercial profile. Apply \`deploy/helm/zoen/overlays/reliability.yaml\` on top of \`dedicated\` for the V1-21 drills. That overlay selects PostgreSQL HA (primary plus streaming replica), WAL archive to the \`zoen-wal\` bucket, three-node Restate with replication factor two, and \`zoend.replicas >= 2\`. Restore is into a fresh cluster; Restate is rebuildable orchestration and PostgreSQL \`effect_*\` tables remain authority.
 
 ## Install an application profile
 

@@ -1,0 +1,20 @@
+postgres:
+  topology:
+    mode: ha
+    referenceReplicas: 1
+    productionReplicas: 2
+  walArchive:
+    enabled: true
+    bucket: zoen-wal
+    archiveTimeoutSeconds: 30
+
+restate:
+  topology:
+    mode: production
+    referenceReplicas: 1
+    productionReplicas: 3
+    replicationFactor: 2
+    partitions: 8
+
+zoend:
+  replicas: 2

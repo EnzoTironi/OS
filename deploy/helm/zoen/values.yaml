@@ -22,6 +22,7 @@ images:
     repository: zoen-node
     digest: ""
   postgres: pgvector/pgvector:pg18
+  walG: chekkan/wal-g:v3.0.7
   keycloak: quay.io/keycloak/keycloak:26.0.7
   minio: minio/minio:RELEASE.2025-07-23T15-54-02Z
   minioClient: minio/mc:RELEASE.2025-07-21T05-28-08Z
@@ -52,6 +53,14 @@ postgres:
   applicationUser: zoen_app
   nodePort: 32085
   storage: 5Gi
+  topology:
+    mode: reference
+    referenceReplicas: 1
+    productionReplicas: 2
+  walArchive:
+    enabled: false
+    bucket: zoen-wal
+    archiveTimeoutSeconds: 30
 
 keycloak:
   nodePort: 32090
@@ -77,9 +86,11 @@ restate:
   adminNodePort: 32092
   storage: 5Gi
   topology:
+    mode: reference
+    referenceReplicas: 1
     productionReplicas: 3
     replicationFactor: 2
-    referenceReplicas: 1
+    partitions: 8
 
 telemetry:
   enabled: true
