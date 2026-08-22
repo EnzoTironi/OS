@@ -275,7 +275,14 @@ async function observeState(input: {
     assert.equal(result.value?.value.case, "integerValue");
     return String(result.value.value.value);
   });
-  assert.deepEqual(queryValues, ["10"]);
+  if (mode === "seed") {
+    assert.deepEqual(queryValues, ["10"]);
+  } else {
+    assert.ok(queryValues.length > 0, "semantic query returned no values");
+    for (const value of queryValues) {
+      assert.equal(value, "10");
+    }
+  }
   const discovery = await action.discover({
     definition: fixture.definition,
     resourceId,

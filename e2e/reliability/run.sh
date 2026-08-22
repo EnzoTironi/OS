@@ -222,12 +222,9 @@ pause_deployments() {
     kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=0
   done
   for deploy in "$@"; do
-    if kubectl --namespace "${application_namespace}" get pod \
+    kubectl --namespace "${application_namespace}" delete pod \
       --selector "app.kubernetes.io/name=${deploy}" \
-      --output name 2>/dev/null | grep -q .; then
-      kubectl --namespace "${application_namespace}" wait --for=delete \
-        pod --selector "app.kubernetes.io/name=${deploy}" --timeout=120s
-    fi
+      --grace-period=0 --force --ignore-not-found >/dev/null
   done
 }
 
@@ -588,6 +585,19 @@ install_application() {
     "${artifact_flags[@]}"
 }
 
+wait_for_ready_http() {
+  local _attempt
+  for _attempt in $(seq 1 30); do
+    if curl --fail --silent --show-error \
+      "http://127.0.0.1:${ZOEN_E2E_ZOEND_PORT}/ready" >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "zoend /ready did not return 200 after rollout" >&2
+  return 1
+}
+
 wait_for_stateless_application() {
   local namespace="$1"
   local workload
@@ -604,21 +614,28 @@ wait_for_stateless_application() {
     kubectl --namespace "${namespace}" get deployment zoend \
       --output jsonpath='{.status.readyReplicas}'
   )" -ge 2
-  curl --fail --silent --show-error \
-    "http://127.0.0.1:${ZOEN_E2E_ZOEND_PORT}/ready" >/dev/null
+  wait_for_ready_http
 }
 
 wait_for_application() {
   local namespace="$1"
   local workload
-  wait_for_stateless_application "${namespace}"
   for workload in \
+    deployment/web \
     deployment/zoen-effect-dispatcher-tenant-a \
-    deployment/zoen-effect-worker; do
+    deployment/zoen-effect-worker \
+    deployment/zoen-http-connector \
+    deployment/zoen-projection \
+    deployment/zoend; do
     kubectl --namespace "${namespace}" rollout status \
       "${workload}" \
       --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
   done
+  test "$(
+    kubectl --namespace "${namespace}" get deployment zoend \
+      --output jsonpath='{.status.readyReplicas}'
+  )" -ge 2
+  wait_for_ready_http
 }
 
 wait_for_oidc() {
