@@ -1181,8 +1181,18 @@ case "${drill}" in
       timeout 30 node dist/e2e/reliability.js commit \
       operation.reliability.network proposal.reliability.network
     restore_postgres_network
-    sleep 2
-    run_semantic commit operation.reliability.network proposal.reliability.network
+    retry_commit=0
+    for _ in $(seq 1 15); do
+      if run_semantic commit operation.reliability.network proposal.reliability.network; then
+        retry_commit=1
+        break
+      fi
+      sleep 2
+    done
+    if [[ "${retry_commit}" != "1" ]]; then
+      echo "retry commit failed after postgres network restore" >&2
+      exit 1
+    fi
     network_ops="$(
       postgres_exec -At -c \
         "SELECT count(*)::text FROM action_operations WHERE operation_id = 'operation.reliability.network';"

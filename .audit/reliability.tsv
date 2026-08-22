@@ -34,3 +34,4 @@ ts	phase	decision	why	evidence	result
 2026-08-22T08:55:00Z	fix	observe records live query values after canaries; force-delete paused writer pods; retry /ready after failover	e2e/reliability.ts,e2e/reliability/run.sh	implementing
 2026-08-22T09:30:00Z	fix	scale writers to zero and wait for pods to leave before backup; observe after wal-g so the restore watermark matches the backup pin	e2e/reliability/run.sh	implementing
 2026-08-22T10:05:00Z	fix	projection rebuild digest compares a paused watermark, not the pre-restore backup digest after harness resumed	e2e/reliability/run.sh	implementing
+2026-08-22T10:35:00Z	fix	retry the network-lost commit after postgres is reachable again instead of a single 2s sleep	e2e/reliability/run.sh	implementing
