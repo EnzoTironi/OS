@@ -20,3 +20,4 @@ ts	phase	decision	why	evidence	result
 2026-08-22T02:02:24Z	verification	classification tests, clippy -D warnings, rustfmt, unique ports, buf:breaking, tsc, helm template overlay 2 PG + Restate 3 vs reference 1+1, helm package 0.3.0 and 0.3.1	cargo test,cargo clippy,e2e/assert-unique-ports.sh,helm template,helm package	passed
 2026-08-22T02:02:24Z	official	kind drills remain UNPROVEN-PENDING-CI	macOS session; kind tools are linux-amd64	just e2e ha-chaos,just e2e backup-restore,just e2e rolling-upgrade,just release-drill rpo-rto	not run locally
 2026-08-22T02:06:23Z	fix	move IntegrityError and verify_integrity out of zoen-adapters lib.rs so evolution-breaking source length stays under 1000	crates/zoen-adapters/src/integrity.rs	passed
+2026-08-22T02:29:49Z	fix	remove duplicate PGDATA from walGEnv; topology check fails on duplicate container env names	deploy/helm/zoen/templates/_helpers.tpl,e2e/reliability/verify-topology.mjs	passed

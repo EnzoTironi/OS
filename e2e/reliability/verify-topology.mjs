@@ -30,6 +30,8 @@ assert.equal(
   serviceSelector(overlay, "postgres")?.["zoen.dev/postgres-role"],
   "primary",
 );
+assertUniqueEnvNames(overlayPostgres[0], "postgres");
+assertUniqueEnvNames(overlayReplica[0], "postgres");
 
 const referencePostgres = statefulSets(reference, "postgres");
 const referenceReplica = statefulSets(reference, "postgres-replica");
@@ -72,6 +74,22 @@ function deployments(documents, name) {
     (document) =>
       document.kind === "Deployment" && document.metadata?.name === name,
   );
+}
+
+function assertUniqueEnvNames(statefulSet, containerName) {
+  const container = statefulSet?.spec?.template?.spec?.containers?.find(
+    (item) => item.name === containerName,
+  );
+  const names = (container?.env ?? []).map((entry) => entry.name);
+  const seen = new Set();
+  for (const name of names) {
+    if (seen.has(name)) {
+      throw new Error(
+        `${statefulSet?.metadata?.name} container ${containerName} has duplicate env ${name}`,
+      );
+    }
+    seen.add(name);
+  }
 }
 
 function serviceSelector(documents, name) {

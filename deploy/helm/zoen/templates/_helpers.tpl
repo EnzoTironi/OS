@@ -82,8 +82,6 @@ zoen.dev/profile: {{ .Values.profile | quote }}
     secretKeyRef:
       name: {{ .Values.runtimeSecret.name }}
       key: {{ .Values.runtimeSecret.s3SecretAccessKeyKey }}
-- name: PGDATA
-  value: /var/lib/postgresql/18/docker
 - name: WALG_COMPRESSION_METHOD
   value: lz4
 - name: WALG_S3_PREFIX
