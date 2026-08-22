@@ -37,6 +37,7 @@ scenario_table=(
   "scale-seed-v1::"
   "semantic-query::"
   "shared-tenancy::"
+  "v1-company::"
   "wasm-code-mode:wasm-code-mode:"
   "web-adaptive-live:web-adaptive-live:"
   "web-deterministic:web-deterministic:"
@@ -96,7 +97,7 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
+      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" ]]; then
         compose_file=""
         project=""
       elif [[ -n "$realm" ]]; then
@@ -225,7 +226,7 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
-  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
+  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" ]]; then
     return
   fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -249,7 +250,7 @@ run_scenario() {
     trap - EXIT
     return
   fi
-  if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
+  if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" ]]; then
     "e2e/${scenario}/run.sh"
     trap - EXIT
     return
