@@ -30,3 +30,4 @@ ts	phase	decision	why	evidence	result
 2026-08-22T06:05:00Z	fix	minio/mc uses MC_HOST instead of sh (image entrypoint is mc); OIDC outage detaches the Service selector so realm keys stay	e2e/reliability/run.sh	passed
 2026-08-22T06:50:00Z	fix	streaming replica drops inherited wal-g restore_command; pause harness before projection digest equality	deploy/helm/zoen/files/postgres-start.sh,e2e/reliability/run.sh	passed
 2026-08-22T07:20:00Z	fix	RLS assertion compares boolean::text true,true; pause effect workers with harness for projection digest	e2e/reliability/run.sh	implementing
+2026-08-22T08:15:00Z	fix	pause authority writers and recapture semantic watermark before wal-g backup; restore sequence/digest mismatch is a named failure	e2e/reliability/run.sh,e2e/reliability.ts	implementing

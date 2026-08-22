@@ -201,6 +201,59 @@ expect_nonzero() {
   fi
 }
 
+pause_deployments() {
+  local deploy
+  local found
+  local _attempt
+  for deploy in "$@"; do
+    found=0
+    for _attempt in $(seq 1 30); do
+      if kubectl --namespace "${application_namespace}" get "deployment/${deploy}" \
+        >/dev/null 2>&1; then
+        found=1
+        break
+      fi
+      sleep 2
+    done
+    if [[ "${found}" != "1" ]]; then
+      echo "deployment ${deploy} was not created" >&2
+      exit 1
+    fi
+    kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=0
+  done
+  for deploy in "$@"; do
+    if kubectl --namespace "${application_namespace}" get pod \
+      --selector "app.kubernetes.io/name=${deploy}" \
+      --output name 2>/dev/null | grep -q .; then
+      kubectl --namespace "${application_namespace}" wait --for=delete \
+        pod --selector "app.kubernetes.io/name=${deploy}" --timeout=120s
+    fi
+  done
+}
+
+resume_deployments() {
+  local deploy
+  for deploy in "$@"; do
+    kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=1
+    kubectl --namespace "${application_namespace}" rollout status \
+      "deployment/${deploy}" --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+  done
+}
+
+pause_authority_writers() {
+  pause_deployments \
+    harness-tenant-a \
+    zoen-effect-dispatcher-tenant-a \
+    zoen-effect-worker
+}
+
+resume_authority_writers() {
+  resume_deployments \
+    harness-tenant-a \
+    zoen-effect-dispatcher-tenant-a \
+    zoen-effect-worker
+}
+
 helm_upgrade_application() {
   local namespace="$1"
   local version="$2"
@@ -535,13 +588,11 @@ install_application() {
     "${artifact_flags[@]}"
 }
 
-wait_for_application() {
+wait_for_stateless_application() {
   local namespace="$1"
   local workload
   for workload in \
     deployment/web \
-    deployment/zoen-effect-dispatcher-tenant-a \
-    deployment/zoen-effect-worker \
     deployment/zoen-http-connector \
     deployment/zoen-projection \
     deployment/zoend; do
@@ -555,6 +606,19 @@ wait_for_application() {
   )" -ge 2
   curl --fail --silent --show-error \
     "http://127.0.0.1:${ZOEN_E2E_ZOEND_PORT}/ready" >/dev/null
+}
+
+wait_for_application() {
+  local namespace="$1"
+  local workload
+  wait_for_stateless_application "${namespace}"
+  for workload in \
+    deployment/zoen-effect-dispatcher-tenant-a \
+    deployment/zoen-effect-worker; do
+    kubectl --namespace "${namespace}" rollout status \
+      "${workload}" \
+      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+  done
 }
 
 wait_for_oidc() {
@@ -617,6 +681,8 @@ rebuild_projections() {
 
 fresh_restore() {
   local cut_at="${1:-}"
+  pause_authority_writers
+  run_semantic observe
   deploy/scripts/postgres-backup.sh "${durable_namespace}" "${classification_file}"
   mirror_wal_to_host
   install -m 0644 "${artifacts_directory}/semantic-state.json" \
@@ -647,9 +713,13 @@ fresh_restore() {
     postgres_exec -At -c \
       "SELECT coalesce(max(commit_sequence), 0)::text FROM authority_commits;"
   )"
-  test "${restored_sequence}" = "$(backup_commit_sequence)"
+  if [[ "${restored_sequence}" != "$(backup_commit_sequence)" ]]; then
+    echo "restored commit sequence ${restored_sequence} does not match backup $(backup_commit_sequence)" >&2
+    exit 1
+  fi
   postgres_exec -c "ALTER TABLE definition_revisions RENAME TO definition_revisions_hidden;"
   install_application "${application_namespace}"
+  pause_authority_writers
   local zoend_pod=""
   local _attempt
   for _attempt in $(seq 1 60); do
@@ -690,17 +760,19 @@ fresh_restore() {
     "a Running zoend stayed unready until migrate and integrity succeeded" \
     "${mutants_file}"
   postgres_exec -c "ALTER TABLE definition_revisions_hidden RENAME TO definition_revisions;"
-  wait_for_application "${application_namespace}"
-  kubectl --namespace "${application_namespace}" rollout status \
-    deployment/harness-tenant-a \
-    --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+  wait_for_stateless_application "${application_namespace}"
   rebuild_projections
   run_semantic verify "${artifacts_directory}/semantic-before-restore.json"
   run_semantic digest
-  test "$(digest_value)" = "${digest_before}"
+  if [[ "$(digest_value)" != "${digest_before}" ]]; then
+    echo "authority digest after restore $(digest_value) does not match backup ${digest_before}" >&2
+    exit 1
+  fi
   if [[ -n "${cut_at}" ]]; then
     measure_rpo_rto "${cut_at}"
   fi
+  resume_authority_writers
+  run_semantic register
 }
 
 measure_rpo_rto() {
@@ -1037,13 +1109,7 @@ case "${drill}" in
       "OIDC outage blocked new login and left durable query and commit-status intact" \
       "${recovery_file}"
 
-    for deploy in harness-tenant-a zoen-effect-dispatcher-tenant-a zoen-effect-worker; do
-      kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=0
-    done
-    for deploy in harness-tenant-a zoen-effect-dispatcher-tenant-a zoen-effect-worker; do
-      kubectl --namespace "${application_namespace}" wait --for=delete \
-        pod --selector "app.kubernetes.io/name=${deploy}" --timeout=120s
-    done
+    pause_authority_writers
     digest_before="$(
       run_semantic digest
     )"
@@ -1060,11 +1126,7 @@ case "${drill}" in
     run_semantic digest
     test "$(digest_value)" = "${digest_before}"
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
-    for deploy in harness-tenant-a zoen-effect-dispatcher-tenant-a zoen-effect-worker; do
-      kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=1
-      kubectl --namespace "${application_namespace}" rollout status \
-        "deployment/${deploy}" --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
-    done
+    resume_authority_writers
     pass projection-kill-backlog \
       "killing zoen-projection left authority digest unchanged and rebuild did not rewrite it" \
       "${recovery_file}"

@@ -61,6 +61,7 @@ const mode = z
     "observe",
     "canary",
     "digest",
+    "register",
     "verify",
     "verify-rolling",
     "login",
@@ -101,6 +102,12 @@ if (mode === "digest") {
   const digest = await authoritySnapshot();
   await writeFile(digestPath, `${JSON.stringify(digest, null, 2)}\n`);
   process.stdout.write(`${digest.authorityDigest}\n`);
+  process.exit(0);
+}
+
+if (mode === "register") {
+  await registerRestateServices(environment.ZOEN_RELIABILITY_NAMESPACE);
+  process.stdout.write("registered\n");
   process.exit(0);
 }
 
@@ -206,7 +213,6 @@ if (
   mode === "verify-rolling" ||
   mode === "seed"
 ) {
-  await registerRestateServices(environment.ZOEN_RELIABILITY_NAMESPACE);
   const observed = await observeState({ effect, history, world });
   if (mode === "verify" || mode === "verify-rolling") {
     const expected = semanticStateSchema.parse(
