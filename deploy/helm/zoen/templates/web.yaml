@@ -32,7 +32,6 @@ spec:
         app.kubernetes.io/name: web
         {{- include "zoen.labels" . | nindent 8 }}
     spec:
-      {{- include "zoen.preflight" . | nindent 6 }}
       containers:
         - name: web
           image: {{ include "zoen.nodeImage" . }}

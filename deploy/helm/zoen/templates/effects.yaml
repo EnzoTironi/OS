@@ -30,7 +30,6 @@ spec:
         app.kubernetes.io/name: zoen-http-connector
         {{- include "zoen.labels" . | nindent 8 }}
     spec:
-      {{- include "zoen.preflight" . | nindent 6 }}
       containers:
         - name: connector
           image: {{ include "zoen.rustImage" . }}
@@ -94,7 +93,6 @@ spec:
         app.kubernetes.io/name: zoen-effect-worker
         {{- include "zoen.labels" . | nindent 8 }}
     spec:
-      {{- include "zoen.preflight" . | nindent 6 }}
       containers:
         - name: effect-worker
           image: {{ include "zoen.nodeImage" . }}

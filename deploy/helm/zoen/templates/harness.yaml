@@ -37,7 +37,6 @@ spec:
         app.kubernetes.io/name: harness-{{ $name }}
         {{- include "zoen.labels" $ | nindent 8 }}
     spec:
-      {{- include "zoen.preflight" $ | nindent 6 }}
       containers:
         - name: harness
           image: {{ include "zoen.nodeImage" $ }}

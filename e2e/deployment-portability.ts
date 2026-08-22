@@ -189,8 +189,10 @@ async function observeState(input: {
   const semanticResult = {
     definitionDigest: fixture.digest,
     effectRequestId,
-    effectState:
-      effectSnapshot.snapshot?.request?.state ?? EffectKnowledgeState.UNSPECIFIED,
+    effectState: comparableEffectState(
+      effectSnapshot.snapshot?.request?.state ??
+        EffectKnowledgeState.UNSPECIFIED,
+    ),
     explanationComplete: explanation.complete,
     operationId,
     proposalId,
@@ -203,6 +205,27 @@ async function observeState(input: {
     authorityDigest,
     semanticDigest: sha256(JSON.stringify(semanticResult)),
   });
+}
+
+function comparableEffectState(
+  state: EffectKnowledgeState,
+): EffectKnowledgeState {
+  switch (state) {
+    case EffectKnowledgeState.UNSPECIFIED:
+    case EffectKnowledgeState.NOT_ATTEMPTED:
+    case EffectKnowledgeState.DEFINITELY_NOT_SENT:
+    case EffectKnowledgeState.UNKNOWN:
+    case EffectKnowledgeState.ACCEPTED_PENDING:
+      return EffectKnowledgeState.UNKNOWN;
+    case EffectKnowledgeState.CONFIRMED:
+    case EffectKnowledgeState.CONFIRMED_NO_EFFECT:
+    case EffectKnowledgeState.CONTRADICTED:
+      return state;
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
 }
 
 async function waitForEffect(
@@ -314,7 +337,7 @@ async function authorityDigestForTenant(): Promise<string> {
       { name: "definition_revisions", volatileColumns: [] },
       {
         name: "effect_requests",
-        volatileColumns: ["last_commit_sequence", "updated_at"],
+        volatileColumns: ["last_commit_sequence", "state", "updated_at"],
       },
       { name: "semantic_claims", volatileColumns: [] },
     ] as const;

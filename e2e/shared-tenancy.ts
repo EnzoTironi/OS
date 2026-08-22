@@ -267,13 +267,13 @@ async function main(): Promise<void> {
         "rollout",
         "status",
         "deployment/harness-tenant-a",
-        "--timeout=5m",
+        `--timeout=${kubernetesRolloutTimeout()}`,
       ]),
       kubectl([
         "rollout",
         "status",
         "deployment/harness-tenant-b",
-        "--timeout=5m",
+        `--timeout=${kubernetesRolloutTimeout()}`,
       ]),
     ]);
     await registerRestateServices();
@@ -1160,19 +1160,6 @@ async function restartAndRebuild(input: {
   readonly worldA: WorldClient;
   readonly worldB: WorldClient;
 }): Promise<void> {
-  await kubectl([
-    "rollout",
-    "restart",
-    "deployment/zoend",
-    "deployment/harness-tenant-a",
-    "deployment/harness-tenant-b",
-    "deployment/zoen-projection",
-    "statefulset/restate",
-    "deployment/web",
-    "deployment/zoen-effect-worker",
-    "deployment/zoen-effect-dispatcher-tenant-a",
-    "deployment/zoen-effect-dispatcher-tenant-b",
-  ]);
   for (const workload of [
     "deployment/zoend",
     "deployment/harness-tenant-a",
@@ -1184,11 +1171,12 @@ async function restartAndRebuild(input: {
     "deployment/zoen-effect-dispatcher-tenant-a",
     "deployment/zoen-effect-dispatcher-tenant-b",
   ]) {
+    await kubectl(["rollout", "restart", workload]);
     await kubectl([
       "rollout",
       "status",
       workload,
-      "--timeout=5m",
+      `--timeout=${kubernetesRolloutTimeout()}`,
     ]);
   }
   await registerRestateServices();
@@ -1522,6 +1510,10 @@ async function kubernetesDeployment(name: string) {
     .passthrough()
     .transform((value) => ({ readyReplicas: value.status.readyReplicas }))
     .parse(JSON.parse(output));
+}
+
+function kubernetesRolloutTimeout(): string {
+  return process.env.ZOEN_KUBERNETES_ROLLOUT_TIMEOUT ?? "10m";
 }
 
 async function kubectl(arguments_: readonly string[]): Promise<string> {

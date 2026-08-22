@@ -26,6 +26,8 @@ zoen_install_cluster_tools "${generated_directory}" "${tools_directory}"
 collect_diagnostics() {
   kubectl get pods,deployments,statefulsets,jobs --all-namespaces --output wide \
     >"${artifacts_directory}/kubernetes-resources.log" 2>&1 || true
+  kubectl describe pods --all-namespaces \
+    >"${artifacts_directory}/kubernetes-describe.log" 2>&1 || true
   kubectl logs --all-containers --prefix --tail=300 \
     --selector app.kubernetes.io/part-of=zoen \
     >"${artifacts_directory}/kubernetes.log" 2>&1 || true

@@ -63,6 +63,8 @@ metadata_value() {
 collect_diagnostics() {
   kubectl get pods,deployments,statefulsets,jobs --all-namespaces --output wide \
     >"${artifacts_directory}/kubernetes-resources.log" 2>&1 || true
+  kubectl describe pods --all-namespaces \
+    >"${artifacts_directory}/kubernetes-describe.log" 2>&1 || true
   : >"${artifacts_directory}/kubernetes.log"
   for namespace in \
     "${application_namespace}" \
