@@ -68,6 +68,7 @@ collect_diagnostics() {
 }
 
 cleanup_cluster() {
+  zoen_stop_create_container_error_recyclers
   kind delete cluster --name "${cluster_name}" >/dev/null 2>&1 || true
 }
 
@@ -265,8 +266,7 @@ wait_for_application() {
     deployment/zoen-effect-worker \
     deployment/zoen-http-connector \
     deployment/zoen-projection \
-    deployment/zoend \
-    deployment/harness-tenant-a; do
+    deployment/zoend; do
     zoen_rollout_status "${application_namespace}" "${workload}"
   done
 }
@@ -301,6 +301,7 @@ node e2e/shared-tenancy/prepare-realm.mjs scale.definition product.sku.0
 install_dependencies
 install_application
 wait_for_application
+zoen_start_create_container_error_recycler "${application_namespace}"
 node dist/e2e/scale.js "${phase}"
 pass "${phase}" "scale ${phase} completed at ${ZOEN_SCALE}" "${recovery_file}"
 trap - EXIT
