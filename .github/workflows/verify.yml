@@ -84,11 +84,12 @@ jobs:
   e2e:
     needs: [check, clippy, build]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (matrix.scenario == 'shared-tenancy' || startsWith(matrix.scenario, 'deploy-')) && 90 || 45 }}
+    timeout-minutes: ${{ (matrix.scenario == 'shared-tenancy' || startsWith(matrix.scenario, 'deploy-') || matrix.scenario == 'ha-chaos' || matrix.scenario == 'backup-restore' || matrix.scenario == 'rolling-upgrade' || matrix.scenario == 'rpo-rto') && 90 || 45 }}
     strategy:
       fail-fast: false
       matrix:
         scenario:
+          - backup-restore
           - definition-publication
           - deploy-dedicated
           - deploy-self-hosted-isolated
@@ -103,6 +104,9 @@ jobs:
           - explain
           - fiscal-fault-matrix
           - governed-action
+          - ha-chaos
+          - rolling-upgrade
+          - rpo-rto
           - semantic-query
           - shared-tenancy
           - wasm-code-mode
@@ -124,7 +128,7 @@ jobs:
           name: e2e-binaries
       - run: chmod +x target/debug/zoend target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection target/failpoints/debug/zoend
       - run: ./e2e/run.sh run ${{ matrix.scenario }}
-      - if: always() && (matrix.scenario == 'shared-tenancy' || startsWith(matrix.scenario, 'deploy-'))
+      - if: always() && (matrix.scenario == 'shared-tenancy' || startsWith(matrix.scenario, 'deploy-') || matrix.scenario == 'ha-chaos' || matrix.scenario == 'backup-restore' || matrix.scenario == 'rolling-upgrade' || matrix.scenario == 'rpo-rto')
         uses: actions/upload-artifact@v4
         with:
           if-no-files-found: warn
