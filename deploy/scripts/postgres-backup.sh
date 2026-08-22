@@ -14,28 +14,30 @@ if [[ -z "${primary}" ]]; then
   exit 1
 fi
 
-node --input-type=module -e '
-  import { readFile } from "node:fs/promises";
-  import { parse } from "yaml";
-  const classification = parse(await readFile(process.argv[1], "utf8"));
-  const tables = [
-    ...(classification.authority?.postgresTables ?? []),
-    ...(classification.authority?.referenceTables ?? []),
-  ];
-  if (tables.length === 0) process.exit(1);
-  process.stdout.write(tables.join("\n"));
-' "${classification}" |
-  while IFS= read -r table; do
-    [[ -z "${table}" ]] && continue
-    exists="$(
-      kubectl --namespace "${namespace}" exec "${primary}" -- \
-        psql -U postgres -d zoen -At -c "SELECT to_regclass('public.${table}') IS NOT NULL;"
-    )"
-    if [[ "${exists}" != "t" ]]; then
-      echo "authority table ${table} is classified but missing from postgres" >&2
-      exit 1
-    fi
-  done
+tables="$(
+  node --input-type=module -e '
+    import { readFile } from "node:fs/promises";
+    import { parse } from "yaml";
+    const classification = parse(await readFile(process.argv[1], "utf8"));
+    const tables = [
+      ...(classification.authority?.postgresTables ?? []),
+      ...(classification.authority?.referenceTables ?? []),
+    ];
+    if (tables.length === 0) process.exit(1);
+    process.stdout.write(`${tables.join("\n")}\n`);
+  ' "${classification}"
+)"
+while IFS= read -r table; do
+  [[ -z "${table}" ]] && continue
+  exists="$(
+    kubectl --namespace "${namespace}" exec "${primary}" -- \
+      psql -U postgres -d zoen -At -c "SELECT to_regclass('public.${table}') IS NOT NULL;"
+  )"
+  if [[ "${exists}" != "t" ]]; then
+    echo "authority table ${table} is classified but missing from postgres" >&2
+    exit 1
+  fi
+done <<< "${tables}"
 
 kubectl --namespace "${namespace}" exec "${primary}" -- \
   env PGUSER=postgres PGDATABASE=zoen PGHOST=/var/run/postgresql \

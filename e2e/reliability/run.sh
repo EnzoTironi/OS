@@ -759,8 +759,18 @@ rebuildable:
   orchestration:
     - restate
 EOF
-  if deploy/scripts/postgres-backup.sh "${durable_namespace}" "${mutant_classification}"; then
+  local mutant_output="${generated_directory}/unbacked-authority.out"
+  if deploy/scripts/postgres-backup.sh \
+    "${durable_namespace}" "${mutant_classification}" \
+    >"${mutant_output}" 2>&1; then
     echo "unbacked authority table mutant survived backup verification" >&2
+    cat "${mutant_output}" >&2
+    exit 1
+  fi
+  if ! grep -q "authority table rogue_unbacked_authority is classified but missing from postgres" \
+    "${mutant_output}"; then
+    echo "backup did not refuse the missing classified table" >&2
+    cat "${mutant_output}" >&2
     exit 1
   fi
   pass unbacked-authority-table \
