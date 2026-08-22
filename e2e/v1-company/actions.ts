@@ -59,6 +59,10 @@ export function productAdmit(fixture: CompanyFixture, resourceId: string) {
         value: { kind: "text", value: `sku:${resourceId}` },
       },
       { id: "lifecycleState", value: { kind: "text", value: "active" } },
+      {
+        id: "packQuantity",
+        value: { amount: "1", kind: "quantity", unit: "each" },
+      },
     ],
     resourceId,
     suffix: `admit-${resourceId}`,
