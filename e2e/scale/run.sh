@@ -65,6 +65,9 @@ collect_diagnostics() {
     >"${artifacts_directory}/kubernetes-describe.log" 2>&1 || true
   kubectl get events --all-namespaces --sort-by='.lastTimestamp' \
     >"${artifacts_directory}/kubernetes-events.log" 2>&1 || true
+  kubectl logs --all-containers --prefix --tail=300 \
+    --namespace "${application_namespace}" --selector app.kubernetes.io/name=zoend \
+    >"${artifacts_directory}/zoend.log" 2>&1 || true
 }
 
 cleanup_cluster() {

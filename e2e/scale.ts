@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -178,6 +179,36 @@ async function publishActive(tenantId: string): Promise<void> {
     digest,
     tenantId,
   });
+}
+
+function agentDelegation(token: string): {
+  readonly actionIds: readonly string[];
+  readonly resourceIds: readonly string[];
+  readonly workloadId: string;
+} {
+  const payload = JSON.parse(
+    Buffer.from(token.split(".")[1] ?? "", "base64url").toString(),
+  ) as {
+    readonly workload_id?: string;
+    readonly zoen_delegation?: unknown;
+  };
+  const raw = payload.zoen_delegation;
+  const grants = (
+    typeof raw === "string" ? JSON.parse(raw) : Array.isArray(raw) ? raw : []
+  ) as readonly {
+    readonly actionIds?: readonly string[];
+    readonly resourceIds?: readonly string[];
+  }[];
+  const grant = grants[0];
+  assert.ok(
+    grant,
+    `agent token has no zoen_delegation grant: ${JSON.stringify(raw)}`,
+  );
+  return {
+    actionIds: grant.actionIds ?? [],
+    resourceIds: grant.resourceIds ?? [],
+    workloadId: payload.workload_id ?? "",
+  };
 }
 
 async function registerRestateServices(): Promise<void> {
@@ -416,6 +447,14 @@ async function runQuery(): Promise<void> {
 
 async function runActions(): Promise<void> {
   await registerRestateServices();
+  const grant = agentDelegation(agentAToken);
+  await writeFile(
+    path.join(artifacts, "agent-a-delegation.json"),
+    `${JSON.stringify(grant)}\n`,
+  );
+  assert.equal(grant.workloadId, "workload.agent.a");
+  assert.equal(grant.actionIds.includes("inventory.requestStock"), true);
+  assert.equal(grant.resourceIds.includes("product.sku.0"), true);
   const samples: number[] = [];
   const started = performance.now();
   const attempts = environment.ZOEN_SCALE === "smoke" ? 40 : 400;
@@ -442,7 +481,10 @@ async function runActions(): Promise<void> {
       ],
       operationId,
       proposalId,
-      resourceId: `product.sku.${index}`,
+      resourceId:
+        environment.ZOEN_SCALE === "smoke"
+          ? "product.sku.0"
+          : `product.sku.${index}`,
       validAt: timestampFromDate(validAt),
     });
     assert.equal(proposed.decision, PolicyDecision.PERMIT);
