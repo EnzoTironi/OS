@@ -262,28 +262,11 @@ zoen_stretch_progress_deadlines() {
   )
 }
 
-zoen_workload_ready() {
-  local namespace="$1"
-  local workload="$2"
-  local desired ready
-  desired="$(
-    kubectl --namespace "${namespace}" get "${workload}" \
-      --output jsonpath='{.spec.replicas}' 2>/dev/null || true
-  )"
-  ready="$(
-    kubectl --namespace "${namespace}" get "${workload}" \
-      --output jsonpath='{.status.readyReplicas}' 2>/dev/null || true
-  )"
-  desired="${desired:-0}"
-  ready="${ready:-0}"
-  ((ready == desired))
-}
-
 zoen_rollout_status() {
   local namespace="$1"
   local workload="$2"
   local timeout="${3:-${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}}"
-  local seconds
+  local seconds remaining
   seconds="$(zoen_duration_seconds "${timeout}")"
   local deadline=$((SECONDS + seconds))
   zoen_stretch_progress_deadlines \
@@ -291,11 +274,17 @@ zoen_rollout_status() {
     "${ZOEN_KUBERNETES_PROGRESS_DEADLINE_SECONDS}"
   while ((SECONDS < deadline)); do
     zoen_recycle_create_container_error_pods "${namespace}"
-    if zoen_workload_ready "${namespace}" "${workload}"; then
-      printf '%s successfully rolled out\n' "${workload}"
+    remaining=$((deadline - SECONDS))
+    if ((remaining < 1)); then
+      break
+    fi
+    if ((remaining > 20)); then
+      remaining=20
+    fi
+    if kubectl --namespace "${namespace}" rollout status "${workload}" \
+      --timeout="${remaining}s"; then
       return 0
     fi
-    sleep 5
   done
   echo "rollout of ${workload} in ${namespace} did not become ready" >&2
   kubectl --namespace "${namespace}" get pods --output wide >&2 || true
