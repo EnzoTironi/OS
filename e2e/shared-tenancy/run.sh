@@ -34,6 +34,7 @@ collect_diagnostics() {
 }
 
 cleanup() {
+  zoen_stop_create_container_error_recyclers
   kind delete cluster --name "${cluster_name}" >/dev/null 2>&1 || true
   docker rm --force "${registry_name}" >/dev/null 2>&1 || true
 }
@@ -178,6 +179,10 @@ for workload in "${definition_independent_workloads[@]}"; do
   zoen_rollout_status default "${workload}"
 done
 test "$(kubectl get deployment zoend --output jsonpath='{.status.readyReplicas}')" -ge 2
+for workload in deployment/harness-tenant-a deployment/harness-tenant-b; do
+  zoen_rollout_status default "${workload}"
+done
+zoen_start_create_container_error_recycler default
 export ZOEN_SHARED_ARTIFACTS_METADATA="${artifact_metadata}"
 node dist/e2e/shared-tenancy.js
 

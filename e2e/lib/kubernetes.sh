@@ -6,6 +6,8 @@ ZOEN_HELM_VERSION="v4.2.4"
 ZOEN_COSIGN_VERSION="v3.1.3"
 ZOEN_SYFT_VERSION="v1.51.0"
 ZOEN_KUBERNETES_ROLLOUT_TIMEOUT="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT:-10m}"
+ZOEN_KUBERNETES_PROGRESS_DEADLINE_SECONDS="${ZOEN_KUBERNETES_PROGRESS_DEADLINE_SECONDS:-1800}"
+ZOEN_RECYCLE_PIDS=()
 
 zoen_host_os() {
   case "$(uname -s)" in
@@ -200,43 +202,128 @@ zoen_duration_seconds() {
 zoen_recycle_create_container_error_pods() {
   # kind's native snapshotter can pin a container name until the pod UID changes.
   local namespace="$1"
-  local pod
-  local status
-  while read -r pod status; do
+  local stuck pod status
+  stuck="$(
+    kubectl --namespace "${namespace}" get pods --output json 2>/dev/null |
+      node -e '
+        const fs = require("node:fs");
+        const now = Date.now();
+        let data;
+        try {
+          data = JSON.parse(fs.readFileSync(0, "utf8"));
+        } catch {
+          process.exit(0);
+        }
+        for (const pod of data.items ?? []) {
+          const reasons = [];
+          for (const list of [
+            pod.status?.initContainerStatuses,
+            pod.status?.containerStatuses,
+          ]) {
+            for (const container of list ?? []) {
+              const reason = container.state?.waiting?.reason;
+              if (reason) reasons.push(reason);
+            }
+          }
+          const age = (now - Date.parse(pod.metadata.creationTimestamp)) / 1000;
+          const createError = reasons.some(
+            (reason) => reason === "CreateContainerError",
+          );
+          const staleCreating =
+            age > 60 &&
+            reasons.some(
+              (reason) =>
+                reason === "ContainerCreating" || reason === "PodInitializing",
+            );
+          if (createError || staleCreating) {
+            console.log(`${pod.metadata.name}\t${reasons[0]}`);
+          }
+        }
+      ' || true
+  )"
+  while IFS=$'\t' read -r pod status; do
     [[ -z "${pod}" ]] && continue
-    case "${status}" in
-      CreateContainerError | Init:CreateContainerError)
-        printf 'deleting %s/%s stuck in %s\n' "${namespace}" "${pod}" "${status}" >&2
-        kubectl --namespace "${namespace}" delete pod "${pod}" \
-          --wait=false --force --grace-period=0 >/dev/null 2>&1 || true
-        ;;
-    esac
+    printf 'deleting %s/%s stuck in %s\n' "${namespace}" "${pod}" "${status}" >&2
+    kubectl --namespace "${namespace}" delete pod "${pod}" \
+      --wait=false --force --grace-period=0 >/dev/null 2>&1 || true
+  done <<< "${stuck}"
+}
+
+zoen_start_create_container_error_recycler() {
+  local namespace="$1"
+  (
+    set +e
+    while true; do
+      zoen_recycle_create_container_error_pods "${namespace}"
+      sleep 10
+    done
+  ) &
+  ZOEN_RECYCLE_PIDS+=("$!")
+}
+
+zoen_stop_create_container_error_recyclers() {
+  local pid
+  for pid in "${ZOEN_RECYCLE_PIDS[@]+"${ZOEN_RECYCLE_PIDS[@]}"}"; do
+    kill "${pid}" >/dev/null 2>&1 || true
+  done
+  ZOEN_RECYCLE_PIDS=()
+}
+
+zoen_stretch_progress_deadlines() {
+  local namespace="$1"
+  local seconds="$2"
+  local name current
+  while read -r name current; do
+    [[ -z "${name}" || "${name}" == "NAME" ]] && continue
+    if [[ "${current}" == "<none>" || -z "${current}" ]]; then
+      current=600
+    fi
+    if ((current < seconds)); then
+      kubectl --namespace "${namespace}" patch "deployment/${name}" --type merge \
+        --patch "{\"spec\":{\"progressDeadlineSeconds\":${seconds}}}" \
+        >/dev/null 2>&1 || true
+    fi
   done < <(
-    kubectl --namespace "${namespace}" get pods --no-headers 2>/dev/null |
-      awk '{print $1, $3}' || true
+    kubectl --namespace "${namespace}" get deploy \
+      --output custom-columns=NAME:.metadata.name,DEADLINE:.spec.progressDeadlineSeconds \
+      --no-headers 2>/dev/null || true
   )
+}
+
+zoen_workload_ready() {
+  local namespace="$1"
+  local workload="$2"
+  local desired ready
+  desired="$(
+    kubectl --namespace "${namespace}" get "${workload}" \
+      --output jsonpath='{.spec.replicas}' 2>/dev/null || true
+  )"
+  ready="$(
+    kubectl --namespace "${namespace}" get "${workload}" \
+      --output jsonpath='{.status.readyReplicas}' 2>/dev/null || true
+  )"
+  desired="${desired:-0}"
+  ready="${ready:-0}"
+  ((desired > 0 && ready >= desired))
 }
 
 zoen_rollout_status() {
   local namespace="$1"
   local workload="$2"
   local timeout="${3:-${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}}"
-  local seconds remaining
+  local seconds
   seconds="$(zoen_duration_seconds "${timeout}")"
   local deadline=$((SECONDS + seconds))
+  zoen_stretch_progress_deadlines \
+    "${namespace}" \
+    "${ZOEN_KUBERNETES_PROGRESS_DEADLINE_SECONDS}"
   while ((SECONDS < deadline)); do
     zoen_recycle_create_container_error_pods "${namespace}"
-    remaining=$((deadline - SECONDS))
-    if ((remaining < 1)); then
-      break
-    fi
-    if ((remaining > 20)); then
-      remaining=20
-    fi
-    if kubectl --namespace "${namespace}" rollout status "${workload}" \
-      --timeout="${remaining}s"; then
+    if zoen_workload_ready "${namespace}" "${workload}"; then
+      printf '%s successfully rolled out\n' "${workload}"
       return 0
     fi
+    sleep 5
   done
   echo "rollout of ${workload} in ${namespace} did not become ready" >&2
   kubectl --namespace "${namespace}" get pods --output wide >&2 || true
