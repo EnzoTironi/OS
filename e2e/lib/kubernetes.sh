@@ -201,52 +201,24 @@ zoen_duration_seconds() {
 
 zoen_recycle_create_container_error_pods() {
   # kind's native snapshotter can pin a container name until the pod UID changes.
+  # Only CreateContainerError: ContainerCreating/PodInitializing can take minutes
+  # for the debug images, and deleting those pods fills the runner disk.
   local namespace="$1"
-  local stuck pod status
-  stuck="$(
-    kubectl --namespace "${namespace}" get pods --output json 2>/dev/null |
-      node -e '
-        const fs = require("node:fs");
-        const now = Date.now();
-        let data;
-        try {
-          data = JSON.parse(fs.readFileSync(0, "utf8"));
-        } catch {
-          process.exit(0);
-        }
-        for (const pod of data.items ?? []) {
-          const reasons = [];
-          for (const list of [
-            pod.status?.initContainerStatuses,
-            pod.status?.containerStatuses,
-          ]) {
-            for (const container of list ?? []) {
-              const reason = container.state?.waiting?.reason;
-              if (reason) reasons.push(reason);
-            }
-          }
-          const age = (now - Date.parse(pod.metadata.creationTimestamp)) / 1000;
-          const createError = reasons.some(
-            (reason) => reason === "CreateContainerError",
-          );
-          const staleCreating =
-            age > 60 &&
-            reasons.some(
-              (reason) =>
-                reason === "ContainerCreating" || reason === "PodInitializing",
-            );
-          if (createError || staleCreating) {
-            console.log(`${pod.metadata.name}\t${reasons[0]}`);
-          }
-        }
-      ' || true
-  )"
-  while IFS=$'\t' read -r pod status; do
+  local pod
+  local status
+  while read -r pod status; do
     [[ -z "${pod}" ]] && continue
-    printf 'deleting %s/%s stuck in %s\n' "${namespace}" "${pod}" "${status}" >&2
-    kubectl --namespace "${namespace}" delete pod "${pod}" \
-      --wait=false --force --grace-period=0 >/dev/null 2>&1 || true
-  done <<< "${stuck}"
+    case "${status}" in
+      CreateContainerError | Init:CreateContainerError)
+        printf 'deleting %s/%s stuck in %s\n' "${namespace}" "${pod}" "${status}" >&2
+        kubectl --namespace "${namespace}" delete pod "${pod}" \
+          --wait=false --force --grace-period=0 >/dev/null 2>&1 || true
+        ;;
+    esac
+  done < <(
+    kubectl --namespace "${namespace}" get pods --no-headers 2>/dev/null |
+      awk '{print $1, $3}' || true
+  )
 }
 
 zoen_start_create_container_error_recycler() {
