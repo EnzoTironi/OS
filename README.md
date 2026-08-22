@@ -25,7 +25,7 @@ The semantic center remains deliberately small:
 - shared SaaS, dedicated and fully self-hosted deployment are first-class from the same signed artifacts;
 - every completed V1 capability requires a production-shaped E2E proof; mocks/stubs cannot satisfy release completion.
 
-Architecture decisions live in [`docs/adr`](docs/adr/README.md). The prescriptive V1 Wayfinder, Specs and E2E build tickets live in GitHub Issues.
+Architecture decisions live in [`docs/adr`](docs/adr/README.md). The prescriptive V1 Wayfinder, Specs and E2E build tickets live in [GitHub issue #186](https://github.com/EnzoTironi/OS/issues/186).
 
 ## V1 deployment and scale target
 
