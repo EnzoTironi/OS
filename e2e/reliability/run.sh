@@ -205,6 +205,8 @@ pause_deployments() {
   local deploy
   local found
   local _attempt
+  local remaining
+  local deadline
   for deploy in "$@"; do
     found=0
     for _attempt in $(seq 1 30); do
@@ -220,12 +222,28 @@ pause_deployments() {
       exit 1
     fi
     kubectl --namespace "${application_namespace}" scale "deployment/${deploy}" --replicas=0
+    kubectl --namespace "${application_namespace}" rollout status \
+      "deployment/${deploy}" --timeout=120s
   done
-  for deploy in "$@"; do
-    kubectl --namespace "${application_namespace}" delete pod \
-      --selector "app.kubernetes.io/name=${deploy}" \
-      --grace-period=0 --force --ignore-not-found >/dev/null
+  deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    remaining=0
+    for deploy in "$@"; do
+      remaining=$((remaining + $(
+        kubectl --namespace "${application_namespace}" get pod \
+          --selector "app.kubernetes.io/name=${deploy}" \
+          --field-selector=status.phase=Running \
+          --output name 2>/dev/null | grep -c . || true
+      )))
+    done
+    if [[ "${remaining}" -eq 0 ]]; then
+      return 0
+    fi
+    sleep 2
   done
+  echo "authority writer pods still present after scale-to-zero" >&2
+  kubectl --namespace "${application_namespace}" get pods --output wide >&2 || true
+  exit 1
 }
 
 resume_deployments() {
@@ -698,12 +716,21 @@ rebuild_projections() {
 
 fresh_restore() {
   local cut_at="${1:-}"
+  local observed_sequence
   pause_authority_writers
-  run_semantic observe
   deploy/scripts/postgres-backup.sh "${durable_namespace}" "${classification_file}"
   mirror_wal_to_host
+  run_semantic observe
   install -m 0644 "${artifacts_directory}/semantic-state.json" \
     "${artifacts_directory}/semantic-before-restore.json"
+  observed_sequence="$(
+    node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).commitSequence))' \
+      "${artifacts_directory}/semantic-before-restore.json"
+  )"
+  if [[ "${observed_sequence}" != "$(backup_commit_sequence)" ]]; then
+    echo "observed commit sequence ${observed_sequence} does not match backup $(backup_commit_sequence)" >&2
+    exit 1
+  fi
   run_semantic digest
   local digest_before
   digest_before="$(
