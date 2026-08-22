@@ -131,16 +131,74 @@ zoen_create_kind_cluster() {
   local cluster_name="$1"
   local config="$2"
   local attempt
-  for attempt in 1 2; do
+  local node="${cluster_name}-control-plane"
+  for attempt in 1 2 3 4 5 6 7 8; do
     if kind create cluster --name "${cluster_name}" --config "${config}" --wait 180s; then
       return
     fi
     kind delete cluster --name "${cluster_name}" >/dev/null 2>&1 || true
-    if [[ "${attempt}" -eq 1 ]]; then
-      printf 'kind cluster creation failed; retrying once\n' >&2
-      sleep 5
+    docker rm --force "${node}" >/dev/null 2>&1 || true
+    if [[ "${attempt}" -lt 8 ]]; then
+      printf 'kind cluster creation failed (attempt %s); retrying\n' "${attempt}" >&2
+      sleep $((attempt * 20))
     fi
   done
+  return 1
+}
+
+zoen_duration_seconds() {
+  local duration="$1"
+  case "${duration}" in
+    *s) printf '%s\n' "${duration%s}" ;;
+    *m) printf '%s\n' "$((${duration%m} * 60))" ;;
+    *h) printf '%s\n' "$((${duration%h} * 3600))" ;;
+    *) printf '%s\n' "${duration}" ;;
+  esac
+}
+
+zoen_recycle_create_container_error_pods() {
+  # kind's native snapshotter can pin a container name until the pod UID changes.
+  local namespace="$1"
+  local pod
+  local status
+  while read -r pod status; do
+    [[ -z "${pod}" ]] && continue
+    case "${status}" in
+      CreateContainerError | Init:CreateContainerError)
+        printf 'deleting %s/%s stuck in %s\n' "${namespace}" "${pod}" "${status}" >&2
+        kubectl --namespace "${namespace}" delete pod "${pod}" \
+          --wait=false --force --grace-period=0 >/dev/null 2>&1 || true
+        ;;
+    esac
+  done < <(
+    kubectl --namespace "${namespace}" get pods --no-headers 2>/dev/null |
+      awk '{print $1, $3}' || true
+  )
+}
+
+zoen_rollout_status() {
+  local namespace="$1"
+  local workload="$2"
+  local timeout="${3:-${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}}"
+  local seconds remaining
+  seconds="$(zoen_duration_seconds "${timeout}")"
+  local deadline=$((SECONDS + seconds))
+  while ((SECONDS < deadline)); do
+    zoen_recycle_create_container_error_pods "${namespace}"
+    remaining=$((deadline - SECONDS))
+    if ((remaining < 1)); then
+      break
+    fi
+    if ((remaining > 20)); then
+      remaining=20
+    fi
+    if kubectl --namespace "${namespace}" rollout status "${workload}" \
+      --timeout="${remaining}s"; then
+      return 0
+    fi
+  done
+  echo "rollout of ${workload} in ${namespace} did not become ready" >&2
+  kubectl --namespace "${namespace}" get pods --output wide >&2 || true
   return 1
 }
 

@@ -175,7 +175,7 @@ definition_independent_workloads=(
   "deployment/zoend"
 )
 for workload in "${definition_independent_workloads[@]}"; do
-  kubectl rollout status "${workload}" --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+  zoen_rollout_status default "${workload}"
 done
 test "$(kubectl get deployment zoend --output jsonpath='{.status.readyReplicas}')" -ge 2
 export ZOEN_SHARED_ARTIFACTS_METADATA="${artifact_metadata}"

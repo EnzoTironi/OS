@@ -5,12 +5,18 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::Router as HttpRouter;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::get;
 use connectrpc::Router;
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::WorkloadId;
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
 use zoen_query::QueryRuntime;
 use zoend::config::object_store_config;
+use zoend::integrity::{self, StateClassification};
 
 use crate::action_service::ActionServiceImpl;
 use crate::auth::SessionRegistry;
@@ -51,6 +57,15 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
         .parse::<SocketAddr>()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
+    let classification = Arc::new(integrity::load_classification()?);
+    let require_reference = integrity::require_reference_tables();
+    store
+        .verify_integrity(
+            &classification.authority.postgres_tables,
+            &classification.authority.reference_tables,
+            require_reference,
+        )
+        .await?;
     let query = QueryRuntime::new(store.pool(), object_store_config()?);
     let action_service = ActionServiceImpl::new(
         ActionEngine::new(store.clone(), query.clone(), policy.clone()),
@@ -84,8 +99,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
     let history_service =
         HistoryServiceImpl::new(HistoryEngine::new(store.clone()), sessions.clone());
-    let world_service = WorldServiceImpl::new(WorldEngine::new(store), query, sessions);
-    let application = Router::new()
+    let world_service = WorldServiceImpl::new(WorldEngine::new(store.clone()), query, sessions);
+    let rpc = Router::new()
         .add_service(Arc::new(action_service))
         .add_service(Arc::new(computation_service))
         .add_service(Arc::new(definition_service))
@@ -93,6 +108,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .add_service(Arc::new(history_service))
         .add_service(Arc::new(world_service))
         .into_axum_router();
+    let application = HttpRouter::new()
+        .route("/ready", get(ready))
+        .with_state(ReadyState {
+            classification,
+            require_reference,
+            store,
+        })
+        .merge(rpc);
     let listener = tokio::net::TcpListener::bind(listen_address).await?;
 
     axum::serve(listener, application)
@@ -101,6 +124,42 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }
 
+#[derive(Clone)]
+struct ReadyState {
+    classification: Arc<StateClassification>,
+    require_reference: bool,
+    store: PostgresAuthorityStore,
+}
+
+async fn ready(State(state): State<ReadyState>) -> impl IntoResponse {
+    match state
+        .store
+        .verify_integrity(
+            &state.classification.authority.postgres_tables,
+            &state.classification.authority.reference_tables,
+            state.require_reference,
+        )
+        .await
+    {
+        Ok(()) => (StatusCode::OK, "ready\n".to_owned()),
+        Err(error) => (StatusCode::SERVICE_UNAVAILABLE, format!("{error}\n")),
+    }
+}
+
 async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        () = ctrl_c => {}
+        () = terminate => {}
+    }
 }

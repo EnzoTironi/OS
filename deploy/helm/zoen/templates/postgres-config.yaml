@@ -1,4 +1,5 @@
 {{- if .Values.reference.enabled }}
+{{- $ha := eq .Values.postgres.topology.mode "ha" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -134,4 +135,15 @@ data:
     CREATE POLICY company_surface_sessions_tenant ON company_surface_sessions
       USING (tenant_id = current_setting('zoen.tenant_id', true))
       WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
+  {{- if $ha }}
+  004-replication.sql: |
+    CREATE ROLE replicator
+      REPLICATION
+      LOGIN
+      PASSWORD 'replicator';
+  005-replication-hba.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    echo "host replication replicator all scram-sha-256" >> "${PGDATA}/pg_hba.conf"
+  {{- end }}
 {{- end }}

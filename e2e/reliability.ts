@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, type Client } from "@connectrpc/connect";
-import { chromium } from "playwright";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import {
@@ -14,9 +12,7 @@ import {
   PolicyDecision,
   ProposalStatus,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
-import {
-  EffectKnowledgeState,
-} from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
   type CausalExplanation,
   HistoryService,
@@ -52,31 +48,45 @@ import { historyClient } from "./explain/support.js";
 
 const environment = z
   .object({
-    ZOEN_DEPLOYMENT_ARTIFACTS_DIR: z.string().min(1),
-    ZOEN_DEPLOYMENT_NAMESPACE: z.string().min(1),
-    ZOEN_DEPLOYMENT_PROFILE: z.enum(["dedicated", "self-hosted"]),
+    ZOEN_E2E_ARTIFACTS_DIR: z.string().min(1),
     ZOEN_E2E_KEYCLOAK_PORT: z.coerce.number().int().positive(),
     ZOEN_E2E_POSTGRES_PORT: z.coerce.number().int().positive(),
-    ZOEN_E2E_WEB_PORT: z.coerce.number().int().positive(),
+    ZOEN_RELIABILITY_NAMESPACE: z.string().min(1),
   })
   .parse(process.env);
 
-const mode = z.enum(["initial", "verify"]).parse(process.argv[2]);
+const mode = z
+  .enum([
+    "seed",
+    "observe",
+    "canary",
+    "digest",
+    "register",
+    "verify",
+    "verify-rolling",
+    "login",
+    "propose",
+    "commit",
+  ])
+  .parse(process.argv[2]);
 const expectedPath = process.argv[3];
 const fixture = await loadFixture("direct", 1);
-const operationId = "operation.deployment-portability";
-const proposalId = "proposal.deployment-portability";
+const operationId = "operation.reliability";
+const proposalId = "proposal.reliability";
 const relationId = "inventory.available";
 const validAt = new Date("2026-08-19T00:00:00.000Z");
-const statePath = path.join(
-  environment.ZOEN_DEPLOYMENT_ARTIFACTS_DIR,
-  "semantic-state.json",
-);
+const artifacts = environment.ZOEN_E2E_ARTIFACTS_DIR;
+const statePath = path.join(artifacts, "semantic-state.json");
+const digestPath = path.join(artifacts, "authority-digest.json");
+const canaryPath = path.join(artifacts, "canaries.jsonl");
 
 const semanticStateSchema = z
   .object({
     authorityDigest: z.string().regex(/^[0-9a-f]{64}$/u),
+    commitSequence: z.number().int().nonnegative(),
+    companySourceCount: z.number().int().nonnegative(),
     definitionDigest: z.string().regex(/^[0-9a-f]{64}$/u),
+    definitionHistoryCount: z.number().int().positive(),
     effectRequestId: z.string().min(1),
     effectState: z.number().int(),
     explanationComplete: z.boolean(),
@@ -85,33 +95,98 @@ const semanticStateSchema = z
     queryValues: z.array(z.string()),
     semanticDigest: z.string().regex(/^[0-9a-f]{64}$/u),
     tenantDerived: z.boolean(),
-    uiObserved: z.boolean(),
   })
   .strict();
 
-const agentToken = await oidcToken("agent-a");
-const adminToken = await oidcToken("admin-a");
+if (mode === "digest") {
+  const digest = await authoritySnapshot();
+  await writeFile(digestPath, `${JSON.stringify(digest, null, 2)}\n`);
+  process.stdout.write(`${digest.authorityDigest}\n`);
+  process.exit(0);
+}
+
+if (mode === "register") {
+  await registerRestateServices(environment.ZOEN_RELIABILITY_NAMESPACE);
+  process.stdout.write("registered\n");
+  process.exit(0);
+}
+
+if (mode === "login") {
+  const response = await fetch(
+    `http://127.0.0.1:${environment.ZOEN_E2E_KEYCLOAK_PORT}/realms/zoen/protocol/openid-connect/token`,
+    {
+      body: new URLSearchParams({
+        client_id: "agent-a",
+        client_secret: "agent-a-secret",
+        grant_type: "client_credentials",
+      }),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      method: "POST",
+      signal: AbortSignal.timeout(5_000),
+    },
+  );
+  assert.equal(response.ok, true, await response.text());
+  process.stdout.write("login-ok\n");
+  process.exit(0);
+}
+
+const agentToken =
+  process.env.ZOEN_E2E_ACCESS_TOKEN ?? (await oidcToken("agent-a"));
 const action = actionClient(agentToken);
-const definition = definitionClient(agentToken);
-const definitionAdmin = definitionClient(adminToken);
 const world = worldClient(agentToken);
 const effect = effectClient(agentToken);
 const history = historyClient(agentToken);
 
-if (mode === "initial") {
+if (mode === "canary") {
+  const committedAt = new Date().toISOString();
+  const claimId = `claim.canary.${Date.now()}`;
+  await recordAvailable(world, {
+    claimId,
+    fixture,
+    resource: resourceId,
+    tenantId: tenantA,
+    value: "10",
+  });
+  await appendFile(
+    canaryPath,
+    `${JSON.stringify({ claimId, committedAt })}\n`,
+  );
+  process.stdout.write(`${JSON.stringify({ claimId, committedAt })}\n`);
+  process.exit(0);
+}
+
+if (mode === "propose" || mode === "commit") {
+  const targetOperationId = process.argv[3] ?? operationId;
+  const targetProposalId = process.argv[4] ?? proposalId;
+  if (mode === "propose") {
+    const proposed = await propose(action, {
+      expiresAt: minutesFromNow(5),
+      fixture,
+      operationId: targetOperationId,
+      proposalId: targetProposalId,
+      quantity: "1",
+    });
+    assert.equal(proposed.decision, PolicyDecision.PERMIT);
+    assert.equal(proposed.proposal?.status, ProposalStatus.READY);
+  } else {
+    const committed = await action.commit({
+      operationId: targetOperationId,
+      proposalId: targetProposalId,
+    });
+    assert.equal(committed.status, CommitStatus.COMMITTED);
+  }
+  process.stdout.write(`${targetOperationId}\n`);
+  process.exit(0);
+}
+
+if (mode === "seed") {
+  const definition = definitionClient(agentToken);
+  const definitionAdmin = definitionClient(await oidcToken("admin-a"));
   await publishDefinition(definition, tenantA, fixture);
   await activateDefinition(definitionAdmin, tenantA, fixture);
-  await kubectl([
-    "--namespace",
-    environment.ZOEN_DEPLOYMENT_NAMESPACE,
-    "rollout",
-    "status",
-    "deployment/harness-tenant-a",
-    "--timeout=5m",
-  ]);
-  await registerRestateServices(environment.ZOEN_DEPLOYMENT_NAMESPACE);
+  await registerRestateServices(environment.ZOEN_RELIABILITY_NAMESPACE);
   await recordAvailable(world, {
-    claimId: "claim.deployment-portability.available",
+    claimId: "claim.reliability.available",
     fixture,
     resource: resourceId,
     tenantId: tenantA,
@@ -129,30 +204,60 @@ if (mode === "initial") {
   const committed = await action.commit({ operationId, proposalId });
   assert.equal(committed.status, CommitStatus.COMMITTED);
   assert.ok(committed.receipt);
-  const effectRequestId = committed.receipt.effectRequestIds[0];
-  assert.ok(effectRequestId);
-  await waitForEffect(effect, effectRequestId);
+  await insertCompanySource();
 }
 
-const expected =
-  mode === "verify"
-    ? semanticStateSchema.parse(
-        JSON.parse(await readFile(requiredExpectedPath(), "utf8")),
-      )
-    : undefined;
-if (mode === "verify") {
-  await registerRestateServices(environment.ZOEN_DEPLOYMENT_NAMESPACE);
+if (
+  mode === "observe" ||
+  mode === "verify" ||
+  mode === "verify-rolling" ||
+  mode === "seed"
+) {
+  const observed = await observeState({ effect, history, world });
+  if (mode === "verify" || mode === "verify-rolling") {
+    const expected = semanticStateSchema.parse(
+      JSON.parse(await readFile(requiredExpectedPath(), "utf8")),
+    );
+    if (mode === "verify") {
+      assert.deepEqual(observed, expected);
+    } else {
+      await assertRollingCompatible(observed, expected);
+    }
+  }
+  await writeFile(statePath, `${JSON.stringify(observed, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(observed, null, 2)}\n`);
 }
-const observed = await observeState({
-  effect,
-  history,
-  world,
-});
-if (expected !== undefined) {
-  assert.deepEqual(observed, expected);
+
+async function assertRollingCompatible(
+  observed: z.infer<typeof semanticStateSchema>,
+  expected: z.infer<typeof semanticStateSchema>,
+): Promise<void> {
+  assert.equal(observed.definitionDigest, expected.definitionDigest);
+  assert.equal(observed.definitionHistoryCount, expected.definitionHistoryCount);
+  assert.equal(observed.operationId, expected.operationId);
+  assert.equal(observed.proposalId, expected.proposalId);
+  assert.deepEqual(observed.queryValues, expected.queryValues);
+  assert.equal(observed.tenantDerived, expected.tenantDerived);
+  assert.equal(observed.explanationComplete, expected.explanationComplete);
+  assert.equal(observed.companySourceCount, expected.companySourceCount);
+  assert.equal(observed.effectRequestId, expected.effectRequestId);
+  const client = new PostgresClient({
+    connectionString: `postgres://postgres:postgres@127.0.0.1:${environment.ZOEN_E2E_POSTGRES_PORT}/zoen`,
+  });
+  await client.connect();
+  try {
+    const operations = await client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM action_operations
+        WHERE tenant_id = $1
+          AND operation_id = $2`,
+      [tenantA, expected.operationId],
+    );
+    assert.equal(Number(operations.rows[0]?.count ?? "0"), 1);
+  } finally {
+    await client.end();
+  }
 }
-await writeFile(statePath, `${JSON.stringify(observed, null, 2)}\n`);
-process.stdout.write(`${JSON.stringify(observed, null, 2)}\n`);
 
 async function observeState(input: {
   readonly effect: EffectClient;
@@ -170,7 +275,14 @@ async function observeState(input: {
     assert.equal(result.value?.value.case, "integerValue");
     return String(result.value.value.value);
   });
-  assert.deepEqual(queryValues, ["10"]);
+  if (mode === "seed") {
+    assert.deepEqual(queryValues, ["10"]);
+  } else {
+    assert.ok(queryValues.length > 0, "semantic query returned no values");
+    for (const value of queryValues) {
+      assert.equal(value, "10");
+    }
+  }
   const discovery = await action.discover({
     definition: fixture.definition,
     resourceId,
@@ -182,12 +294,12 @@ async function observeState(input: {
   );
   const explanation = await explainOperation(input.history);
   assert.equal(explanation.complete, true);
-  assert.equal(explanation.target?.target.case, "operationId");
-  assert.equal(explanation.target.target.value, operationId);
-  const uiObserved = await verifyWeb();
-  const authorityDigest = await authorityDigestForTenant();
+  const snapshot = await authoritySnapshot();
   const semanticResult = {
+    commitSequence: snapshot.commitSequence,
+    companySourceCount: snapshot.companySourceCount,
     definitionDigest: fixture.digest,
+    definitionHistoryCount: snapshot.definitionHistoryCount,
     effectRequestId,
     effectState: comparableEffectState(
       effectSnapshot.snapshot?.request?.state ??
@@ -198,11 +310,10 @@ async function observeState(input: {
     proposalId,
     queryValues,
     tenantDerived: discovery.trustedContext?.tenantId === tenantA,
-    uiObserved,
   };
   return semanticStateSchema.parse({
     ...semanticResult,
-    authorityDigest,
+    authorityDigest: snapshot.authorityDigest,
     semanticDigest: sha256(JSON.stringify(semanticResult)),
   });
 }
@@ -228,11 +339,9 @@ function comparableEffectState(
   }
 }
 
-async function waitForEffect(
-  client: EffectClient,
-  effectRequestId: string,
-) {
-  for (let attempt = 0; attempt < 180; attempt += 1) {
+async function waitForEffect(client: EffectClient, effectRequestId: string) {
+  const attempts = Number(process.env.ZOEN_E2E_EFFECT_WAIT_ATTEMPTS ?? "180");
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const snapshot = await client.getEffect({ effectRequestId });
     if (
       snapshot.snapshot?.request?.state ===
@@ -283,48 +392,12 @@ async function explainOperation(
   return response.explanation;
 }
 
-async function verifyWeb(): Promise<boolean> {
-  const token = await passwordToken();
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage();
-    await page.goto(`http://127.0.0.1:${environment.ZOEN_E2E_WEB_PORT}`);
-    await page.evaluate((accessToken) => {
-      sessionStorage.setItem("zoen.web.access-token.v1", accessToken);
-    }, token);
-    await page.reload();
-    await page.locator("main.app-shell").waitFor({ timeout: 120_000 });
-    const body = await page.locator("body").innerText();
-    assert.match(body, /\b10\b/u);
-    return true;
-  } finally {
-    await browser.close();
-  }
-}
-
-async function passwordToken(): Promise<string> {
-  const response = await fetch(
-    `http://keycloak.127.0.0.1.nip.io:${environment.ZOEN_E2E_KEYCLOAK_PORT}/realms/zoen/protocol/openid-connect/token`,
-    {
-      body: new URLSearchParams({
-        client_id: "zoen-web",
-        grant_type: "password",
-        password: "web-password",
-        username: "web-tenant.a",
-      }),
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      method: "POST",
-    },
-  );
-  const body: unknown = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(body));
-  return z
-    .object({ access_token: z.string().min(1) })
-    .passthrough()
-    .parse(body).access_token;
-}
-
-async function authorityDigestForTenant(): Promise<string> {
+async function authoritySnapshot(): Promise<{
+  authorityDigest: string;
+  commitSequence: number;
+  companySourceCount: number;
+  definitionHistoryCount: number;
+}> {
   const client = new PostgresClient({
     connectionString: `postgres://postgres:postgres@127.0.0.1:${environment.ZOEN_E2E_POSTGRES_PORT}/zoen`,
   });
@@ -333,6 +406,13 @@ async function authorityDigestForTenant(): Promise<string> {
     const tables = [
       { name: "action_operations", volatileColumns: [] },
       { name: "action_proposals", volatileColumns: [] },
+      { name: "authority_commits", volatileColumns: ["committed_at"] },
+      { name: "authority_heads", volatileColumns: [] },
+      { name: "company_sources", volatileColumns: ["updated_at", "created_at"] },
+      {
+        name: "company_surface_sessions",
+        volatileColumns: ["created_at"],
+      },
       { name: "definition_activations", volatileColumns: [] },
       { name: "definition_revisions", volatileColumns: [] },
       {
@@ -342,7 +422,6 @@ async function authorityDigestForTenant(): Promise<string> {
       { name: "semantic_claims", volatileColumns: [] },
     ] as const;
     const rows: string[] = [];
-    const tableDigests: Record<string, string> = {};
     for (const table of tables) {
       const result = await client.query<{ row: string }>(
         `SELECT normalized.row::text AS row
@@ -353,39 +432,65 @@ async function authorityDigestForTenant(): Promise<string> {
           ORDER BY normalized.row::text`,
         [tenantA, table.volatileColumns],
       );
-      const tableRows = result.rows.map((row) => row.row);
-      tableDigests[table.name] = sha256(tableRows.join("\n"));
-      rows.push(table.name, ...tableRows);
+      rows.push(table.name, ...result.rows.map((row) => row.row));
     }
-    const tableDigestPath = path.join(
-      environment.ZOEN_DEPLOYMENT_ARTIFACTS_DIR,
-      "authority-table-digests.json",
+    const sequence = await client.query<{ commit_sequence: string }>(
+      `SELECT coalesce(max(commit_sequence), 0)::text AS commit_sequence
+         FROM authority_commits
+        WHERE tenant_id = $1`,
+      [tenantA],
     );
-    if (mode === "verify") {
-      try {
-        const previous = JSON.parse(
-          await readFile(tableDigestPath, "utf8"),
-        ) as Record<string, string>;
-        const changed = Object.keys(tableDigests).filter(
-          (table) => tableDigests[table] !== previous[table],
-        );
-        if (changed.length > 0) {
-          process.stderr.write(
-            `${JSON.stringify({ changed, previous, current: tableDigests }, null, 2)}\n`,
-          );
-        }
-      } catch (error) {
-        process.stderr.write(
-          `authority table digests unavailable: ${String(error)}\n`,
-        );
-      }
-    } else {
-      await writeFile(
-        tableDigestPath,
-        `${JSON.stringify(tableDigests, null, 2)}\n`,
-      );
-    }
-    return sha256(rows.join("\n"));
+    const sources = await client.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM company_sources WHERE tenant_id = $1`,
+      [tenantA],
+    );
+    const history = await client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM definition_revisions
+        WHERE tenant_id = $1`,
+      [tenantA],
+    );
+    const commitSequence = Number(sequence.rows[0]?.commit_sequence ?? "0");
+    const companySourceCount = Number(sources.rows[0]?.count ?? "0");
+    const definitionHistoryCount = Number(history.rows[0]?.count ?? "0");
+    rows.push(
+      "commitSequence",
+      String(commitSequence),
+      "companySourceCount",
+      String(companySourceCount),
+      "definitionHistoryCount",
+      String(definitionHistoryCount),
+    );
+    return {
+      authorityDigest: sha256(rows.join("\n")),
+      commitSequence,
+      companySourceCount,
+      definitionHistoryCount,
+    };
+  } finally {
+    await client.end();
+  }
+}
+
+async function insertCompanySource(): Promise<void> {
+  const client = new PostgresClient({
+    connectionString: `postgres://postgres:postgres@127.0.0.1:${environment.ZOEN_E2E_POSTGRES_PORT}/zoen`,
+  });
+  await client.connect();
+  try {
+    await client.query(
+      `INSERT INTO company_sources (
+         tenant_id, source_id, source_revision, kind, filename, media_type,
+         content_digest, object_key, extraction_version, parser_name,
+         parser_version_digest, status
+       ) VALUES (
+         $1, 'source.reliability', '1', 'document', 'reliability.txt', 'text/plain',
+         $2, 'company-brain/reliability.txt', 'v1', 'reliability',
+         $2, 'stored'
+       )
+       ON CONFLICT (tenant_id, source_id, source_revision) DO NOTHING`,
+      [tenantA, "0".repeat(64)],
+    );
   } finally {
     await client.end();
   }
@@ -419,23 +524,6 @@ async function registerRestateServices(namespace: string): Promise<void> {
       throw new Error(`Restate did not register ${uri}`);
     }
   }
-}
-
-function kubectl(arguments_: readonly string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "kubectl",
-      [...arguments_],
-      { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          reject(new Error(`${stdout}${stderr}`, { cause: error }));
-          return;
-        }
-        resolve(stdout.trim());
-      },
-    );
-  });
 }
 
 function requiredExpectedPath(): string {

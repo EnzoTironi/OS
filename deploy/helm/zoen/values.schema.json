@@ -87,7 +87,8 @@
         "otelCollector",
         "postgres",
         "restate",
-        "rust"
+        "rust",
+        "walG"
       ],
       "properties": {
         "keycloak": { "$ref": "#/definitions/taggedImage" },
@@ -97,7 +98,8 @@
         "otelCollector": { "$ref": "#/definitions/taggedImage" },
         "postgres": { "$ref": "#/definitions/taggedImage" },
         "restate": { "$ref": "#/definitions/taggedImage" },
-        "rust": { "$ref": "#/definitions/applicationImage" }
+        "rust": { "$ref": "#/definitions/applicationImage" },
+        "walG": { "$ref": "#/definitions/taggedImage" }
       }
     },
     "keycloak": {
@@ -177,7 +179,9 @@
         "host",
         "nodePort",
         "port",
-        "storage"
+        "storage",
+        "topology",
+        "walArchive"
       ],
       "properties": {
         "applicationUser": {
@@ -199,7 +203,43 @@
           "minimum": 1,
           "maximum": 65535
         },
-        "storage": { "$ref": "#/definitions/storageSize" }
+        "storage": { "$ref": "#/definitions/storageSize" },
+        "topology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "productionReplicas",
+            "referenceReplicas"
+          ],
+          "properties": {
+            "mode": {
+              "enum": ["ha", "reference"]
+            },
+            "productionReplicas": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 16
+            },
+            "referenceReplicas": {
+              "const": 1
+            }
+          }
+        },
+        "walArchive": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["archiveTimeoutSeconds", "bucket", "enabled"],
+          "properties": {
+            "archiveTimeoutSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
+            },
+            "bucket": { "$ref": "#/definitions/bucketName" },
+            "enabled": { "type": "boolean" }
+          }
+        }
       }
     },
     "profile": {
@@ -240,11 +280,21 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
+            "mode",
+            "partitions",
             "productionReplicas",
             "referenceReplicas",
             "replicationFactor"
           ],
           "properties": {
+            "mode": {
+              "enum": ["production", "reference"]
+            },
+            "partitions": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
             "productionReplicas": {
               "type": "integer",
               "minimum": 3
@@ -542,6 +592,37 @@
                 "not": {
                   "pattern": "^https?://[^/]*zoen\\."
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "applications": {
+            "properties": {
+              "enabled": { "const": true }
+            }
+          },
+          "postgres": {
+            "properties": {
+              "topology": {
+                "properties": {
+                  "mode": { "const": "ha" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "zoend": {
+            "properties": {
+              "replicas": {
+                "minimum": 2
               }
             }
           }

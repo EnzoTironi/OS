@@ -1,4 +1,17 @@
 {{- if .Values.applications.enabled }}
+{{- if and (eq .Values.postgres.topology.mode "ha") (lt (.Values.zoend.replicas | int) 2) }}
+{{- fail "HA topology requires zoend.replicas >= 2" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zoen-state-classification
+  labels:
+    {{- include "zoen.labels" . | nindent 4 }}
+data:
+  state-classification.yaml: |
+{{ .Files.Get "state-classification.yaml" | indent 4 }}
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -23,6 +36,11 @@ metadata:
     {{- include "zoen.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.zoend.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: zoend
@@ -32,6 +50,7 @@ spec:
         app.kubernetes.io/name: zoend
         {{- include "zoen.labels" . | nindent 8 }}
     spec:
+      terminationGracePeriodSeconds: 30
       hostAliases:
         - ip: {{ .Values.global.keycloakClusterIp | quote }}
           hostnames:
@@ -56,20 +75,48 @@ spec:
               value: zoend
             - name: ZOEN_OIDC_ISSUER
               value: {{ .Values.global.publicOidcIssuer | quote }}
+            - name: ZOEN_REQUIRE_REFERENCE_TABLES
+              value: "true"
+            - name: ZOEN_STATE_CLASSIFICATION
+              value: /etc/zoen/state-classification.yaml
           ports:
             - name: http
               containerPort: 8080
-          readinessProbe:
-            tcpSocket:
+          lifecycle:
+            preStop:
+              exec:
+                command: [/bin/sleep, "5"]
+          startupProbe:
+            httpGet:
+              path: /ready
               port: http
-            initialDelaySeconds: 2
             periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: policies
-              mountPath: /etc/zoen
+              mountPath: /etc/zoen/policies.json
+              subPath: policies.json
+              readOnly: true
+            - name: classification
+              mountPath: /etc/zoen/state-classification.yaml
+              subPath: state-classification.yaml
               readOnly: true
       volumes:
         - name: policies
           configMap:
             name: zoen-policies
+        - name: classification
+          configMap:
+            name: zoen-state-classification
 {{- end }}

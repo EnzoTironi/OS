@@ -23,6 +23,10 @@ e2e-run scenario:
 e2e scenario:
     ./e2e/run.sh e2e {{scenario}}
 
-# Release gate: check and build once, then every scenario runner.
+# Release drill: same as `just e2e` for the named reliability drill.
+release-drill drill:
+    ./e2e/run.sh release-drill {{drill}}
+
+# Release gate: check and build once, then every serial scenario runner.
 verify:
     ./e2e/run.sh verify

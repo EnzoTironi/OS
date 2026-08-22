@@ -1,6 +1,8 @@
 {{- define "zoen.labels" -}}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: zoen
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | quote }}
 zoen.dev/profile: {{ .Values.profile | quote }}
 {{- end }}
 
@@ -44,6 +46,46 @@ zoen.dev/profile: {{ .Values.profile | quote }}
   value: {{ .Values.telemetry.endpoint | quote }}
 - name: OTEL_SDK_DISABLED
   value: {{ not .Values.telemetry.enabled | quote }}
+{{- end }}
+
+{{- define "zoen.restateReplicas" -}}
+{{- if eq .Values.restate.topology.mode "production" -}}
+{{- .Values.restate.topology.productionReplicas -}}
+{{- else -}}
+{{- .Values.restate.topology.referenceReplicas -}}
+{{- end -}}
+{{- end }}
+
+{{- define "zoen.restateMetadataAddresses" -}}
+{{- $replicas := include "zoen.restateReplicas" . | int -}}
+{{- $addresses := list -}}
+{{- range $i := until $replicas -}}
+{{- $addresses = append $addresses (printf "\"http://restate-%d.restate-headless:5122\"" $i) -}}
+{{- end -}}
+{{- join "," $addresses -}}
+{{- end }}
+
+{{- define "zoen.walGEnv" -}}
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.runtimeSecret.name }}
+      key: {{ .Values.runtimeSecret.s3AccessKeyIdKey }}
+- name: AWS_ENDPOINT
+  value: {{ .Values.objectStorage.endpoint | quote }}
+- name: AWS_REGION
+  value: {{ .Values.objectStorage.region | quote }}
+- name: AWS_S3_FORCE_PATH_STYLE
+  value: "true"
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.runtimeSecret.name }}
+      key: {{ .Values.runtimeSecret.s3SecretAccessKeyKey }}
+- name: WALG_COMPRESSION_METHOD
+  value: lz4
+- name: WALG_S3_PREFIX
+  value: s3://{{ .Values.postgres.walArchive.bucket }}/postgres
 {{- end }}
 
 {{- define "zoen.preflight" -}}

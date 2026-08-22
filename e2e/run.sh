@@ -9,10 +9,12 @@ set -euo pipefail
 
 scenario_table=(
   "agent-capabilities-live:agent-capabilities-live:"
+  "backup-restore::"
   "company-brain-live:company-brain-live:"
   "definition-publication::"
   "deploy-dedicated::"
   "deploy-self-hosted-isolated::"
+  "ha-chaos::"
   "domain-commercial:domain-commercial:"
   "domain-inventory-procurement:domain-inventory-procurement:"
   "domain-manufacturing-accounting:domain-manufacturing-accounting:"
@@ -27,6 +29,8 @@ scenario_table=(
   "fiscal-plugnotas-live:fiscal-plugnotas-live:"
   "fiscal-protheus-live:fiscal-protheus-live:"
   "governed-action:governed-action:"
+  "rolling-upgrade::"
+  "rpo-rto::"
   "semantic-query::"
   "shared-tenancy::"
   "wasm-code-mode:wasm-code-mode:"
@@ -53,6 +57,7 @@ usage() {
   echo "       just build [scenario|all]" >&2
   echo "       just e2e-run <scenario>" >&2
   echo "       just e2e <scenario>" >&2
+  echo "       just release-drill rpo-rto" >&2
   echo "       just verify" >&2
   echo "scenarios: ${names[*]}" >&2
   exit 2
@@ -86,7 +91,7 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
+      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
         compose_file=""
         project=""
       elif [[ -n "$realm" ]]; then
@@ -94,6 +99,9 @@ resolve_scenario() {
       fi
       if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
         runner="dist/e2e/deployment-portability.js"
+      fi
+      if [[ "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
+        runner="dist/e2e/reliability.js"
       fi
       load_scenario_env
       return
@@ -209,7 +217,7 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
-  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
+  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
     return
   fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -233,7 +241,7 @@ run_scenario() {
     trap - EXIT
     return
   fi
-  if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
+  if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
     "e2e/${scenario}/run.sh"
     trap - EXIT
     return
@@ -268,7 +276,7 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live ]]; then
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto ]]; then
       continue
     fi
     resolve_scenario "$name"
@@ -296,6 +304,9 @@ case "$command" in
     run_scenario
     ;;
   e2e)
+    run_e2e "${2:-}"
+    ;;
+  release-drill)
     run_e2e "${2:-}"
     ;;
   verify)

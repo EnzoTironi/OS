@@ -21,6 +21,7 @@ mod claim_store;
 mod effect_dispatcher;
 mod effect_store;
 mod history_store;
+mod integrity;
 mod migration_store;
 mod restate;
 mod semantic_claim_store;
@@ -36,6 +37,7 @@ pub use effect_dispatcher::{
     EffectDispatchOutcome, EffectDispatchResult, PostgresEffectDispatcher,
 };
 pub use effect_store::PostgresEffectUpdate;
+pub use integrity::IntegrityError;
 pub use restate::{RestateEffectScheduler, restate_effect_key};
 use value_store::row_to_valid_time;
 pub(crate) use value_store::{row_to_value, valid_time_columns, value_columns};

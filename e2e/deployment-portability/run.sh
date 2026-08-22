@@ -225,7 +225,7 @@ docker network connect kind "${registry_name}" 2>/dev/null || true
 if [[ "${profile}" == "self-hosted" ]]; then
   kubectl apply --filename e2e/deployment-portability/coredns-isolation.yaml
   kubectl --namespace kube-system rollout restart deployment/coredns
-  kubectl --namespace kube-system rollout status deployment/coredns --timeout=3m
+  zoen_rollout_status kube-system deployment/coredns 3m
 fi
 
 node e2e/shared-tenancy/prepare-realm.mjs \
@@ -260,9 +260,7 @@ for workload in \
   deployment/keycloak \
   deployment/minio \
   deployment/otel-collector; do
-  kubectl --namespace "${durable_namespace}" rollout status \
-    "${workload}" \
-    --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+  zoen_rollout_status "${durable_namespace}" "${workload}"
 done
 
 render_application() {
@@ -303,9 +301,7 @@ application_workloads=(
 wait_for_application() {
   local namespace="$1"
   for workload in "${application_workloads[@]}"; do
-    kubectl --namespace "${namespace}" rollout status \
-      "${workload}" \
-      --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+    zoen_rollout_status "${namespace}" "${workload}"
   done
   test "$(
     kubectl --namespace "${namespace}" get deployment zoend \
@@ -338,9 +334,7 @@ kubectl --namespace "${application_namespace}" rollout restart \
   "${application_workloads[@]}" \
   deployment/harness-tenant-a
 wait_for_application "${application_namespace}"
-kubectl --namespace "${application_namespace}" rollout status \
-  deployment/harness-tenant-a \
-  --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+zoen_rollout_status "${application_namespace}" deployment/harness-tenant-a
 node dist/e2e/deployment-portability.js verify "${initial_state}"
 printf '%s\t%s\t%s\n' \
   stateless-restart \
@@ -514,9 +508,7 @@ helm uninstall zoen --namespace "${application_namespace}"
 kubectl delete namespace "${application_namespace}" --wait=true
 install_application "${restored_namespace}"
 wait_for_application "${restored_namespace}"
-kubectl --namespace "${restored_namespace}" rollout status \
-  deployment/harness-tenant-a \
-  --timeout="${ZOEN_KUBERNETES_ROLLOUT_TIMEOUT}"
+zoen_rollout_status "${restored_namespace}" deployment/harness-tenant-a
 export ZOEN_DEPLOYMENT_NAMESPACE="${restored_namespace}"
 node dist/e2e/deployment-portability.js verify "${initial_state}"
 printf '%s\t%s\t%s\n' \
