@@ -1246,10 +1246,17 @@ case "${drill}" in
       "empty Restate after restore reconciled effects from Postgres authority" \
       "${recovery_file}"
     rls_mutant
+    pause_authority_writers
+    run_semantic digest
+    projection_digest="$(digest_value)"
     postgres_exec -c "TRUNCATE projection_watermarks, projection_manifests;"
     rebuild_projections
     run_semantic digest
-    test "$(digest_value)" = "$(tr -d '\n' <"${artifacts_directory}/authority-digest-before.txt")"
+    if [[ "$(digest_value)" != "${projection_digest}" ]]; then
+      echo "authority digest after projection rebuild $(digest_value) does not match ${projection_digest}" >&2
+      exit 1
+    fi
+    resume_authority_writers
     pass projection-rebuildable \
       "wiping projection watermarks and rebuilding left authority digest unchanged" \
       "${mutants_file}"
