@@ -44,7 +44,7 @@ impl EffectService for EffectServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, GetEffectRequest>,
     ) -> ServiceResult<GetEffectResponse> {
-        let execution_context = self.sessions.trusted_context(&context)?;
+        let execution_context = self.sessions.trusted_context(&context).await?;
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)
             .map_err(|error| invalid(error.to_string()))?;
         let snapshot = self
@@ -63,7 +63,7 @@ impl EffectService for EffectServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ClaimAttemptRequest>,
     ) -> ServiceResult<ClaimAttemptResponse> {
-        let execution_context = self.sessions.trusted_context(&context)?;
+        let execution_context = self.sessions.trusted_context(&context).await?;
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)
             .map_err(|error| invalid(error.to_string()))?;
         let claim = self
@@ -93,7 +93,7 @@ impl EffectService for EffectServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, RecordAttemptRequest>,
     ) -> ServiceResult<RecordAttemptResponse> {
-        let execution_context = self.sessions.trusted_context(&context)?;
+        let execution_context = self.sessions.trusted_context(&context).await?;
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)
             .map_err(|error| invalid(error.to_string()))?;
         let attempt = request
@@ -122,7 +122,7 @@ impl EffectService for EffectServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ReconcileRequest>,
     ) -> ServiceResult<ReconcileResponse> {
-        let execution_context = self.sessions.trusted_context(&context)?;
+        let execution_context = self.sessions.trusted_context(&context).await?;
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)
             .map_err(|error| invalid(error.to_string()))?;
         let evidence = request

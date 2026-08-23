@@ -22,6 +22,7 @@ mod effect_dispatcher;
 mod effect_store;
 mod evidence_store;
 mod history_store;
+mod identity_store;
 mod integrity;
 mod migration_store;
 mod restate;
@@ -38,6 +39,7 @@ pub use effect_dispatcher::{
     EffectDispatchOutcome, EffectDispatchResult, PostgresEffectDispatcher,
 };
 pub use effect_store::PostgresEffectUpdate;
+pub use identity_store::{AccountSnapshot, CreateInvite, PostgresIdentityStore};
 pub use integrity::IntegrityError;
 pub use restate::{RestateEffectScheduler, restate_effect_key};
 use value_store::row_to_valid_time;

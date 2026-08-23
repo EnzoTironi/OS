@@ -9,6 +9,7 @@ set -euo pipefail
 # never share host ports or generated files with another scenario.
 
 scenario_table=(
+  "activation-identity:activation-identity:"
   "activation-sample::"
   "agent-capabilities-live:agent-capabilities-live:"
   "backup-restore::"

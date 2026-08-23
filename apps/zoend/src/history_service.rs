@@ -61,7 +61,7 @@ impl HistoryService for HistoryServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ExplainRequest>,
     ) -> ServiceResult<ExplainResponse> {
-        let trusted = self.sessions.trusted_context(&context)?;
+        let trusted = self.sessions.trusted_context(&context).await?;
         let target = request
             .target
             .as_option()

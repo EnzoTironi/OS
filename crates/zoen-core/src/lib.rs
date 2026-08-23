@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 mod effect;
 mod expression;
 mod history;
+mod identity;
 mod migration;
 
 pub use effect::{
@@ -24,6 +25,13 @@ pub use history::{
     EffectDispatchEvidence, EffectDispatchOutcome, EvidenceClass, ExplanationGap,
     ExplanationPayload, ExplanationSubject, ExplanationTarget, GapReason, PayloadRedaction,
     PolicyDecisionEvidence, PolicyDecisionStage, RedactionReason, StateBasisStage,
+};
+pub use identity::{
+    AccountMergePlan, AccountStatus, BindingProof, BindingStatus, ChannelProvider,
+    DelegationTemplateId, EnterpriseAssertion, ExternalBinding, ExternalBindingId, ExternalSubject,
+    IdentityError, Invite, InviteId, InviteToken, Membership, MembershipId, MembershipKind,
+    MembershipStatus, RevocationReason, UnbindReason, VerifiedOidcSubject, ZoenAccount,
+    ZoenAccountId, trusted_context_from_membership,
 };
 pub use migration::{
     MigrationArtifactDependency, MigrationDependency, MigrationElement, MigrationLineage,
@@ -132,7 +140,10 @@ impl Display for ComponentInterface {
     }
 }
 
-fn parse_identifier(value: String, kind: &'static str) -> Result<String, IdentifierError> {
+pub(crate) fn parse_identifier(
+    value: String,
+    kind: &'static str,
+) -> Result<String, IdentifierError> {
     let mut characters = value.chars();
     let first_is_valid = characters
         .next()
