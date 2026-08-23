@@ -36,6 +36,7 @@ scenario_table=(
   "governed-action:governed-action:"
   "human-executor:human-executor:"
   "pack-install:pack-install:"
+  "pack-registry:pack-registry:"
   "rolling-upgrade::"
   "rpo-rto::"
   "scale-actions-v1::"

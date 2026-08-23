@@ -582,7 +582,15 @@ fn pack_error(error: PackError) -> axum::response::Response {
         | PackError::GrantsUnresolved
         | PackError::InvalidPhaseTransition(_)
         | PackError::MissingDependency(_) => StatusCode::PRECONDITION_FAILED,
-        PackError::PackNotFound | PackError::InstallNotFound => StatusCode::NOT_FOUND,
+        PackError::PackNotFound | PackError::InstallNotFound | PackError::ShareNotFound => {
+            StatusCode::NOT_FOUND
+        }
+        PackError::VersionBytesMismatch => StatusCode::CONFLICT,
+        PackError::SignatureInvalid
+        | PackError::PublisherKeyUnknown
+        | PackError::VisibilityDenied
+        | PackError::PublicRegistryDisabled => StatusCode::BAD_REQUEST,
+        PackError::ShareExpired => StatusCode::GONE,
         PackError::Store(_)
         | PackError::InvalidIntegrationKind(_)
         | PackError::InvalidSensitivity(_)

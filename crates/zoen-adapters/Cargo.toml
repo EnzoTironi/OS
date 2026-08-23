@@ -9,7 +9,9 @@ rust-version.workspace = true
 failpoints = []
 
 [dependencies]
+base64 = "0.22.1"
 cedar-policy = "4.7.1"
+ed25519-dalek = { version = "2.2.0", default-features = false, features = ["std"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_jcs = "0.2.0"
