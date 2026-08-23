@@ -1,0 +1,11 @@
+{
+  "name": "@zoen/onboarding",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "canonicalize": "^4.0.0"
+  }
+}

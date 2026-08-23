@@ -28,6 +28,9 @@
       ],
       "@zoen/messaging": [
         "./packages/messaging/src/index.ts"
+      ],
+      "@zoen/onboarding": [
+        "./packages/onboarding/src/index.ts"
       ]
     },
     "rootDir": ".",
