@@ -31,7 +31,6 @@ import {
   historyClient,
   oidcToken,
   proposalRequest,
-  providerOperation,
   recordEvidence,
   registerWorker,
   setProviderMode,
@@ -47,7 +46,9 @@ import {
 import {
   delay,
   evidenceInput,
+  stateName,
   waitForConnectorStatus,
+  waitForProviderOperation,
   waitForState,
 } from "../effects/scenario.js";
 import { e2ePostgresUrl, writeScenarioArtifact } from "../host-env.js";
@@ -61,8 +62,12 @@ export async function runActivationStory(
 ): Promise<void> {
   const observations: Record<string, boolean> = {};
   const failureInjections: string[] = [];
-  const observe = (name: string, condition: boolean): void => {
-    assert.ok(condition, name);
+  const observe = (
+    name: string,
+    condition: boolean,
+    detail?: string,
+  ): void => {
+    assert.ok(condition, detail ?? name);
     observations[name] = condition;
   };
 
@@ -237,6 +242,7 @@ export async function runActivationStory(
     await setProviderMode("confirmed");
     await dispatchOnce();
 
+    await setProviderMode("timeout_after_delivery");
     const purchaseRequest = governPurchase(
       procurement as Parameters<typeof governPurchase>[0],
       "sample-purchase",
@@ -265,7 +271,6 @@ export async function runActivationStory(
     );
     assert.ok(purchaseCommit.receipt);
 
-    await setProviderMode("timeout_after_delivery");
     await dispatchOnce();
     const effectId = purchaseCommit.receipt.effectRequestIds[0];
     assert.ok(effectId);
@@ -275,16 +280,21 @@ export async function runActivationStory(
       EffectKnowledgeState.UNKNOWN,
     );
     const idempotencyKey = `idempotency.${tenantA}.${effectId}`;
-    const external = await providerOperation(idempotencyKey);
-    assert.ok(external);
+    const external = await waitForProviderOperation(idempotencyKey);
     await delay(1_100);
     const stillUnknown = await effect.getEffect({ effectRequestId: effectId });
     failureInjections.push("purchase-effect-timeout-after-possible-creation");
+    const afterState = stillUnknown.snapshot?.request?.state;
+    const afterRemote = await waitForProviderOperation(idempotencyKey);
     observe(
       "effectTimeoutStaysUnknownWithoutBlindRetry",
       unknown.request?.state === EffectKnowledgeState.UNKNOWN &&
-        stillUnknown.snapshot?.request?.state === EffectKnowledgeState.UNKNOWN &&
-        external.requests === 1,
+        afterState === EffectKnowledgeState.UNKNOWN &&
+        external.requests === 1 &&
+        afterRemote.requests === 1,
+      `effectTimeoutStaysUnknownWithoutBlindRetry state=${
+        afterState === undefined ? "missing" : stateName(afterState)
+      } requests=${afterRemote.requests}`,
     );
 
     const connectorStatus = await waitForConnectorStatus(idempotencyKey);
