@@ -238,10 +238,8 @@ const zoenEffect = restate.object({
           },
         );
       } catch (error: unknown) {
-        if (
-          !(error instanceof restate.TerminalError) ||
-          !error.message.includes(timeoutBeforeSendError)
-        ) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes(timeoutBeforeSendError)) {
           throw error;
         }
         outcome = {
