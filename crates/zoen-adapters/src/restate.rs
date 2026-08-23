@@ -24,15 +24,6 @@ impl RestateEffectScheduler {
             timeout: RESTATE_SEND_TIMEOUT,
         }
     }
-
-    #[cfg(test)]
-    fn with_timeout(ingress: Url, timeout: Duration) -> Self {
-        Self {
-            client: Client::new(),
-            ingress,
-            timeout,
-        }
-    }
 }
 
 impl DispatchScheduler for RestateEffectScheduler {
@@ -115,10 +106,20 @@ mod tests {
 
     use zoen_core::{EffectRequestId, TenantId};
 
+    use reqwest::{Client, Url};
+
     use super::{RestateEffectScheduler, restate_effect_key};
     use crate::effect_dispatcher::{
         DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
     };
+
+    fn with_timeout(ingress: Url, timeout: Duration) -> RestateEffectScheduler {
+        RestateEffectScheduler {
+            client: Client::new(),
+            ingress,
+            timeout,
+        }
+    }
 
     fn command() -> DispatchScheduleCommand {
         DispatchScheduleCommand {
@@ -145,7 +146,7 @@ mod tests {
             let _accepted = listener.accept();
             std::thread::sleep(Duration::from_secs(30));
         });
-        let scheduler = RestateEffectScheduler::with_timeout(
+        let scheduler = with_timeout(
             format!("http://{addr}").parse().expect("url"),
             Duration::from_millis(200),
         );
