@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use connectrpc::Router;
-use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
+use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore, PostgresIdentityStore};
 use zoen_core::WorkloadId;
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
 use zoen_query::QueryRuntime;
@@ -23,6 +23,7 @@ use crate::auth::SessionRegistry;
 use crate::computation_service::ComputationServiceImpl;
 use crate::effect_service::EffectServiceImpl;
 use crate::history_service::HistoryServiceImpl;
+use crate::identity_admin::IdentityAdminState;
 use crate::service::DefinitionServiceImpl;
 use crate::world_service::WorldServiceImpl;
 
@@ -31,6 +32,7 @@ mod auth;
 mod computation_service;
 mod effect_service;
 mod history_service;
+mod identity_admin;
 mod service;
 mod world_service;
 
@@ -57,6 +59,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
         .parse::<SocketAddr>()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
+    let identity = PostgresIdentityStore::new(store.pool());
+    let sessions = sessions.with_identity(identity.clone());
     let classification = Arc::new(integrity::load_classification()?);
     let require_reference = integrity::require_reference_tables();
     store
@@ -99,7 +103,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
     let history_service =
         HistoryServiceImpl::new(HistoryEngine::new(store.clone()), sessions.clone());
-    let world_service = WorldServiceImpl::new(WorldEngine::new(store.clone()), query, sessions);
+    let world_service =
+        WorldServiceImpl::new(WorldEngine::new(store.clone()), query, sessions.clone());
+    let identity_routes = identity_admin::router(IdentityAdminState {
+        identity,
+        sessions,
+    });
     let rpc = Router::new()
         .add_service(Arc::new(action_service))
         .add_service(Arc::new(computation_service))
@@ -115,6 +124,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             require_reference,
             store,
         })
+        .merge(identity_routes)
         .merge(rpc);
     let listener = tokio::net::TcpListener::bind(listen_address).await?;
 

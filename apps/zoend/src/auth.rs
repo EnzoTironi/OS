@@ -7,9 +7,11 @@ use connectrpc::{ConnectError, ErrorCode, RequestContext};
 use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
+use zoen_adapters::PostgresIdentityStore;
 use zoen_core::{
-    ActionId, ActorId, DelegationChain, DelegationError, DelegationGrant, DelegationId,
-    ExecutionContext, PrincipalId, ResourceId, TenantId, TimestampMicros, WorkloadId,
+    ActionId, ActorId, BindingStatus, DelegationChain, DelegationError, DelegationGrant,
+    DelegationId, ExecutionContext, IdentityError, PrincipalId, ResourceId, TenantId,
+    TimestampMicros, VerifiedOidcSubject, WorkloadId,
 };
 
 #[derive(Debug)]
@@ -52,6 +54,7 @@ impl Error for SessionConfigError {
 
 #[derive(Clone)]
 pub struct SessionRegistry {
+    identity: Option<PostgresIdentityStore>,
     provider: AuthProvider,
 }
 
@@ -81,8 +84,14 @@ impl SessionRegistry {
             contexts_by_token.insert(token, session_context(binding)?);
         }
         Ok(Self {
+            identity: None,
             provider: AuthProvider::Legacy(Arc::new(contexts_by_token)),
         })
+    }
+
+    pub fn with_identity(mut self, identity: PostgresIdentityStore) -> Self {
+        self.identity = Some(identity);
+        self
     }
 
     pub async fn from_oidc(
@@ -142,6 +151,7 @@ impl SessionRegistry {
             ));
         }
         Ok(Self {
+            identity: None,
             provider: AuthProvider::Oidc(Arc::new(OidcVerifier {
                 audience,
                 issuer,
@@ -150,48 +160,103 @@ impl SessionRegistry {
         })
     }
 
-    fn authenticate(
+    fn bearer_token<'a>(
+        &self,
+        authorization: Option<&'a str>,
+    ) -> Result<&'a str, AuthenticationError> {
+        authorization
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .ok_or(AuthenticationError::InvalidClaim)
+    }
+
+    pub fn verify_bearer(
         &self,
         authorization: Option<&str>,
-    ) -> Result<ExecutionContext, AuthenticationError> {
-        let token = authorization
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .ok_or(AuthenticationError::InvalidClaim)?;
+    ) -> Result<VerifiedOidcSubject, ConnectError> {
+        let token = self
+            .bearer_token(authorization)
+            .map_err(|_| ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token"))?;
         match &self.provider {
-            AuthProvider::Legacy(contexts) => contexts
-                .get(token)
-                .cloned()
-                .ok_or(AuthenticationError::InvalidClaim),
-            AuthProvider::Oidc(verifier) => verifier.authenticate(token),
+            AuthProvider::Legacy(_) => Err(ConnectError::new(
+                ErrorCode::FailedPrecondition,
+                "verify_bearer requires OIDC sessions",
+            )),
+            AuthProvider::Oidc(verifier) => verifier
+                .verify(token)
+                .map_err(map_authentication_error),
         }
     }
 
-    pub fn trusted_context(
+    pub async fn trusted_context(
         &self,
         request_context: &RequestContext,
     ) -> Result<ExecutionContext, ConnectError> {
         let authorization = request_context
             .header("authorization")
             .and_then(|value| value.to_str().ok());
-        self.authenticate(authorization)
-            .map_err(|error| match error {
-                AuthenticationError::InvalidClaim => {
+        match &self.provider {
+            AuthProvider::Legacy(contexts) => {
+                let token = self
+                    .bearer_token(authorization)
+                    .map_err(|_| {
+                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                    })?;
+                contexts.get(token).cloned().ok_or_else(|| {
                     ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                }
-                AuthenticationError::InvalidDelegation(error) => {
-                    ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
-                }
-            })
+                })
+            }
+            AuthProvider::Oidc(verifier) => {
+                let verified = verifier
+                    .verify(
+                        self.bearer_token(authorization).map_err(|_| {
+                            ConnectError::new(
+                                ErrorCode::Unauthenticated,
+                                "invalid OIDC bearer token",
+                            )
+                        })?,
+                    )
+                    .map_err(map_authentication_error)?;
+                self.resolve_verified(verified, None).await
+            }
+        }
     }
 
-    pub fn execution_context(
+    pub async fn execution_context(
         &self,
         request_context: &RequestContext,
         claimed_tenant: &str,
     ) -> Result<ExecutionContext, ConnectError> {
-        let context = self.trusted_context(request_context)?;
         let claimed_tenant = TenantId::parse(claimed_tenant)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
+        let authorization = request_context
+            .header("authorization")
+            .and_then(|value| value.to_str().ok());
+        let context = match &self.provider {
+            AuthProvider::Legacy(contexts) => {
+                let token = self
+                    .bearer_token(authorization)
+                    .map_err(|_| {
+                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                    })?;
+                contexts.get(token).cloned().ok_or_else(|| {
+                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                })?
+            }
+            AuthProvider::Oidc(verifier) => {
+                let verified = verifier
+                    .verify(
+                        self.bearer_token(authorization).map_err(|_| {
+                            ConnectError::new(
+                                ErrorCode::Unauthenticated,
+                                "invalid OIDC bearer token",
+                            )
+                        })?,
+                    )
+                    .map_err(map_authentication_error)?;
+                self.resolve_verified(verified, Some(&claimed_tenant))
+                    .await?
+            }
+        };
         if context.tenant_id() != &claimed_tenant {
             return Err(ConnectError::new(
                 ErrorCode::PermissionDenied,
@@ -200,10 +265,73 @@ impl SessionRegistry {
         }
         Ok(context)
     }
+
+    async fn resolve_verified(
+        &self,
+        verified: VerifiedOidcSubject,
+        tenant: Option<&TenantId>,
+    ) -> Result<ExecutionContext, ConnectError> {
+        let Some(identity) = &self.identity else {
+            return unbound_context(verified);
+        };
+        let binding = identity
+            .binding_for_oidc_sub(&verified.subject)
+            .await
+            .map_err(map_identity_error)?;
+        match binding {
+            Some(binding) if matches!(binding.status, BindingStatus::Verified) => {
+                let tenant = tenant
+                    .or(verified.requested_tenant_hint.as_ref())
+                    .ok_or_else(|| {
+                        ConnectError::new(
+                            ErrorCode::PermissionDenied,
+                            "bound subject requires a tenant membership hint",
+                        )
+                    })?;
+                identity
+                    .resolve_for_tenant(&verified, tenant)
+                    .await
+                    .map_err(map_identity_error)
+            }
+            _ => unbound_context(verified),
+        }
+    }
+}
+
+fn unbound_context(verified: VerifiedOidcSubject) -> Result<ExecutionContext, ConnectError> {
+    verified
+        .into_unbound_execution_context()
+        .map_err(map_identity_error)
+}
+
+fn map_authentication_error(error: AuthenticationError) -> ConnectError {
+    match error {
+        AuthenticationError::InvalidClaim => {
+            ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+        }
+        AuthenticationError::InvalidDelegation(error) => {
+            ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
+        }
+    }
+}
+
+fn map_identity_error(error: IdentityError) -> ConnectError {
+    match error {
+        IdentityError::Unauthenticated | IdentityError::SubjectUnbound => {
+            ConnectError::new(ErrorCode::Unauthenticated, error.to_string())
+        }
+        IdentityError::MembershipNotFound
+        | IdentityError::MembershipInactive
+        | IdentityError::AccountMerged { .. }
+        | IdentityError::InviteTenantMismatch => {
+            ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
+        }
+        other => ConnectError::new(ErrorCode::Internal, other.to_string()),
+    }
 }
 
 impl OidcVerifier {
-    fn authenticate(&self, token: &str) -> Result<ExecutionContext, AuthenticationError> {
+    fn verify(&self, token: &str) -> Result<VerifiedOidcSubject, AuthenticationError> {
         let header = decode_header(token).map_err(|_| AuthenticationError::InvalidClaim)?;
         if header.alg != Algorithm::RS256 {
             return Err(AuthenticationError::InvalidClaim);
@@ -219,29 +347,39 @@ impl OidcVerifier {
         validation.set_audience(&[&self.audience]);
         validation.set_issuer(&[&self.issuer]);
         validation.set_required_spec_claims(&["aud", "exp", "iss", "sub"]);
-        let claims = decode::<OidcClaims>(token, key, &validation)
-            .map_err(|_| AuthenticationError::InvalidClaim)?
-            .claims;
-        trusted_context_from_claims(claims)
+        let token_data = decode::<OidcClaims>(token, key, &validation)
+            .map_err(|_| AuthenticationError::InvalidClaim)?;
+        let claims = token_data.claims;
+        let delegation_claims = serde_json::from_str::<Vec<DelegationClaim>>(&claims.delegation)
+            .map_err(|_| AuthenticationError::InvalidClaim)?;
+        let grants = delegation_claims
+            .into_iter()
+            .map(parse_delegation_claim)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(VerifiedOidcSubject {
+            issuer: self.issuer.clone(),
+            audience: self.audience.clone(),
+            subject: claims.sub,
+            actor_id: Some(
+                ActorId::parse(claims.actor_id).map_err(|_| AuthenticationError::InvalidClaim)?,
+            ),
+            expires_at: seconds_to_micros(claims.exp)?,
+            requested_tenant_hint: Some(
+                TenantId::parse(claims.tenant_id).map_err(|_| AuthenticationError::InvalidClaim)?,
+            ),
+            principal_hint: Some(
+                PrincipalId::parse(claims.principal_id)
+                    .map_err(|_| AuthenticationError::InvalidClaim)?,
+            ),
+            workload_hint: Some(
+                WorkloadId::parse(claims.workload_id)
+                    .map_err(|_| AuthenticationError::InvalidClaim)?,
+            ),
+            delegation_hint: Some(
+                DelegationChain::new(grants).map_err(AuthenticationError::InvalidDelegation)?,
+            ),
+        })
     }
-}
-
-fn trusted_context_from_claims(
-    claims: OidcClaims,
-) -> Result<ExecutionContext, AuthenticationError> {
-    let delegation_claims = serde_json::from_str::<Vec<DelegationClaim>>(&claims.delegation)
-        .map_err(|_| AuthenticationError::InvalidClaim)?;
-    let grants = delegation_claims
-        .into_iter()
-        .map(parse_delegation_claim)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(ExecutionContext::new(
-        TenantId::parse(claims.tenant_id).map_err(|_| AuthenticationError::InvalidClaim)?,
-        ActorId::parse(claims.actor_id).map_err(|_| AuthenticationError::InvalidClaim)?,
-        PrincipalId::parse(claims.principal_id).map_err(|_| AuthenticationError::InvalidClaim)?,
-        WorkloadId::parse(claims.workload_id).map_err(|_| AuthenticationError::InvalidClaim)?,
-        DelegationChain::new(grants).map_err(AuthenticationError::InvalidDelegation)?,
-    ))
 }
 
 fn parse_delegation_claim(claim: DelegationClaim) -> Result<DelegationGrant, AuthenticationError> {
@@ -349,7 +487,9 @@ struct OidcClaims {
     actor_id: String,
     #[serde(rename = "zoen_delegation")]
     delegation: String,
+    exp: i64,
     principal_id: String,
+    sub: String,
     tenant_id: String,
     workload_id: String,
 }
