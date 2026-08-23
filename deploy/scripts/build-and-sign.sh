@@ -33,6 +33,16 @@ if ! is_linux_elf "target/debug/zoend"; then
       break
     fi
   done
+  if [[ "${linux_bins_ready}" -eq 1 ]]; then
+    while IFS= read -r _; do
+      linux_bins_ready=0
+      break
+    done < <(
+      find crates apps Cargo.lock Cargo.toml rust-toolchain.toml \
+        \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' -o -name 'rust-toolchain.toml' \) \
+        -newer "${rust_context}/zoend" -print
+    )
+  fi
   if [[ "${linux_bins_ready}" -eq 0 ]]; then
     rust_channel="$(awk -F'"' '/^channel =/ { print $2; exit }' rust-toolchain.toml)"
     mkdir -p target/container-linux
