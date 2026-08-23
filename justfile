@@ -1,3 +1,46 @@
+# Product local Sample Company stack (compose + host zoend/web).
+start:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    source e2e/activation-sample/.env
+    set +a
+    npm exec -- tsc -p tsconfig.json --pretty false
+    node dist/e2e/activation-sample/cli.js start
+
+stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    source e2e/activation-sample/.env
+    set +a
+    node dist/e2e/activation-sample/cli.js stop
+
+status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    source e2e/activation-sample/.env
+    set +a
+    node dist/e2e/activation-sample/cli.js status
+
+doctor:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    source e2e/activation-sample/.env
+    set +a
+    node dist/e2e/activation-sample/cli.js doctor
+
+reset-sample:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    source e2e/activation-sample/.env
+    set +a
+    npm exec -- tsc -p tsconfig.json --pretty false
+    node dist/e2e/activation-sample/cli.js reset-sample
+
 # Buf, tsc, unit tests, fmt, zoen-core isolation. No Clippy, no Docker.
 lint:
     ./e2e/run.sh lint
