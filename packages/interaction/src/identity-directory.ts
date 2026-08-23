@@ -21,13 +21,16 @@ export interface IdentityDirectory {
   }): Promise<ResolvedChannelIdentity>;
 }
 
-/** Temporary harness: ProviderKey "linq" → ChannelProvider "whatsapp" until Linq lands. */
+/** ProviderKey → ChannelProvider. Linq/whatsapp_business map to whatsapp until distinct ChannelProviders land. */
 export function toChannelProvider(provider: ProviderKey): string {
   const key = String(provider);
   if (key === "telegram") {
     return "telegram";
   }
   if (key === "linq") {
+    return "whatsapp";
+  }
+  if (key === "whatsapp_business") {
     return "whatsapp";
   }
   throw new Error(`unsupported ProviderKey for identity: ${key}`);

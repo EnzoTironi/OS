@@ -9,10 +9,16 @@ import {
   type ChannelPresentationCapability,
   type DeliveryIntent,
   type DeliveryObservation,
+  type DeliveryOutcome,
   type InboundInteraction,
   type ProviderKey,
 } from "../../interaction/src/index.js";
-import type { ChatSdkShapedAdapter } from "./chat-sdk-shape.js";
+import {
+  projectPresentationCaps,
+  type CapabilityId,
+  type DegradeTarget,
+} from "./capability-probes.js";
+import type { ChatSdkOutbound, ChatSdkShapedAdapter } from "./chat-sdk-shape.js";
 
 export interface MessagingGateway {
   acceptProviderEvent(
@@ -49,6 +55,10 @@ export function createMessagingGateway(
           provider,
           providerUser: providerUserRef(message.from.id),
           receivedAt: message.receivedAt || now().toISOString(),
+          replyToMessage:
+            message.replyToMessageId !== undefined
+              ? providerMessageRef(message.replyToMessageId)
+              : undefined,
           thread: providerThreadRef(message.thread.id),
         },
         idempotencyKey,
@@ -61,55 +71,162 @@ export function createMessagingGateway(
         return existing;
       }
       const adapter = requireAdapter(options.providers, intent.provider);
-      const caps = capabilitiesFor(intent.provider);
+      const needs = presentationNeeds(intent);
+      const degrade = firstUnsupported(adapter, needs);
       const text = `presentation:${String(intent.presentation)}`;
-      const buttons =
-        caps.buttons && intent.controlRefs.length > 0
-          ? intent.controlRefs.map((ref, index) => ({
-              callbackData: String(ref),
-              label: `action_${index + 1}`,
-            }))
+      const surfaceUrl =
+        degrade?.degradeTo === "web_surface"
+          ? surfaceUrlFor(intent)
           : undefined;
-      const receipt = await adapter.send({
+
+      let target = intent.target;
+      if (
+        degrade?.capability === "ephemeral" &&
+        intent.target.kind === "ephemeral_in_thread"
+      ) {
+        target = {
+          kind: "dm",
+          providerUser: providerUserRef(
+            `dm_fallback:${String(intent.target.thread)}`,
+          ),
+        };
+      }
+
+      const attachButtons =
+        needs.buttons &&
+        adapter.probes.canNativeButton().status === "native" &&
+        degrade === undefined;
+      const buttons = attachButtons
+        ? intent.controlRefs.map((ref, index) => ({
+            callbackData: String(ref),
+            label: `action_${index + 1}`,
+          }))
+        : undefined;
+
+      const outbound: ChatSdkOutbound = {
         buttons,
+        card:
+          needs.card && adapter.probes.canNativeCard().status === "native"
+            ? true
+            : undefined,
         clientDeliveryId: intent.stableProviderDeliveryId,
-        experience: caps.extensions.imessageExperience,
-        text,
+        ephemeral: target.kind === "ephemeral_in_thread",
+        experience:
+          projectPresentationCaps(adapter.probes).extensions.imessageExperience,
+        surfaceUrl,
+        text:
+          surfaceUrl !== undefined
+            ? `${text}\nsurface:${surfaceUrl}`
+            : text,
         thread:
-          intent.target.kind === "dm"
+          target.kind === "dm"
             ? undefined
             : {
-                id: String(intent.target.thread),
+                id: String(target.thread),
                 kind: String(intent.provider) === "linq" ? "guid" : "chat",
               },
         toUser:
-          intent.target.kind === "dm"
-            ? { id: String(intent.target.providerUser) }
+          target.kind === "dm"
+            ? { id: String(target.providerUser) }
             : undefined,
-      });
+        typing: needs.typing || undefined,
+      };
+
+      const receipt = await adapter.send(outbound);
+      const outcome = buildOutcome(receipt, degrade, surfaceUrl);
       const observation: DeliveryObservation = {
-        id: deliveryObservationId(
-          `do_${intent.stableProviderDeliveryId}`,
-        ),
+        id: deliveryObservationId(`do_${intent.stableProviderDeliveryId}`),
         intentId: intent.id,
         observedAt: now().toISOString(),
-        outcome:
-          receipt.status === "accepted"
-            ? {
-                kind: "accepted",
-                providerMessage: providerMessageRef(receipt.messageId),
-              }
-            : receipt.status === "rejected"
-              ? { kind: "rejected", reason: receipt.reason ?? "rejected" }
-              : { kind: "unknown" },
+        outcome,
       };
       deliverySeen.set(intent.stableProviderDeliveryId, observation);
       return observation;
     },
 
     capabilities(provider) {
-      return capabilitiesFor(provider);
+      const adapter = requireAdapter(options.providers, provider);
+      return projectPresentationCaps(adapter.probes);
     },
+  };
+}
+
+function presentationNeeds(intent: DeliveryIntent): {
+  buttons: boolean;
+  card: boolean;
+  typing: boolean;
+  ephemeral: boolean;
+} {
+  const presentation = String(intent.presentation);
+  return {
+    buttons: intent.controlRefs.length > 0,
+    card:
+      presentation.startsWith("card:") ||
+      presentation.startsWith("rich:") ||
+      (intent.controlRefs.length > 0 && presentation.startsWith("card:")),
+    ephemeral: intent.target.kind === "ephemeral_in_thread",
+    typing: presentation.startsWith("typing:"),
+  };
+}
+
+function firstUnsupported(
+  adapter: ChatSdkShapedAdapter,
+  needs: ReturnType<typeof presentationNeeds>,
+): { capability: CapabilityId; degradeTo: DegradeTarget } | undefined {
+  if (needs.card) {
+    const card = adapter.probes.probe("native_card");
+    if (card.status === "unsupported") {
+      return { capability: "native_card", degradeTo: card.degradeTo };
+    }
+  }
+  if (needs.typing) {
+    const typing = adapter.probes.probe("typing");
+    if (typing.status === "unsupported") {
+      return { capability: "typing", degradeTo: typing.degradeTo };
+    }
+  }
+  if (needs.ephemeral) {
+    const ephemeral = adapter.probes.probe("ephemeral");
+    if (ephemeral.status === "unsupported") {
+      return { capability: "ephemeral", degradeTo: ephemeral.degradeTo };
+    }
+  }
+  if (needs.buttons) {
+    const buttons = adapter.probes.probe("native_button");
+    if (buttons.status === "unsupported") {
+      return { capability: "native_button", degradeTo: buttons.degradeTo };
+    }
+  }
+  return undefined;
+}
+
+function surfaceUrlFor(intent: DeliveryIntent): string {
+  return `https://surface.zoen.local/p/${String(intent.presentation)}`;
+}
+
+function buildOutcome(
+  receipt: { status: string; messageId: string; reason?: string },
+  degrade: { degradeTo: DegradeTarget } | undefined,
+  surfaceUrl: string | undefined,
+): DeliveryOutcome {
+  if (receipt.status === "rejected") {
+    return { kind: "rejected", reason: receipt.reason ?? "rejected" };
+  }
+  if (receipt.status !== "accepted") {
+    return { kind: "unknown" };
+  }
+  if (degrade !== undefined) {
+    return {
+      fallback: degrade.degradeTo,
+      kind: "degraded",
+      providerMessage: providerMessageRef(receipt.messageId),
+      surfaceUrl:
+        degrade.degradeTo === "web_surface" ? surfaceUrl : undefined,
+    };
+  }
+  return {
+    kind: "accepted",
+    providerMessage: providerMessageRef(receipt.messageId),
   };
 }
 
@@ -121,40 +238,10 @@ function requireAdapter(
   if (adapter === undefined) {
     throw new Error(`unknown provider ${String(provider)}`);
   }
+  if (adapter.probes === undefined) {
+    throw new Error(`provider ${String(provider)} missing CapabilityProbes`);
+  }
   return adapter;
-}
-
-function capabilitiesFor(provider: ProviderKey): ChannelPresentationCapability {
-  const key = String(provider);
-  if (key === "telegram") {
-    return {
-      buttons: true,
-      cards: true,
-      ephemeral: false,
-      extensions: { imessageApp: false, imessageExperience: false },
-      files: true,
-      linkButtons: true,
-      provider: providerKey("telegram"),
-      reactions: true,
-      text: true,
-      typing: true,
-    };
-  }
-  if (key === "linq") {
-    return {
-      buttons: true,
-      cards: true,
-      ephemeral: true,
-      extensions: { imessageApp: false, imessageExperience: true },
-      files: true,
-      linkButtons: true,
-      provider: providerKey("linq"),
-      reactions: true,
-      text: true,
-      typing: false,
-    };
-  }
-  throw new Error(`unknown provider capabilities: ${key}`);
 }
 
 function mapBody(
@@ -172,6 +259,20 @@ function mapBody(
       kind: "control_click",
     };
   }
+  if (message.reactionEmoji !== undefined && message.reactionTargetMessageId) {
+    return {
+      emoji: message.reactionEmoji,
+      kind: "reaction",
+      targetMessage: providerMessageRef(message.reactionTargetMessageId),
+    };
+  }
+  if (message.mediaRef !== undefined) {
+    return {
+      kind: "media",
+      mediaRef: message.mediaRef,
+      mime: message.mime,
+    };
+  }
   if (message.text !== undefined) {
     return { kind: "text", text: message.text };
   }
@@ -182,7 +283,8 @@ function mapAudience(
   provider: ProviderKey,
   raw: unknown,
 ): InboundInteraction["audienceObservation"] {
-  if (String(provider) === "linq" && raw !== null && typeof raw === "object") {
+  const key = String(provider);
+  if (key === "linq" && raw !== null && typeof raw === "object") {
     const participants = (raw as { participants?: unknown }).participants;
     if (Array.isArray(participants) && participants.length > 1) {
       return {
@@ -194,17 +296,41 @@ function mapAudience(
       };
     }
   }
-  if (
-    String(provider) === "telegram" &&
-    raw !== null &&
-    typeof raw === "object"
-  ) {
+  if (key === "telegram" && raw !== null && typeof raw === "object") {
     const message = (raw as { message?: { chat?: { type?: string } } }).message;
     if (message?.chat?.type === "group" || message?.chat?.type === "supergroup") {
       return { kind: "group" };
     }
   }
+  if (key === "whatsapp_business" && raw !== null && typeof raw === "object") {
+    const groupId = extractWabaGroupId(raw);
+    if (groupId !== undefined) {
+      return { kind: "group" };
+    }
+  }
   return { kind: "dm" };
+}
+
+function extractWabaGroupId(raw: unknown): string | undefined {
+  if (raw === null || typeof raw !== "object") {
+    return undefined;
+  }
+  const root = raw as Record<string, unknown>;
+  const entry = Array.isArray(root.entry) ? root.entry[0] : undefined;
+  if (entry === null || typeof entry !== "object") {
+    return undefined;
+  }
+  const changes = (entry as { changes?: unknown }).changes;
+  const change = Array.isArray(changes) ? changes[0] : undefined;
+  if (change === null || typeof change !== "object") {
+    return undefined;
+  }
+  const value = (change as { value?: unknown }).value;
+  if (value === null || typeof value !== "object") {
+    return undefined;
+  }
+  const groupId = (value as { group_id?: unknown }).group_id;
+  return typeof groupId === "string" ? groupId : undefined;
 }
 
 function buildIdempotencyKey(
@@ -214,14 +340,56 @@ function buildIdempotencyKey(
 ): string {
   if (raw !== null && typeof raw === "object") {
     const record = raw as Record<string, unknown>;
-    if (typeof record.update_id === "number" || typeof record.update_id === "string") {
+    if (
+      typeof record.update_id === "number" ||
+      typeof record.update_id === "string"
+    ) {
       return `${String(provider)}:update:${String(record.update_id)}`;
     }
     if (typeof record.delivery_id === "string") {
       return `${String(provider)}:delivery:${record.delivery_id}`;
     }
+    const wamid = extractWamid(record);
+    if (wamid !== undefined) {
+      return `${String(provider)}:wamid:${wamid}`;
+    }
   }
   return `${String(provider)}:message:${messageId}`;
+}
+
+function extractWamid(record: Record<string, unknown>): string | undefined {
+  if (record.object !== "whatsapp_business_account") {
+    return undefined;
+  }
+  const entry = Array.isArray(record.entry) ? record.entry[0] : undefined;
+  if (entry === null || typeof entry !== "object") {
+    return undefined;
+  }
+  const changes = (entry as { changes?: unknown }).changes;
+  const change = Array.isArray(changes) ? changes[0] : undefined;
+  if (change === null || typeof change !== "object") {
+    return undefined;
+  }
+  const value = (change as { value?: { messages?: unknown; statuses?: unknown } })
+    .value;
+  if (value === undefined) {
+    return undefined;
+  }
+  const messages = value.messages;
+  if (Array.isArray(messages) && messages[0] !== undefined) {
+    const id = (messages[0] as { id?: unknown }).id;
+    if (typeof id === "string") {
+      return id;
+    }
+  }
+  const statuses = value.statuses;
+  if (Array.isArray(statuses) && statuses[0] !== undefined) {
+    const id = (statuses[0] as { id?: unknown }).id;
+    if (typeof id === "string") {
+      return id;
+    }
+  }
+  return undefined;
 }
 
 export { presentationIntentRef, providerKey };
