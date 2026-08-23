@@ -2,7 +2,13 @@
 
 Zoen is an executable semantic operating system for organizations.
 
-The system models organizational meaning, evidence, authority, actions, history and external effects so humans, agents and software operate the same organization through the same governed capabilities.
+Humans, agents, and software operate the same organization through the same governed capabilities: meaning, evidence, authority, actions, history, and external effects.
+
+## Demo
+
+Run the Sample Company path below for a real production-shaped walkthrough (at-risk stock, propose, approve).
+
+A recorded 45 to 90 second product video, live conversation entry, and the messy-data entry from #258 are still open on #267. Until those land, use `docs/demos/README.md` for the runnable demo script. Do not expect a fake chat widget or a marketing-only backend.
 
 ## Quickstart
 
@@ -27,7 +33,53 @@ just e2e activation-sample
 
 `just start` is idempotent. It waits on postgres, Keycloak OIDC discovery, zoend, web, and a Sample Company world probe. It never treats sleep as readiness. Restart/`ensure` keeps the Sample commitment operation id stable.
 
-## V1 architecture
+## Sample Company
+
+Sample Company is the five-minute first Action path.
+
+1. Start the stack with `just start`.
+2. Sign in at the printed web URL with the sample OIDC user.
+3. Open at-risk stock, propose a governed recommendation, and approve it.
+4. Follow the effect path when the connector is ambiguous: local commit is not remote success, and blind retry stays forbidden.
+
+Prove the same path without a browser:
+
+```bash
+just e2e activation-sample
+```
+
+Inspect ontology authoring and Pack creation only after this first success. Progressive depth lives in `docs/product/public-narrative.md`.
+
+## Packs
+
+Packs ship outcomes, not module names.
+
+Each Pack should answer what it does for the company, who published it, which integrations or data it needs, high-level permissions, how FirstSuccess looks, and how to install or share it.
+
+The public Pack directory and install/share links land with #260. Until that registry ships, treat Packs as the outcome-shaped install unit already proven by Pack install receipts, and prefer outcome language over internal crate names when you describe one.
+
+## Why not LLM + tools
+
+Zoen is not an agent bolted onto APIs, a knowledge graph, a workflow builder, or a drop-in ERP replacement.
+
+- Evidence is not automatically truth. Belief stays explicit and attributable.
+- Humans and agents use the same semantic Query and Action contracts.
+- Actions are governed and revalidated before commit. Cedar and publish/activate stay on the path.
+- Local commit is not remote success. External effects can stay `unknown` until reconciliation.
+- History and ontology revisions are reproducible.
+- Self-hosted deployment is first-class from the same signed artifacts.
+
+LLM calls, MCP adapters, chat buttons, and transport providers stay replaceable surfaces. They must not become a second semantic authority.
+
+## Self-host
+
+The same OCI/Helm release can run as shared multi-tenant SaaS, dedicated Zoen-hosted deployment, or customer-controlled self-hosted infrastructure. Core operation has no mandatory Zoen Cloud dependency.
+
+Paid chat or messaging providers stay optional for self-host. Phone, group, thread, and IdP groups are not membership. Humans authenticate at Keycloak; an Active Membership row is the source of tenant and principal for a bound account.
+
+Deployment profiles and install reference live under `deploy/`. Release confidence still runs through `just verify-v1` with production-shaped evidence.
+
+## Architecture
 
 V1 is planned as the production architecture, not as a disposable MVP. Implementation is decomposed into independently verifiable vertical slices, but every slice uses the real architectural path it claims to deliver.
 
@@ -50,17 +102,15 @@ The semantic center remains deliberately small:
 
 Architecture decisions live in [`docs/adr`](docs/adr/README.md). The prescriptive V1 Wayfinder, Specs and E2E build tickets live in GitHub Issues.
 
-## V1 deployment and scale target
+### V1 deployment and scale target
 
 The reference production architecture targets single-region HA (>=99.9%), RPO <5 minutes and RTO <30 minutes, with a validation envelope around 100M semantic records per company, millions of knowledge fragments, roughly 1,000 users per tenant and peak hundreds of Action commits per second where the domain workload permits.
 
-The same OCI/Helm release can run as shared multi-tenant SaaS, dedicated Zoen-hosted deployment or customer-controlled self-hosted/on-prem infrastructure. Core operation has no mandatory Zoen Cloud dependency.
+### V1 enterprise scope
 
-## V1 enterprise scope
+V1 ships versioned ontology libraries for Party, Product, Commercial, Inventory, Procurement, Manufacturing and an Accounting Foundation. Brazilian fiscal semantics remain a versioned domain extension behind replaceable provider boundaries. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
-V1 ships versioned ontology libraries for Party, Product, Commercial, Inventory, Procurement, Manufacturing and an Accounting Foundation. Brazilian fiscal semantics remain a versioned domain extension: tax determination and fiscal-document issuance are provider capabilities (reference integrations include Systax plus PlugNotas/Protheus), never hard-coded tax law in the generic kernel.
-
-## Research phase
+### Research phase
 
 The architecture was preceded by a two-day, agent-intensive research/falsification phase using disposable Python and PostgreSQL prototypes. That code is intentionally not the production foundation. Git history and closed GitHub issues/PRs preserve the experiments and counterexamples; surviving laws are condensed into ADRs and V1 conformance properties.
 
@@ -85,6 +135,12 @@ or `just verify-v1-fixtures`.
 Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
 `just verify` remains the serial scenario runner (check + build + scenarios). It is not a substitute for `just verify-v1`.
+
+Public-surface heading and Quickstart checks (until the coordinator registers `just e2e public-surface`):
+
+```bash
+npx tsx e2e/public-surface.ts
+```
 
 ## Development rules
 
