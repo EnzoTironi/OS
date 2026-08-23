@@ -36,6 +36,9 @@ pack_id!(RequirementId);
 pack_id!(PublisherId);
 pack_id!(FirstSuccessContractId);
 pack_id!(PublicKeyId);
+pack_id!(ShareToken);
+pack_id!(ReferralId);
+pack_id!(AttributionEventId);
 
 /// Content-addressed pack identity. Lowercase 64-char SHA-256 hex of JCS bytes.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -426,6 +429,253 @@ pub enum FirstSuccessEval {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PackVisibility {
+    Public,
+    Private { tenant_allowlist: Vec<String> },
+    Local,
+}
+
+impl PackVisibility {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Private { .. } => "private",
+            Self::Local => "local",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackObjectOntology {
+    pub definition_id: DefinitionId,
+    pub definition_digest: DefinitionDigest,
+    pub canonical_json: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackObject {
+    pub pack_digest: PackDigest,
+    pub format_version: String,
+    pub manifest_jcs: String,
+    pub signature: SignatureEvidence,
+    pub ontology: Vec<PackObjectOntology>,
+    pub lock_jcs: String,
+    pub stored_at: TimestampMicros,
+    pub stored_by: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ObjectStorePutResult {
+    Created { pack_digest: PackDigest },
+    IdempotentReplay { pack_digest: PackDigest },
+    Conflict { reason: ObjectStoreConflictReason },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ObjectStoreConflictReason {
+    VersionBytesMismatch,
+    DigestCollision,
+}
+
+impl ObjectStoreConflictReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::VersionBytesMismatch => "versionBytesMismatch",
+            Self::DigestCollision => "digestCollision",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PublisherKeyStatus {
+    Active,
+    Rotated,
+    Revoked,
+}
+
+impl PublisherKeyStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Rotated => "rotated",
+            Self::Revoked => "revoked",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, PackError> {
+        match value {
+            "active" => Ok(Self::Active),
+            "rotated" => Ok(Self::Rotated),
+            "revoked" => Ok(Self::Revoked),
+            other => Err(PackError::InvalidFormat(format!(
+                "invalid publisher key status: {other}"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublisherKey {
+    pub public_key_id: PublicKeyId,
+    pub publisher_id: PublisherId,
+    pub algorithm: String,
+    pub public_key_pem: String,
+    pub status: PublisherKeyStatus,
+    pub valid_from: TimestampMicros,
+    pub valid_to: Option<TimestampMicros>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeprecationRecord {
+    pub pack_digest: PackDigest,
+    pub blocked_for_new_install: bool,
+    pub advisory_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CatalogEntry {
+    pub pack_digest: PackDigest,
+    pub pack_id: PackId,
+    pub version: PackVersion,
+    pub publisher_id: PublisherId,
+    pub outcome_label: String,
+    pub categories: Vec<String>,
+    pub visibility: PackVisibility,
+    pub deprecated: bool,
+    pub advisory_ids: Vec<String>,
+    pub install_count: i64,
+    pub first_success_count: i64,
+    pub indexed_at: TimestampMicros,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShareRefRecord {
+    pub token: ShareToken,
+    pub pack_digest: PackDigest,
+    pub publisher_id: PublisherId,
+    pub referral_id: ReferralId,
+    pub created_at: TimestampMicros,
+    pub expires_at: Option<TimestampMicros>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ShareResolve {
+    Ok {
+        pack_digest: PackDigest,
+        publisher_id: PublisherId,
+        referral_id: ReferralId,
+        presentation: PackPresentation,
+        install_policy: ShareInstallPolicy,
+    },
+    NotFound,
+    Expired,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ShareInstallPolicy {
+    Allowed,
+    Blocked { advisory_id: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ObjectSource {
+    Registry { endpoint: String },
+    File { root: String },
+    Inline { object: PackObject },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OpenTrust {
+    PublisherKeys {
+        publisher_id: PublisherId,
+        keys: Vec<PublisherKey>,
+    },
+    PinnedKey {
+        public_key_pem: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OpenResult {
+    Opened {
+        pack_digest: PackDigest,
+        manifest: Box<PackManifest>,
+        manifest_jcs: String,
+        ontology_artifacts: Vec<PackObjectOntology>,
+        signature_verified: bool,
+        source: Box<ObjectSource>,
+    },
+    DigestMismatch {
+        expected: PackDigest,
+        actual: PackDigest,
+    },
+    SignatureInvalid,
+    PublisherKeyUnknown,
+    ObjectNotFound,
+    VisibilityDenied,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AttributionEventKind {
+    ShareVisit,
+    InstallIntent,
+    Installed,
+    FirstSuccess,
+}
+
+impl AttributionEventKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ShareVisit => "share_visit",
+            Self::InstallIntent => "install_intent",
+            Self::Installed => "installed",
+            Self::FirstSuccess => "first_success",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, PackError> {
+        match value {
+            "share_visit" => Ok(Self::ShareVisit),
+            "install_intent" => Ok(Self::InstallIntent),
+            "installed" => Ok(Self::Installed),
+            "first_success" => Ok(Self::FirstSuccess),
+            other => Err(PackError::InvalidFormat(format!(
+                "invalid attribution kind: {other}"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttributionEvent {
+    pub event_id: AttributionEventId,
+    pub kind: AttributionEventKind,
+    pub pack_digest: PackDigest,
+    pub publisher_id: PublisherId,
+    pub referral_id: ReferralId,
+    pub share_token_hash: String,
+    pub tenant_id_hash: Option<String>,
+    pub occurred_at: TimestampMicros,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatorAttributionDigestRow {
+    pub pack_digest: PackDigest,
+    pub installs: i64,
+    pub first_success: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatorAttributionSummary {
+    pub pack_id: PackId,
+    pub publisher_id: PublisherId,
+    pub visits: i64,
+    pub installs: i64,
+    pub first_success_count: i64,
+    pub by_digest: Vec<CreatorAttributionDigestRow>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackError {
     DigestMismatch,
     NonCanonicalPack,
@@ -443,6 +693,13 @@ pub enum PackError {
     MissingDependency(String),
     PackNotFound,
     InstallNotFound,
+    VersionBytesMismatch,
+    SignatureInvalid,
+    PublisherKeyUnknown,
+    VisibilityDenied,
+    ShareNotFound,
+    ShareExpired,
+    PublicRegistryDisabled,
     Store(String),
     Identifier(IdentifierError),
     Digest(DigestError),
@@ -479,6 +736,15 @@ impl Display for PackError {
             Self::MissingDependency(id) => write!(formatter, "missing dependency artifact: {id}"),
             Self::PackNotFound => formatter.write_str("pack artifact was not found"),
             Self::InstallNotFound => formatter.write_str("install receipt was not found"),
+            Self::VersionBytesMismatch => {
+                formatter.write_str("pack_id+version already bound to different digest")
+            }
+            Self::SignatureInvalid => formatter.write_str("pack signature is invalid"),
+            Self::PublisherKeyUnknown => formatter.write_str("publisher key is unknown"),
+            Self::VisibilityDenied => formatter.write_str("pack visibility denied"),
+            Self::ShareNotFound => formatter.write_str("share ref was not found"),
+            Self::ShareExpired => formatter.write_str("share ref is expired"),
+            Self::PublicRegistryDisabled => formatter.write_str("public pack registry is disabled"),
             Self::Store(message) => write!(formatter, "pack store error: {message}"),
             Self::Identifier(error) => error.fmt(formatter),
             Self::Digest(error) => error.fmt(formatter),

@@ -13,7 +13,8 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use connectrpc::Router;
 use zoen_adapters::{
-    CedarPolicyEvaluator, PostgresAuthorityStore, PostgresIdentityStore, PostgresPackStore,
+    CedarPolicyEvaluator, PostgresAuthorityStore, PostgresIdentityStore, PostgresPackRegistryStore,
+    PostgresPackStore,
 };
 use zoen_core::WorkloadId;
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
@@ -28,6 +29,7 @@ use crate::effect_service::EffectServiceImpl;
 use crate::history_service::HistoryServiceImpl;
 use crate::identity_admin::IdentityAdminState;
 use crate::pack_admin::PackAdminState;
+use crate::pack_registry::PackRegistryState;
 use crate::service::DefinitionServiceImpl;
 use crate::world_service::WorldServiceImpl;
 
@@ -38,6 +40,7 @@ mod effect_service;
 mod history_service;
 mod identity_admin;
 mod pack_admin;
+mod pack_registry;
 mod service;
 mod world_service;
 
@@ -95,6 +98,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         definitions: DefinitionEngine::new(store.clone(), policy.clone()),
         sessions: sessions.clone(),
     });
+    let pack_registry_routes = pack_registry::router(PackRegistryState {
+        registry: PostgresPackRegistryStore::new(store.pool()),
+        sessions: sessions.clone(),
+    });
     let effect_worker_workload = WorkloadId::parse(
         env::var("ZOEN_EFFECT_WORKER_WORKLOAD_ID")
             .unwrap_or_else(|_| "workload.effect-worker".to_owned()),
@@ -136,6 +143,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         })
         .merge(identity_routes)
         .merge(pack_routes)
+        .merge(pack_registry_routes)
         .merge(rpc);
     let listener = tokio::net::TcpListener::bind(listen_address).await?;
 

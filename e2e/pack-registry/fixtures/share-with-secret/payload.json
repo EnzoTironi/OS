@@ -1,0 +1,10 @@
+{
+  "expected": "must_not_embed_oauth_or_tenant_secrets",
+  "payload": {
+    "token": "shr_18ce8eb4a5c9ec88",
+    "packDigest": "578df2f03e5de03dc50d4bc56cc2f1b583936638cb85855a9585a0f661ab4e0f",
+    "publisherId": "pub.zoen.official",
+    "referralId": "ref.activation.sample",
+    "uri": "zoen://pack/s/shr_18ce8eb4a5c9ec88"
+  }
+}

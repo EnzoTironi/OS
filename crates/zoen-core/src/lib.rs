@@ -49,14 +49,18 @@ pub use migration::{
     MigrationRuleKind, MigrationStatus,
 };
 pub use pack::{
-    ActivatedDefinitionRef, CapabilityGrant, DegradationDecl, EvolutionAckDigest,
-    FirstSuccessContract, FirstSuccessContractId, FirstSuccessEval, FirstSuccessOutcome, GrantId,
-    GrantStatus, InstallId, InstallPhase, InstallPhaseKind, InstallReceipt, IntegrationKind,
-    IntegrationRequirement, Necessity, OntologyDependency, OntologyImpactLine,
-    OntologyImpactStatus, PACK_FORMAT_V1, PackDigest, PackError, PackId, PackManifest,
-    PackPresentation, PackUpdatePermissionDiff, PackVersion, PermissionImpactPreview,
-    PreviewDigest, PublicKeyId, PublisherId, PublisherIdentity, RequirementId,
-    RequirementImpactLine, Sensitivity, SignatureEvidence, required_grants_accepted,
+    ActivatedDefinitionRef, AttributionEvent, AttributionEventId, AttributionEventKind,
+    CapabilityGrant, CatalogEntry, CreatorAttributionDigestRow, CreatorAttributionSummary,
+    DegradationDecl, DeprecationRecord, EvolutionAckDigest, FirstSuccessContract,
+    FirstSuccessContractId, FirstSuccessEval, FirstSuccessOutcome, GrantId, GrantStatus, InstallId,
+    InstallPhase, InstallPhaseKind, InstallReceipt, IntegrationKind, IntegrationRequirement,
+    Necessity, ObjectSource, ObjectStoreConflictReason, ObjectStorePutResult, OntologyDependency,
+    OntologyImpactLine, OntologyImpactStatus, OpenResult, OpenTrust, PACK_FORMAT_V1, PackDigest,
+    PackError, PackId, PackManifest, PackObject, PackObjectOntology, PackPresentation,
+    PackUpdatePermissionDiff, PackVersion, PackVisibility, PermissionImpactPreview, PreviewDigest,
+    PublicKeyId, PublisherId, PublisherIdentity, PublisherKey, PublisherKeyStatus, ReferralId,
+    RequirementId, RequirementImpactLine, Sensitivity, ShareInstallPolicy, ShareRefRecord,
+    ShareResolve, ShareToken, SignatureEvidence, required_grants_accepted,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

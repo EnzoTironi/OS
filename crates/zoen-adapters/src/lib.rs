@@ -25,6 +25,7 @@ mod history_store;
 mod identity_store;
 mod integrity;
 mod migration_store;
+mod pack_registry_store;
 mod pack_store;
 mod restate;
 mod semantic_claim_store;
@@ -42,6 +43,7 @@ pub use effect_dispatcher::{
 pub use effect_store::PostgresEffectUpdate;
 pub use identity_store::{AccountSnapshot, CreateInvite, PostgresIdentityStore};
 pub use integrity::IntegrityError;
+pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
 pub use pack_store::{PostgresPackStore, admit_pack};
 pub use restate::{RestateEffectScheduler, restate_effect_key};
 use value_store::row_to_valid_time;
