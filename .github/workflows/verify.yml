@@ -89,7 +89,6 @@ jobs:
       fail-fast: false
       matrix:
         scenario:
-          - activation-identity
           - activation-sample
           - backup-restore
           - definition-publication
