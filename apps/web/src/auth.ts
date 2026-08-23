@@ -82,8 +82,89 @@ export function clearSession(): void {
   sessionStorage.removeItem(accessTokenKey);
 }
 
+const approveControlRefKey = "zoen.web.approve-control-ref.v1";
+const approveOidcStateKey = "zoen.web.approve-oidc-state.v1";
+const approvePkceVerifierKey = "zoen.web.approve-pkce-verifier.v1";
+
+/** One-purpose OIDC for /approve/* — not /onboarding, not chat cookie. */
+export async function beginApproveOidcLogin(
+  config: RuntimeConfig,
+  controlRef: string,
+): Promise<void> {
+  const state = randomUrlSafeValue(32);
+  const verifier = randomUrlSafeValue(64);
+  sessionStorage.setItem(approveOidcStateKey, state);
+  sessionStorage.setItem(approvePkceVerifierKey, verifier);
+  sessionStorage.setItem(approveControlRefKey, controlRef);
+  const challenge = await sha256UrlSafe(verifier);
+  const authorizationUrl = new URL(
+    `${config.oidcIssuer}/protocol/openid-connect/auth`,
+  );
+  authorizationUrl.search = new URLSearchParams({
+    client_id: config.oidcClientId,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    redirect_uri: approveCallbackUrl(),
+    response_type: "code",
+    scope: "openid",
+    state,
+  }).toString();
+  window.location.assign(authorizationUrl);
+}
+
+export async function completeApproveOidcLogin(
+  config: RuntimeConfig,
+): Promise<string> {
+  const parameters = new URLSearchParams(window.location.search);
+  const code = parameters.get("code");
+  const returnedState = parameters.get("state");
+  const expectedState = sessionStorage.getItem(approveOidcStateKey);
+  const verifier = sessionStorage.getItem(approvePkceVerifierKey);
+  const controlRef = sessionStorage.getItem(approveControlRefKey);
+  if (
+    code === null ||
+    returnedState === null ||
+    expectedState === null ||
+    verifier === null ||
+    controlRef === null ||
+    returnedState !== expectedState
+  ) {
+    throw new Error("Approve OIDC callback state is invalid");
+  }
+  const response = await fetch(
+    `${config.oidcIssuer}/protocol/openid-connect/token`,
+    {
+      body: new URLSearchParams({
+        client_id: config.oidcClientId,
+        code,
+        code_verifier: verifier,
+        grant_type: "authorization_code",
+        redirect_uri: approveCallbackUrl(),
+      }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      method: "POST",
+    },
+  );
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    throw new Error("Approve OIDC token exchange failed");
+  }
+  const token = tokenResponseSchema.parse(body).access_token;
+  sessionStorage.setItem(accessTokenKey, token);
+  sessionStorage.removeItem(approveOidcStateKey);
+  sessionStorage.removeItem(approvePkceVerifierKey);
+  sessionStorage.removeItem(approveControlRefKey);
+  return controlRef;
+}
+
 function callbackUrl(): string {
   return new URL("/auth/callback", window.location.origin).toString();
+}
+
+function approveCallbackUrl(): string {
+  return new URL("/approve/auth/callback", window.location.origin).toString();
 }
 
 function randomUrlSafeValue(size: number): string {

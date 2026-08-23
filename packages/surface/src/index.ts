@@ -4,6 +4,7 @@ export * from "./compiler.js";
 export * from "./model.js";
 export * from "./protocol.js";
 export * from "./schema.js";
+export * from "./step-up.js";
 export * from "./renderers/interaction.js";
 export * from "./renderers/json-render.js";
 export * from "./renderers/reference.js";

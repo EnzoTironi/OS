@@ -5,10 +5,12 @@ import type {
   InteractionId,
   PresentationIntentRef,
   PrincipalIdString,
+  ProposalRef,
   ProviderKey,
   ProviderMessageRef,
   ProviderThreadRef,
   ProviderUserRef,
+  StepUpSessionId,
   TenantIdString,
 } from "./brands.js";
 
@@ -142,7 +144,148 @@ export interface InteractionControl {
   readonly nonce: string;
   readonly expiresAt: string;
   readonly consumedAt?: string;
+  readonly disclosure?: AudienceDisclosure;
+  readonly assurance?: AssuranceGate;
+  readonly actionRef?: SealedActionRef;
+  readonly stepUpSessionId?: StepUpSessionId;
+  readonly sealedAudienceKind?: AudienceObservation["kind"];
 }
+
+/** Structurally matches Surface ActionRef; kept local to avoid React coupling. */
+export interface SealedActionRef {
+  readonly actionId: string;
+  readonly definition: {
+    readonly definitionId: string;
+    readonly digest: string;
+    readonly revision: string;
+  };
+  readonly resourceId: string;
+}
+
+export type DisclosureDenyReason =
+  | "audience_unauthorized"
+  | "classification_unknown"
+  | "assurance_insufficient";
+
+export type RedactionSpec = {
+  readonly mode: "labels_only" | "summary" | "unavailable_notice";
+  readonly notice: string;
+};
+
+/**
+ * Typed disclosure decision sealed onto the binding at issue time.
+ * Decision record, not a policy engine, not "the channel thread."
+ */
+export type AudienceDisclosure =
+  | { readonly kind: "deliver_full" }
+  | {
+      readonly kind: "deliver_redacted";
+      readonly redaction: RedactionSpec;
+    }
+  | {
+      readonly kind: "redirect_private";
+      readonly target: Extract<
+        DeliveryTarget,
+        { kind: "dm" } | { kind: "ephemeral_in_thread" }
+      >;
+    }
+  | { readonly kind: "require_step_up" }
+  | { readonly kind: "deny"; readonly reason: DisclosureDenyReason };
+
+/** How commit may proceed after a live control resolve. Sealed at issue. */
+export type AssuranceGate = "channel_inline" | "oidc_step_up";
+
+export interface ApprovalControl {
+  readonly ref: InteractionControlRef;
+  readonly tenantId: TenantIdString;
+  readonly principalId: PrincipalIdString;
+  readonly proposalRef: ProposalRef;
+  readonly actionBindingId: string;
+  readonly actionRef: SealedActionRef;
+  readonly disclosure: AudienceDisclosure;
+  readonly assurance: AssuranceGate;
+  readonly nonce: string;
+  readonly expiresAt: string;
+  readonly consumedAt?: string;
+  readonly stepUpSessionId?: StepUpSessionId;
+  readonly sealedAudienceKind: AudienceObservation["kind"];
+}
+
+export interface IssueApprovalControlInput {
+  readonly tenantId: TenantIdString;
+  readonly principalId: PrincipalIdString;
+  readonly proposalRef: ProposalRef;
+  readonly actionBindingId: string;
+  readonly actionRef: SealedActionRef;
+  readonly disclosure: AudienceDisclosure;
+  readonly assurance: AssuranceGate;
+  readonly expiresAt: string;
+  readonly sealedAudienceKind: AudienceObservation["kind"];
+}
+
+export interface AudienceDisclosureInput {
+  readonly resourceClass: "public" | "internal" | "confidential" | "restricted";
+  readonly audience: AudienceObservation;
+  readonly channelAssurance: "provider_chat" | "web_oidc" | "unknown";
+  readonly actionRisk: "low" | "high";
+}
+
+export type StepUpSessionStatus =
+  | "open"
+  | "authenticated"
+  | "committed"
+  | "expired"
+  | "rejected";
+
+export interface StepUpSession {
+  readonly id: StepUpSessionId;
+  readonly controlRef: InteractionControlRef;
+  readonly proposalRef: ProposalRef;
+  readonly tenantId: TenantIdString;
+  readonly requiredPrincipalId: PrincipalIdString;
+  readonly oidcSubject?: string;
+  readonly accountId?: string;
+  readonly expiresAt: string;
+  readonly status: StepUpSessionStatus;
+}
+
+export type ControlActivation =
+  | {
+      readonly kind: "inline_commit_ready";
+      readonly control: ApprovalControl;
+      readonly proposalRef: ProposalRef;
+    }
+  | {
+      readonly kind: "step_up_required";
+      readonly control: ApprovalControl;
+      readonly proposalRef: ProposalRef;
+      readonly stepUpUrl: string;
+    }
+  | {
+      readonly kind: "denied";
+      readonly reason:
+        | "unknown_ref"
+        | "expired"
+        | "already_consumed"
+        | "tenant_mismatch"
+        | "principal_mismatch"
+        | "disclosure_fail_closed"
+        | "membership_inactive"
+        | "wrong_account"
+        | "chat_cookie_insufficient";
+    };
+
+export type FreeTextResolution =
+  | { readonly kind: "bound"; readonly controlRef: InteractionControlRef }
+  | {
+      readonly kind: "disambiguate";
+      readonly candidates: readonly ProposalRef[];
+    }
+  | { readonly kind: "unbound"; readonly reason: "no_pending" | "ambiguous" };
+
+export type LinkButtonDegrade =
+  | { readonly kind: "native_url_button"; readonly url: string }
+  | { readonly kind: "link_text"; readonly url: string; readonly label: string };
 
 export interface ChannelPresentationCapability {
   readonly provider: ProviderKey;

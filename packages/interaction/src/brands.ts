@@ -69,3 +69,16 @@ export function tenantIdString(value: string): TenantIdString {
 export function principalIdString(value: string): PrincipalIdString {
   return brandString(value, "PrincipalId");
 }
+
+/** Exact semantic proposal. Never equal to InteractionControlRef or provider callback. */
+export type ProposalRef = Brand<string, "ProposalRef">;
+
+export function proposalRef(value: string): ProposalRef {
+  return brandString(value, "ProposalRef");
+}
+
+export type StepUpSessionId = Brand<string, "StepUpSessionId">;
+
+export function stepUpSessionId(value: string): StepUpSessionId {
+  return brandString(value, "StepUpSessionId");
+}
