@@ -21,6 +21,7 @@ scenario_table=(
   "conversational-turn:conversational-turn:"
   "pack-kitchen:pack-kitchen:"
   "proactive-attention:proactive-attention:"
+  "surface-ir-renderer:surface-ir-renderer:"
   "workload-api-mcp:workload-api-mcp:"
   "activation-sample::"
   "agent-capabilities-live:agent-capabilities-live:"
