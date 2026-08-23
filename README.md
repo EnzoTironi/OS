@@ -4,6 +4,29 @@ Zoen is an executable semantic operating system for organizations.
 
 The system models organizational meaning, evidence, authority, actions, history and external effects so humans, agents and software operate the same organization through the same governed capabilities.
 
+## Quickstart
+
+Prerequisites: Docker, `just`, Node 22+, and a Rust toolchain (or a prebuilt `target/debug/zoend`).
+
+```bash
+git clone https://github.com/EnzoTironi/OS.git && cd OS
+just build
+just start                 # compose up, wait on real probes, seed Sample Company, print URLs
+open http://127.0.0.1:58359 # OIDC login (web-user / web-password), at-risk stock, propose/approve
+just status                # Ready | Degraded | Stopped + component lines
+just doctor                # fail-closed diagnosis; never claims Ready while unhealthy
+just reset-sample          # wipe sample tenant authority rows and reseed
+just stop                  # tear down compose + host processes
+```
+
+Acceptance of the same path (non-interactive):
+
+```bash
+just e2e activation-sample
+```
+
+`just start` is idempotent. It waits on postgres, Keycloak OIDC discovery, zoend, web, and a Sample Company world probe. It never treats sleep as readiness. Restart/`ensure` keeps the Sample commitment operation id stable.
+
 ## V1 architecture
 
 V1 is planned as the production architecture, not as a disposable MVP. Implementation is decomposed into independently verifiable vertical slices, but every slice uses the real architectural path it claims to deliver.
