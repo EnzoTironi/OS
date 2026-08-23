@@ -20,6 +20,7 @@ scenario_table=(
   "conversational-approval:conversational-approval:"
   "conversational-turn:conversational-turn:"
   "pack-kitchen:pack-kitchen:"
+  "personal-family:personal-family:"
   "proactive-attention:proactive-attention:"
   "surface-ir-renderer:surface-ir-renderer:"
   "workload-api-mcp:workload-api-mcp:"
