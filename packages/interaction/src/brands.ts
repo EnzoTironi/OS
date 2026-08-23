@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 declare const brand: unique symbol;
 
 export type Brand<T, B extends string> = T & { readonly [brand]: B };
@@ -81,4 +83,54 @@ export type StepUpSessionId = Brand<string, "StepUpSessionId">;
 
 export function stepUpSessionId(value: string): StepUpSessionId {
   return brandString(value, "StepUpSessionId");
+}
+
+/** Trusted coordination key. Provider thread alone is insufficient. */
+export type ConversationKey = Brand<string, "ConversationKey">;
+export type ConversationTurnId = Brand<string, "ConversationTurnId">;
+export type TurnAttemptId = Brand<string, "TurnAttemptId">;
+export type DeliveryGroupId = Brand<string, "DeliveryGroupId">;
+
+export function conversationKey(value: string): ConversationKey {
+  return brandString(value, "ConversationKey");
+}
+
+export function conversationTurnId(value: string): ConversationTurnId {
+  return brandString(value, "ConversationTurnId");
+}
+
+export function turnAttemptId(value: string): TurnAttemptId {
+  return brandString(value, "TurnAttemptId");
+}
+
+export function deliveryGroupId(value: string): DeliveryGroupId {
+  return brandString(value, "DeliveryGroupId");
+}
+
+/**
+ * Materialize ConversationKey from trusted membership fields + Zoen conversation id.
+ * Provider thread must not be the sole input.
+ */
+export function conversationKeyFrom(input: {
+  readonly tenantId: string;
+  readonly accountId: string;
+  readonly workspaceId: string;
+  readonly conversationId: string;
+}): ConversationKey {
+  const material = [
+    input.tenantId,
+    input.accountId,
+    input.workspaceId,
+    input.conversationId,
+  ].join("|");
+  if (
+    input.tenantId.length === 0 ||
+    input.accountId.length === 0 ||
+    input.workspaceId.length === 0 ||
+    input.conversationId.length === 0
+  ) {
+    throw new Error("ConversationKey requires tenant/account/workspace/conversation");
+  }
+  const digest = createHash("sha256").update(material).digest("hex").slice(0, 32);
+  return conversationKey(`ck_${digest}`);
 }

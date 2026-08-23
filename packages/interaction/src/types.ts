@@ -1,4 +1,7 @@
 import type {
+  ConversationKey,
+  ConversationTurnId,
+  DeliveryGroupId,
   DeliveryIntentId,
   DeliveryObservationId,
   InteractionControlRef,
@@ -12,6 +15,7 @@ import type {
   ProviderUserRef,
   StepUpSessionId,
   TenantIdString,
+  TurnAttemptId,
 } from "./brands.js";
 
 /** Transport provenance. Observation only — never authorization. */
@@ -115,6 +119,10 @@ export interface DeliveryIntent {
   readonly presentation: PresentationIntentRef;
   readonly controlRefs: readonly InteractionControlRef[];
   readonly stableProviderDeliveryId: string;
+  /** Present once the intent is bound to a turn attempt (AD-18). */
+  readonly turnAttemptId?: TurnAttemptId;
+  readonly deliveryGroupId?: DeliveryGroupId;
+  readonly sequenceIndex?: number;
 }
 
 export type DeliveryOutcome =
@@ -312,6 +320,83 @@ export interface PlanDeliveryInput {
   readonly controls: readonly InteractionControlRef[];
   readonly target?: DeliveryTarget;
   readonly stableProviderDeliveryId?: string;
+  readonly turnAttemptId?: TurnAttemptId;
+  readonly deliveryGroupId?: DeliveryGroupId;
+  readonly sequenceIndex?: number;
+}
+
+/** Product grouping of one or more accepted interactions for one burst. */
+export interface ConversationTurn {
+  readonly id: ConversationTurnId;
+  readonly conversationKey: ConversationKey;
+  readonly tenantId: TenantIdString;
+  readonly accountId: string;
+  readonly workspaceId: string;
+  /** Exact InteractionRecord ids. Order = accept order inside the claim. */
+  readonly interactionIds: readonly InteractionId[];
+  readonly openedAt: string;
+  readonly closedAt?: string;
+}
+
+export type TurnAttemptPhase =
+  | { readonly kind: "debouncing" }
+  | { readonly kind: "claiming" }
+  | { readonly kind: "assembling_context" }
+  | { readonly kind: "reasoning" }
+  | { readonly kind: "rendering" }
+  | { readonly kind: "planning_delivery" }
+  | { readonly kind: "delivering"; readonly deliveryGroupId: DeliveryGroupId }
+  | { readonly kind: "completed" }
+  | {
+      readonly kind: "superseded";
+      readonly byAttemptId: TurnAttemptId;
+      readonly at: string;
+    }
+  | { readonly kind: "failed"; readonly reason: string };
+
+export type SemanticCommitRef =
+  | { readonly kind: "action"; readonly actionId: string }
+  | { readonly kind: "effect_request"; readonly effectRequestId: string }
+  | { readonly kind: "approval"; readonly controlRef: InteractionControlRef };
+
+/**
+ * One processing chain for a ConversationTurn (or carry-forward reopen).
+ * Carry-forward is InteractionRecord refs only — never a stringified blob.
+ */
+export interface TurnAttempt {
+  readonly id: TurnAttemptId;
+  readonly turnId: ConversationTurnId;
+  readonly conversationKey: ConversationKey;
+  readonly claimedInteractionIds: readonly InteractionId[];
+  readonly carryForwardInteractionIds: readonly InteractionId[];
+  readonly phase: TurnAttemptPhase;
+  readonly openedAt: string;
+  readonly observedCommitRefs: readonly SemanticCommitRef[];
+  readonly supersedesAttemptId?: TurnAttemptId;
+}
+
+export type CancellableTurnPhaseKind =
+  | "debouncing"
+  | "claiming"
+  | "assembling_context"
+  | "reasoning"
+  | "rendering"
+  | "planning_delivery";
+
+export function isCancellableTurnPhase(
+  phase: TurnAttemptPhase,
+): phase is Extract<TurnAttemptPhase, { kind: CancellableTurnPhaseKind }> {
+  switch (phase.kind) {
+    case "debouncing":
+    case "claiming":
+    case "assembling_context":
+    case "reasoning":
+    case "rendering":
+    case "planning_delivery":
+      return true;
+    default:
+      return false;
+  }
 }
 
 export interface IssueControlInput {
