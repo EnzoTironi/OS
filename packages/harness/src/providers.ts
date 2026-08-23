@@ -17,6 +17,7 @@ import {
   type AdaptiveSurfaceModelRequest,
   type AdaptiveSurfaceModelResponse,
 } from "../../surface/src/index.js";
+import { projectAssembledForModel } from "./context-source.js";
 import { AgentRegistry, type Registration } from "./registry.js";
 import {
   actionPlanSchema,
@@ -260,6 +261,20 @@ export async function probeOpenAiCompatibleProvider(input: {
 }
 
 function planningPrompt(request: PlanningRequest): string {
+  if (request.assembled !== undefined) {
+    const projected = projectAssembledForModel(request.assembled);
+    return JSON.stringify({
+      causalHistory: projected.causalHistory,
+      instruction: request.instruction,
+      interaction: projected.interaction,
+      knowledge: projected.knowledge,
+      preference: projected.preference,
+      semanticWorld:
+        projected.semanticWorld.length > 0
+          ? projected.semanticWorld
+          : request.queries,
+    });
+  }
   return JSON.stringify({
     causalHistory: request.history,
     instruction: request.instruction,

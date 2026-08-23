@@ -22,6 +22,8 @@ import {
   type CausalContext,
   type KnowledgeContext,
 } from "./types.js";
+import type { AssembledContext } from "./context-source.js";
+import { projectAssembledForModel } from "./context-source.js";
 
 const identifier = z
   .string()
@@ -295,7 +297,11 @@ export interface AgentContextAssembler {
   assemble(input: {
     readonly knowledgeQuery: string;
     readonly trustedContext: TrustedAgentContext;
-  }): Promise<KnowledgeContext>;
+    readonly sessionId: string;
+    readonly taskId: string;
+    readonly explainOperationId?: string;
+    readonly queryCapabilities?: readonly QueryCapability[];
+  }): Promise<AssembledContext>;
 }
 
 export interface SessionJournal {
@@ -366,23 +372,29 @@ export async function runAgentSession(
       };
     }
     try {
-      const [knowledge, history] = await journal.run(
-        "assemble attributable company context",
+      const assembled = await journal.run(
+        "assemble trust-tagged context",
         () =>
-          Promise.all([
-            contextAssembler.assemble({
-              knowledgeQuery: contextRequest.knowledgeQuery,
-              trustedContext: discovery.trustedContext,
-            }),
-            runtime.authority.explain(
-              contextRequest.explainOperationId,
-            ),
-          ]),
+          contextAssembler.assemble({
+            knowledgeQuery: contextRequest.knowledgeQuery,
+            trustedContext: discovery.trustedContext,
+            sessionId: command.sessionId,
+            taskId: command.task.taskId,
+            explainOperationId: contextRequest.explainOperationId,
+            queryCapabilities: queries,
+          }),
       );
+      const historyRecord = assembled.records.find(
+        (record) => record.trustClass === "history",
+      );
+      const history =
+        historyRecord?.payload.trustClass === "history"
+          ? historyRecord.payload.history
+          : undefined;
       planningRequest = {
         ...planningRequest,
-        history,
-        knowledge,
+        assembled,
+        ...(history === undefined ? {} : { history }),
       };
     } catch {
       return {
@@ -672,18 +684,48 @@ function serializedSessionCommand(command: AgentSessionCommand): string {
 }
 
 function materialContext(request: PlanningRequest) {
+  const assembled = request.assembled;
+  const knowledgeRecords =
+    assembled?.records.filter((record) => record.trustClass === "knowledge") ??
+    [];
+  const historyFromAssembled = assembled?.records.find(
+    (record) => record.trustClass === "history",
+  );
+  const history =
+    request.history ??
+    (historyFromAssembled?.payload.trustClass === "history"
+      ? historyFromAssembled.payload.history
+      : undefined);
+  const fragmentDigests = knowledgeRecords
+    .map((record) =>
+      record.attribution.kind === "fragment"
+        ? record.attribution.fragmentDigest
+        : undefined,
+    )
+    .filter((value): value is string => value !== undefined);
+  const sourceDigests = [
+    ...new Set(
+      knowledgeRecords
+        .map((record) =>
+          record.attribution.kind === "fragment" ||
+          record.attribution.kind === "source"
+            ? record.attribution.contentDigest
+            : undefined,
+        )
+        .filter((value): value is string => value !== undefined),
+    ),
+  ].sort();
   const material = {
     history:
-      request.history === undefined
+      history === undefined
         ? undefined
         : {
-            explanationDigest: request.history.explanationDigest,
-            operationId: request.history.operationId,
+            explanationDigest: history.explanationDigest,
+            operationId: history.operationId,
           },
     knowledge:
-      request.knowledge === undefined
-        ? undefined
-        : {
+      request.knowledge !== undefined
+        ? {
             fragmentDigests: request.knowledge.results.map(
               (result) => result.fragmentDigest,
             ),
@@ -693,7 +735,14 @@ function materialContext(request: PlanningRequest) {
               ),
             ].sort(),
             traceId: request.knowledge.traceId,
-          },
+          }
+        : knowledgeRecords.length === 0
+          ? undefined
+          : {
+              fragmentDigests,
+              sourceDigests,
+              traceId: assembled?.digest ?? "0".repeat(64),
+            },
     world: request.queries.map((query) => ({
       alias: query.alias,
       definitionDigest: query.definition.digest,
@@ -707,3 +756,5 @@ function materialContext(request: PlanningRequest) {
       .digest("hex"),
   });
 }
+
+export { projectAssembledForModel };
