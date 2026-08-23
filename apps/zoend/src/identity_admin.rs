@@ -8,7 +8,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
-use zoen_adapters::PostgresIdentityStore;
+use zoen_adapters::{CreateInvite, PostgresIdentityStore};
 use zoen_core::{
     ActionId, ActorId, BindingProof, ChannelProvider, DelegationChain, DelegationGrant,
     DelegationId, ExternalSubject, IdentityError, InviteToken, MembershipId, PrincipalId,
@@ -196,7 +196,7 @@ async fn ensure_provisional(
 ) -> impl IntoResponse {
     let subject = match parse_subject(&body.provider, &body.subject_key) {
         Ok(subject) => subject,
-        Err(response) => return response,
+        Err(error) => return identity_error(error),
     };
     match state.identity.ensure_provisional(subject).await {
         Ok(account) => (
@@ -239,7 +239,7 @@ async fn bind_verified(
     };
     let subject = match parse_subject(&body.provider, &body.subject_key) {
         Ok(subject) => subject,
-        Err(response) => return response,
+        Err(error) => return identity_error(error),
     };
     match state
         .identity
@@ -309,19 +309,19 @@ async fn create_invite(
     };
     let delegation = match build_delegation(&workload_id, &body.action_ids, &body.resource_ids) {
         Ok(delegation) => delegation,
-        Err(response) => return response,
+        Err(message) => return bad_request(message),
     };
     match state
         .identity
-        .create_invite(
-            tenant_id,
-            principal_id,
-            &token,
-            TimestampMicros::new(body.expires_at_micros),
-            workload_id,
+        .create_invite(CreateInvite {
             actor_id,
             delegation,
-        )
+            expires_at: TimestampMicros::new(body.expires_at_micros),
+            principal_id,
+            tenant_id,
+            token: &token,
+            workload_id,
+        })
         .await
     {
         Ok(invite) => (
@@ -583,41 +583,38 @@ async fn resolve_context(
     }
 }
 
-fn parse_subject(
-    provider: &str,
-    subject_key: &str,
-) -> Result<ExternalSubject, axum::response::Response> {
-    let provider = ChannelProvider::parse(provider).map_err(identity_error_response)?;
-    ExternalSubject::new(provider, subject_key.to_owned()).map_err(identity_error_response)
+fn parse_subject(provider: &str, subject_key: &str) -> Result<ExternalSubject, IdentityError> {
+    let provider = ChannelProvider::parse(provider)?;
+    ExternalSubject::new(provider, subject_key.to_owned())
 }
 
 fn build_delegation(
     workload_id: &WorkloadId,
     action_ids: &[String],
     resource_ids: &[String],
-) -> Result<DelegationChain, axum::response::Response> {
+) -> Result<DelegationChain, String> {
     let actions = action_ids
         .iter()
         .cloned()
         .map(ActionId::parse)
         .collect::<Result<BTreeSet<_>, _>>()
-        .map_err(|error| bad_request(error.to_string()))?;
+        .map_err(|error| error.to_string())?;
     let resources = resource_ids
         .iter()
         .cloned()
         .map(ResourceId::parse)
         .collect::<Result<BTreeSet<_>, _>>()
-        .map_err(|error| bad_request(error.to_string()))?;
+        .map_err(|error| error.to_string())?;
     let grant = DelegationGrant::new(
-        DelegationId::parse("delegation.invite").map_err(|error| bad_request(error.to_string()))?,
+        DelegationId::parse("delegation.invite").map_err(|error| error.to_string())?,
         actions,
         resources,
         BTreeSet::from([workload_id.clone()]),
         TimestampMicros::new(i64::MIN / 2),
         TimestampMicros::new(i64::MAX / 2),
     )
-    .map_err(|error| bad_request(error.to_string()))?;
-    DelegationChain::new(vec![grant]).map_err(|error| bad_request(error.to_string()))
+    .map_err(|error| error.to_string())?;
+    DelegationChain::new(vec![grant]).map_err(|error| error.to_string())
 }
 
 fn account_status(status: &zoen_core::AccountStatus) -> &'static str {

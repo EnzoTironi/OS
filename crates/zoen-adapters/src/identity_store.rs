@@ -57,7 +57,7 @@ impl PostgresIdentityStore {
         .bind(&subject.subject_key)
         .execute(&mut *transaction)
         .await
-        .map_err(|error| map_unique_subject(error))?;
+        .map_err(map_unique_subject)?;
         let account = ZoenAccount {
             id: account_id,
             status: AccountStatus::Provisional,
@@ -268,19 +268,10 @@ impl PostgresIdentityStore {
         Ok(membership)
     }
 
-    pub async fn create_invite(
-        &self,
-        tenant_id: TenantId,
-        principal_id: PrincipalId,
-        token: &InviteToken,
-        expires_at: TimestampMicros,
-        workload_id: WorkloadId,
-        actor_id: ActorId,
-        delegation: DelegationChain,
-    ) -> Result<Invite, IdentityError> {
+    pub async fn create_invite(&self, input: CreateInvite<'_>) -> Result<Invite, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let invite_id = new_invite_id();
-        let token_hash = hash_token(token);
+        let token_hash = hash_token(input.token);
         sqlx::query(
             "INSERT INTO invites (
                 invite_id, tenant_id, principal_id, token_hash, expires_at,
@@ -291,14 +282,14 @@ impl PostgresIdentityStore {
              )",
         )
         .bind(invite_id.as_str())
-        .bind(tenant_id.as_str())
-        .bind(principal_id.as_str())
+        .bind(input.tenant_id.as_str())
+        .bind(input.principal_id.as_str())
         .bind(token_hash.as_slice())
-        .bind(expires_at.get())
-        .bind(workload_id.as_str())
-        .bind(actor_id.as_str())
+        .bind(input.expires_at.get())
+        .bind(input.workload_id.as_str())
+        .bind(input.actor_id.as_str())
         .bind(
-            serde_json::to_value(DelegationWire::from(&delegation))
+            serde_json::to_value(DelegationWire::from(&input.delegation))
                 .map_err(|error| IdentityError::Conflict(format!("delegation encode: {error}")))?,
         )
         .execute(&mut *transaction)
@@ -306,14 +297,14 @@ impl PostgresIdentityStore {
         .map_err(unavailable)?;
         let invite = Invite {
             id: invite_id,
-            tenant_id,
-            principal_id,
+            tenant_id: input.tenant_id,
+            principal_id: input.principal_id,
             token_hash,
-            expires_at,
+            expires_at: input.expires_at,
             consumed_at: None,
-            workload_id,
-            actor_id,
-            delegation,
+            workload_id: input.workload_id,
+            actor_id: input.actor_id,
+            delegation: input.delegation,
         };
         transaction.commit().await.map_err(unavailable)?;
         Ok(invite)
@@ -596,8 +587,7 @@ impl PostgresIdentityStore {
             .rows_affected();
             if updated != 1 {
                 return Err(IdentityError::Conflict(format!(
-                    "binding {} not movable",
-                    binding_id
+                    "binding {binding_id} not movable"
                 )));
             }
         }
@@ -733,6 +723,16 @@ pub struct AccountSnapshot {
     pub bindings: Vec<ExternalBinding>,
     pub memberships: Vec<Membership>,
     pub personal_tenant: Option<String>,
+}
+
+pub struct CreateInvite<'a> {
+    pub actor_id: ActorId,
+    pub delegation: DelegationChain,
+    pub expires_at: TimestampMicros,
+    pub principal_id: PrincipalId,
+    pub tenant_id: TenantId,
+    pub token: &'a InviteToken,
+    pub workload_id: WorkloadId,
 }
 
 struct InsertMembership<'a> {
