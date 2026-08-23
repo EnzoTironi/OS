@@ -1,3 +1,8 @@
+import {
+  createCapabilityProbes,
+  type CapabilityProbes,
+  type ProbeAnswer,
+} from "../capability-probes.js";
 import type {
   ChatSdkDeliveryReceipt,
   ChatSdkMessage,
@@ -5,17 +10,34 @@ import type {
   ChatSdkShapedAdapter,
 } from "../chat-sdk-shape.js";
 
-/**
- * Linq/iMessage-like fake: chat GUID + participant roster, experience action
- * token carrier, webhook delivery-id-like dedupe. Structurally different from
- * telegram-fake.
- */
+const NATIVE: ProbeAnswer = { status: "native" };
+
+const LINQ_TABLE = {
+  dm: NATIVE,
+  ephemeral: NATIVE,
+  group: NATIVE,
+  image_file: NATIVE,
+  native_button: NATIVE,
+  native_card: NATIVE,
+  native_link: NATIVE,
+  proactive_outbound: NATIVE,
+  reactions: NATIVE,
+  read_receipts: NATIVE,
+  reply_thread: NATIVE,
+  text: NATIVE,
+  typing: { status: "unsupported", degradeTo: "text" },
+  voice_audio: NATIVE,
+} as const;
+
+/** Linq/iMessage-like: chat GUID, experience token, delivery_id dedupe. */
 export function createFakeLinqProvider(): ChatSdkShapedAdapter {
   let seq = 0;
   const delivered = new Map<string, ChatSdkDeliveryReceipt>();
+  const probes: CapabilityProbes = createCapabilityProbes("linq", LINQ_TABLE);
 
   return {
     providerId: "linq",
+    probes,
 
     parseInbound(raw: unknown): ChatSdkMessage {
       const body = asRecord(raw);
@@ -34,6 +56,10 @@ export function createFakeLinqProvider(): ChatSdkShapedAdapter {
           typeof body.received_at === "string"
             ? body.received_at
             : new Date().toISOString(),
+        replyToMessageId:
+          typeof body.reply_to_message_id === "string"
+            ? body.reply_to_message_id
+            : undefined,
         text: typeof body.text === "string" ? body.text : undefined,
         thread: {
           id: chatGuid,
@@ -51,9 +77,15 @@ export function createFakeLinqProvider(): ChatSdkShapedAdapter {
       const receipt: ChatSdkDeliveryReceipt = {
         messageId: `linq_out_${seq}`,
         status: "accepted",
+        typingRecorded: outbound.typing === true,
       };
       delivered.set(outbound.clientDeliveryId, receipt);
       return receipt;
+    },
+
+    simulateRestart() {
+      delivered.clear();
+      seq = 0;
     },
   };
 }

@@ -1,3 +1,8 @@
+import {
+  createCapabilityProbes,
+  type CapabilityProbes,
+  type ProbeAnswer,
+} from "../capability-probes.js";
 import type {
   ChatSdkDeliveryReceipt,
   ChatSdkMessage,
@@ -5,16 +10,37 @@ import type {
   ChatSdkShapedAdapter,
 } from "../chat-sdk-shape.js";
 
-/**
- * Telegram-like fake: chat id + optional topic, inline-button callback_data,
- * update_id-like dedupe. Structurally different from linq-fake.
- */
+const NATIVE: ProbeAnswer = { status: "native" };
+
+const TELEGRAM_TABLE = {
+  dm: NATIVE,
+  ephemeral: { status: "unsupported", degradeTo: "dm" },
+  group: NATIVE,
+  image_file: NATIVE,
+  native_button: NATIVE,
+  native_card: NATIVE,
+  native_link: NATIVE,
+  proactive_outbound: NATIVE,
+  reactions: NATIVE,
+  read_receipts: { status: "unsupported", degradeTo: "text" },
+  reply_thread: NATIVE,
+  text: NATIVE,
+  typing: NATIVE,
+  voice_audio: NATIVE,
+} as const;
+
+/** Telegram-like: chat id, callback_data, update_id dedupe. */
 export function createFakeTelegramProvider(): ChatSdkShapedAdapter {
   let seq = 0;
   const delivered = new Map<string, ChatSdkDeliveryReceipt>();
+  const probes: CapabilityProbes = createCapabilityProbes(
+    "telegram",
+    TELEGRAM_TABLE,
+  );
 
   return {
     providerId: "telegram",
+    probes,
 
     parseInbound(raw: unknown): ChatSdkMessage {
       const body = asRecord(raw);
@@ -44,6 +70,15 @@ export function createFakeTelegramProvider(): ChatSdkShapedAdapter {
         typeof message.message_id === "string"
           ? String(message.message_id)
           : `tg_upd_${updateId}`;
+      const reply = message.reply_to_message;
+      const replyToMessageId =
+        reply !== null &&
+        typeof reply === "object" &&
+        !Array.isArray(reply) &&
+        (typeof (reply as { message_id?: unknown }).message_id === "number" ||
+          typeof (reply as { message_id?: unknown }).message_id === "string")
+          ? String((reply as { message_id: number | string }).message_id)
+          : undefined;
       return {
         from: { id: requireString(from, "id") },
         id: messageId,
@@ -51,6 +86,7 @@ export function createFakeTelegramProvider(): ChatSdkShapedAdapter {
           typeof message.date === "number"
             ? new Date(message.date * 1000).toISOString()
             : new Date().toISOString(),
+        replyToMessageId,
         text: typeof message.text === "string" ? message.text : undefined,
         thread: {
           id: requireString(chat, "id"),
@@ -68,9 +104,15 @@ export function createFakeTelegramProvider(): ChatSdkShapedAdapter {
       const receipt: ChatSdkDeliveryReceipt = {
         messageId: `tg_out_${seq}`,
         status: "accepted",
+        typingRecorded: outbound.typing === true,
       };
       delivered.set(outbound.clientDeliveryId, receipt);
       return receipt;
+    },
+
+    simulateRestart() {
+      delivered.clear();
+      seq = 0;
     },
   };
 }
