@@ -10,6 +10,7 @@ set -euo pipefail
 
 scenario_table=(
   "activation-identity:activation-identity:"
+  "activation-context:activation-context:"
   "messaging-boundary:messaging-boundary:"
   "messaging-conformance:messaging-conformance:"
   "activation-sample::"
