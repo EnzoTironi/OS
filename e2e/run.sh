@@ -17,6 +17,7 @@ scenario_table=(
   "messaging-conformance:messaging-conformance:"
   "channel-provider-substitution:channel-provider-substitution:"
   "company-bootstrap-shadow:company-bootstrap-shadow:"
+  "conversational-approval:conversational-approval:"
   "workload-api-mcp:workload-api-mcp:"
   "activation-sample::"
   "agent-capabilities-live:agent-capabilities-live:"
