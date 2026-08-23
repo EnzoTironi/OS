@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Ticket command stays `just e2e <scenario>` (check + native build + run).
 # `just verify` runs check and native build once, then each scenario runner.
+# `just verify-v1` aggregates typed artifacts into a signed zoen.verify.v1 bundle.
 # `just e2e-run` executes a built workspace and does not lint.
 # Each scenario loads `e2e/<scenario>/.env` so Compose, zoend, and artifacts
 # never share host ports or generated files with another scenario.
@@ -65,6 +66,7 @@ usage() {
   echo "       just release-drill rpo-rto" >&2
   echo "       just scale seed-v1|query-v1|actions-v1|mixed-v1" >&2
   echo "       just verify" >&2
+  echo "       just verify-v1" >&2
   echo "scenarios: ${names[*]}" >&2
   exit 2
 }
@@ -293,6 +295,15 @@ run_verify() {
   done
 }
 
+run_verify_v1() {
+  # Aggregate-only gate: consume artifacts/, never wipe them, never rerun KIND.
+  if [[ ! -f node_modules/typescript/package.json ]]; then
+    npm ci
+  fi
+  npm exec -- tsc -p tsconfig.json --pretty false
+  node dist/e2e/verify-v1.js
+}
+
 command="${1:-}"
 case "$command" in
   lint)
@@ -323,6 +334,9 @@ case "$command" in
     ;;
   verify)
     run_verify
+    ;;
+  verify-v1)
+    run_verify_v1
     ;;
   -h | --help | help | "")
     usage

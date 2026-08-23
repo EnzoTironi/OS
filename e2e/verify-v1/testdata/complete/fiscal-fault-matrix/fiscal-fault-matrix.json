@@ -1,0 +1,12 @@
+{
+  "scenario": "fiscal-fault-matrix",
+  "status": "pass",
+  "sourceCommit": "__CANDIDATE_SHA__",
+  "fixture": true,
+  "note": "Gate contract fixture. Not production evidence. Live Brazil fiscal remains parked until #214.",
+  "liveEvidence": {
+    "systax": "not-run-no-credentials",
+    "plugnotas": "not-run-no-credentials",
+    "protheus": "not-run-no-environment"
+  }
+}

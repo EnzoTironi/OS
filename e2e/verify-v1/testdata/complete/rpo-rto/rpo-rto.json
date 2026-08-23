@@ -1,0 +1,9 @@
+{
+  "measuredRPOSeconds": 12,
+  "measuredRTOSeconds": 90,
+  "targets": {
+    "rpoSeconds": 300,
+    "rtoSeconds": 1800
+  },
+  "sourceCommit": "__CANDIDATE_SHA__"
+}

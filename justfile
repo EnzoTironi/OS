@@ -34,3 +34,13 @@ scale phase:
 # Release gate: check and build once, then every serial scenario runner.
 verify:
     ./e2e/run.sh verify
+
+# V1 release gate: aggregate typed artifacts into a signed zoen.verify.v1 bundle.
+# Does not rerun KIND. Missing/stale/unsigned/wrong-commit evidence fails closed.
+verify-v1:
+    ./e2e/run.sh verify-v1
+
+# Named gate-contract PASS using fixtures under e2e/verify-v1/testdata/complete.
+# Not production evidence. Bundle still lands in artifacts/verify-v1/.
+verify-v1-fixtures fixture="complete":
+    ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-v1/testdata/{{fixture}} ./e2e/run.sh verify-v1

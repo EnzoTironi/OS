@@ -443,12 +443,7 @@ async function main(): Promise<void> {
     proveCacheKeyIsolation(definition);
     await proveBrowserIsolation(tokens.webA, tokens.webB);
     await proveDataFusionFilter(worldA, definition, admin, projectionRows);
-    await restartAndRebuild({
-      definition,
-      tokens,
-      worldA,
-      worldB,
-    });
+    await restartAndRebuild(definition);
 
     const platformRows = await observer.query<{
       count: string;
@@ -1149,17 +1144,9 @@ async function proveDataFusionFilter(
   );
 }
 
-async function restartAndRebuild(input: {
-  readonly definition: DefinitionReference;
-  readonly tokens: {
-    readonly agentA: string;
-    readonly agentB: string;
-    readonly webA: string;
-    readonly webB: string;
-  };
-  readonly worldA: WorldClient;
-  readonly worldB: WorldClient;
-}): Promise<void> {
+async function restartAndRebuild(
+  definition: DefinitionReference,
+): Promise<void> {
   for (const workload of [
     "deployment/zoend",
     "deployment/harness-tenant-a",
@@ -1180,6 +1167,7 @@ async function restartAndRebuild(input: {
     ]);
   }
   await registerRestateServices();
+  await waitForApplicationReady();
   await kubectl([
     "exec",
     "deployment/zoen-projection",
@@ -1196,24 +1184,27 @@ async function restartAndRebuild(input: {
     "--rebuild",
     tenantB,
   ]);
+  const tokens = await mintRestartTokens();
+  const worldA = worldClient(tokens.agentA);
+  const worldB = worldClient(tokens.agentB);
   try {
     await Promise.all([
-      harnessPost(harnessA, "/rebuild-indexes", input.tokens.agentA, {}),
-      harnessPost(harnessB, "/rebuild-indexes", input.tokens.agentB, {}),
+      harnessPost(harnessA, "/rebuild-indexes", tokens.agentA, {}),
+      harnessPost(harnessB, "/rebuild-indexes", tokens.agentB, {}),
     ]);
   } catch (error: unknown) {
     await dumpHarnessLogs();
     throw error;
   }
   const [a, b] = await Promise.all([
-    queryAvailable(input.worldA, tenantA, input.definition, "eventual"),
-    queryAvailable(input.worldB, tenantB, input.definition, "eventual"),
+    queryAvailable(worldA, tenantA, definition, "eventual"),
+    queryAvailable(worldB, tenantB, definition, "eventual"),
   ]);
   assert.deepEqual(integerValues(a), ["41"]);
   assert.deepEqual(integerValues(b), ["97"]);
   const [knowledgeA, knowledgeB] = await Promise.all([
-    retrieve(harnessA, input.tokens.agentA, "acquisition code"),
-    retrieve(harnessB, input.tokens.agentB, "acquisition code"),
+    retrieve(harnessA, tokens.agentA, "acquisition code"),
+    retrieve(harnessB, tokens.agentB, "acquisition code"),
   ]);
   assert.equal(
     knowledgeA.results.some((result) => result.text.includes("ORANGE-NEBULA")),
@@ -1223,12 +1214,49 @@ async function restartAndRebuild(input: {
     knowledgeB.results.some((result) => result.text.includes("BLUE-COMET")),
     false,
   );
-  await proveBrowserIsolation(input.tokens.webA, input.tokens.webB);
+  await proveBrowserIsolation(tokens.webA, tokens.webB);
   recordAttack(
     "restart-session-projection-index",
     "shared application stack",
     "isolated",
   );
+}
+
+async function waitForApplicationReady(): Promise<void> {
+  await waitFor(async () => {
+    const deployment = await kubernetesDeployment("zoend");
+    return deployment.readyReplicas >= 2 ? true : undefined;
+  }, "zoend readyReplicas >= 2 after restart");
+  await waitFor(async () => {
+    try {
+      const response = await fetch(`${baseUrl}/ready`, {
+        signal: AbortSignal.timeout(1_000),
+      });
+      return response.ok ? true : undefined;
+    } catch {
+      return undefined;
+    }
+  }, "zoend /ready after restart");
+}
+
+async function mintRestartTokens(): Promise<{
+  readonly agentA: string;
+  readonly agentB: string;
+  readonly webA: string;
+  readonly webB: string;
+}> {
+  return waitFor(async () => {
+    try {
+      return {
+        agentA: await clientToken("agent-a"),
+        agentB: await clientToken("agent-b"),
+        webA: await passwordToken("web-tenant.a"),
+        webB: await passwordToken("web-tenant.b"),
+      };
+    } catch {
+      return undefined;
+    }
+  }, "OIDC tokens after restart");
 }
 
 async function dumpHarnessLogs(): Promise<void> {
