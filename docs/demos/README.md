@@ -1,8 +1,10 @@
 # Demo paths
 
-Runnable demos use the production Sample Company stack. There is no separate marketing backend and no fake chat widget.
+Runnable demos use the production Sample Company stack and landed e2e scenarios. There is no separate marketing backend and no fake chat widget.
 
-## Five-minute company (available now)
+## Five-minute company
+
+First governed Action on Sample Company.
 
 1. From the repository root, run `just build` then `just start`.
 2. Open the printed web URL and sign in with the sample OIDC user (`web-user` / `web-password`).
@@ -10,6 +12,26 @@ Runnable demos use the production Sample Company stack. There is no separate mar
 4. Confirm the non-interactive path with `just e2e activation-sample`.
 
 Expected signals: `just status` reports Ready only when probes pass; `just doctor` fails closed when something is unhealthy.
+
+## Agent safely acts
+
+A real model harness uses semantic capabilities and commits only through governed Action.
+
+```bash
+just e2e agent-capabilities-live
+```
+
+This scenario needs OpenCode/zen credentials from the host environment (see activation preferences). It proves provider routing, illegal-path rejection, and commit recovery. Brazil fiscal vendors and Linq stay off the advertised surface.
+
+## Your messy data
+
+Read-only enterprise source to mapping ambiguity to Shadow recommendation without a blind commit.
+
+```bash
+just e2e company-bootstrap-shadow
+```
+
+This is the #258 bootstrap path. Shadow may recommend; it must not call `commitOrRecover` or write an `EffectRequest` on its own.
 
 ## Killer path script (manual, production stack)
 
@@ -24,11 +46,13 @@ Use this checklist when recording or walking the Sample Company risk path. Captu
 
 A polished 45 to 90 second recorded video is still open on #267.
 
+## Pack directory
+
+Outcome-first Pack pages live in [`docs/product/pack-directory.md`](../product/pack-directory.md). Install and share resolve through the signed registry from #260. Kitchen (#264) authoring stays in flight. Full marketplace commerce is out of scope.
+
 ## Still open on #267
 
 - Recorded visual product demo with release/source artifacts in frame.
-- Agent-safely-acts entry that uses a real model harness and governed Action.
-- Messy-data entry from #258 (read-only source → mapping ambiguity → Shadow recommendation).
-- Live conversation entry only when a real channel is available. Until then, do not ship a fake chat.
-
-Pack directory pages and install/share links wait on #260.
+- Live conversation entry only when a real channel is available (#273) or a web chat that uses the AD-05/AD-03 contracts. Until then, do not ship a fake chat.
+- Cold-start comprehension evidence for people who have not read the ADRs.
+- Coordinator registration of `just e2e public-surface`.
