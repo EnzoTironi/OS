@@ -1169,8 +1169,12 @@ async function main(): Promise<void> {
       }, deniedToken);
       await deniedPage.reload({ waitUntil: "domcontentloaded" });
       await deniedPage
-        .locator(
-          'main.app-shell, [role="alert"], text=/Surface unavailable|no longer available|Server denied|Sign in with OIDC/iu',
+        .locator("main.app-shell")
+        .or(deniedPage.locator('[role="alert"]'))
+        .or(
+          deniedPage.getByText(
+            /Surface unavailable|no longer available|Server denied|Sign in with OIDC/iu,
+          ),
         )
         .first()
         .waitFor({ timeout: 120_000 });
@@ -1191,10 +1195,13 @@ async function main(): Promise<void> {
           deniedBody,
         ) ||
         (await deniedPage.locator('[role="alert"]').count()) > 0;
-      observe(
-        "uiLoadsWithoutBypassingAuthority",
-        !proposeEnabled && denySurface,
-      );
+      const authorityHeld = !proposeEnabled && denySurface;
+      if (!authorityHeld) {
+        assert.fail(
+          `uiLoadsWithoutBypassingAuthority proposeEnabled=${proposeEnabled} body=${deniedBody.slice(0, 500)}`,
+        );
+      }
+      observe("uiLoadsWithoutBypassingAuthority", authorityHeld);
       recordMutant(
         "direct-agent-ui-action-bypass",
         "web-denied.a UI kept Propose Action disabled and showed an authority deny/unavailable surface",
