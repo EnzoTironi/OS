@@ -121,8 +121,9 @@ export type DeliveryOutcome =
   | { readonly kind: "rejected"; readonly reason: string }
   | {
       readonly kind: "degraded";
-      readonly fallback: "text" | "link" | "dm";
+      readonly fallback: "text" | "link" | "dm" | "web_surface";
       readonly providerMessage?: ProviderMessageRef;
+      readonly surfaceUrl?: string;
     };
 
 export interface DeliveryObservation {
@@ -153,6 +154,8 @@ export interface ChannelPresentationCapability {
   readonly typing: boolean;
   readonly reactions: boolean;
   readonly ephemeral: boolean;
+  readonly voice?: boolean;
+  readonly readReceipts?: boolean;
   readonly extensions: {
     readonly imessageExperience: boolean;
     readonly imessageApp: boolean;
