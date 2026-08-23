@@ -33,13 +33,13 @@ mod wasmtime_adapter;
 
 pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
-pub use identity_store::{AccountSnapshot, PostgresIdentityStore};
 pub use claim_store::{PostgresClaimLoader, PostgresClaimQuery};
 pub use effect_dispatcher::{
     DispatchAcceptance, DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
     EffectDispatchOutcome, EffectDispatchResult, PostgresEffectDispatcher,
 };
 pub use effect_store::PostgresEffectUpdate;
+pub use identity_store::{AccountSnapshot, PostgresIdentityStore};
 pub use integrity::IntegrityError;
 pub use restate::{RestateEffectScheduler, restate_effect_key};
 use value_store::row_to_valid_time;

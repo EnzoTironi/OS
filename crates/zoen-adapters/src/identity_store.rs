@@ -10,9 +10,8 @@ use zoen_core::{
     ChannelProvider, DelegationChain, DelegationGrant, DelegationId, EnterpriseAssertion,
     ExternalBinding, ExternalBindingId, ExternalSubject, IdentityError, Invite, InviteId,
     InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus, PrincipalId,
-    ResourceId, RevocationReason, TenantId, TimestampMicros, UnbindReason, VerifiedOidcSubject,
-    WorkloadId, ZoenAccount, ZoenAccountId, trusted_context_from_membership,
-    TrustedExecutionContext,
+    ResourceId, RevocationReason, TenantId, TimestampMicros, TrustedExecutionContext, UnbindReason,
+    VerifiedOidcSubject, WorkloadId, ZoenAccount, ZoenAccountId, trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -112,17 +111,18 @@ impl PostgresIdentityStore {
         .await
         .map_err(unavailable)?;
         if matches!(account_row.status, AccountStatus::Provisional) {
-            sqlx::query(
-                "UPDATE zoen_accounts SET status = 'verified' WHERE account_id = $1",
-            )
-            .bind(account.as_str())
-            .execute(&mut *transaction)
-            .await
-            .map_err(unavailable)?;
+            sqlx::query("UPDATE zoen_accounts SET status = 'verified' WHERE account_id = $1")
+                .bind(account.as_str())
+                .execute(&mut *transaction)
+                .await
+                .map_err(unavailable)?;
         }
-        let verified = load_binding(&mut transaction, &ExternalBindingId::parse(binding_id)
-            .map_err(|_| IdentityError::Conflict("invalid binding id".to_owned()))?)
-            .await?;
+        let verified = load_binding(
+            &mut transaction,
+            &ExternalBindingId::parse(binding_id)
+                .map_err(|_| IdentityError::Conflict("invalid binding id".to_owned()))?,
+        )
+        .await?;
         transaction.commit().await.map_err(unavailable)?;
         Ok(verified)
     }
@@ -157,13 +157,11 @@ impl PostgresIdentityStore {
         .await
         .map_err(map_unique_subject)?;
         if matches!(account_row.status, AccountStatus::Provisional) {
-            sqlx::query(
-                "UPDATE zoen_accounts SET status = 'verified' WHERE account_id = $1",
-            )
-            .bind(account.as_str())
-            .execute(&mut *transaction)
-            .await
-            .map_err(unavailable)?;
+            sqlx::query("UPDATE zoen_accounts SET status = 'verified' WHERE account_id = $1")
+                .bind(account.as_str())
+                .execute(&mut *transaction)
+                .await
+                .map_err(unavailable)?;
         }
         let binding = ExternalBinding {
             id: binding_id,
@@ -234,14 +232,12 @@ impl PostgresIdentityStore {
         let workload_id = WorkloadId::parse("workload.personal")
             .map_err(|_| IdentityError::Conflict("invalid workload".to_owned()))?;
         let delegation = personal_delegation(&workload_id)?;
-        sqlx::query(
-            "INSERT INTO personal_tenants (account_id, tenant_id) VALUES ($1, $2)",
-        )
-        .bind(account.as_str())
-        .bind(tenant_id.as_str())
-        .execute(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
+        sqlx::query("INSERT INTO personal_tenants (account_id, tenant_id) VALUES ($1, $2)")
+            .bind(account.as_str())
+            .bind(tenant_id.as_str())
+            .execute(&mut *transaction)
+            .await
+            .map_err(unavailable)?;
         insert_membership(
             &mut transaction,
             InsertMembership {
@@ -301,9 +297,10 @@ impl PostgresIdentityStore {
         .bind(expires_at.get())
         .bind(workload_id.as_str())
         .bind(actor_id.as_str())
-        .bind(serde_json::to_value(DelegationWire::from(&delegation)).map_err(|error| {
-            IdentityError::Conflict(format!("delegation encode: {error}"))
-        })?)
+        .bind(
+            serde_json::to_value(DelegationWire::from(&delegation))
+                .map_err(|error| IdentityError::Conflict(format!("delegation encode: {error}")))?,
+        )
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
@@ -357,13 +354,12 @@ impl PostgresIdentityStore {
         .ok_or(IdentityError::InviteNotFound)?;
         let tenant_id = TenantId::parse(row_text(&invite_row, "tenant_id")?)
             .map_err(|_| IdentityError::Conflict("invalid invite tenant".to_owned()))?;
-        let consumed: bool = sqlx::query_scalar(
-            "SELECT consumed_at IS NOT NULL FROM invites WHERE invite_id = $1",
-        )
-        .bind(row_text(&invite_row, "invite_id")?)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
+        let consumed: bool =
+            sqlx::query_scalar("SELECT consumed_at IS NOT NULL FROM invites WHERE invite_id = $1")
+                .bind(row_text(&invite_row, "invite_id")?)
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(unavailable)?;
         if consumed {
             return Err(IdentityError::AlreadyConsumed);
         }
@@ -385,7 +381,8 @@ impl PostgresIdentityStore {
             .map_err(|_| IdentityError::Conflict("invalid invite workload".to_owned()))?;
         let actor_id = ActorId::parse(row_text(&invite_row, "actor_id")?)
             .map_err(|_| IdentityError::Conflict("invalid invite actor".to_owned()))?;
-        let delegation = decode_delegation(invite_row.try_get("delegation_json").map_err(unavailable)?)?;
+        let delegation =
+            decode_delegation(invite_row.try_get("delegation_json").map_err(unavailable)?)?;
         let now = now_micros();
         sqlx::query(
             "UPDATE invites
@@ -647,25 +644,22 @@ impl PostgresIdentityStore {
         if let AccountStatus::MergedInto { survivor } = account.status {
             return Err(IdentityError::AccountMerged { survivor });
         }
-        let membership = load_active_membership(&mut transaction, &binding.account_id, tenant).await?;
+        let membership =
+            load_active_membership(&mut transaction, &binding.account_id, tenant).await?;
         let context = trusted_context_from_membership(&membership)?;
         transaction.commit().await.map_err(unavailable)?;
         Ok(context)
     }
 
-    pub async fn get_membership(
-        &self,
-        id: &MembershipId,
-    ) -> Result<Membership, IdentityError> {
+    pub async fn get_membership(&self, id: &MembershipId) -> Result<Membership, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let tenant: String = sqlx::query_scalar(
-            "SELECT tenant_id FROM memberships WHERE membership_id = $1",
-        )
-        .bind(id.as_str())
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(unavailable)?
-        .ok_or(IdentityError::MembershipNotFound)?;
+        let tenant: String =
+            sqlx::query_scalar("SELECT tenant_id FROM memberships WHERE membership_id = $1")
+                .bind(id.as_str())
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(unavailable)?
+                .ok_or(IdentityError::MembershipNotFound)?;
         let _tenant_id = TenantId::parse(tenant)
             .map_err(|_| IdentityError::Conflict("invalid membership tenant".to_owned()))?;
         let row = sqlx::query(
@@ -895,8 +889,7 @@ fn row_to_binding(row: &PgRow) -> Result<ExternalBinding, IdentityError> {
         "unbound" => BindingStatus::Unbound {
             unbound_at: TimestampMicros::new(0),
             reason: UnbindReason::parse(
-                &row
-                    .try_get::<Option<String>, _>("unbind_reason")
+                &row.try_get::<Option<String>, _>("unbind_reason")
                     .map_err(unavailable)?
                     .unwrap_or_default(),
             )
@@ -1059,7 +1052,9 @@ fn unavailable(error: impl std::fmt::Display) -> IdentityError {
 
 fn map_unique_subject(error: sqlx::Error) -> IdentityError {
     match &error {
-        sqlx::Error::Database(database) if database.constraint() == Some("external_bindings_active_subject") => {
+        sqlx::Error::Database(database)
+            if database.constraint() == Some("external_bindings_active_subject") =>
+        {
             IdentityError::AlreadyBound
         }
         _ => unavailable(error),
@@ -1109,50 +1104,43 @@ impl From<&DelegationChain> for DelegationWire {
 fn decode_delegation(value: serde_json::Value) -> Result<DelegationChain, IdentityError> {
     let wire: DelegationWire = serde_json::from_value(value)
         .map_err(|error| IdentityError::Conflict(format!("delegation decode: {error}")))?;
-    let grants = wire
-        .grants
-        .into_iter()
-        .map(|grant| {
-            let actions = grant
-                .action_ids
-                .into_iter()
-                .map(ActionId::parse)
-                .collect::<Result<BTreeSet<_>, _>>()
-                .map_err(|error| IdentityError::Conflict(error.to_string()))?;
-            let resources = grant
-                .resource_ids
-                .into_iter()
-                .map(ResourceId::parse)
-                .collect::<Result<BTreeSet<_>, _>>()
-                .map_err(|error| IdentityError::Conflict(error.to_string()))?;
-            let workloads = grant
-                .workload_ids
-                .into_iter()
-                .map(WorkloadId::parse)
-                .collect::<Result<BTreeSet<_>, _>>()
-                .map_err(|error| IdentityError::Conflict(error.to_string()))?;
-            DelegationGrant::new(
-                DelegationId::parse(grant.delegation_id)
-                    .map_err(|error| IdentityError::Conflict(error.to_string()))?,
-                actions,
-                resources,
-                workloads,
-                TimestampMicros::new(
-                    grant
-                        .not_before
-                        .checked_mul(1_000_000)
-                        .ok_or_else(|| IdentityError::Conflict("not_before overflow".to_owned()))?,
-                ),
-                TimestampMicros::new(
-                    grant
-                        .expires_at
-                        .checked_mul(1_000_000)
-                        .ok_or_else(|| IdentityError::Conflict("expires_at overflow".to_owned()))?,
-                ),
-            )
-            .map_err(|error| IdentityError::Conflict(error.to_string()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let grants =
+        wire.grants
+            .into_iter()
+            .map(|grant| {
+                let actions = grant
+                    .action_ids
+                    .into_iter()
+                    .map(ActionId::parse)
+                    .collect::<Result<BTreeSet<_>, _>>()
+                    .map_err(|error| IdentityError::Conflict(error.to_string()))?;
+                let resources = grant
+                    .resource_ids
+                    .into_iter()
+                    .map(ResourceId::parse)
+                    .collect::<Result<BTreeSet<_>, _>>()
+                    .map_err(|error| IdentityError::Conflict(error.to_string()))?;
+                let workloads = grant
+                    .workload_ids
+                    .into_iter()
+                    .map(WorkloadId::parse)
+                    .collect::<Result<BTreeSet<_>, _>>()
+                    .map_err(|error| IdentityError::Conflict(error.to_string()))?;
+                DelegationGrant::new(
+                    DelegationId::parse(grant.delegation_id)
+                        .map_err(|error| IdentityError::Conflict(error.to_string()))?,
+                    actions,
+                    resources,
+                    workloads,
+                    TimestampMicros::new(grant.not_before.checked_mul(1_000_000).ok_or_else(
+                        || IdentityError::Conflict("not_before overflow".to_owned()),
+                    )?),
+                    TimestampMicros::new(grant.expires_at.checked_mul(1_000_000).ok_or_else(
+                        || IdentityError::Conflict("expires_at overflow".to_owned()),
+                    )?),
+                )
+                .map_err(|error| IdentityError::Conflict(error.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
     DelegationChain::new(grants).map_err(|error| IdentityError::Conflict(error.to_string()))
 }
-

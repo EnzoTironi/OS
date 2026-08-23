@@ -173,17 +173,17 @@ impl SessionRegistry {
         &self,
         authorization: Option<&str>,
     ) -> Result<VerifiedOidcSubject, ConnectError> {
-        let token = self
-            .bearer_token(authorization)
-            .map_err(|_| ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token"))?;
+        let token = self.bearer_token(authorization).map_err(|_| {
+            ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+        })?;
         match &self.provider {
             AuthProvider::Legacy(_) => Err(ConnectError::new(
                 ErrorCode::FailedPrecondition,
                 "verify_bearer requires OIDC sessions",
             )),
-            AuthProvider::Oidc(verifier) => verifier
-                .verify(token)
-                .map_err(map_authentication_error),
+            AuthProvider::Oidc(verifier) => {
+                verifier.verify(token).map_err(map_authentication_error)
+            }
         }
     }
 
@@ -196,25 +196,18 @@ impl SessionRegistry {
             .and_then(|value| value.to_str().ok());
         match &self.provider {
             AuthProvider::Legacy(contexts) => {
-                let token = self
-                    .bearer_token(authorization)
-                    .map_err(|_| {
-                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                    })?;
+                let token = self.bearer_token(authorization).map_err(|_| {
+                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                })?;
                 contexts.get(token).cloned().ok_or_else(|| {
                     ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
                 })
             }
             AuthProvider::Oidc(verifier) => {
                 let verified = verifier
-                    .verify(
-                        self.bearer_token(authorization).map_err(|_| {
-                            ConnectError::new(
-                                ErrorCode::Unauthenticated,
-                                "invalid OIDC bearer token",
-                            )
-                        })?,
-                    )
+                    .verify(self.bearer_token(authorization).map_err(|_| {
+                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                    })?)
                     .map_err(map_authentication_error)?;
                 self.resolve_verified(verified, None).await
             }
@@ -233,25 +226,18 @@ impl SessionRegistry {
             .and_then(|value| value.to_str().ok());
         let context = match &self.provider {
             AuthProvider::Legacy(contexts) => {
-                let token = self
-                    .bearer_token(authorization)
-                    .map_err(|_| {
-                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                    })?;
+                let token = self.bearer_token(authorization).map_err(|_| {
+                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                })?;
                 contexts.get(token).cloned().ok_or_else(|| {
                     ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
                 })?
             }
             AuthProvider::Oidc(verifier) => {
                 let verified = verifier
-                    .verify(
-                        self.bearer_token(authorization).map_err(|_| {
-                            ConnectError::new(
-                                ErrorCode::Unauthenticated,
-                                "invalid OIDC bearer token",
-                            )
-                        })?,
-                    )
+                    .verify(self.bearer_token(authorization).map_err(|_| {
+                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                    })?)
                     .map_err(map_authentication_error)?;
                 self.resolve_verified(verified, Some(&claimed_tenant))
                     .await?

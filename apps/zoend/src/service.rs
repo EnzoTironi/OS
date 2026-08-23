@@ -67,7 +67,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<PublishResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let digest = DefinitionDigest::parse(request.digest)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let revision = self
@@ -88,7 +89,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<GetRevisionResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let digest = DefinitionDigest::parse(request.digest)
@@ -111,7 +113,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<GetActiveRevisionResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let revision = self
@@ -132,7 +135,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<PlanEvolutionResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let from_digest = DefinitionDigest::parse(request.from_digest)
@@ -157,7 +161,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<PrepareMigrationResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let recipe = request
             .recipe
             .as_option()
@@ -182,7 +187,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<ApplyMigrationBatchResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let operation_id =
             OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
         let records = request
@@ -219,7 +225,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<GetMigrationResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let operation_id =
             OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
         let progress = self
@@ -240,7 +247,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<ActivateRevisionResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let digest = DefinitionDigest::parse(request.digest)
@@ -271,7 +279,8 @@ impl DefinitionService for DefinitionServiceImpl {
     ) -> ServiceResult<RollbackRevisionResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| invalid(error.to_string()))?;
         let digest =

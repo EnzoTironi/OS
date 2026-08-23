@@ -48,7 +48,9 @@ pub enum AccountStatus {
     Provisional,
     Verified,
     /// Survivor keeps bindings; loser retains historical id for explainability.
-    MergedInto { survivor: ZoenAccountId },
+    MergedInto {
+        survivor: ZoenAccountId,
+    },
 }
 
 /// Provider-native sender. Never used as TenantPrincipal / PrincipalId.
@@ -204,8 +206,13 @@ pub struct Membership {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MembershipKind {
     Personal,
-    Invite { invite_id: InviteId },
-    EnterpriseOidc { idp_issuer: String, idp_subject: String },
+    Invite {
+        invite_id: InviteId,
+    },
+    EnterpriseOidc {
+        idp_issuer: String,
+        idp_subject: String,
+    },
 }
 
 /// Authentication evidence after JWT validation. Not a TrustedExecutionContext.
@@ -227,9 +234,7 @@ impl VerifiedOidcSubject {
     /// Bound subjects must resolve through Membership. This constructor only
     /// exists so callers cannot smuggle claims into a TrustedExecutionContext
     /// without an Active membership on the directory path.
-    pub fn into_unbound_execution_context(
-        self,
-    ) -> Result<TrustedExecutionContext, IdentityError> {
+    pub fn into_unbound_execution_context(self) -> Result<TrustedExecutionContext, IdentityError> {
         let tenant_id = self
             .requested_tenant_hint
             .ok_or(IdentityError::MissingClaimTenant)?;
@@ -373,7 +378,9 @@ impl Display for IdentityError {
             }
             Self::PersonalExists => formatter.write_str("personal workspace already exists"),
             Self::SubjectUnbound => formatter.write_str("OIDC subject has no verified binding"),
-            Self::Unavailable(message) => write!(formatter, "identity store unavailable: {message}"),
+            Self::Unavailable(message) => {
+                write!(formatter, "identity store unavailable: {message}")
+            }
             Self::Unauthenticated => formatter.write_str("unauthenticated"),
         }
     }

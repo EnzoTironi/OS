@@ -105,10 +105,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         HistoryServiceImpl::new(HistoryEngine::new(store.clone()), sessions.clone());
     let world_service =
         WorldServiceImpl::new(WorldEngine::new(store.clone()), query, sessions.clone());
-    let identity_routes = identity_admin::router(IdentityAdminState {
-        identity,
-        sessions,
-    });
+    let identity_routes = identity_admin::router(IdentityAdminState { identity, sessions });
     let rpc = Router::new()
         .add_service(Arc::new(action_service))
         .add_service(Arc::new(computation_service))

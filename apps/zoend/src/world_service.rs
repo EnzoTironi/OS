@@ -50,7 +50,8 @@ impl WorldService for WorldServiceImpl {
     ) -> ServiceResult<RecordEvidenceResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let claim = request
             .claim
             .as_option()
@@ -83,7 +84,8 @@ impl WorldService for WorldServiceImpl {
         }
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let mut drafts = Vec::with_capacity(request.claims.len());
         for claim in &request.claims {
             let owned = claim
@@ -114,7 +116,8 @@ impl WorldService for WorldServiceImpl {
     ) -> ServiceResult<SemanticQueryResponse> {
         let execution_context = self
             .sessions
-            .execution_context(&context, request.tenant_id).await?;
+            .execution_context(&context, request.tenant_id)
+            .await?;
         let definition = request
             .definition
             .as_option()

@@ -2,11 +2,11 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use axum::Json;
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::Router;
 use serde::{Deserialize, Serialize};
 use zoen_adapters::PostgresIdentityStore;
 use zoen_core::{
@@ -37,7 +37,10 @@ pub fn router(state: IdentityAdminState) -> Router {
         .route("/identity/admin/leave", post(leave_membership))
         .route("/identity/admin/plan-merge", post(plan_merge))
         .route("/identity/admin/commit-merge", post(commit_merge))
-        .route("/identity/admin/accounts/{account_id}", get(snapshot_account))
+        .route(
+            "/identity/admin/accounts/{account_id}",
+            get(snapshot_account),
+        )
         .route("/identity/admin/bootstrap-bound", post(bootstrap_bound))
         .route("/identity/admin/resolve-context", get(resolve_context))
         .with_state(Arc::new(state))
@@ -221,11 +224,7 @@ async fn verify_binding(
         .verify_binding(account_id, BindingProof::HarnessVerified)
         .await
     {
-        Ok(binding) => (
-            StatusCode::OK,
-            Json(binding_json(&binding)),
-        )
-            .into_response(),
+        Ok(binding) => (StatusCode::OK, Json(binding_json(&binding))).into_response(),
         Err(error) => identity_error(error),
     }
 }
@@ -242,7 +241,11 @@ async fn bind_verified(
         Ok(subject) => subject,
         Err(response) => return response,
     };
-    match state.identity.bind_verified_subject(account_id, subject).await {
+    match state
+        .identity
+        .bind_verified_subject(account_id, subject)
+        .await
+    {
         Ok(binding) => (StatusCode::OK, Json(binding_json(&binding))).into_response(),
         Err(error) => identity_error(error),
     }
@@ -364,7 +367,11 @@ async fn revoke_membership(
         Ok(reason) => reason,
         Err(error) => return identity_error(error),
     };
-    match state.identity.revoke_membership(membership_id, reason).await {
+    match state
+        .identity
+        .revoke_membership(membership_id, reason)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => identity_error(error),
     }
@@ -402,11 +409,7 @@ async fn plan_merge(
             Json(MergePlanJson {
                 survivor: plan.survivor.to_string(),
                 absorbed: plan.absorbed.to_string(),
-                move_bindings: plan
-                    .move_bindings
-                    .iter()
-                    .map(|id| id.to_string())
-                    .collect(),
+                move_bindings: plan.move_bindings.iter().map(|id| id.to_string()).collect(),
             }),
         )
             .into_response(),
@@ -491,7 +494,10 @@ async fn bootstrap_bound(
     let verified = match state.sessions.verify_bearer(authorization) {
         Ok(verified) => verified,
         Err(error) => {
-            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": error.to_string()})))
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": error.to_string()})),
+            )
                 .into_response();
         }
     };
@@ -577,7 +583,10 @@ async fn resolve_context(
     }
 }
 
-fn parse_subject(provider: &str, subject_key: &str) -> Result<ExternalSubject, axum::response::Response> {
+fn parse_subject(
+    provider: &str,
+    subject_key: &str,
+) -> Result<ExternalSubject, axum::response::Response> {
     let provider = ChannelProvider::parse(provider).map_err(identity_error_response)?;
     ExternalSubject::new(provider, subject_key.to_owned()).map_err(identity_error_response)
 }
@@ -676,7 +685,11 @@ fn identity_error_response(error: IdentityError) -> axum::response::Response {
         | IdentityError::PersonalExists => StatusCode::CONFLICT,
         _ => StatusCode::BAD_REQUEST,
     };
-    (status, Json(serde_json::json!({ "error": error.to_string() }))).into_response()
+    (
+        status,
+        Json(serde_json::json!({ "error": error.to_string() })),
+    )
+        .into_response()
 }
 
 fn bad_request(message: String) -> axum::response::Response {
