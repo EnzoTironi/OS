@@ -14,6 +14,9 @@
       "@zoen/ontology": [
         "./packages/ontology/src/index.ts"
       ],
+      "@zoen/pack": [
+        "./packages/pack/src/index.ts"
+      ],
       "@zoen/sdk": [
         "./packages/sdk/src/index.ts"
       ],
@@ -31,6 +34,7 @@
   },
   "include": [
     "e2e/**/*.ts",
-    "packages/**/*.ts"
+    "packages/**/*.ts",
+    "packs/**/*.ts"
   ]
 }

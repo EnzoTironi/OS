@@ -7,6 +7,7 @@ mod expression;
 mod history;
 mod identity;
 mod migration;
+mod pack;
 
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
@@ -38,6 +39,16 @@ pub use migration::{
     MigrationObligation, MigrationObligationSource, MigrationOrigin, MigrationPlan,
     MigrationPostcondition, MigrationProgress, MigrationRecipe, MigrationRecord, MigrationRule,
     MigrationRuleKind, MigrationStatus,
+};
+pub use pack::{
+    ActivatedDefinitionRef, CapabilityGrant, DegradationDecl, EvolutionAckDigest,
+    FirstSuccessContract, FirstSuccessContractId, FirstSuccessEval, FirstSuccessOutcome, GrantId,
+    GrantStatus, InstallId, InstallPhase, InstallPhaseKind, InstallReceipt, IntegrationKind,
+    IntegrationRequirement, Necessity, OntologyDependency, OntologyImpactLine,
+    OntologyImpactStatus, PACK_FORMAT_V1, PackDigest, PackError, PackId, PackManifest,
+    PackPresentation, PackUpdatePermissionDiff, PackVersion, PermissionImpactPreview,
+    PreviewDigest, PublicKeyId, PublisherId, PublisherIdentity, RequirementId,
+    RequirementImpactLine, Sensitivity, SignatureEvidence, required_grants_accepted,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

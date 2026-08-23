@@ -32,6 +32,7 @@ scenario_table=(
   "fiscal-plugnotas-live:fiscal-plugnotas-live:"
   "fiscal-protheus-live:fiscal-protheus-live:"
   "governed-action:governed-action:"
+  "pack-install:pack-install:"
   "rolling-upgrade::"
   "rpo-rto::"
   "scale-actions-v1::"
