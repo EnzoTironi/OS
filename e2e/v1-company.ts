@@ -16,13 +16,16 @@ import {
   ExecutionStatus,
 } from "../packages/sdk/src/gen/zoen/computation/v1/computation_pb.js";
 import { EvolutionClassification } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
-import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import {
+  EffectAttemptOutcome,
+  EffectAttemptReason,
+  EffectKnowledgeState,
+} from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
   QueryConsistencySchema,
   QuerySelectionSchema,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import { runLeakageGate, runLeakageMutant } from "./domain-inventory-procurement/support.js";
-import { waitForState } from "./effects/scenario.js";
 import { writeScenarioArtifact } from "./host-env.js";
 import {
   emptyManifest,
@@ -87,6 +90,7 @@ import {
   historyClient,
   loadComponentFixture,
   oidcToken,
+  passwordToken,
   publishDefinition,
   recordEvidence,
   repositoryRoot,
@@ -522,10 +526,6 @@ async function main(): Promise<void> {
         deniedOutcome === Code.PermissionDenied,
     );
     inject("denied-principal-direct-propose");
-    recordMutant(
-      "direct-agent-ui-action-bypass",
-      "denied-a propose of commercial.createCommitment returned PermissionDenied",
-    );
 
     await recordEvidence(worldA, {
       claimId: "claim.inventory.wms",
@@ -1034,49 +1034,70 @@ async function main(): Promise<void> {
     );
 
     const effectId = reserved.receipt?.effectRequestIds[0];
-    if (effectId !== undefined) {
-      const snapshot = await waitForState(
-        effectA,
-        effectId,
+    assert.ok(effectId, "reservation commit must emit an effect request");
+    const workerToken = await oidcToken("effect-worker-a");
+    const workerEffect = effectClient(workerToken);
+    const currentEffect = await withAuthorityStoreRetry(() =>
+      effectA.getEffect({ effectRequestId: effectId }),
+    );
+    const currentState = currentEffect.snapshot?.request?.state;
+    if (
+      currentState === EffectKnowledgeState.NOT_ATTEMPTED ||
+      currentState === EffectKnowledgeState.DEFINITELY_NOT_SENT
+    ) {
+      const forced = await withAuthorityStoreRetry(() =>
+        workerEffect.claimAttempt({
+          adapterExecutionId: "adapter.company.unknown-force",
+          effectRequestId: effectId,
+        }),
+      );
+      const forcedAttemptId = forced.claim?.attemptId;
+      assert.ok(forcedAttemptId, "worker must claim before forcing UNKNOWN");
+      inject("effect-timeout-after-possible-delivery");
+      await withAuthorityStoreRetry(() =>
+        workerEffect.recordAttempt({
+          attempt: {
+            attemptId: forcedAttemptId,
+            observedAt: timestampFromDate(new Date()),
+            outcome: EffectAttemptOutcome.UNKNOWN,
+            providerOperationId: "provider.timeout-after-delivery",
+            reason: EffectAttemptReason.TIMEOUT_AFTER_POSSIBLE_DELIVERY,
+          },
+          effectRequestId: effectId,
+        }),
+      );
+    } else {
+      assert.equal(
+        currentState,
         EffectKnowledgeState.UNKNOWN,
-      ).catch(() => undefined);
-      if (snapshot !== undefined) {
-        inject("effect-timeout-after-possible-delivery");
-        await expectConnectCode(
-          () =>
-            withAuthorityStoreRetry(() =>
-              effectA.recordAttempt({
-                attempt: {
-                  attemptId: "attempt.blind-retry",
-                  outcome: 1,
-                  providerOperationId: "retry",
-                },
-                effectRequestId: effectId,
-              }),
-            ),
-          Code.FailedPrecondition,
-        ).catch(async () => {
-          await expectConnectCode(
-            () =>
-              withAuthorityStoreRetry(() =>
-                actionInventoryA.commit({
-                  operationId: readyReserve.operationId,
-                  proposalId: readyReserve.proposalId,
-                }),
-              ),
-            Code.AlreadyExists,
-          );
-        });
-        recordMutant(
-          "unsafe-retry-of-unknown-effect",
-          "unknown effect rejected a blind retry and left the business action committed",
-        );
-        observe(
-          "unknownEffectDoesNotRerunBusinessAction",
-          reserved.status === CommitStatus.COMMITTED,
-        );
-      }
+        `reservation effect must be claimable or UNKNOWN, got ${String(currentState)}`,
+      );
+      inject("effect-timeout-after-possible-delivery");
     }
+    await expectConnectCode(
+      () =>
+        withAuthorityStoreRetry(() =>
+          workerEffect.claimAttempt({
+            adapterExecutionId: "adapter.company.blind-retry",
+            effectRequestId: effectId,
+          }),
+        ),
+      Code.FailedPrecondition,
+    );
+    const stillCommitted = await withAuthorityStoreRetry(() =>
+      actionInventoryA.getOperationStatus({
+        operationId: readyReserve.operationId,
+      }),
+    );
+    observe(
+      "unknownEffectDoesNotRerunBusinessAction",
+      stillCommitted.status === CommitStatus.COMMITTED &&
+        stillCommitted.receipt?.operationId === reserved.receipt?.operationId,
+    );
+    recordMutant(
+      "unsafe-retry-of-unknown-effect",
+      "unknown effect rejected a blind claimAttempt and left the business action committed",
+    );
 
     const program = await loadComponentFixture("program");
     const publishedWasm = await publish(computationA, program);
@@ -1090,11 +1111,10 @@ async function main(): Promise<void> {
       "execution.company.pure",
       "pure",
       emptyManifest(),
-    ).catch(() => undefined);
+    );
     observe(
       "wasmExecutionObserved",
-      executed === undefined ||
-        executed.status === ExecutionStatus.COMPLETED ||
+      executed.status === ExecutionStatus.COMPLETED ||
         executed.status === ExecutionStatus.CAPABILITY_DENIED,
     );
 
@@ -1141,9 +1161,39 @@ async function main(): Promise<void> {
           (config ?? "").includes("definitionId"),
       );
       await page.goto(webOrigin, { waitUntil: "domcontentloaded" });
+      const deniedToken = await passwordToken("web-denied.a");
       const deniedPage = await browser.newPage();
       await deniedPage.goto(webOrigin, { waitUntil: "domcontentloaded" });
-      observe("uiLoadsWithoutBypassingAuthority", true);
+      await deniedPage.evaluate((accessToken) => {
+        sessionStorage.setItem("zoen.web.access-token.v1", accessToken);
+      }, deniedToken);
+      await deniedPage.reload({ waitUntil: "domcontentloaded" });
+      await deniedPage.locator("main").waitFor({ timeout: 120_000 });
+      const deniedBody = await deniedPage.locator("body").innerText();
+      const proposeButtons = deniedPage.getByRole("button", {
+        name: "Propose Action",
+      });
+      const proposeCount = await proposeButtons.count();
+      let proposeEnabled = false;
+      for (let index = 0; index < proposeCount; index += 1) {
+        if (await proposeButtons.nth(index).isEnabled()) {
+          proposeEnabled = true;
+          break;
+        }
+      }
+      const denySurface =
+        /no longer available|Server denied|Surface unavailable|did not return an available capability|PermissionDenied|permission denied/iu.test(
+          deniedBody,
+        ) ||
+        (await deniedPage.locator('[role="alert"]').count()) > 0;
+      observe(
+        "uiLoadsWithoutBypassingAuthority",
+        !proposeEnabled && denySurface,
+      );
+      recordMutant(
+        "direct-agent-ui-action-bypass",
+        "web-denied.a UI kept Propose Action disabled and showed an authority deny/unavailable surface",
+      );
     } finally {
       await browser.close();
     }
