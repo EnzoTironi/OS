@@ -1,7 +1,9 @@
 import {
   DEFAULT_FIRST_SUCCESS_CONTRACT_ID,
+  type AmbiguityQuestionId,
   type FirstSuccessContractId,
 } from "./brands.js";
+import { questionFromRecord, type AmbiguityRecord } from "./ambiguity-record.js";
 import type {
   GoalContract,
   MissingCapability,
@@ -66,14 +68,33 @@ function hasHealthyReadSource(observed: ObservedCapabilities): boolean {
   );
 }
 
+export type AmbiguityLookup =
+  | ReadonlyMap<AmbiguityQuestionId, AmbiguityRecord>
+  | ((id: AmbiguityQuestionId) => AmbiguityRecord | undefined);
+
+function lookupAmbiguity(
+  lookup: AmbiguityLookup | undefined,
+  questionId: AmbiguityQuestionId,
+): AmbiguityRecord | undefined {
+  if (lookup === undefined) {
+    return undefined;
+  }
+  if (typeof lookup === "function") {
+    return lookup(questionId);
+  }
+  return lookup.get(questionId);
+}
+
 /**
  * Exactly one MissingCapability (or ready / done / blocked).
  * Priority: identity → workspace → read_source → ambiguity → ready.
  * write_scope never emitted for the default read contract.
+ * Ambiguity prompts come from AmbiguityRecord when a lookup is provided.
  */
 export function planNext(
   session: OnboardingSession,
   observed: ObservedCapabilities,
+  ambiguityLookup?: AmbiguityLookup,
 ): PlanNextResult {
   if (session.firstSuccess !== null) {
     return { kind: "first_success", record: session.firstSuccess };
@@ -168,6 +189,10 @@ export function planNext(
 
   if (session.unresolvedQuestions.length > 0) {
     const questionId = session.unresolvedQuestions[0]!;
+    const record = lookupAmbiguity(ambiguityLookup, questionId);
+    if (record !== undefined) {
+      return { kind: "ask", missing: questionFromRecord(record) };
+    }
     return {
       kind: "ask",
       missing: {

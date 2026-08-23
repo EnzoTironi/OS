@@ -21,6 +21,11 @@ export type SourceConnectionId = Brand<string, "SourceConnectionId">;
 export type FirstSuccessContractId = Brand<string, "FirstSuccessContractId">;
 export type InviteId = Brand<string, "InviteId">;
 export type AmbiguityQuestionId = Brand<string, "AmbiguityQuestionId">;
+export type MappingArtifactId = Brand<string, "MappingArtifactId">;
+export type MappingRevision = Brand<string, "MappingRevision">;
+export type AmbiguityRecordId = Brand<string, "AmbiguityRecordId">;
+export type AmbiguityCandidateId = Brand<string, "AmbiguityCandidateId">;
+export type ShadowDecisionId = Brand<string, "ShadowDecisionId">;
 
 export function goalDigest(value: string): GoalDigest {
   if (!/^[0-9a-f]{64}$/.test(value)) {
@@ -59,6 +64,26 @@ export function inviteId(value: string): InviteId {
 
 export function ambiguityQuestionId(value: string): AmbiguityQuestionId {
   return brandString(value, "AmbiguityQuestionId");
+}
+
+export function mappingArtifactId(value: string): MappingArtifactId {
+  return brandString(value, "MappingArtifactId");
+}
+
+export function mappingRevision(value: string): MappingRevision {
+  return brandString(value, "MappingRevision");
+}
+
+export function ambiguityRecordId(value: string): AmbiguityRecordId {
+  return brandString(value, "AmbiguityRecordId");
+}
+
+export function ambiguityCandidateId(value: string): AmbiguityCandidateId {
+  return brandString(value, "AmbiguityCandidateId");
+}
+
+export function shadowDecisionId(value: string): ShadowDecisionId {
+  return brandString(value, "ShadowDecisionId");
 }
 
 export const DEFAULT_FIRST_SUCCESS_CONTRACT_ID = firstSuccessContractId(
