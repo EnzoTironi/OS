@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 mod effect;
 mod expression;
 mod history;
+mod human;
 mod identity;
 mod migration;
 mod pack;
@@ -26,6 +27,13 @@ pub use history::{
     EffectDispatchEvidence, EffectDispatchOutcome, EvidenceClass, ExplanationGap,
     ExplanationPayload, ExplanationSubject, ExplanationTarget, GapReason, PayloadRedaction,
     PolicyDecisionEvidence, PolicyDecisionStage, RedactionReason, StateBasisStage,
+};
+pub use human::{
+    ArtifactRef, DisclosureClass, EffectPayloadKind, EvidenceFieldSpec,
+    HUMAN_TASK_INSTRUCTION_MAX_CHARS, HUMAN_TASK_SCHEMA_VERSION, HumanContactRef,
+    HumanExecutorClass, HumanInputValue, HumanTaskBounds, HumanTaskContract, HumanTaskError,
+    HumanTaskPacket, OperatorReport, ReconciliationPolicy, map_operator_report,
+    project_human_task_packet_from_contract, validate_human_task_contract,
 };
 pub use identity::{
     AccountMergePlan, AccountStatus, BindingProof, BindingStatus, ChannelProvider,

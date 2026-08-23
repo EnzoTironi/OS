@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -5,10 +6,11 @@ use sha2::{Digest, Sha256};
 use zoen_core::{
     EffectAttempt, EffectAttemptId, EffectAttemptResult, EffectEvidence, EffectEvidenceDigest,
     EffectEvidenceId, EffectEvidenceOutcome, EffectIdempotencyKey, EffectKnowledgeState,
-    EffectRequest, EffectRequestId, EffectSnapshot, ExecutionContext, ProviderOperationId,
-    SourceId, TimestampMicros, WorkloadId,
+    EffectRequest, EffectRequestId, EffectSnapshot, ExecutionContext, HumanTaskError,
+    ProviderOperationId, SourceId, TimestampMicros, WorkloadId,
 };
 
+use crate::human::{is_human_task_payload, parse_human_task_contract};
 use crate::{AuthorityStore, StoreError};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -98,6 +100,8 @@ pub trait EffectUpdateTransaction: Send {
         adapter_execution_id: &str,
     ) -> Result<Option<EffectAttemptId>, StoreError>;
 
+    async fn open_claim(&mut self) -> Result<Option<(String, EffectAttemptId)>, StoreError>;
+
     async fn commit_claim(
         self,
         adapter_execution_id: &str,
@@ -122,6 +126,7 @@ pub trait EffectUpdateTransaction: Send {
 }
 
 pub struct EffectEngine<S> {
+    allowed_executor_workloads: BTreeSet<WorkloadId>,
     reconciler_workload_id: WorkloadId,
     store: S,
     worker_workload_id: WorkloadId,
@@ -137,10 +142,19 @@ where
         reconciler_workload_id: WorkloadId,
     ) -> Self {
         Self {
+            allowed_executor_workloads: BTreeSet::new(),
             reconciler_workload_id,
             store,
             worker_workload_id,
         }
+    }
+
+    pub fn with_allowed_executor_workloads(
+        mut self,
+        allowed_executor_workloads: BTreeSet<WorkloadId>,
+    ) -> Self {
+        self.allowed_executor_workloads = allowed_executor_workloads;
+        self
     }
 
     pub async fn get(
@@ -160,7 +174,6 @@ where
         effect_request_id: &EffectRequestId,
         command: EffectAttemptClaimCommand,
     ) -> Result<EffectAttemptClaim, EffectError> {
-        self.require_worker(context)?;
         if command.adapter_execution_id.is_empty() {
             return Err(EffectError::InvalidEvidence(
                 "adapter execution id is empty".to_owned(),
@@ -172,6 +185,10 @@ where
             .await
             .map_err(EffectError::Store)?;
         let request = transaction.snapshot().request.clone();
+        self.require_attempt_authority(context, &request)?;
+        if is_human_task_payload(&request.payload) {
+            refuse_expired_human_task(&request, TimestampMicros::new(now_micros()))?;
+        }
         if let Some(attempt_id) = transaction
             .claimed_attempt(&command.adapter_execution_id)
             .await
@@ -182,6 +199,16 @@ where
                 attempt_id,
                 request,
             });
+        }
+        if is_human_task_payload(&request.payload) {
+            if let Some((existing_adapter, _)) =
+                transaction.open_claim().await.map_err(EffectError::Store)?
+            {
+                if existing_adapter != command.adapter_execution_id {
+                    transaction.rollback().await.map_err(EffectError::Store)?;
+                    return Err(EffectError::AttemptIdentityConflict);
+                }
+            }
         }
         if !matches!(
             request.state,
@@ -211,13 +238,25 @@ where
         effect_request_id: &EffectRequestId,
         command: EffectAttemptCommand,
     ) -> Result<EffectSnapshot, EffectError> {
-        self.require_worker(context)?;
         let mut transaction = self
             .store
             .begin_effect_update(context, effect_request_id)
             .await
             .map_err(EffectError::Store)?;
         let snapshot = transaction.snapshot().clone();
+        self.require_attempt_authority(context, &snapshot.request)?;
+        if is_human_executor_workload(self, context)
+            && matches!(
+                command.result,
+                EffectAttemptResult::Confirmed { .. }
+                    | EffectAttemptResult::ConfirmedNoEffect { .. }
+            )
+        {
+            transaction.rollback().await.map_err(EffectError::Store)?;
+            return Err(EffectError::InvalidEvidence(
+                "human executor cannot record confirmed outcomes".to_owned(),
+            ));
+        }
         if let Some(existing) = snapshot
             .attempts
             .iter()
@@ -308,8 +347,21 @@ where
             .map_err(EffectError::Store)
     }
 
-    fn require_worker(&self, context: &ExecutionContext) -> Result<(), EffectError> {
-        if context.workload_id() == &self.worker_workload_id {
+    fn require_attempt_authority(
+        &self,
+        context: &ExecutionContext,
+        request: &EffectRequest,
+    ) -> Result<(), EffectError> {
+        if is_human_task_payload(&request.payload) {
+            if self
+                .allowed_executor_workloads
+                .contains(context.workload_id())
+            {
+                Ok(())
+            } else {
+                Err(EffectError::ForbiddenWorkload)
+            }
+        } else if context.workload_id() == &self.worker_workload_id {
             Ok(())
         } else {
             Err(EffectError::ForbiddenWorkload)
@@ -323,6 +375,33 @@ where
             Err(EffectError::ForbiddenWorkload)
         }
     }
+}
+
+fn is_human_executor_workload<S>(engine: &EffectEngine<S>, context: &ExecutionContext) -> bool {
+    engine
+        .allowed_executor_workloads
+        .contains(context.workload_id())
+}
+
+fn refuse_expired_human_task(
+    request: &EffectRequest,
+    now: TimestampMicros,
+) -> Result<(), EffectError> {
+    let contract = parse_human_task_contract(&request.payload)
+        .map_err(|error| EffectError::InvalidEvidence(error.to_string()))?;
+    if now.get() > contract.expiry.get() {
+        return Err(EffectError::InvalidEvidence(
+            HumanTaskError::Expired.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn now_micros() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| i64::try_from(duration.as_micros()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
 }
 
 pub fn effect_state_after_attempt(
