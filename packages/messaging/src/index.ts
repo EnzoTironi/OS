@@ -25,6 +25,7 @@ export { createFakeLinqProvider } from "./adapters/linq-fake.js";
 export { createFakeWhatsAppBusinessProvider } from "./adapters/whatsapp-business-fake.js";
 export {
   createMessagingGateway,
+  ProviderDisabledError,
   type MessagingGateway,
   type MessagingGatewayOptions,
 } from "./gateway.js";

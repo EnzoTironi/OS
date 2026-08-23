@@ -20,6 +20,16 @@ import {
 } from "./capability-probes.js";
 import type { ChatSdkOutbound, ChatSdkShapedAdapter } from "./chat-sdk-shape.js";
 
+export class ProviderDisabledError extends Error {
+  readonly provider: string;
+
+  constructor(provider: string) {
+    super(`provider ${provider} disabled`);
+    this.name = "ProviderDisabledError";
+    this.provider = provider;
+  }
+}
+
 export interface MessagingGateway {
   acceptProviderEvent(
     provider: ProviderKey,
@@ -27,6 +37,9 @@ export interface MessagingGateway {
   ): Promise<InboundInteraction>;
   deliver(intent: DeliveryIntent): Promise<DeliveryObservation>;
   capabilities(provider: ProviderKey): ChannelPresentationCapability;
+  disableProvider(provider: ProviderKey): void;
+  enableProvider(provider: ProviderKey): void;
+  isProviderEnabled(provider: ProviderKey): boolean;
 }
 
 export interface MessagingGatewayOptions {
@@ -39,10 +52,23 @@ export function createMessagingGateway(
 ): MessagingGateway {
   const now = options.now ?? (() => new Date());
   const deliverySeen = new Map<string, DeliveryObservation>();
+  const disabled = new Set<string>();
 
   return {
+    disableProvider(provider) {
+      disabled.add(String(provider));
+    },
+
+    enableProvider(provider) {
+      disabled.delete(String(provider));
+    },
+
+    isProviderEnabled(provider) {
+      return !disabled.has(String(provider));
+    },
+
     async acceptProviderEvent(provider, raw) {
-      const adapter = requireAdapter(options.providers, provider);
+      const adapter = requireAdapter(options.providers, provider, disabled);
       const message = adapter.parseInbound(raw);
       const body = mapBody(message);
       const audience = mapAudience(provider, raw);
@@ -70,7 +96,11 @@ export function createMessagingGateway(
       if (existing !== undefined) {
         return existing;
       }
-      const adapter = requireAdapter(options.providers, intent.provider);
+      const adapter = requireAdapter(
+        options.providers,
+        intent.provider,
+        disabled,
+      );
       const needs = presentationNeeds(intent);
       const degrade = firstUnsupported(adapter, needs);
       const text = `presentation:${String(intent.presentation)}`;
@@ -145,7 +175,7 @@ export function createMessagingGateway(
     },
 
     capabilities(provider) {
-      const adapter = requireAdapter(options.providers, provider);
+      const adapter = requireAdapter(options.providers, provider, disabled);
       return projectPresentationCaps(adapter.probes);
     },
   };
@@ -233,13 +263,18 @@ function buildOutcome(
 function requireAdapter(
   providers: Readonly<Record<string, ChatSdkShapedAdapter>>,
   provider: ProviderKey,
+  disabled: ReadonlySet<string>,
 ): ChatSdkShapedAdapter {
-  const adapter = providers[String(provider)];
+  const key = String(provider);
+  if (disabled.has(key)) {
+    throw new ProviderDisabledError(key);
+  }
+  const adapter = providers[key];
   if (adapter === undefined) {
-    throw new Error(`unknown provider ${String(provider)}`);
+    throw new Error(`unknown provider ${key}`);
   }
   if (adapter.probes === undefined) {
-    throw new Error(`provider ${String(provider)} missing CapabilityProbes`);
+    throw new Error(`provider ${key} missing CapabilityProbes`);
   }
   return adapter;
 }
