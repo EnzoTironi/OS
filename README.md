@@ -6,9 +6,13 @@ Humans, agents, and software operate the same organization through the same gove
 
 ## Demo
 
-Run the Sample Company path below for a real production-shaped walkthrough (at-risk stock, propose, approve).
+Three production-shaped entry demos are documented in `docs/demos/README.md`:
 
-A recorded 45 to 90 second product video, live conversation entry, and the messy-data entry from #258 are still open on #267. Until those land, use `docs/demos/README.md` for the runnable demo script. Do not expect a fake chat widget or a marketing-only backend.
+1. **Five-minute company.** Sample Company walkthrough (`just e2e activation-sample`).
+2. **Agent safely acts.** Real model harness and governed Action (`just e2e agent-capabilities-live`).
+3. **Your messy data.** Read-only source to mapping ambiguity to Shadow recommendation (`just e2e company-bootstrap-shadow`).
+
+A recorded 45 to 90 second product video and live conversation entry remain open on #267. Do not expect a fake chat widget or a marketing-only backend.
 
 ## Quickstart
 
@@ -56,7 +60,7 @@ Packs ship outcomes, not module names.
 
 Each Pack should answer what it does for the company, who published it, which integrations or data it needs, high-level permissions, how FirstSuccess looks, and how to install or share it.
 
-The public Pack directory and install/share links land with #260. Until that registry ships, treat Packs as the outcome-shaped install unit already proven by Pack install receipts, and prefer outcome language over internal crate names when you describe one.
+Outcome-first directory copy lives in `docs/product/pack-directory.md`. Install and share resolve through the signed Pack registry from #260 (`just e2e pack-registry`). Kitchen authoring (#264) is still in flight. Full marketplace commerce is out of scope.
 
 ## Why not LLM + tools
 

@@ -123,13 +123,48 @@ async function main(): Promise<void> {
     path.join(repositoryRoot, "docs/demos/README.md"),
     "utf8",
   );
+  const demoHeadings = extractH2Headings(demoGuide);
+  const requiredDemoHeadings = [
+    "Five-minute company",
+    "Agent safely acts",
+    "Your messy data",
+  ] as const;
+  for (const heading of requiredDemoHeadings) {
+    record(`demo_heading_${heading}`, demoHeadings.includes(heading));
+  }
   record(
     "demo_guide_points_at_sample_company",
     /just start/.test(demoGuide) && /activation-sample/.test(demoGuide),
   );
   record(
+    "demo_guide_names_agent_capabilities_live",
+    /agent-capabilities-live/.test(demoGuide),
+  );
+  record(
+    "demo_guide_names_company_bootstrap_shadow",
+    /company-bootstrap-shadow/.test(demoGuide),
+  );
+  record(
     "demo_guide_names_remaining_gaps",
-    /#258/.test(demoGuide) || /recorded/i.test(demoGuide),
+    /#273/.test(demoGuide) || /recorded/i.test(demoGuide),
+  );
+
+  const packsDirectory = await readFile(
+    path.join(repositoryRoot, "docs/product/pack-directory.md"),
+    "utf8",
+  );
+  record(
+    "pack_directory_outcome_first",
+    /outcome/i.test(packsDirectory) && /#260/.test(packsDirectory),
+  );
+  record(
+    "pack_directory_names_kitchen_in_flight",
+    /#264/.test(packsDirectory) && /in flight/i.test(packsDirectory),
+  );
+  record(
+    "pack_directory_rejects_marketplace_commerce",
+    /marketplace commerce/i.test(packsDirectory) &&
+      /out of scope/i.test(packsDirectory),
   );
 
   const productGuide = await readFile(
