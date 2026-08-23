@@ -1,5 +1,6 @@
 #![allow(refining_impl_trait)]
 
+use std::collections::BTreeSet;
 use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
@@ -102,12 +103,15 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         env::var("ZOEN_EFFECT_RECONCILER_WORKLOAD_ID")
             .unwrap_or_else(|_| "workload.effect-reconciler".to_owned()),
     )?;
+    let human_executor_workloads =
+        parse_workload_set(env::var("ZOEN_HUMAN_EXECUTOR_WORKLOAD_IDS").unwrap_or_default())?;
     let effect_service = EffectServiceImpl::new(
         EffectEngine::new(
             store.clone(),
             effect_worker_workload,
             effect_reconciler_workload,
-        ),
+        )
+        .with_allowed_executor_workloads(human_executor_workloads),
         sessions.clone(),
     );
     let history_service =
@@ -179,4 +183,16 @@ async fn shutdown_signal() {
         () = ctrl_c => {}
         () = terminate => {}
     }
+}
+
+fn parse_workload_set(value: String) -> Result<BTreeSet<WorkloadId>, Box<dyn Error + Send + Sync>> {
+    let mut workloads = BTreeSet::new();
+    for part in value.split(',') {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        workloads.insert(WorkloadId::parse(trimmed)?);
+    }
+    Ok(workloads)
 }

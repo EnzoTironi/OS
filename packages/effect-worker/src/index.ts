@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
   EffectAttemptOutcome,
   EffectAttemptReason,
+  EffectKnowledgeState,
   EffectService,
 } from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
 
@@ -174,6 +175,52 @@ const zoenEffect = restate.object({
         );
       }
       const client = effectClient(command.tenantId);
+      const payloadKind = await context.run(
+        "inspect effect payload class",
+        async (): Promise<"human" | "external" | "missing"> => {
+          try {
+            const response = await client.getEffect({
+              effectRequestId: command.effectRequestId,
+            });
+            const payload = response.snapshot?.request?.payload;
+            if (payload === undefined) {
+              return "missing";
+            }
+            return isHumanTaskPayload(payload) ? "human" : "external";
+          } catch (error: unknown) {
+            if (
+              error instanceof ConnectError &&
+              (error.code === Code.NotFound ||
+                error.code === Code.PermissionDenied)
+            ) {
+              return "missing";
+            }
+            throw error;
+          }
+        },
+      );
+      if (payloadKind === "human") {
+        for (let round = 0; round < 120; round += 1) {
+          const state = await context.run(
+            `await human operator progress ${round}`,
+            async () => {
+              const response = await client.getEffect({
+                effectRequestId: command.effectRequestId,
+              });
+              return response.snapshot?.request?.state ?? 0;
+            },
+          );
+          if (state !== EffectKnowledgeState.NOT_ATTEMPTED) {
+            return;
+          }
+          await context.sleep(1_000);
+        }
+        return;
+      }
+      if (payloadKind === "missing") {
+        return;
+      }
+
       const claim = await context.run(
         "claim effect attempt",
         async (): Promise<AttemptClaim> => {
@@ -200,7 +247,8 @@ const zoenEffect = restate.object({
           } catch (error: unknown) {
             if (
               error instanceof ConnectError &&
-              error.code === Code.FailedPrecondition
+              (error.code === Code.FailedPrecondition ||
+                error.code === Code.PermissionDenied)
             ) {
               return { kind: "not_sendable" };
             }
@@ -240,6 +288,29 @@ const zoenEffect = restate.object({
     },
   },
 });
+
+function isHumanTaskPayload(payload: Uint8Array): boolean {
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(payload));
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("executorClass" in parsed) ||
+      !("schemaVersion" in parsed)
+    ) {
+      return false;
+    }
+    const record = parsed as {
+      executorClass?: unknown;
+      schemaVersion?: unknown;
+    };
+    return (
+      record.executorClass === "human_executor" && record.schemaVersion === 1
+    );
+  } catch {
+    return false;
+  }
+}
 
 function effectClient(tenantId: string) {
   const authorization: Interceptor = (next) => async (request) => {
