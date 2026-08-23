@@ -285,6 +285,8 @@ if [[ ! -f dist/e2e/v1-company.js || ! -f dist/e2e/v1-company/prepare.js ]]; the
   exit 1
 fi
 
+npx playwright install --with-deps chromium
+
 ensure_artifact_set
 install -m 0644 "${artifact_metadata}" "${artifacts_directory}/signed-oci.json"
 chart_version="$(metadata_value chartVersion)"
