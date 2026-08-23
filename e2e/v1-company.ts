@@ -126,21 +126,50 @@ function recordMutant(id: string, observation: string): void {
   mutants.push({ id, killed: true, observation });
 }
 
+function isAuthorityPoolTimeout(error: unknown): boolean {
+  return (
+    error instanceof ConnectError &&
+    (error.code === Code.Unavailable ||
+      error.code === Code.FailedPrecondition) &&
+    error.message.includes("pool timed out")
+  );
+}
+
+async function withAuthorityStoreRetry<T>(work: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      return await work();
+    } catch (error: unknown) {
+      if (!isAuthorityPoolTimeout(error) || Date.now() >= deadline) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
+}
+
 async function commitReady(
   client: ActionClient,
   request: ReturnType<typeof createCommitment>,
 ) {
-  const proposed = await client.propose(request);
-  assert.equal(proposed.decision, PolicyDecision.PERMIT, request.actionId);
-  assert.equal(proposed.proposal?.status, ProposalStatus.READY, request.actionId);
-  assert.ok(proposed.proposal);
-  const committed = await client.commit({
-    operationId: request.operationId,
-    proposalId: request.proposalId,
+  return withAuthorityStoreRetry(async () => {
+    const proposed = await client.propose(request);
+    assert.equal(proposed.decision, PolicyDecision.PERMIT, request.actionId);
+    assert.equal(
+      proposed.proposal?.status,
+      ProposalStatus.READY,
+      request.actionId,
+    );
+    assert.ok(proposed.proposal);
+    const committed = await client.commit({
+      operationId: request.operationId,
+      proposalId: request.proposalId,
+    });
+    assert.equal(committed.status, CommitStatus.COMMITTED, request.actionId);
+    assert.ok(committed.receipt);
+    return { proposal: proposed.proposal, receipt: committed.receipt };
   });
-  assert.equal(committed.status, CommitStatus.COMMITTED, request.actionId);
-  assert.ok(committed.receipt);
-  return { proposal: proposed.proposal, receipt: committed.receipt };
 }
 
 async function kubectl(args: readonly string[]): Promise<string> {
@@ -377,8 +406,12 @@ async function main(): Promise<void> {
 
   try {
     for (const fixture of Object.values(fixtures)) {
-      await publishDefinition(definitionA, tenantA, fixture);
-      await publishDefinition(definitionB, tenantB, fixture);
+      await withAuthorityStoreRetry(() =>
+        publishDefinition(definitionA, tenantA, fixture),
+      );
+      await withAuthorityStoreRetry(() =>
+        publishDefinition(definitionB, tenantB, fixture),
+      );
     }
     const initial = Object.values(fixtures).filter(
       (fixture) =>
