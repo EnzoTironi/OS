@@ -7,7 +7,13 @@ import { S3Client } from "@aws-sdk/client-s3";
 import * as restate from "@restatedev/restate-sdk";
 import { Pool } from "pg";
 import { z } from "zod";
-import { CompanyBrainContextAssembler } from "./context.js";
+import {
+  createTrustTaggedAssembler,
+  HistoryContextSource,
+  KnowledgeContextSource,
+  TrustTaggedAgentContextAssembler,
+  WorldContextSource,
+} from "./context.js";
 import {
   defaultEmbeddingModelPath,
   defaultEmbeddingRoute,
@@ -142,7 +148,15 @@ await restate.serve({
     createAgentSessionService(
       {
         authority: connected.authority,
-        contextAssembler: new CompanyBrainContextAssembler(brain),
+        contextAssembler: new TrustTaggedAgentContextAssembler(
+          createTrustTaggedAssembler({
+            sources: [
+              new KnowledgeContextSource(brain),
+              new WorldContextSource(connected.authority),
+              new HistoryContextSource(connected.authority),
+            ],
+          }),
+        ),
         registry,
       },
       connected.trustedContext,

@@ -1,0 +1,12 @@
+CREATE EXTENSION vector;
+
+CREATE ROLE zoen_app
+    LOGIN
+    PASSWORD 'zoen_app'
+    NOSUPERUSER
+    NOCREATEDB
+    NOCREATEROLE
+    NOINHERIT;
+
+GRANT CONNECT ON DATABASE zoen TO zoen_app;
+GRANT ALL ON SCHEMA public TO zoen_app;

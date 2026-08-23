@@ -304,6 +304,7 @@ export interface PlanningRequest {
   readonly instruction: string;
   readonly knowledge?: KnowledgeContext;
   readonly queries: readonly QueryContext[];
+  readonly assembled?: import("./context-source.js").AssembledContext;
 }
 
 export type PlanningRejectionReason =
