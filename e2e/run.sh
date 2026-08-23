@@ -15,6 +15,7 @@ scenario_table=(
   "activation-metrics:activation-metrics:"
   "messaging-boundary:messaging-boundary:"
   "messaging-conformance:messaging-conformance:"
+  "channel-provider-substitution:channel-provider-substitution:"
   "activation-sample::"
   "agent-capabilities-live:agent-capabilities-live:"
   "backup-restore::"
