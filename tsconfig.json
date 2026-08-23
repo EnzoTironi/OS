@@ -22,6 +22,12 @@
       ],
       "@zoen/surface": [
         "./packages/surface/src/index.ts"
+      ],
+      "@zoen/interaction": [
+        "./packages/interaction/src/index.ts"
+      ],
+      "@zoen/messaging": [
+        "./packages/messaging/src/index.ts"
       ]
     },
     "rootDir": ".",

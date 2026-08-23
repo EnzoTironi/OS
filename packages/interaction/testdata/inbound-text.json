@@ -1,0 +1,17 @@
+{
+  "idempotencyKey": "telegram:update:1001",
+  "channel": {
+    "provider": "telegram",
+    "providerUser": "tg_user_42",
+    "thread": "tg_chat_99",
+    "message": "tg_msg_1001",
+    "receivedAt": "2026-08-23T12:00:00.000Z"
+  },
+  "body": {
+    "kind": "text",
+    "text": "hello"
+  },
+  "audienceObservation": {
+    "kind": "dm"
+  }
+}
