@@ -4,7 +4,7 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { Code, type Client } from "@connectrpc/connect";
+import { Code, ConnectError, type Client } from "@connectrpc/connect";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import {
@@ -45,6 +45,39 @@ import {
   type WorldClient,
 } from "./effects/support.js";
 import { historyClient } from "./explain/support.js";
+
+function isCliTransportFailure(error: unknown): boolean {
+  if (error instanceof ConnectError) {
+    return true;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const errno = (error as NodeJS.ErrnoException).code;
+  if (
+    errno === "EPIPE" ||
+    errno === "ECONNRESET" ||
+    errno === "ECONNREFUSED"
+  ) {
+    return true;
+  }
+  return /write EPIPE|ECONNRESET|ECONNREFUSED/.test(error.message);
+}
+
+function exitCliTransportFailure(error: unknown): never {
+  const message =
+    error instanceof Error
+      ? (error.stack ?? error.message)
+      : String(error);
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
+process.on("uncaughtException", (error) => {
+  // Connect-node can emit write EPIPE off the awaited promise path.
+  // Exit 1 so bash expect_nonzero / retry loops see a normal failure.
+  exitCliTransportFailure(error);
+});
 
 const environment = z
   .object({
@@ -158,22 +191,29 @@ if (mode === "canary") {
 if (mode === "propose" || mode === "commit") {
   const targetOperationId = process.argv[3] ?? operationId;
   const targetProposalId = process.argv[4] ?? proposalId;
-  if (mode === "propose") {
-    const proposed = await propose(action, {
-      expiresAt: minutesFromNow(5),
-      fixture,
-      operationId: targetOperationId,
-      proposalId: targetProposalId,
-      quantity: "1",
-    });
-    assert.equal(proposed.decision, PolicyDecision.PERMIT);
-    assert.equal(proposed.proposal?.status, ProposalStatus.READY);
-  } else {
-    const committed = await action.commit({
-      operationId: targetOperationId,
-      proposalId: targetProposalId,
-    });
-    assert.equal(committed.status, CommitStatus.COMMITTED);
+  try {
+    if (mode === "propose") {
+      const proposed = await propose(action, {
+        expiresAt: minutesFromNow(5),
+        fixture,
+        operationId: targetOperationId,
+        proposalId: targetProposalId,
+        quantity: "1",
+      });
+      assert.equal(proposed.decision, PolicyDecision.PERMIT);
+      assert.equal(proposed.proposal?.status, ProposalStatus.READY);
+    } else {
+      const committed = await action.commit({
+        operationId: targetOperationId,
+        proposalId: targetProposalId,
+      });
+      assert.equal(committed.status, CommitStatus.COMMITTED);
+    }
+  } catch (error: unknown) {
+    if (isCliTransportFailure(error)) {
+      exitCliTransportFailure(error);
+    }
+    throw error;
   }
   process.stdout.write(`${targetOperationId}\n`);
   process.exit(0);

@@ -207,7 +207,13 @@ where
                      AND dispatch.effect_request_id = request.effect_request_id
                      AND dispatch.knowledge_commit_sequence = request.last_commit_sequence
                )
-             ORDER BY request.commit_sequence, request.effect_request_id
+             ORDER BY
+               CASE request.knowledge_state
+                 WHEN 'not_attempted' THEN 0
+                 ELSE 1
+               END,
+               request.commit_sequence,
+               request.effect_request_id
              LIMIT 1
              FOR UPDATE OF request SKIP LOCKED",
         )

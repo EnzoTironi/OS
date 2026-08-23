@@ -1165,8 +1165,9 @@ case "${drill}" in
       timeout 30 node dist/e2e/reliability.js commit \
       operation.reliability.network proposal.reliability.network
     restore_postgres_network
+    wait_for_application "${application_namespace}"
     retry_commit=0
-    for _ in $(seq 1 15); do
+    for _ in $(seq 1 30); do
       if run_semantic commit operation.reliability.network proposal.reliability.network; then
         retry_commit=1
         break
