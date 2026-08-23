@@ -7,7 +7,7 @@ import {
 import { z } from "zod";
 import {
   accountBrand,
-  getObserved,
+  loadObserved,
   onboardingStore,
 } from "../onboarding-server.js";
 
@@ -79,7 +79,7 @@ export const Route = createFileRoute("/api/onboarding/begin-grant")({
             digest: goalDigest(body.digest),
             accountId,
             missing: body.missing as MissingCapability,
-            observed: getObserved(body.accountId),
+            observed: await loadObserved(body.accountId),
             redirectUrlFor: (missing, operationId) => {
               const callback = new URL(
                 "/onboarding/auth/callback",

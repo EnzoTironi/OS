@@ -7,11 +7,13 @@ import {
   beginCapabilityGrant,
   captureGoal,
   createFileStore,
+  observeCapabilities,
   planNext,
   replaceGoal,
   resumeCapabilityGrant,
   resumeOnboarding,
   sourceConnectionId,
+  withReadSourceOverlay,
   zoenAccountId,
   type MissingCapability,
   type ObservedCapabilities,
@@ -20,10 +22,16 @@ import {
 import { e2ePort, writeScenarioArtifact } from "../host-env.js";
 import {
   admin,
+  enterpriseTenant,
   generatedDirectory,
+  knowledgeFragmentDigests,
+  liveObserved,
   oidcToken,
+  queryReceiptDigest,
   repositoryRoot,
+  runEnterpriseSemanticQuery,
   scenario,
+  seedEnterpriseQuerySurface,
   startServer,
   stopServer,
   storePath,
@@ -48,95 +56,36 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function provisionalObserved(): ObservedCapabilities {
-  return {
-    accountStatus: "provisional",
-    verifiedBindings: [],
-    memberships: [],
-    readSources: [],
-    queryReady: false,
-  };
-}
-
-function withIdentity(base: ObservedCapabilities): ObservedCapabilities {
-  return {
-    ...base,
-    accountStatus: "verified",
-    verifiedBindings: [{ provider: "web_oidc", bindingId: "binding.web.1" }],
-  };
-}
-
-function withPersonal(base: ObservedCapabilities): ObservedCapabilities {
-  return {
-    ...base,
-    memberships: [
-      {
-        membershipId: "membership.personal.1",
-        tenantId: "tenant.personal.1",
-        workspaceClass: "personal",
-        status: "active",
-      },
-    ],
-  };
-}
-
-function withEnterprise(
-  base: ObservedCapabilities,
-  tenantId: string,
-  membershipId: string,
-): ObservedCapabilities {
-  return {
-    ...base,
-    memberships: [
-      ...base.memberships.filter((m) => m.workspaceClass !== "enterprise"),
-      {
-        membershipId,
-        tenantId,
-        workspaceClass: "enterprise",
-        status: "active",
-      },
-    ],
-  };
-}
-
-function withReadSource(base: ObservedCapabilities): ObservedCapabilities {
-  return {
-    ...base,
-    readSources: [
-      {
-        connectionId: sourceConnectionId("source.sample.readonly"),
-        scope: "readonly",
-        status: "connected",
-      },
-    ],
-    queryReady: true,
-  };
-}
-
 async function runStory(): Promise<void> {
   const startedAt = new Date().toISOString();
   const policyManifestPath = path.join(generatedDirectory, "policies.json");
   await mkdir(generatedDirectory, { recursive: true });
-  await writePolicyManifest(policyManifestPath);
+  const fixture = await writePolicyManifest(policyManifestPath);
 
   const ports = {
     postgres: e2ePort("ZOEN_E2E_POSTGRES_PORT", 55_490),
     keycloak: e2ePort("ZOEN_E2E_KEYCLOAK_PORT", 58_550),
     zoend: e2ePort("ZOEN_E2E_ZOEND_PORT", 58_551),
   };
-  record("portsPinned", ports.postgres === 55_490 && ports.keycloak === 58_550 && ports.zoend === 58_551);
+  record(
+    "portsPinned",
+    ports.postgres === 55_490 &&
+      ports.keycloak === 58_550 &&
+      ports.zoend === 58_551,
+  );
 
   let server: ServerProcess | undefined;
   const store = createFileStore(storePath);
   const wording =
     "Show me which purchase lines are at risk this week for Sample Company";
   let accountId = zoenAccountId("account.provisional.onboarding");
-  let observed = provisionalObserved();
+  let observed: ObservedCapabilities = observeCapabilities({ snapshot: null });
   let session: OnboardingSession;
   let digest: string;
 
   try {
     server = await startServer(policyManifestPath);
+    await seedEnterpriseQuerySurface(fixture);
 
     session = await captureGoal({
       store,
@@ -148,6 +97,12 @@ async function runStory(): Promise<void> {
     record("outcomeFirstGoalCaptured", session.contract.wording === wording);
     record("goalDigestStable", /^[0-9a-f]{64}$/.test(session.digest));
 
+    observed = await liveObserved(String(accountId));
+    record(
+      "missingAccountObservesProvisional",
+      observed.accountStatus === "provisional" &&
+        observed.memberships.length === 0,
+    );
     let next = planNext(session, observed);
     record(
       "firstAskIsIdentity",
@@ -220,14 +175,18 @@ async function runStory(): Promise<void> {
       digest === preRestartDigest,
     );
 
-    observed = withIdentity(provisionalObserved());
-    next = planNext(session, observed);
+    observed = await liveObserved(String(accountId));
     record(
-      "afterIdentityAsksWorkspace",
-      next.kind === "ask" && next.missing.kind === "workspace",
+      "observedFromLiveIdentity",
+      observed.accountStatus === "verified" &&
+        observed.verifiedBindings.some((b) => b.provider === "web_oidc") &&
+        observed.memberships.some(
+          (m) =>
+            m.status === "active" &&
+            m.workspaceClass === "personal" &&
+            m.membershipId === personalMembershipId,
+        ),
     );
-
-    observed = withPersonal(observed);
     next = planNext(session, observed);
     record(
       "personalCannotSatisfyEnterprise",
@@ -236,9 +195,21 @@ async function runStory(): Promise<void> {
     );
     killMutant("personal_grants_enterprise_capability");
 
-    assert.equal(next.kind, "blocked");
-    observed = withIdentity(provisionalObserved());
+    const leftPersonal = await admin("POST", "/identity/admin/leave", {
+      membershipId: personalMembershipId,
+    });
+    assert.equal(
+      leftPersonal.status,
+      204,
+      JSON.stringify(leftPersonal.body),
+    );
+    observed = await liveObserved(String(accountId));
     next = planNext(session, observed);
+    record(
+      "afterLeavePersonalAsksWorkspace",
+      next.kind === "ask" && next.missing.kind === "workspace",
+    );
+
     assert.equal(next.kind, "ask");
     assert.equal(next.missing.kind, "workspace");
     beginGrantTrace.push(next.missing.kind);
@@ -312,7 +283,7 @@ async function runStory(): Promise<void> {
       expiresAtMicros: expiresAt,
       principalId: "principal.sample.enterprise",
       resourceIds: ["inventory.item.1"],
-      tenantId: "tenant.sample.enterprise",
+      tenantId: enterpriseTenant,
       token: inviteToken,
       workloadId: "workload.sample.enterprise",
     });
@@ -322,19 +293,25 @@ async function runStory(): Promise<void> {
       token: inviteToken,
     });
     assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
-    const enterpriseTenant = String(accepted.body.tenantId);
+    const acceptedTenant = String(accepted.body.tenantId);
     const enterpriseMembershipId = String(accepted.body.membershipId);
     const enterprisePrincipal = String(accepted.body.principalId);
     record(
       "enterpriseMembershipFromInvite",
-      enterpriseTenant === "tenant.sample.enterprise" &&
+      acceptedTenant === enterpriseTenant &&
         enterprisePrincipal === "principal.sample.enterprise",
     );
 
-    observed = withEnterprise(
-      withIdentity(provisionalObserved()),
-      enterpriseTenant,
-      enterpriseMembershipId,
+    observed = await liveObserved(String(accountId));
+    record(
+      "enterpriseObservedFromLiveMembership",
+      observed.memberships.some(
+        (m) =>
+          m.status === "active" &&
+          m.workspaceClass === "enterprise" &&
+          m.tenantId === enterpriseTenant &&
+          m.membershipId === enterpriseMembershipId,
+      ),
     );
     next = planNext(session, observed);
     record(
@@ -356,7 +333,10 @@ async function runStory(): Promise<void> {
       redirectUrlFor: () => "http://127.0.0.1/oauth/source",
     });
 
-    const sourceObserved = withReadSource(observed);
+    const sourceObserved = withReadSourceOverlay(
+      observed,
+      "source.sample.readonly",
+    );
     const resumedSource = await resumeCapabilityGrant({
       store: storeAfterRestart,
       digest: session.digest,
@@ -432,7 +412,20 @@ async function runStory(): Promise<void> {
     killMutant("connect_source_marks_first_success");
     killMutant("first_success_on_integration_connected");
 
-    const queryDigest = sha256(`query:${digest}:${enterpriseTenant}`);
+    const sampleEnterpriseToken = await oidcToken("sample-enterprise");
+    const queryResponse = await runEnterpriseSemanticQuery(
+      sampleEnterpriseToken,
+      fixture,
+    );
+    const queryDigest = queryReceiptDigest(queryResponse);
+    const fragmentDigests = knowledgeFragmentDigests(queryResponse);
+    record(
+      "liveSemanticQueryReceipt",
+      /^[0-9a-f]{64}$/.test(queryDigest) &&
+        queryResponse.values.length > 0 &&
+        queryDigest !== sha256(`query:${digest}:${enterpriseTenant}`),
+    );
+
     const matched = await attemptFirstSuccess({
       store: storeAfterRestart,
       digest: session.digest,
@@ -442,7 +435,7 @@ async function runStory(): Promise<void> {
         tenantId: enterpriseTenant,
         principalId: enterprisePrincipal,
         queryDigest,
-        knowledgeFragmentDigests: [sha256("fragment.sample.1")],
+        knowledgeFragmentDigests: fragmentDigests,
       },
     });
     record(
@@ -459,13 +452,10 @@ async function runStory(): Promise<void> {
       wording: `${wording} (tenant bait)`,
       slots: { outcomeKind: "query_result", workspaceClass: "enterprise" },
     });
-    let baitObserved = withReadSource(
-      withEnterprise(
-        withIdentity(provisionalObserved()),
-        enterpriseTenant,
-        enterpriseMembershipId,
-      ),
-    );
+    let baitObserved = await liveObserved(String(accountId), {
+      readSources: sourceObserved.readSources,
+      queryReady: true,
+    });
     let baitNext = planNext(session, baitObserved);
     while (baitNext.kind === "ask") {
       beginGrantTrace.push(baitNext.missing.kind);
@@ -488,18 +478,11 @@ async function runStory(): Promise<void> {
               membershipId: enterpriseMembershipId,
               tenantId: enterpriseTenant,
             };
-      if (baitNext.missing.kind === "identity") {
-        baitObserved = withIdentity(baitObserved);
-      }
-      if (baitNext.missing.kind === "workspace") {
-        baitObserved = withEnterprise(
-          baitObserved,
-          enterpriseTenant,
-          enterpriseMembershipId,
-        );
-      }
       if (baitNext.missing.kind === "read_source") {
-        baitObserved = withReadSource(baitObserved);
+        baitObserved = withReadSourceOverlay(
+          baitObserved,
+          "source.sample.readonly",
+        );
       }
       const r = await resumeCapabilityGrant({
         store: storeAfterRestart,
@@ -572,6 +555,7 @@ async function runStory(): Promise<void> {
       digests: {
         goal: digest,
         query: queryDigest,
+        definition: fixture.digest,
       },
       accountId,
       enterpriseTenant,
@@ -579,6 +563,8 @@ async function runStory(): Promise<void> {
       mutantsKilled,
       beginGrantTrace,
       storePath,
+      liveIdentity: true,
+      liveSemanticQuery: true,
     });
     await writeFile(
       path.join(generatedDirectory, "activation-onboarding.json"),
@@ -615,4 +601,3 @@ async function runStory(): Promise<void> {
 export async function main(): Promise<void> {
   await runStory();
 }
-

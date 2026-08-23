@@ -144,6 +144,16 @@ const realm = {
       tenantId: "tenant.evil.fallback",
       workloadId: "workload.bound.second",
     }),
+    // Enterprise Sample path for live SemanticQuery FirstSuccess evidence.
+    // principal.admin.a matches activation.cedar; tenant is Sample enterprise.
+    confidentialClient({
+      actorId: "actor.admin.sample",
+      clientId: "sample-enterprise",
+      delegationClaim: activationDelegation("workload.admin.sample"),
+      principalId: "principal.admin.a",
+      tenantId: "tenant.sample.enterprise",
+      workloadId: "workload.admin.sample",
+    }),
   ],
   enabled: true,
   realm: "zoen",

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { goalDigest, resumeOnboarding } from "@zoen/onboarding";
 import {
   accountBrand,
-  getObserved,
+  loadObserved,
   onboardingStore,
 } from "../onboarding-server.js";
 
@@ -25,7 +25,7 @@ export const Route = createFileRoute("/api/onboarding/resume")({
             store: onboardingStore(),
             digest: goalDigest(digestRaw),
             accountId,
-            observed: getObserved(accountRaw),
+            observed: await loadObserved(accountRaw),
           });
           return Response.json({
             digest: session.digest,

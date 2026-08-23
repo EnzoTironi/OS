@@ -50,6 +50,13 @@ export {
   resumeOnboarding,
 } from "./session.js";
 
+export {
+  observeCapabilities,
+  withReadSourceOverlay,
+  type IdentityAccountSnapshot,
+  type ObserveCapabilitiesInput,
+} from "./observe.js";
+
 export type {
   AttemptFirstSuccessResult,
   BeginGrantResult,

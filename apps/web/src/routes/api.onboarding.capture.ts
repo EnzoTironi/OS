@@ -7,7 +7,7 @@ import {
 import { z } from "zod";
 import {
   accountBrand,
-  getObserved,
+  loadObserved,
   onboardingStore,
 } from "../onboarding-server.js";
 
@@ -39,7 +39,7 @@ export const Route = createFileRoute("/api/onboarding/capture")({
             store: onboardingStore(),
             digest: goalDigest(session.digest),
             accountId,
-            observed: getObserved(body.accountId),
+            observed: await loadObserved(body.accountId),
           });
           return Response.json({
             digest: session.digest,
