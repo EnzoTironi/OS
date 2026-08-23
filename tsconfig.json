@@ -46,6 +46,9 @@
       ],
       "@zoen/harness": [
         "./packages/harness/src/index.ts"
+      ],
+      "@zoen/attention": [
+        "./packages/attention/src/index.ts"
       ]
     },
     "rootDir": ".",

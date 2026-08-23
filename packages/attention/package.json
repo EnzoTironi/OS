@@ -1,0 +1,8 @@
+{
+  "name": "@zoen/attention",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
