@@ -16,6 +16,7 @@ mod computation;
 mod effect;
 mod evolution;
 mod history;
+mod human;
 mod migration;
 
 pub use action::{
@@ -46,6 +47,10 @@ pub use effect::{
 pub use history::{
     ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistoryEngine,
     HistoryError, HistorySnapshot, MigrationHistorySnapshot,
+};
+pub use human::{
+    HumanPacketError, effect_payload_kind, encode_human_task_contract, is_human_task_payload,
+    parse_human_task_contract, project_human_task_packet, request_digest_for_payload,
 };
 pub use migration::{
     AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,

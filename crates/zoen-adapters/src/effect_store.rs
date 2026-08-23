@@ -104,6 +104,34 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
         .map_err(corrupt)
     }
 
+    async fn open_claim(&mut self) -> Result<Option<(String, EffectAttemptId)>, StoreError> {
+        let row = sqlx::query(
+            "SELECT adapter_execution_id, attempt_id
+             FROM effect_attempt_claims
+             WHERE tenant_id = $1
+               AND effect_request_id = $2
+             ORDER BY claimed_at ASC
+             LIMIT 1",
+        )
+        .bind(self.context.tenant_id().as_str())
+        .bind(self.effect_request_id.as_str())
+        .fetch_optional(&mut *self.transaction)
+        .await
+        .map_err(store_unavailable)?;
+        row.map(|row| {
+            let adapter_execution_id = row
+                .try_get::<String, _>("adapter_execution_id")
+                .map_err(store_unavailable)?;
+            let attempt_id = EffectAttemptId::parse(
+                row.try_get::<String, _>("attempt_id")
+                    .map_err(store_unavailable)?,
+            )
+            .map_err(corrupt)?;
+            Ok((adapter_execution_id, attempt_id))
+        })
+        .transpose()
+    }
+
     async fn commit_claim(
         self,
         adapter_execution_id: &str,
