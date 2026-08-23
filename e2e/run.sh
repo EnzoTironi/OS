@@ -16,6 +16,7 @@ scenario_table=(
   "messaging-boundary:messaging-boundary:"
   "messaging-conformance:messaging-conformance:"
   "channel-provider-substitution:channel-provider-substitution:"
+  "company-bootstrap-shadow:company-bootstrap-shadow:"
   "activation-sample::"
   "agent-capabilities-live:agent-capabilities-live:"
   "backup-restore::"
