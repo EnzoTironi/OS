@@ -11,6 +11,8 @@ set -euo pipefail
 scenario_table=(
   "activation-identity:activation-identity:"
   "activation-context:activation-context:"
+  "activation-onboarding:activation-onboarding:"
+  "activation-metrics:activation-metrics:"
   "messaging-boundary:messaging-boundary:"
   "messaging-conformance:messaging-conformance:"
   "activation-sample::"
