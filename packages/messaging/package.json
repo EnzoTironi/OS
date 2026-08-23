@@ -1,0 +1,11 @@
+{
+  "name": "@zoen/messaging",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@zoen/interaction": "*"
+  }
+}
