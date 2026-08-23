@@ -15,6 +15,9 @@ import { z } from "zod";
 const SCHEMA_ID = "zoen.verify.v1" as const;
 const RPO_TARGET_SECONDS = 300;
 const RTO_TARGET_SECONDS = 1800;
+const SCALE_SMOKE_RECORDS = 10_000;
+const SCALE_REFERENCE_RECORDS = 100_000_000;
+const FIXTURE_COMMIT_PLACEHOLDER = "__CANDIDATE_SHA__";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 // Compiled output lives at dist/e2e/; sources live at e2e/.
@@ -67,11 +70,13 @@ const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
   { id: "v1-company", kind: "company", primary: "v1-company.json", requiresSignedOci: true, ticket: "#205" },
 ];
 
-const ADVERTISED_LIVE_PROVIDERS = [
-  { id: "systax", scenario: "fiscal-systax-live", matrixKey: "systax" },
-  { id: "plugnotas", scenario: "fiscal-plugnotas-live", matrixKey: "plugnotas" },
-  { id: "protheus", scenario: "fiscal-protheus-live", matrixKey: "protheus" },
-] as const;
+// Live Brazil fiscal vendors (systax/plugnotas/protheus) stay parked until #214.
+// They are not advertised V1 capabilities while parked; do not list them here.
+const ADVERTISED_LIVE_PROVIDERS: readonly {
+  readonly id: string;
+  readonly scenario: string;
+  readonly matrixKey: string;
+}[] = [];
 
 const signedOciSchema = z
   .object({
@@ -184,25 +189,7 @@ function scenarioPassed(body: Record<string, unknown>): boolean {
   }
   if (typeof body.status === "string") {
     const status = body.status.toLowerCase();
-    if (status === "fail" || status === "failed" || status === "error") {
-      return false;
-    }
-    if (status === "pass" || status === "passed" || status === "ok") {
-      return true;
-    }
-  }
-  // Compose/KIND runners write the primary artifact only after success.
-  if (
-    typeof body.scenario === "string" &&
-    (typeof body.finishedAt === "string" ||
-      typeof body.completedAt === "string" ||
-      typeof body.startedAt === "string")
-  ) {
-    return true;
-  }
-  // V1-22 scale evidence may omit verdict while still recording the class.
-  if (typeof body.phase === "string" && typeof body.scaleClass === "string") {
-    return true;
+    return status === "pass" || status === "passed" || status === "ok";
   }
   return false;
 }
@@ -372,6 +359,7 @@ async function loadScenarioEvidence(
 async function resolveLiveSlots(
   evidenceRoot: string,
   fiscalMatrix: ScenarioEvidence | null,
+  candidate: string,
 ): Promise<LiveSlot[]> {
   const slots: LiveSlot[] = [];
   for (const provider of ADVERTISED_LIVE_PROVIDERS) {
@@ -382,6 +370,19 @@ async function resolveLiveSlots(
     );
     if (await pathExists(livePath)) {
       const body = await readJsonObject(livePath);
+      const commit = extractSourceCommit(body);
+      if (commit === null || !commitsMatch(candidate, commit)) {
+        slots.push({
+          id: provider.id,
+          present: false,
+          source: livePath,
+          detail:
+            commit === null
+              ? "live scenario artifact missing source commit"
+              : `live scenario commit ${commit} does not match candidate ${candidate}`,
+        });
+        continue;
+      }
       const present = liveProviderPresent(body);
       slots.push({
         id: provider.id,
@@ -400,6 +401,20 @@ async function resolveLiveSlots(
             provider.matrixKey
           ];
     if (matrixValue !== undefined) {
+      const matrixCommit =
+        fiscalMatrix?.sourceCommit ?? fiscalMatrix?.signedOci?.sourceSha ?? null;
+      if (matrixCommit === null || !commitsMatch(candidate, matrixCommit)) {
+        slots.push({
+          id: provider.id,
+          present: false,
+          source: `fiscal-fault-matrix.liveEvidence.${provider.matrixKey}`,
+          detail:
+            matrixCommit === null
+              ? "fiscal-fault-matrix missing source commit; liveEvidence unbound"
+              : `fiscal-fault-matrix commit ${matrixCommit} does not match candidate; refusing unbound liveEvidence`,
+        });
+        continue;
+      }
       const present = liveProviderPresent(matrixValue);
       slots.push({
         id: provider.id,
@@ -462,30 +477,33 @@ function evaluateGate(
       evidence.signedOci?.sourceSha ??
       null;
     if (commit === null) {
-      if (spec.kind !== "fiscal-matrix") {
+      failures.push({
+        code: "missing-source-commit",
+        scenario: spec.id,
+        detail: "evidence does not record sourceCommit/sourceSha",
+      });
+    } else if (!commitsMatch(candidate, commit)) {
+      const allowStaleScale = spec.kind === "scale" && options.reuseStaleScale;
+      if (!allowStaleScale && !options.acceptWrongCommit) {
         failures.push({
-          code: "missing-source-commit",
+          code: spec.kind === "scale" ? "stale-scale" : "wrong-commit",
           scenario: spec.id,
-          detail: "evidence does not record sourceCommit/sourceSha",
+          detail: `evidence commit ${commit} does not match candidate ${candidate}`,
         });
       }
-    } else if (!commitsMatch(candidate, commit) && !options.acceptWrongCommit) {
-      const staleScale = spec.kind === "scale" && !options.reuseStaleScale;
-      failures.push({
-        code: staleScale ? "stale-scale" : "wrong-commit",
-        scenario: spec.id,
-        detail: `evidence commit ${commit} does not match candidate ${candidate}`,
-      });
     }
 
     if (evidence.signedOci !== null) {
       const signedCommit = evidence.signedOci.sourceSha;
-      if (!commitsMatch(candidate, signedCommit) && !options.acceptWrongCommit) {
-        failures.push({
-          code: spec.kind === "scale" ? "stale-scale" : "wrong-commit",
-          scenario: spec.id,
-          detail: `signed-oci sourceSha ${signedCommit} does not match candidate ${candidate}`,
-        });
+      if (!commitsMatch(candidate, signedCommit)) {
+        const allowStaleScale = spec.kind === "scale" && options.reuseStaleScale;
+        if (!allowStaleScale && !options.acceptWrongCommit) {
+          failures.push({
+            code: spec.kind === "scale" ? "stale-scale" : "wrong-commit",
+            scenario: spec.id,
+            detail: `signed-oci sourceSha ${signedCommit} does not match candidate ${candidate}`,
+          });
+        }
       }
     }
 
@@ -521,6 +539,39 @@ function evaluateGate(
       }
     }
 
+    if (spec.kind === "scale") {
+      const scaleClass = evidence.body.scaleClass;
+      const targetRecords = Number(evidence.body.targetRecords);
+      if (scaleClass !== "smoke" && scaleClass !== "reference") {
+        failures.push({
+          code: "scale-class",
+          scenario: spec.id,
+          detail: `scaleClass must be smoke or reference, got ${JSON.stringify(scaleClass)}`,
+        });
+      } else if (!Number.isFinite(targetRecords)) {
+        failures.push({
+          code: "scale-size",
+          scenario: spec.id,
+          detail: "scale evidence targetRecords is missing or not a number",
+        });
+      } else if (scaleClass === "smoke" && targetRecords !== SCALE_SMOKE_RECORDS) {
+        failures.push({
+          code: "scale-size",
+          scenario: spec.id,
+          detail: `smoke scale requires targetRecords=${SCALE_SMOKE_RECORDS}, got ${targetRecords}`,
+        });
+      } else if (
+        scaleClass === "reference" &&
+        targetRecords !== SCALE_REFERENCE_RECORDS
+      ) {
+        failures.push({
+          code: "scale-size",
+          scenario: spec.id,
+          detail: `reference scale requires targetRecords=${SCALE_REFERENCE_RECORDS}, got ${targetRecords}`,
+        });
+      }
+    }
+
     if (spec.id === "rpo-rto") {
       const rpo = evidence.rpoBody;
       if (rpo === null) {
@@ -543,14 +594,14 @@ function evaluateGate(
             RTO_TARGET_SECONDS,
         );
         if (!options.ignoreRpoThreshold) {
-          if (!Number.isFinite(measuredRpo) || measuredRpo >= targetRpo) {
+          if (!Number.isFinite(measuredRpo) || measuredRpo > targetRpo) {
             failures.push({
               code: "rpo-threshold",
               scenario: spec.id,
               detail: `measured RPO ${measuredRpo}s exceeds target ${targetRpo}s`,
             });
           }
-          if (!Number.isFinite(measuredRto) || measuredRto >= targetRto) {
+          if (!Number.isFinite(measuredRto) || measuredRto > targetRto) {
             failures.push({
               code: "rto-threshold",
               scenario: spec.id,
@@ -669,14 +720,15 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
           body: {
             scenario: "fiscal-fault-matrix",
             status: "pass",
+            sourceCommit: candidate,
             liveEvidence: {
-              systax: "sandbox-pass",
-              plugnotas: "sandbox-pass",
-              protheus: "sandbox-pass",
+              systax: "not-run-no-credentials",
+              plugnotas: "not-run-no-credentials",
+              protheus: "not-run-no-environment",
             },
           },
           artifactDigest: "03",
-          sourceCommit: null,
+          sourceCommit: candidate,
           signedOci: null,
           signedOciPath: null,
           mutantsPath: null,
@@ -772,12 +824,15 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
 
   {
     const id = "skip-live-provider";
-    const liveMissing: LiveSlot[] = ADVERTISED_LIVE_PROVIDERS.map((provider) => ({
-      id: provider.id,
-      present: false,
-      source: "synthetic",
-      detail: "not-run-no-credentials",
-    }));
+    // Inject an advertised live slot so the mutant stays meaningful while #214 is parked.
+    const liveMissing: LiveSlot[] = [
+      {
+        id: "systax",
+        present: false,
+        source: "synthetic-injected-advertised",
+        detail: "injected advertised live provider absent",
+      },
+    ];
     const loaded = fillGraph({});
     const strict = evaluateGate(candidate, loaded, liveMissing, STRICT_OPTIONS);
     const mutant = evaluateGate(candidate, loaded, liveMissing, {
@@ -925,13 +980,10 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     const mutant = evaluateGate(candidate, loaded, liveAll, {
       ...STRICT_OPTIONS,
       reuseStaleScale: true,
-      acceptWrongCommit: true,
     });
     const killed =
-      strict.failures.some((row) => row.code === "stale-scale" || row.code === "wrong-commit") &&
-      mutant.failures.every(
-        (row) => row.code !== "stale-scale" && row.code !== "wrong-commit",
-      );
+      strict.failures.some((row) => row.code === "stale-scale") &&
+      mutant.failures.every((row) => row.code !== "stale-scale" && row.code !== "wrong-commit");
     results.push({
       id,
       killed,
@@ -964,6 +1016,62 @@ function resolveEvidenceRoot(): string {
     return path.isAbsolute(override) ? override : path.join(repositoryRoot, override);
   }
   return path.join(repositoryRoot, "artifacts");
+}
+
+function isFixtureEvidenceRoot(evidenceRoot: string): boolean {
+  const normalized = path.resolve(evidenceRoot);
+  const fixturesRoot = path.resolve(repositoryRoot, "e2e/verify-v1/testdata");
+  return (
+    normalized === fixturesRoot ||
+    normalized.startsWith(`${fixturesRoot}${path.sep}`)
+  );
+}
+
+function bindFixtureCommitValue(value: unknown, candidate: string): unknown {
+  if (typeof value === "string") {
+    return value === FIXTURE_COMMIT_PLACEHOLDER ? candidate : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => bindFixtureCommitValue(entry, candidate));
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = bindFixtureCommitValue(entry, candidate);
+    }
+    return out;
+  }
+  return value;
+}
+
+function bindFixtureEvidence(
+  evidence: ScenarioEvidence,
+  candidate: string,
+): ScenarioEvidence {
+  const body = bindFixtureCommitValue(evidence.body, candidate) as Record<
+    string,
+    unknown
+  >;
+  const signedOci =
+    evidence.signedOci === null
+      ? null
+      : (bindFixtureCommitValue(evidence.signedOci, candidate) as z.infer<
+          typeof signedOciSchema
+        >);
+  const rpoBody =
+    evidence.rpoBody === null
+      ? null
+      : (bindFixtureCommitValue(evidence.rpoBody, candidate) as Record<
+          string,
+          unknown
+        >);
+  return {
+    ...evidence,
+    body,
+    signedOci,
+    rpoBody,
+    sourceCommit: extractSourceCommit(body) ?? signedOci?.sourceSha ?? null,
+  };
 }
 
 async function loadOrCreateSigningKey(
@@ -1048,18 +1156,27 @@ function assertNoSecrets(text: string): void {
 async function main(): Promise<void> {
   const candidate = resolveCandidateSha();
   const evidenceRoot = resolveEvidenceRoot();
-  const outputDirectory = path.join(evidenceRoot, "verify-v1");
+  const fixtureMode = isFixtureEvidenceRoot(evidenceRoot);
+  // Fixture runs are gate-contract only; always emit the official bundle under artifacts/.
+  const outputDirectory = fixtureMode
+    ? path.join(repositoryRoot, "artifacts/verify-v1")
+    : path.join(evidenceRoot, "verify-v1");
   await mkdir(outputDirectory, { recursive: true });
 
   const verificationMutants = runVerificationMutants(candidate);
 
   const loaded: Array<ScenarioEvidence | null> = [];
   for (const spec of REQUIRED_SCENARIOS) {
-    loaded.push(await loadScenarioEvidence(evidenceRoot, spec));
+    const evidence = await loadScenarioEvidence(evidenceRoot, spec);
+    if (evidence === null) {
+      loaded.push(null);
+      continue;
+    }
+    loaded.push(fixtureMode ? bindFixtureEvidence(evidence, candidate) : evidence);
   }
   const fiscalIndex = REQUIRED_SCENARIOS.findIndex((row) => row.id === "fiscal-fault-matrix");
   const fiscalMatrix = fiscalIndex >= 0 ? loaded[fiscalIndex] ?? null : null;
-  const live = await resolveLiveSlots(evidenceRoot, fiscalMatrix);
+  const live = await resolveLiveSlots(evidenceRoot, fiscalMatrix, candidate);
   const gate = evaluateGate(candidate, loaded, live, STRICT_OPTIONS);
 
   const mutantFailures = verificationMutants
@@ -1080,8 +1197,10 @@ async function main(): Promise<void> {
       sourceCommit: candidate,
     },
     evidenceRoot: path.relative(repositoryRoot, evidenceRoot) || "artifacts",
+    fixtureContract: fixtureMode,
     generatedAt: new Date().toISOString(),
     liveProviders: live.map((slot) => ({
+
       detail: slot.detail,
       id: slot.id,
       present: slot.present,
@@ -1190,7 +1309,9 @@ async function main(): Promise<void> {
             `- \`${row.code}\`${row.scenario ? ` (${row.scenario})` : ""}: ${row.detail}`,
         )),
     ``,
-    `Official command: \`just verify-v1\``,
+    fixtureMode
+      ? `Named fixture command: \`ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-v1/testdata/complete just verify-v1\` (or \`just verify-v1-fixtures\`)`
+      : `Official command: \`just verify-v1\``,
     ``,
   ];
   await writeFile(path.join(outputDirectory, "SUMMARY.md"), `${summaryLines.join("\n")}\n`);

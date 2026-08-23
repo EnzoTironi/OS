@@ -1,0 +1,9 @@
+{
+  "scenario": "scale-mixed-v1",
+  "phase": "mixed-v1",
+  "scaleClass": "smoke",
+  "targetRecords": 10000,
+  "sourceCommit": "__CANDIDATE_SHA__",
+  "fixture": true,
+  "note": "Fail-closed fixture missing explicit verdict."
+}

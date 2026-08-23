@@ -43,13 +43,23 @@ The architecture was preceded by a two-day, agent-intensive research/falsificati
 
 ## V1 release gate
 
-The official V1 release decision is:
+The official V1 release decision against production evidence is:
 
 ```text
 just verify-v1
 ```
 
-`verify-v1` is an aggregate-only gate. It consumes typed scenario evidence under `artifacts/` (or `ZOEN_VERIFY_EVIDENCE_DIR`), validates schemas, source commits, signatures, semantic mutants, RPO/RTO targets, and advertised live-provider slots, runs verification-layer mutants in-process, and writes a signed `zoen.verify.v1` bundle to `artifacts/verify-v1/`. It does not rerun KIND or wipe existing evidence. Missing, stale, unsigned, wrong-digest, surviving-mutant, or live-absent evidence fails closed.
+Named gate-contract PASS (fixtures under `e2e/verify-v1/testdata/complete`, not production evidence):
+
+```text
+ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-v1/testdata/complete just verify-v1
+```
+
+or `just verify-v1-fixtures`.
+
+`verify-v1` is an aggregate-only gate. It consumes typed scenario evidence under `artifacts/` (or `ZOEN_VERIFY_EVIDENCE_DIR`), validates explicit scenario pass fields, source commits, scale class/size, signatures, semantic mutants, RPO/RTO targets, and any advertised live-provider slots, runs verification-layer mutants in-process, and writes a signed `zoen.verify.v1` bundle to `artifacts/verify-v1/`. It does not rerun KIND or wipe existing evidence. Missing, stale, unsigned, wrong-digest, surviving-mutant, or advertised-live-absent evidence fails closed.
+
+Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
 `just verify` remains the serial scenario runner (check + build + scenarios). It is not a substitute for `just verify-v1`.
 
