@@ -477,10 +477,12 @@ async function main(): Promise<void> {
       humanCommit.receipt.commitSequence > 0n,
     );
 
-    const agentReplay = await actionCommercialA.commit({
-      operationId: "operation.commercial.human-direct",
-      proposalId: "proposal.commercial.human-direct",
-    });
+    const agentReplay = await withAuthorityStoreRetry(() =>
+      actionCommercialA.commit({
+        operationId: "operation.commercial.human-direct",
+        proposalId: "proposal.commercial.human-direct",
+      }),
+    );
     observe(
       "agentAndHumanShareCommitIdentity",
       agentReplay.status === CommitStatus.COMMITTED &&
@@ -491,7 +493,10 @@ async function main(): Promise<void> {
       proposalId: "proposal.commercial.intent-mismatch",
     };
     await expectConnectCode(
-      () => actionCommercialA.propose(intentMismatch),
+      () =>
+        withAuthorityStoreRetry(() =>
+          actionCommercialA.propose(intentMismatch),
+        ),
       Code.InvalidArgument,
     );
     recordMutant(
@@ -501,8 +506,8 @@ async function main(): Promise<void> {
 
     let deniedOutcome: PolicyDecision | Code = PolicyDecision.UNSPECIFIED;
     try {
-      const denied = await actionDeniedA.propose(
-        createCommitment(commercial, "denied"),
+      const denied = await withAuthorityStoreRetry(() =>
+        actionDeniedA.propose(createCommitment(commercial, "denied")),
       );
       deniedOutcome = denied.decision;
     } catch (error: unknown) {
@@ -583,16 +588,20 @@ async function main(): Promise<void> {
     );
 
     const staleReserve = reserveInventory(inventory, "stale", "6");
-    const staleProposal = await actionInventoryA.propose(staleReserve);
+    const staleProposal = await withAuthorityStoreRetry(() =>
+      actionInventoryA.propose(staleReserve),
+    );
     assert.equal(staleProposal.decision, PolicyDecision.PERMIT);
     await commitReady(
       actionInventoryA,
       acceptPhysical(inventory, "after-proposal", "reconciliation.later", "4"),
     );
-    const staleCommit = await actionInventoryA.commit({
-      operationId: staleReserve.operationId,
-      proposalId: staleReserve.proposalId,
-    });
+    const staleCommit = await withAuthorityStoreRetry(() =>
+      actionInventoryA.commit({
+        operationId: staleReserve.operationId,
+        proposalId: staleReserve.proposalId,
+      }),
+    );
     inject("accepted-stock-change-after-reservation-proposal");
     observe(
       "relevantStockChangeMakesReservationStale",
@@ -604,7 +613,9 @@ async function main(): Promise<void> {
     );
 
     const readyReserve = reserveInventory(inventory, "accepted", "2");
-    const readyProposal = await actionInventoryA.propose(readyReserve);
+    const readyProposal = await withAuthorityStoreRetry(() =>
+      actionInventoryA.propose(readyReserve),
+    );
     await recordEvidence(worldA, {
       claimId: "claim.inventory.unrelated",
       entityId: "inventory.position.unrelated",
@@ -615,20 +626,24 @@ async function main(): Promise<void> {
       time: { at: afterCorrectionAt, kind: "instant" },
       value: { amount: "500", kind: "quantity", unit: "each" },
     });
-    const reserved = await actionInventoryA.commit({
-      operationId: readyReserve.operationId,
-      proposalId: readyReserve.proposalId,
-    });
+    const reserved = await withAuthorityStoreRetry(() =>
+      actionInventoryA.commit({
+        operationId: readyReserve.operationId,
+        proposalId: readyReserve.proposalId,
+      }),
+    );
     observe(
       "unrelatedCommitDoesNotFalseStaleReservation",
       reserved.status === CommitStatus.COMMITTED &&
         reserved.receipt?.commitStateBasis?.digest ===
           readyProposal.proposal?.stateBasis?.digest,
     );
-    const reservationReplay = await actionInventoryA.commit({
-      operationId: readyReserve.operationId,
-      proposalId: readyReserve.proposalId,
-    });
+    const reservationReplay = await withAuthorityStoreRetry(() =>
+      actionInventoryA.commit({
+        operationId: readyReserve.operationId,
+        proposalId: readyReserve.proposalId,
+      }),
+    );
     observe(
       "replayKeepsSemanticAndEffectIdentitiesTogether",
       reservationReplay.status === CommitStatus.COMMITTED &&
@@ -707,31 +722,39 @@ async function main(): Promise<void> {
     );
     await commitReady(actionProcurementA, requestSupplier(procurement, shortageQuantity));
     const purchase = governPurchase(procurement, "approved");
-    const purchaseProposal = await actionProcurementA.propose(purchase);
+    const purchaseProposal = await withAuthorityStoreRetry(() =>
+      actionProcurementA.propose(purchase),
+    );
     observe(
       "highRiskPurchaseRequiresHumanApproval",
       purchaseProposal.proposal?.status === ProposalStatus.AWAITING_APPROVAL,
     );
-    const unauthorized = await actionProcurementA.approve({
-      approvalId: "approval.purchase.unauthorized",
-      expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
-      proposalId: purchaseProposal.proposal?.proposalId ?? "",
-    });
+    const unauthorized = await withAuthorityStoreRetry(() =>
+      actionProcurementA.approve({
+        approvalId: "approval.purchase.unauthorized",
+        expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
+        proposalId: purchaseProposal.proposal?.proposalId ?? "",
+      }),
+    );
     observe("childDelegationCannotSelfApprove", unauthorized.decision === PolicyDecision.DENY);
     recordMutant(
       "child-delegation-escalation",
       "procurement-agent approve of governPurchase returned DENY",
     );
-    const approved = await actionSupervisorA.approve({
-      approvalId: "approval.purchase.supervisor",
-      expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
-      proposalId: purchaseProposal.proposal?.proposalId ?? "",
-    });
+    const approved = await withAuthorityStoreRetry(() =>
+      actionSupervisorA.approve({
+        approvalId: "approval.purchase.supervisor",
+        expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
+        proposalId: purchaseProposal.proposal?.proposalId ?? "",
+      }),
+    );
     assert.equal(approved.decision, PolicyDecision.PERMIT);
-    const purchaseCommit = await actionProcurementA.commit({
-      operationId: purchase.operationId,
-      proposalId: purchase.proposalId,
-    });
+    const purchaseCommit = await withAuthorityStoreRetry(() =>
+      actionProcurementA.commit({
+        operationId: purchase.operationId,
+        proposalId: purchase.proposalId,
+      }),
+    );
     observe(
       "supervisorApprovalCommitsGovernedPurchase",
       purchaseCommit.status === CommitStatus.COMMITTED,
@@ -779,19 +802,26 @@ async function main(): Promise<void> {
       ),
     );
     const settlementRequest = applySettlement(accounting, "partial-payment");
-    const settlementProposal = await actionAccountingA.propose(settlementRequest);
+    const settlementProposal = await withAuthorityStoreRetry(() =>
+      actionAccountingA.propose(settlementRequest),
+    );
     if (settlementProposal.proposal?.status === ProposalStatus.AWAITING_APPROVAL) {
-      const settlementApproved = await actionClient(accountingSupervisorA).approve({
-        approvalId: "approval.settlement.supervisor",
-        expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
-        proposalId: settlementProposal.proposal.proposalId,
-      });
+      const settlementProposalId = settlementProposal.proposal.proposalId;
+      const settlementApproved = await withAuthorityStoreRetry(() =>
+        actionClient(accountingSupervisorA).approve({
+          approvalId: "approval.settlement.supervisor",
+          expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
+          proposalId: settlementProposalId,
+        }),
+      );
       assert.equal(settlementApproved.decision, PolicyDecision.PERMIT);
     }
-    const settlement = await actionAccountingA.commit({
-      operationId: settlementRequest.operationId,
-      proposalId: settlementRequest.proposalId,
-    });
+    const settlement = await withAuthorityStoreRetry(() =>
+      actionAccountingA.commit({
+        operationId: settlementRequest.operationId,
+        proposalId: settlementRequest.proposalId,
+      }),
+    );
     observe(
       "accountingReceivableAndSettlementUseFoundationPackage",
       receivable.receipt.definition?.digest === accounting.digest &&
@@ -849,8 +879,8 @@ async function main(): Promise<void> {
           return exact?.case !== "textValue" || exact.value.length === 0;
         }),
     );
-    const httpAdmission = await actionFiscalA.propose(
-      admitDocumentAuthorization(fiscal, "http-200"),
+    const httpAdmission = await withAuthorityStoreRetry(() =>
+      actionFiscalA.propose(admitDocumentAuthorization(fiscal, "http-200")),
     );
     observe(
       "httpAcceptanceIsNotFiscalAuthorization",
@@ -1014,21 +1044,26 @@ async function main(): Promise<void> {
         inject("effect-timeout-after-possible-delivery");
         await expectConnectCode(
           () =>
-            effectA.recordAttempt({
-              attempt: {
-                attemptId: "attempt.blind-retry",
-                outcome: 1,
-                providerOperationId: "retry",
-              },
-              effectRequestId: effectId,
-            }),
+            withAuthorityStoreRetry(() =>
+              effectA.recordAttempt({
+                attempt: {
+                  attemptId: "attempt.blind-retry",
+                  outcome: 1,
+                  providerOperationId: "retry",
+                },
+                effectRequestId: effectId,
+              }),
+            ),
           Code.FailedPrecondition,
         ).catch(async () => {
           await expectConnectCode(
-            () => actionInventoryA.commit({
-              operationId: readyReserve.operationId,
-              proposalId: readyReserve.proposalId,
-            }),
+            () =>
+              withAuthorityStoreRetry(() =>
+                actionInventoryA.commit({
+                  operationId: readyReserve.operationId,
+                  proposalId: readyReserve.proposalId,
+                }),
+              ),
             Code.AlreadyExists,
           );
         });
