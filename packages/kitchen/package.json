@@ -1,0 +1,8 @@
+{
+  "name": "@zoen/kitchen",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -17,6 +17,9 @@
       "@zoen/pack": [
         "./packages/pack/src/index.ts"
       ],
+      "@zoen/kitchen": [
+        "./packages/kitchen/src/index.ts"
+      ],
       "@zoen/sdk": [
         "./packages/sdk/src/index.ts"
       ],
