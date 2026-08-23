@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 
@@ -5,10 +7,13 @@ use crate::effect_dispatcher::{
     DispatchAcceptance, DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
 };
 
+const RESTATE_SEND_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[derive(Clone)]
 pub struct RestateEffectScheduler {
     client: Client,
     ingress: Url,
+    timeout: Duration,
 }
 
 impl RestateEffectScheduler {
@@ -16,6 +21,16 @@ impl RestateEffectScheduler {
         Self {
             client: Client::new(),
             ingress,
+            timeout: RESTATE_SEND_TIMEOUT,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_timeout(ingress: Url, timeout: Duration) -> Self {
+        Self {
+            client: Client::new(),
+            ingress,
+            timeout,
         }
     }
 }
@@ -37,6 +52,7 @@ impl DispatchScheduler for RestateEffectScheduler {
         let response = self
             .client
             .post(url)
+            .timeout(self.timeout)
             .header("idempotency-key", &key)
             .json(&RestateEffectInput {
                 dispatch_version: command.knowledge_commit_sequence,
@@ -95,23 +111,47 @@ struct RestateAccepted {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use zoen_core::{EffectRequestId, TenantId};
 
-    use super::restate_effect_key;
-    use crate::effect_dispatcher::DispatchScheduleCommand;
+    use super::{RestateEffectScheduler, restate_effect_key};
+    use crate::effect_dispatcher::{
+        DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
+    };
 
-    #[test]
-    fn key_contains_trusted_tenant_and_effect_identity() {
-        let command = DispatchScheduleCommand {
+    fn command() -> DispatchScheduleCommand {
+        DispatchScheduleCommand {
             effect_request_id: EffectRequestId::parse("effect.action.operation.1.0")
                 .expect("effect request id"),
             knowledge_commit_sequence: 12,
             tenant_id: TenantId::parse("tenant.a").expect("tenant id"),
-        };
+        }
+    }
 
+    #[test]
+    fn key_contains_trusted_tenant_and_effect_identity() {
         assert_eq!(
-            restate_effect_key(&command),
+            restate_effect_key(&command()),
             "tenant.a:effect.action.operation.1.0:12"
         );
+    }
+
+    #[tokio::test]
+    async fn hung_send_is_unavailable_before_the_lock_would_stall() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let addr = listener.local_addr().expect("addr");
+        let _hold = std::thread::spawn(move || {
+            let _accepted = listener.accept();
+            std::thread::sleep(Duration::from_secs(30));
+        });
+        let scheduler = RestateEffectScheduler::with_timeout(
+            format!("http://{addr}").parse().expect("url"),
+            Duration::from_millis(200),
+        );
+        let started = Instant::now();
+        let result = scheduler.schedule(&command()).await;
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(matches!(result, Err(DispatchScheduleError::Unavailable(_))));
     }
 }

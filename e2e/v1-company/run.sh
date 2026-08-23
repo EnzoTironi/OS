@@ -58,6 +58,16 @@ collect_diagnostics() {
   kubectl logs --all-containers --prefix --tail=300 \
     --namespace "${application_namespace}" --selector app.kubernetes.io/name=zoend \
     >"${artifacts_directory}/zoend.log" 2>&1 || true
+  kubectl logs --all-containers --prefix --tail=300 \
+    --namespace "${application_namespace}" \
+    --selector app.kubernetes.io/name=zoen-effect-dispatcher-tenant-a \
+    >"${artifacts_directory}/effect-dispatcher.log" 2>&1 || true
+  kubectl logs --all-containers --prefix --tail=300 \
+    --namespace "${application_namespace}" --selector app.kubernetes.io/name=zoen-effect-worker \
+    >"${artifacts_directory}/effect-worker.log" 2>&1 || true
+  kubectl logs --all-containers --prefix --tail=200 \
+    --namespace "${durable_namespace}" --selector app.kubernetes.io/name=restate \
+    >"${artifacts_directory}/restate.log" 2>&1 || true
 }
 
 cleanup_cluster() {

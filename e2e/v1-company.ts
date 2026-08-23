@@ -205,8 +205,71 @@ async function waitRollout(workload: string): Promise<void> {
   ]);
 }
 
+async function dispatchDiagnostics(
+  admin: ReturnType<typeof adminClient>,
+  operationId: string,
+): Promise<string> {
+  const rows = await admin.query<{
+    attempts: number;
+    dispatches: number;
+    effect_request_id: string;
+    knowledge_state: string;
+    outcomes: string | null;
+  }>(
+    `SELECT request.effect_request_id,
+            request.knowledge_state,
+            (
+              SELECT count(*)::int
+              FROM effect_dispatch_attempts AS attempt
+              WHERE attempt.tenant_id = request.tenant_id
+                AND attempt.effect_request_id = request.effect_request_id
+            ) AS attempts,
+            (
+              SELECT count(*)::int
+              FROM effect_dispatches AS dispatch
+              WHERE dispatch.tenant_id = request.tenant_id
+                AND dispatch.effect_request_id = request.effect_request_id
+            ) AS dispatches,
+            (
+              SELECT string_agg(attempt.outcome, ',')
+              FROM effect_dispatch_attempts AS attempt
+              WHERE attempt.tenant_id = request.tenant_id
+                AND attempt.effect_request_id = request.effect_request_id
+            ) AS outcomes
+     FROM effect_requests AS request
+     WHERE request.operation_id = $1
+     ORDER BY request.effect_request_id`,
+    [operationId],
+  );
+  const restateAdmin = `http://127.0.0.1:${process.env.ZOEN_E2E_RESTATE_UI_PORT ?? "31592"}`;
+  let deployments = "";
+  try {
+    const response = await fetch(`${restateAdmin}/deployments`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    deployments = (await response.text()).slice(0, 2_000);
+  } catch (error: unknown) {
+    deployments = error instanceof Error ? error.message : String(error);
+  }
+  let logs = "";
+  try {
+    logs = (
+      await kubectl([
+        "logs",
+        "--selector",
+        "app.kubernetes.io/name=zoen-effect-dispatcher-tenant-a",
+        "--tail=80",
+      ])
+    ).slice(0, 4_000);
+  } catch (error: unknown) {
+    logs = error instanceof Error ? error.message : String(error);
+  }
+  return `requests=${JSON.stringify(rows.rows)} deployments=${deployments} dispatcher=${logs}`;
+}
+
 async function waitForCompleteExplanation(
   client: HistoryClient,
+  admin: ReturnType<typeof adminClient>,
   operationId: string,
 ) {
   const deadline = Date.now() + 180_000;
@@ -223,7 +286,13 @@ async function waitForCompleteExplanation(
     const gaps = explanation.gaps
       .map((gap) => `${gap.class}:${gap.reason}:${gap.detail}`)
       .join("; ");
-    throw new Error(`explanation for ${operationId} stayed incomplete: ${gaps}`);
+    const diagnostics = await dispatchDiagnostics(admin, operationId).catch(
+      (error: unknown) =>
+        error instanceof Error ? error.message : String(error),
+    );
+    throw new Error(
+      `explanation for ${operationId} stayed incomplete: ${gaps} ${diagnostics}`,
+    );
   }
   return explanation;
 }
@@ -981,6 +1050,7 @@ async function main(): Promise<void> {
     );
     const correctionExplanation = await waitForCompleteExplanation(
       historyClient(commercialFresh),
+      admin,
       corrected.receipt.operationId,
     );
     observe(
