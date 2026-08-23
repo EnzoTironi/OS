@@ -6,6 +6,7 @@ import {
   providerMessageRef,
   providerThreadRef,
   providerUserRef,
+  type AudienceDisclosure,
   type ChannelPresentationCapability,
   type DeliveryIntent,
   type DeliveryObservation,
@@ -13,12 +14,14 @@ import {
   type InboundInteraction,
   type ProviderKey,
 } from "../../interaction/src/index.js";
+import type { PresentationIntent } from "../../surface/src/presentation-intent.js";
 import {
   projectPresentationCaps,
   type CapabilityId,
   type DegradeTarget,
 } from "./capability-probes.js";
 import type { ChatSdkOutbound, ChatSdkShapedAdapter } from "./chat-sdk-shape.js";
+import { lowerPresentationIntent } from "./lower-presentation-intent.js";
 
 export class ProviderDisabledError extends Error {
   readonly provider: string;
@@ -42,9 +45,25 @@ export interface MessagingGateway {
   isProviderEnabled(provider: ProviderKey): boolean;
 }
 
+/** Resolved Surface IR + sealed disclosure for one DeliveryIntent. */
+export interface ResolvedPresentation {
+  readonly intent: PresentationIntent;
+  readonly disclosedBody: string;
+  readonly includesConfidentialBody: boolean;
+  readonly disclosure: AudienceDisclosure;
+}
+
 export interface MessagingGatewayOptions {
   readonly providers: Readonly<Record<string, ChatSdkShapedAdapter>>;
   readonly now?: () => Date;
+  readonly publicWebOrigin?: string;
+  /**
+   * When set and returns a document, deliver lowers via lowerPresentationIntent.
+   * Legacy prefix heuristics remain only for unresolved refs (existing callers).
+   */
+  readonly resolvePresentation?: (
+    intent: DeliveryIntent,
+  ) => Promise<ResolvedPresentation | undefined>;
 }
 
 export function createMessagingGateway(
@@ -101,6 +120,60 @@ export function createMessagingGateway(
         intent.provider,
         disabled,
       );
+
+      const resolved =
+        options.resolvePresentation !== undefined
+          ? await options.resolvePresentation(intent)
+          : undefined;
+
+      if (resolved !== undefined) {
+        const caps = projectPresentationCaps(adapter.probes);
+        let target = intent.target;
+        const ephemeralProbe = adapter.probes.canEphemeral();
+        if (
+          ephemeralProbe.status === "unsupported" &&
+          target.kind === "ephemeral_in_thread"
+        ) {
+          target = {
+            kind: "dm",
+            providerUser: providerUserRef(
+              `dm_fallback:${String(target.thread)}`,
+            ),
+          };
+        }
+        const lowered = lowerPresentationIntent({
+          caps,
+          clientDeliveryId: intent.stableProviderDeliveryId,
+          controlRefs: intent.controlRefs,
+          disclosedBody: resolved.disclosedBody,
+          disclosure: resolved.disclosure,
+          includesConfidentialBody: resolved.includesConfidentialBody,
+          intent: resolved.intent,
+          probes: adapter.probes,
+          provider: intent.provider,
+          publicWebOrigin: options.publicWebOrigin ?? "https://app.zoen.local",
+          target,
+        });
+        const receipt = await adapter.send(lowered.outbound);
+        const degradeMeta =
+          lowered.degraded && lowered.fallback !== undefined
+            ? { degradeTo: lowered.fallback }
+            : undefined;
+        const outcome = buildOutcome(
+          receipt,
+          degradeMeta,
+          lowered.outbound.surfaceUrl,
+        );
+        const observation: DeliveryObservation = {
+          id: deliveryObservationId(`do_${intent.stableProviderDeliveryId}`),
+          intentId: intent.id,
+          observedAt: now().toISOString(),
+          outcome,
+        };
+        deliverySeen.set(intent.stableProviderDeliveryId, observation);
+        return observation;
+      }
+
       const needs = presentationNeeds(intent);
       const degrade = firstUnsupported(adapter, needs);
       const text = `presentation:${String(intent.presentation)}`;

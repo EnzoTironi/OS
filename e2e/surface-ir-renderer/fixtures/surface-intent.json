@@ -1,0 +1,5 @@
+{
+  "schema": "zoen.presentation.v1",
+  "note": "Derived at runtime from compileStepUpSurface; this file records the expected block kinds.",
+  "expectedBlockKinds": ["card", "text", "text", "button"]
+}

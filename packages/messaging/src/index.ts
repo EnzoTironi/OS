@@ -28,7 +28,15 @@ export {
   ProviderDisabledError,
   type MessagingGateway,
   type MessagingGatewayOptions,
+  type ResolvedPresentation,
 } from "./gateway.js";
+export {
+  CriticalControlUnreachableError,
+  DisclosureRequiredError,
+  lowerPresentationIntent,
+  type LowerPresentationIntentInput,
+  type LowerPresentationResult,
+} from "./lower-presentation-intent.js";
 export {
   CONFORMANCE_SCENARIOS,
   type ConformanceScenario,
