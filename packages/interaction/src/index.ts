@@ -7,3 +7,5 @@ export * from "./activate.js";
 export * from "./step-up.js";
 export * from "./identity-directory.js";
 export * from "./boundary.js";
+export * from "./turn-store.js";
+export * from "./turn-coordinator.js";

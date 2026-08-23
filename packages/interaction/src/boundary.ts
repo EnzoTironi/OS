@@ -90,10 +90,12 @@ export function createInteractionBoundary(
       }
       return {
         controlRefs: input.controls,
+        deliveryGroupId: input.deliveryGroupId,
         id: deliveryIntentId(`di_${randomBytes(12).toString("hex")}`),
         presentation: input.presentation,
         provider: input.ctx.channel.provider,
         recordId: input.recordId,
+        sequenceIndex: input.sequenceIndex,
         stableProviderDeliveryId:
           input.stableProviderDeliveryId ??
           `spd_${input.recordId}_${randomBytes(6).toString("hex")}`,
@@ -103,6 +105,7 @@ export function createInteractionBoundary(
             kind: "same_thread",
             thread: input.ctx.channel.thread,
           } as const),
+        turnAttemptId: input.turnAttemptId,
       };
     },
 
