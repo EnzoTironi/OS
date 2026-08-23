@@ -12,6 +12,7 @@
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "^1.170.31",
     "@tanstack/react-start": "^1.168.48",
+    "@zoen/onboarding": "*",
     "@zoen/sdk": "*",
     "@zoen/surface": "*",
     "react": "^19.2.8",

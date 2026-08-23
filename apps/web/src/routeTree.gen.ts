@@ -13,7 +13,12 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAdaptiveSurfaceRouteImport } from './routes/api.adaptive-surface'
 import { Route as ApiConfigRouteImport } from './routes/api.config'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
+import { Route as OnboardingIndexRouteImport } from './routes/onboarding.index'
 import { Route as RpcSplatRouteImport } from './routes/rpc.$'
+import { Route as ApiOnboardingBeginGrantRouteImport } from './routes/api.onboarding.begin-grant'
+import { Route as ApiOnboardingCaptureRouteImport } from './routes/api.onboarding.capture'
+import { Route as ApiOnboardingResumeRouteImport } from './routes/api.onboarding.resume'
+import { Route as OnboardingAuthCallbackRouteImport } from './routes/onboarding.auth.callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -35,9 +40,34 @@ const AuthCallbackRoute = AuthCallbackRouteImport.update({
   path: '/auth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
+  id: '/onboarding/',
+  path: '/onboarding/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RpcSplatRoute = RpcSplatRouteImport.update({
   id: '/rpc/$',
   path: '/rpc/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOnboardingBeginGrantRoute = ApiOnboardingBeginGrantRouteImport.update({
+  id: '/api/onboarding/begin-grant',
+  path: '/api/onboarding/begin-grant',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOnboardingCaptureRoute = ApiOnboardingCaptureRouteImport.update({
+  id: '/api/onboarding/capture',
+  path: '/api/onboarding/capture',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOnboardingResumeRoute = ApiOnboardingResumeRouteImport.update({
+  id: '/api/onboarding/resume',
+  path: '/api/onboarding/resume',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingAuthCallbackRoute = OnboardingAuthCallbackRouteImport.update({
+  id: '/onboarding/auth/callback',
+  path: '/onboarding/auth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -47,6 +77,11 @@ export interface FileRoutesByFullPath {
   '/api/config': typeof ApiConfigRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/rpc/$': typeof RpcSplatRoute
+  '/onboarding/': typeof OnboardingIndexRoute
+  '/api/onboarding/begin-grant': typeof ApiOnboardingBeginGrantRoute
+  '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
+  '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
+  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +89,11 @@ export interface FileRoutesByTo {
   '/api/config': typeof ApiConfigRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/rpc/$': typeof RpcSplatRoute
+  '/onboarding': typeof OnboardingIndexRoute
+  '/api/onboarding/begin-grant': typeof ApiOnboardingBeginGrantRoute
+  '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
+  '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
+  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,14 +102,37 @@ export interface FileRoutesById {
   '/api/config': typeof ApiConfigRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/rpc/$': typeof RpcSplatRoute
+  '/onboarding/': typeof OnboardingIndexRoute
+  '/api/onboarding/begin-grant': typeof ApiOnboardingBeginGrantRoute
+  '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
+  '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
+  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/api/adaptive-surface' | '/api/config' | '/auth/callback' | '/rpc/$'
+    | '/'
+    | '/api/adaptive-surface'
+    | '/api/config'
+    | '/auth/callback'
+    | '/rpc/$'
+    | '/onboarding/'
+    | '/api/onboarding/begin-grant'
+    | '/api/onboarding/capture'
+    | '/api/onboarding/resume'
+    | '/onboarding/auth/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/api/adaptive-surface' | '/api/config' | '/auth/callback' | '/rpc/$'
+    | '/'
+    | '/api/adaptive-surface'
+    | '/api/config'
+    | '/auth/callback'
+    | '/rpc/$'
+    | '/onboarding'
+    | '/api/onboarding/begin-grant'
+    | '/api/onboarding/capture'
+    | '/api/onboarding/resume'
+    | '/onboarding/auth/callback'
   id:
     | '__root__'
     | '/'
@@ -77,6 +140,11 @@ export interface FileRouteTypes {
     | '/api/config'
     | '/auth/callback'
     | '/rpc/$'
+    | '/onboarding/'
+    | '/api/onboarding/begin-grant'
+    | '/api/onboarding/capture'
+    | '/api/onboarding/resume'
+    | '/onboarding/auth/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -85,6 +153,11 @@ export interface RootRouteChildren {
   ApiConfigRoute: typeof ApiConfigRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   RpcSplatRoute: typeof RpcSplatRoute
+  OnboardingIndexRoute: typeof OnboardingIndexRoute
+  ApiOnboardingBeginGrantRoute: typeof ApiOnboardingBeginGrantRoute
+  ApiOnboardingCaptureRoute: typeof ApiOnboardingCaptureRoute
+  ApiOnboardingResumeRoute: typeof ApiOnboardingResumeRoute
+  OnboardingAuthCallbackRoute: typeof OnboardingAuthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -117,11 +190,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding/': {
+      id: '/onboarding/'
+      path: '/onboarding'
+      fullPath: '/onboarding/'
+      preLoaderRoute: typeof OnboardingIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rpc/$': {
       id: '/rpc/$'
       path: '/rpc/$'
       fullPath: '/rpc/$'
       preLoaderRoute: typeof RpcSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/onboarding/begin-grant': {
+      id: '/api/onboarding/begin-grant'
+      path: '/api/onboarding/begin-grant'
+      fullPath: '/api/onboarding/begin-grant'
+      preLoaderRoute: typeof ApiOnboardingBeginGrantRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/onboarding/capture': {
+      id: '/api/onboarding/capture'
+      path: '/api/onboarding/capture'
+      fullPath: '/api/onboarding/capture'
+      preLoaderRoute: typeof ApiOnboardingCaptureRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/onboarding/resume': {
+      id: '/api/onboarding/resume'
+      path: '/api/onboarding/resume'
+      fullPath: '/api/onboarding/resume'
+      preLoaderRoute: typeof ApiOnboardingResumeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding/auth/callback': {
+      id: '/onboarding/auth/callback'
+      path: '/onboarding/auth/callback'
+      fullPath: '/onboarding/auth/callback'
+      preLoaderRoute: typeof OnboardingAuthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -133,6 +241,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiConfigRoute: ApiConfigRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   RpcSplatRoute: RpcSplatRoute,
+  OnboardingIndexRoute: OnboardingIndexRoute,
+  ApiOnboardingBeginGrantRoute: ApiOnboardingBeginGrantRoute,
+  ApiOnboardingCaptureRoute: ApiOnboardingCaptureRoute,
+  ApiOnboardingResumeRoute: ApiOnboardingResumeRoute,
+  OnboardingAuthCallbackRoute: OnboardingAuthCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

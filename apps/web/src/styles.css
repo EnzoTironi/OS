@@ -26,6 +26,21 @@ textarea {
   font: inherit;
 }
 
+textarea {
+  display: block;
+  width: 100%;
+  margin: 0.5rem 0 1rem;
+  padding: 0.75rem;
+  border: 1px solid rgb(23 63 49 / 30%);
+  border-radius: 0.55rem;
+  resize: vertical;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+}
+
 button {
   min-height: 2.75rem;
   padding: 0.7rem 1rem;
