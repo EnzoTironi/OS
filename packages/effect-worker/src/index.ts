@@ -55,8 +55,6 @@ const dispatchInputSchema = z
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const observedAtSchema = z.string().regex(/^[0-9]+$/);
-const timeoutBeforeSendError =
-  "connector proved that the request timed out before send";
 const connectorOutcomeSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -214,40 +212,15 @@ const zoenEffect = restate.object({
         return;
       }
 
-      let outcome: ConnectorOutcome;
-      try {
-        outcome = await context.run(
-          "invoke external connector",
-          async () => {
-            const result = await invokeConnector(
-              claim,
-              command.tenantId,
-            );
-            if (
-              result.kind === "definitely_not_sent" &&
-              result.reason === "timeout_before_send"
-            ) {
-              throw new Error(timeoutBeforeSendError);
-            }
-            return result;
-          },
-          {
-            initialRetryInterval: 100,
-            maxRetryAttempts: 3,
-            maxRetryInterval: 500,
-          },
-        );
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!message.includes(timeoutBeforeSendError)) {
-          throw error;
-        }
-        outcome = {
-          kind: "definitely_not_sent",
-          observedAtMicros: nowMicros(),
-          reason: "timeout_before_send",
-        };
-      }
+      const outcome = await context.run(
+        "invoke external connector",
+        async () => invokeConnector(claim, command.tenantId),
+        {
+          initialRetryInterval: 100,
+          maxRetryAttempts: 3,
+          maxRetryInterval: 500,
+        },
+      );
 
       const result = toAttemptResult(outcome);
       await context.run("record effect attempt", async () => {
