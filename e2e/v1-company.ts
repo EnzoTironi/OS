@@ -1168,7 +1168,12 @@ async function main(): Promise<void> {
         sessionStorage.setItem("zoen.web.access-token.v1", accessToken);
       }, deniedToken);
       await deniedPage.reload({ waitUntil: "domcontentloaded" });
-      await deniedPage.locator("main").waitFor({ timeout: 120_000 });
+      await deniedPage
+        .locator(
+          'main.app-shell, [role="alert"], text=/Surface unavailable|no longer available|Server denied|Sign in with OIDC/iu',
+        )
+        .first()
+        .waitFor({ timeout: 120_000 });
       const deniedBody = await deniedPage.locator("body").innerText();
       const proposeButtons = deniedPage.getByRole("button", {
         name: "Propose Action",
