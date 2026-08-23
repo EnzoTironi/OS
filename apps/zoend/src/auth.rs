@@ -1,7 +1,8 @@
 use std::collections::{BTreeSet, HashMap};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use connectrpc::{ConnectError, ErrorCode, RequestContext};
 use jsonwebtoken::jwk::JwkSet;
@@ -11,7 +12,7 @@ use zoen_adapters::PostgresIdentityStore;
 use zoen_core::{
     ActionId, ActorId, BindingStatus, DelegationChain, DelegationError, DelegationGrant,
     DelegationId, ExecutionContext, IdentityError, PrincipalId, ResourceId, TenantId,
-    TimestampMicros, VerifiedOidcSubject, WorkloadId,
+    TimestampMicros, VerifiedOidcSubject, WorkloadCredentialId, WorkloadId,
 };
 
 #[derive(Debug)]
@@ -53,9 +54,16 @@ impl Error for SessionConfigError {
 }
 
 #[derive(Clone)]
+struct WorkloadExchangeBinding {
+    credential_id: WorkloadCredentialId,
+    context: ExecutionContext,
+}
+
+#[derive(Clone)]
 pub struct SessionRegistry {
     identity: Option<PostgresIdentityStore>,
     provider: AuthProvider,
+    workload_exchanges: Arc<Mutex<HashMap<String, WorkloadExchangeBinding>>>,
 }
 
 #[derive(Clone)]
@@ -86,12 +94,61 @@ impl SessionRegistry {
         Ok(Self {
             identity: None,
             provider: AuthProvider::Legacy(Arc::new(contexts_by_token)),
+            workload_exchanges: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
     pub fn with_identity(mut self, identity: PostgresIdentityStore) -> Self {
         self.identity = Some(identity);
         self
+    }
+
+    pub fn register_workload_exchange(
+        &self,
+        credential_id: WorkloadCredentialId,
+        context: ExecutionContext,
+    ) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let token = format!("wlx.{nanos:x}");
+        self.workload_exchanges
+            .lock()
+            .expect("workload exchange lock")
+            .insert(
+                token.clone(),
+                WorkloadExchangeBinding {
+                    credential_id,
+                    context,
+                },
+            );
+        token
+    }
+
+    pub fn invalidate_workload_credential(&self, credential_id: &WorkloadCredentialId) {
+        let mut guard = self
+            .workload_exchanges
+            .lock()
+            .expect("workload exchange lock");
+        guard.retain(|_, binding| &binding.credential_id != credential_id);
+    }
+
+    pub fn resolve_workload_exchange(
+        &self,
+        authorization: Option<&str>,
+    ) -> Result<(WorkloadCredentialId, ExecutionContext), IdentityError> {
+        let token = authorization
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .ok_or(IdentityError::Unauthenticated)?;
+        let binding = self
+            .workload_exchanges
+            .lock()
+            .expect("workload exchange lock")
+            .get(token)
+            .cloned()
+            .ok_or(IdentityError::Unauthenticated)?;
+        Ok((binding.credential_id, binding.context))
     }
 
     pub async fn from_oidc(
@@ -157,6 +214,7 @@ impl SessionRegistry {
                 issuer,
                 keys,
             })),
+            workload_exchanges: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -194,6 +252,9 @@ impl SessionRegistry {
         let authorization = request_context
             .header("authorization")
             .and_then(|value| value.to_str().ok());
+        if let Ok((_, context)) = self.resolve_workload_exchange(authorization) {
+            return Ok(context);
+        }
         match &self.provider {
             AuthProvider::Legacy(contexts) => {
                 let token = self.bearer_token(authorization).map_err(|_| {
@@ -224,23 +285,30 @@ impl SessionRegistry {
         let authorization = request_context
             .header("authorization")
             .and_then(|value| value.to_str().ok());
-        let context = match &self.provider {
-            AuthProvider::Legacy(contexts) => {
-                let token = self.bearer_token(authorization).map_err(|_| {
-                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                })?;
-                contexts.get(token).cloned().ok_or_else(|| {
-                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                })?
-            }
-            AuthProvider::Oidc(verifier) => {
-                let verified = verifier
-                    .verify(self.bearer_token(authorization).map_err(|_| {
+        let context = if let Ok((_, context)) = self.resolve_workload_exchange(authorization) {
+            context
+        } else {
+            match &self.provider {
+                AuthProvider::Legacy(contexts) => {
+                    let token = self.bearer_token(authorization).map_err(|_| {
                         ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                    })?)
-                    .map_err(map_authentication_error)?;
-                self.resolve_verified(verified, Some(&claimed_tenant))
-                    .await?
+                    })?;
+                    contexts.get(token).cloned().ok_or_else(|| {
+                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                    })?
+                }
+                AuthProvider::Oidc(verifier) => {
+                    let verified = verifier
+                        .verify(self.bearer_token(authorization).map_err(|_| {
+                            ConnectError::new(
+                                ErrorCode::Unauthenticated,
+                                "invalid OIDC bearer token",
+                            )
+                        })?)
+                        .map_err(map_authentication_error)?;
+                    self.resolve_verified(verified, Some(&claimed_tenant))
+                        .await?
+                }
             }
         };
         if context.tenant_id() != &claimed_tenant {

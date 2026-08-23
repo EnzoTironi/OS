@@ -34,6 +34,15 @@
       ],
       "@zoen/activation-metrics": [
         "./packages/activation-metrics/src/index.ts"
+      ],
+      "@zoen/workload-ingress": [
+        "./packages/workload-ingress/src/index.ts"
+      ],
+      "@zoen/mcp": [
+        "./packages/mcp/src/index.ts"
+      ],
+      "@zoen/harness": [
+        "./packages/harness/src/index.ts"
       ]
     },
     "rootDir": ".",

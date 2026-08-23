@@ -13,8 +13,9 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use connectrpc::Router;
 use zoen_adapters::{
-    CedarPolicyEvaluator, PostgresAuthorityStore, PostgresIdentityStore, PostgresPackRegistryStore,
-    PostgresPackStore,
+    CedarPolicyEvaluator, PostgresAuthorityStore, PostgresExternalSignalStore,
+    PostgresIdentityStore, PostgresPackRegistryStore, PostgresPackStore,
+    PostgresWorkloadCredentialStore,
 };
 use zoen_core::WorkloadId;
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
@@ -31,6 +32,7 @@ use crate::identity_admin::IdentityAdminState;
 use crate::pack_admin::PackAdminState;
 use crate::pack_registry::PackRegistryState;
 use crate::service::DefinitionServiceImpl;
+use crate::workload_ingress_service::WorkloadIngressState;
 use crate::world_service::WorldServiceImpl;
 
 mod action_service;
@@ -42,6 +44,7 @@ mod identity_admin;
 mod pack_admin;
 mod pack_registry;
 mod service;
+mod workload_ingress_service;
 mod world_service;
 
 pub mod proto {
@@ -125,7 +128,15 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         HistoryServiceImpl::new(HistoryEngine::new(store.clone()), sessions.clone());
     let world_service =
         WorldServiceImpl::new(WorldEngine::new(store.clone()), query, sessions.clone());
-    let identity_routes = identity_admin::router(IdentityAdminState { identity, sessions });
+    let identity_routes = identity_admin::router(IdentityAdminState {
+        identity,
+        sessions: sessions.clone(),
+    });
+    let workload_routes = workload_ingress_service::router(WorkloadIngressState {
+        credentials: PostgresWorkloadCredentialStore::new(store.pool()),
+        signals: PostgresExternalSignalStore::new(store.pool()),
+        sessions: sessions.clone(),
+    });
     let rpc = Router::new()
         .add_service(Arc::new(action_service))
         .add_service(Arc::new(computation_service))
@@ -142,6 +153,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             store,
         })
         .merge(identity_routes)
+        .merge(workload_routes)
         .merge(pack_routes)
         .merge(pack_registry_routes)
         .merge(rpc);

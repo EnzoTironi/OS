@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 
 mod effect;
 mod expression;
+mod external_signal;
 mod history;
 mod human;
 mod identity;
@@ -18,6 +19,10 @@ pub use effect::{
 pub use expression::{
     BinaryOperator, ExactDecimal, ExactDecimalError, ExactInteger, ExactIntegerError, ExactValue,
     Expression, ExpressionEvaluationError, ValueType, evaluate_expression, expression_relations,
+};
+pub use external_signal::{
+    DigestRef, EvidenceCandidateOffer, ExternalSignal, ExternalSignalDraft, ExternalSignalError,
+    SignalSourceIdentity, SignalTrustDisposition, offer_external_signal_as_evidence_candidate,
 };
 pub use history::{
     ActionProposalStructure, CausalActionExplanation, CausalActionInput, CausalActionProposal,
@@ -36,11 +41,15 @@ pub use human::{
     project_human_task_packet_from_contract, validate_human_task_contract,
 };
 pub use identity::{
-    AccountMergePlan, AccountStatus, BindingProof, BindingStatus, ChannelProvider,
-    DelegationTemplateId, EnterpriseAssertion, ExternalBinding, ExternalBindingId, ExternalSubject,
-    IdentityError, Invite, InviteId, InviteToken, Membership, MembershipId, MembershipKind,
-    MembershipStatus, RevocationReason, UnbindReason, VerifiedOidcSubject, ZoenAccount,
-    ZoenAccountId, trusted_context_from_membership,
+    AccountMergePlan, AccountStatus, AudienceClass, BindingProof, BindingStatus, ChannelProvider,
+    DelegationTemplateId, DurableEventId, EnterpriseAssertion, ExternalBinding, ExternalBindingId,
+    ExternalSignalId, ExternalSubject, IdentityError, IngressAllowance, IngressScope, Invite,
+    InviteId, InviteToken, McpServerAllowId, Membership, MembershipId, MembershipKind,
+    MembershipStatus, ProjectedCapabilityKind, RateBudgetPolicy, RevocationReason, SourceClass,
+    UnbindReason, VerifiedOidcSubject, VerifiedWorkloadEvidence, WorkloadCredential,
+    WorkloadCredentialId, WorkloadCredentialLookupKey, WorkloadCredentialStatus,
+    WorkloadEvidenceKind, WorkloadRevocationReason, WorkloadSecretId, ZoenAccount, ZoenAccountId,
+    trusted_context_from_membership, trusted_context_from_workload_credential,
 };
 pub use migration::{
     MigrationArtifactDependency, MigrationDependency, MigrationElement, MigrationLineage,
