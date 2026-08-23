@@ -34,3 +34,8 @@ scale phase:
 # Release gate: check and build once, then every serial scenario runner.
 verify:
     ./e2e/run.sh verify
+
+# V1 release gate: aggregate typed artifacts into a signed zoen.verify.v1 bundle.
+# Does not rerun KIND. Missing/stale/unsigned/live-absent evidence fails closed.
+verify-v1:
+    ./e2e/run.sh verify-v1

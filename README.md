@@ -41,6 +41,18 @@ V1 ships versioned ontology libraries for Party, Product, Commercial, Inventory,
 
 The architecture was preceded by a two-day, agent-intensive research/falsification phase using disposable Python and PostgreSQL prototypes. That code is intentionally not the production foundation. Git history and closed GitHub issues/PRs preserve the experiments and counterexamples; surviving laws are condensed into ADRs and V1 conformance properties.
 
+## V1 release gate
+
+The official V1 release decision is:
+
+```text
+just verify-v1
+```
+
+`verify-v1` is an aggregate-only gate. It consumes typed scenario evidence under `artifacts/` (or `ZOEN_VERIFY_EVIDENCE_DIR`), validates schemas, source commits, signatures, semantic mutants, RPO/RTO targets, and advertised live-provider slots, runs verification-layer mutants in-process, and writes a signed `zoen.verify.v1` bundle to `artifacts/verify-v1/`. It does not rerun KIND or wipe existing evidence. Missing, stale, unsigned, wrong-digest, surviving-mutant, or live-absent evidence fails closed.
+
+`just verify` remains the serial scenario runner (check + build + scenarios). It is not a substitute for `just verify-v1`.
+
 ## Development rules
 
 > Meaning in definitions. Universal laws in the kernel. Infrastructure behind replaceable boundaries. Everything else is a surface.
