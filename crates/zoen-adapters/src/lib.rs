@@ -21,6 +21,7 @@ mod claim_store;
 mod effect_dispatcher;
 mod effect_store;
 mod evidence_store;
+mod external_signal_store;
 mod history_store;
 mod identity_store;
 mod integrity;
@@ -32,6 +33,7 @@ mod semantic_claim_store;
 mod value_store;
 mod wasm_store;
 mod wasmtime_adapter;
+mod workload_credential_store;
 
 pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
@@ -41,6 +43,7 @@ pub use effect_dispatcher::{
     EffectDispatchOutcome, EffectDispatchResult, PostgresEffectDispatcher,
 };
 pub use effect_store::PostgresEffectUpdate;
+pub use external_signal_store::PostgresExternalSignalStore;
 pub use identity_store::{AccountSnapshot, CreateInvite, PostgresIdentityStore};
 pub use integrity::IntegrityError;
 pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
@@ -49,6 +52,9 @@ pub use restate::{RestateEffectScheduler, restate_effect_key};
 use value_store::row_to_valid_time;
 pub(crate) use value_store::{row_to_value, valid_time_columns, value_columns};
 pub use wasmtime_adapter::{WasmtimeComputationExecutor, WasmtimeConfigError};
+pub use workload_credential_store::{
+    IssueWorkloadCredential, IssuedWorkloadCredential, PostgresWorkloadCredentialStore,
+};
 
 #[derive(Debug)]
 pub enum PostgresInitError {

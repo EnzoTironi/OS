@@ -321,6 +321,7 @@ pub enum IdentityError {
     AlreadyConsumed,
     BindingNotFound,
     Conflict(String),
+    IngressNotAllowed,
     InvalidInviteToken,
     InvalidProvider,
     InvalidRevocationReason,
@@ -337,9 +338,14 @@ pub enum IdentityError {
     MissingClaimTenant,
     MissingClaimWorkload,
     PersonalExists,
+    RateBudgetExceeded,
+    SecretNotShownTwice,
     SubjectUnbound,
     Unavailable(String),
     Unauthenticated,
+    WorkloadCredentialExpired,
+    WorkloadCredentialInactive,
+    WorkloadCredentialNotFound,
 }
 
 impl Display for IdentityError {
@@ -353,6 +359,7 @@ impl Display for IdentityError {
             Self::AlreadyConsumed => formatter.write_str("invite already consumed"),
             Self::BindingNotFound => formatter.write_str("binding not found"),
             Self::Conflict(message) => write!(formatter, "identity conflict: {message}"),
+            Self::IngressNotAllowed => formatter.write_str("ingress not allowed for credential"),
             Self::InvalidInviteToken => formatter.write_str("invalid invite token"),
             Self::InvalidProvider => formatter.write_str("invalid channel provider"),
             Self::InvalidRevocationReason => formatter.write_str("invalid revocation reason"),
@@ -377,11 +384,20 @@ impl Display for IdentityError {
                 formatter.write_str("OIDC token missing workload_id claim")
             }
             Self::PersonalExists => formatter.write_str("personal workspace already exists"),
+            Self::RateBudgetExceeded => formatter.write_str("workload rate budget exceeded"),
+            Self::SecretNotShownTwice => formatter.write_str("workload secret shown only once"),
             Self::SubjectUnbound => formatter.write_str("OIDC subject has no verified binding"),
             Self::Unavailable(message) => {
                 write!(formatter, "identity store unavailable: {message}")
             }
             Self::Unauthenticated => formatter.write_str("unauthenticated"),
+            Self::WorkloadCredentialExpired => formatter.write_str("workload credential expired"),
+            Self::WorkloadCredentialInactive => {
+                formatter.write_str("workload credential is not active")
+            }
+            Self::WorkloadCredentialNotFound => {
+                formatter.write_str("workload credential not found")
+            }
         }
     }
 }
@@ -403,5 +419,231 @@ pub fn trusted_context_from_membership(
         MembershipStatus::Revoked { .. } | MembershipStatus::Left { .. } => {
             Err(IdentityError::MembershipInactive)
         }
+    }
+}
+
+identity_id!(WorkloadCredentialId);
+identity_id!(ExternalSignalId);
+identity_id!(WorkloadSecretId);
+identity_id!(DurableEventId);
+
+/// Directory authority for programmatic workloads. Not a Membership.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkloadCredential {
+    pub id: WorkloadCredentialId,
+    pub tenant_id: TenantId,
+    pub principal_id: PrincipalId,
+    pub workload_id: WorkloadId,
+    pub actor_id: ActorId,
+    pub delegation: DelegationChain,
+    pub status: WorkloadCredentialStatus,
+    pub allowed_ingress: Vec<IngressAllowance>,
+    pub rate_budget: RateBudgetPolicy,
+    pub expires_at: TimestampMicros,
+    pub audience_class: Option<AudienceClass>,
+    pub secret_id: WorkloadSecretId,
+    pub created_at: TimestampMicros,
+    pub rotated_at: Option<TimestampMicros>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WorkloadCredentialStatus {
+    Active,
+    Revoked {
+        at: TimestampMicros,
+        reason: WorkloadRevocationReason,
+    },
+    Expired {
+        at: TimestampMicros,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkloadRevocationReason {
+    Admin,
+    Security,
+    Rotation,
+    Compromise,
+}
+
+impl WorkloadRevocationReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Admin => "admin",
+            Self::Security => "security",
+            Self::Rotation => "rotation",
+            Self::Compromise => "compromise",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, IdentityError> {
+        match value {
+            "admin" => Ok(Self::Admin),
+            "security" => Ok(Self::Security),
+            "rotation" => Ok(Self::Rotation),
+            "compromise" => Ok(Self::Compromise),
+            _ => Err(IdentityError::InvalidRevocationReason),
+        }
+    }
+}
+
+/// Closed ingress scope. No write-mutation variant.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum IngressAllowance {
+    ApiEvent {
+        source_class: SourceClass,
+    },
+    McpOutbound {
+        capability_kinds: Vec<ProjectedCapabilityKind>,
+    },
+    McpInboundRead {
+        server_allowlist: Vec<McpServerAllowId>,
+    },
+}
+
+pub type IngressScope = IngressAllowance;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProjectedCapabilityKind {
+    Discover,
+    Query,
+    Explain,
+    Propose,
+    CommitOrRecover,
+}
+
+impl ProjectedCapabilityKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Discover => "discover",
+            Self::Query => "query",
+            Self::Explain => "explain",
+            Self::Propose => "propose",
+            Self::CommitOrRecover => "commit_or_recover",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, IdentityError> {
+        match value {
+            "discover" => Ok(Self::Discover),
+            "query" => Ok(Self::Query),
+            "explain" => Ok(Self::Explain),
+            "propose" => Ok(Self::Propose),
+            "commit_or_recover" => Ok(Self::CommitOrRecover),
+            _ => Err(IdentityError::Conflict(format!(
+                "unknown projected capability kind: {value}"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateBudgetPolicy {
+    pub max_accepts_per_minute: u32,
+    pub max_commits_per_hour: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AudienceClass(String);
+
+impl AudienceClass {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > 200 {
+            return Err(IdentityError::Conflict("invalid audience class".to_owned()));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceClass(String);
+
+impl SourceClass {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > 200 {
+            return Err(IdentityError::Conflict("invalid source class".to_owned()));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct McpServerAllowId(String);
+
+impl McpServerAllowId {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > 200 {
+            return Err(IdentityError::Conflict(
+                "invalid mcp server allow id".to_owned(),
+            ));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Authentication evidence after API-key or workload-JWT verification.
+/// Parallel to VerifiedOidcSubject. Never a TrustedExecutionContext.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedWorkloadEvidence {
+    pub credential_lookup_key: WorkloadCredentialLookupKey,
+    pub evidence_kind: WorkloadEvidenceKind,
+    pub expires_at: TimestampMicros,
+    pub requested_tenant_hint: Option<TenantId>,
+    pub principal_hint: Option<PrincipalId>,
+    pub workload_hint: Option<WorkloadId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WorkloadEvidenceKind {
+    ApiKey {
+        key_id: WorkloadSecretId,
+    },
+    WorkloadJwt {
+        issuer: String,
+        audience: String,
+        subject: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WorkloadCredentialLookupKey {
+    SecretId(WorkloadSecretId),
+    JwtSubject { issuer: String, subject: String },
+}
+
+/// Build TEC from an Active, non-expired WorkloadCredential only.
+/// Claim / body hints never enter here.
+pub fn trusted_context_from_workload_credential(
+    credential: &WorkloadCredential,
+    now: TimestampMicros,
+) -> Result<TrustedExecutionContext, IdentityError> {
+    if credential.expires_at.get() <= now.get() {
+        return Err(IdentityError::WorkloadCredentialExpired);
+    }
+    match &credential.status {
+        WorkloadCredentialStatus::Active => Ok(TrustedExecutionContext::new(
+            credential.tenant_id.clone(),
+            credential.actor_id.clone(),
+            credential.principal_id.clone(),
+            credential.workload_id.clone(),
+            credential.delegation.clone(),
+        )),
+        WorkloadCredentialStatus::Revoked { .. } => Err(IdentityError::WorkloadCredentialInactive),
+        WorkloadCredentialStatus::Expired { .. } => Err(IdentityError::WorkloadCredentialExpired),
     }
 }
