@@ -6,6 +6,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@zoen/interaction": "*"
+    "@zoen/interaction": "*",
+    "@zoen/surface": "*"
   }
 }

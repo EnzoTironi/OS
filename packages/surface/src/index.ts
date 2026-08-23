@@ -2,6 +2,7 @@ export * from "./adaptive.js";
 export * from "./cache.js";
 export * from "./compiler.js";
 export * from "./model.js";
+export * from "./presentation-intent.js";
 export * from "./protocol.js";
 export * from "./schema.js";
 export * from "./step-up.js";
