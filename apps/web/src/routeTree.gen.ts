@@ -19,6 +19,8 @@ import { Route as ApiOnboardingBeginGrantRouteImport } from './routes/api.onboar
 import { Route as ApiOnboardingCaptureRouteImport } from './routes/api.onboarding.capture'
 import { Route as ApiOnboardingResumeRouteImport } from './routes/api.onboarding.resume'
 import { Route as OnboardingAuthCallbackRouteImport } from './routes/onboarding.auth.callback'
+import { Route as ApproveControlRefRouteImport } from './routes/approve.$controlRef'
+import { Route as ApproveAuthCallbackRouteImport } from './routes/approve.auth.callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -70,6 +72,16 @@ const OnboardingAuthCallbackRoute = OnboardingAuthCallbackRouteImport.update({
   path: '/onboarding/auth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApproveControlRefRoute = ApproveControlRefRouteImport.update({
+  id: '/approve/$controlRef',
+  path: '/approve/$controlRef',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApproveAuthCallbackRoute = ApproveAuthCallbackRouteImport.update({
+  id: '/approve/auth/callback',
+  path: '/approve/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -82,6 +94,8 @@ export interface FileRoutesByFullPath {
   '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
+  '/approve/$controlRef': typeof ApproveControlRefRoute
+  '/approve/auth/callback': typeof ApproveAuthCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,6 +108,8 @@ export interface FileRoutesByTo {
   '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
+  '/approve/$controlRef': typeof ApproveControlRefRoute
+  '/approve/auth/callback': typeof ApproveAuthCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -107,6 +123,8 @@ export interface FileRoutesById {
   '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
+  '/approve/$controlRef': typeof ApproveControlRefRoute
+  '/approve/auth/callback': typeof ApproveAuthCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +139,8 @@ export interface FileRouteTypes {
     | '/api/onboarding/capture'
     | '/api/onboarding/resume'
     | '/onboarding/auth/callback'
+    | '/approve/$controlRef'
+    | '/approve/auth/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,6 +153,8 @@ export interface FileRouteTypes {
     | '/api/onboarding/capture'
     | '/api/onboarding/resume'
     | '/onboarding/auth/callback'
+    | '/approve/$controlRef'
+    | '/approve/auth/callback'
   id:
     | '__root__'
     | '/'
@@ -145,6 +167,8 @@ export interface FileRouteTypes {
     | '/api/onboarding/capture'
     | '/api/onboarding/resume'
     | '/onboarding/auth/callback'
+    | '/approve/$controlRef'
+    | '/approve/auth/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,6 +182,8 @@ export interface RootRouteChildren {
   ApiOnboardingCaptureRoute: typeof ApiOnboardingCaptureRoute
   ApiOnboardingResumeRoute: typeof ApiOnboardingResumeRoute
   OnboardingAuthCallbackRoute: typeof OnboardingAuthCallbackRoute
+  ApproveControlRefRoute: typeof ApproveControlRefRoute
+  ApproveAuthCallbackRoute: typeof ApproveAuthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -232,6 +258,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingAuthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/approve/$controlRef': {
+      id: '/approve/$controlRef'
+      path: '/approve/$controlRef'
+      fullPath: '/approve/$controlRef'
+      preLoaderRoute: typeof ApproveControlRefRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/approve/auth/callback': {
+      id: '/approve/auth/callback'
+      path: '/approve/auth/callback'
+      fullPath: '/approve/auth/callback'
+      preLoaderRoute: typeof ApproveAuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -246,6 +286,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiOnboardingCaptureRoute: ApiOnboardingCaptureRoute,
   ApiOnboardingResumeRoute: ApiOnboardingResumeRoute,
   OnboardingAuthCallbackRoute: OnboardingAuthCallbackRoute,
+  ApproveControlRefRoute: ApproveControlRefRoute,
+  ApproveAuthCallbackRoute: ApproveAuthCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
