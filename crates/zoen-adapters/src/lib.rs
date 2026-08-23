@@ -22,6 +22,7 @@ mod effect_dispatcher;
 mod effect_store;
 mod evidence_store;
 mod history_store;
+mod identity_store;
 mod integrity;
 mod migration_store;
 mod restate;
@@ -32,6 +33,7 @@ mod wasmtime_adapter;
 
 pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
+pub use identity_store::{AccountSnapshot, PostgresIdentityStore};
 pub use claim_store::{PostgresClaimLoader, PostgresClaimQuery};
 pub use effect_dispatcher::{
     DispatchAcceptance, DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
