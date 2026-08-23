@@ -31,6 +31,9 @@
       ],
       "@zoen/onboarding": [
         "./packages/onboarding/src/index.ts"
+      ],
+      "@zoen/activation-metrics": [
+        "./packages/activation-metrics/src/index.ts"
       ]
     },
     "rootDir": ".",
