@@ -76,7 +76,7 @@ export type MissingCapability =
 export type ObservedCapabilities = {
   readonly accountStatus: "provisional" | "verified" | "merged";
   readonly verifiedBindings: ReadonlyArray<{
-    readonly provider: "web_oidc" | "whatsapp" | "telegram";
+    readonly provider: "web_oidc" | "whatsapp" | "telegram" | "linq";
     readonly bindingId: string;
   }>;
   readonly memberships: ReadonlyArray<{

@@ -81,6 +81,7 @@ pub enum ChannelProvider {
     WebOidc,
     WhatsApp,
     Telegram,
+    Linq,
 }
 
 impl ChannelProvider {
@@ -89,6 +90,7 @@ impl ChannelProvider {
             Self::WebOidc => "web_oidc",
             Self::WhatsApp => "whatsapp",
             Self::Telegram => "telegram",
+            Self::Linq => "linq",
         }
     }
 
@@ -97,6 +99,7 @@ impl ChannelProvider {
             "web_oidc" => Ok(Self::WebOidc),
             "whatsapp" => Ok(Self::WhatsApp),
             "telegram" => Ok(Self::Telegram),
+            "linq" => Ok(Self::Linq),
             _ => Err(IdentityError::InvalidProvider),
         }
     }
@@ -645,5 +648,24 @@ pub fn trusted_context_from_workload_credential(
         )),
         WorkloadCredentialStatus::Revoked { .. } => Err(IdentityError::WorkloadCredentialInactive),
         WorkloadCredentialStatus::Expired { .. } => Err(IdentityError::WorkloadCredentialExpired),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ChannelProvider, IdentityError};
+
+    #[test]
+    fn channel_provider_parses_linq() {
+        assert_eq!(ChannelProvider::parse("linq"), Ok(ChannelProvider::Linq));
+        assert_eq!(ChannelProvider::Linq.as_str(), "linq");
+    }
+
+    #[test]
+    fn channel_provider_rejects_unknown() {
+        assert_eq!(
+            ChannelProvider::parse("not_a_provider"),
+            Err(IdentityError::InvalidProvider)
+        );
     }
 }

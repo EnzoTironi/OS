@@ -410,7 +410,11 @@ function mapAudience(
       return { kind: "group" };
     }
   }
-  if (key === "whatsapp_business" && raw !== null && typeof raw === "object") {
+  if (
+    (key === "whatsapp_business" || key === "whatsapp_cloud_api") &&
+    raw !== null &&
+    typeof raw === "object"
+  ) {
     const groupId = extractWabaGroupId(raw);
     if (groupId !== undefined) {
       return { kind: "group" };

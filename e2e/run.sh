@@ -15,16 +15,12 @@ scenario_table=(
   "activation-onboarding:activation-onboarding:"
   "activation-metrics:activation-metrics:"
   "messaging-boundary:messaging-boundary:"
-  "messaging-conformance:messaging-conformance:"
-  "channel-provider-substitution:channel-provider-substitution:"
   "channel-linq-live:channel-linq-live:"
   "company-bootstrap-shadow:company-bootstrap-shadow:"
   "conversational-approval:conversational-approval:"
   "conversational-turn:conversational-turn:"
   "pack-kitchen:pack-kitchen:"
   "personal-family:personal-family:"
-  "proactive-attention:proactive-attention:"
-  "surface-ir-renderer:surface-ir-renderer:"
   "workload-api-mcp:workload-api-mcp:"
   "activation-sample::"
   "agent-capabilities-live:agent-capabilities-live:"
@@ -171,6 +167,9 @@ run_lint() {
   git diff --exit-code -- packages/sdk/src/gen proto/definition_descriptor.binpb
   npm run build
   npm run deployment-docs:check
+  npm run roadmap:check
+  node scripts/check-no-fake-exports.mjs
+  node scripts/check-e2e-workflow-matrix.mjs
   npm test
   cargo fmt --all --check
   cargo test --locked --workspace

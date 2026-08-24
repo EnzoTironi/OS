@@ -60,7 +60,8 @@ function bindingProvider(
   if (
     provider === "web_oidc" ||
     provider === "whatsapp" ||
-    provider === "telegram"
+    provider === "telegram" ||
+    provider === "linq"
   ) {
     return provider;
   }

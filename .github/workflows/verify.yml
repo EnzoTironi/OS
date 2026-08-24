@@ -89,13 +89,11 @@ jobs:
       fail-fast: false
       matrix:
         scenario:
-          - activation-context
           - activation-identity
           - activation-metrics
           - activation-onboarding
           - activation-sample
           - backup-restore
-          - channel-provider-substitution
           - company-bootstrap-shadow
           - conversational-approval
           - conversational-turn
@@ -116,19 +114,16 @@ jobs:
           - ha-chaos
           - human-executor
           - messaging-boundary
-          - messaging-conformance
           - pack-install
           - pack-kitchen
           - pack-registry
           - personal-family
-          - proactive-attention
           - public-surface
           - public-surface-web
           - rolling-upgrade
           - rpo-rto
           - semantic-query
           - shared-tenancy
-          - surface-ir-renderer
           - wasm-code-mode
           - web-deterministic
           - workload-api-mcp

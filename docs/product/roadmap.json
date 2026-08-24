@@ -1,0 +1,527 @@
+{
+  "version": 1,
+  "parentIssue": 324,
+  "law": "If a capability exists on main only as a stub or fake path, it does not exist as product. Remove it from main. Keep the code on backup/stubs-channels. Open a restore issue. That issue is the roadmap row.",
+  "backup": {
+    "branch": "backup/stubs-channels",
+    "sha": "f68615db48c1f4902e659173f028bd9fb3782b9f",
+    "url": "https://github.com/EnzoTironi/OS/tree/backup/stubs-channels"
+  },
+  "gates": {
+    "verify": "just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale.",
+    "verifyV1": "just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.",
+    "verifyActivation": "just verify-activation. Signed activation evidence. Same fixture rule.",
+    "note": "Green just verify is not a V1 release. Green just verify-v1-fixtures is a labeled contract, not production."
+  },
+  "forbidden": [
+    "Treat a fake adapter as a live channel.",
+    "Use official Meta Cloud API as the Brazil WhatsApp path.",
+    "Restore createFake* exports on package indexes.",
+    "Import vercel/chat npm as the messaging product.",
+    "Use Baileys or Evolution as a JSON shell.",
+    "Pair production WhatsApp to personal 31999941160 as the Zoen door.",
+    "Advertise live fiscal vendors while #214 is parked.",
+    "Post fiscal traffic to Metal Fort production.",
+    "Merge 0f156d9.",
+    "Close #267 from e2e green bars."
+  ],
+  "next": [
+    {
+      "order": 1,
+      "issue": 319,
+      "pr": [320],
+      "title": "Land fixture-as-production reject",
+      "note": "Independent of the Cedar stack. Can merge first."
+    },
+    {
+      "order": 2,
+      "issue": 317,
+      "pr": [321],
+      "title": "Land fail-closed zoend boot",
+      "note": "Cedar manifest required. Explicit ZOEN_ALLOW_LEGACY_SESSIONS. Durable stores required."
+    },
+    {
+      "order": 3,
+      "issue": 319,
+      "pr": [322],
+      "title": "Land legacy-sessions authMode stamp",
+      "note": "Stacked on #321."
+    },
+    {
+      "order": 4,
+      "issue": 318,
+      "pr": [323],
+      "title": "Land distinct Linq ChannelProvider",
+      "note": "Stacked on #321. toChannelProvider(\"linq\") must be linq, not whatsapp."
+    },
+    {
+      "order": 5,
+      "issue": 324,
+      "pr": null,
+      "title": "Remove stub-only channel adapters from main",
+      "note": "Landed on this PR. Backup already pinned. Restore issues already open."
+    },
+    {
+      "order": 6,
+      "issue": 325,
+      "pr": null,
+      "title": "definition-publication and semantic-query on OIDC",
+      "note": "After #321. Drop ZOEN_SESSION_TOKENS."
+    },
+    {
+      "order": 7,
+      "issue": 329,
+      "pr": null,
+      "title": "Live Telegram adapter",
+      "note": "Needs a bot token. Do not restore the fake."
+    },
+    {
+      "order": 8,
+      "issue": 326,
+      "pr": null,
+      "title": "Unofficial WhatsApp via whatsmeow sidecar",
+      "note": "Blocked on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive."
+    },
+    {
+      "order": 9,
+      "issue": 327,
+      "pr": null,
+      "title": "Conformance and substitution against live adapters",
+      "note": "After live Telegram and WhatsApp exist. Fakes do not re-enter just verify."
+    },
+    {
+      "order": 10,
+      "issue": 328,
+      "pr": null,
+      "title": "Surface IR and Attention on live channels",
+      "note": "packages/surface and packages/attention stay. The fake-delivery e2e does not."
+    },
+    {
+      "order": 11,
+      "issue": 214,
+      "pr": null,
+      "title": "Live Brazil fiscal homologation",
+      "note": "Parked. Systax, PlugNotas, Protheus. Do not advertise."
+    },
+    {
+      "order": 12,
+      "issue": 267,
+      "pr": null,
+      "title": "Human comprehension of the public surface",
+      "note": "Stays OPEN. Live conversation study. Not closable by e2e."
+    }
+  ],
+  "rows": [
+    {
+      "id": "authority-rust",
+      "status": "have",
+      "plane": "authority",
+      "name": "Rust semantic authority",
+      "onMain": true,
+      "product": true,
+      "path": "crates/zoen-core, crates/zoen-engine, apps/zoend",
+      "proof": "just e2e governed-action",
+      "issue": null
+    },
+    {
+      "id": "authority-postgres",
+      "status": "have",
+      "plane": "authority",
+      "name": "PostgreSQL authority store",
+      "onMain": true,
+      "product": true,
+      "path": "crates/zoen-adapters",
+      "proof": "PostgresAuthorityStore is the only store. No in-memory authority in crates.",
+      "issue": null
+    },
+    {
+      "id": "authority-cedar",
+      "status": "have",
+      "plane": "authority",
+      "name": "Cedar policy evaluation",
+      "onMain": true,
+      "product": true,
+      "path": "crates/zoen-adapters/src/cedar.rs",
+      "proof": "just e2e governed-action. Empty-manifest default is being killed in #317 / PR #321.",
+      "issue": 317
+    },
+    {
+      "id": "authority-wasm",
+      "status": "have",
+      "plane": "authority",
+      "name": "Wasmtime sandbox",
+      "onMain": true,
+      "product": true,
+      "path": "crates/zoen-adapters/src/wasmtime_adapter.rs",
+      "proof": "Committed .wasm fixtures with pinned sha256. Not JS mocks.",
+      "issue": null
+    },
+    {
+      "id": "authority-query",
+      "status": "have",
+      "plane": "authority",
+      "name": "DataFusion semantic query",
+      "onMain": true,
+      "product": true,
+      "path": "crates/zoen-query",
+      "proof": "just e2e semantic-query",
+      "issue": 325
+    },
+    {
+      "id": "authority-restate",
+      "status": "have",
+      "plane": "authority",
+      "name": "Restate durable orchestration",
+      "onMain": true,
+      "product": true,
+      "path": "crates/zoen-adapters/src/restate.rs",
+      "proof": "just e2e durable-commit. Remote Restate e2e is a named harness, not the product claim.",
+      "issue": null
+    },
+    {
+      "id": "identity-oidc",
+      "status": "have",
+      "plane": "identity",
+      "name": "OIDC identity (Keycloak)",
+      "onMain": true,
+      "product": true,
+      "path": "apps/web, e2e/activation-sample",
+      "proof": "just start. just e2e activation-identity. JWT claims are evidence. Membership is authority.",
+      "issue": null
+    },
+    {
+      "id": "identity-legacy-sessions",
+      "status": "dont-have",
+      "plane": "identity",
+      "name": "OIDC on definition-publication and semantic-query",
+      "onMain": true,
+      "product": false,
+      "path": "e2e/definition-publication, e2e/semantic-query",
+      "proof": "Those suites still boot with ZOEN_SESSION_TOKENS. After #321 they need ZOEN_ALLOW_LEGACY_SESSIONS=1. They are not an OIDC proof.",
+      "issue": 325,
+      "backup": []
+    },
+    {
+      "id": "web-tanstack",
+      "status": "have",
+      "plane": "experience",
+      "name": "Web application",
+      "onMain": true,
+      "product": true,
+      "path": "apps/web",
+      "proof": "just start. OIDC login, packs, propose/approve, step-up.",
+      "issue": null
+    },
+    {
+      "id": "surface-ir",
+      "status": "have",
+      "plane": "experience",
+      "name": "Surface IR package",
+      "onMain": true,
+      "product": true,
+      "path": "packages/surface",
+      "proof": "Unit tests in packages/surface. Delivery through live channels is #328.",
+      "issue": 328
+    },
+    {
+      "id": "attention",
+      "status": "have",
+      "plane": "experience",
+      "name": "Proactive attention package",
+      "onMain": true,
+      "product": true,
+      "path": "packages/attention",
+      "proof": "Package exists with Postgres store. Wake/DM through live channels is #328.",
+      "issue": 328
+    },
+    {
+      "id": "ontology-libs",
+      "status": "have",
+      "plane": "ontology",
+      "name": "V1 ontology libraries",
+      "onMain": true,
+      "product": true,
+      "path": "packages/{party,product,commercial,inventory,procurement,manufacturing,quality,accounting-foundation}",
+      "proof": "just e2e domain-commercial, domain-inventory-procurement, domain-manufacturing-accounting, domain-quality",
+      "issue": null
+    },
+    {
+      "id": "pack-compiler",
+      "status": "have",
+      "plane": "packs",
+      "name": "Pack compiler, registry, Kitchen",
+      "onMain": true,
+      "product": true,
+      "path": "packages/pack, packages/kitchen",
+      "proof": "just e2e pack-install, pack-registry, pack-kitchen",
+      "issue": null
+    },
+    {
+      "id": "sample-company",
+      "status": "have",
+      "plane": "activation",
+      "name": "Sample Company five-minute path",
+      "onMain": true,
+      "product": true,
+      "path": "e2e/activation-sample",
+      "proof": "just start. just e2e activation-sample. Effect remote is the named fault-provider harness.",
+      "issue": null
+    },
+    {
+      "id": "activation-onboarding",
+      "status": "have",
+      "plane": "activation",
+      "name": "Conversational onboarding and messy data",
+      "onMain": true,
+      "product": true,
+      "path": "packages/onboarding, e2e/activation-onboarding, e2e/company-bootstrap-shadow",
+      "proof": "just e2e activation-onboarding. just e2e company-bootstrap-shadow (in-memory mapping, labeled).",
+      "issue": null
+    },
+    {
+      "id": "brain-live",
+      "status": "have",
+      "plane": "intelligence",
+      "name": "Company Brain and agent live suites",
+      "onMain": true,
+      "product": true,
+      "path": "packages/harness, e2e/company-brain-live, e2e/agent-capabilities-live",
+      "proof": "just e2e company-brain-live and agent-capabilities-live. Need OPENCODE_API_KEY. In just verify.",
+      "issue": null
+    },
+    {
+      "id": "fiscal-adapters",
+      "status": "have",
+      "plane": "fiscal",
+      "name": "Brazil fiscal HTTP adapters (code)",
+      "onMain": true,
+      "product": true,
+      "path": "packages/fiscal-brazil/src/adapter/vendors",
+      "proof": "just e2e fiscal-fault-matrix uses vendor-fault-proxy. Live homologation is #214.",
+      "issue": 214
+    },
+    {
+      "id": "fiscal-live",
+      "status": "parked",
+      "plane": "fiscal",
+      "name": "Live Systax, PlugNotas, Protheus homologation",
+      "onMain": false,
+      "product": false,
+      "path": "e2e/fiscal-systax-live, e2e/fiscal-plugnotas-live, e2e/fiscal-protheus-live",
+      "proof": "Skipped by just verify. Not advertised. Do not post to Metal Fort production.",
+      "issue": 214
+    },
+    {
+      "id": "linq-live",
+      "status": "have",
+      "plane": "channels",
+      "name": "Live Linq iMessage adapter",
+      "onMain": true,
+      "product": true,
+      "path": "packages/messaging/src/adapters/linq-live.ts",
+      "proof": "just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host.",
+      "issue": 253
+    },
+    {
+      "id": "telegram-live",
+      "status": "dont-have",
+      "plane": "channels",
+      "name": "Telegram channel",
+      "onMain": false,
+      "product": false,
+      "path": "packages/messaging/src/adapters/telegram-fake.ts",
+      "proof": "Removed from main. Fake lived only as an in-process stub. Code on backup/stubs-channels. Restore as live Bot API on #329.",
+      "issue": 329,
+      "backup": [
+        "packages/messaging/src/adapters/telegram-fake.ts"
+      ],
+      "blocker": "Telegram bot token"
+    },
+    {
+      "id": "whatsapp-unofficial",
+      "status": "dont-have",
+      "plane": "channels",
+      "name": "Unofficial WhatsApp (whatsmeow) for Brazil",
+      "onMain": false,
+      "product": false,
+      "path": null,
+      "proof": "Never shipped live. The Cloud API envelope fake was removed from main with the stub sweep. That fake is not this path.",
+      "issue": 326,
+      "backup": [
+        "packages/messaging/src/adapters/whatsapp-business-fake.ts"
+      ],
+      "blocker": "Dedicated Zoen WhatsApp number"
+    },
+    {
+      "id": "whatsapp-cloud-api-fake",
+      "status": "dont-have",
+      "plane": "channels",
+      "name": "WhatsApp Cloud API fake",
+      "onMain": false,
+      "product": false,
+      "path": "packages/messaging/src/adapters/whatsapp-business-fake.ts",
+      "proof": "Removed from main. Never product. Code on backup/stubs-channels. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts. Restore issue #326.",
+      "issue": 326,
+      "backup": [
+        "packages/messaging/src/adapters/whatsapp-business-fake.ts"
+      ]
+    },
+    {
+      "id": "linq-fake",
+      "status": "dont-have",
+      "plane": "channels",
+      "name": "Linq fake adapter",
+      "onMain": false,
+      "product": false,
+      "path": "packages/messaging/src/adapters/linq-fake.ts",
+      "proof": "Removed from main. Live Linq stays. Fake no longer exports from the package index. Code on backup/stubs-channels. Restore issue #327.",
+      "issue": 327,
+      "backup": [
+        "packages/messaging/src/adapters/linq-fake.ts"
+      ]
+    },
+    {
+      "id": "messaging-conformance-fake",
+      "status": "dont-have",
+      "plane": "channels",
+      "name": "Messaging conformance e2e (fakes)",
+      "onMain": false,
+      "product": false,
+      "path": "e2e/messaging-conformance.ts",
+      "proof": "Removed from main. Fake-backed just verify path is gone. Code on backup/stubs-channels. Live rewrite is #327.",
+      "issue": 327,
+      "backup": [
+        "e2e/messaging-conformance.ts",
+        "e2e/channel-provider-substitution.ts"
+      ]
+    },
+    {
+      "id": "surface-ir-e2e-fake",
+      "status": "dont-have",
+      "plane": "channels",
+      "name": "Surface IR and Attention e2e through fakes",
+      "onMain": false,
+      "product": false,
+      "path": "e2e/surface-ir-renderer, e2e/proactive-attention",
+      "proof": "Removed from main. packages/surface and packages/attention stay. Fake-delivery e2e is gone. Code on backup/stubs-channels. Restore on live is #328.",
+      "issue": 328,
+      "backup": [
+        "e2e/surface-ir-renderer",
+        "e2e/proactive-attention"
+      ]
+    },
+    {
+      "id": "messaging-boundary-law",
+      "status": "have",
+      "plane": "channels",
+      "name": "Chat SDK import-graph law",
+      "onMain": true,
+      "product": true,
+      "path": "e2e/messaging-boundary/import-graph.ts",
+      "proof": "just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat.",
+      "issue": 327
+    },
+    {
+      "id": "deploy-helm",
+      "status": "have",
+      "plane": "deploy",
+      "name": "Helm profiles (shared, dedicated, self-hosted)",
+      "onMain": true,
+      "product": true,
+      "path": "deploy/helm/zoen",
+      "proof": "just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify.",
+      "issue": null
+    },
+    {
+      "id": "public-surface",
+      "status": "have",
+      "plane": "public",
+      "name": "Public narrative checker",
+      "onMain": true,
+      "product": true,
+      "path": "e2e/public-surface.ts, docs/product/public-narrative.md",
+      "proof": "npx tsx e2e/public-surface.ts. Live conversation study is #267.",
+      "issue": 267
+    },
+    {
+      "id": "human-comprehension",
+      "status": "parked",
+      "plane": "public",
+      "name": "Human comprehension / live conversation",
+      "onMain": false,
+      "product": false,
+      "path": "docs/demo, docs/demos",
+      "proof": "Not this inventory. Stays OPEN on #267.",
+      "issue": 267
+    },
+    {
+      "id": "fail-closed-boot",
+      "status": "in-flight",
+      "plane": "authority",
+      "name": "Fail-closed zoend boot",
+      "onMain": false,
+      "product": true,
+      "path": "apps/zoend/src/config.rs",
+      "proof": "PR #321. Cedar required. Explicit legacy sessions. Required stores.",
+      "issue": 317,
+      "pr": [321]
+    },
+    {
+      "id": "channel-provider-linq",
+      "status": "in-flight",
+      "plane": "identity",
+      "name": "Distinct Linq ChannelProvider",
+      "onMain": false,
+      "product": true,
+      "path": "packages/interaction/src/identity-directory.ts",
+      "proof": "PR #323 stacked on #321. toChannelProvider(\"linq\") === \"linq\".",
+      "issue": 318,
+      "pr": [323]
+    },
+    {
+      "id": "fixture-as-production",
+      "status": "in-flight",
+      "plane": "gate",
+      "name": "Production verify-v1 rejects fixtureContract",
+      "onMain": false,
+      "product": true,
+      "path": "e2e/verify-v1.ts",
+      "proof": "PR #320. Stamp on publication/query is PR #322 stacked on #321.",
+      "issue": 319,
+      "pr": [320, 322]
+    },
+    {
+      "id": "fault-provider",
+      "status": "harness",
+      "plane": "effects",
+      "name": "Sample Company effect fault-provider",
+      "onMain": true,
+      "product": false,
+      "path": "e2e/effects/fault-provider.ts",
+      "proof": "Named fault injection against the real dispatcher/connector/Restate. Not a stub of the company. Allowed by ADR-0021 as supplement.",
+      "issue": null
+    },
+    {
+      "id": "fiscal-fault-proxy",
+      "status": "harness",
+      "plane": "fiscal",
+      "name": "Fiscal vendor-fault-proxy",
+      "onMain": true,
+      "product": false,
+      "path": "e2e/fiscal-fault-matrix",
+      "proof": "just e2e fiscal-fault-matrix. Artifact liveEvidence: not-run-no-credentials. Not Systax/PlugNotas/Protheus live.",
+      "issue": 214
+    },
+    {
+      "id": "verify-fixtures",
+      "status": "harness",
+      "plane": "gate",
+      "name": "verify-v1-fixtures labeled contract",
+      "onMain": true,
+      "product": false,
+      "path": "e2e/verify-v1/testdata",
+      "proof": "just verify-v1-fixtures. fixtureContract: true. Never treat PASS as production.",
+      "issue": 319
+    }
+  ]
+}
