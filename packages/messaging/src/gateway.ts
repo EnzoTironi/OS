@@ -404,45 +404,7 @@ function mapAudience(
       };
     }
   }
-  if (key === "telegram" && raw !== null && typeof raw === "object") {
-    const message = (raw as { message?: { chat?: { type?: string } } }).message;
-    if (message?.chat?.type === "group" || message?.chat?.type === "supergroup") {
-      return { kind: "group" };
-    }
-  }
-  if (
-    (key === "whatsapp_business" || key === "whatsapp_cloud_api") &&
-    raw !== null &&
-    typeof raw === "object"
-  ) {
-    const groupId = extractWabaGroupId(raw);
-    if (groupId !== undefined) {
-      return { kind: "group" };
-    }
-  }
   return { kind: "dm" };
-}
-
-function extractWabaGroupId(raw: unknown): string | undefined {
-  if (raw === null || typeof raw !== "object") {
-    return undefined;
-  }
-  const root = raw as Record<string, unknown>;
-  const entry = Array.isArray(root.entry) ? root.entry[0] : undefined;
-  if (entry === null || typeof entry !== "object") {
-    return undefined;
-  }
-  const changes = (entry as { changes?: unknown }).changes;
-  const change = Array.isArray(changes) ? changes[0] : undefined;
-  if (change === null || typeof change !== "object") {
-    return undefined;
-  }
-  const value = (change as { value?: unknown }).value;
-  if (value === null || typeof value !== "object") {
-    return undefined;
-  }
-  const groupId = (value as { group_id?: unknown }).group_id;
-  return typeof groupId === "string" ? groupId : undefined;
 }
 
 function buildIdempotencyKey(
@@ -452,12 +414,6 @@ function buildIdempotencyKey(
 ): string {
   if (raw !== null && typeof raw === "object") {
     const record = raw as Record<string, unknown>;
-    if (
-      typeof record.update_id === "number" ||
-      typeof record.update_id === "string"
-    ) {
-      return `${String(provider)}:update:${String(record.update_id)}`;
-    }
     // Standard Webhooks / Linq partner envelope: webhook-id == event_id.
     if (typeof record.event_id === "string" && record.event_id.length > 0) {
       return `${String(provider)}:webhook:${record.event_id}`;
@@ -468,47 +424,8 @@ function buildIdempotencyKey(
     if (typeof record.delivery_id === "string") {
       return `${String(provider)}:delivery:${record.delivery_id}`;
     }
-    const wamid = extractWamid(record);
-    if (wamid !== undefined) {
-      return `${String(provider)}:wamid:${wamid}`;
-    }
   }
   return `${String(provider)}:message:${messageId}`;
-}
-
-function extractWamid(record: Record<string, unknown>): string | undefined {
-  if (record.object !== "whatsapp_business_account") {
-    return undefined;
-  }
-  const entry = Array.isArray(record.entry) ? record.entry[0] : undefined;
-  if (entry === null || typeof entry !== "object") {
-    return undefined;
-  }
-  const changes = (entry as { changes?: unknown }).changes;
-  const change = Array.isArray(changes) ? changes[0] : undefined;
-  if (change === null || typeof change !== "object") {
-    return undefined;
-  }
-  const value = (change as { value?: { messages?: unknown; statuses?: unknown } })
-    .value;
-  if (value === undefined) {
-    return undefined;
-  }
-  const messages = value.messages;
-  if (Array.isArray(messages) && messages[0] !== undefined) {
-    const id = (messages[0] as { id?: unknown }).id;
-    if (typeof id === "string") {
-      return id;
-    }
-  }
-  const statuses = value.statuses;
-  if (Array.isArray(statuses) && statuses[0] !== undefined) {
-    const id = (statuses[0] as { id?: unknown }).id;
-    if (typeof id === "string") {
-      return id;
-    }
-  }
-  return undefined;
 }
 
 export { presentationIntentRef, providerKey };
