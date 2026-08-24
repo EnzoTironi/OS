@@ -51,7 +51,13 @@ import {
   waitForProviderOperation,
   waitForState,
 } from "../effects/scenario.js";
-import { e2ePostgresUrl, writeScenarioArtifact } from "../host-env.js";
+import { createConnection } from "node:net";
+import {
+  e2ePort,
+  e2ePostgresUrl,
+  writeScenarioArtifact,
+} from "../host-env.js";
+import { ensureEffectWorkerRegistered } from "./stack.js";
 import type { SampleCompanyRef, StackHandle, TimingReport } from "./types.js";
 import { SCENARIO } from "./types.js";
 
@@ -111,15 +117,19 @@ export async function runActivationStory(
   const processes: ManagedProcess[] = [];
 
   try {
-    processes.push(await startFaultProvider());
-    processes.push(await startConnector());
-    processes.push(
-      await startWorker({
-        "tenant.a": workerTokenA,
-        "tenant.b": workerTokenB,
-      }),
-    );
-    await registerWorker();
+    if (await effectChainListening()) {
+      await ensureEffectWorkerRegistered(registerWorker);
+    } else {
+      processes.push(await startFaultProvider());
+      processes.push(await startConnector());
+      processes.push(
+        await startWorker({
+          "tenant.a": workerTokenA,
+          "tenant.b": workerTokenB,
+        }),
+      );
+      await ensureEffectWorkerRegistered(registerWorker);
+    }
 
     const rivals = await world.semanticQuery({
       consistency: create(QueryConsistencySchema, {
@@ -368,6 +378,8 @@ export async function runActivationStory(
         "sql-business-authority-bypass",
         "effect-timeout-as-success",
         "missing-approval-on-purchase",
+        "stale-web-build-still-ready",
+        "restate-only-stack-still-ready",
       ],
     };
     await writeScenarioArtifact(stack.root, SCENARIO, manifest);
@@ -388,6 +400,40 @@ export async function runActivationStory(
     }
     await admin.end();
   }
+}
+
+async function effectChainListening(): Promise<boolean> {
+  const providerPort = e2ePort(
+    "ZOEN_E2E_EFFECT_PROVIDER_PORT",
+    e2ePort("ZOEN_E2E_PROVIDER_PORT", 58_358),
+  );
+  const connectorPort = e2ePort("ZOEN_E2E_CONNECTOR_PORT", 58_353);
+  const workerPort = e2ePort(
+    "ZOEN_E2E_EFFECT_WORKER_PORT",
+    e2ePort("ZOEN_E2E_WORKER_PORT", 58_357),
+  );
+  return (
+    (await canConnect(providerPort)) &&
+    (await canConnect(connectorPort)) &&
+    (await canConnect(workerPort))
+  );
+}
+
+function canConnect(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    let settled = false;
+    const finish = (connected: boolean) => {
+      if (!settled) {
+        settled = true;
+        socket.destroy();
+        resolve(connected);
+      }
+    };
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    socket.setTimeout(200, () => finish(false));
+  });
 }
 
 async function commitReady(
