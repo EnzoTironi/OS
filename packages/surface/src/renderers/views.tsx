@@ -88,6 +88,7 @@ export function ActionFormView(props: {
     ({ kind: "idle" } satisfies ActionOperationView);
   const available =
     operation.kind !== "unavailable" &&
+    operation.kind !== "awaiting_approval" &&
     interaction.actionAvailable(binding.id);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -177,7 +178,20 @@ export function ActionFormView(props: {
           {operation.kind === "proposed" ? "Commit Action" : "Propose Action"}
         </button>
       </fieldset>
-      <OperationStatusView operation={operation} />
+      {operation.kind === "awaiting_approval" ? (
+        <p className="operation-status status-awaiting_approval" role="status">
+          Proposal {operation.proposalId} needs approval.{" "}
+          <a
+            data-approve-href={operation.approveUrl}
+            data-control-ref={operation.controlRef}
+            href={operation.approveUrl}
+          >
+            Open step-up approval
+          </a>
+        </p>
+      ) : (
+        <OperationStatusView operation={operation} />
+      )}
     </form>
   );
 }
@@ -406,6 +420,8 @@ function operationText(operation: ActionOperationView): string {
       return "Ready for proposal.";
     case "proposed":
       return `Proposal ${operation.proposalId} is ready for commit.`;
+    case "awaiting_approval":
+      return `Proposal ${operation.proposalId} needs step-up approval.`;
     case "proposing":
       return `Proposing ${operation.operationId}.`;
     case "committing":

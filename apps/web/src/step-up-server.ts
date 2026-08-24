@@ -2,12 +2,18 @@ import {
   createInteractionControlRegistry,
   createPostgresControlStore,
   createStepUpRegistry,
+  decideAudienceDisclosure,
   interactionControlRef,
+  issueApprovalControl,
   openStepUpSession,
   completeStepUpCommit,
   principalIdString,
+  proposalRef,
+  stepUpUrl,
   tenantIdString,
+  type InteractionControlRef,
   type InteractionControlRegistry,
+  type SealedActionRef,
   type StepUpRegistry,
   type StepUpSession,
   type StepUpSessionId,
@@ -35,6 +41,7 @@ async function ensureStore(): Promise<void> {
     }
     const client = new pg.Client({ connectionString });
     await client.connect();
+    await ensureInteractionSchema(client);
     storeClient = client;
     const store = createPostgresControlStore(client);
     controlsSingleton = createInteractionControlRegistry({ store });
@@ -111,6 +118,71 @@ export async function openAuthenticatedStepUp(input: {
   });
 }
 
+/**
+ * Seal an InteractionControlRef to the Sample Company proposal/action from the
+ * live surface binding. Rejects toy stepup.local / resource mismatches.
+ */
+export async function issueAuthenticatedApprovalControl(input: {
+  readonly accessToken: string;
+  readonly proposalId: string;
+  readonly operationId: string;
+  readonly actionBindingId: string;
+  readonly actionRef: SealedActionRef;
+  readonly publicOrigin: string;
+}): Promise<{
+  readonly approveUrl: string;
+  readonly controlRef: InteractionControlRef;
+}> {
+  rejectToyStepUpBinding(input.actionRef);
+  const verified = verifiedMembershipFromAccessToken(input.accessToken);
+  const disclosure = decideAudienceDisclosure({
+    actionRisk: "high",
+    audience: { kind: "dm" },
+    channelAssurance: "web_oidc",
+    resourceClass: "confidential",
+  });
+  if (disclosure.kind === "deny") {
+    throw new Error("step_up_disclosure_denied");
+  }
+  const controls = await stepUpControls();
+  const controlRef = await issueApprovalControl(controls, {
+    actionBindingId: input.actionBindingId,
+    actionRef: input.actionRef,
+    assurance: "oidc_step_up",
+    disclosure,
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    operationId: input.operationId,
+    principalId: verified.principalId,
+    proposalRef: proposalRef(input.proposalId),
+    sealedAudienceKind: "dm",
+    tenantId: verified.tenantId,
+  });
+  return {
+    approveUrl: stepUpUrl(input.publicOrigin, controlRef),
+    controlRef,
+  };
+}
+
+function rejectToyStepUpBinding(actionRef: SealedActionRef): void {
+  if (actionRef.definition.digest === "stepup.local") {
+    throw new Error("toy_stepup_local_forbidden");
+  }
+  if (
+    actionRef.actionId === "inventory.requestStock" &&
+    actionRef.resourceId === "inventory.item.1"
+  ) {
+    throw new Error("toy_inventory_camera_forbidden");
+  }
+  const boundResource = process.env.ZOEN_WEB_RESOURCE_ID;
+  if (
+    boundResource !== undefined &&
+    boundResource.length > 0 &&
+    actionRef.resourceId !== boundResource
+  ) {
+    throw new Error("action_ref_resource_mismatch");
+  }
+}
+
 export async function completeAuthenticatedStepUp(input: {
   readonly sessionId: string;
   readonly accessToken: string;
@@ -170,4 +242,37 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
 
 function asNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+async function ensureInteractionSchema(client: pg.Client): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS interaction_controls (
+      ref TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      proposal_ref TEXT,
+      action_binding_id TEXT,
+      action_ref JSONB,
+      disclosure JSONB,
+      assurance TEXT,
+      nonce TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      consumed_at TIMESTAMPTZ,
+      step_up_session_id TEXT,
+      sealed_audience_kind TEXT,
+      payload JSONB NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS interaction_step_ups (
+      id TEXT PRIMARY KEY,
+      control_ref TEXT NOT NULL,
+      proposal_ref TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      required_principal_id TEXT NOT NULL,
+      oidc_subject TEXT,
+      account_id TEXT,
+      expires_at TIMESTAMPTZ NOT NULL,
+      status TEXT NOT NULL,
+      payload JSONB NOT NULL
+    );
+  `);
 }

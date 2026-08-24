@@ -24,6 +24,7 @@ import { Route as ApiOnboardingResumeRouteImport } from './routes/api.onboarding
 import { Route as ApiPacksOpenRouteImport } from './routes/api.packs.open'
 import { Route as ApiPacksSearchRouteImport } from './routes/api.packs.search'
 import { Route as ApiStepUpCommitRouteImport } from './routes/api.step-up.commit'
+import { Route as ApiStepUpIssueRouteImport } from './routes/api.step-up.issue'
 import { Route as ApiStepUpOpenRouteImport } from './routes/api.step-up.open'
 import { Route as ApproveAuthCallbackRouteImport } from './routes/approve.auth.callback'
 import { Route as OnboardingAuthCallbackRouteImport } from './routes/onboarding.auth.callback'
@@ -103,6 +104,11 @@ const ApiStepUpCommitRoute = ApiStepUpCommitRouteImport.update({
   path: '/api/step-up/commit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiStepUpIssueRoute = ApiStepUpIssueRouteImport.update({
+  id: '/api/step-up/issue',
+  path: '/api/step-up/issue',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiStepUpOpenRoute = ApiStepUpOpenRouteImport.update({
   id: '/api/step-up/open',
   path: '/api/step-up/open',
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/api/packs/open': typeof ApiPacksOpenRoute
   '/api/packs/search': typeof ApiPacksSearchRoute
   '/api/step-up/commit': typeof ApiStepUpCommitRoute
+  '/api/step-up/issue': typeof ApiStepUpIssueRoute
   '/api/step-up/open': typeof ApiStepUpOpenRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
@@ -155,6 +162,7 @@ export interface FileRoutesByTo {
   '/api/packs/open': typeof ApiPacksOpenRoute
   '/api/packs/search': typeof ApiPacksSearchRoute
   '/api/step-up/commit': typeof ApiStepUpCommitRoute
+  '/api/step-up/issue': typeof ApiStepUpIssueRoute
   '/api/step-up/open': typeof ApiStepUpOpenRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
@@ -176,6 +184,7 @@ export interface FileRoutesById {
   '/api/packs/open': typeof ApiPacksOpenRoute
   '/api/packs/search': typeof ApiPacksSearchRoute
   '/api/step-up/commit': typeof ApiStepUpCommitRoute
+  '/api/step-up/issue': typeof ApiStepUpIssueRoute
   '/api/step-up/open': typeof ApiStepUpOpenRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/api/packs/open'
     | '/api/packs/search'
     | '/api/step-up/commit'
+    | '/api/step-up/issue'
     | '/api/step-up/open'
     | '/approve/auth/callback'
     | '/onboarding/auth/callback'
@@ -218,6 +228,7 @@ export interface FileRouteTypes {
     | '/api/packs/open'
     | '/api/packs/search'
     | '/api/step-up/commit'
+    | '/api/step-up/issue'
     | '/api/step-up/open'
     | '/approve/auth/callback'
     | '/onboarding/auth/callback'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/api/packs/open'
     | '/api/packs/search'
     | '/api/step-up/commit'
+    | '/api/step-up/issue'
     | '/api/step-up/open'
     | '/approve/auth/callback'
     | '/onboarding/auth/callback'
@@ -259,6 +271,7 @@ export interface RootRouteChildren {
   ApiPacksOpenRoute: typeof ApiPacksOpenRoute
   ApiPacksSearchRoute: typeof ApiPacksSearchRoute
   ApiStepUpCommitRoute: typeof ApiStepUpCommitRoute
+  ApiStepUpIssueRoute: typeof ApiStepUpIssueRoute
   ApiStepUpOpenRoute: typeof ApiStepUpOpenRoute
   ApproveAuthCallbackRoute: typeof ApproveAuthCallbackRoute
   OnboardingAuthCallbackRoute: typeof OnboardingAuthCallbackRoute
@@ -371,6 +384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStepUpCommitRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/step-up/issue': {
+      id: '/api/step-up/issue'
+      path: '/api/step-up/issue'
+      fullPath: '/api/step-up/issue'
+      preLoaderRoute: typeof ApiStepUpIssueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/step-up/open': {
       id: '/api/step-up/open'
       path: '/api/step-up/open'
@@ -411,6 +431,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPacksOpenRoute: ApiPacksOpenRoute,
   ApiPacksSearchRoute: ApiPacksSearchRoute,
   ApiStepUpCommitRoute: ApiStepUpCommitRoute,
+  ApiStepUpIssueRoute: ApiStepUpIssueRoute,
   ApiStepUpOpenRoute: ApiStepUpOpenRoute,
   ApproveAuthCallbackRoute: ApproveAuthCallbackRoute,
   OnboardingAuthCallbackRoute: OnboardingAuthCallbackRoute,

@@ -58,8 +58,12 @@ async function commitViaActionApi(
   if (origin === undefined || origin === "") {
     throw new Error("ZOEN_WEB_RPC_ORIGIN is required");
   }
+  const rpcBase = origin.replace(/\/$/u, "");
+  // AWAITING_APPROVAL proposals need Approve before Commit. READY proposals
+  // may deny Approve; ignore and continue to Commit.
+  await tryApproveViaActionApi(rpcBase, accessToken, proposalId);
   const response = await fetch(
-    `${origin.replace(/\/$/u, "")}/zoen.action.v1.ActionService/Commit`,
+    `${rpcBase}/zoen.action.v1.ActionService/Commit`,
     {
       body: JSON.stringify({ operationId, proposalId }),
       headers: {
@@ -92,4 +96,29 @@ async function commitViaActionApi(
     );
   }
   return { operationId: committedId };
+}
+
+async function tryApproveViaActionApi(
+  rpcBase: string,
+  accessToken: string,
+  proposalId: string,
+): Promise<void> {
+  const expiresAt = new Date(Date.now() + 240_000).toISOString();
+  try {
+    await fetch(`${rpcBase}/zoen.action.v1.ActionService/Approve`, {
+      body: JSON.stringify({
+        approvalId: `approval.stepup.${proposalId}`,
+        expiresAt,
+        proposalId,
+      }),
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "connect-protocol-version": "1",
+        "content-type": "application/json",
+      },
+      method: "POST",
+    });
+  } catch {
+    // Network errors fall through to Commit, which surfaces the real failure.
+  }
 }
