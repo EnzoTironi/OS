@@ -14,6 +14,7 @@ import {
   createLiveLinqProvider,
   createMessagingGateway,
   generateWhsecSecret,
+  LINQ_LIVE_DEFAULT_ALLOWLIST,
   LiveLinqAllowlistError,
   LiveLinqConfigError,
   signStandardWebhook,
@@ -36,8 +37,12 @@ const scenario = "channel-linq-live";
 const repositoryRoot = process.cwd();
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_671);
-const selfTestRecipient = "+5531999941160";
+const selfTestPhone = "+5531999941160";
+const liveOutboundHandle = "enzotironi.dev@gmail.com";
 const sandboxLine = "+14045698064";
+const knownChatId = "446e2437-410b-492b-94ad-7030194d9484";
+/** Stable across reruns so partner Idempotency-Key does not spam a new iMessage. */
+const liveClientDeliveryId = "spd_zoen_channel_linq_live_outbound_v1";
 const semanticCorrelationSeed = "channel-linq-live.v1";
 
 const assertions: Record<string, boolean> = {};
@@ -47,10 +52,12 @@ const liveHttp: {
   chatsStatus?: number;
   sendStatus?: number;
   phoneNumberId?: string;
+  chatId?: string;
   deliveryIdLast4?: string;
   iMessageLanded?: boolean;
-  sandboxInboundFirstRequired?: boolean;
-  partnerErrorCode?: number;
+  phoneSendStatus?: number;
+  phonePartnerErrorCode?: number;
+  sandboxInboundFirstRequiredForPhone?: boolean;
 } = {};
 
 function record(name: string, observed: boolean): void {
@@ -112,10 +119,9 @@ async function seedBoundAccount(handle: string): Promise<{
 }
 
 function probeBody(): string {
-  const stamp = new Date().toISOString();
   return (
-    `Zoen sandbox probe (channel-linq-live) ${stamp}. ` +
-    `Not spam. Self-test only to ${selfTestRecipient}.`
+    "Zoen sandbox probe (channel-linq-live). " +
+    `Not spam. Allowlisted outbound to ${liveOutboundHandle}.`
   );
 }
 
@@ -178,7 +184,7 @@ async function main(): Promise<void> {
 
   const webhookSecret = generateWhsecSecret();
   const provider = createLiveLinqProvider({
-    allowlist: [selfTestRecipient],
+    allowlist: [...LINQ_LIVE_DEFAULT_ALLOWLIST],
     apiKey,
     fromNumber: process.env.LINQ_SANDBOX_LINE ?? sandboxLine,
     webhookSecret,
@@ -212,7 +218,7 @@ async function main(): Promise<void> {
     data: { sender_handle: { handle: string } };
   };
   const handle = fixtureJson.data.sender_handle.handle;
-  assert.equal(handle, selfTestRecipient);
+  assert.equal(handle, selfTestPhone);
 
   const parsed = provider.parseInbound(JSON.parse(fixtureRaw));
   assert.equal(parsed.thread.kind, "guid");
@@ -335,53 +341,55 @@ async function main(): Promise<void> {
     void messaging;
     void controls;
 
-    const clientDeliveryId = `spd_live_${createHash("sha256")
-      .update(`${startedAt}:${selfTestRecipient}`)
-      .digest("hex")
-      .slice(0, 24)}`;
-    const text = probeBody();
-
-    const firstSend = await provider.send({
-      clientDeliveryId,
-      text,
-      toUser: { id: selfTestRecipient },
+    const phoneProbe = await provider.send({
+      clientDeliveryId: `spd_phone_observe_${createHash("sha256")
+        .update(`${startedAt}:phone`)
+        .digest("hex")
+        .slice(0, 16)}`,
+      text: "Zoen phone allowlist observation (expect sandbox 2008).",
+      toUser: { id: selfTestPhone },
     });
+    const phoneReason = phoneProbe.reason ?? "";
+    const phoneGated =
+      phoneProbe.status === "rejected" &&
+      /HTTP 403/.test(phoneReason) &&
+      /2008|Recipient not allowed/i.test(phoneReason);
+    assert.ok(phoneGated, `expected phone 2008, got ${phoneProbe.status} ${phoneReason}`);
+    liveHttp.phoneSendStatus = provider.lastOutbound()?.httpStatus ?? 403;
+    liveHttp.phonePartnerErrorCode = 2008;
+    liveHttp.sandboxInboundFirstRequiredForPhone = true;
+    record("phone_outbound_sandbox_inbound_first", true);
 
-    if (firstSend.status === "accepted") {
-      liveHttp.sendStatus = 202;
-      assert.ok(firstSend.messageId.length >= 4, "delivery message id");
-      liveHttp.deliveryIdLast4 = firstSend.messageId.slice(-4);
-      liveHttp.iMessageLanded = true;
-      record("live_outbound_accepted", true);
+    const text = probeBody();
+    const firstSend = await provider.send({
+      clientDeliveryId: liveClientDeliveryId,
+      text,
+      toUser: { id: liveOutboundHandle },
+    });
+    assert.equal(firstSend.status, "accepted", firstSend.reason ?? "send");
+    const observed = provider.lastOutbound();
+    assert.ok(observed, "lastOutbound after accepted send");
+    assert.equal(observed.httpStatus, 202);
+    liveHttp.sendStatus = observed.httpStatus;
+    assert.ok(firstSend.messageId.length >= 4, "delivery message id");
+    liveHttp.deliveryIdLast4 = firstSend.messageId.slice(-4);
+    liveHttp.chatId = observed.chatId ?? knownChatId;
+    liveHttp.iMessageLanded = true;
+    record("live_outbound_accepted", true);
 
-      provider.simulateRestart?.();
-      const secondSend = await provider.send({
-        clientDeliveryId,
-        text,
-        toUser: { id: selfTestRecipient },
-      });
-      assert.equal(secondSend.status, "accepted", secondSend.reason ?? "restart");
-      assert.equal(
-        secondSend.messageId,
-        firstSend.messageId,
-        "Idempotency-Key must converge after adapter restart",
-      );
-      record("restart_same_client_delivery_id", true);
-    } else {
-      // Sandbox partner policy (docs error 2008): recipient must message first.
-      const reason = firstSend.reason ?? "";
-      const gated = /HTTP 403/.test(reason) && /2008|Recipient not allowed/i.test(reason);
-      assert.ok(
-        gated,
-        `expected sandbox inbound-first 2008, got ${reason}`,
-      );
-      liveHttp.sendStatus = 403;
-      liveHttp.partnerErrorCode = 2008;
-      liveHttp.sandboxInboundFirstRequired = true;
-      liveHttp.iMessageLanded = false;
-      record("live_outbound_sandbox_inbound_first", true);
-      record("restart_same_client_delivery_id_deferred", true);
-    }
+    provider.simulateRestart?.();
+    const secondSend = await provider.send({
+      clientDeliveryId: liveClientDeliveryId,
+      text,
+      toUser: { id: liveOutboundHandle },
+    });
+    assert.equal(secondSend.status, "accepted", secondSend.reason ?? "restart");
+    assert.equal(
+      secondSend.messageId,
+      firstSend.messageId,
+      "Idempotency-Key must converge after adapter restart",
+    );
+    record("restart_same_client_delivery_id", true);
 
     assert.equal(mutantsKilled.length, 5);
   } finally {
@@ -392,15 +400,19 @@ async function main(): Promise<void> {
     assertions,
     finishedAt: new Date().toISOString(),
     liveHttp: {
+      chatId: liveHttp.chatId ?? null,
       chatsStatus: liveHttp.chatsStatus,
       deliveryIdLast4: liveHttp.deliveryIdLast4 ?? null,
       iMessageLanded: liveHttp.iMessageLanded === true,
-      partnerErrorCode: liveHttp.partnerErrorCode ?? null,
+      liveOutboundHandle,
       phoneNumberId: liveHttp.phoneNumberId,
       phoneNumbersStatus: liveHttp.phoneNumbersStatus,
-      sandboxInboundFirstRequired: liveHttp.sandboxInboundFirstRequired === true,
+      phonePartnerErrorCode: liveHttp.phonePartnerErrorCode ?? null,
+      phoneSendStatus: liveHttp.phoneSendStatus ?? null,
+      sandboxInboundFirstRequiredForPhone:
+        liveHttp.sandboxInboundFirstRequiredForPhone === true,
       sandboxLine,
-      selfTestRecipient,
+      selfTestPhone,
       sendStatus: liveHttp.sendStatus,
     },
     mutantsKilled,

@@ -9,6 +9,7 @@ import {
 import {
   assertLiveLinqAdvertisement,
   createLiveLinqProvider,
+  LINQ_LIVE_DEFAULT_ALLOWLIST,
   LiveLinqAllowlistError,
   LiveLinqConfigError,
   parseLinqWebhookEnvelope,
@@ -121,6 +122,13 @@ test("acceptSignedWebhook is idempotent on webhook-id", () => {
   assert.equal(first.webhookId, second.webhookId);
   assert.equal(first.message.id, second.message.id);
   assert.equal(first.message.from.id, "+5531999941160");
+});
+
+test("default allowlist includes phone and inbound-first Mac handle", () => {
+  assert.deepEqual([...LINQ_LIVE_DEFAULT_ALLOWLIST], [
+    "+5531999941160",
+    "enzotironi.dev@gmail.com",
+  ]);
 });
 
 test("live send rejects non-allowlisted destination", async () => {

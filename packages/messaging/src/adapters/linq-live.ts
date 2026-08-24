@@ -34,7 +34,12 @@ const LINQ_TABLE = {
 } as const;
 
 const DEFAULT_BASE_URL = "https://api.linqapp.com/api/partner/v3";
-const DEFAULT_ALLOWLIST = ["+5531999941160"] as const;
+/** Phone stays allowlisted; Mac iMessage handle is the live inbound-first path. */
+export const LINQ_LIVE_DEFAULT_ALLOWLIST = [
+  "+5531999941160",
+  "enzotironi.dev@gmail.com",
+] as const;
+const DEFAULT_ALLOWLIST = LINQ_LIVE_DEFAULT_ALLOWLIST;
 const SANDBOX_LINE = "+14045698064";
 
 export class LiveLinqConfigError extends Error {
@@ -59,9 +64,16 @@ export interface LiveLinqPhoneNumber {
   readonly phoneNumber: string;
 }
 
+export interface LiveLinqOutboundObservation {
+  readonly chatId?: string;
+  readonly httpStatus: number;
+  readonly messageId: string;
+}
+
 export interface LiveLinqProvider extends ChatSdkShapedAdapter {
   readonly kind: "live";
   listPhoneNumbers(): Promise<readonly LiveLinqPhoneNumber[]>;
+  lastOutbound(): LiveLinqOutboundObservation | undefined;
   /**
    * Verify Standard Webhooks headers then parse the envelope into ChatSdkMessage.
    * `webhook-id` is the transport idempotency key.
@@ -163,6 +175,7 @@ export function createLiveLinqProvider(
   const probes: CapabilityProbes = createCapabilityProbes("linq", LINQ_TABLE);
   const delivered = new Map<string, ChatSdkDeliveryReceipt>();
   const acceptedWebhooks = new Map<string, ChatSdkMessage>();
+  let lastOutbound: LiveLinqOutboundObservation | undefined;
 
   async function partnerFetch(
     path: string,
@@ -184,6 +197,10 @@ export function createLiveLinqProvider(
     kind: "live",
     providerId: "linq",
     probes,
+
+    lastOutbound() {
+      return lastOutbound;
+    },
 
     async listPhoneNumbers() {
       const response = await partnerFetch("/phone_numbers");
@@ -258,6 +275,10 @@ export function createLiveLinqProvider(
           reason: `HTTP ${String(response.status)}: ${detail.slice(0, 200)}`,
           status: "rejected",
         };
+        lastOutbound = {
+          httpStatus: response.status,
+          messageId: receipt.messageId,
+        };
         delivered.set(outbound.clientDeliveryId, receipt);
         return receipt;
       }
@@ -273,11 +294,18 @@ export function createLiveLinqProvider(
         );
       }
       const messageId = extractSentMessageId(payload, outbound.clientDeliveryId);
+      const chatId =
+        typeof payload.chat_id === "string" ? payload.chat_id : undefined;
 
       const receipt: ChatSdkDeliveryReceipt = {
         messageId,
         status: "accepted",
         typingRecorded: outbound.typing === true,
+      };
+      lastOutbound = {
+        chatId,
+        httpStatus: response.status,
+        messageId,
       };
       delivered.set(outbound.clientDeliveryId, receipt);
       return receipt;
