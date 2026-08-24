@@ -985,18 +985,10 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
     let grant = DelegationGrant::new(
         DelegationId::parse("delegation.personal")
             .map_err(|_| IdentityError::Conflict("invalid delegation".to_owned()))?,
-        BTreeSet::from([
-            ActionId::parse("inventory.requestStock")
-                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
-            ActionId::parse("zoen.definition.activate")
-                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
-        ]),
-        BTreeSet::from([
-            ResourceId::parse("inventory.item.1")
-                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
-            ResourceId::parse("inventory.governed")
-                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
-        ]),
+        BTreeSet::from([ActionId::parse("zoen.definition.activate")
+            .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?]),
+        BTreeSet::from([ResourceId::parse("zoen.personal.workspace")
+            .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?]),
         BTreeSet::from([workload_id.clone()]),
         TimestampMicros::new(i64::MIN / 2),
         TimestampMicros::new(i64::MAX / 2),
