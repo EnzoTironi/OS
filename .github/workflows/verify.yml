@@ -89,8 +89,16 @@ jobs:
       fail-fast: false
       matrix:
         scenario:
+          - activation-context
+          - activation-identity
+          - activation-metrics
+          - activation-onboarding
           - activation-sample
           - backup-restore
+          - channel-provider-substitution
+          - company-bootstrap-shadow
+          - conversational-approval
+          - conversational-turn
           - definition-publication
           - deploy-dedicated
           - deploy-self-hosted-isolated
@@ -106,12 +114,22 @@ jobs:
           - fiscal-fault-matrix
           - governed-action
           - ha-chaos
+          - human-executor
+          - messaging-boundary
+          - messaging-conformance
+          - pack-install
+          - pack-kitchen
+          - pack-registry
+          - personal-family
+          - proactive-attention
           - rolling-upgrade
           - rpo-rto
           - semantic-query
           - shared-tenancy
+          - surface-ir-renderer
           - wasm-code-mode
           - web-deterministic
+          - workload-api-mcp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
