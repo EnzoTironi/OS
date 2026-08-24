@@ -66,6 +66,15 @@ const captureResponseSchema = z
     wording: z.string().min(1),
     accountId: z.string().min(1),
     next: planNextSchema,
+    entry: z
+      .object({
+        pack: z.string().nullable(),
+        referral: z.string().nullable(),
+        intent: z.string().nullable(),
+        domainHints: z.array(z.string()),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -89,6 +98,9 @@ export class OnboardingClient {
     readonly wording: string;
     readonly accountId: string;
     readonly workspaceClass?: "personal" | "enterprise";
+    readonly pack?: string;
+    readonly referral?: string;
+    readonly intent?: string;
   }): Promise<CaptureResponse> {
     const response = await fetch(`${this.baseUrl}/api/onboarding/capture`, {
       body: JSON.stringify(input),
