@@ -12,7 +12,7 @@ Three production-shaped entry demos are documented in `docs/demos/README.md`:
 2. **Agent safely acts.** Real model harness and governed Action (`just e2e agent-capabilities-live`).
 3. **Your messy data.** Read-only source to mapping ambiguity to Shadow recommendation (`just e2e company-bootstrap-shadow`).
 
-A recorded 45 to 90 second product video and live conversation entry remain open on #267. Do not expect a fake chat widget or a marketing-only backend.
+Record the Sample Company five-minute path on `just start` with `./docs/demo/record.sh` (writes `docs/demo/sample-company-five-minute.webm` from the live stack). Details live in [`docs/demo/README.md`](docs/demo/README.md). Live conversation entry and the human comprehension study remain open on #267. Do not expect a fake chat widget or a marketing-only backend.
 
 ## Quickstart
 
