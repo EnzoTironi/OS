@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{EffectRequestId, TenantId};
 use zoen_engine::StoreError;
@@ -91,7 +90,6 @@ where
         tenant_id: &TenantId,
         limit: u32,
     ) -> Result<Vec<EffectDispatchResult>, StoreError> {
-        self.materialize_legacy_requests(tenant_id).await?;
         let mut results = Vec::with_capacity(limit as usize);
         let mut attempted_effects = Vec::with_capacity(limit as usize);
         for _ in 0..limit {
@@ -116,75 +114,6 @@ where
             );
         }
         Ok(results)
-    }
-
-    async fn materialize_legacy_requests(&self, tenant_id: &TenantId) -> Result<(), StoreError> {
-        let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
-        let rows = sqlx::query(
-            "SELECT outbox.effect_request_id, outbox.commit_sequence, outbox.payload,
-                    operation.operation_id, operation.intent_digest
-             FROM projection_outbox AS outbox
-             JOIN action_operations AS operation
-               ON operation.tenant_id = outbox.tenant_id
-              AND operation.commit_sequence = outbox.commit_sequence
-             LEFT JOIN effect_requests AS request
-               ON request.tenant_id = outbox.tenant_id
-              AND request.effect_request_id = outbox.effect_request_id
-             WHERE outbox.tenant_id = $1
-               AND outbox.effect_request_id IS NOT NULL
-               AND request.effect_request_id IS NULL
-             ORDER BY outbox.commit_sequence, outbox.ordinal
-             FOR UPDATE OF outbox",
-        )
-        .bind(tenant_id.as_str())
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(store_unavailable)?;
-        for row in rows {
-            let effect_request_id = row
-                .try_get::<String, _>("effect_request_id")
-                .map_err(store_unavailable)?;
-            let payload = row
-                .try_get::<serde_json::Value, _>("payload")
-                .map_err(store_unavailable)?;
-            let payload = serde_json::to_vec(&payload)
-                .map_err(|error| StoreError::Corrupt(error.to_string()))?;
-            let request_digest = Sha256::digest(&payload)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
-            let idempotency_key = format!("idempotency.{}.{effect_request_id}", tenant_id.as_str());
-            sqlx::query(
-                "INSERT INTO effect_requests (
-                    tenant_id, effect_request_id, operation_id, commit_sequence,
-                    idempotency_key, intent_digest, request_digest, payload,
-                    knowledge_state, last_commit_sequence
-                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'not_attempted', $4)
-                 ON CONFLICT (tenant_id, effect_request_id) DO NOTHING",
-            )
-            .bind(tenant_id.as_str())
-            .bind(&effect_request_id)
-            .bind(
-                row.try_get::<String, _>("operation_id")
-                    .map_err(store_unavailable)?,
-            )
-            .bind(
-                row.try_get::<i64, _>("commit_sequence")
-                    .map_err(store_unavailable)?,
-            )
-            .bind(idempotency_key)
-            .bind(
-                row.try_get::<String, _>("intent_digest")
-                    .map_err(store_unavailable)?,
-            )
-            .bind(request_digest)
-            .bind(payload)
-            .execute(&mut *transaction)
-            .await
-            .map_err(store_unavailable)?;
-        }
-        transaction.commit().await.map_err(store_unavailable)
     }
 
     async fn claim_pending_request(
@@ -349,5 +278,33 @@ where
             outcome,
             restate_invocation_id: invocation_id,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dispatch_reads_effect_requests_without_legacy_materializer() {
+        let source = include_str!("effect_dispatcher.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source");
+        let legacy_fn = ["materialize", "legacy", "requests"].join("_");
+        assert!(!production.contains(&legacy_fn));
+        assert!(production.contains("FROM effect_requests AS request"));
+        assert!(!production.contains("FROM projection_outbox"));
+    }
+
+    #[test]
+    fn drain_migration_backfills_then_asserts_no_outbox_only_rows() {
+        let migration = include_str!("../migrations/0016_drain_outbox_only_effect_requests.sql");
+        assert!(migration.contains("INSERT INTO effect_requests"));
+        assert!(migration.contains("ON CONFLICT (tenant_id, effect_request_id) DO NOTHING"));
+        assert!(migration.contains("outbox-only effect rows remain after backfill"));
+        assert!(
+            !migration.contains("DELETE FROM projection_outbox"),
+            "drain backfills effect_requests; it does not delete outbox history"
+        );
     }
 }
