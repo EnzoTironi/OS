@@ -108,7 +108,7 @@ pub(super) async fn insert_effect_request(
     effect: &ActionCommitEffect,
 ) -> Result<(), StoreError> {
     let event = effect.evidence.projection_event();
-    let request_digest = Sha256::digest(event.payload().as_bytes())
+    let request_digest = Sha256::digest(&effect.request_payload)
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
@@ -131,7 +131,7 @@ pub(super) async fn insert_effect_request(
     .bind(idempotency_key)
     .bind(intent_digest.as_str())
     .bind(request_digest)
-    .bind(event.payload().as_bytes())
+    .bind(&effect.request_payload)
     .execute(&mut **transaction)
     .await
     .map_err(map_effect_request_insert)?;

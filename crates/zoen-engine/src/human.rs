@@ -5,11 +5,11 @@ use std::fmt::{Display, Formatter};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    DisclosureClass, EffectAttemptId, EffectPayloadKind, EffectRequest, EffectRequestDigest,
-    EvidenceFieldSpec, HUMAN_TASK_SCHEMA_VERSION, HumanContactRef, HumanExecutorClass,
-    HumanInputValue, HumanTaskBounds, HumanTaskContract, HumanTaskError, HumanTaskPacket,
-    ReconciliationPolicy, TimestampMicros, project_human_task_packet_from_contract,
-    validate_human_task_contract,
+    ActionId, ActionInput, ActionProposal, DisclosureClass, EffectAttemptId, EffectPayloadKind,
+    EffectRequest, EffectRequestDigest, EvidenceFieldSpec, ExactValue, HUMAN_TASK_SCHEMA_VERSION,
+    HumanContactRef, HumanExecutorClass, HumanInputValue, HumanTaskBounds, HumanTaskContract,
+    HumanTaskError, HumanTaskPacket, ReconciliationPolicy, TimestampMicros,
+    project_human_task_packet_from_contract, validate_human_task_contract,
 };
 
 #[derive(Clone, Debug, Deserialize)]
@@ -195,6 +195,156 @@ pub fn request_digest_for_payload(payload: &[u8]) -> EffectRequestDigest {
     EffectRequestDigest::parse(hex_digest(&digest)).expect("sha256 hex is a valid digest")
 }
 
+pub fn is_human_executor_action(action_id: &ActionId) -> bool {
+    action_id.as_str().ends_with(".humanExecutor")
+}
+
+pub fn mint_human_task_contract_payload(
+    proposal: &ActionProposal,
+) -> Result<Vec<u8>, HumanPacketError> {
+    encode_human_task_contract(&mint_human_task_contract(proposal)?)
+}
+
+pub fn mint_human_task_contract(
+    proposal: &ActionProposal,
+) -> Result<HumanTaskContract, HumanPacketError> {
+    let inputs = index_inputs(&proposal.inputs);
+    let instruction = text_input(&inputs, "instruction")
+        .unwrap_or_else(|| "Collect wet signature for order".to_owned());
+    let contact_name = text_input(&inputs, "contact_name_ref");
+    let contact_phone = text_input(&inputs, "contact_phone_ref");
+    let contact = match (contact_name, contact_phone) {
+        (None, None) => Some(HumanContactRef {
+            name_ref: Some("contact.name.1".to_owned()),
+            phone_ref: None,
+        }),
+        (name_ref, phone_ref) => Some(HumanContactRef { name_ref, phone_ref }),
+    };
+    let max_expense_minor = integer_input(&inputs, "max_expense_minor")?.or(Some(0));
+    let disclosure_class = match text_input(&inputs, "disclosure_class")
+        .as_deref()
+        .unwrap_or("minimal")
+    {
+        "standard" => DisclosureClass::Standard,
+        "minimal" => DisclosureClass::Minimal,
+        other => {
+            return Err(HumanPacketError::Core(
+                HumanTaskError::InvalidDisclosureClass(other.to_owned()),
+            ));
+        }
+    };
+    let reconciliation = match text_input(&inputs, "reconciliation")
+        .as_deref()
+        .unwrap_or("required_independent")
+    {
+        "operator_attempt_sufficient" => ReconciliationPolicy::OperatorAttemptSufficient,
+        "required_independent" => ReconciliationPolicy::RequiredIndependent,
+        other => {
+            return Err(HumanPacketError::Core(
+                HumanTaskError::InvalidReconciliationPolicy(other.to_owned()),
+            ));
+        }
+    };
+    let allowed_actions = match text_input(&inputs, "allowed_action") {
+        Some(action) => vec![action],
+        None => vec!["collect_signature".to_owned()],
+    };
+    let required_evidence = match text_input(&inputs, "required_evidence_field") {
+        Some(field_id) => vec![EvidenceFieldSpec {
+            field_id,
+            required: true,
+        }],
+        None => vec![EvidenceFieldSpec {
+            field_id: "signed_form".to_owned(),
+            required: true,
+        }],
+    };
+    let mut structured_inputs = BTreeMap::new();
+    for (key, value) in &inputs {
+        if RESERVED_HUMAN_INPUTS.contains(&key.as_str()) {
+            continue;
+        }
+        if let Some(human_value) = human_input_value(value)? {
+            structured_inputs.insert(key.clone(), human_value);
+        }
+    }
+    let contract = HumanTaskContract {
+        schema_version: HUMAN_TASK_SCHEMA_VERSION,
+        executor_class: HumanExecutorClass::HumanExecutor,
+        instruction,
+        structured_inputs,
+        contact,
+        bounds: HumanTaskBounds {
+            max_expense_minor,
+            allowed_actions,
+            disclosure_class,
+        },
+        expiry: proposal.expires_at,
+        required_evidence,
+        reconciliation,
+    };
+    validate_human_task_contract(&contract).map_err(HumanPacketError::Core)?;
+    Ok(contract)
+}
+
+const RESERVED_HUMAN_INPUTS: &[&str] = &[
+    "allowed_action",
+    "contact_name_ref",
+    "contact_phone_ref",
+    "disclosure_class",
+    "instruction",
+    "max_expense_minor",
+    "quantity",
+    "reconciliation",
+    "required_evidence_field",
+];
+
+fn index_inputs(inputs: &[ActionInput]) -> BTreeMap<String, ExactValue> {
+    inputs
+        .iter()
+        .map(|input| (input.id.as_str().to_owned(), input.value.clone()))
+        .collect()
+}
+
+fn text_input(inputs: &BTreeMap<String, ExactValue>, key: &str) -> Option<String> {
+    match inputs.get(key) {
+        Some(ExactValue::Text(value)) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn integer_input(
+    inputs: &BTreeMap<String, ExactValue>,
+    key: &str,
+) -> Result<Option<i64>, HumanPacketError> {
+    match inputs.get(key) {
+        Some(ExactValue::Integer(value)) => value
+            .as_str()
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|error| HumanPacketError::Encoding(error.to_string())),
+        Some(_) => Err(HumanPacketError::Encoding(format!(
+            "human task input {key} must be an integer"
+        ))),
+        None => Ok(None),
+    }
+}
+
+fn human_input_value(value: &ExactValue) -> Result<Option<HumanInputValue>, HumanPacketError> {
+    match value {
+        ExactValue::Bool(value) => Ok(Some(HumanInputValue::Boolean(*value))),
+        ExactValue::Integer(value) => {
+            let parsed = value
+                .as_str()
+                .parse::<i64>()
+                .map_err(|error| HumanPacketError::Encoding(error.to_string()))?;
+            Ok(Some(HumanInputValue::Integer(parsed)))
+        }
+        ExactValue::Text(value) => Ok(Some(HumanInputValue::Text(value.clone()))),
+        ExactValue::Decimal(_) | ExactValue::Entity(_) | ExactValue::Quantity { .. } => Ok(None),
+    }
+}
+
 pub fn project_human_task_packet(
     request: &EffectRequest,
     attempt_id: &EffectAttemptId,
@@ -222,7 +372,15 @@ fn hex_digest(digest: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoen_core::{HumanExecutorClass, ReconciliationPolicy};
+    use zoen_core::{ActionId, HumanExecutorClass, ReconciliationPolicy};
+
+    #[test]
+    fn human_executor_action_suffix() {
+        let human = ActionId::parse("inventory.collectSignature.humanExecutor").expect("id");
+        let software = ActionId::parse("inventory.requestStock").expect("id");
+        assert!(is_human_executor_action(&human));
+        assert!(!is_human_executor_action(&software));
+    }
 
     #[test]
     fn round_trip_contract_bytes() {

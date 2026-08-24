@@ -157,6 +157,7 @@ pub trait ActionCommitTransaction: Send {
 pub struct ActionCommitEffect {
     pub effect_request_id: EffectRequestId,
     pub evidence: AdmittedEvidence,
+    pub request_payload: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -591,14 +592,27 @@ where
             .await?;
         let relation_values =
             read_action_state_basis(&loaded.action, &loaded.definition, snapshot)?.values;
+        let human_request_payload = if crate::is_human_executor_action(&proposal.action_id) {
+            Some(
+                crate::mint_human_task_contract_payload(&proposal)
+                    .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+            )
+        } else {
+            None
+        };
         let effects = build_effects(&proposal, &loaded.action, &relation_values)?
             .into_iter()
             .enumerate()
             .map(|(index, draft)| {
+                let evidence = admission::admit_action_effect(&loaded.revision, draft)
+                    .map_err(|error| ActionError::Evaluation(error.to_string()))?;
+                let request_payload = human_request_payload
+                    .clone()
+                    .unwrap_or_else(|| evidence.projection_event().payload().as_bytes().to_vec());
                 Ok(ActionCommitEffect {
                     effect_request_id: effect_request_id(&proposal.operation_id, index)?,
-                    evidence: admission::admit_action_effect(&loaded.revision, draft)
-                        .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+                    evidence,
+                    request_payload,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
