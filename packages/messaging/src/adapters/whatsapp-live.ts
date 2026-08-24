@@ -22,27 +22,30 @@ import {
 } from "../companion-session.js";
 
 const NATIVE: ProbeAnswer = { status: "native" };
+const TEXT: ProbeAnswer = { status: "unsupported", degradeTo: "text" };
+const LINK: ProbeAnswer = { status: "unsupported", degradeTo: "link" };
 
 const WHATSAPP_TABLE = {
   dm: NATIVE,
   ephemeral: NATIVE,
   group: NATIVE,
   image_file: NATIVE,
-  native_button: NATIVE,
-  native_card: NATIVE,
-  native_link: NATIVE,
+  native_button: TEXT,
+  native_card: TEXT,
+  native_link: LINK,
   proactive_outbound: NATIVE,
   reactions: NATIVE,
   read_receipts: NATIVE,
   reply_thread: NATIVE,
   text: NATIVE,
-  typing: { status: "unsupported", degradeTo: "text" },
+  typing: TEXT,
   voice_audio: NATIVE,
 } as const;
 
 export const PERSONAL_WHATSAPP_DOOR_E164 = "+5531999941160";
 
-const BR_MOBILE_E164 = /^\+55\d{2}9\d{8}$/;
+const ITU_E164 = /^\+[1-9]\d{6,14}$/;
+const PERSONAL_DOOR_SUFFIXES = ["3199941160", "31999941160"] as const;
 
 export class LiveWhatsAppConfigError extends Error {
   constructor(message: string) {
@@ -82,18 +85,15 @@ export function parseWhatsAppDoorE164(
     );
   }
   const value = raw.trim();
-  if (
-    value === PERSONAL_WHATSAPP_DOOR_E164 ||
-    value.replace(/^\+/, "") === "5531999941160" ||
-    value.endsWith("31999941160")
-  ) {
+  const digits = value.replace(/\D/g, "");
+  if (PERSONAL_DOOR_SUFFIXES.some((suffix) => digits.endsWith(suffix))) {
     throw new LiveWhatsAppConfigError(
-      "personal 31999941160 is not the Zoen door (fail closed)",
+      "personal inbox is not the Zoen door (fail closed)",
     );
   }
-  if (!BR_MOBILE_E164.test(value)) {
+  if (!ITU_E164.test(value)) {
     throw new LiveWhatsAppConfigError(
-      "ZOEN_WHATSAPP_DOOR_E164 must be Brazilian mobile E.164 (13 digits)",
+      "ZOEN_WHATSAPP_DOOR_E164 must be E.164 (+ then 7 to 15 digits)",
     );
   }
   return value;
@@ -121,33 +121,23 @@ export function selectWhatsAppShape(
   outbound: ChatSdkOutbound,
 ): WhatsAppWireShape {
   const url = outbound.surfaceUrl?.trim();
-  if (url !== undefined && url.length > 0) {
-    if (
-      url.toLowerCase().startsWith("zoen-rich:") ||
-      !/^https:\/\//i.test(url)
-    ) {
-      throw new WhatsAppSurfaceUrlError(url);
-    }
-    return { kind: "cta_url", text: outbound.text, url };
+  if (url === undefined || url.length === 0) {
+    return { kind: "text", text: outbound.text };
   }
-  const buttons = outbound.buttons ?? [];
-  if (buttons.length > 0 && buttons.length <= 3) {
-    return { kind: "quick_reply", buttons, text: outbound.text };
+  if (
+    url.toLowerCase().startsWith("zoen-rich:") ||
+    !/^https:\/\//i.test(url)
+  ) {
+    throw new WhatsAppSurfaceUrlError(url);
   }
-  if (buttons.length > 3) {
-    return {
-      kind: "list",
-      rows: buttons.map((button) => ({
-        id: button.callbackData,
-        title: button.label,
-      })),
-      text: outbound.text,
-    };
+  const body = outbound.text.trim();
+  if (body.length === 0) {
+    return { kind: "text", text: url };
   }
-  if (outbound.card === true) {
-    return { kind: "carousel", text: outbound.text };
+  if (body.includes(url)) {
+    return { kind: "text", text: body };
   }
-  return { kind: "text", text: outbound.text };
+  return { kind: "text", text: `${body}\n${url}` };
 }
 
 export function parseCompanionInboundEnvelope(raw: unknown): ChatSdkMessage {
