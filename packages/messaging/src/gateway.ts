@@ -454,6 +454,13 @@ function buildIdempotencyKey(
     ) {
       return `${String(provider)}:update:${String(record.update_id)}`;
     }
+    // Standard Webhooks / Linq partner envelope: webhook-id == event_id.
+    if (typeof record.event_id === "string" && record.event_id.length > 0) {
+      return `${String(provider)}:webhook:${record.event_id}`;
+    }
+    if (typeof record["webhook-id"] === "string") {
+      return `${String(provider)}:webhook:${String(record["webhook-id"])}`;
+    }
     if (typeof record.delivery_id === "string") {
       return `${String(provider)}:delivery:${record.delivery_id}`;
     }

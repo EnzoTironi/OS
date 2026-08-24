@@ -24,6 +24,25 @@ export { createFakeTelegramProvider } from "./adapters/telegram-fake.js";
 export { createFakeLinqProvider } from "./adapters/linq-fake.js";
 export { createFakeWhatsAppBusinessProvider } from "./adapters/whatsapp-business-fake.js";
 export {
+  assertLiveLinqAdvertisement,
+  createLiveLinqProvider,
+  createLiveLinqProviderFromEnv,
+  LiveLinqAllowlistError,
+  LiveLinqConfigError,
+  parseLinqWebhookEnvelope,
+  type LiveLinqPhoneNumber,
+  type LiveLinqProvider,
+  type LiveLinqProviderOptions,
+} from "./adapters/linq-live.js";
+export {
+  extractStandardWebhookHeaders,
+  generateWhsecSecret,
+  signStandardWebhook,
+  verifyStandardWebhook,
+  WebhookVerificationError,
+  type StandardWebhookHeaders,
+} from "./standard-webhooks.js";
+export {
   createMessagingGateway,
   ProviderDisabledError,
   type MessagingGateway,
