@@ -44,7 +44,7 @@ Use this checklist when recording or walking the Sample Company risk path. Captu
 5. Confirm the effect stays `UNKNOWN` with no blind retry.
 6. Reconcile from later evidence.
 
-A polished 45 to 90 second recorded video is still open on #267.
+Record that walkthrough with `./docs/demo/record.sh`. The command probes live Keycloak and zoend, drives the web-user path in Playwright, and writes `docs/demo/sample-company-five-minute.webm` plus a manifest of live operation ids. See [`docs/demo/README.md`](../demo/README.md).
 
 ## Pack directory
 
@@ -52,7 +52,8 @@ Outcome-first Pack pages live in [`docs/product/pack-directory.md`](../product/p
 
 ## Still open on #267
 
-- Recorded visual product demo with release/source artifacts in frame.
+- Human comprehension study (protocol exists under `e2e/public-surface-web`; capture remains).
 - Live conversation entry only when a real channel is available (#273) or a web chat that uses the AD-05/AD-03 contracts. Until then, do not ship a fake chat.
 - Cold-start comprehension evidence for people who have not read the ADRs.
 - Coordinator registration of `just e2e public-surface`.
+
