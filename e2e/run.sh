@@ -169,6 +169,7 @@ run_lint() {
   npm run deployment-docs:check
   npm run roadmap:check
   node scripts/check-no-fake-exports.mjs
+  node scripts/check-e2e-workflow-matrix.mjs
   npm test
   cargo fmt --all --check
   cargo test --locked --workspace
