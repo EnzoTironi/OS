@@ -50,6 +50,8 @@ scenario_table=(
   "human-executor:human-executor:"
   "pack-install:pack-install:"
   "pack-registry:pack-registry:"
+  "public-surface::"
+  "public-surface-web:public-surface-web:"
   "rolling-upgrade::"
   "rpo-rto::"
   "scale-actions-v1::"
@@ -94,6 +96,12 @@ usage() {
 
 load_scenario_env() {
   local env_file="e2e/${scenario}/.env"
+  export ZOEN_E2E_ARTIFACTS_DIR="artifacts/${scenario}"
+  export ZOEN_E2E_GENERATED_DIR="e2e/${scenario}/.generated"
+  generated_directory="${ZOEN_E2E_GENERATED_DIR}"
+  if [[ "$scenario" == "public-surface" ]]; then
+    return
+  fi
   if [[ ! -f "$env_file" ]]; then
     echo "missing ${env_file}" >&2
     exit 1
@@ -102,9 +110,6 @@ load_scenario_env() {
   # shellcheck disable=SC1090
   source "$env_file"
   set +a
-  export ZOEN_E2E_ARTIFACTS_DIR="artifacts/${scenario}"
-  export ZOEN_E2E_GENERATED_DIR="e2e/${scenario}/.generated"
-  generated_directory="${ZOEN_E2E_GENERATED_DIR}"
 }
 
 resolve_scenario() {
@@ -120,7 +125,7 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" || "$scenario" == "activation-sample" ]]; then
+      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" || "$scenario" == "activation-sample" || "$scenario" == "public-surface" ]]; then
         compose_file=""
         project=""
       elif [[ -n "$realm" ]]; then
@@ -197,7 +202,7 @@ run_build() {
 }
 
 require_built() {
-  if [[ ! -x target/debug/zoend ]]; then
+  if [[ "$scenario" != "public-surface" && ! -x target/debug/zoend ]]; then
     echo "missing target/debug/zoend; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
@@ -205,7 +210,7 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
-  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" ) && ! -f apps/web/.output/server/index.mjs ]]; then
+  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" ) && ! -f apps/web/.output/server/index.mjs ]]; then
     echo "missing apps/web/.output/server/index.mjs; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
@@ -249,7 +254,7 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
-  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" || "$scenario" == "activation-sample" ]]; then
+  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" || "$scenario" == "activation-sample" || "$scenario" == "public-surface" ]]; then
     return
   fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -260,7 +265,7 @@ cleanup_scenario() {
 
 run_scenario() {
   require_fiscal_live_environment
-  if ! command -v docker >/dev/null 2>&1; then
+  if [[ "$scenario" != "public-surface" ]] && ! command -v docker >/dev/null 2>&1; then
     echo "e2e-run requires docker; check/build do not" >&2
     exit 1
   fi
@@ -275,6 +280,11 @@ run_scenario() {
   fi
   if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" || "$scenario" == "activation-sample" ]]; then
     "e2e/${scenario}/run.sh"
+    trap - EXIT
+    return
+  fi
+  if [[ "$scenario" == "public-surface" ]]; then
+    node "$runner"
     trap - EXIT
     return
   fi
