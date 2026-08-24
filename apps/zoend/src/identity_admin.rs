@@ -1,12 +1,12 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use axum::Json;
-use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
+use axum::Json;
+use axum::Router;
 use serde::{Deserialize, Serialize};
 use zoen_adapters::{CreateInvite, PostgresIdentityStore};
 use zoen_core::{
@@ -41,6 +41,7 @@ pub fn router(state: IdentityAdminState) -> Router {
             "/identity/admin/accounts/{account_id}",
             get(snapshot_account),
         )
+        .route("/identity/admin/resolve-subject", get(resolve_subject))
         .route("/identity/admin/bootstrap-bound", post(bootstrap_bound))
         .route("/identity/admin/resolve-context", get(resolve_context))
         .with_state(Arc::new(state))
@@ -125,6 +126,13 @@ struct CommitMergeBody {
 #[derive(Debug, Deserialize)]
 struct ResolveQuery {
     tenant: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveSubjectQuery {
+    provider: String,
+    subject_key: String,
 }
 
 #[derive(Serialize)]
@@ -461,25 +469,23 @@ async fn snapshot_account(
         Err(error) => return bad_request(error.to_string()),
     };
     match state.identity.snapshot_account(&account_id).await {
-        Ok(snapshot) => (
-            StatusCode::OK,
-            Json(SnapshotJson {
-                account: AccountJson {
-                    account_id: snapshot.account.id.to_string(),
-                    status: account_status(&snapshot.account.status).to_owned(),
-                    merged_into: match &snapshot.account.status {
-                        zoen_core::AccountStatus::MergedInto { survivor } => {
-                            Some(survivor.to_string())
-                        }
-                        _ => None,
-                    },
-                },
-                bindings: snapshot.bindings.iter().map(binding_json).collect(),
-                memberships: snapshot.memberships.iter().map(membership_json).collect(),
-                personal_tenant: snapshot.personal_tenant,
-            }),
-        )
-            .into_response(),
+        Ok(snapshot) => (StatusCode::OK, Json(snapshot_json(&snapshot))).into_response(),
+        Err(error) => identity_error(error),
+    }
+}
+
+async fn resolve_subject(
+    State(state): State<Arc<IdentityAdminState>>,
+    Query(query): Query<ResolveSubjectQuery>,
+) -> impl IntoResponse {
+    let subject = match parse_subject(&query.provider, &query.subject_key) {
+        Ok(subject) => subject,
+        Err(error) => return identity_error(error),
+    };
+    match state.identity.snapshot_for_verified_subject(&subject).await {
+        Ok((_binding, snapshot)) => {
+            (StatusCode::OK, Json(snapshot_json(&snapshot))).into_response()
+        }
         Err(error) => identity_error(error),
     }
 }
@@ -622,6 +628,22 @@ fn account_status(status: &zoen_core::AccountStatus) -> &'static str {
         zoen_core::AccountStatus::Provisional => "provisional",
         zoen_core::AccountStatus::Verified => "verified",
         zoen_core::AccountStatus::MergedInto { .. } => "merged_into",
+    }
+}
+
+fn snapshot_json(snapshot: &zoen_adapters::AccountSnapshot) -> SnapshotJson {
+    SnapshotJson {
+        account: AccountJson {
+            account_id: snapshot.account.id.to_string(),
+            status: account_status(&snapshot.account.status).to_owned(),
+            merged_into: match &snapshot.account.status {
+                zoen_core::AccountStatus::MergedInto { survivor } => Some(survivor.to_string()),
+                _ => None,
+            },
+        },
+        bindings: snapshot.bindings.iter().map(binding_json).collect(),
+        memberships: snapshot.memberships.iter().map(membership_json).collect(),
+        personal_tenant: snapshot.personal_tenant.clone(),
     }
 }
 
