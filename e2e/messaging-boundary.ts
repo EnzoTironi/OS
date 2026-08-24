@@ -408,10 +408,16 @@ async function main(): Promise<void> {
         process.env.PHOTON_API_KEY === undefined,
     );
 
+    assert.equal(toChannelProvider(providerKey("linq")), "linq");
+    record(
+      "linq_maps_to_channel_provider_linq",
+      toChannelProvider(providerKey("linq")) === "linq",
+    );
+
     const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
       assertions,
       finishedAt: new Date().toISOString(),
-      linqChannelProviderMapping: "whatsapp (temporary harness until Linq ChannelProvider)",
+      linqChannelProviderMapping: "linq",
       mutantsKilled,
       seed: {
         accountId: seed.accountId,

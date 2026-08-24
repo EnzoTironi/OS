@@ -15,7 +15,7 @@ import {
 import {
   createFakeLinqProvider,
   createFakeTelegramProvider,
-  createFakeWhatsAppBusinessProvider,
+  createFakeWhatsAppCloudApiProvider,
   createMessagingGateway,
   deriveCapabilityMatrix,
   MUTANT_IDS,
@@ -209,7 +209,7 @@ function textFixture(
   if (providerId === "linq") {
     return linqText(`deliv_${nonce}`, text, group);
   }
-  if (providerId === "whatsapp_business") {
+  if (providerId === "whatsapp_cloud_api") {
     return whatsappText(`wamid.${nonce}`, text, group);
   }
   throw new Error(`unknown provider ${providerId}`);
@@ -224,13 +224,13 @@ function createAdapters(): {
 } {
   const telegram = createFakeTelegramProvider();
   const linq = createFakeLinqProvider();
-  const whatsapp = createFakeWhatsAppBusinessProvider();
+  const whatsapp = createFakeWhatsAppCloudApiProvider();
   return {
     all: [telegram, linq, whatsapp],
     byId: {
       linq,
       telegram,
-      whatsapp_business: whatsapp,
+      whatsapp_cloud_api: whatsapp,
     },
     linq,
     telegram,
@@ -382,7 +382,7 @@ async function main(): Promise<void> {
     record("provider_substitution_equal_zoen_ids", true);
     kill(
       "renderer_changes_business_meaning",
-      "text scenarios equal semanticCorrelationKey across telegram/linq/whatsapp_business",
+      "text scenarios equal semanticCorrelationKey across telegram/linq/whatsapp_cloud_api",
     );
     kill(
       "provider_user_id_as_zoen_identity",
@@ -395,7 +395,7 @@ async function main(): Promise<void> {
       interaction,
       controls,
       seed,
-      "whatsapp_business",
+      "whatsapp_cloud_api",
       whatsappText("wamid.rich_card_1", "need card"),
     );
     assert.equal(wabaCard.outcome.kind, "degraded");
@@ -415,7 +415,7 @@ async function main(): Promise<void> {
     record("raw_button_fails_after_web_surface", rawRejected);
     kill(
       "rich_action_fallback_bypasses_surface",
-      "whatsapp_business card+controls → degraded web_surface; raw button unresolved",
+      "whatsapp_cloud_api card+controls → degraded web_surface; raw button unresolved",
     );
 
     // Unsupported silently disappears — linq typing, telegram ephemeral, waba card.
@@ -465,7 +465,7 @@ async function main(): Promise<void> {
 
     // Restart: adapter transport cleared; gateway deliverySeen holds.
     const restartInbound = await messaging.acceptProviderEvent(
-      providerKey("whatsapp_business"),
+      providerKey("whatsapp_cloud_api"),
       whatsappText("wamid.restart_1", "restart"),
     );
     const restartCtx = await interaction.resolveTrustedContext(restartInbound);
@@ -488,7 +488,7 @@ async function main(): Promise<void> {
     const secondDelivery = await messaging.deliver(restartIntent);
     assert.equal(secondDelivery.id, firstDelivery.id);
     const replayInbound = await messaging.acceptProviderEvent(
-      providerKey("whatsapp_business"),
+      providerKey("whatsapp_cloud_api"),
       whatsappText("wamid.restart_1", "restart"),
     );
     const replayRecord = await interaction.accept(replayInbound, restartCtx);
@@ -498,21 +498,31 @@ async function main(): Promise<void> {
       "simulateRestart + stableProviderDeliveryId returns same DeliveryObservation",
     );
 
-    assert.equal(mutantsKilled.length, 6);
+    assert.equal(adapters.whatsapp.providerId, "whatsapp_cloud_api");
+    record(
+      "cloud_api_fake_not_unofficial_brazil",
+      adapters.whatsapp.providerId === "whatsapp_cloud_api",
+    );
+    kill(
+      "official_cloud_api_satisfies_unofficial_brazil",
+      "providerId=whatsapp_cloud_api; Cloud API fake is not unofficial/Brazil/consumer-groups proof",
+    );
+
+    assert.equal(mutantsKilled.length, 7);
     for (const id of MUTANT_IDS) {
       assert.ok(
         mutantsKilled.some((row) => row.id === id && row.killed),
         `missing mutant kill ${id}`,
       );
     }
-    record("all_six_mutants_killed", true);
+    record("all_seven_mutants_killed", true);
 
     const structural = [
       { providerId: "telegram", structuralClass: "telegram_like" as const },
       { providerId: "linq", structuralClass: "linq_like" as const },
       {
-        providerId: "whatsapp_business",
-        structuralClass: "whatsapp_business_like" as const,
+        providerId: "whatsapp_cloud_api",
+        structuralClass: "whatsapp_cloud_api_like" as const,
       },
     ];
 
@@ -532,7 +542,7 @@ async function main(): Promise<void> {
         perProvider: {
           linq: { ok: true },
           telegram: { ok: true },
-          whatsapp_business: { ok: true },
+          whatsapp_cloud_api: { ok: true },
         },
         principalId: first.principalId,
         semanticCorrelationKey: first.semanticCorrelationKey,

@@ -12,7 +12,7 @@ import type {
 
 const NATIVE: ProbeAnswer = { status: "native" };
 
-const WHATSAPP_BUSINESS_TABLE = {
+const WHATSAPP_CLOUD_API_TABLE = {
   dm: NATIVE,
   ephemeral: { status: "unsupported", degradeTo: "dm" },
   group: NATIVE,
@@ -29,23 +29,23 @@ const WHATSAPP_BUSINESS_TABLE = {
   voice_audio: NATIVE,
 } as const;
 
-/** WhatsApp Business Cloud API: object/entry/changes/value + wamid. */
-export function createFakeWhatsAppBusinessProvider(): ChatSdkShapedAdapter {
+/** Official WhatsApp Cloud API envelope fake: object/entry/changes/value + wamid. */
+export function createFakeWhatsAppCloudApiProvider(): ChatSdkShapedAdapter {
   let seq = 0;
   const delivered = new Map<string, ChatSdkDeliveryReceipt>();
   const probes: CapabilityProbes = createCapabilityProbes(
-    "whatsapp_business",
-    WHATSAPP_BUSINESS_TABLE,
+    "whatsapp_cloud_api",
+    WHATSAPP_CLOUD_API_TABLE,
   );
 
   return {
-    providerId: "whatsapp_business",
+    providerId: "whatsapp_cloud_api",
     probes,
 
     parseInbound(raw: unknown): ChatSdkMessage {
       const root = asRecord(raw);
       if (root.object !== "whatsapp_business_account") {
-        throw new Error("whatsapp business fake: expected Cloud API envelope");
+        throw new Error("whatsapp cloud api fake: expected Cloud API envelope");
       }
       const entry = firstArrayObject(root, "entry");
       const change = firstArrayObject(entry, "changes");
@@ -65,7 +65,7 @@ export function createFakeWhatsAppBusinessProvider(): ChatSdkShapedAdapter {
             : typeof message.wa_id === "string" && message.wa_id.length > 0
               ? message.wa_id
               : (() => {
-                  throw new Error("whatsapp business fake: missing from/wa_id");
+                  throw new Error("whatsapp cloud api fake: missing from/wa_id");
                 })();
         const interactive = message.interactive;
         if (interactive !== undefined) {
@@ -128,7 +128,7 @@ export function createFakeWhatsAppBusinessProvider(): ChatSdkShapedAdapter {
         };
       }
 
-      throw new Error("whatsapp business fake: no messages or statuses");
+      throw new Error("whatsapp cloud api fake: no messages or statuses");
     },
 
     async send(outbound: ChatSdkOutbound): Promise<ChatSdkDeliveryReceipt> {
@@ -169,14 +169,14 @@ function firstArrayObject(
 ): Record<string, unknown> {
   const value = record[key];
   if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`whatsapp business fake: missing ${key}[0]`);
+    throw new Error(`whatsapp cloud api fake: missing ${key}[0]`);
   }
   return asRecord(value[0]);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("whatsapp business fake: expected object");
+    throw new Error("whatsapp cloud api fake: expected object");
   }
   return value as Record<string, unknown>;
 }
@@ -190,7 +190,7 @@ function requireString(
     return String(value);
   }
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`whatsapp business fake: missing ${key}`);
+    throw new Error(`whatsapp cloud api fake: missing ${key}`);
   }
   return value;
 }

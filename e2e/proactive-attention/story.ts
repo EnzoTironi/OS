@@ -151,7 +151,7 @@ export async function main(): Promise<ProactiveAttentionEvidence> {
 
     const linqBind = await admin("POST", "/identity/admin/bind-verified", {
       accountId: accountA,
-      provider: "whatsapp",
+      provider: "linq",
       subjectKey: linqSubject,
     });
     assert.equal(linqBind.status, 200, JSON.stringify(linqBind.body));
