@@ -13,7 +13,13 @@ export function QueryTableView(props: {
   readonly bindingIds: readonly string[];
   readonly label: string;
 }) {
-  const { data } = useSurfaceInteraction();
+  const { data, document, selectEntity, selectedEntityId } =
+    useSurfaceInteraction();
+  const typeBindingIds = new Set(
+    document.queryBindings
+      .filter((binding) => binding.ref.kind === "type")
+      .map((binding) => binding.id),
+  );
   return (
     <div className="surface-table-wrap">
       <table aria-label={props.label}>
@@ -27,6 +33,38 @@ export function QueryTableView(props: {
         <tbody>
           {props.bindingIds.map((bindingId) => {
             const result = data.queries[bindingId];
+            if (typeBindingIds.has(bindingId)) {
+              const entities = (result?.values ?? []).flatMap((value) =>
+                value.value.kind === "entity-ref" ? [value.value.value] : [],
+              );
+              return (
+                <tr key={bindingId} data-type-query-binding={bindingId}>
+                  <th scope="row">{bindingLabel(bindingId)}</th>
+                  <td>
+                    {entities.length === 0 ? (
+                      queryValues(result)
+                    ) : (
+                      <ul className="object-list">
+                        {entities.map((entityId) => (
+                          <li key={entityId}>
+                            <button
+                              aria-pressed={entityId === selectedEntityId}
+                              className="entity-select"
+                              data-entity-id={entityId}
+                              onClick={() => selectEntity(entityId)}
+                              type="button"
+                            >
+                              {entityId}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                  <td>{result?.actualCommitSequence ?? "Loading"}</td>
+                </tr>
+              );
+            }
             return (
               <tr key={bindingId}>
                 <th scope="row">{bindingLabel(bindingId)}</th>

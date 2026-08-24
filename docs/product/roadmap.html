@@ -125,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">3</span>
+  <span class="stat-count">4</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -537,6 +537,17 @@
       </tr>
     </thead>
     <tbody>
+<tr data-status="in-flight">
+  <td><code>workshop-miniapp</code></td>
+  <td>experience</td>
+  <td>
+    <div class="name">Workshop mini-app lists commercial objects and commits changeCommitment</div>
+    <div class="path">apps/web, packages/surface, e2e/workshop-miniapp</div>
+    
+  </td>
+  <td>just e2e workshop-miniapp. SemanticQuery ByType lists commercial.OrderLine. Mini-app renders one object. commercial.changeCommitment commits through Action API. A denied propose still denies.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/356">#356</a></td>
+</tr>
 <tr data-status="in-flight">
   <td><code>telegram-live</code></td>
   <td>channels</td>

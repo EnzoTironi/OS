@@ -24,7 +24,18 @@ export type QueryRef =
       readonly definition: SurfaceDefinitionRef;
       readonly entityId: string;
       readonly kind: "computation";
+    }
+  | {
+      readonly definition: SurfaceDefinitionRef;
+      readonly kind: "type";
+      readonly limit: number;
+      readonly typeId: string;
     };
+
+export interface TypeQueryRef {
+  readonly limit: number;
+  readonly typeId: string;
+}
 
 export interface ActionRef {
   readonly actionId: string;
@@ -215,6 +226,7 @@ export interface SurfaceDocument {
   readonly semanticContext: {
     readonly definition: SurfaceDefinitionRef;
     readonly entityId: string;
+    readonly typeQuery?: TypeQueryRef;
   };
 }
 
@@ -299,10 +311,12 @@ export interface SurfaceRuntimeData {
 }
 
 export interface CompileSurfaceInput {
+  readonly actionIds?: readonly string[];
   readonly definition: SurfaceDefinitionRef;
   readonly entityId: string;
   readonly metadata: DefinitionMetadata;
   readonly presentation?: Partial<SurfacePresentation>;
+  readonly typeQuery?: TypeQueryRef;
 }
 
 export interface AdaptiveQueryContext {

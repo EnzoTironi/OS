@@ -65,7 +65,12 @@ function renderNode(
       );
     case "object-detail":
       return (
-        <article className="object-detail" key={node.id}>
+        <article
+          className="object-detail"
+          data-entity-id={node.entityId}
+          data-type-id={node.typeId}
+          key={node.id}
+        >
           <header>
             <span>{node.typeId}</span>
             <code>{node.entityId}</code>

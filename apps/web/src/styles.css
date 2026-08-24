@@ -264,6 +264,24 @@ code {
   overflow-x: auto;
 }
 
+.object-list {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+button.entity-select {
+  min-height: 2.25rem;
+  padding: 0.35rem 0.7rem;
+  color: #173f31;
+  background: transparent;
+  font-weight: 600;
+}
+
+button.entity-select[aria-pressed="true"] {
+  color: #fff;
+  background: #173f31;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

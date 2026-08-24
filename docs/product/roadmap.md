@@ -14,7 +14,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | HAVE | DON'T HAVE | STUB ON MAIN | IN FLIGHT | PARKED | HARNESS |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 24 | 1 | 0 | 3 | 2 | 3 |
+| 24 | 1 | 0 | 4 | 2 | 3 |
 
 ## Do next
 
@@ -93,6 +93,7 @@ Fail-closed work in an open PR. Do not duplicate.
 
 | id | plane | name | proof | issue |
 | --- | --- | --- | --- | ---: |
+| `workshop-miniapp` | experience | Workshop mini-app lists commercial objects and commits changeCommitment | just e2e workshop-miniapp. SemanticQuery ByType lists commercial.OrderLine. Mini-app renders one object. commercial.changeCommitment commits through Action API. A denied propose still denies. | [#356](https://github.com/EnzoTironi/OS/issues/356) |
 | `telegram-live` | channels | Telegram channel | just e2e channel-telegram-live. Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
 | `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Cloud API fake stays deleted. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
 | `messaging-conformance-live` | channels | Messaging conformance against live adapters | just e2e messaging-conformance-live. Live unofficial WhatsApp + live Telegram required. Linq optional. Fail closed without TELEGRAM_BOT_TOKEN / ZOEN_WHATSAPP_DOOR_E164 / companion. Fakes stay deleted. | [#327](https://github.com/EnzoTironi/OS/issues/327) |

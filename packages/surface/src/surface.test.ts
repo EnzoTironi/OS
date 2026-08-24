@@ -163,6 +163,57 @@ test("Surface validation rejects unknown catalogs, refs, and callbacks", () => {
   );
 });
 
+test("type query binding lists objects and binds the selected entity", () => {
+  const document = compileDeterministicSurface({
+    ...compileInput,
+    actionIds: ["inventory.requestStock"],
+    typeQuery: { limit: 8, typeId: "inventory.Item" },
+  });
+  assert.deepEqual(parseSurfaceDocument(document, metadata), document);
+  const typeBinding = document.queryBindings.find(
+    (binding) => binding.ref.kind === "type",
+  );
+  assert.ok(typeBinding);
+  assert.equal(typeBinding.ref.kind, "type");
+  if (typeBinding.ref.kind !== "type") {
+    return;
+  }
+  assert.equal(typeBinding.ref.typeId, "inventory.Item");
+  assert.equal(typeBinding.ref.limit, 8);
+  const table = document.nodes["node.semantic-table"];
+  assert.equal(table?.kind, "data-table");
+  if (table?.kind !== "data-table") {
+    return;
+  }
+  assert.deepEqual([...table.bindingIds], [typeBinding.id]);
+  const object = document.nodes["node.object"];
+  assert.equal(object?.kind, "object-detail");
+  if (object?.kind !== "object-detail") {
+    return;
+  }
+  assert.equal(object.entityId, compileInput.entityId);
+  assert.equal(object.typeId, "inventory.Item");
+  assert.equal(object.children.includes(table.id), false);
+  const root = document.nodes[document.root];
+  assert.equal(root?.kind, "section");
+  if (root?.kind !== "section") {
+    return;
+  }
+  assert.deepEqual([...root.children].slice(0, 2), [table.id, object.id]);
+  assert.equal(document.semanticContext.typeQuery?.typeId, "inventory.Item");
+  assert.equal(
+    document.id,
+    `surface.${compileInput.definition.definitionId}.inventory.Item`,
+  );
+  assert.equal(document.actionBindings[0]?.ref.resourceId, compileInput.entityId);
+  const cacheKey = semanticQueryCacheKey({
+    commitSequence: "4",
+    query: typeBinding.ref,
+    tenantId: "tenant.a",
+  });
+  assert.equal(cacheKey[3], "type:inventory.Item");
+});
+
 test("semantic query cache keys include tenant and CommitSequence", () => {
   const document = compileDeterministicSurface(compileInput);
   const query = document.queryBindings[0]?.ref;
