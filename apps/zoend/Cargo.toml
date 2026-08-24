@@ -29,5 +29,8 @@ zoen-query = { version = "0.1.0", path = "../../crates/zoen-query" }
 [build-dependencies]
 connectrpc-build = "0.8.0"
 
+[dev-dependencies]
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+
 [lints]
 workspace = true

@@ -71,7 +71,12 @@ impl ComputationService for ComputationServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, PublishComponentRequest>,
     ) -> ServiceResult<PublishComponentResponse> {
-        let trusted = self.sessions.trusted_context(&context).await?;
+        let trusted = {
+            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            self.sessions
+                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .await?
+        };
         let artifact = ComponentArtifact {
             bytes: request.component.to_vec(),
             claimed_digest: ComponentDigest::parse(request.claimed_digest)
@@ -97,7 +102,12 @@ impl ComputationService for ComputationServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ExecuteRequest>,
     ) -> ServiceResult<ExecuteResponse> {
-        let trusted = self.sessions.trusted_context(&context).await?;
+        let trusted = {
+            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            self.sessions
+                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .await?
+        };
         let manifest = request
             .manifest
             .as_option()

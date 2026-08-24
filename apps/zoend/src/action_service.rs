@@ -53,7 +53,12 @@ impl ActionService for ActionServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, DiscoverRequest>,
     ) -> ServiceResult<DiscoverResponse> {
-        let trusted = self.sessions.trusted_context(&context).await?;
+        let trusted = {
+            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            self.sessions
+                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .await?
+        };
         let definition = request
             .definition
             .as_option()
@@ -83,7 +88,12 @@ impl ActionService for ActionServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ProposeRequest>,
     ) -> ServiceResult<ProposeResponse> {
-        let trusted = self.sessions.trusted_context(&context).await?;
+        let trusted = {
+            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            self.sessions
+                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .await?
+        };
         let definition = request
             .definition
             .as_option()
@@ -180,7 +190,12 @@ impl ActionService for ActionServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ApproveRequest>,
     ) -> ServiceResult<ApproveResponse> {
-        let trusted = self.sessions.trusted_context(&context).await?;
+        let trusted = {
+            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            self.sessions
+                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .await?
+        };
         let expires_at = request
             .expires_at
             .as_option()
@@ -225,7 +240,12 @@ impl ActionService for ActionServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, CommitRequest>,
     ) -> ServiceResult<CommitResponse> {
-        let trusted = self.sessions.trusted_context(&context).await?;
+        let trusted = {
+            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            self.sessions
+                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .await?
+        };
         let proposal_id =
             ProposalId::parse(request.proposal_id).map_err(|error| invalid(error.to_string()))?;
         let operation_id =
@@ -283,7 +303,12 @@ impl ActionService for ActionServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, GetOperationStatusRequest>,
     ) -> ServiceResult<GetOperationStatusResponse> {
-        let trusted = self.sessions.trusted_context(&context).await?;
+        let trusted = {
+            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            self.sessions
+                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .await?
+        };
         let operation_id =
             OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
         let receipt = self

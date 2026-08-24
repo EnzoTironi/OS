@@ -8,8 +8,9 @@ use zoen_core::{
     ClaimId, CommitSequence, ComputationId, Consistency, DefinitionDigest, DefinitionId,
     DefinitionReference as CoreDefinitionReference, DefinitionRevisionNumber, EntityId,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger,
-    ExactValue as CoreExactValue, LineageRole as CoreLineageRole, RelationId, SemanticQuery,
-    SemanticResult, SemanticSelection, SourceId, TimestampMicros, UnitId, ValidTime,
+    ExactValue as CoreExactValue, ExecutionContext, LineageRole as CoreLineageRole, RelationId,
+    SemanticQuery, SemanticResult, SemanticSelection, SourceId, TenantId, TimestampMicros, UnitId,
+    ValidTime,
 };
 use zoen_engine::{RecordEvidenceError, WorldEngine};
 use zoen_query::{QueryError, QueryRuntime};
@@ -40,6 +41,30 @@ impl WorldServiceImpl {
             sessions,
         }
     }
+
+    async fn resolve_for_payload(
+        &self,
+        request_context: &RequestContext,
+        tenant_id: &str,
+    ) -> Result<ExecutionContext, ConnectError> {
+        let claimed = TenantId::parse(tenant_id)
+            .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
+        let context = self
+            .sessions
+            .resolve(
+                SessionRegistry::bearer_from(request_context),
+                Some(&claimed),
+            )
+            .await?;
+        if context.tenant_id() != &claimed {
+            return Err(ConnectError::new(
+                ErrorCode::PermissionDenied,
+                "payload tenant does not match the trusted session",
+            ));
+        }
+        Ok(context)
+    }
+
 }
 
 impl WorldService for WorldServiceImpl {
@@ -49,8 +74,7 @@ impl WorldService for WorldServiceImpl {
         request: ServiceRequest<'_, RecordEvidenceRequest>,
     ) -> ServiceResult<RecordEvidenceResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let claim = request
             .claim
@@ -83,8 +107,7 @@ impl WorldService for WorldServiceImpl {
             return Err(invalid("evidence batch exceeds 1000 claims"));
         }
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let mut drafts = Vec::with_capacity(request.claims.len());
         for claim in &request.claims {
@@ -115,8 +138,7 @@ impl WorldService for WorldServiceImpl {
         request: ServiceRequest<'_, SemanticQueryRequest>,
     ) -> ServiceResult<SemanticQueryResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let definition = request
             .definition

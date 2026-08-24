@@ -14,13 +14,14 @@ use zoen_core::{
     DefinitionImpactApplicability as CoreImpactApplicability,
     DefinitionImpactArea as CoreImpactArea, DefinitionRevision as CoreDefinitionRevision,
     EvolutionClassification as CoreEvolutionClassification, EvolutionPlan as CoreEvolutionPlan,
-    MigrationDependency as CoreMigrationDependency, MigrationElement as CoreMigrationElement,
-    MigrationLineage as CoreMigrationLineage, MigrationObligation as CoreMigrationObligation,
-    MigrationPlan as CoreMigrationPlan, MigrationPostcondition as CoreMigrationPostcondition,
+    ExecutionContext, MigrationDependency as CoreMigrationDependency,
+    MigrationElement as CoreMigrationElement, MigrationLineage as CoreMigrationLineage,
+    MigrationObligation as CoreMigrationObligation, MigrationPlan as CoreMigrationPlan,
+    MigrationPostcondition as CoreMigrationPostcondition,
     MigrationProgress as CoreMigrationProgress, MigrationRecipe as CoreMigrationRecipe,
     MigrationRecord as CoreMigrationRecord, MigrationRule as CoreMigrationRule,
     MigrationRuleKind as CoreMigrationRuleKind, MigrationStatus as CoreMigrationStatus,
-    OperationId, TimestampMicros,
+    OperationId, TenantId, TimestampMicros,
 };
 use zoen_engine::{
     ActivateRevisionError, DefinitionEngine, GetRevisionError, MigrationError, PlanEvolutionError,
@@ -57,6 +58,29 @@ impl DefinitionServiceImpl {
     ) -> Self {
         Self { engine, sessions }
     }
+
+    async fn resolve_for_payload(
+        &self,
+        request_context: &RequestContext,
+        tenant_id: &str,
+    ) -> Result<ExecutionContext, ConnectError> {
+        let claimed = TenantId::parse(tenant_id)
+            .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
+        let context = self
+            .sessions
+            .resolve(
+                SessionRegistry::bearer_from(request_context),
+                Some(&claimed),
+            )
+            .await?;
+        if context.tenant_id() != &claimed {
+            return Err(ConnectError::new(
+                ErrorCode::PermissionDenied,
+                "payload tenant does not match the trusted session",
+            ));
+        }
+        Ok(context)
+    }
 }
 
 impl DefinitionService for DefinitionServiceImpl {
@@ -66,8 +90,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, PublishRequest>,
     ) -> ServiceResult<PublishResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let digest = DefinitionDigest::parse(request.digest)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
@@ -88,8 +111,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, GetRevisionRequest>,
     ) -> ServiceResult<GetRevisionResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
@@ -112,8 +134,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, GetActiveRevisionRequest>,
     ) -> ServiceResult<GetActiveRevisionResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
@@ -134,8 +155,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, PlanEvolutionRequest>,
     ) -> ServiceResult<PlanEvolutionResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
@@ -160,8 +180,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, PrepareMigrationRequest>,
     ) -> ServiceResult<PrepareMigrationResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let recipe = request
             .recipe
@@ -186,8 +205,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, ApplyMigrationBatchRequest>,
     ) -> ServiceResult<ApplyMigrationBatchResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let operation_id =
             OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
@@ -224,8 +242,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, GetMigrationRequest>,
     ) -> ServiceResult<GetMigrationResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let operation_id =
             OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
@@ -246,8 +263,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, ActivateRevisionRequest>,
     ) -> ServiceResult<ActivateRevisionResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
@@ -278,8 +294,7 @@ impl DefinitionService for DefinitionServiceImpl {
         request: ServiceRequest<'_, RollbackRevisionRequest>,
     ) -> ServiceResult<RollbackRevisionResponse> {
         let execution_context = self
-            .sessions
-            .execution_context(&context, request.tenant_id)
+            .resolve_for_payload(&context, request.tenant_id)
             .await?;
         let definition_id = DefinitionId::parse(request.definition_id)
             .map_err(|error| invalid(error.to_string()))?;

@@ -61,7 +61,12 @@ impl HistoryService for HistoryServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ExplainRequest>,
     ) -> ServiceResult<ExplainResponse> {
-        let trusted = self.sessions.trusted_context(&context).await?;
+        let trusted = {
+            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            self.sessions
+                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .await?
+        };
         let target = request
             .target
             .as_option()
