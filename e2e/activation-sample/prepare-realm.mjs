@@ -222,7 +222,7 @@ const realm = {
         "pkce.code.challenge.method": "S256",
       },
       clientId: "zoen-web",
-      directAccessGrantsEnabled: false,
+      directAccessGrantsEnabled: true,
       enabled: true,
       protocol: "openid-connect",
       protocolMappers: [
@@ -232,7 +232,11 @@ const realm = {
         hardcodedClaim("workload_id", workloadId),
         hardcodedClaim(
           "zoen_delegation",
-          delegation(workloadId, inventoryActions, domainResources),
+          delegation(
+            workloadId,
+            [...inventoryActions, "procurement.governPurchase"],
+            domainResources,
+          ),
         ),
         audienceMapper(),
       ],

@@ -21,7 +21,8 @@ permit (
 )
 when {
     context.actorId == "actor.procurement-supervisor.a" ||
-    context.actorId == "actor.procurement-supervisor.b"
+    context.actorId == "actor.procurement-supervisor.b" ||
+    context.actorId == "actor.web.a"
 };
 
 permit (

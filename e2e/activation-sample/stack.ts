@@ -287,6 +287,11 @@ export async function startStack(
   });
 
   await phase(phases, "web", async () => {
+    process.env.ZOEN_INTERACTION_DATABASE_URL = e2ePostgresUrl(
+      "zoen_app",
+      "zoen_app",
+      55_457,
+    );
     liveWeb = await startWeb(endpoints.zoendOrigin, {
       definitionId: sample?.webBindings.definitionId,
       resourceId: sample?.webBindings.resourceId,

@@ -22,6 +22,7 @@ import {
   requestSupplier,
   stockPositionId,
 } from "../v1-company/actions.js";
+import { passwordToken } from "../v1-company/support.js";
 import {
   actionClient,
   compilePackage,
@@ -357,6 +358,128 @@ export async function runActivationStory(
       reserved.commitSequence > 0n,
     );
 
+    const inventorySurfaceActions = [
+      "inventory.acceptPhysicalQuantity",
+      "inventory.correctInventory",
+      "inventory.recordCommercialCommitment",
+      "inventory.recordMovement",
+      "inventory.recordReceipt",
+      "inventory.reserveInventory",
+    ] as const;
+    const webUserToken = await passwordToken("web-user");
+    const webAction = actionClient(webUserToken);
+    const agentDiscovery = await inventoryAction.discover({
+      definition: inventory.definition,
+      resourceId: sample.stockPositionId,
+    });
+    const webDiscovery = await webAction.discover({
+      definition: inventory.definition,
+      resourceId: sample.stockPositionId,
+    });
+    observe(
+      "webUserTrustedPrincipalIsPrincipalWebA",
+      webDiscovery.trustedContext?.principalId === "principal.web.a" &&
+        webDiscovery.trustedContext?.actorId === "actor.web.a",
+    );
+    const agentPermitsSurface = inventorySurfaceActions.every((actionId) =>
+      agentDiscovery.actions.some(
+        (action) =>
+          action.actionId === actionId &&
+          action.decision === PolicyDecision.PERMIT,
+      ),
+    );
+    const webPermitsSurface = inventorySurfaceActions.every((actionId) =>
+      webDiscovery.actions.some(
+        (action) =>
+          action.actionId === actionId &&
+          action.decision === PolicyDecision.PERMIT,
+      ),
+    );
+    observe(
+      "webUserDiscoversInventoryActionsOnSeedResource",
+      webPermitsSurface,
+      `web Discover permits=${inventorySurfaceActions
+        .map((actionId) => {
+          const hit = webDiscovery.actions.find(
+            (action) => action.actionId === actionId,
+          );
+          return `${actionId}:${hit?.decision ?? "missing"}`;
+        })
+        .join(",")}`,
+    );
+    observe(
+      "mutantAgentPermitWebDenyOnSameResourceKilled",
+      !(agentPermitsSurface && !webPermitsSurface),
+      "inventory-agent permitted while web-user denied on the same resource",
+    );
+
+    const webReserve = proposalRequest({
+      actionId: "inventory.reserveInventory",
+      fixture: inventory,
+      inputs: [
+        {
+          id: "allocationReference",
+          value: { kind: "text", value: "allocation.order-1001" },
+        },
+        {
+          id: "commitmentReference",
+          value: { kind: "text", value: "commitment.order-1001" },
+        },
+        {
+          id: "quantity",
+          value: { amount: "1", kind: "quantity", unit: "each" },
+        },
+        {
+          id: "reservationReference",
+          value: { kind: "text", value: "reservation.sample.web-user" },
+        },
+      ],
+      resourceId: stockPositionId,
+      suffix: "web-user-reserve",
+      validAt: afterCorrectionAt,
+    });
+    const webReserved = await commitReady(webAction, webReserve);
+    observe(
+      "webUserProposesAndCommitsInventoryAction",
+      webReserved.commitSequence > 0n,
+    );
+
+    const webPurchaseRequest = governPurchase(
+      procurement as Parameters<typeof governPurchase>[0],
+      "sample-web-approve",
+    );
+    const webPurchaseProposal =
+      await procurementAction.propose(webPurchaseRequest);
+    assert.equal(webPurchaseProposal.decision, PolicyDecision.PERMIT);
+    assert.equal(
+      webPurchaseProposal.proposal?.status,
+      ProposalStatus.AWAITING_APPROVAL,
+    );
+    assert.ok(webPurchaseProposal.proposal);
+    const webApproval = await webAction.approve({
+      approvalId: "approval.sample.web-user",
+      expiresAt: timestampFromDate(new Date(Date.now() + 240_000)),
+      proposalId: webPurchaseProposal.proposal.proposalId,
+    });
+    observe(
+      "webUserApprovesAwaitingPurchase",
+      webApproval.decision === PolicyDecision.PERMIT,
+    );
+    const webPurchaseCommit = await procurementAction.commit({
+      operationId: webPurchaseRequest.operationId,
+      proposalId: webPurchaseRequest.proposalId,
+    });
+    observe(
+      "webUserApprovalUnblocksPurchaseCommit",
+      webPurchaseCommit.status === CommitStatus.COMMITTED,
+    );
+
+    observe(
+      "justStartWebReceivesInteractionDatabaseUrl",
+      typeof process.env.ZOEN_INTERACTION_DATABASE_URL === "string" &&
+        process.env.ZOEN_INTERACTION_DATABASE_URL.includes("55457"),
+    );
+
     observe("timingReportEmitted", timing.budgetMs === 300_000);
     observe(
       "timingHonesty",
@@ -380,6 +503,9 @@ export async function runActivationStory(
         "missing-approval-on-purchase",
         "stale-web-build-still-ready",
         "restate-only-stack-still-ready",
+        "inventory-agent-permit-while-web-user-deny",
+        "approve-only-procurement-supervisor",
+        "missing-interaction-database-url-silent-default",
       ],
     };
     await writeScenarioArtifact(stack.root, SCENARIO, manifest);
