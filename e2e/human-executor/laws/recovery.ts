@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { EffectKnowledgeState } from "../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
-  commitEffect,
-  freezeHumanPayload,
-  humanTaskContract,
+  commitHumanEffect,
   submitOperatorReport,
   waitForState,
   type HumanScenario,
@@ -11,13 +9,12 @@ import {
 import { dispatchOnce, restartRestate } from "../support.js";
 
 export async function verifyRecovery(scenario: HumanScenario): Promise<void> {
-  const committed = await commitEffect(
+  const committed = await commitHumanEffect(
     scenario.actionA,
+    scenario.effectA,
     scenario.fixture,
     "restate-restart",
   );
-  const contract = humanTaskContract();
-  await freezeHumanPayload(scenario.admin, committed.effectRequestId, contract);
   await dispatchOnce();
 
   const claim = await scenario.effectHumanA.claimAttempt({

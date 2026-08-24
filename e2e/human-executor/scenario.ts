@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
+import canonicalize from "canonicalize";
 import type { Client as PostgresClient } from "pg";
 import {
+  ActionInputSchema,
   CommitStatus,
+  type ActionInput,
   type CommitReceipt,
 } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
@@ -15,8 +21,15 @@ import {
   type EffectSnapshot,
 } from "../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
+  DefinitionReferenceSchema,
+  ExactValueSchema,
+} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
+  activationActionId,
   loadFixture,
-  propose,
+  resourceId,
+  textInput,
+  type DefinitionFixture,
 } from "../governed-action/support.js";
 import {
   tenantA,
@@ -26,7 +39,10 @@ import {
   type ManagedProcess,
 } from "./support.js";
 
-export type HumanFixture = Awaited<ReturnType<typeof loadFixture>>;
+export type HumanFixture = DefinitionFixture;
+
+export const humanExecutorActionId =
+  "inventory.collectSignature.humanExecutor";
 
 export class EvidenceRecorder {
   readonly assertions: Record<string, boolean> = {};
@@ -57,10 +73,13 @@ export class EvidenceRecorder {
 }
 
 export interface CommittedEffect {
+  contract: HumanTaskContractJson;
   effectRequestId: string;
   idempotencyKey: string;
   operationId: string;
+  payload: Buffer;
   receipt: CommitReceipt;
+  requestDigest: string;
 }
 
 export interface HumanScenario {
@@ -105,27 +124,112 @@ export interface HumanTaskContractJson {
   >;
 }
 
-export function humanTaskContract(
-  overrides: Partial<HumanTaskContractJson> = {},
-): HumanTaskContractJson {
-  return {
-    bounds: {
-      allowedActions: ["collect_signature"],
-      disclosureClass: "minimal",
-      maxExpenseMinor: 0,
-    },
-    contact: { nameRef: "contact.name.1", phoneRef: null },
-    executorClass: "human_executor",
-    expiryMicros: Date.now() * 1000 + 3_600_000_000,
-    instruction: "Collect wet signature for order",
-    reconciliation: "required_independent",
-    requiredEvidence: [{ fieldId: "signed_form", required: true }],
-    schemaVersion: 1,
-    structuredInputs: {
-      order_id: { kind: "text", value: "order.1" },
-    },
-    ...overrides,
+export interface CommitHumanOptions {
+  expiresAt?: Date;
+  instruction?: string;
+  orderId?: string;
+  quantity?: string;
+  tenantId?: string;
+}
+
+export async function loadHumanExecutorFixture(): Promise<HumanFixture> {
+  const base = await loadFixture("direct", 1);
+  const document = JSON.parse(base.canonicalJson) as {
+    actions: Array<Record<string, unknown>>;
+    [key: string]: unknown;
   };
+  document.actions.push({
+    effects: [
+      {
+        relationId: "inventory.requested",
+        value: { inputId: "quantity", kind: "input" },
+      },
+    ],
+    id: humanExecutorActionId,
+    inputs: [
+      { id: "instruction", valueType: { kind: "text" } },
+      { id: "order_id", valueType: { kind: "text" } },
+      { id: "quantity", valueType: { kind: "integer" } },
+    ],
+    precondition: {
+      kind: "binary",
+      left: { kind: "relation", relationId: "inventory.available" },
+      operator: "greater_than",
+      right: { inputId: "quantity", kind: "input" },
+    },
+  });
+  document.actions.sort((left, right) =>
+    String(left.id).localeCompare(String(right.id)),
+  );
+  for (const action of document.actions) {
+    const inputs = action.inputs as Array<{ id: string }> | undefined;
+    if (inputs) {
+      inputs.sort((left, right) => left.id.localeCompare(right.id));
+    }
+  }
+  const canonicalJson = canonicalize(document);
+  assert.ok(canonicalJson);
+  const digest = sha256(canonicalJson);
+  return {
+    canonicalJson,
+    definition: create(DefinitionReferenceSchema, {
+      definitionId: base.definition.definitionId,
+      digest,
+      revision: base.definition.revision,
+    }),
+    digest,
+    policyDigest: base.policyDigest,
+    policyId: base.policyId,
+    policyRevision: base.policyRevision,
+    policySource: base.policySource,
+  };
+}
+
+export async function writeHumanExecutorPolicyManifest(
+  outputPath: string,
+  fixture: HumanFixture,
+): Promise<void> {
+  const activationSource = await readFile(
+    path.join(process.cwd(), "e2e", "governed-action", "activation.cedar"),
+    "utf8",
+  );
+  const activationDigest = sha256(activationSource);
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(
+    outputPath,
+    `${JSON.stringify(
+      {
+        policies: [
+          {
+            actionId: "inventory.requestStock",
+            definitionDigest: fixture.digest,
+            digest: fixture.policyDigest,
+            policyId: fixture.policyId,
+            revision: fixture.policyRevision,
+            source: fixture.policySource,
+          },
+          {
+            actionId: humanExecutorActionId,
+            definitionDigest: fixture.digest,
+            digest: fixture.policyDigest,
+            policyId: `${fixture.policyId}.humanExecutor`,
+            revision: fixture.policyRevision,
+            source: fixture.policySource,
+          },
+          {
+            actionId: activationActionId,
+            definitionDigest: fixture.digest,
+            digest: activationDigest,
+            policyId: `policy.activation.${fixture.definition.definitionId}`,
+            revision: fixture.policyRevision,
+            source: activationSource,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 export function encodeContract(contract: HumanTaskContractJson): Buffer {
@@ -136,49 +240,115 @@ export function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export function parseHumanTaskContract(payload: Uint8Array): HumanTaskContractJson {
+  const parsed = JSON.parse(Buffer.from(payload).toString("utf8")) as HumanTaskContractJson;
+  assert.equal(parsed.executorClass, "human_executor");
+  assert.equal(parsed.schemaVersion, 1);
+  return parsed;
+}
+
 export async function commitEffect(
   action: ActionClient,
   fixture: HumanFixture,
   label: string,
+  options: CommitHumanOptions = {},
 ): Promise<CommittedEffect> {
   const operationId = `operation.human.${label}`;
   const proposalId = `proposal.human.${label}`;
-  const proposed = await propose(action, {
-    expiresAt: new Date(Date.now() + 300_000),
-    fixture,
+  const expiresAt = options.expiresAt ?? new Date(Date.now() + 300_000);
+  const instruction =
+    options.instruction ?? "Collect wet signature for order";
+  const orderId = options.orderId ?? "order.1";
+  const quantity = options.quantity ?? "1";
+  const proposed = await action.propose({
+    actionId: humanExecutorActionId,
+    definition: fixture.definition,
+    expiresAt: timestampFromDate(expiresAt),
+    inputs: [
+      integerInput("quantity", quantity),
+      textInput("instruction", instruction),
+      textInput("order_id", orderId),
+    ],
     operationId,
     proposalId,
-    quantity: "1",
+    resourceId,
+    validAt: timestampFromDate(new Date("2026-08-19T00:00:00.000Z")),
   });
   assert.ok(proposed.proposal);
   const committed = await action.commit({ operationId, proposalId });
-  assert.equal(committed.status, CommitStatus.COMMITTED);
+  assert.equal(committed.status, CommitStatus.COMMITTED, committed.error);
   assert.ok(committed.receipt);
   const effectRequestId = committed.receipt.effectRequestIds[0];
   assert.ok(effectRequestId);
+  const tenantId = options.tenantId ?? tenantA;
   return {
+    contract: {
+      bounds: {
+        allowedActions: ["collect_signature"],
+        disclosureClass: "minimal",
+        maxExpenseMinor: 0,
+      },
+      contact: { nameRef: "contact.name.1", phoneRef: null },
+      executorClass: "human_executor",
+      expiryMicros: expiresAt.getTime() * 1000,
+      instruction,
+      reconciliation: "required_independent",
+      requiredEvidence: [{ fieldId: "signed_form", required: true }],
+      schemaVersion: 1,
+      structuredInputs: {
+        order_id: { kind: "text", value: orderId },
+      },
+    },
     effectRequestId,
-    idempotencyKey: `idempotency.${tenantA}.${effectRequestId}`,
+    idempotencyKey: `idempotency.${tenantId}.${effectRequestId}`,
     operationId,
+    payload: Buffer.alloc(0),
     receipt: committed.receipt,
+    requestDigest: "",
   };
 }
 
-export async function freezeHumanPayload(
-  admin: PostgresClient,
+export async function readCommittedHumanContract(
+  effect: EffectClient,
   effectRequestId: string,
-  contract: HumanTaskContractJson,
-  tenantId = tenantA,
-): Promise<{ payload: Buffer; requestDigest: string }> {
-  const payload = encodeContract(contract);
-  const requestDigest = sha256(payload);
-  await admin.query(
-    `UPDATE effect_requests
-     SET payload = $1, request_digest = $2
-     WHERE tenant_id = $3 AND effect_request_id = $4`,
-    [payload, requestDigest, tenantId, effectRequestId],
+): Promise<{
+  contract: HumanTaskContractJson;
+  payload: Buffer;
+  requestDigest: string;
+}> {
+  const response = await effect.getEffect({ effectRequestId });
+  const request = response.snapshot?.request;
+  assert.ok(request, `missing effect request ${effectRequestId}`);
+  const payload = Buffer.from(request.payload);
+  const contract = parseHumanTaskContract(payload);
+  assert.equal(request.requestDigest, sha256(payload));
+  return {
+    contract,
+    payload,
+    requestDigest: request.requestDigest,
+  };
+}
+
+export async function commitHumanEffect(
+  action: ActionClient,
+  effect: EffectClient,
+  fixture: HumanFixture,
+  label: string,
+  options: CommitHumanOptions = {},
+): Promise<CommittedEffect> {
+  const committed = await commitEffect(action, fixture, label, options);
+  const frozen = await readCommittedHumanContract(
+    effect,
+    committed.effectRequestId,
   );
-  return { payload, requestDigest };
+  assert.equal(frozen.contract.executorClass, "human_executor");
+  assert.equal(frozen.contract.instruction, options.instruction ?? "Collect wet signature for order");
+  return {
+    ...committed,
+    contract: frozen.contract,
+    payload: frozen.payload,
+    requestDigest: frozen.requestDigest,
+  };
 }
 
 export async function waitForState(
@@ -350,4 +520,22 @@ export function stateName(state: EffectKnowledgeState): string {
     default:
       return "unspecified";
   }
+}
+
+export function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+function integerInput(inputId: string, value: string): ActionInput {
+  return create(ActionInputSchema, {
+    inputId,
+    value: create(ExactValueSchema, {
+      value: {
+        case: "integerValue",
+        value,
+      },
+    }),
+  });
 }

@@ -1,17 +1,16 @@
 import assert from "node:assert/strict";
-import { Code } from "@connectrpc/connect";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code } from "@connectrpc/connect";
 import {
   EffectAttemptOutcome,
   EffectAttemptReason,
   EffectKnowledgeState,
 } from "../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
-  commitEffect,
+  commitHumanEffect,
+  delay,
   evidenceInput,
   expectConnectCode,
-  freezeHumanPayload,
-  humanTaskContract,
   mapOperatorReport,
   sha256,
   submitOperatorReport,
@@ -22,13 +21,12 @@ export async function verifyReportEvidence(scenario: HumanScenario): Promise<{
   acceptedPendingId: string;
   attemptId: string;
 }> {
-  const committed = await commitEffect(
+  const committed = await commitHumanEffect(
     scenario.actionA,
+    scenario.effectA,
     scenario.fixture,
     "report-evidence",
   );
-  const contract = humanTaskContract();
-  await freezeHumanPayload(scenario.admin, committed.effectRequestId, contract);
   const claim = await scenario.effectHumanA.claimAttempt({
     adapterExecutionId: `human-claim.report.${committed.effectRequestId}`,
     effectRequestId: committed.effectRequestId,
@@ -121,19 +119,15 @@ export async function verifyReportEvidence(scenario: HumanScenario): Promise<{
     contradicted.snapshot.request?.state === EffectKnowledgeState.CONTRADICTED,
   );
 
-  const expired = await commitEffect(
+  const expiresAt = new Date(Date.now() + 1_500);
+  const expired = await commitHumanEffect(
     scenario.actionA,
+    scenario.effectA,
     scenario.fixture,
     "expired-task",
+    { expiresAt, instruction: "too late" },
   );
-  await freezeHumanPayload(
-    scenario.admin,
-    expired.effectRequestId,
-    humanTaskContract({
-      expiryMicros: 1,
-      instruction: "too late",
-    }),
-  );
+  await delay(2_000);
   await expectConnectCode(
     () =>
       scenario.effectHumanA.claimAttempt({

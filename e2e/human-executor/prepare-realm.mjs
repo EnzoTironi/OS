@@ -5,6 +5,8 @@ const outputDirectory =
   process.env.ZOEN_E2E_GENERATED_DIR ??
   path.join("e2e", "human-executor", ".generated");
 const actionId = "inventory.requestStock";
+const humanExecutorActionId = "inventory.collectSignature.humanExecutor";
+const agentActionIds = [actionId, humanExecutorActionId];
 const activationActionId = "zoen.definition.activate";
 const definitionIds = [
   "inventory.governed",
@@ -54,7 +56,7 @@ function delegation(workloadId, grants) {
   return JSON.stringify(
     grants ?? [
       {
-        actionIds: [actionId],
+        actionIds: agentActionIds,
         delegationId: `delegation.${workloadId}`,
         expiresAt: farFuture,
         notBefore: 0,
@@ -121,7 +123,7 @@ function confidentialClient({
 
 const expandedDelegation = delegation("workload.expanded.a", [
   {
-    actionIds: [actionId],
+    actionIds: agentActionIds,
     delegationId: "delegation.parent.a",
     expiresAt: farFuture,
     notBefore: 0,
@@ -129,7 +131,7 @@ const expandedDelegation = delegation("workload.expanded.a", [
     workloadIds: ["workload.expanded.a"],
   },
   {
-    actionIds: [actionId, "inventory.deleteStock"],
+    actionIds: [...agentActionIds, "inventory.deleteStock"],
     delegationId: "delegation.child.a",
     expiresAt: farFuture,
     notBefore: 0,
