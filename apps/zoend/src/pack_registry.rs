@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use axum::Json;
-use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
+use axum::Json;
+use axum::Router;
+use connectrpc::ErrorCode;
 use serde::Deserialize;
 use zoen_adapters::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
 use zoen_core::{
@@ -159,7 +160,7 @@ async fn register_key(
     headers: HeaderMap,
     Json(body): Json<RegisterKeyBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_bearer(&state, &headers) {
+    if let Err(error) = require_bearer(&state, &headers).await {
         return context_error(error);
     }
     let key = match build_key(&body) {
@@ -185,7 +186,7 @@ async fn put_object(
     headers: HeaderMap,
     Json(body): Json<PutBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -262,7 +263,7 @@ async fn open_object(
     headers: HeaderMap,
     Json(body): Json<OpenBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_bearer(&state, &headers) {
+    if let Err(error) = require_bearer(&state, &headers).await {
         return context_error(error);
     }
     let digest = match PackDigest::parse(body.pack_digest) {
@@ -325,7 +326,7 @@ async fn mint_share(
     headers: HeaderMap,
     Json(body): Json<MintShareBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_context(&state, &headers, &body.tenant_id) {
+    if let Err(error) = require_context(&state, &headers, &body.tenant_id).await {
         return context_error(error);
     }
     let digest = match PackDigest::parse(body.pack_digest) {
@@ -368,7 +369,7 @@ async fn resolve_share(
     headers: HeaderMap,
     Json(body): Json<ResolveShareBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_bearer(&state, &headers) {
+    if let Err(error) = require_bearer(&state, &headers).await {
         return context_error(error);
     }
     let token = match ShareToken::parse(body.token) {
@@ -422,7 +423,7 @@ async fn search_public(
     State(state): State<Arc<PackRegistryState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(error) = require_bearer(&state, &headers) {
+    if let Err(error) = require_bearer(&state, &headers).await {
         return context_error(error);
     }
     match state.registry.search_public(None).await {
@@ -450,7 +451,7 @@ async fn record_attribution(
     headers: HeaderMap,
     Json(body): Json<AttributionBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_bearer(&state, &headers) {
+    if let Err(error) = require_bearer(&state, &headers).await {
         return context_error(error);
     }
     let kind = match AttributionEventKind::parse(&body.kind) {
@@ -496,7 +497,7 @@ async fn attribution_summary(
     headers: HeaderMap,
     Json(body): Json<AttributionSummaryBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_context(&state, &headers, &body.tenant_id) {
+    if let Err(error) = require_context(&state, &headers, &body.tenant_id).await {
         return context_error(error);
     }
     let publisher_id = match PublisherId::parse(body.publisher_id) {
@@ -537,7 +538,7 @@ async fn set_config(
     headers: HeaderMap,
     Json(body): Json<ConfigBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_context(&state, &headers, &body.tenant_id) {
+    if let Err(error) = require_context(&state, &headers, &body.tenant_id).await {
         return context_error(error);
     }
     match state
@@ -560,7 +561,7 @@ async fn reindex(
     State(state): State<Arc<PackRegistryState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(error) = require_bearer(&state, &headers) {
+    if let Err(error) = require_bearer(&state, &headers).await {
         return context_error(error);
     }
     match state.registry.reindex().await {
@@ -662,18 +663,22 @@ enum ContextError {
     BadRequest(String),
 }
 
-fn require_bearer(state: &PackRegistryState, headers: &HeaderMap) -> Result<(), ContextError> {
+async fn require_bearer(
+    state: &PackRegistryState,
+    headers: &HeaderMap,
+) -> Result<(), ContextError> {
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
     state
         .sessions
-        .verify_bearer(authorization)
+        .resolve(authorization, None)
+        .await
         .map(|_| ())
-        .map_err(|error| ContextError::Unauthorized(error.to_string()))
+        .map_err(map_resolve_error)
 }
 
-fn require_context(
+async fn require_context(
     state: &PackRegistryState,
     headers: &HeaderMap,
     tenant_id: &str,
@@ -681,21 +686,28 @@ fn require_context(
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    let verified = state
-        .sessions
-        .verify_bearer(authorization)
-        .map_err(|error| ContextError::Unauthorized(error.to_string()))?;
-    let tenant =
+    let claimed =
         TenantId::parse(tenant_id).map_err(|error| ContextError::BadRequest(error.to_string()))?;
-    let context = verified
-        .into_unbound_execution_context()
-        .map_err(|error| ContextError::Unauthorized(error.to_string()))?;
-    if context.tenant_id() != &tenant {
+    let context = state
+        .sessions
+        .resolve(authorization, Some(&claimed))
+        .await
+        .map_err(map_resolve_error)?;
+    if context.tenant_id() != &claimed {
         return Err(ContextError::Forbidden(
             "payload tenant does not match the trusted session".to_owned(),
         ));
     }
     Ok(context)
+}
+
+fn map_resolve_error(error: connectrpc::ConnectError) -> ContextError {
+    match error.code {
+        ErrorCode::Unauthenticated => ContextError::Unauthorized(error.to_string()),
+        ErrorCode::InvalidArgument => ContextError::BadRequest(error.to_string()),
+        ErrorCode::PermissionDenied => ContextError::Forbidden(error.to_string()),
+        _ => ContextError::Forbidden(error.to_string()),
+    }
 }
 
 fn context_error(error: ContextError) -> axum::response::Response {

@@ -15,8 +15,10 @@ import {
   stopServer,
   type ServerProcess,
 } from "./governed-action/support.js";
+import { seedBoundTenantMembership } from "./pack-bound-membership.js";
 import {
   applicationDatabaseUrl,
+  baseUrl,
   buildSamplePack,
   generatedDirectory,
   preparePolicyManifest,
@@ -101,6 +103,23 @@ async function main(): Promise<void> {
   let server: ServerProcess = await startServer(policyManifestPath);
 
   try {
+    await seedBoundTenantMembership({
+      actorId: "actor.admin.a",
+      baseUrl,
+      principalId: "principal.admin.a",
+      tenantId: tenantA,
+      token: adminToken,
+      workloadId: "workload.admin.a",
+    });
+    await seedBoundTenantMembership({
+      actorId: "actor.admin.b",
+      baseUrl,
+      principalId: "principal.admin.b",
+      tenantId: tenantB,
+      token: adminBToken,
+      workloadId: "workload.admin.b",
+    });
+
     const registered = await registryApi(
       "POST",
       "/pack/registry/keys",
