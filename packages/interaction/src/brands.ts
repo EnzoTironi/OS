@@ -40,7 +40,18 @@ export function interactionControlRef(value: string): InteractionControlRef {
   return brandString(value, "InteractionControlRef");
 }
 
+/** ChannelProvider.as_str() wire values. */
+const CHANNEL_PROVIDER_KEYS = new Set([
+  "web_oidc",
+  "whatsapp",
+  "telegram",
+  "linq",
+]);
+
 export function providerKey(value: string): ProviderKey {
+  if (!CHANNEL_PROVIDER_KEYS.has(value)) {
+    throw new Error(`unsupported ProviderKey: ${value}`);
+  }
   return brandString(value, "ProviderKey");
 }
 

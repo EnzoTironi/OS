@@ -21,19 +21,9 @@ export interface IdentityDirectory {
   }): Promise<ResolvedChannelIdentity>;
 }
 
-/** ProviderKey → ChannelProvider wire string. */
+/** ProviderKey is already a ChannelProvider.as_str() value. */
 export function toChannelProvider(provider: ProviderKey): string {
-  const key = String(provider);
-  if (key === "telegram") {
-    return "telegram";
-  }
-  if (key === "linq") {
-    return "linq";
-  }
-  if (key === "whatsapp_business" || key === "whatsapp_cloud_api") {
-    return "whatsapp";
-  }
-  throw new Error(`unsupported ProviderKey for identity: ${key}`);
+  return String(provider);
 }
 
 interface BindingJson {
