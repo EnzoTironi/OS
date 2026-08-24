@@ -130,13 +130,16 @@ function OnboardingPage() {
               Describe the outcome in your words. Zoen asks for only the next
               capability it needs.
             </p>
-            {entry.pack !== undefined || entry.referral !== undefined ? (
+            {entry.pack !== undefined ||
+            entry.referral !== undefined ||
+            entry.intent !== undefined ? (
               <p
                 data-onboarding-entry="preserved"
+                data-onboarding-intent={entry.intent ?? ""}
                 data-onboarding-pack={entry.pack ?? ""}
                 data-onboarding-referral={entry.referral ?? ""}
               >
-                Entry context preserved from the Pack directory
+                Entry context preserved into onboarding
                 {entry.pack !== undefined ? (
                   <>
                     {" "}
@@ -147,6 +150,12 @@ function OnboardingPage() {
                   <>
                     {" "}
                     · referral <code>{entry.referral}</code>
+                  </>
+                ) : null}
+                {entry.intent !== undefined ? (
+                  <>
+                    {" "}
+                    · intent <code>{entry.intent}</code>
                   </>
                 ) : null}
               </p>

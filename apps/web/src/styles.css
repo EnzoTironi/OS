@@ -513,6 +513,12 @@ thead th {
   text-decoration: none;
 }
 
+.public-home .packs-note {
+  margin: 0 0 2rem;
+  padding: 1rem 1.15rem;
+  border-left: 3px solid #8e4d17;
+}
+
 @media (max-width: 64rem) {
   .renderer-grid {
     grid-template-columns: 1fr;
