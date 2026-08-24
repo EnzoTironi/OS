@@ -7,7 +7,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     ActionId, ActorId, AudienceClass, DelegationChain, DelegationGrant, DelegationId,
-    IdentityError, IngressAllowance, McpServerAllowId, PrincipalId, ProjectedCapabilityKind,
+    IdentityError, IngressAllowance, PrincipalId, ProjectedCapabilityKind, ServerAllowId,
     RateBudgetPolicy, ResourceId, SourceClass, TenantId, TimestampMicros, TrustedExecutionContext,
     VerifiedWorkloadEvidence, WorkloadCredential, WorkloadCredentialId,
     WorkloadCredentialLookupKey, WorkloadCredentialStatus, WorkloadId, WorkloadRevocationReason,
@@ -524,7 +524,7 @@ impl From<&Vec<IngressAllowance>> for IngressWire {
                     IngressAllowance::ApiEvent { source_class } => IngressWireItem::ApiEvent {
                         source_class: source_class.as_str().to_owned(),
                     },
-                    IngressAllowance::McpOutbound { capability_kinds } => {
+                    IngressAllowance::OutboundProjected { capability_kinds } => {
                         IngressWireItem::McpOutbound {
                             capability_kinds: capability_kinds
                                 .iter()
@@ -532,7 +532,7 @@ impl From<&Vec<IngressAllowance>> for IngressWire {
                                 .collect(),
                         }
                     }
-                    IngressAllowance::McpInboundRead { server_allowlist } => {
+                    IngressAllowance::InboundServerAllow { server_allowlist } => {
                         IngressWireItem::McpInboundRead {
                             server_allowlist: server_allowlist
                                 .iter()
@@ -556,7 +556,7 @@ fn decode_ingress(value: serde_json::Value) -> Result<Vec<IngressAllowance>, Ide
                 source_class: SourceClass::parse(source_class)?,
             }),
             IngressWireItem::McpOutbound { capability_kinds } => {
-                Ok(IngressAllowance::McpOutbound {
+                Ok(IngressAllowance::OutboundProjected {
                     capability_kinds: capability_kinds
                         .into_iter()
                         .map(|kind| ProjectedCapabilityKind::parse(&kind))
@@ -564,10 +564,10 @@ fn decode_ingress(value: serde_json::Value) -> Result<Vec<IngressAllowance>, Ide
                 })
             }
             IngressWireItem::McpInboundRead { server_allowlist } => {
-                Ok(IngressAllowance::McpInboundRead {
+                Ok(IngressAllowance::InboundServerAllow {
                     server_allowlist: server_allowlist
                         .into_iter()
-                        .map(McpServerAllowId::parse)
+                        .map(ServerAllowId::parse)
                         .collect::<Result<Vec<_>, _>>()?,
                 })
             }

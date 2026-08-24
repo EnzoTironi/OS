@@ -493,11 +493,11 @@ pub enum IngressAllowance {
     ApiEvent {
         source_class: SourceClass,
     },
-    McpOutbound {
+    OutboundProjected {
         capability_kinds: Vec<ProjectedCapabilityKind>,
     },
-    McpInboundRead {
-        server_allowlist: Vec<McpServerAllowId>,
+    InboundServerAllow {
+        server_allowlist: Vec<ServerAllowId>,
     },
 }
 
@@ -578,14 +578,14 @@ impl SourceClass {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct McpServerAllowId(String);
+pub struct ServerAllowId(String);
 
-impl McpServerAllowId {
+impl ServerAllowId {
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.is_empty() || value.len() > 200 {
             return Err(IdentityError::Conflict(
-                "invalid mcp server allow id".to_owned(),
+                "invalid server allow id".to_owned(),
             ));
         }
         Ok(Self(value))
