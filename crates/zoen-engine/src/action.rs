@@ -835,20 +835,7 @@ pub fn state_basis_digest_matches(
     dependencies: &[StateDependency],
     expected: &StateBasisDigest,
 ) -> Result<bool, ActionError> {
-    if calculate_state_basis_digest(dependencies)? == *expected {
-        return Ok(true);
-    }
-    let mut hasher = Sha256::new();
-    for dependency in dependencies {
-        hash_field(&mut hasher, dependency.claim_id.as_str());
-        hash_field(&mut hasher, &dependency.commit_sequence.get().to_string());
-        hash_field(&mut hasher, dependency.entity_id.as_str());
-        hash_field(&mut hasher, dependency.relation_id.as_str());
-        hash_field(&mut hasher, dependency.source_digest.as_str());
-    }
-    let legacy = StateBasisDigest::parse(hex_digest(hasher.finalize()))
-        .map_err(|error| ActionError::Evaluation(error.to_string()))?;
-    Ok(legacy == *expected)
+    Ok(calculate_state_basis_digest(dependencies)? == *expected)
 }
 
 fn intent_digest(
@@ -994,7 +981,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn v1_state_basis_digest_remains_valid() {
+    fn legacy_state_basis_digest_is_rejected_after_rehash() {
         let dependency = StateDependency {
             claim_id: ClaimId::parse("claim.available.legacy").expect("claim"),
             commit_sequence: CommitSequence::new(7).expect("commit sequence"),
@@ -1009,15 +996,20 @@ mod tests {
             "8ebb0d95ed2d1236760a0d9b59ef6557dda60807aa7b155771b241ed0b5b9b85",
         )
         .expect("legacy digest");
+        let current = StateBasisDigest::parse(
+            "a9648fdbe91735d691111f00502696633bbc1f13dc4853d6c605c0bde49feac8",
+        )
+        .expect("current digest");
 
+        assert_eq!(
+            calculate_state_basis_digest(&[dependency.clone()]).expect("current digest"),
+            current
+        );
         assert!(
-            state_basis_digest_matches(&[dependency.clone()], &legacy)
-                .expect("digest verification")
+            !state_basis_digest_matches(&[dependency.clone()], &legacy)
+                .expect("legacy must not verify")
         );
-        assert_ne!(
-            calculate_state_basis_digest(&[dependency]).expect("current digest"),
-            legacy
-        );
+        assert!(state_basis_digest_matches(&[dependency], &current).expect("current must verify"));
     }
 
     #[test]
