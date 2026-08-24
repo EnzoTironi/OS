@@ -32,7 +32,7 @@
       "issue": 325,
       "pr": null,
       "title": "definition-publication and semantic-query on OIDC",
-      "note": "Unblocked. #321 is on main. Drop ZOEN_SESSION_TOKENS on those two suites."
+      "note": "Landing. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted in the same PR."
     },
     {
       "order": 2,
@@ -143,13 +143,13 @@
     },
     {
       "id": "identity-legacy-sessions",
-      "status": "dont-have",
+      "status": "have",
       "plane": "identity",
       "name": "OIDC on definition-publication and semantic-query",
       "onMain": true,
-      "product": false,
+      "product": true,
       "path": "e2e/definition-publication, e2e/semantic-query",
-      "proof": "Those suites still boot with ZOEN_SESSION_TOKENS. After #321 they need ZOEN_ALLOW_LEGACY_SESSIONS=1. They are not an OIDC proof.",
+      "proof": "just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted.",
       "issue": 325,
       "backup": []
     },
@@ -386,7 +386,7 @@
       "onMain": true,
       "product": true,
       "path": "apps/zoend/src/config.rs",
-      "proof": "On main via #321. ProcessAuth is Oidc or LegacySessions. Legacy only with ZOEN_ALLOW_LEGACY_SESSIONS=1. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.",
+      "proof": "On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.",
       "issue": 317,
       "pr": [
         321

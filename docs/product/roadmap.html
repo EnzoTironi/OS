@@ -113,11 +113,11 @@
   </header>
   <div class="stats">
 <button class="stat" data-filter="have" type="button">
-  <span class="stat-count">23</span>
+  <span class="stat-count">24</span>
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
-  <span class="stat-count">5</span>
+  <span class="stat-count">4</span>
   <span class="stat-label">DON'T HAVE</span>
 </button>
 <button class="stat" data-filter="stub-on-main" type="button">
@@ -147,7 +147,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/325">#325</a>
     
     <strong>definition-publication and semantic-query on OIDC</strong>
-    <p>Unblocked. #321 is on main. Drop ZOEN_SESSION_TOKENS on those two suites.</p>
+    <p>Landing. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted in the same PR.</p>
   </div>
 </li>
 <li>
@@ -305,6 +305,17 @@
   <td>—</td>
 </tr>
 <tr data-status="have">
+  <td><code>identity-legacy-sessions</code></td>
+  <td>identity</td>
+  <td>
+    <div class="name">OIDC on definition-publication and semantic-query</div>
+    <div class="path">e2e/definition-publication, e2e/semantic-query</div>
+    
+  </td>
+  <td>just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/325">#325</a></td>
+</tr>
+<tr data-status="have">
   <td><code>web-tanstack</code></td>
   <td>experience</td>
   <td>
@@ -455,7 +466,7 @@
     <div class="path">apps/zoend/src/config.rs</div>
     
   </td>
-  <td>On main via #321. ProcessAuth is Oidc or LegacySessions. Legacy only with ZOEN_ALLOW_LEGACY_SESSIONS=1. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.</td>
+  <td>On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/317">#317</a></td>
 </tr>
 <tr data-status="have">
@@ -497,17 +508,6 @@
       </tr>
     </thead>
     <tbody>
-<tr data-status="dont-have">
-  <td><code>identity-legacy-sessions</code></td>
-  <td>identity</td>
-  <td>
-    <div class="name">OIDC on definition-publication and semantic-query</div>
-    <div class="path">e2e/definition-publication, e2e/semantic-query</div>
-    
-  </td>
-  <td>Those suites still boot with ZOEN_SESSION_TOKENS. After #321 they need ZOEN_ALLOW_LEGACY_SESSIONS=1. They are not an OIDC proof.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/325">#325</a></td>
-</tr>
 <tr data-status="dont-have">
   <td><code>telegram-live</code></td>
   <td>channels</td>

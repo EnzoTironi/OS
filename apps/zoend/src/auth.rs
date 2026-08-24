@@ -18,26 +18,15 @@ use zoen_core::{
 #[derive(Debug)]
 pub enum SessionConfigError {
     Http(reqwest::Error),
-    InvalidClaim(String),
-    InvalidJson(serde_json::Error),
     InvalidOidc(String),
-    InvalidTenant(String),
 }
 
 impl Display for SessionConfigError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Http(error) => write!(formatter, "failed to load OIDC configuration: {error}"),
-            Self::InvalidClaim(message) => write!(formatter, "invalid trusted claim: {message}"),
-            Self::InvalidJson(error) => write!(formatter, "invalid session configuration: {error}"),
             Self::InvalidOidc(message) => {
                 write!(formatter, "invalid OIDC configuration: {message}")
-            }
-            Self::InvalidTenant(tenant) => {
-                write!(
-                    formatter,
-                    "session configuration has invalid tenant: {tenant}"
-                )
             }
         }
     }
@@ -47,8 +36,7 @@ impl Error for SessionConfigError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Http(error) => Some(error),
-            Self::InvalidJson(error) => Some(error),
-            Self::InvalidClaim(_) | Self::InvalidOidc(_) | Self::InvalidTenant(_) => None,
+            Self::InvalidOidc(_) => None,
         }
     }
 }
@@ -62,14 +50,8 @@ struct WorkloadExchangeBinding {
 #[derive(Clone)]
 pub struct SessionRegistry {
     identity: Option<PostgresIdentityStore>,
-    provider: AuthProvider,
+    verifier: Arc<OidcVerifier>,
     workload_exchanges: Arc<Mutex<HashMap<String, WorkloadExchangeBinding>>>,
-}
-
-#[derive(Clone)]
-enum AuthProvider {
-    Legacy(Arc<HashMap<String, ExecutionContext>>),
-    Oidc(Arc<OidcVerifier>),
 }
 
 struct OidcVerifier {
@@ -84,20 +66,6 @@ enum AuthenticationError {
 }
 
 impl SessionRegistry {
-    pub fn from_json(value: &str) -> Result<Self, SessionConfigError> {
-        let raw = serde_json::from_str::<HashMap<String, SessionTokenBinding>>(value)
-            .map_err(SessionConfigError::InvalidJson)?;
-        let mut contexts_by_token = HashMap::with_capacity(raw.len());
-        for (token, binding) in raw {
-            contexts_by_token.insert(token, session_context(binding)?);
-        }
-        Ok(Self {
-            identity: None,
-            provider: AuthProvider::Legacy(Arc::new(contexts_by_token)),
-            workload_exchanges: Arc::new(Mutex::new(HashMap::new())),
-        })
-    }
-
     pub fn with_identity(mut self, identity: PostgresIdentityStore) -> Self {
         self.identity = Some(identity);
         self
@@ -209,11 +177,11 @@ impl SessionRegistry {
         }
         Ok(Self {
             identity: None,
-            provider: AuthProvider::Oidc(Arc::new(OidcVerifier {
+            verifier: Arc::new(OidcVerifier {
                 audience,
                 issuer,
                 keys,
-            })),
+            }),
             workload_exchanges: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -234,15 +202,9 @@ impl SessionRegistry {
         let token = self.bearer_token(authorization).map_err(|_| {
             ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
         })?;
-        match &self.provider {
-            AuthProvider::Legacy(_) => Err(ConnectError::new(
-                ErrorCode::FailedPrecondition,
-                "verify_bearer requires OIDC sessions",
-            )),
-            AuthProvider::Oidc(verifier) => {
-                verifier.verify(token).map_err(map_authentication_error)
-            }
-        }
+        self.verifier
+            .verify(token)
+            .map_err(map_authentication_error)
     }
 
     pub async fn trusted_context(
@@ -255,36 +217,25 @@ impl SessionRegistry {
         if let Ok((_, context)) = self.resolve_workload_exchange(authorization) {
             return Ok(context);
         }
-        match &self.provider {
-            AuthProvider::Legacy(contexts) => {
-                let token = self.bearer_token(authorization).map_err(|_| {
-                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                })?;
-                contexts.get(token).cloned().ok_or_else(|| {
-                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                })
-            }
-            AuthProvider::Oidc(verifier) => {
-                let verified = verifier
-                    .verify(self.bearer_token(authorization).map_err(|_| {
-                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                    })?)
-                    .map_err(map_authentication_error)?;
-                // Request tenant wins over JWT tenant_id claim. Bound Personal
-                // tenants are minted at bootstrap and cannot live in IdP claims.
-                let requested_tenant = match request_context
-                    .header("x-zoen-tenant")
-                    .and_then(|value| value.to_str().ok())
-                {
-                    Some(raw) => Some(TenantId::parse(raw).map_err(|error| {
-                        ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
-                    })?),
-                    None => None,
-                };
-                self.resolve_verified(verified, requested_tenant.as_ref())
-                    .await
-            }
-        }
+        let verified = self
+            .verifier
+            .verify(self.bearer_token(authorization).map_err(|_| {
+                ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+            })?)
+            .map_err(map_authentication_error)?;
+        // Request tenant wins over JWT tenant_id claim. Bound Personal
+        // tenants are minted at bootstrap and cannot live in IdP claims.
+        let requested_tenant = match request_context
+            .header("x-zoen-tenant")
+            .and_then(|value| value.to_str().ok())
+        {
+            Some(raw) => Some(TenantId::parse(raw).map_err(|error| {
+                ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
+            })?),
+            None => None,
+        };
+        self.resolve_verified(verified, requested_tenant.as_ref())
+            .await
     }
 
     pub async fn execution_context(
@@ -300,28 +251,14 @@ impl SessionRegistry {
         let context = if let Ok((_, context)) = self.resolve_workload_exchange(authorization) {
             context
         } else {
-            match &self.provider {
-                AuthProvider::Legacy(contexts) => {
-                    let token = self.bearer_token(authorization).map_err(|_| {
-                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                    })?;
-                    contexts.get(token).cloned().ok_or_else(|| {
-                        ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                    })?
-                }
-                AuthProvider::Oidc(verifier) => {
-                    let verified = verifier
-                        .verify(self.bearer_token(authorization).map_err(|_| {
-                            ConnectError::new(
-                                ErrorCode::Unauthenticated,
-                                "invalid OIDC bearer token",
-                            )
-                        })?)
-                        .map_err(map_authentication_error)?;
-                    self.resolve_verified(verified, Some(&claimed_tenant))
-                        .await?
-                }
-            }
+            let verified = self
+                .verifier
+                .verify(self.bearer_token(authorization).map_err(|_| {
+                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
+                })?)
+                .map_err(map_authentication_error)?;
+            self.resolve_verified(verified, Some(&claimed_tenant))
+                .await?
         };
         if context.tenant_id() != &claimed_tenant {
             return Err(ConnectError::new(
@@ -481,67 +418,6 @@ fn seconds_to_micros(value: i64) -> Result<TimestampMicros, AuthenticationError>
         .ok_or(AuthenticationError::InvalidClaim)
 }
 
-fn session_context(binding: SessionTokenBinding) -> Result<ExecutionContext, SessionConfigError> {
-    match binding {
-        SessionTokenBinding::Tenant(tenant) => execution_context(
-            parse_tenant(&tenant)?,
-            parse_session_ids(vec!["action.legacy".to_owned()], ActionId::parse)?,
-            parse_session_ids(vec!["resource.legacy".to_owned()], ResourceId::parse)?,
-        ),
-        SessionTokenBinding::Delegated(binding) => execution_context(
-            parse_tenant(&binding.tenant_id)?,
-            parse_session_ids(binding.action_ids, ActionId::parse)?,
-            parse_session_ids(binding.resource_ids, ResourceId::parse)?,
-        ),
-    }
-}
-
-fn execution_context(
-    tenant_id: TenantId,
-    actions: BTreeSet<ActionId>,
-    resources: BTreeSet<ResourceId>,
-) -> Result<ExecutionContext, SessionConfigError> {
-    let workload_id = WorkloadId::parse("workload.legacy").map_err(invalid_claim)?;
-    let grant = DelegationGrant::new(
-        DelegationId::parse("delegation.legacy").map_err(invalid_claim)?,
-        actions,
-        resources,
-        BTreeSet::from([workload_id.clone()]),
-        TimestampMicros::new(i64::MIN),
-        TimestampMicros::new(i64::MAX),
-    )
-    .map_err(invalid_claim)?;
-    Ok(ExecutionContext::new(
-        tenant_id,
-        ActorId::parse("actor.legacy").map_err(invalid_claim)?,
-        PrincipalId::parse("principal.legacy").map_err(invalid_claim)?,
-        workload_id,
-        DelegationChain::new(vec![grant]).map_err(invalid_claim)?,
-    ))
-}
-
-fn parse_tenant(tenant: &str) -> Result<TenantId, SessionConfigError> {
-    TenantId::parse(tenant).map_err(|_| SessionConfigError::InvalidTenant(tenant.to_owned()))
-}
-
-fn parse_session_ids<T, E>(
-    values: Vec<String>,
-    parse: impl Fn(String) -> Result<T, E>,
-) -> Result<BTreeSet<T>, SessionConfigError>
-where
-    T: Ord,
-    E: Display,
-{
-    values
-        .into_iter()
-        .map(|value| parse(value).map_err(invalid_claim))
-        .collect()
-}
-
-fn invalid_claim(error: impl Display) -> SessionConfigError {
-    SessionConfigError::InvalidClaim(error.to_string())
-}
-
 #[derive(Deserialize)]
 struct OidcDiscovery {
     issuer: String,
@@ -569,59 +445,4 @@ struct DelegationClaim {
     not_before: i64,
     resource_ids: Vec<String>,
     workload_ids: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum SessionTokenBinding {
-    Tenant(String),
-    Delegated(DelegatedSessionBinding),
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct DelegatedSessionBinding {
-    action_ids: Vec<String>,
-    resource_ids: Vec<String>,
-    tenant_id: String,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::SessionRegistry;
-
-    #[test]
-    fn session_json_accepts_a_tenant_string() {
-        SessionRegistry::from_json(r#"{"tok":"tenant.a"}"#).expect("legacy session");
-    }
-
-    #[test]
-    fn session_json_accepts_an_explicit_delegation() {
-        SessionRegistry::from_json(
-            r#"{
-              "tok": {
-                "actionIds": ["action.legacy", "zoen.definition.activate"],
-                "resourceIds": ["resource.legacy", "world.definition"],
-                "tenantId": "tenant.a"
-              }
-            }"#,
-        )
-        .expect("delegated session");
-    }
-
-    #[test]
-    fn session_json_rejects_an_empty_delegation_scope() {
-        assert!(
-            SessionRegistry::from_json(
-                r#"{
-                  "tok": {
-                    "actionIds": [],
-                    "resourceIds": ["resource.legacy"],
-                    "tenantId": "tenant.a"
-                  }
-                }"#,
-            )
-            .is_err()
-        );
-    }
 }
