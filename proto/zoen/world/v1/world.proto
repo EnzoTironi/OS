@@ -100,6 +100,11 @@ message QuerySelection {
   }
 }
 
+message TypeQuery {
+  string type_id = 1;
+  uint32 limit = 2;
+}
+
 message SemanticQueryRequest {
   string tenant_id = 1;
   DefinitionReference definition = 2;
@@ -107,6 +112,9 @@ message SemanticQueryRequest {
   google.protobuf.Timestamp valid_at = 4;
   QueryConsistency consistency = 5;
   string entity_id = 6;
+  oneof query {
+    TypeQuery by_type = 7;
+  }
 }
 
 enum LineageRole {
