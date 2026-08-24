@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import {
@@ -8,6 +8,10 @@ import {
   stopServer,
   type ServerProcess,
 } from "./governed-action/support.js";
+import {
+  allQuestionsAnswered,
+  runComprehensionProtocol,
+} from "./public-surface-web/comprehension.js";
 import {
   buildSamplePack,
   ensureGeneratedDirectory,
@@ -123,6 +127,48 @@ async function main(): Promise<void> {
 
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
+
+    await page.goto(`${webOrigin}/`, { waitUntil: "networkidle" });
+    await page.waitForSelector('[data-public-home="signed-out"]');
+    const homeHtml = await page.content();
+    record(
+      "home_signed_out_has_packs_link",
+      (await page.locator('[data-public-nav="packs"]').count()) === 1,
+    );
+    record(
+      "home_signed_out_has_conversation_entry",
+      (await page.locator('[data-conversation-entry="home-landing"]').count()) ===
+        1,
+    );
+    record(
+      "home_leads_with_try_now_not_architecture",
+      architectureAfterTryNow(homeHtml),
+    );
+    killMutant("architecture wall before try-now");
+    record(
+      "home_rejects_fake_chat_copy",
+      /no fake chat/i.test(homeHtml),
+    );
+
+    await page.locator('[data-conversation-field="intent"]').fill(outcomeLabel);
+    await page.locator('[data-conversation-action="start"]').click();
+    await page.waitForURL(/\/onboarding\/?(\?|$)/);
+    await page.waitForSelector('[data-onboarding-entry="preserved"]');
+    const onboardingUrl = page.url();
+    record(
+      "home_conversation_preserves_referral",
+      (await page
+        .locator('[data-onboarding-entry="preserved"]')
+        .getAttribute("data-onboarding-referral")) === "ref.web.home" &&
+        onboardingUrl.includes("referral=ref.web.home"),
+    );
+    record(
+      "home_conversation_preserves_intent",
+      (await page
+        .locator('[data-onboarding-entry="preserved"]')
+        .getAttribute("data-onboarding-intent")) === outcomeLabel &&
+        onboardingUrl.includes("intent="),
+    );
 
     await page.goto(`${webOrigin}/packs/`, { waitUntil: "networkidle" });
     const directoryHtml = await page.content();
@@ -242,7 +288,6 @@ async function main(): Promise<void> {
         captureBody.intent.length > 0,
     );
     killMutant("pack link drops referral/intent");
-
     const captureResponse = await captured.response();
     assert.ok(captureResponse);
     const captureJson = (await captureResponse.json()) as {
@@ -270,6 +315,34 @@ async function main(): Promise<void> {
     killMutant("advertised pack missing from registry");
 
     await assertNoFakeChatBackend(page);
+
+    const readme = await readFile(
+      path.join(repositoryRoot, "README.md"),
+      "utf8",
+    );
+    const protocol = runComprehensionProtocol({
+      homeHtml,
+      packsHtml: directoryHtml,
+      readme,
+    });
+    record("comprehension_all_four_questions", allQuestionsAnswered(protocol));
+    const protocolDir = path.join(
+      repositoryRoot,
+      "e2e",
+      "public-surface-web",
+    );
+    await mkdir(protocolDir, { recursive: true });
+    const protocolPath = path.join(
+      protocolDir,
+      "comprehension-protocol.json",
+    );
+    await writeFile(protocolPath, `${JSON.stringify(protocol, null, 2)}\n`);
+    record(
+      "comprehension_protocol_artifact_written",
+      (await readFile(protocolPath, "utf8")).includes(
+        "cold-start-comprehension",
+      ),
+    );
   } finally {
     await browser?.close();
     if (web !== undefined) {
@@ -300,6 +373,15 @@ async function assertNoFakeChatBackend(page: Page): Promise<void> {
       !html.includes("data-fake-chat") &&
       !html.includes("fake-transcript"),
   );
+}
+
+function architectureAfterTryNow(homeHtml: string): boolean {
+  const tryNowAt = homeHtml.search(/data-try-now=["']home["']/i);
+  if (tryNowAt < 0) {
+    return false;
+  }
+  const before = homeHtml.slice(0, tryNowAt);
+  return !/Type\s*\+\s*Relation\s*\+\s*Computation\s*\+\s*Action/i.test(before);
 }
 
 main().catch((error: unknown) => {
