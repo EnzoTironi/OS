@@ -122,7 +122,6 @@ export async function completeAuthenticatedStepUp(input: {
   const controls = await stepUpControls();
   const stepUps = await stepUpRegistry();
   const session = await stepUps.get(asSessionId(input.sessionId));
-  // Re-check bearer still maps to the authenticated principal.
   const verified = verifiedMembershipFromAccessToken(input.accessToken);
   if (
     session.status !== "authenticated" ||
