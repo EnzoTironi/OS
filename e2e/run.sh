@@ -17,6 +17,7 @@ scenario_table=(
   "messaging-boundary:messaging-boundary:"
   "messaging-conformance:messaging-conformance:"
   "channel-provider-substitution:channel-provider-substitution:"
+  "channel-linq-live:channel-linq-live:"
   "company-bootstrap-shadow:company-bootstrap-shadow:"
   "conversational-approval:conversational-approval:"
   "conversational-turn:conversational-turn:"
@@ -217,8 +218,17 @@ require_built() {
 }
 
 require_fiscal_live_environment() {
+  if [[ "$scenario" == "channel-linq-live" && -f "${HOME}/.config/zoen/linq-sandbox.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${HOME}/.config/zoen/linq-sandbox.env"
+    set +a
+  fi
   local required=()
   case "$scenario" in
+    channel-linq-live)
+      required=(LINQ_API_KEY)
+      ;;
     fiscal-systax-live)
       required=(
         ZOEN_FISCAL_LIVE_CONTEXT_PATH
@@ -318,7 +328,7 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
       continue
     fi
     resolve_scenario "$name"
