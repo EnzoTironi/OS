@@ -105,6 +105,7 @@
     <p class="law">If a capability exists on main only as a stub or fake path, it does not exist as product. Remove it from main. Keep the code on backup/stubs-channels. Open a restore issue. That issue is the roadmap row.</p>
     <p class="meta">
       Parent <a href="https://github.com/EnzoTironi/OS/issues/324">#324</a>.
+      Work board <a href="https://github.com/users/EnzoTironi/projects/1">Zoen</a>.
       Backup <a href="https://github.com/EnzoTironi/OS/tree/backup/stubs-channels"><code>backup/stubs-channels</code></a>
       at <code>f68615db48c1f4902e659173f028bd9fb3782b9f</code>.
       Source <code>docs/product/roadmap.json</code>.
@@ -112,11 +113,11 @@
   </header>
   <div class="stats">
 <button class="stat" data-filter="have" type="button">
-  <span class="stat-count">20</span>
+  <span class="stat-count">23</span>
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
-  <span class="stat-count">7</span>
+  <span class="stat-count">5</span>
   <span class="stat-label">DON'T HAVE</span>
 </button>
 <button class="stat" data-filter="stub-on-main" type="button">
@@ -124,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">3</span>
+  <span class="stat-count">0</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -143,77 +144,32 @@
 <li>
   <span class="order">1</span>
   <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/319">#319</a>
-    <a href="https://github.com/EnzoTironi/OS/pull/320">PR #320</a>
-    <strong>Land fixture-as-production reject</strong>
-    <p>Independent of the Cedar stack. Can merge first.</p>
+    <a href="https://github.com/EnzoTironi/OS/issues/325">#325</a>
+    
+    <strong>definition-publication and semantic-query on OIDC</strong>
+    <p>Unblocked. #321 is on main. Drop ZOEN_SESSION_TOKENS on those two suites.</p>
   </div>
 </li>
 <li>
   <span class="order">2</span>
   <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/317">#317</a>
-    <a href="https://github.com/EnzoTironi/OS/pull/321">PR #321</a>
-    <strong>Land fail-closed zoend boot</strong>
-    <p>Cedar manifest required. Explicit ZOEN_ALLOW_LEGACY_SESSIONS. Durable stores required.</p>
+    <a href="https://github.com/EnzoTironi/OS/issues/326">#326</a>
+    
+    <strong>Unofficial WhatsApp via whatsmeow sidecar</strong>
+    <p>Waiting on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive. Do not restore the Cloud API fake.</p>
   </div>
 </li>
 <li>
   <span class="order">3</span>
   <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/319">#319</a>
-    <a href="https://github.com/EnzoTironi/OS/pull/322">PR #322</a>
-    <strong>Land legacy-sessions authMode stamp</strong>
-    <p>Stacked on #321.</p>
+    <a href="https://github.com/EnzoTironi/OS/issues/329">#329</a>
+    
+    <strong>Live Telegram adapter</strong>
+    <p>Waiting on a bot token. Do not restore the fake.</p>
   </div>
 </li>
 <li>
   <span class="order">4</span>
-  <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/318">#318</a>
-    <a href="https://github.com/EnzoTironi/OS/pull/323">PR #323</a>
-    <strong>Land distinct Linq ChannelProvider</strong>
-    <p>Stacked on #321. toChannelProvider(&quot;linq&quot;) must be linq, not whatsapp.</p>
-  </div>
-</li>
-<li>
-  <span class="order">5</span>
-  <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/324">#324</a>
-    
-    <strong>Remove stub-only channel adapters from main</strong>
-    <p>Landed on this PR. Backup already pinned. Restore issues already open.</p>
-  </div>
-</li>
-<li>
-  <span class="order">6</span>
-  <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/325">#325</a>
-    
-    <strong>definition-publication and semantic-query on OIDC</strong>
-    <p>After #321. Drop ZOEN_SESSION_TOKENS.</p>
-  </div>
-</li>
-<li>
-  <span class="order">7</span>
-  <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/329">#329</a>
-    
-    <strong>Live Telegram adapter</strong>
-    <p>Needs a bot token. Do not restore the fake.</p>
-  </div>
-</li>
-<li>
-  <span class="order">8</span>
-  <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/326">#326</a>
-    
-    <strong>Unofficial WhatsApp via whatsmeow sidecar</strong>
-    <p>Blocked on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive.</p>
-  </div>
-</li>
-<li>
-  <span class="order">9</span>
   <div>
     <a href="https://github.com/EnzoTironi/OS/issues/327">#327</a>
     
@@ -222,30 +178,12 @@
   </div>
 </li>
 <li>
-  <span class="order">10</span>
+  <span class="order">5</span>
   <div>
     <a href="https://github.com/EnzoTironi/OS/issues/328">#328</a>
     
     <strong>Surface IR and Attention on live channels</strong>
-    <p>packages/surface and packages/attention stay. The fake-delivery e2e does not.</p>
-  </div>
-</li>
-<li>
-  <span class="order">11</span>
-  <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/214">#214</a>
-    
-    <strong>Live Brazil fiscal homologation</strong>
-    <p>Parked. Systax, PlugNotas, Protheus. Do not advertise.</p>
-  </div>
-</li>
-<li>
-  <span class="order">12</span>
-  <div>
-    <a href="https://github.com/EnzoTironi/OS/issues/267">#267</a>
-    
-    <strong>Human comprehension of the public surface</strong>
-    <p>Stays OPEN. Live conversation study. Not closable by e2e.</p>
+    <p>packages/surface and packages/attention stay. Fake-delivery e2e does not return.</p>
   </div>
 </li>
       </ol>
@@ -264,6 +202,7 @@
       <ul class="forbidden">
 <li>Treat a fake adapter as a live channel.</li>
 <li>Use official Meta Cloud API as the Brazil WhatsApp path.</li>
+<li>Restore a deleted fake adapter onto main.</li>
 <li>Restore createFake* exports on package indexes.</li>
 <li>Import vercel/chat npm as the messaging product.</li>
 <li>Use Baileys or Evolution as a JSON shell.</li>
@@ -508,6 +447,39 @@
   <td>npx tsx e2e/public-surface.ts. Live conversation study is #267.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/267">#267</a></td>
 </tr>
+<tr data-status="have">
+  <td><code>fail-closed-boot</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">Fail-closed zoend boot</div>
+    <div class="path">apps/zoend/src/config.rs</div>
+    
+  </td>
+  <td>On main via #321. ProcessAuth is Oidc or LegacySessions. Legacy only with ZOEN_ALLOW_LEGACY_SESSIONS=1. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/317">#317</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>channel-provider-linq</code></td>
+  <td>identity</td>
+  <td>
+    <div class="name">Distinct Linq ChannelProvider</div>
+    <div class="path">packages/interaction/src/identity-directory.ts</div>
+    
+  </td>
+  <td>On main via #331. ChannelProvider::Linq. toChannelProvider(&quot;linq&quot;) === &quot;linq&quot;.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/318">#318</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>fixture-as-production</code></td>
+  <td>gate</td>
+  <td>
+    <div class="name">Production verify-v1 rejects fixtureContract</div>
+    <div class="path">e2e/verify-v1.ts</div>
+    
+  </td>
+  <td>On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/319">#319</a></td>
+</tr>
     </tbody>
   </table>
 </section>
@@ -544,7 +516,7 @@
     <div class="path">packages/messaging/src/adapters/telegram-fake.ts</div>
     <div class="blocker">Blocked on Telegram bot token</div>
   </td>
-  <td>Removed from main. Fake lived only as an in-process stub. Code on backup/stubs-channels. Restore as live Bot API on #329.</td>
+  <td>Not on main. Fake was removed. Code on backup/stubs-channels. Restore as live Bot API on #329.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/329">#329</a></td>
 </tr>
 <tr data-status="dont-have">
@@ -555,107 +527,36 @@
     <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
     <div class="blocker">Blocked on Dedicated Zoen WhatsApp number</div>
   </td>
-  <td>Never shipped live. The Cloud API envelope fake was removed from main with the stub sweep. That fake is not this path.</td>
+  <td>Never shipped live. Cloud API fake was removed and is not this path. Waiting on the dedicated Zoen number. #326.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
 </tr>
 <tr data-status="dont-have">
-  <td><code>whatsapp-cloud-api-fake</code></td>
+  <td><code>messaging-conformance-live</code></td>
   <td>channels</td>
   <td>
-    <div class="name">WhatsApp Cloud API fake</div>
-    <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
-    
-  </td>
-  <td>Removed from main. Never product. Code on backup/stubs-channels. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts. Restore issue #326.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
-</tr>
-<tr data-status="dont-have">
-  <td><code>linq-fake</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Linq fake adapter</div>
-    <div class="path">packages/messaging/src/adapters/linq-fake.ts</div>
-    
-  </td>
-  <td>Removed from main. Live Linq stays. Fake no longer exports from the package index. Code on backup/stubs-channels. Restore issue #327.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
-</tr>
-<tr data-status="dont-have">
-  <td><code>messaging-conformance-fake</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Messaging conformance e2e (fakes)</div>
+    <div class="name">Messaging conformance against live adapters</div>
     <div class="path">e2e/messaging-conformance.ts<br>e2e/channel-provider-substitution.ts</div>
     
   </td>
-  <td>Removed from main. Fake-backed just verify path is gone. Code on backup/stubs-channels. Live rewrite is #327.</td>
+  <td>Not on main. Fake-backed e2e was removed. Live rewrite is #327.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
 </tr>
 <tr data-status="dont-have">
-  <td><code>surface-ir-e2e-fake</code></td>
+  <td><code>surface-ir-e2e-live</code></td>
   <td>channels</td>
   <td>
-    <div class="name">Surface IR and Attention e2e through fakes</div>
+    <div class="name">Surface IR and Attention e2e on live channels</div>
     <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
     
   </td>
-  <td>Removed from main. packages/surface and packages/attention stay. Fake-delivery e2e is gone. Code on backup/stubs-channels. Restore on live is #328.</td>
+  <td>Packages stay on main. Fake-delivery e2e was removed. Restore on live is #328.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
     </tbody>
   </table>
 </section>
 
-<section class="group" data-group="in-flight">
-  <h2>IN FLIGHT</h2>
-  <p class="blurb">Fail-closed work in an open PR. Do not duplicate.</p>
-  <table>
-    <thead>
-      <tr>
-        <th>id</th>
-        <th>plane</th>
-        <th>capability</th>
-        <th>proof</th>
-        <th>issue</th>
-      </tr>
-    </thead>
-    <tbody>
-<tr data-status="in-flight">
-  <td><code>fail-closed-boot</code></td>
-  <td>authority</td>
-  <td>
-    <div class="name">Fail-closed zoend boot</div>
-    <div class="path">apps/zoend/src/config.rs</div>
-    
-  </td>
-  <td>PR #321. Cedar required. Explicit legacy sessions. Required stores.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/317">#317</a></td>
-</tr>
-<tr data-status="in-flight">
-  <td><code>channel-provider-linq</code></td>
-  <td>identity</td>
-  <td>
-    <div class="name">Distinct Linq ChannelProvider</div>
-    <div class="path">packages/interaction/src/identity-directory.ts</div>
-    
-  </td>
-  <td>PR #323 stacked on #321. toChannelProvider(&quot;linq&quot;) === &quot;linq&quot;.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/318">#318</a></td>
-</tr>
-<tr data-status="in-flight">
-  <td><code>fixture-as-production</code></td>
-  <td>gate</td>
-  <td>
-    <div class="name">Production verify-v1 rejects fixtureContract</div>
-    <div class="path">e2e/verify-v1.ts</div>
-    
-  </td>
-  <td>PR #320. Stamp on publication/query is PR #322 stacked on #321.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/319">#319</a></td>
-</tr>
-    </tbody>
-  </table>
-</section>
+
 <section class="group" data-group="parked">
   <h2>PARKED</h2>
   <p class="blurb">Intent exists. Blocked on a vendor, a credential, or a named issue. Do not advertise.</p>

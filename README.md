@@ -6,7 +6,9 @@ Humans, agents, and software operate the same organization through the same gove
 
 ## What exists
 
-The ownership map is [`docs/product/roadmap.md`](docs/product/roadmap.md). Open [`docs/product/roadmap.html`](docs/product/roadmap.html) for the board. Parent issue [#324](https://github.com/EnzoTironi/OS/issues/324).
+The ownership map is [`docs/product/roadmap.md`](docs/product/roadmap.md). Open [`docs/product/roadmap.html`](docs/product/roadmap.html) for the HAVE table.
+
+The work board is [github.com/users/EnzoTironi/projects/1](https://github.com/users/EnzoTironi/projects/1). Parent issue [#324](https://github.com/EnzoTironi/OS/issues/324).
 
 If a capability is only a stub, it is not product. Stubs leave `main` for [`backup/stubs-channels`](https://github.com/EnzoTironi/OS/tree/backup/stubs-channels). Each restore issue is a roadmap row.
 
