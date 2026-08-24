@@ -36,39 +36,49 @@ const Correction = defineType({
   id: "commercial.Correction",
 });
 
+const Party = defineType({
+  attributes: [{ id: "partyId", valueType: { kind: "text" } }],
+  id: "party.Party",
+});
+
+const Product = defineType({
+  attributes: [{ id: "productId", valueType: { kind: "text" } }],
+  id: "product.Product",
+});
+
 const requestReference = defineRelation({
   cardinality: "one",
   id: "commercial.requestReference",
   sourceType: "commercial.OrderLine",
-  target: { kind: "value", valueType: { kind: "text" } },
+  target: { kind: "type", typeId: "commercial.Request" },
 });
 
 const quoteReference = defineRelation({
   cardinality: "one",
   id: "commercial.quoteReference",
   sourceType: "commercial.OrderLine",
-  target: { kind: "value", valueType: { kind: "text" } },
+  target: { kind: "type", typeId: "commercial.Quote" },
 });
 
 const commitmentReference = defineRelation({
   cardinality: "many",
   id: "commercial.commitmentReference",
   sourceType: "commercial.OrderLine",
-  target: { kind: "value", valueType: { kind: "text" } },
+  target: { kind: "type", typeId: "commercial.Commitment" },
 });
 
 const buyerPartyReference = defineRelation({
   cardinality: "one",
   id: "commercial.buyerPartyReference",
   sourceType: "commercial.OrderLine",
-  target: { kind: "value", valueType: { kind: "text" } },
+  target: { kind: "type", typeId: "party.Party" },
 });
 
 const productReference = defineRelation({
   cardinality: "one",
   id: "commercial.productReference",
   sourceType: "commercial.OrderLine",
-  target: { kind: "value", valueType: { kind: "text" } },
+  target: { kind: "type", typeId: "product.Product" },
 });
 
 const requestedQuantity = defineRelation({
@@ -112,7 +122,7 @@ const proposedByMessage = defineRelation({
   cardinality: "many",
   id: "commercial.proposedByMessage",
   sourceType: "commercial.OrderLine",
-  target: { kind: "value", valueType: { kind: "text" } },
+  target: { kind: "type", typeId: "commercial.SourceMessage" },
 });
 
 const committedQuantity = defineRelation({
@@ -167,7 +177,7 @@ const cancellationOf = defineRelation({
   cardinality: "many",
   id: "commercial.cancellationOf",
   sourceType: "commercial.OrderLine",
-  target: { kind: "value", valueType: { kind: "text" } },
+  target: { kind: "type", typeId: "commercial.Commitment" },
 });
 
 const cancelledQuantity = defineRelation({
@@ -184,7 +194,7 @@ const correctionOf = defineRelation({
   cardinality: "many",
   id: "commercial.correctionOf",
   sourceType: "commercial.OrderLine",
-  target: { kind: "value", valueType: { kind: "text" } },
+  target: { kind: "type", typeId: "commercial.Correction" },
 });
 
 const correctedQuantity = defineRelation({
@@ -222,6 +232,26 @@ const openQuantity = defineComputation({
   returns: { kind: "quantity", unit: "each" },
 });
 
+const recordQuote = defineAction({
+  effects: [
+    {
+      relationId: "commercial.quoteReference",
+      value: { inputId: "quoteReference", kind: "input" },
+    },
+  ],
+  id: "commercial.recordQuote",
+  inputs: [
+    {
+      id: "quoteReference",
+      valueType: { kind: "entity", typeId: "commercial.Quote" },
+    },
+  ],
+  precondition: {
+    kind: "literal",
+    value: { kind: "bool", value: true },
+  },
+});
+
 const createCommitment = defineAction({
   effects: [
     {
@@ -247,7 +277,10 @@ const createCommitment = defineAction({
   ],
   id: "commercial.createCommitment",
   inputs: [
-    { id: "commitmentReference", valueType: { kind: "text" } },
+    {
+      id: "commitmentReference",
+      valueType: { kind: "entity", typeId: "commercial.Commitment" },
+    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "revision", valueType: { kind: "integer" } },
     { id: "terms", valueType: { kind: "text" } },
@@ -285,7 +318,10 @@ const changeCommitment = defineAction({
   ],
   id: "commercial.changeCommitment",
   inputs: [
-    { id: "correctionOf", valueType: { kind: "text" } },
+    {
+      id: "correctionOf",
+      valueType: { kind: "entity", typeId: "commercial.Correction" },
+    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "revision", valueType: { kind: "integer" } },
     { id: "unitPrice", valueType: { kind: "decimal" } },
@@ -346,7 +382,10 @@ const cancelCommitment = defineAction({
   ],
   id: "commercial.cancelCommitment",
   inputs: [
-    { id: "cancellationOf", valueType: { kind: "text" } },
+    {
+      id: "cancellationOf",
+      valueType: { kind: "entity", typeId: "commercial.Commitment" },
+    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
   ],
   precondition: {
@@ -380,7 +419,10 @@ const correctCommitment = defineAction({
   ],
   id: "commercial.correctCommitment",
   inputs: [
-    { id: "correctionOf", valueType: { kind: "text" } },
+    {
+      id: "correctionOf",
+      valueType: { kind: "entity", typeId: "commercial.Correction" },
+    },
     { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
     { id: "reason", valueType: { kind: "text" } },
   ],
@@ -405,6 +447,7 @@ export default defineBundle({
     correctCommitment,
     createCommitment,
     recordFulfillment,
+    recordQuote,
   ],
   computations: [openQuantity],
   id: "commercial.sales",
@@ -431,12 +474,14 @@ export default defineBundle({
     requestedQuantity,
     requestReference,
   ],
-  revision: 1,
+  revision: 2,
   types: [
     CommercialRequest,
     Commitment,
     Correction,
     OrderLine,
+    Party,
+    Product,
     Quote,
     SourceMessage,
   ],
