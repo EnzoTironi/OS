@@ -276,11 +276,9 @@ impl SessionRegistry {
                     .header("x-zoen-tenant")
                     .and_then(|value| value.to_str().ok())
                 {
-                    Some(raw) => Some(
-                        TenantId::parse(raw).map_err(|error| {
-                            ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
-                        })?,
-                    ),
+                    Some(raw) => Some(TenantId::parse(raw).map_err(|error| {
+                        ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
+                    })?),
                     None => None,
                 };
                 self.resolve_verified(verified, requested_tenant.as_ref())

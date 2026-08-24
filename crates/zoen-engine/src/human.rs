@@ -218,7 +218,10 @@ pub fn mint_human_task_contract(
             name_ref: Some("contact.name.1".to_owned()),
             phone_ref: None,
         }),
-        (name_ref, phone_ref) => Some(HumanContactRef { name_ref, phone_ref }),
+        (name_ref, phone_ref) => Some(HumanContactRef {
+            name_ref,
+            phone_ref,
+        }),
     };
     let max_expense_minor = integer_input(&inputs, "max_expense_minor")?.or(Some(0));
     let disclosure_class = match text_input(&inputs, "disclosure_class")
