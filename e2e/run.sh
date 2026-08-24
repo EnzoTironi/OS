@@ -34,6 +34,7 @@ scenario_table=(
   "domain-inventory-procurement:domain-inventory-procurement:"
   "domain-manufacturing-accounting:domain-manufacturing-accounting:"
   "domain-quality:domain-quality:"
+  "entity-location:entity-location:"
   "durable-commit:governed-action:failpoints"
   "effects:governed-action:"
   "evolution-breaking:evolution-breaking:"
