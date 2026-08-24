@@ -395,7 +395,7 @@ export async function committedOperationView(
 export function proposedOperationView(
   response: ProposeResponse,
   identity: ActionIdentity,
-): ActionOperationView {
+): ActionOperationView | { readonly kind: "needs_step_up" } {
   switch (response.decision) {
     case PolicyDecision.PERMIT: {
       const proposal = response.proposal;
@@ -409,10 +409,13 @@ export function proposedOperationView(
           kind: "failed",
         };
       }
+      if (proposal.status === ProposalStatus.AWAITING_APPROVAL) {
+        return { kind: "needs_step_up" };
+      }
       if (proposal.status !== ProposalStatus.READY) {
         return {
-          error: "This Action requires an approval flow that this surface does not provide.",
-          kind: "unavailable",
+          error: `Unsupported proposal status ${proposal.status}.`,
+          kind: "failed",
         };
       }
       return {

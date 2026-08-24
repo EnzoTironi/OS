@@ -485,12 +485,41 @@ async function propose(
       identity,
       values,
     });
-    const operation = proposedOperationView(response, identity);
+    const outcome = proposedOperationView(response, identity);
+    if (outcome.kind === "needs_step_up") {
+      const binding = state.document.actionBindings.find(
+        (candidate) => candidate.id === bindingId,
+      );
+      if (binding === undefined) {
+        throw new Error(`Unknown Action binding ${bindingId}`);
+      }
+      const token = currentAccessToken();
+      if (token === undefined) {
+        throw new Error("chat_cookie_insufficient");
+      }
+      const issued = await issueStepUpControl(token, {
+        actionBindingId: binding.id,
+        actionRef: binding.ref,
+        operationId: identity.operationId,
+        proposalId: identity.proposalId,
+      });
+      updateReady(setState, (current) => ({
+        ...current,
+        data: withAction(current.data, bindingId, {
+          approveUrl: issued.approveUrl,
+          controlRef: issued.controlRef,
+          kind: "awaiting_approval",
+          operationId: identity.operationId,
+          proposalId: identity.proposalId,
+        }),
+      }));
+      return;
+    }
     updateReady(setState, (current) => ({
       ...current,
-      data: withAction(current.data, bindingId, operation),
+      data: withAction(current.data, bindingId, outcome),
     }));
-    if (operation.kind !== "proposed") {
+    if (outcome.kind !== "proposed") {
       clearStoredActionSession(state, bindingId);
     }
   } catch (cause: unknown) {
@@ -500,6 +529,54 @@ async function propose(
     }));
     clearStoredActionSession(state, bindingId);
   }
+}
+
+async function issueStepUpControl(
+  accessToken: string,
+  input: {
+    readonly actionBindingId: string;
+    readonly actionRef: {
+      readonly actionId: string;
+      readonly definition: {
+        readonly definitionId: string;
+        readonly digest: string;
+        readonly revision: string;
+      };
+      readonly resourceId: string;
+    };
+    readonly operationId: string;
+    readonly proposalId: string;
+  },
+): Promise<{ readonly approveUrl: string; readonly controlRef: string }> {
+  const response = await fetch("/api/step-up/issue", {
+    body: JSON.stringify(input),
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    const message =
+      typeof body === "object" &&
+      body !== null &&
+      "error" in body &&
+      typeof (body as { error: unknown }).error === "string"
+        ? (body as { error: string }).error
+        : "step_up_issue_failed";
+    throw new Error(message);
+  }
+  const parsed = body as { approveUrl?: unknown; controlRef?: unknown };
+  if (
+    typeof parsed.approveUrl !== "string" ||
+    parsed.approveUrl.length === 0 ||
+    typeof parsed.controlRef !== "string" ||
+    parsed.controlRef.length === 0
+  ) {
+    throw new Error("step_up_issue_invalid");
+  }
+  return { approveUrl: parsed.approveUrl, controlRef: parsed.controlRef };
 }
 
 async function commit(
@@ -736,9 +813,11 @@ function fieldKey(bindingId: string, inputId: string): string {
 }
 
 function actionAvailable(state: ReadyState, bindingId: string): boolean {
+  const kind = state.data.actions[bindingId]?.kind;
   return (
     generatedActionIsFresh(state.actionFreshness, state.data.queries) &&
-    state.data.actions[bindingId]?.kind !== "unavailable"
+    kind !== "unavailable" &&
+    kind !== "awaiting_approval"
   );
 }
 

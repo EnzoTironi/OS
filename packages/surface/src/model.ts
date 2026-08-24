@@ -267,6 +267,14 @@ export type ActionOperationView =
       readonly proposalId: string;
     }
   | {
+      /** Opaque InteractionControlRef; open via approveUrl (/approve/<ref>). */
+      readonly approveUrl: string;
+      readonly controlRef: string;
+      readonly kind: "awaiting_approval";
+      readonly operationId: string;
+      readonly proposalId: string;
+    }
+  | {
       readonly kind: "committing" | "proposing" | "recovering";
       readonly operationId: string;
       readonly proposalId: string;
