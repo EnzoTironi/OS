@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::{EntityId, InputId, RelationId, SemanticValue, UnitId};
+use crate::{EntityId, InputId, RelationId, SemanticValue, TypeId, UnitId};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactIntegerError(String);
@@ -104,6 +104,7 @@ fn is_canonical_decimal(value: &str) -> bool {
 pub enum ValueType {
     Bool,
     Decimal,
+    Entity { type_id: TypeId },
     Integer,
     Quantity { unit: UnitId },
     Text,

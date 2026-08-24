@@ -637,6 +637,16 @@ function actionInput(
       });
     case "decimal":
       return scalarInput(input, requireDecimal(input, raw), "decimalValue");
+    case "entity":
+      if (typeof raw !== "string") {
+        throw new Error(`${input.label} must be an entity id`);
+      }
+      return create(ActionInputSchema, {
+        inputId: input.inputId,
+        value: create(ExactValueSchema, {
+          value: { case: "entityRefValue", value: raw },
+        }),
+      });
     case "integer":
       return scalarInput(input, requireInteger(input, raw), "integerValue");
     case "quantity":

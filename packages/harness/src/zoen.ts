@@ -68,6 +68,9 @@ const identifier = z.string().min(1).max(200);
 const publishedValueTypeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("bool") }).passthrough(),
   z.object({ kind: z.literal("decimal") }).passthrough(),
+  z
+    .object({ kind: z.literal("entity"), typeId: identifier })
+    .passthrough(),
   z.object({ kind: z.literal("integer") }).passthrough(),
   z
     .object({ kind: z.literal("quantity"), unit: identifier })
@@ -547,6 +550,8 @@ function actionInputSpec(
     case "integer":
     case "text":
       return { id, kind: valueType.kind };
+    case "entity":
+      return { id, kind: "entity", typeId: valueType.typeId };
     case "quantity":
       return { id, kind: "quantity", unit: valueType.unit };
     default: {
@@ -649,6 +654,10 @@ function exactValue(input: ExactInput) {
     case "decimal":
       return create(ExactValueSchema, {
         value: { case: "decimalValue", value: input.value },
+      });
+    case "entity":
+      return create(ExactValueSchema, {
+        value: { case: "entityRefValue", value: input.value },
       });
     case "integer":
       return create(ExactValueSchema, {

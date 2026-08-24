@@ -79,6 +79,53 @@ test("nondeterministic authoring syntax is rejected", async () => {
   );
 });
 
+test("entity input compiles to the existing value type", async () => {
+  const compiled = await compileDefinition(
+    path.join(fixtureDirectory, "entity-input.zoen.ts"),
+  );
+  const document = JSON.parse(compiled.canonicalJson) as {
+    readonly actions: readonly {
+      readonly id: string;
+      readonly inputs: readonly {
+        readonly id: string;
+        readonly valueType: { readonly kind: string; readonly typeId?: string };
+      }[];
+    }[];
+  };
+  const assignLocation = document.actions.find(
+    (action) => action.id === "inventory.assignLocation",
+  );
+  assert.ok(assignLocation);
+  assert.deepEqual(assignLocation.inputs, [
+    {
+      id: "location",
+      valueType: { kind: "entity", typeId: "inventory.Location" },
+    },
+  ]);
+});
+
+test("entity input rejects an unknown type id", async () => {
+  const source = await readFile(
+    path.join(fixtureDirectory, "entity-input.zoen.ts"),
+    "utf8",
+  );
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "zoen-compiler-entity-"),
+  );
+  const mutatedPath = path.join(temporaryDirectory, "unknown-type.zoen.ts");
+  await writeFile(
+    mutatedPath,
+    source.replace(
+      'valueType: { kind: "entity", typeId: "inventory.Location" }',
+      'valueType: { kind: "entity", typeId: "inventory.Missing" }',
+    ),
+  );
+  await assert.rejects(
+    compileDefinition(mutatedPath),
+    /inventory.assignLocation input location references unknown type inventory.Missing/,
+  );
+});
+
 async function compileWithLocale(
   sourcePath: string,
   locale: string,

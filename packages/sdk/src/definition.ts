@@ -3,6 +3,9 @@ import { z } from "zod";
 const valueTypeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("bool") }).strict(),
   z.object({ kind: z.literal("decimal") }).strict(),
+  z
+    .object({ kind: z.literal("entity"), typeId: z.string().min(1) })
+    .strict(),
   z.object({ kind: z.literal("integer") }).strict(),
   z.object({ kind: z.literal("quantity"), unit: z.string().min(1) }).strict(),
   z.object({ kind: z.literal("text") }).strict(),

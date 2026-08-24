@@ -385,6 +385,18 @@ function actionToolInputSchema(
             .strict(),
         })
         .strict();
+    case "entity":
+      return z
+        .object({
+          id: z.literal(input.id),
+          value: z
+            .object({
+              kind: z.literal("entity"),
+              value: z.string().min(1),
+            })
+            .strict(),
+        })
+        .strict();
     case "quantity":
       return z
         .object({
