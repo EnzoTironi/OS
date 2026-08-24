@@ -56,16 +56,28 @@ test("Cloud API envelopes fail closed", () => {
   );
 });
 
-test("door E.164 rejects missing, personal, and short values", () => {
+test("door E.164 is ITU-ish and rejects empty, personal, username, and JID", () => {
   assert.throws(
     () => parseWhatsAppDoorE164(undefined),
     (error: unknown) => error instanceof LiveWhatsAppConfigError,
   );
+  assert.throws(() => parseWhatsAppDoorE164("   "), /required/);
   assert.throws(
     () => parseWhatsAppDoorE164(PERSONAL_WHATSAPP_DOOR_E164),
     /personal/,
   );
-  assert.throws(() => parseWhatsAppDoorE164("+553799999999"), /13 digits/);
+  assert.throws(() => parseWhatsAppDoorE164("5531999941160"), /personal/);
+  assert.throws(() => parseWhatsAppDoorE164("553199941160"), /personal/);
+  assert.throws(() => parseWhatsAppDoorE164("+553199941160"), /personal/);
+  assert.throws(() => parseWhatsAppDoorE164("@enzo"), /E\.164/);
+  assert.throws(
+    () => parseWhatsAppDoorE164("553798136141@s.whatsapp.net"),
+    /E\.164/,
+  );
+  assert.throws(() => parseWhatsAppDoorE164("123456789012345@lid"), /E\.164/);
+  assert.throws(() => parseWhatsAppDoorE164("553798136141"), /E\.164/);
+  assert.equal(parseWhatsAppDoorE164("+553798136141"), "+553798136141");
+  assert.equal(parseWhatsAppDoorE164("+15551234567"), "+15551234567");
   assert.equal(parseWhatsAppDoorE164("+5537911111111"), "+5537911111111");
 });
 
@@ -122,16 +134,15 @@ test("advertise with door but unpaired session fails closed", () => {
   }
 });
 
-test("selectWhatsAppShape uses cta_url for https surfaceUrl", () => {
+test("selectWhatsAppShape is text only and appends https surfaceUrl", () => {
   const shape = selectWhatsAppShape({
     clientDeliveryId: "spd_cta",
-    surfaceUrl: "https://zoen.example/surface/a",
+    surfaceUrl: "https://example.com/s",
     text: "continue",
   });
-  assert.equal(shape.kind, "cta_url");
-  if (shape.kind === "cta_url") {
-    assert.equal(shape.url, "https://zoen.example/surface/a");
-  }
+  assert.equal(shape.kind, "text");
+  assert.equal(shape.text.includes("https://example.com/s"), true);
+  assert.equal(shape.text.includes("continue"), true);
   assert.throws(
     () =>
       selectWhatsAppShape({
@@ -141,9 +152,18 @@ test("selectWhatsAppShape uses cta_url for https surfaceUrl", () => {
       }),
     (error: unknown) => error instanceof WhatsAppSurfaceUrlError,
   );
+  assert.throws(
+    () =>
+      selectWhatsAppShape({
+        clientDeliveryId: "spd_http",
+        surfaceUrl: "http://example.com/s",
+        text: "x",
+      }),
+    (error: unknown) => error instanceof WhatsAppSurfaceUrlError,
+  );
 });
 
-test("selectWhatsAppShape quick_reply at most 3 then list", () => {
+test("selectWhatsAppShape ignores buttons and cards", () => {
   const quick = selectWhatsAppShape({
     buttons: [
       { callbackData: "a", label: "A" },
@@ -152,7 +172,8 @@ test("selectWhatsAppShape quick_reply at most 3 then list", () => {
     clientDeliveryId: "spd_q",
     text: "pick",
   });
-  assert.equal(quick.kind, "quick_reply");
+  assert.equal(quick.kind, "text");
+  assert.equal(quick.text, "pick");
   const list = selectWhatsAppShape({
     buttons: [
       { callbackData: "1", label: "1" },
@@ -163,7 +184,43 @@ test("selectWhatsAppShape quick_reply at most 3 then list", () => {
     clientDeliveryId: "spd_l",
     text: "pick",
   });
-  assert.equal(list.kind, "list");
+  assert.equal(list.kind, "text");
+  const card = selectWhatsAppShape({
+    card: true,
+    clientDeliveryId: "spd_c",
+    text: "card",
+  });
+  assert.equal(card.kind, "text");
+  assert.equal(card.text, "card");
+});
+
+test("whatsapp native widgets degrade to text or link", () => {
+  const session = createRecordingCompanionSession();
+  const provider = createLiveWhatsAppProvider({ session });
+  assert.equal(provider.probes.canNativeButton().status, "unsupported");
+  assert.equal(provider.probes.canNativeCard().status, "unsupported");
+  const link = provider.probes.canNativeLink();
+  assert.equal(link.status, "unsupported");
+  if (link.status === "unsupported") {
+    assert.equal(link.degradeTo, "link");
+  }
+});
+
+test("recording companion drops from_me", async () => {
+  const session = createRecordingCompanionSession();
+  await session.open();
+  const result = await session.injectInbound({
+    body: "oi",
+    chatJid: speaker,
+    fromMe: true,
+    isGroup: false,
+    messageId: "wamid.me",
+    observedAt: "2026-08-24T12:00:00.000Z",
+    senderAltJid: speaker,
+    senderJid: speaker,
+  });
+  assert.equal(result, "dropped");
+  assert.equal(session.delivered().length, 0);
 });
 
 test("adapter send dest is chat JID not speaker", async () => {

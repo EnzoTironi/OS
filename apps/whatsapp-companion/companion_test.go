@@ -124,7 +124,7 @@ func TestParseOutboundChatJID(t *testing.T) {
 	}
 }
 
-func TestBuildCTAURLRejectsNonHTTPS(t *testing.T) {
+func TestBuildWireMessageIsConversationText(t *testing.T) {
 	t.Parallel()
 	if _, err := buildWireMessage(WireShape{Kind: "cta_url", Text: "x", URL: "zoen-rich://nope"}); err == nil {
 		t.Fatal("zoen-rich must fail")
@@ -133,8 +133,25 @@ func TestBuildCTAURLRejectsNonHTTPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg.GetViewOnceMessage().GetMessage().GetInteractiveMessage().GetNativeFlowMessage().GetButtons()[0].GetName() != "cta_url" {
-		t.Fatal("expected cta_url button")
+	if msg.GetConversation() != "open\nhttps://zoen.example/s" {
+		t.Fatalf("cta leftover conversation = %q", msg.GetConversation())
+	}
+	if msg.GetInteractiveMessage() != nil || msg.GetViewOnceMessage() != nil {
+		t.Fatal("native widget leaked")
+	}
+	quick, err := buildWireMessage(WireShape{
+		Kind: "quick_reply",
+		Text: "pick",
+		Buttons: []WireButton{{
+			CallbackData: "a",
+			Label:        "A",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quick.GetConversation() != "pick" {
+		t.Fatalf("quick_reply conversation = %q", quick.GetConversation())
 	}
 }
 

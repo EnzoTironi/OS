@@ -1,7 +1,6 @@
 package companion
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -46,72 +45,33 @@ func parseOutboundChatJID(raw string) (types.JID, error) {
 	}
 }
 
+func conversationText(shape WireShape) (string, error) {
+	text := strings.TrimSpace(shape.Text)
+	url := strings.TrimSpace(shape.URL)
+	if url != "" {
+		if !strings.HasPrefix(strings.ToLower(url), "https://") {
+			return "", fmt.Errorf("companion: surface URL requires https")
+		}
+		if text == "" {
+			text = url
+		} else if !strings.Contains(text, url) {
+			text = text + "\n" + url
+		}
+	}
+	if text == "" {
+		return "", fmt.Errorf("companion: empty text")
+	}
+	return text, nil
+}
+
 func buildWireMessage(shape WireShape) (*waE2E.Message, error) {
 	switch shape.Kind {
-	case "", "text":
-		if strings.TrimSpace(shape.Text) == "" {
-			return nil, fmt.Errorf("companion: empty text")
-		}
-		return &waE2E.Message{Conversation: proto.String(shape.Text)}, nil
-	case "cta_url":
-		if !strings.HasPrefix(strings.ToLower(shape.URL), "https://") {
-			return nil, fmt.Errorf("companion: cta_url requires https")
-		}
-		params, err := json.Marshal(map[string]string{
-			"display_text": "Open",
-			"url":          shape.URL,
-			"merchant_url": shape.URL,
-		})
+	case "", "text", "cta_url", "quick_reply", "list", "carousel":
+		text, err := conversationText(shape)
 		if err != nil {
 			return nil, err
 		}
-		return &waE2E.Message{
-			ViewOnceMessage: &waE2E.FutureProofMessage{
-				Message: &waE2E.Message{
-					InteractiveMessage: &waE2E.InteractiveMessage{
-						Body: &waE2E.InteractiveMessage_Body{Text: proto.String(shape.Text)},
-						InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
-							NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
-								Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{{
-									Name:             proto.String("cta_url"),
-									ButtonParamsJSON: proto.String(string(params)),
-								}},
-							},
-						},
-					},
-				},
-			},
-		}, nil
-	case "quick_reply":
-		if len(shape.Buttons) == 0 || len(shape.Buttons) > 3 {
-			return nil, fmt.Errorf("companion: quick_reply needs 1..3 buttons")
-		}
-		buttons := make([]*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton, 0, len(shape.Buttons))
-		for _, button := range shape.Buttons {
-			params, err := json.Marshal(map[string]string{
-				"display_text": button.Label,
-				"id":           button.CallbackData,
-			})
-			if err != nil {
-				return nil, err
-			}
-			buttons = append(buttons, &waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
-				Name:             proto.String("quick_reply"),
-				ButtonParamsJSON: proto.String(string(params)),
-			})
-		}
-		return &waE2E.Message{
-			InteractiveMessage: &waE2E.InteractiveMessage{
-				Body: &waE2E.InteractiveMessage_Body{Text: proto.String(shape.Text)},
-				InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
-					NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
-						Buttons: buttons,
-					},
-				},
-			},
-		}, nil
-	case "list", "carousel":
-		return &waE2E.Message{Conversation: proto.String(shape.Text)}, nil
+		return &waE2E.Message{Conversation: proto.String(text)}, nil
 	default:
 		return nil, fmt.Errorf("companion: unknown wire shape %q", shape.Kind)
 	}
