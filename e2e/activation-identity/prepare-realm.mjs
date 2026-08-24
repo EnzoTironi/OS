@@ -130,11 +130,13 @@ const realm = {
       workloadId: "workload.admin.a",
     }),
     // Bound path bait: JWT principal looks like a phone; membership must win.
+    // Action/History sessions read JWT tenant_id as the membership hint, so bound-bait
+    // uses tenant.org.a. resolve-context still passes tenant.evil.fallback as a query.
     confidentialClient({
       actorId: "actor.bound.bait",
       clientId: "bound-bait",
       principalId: "principal.phone.plus5511999999999",
-      tenantId: "tenant.evil.fallback",
+      tenantId: "tenant.org.a",
       workloadId: "workload.bound.bait",
     }),
     confidentialClient({
@@ -143,6 +145,23 @@ const realm = {
       principalId: "principal.phone.plus5511888888888",
       tenantId: "tenant.evil.fallback",
       workloadId: "workload.bound.second",
+    }),
+    confidentialClient({
+      actorId: "actor.admin.a",
+      clientId: "org-a-admin",
+      delegationClaim: JSON.stringify([
+        {
+          actionIds: [activationActionId, actionId],
+          delegationId: "delegation.org.a.admin",
+          expiresAt: farFuture,
+          notBefore: 0,
+          resourceIds: [...definitionIds, resourceId],
+          workloadIds: ["workload.org.a.admin"],
+        },
+      ]),
+      principalId: "principal.admin.a",
+      tenantId: "tenant.org.a",
+      workloadId: "workload.org.a.admin",
     }),
   ],
   enabled: true,

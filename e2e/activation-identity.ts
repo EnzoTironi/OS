@@ -2,12 +2,28 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { create } from "@bufbuild/protobuf";
+import { Code } from "@connectrpc/connect";
 import { z } from "zod";
 import {
+  CommitStatus,
+  PolicyDecision,
+  ProposalStatus,
+} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { DefinitionReferenceSchema } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import { historyClient } from "./activation-identity/support.js";
+import {
+  actionClient,
   definitionClient,
+  expectConnectCode,
+  minutesFromNow,
   oidcToken,
+  propose,
+  recordAvailable,
   startServer,
   stopServer,
+  worldClient,
+  type DefinitionFixture,
   type ServerProcess,
 } from "./governed-action/support.js";
 import {
@@ -344,8 +360,81 @@ async function main(): Promise<void> {
     );
     killMutant("tenant=invite payload override");
 
-    // Historical principal after revoke: snapshot membership principal before revoke.
-    const historicalPrincipal = String(acceptA.body.principalId);
+    const orgAdminToken = await oidcToken("org-a-admin");
+    const orgAdminDefinition = definitionClient(orgAdminToken);
+    await orgAdminDefinition.publish({
+      canonicalJson: new TextEncoder().encode(fixture.canonicalJson),
+      digest: fixture.digest,
+      tenantId: "tenant.org.a",
+    });
+    await orgAdminDefinition.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectNoActiveRevision",
+        value: true,
+      },
+      definitionId: fixture.definitionId,
+      digest: fixture.digest,
+      tenantId: "tenant.org.a",
+    });
+    const orgFixture = {
+      canonicalJson: fixture.canonicalJson,
+      definition: create(DefinitionReferenceSchema, {
+        definitionId: fixture.definitionId,
+        digest: fixture.digest,
+        revision: BigInt(fixture.revision),
+      }),
+      digest: fixture.digest,
+      policyDigest: createHash("sha256")
+        .update(
+          await readFile(
+            path.join(repositoryRoot, "e2e", "activation-identity", "direct.cedar"),
+            "utf8",
+          ),
+        )
+        .digest("hex"),
+      policyId: "policy.direct",
+      policyRevision: fixture.revision,
+      policySource: "",
+    } satisfies DefinitionFixture;
+    await recordAvailable(worldClient(orgAdminToken), {
+      claimId: "claim.available.activation-identity.org-a",
+      fixture: orgFixture,
+      resource: "inventory.item.1",
+      tenantId: "tenant.org.a",
+      value: "10",
+    });
+    const historicalOperationId = "operation.activation-identity.historical";
+    const historicalProposalId = "proposal.activation-identity.historical";
+    const boundAction = actionClient(boundToken);
+    const historicalPropose = await propose(boundAction, {
+      expiresAt: minutesFromNow(5),
+      fixture: orgFixture,
+      operationId: historicalOperationId,
+      proposalId: historicalProposalId,
+      quantity: "2",
+    });
+    assert.equal(
+      historicalPropose.decision,
+      PolicyDecision.PERMIT,
+      `propose decision=${historicalPropose.decision} principal=${historicalPropose.trustedContext?.principalId} tenant=${historicalPropose.trustedContext?.tenantId} policy=${historicalPropose.policy?.revision?.policyId ?? "none"}`,
+    );
+    assert.equal(historicalPropose.proposal?.status, ProposalStatus.READY);
+    assert.equal(
+      historicalPropose.trustedContext?.principalId,
+      "principal.colliding",
+    );
+    assert.equal(historicalPropose.trustedContext?.tenantId, "tenant.org.a");
+    const historicalCommit = await boundAction.commit({
+      operationId: historicalOperationId,
+      proposalId: historicalProposalId,
+    });
+    assert.equal(
+      historicalCommit.status,
+      CommitStatus.COMMITTED,
+      `commit status=${historicalCommit.status}`,
+    );
+    assert.ok(historicalCommit.receipt);
+
     await admin("POST", "/identity/admin/revoke", {
       membershipId: orgMembershipId,
       reason: "admin",
@@ -356,10 +445,39 @@ async function main(): Promise<void> {
       afterRevoke.status === 404 || afterRevoke.status === 409 || afterRevoke.status === 403,
     );
     killMutant("stale membership cache");
+
+    const boundExplainCode = await expectConnectCode(
+      () =>
+        historyClient(boundToken).explain({
+          target: { target: { case: "operationId", value: historicalOperationId } },
+        }),
+      Code.PermissionDenied,
+    );
+    const explanation = await historyClient(orgAdminToken).explain({
+      target: { target: { case: "operationId", value: historicalOperationId } },
+    });
+    const causal = explanation.explanation;
+    assert.ok(causal, `explain missing explanation; keys=${Object.keys(explanation).join(",")}`);
+    assert.equal(
+      causal.subject.case,
+      "action",
+      `explain subject=${causal.subject.case ?? "none"} complete=${causal.complete} gaps=${causal.gaps.length}`,
+    );
+    const historicalAction =
+      causal.subject.case === "action" ? causal.subject.value : undefined;
+    assert.ok(historicalAction);
+    const proposedBy = historicalAction.proposedBy;
     record(
       "historical_principal_still_named_after_revoke",
-      historicalPrincipal === "principal.colliding",
+      boundExplainCode === Code.PermissionDenied &&
+        proposedBy?.principalId === "principal.colliding" &&
+        proposedBy.principalId.length > 0 &&
+        proposedBy.tenantId === "tenant.org.a" &&
+        historicalAction.commit?.receipt?.operationId === historicalOperationId,
     );
+    killMutant("explain after revoke uses current membership");
+    killMutant("empty principal");
+    killMutant("404-as-history");
 
     // Merge: second bound account absorbs nothing from first's memberships.
     const secondBootstrap = await admin(
