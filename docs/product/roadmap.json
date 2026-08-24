@@ -16,6 +16,7 @@
   "forbidden": [
     "Treat a fake adapter as a live channel.",
     "Use official Meta Cloud API as the Brazil WhatsApp path.",
+    "Restore a deleted fake adapter onto main.",
     "Restore createFake* exports on package indexes.",
     "Import vercel/chat npm as the messaging product.",
     "Use Baileys or Evolution as a JSON shell.",
@@ -28,87 +29,38 @@
   "next": [
     {
       "order": 1,
-      "issue": 319,
-      "pr": [320],
-      "title": "Land fixture-as-production reject",
-      "note": "Independent of the Cedar stack. Can merge first."
-    },
-    {
-      "order": 2,
-      "issue": 317,
-      "pr": [321],
-      "title": "Land fail-closed zoend boot",
-      "note": "Cedar manifest required. Explicit ZOEN_ALLOW_LEGACY_SESSIONS. Durable stores required."
-    },
-    {
-      "order": 3,
-      "issue": 319,
-      "pr": [322],
-      "title": "Land legacy-sessions authMode stamp",
-      "note": "Stacked on #321."
-    },
-    {
-      "order": 4,
-      "issue": 318,
-      "pr": [323],
-      "title": "Land distinct Linq ChannelProvider",
-      "note": "Stacked on #321. toChannelProvider(\"linq\") must be linq, not whatsapp."
-    },
-    {
-      "order": 5,
-      "issue": 324,
-      "pr": null,
-      "title": "Remove stub-only channel adapters from main",
-      "note": "Landed on this PR. Backup already pinned. Restore issues already open."
-    },
-    {
-      "order": 6,
       "issue": 325,
       "pr": null,
       "title": "definition-publication and semantic-query on OIDC",
-      "note": "After #321. Drop ZOEN_SESSION_TOKENS."
+      "note": "Unblocked. #321 is on main. Drop ZOEN_SESSION_TOKENS on those two suites."
     },
     {
-      "order": 7,
-      "issue": 329,
-      "pr": null,
-      "title": "Live Telegram adapter",
-      "note": "Needs a bot token. Do not restore the fake."
-    },
-    {
-      "order": 8,
+      "order": 2,
       "issue": 326,
       "pr": null,
       "title": "Unofficial WhatsApp via whatsmeow sidecar",
-      "note": "Blocked on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive."
+      "note": "Waiting on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive. Do not restore the Cloud API fake."
     },
     {
-      "order": 9,
+      "order": 3,
+      "issue": 329,
+      "pr": null,
+      "title": "Live Telegram adapter",
+      "note": "Waiting on a bot token. Do not restore the fake."
+    },
+    {
+      "order": 4,
       "issue": 327,
       "pr": null,
       "title": "Conformance and substitution against live adapters",
       "note": "After live Telegram and WhatsApp exist. Fakes do not re-enter just verify."
     },
     {
-      "order": 10,
+      "order": 5,
       "issue": 328,
       "pr": null,
       "title": "Surface IR and Attention on live channels",
-      "note": "packages/surface and packages/attention stay. The fake-delivery e2e does not."
-    },
-    {
-      "order": 11,
-      "issue": 214,
-      "pr": null,
-      "title": "Live Brazil fiscal homologation",
-      "note": "Parked. Systax, PlugNotas, Protheus. Do not advertise."
-    },
-    {
-      "order": 12,
-      "issue": 267,
-      "pr": null,
-      "title": "Human comprehension of the public surface",
-      "note": "Stays OPEN. Live conversation study. Not closable by e2e."
+      "note": "packages/surface and packages/attention stay. Fake-delivery e2e does not return."
     }
   ],
   "rows": [
@@ -329,8 +281,8 @@
       "name": "Telegram channel",
       "onMain": false,
       "product": false,
-      "path": "packages/messaging/src/adapters/telegram-fake.ts",
-      "proof": "Removed from main. Fake lived only as an in-process stub. Code on backup/stubs-channels. Restore as live Bot API on #329.",
+      "path": null,
+      "proof": "Not on main. Fake was removed. Code on backup/stubs-channels. Restore as live Bot API on #329.",
       "issue": 329,
       "backup": [
         "packages/messaging/src/adapters/telegram-fake.ts"
@@ -345,7 +297,7 @@
       "onMain": false,
       "product": false,
       "path": null,
-      "proof": "Never shipped live. The Cloud API envelope fake was removed from main with the stub sweep. That fake is not this path.",
+      "proof": "Never shipped live. Cloud API fake was removed and is not this path. Waiting on the dedicated Zoen number. #326.",
       "issue": 326,
       "backup": [
         "packages/messaging/src/adapters/whatsapp-business-fake.ts"
@@ -353,42 +305,14 @@
       "blocker": "Dedicated Zoen WhatsApp number"
     },
     {
-      "id": "whatsapp-cloud-api-fake",
+      "id": "messaging-conformance-live",
       "status": "dont-have",
       "plane": "channels",
-      "name": "WhatsApp Cloud API fake",
+      "name": "Messaging conformance against live adapters",
       "onMain": false,
       "product": false,
-      "path": "packages/messaging/src/adapters/whatsapp-business-fake.ts",
-      "proof": "Removed from main. Never product. Code on backup/stubs-channels. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts. Restore issue #326.",
-      "issue": 326,
-      "backup": [
-        "packages/messaging/src/adapters/whatsapp-business-fake.ts"
-      ]
-    },
-    {
-      "id": "linq-fake",
-      "status": "dont-have",
-      "plane": "channels",
-      "name": "Linq fake adapter",
-      "onMain": false,
-      "product": false,
-      "path": "packages/messaging/src/adapters/linq-fake.ts",
-      "proof": "Removed from main. Live Linq stays. Fake no longer exports from the package index. Code on backup/stubs-channels. Restore issue #327.",
-      "issue": 327,
-      "backup": [
-        "packages/messaging/src/adapters/linq-fake.ts"
-      ]
-    },
-    {
-      "id": "messaging-conformance-fake",
-      "status": "dont-have",
-      "plane": "channels",
-      "name": "Messaging conformance e2e (fakes)",
-      "onMain": false,
-      "product": false,
-      "path": "e2e/messaging-conformance.ts",
-      "proof": "Removed from main. Fake-backed just verify path is gone. Code on backup/stubs-channels. Live rewrite is #327.",
+      "path": null,
+      "proof": "Not on main. Fake-backed e2e was removed. Live rewrite is #327.",
       "issue": 327,
       "backup": [
         "e2e/messaging-conformance.ts",
@@ -396,14 +320,14 @@
       ]
     },
     {
-      "id": "surface-ir-e2e-fake",
+      "id": "surface-ir-e2e-live",
       "status": "dont-have",
       "plane": "channels",
-      "name": "Surface IR and Attention e2e through fakes",
+      "name": "Surface IR and Attention e2e on live channels",
       "onMain": false,
       "product": false,
-      "path": "e2e/surface-ir-renderer, e2e/proactive-attention",
-      "proof": "Removed from main. packages/surface and packages/attention stay. Fake-delivery e2e is gone. Code on backup/stubs-channels. Restore on live is #328.",
+      "path": "packages/surface, packages/attention",
+      "proof": "Packages stay on main. Fake-delivery e2e was removed. Restore on live is #328.",
       "issue": 328,
       "backup": [
         "e2e/surface-ir-renderer",
@@ -456,39 +380,46 @@
     },
     {
       "id": "fail-closed-boot",
-      "status": "in-flight",
+      "status": "have",
       "plane": "authority",
       "name": "Fail-closed zoend boot",
-      "onMain": false,
+      "onMain": true,
       "product": true,
       "path": "apps/zoend/src/config.rs",
-      "proof": "PR #321. Cedar required. Explicit legacy sessions. Required stores.",
+      "proof": "On main via #321. ProcessAuth is Oidc or LegacySessions. Legacy only with ZOEN_ALLOW_LEGACY_SESSIONS=1. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.",
       "issue": 317,
-      "pr": [321]
+      "pr": [
+        321
+      ]
     },
     {
       "id": "channel-provider-linq",
-      "status": "in-flight",
+      "status": "have",
       "plane": "identity",
       "name": "Distinct Linq ChannelProvider",
-      "onMain": false,
+      "onMain": true,
       "product": true,
       "path": "packages/interaction/src/identity-directory.ts",
-      "proof": "PR #323 stacked on #321. toChannelProvider(\"linq\") === \"linq\".",
+      "proof": "On main via #331. ChannelProvider::Linq. toChannelProvider(\"linq\") === \"linq\".",
       "issue": 318,
-      "pr": [323]
+      "pr": [
+        331
+      ]
     },
     {
       "id": "fixture-as-production",
-      "status": "in-flight",
+      "status": "have",
       "plane": "gate",
       "name": "Production verify-v1 rejects fixtureContract",
-      "onMain": false,
+      "onMain": true,
       "product": true,
       "path": "e2e/verify-v1.ts",
-      "proof": "PR #320. Stamp on publication/query is PR #322 stacked on #321.",
+      "proof": "On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322.",
       "issue": 319,
-      "pr": [320, 322]
+      "pr": [
+        320,
+        322
+      ]
     },
     {
       "id": "fault-provider",
@@ -523,5 +454,10 @@
       "proof": "just verify-v1-fixtures. fixtureContract: true. Never treat PASS as production.",
       "issue": 319
     }
-  ]
+  ],
+  "board": {
+    "name": "Zoen",
+    "url": "https://github.com/users/EnzoTironi/projects/1",
+    "note": "This board is the work. HAVE is the table in this file."
+  }
 }
