@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     CommitSequence, DefinitionReference, EntityId, EvidenceClaim, ExecutionContext, RelationId,
     TimestampMicros,
@@ -23,6 +23,15 @@ pub struct PostgresClaimQuery {
     pub valid_at: TimestampMicros,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PostgresTypeQuery {
+    pub cut: CommitSequence,
+    pub definition: DefinitionReference,
+    pub limit: u32,
+    pub relation_ids: BTreeSet<RelationId>,
+    pub valid_at: TimestampMicros,
+}
+
 impl PostgresClaimLoader {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -38,6 +47,18 @@ impl PostgresClaimLoader {
         let claims = load_in_transaction(&mut transaction, context, query).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(claims)
+    }
+
+    pub async fn load_entity_ids(
+        &self,
+        context: &ExecutionContext,
+        query: &PostgresTypeQuery,
+    ) -> Result<Vec<EntityId>, StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
+        set_tenant(&mut transaction, context.tenant_id()).await?;
+        let entity_ids = load_entity_ids_in_transaction(&mut transaction, context, query).await?;
+        transaction.commit().await.map_err(store_unavailable)?;
+        Ok(entity_ids)
     }
 }
 
@@ -89,4 +110,59 @@ pub(crate) async fn load_in_transaction(
     .await
     .map_err(store_unavailable)?;
     rows.iter().map(row_to_claim).collect()
+}
+
+pub(crate) async fn load_entity_ids_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: &ExecutionContext,
+    query: &PostgresTypeQuery,
+) -> Result<Vec<EntityId>, StoreError> {
+    let relation_ids = query
+        .relation_ids
+        .iter()
+        .map(|relation_id| relation_id.as_str().to_owned())
+        .collect::<Vec<_>>();
+    let rows = sqlx::query(
+        "SELECT DISTINCT entity_id
+         FROM semantic_claims
+         WHERE tenant_id = $1
+           AND definition_id = $2
+           AND definition_digest = $3
+           AND definition_revision = $4
+           AND relation_id = ANY($5)
+           AND commit_sequence <= $6
+           AND (
+                (valid_time_kind = 'instant' AND valid_from_micros = $7)
+                OR (
+                    valid_time_kind = 'interval'
+                    AND valid_from_micros <= $7
+                    AND valid_to_micros > $7
+                )
+           )
+         ORDER BY entity_id
+         LIMIT $8",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(query.definition.definition_id.as_str())
+    .bind(query.definition.digest.as_str())
+    .bind(u64_to_i64(
+        query.definition.revision.get(),
+        "definition revision",
+    )?)
+    .bind(relation_ids)
+    .bind(u64_to_i64(query.cut.get(), "query cut")?)
+    .bind(query.valid_at.get())
+    .bind(i64::from(query.limit))
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    rows.iter()
+        .map(|row| {
+            EntityId::parse(
+                row.try_get::<String, _>("entity_id")
+                    .map_err(store_unavailable)?,
+            )
+            .map_err(|error| StoreError::Corrupt(error.to_string()))
+        })
+        .collect()
 }

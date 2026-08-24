@@ -725,7 +725,7 @@ where
                 .query
                 .execute(
                     context,
-                    &SemanticQuery {
+                    &SemanticQuery::ByEntity {
                         consistency,
                         definition: DefinitionReference {
                             definition_id: loaded.revision.definition_id.clone(),
