@@ -16,16 +16,25 @@ export type StackHandle = {
   readonly pidFiles: {
     readonly zoend?: string;
     readonly web?: string;
+    readonly provider?: string;
+    readonly connector?: string;
+    readonly worker?: string;
+    readonly dispatcher?: string;
   };
   readonly policyManifestPath: string;
 };
 
+/** Ready is the conjunction of every probe below (see doctor mutantGuards). */
 export type ComponentName =
   | "postgres"
   | "keycloak"
   | "zoend"
   | "web"
-  | "sample-seed";
+  | "sample-seed"
+  | "restate"
+  | "dispatcher"
+  | "connector"
+  | "worker";
 
 export type ComponentHealth =
   | { readonly name: ComponentName; readonly state: "ready"; readonly detail?: string }
@@ -106,8 +115,18 @@ export type DoctorReport = {
     readonly readinessRequiresAllReady: true;
     readonly noSleepAsSuccess: true;
     readonly sampleUsesOidcNotZoenAccount: true;
+    readonly staleWebBuildNotReady: true;
+    readonly restateOnlyStackNotReady: true;
   };
 };
+
+/** Product routes Ready must serve (HTTP 200, not 404). */
+export const WEB_PRODUCT_ROUTES = [
+  "/onboarding",
+  "/onboarding/",
+  "/packs",
+  "/packs/",
+] as const;
 
 export const ACTIVATION_BUDGET_MS = 300_000;
 export const SCENARIO = "activation-sample";

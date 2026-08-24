@@ -1,4 +1,6 @@
-# Product local Sample Company stack (compose + host zoend/web).
+# Product local Sample Company stack.
+# Rebuilds web, then compose + zoend + effect chain (provider/connector/worker/dispatcher) + web.
+# Ready requires /onboarding+/packs HTTP 200 and the effect chain up.
 start:
     #!/usr/bin/env bash
     set -euo pipefail
