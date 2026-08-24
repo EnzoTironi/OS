@@ -31,8 +31,9 @@ type ScenarioSpec = {
 };
 
 /**
- * Slots 1-16 from #268. Slot 2 expands to the three messaging substitute
- * scenarios while live Linq/WhatsApp (#273) stays parked.
+ * Slots 1-16 from #268. Slot 2 is messaging-boundary alone.
+ * Live Linq is optional `channel-linq-live`, not a verify-activation required slot.
+ * Fake messaging/attention scenarios left main; restore on live is #327 / #328.
  */
 const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
   {
@@ -48,20 +49,6 @@ const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
     primary: "messaging-boundary.json",
     slot: 2,
     ticket: "#271",
-  },
-  {
-    id: "messaging-conformance",
-    kind: "messaging",
-    primary: "messaging-conformance.json",
-    slot: 2,
-    ticket: "#272",
-  },
-  {
-    id: "channel-provider-substitution",
-    kind: "messaging",
-    primary: "channel-provider-substitution.json",
-    slot: 2,
-    ticket: "#275",
   },
   {
     id: "conversational-approval",
@@ -111,13 +98,6 @@ const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
     primary: "pack-registry.json",
     slot: 9,
     ticket: "#260",
-  },
-  {
-    id: "proactive-attention",
-    kind: "activation",
-    primary: "proactive-attention.json",
-    slot: 10,
-    ticket: "#261",
   },
   {
     id: "human-executor",
@@ -861,13 +841,9 @@ async function main(): Promise<void> {
     generatedAt: new Date().toISOString(),
     advertisedClaims,
     channelPolicy: {
-      liveLinq: "parked-#273",
+      liveLinq: "optional-channel-linq-live",
       liveFiscal: "parked-#214",
-      requiredMessagingScenarios: [
-        "messaging-boundary",
-        "messaging-conformance",
-        "channel-provider-substitution",
-      ],
+      requiredMessagingScenarios: ["messaging-boundary"],
     },
     mutants: {
       semanticSurvivors: gate.semanticSurvivors,

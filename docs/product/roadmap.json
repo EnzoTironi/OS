@@ -59,7 +59,7 @@
       "issue": 324,
       "pr": null,
       "title": "Remove stub-only channel adapters from main",
-      "note": "This repository change. Backup already pinned. Restore issues already open."
+      "note": "Landed on this PR. Backup already pinned. Restore issues already open."
     },
     {
       "order": 6,
@@ -324,13 +324,13 @@
     },
     {
       "id": "telegram-live",
-      "status": "stub-on-main",
+      "status": "dont-have",
       "plane": "channels",
       "name": "Telegram channel",
-      "onMain": true,
+      "onMain": false,
       "product": false,
       "path": "packages/messaging/src/adapters/telegram-fake.ts",
-      "proof": "None. In-process fake only. Leaves main. Restore as live Bot API on #329.",
+      "proof": "Removed from main. Fake lived only as an in-process stub. Code on backup/stubs-channels. Restore as live Bot API on #329.",
       "issue": 329,
       "backup": [
         "packages/messaging/src/adapters/telegram-fake.ts"
@@ -345,7 +345,7 @@
       "onMain": false,
       "product": false,
       "path": null,
-      "proof": "Never shipped live. The only WhatsApp code on main is a Cloud API envelope fake. That fake is not this path.",
+      "proof": "Never shipped live. The Cloud API envelope fake was removed from main with the stub sweep. That fake is not this path.",
       "issue": 326,
       "backup": [
         "packages/messaging/src/adapters/whatsapp-business-fake.ts"
@@ -354,13 +354,13 @@
     },
     {
       "id": "whatsapp-cloud-api-fake",
-      "status": "stub-on-main",
+      "status": "dont-have",
       "plane": "channels",
       "name": "WhatsApp Cloud API fake",
-      "onMain": true,
+      "onMain": false,
       "product": false,
       "path": "packages/messaging/src/adapters/whatsapp-business-fake.ts",
-      "proof": "None as product. Leaves main. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts.",
+      "proof": "Removed from main. Never product. Code on backup/stubs-channels. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts. Restore issue #326.",
       "issue": 326,
       "backup": [
         "packages/messaging/src/adapters/whatsapp-business-fake.ts"
@@ -368,13 +368,13 @@
     },
     {
       "id": "linq-fake",
-      "status": "stub-on-main",
+      "status": "dont-have",
       "plane": "channels",
       "name": "Linq fake adapter",
-      "onMain": true,
+      "onMain": false,
       "product": false,
       "path": "packages/messaging/src/adapters/linq-fake.ts",
-      "proof": "Live Linq exists. The fake still exports from the package index and feeds lying e2e. Leaves main. Live stays.",
+      "proof": "Removed from main. Live Linq stays. Fake no longer exports from the package index. Code on backup/stubs-channels. Restore issue #327.",
       "issue": 327,
       "backup": [
         "packages/messaging/src/adapters/linq-fake.ts"
@@ -382,13 +382,13 @@
     },
     {
       "id": "messaging-conformance-fake",
-      "status": "stub-on-main",
+      "status": "dont-have",
       "plane": "channels",
       "name": "Messaging conformance e2e (fakes)",
-      "onMain": true,
+      "onMain": false,
       "product": false,
       "path": "e2e/messaging-conformance.ts",
-      "proof": "just verify currently greens this against three fakes. Leaves main. Live rewrite is #327.",
+      "proof": "Removed from main. Fake-backed just verify path is gone. Code on backup/stubs-channels. Live rewrite is #327.",
       "issue": 327,
       "backup": [
         "e2e/messaging-conformance.ts",
@@ -397,13 +397,13 @@
     },
     {
       "id": "surface-ir-e2e-fake",
-      "status": "stub-on-main",
+      "status": "dont-have",
       "plane": "channels",
       "name": "Surface IR and Attention e2e through fakes",
-      "onMain": true,
+      "onMain": false,
       "product": false,
       "path": "e2e/surface-ir-renderer, e2e/proactive-attention",
-      "proof": "Packages stay. These e2e paths delivered through fake Linq/Telegram. Leave main. Restore on live is #328.",
+      "proof": "Removed from main. packages/surface and packages/attention stay. Fake-delivery e2e is gone. Code on backup/stubs-channels. Restore on live is #328.",
       "issue": 328,
       "backup": [
         "e2e/surface-ir-renderer",
@@ -418,7 +418,7 @@
       "onMain": true,
       "product": true,
       "path": "e2e/messaging-boundary/import-graph.ts",
-      "proof": "just e2e messaging-boundary after rewrite without createFake*. Core/crates must not import vercel/chat.",
+      "proof": "just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat.",
       "issue": 327
     },
     {

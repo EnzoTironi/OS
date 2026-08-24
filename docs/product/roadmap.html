@@ -116,11 +116,11 @@
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
-  <span class="stat-count">2</span>
+  <span class="stat-count">7</span>
   <span class="stat-label">DON'T HAVE</span>
 </button>
 <button class="stat" data-filter="stub-on-main" type="button">
-  <span class="stat-count">5</span>
+  <span class="stat-count">0</span>
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
@@ -182,7 +182,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/324">#324</a>
     
     <strong>Remove stub-only channel adapters from main</strong>
-    <p>This repository change. Backup already pinned. Restore issues already open.</p>
+    <p>Landed on this PR. Backup already pinned. Restore issues already open.</p>
   </div>
 </li>
 <li>
@@ -483,7 +483,7 @@
     <div class="path">e2e/messaging-boundary/import-graph.ts</div>
     
   </td>
-  <td>just e2e messaging-boundary after rewrite without createFake*. Core/crates must not import vercel/chat.</td>
+  <td>just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
 </tr>
 <tr data-status="have">
@@ -537,34 +537,6 @@
   <td><a href="https://github.com/EnzoTironi/OS/issues/325">#325</a></td>
 </tr>
 <tr data-status="dont-have">
-  <td><code>whatsapp-unofficial</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Unofficial WhatsApp (whatsmeow) for Brazil</div>
-    <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
-    <div class="blocker">Blocked on Dedicated Zoen WhatsApp number</div>
-  </td>
-  <td>Never shipped live. The only WhatsApp code on main is a Cloud API envelope fake. That fake is not this path.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
-</tr>
-    </tbody>
-  </table>
-</section>
-<section class="group" data-group="stub-on-main">
-  <h2>STUB ON MAIN</h2>
-  <p class="blurb">On main today only as a fake or stub. Leaves main. Backup already holds the files. Restore issue is the row.</p>
-  <table>
-    <thead>
-      <tr>
-        <th>id</th>
-        <th>plane</th>
-        <th>capability</th>
-        <th>proof</th>
-        <th>issue</th>
-      </tr>
-    </thead>
-    <tbody>
-<tr data-status="stub-on-main">
   <td><code>telegram-live</code></td>
   <td>channels</td>
   <td>
@@ -572,10 +544,21 @@
     <div class="path">packages/messaging/src/adapters/telegram-fake.ts</div>
     <div class="blocker">Blocked on Telegram bot token</div>
   </td>
-  <td>None. In-process fake only. Leaves main. Restore as live Bot API on #329.</td>
+  <td>Removed from main. Fake lived only as an in-process stub. Code on backup/stubs-channels. Restore as live Bot API on #329.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/329">#329</a></td>
 </tr>
-<tr data-status="stub-on-main">
+<tr data-status="dont-have">
+  <td><code>whatsapp-unofficial</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Unofficial WhatsApp (whatsmeow) for Brazil</div>
+    <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
+    <div class="blocker">Blocked on Dedicated Zoen WhatsApp number</div>
+  </td>
+  <td>Never shipped live. The Cloud API envelope fake was removed from main with the stub sweep. That fake is not this path.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
+</tr>
+<tr data-status="dont-have">
   <td><code>whatsapp-cloud-api-fake</code></td>
   <td>channels</td>
   <td>
@@ -583,10 +566,10 @@
     <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
     
   </td>
-  <td>None as product. Leaves main. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts.</td>
+  <td>Removed from main. Never product. Code on backup/stubs-channels. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts. Restore issue #326.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
 </tr>
-<tr data-status="stub-on-main">
+<tr data-status="dont-have">
   <td><code>linq-fake</code></td>
   <td>channels</td>
   <td>
@@ -594,10 +577,10 @@
     <div class="path">packages/messaging/src/adapters/linq-fake.ts</div>
     
   </td>
-  <td>Live Linq exists. The fake still exports from the package index and feeds lying e2e. Leaves main. Live stays.</td>
+  <td>Removed from main. Live Linq stays. Fake no longer exports from the package index. Code on backup/stubs-channels. Restore issue #327.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
 </tr>
-<tr data-status="stub-on-main">
+<tr data-status="dont-have">
   <td><code>messaging-conformance-fake</code></td>
   <td>channels</td>
   <td>
@@ -605,10 +588,10 @@
     <div class="path">e2e/messaging-conformance.ts<br>e2e/channel-provider-substitution.ts</div>
     
   </td>
-  <td>just verify currently greens this against three fakes. Leaves main. Live rewrite is #327.</td>
+  <td>Removed from main. Fake-backed just verify path is gone. Code on backup/stubs-channels. Live rewrite is #327.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
 </tr>
-<tr data-status="stub-on-main">
+<tr data-status="dont-have">
   <td><code>surface-ir-e2e-fake</code></td>
   <td>channels</td>
   <td>
@@ -616,12 +599,13 @@
     <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
     
   </td>
-  <td>Packages stay. These e2e paths delivered through fake Linq/Telegram. Leave main. Restore on live is #328.</td>
+  <td>Removed from main. packages/surface and packages/attention stay. Fake-delivery e2e is gone. Code on backup/stubs-channels. Restore on live is #328.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
     </tbody>
   </table>
 </section>
+
 <section class="group" data-group="in-flight">
   <h2>IN FLIGHT</h2>
   <p class="blurb">Fail-closed work in an open PR. Do not duplicate.</p>

@@ -20,9 +20,6 @@ export {
   deriveCapabilityMatrix,
   projectPresentationCaps,
 } from "./capability-probes.js";
-export { createFakeTelegramProvider } from "./adapters/telegram-fake.js";
-export { createFakeLinqProvider } from "./adapters/linq-fake.js";
-export { createFakeWhatsAppBusinessProvider } from "./adapters/whatsapp-business-fake.js";
 export {
   assertLiveLinqAdvertisement,
   createLiveLinqProvider,

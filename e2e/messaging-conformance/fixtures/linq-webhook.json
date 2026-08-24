@@ -1,9 +1,0 @@
-{
-  "delivery_id": "deliv_fixture_1",
-  "message_id": "msg_deliv_fixture_1",
-  "chat_guid": "chat_guid_linq_demo",
-  "sender_handle": "linq_handle_bound_1",
-  "participants": ["linq_handle_bound_1"],
-  "received_at": "2026-08-23T12:00:01.000Z",
-  "text": "fixture linq text"
-}

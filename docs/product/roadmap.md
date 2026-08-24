@@ -13,7 +13,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | HAVE | DON'T HAVE | STUB ON MAIN | IN FLIGHT | PARKED | HARNESS |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 20 | 2 | 5 | 3 | 2 | 3 |
+| 20 | 7 | 0 | 3 | 2 | 3 |
 
 ## Do next
 
@@ -23,7 +23,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 | 2 | [#317](https://github.com/EnzoTironi/OS/issues/317) | [#321](https://github.com/EnzoTironi/OS/pull/321) | Land fail-closed zoend boot | Cedar manifest required. Explicit ZOEN_ALLOW_LEGACY_SESSIONS. Durable stores required. |
 | 3 | [#319](https://github.com/EnzoTironi/OS/issues/319) | [#322](https://github.com/EnzoTironi/OS/pull/322) | Land legacy-sessions authMode stamp | Stacked on #321. |
 | 4 | [#318](https://github.com/EnzoTironi/OS/issues/318) | [#323](https://github.com/EnzoTironi/OS/pull/323) | Land distinct Linq ChannelProvider | Stacked on #321. toChannelProvider("linq") must be linq, not whatsapp. |
-| 5 | [#324](https://github.com/EnzoTironi/OS/issues/324) | — | Remove stub-only channel adapters from main | This repository change. Backup already pinned. Restore issues already open. |
+| 5 | [#324](https://github.com/EnzoTironi/OS/issues/324) | — | Remove stub-only channel adapters from main | Landed on this PR. Backup already pinned. Restore issues already open. |
 | 6 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on OIDC | After #321. Drop ZOEN_SESSION_TOKENS. |
 | 7 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | Needs a bot token. Do not restore the fake. |
 | 8 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | Blocked on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive. |
@@ -76,7 +76,7 @@ On main. Real implementation. This is product.
 | `brain-live` | intelligence | Company Brain and agent live suites | just e2e company-brain-live and agent-capabilities-live. Need OPENCODE_API_KEY. In just verify. | — |
 | `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | just e2e fiscal-fault-matrix uses vendor-fault-proxy. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
 | `linq-live` | channels | Live Linq iMessage adapter | just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host. | [#253](https://github.com/EnzoTironi/OS/issues/253) |
-| `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary after rewrite without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
+| `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `deploy-helm` | deploy | Helm profiles (shared, dedicated, self-hosted) | just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify. | — |
 | `public-surface` | public | Public narrative checker | npx tsx e2e/public-surface.ts. Live conversation study is #267. | [#267](https://github.com/EnzoTironi/OS/issues/267) |
 
@@ -87,19 +87,12 @@ Not product. Restore issue is the row. Code, if any, lives on the backup branch.
 | id | plane | name | proof | issue |
 | --- | --- | --- | --- | ---: |
 | `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | Those suites still boot with ZOEN_SESSION_TOKENS. After #321 they need ZOEN_ALLOW_LEGACY_SESSIONS=1. They are not an OIDC proof. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
-| `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | Never shipped live. The only WhatsApp code on main is a Cloud API envelope fake. That fake is not this path. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
-
-## STUB ON MAIN
-
-On main today only as a fake or stub. Leaves main. Backup already holds the files. Restore issue is the row.
-
-| id | plane | name | proof | issue |
-| --- | --- | --- | --- | ---: |
-| `telegram-live` | channels | Telegram channel | None. In-process fake only. Leaves main. Restore as live Bot API on #329. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
-| `whatsapp-cloud-api-fake` | channels | WhatsApp Cloud API fake | None as product. Leaves main. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
-| `linq-fake` | channels | Linq fake adapter | Live Linq exists. The fake still exports from the package index and feeds lying e2e. Leaves main. Live stays. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
-| `messaging-conformance-fake` | channels | Messaging conformance e2e (fakes) | just verify currently greens this against three fakes. Leaves main. Live rewrite is #327. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
-| `surface-ir-e2e-fake` | channels | Surface IR and Attention e2e through fakes | Packages stay. These e2e paths delivered through fake Linq/Telegram. Leave main. Restore on live is #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `telegram-live` | channels | Telegram channel | Removed from main. Fake lived only as an in-process stub. Code on backup/stubs-channels. Restore as live Bot API on #329. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
+| `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | Never shipped live. The Cloud API envelope fake was removed from main with the stub sweep. That fake is not this path. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
+| `whatsapp-cloud-api-fake` | channels | WhatsApp Cloud API fake | Removed from main. Never product. Code on backup/stubs-channels. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts. Restore issue #326. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
+| `linq-fake` | channels | Linq fake adapter | Removed from main. Live Linq stays. Fake no longer exports from the package index. Code on backup/stubs-channels. Restore issue #327. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
+| `messaging-conformance-fake` | channels | Messaging conformance e2e (fakes) | Removed from main. Fake-backed just verify path is gone. Code on backup/stubs-channels. Live rewrite is #327. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
+| `surface-ir-e2e-fake` | channels | Surface IR and Attention e2e through fakes | Removed from main. packages/surface and packages/attention stay. Fake-delivery e2e is gone. Code on backup/stubs-channels. Restore on live is #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 
 ## IN FLIGHT
 
