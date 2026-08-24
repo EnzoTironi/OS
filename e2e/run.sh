@@ -171,6 +171,7 @@ run_lint() {
   git diff --exit-code -- packages/sdk/src/gen proto/definition_descriptor.binpb
   npm run build
   npm run deployment-docs:check
+  npm run roadmap:check
   npm test
   cargo fmt --all --check
   cargo test --locked --workspace
