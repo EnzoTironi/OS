@@ -1,22 +1,19 @@
 import assert from "node:assert/strict";
 import { Code } from "@connectrpc/connect";
 import {
-  commitEffect,
+  commitHumanEffect,
   expectConnectCode,
-  freezeHumanPayload,
-  humanTaskContract,
   type HumanScenario,
 } from "../scenario.js";
 import { tenantB } from "../support.js";
 
 export async function verifyClaimIsolation(scenario: HumanScenario): Promise<void> {
-  const committed = await commitEffect(
+  const committed = await commitHumanEffect(
     scenario.actionA,
+    scenario.effectA,
     scenario.fixture,
     "claim-isolation",
   );
-  const contract = humanTaskContract();
-  await freezeHumanPayload(scenario.admin, committed.effectRequestId, contract);
 
   const first = await scenario.effectHumanA.claimAttempt({
     adapterExecutionId: `human-claim.first.${committed.effectRequestId}`,
@@ -40,16 +37,12 @@ export async function verifyClaimIsolation(scenario: HumanScenario): Promise<voi
   );
   scenario.recorder.kill("duplicateClaim", true);
 
-  const otherTenant = await commitEffect(
+  const otherTenant = await commitHumanEffect(
     scenario.actionB,
+    scenario.effectB,
     scenario.fixture,
     "cross-tenant-b",
-  );
-  await freezeHumanPayload(
-    scenario.admin,
-    otherTenant.effectRequestId,
-    contract,
-    tenantB,
+    { tenantId: tenantB },
   );
   await expectConnectCode(
     () =>

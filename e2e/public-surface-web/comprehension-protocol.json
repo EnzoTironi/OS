@@ -1,0 +1,49 @@
+{
+  "answers": [
+    {
+      "excerpt": "One governed interface for meaning, evidence, authority, and action",
+      "question": "What problem does Zoen solve?",
+      "questionId": "problem",
+      "sources": [
+        "README.md",
+        "signed-out /"
+      ]
+    },
+    {
+      "excerpt": "Zoen is not an agent bolted onto APIs. Actions are governed and revalidated before commit. Cedar and publish/activate stay on the path. Local commit is not remote success. History and ontology revisions stay reproducible. Self-host keeps the same signed artifacts.",
+      "question": "What is different from an agent with APIs?",
+      "questionId": "difference",
+      "sources": [
+        "README.md",
+        "signed-out /",
+        "/packs"
+      ]
+    },
+    {
+      "excerpt": "Browse outcome Packs, start a conversation into onboarding, or sign in for Sample Company. There is no fake chat backend on this page.",
+      "question": "What can I try right now?",
+      "questionId": "try_now",
+      "sources": [
+        "README.md",
+        "signed-out /",
+        "/packs"
+      ]
+    },
+    {
+      "excerpt": "When Zoen is unsure, or an external effect is ambiguous, the outcome can stay unknown until reconciliation. Blind retry stays forbidden.",
+      "question": "What happens when Zoen is unsure or an external effect is ambiguous?",
+      "questionId": "unsure",
+      "sources": [
+        "README.md",
+        "signed-out /"
+      ]
+    }
+  ],
+  "kind": "cold-start-comprehension",
+  "note": "Protocol extracts public-surface answers only. Real human comprehension research and the 45-90s video remain open on #267.",
+  "sources": {
+    "home": true,
+    "packs": true,
+    "readme": true
+  }
+}

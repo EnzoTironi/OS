@@ -3,11 +3,9 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import {
   activateDefinition,
-  loadFixture,
   publishDefinition,
   recordAvailable,
   resourceId,
-  writePolicyManifest,
 } from "./governed-action/support.js";
 import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
 import { verifyClaimIsolation } from "./human-executor/laws/claim-isolation.js";
@@ -16,6 +14,8 @@ import { verifyRecovery } from "./human-executor/laws/recovery.js";
 import { verifyReportEvidence } from "./human-executor/laws/report-evidence.js";
 import {
   EvidenceRecorder,
+  loadHumanExecutorFixture,
+  writeHumanExecutorPolicyManifest,
   type HumanScenario,
 } from "./human-executor/scenario.js";
 import {
@@ -39,12 +39,12 @@ import {
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  const fixture = await loadFixture("direct", 1);
+  const fixture = await loadHumanExecutorFixture();
   const policyManifestPath = path.join(
     e2eGeneratedDirectory(repositoryRoot, "human-executor"),
     "human-executor-policies.json",
   );
-  await writePolicyManifest(policyManifestPath, [fixture]);
+  await writeHumanExecutorPolicyManifest(policyManifestPath, fixture);
 
   const agentAToken = await oidcToken("agent-a");
   const agentBToken = await oidcToken("agent-b");

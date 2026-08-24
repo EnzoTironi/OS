@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import {
   OnboardingClient,
   type PlanNextView,
@@ -7,6 +7,14 @@ import {
 
 export const Route = createFileRoute("/onboarding/")({
   component: OnboardingPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    pack: typeof search.pack === "string" ? search.pack : undefined,
+    referral: typeof search.referral === "string" ? search.referral : undefined,
+    intent: typeof search.intent === "string" ? search.intent : undefined,
+    digest: typeof search.digest === "string" ? search.digest : undefined,
+    accountId:
+      typeof search.accountId === "string" ? search.accountId : undefined,
+  }),
 });
 
 type PageState =
@@ -23,8 +31,17 @@ type PageState =
   | { readonly kind: "error"; readonly message: string };
 
 function OnboardingPage() {
+  const search = Route.useSearch();
+  const entry = useMemo(
+    () => ({
+      intent: search.intent,
+      pack: search.pack,
+      referral: search.referral,
+    }),
+    [search.intent, search.pack, search.referral],
+  );
   const [state, setState] = useState<PageState>({ kind: "capture" });
-  const [wording, setWording] = useState("");
+  const [wording, setWording] = useState(search.intent ?? "");
   const client = new OnboardingClient();
 
   async function onCapture(event: FormEvent): Promise<void> {
@@ -38,8 +55,17 @@ function OnboardingPage() {
         wording,
         accountId,
         workspaceClass: "enterprise",
+        pack: entry.pack,
+        referral: entry.referral,
+        intent: entry.intent ?? wording,
       });
       sessionStorage.setItem("zoen.onboarding.digest.v1", captured.digest);
+      if (captured.entry !== undefined) {
+        sessionStorage.setItem(
+          "zoen.onboarding.entry.v1",
+          JSON.stringify(captured.entry),
+        );
+      }
       if (captured.next.kind === "ask") {
         setState({
           kind: "ask",
@@ -104,6 +130,36 @@ function OnboardingPage() {
               Describe the outcome in your words. Zoen asks for only the next
               capability it needs.
             </p>
+            {entry.pack !== undefined ||
+            entry.referral !== undefined ||
+            entry.intent !== undefined ? (
+              <p
+                data-onboarding-entry="preserved"
+                data-onboarding-intent={entry.intent ?? ""}
+                data-onboarding-pack={entry.pack ?? ""}
+                data-onboarding-referral={entry.referral ?? ""}
+              >
+                Entry context preserved into onboarding
+                {entry.pack !== undefined ? (
+                  <>
+                    {" "}
+                    · pack <code>{entry.pack}</code>
+                  </>
+                ) : null}
+                {entry.referral !== undefined ? (
+                  <>
+                    {" "}
+                    · referral <code>{entry.referral}</code>
+                  </>
+                ) : null}
+                {entry.intent !== undefined ? (
+                  <>
+                    {" "}
+                    · intent <code>{entry.intent}</code>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
             <form onSubmit={(event) => void onCapture(event)}>
               <label>
                 Goal
