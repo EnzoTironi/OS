@@ -60,6 +60,7 @@ export const exactInputSchema: z.ZodType<ExactValue> = z.discriminatedUnion(
         value: canonicalDecimalSchema,
       })
       .strict(),
+    z.object({ kind: z.literal("entity"), value: identifier }).strict(),
     z
       .object({ kind: z.literal("integer"), value: canonicalIntegerSchema })
       .strict(),
@@ -95,6 +96,13 @@ export type ActionPlan = z.infer<typeof actionPlanSchema>;
 const actionInputSpecSchema = z.discriminatedUnion("kind", [
   z.object({ id: identifier, kind: z.literal("bool") }).strict(),
   z.object({ id: identifier, kind: z.literal("decimal") }).strict(),
+  z
+    .object({
+      id: identifier,
+      kind: z.literal("entity"),
+      typeId: identifier,
+    })
+    .strict(),
   z.object({ id: identifier, kind: z.literal("integer") }).strict(),
   z
     .object({

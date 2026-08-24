@@ -6,9 +6,9 @@ use zoen_core::{
     ActionDefinition, ActionEffect, ActionId, ActionOutputDefinition, BinaryOperator,
     CanonicalDefinition, CanonicalJson, Cardinality, ComputationDefinition, ComputationId,
     DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber, DefinitionSchema,
-    EvidenceDraft, ExactDecimal, ExactInteger, ExactValue, Expression, InputDefinition, InputId,
-    OutputId, RelationDefinition, RelationId, RelationTarget, TypeDefinition, TypeId, UnitId,
-    ValueType,
+    EntityId, EvidenceDraft, ExactDecimal, ExactInteger, ExactValue, Expression, InputDefinition,
+    InputId, OutputId, RelationDefinition, RelationId, RelationTarget, TypeDefinition, TypeId,
+    UnitId, ValueType,
 };
 
 use crate::{
@@ -140,6 +140,7 @@ fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
     match (value_type, value) {
         (ValueType::Bool, ExactValue::Bool(_))
         | (ValueType::Decimal, ExactValue::Decimal(_))
+        | (ValueType::Entity { .. }, ExactValue::Entity(_))
         | (ValueType::Integer, ExactValue::Integer(_))
         | (ValueType::Text, ExactValue::Text(_)) => true,
         (ValueType::Quantity { unit: expected }, ExactValue::Quantity { unit: actual, .. }) => {
@@ -339,6 +340,7 @@ struct ActionOutputDefinitionDto {
 enum ValueTypeDto {
     Bool,
     Decimal,
+    Entity { type_id: String },
     Integer,
     Quantity { unit: String },
     Text,
@@ -354,6 +356,7 @@ enum ValueTypeDto {
 enum ExactValueDto {
     Bool { value: bool },
     Decimal { value: String },
+    Entity { value: String },
     Integer { value: String },
     Quantity { amount: String, unit: String },
     Text { value: String },
@@ -512,6 +515,9 @@ fn convert_value_type(dto: ValueTypeDto) -> Result<ValueType, PublishError> {
     Ok(match dto {
         ValueTypeDto::Bool => ValueType::Bool,
         ValueTypeDto::Decimal => ValueType::Decimal,
+        ValueTypeDto::Entity { type_id } => ValueType::Entity {
+            type_id: TypeId::parse(type_id).map_err(invalid)?,
+        },
         ValueTypeDto::Integer => ValueType::Integer,
         ValueTypeDto::Quantity { unit } => ValueType::Quantity {
             unit: UnitId::parse(unit).map_err(invalid)?,
@@ -552,6 +558,9 @@ fn convert_exact_value(dto: ExactValueDto) -> Result<ExactValue, PublishError> {
         ExactValueDto::Decimal { value } => {
             ExactValue::Decimal(ExactDecimal::parse(value).map_err(invalid)?)
         }
+        ExactValueDto::Entity { value } => {
+            ExactValue::Entity(EntityId::parse(value).map_err(invalid)?)
+        }
         ExactValueDto::Integer { value } => {
             ExactValue::Integer(ExactInteger::parse(value).map_err(invalid)?)
         }
@@ -570,14 +579,44 @@ fn invalid(error: impl Display) -> PublishError {
 #[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
-    use zoen_core::DefinitionDigest;
+    use zoen_core::{DefinitionDigest, EntityId, ExactValue, TypeId, ValueType};
 
-    use super::{CanonicalDefinitionDto, admit};
+    use super::{
+        CanonicalDefinitionDto, ExactValueDto, ValueTypeDto, admit, convert_exact_value,
+        convert_value_type, value_matches,
+    };
     use crate::PublishError;
 
     const INVENTORY: &str =
         include_str!("../../../packages/ontology/fixtures/inventory.canonical.json");
     const SCALE: &str = include_str!("../../../e2e/scale/definition.canonical.json");
+
+    #[test]
+    fn admission_converts_entity_value_type_and_exact_value() {
+        let value_type = convert_value_type(ValueTypeDto::Entity {
+            type_id: "inventory.Location".to_owned(),
+        })
+        .expect("entity type");
+        assert_eq!(
+            value_type,
+            ValueType::Entity {
+                type_id: TypeId::parse("inventory.Location").expect("type"),
+            }
+        );
+        let value = convert_exact_value(ExactValueDto::Entity {
+            value: "inventory.location.wh-1".to_owned(),
+        })
+        .expect("entity value");
+        assert_eq!(
+            value,
+            ExactValue::Entity(EntityId::parse("inventory.location.wh-1").expect("entity"))
+        );
+        assert!(value_matches(&value_type, &value));
+        assert!(!value_matches(
+            &value_type,
+            &ExactValue::Text("wh-1".to_owned())
+        ));
+    }
 
     #[test]
     fn admission_rejects_noncanonical_exact_integers() {

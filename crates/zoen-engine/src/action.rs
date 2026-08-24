@@ -804,6 +804,7 @@ fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
     match (value_type, value) {
         (ValueType::Bool, ExactValue::Bool(_))
         | (ValueType::Decimal, ExactValue::Decimal(_))
+        | (ValueType::Entity { .. }, ExactValue::Entity(_))
         | (ValueType::Integer, ExactValue::Integer(_))
         | (ValueType::Text, ExactValue::Text(_)) => true,
         (ValueType::Quantity { unit: expected }, ExactValue::Quantity { unit: actual, .. }) => {
@@ -975,7 +976,8 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
 #[cfg(test)]
 mod tests {
     use zoen_core::{
-        ActionEffect, BinaryOperator, CommitSequence, ExactDecimal, Expression, SourceId, UnitId,
+        ActionEffect, ActionInput, BinaryOperator, CommitSequence, ExactDecimal, Expression,
+        InputDefinition, InputId, SourceId, TypeId, UnitId,
     };
 
     use super::*;
@@ -1071,6 +1073,39 @@ mod tests {
         assert_eq!(
             effect_evaluation_relations(&action),
             BTreeSet::from([available_id, reserved_id])
+        );
+    }
+
+    #[test]
+    fn validate_inputs_accepts_entity_and_rejects_text() {
+        let location = InputId::parse("location").expect("input");
+        let action = ActionDefinition {
+            effects: vec![ActionEffect {
+                relation_id: RelationId::parse("inventory.location").expect("relation"),
+                value: Expression::Input(location.clone()),
+            }],
+            id: ActionId::parse("inventory.assignLocation").expect("action"),
+            inputs: vec![InputDefinition {
+                id: location.clone(),
+                value_type: ValueType::Entity {
+                    type_id: TypeId::parse("inventory.Location").expect("type"),
+                },
+            }],
+            outputs: Vec::new(),
+            precondition: Expression::Literal(ExactValue::Bool(true)),
+        };
+        let entity = ActionInput {
+            id: location.clone(),
+            value: ExactValue::Entity(EntityId::parse("inventory.location.wh-1").expect("entity")),
+        };
+        assert!(validate_inputs(&action, &[entity]).is_ok());
+        let text = ActionInput {
+            id: location,
+            value: ExactValue::Text("wh-1".to_owned()),
+        };
+        let error = validate_inputs(&action, &[text]).expect_err("text is not an entity");
+        assert!(
+            matches!(error, ActionError::Input(message) if message.contains("wrong value type"))
         );
     }
 }

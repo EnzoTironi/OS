@@ -58,6 +58,12 @@ const canonicalIntegerSchema = z.string().regex(/^(0|-[1-9][0-9]*|[1-9][0-9]*)$/
 const valueTypeSchema: z.ZodType<ValueType> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("bool") }).strict(),
   z.object({ kind: z.literal("decimal") }).strict(),
+  z
+    .object({
+      kind: z.literal("entity"),
+      typeId: identifierSchema,
+    })
+    .strict(),
   z.object({ kind: z.literal("integer") }).strict(),
   z
     .object({
@@ -79,6 +85,12 @@ const exactValueSchema: z.ZodType<ExactValue> = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("decimal"),
       value: canonicalDecimalSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("entity"),
+      value: identifierSchema,
     })
     .strict(),
   z
@@ -525,6 +537,13 @@ function validateBundle(bundle: RawDefinitionBundle): void {
 
   for (const definition of bundle.types) {
     assertUniqueIds(definition.attributes, `attribute in ${definition.id}`);
+    for (const attribute of definition.attributes) {
+      assertKnownEntityType(
+        attribute.valueType,
+        `${definition.id} attribute ${attribute.id}`,
+        typeIds,
+      );
+    }
   }
   for (const definition of bundle.relations) {
     if (!typeIds.has(definition.sourceType)) {
@@ -540,11 +559,44 @@ function validateBundle(bundle: RawDefinitionBundle): void {
         `relation ${definition.id} references unknown target type ${definition.target.typeId}`,
       );
     }
+    if (definition.target.kind === "value") {
+      assertKnownEntityType(
+        definition.target.valueType,
+        `relation ${definition.id}`,
+        typeIds,
+      );
+    }
   }
   for (const definition of bundle.computations) {
+    for (const input of definition.inputs) {
+      assertKnownEntityType(
+        input.valueType,
+        `${definition.id} input ${input.id}`,
+        typeIds,
+      );
+    }
+    assertKnownEntityType(
+      definition.returns,
+      `${definition.id} return`,
+      typeIds,
+    );
     validateExecutable(definition.id, definition.inputs, definition.expression, relationIds);
   }
   for (const definition of bundle.actions) {
+    for (const input of definition.inputs) {
+      assertKnownEntityType(
+        input.valueType,
+        `${definition.id} input ${input.id}`,
+        typeIds,
+      );
+    }
+    for (const output of definition.outputs ?? []) {
+      assertKnownEntityType(
+        output.valueType,
+        `${definition.id} output ${output.id}`,
+        typeIds,
+      );
+    }
     assertUniqueIds(definition.outputs ?? [], `output in ${definition.id}`);
     assertUniqueBy(
       definition.effects,
@@ -729,6 +781,8 @@ function copyValueType(valueType: ValueType): ValueType {
       return { kind: "bool" };
     case "decimal":
       return { kind: "decimal" };
+    case "entity":
+      return { kind: "entity", typeId: valueType.typeId };
     case "integer":
       return { kind: "integer" };
     case "quantity":
@@ -770,6 +824,8 @@ function copyExactValue(value: ExactValue): ExactValue {
       return { kind: "bool", value: value.value };
     case "decimal":
       return { kind: "decimal", value: value.value };
+    case "entity":
+      return { kind: "entity", value: value.value };
     case "integer":
       return { kind: "integer", value: value.value };
     case "quantity":
@@ -780,6 +836,16 @@ function copyExactValue(value: ExactValue): ExactValue {
       const exhaustive: never = value;
       return exhaustive;
     }
+  }
+}
+
+function assertKnownEntityType(
+  valueType: ValueType,
+  owner: string,
+  typeIds: ReadonlySet<string>,
+): void {
+  if (valueType.kind === "entity" && !typeIds.has(valueType.typeId)) {
+    throw new Error(`${owner} references unknown type ${valueType.typeId}`);
   }
 }
 

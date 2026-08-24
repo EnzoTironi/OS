@@ -1,6 +1,7 @@
 export type ValueType =
   | { readonly kind: "bool" }
   | { readonly kind: "decimal" }
+  | { readonly kind: "entity"; readonly typeId: string }
   | { readonly kind: "integer" }
   | { readonly kind: "quantity"; readonly unit: string }
   | { readonly kind: "text" };
@@ -8,6 +9,7 @@ export type ValueType =
 export type ExactValue =
   | { readonly kind: "bool"; readonly value: boolean }
   | { readonly kind: "decimal"; readonly value: string }
+  | { readonly kind: "entity"; readonly value: string }
   | { readonly kind: "integer"; readonly value: string }
   | {
       readonly kind: "quantity";

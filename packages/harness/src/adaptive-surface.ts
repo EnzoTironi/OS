@@ -252,6 +252,12 @@ function actionInput(
     case "integer":
     case "text":
       return { inputId: input.id, label, valueType: { kind: input.kind } };
+    case "entity":
+      return {
+        inputId: input.id,
+        label,
+        valueType: { kind: "entity", typeId: input.typeId },
+      };
     case "quantity":
       return {
         inputId: input.id,
