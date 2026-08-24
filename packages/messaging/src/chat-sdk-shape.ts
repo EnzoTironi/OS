@@ -1,10 +1,9 @@
 /**
  * Chat SDK-shaped adapter surface owned by packages/messaging.
  *
- * Deviation from synthesis: no `vercel/chat` / `@chat-adapter/*` npm dependency
- * yet — those packages are not in the workspace lockfile. This interface mirrors
- * the Card/Thread/Adapter seam so live adapters can land later without changing
- * Zoen contracts in @zoen/interaction.
+ * Live Telegram may import `@chat-adapter/telegram` in this package only.
+ * Zoen contracts stay in `@zoen/interaction`. crates, zoend, interaction,
+ * surface, and sdk must not import chat.
  */
 
 import type { CapabilityProbes } from "./capability-probes.js";
