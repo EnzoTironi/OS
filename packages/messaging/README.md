@@ -5,15 +5,16 @@ Sole Chat SDK / provider-adapter site for Zoen.
 Zoen contracts live in `@zoen/interaction`. This package maps provider events to
 those contracts and lowers `DeliveryIntent` back to provider sends.
 
-## Deviation: no `vercel/chat` npm dependency yet
-
-`vercel/chat` and `@chat-adapter/*` are not present in the workspace lockfile.
-AD-02.1 ships a Chat SDK-shaped adapter interface (`src/chat-sdk-shape.ts`).
-In-process fake adapters were removed from main; restore issues are #326 #327
-#329 and the code lives on `backup/stubs-channels`.
-AD-02.3 adds `createLiveLinqProvider` against `api.linqapp.com` with Standard
-Webhooks verify, outbound allowlist, and env-gated fail-closed advertise.
+`createLiveLinqProvider` talks to `api.linqapp.com` with Standard Webhooks
+verify, outbound allowlist, and env-gated fail-closed advertise.
 `createLiveWhatsAppProvider` wraps CompanionSession (whatsmeow Go process).
 Advertise fails closed without `ZOEN_WHATSAPP_DOOR_E164` and a ready session.
 Never `@chat-adapter/whatsapp`. Cloud API envelopes are rejected.
+
+`createLiveTelegramProvider` is the live Bot API adapter. Official
+`@chat-adapter/telegram` is imported here only. Advertise fails closed without
+`TELEGRAM_BOT_TOKEN` (or `ZOEN_TELEGRAM_BOT_TOKEN`). Webhook is the production
+path. Polling is local-dev only (`TELEGRAM_INGRESS_MODE=polling`).
+`createFakeTelegramProvider` does not return.
+
 Chat SDK types stay in this package only.

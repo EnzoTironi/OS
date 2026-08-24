@@ -6,6 +6,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@chat-adapter/telegram": "^4.38.1",
     "@zoen/interaction": "*",
     "@zoen/surface": "*"
   }

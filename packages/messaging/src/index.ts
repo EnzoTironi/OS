@@ -67,6 +67,27 @@ export {
   type WhatsAppMessagingIngress,
 } from "./whatsapp-ingress.js";
 export {
+  assertLiveTelegramAdvertisement,
+  createLiveTelegramProvider,
+  createLiveTelegramProviderFromEnv,
+  parseTelegramBotUpdate,
+  readTelegramBotTokenFromEnv,
+  readTelegramIngressModeFromEnv,
+  requireTelegramBotToken,
+  verifyTelegramWebhookSecret,
+  LiveTelegramConfigError,
+  TelegramEnvelopeError,
+  TelegramWebhookSecretError,
+  type LiveTelegramProvider,
+  type LiveTelegramProviderOptions,
+  type TelegramIngressMode,
+} from "./adapters/telegram-live.js";
+export {
+  createTelegramMessagingIngress,
+  evaluateTelegramAdvertisement,
+  type TelegramMessagingIngress,
+} from "./telegram-ingress.js";
+export {
   extractStandardWebhookHeaders,
   generateWhsecSecret,
   signStandardWebhook,

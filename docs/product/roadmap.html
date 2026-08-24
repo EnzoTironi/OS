@@ -117,7 +117,7 @@
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
-  <span class="stat-count">3</span>
+  <span class="stat-count">2</span>
   <span class="stat-label">DON'T HAVE</span>
 </button>
 <button class="stat" data-filter="stub-on-main" type="button">
@@ -125,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">1</span>
+  <span class="stat-count">2</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -165,7 +165,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/329">#329</a>
     
     <strong>Live Telegram adapter</strong>
-    <p>Waiting on a bot token. Do not restore the fake.</p>
+    <p>In flight. Live Bot API adapter behind MessagingGateway. Advertise fails closed without TELEGRAM_BOT_TOKEN. Webhook is production. Do not restore the fake.</p>
   </div>
 </li>
 <li>
@@ -509,17 +509,6 @@
     </thead>
     <tbody>
 <tr data-status="dont-have">
-  <td><code>telegram-live</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Telegram channel</div>
-    <div class="path">packages/messaging/src/adapters/telegram-fake.ts</div>
-    <div class="blocker">Blocked on Telegram bot token</div>
-  </td>
-  <td>Not on main. Fake was removed. Code on backup/stubs-channels. Restore as live Bot API on #329.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/329">#329</a></td>
-</tr>
-<tr data-status="dont-have">
   <td><code>messaging-conformance-live</code></td>
   <td>channels</td>
   <td>
@@ -559,6 +548,17 @@
       </tr>
     </thead>
     <tbody>
+<tr data-status="in-flight">
+  <td><code>telegram-live</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Telegram channel</div>
+    <div class="path">packages/messaging/src/adapters/telegram-fake.ts</div>
+    <div class="blocker">Blocked on Telegram bot token</div>
+  </td>
+  <td>just e2e channel-telegram-live. Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/329">#329</a></td>
+</tr>
 <tr data-status="in-flight">
   <td><code>whatsapp-unofficial</code></td>
   <td>channels</td>

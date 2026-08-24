@@ -5,7 +5,7 @@ use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use reqwest::Client;
@@ -30,17 +30,67 @@ pub fn from_env() -> IngressState {
 
 pub fn router(state: IngressState) -> Router {
     Router::new()
-        .route("/channels/whatsapp/advertise", get(advertise))
-        .route("/channels/whatsapp/inbound", post(inbound))
+        .route("/channels/whatsapp/advertise", get(whatsapp_advertise))
+        .route("/channels/whatsapp/inbound", post(whatsapp_inbound))
+        .route("/channels/telegram/advertise", get(telegram_advertise))
+        .route("/channels/telegram/inbound", post(telegram_inbound))
         .with_state(Arc::new(state))
 }
 
-async fn advertise(State(state): State<Arc<IngressState>>) -> Response {
-    proxy(&state, reqwest::Method::GET, "/advertise", None).await
+async fn whatsapp_advertise(State(state): State<Arc<IngressState>>) -> Response {
+    proxy(
+        &state,
+        reqwest::Method::GET,
+        "/advertise",
+        None,
+        None,
+        "whatsapp_not_advertised",
+    )
+    .await
 }
 
-async fn inbound(State(state): State<Arc<IngressState>>, body: Bytes) -> Response {
-    proxy(&state, reqwest::Method::POST, "/inbound", Some(body)).await
+async fn whatsapp_inbound(State(state): State<Arc<IngressState>>, body: Bytes) -> Response {
+    proxy(
+        &state,
+        reqwest::Method::POST,
+        "/inbound",
+        Some(body),
+        None,
+        "whatsapp_not_advertised",
+    )
+    .await
+}
+
+async fn telegram_advertise(State(state): State<Arc<IngressState>>) -> Response {
+    proxy(
+        &state,
+        reqwest::Method::GET,
+        "/advertise",
+        None,
+        None,
+        "telegram_not_advertised",
+    )
+    .await
+}
+
+async fn telegram_inbound(
+    State(state): State<Arc<IngressState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let secret = headers
+        .get("x-telegram-bot-api-secret-token")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    proxy(
+        &state,
+        reqwest::Method::POST,
+        "/inbound",
+        Some(body),
+        secret.as_deref(),
+        "telegram_not_advertised",
+    )
+    .await
 }
 
 async fn proxy(
@@ -48,9 +98,11 @@ async fn proxy(
     method: reqwest::Method,
     path: &str,
     body: Option<Bytes>,
+    secret_token: Option<&str>,
+    missing_error: &'static str,
 ) -> Response {
     let Some(base) = state.gateway_url.as_deref() else {
-        return unavailable("messaging_gateway_url_missing");
+        return unavailable(missing_error, "messaging_gateway_url_missing");
     };
     let url = format!("{base}{path}");
     let mut request = state
@@ -61,6 +113,9 @@ async fn proxy(
         request = request
             .header("content-type", "application/json")
             .body(payload);
+    }
+    if let Some(secret) = secret_token {
+        request = request.header("x-telegram-bot-api-secret-token", secret);
     }
     match request.send().await {
         Ok(upstream) => {
@@ -73,15 +128,15 @@ async fn proxy(
                 .body(axum::body::Body::from(bytes))
                 .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
         }
-        Err(_) => unavailable("messaging_gateway_unreachable"),
+        Err(_) => unavailable(missing_error, "messaging_gateway_unreachable"),
     }
 }
 
-fn unavailable(reason: &'static str) -> Response {
+fn unavailable(error: &'static str, reason: &'static str) -> Response {
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(json!({
-            "error": "whatsapp_not_advertised",
+            "error": error,
             "reason": reason
         })),
     )
