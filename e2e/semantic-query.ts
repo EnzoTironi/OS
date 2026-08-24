@@ -33,6 +33,7 @@ import {
   QuerySelectionSchema,
   StrongConsistencySchema,
   TemporalIntervalSchema,
+  TypeQuerySchema,
   ValidTimeSchema,
   WorldService,
   type DefinitionReference as WorldDefinitionReference,
@@ -58,13 +59,15 @@ const definitionPath = path.join(
   "semantic-query",
   "definition.canonical.json",
 );
-const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
-const workerPath = path.join(
-  repositoryRoot,
-  "target",
-  "debug",
-  "zoen-projection",
-);
+const cargoTargetDir = (() => {
+  const raw = process.env.CARGO_TARGET_DIR;
+  if (raw === undefined || raw === "") {
+    return path.join(repositoryRoot, "target");
+  }
+  return path.isAbsolute(raw) ? raw : path.join(repositoryRoot, raw);
+})();
+const serverPath = path.join(cargoTargetDir, "debug", "zoend");
+const workerPath = path.join(cargoTargetDir, "debug", "zoen-projection");
 const postgresPortFallback = 55_433;
 const zoendPortFallback = 58_081;
 const minioPortFallback = 59_000;
@@ -99,6 +102,10 @@ const tokenResponseSchema = z
 const onHand = "world.onHand";
 const reserved = "world.reserved";
 const available = "world.available";
+const binCount = "world.binCount";
+const binOne = "entity.bin.one";
+const binTwo = "entity.bin.two";
+const binThree = "entity.bin.three";
 const validStart = new Date("2025-01-01T00:00:00.000Z");
 const validEnd = new Date("2025-02-01T00:00:00.000Z");
 const validAt = new Date("2025-01-15T00:00:00.000Z");
@@ -692,6 +699,90 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(integerValues(finalRivals), ["10", "11", "12"]);
 
+    assert.equal(
+      await recordInterval(worldA, {
+        claimId: "claim.bin.one",
+        definition,
+        end: validEnd,
+        entityId: binOne,
+        relationId: binCount,
+        sourceId: "source.bin",
+        start: validStart,
+        tenantId: tenantA,
+        value: "1",
+      }),
+      10n,
+    );
+    assert.equal(
+      await recordInterval(worldA, {
+        claimId: "claim.bin.two",
+        definition,
+        end: validEnd,
+        entityId: binTwo,
+        relationId: binCount,
+        sourceId: "source.bin",
+        start: validStart,
+        tenantId: tenantA,
+        value: "2",
+      }),
+      11n,
+    );
+    assert.equal(
+      await recordInterval(worldA, {
+        claimId: "claim.bin.three",
+        definition,
+        end: validEnd,
+        entityId: binThree,
+        relationId: binCount,
+        sourceId: "source.bin",
+        start: validStart,
+        tenantId: tenantA,
+        value: "3",
+      }),
+      12n,
+    );
+    const binIds = [binOne, binTwo, binThree];
+    const typeLimited = await query(worldA, {
+      consistency: strong(),
+      definition,
+      tenantId: tenantA,
+      typeQuery: { limit: 2, typeId: "world.Bin" },
+      validAt,
+    });
+    const limitedIds = entityValues(typeLimited);
+    assert.equal(limitedIds.length, 2);
+    for (const id of limitedIds) {
+      assert.ok(binIds.includes(id));
+    }
+    assert.equal(
+      typeLimited.values.every((result) => result.dependencies.length === 0),
+      true,
+    );
+    recordAssertion("typeQueryLimitExcludesThird");
+    const typeAll = await query(worldA, {
+      consistency: strong(),
+      definition,
+      tenantId: tenantA,
+      typeQuery: { limit: 10, typeId: "world.Bin" },
+      validAt,
+    });
+    assert.deepEqual(entityValues(typeAll).sort(), binIds.slice().sort());
+    assert.equal(
+      entityValues(typeAll).includes(entityId) ||
+        entityValues(typeAll).includes("entity.overflow"),
+      false,
+    );
+    recordAssertion("typeQueryReturnsEntitiesOfType");
+    const items = await query(worldA, {
+      consistency: strong(),
+      definition,
+      tenantId: tenantA,
+      typeQuery: { limit: 2, typeId: "world.Item" },
+      validAt,
+    });
+    assert.deepEqual(entityValues(items).sort(), [entityId, "entity.overflow"].sort());
+    recordAssertion("typeQueryDoesNotReturnOtherTypes");
+
     const postgresVersion = (
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
@@ -864,9 +955,10 @@ async function record(
 interface QueryInput {
   consistency: QueryConsistency;
   definition: WorldDefinitionReference;
-  entityId: string;
-  selection: QuerySelection;
+  entityId?: string;
+  selection?: QuerySelection;
   tenantId: string;
+  typeQuery?: { limit: number; typeId: string };
   validAt: Date;
 }
 
@@ -874,7 +966,16 @@ async function query(client: WorldClient, input: QueryInput) {
   const response = await client.semanticQuery({
     consistency: input.consistency,
     definition: input.definition,
-    entityId: input.entityId,
+    entityId: input.entityId ?? "",
+    query: input.typeQuery
+      ? {
+          case: "byType" as const,
+          value: create(TypeQuerySchema, {
+            limit: input.typeQuery.limit,
+            typeId: input.typeQuery.typeId,
+          }),
+        }
+      : { case: undefined },
     selection: input.selection,
     tenantId: input.tenantId,
     validAt: timestampFromDate(input.validAt),
@@ -933,6 +1034,13 @@ function computation(computationId: string) {
 function integerValues(response: Awaited<ReturnType<typeof query>>): string[] {
   return response.values.map((result) => {
     assert.equal(result.value?.value.case, "integerValue");
+    return String(result.value.value.value);
+  });
+}
+
+function entityValues(response: Awaited<ReturnType<typeof query>>): string[] {
+  return response.values.map((result) => {
+    assert.equal(result.value?.value.case, "entityRefValue");
     return String(result.value.value.value);
   });
 }
