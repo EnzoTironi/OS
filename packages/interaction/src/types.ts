@@ -148,6 +148,8 @@ export interface InteractionControl {
   readonly tenantId: TenantIdString;
   readonly principalId: PrincipalIdString;
   readonly proposalRef?: string;
+  /** Action operation identity sealed at issue; required for step-up commit. */
+  readonly operationId?: string;
   readonly actionBindingId?: string;
   readonly nonce: string;
   readonly expiresAt: string;
@@ -208,6 +210,7 @@ export interface ApprovalControl {
   readonly tenantId: TenantIdString;
   readonly principalId: PrincipalIdString;
   readonly proposalRef: ProposalRef;
+  readonly operationId?: string;
   readonly actionBindingId: string;
   readonly actionRef: SealedActionRef;
   readonly disclosure: AudienceDisclosure;
@@ -223,6 +226,7 @@ export interface IssueApprovalControlInput {
   readonly tenantId: TenantIdString;
   readonly principalId: PrincipalIdString;
   readonly proposalRef: ProposalRef;
+  readonly operationId?: string;
   readonly actionBindingId: string;
   readonly actionRef: SealedActionRef;
   readonly disclosure: AudienceDisclosure;
