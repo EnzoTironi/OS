@@ -1,0 +1,7 @@
+{
+  "scenario": "activation-identity",
+  "verdict": "PASS",
+  "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "fixture": true,
+  "note": "Deliberately wrong commit for fail-closed contract."
+}
