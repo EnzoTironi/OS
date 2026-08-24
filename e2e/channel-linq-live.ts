@@ -319,6 +319,11 @@ async function main(): Promise<void> {
     });
     const messaging = createMessagingGateway({
       providers: { linq: provider },
+      resolvePresentation: async (intent) => {
+        throw new Error(
+          `resolvePresentation unused in channel-linq-live for ${String(intent.presentation)}`,
+        );
+      },
     });
 
     const accepted = provider.acceptSignedWebhook(fixtureRaw, signedHeaders);

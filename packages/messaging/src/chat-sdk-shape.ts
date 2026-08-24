@@ -61,6 +61,7 @@ export interface ChatSdkDeliveryReceipt {
 /** In-process Chat SDK-shaped provider. Never exported from @zoen/interaction. */
 export interface ChatSdkShapedAdapter {
   readonly providerId: string;
+  readonly threadKind: ChatSdkThreadRef["kind"];
   readonly probes: CapabilityProbes;
   parseInbound(raw: unknown): ChatSdkMessage;
   send(outbound: ChatSdkOutbound): Promise<ChatSdkDeliveryReceipt>;

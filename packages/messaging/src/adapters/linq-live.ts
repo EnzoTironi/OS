@@ -197,6 +197,7 @@ export function createLiveLinqProvider(
     kind: "live",
     providerId: "linq",
     probes,
+    threadKind: "guid",
 
     lastOutbound() {
       return lastOutbound;
