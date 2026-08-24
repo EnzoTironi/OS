@@ -46,7 +46,7 @@
       "issue": 329,
       "pr": null,
       "title": "Live Telegram adapter",
-      "note": "Waiting on a bot token. Do not restore the fake."
+      "note": "In flight. Live Bot API adapter behind MessagingGateway. Advertise fails closed without TELEGRAM_BOT_TOKEN. Webhook is production. Do not restore the fake."
     },
     {
       "order": 4,
@@ -276,13 +276,13 @@
     },
     {
       "id": "telegram-live",
-      "status": "dont-have",
+      "status": "in-flight",
       "plane": "channels",
       "name": "Telegram channel",
       "onMain": false,
       "product": false,
-      "path": null,
-      "proof": "Not on main. Fake was removed. Code on backup/stubs-channels. Restore as live Bot API on #329.",
+      "path": "packages/messaging/src/adapters/telegram-live.ts, packages/messaging/src/telegram-ingress.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-telegram-live.ts",
+      "proof": "just e2e channel-telegram-live. Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted.",
       "issue": 329,
       "backup": [
         "packages/messaging/src/adapters/telegram-fake.ts"
