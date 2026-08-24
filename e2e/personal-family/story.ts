@@ -50,6 +50,7 @@ import {
   personalBillWatchdog,
 } from "./pack/personal-bill-watchdog.zoen.js";
 import {
+  actionClientForTenant,
   admin,
   applyAttentionSchema,
   baseUrl,
@@ -598,8 +599,42 @@ export async function main(): Promise<PersonalFamilyEvidence> {
     );
 
     const personalProposeId = `prop.personal.${randomUUID()}`;
+    const personalOperationId = `op.personal.${randomUUID()}`;
+    const personalActions = actionClientForTenant(boundToken, personalTenant);
+    const personalPropose = await personalActions.propose({
+      actionId: "inventory.requestStock",
+      definition: definitionRef,
+      expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
+      inputs: [integerInput("quantity", "1")],
+      operationId: personalOperationId,
+      proposalId: personalProposeId,
+      resourceId: sharedEntityId,
+      validAt: timestampFromDate(new Date("2026-08-19T00:00:00.000Z")),
+    });
+    assert.ok(
+      personalPropose.proposal,
+      `personal propose missing proposal (decision=${String(personalPropose.decision)})`,
+    );
+    record(
+      "personal_bound_jwt_propose_uses_membership_principal",
+      String(personalPropose.trustedContext?.tenantId ?? "") === personalTenant &&
+        String(personalPropose.trustedContext?.principalId ?? "") ===
+          personalPrincipal,
+    );
+    const personalCommit = await personalActions.commit({
+      operationId: personalOperationId,
+      proposalId: personalProposeId,
+    });
+    record(
+      "personal_bound_jwt_can_commit",
+      personalCommit.receipt !== undefined &&
+        String(personalPropose.trustedContext?.principalId ?? "") ===
+          personalPrincipal,
+    );
+
     const enterpriseActions = actionClient(unboundToken);
     let baitActionDenied = false;
+    let baitDenialMembership = false;
     try {
       await actionClient(boundToken).propose({
         actionId: "inventory.requestStock",
@@ -611,12 +646,14 @@ export async function main(): Promise<PersonalFamilyEvidence> {
         resourceId: sharedEntityId,
         validAt: timestampFromDate(new Date("2026-08-19T00:00:00.000Z")),
       });
-    } catch {
+    } catch (error) {
       baitActionDenied = true;
+      const message = error instanceof Error ? error.message : String(error);
+      baitDenialMembership = /membership not found/i.test(message);
     }
     record(
       "bound_jwt_evil_hint_cannot_act_without_membership",
-      baitActionDenied,
+      baitActionDenied && baitDenialMembership,
     );
 
     let enterpriseCommitFailed = false;
@@ -686,6 +723,27 @@ export async function main(): Promise<PersonalFamilyEvidence> {
       tenantId: familyTenantId,
       value: "10",
     });
+
+    const familyBiasedActions = actionClientForTenant(boundToken, familyTenantId);
+    const familyBiasedPropose = await familyBiasedActions.propose({
+      actionId: "inventory.requestStock",
+      definition: definitionRef,
+      expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
+      inputs: [integerInput("quantity", "1")],
+      operationId: `op.family.biased.${randomUUID()}`,
+      proposalId: `prop.family.biased.${randomUUID()}`,
+      resourceId: sharedEntityId,
+      validAt: timestampFromDate(new Date("2026-08-19T00:00:00.000Z")),
+    });
+    record(
+      "action_client_request_tenant_selects_tec",
+      String(familyBiasedPropose.trustedContext?.tenantId ?? "") ===
+        familyTenantId &&
+        String(familyBiasedPropose.trustedContext?.principalId ?? "") !==
+          personalPrincipal &&
+        String(personalPropose.trustedContext?.tenantId ?? "") === personalTenant,
+    );
+    killMutant("action-client-ignores-request-tenant");
 
     const viewerActions = actionClient(familyViewerToken);
     const approverActions = actionClient(familyApproverToken);

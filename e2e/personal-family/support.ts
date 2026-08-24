@@ -1,13 +1,24 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  createClient,
+  type Client,
+  type Interceptor,
+} from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
+import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "../host-env.js";
+
+export const tenantHeader = "x-zoen-tenant";
+
+export type ActionClient = Client<typeof ActionService>;
 
 export const scenario = "personal-family";
 export const repositoryRoot = process.cwd();
@@ -165,5 +176,25 @@ export async function resolveContext(
     `/identity/admin/resolve-context?tenant=${encodeURIComponent(tenant)}`,
     undefined,
     token,
+  );
+}
+
+/** Action client that selects TEC via membership tenant, not JWT tenant_id. */
+export function actionClientForTenant(
+  token: string,
+  tenantId: string,
+): ActionClient {
+  const intercept: Interceptor = (next) => async (request) => {
+    request.header.set("authorization", `Bearer ${token}`);
+    request.header.set(tenantHeader, tenantId);
+    return next(request);
+  };
+  return createClient(
+    ActionService,
+    createConnectTransport({
+      baseUrl,
+      httpVersion: "1.1",
+      interceptors: [intercept],
+    }),
   );
 }
