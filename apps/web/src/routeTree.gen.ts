@@ -12,15 +12,19 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAdaptiveSurfaceRouteImport } from './routes/api.adaptive-surface'
 import { Route as ApiConfigRouteImport } from './routes/api.config'
+import { Route as ApproveControlRefRouteImport } from './routes/approve.$controlRef'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding.index'
+import { Route as PacksIndexRouteImport } from './routes/packs.index'
+import { Route as PacksDigestRouteImport } from './routes/packs.$digest'
 import { Route as RpcSplatRouteImport } from './routes/rpc.$'
 import { Route as ApiOnboardingBeginGrantRouteImport } from './routes/api.onboarding.begin-grant'
 import { Route as ApiOnboardingCaptureRouteImport } from './routes/api.onboarding.capture'
 import { Route as ApiOnboardingResumeRouteImport } from './routes/api.onboarding.resume'
-import { Route as OnboardingAuthCallbackRouteImport } from './routes/onboarding.auth.callback'
-import { Route as ApproveControlRefRouteImport } from './routes/approve.$controlRef'
+import { Route as ApiPacksOpenRouteImport } from './routes/api.packs.open'
+import { Route as ApiPacksSearchRouteImport } from './routes/api.packs.search'
 import { Route as ApproveAuthCallbackRouteImport } from './routes/approve.auth.callback'
+import { Route as OnboardingAuthCallbackRouteImport } from './routes/onboarding.auth.callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -37,6 +41,11 @@ const ApiConfigRoute = ApiConfigRouteImport.update({
   path: '/api/config',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApproveControlRefRoute = ApproveControlRefRouteImport.update({
+  id: '/approve/$controlRef',
+  path: '/approve/$controlRef',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
   id: '/auth/callback',
   path: '/auth/callback',
@@ -45,6 +54,16 @@ const AuthCallbackRoute = AuthCallbackRouteImport.update({
 const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
   id: '/onboarding/',
   path: '/onboarding/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PacksIndexRoute = PacksIndexRouteImport.update({
+  id: '/packs/',
+  path: '/packs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PacksDigestRoute = PacksDigestRouteImport.update({
+  id: '/packs/$digest',
+  path: '/packs/$digest',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RpcSplatRoute = RpcSplatRouteImport.update({
@@ -67,14 +86,14 @@ const ApiOnboardingResumeRoute = ApiOnboardingResumeRouteImport.update({
   path: '/api/onboarding/resume',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OnboardingAuthCallbackRoute = OnboardingAuthCallbackRouteImport.update({
-  id: '/onboarding/auth/callback',
-  path: '/onboarding/auth/callback',
+const ApiPacksOpenRoute = ApiPacksOpenRouteImport.update({
+  id: '/api/packs/open',
+  path: '/api/packs/open',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApproveControlRefRoute = ApproveControlRefRouteImport.update({
-  id: '/approve/$controlRef',
-  path: '/approve/$controlRef',
+const ApiPacksSearchRoute = ApiPacksSearchRouteImport.update({
+  id: '/api/packs/search',
+  path: '/api/packs/search',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApproveAuthCallbackRoute = ApproveAuthCallbackRouteImport.update({
@@ -82,49 +101,66 @@ const ApproveAuthCallbackRoute = ApproveAuthCallbackRouteImport.update({
   path: '/approve/auth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingAuthCallbackRoute = OnboardingAuthCallbackRouteImport.update({
+  id: '/onboarding/auth/callback',
+  path: '/onboarding/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/adaptive-surface': typeof ApiAdaptiveSurfaceRoute
   '/api/config': typeof ApiConfigRoute
+  '/approve/$controlRef': typeof ApproveControlRefRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/packs/$digest': typeof PacksDigestRoute
   '/rpc/$': typeof RpcSplatRoute
   '/onboarding/': typeof OnboardingIndexRoute
+  '/packs/': typeof PacksIndexRoute
   '/api/onboarding/begin-grant': typeof ApiOnboardingBeginGrantRoute
   '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
-  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
-  '/approve/$controlRef': typeof ApproveControlRefRoute
+  '/api/packs/open': typeof ApiPacksOpenRoute
+  '/api/packs/search': typeof ApiPacksSearchRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
+  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/adaptive-surface': typeof ApiAdaptiveSurfaceRoute
   '/api/config': typeof ApiConfigRoute
+  '/approve/$controlRef': typeof ApproveControlRefRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/packs/$digest': typeof PacksDigestRoute
   '/rpc/$': typeof RpcSplatRoute
   '/onboarding': typeof OnboardingIndexRoute
+  '/packs': typeof PacksIndexRoute
   '/api/onboarding/begin-grant': typeof ApiOnboardingBeginGrantRoute
   '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
-  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
-  '/approve/$controlRef': typeof ApproveControlRefRoute
+  '/api/packs/open': typeof ApiPacksOpenRoute
+  '/api/packs/search': typeof ApiPacksSearchRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
+  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/adaptive-surface': typeof ApiAdaptiveSurfaceRoute
   '/api/config': typeof ApiConfigRoute
+  '/approve/$controlRef': typeof ApproveControlRefRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/packs/$digest': typeof PacksDigestRoute
   '/rpc/$': typeof RpcSplatRoute
   '/onboarding/': typeof OnboardingIndexRoute
+  '/packs/': typeof PacksIndexRoute
   '/api/onboarding/begin-grant': typeof ApiOnboardingBeginGrantRoute
   '/api/onboarding/capture': typeof ApiOnboardingCaptureRoute
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
-  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
-  '/approve/$controlRef': typeof ApproveControlRefRoute
+  '/api/packs/open': typeof ApiPacksOpenRoute
+  '/api/packs/search': typeof ApiPacksSearchRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
+  '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -132,58 +168,74 @@ export interface FileRouteTypes {
     | '/'
     | '/api/adaptive-surface'
     | '/api/config'
+    | '/approve/$controlRef'
     | '/auth/callback'
+    | '/packs/$digest'
     | '/rpc/$'
     | '/onboarding/'
+    | '/packs/'
     | '/api/onboarding/begin-grant'
     | '/api/onboarding/capture'
     | '/api/onboarding/resume'
-    | '/onboarding/auth/callback'
-    | '/approve/$controlRef'
+    | '/api/packs/open'
+    | '/api/packs/search'
     | '/approve/auth/callback'
+    | '/onboarding/auth/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/api/adaptive-surface'
     | '/api/config'
+    | '/approve/$controlRef'
     | '/auth/callback'
+    | '/packs/$digest'
     | '/rpc/$'
     | '/onboarding'
+    | '/packs'
     | '/api/onboarding/begin-grant'
     | '/api/onboarding/capture'
     | '/api/onboarding/resume'
-    | '/onboarding/auth/callback'
-    | '/approve/$controlRef'
+    | '/api/packs/open'
+    | '/api/packs/search'
     | '/approve/auth/callback'
+    | '/onboarding/auth/callback'
   id:
     | '__root__'
     | '/'
     | '/api/adaptive-surface'
     | '/api/config'
+    | '/approve/$controlRef'
     | '/auth/callback'
+    | '/packs/$digest'
     | '/rpc/$'
     | '/onboarding/'
+    | '/packs/'
     | '/api/onboarding/begin-grant'
     | '/api/onboarding/capture'
     | '/api/onboarding/resume'
-    | '/onboarding/auth/callback'
-    | '/approve/$controlRef'
+    | '/api/packs/open'
+    | '/api/packs/search'
     | '/approve/auth/callback'
+    | '/onboarding/auth/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiAdaptiveSurfaceRoute: typeof ApiAdaptiveSurfaceRoute
   ApiConfigRoute: typeof ApiConfigRoute
+  ApproveControlRefRoute: typeof ApproveControlRefRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
+  PacksDigestRoute: typeof PacksDigestRoute
   RpcSplatRoute: typeof RpcSplatRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
+  PacksIndexRoute: typeof PacksIndexRoute
   ApiOnboardingBeginGrantRoute: typeof ApiOnboardingBeginGrantRoute
   ApiOnboardingCaptureRoute: typeof ApiOnboardingCaptureRoute
   ApiOnboardingResumeRoute: typeof ApiOnboardingResumeRoute
-  OnboardingAuthCallbackRoute: typeof OnboardingAuthCallbackRoute
-  ApproveControlRefRoute: typeof ApproveControlRefRoute
+  ApiPacksOpenRoute: typeof ApiPacksOpenRoute
+  ApiPacksSearchRoute: typeof ApiPacksSearchRoute
   ApproveAuthCallbackRoute: typeof ApproveAuthCallbackRoute
+  OnboardingAuthCallbackRoute: typeof OnboardingAuthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -209,6 +261,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/approve/$controlRef': {
+      id: '/approve/$controlRef'
+      path: '/approve/$controlRef'
+      fullPath: '/approve/$controlRef'
+      preLoaderRoute: typeof ApproveControlRefRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth/callback': {
       id: '/auth/callback'
       path: '/auth/callback'
@@ -221,6 +280,20 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding/'
       preLoaderRoute: typeof OnboardingIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/packs/': {
+      id: '/packs/'
+      path: '/packs'
+      fullPath: '/packs/'
+      preLoaderRoute: typeof PacksIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/packs/$digest': {
+      id: '/packs/$digest'
+      path: '/packs/$digest'
+      fullPath: '/packs/$digest'
+      preLoaderRoute: typeof PacksDigestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/rpc/$': {
@@ -251,18 +324,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOnboardingResumeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/onboarding/auth/callback': {
-      id: '/onboarding/auth/callback'
-      path: '/onboarding/auth/callback'
-      fullPath: '/onboarding/auth/callback'
-      preLoaderRoute: typeof OnboardingAuthCallbackRouteImport
+    '/api/packs/open': {
+      id: '/api/packs/open'
+      path: '/api/packs/open'
+      fullPath: '/api/packs/open'
+      preLoaderRoute: typeof ApiPacksOpenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/approve/$controlRef': {
-      id: '/approve/$controlRef'
-      path: '/approve/$controlRef'
-      fullPath: '/approve/$controlRef'
-      preLoaderRoute: typeof ApproveControlRefRouteImport
+    '/api/packs/search': {
+      id: '/api/packs/search'
+      path: '/api/packs/search'
+      fullPath: '/api/packs/search'
+      preLoaderRoute: typeof ApiPacksSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/approve/auth/callback': {
@@ -272,6 +345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApproveAuthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding/auth/callback': {
+      id: '/onboarding/auth/callback'
+      path: '/onboarding/auth/callback'
+      fullPath: '/onboarding/auth/callback'
+      preLoaderRoute: typeof OnboardingAuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -279,15 +359,19 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiAdaptiveSurfaceRoute: ApiAdaptiveSurfaceRoute,
   ApiConfigRoute: ApiConfigRoute,
+  ApproveControlRefRoute: ApproveControlRefRoute,
   AuthCallbackRoute: AuthCallbackRoute,
+  PacksDigestRoute: PacksDigestRoute,
   RpcSplatRoute: RpcSplatRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,
+  PacksIndexRoute: PacksIndexRoute,
   ApiOnboardingBeginGrantRoute: ApiOnboardingBeginGrantRoute,
   ApiOnboardingCaptureRoute: ApiOnboardingCaptureRoute,
   ApiOnboardingResumeRoute: ApiOnboardingResumeRoute,
-  OnboardingAuthCallbackRoute: OnboardingAuthCallbackRoute,
-  ApproveControlRefRoute: ApproveControlRefRoute,
+  ApiPacksOpenRoute: ApiPacksOpenRoute,
+  ApiPacksSearchRoute: ApiPacksSearchRoute,
   ApproveAuthCallbackRoute: ApproveAuthCallbackRoute,
+  OnboardingAuthCallbackRoute: OnboardingAuthCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

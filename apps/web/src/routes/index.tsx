@@ -1,5 +1,5 @@
 import { Code, ConnectError } from "@connectrpc/connect";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { createZoenBrowserClient, type ZoenBrowserClient } from "@zoen/sdk";
 import {
   JsonRenderAdapter,
@@ -50,6 +50,7 @@ import {
   currentAccessToken,
 } from "../auth.js";
 import { loadRuntimeConfig, type RuntimeConfig } from "../config.js";
+import { conversationEntryHref } from "../pack-registry.js";
 import { queryClient } from "../query-client.js";
 
 type ReadyState = {
@@ -136,24 +137,7 @@ function AuthorityPage() {
     return <StatusShell message="Generating and validating the decision." />;
   }
   if (state.kind === "signed-out") {
-    return (
-      <main className="auth-shell">
-        <section className="auth-card">
-          <span className="eyebrow">Governed semantic interface</span>
-          <h1>Zoen Surface</h1>
-          <p>
-            Sign in through the configured OIDC authority. The server derives
-            tenant and authority from the resulting token.
-          </p>
-          <button
-            onClick={() => void beginOidcLogin(state.config)}
-            type="button"
-          >
-            Sign in with OIDC
-          </button>
-        </section>
-      </main>
-    );
+    return <SignedOutHome config={state.config} />;
   }
   if (state.kind === "question") {
     return <QuestionShell state={state} setState={setState} />;
@@ -266,6 +250,101 @@ function AuthorityPage() {
           </section>
         </div>
       </SurfaceInteractionProvider>
+    </main>
+  );
+}
+
+function SignedOutHome(props: { readonly config: RuntimeConfig }) {
+  const [intent, setIntent] = useState("");
+
+  function onStartConversation(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const wording = intent.trim();
+    window.location.assign(
+      conversationEntryHref({
+        intent: wording.length > 0 ? wording : undefined,
+        referral: "ref.web.home",
+      }),
+    );
+  }
+
+  return (
+    <main className="packs-shell public-home" data-public-home="signed-out">
+      <header className="packs-header">
+        <span className="eyebrow">Executable semantic OS</span>
+        <h1 data-comprehension="problem">
+          One governed interface for meaning, evidence, authority, and action
+        </h1>
+        <p data-comprehension="problem-detail">
+          Zoen lets humans, agents, and software operate the same organization
+          through shared Query and Action contracts instead of private tool
+          stacks. Evidence stays attributable. Belief is not automatic truth.
+        </p>
+      </header>
+
+      <section className="packs-card" data-try-now="home">
+        <h2>Try right now</h2>
+        <p data-comprehension="try-now">
+          Browse outcome Packs, start a conversation into onboarding, or sign
+          in for Sample Company. There is no fake chat backend on this page.
+        </p>
+        <div className="packs-actions">
+          <Link data-public-nav="packs" to="/packs/">
+            Open Pack directory
+          </Link>
+          <button
+            onClick={() => void beginOidcLogin(props.config)}
+            type="button"
+          >
+            Sign in with OIDC
+          </button>
+        </div>
+      </section>
+
+      <section
+        className="packs-card"
+        data-conversation-entry="home-landing"
+      >
+        <h2>Start from an outcome</h2>
+        <p>
+          Conversation entry preserves pack, referral, and intent into
+          onboarding as domainHints. Pack identity remains PackDigest.
+        </p>
+        <form onSubmit={onStartConversation}>
+          <label className="field" htmlFor="home-intent">
+            <span>What should Zoen take care of?</span>
+            <textarea
+              data-conversation-field="intent"
+              id="home-intent"
+              maxLength={4000}
+              name="intent"
+              onChange={(event) => setIntent(event.target.value)}
+              placeholder="why inventory disagrees with the warehouse"
+              rows={3}
+              value={intent}
+            />
+          </label>
+          <button data-conversation-action="start" type="submit">
+            Continue to onboarding
+          </button>
+        </form>
+      </section>
+
+      <section className="packs-card">
+        <h2>Not an agent bolted onto APIs</h2>
+        <p data-comprehension="difference">
+          Zoen is not an agent bolted onto APIs. Actions are governed and
+          revalidated before commit. Cedar and publish/activate stay on the
+          path. Local commit is not remote success. History and ontology
+          revisions stay reproducible. Self-host keeps the same signed
+          artifacts.
+        </p>
+      </section>
+
+      <aside className="packs-note" data-comprehension="unsure" role="note">
+        When Zoen is unsure, or an external effect is ambiguous, the outcome can
+        stay unknown until reconciliation. Blind retry stays forbidden.
+      </aside>
     </main>
   );
 }

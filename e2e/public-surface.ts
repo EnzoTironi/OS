@@ -158,8 +158,11 @@ async function main(): Promise<void> {
     /outcome/i.test(packsDirectory) && /#260/.test(packsDirectory),
   );
   record(
-    "pack_directory_names_kitchen_in_flight",
-    /#264/.test(packsDirectory) && /in flight/i.test(packsDirectory),
+    "pack_directory_names_kitchen_landed",
+    /#264/.test(packsDirectory) &&
+      /has landed/i.test(packsDirectory) &&
+      /pack-kitchen/i.test(packsDirectory) &&
+      !/in flight/i.test(packsDirectory),
   );
   record(
     "pack_directory_rejects_marketplace_commerce",
