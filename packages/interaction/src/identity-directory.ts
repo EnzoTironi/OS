@@ -21,6 +21,26 @@ export interface IdentityDirectory {
   }): Promise<ResolvedChannelIdentity>;
 }
 
+export type ChannelSubjectResolveFailure =
+  | { readonly kind: "unbound"; readonly message: string }
+  | { readonly kind: "merged"; readonly message: string }
+  | { readonly kind: "inactive_membership"; readonly message: string }
+  | { readonly kind: "tenant_hint_miss"; readonly message: string };
+
+export class ChannelSubjectResolveError extends Error {
+  readonly failure: ChannelSubjectResolveFailure;
+
+  constructor(failure: ChannelSubjectResolveFailure) {
+    super(failure.message);
+    this.name = "ChannelSubjectResolveError";
+    this.failure = failure;
+  }
+
+  get kind(): ChannelSubjectResolveFailure["kind"] {
+    return this.failure.kind;
+  }
+}
+
 /** ProviderKey is already a ChannelProvider.as_str() value. */
 export function toChannelProvider(provider: ProviderKey): string {
   return String(provider);
@@ -56,8 +76,8 @@ export interface IdentityDirectoryClientOptions {
 }
 
 /**
- * Tiny HTTP client over existing zoend identity admin.
- * Uses provisional (idempotent subject→account) + snapshot; no new endpoints.
+ * Tiny HTTP client over zoend identity admin.
+ * Resolve is load-only (GET resolve-subject). POST /provisional is onboarding-only.
  */
 export function createIdentityDirectoryClient(
   options: IdentityDirectoryClientOptions,
@@ -68,25 +88,20 @@ export function createIdentityDirectoryClient(
   return {
     async resolveChannelSubject(input) {
       const channelProvider = toChannelProvider(input.provider);
-      const provisional = await postJson<{ accountId: string; status: string }>(
-        fetchImpl,
-        `${baseUrl}/identity/admin/provisional`,
-        {
-          provider: channelProvider,
-          subjectKey: input.subjectKey,
-        },
-      );
-      if (provisional.status === "merged_into") {
-        throw new Error("account merged away");
-      }
-
+      const params = new URLSearchParams({
+        provider: channelProvider,
+        subjectKey: input.subjectKey,
+      });
       const snapshot = await getJson<SnapshotJson>(
         fetchImpl,
-        `${baseUrl}/identity/admin/accounts/${encodeURIComponent(provisional.accountId)}`,
+        `${baseUrl}/identity/admin/resolve-subject?${params.toString()}`,
       );
 
       if (snapshot.account.status === "merged_into") {
-        throw new Error("account merged away");
+        throw new ChannelSubjectResolveError({
+          kind: "merged",
+          message: "account merged away",
+        });
       }
 
       const binding = snapshot.bindings.find(
@@ -96,14 +111,20 @@ export function createIdentityDirectoryClient(
           candidate.status === "verified",
       );
       if (binding === undefined) {
-        throw new Error("unresolved channel subject: no verified binding");
+        throw new ChannelSubjectResolveError({
+          kind: "unbound",
+          message: "unresolved channel subject: no verified binding",
+        });
       }
 
       const active = snapshot.memberships.filter(
         (membership) => membership.status === "active",
       );
       if (active.length === 0) {
-        throw new Error("inactive or missing membership");
+        throw new ChannelSubjectResolveError({
+          kind: "inactive_membership",
+          message: "inactive or missing membership",
+        });
       }
 
       const membership =
@@ -111,7 +132,10 @@ export function createIdentityDirectoryClient(
           ? active[0]
           : active.find((row) => row.tenantId === input.tenantHint);
       if (membership === undefined) {
-        throw new Error("no active membership for tenant hint");
+        throw new ChannelSubjectResolveError({
+          kind: "tenant_hint_miss",
+          message: "no active membership for tenant hint",
+        });
       }
 
       // Never take tenant/principal from provider thread/user — Membership only.
@@ -128,31 +152,31 @@ export function createIdentityDirectoryClient(
   };
 }
 
-async function postJson<T>(
-  fetchImpl: typeof fetch,
-  url: string,
-  body: unknown,
-): Promise<T> {
-  const response = await fetchImpl(url, {
-    body: JSON.stringify(body),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
-  const text = await response.text();
-  const parsed = text.length === 0 ? {} : (JSON.parse(text) as unknown);
-  if (!response.ok) {
-    throw new Error(
-      `identity admin POST ${url} → ${response.status}: ${JSON.stringify(parsed)}`,
-    );
-  }
-  return parsed as T;
-}
-
 async function getJson<T>(fetchImpl: typeof fetch, url: string): Promise<T> {
   const response = await fetchImpl(url, { method: "GET" });
   const text = await response.text();
   const parsed = text.length === 0 ? {} : (JSON.parse(text) as unknown);
   if (!response.ok) {
+    const message =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "error" in parsed &&
+      typeof (parsed as { error: unknown }).error === "string"
+        ? (parsed as { error: string }).error
+        : JSON.stringify(parsed);
+    // resolve-subject is unauthenticated; 401 is SubjectUnbound.
+    if (response.status === 401) {
+      throw new ChannelSubjectResolveError({
+        kind: "unbound",
+        message,
+      });
+    }
+    if (response.status === 409 && message.includes("merged")) {
+      throw new ChannelSubjectResolveError({
+        kind: "merged",
+        message,
+      });
+    }
     throw new Error(
       `identity admin GET ${url} → ${response.status}: ${JSON.stringify(parsed)}`,
     );

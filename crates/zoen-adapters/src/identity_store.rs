@@ -6,12 +6,12 @@ use sha2::{Digest, Sha256};
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    AccountMergePlan, AccountStatus, ActionId, ActorId, BindingProof, BindingStatus,
-    ChannelProvider, DelegationChain, DelegationGrant, DelegationId, EnterpriseAssertion,
-    ExternalBinding, ExternalBindingId, ExternalSubject, IdentityError, Invite, InviteId,
-    InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus, PrincipalId,
-    ResourceId, RevocationReason, TenantId, TimestampMicros, TrustedExecutionContext, UnbindReason,
-    VerifiedOidcSubject, WorkloadId, ZoenAccount, ZoenAccountId, trusted_context_from_membership,
+    trusted_context_from_membership, AccountMergePlan, AccountStatus, ActionId, ActorId,
+    BindingProof, BindingStatus, ChannelProvider, DelegationChain, DelegationGrant, DelegationId,
+    EnterpriseAssertion, ExternalBinding, ExternalBindingId, ExternalSubject, IdentityError,
+    Invite, InviteId, InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus,
+    PrincipalId, ResourceId, RevocationReason, TenantId, TimestampMicros, TrustedExecutionContext,
+    UnbindReason, VerifiedOidcSubject, WorkloadId, ZoenAccount, ZoenAccountId,
 };
 
 #[derive(Clone)]
@@ -606,15 +606,42 @@ impl PostgresIdentityStore {
         Ok(())
     }
 
+    pub async fn binding_for_subject(
+        &self,
+        subject: &ExternalSubject,
+    ) -> Result<Option<ExternalBinding>, IdentityError> {
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        let binding = active_binding_for_subject(&mut transaction, subject).await?;
+        transaction.commit().await.map_err(unavailable)?;
+        Ok(binding)
+    }
+
     pub async fn binding_for_oidc_sub(
         &self,
         subject: &str,
     ) -> Result<Option<ExternalBinding>, IdentityError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let subject = ExternalSubject::new(ChannelProvider::WebOidc, subject.to_owned())?;
-        let binding = active_binding_for_subject(&mut transaction, &subject).await?;
-        transaction.commit().await.map_err(unavailable)?;
-        Ok(binding)
+        self.binding_for_subject(&subject).await
+    }
+
+    pub async fn snapshot_for_verified_subject(
+        &self,
+        subject: &ExternalSubject,
+    ) -> Result<(ExternalBinding, AccountSnapshot), IdentityError> {
+        let binding = self
+            .binding_for_subject(subject)
+            .await?
+            .ok_or(IdentityError::SubjectUnbound)?;
+        if !matches!(binding.status, BindingStatus::Verified) {
+            return Err(IdentityError::SubjectUnbound);
+        }
+        let snapshot = self.snapshot_account(&binding.account_id).await?;
+        if let AccountStatus::MergedInto { survivor } = &snapshot.account.status {
+            return Err(IdentityError::AccountMerged {
+                survivor: survivor.clone(),
+            });
+        }
+        Ok((binding, snapshot))
     }
 
     pub async fn resolve_for_tenant(
