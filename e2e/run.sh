@@ -18,6 +18,7 @@ scenario_table=(
   "channel-linq-live:channel-linq-live:"
   "channel-whatsapp-live:channel-whatsapp-live:"
   "channel-telegram-live:channel-telegram-live:"
+  "messaging-conformance-live:messaging-conformance-live:"
   "company-bootstrap-shadow:company-bootstrap-shadow:"
   "conversational-approval:conversational-approval:"
   "conversational-turn:conversational-turn:"
@@ -239,6 +240,26 @@ require_fiscal_live_environment() {
     source "${HOME}/.config/zoen/telegram-bot.env"
     set +a
   fi
+  if [[ "$scenario" == "messaging-conformance-live" ]]; then
+    if [[ -f "${HOME}/.config/zoen/whatsapp-door.env" ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      source "${HOME}/.config/zoen/whatsapp-door.env"
+      set +a
+    fi
+    if [[ -f "${HOME}/.config/zoen/telegram-bot.env" ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      source "${HOME}/.config/zoen/telegram-bot.env"
+      set +a
+    fi
+    if [[ -f "${HOME}/.config/zoen/linq-sandbox.env" ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      source "${HOME}/.config/zoen/linq-sandbox.env"
+      set +a
+    fi
+  fi
   local required=()
   case "$scenario" in
     channel-linq-live)
@@ -343,7 +364,7 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
       continue
     fi
     resolve_scenario "$name"

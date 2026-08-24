@@ -117,7 +117,7 @@
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
-  <span class="stat-count">2</span>
+  <span class="stat-count">1</span>
   <span class="stat-label">DON'T HAVE</span>
 </button>
 <button class="stat" data-filter="stub-on-main" type="button">
@@ -125,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">2</span>
+  <span class="stat-count">3</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -174,7 +174,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/327">#327</a>
     
     <strong>Conformance and substitution against live adapters</strong>
-    <p>After live Telegram and WhatsApp exist. Fakes do not re-enter just verify.</p>
+    <p>In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify.</p>
   </div>
 </li>
 <li>
@@ -509,17 +509,6 @@
     </thead>
     <tbody>
 <tr data-status="dont-have">
-  <td><code>messaging-conformance-live</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Messaging conformance against live adapters</div>
-    <div class="path">e2e/messaging-conformance.ts<br>e2e/channel-provider-substitution.ts</div>
-    
-  </td>
-  <td>Not on main. Fake-backed e2e was removed. Live rewrite is #327.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
-</tr>
-<tr data-status="dont-have">
   <td><code>surface-ir-e2e-live</code></td>
   <td>channels</td>
   <td>
@@ -569,6 +558,17 @@
   </td>
   <td>just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Cloud API fake stays deleted.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
+</tr>
+<tr data-status="in-flight">
+  <td><code>messaging-conformance-live</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Messaging conformance against live adapters</div>
+    <div class="path">e2e/messaging-conformance.ts<br>e2e/channel-provider-substitution.ts</div>
+    
+  </td>
+  <td>just e2e messaging-conformance-live. Live unofficial WhatsApp + live Telegram required. Linq optional. Fail closed without TELEGRAM_BOT_TOKEN / ZOEN_WHATSAPP_DOOR_E164 / companion. Fakes stay deleted.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
 </tr>
     </tbody>
   </table>
