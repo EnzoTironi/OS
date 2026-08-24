@@ -14,8 +14,8 @@ use zoen_adapters::{
 };
 use zoen_core::{
     ActionId, ActorId, AudienceClass, DelegationChain, DelegationGrant, DelegationId, DigestRef,
-    DurableEventId, ExternalSignalDraft, IdentityError, IngressAllowance, McpServerAllowId,
-    PrincipalId, ProjectedCapabilityKind, RateBudgetPolicy, ResourceId, SignalSourceIdentity,
+    DurableEventId, ExternalSignalDraft, IdentityError, IngressAllowance, PrincipalId,
+    ProjectedCapabilityKind, RateBudgetPolicy, ResourceId, ServerAllowId, SignalSourceIdentity,
     SignalTrustDisposition, SourceClass, TenantId, TimestampMicros, WorkloadCredentialId,
     WorkloadId, WorkloadRevocationReason, offer_external_signal_as_evidence_candidate,
 };
@@ -537,19 +537,21 @@ fn parse_ingress(items: &[IngressBody]) -> Result<Vec<IngressAllowance>, String>
                 source_class: SourceClass::parse(source_class.clone())
                     .map_err(|error| error.to_string())?,
             }),
-            IngressBody::McpOutbound { capability_kinds } => Ok(IngressAllowance::McpOutbound {
-                capability_kinds: capability_kinds
-                    .iter()
-                    .map(|kind| ProjectedCapabilityKind::parse(kind))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| error.to_string())?,
-            }),
+            IngressBody::McpOutbound { capability_kinds } => {
+                Ok(IngressAllowance::OutboundProjected {
+                    capability_kinds: capability_kinds
+                        .iter()
+                        .map(|kind| ProjectedCapabilityKind::parse(kind))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| error.to_string())?,
+                })
+            }
             IngressBody::McpInboundRead { server_allowlist } => {
-                Ok(IngressAllowance::McpInboundRead {
+                Ok(IngressAllowance::InboundServerAllow {
                     server_allowlist: server_allowlist
                         .iter()
                         .cloned()
-                        .map(McpServerAllowId::parse)
+                        .map(ServerAllowId::parse)
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(|error| error.to_string())?,
                 })
