@@ -28,6 +28,8 @@ After Sample Company works, deepen in this order:
 - Live Linq or other paid messaging as required for self-host.
 - Fake chat, fixture-only demos as product proof, or claims without release evidence.
 
+HAVE vs DON'T HAVE lives in [`docs/product/roadmap.md`](roadmap.md). Parent issue #324.
+
 ## Checker
 
 ```bash

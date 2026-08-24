@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zoen OS roadmap</title>
+  <style>
+    :root {
+      --bg: #0e1014;
+      --panel: #171a21;
+      --ink: #e8eadf;
+      --muted: #9aa194;
+      --line: #2a2f38;
+      --have: #7dcf83;
+      --dont: #e07070;
+      --stub: #f0b429;
+      --flight: #6cb3f3;
+      --parked: #9aa194;
+      --harness: #c792ea;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
+    }
+    a { color: var(--flight); }
+    header {
+      padding: 2rem 1.5rem 1rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 1.75rem; margin: 0 0 0.5rem; font-weight: 650; }
+    h2 { font-size: 1.1rem; margin: 0 0 0.4rem; letter-spacing: 0.04em; }
+    .law {
+      max-width: 70ch;
+      color: var(--muted);
+      margin: 0 0 1.25rem;
+    }
+    .meta { color: var(--muted); font-size: 0.9rem; }
+    .meta code { color: var(--ink); }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 0.5rem;
+      max-width: 1100px;
+      margin: 0 auto 1.5rem;
+      padding: 0 1.5rem;
+    }
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      padding: 0.85rem 0.7rem;
+      text-align: left;
+      cursor: pointer;
+    }
+    .stat[data-filter="have"] { border-top: 3px solid var(--have); }
+    .stat[data-filter="dont-have"] { border-top: 3px solid var(--dont); }
+    .stat[data-filter="stub-on-main"] { border-top: 3px solid var(--stub); }
+    .stat[data-filter="in-flight"] { border-top: 3px solid var(--flight); }
+    .stat[data-filter="parked"] { border-top: 3px solid var(--parked); }
+    .stat[data-filter="harness"] { border-top: 3px solid var(--harness); }
+    .stat.active { outline: 1px solid var(--ink); }
+    .stat-count { display: block; font-size: 1.6rem; font-weight: 700; }
+    .stat-label { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+    main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+    .next {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 1rem 1.2rem;
+      margin-bottom: 2rem;
+    }
+    .next ol { list-style: none; padding: 0; margin: 0; }
+    .next li { display: flex; gap: 0.8rem; padding: 0.7rem 0; border-top: 1px solid var(--line); }
+    .next li:first-child { border-top: 0; }
+    .order {
+      flex: 0 0 1.6rem;
+      height: 1.6rem;
+      text-align: center;
+      background: #111;
+      border: 1px solid var(--line);
+      font-size: 0.8rem;
+      line-height: 1.6rem;
+    }
+    .next p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; margin: 0.6rem 0 2rem; font-size: 0.92rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: 0.55rem 0.4rem; vertical-align: top; text-align: left; }
+    th { color: var(--muted); font-weight: 600; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; }
+    .name { font-weight: 600; }
+    .path, .blocker { color: var(--muted); font-size: 0.8rem; margin-top: 0.2rem; }
+    .blocker { color: var(--stub); }
+    .blurb { color: var(--muted); max-width: 70ch; margin: 0 0 0.6rem; }
+    .forbidden { color: var(--dont); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+    @media (max-width: 800px) {
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Zoen OS. What exists.</h1>
+    <p class="law">If a capability exists on main only as a stub or fake path, it does not exist as product. Remove it from main. Keep the code on backup/stubs-channels. Open a restore issue. That issue is the roadmap row.</p>
+    <p class="meta">
+      Parent <a href="https://github.com/EnzoTironi/OS/issues/324">#324</a>.
+      Backup <a href="https://github.com/EnzoTironi/OS/tree/backup/stubs-channels"><code>backup/stubs-channels</code></a>
+      at <code>f68615db48c1f4902e659173f028bd9fb3782b9f</code>.
+      Source <code>docs/product/roadmap.json</code>.
+    </p>
+  </header>
+  <div class="stats">
+<button class="stat" data-filter="have" type="button">
+  <span class="stat-count">20</span>
+  <span class="stat-label">HAVE</span>
+</button>
+<button class="stat" data-filter="dont-have" type="button">
+  <span class="stat-count">2</span>
+  <span class="stat-label">DON'T HAVE</span>
+</button>
+<button class="stat" data-filter="stub-on-main" type="button">
+  <span class="stat-count">5</span>
+  <span class="stat-label">STUB ON MAIN</span>
+</button>
+<button class="stat" data-filter="in-flight" type="button">
+  <span class="stat-count">3</span>
+  <span class="stat-label">IN FLIGHT</span>
+</button>
+<button class="stat" data-filter="parked" type="button">
+  <span class="stat-count">2</span>
+  <span class="stat-label">PARKED</span>
+</button>
+<button class="stat" data-filter="harness" type="button">
+  <span class="stat-count">3</span>
+  <span class="stat-label">HARNESS</span>
+</button>
+  </div>
+  <main>
+    <section class="next">
+      <h2>Do next</h2>
+      <ol>
+<li>
+  <span class="order">1</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/319">#319</a>
+    <a href="https://github.com/EnzoTironi/OS/pull/320">PR #320</a>
+    <strong>Land fixture-as-production reject</strong>
+    <p>Independent of the Cedar stack. Can merge first.</p>
+  </div>
+</li>
+<li>
+  <span class="order">2</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/317">#317</a>
+    <a href="https://github.com/EnzoTironi/OS/pull/321">PR #321</a>
+    <strong>Land fail-closed zoend boot</strong>
+    <p>Cedar manifest required. Explicit ZOEN_ALLOW_LEGACY_SESSIONS. Durable stores required.</p>
+  </div>
+</li>
+<li>
+  <span class="order">3</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/319">#319</a>
+    <a href="https://github.com/EnzoTironi/OS/pull/322">PR #322</a>
+    <strong>Land legacy-sessions authMode stamp</strong>
+    <p>Stacked on #321.</p>
+  </div>
+</li>
+<li>
+  <span class="order">4</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/318">#318</a>
+    <a href="https://github.com/EnzoTironi/OS/pull/323">PR #323</a>
+    <strong>Land distinct Linq ChannelProvider</strong>
+    <p>Stacked on #321. toChannelProvider(&quot;linq&quot;) must be linq, not whatsapp.</p>
+  </div>
+</li>
+<li>
+  <span class="order">5</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/324">#324</a>
+    
+    <strong>Remove stub-only channel adapters from main</strong>
+    <p>This repository change. Backup already pinned. Restore issues already open.</p>
+  </div>
+</li>
+<li>
+  <span class="order">6</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/325">#325</a>
+    
+    <strong>definition-publication and semantic-query on OIDC</strong>
+    <p>After #321. Drop ZOEN_SESSION_TOKENS.</p>
+  </div>
+</li>
+<li>
+  <span class="order">7</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/329">#329</a>
+    
+    <strong>Live Telegram adapter</strong>
+    <p>Needs a bot token. Do not restore the fake.</p>
+  </div>
+</li>
+<li>
+  <span class="order">8</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/326">#326</a>
+    
+    <strong>Unofficial WhatsApp via whatsmeow sidecar</strong>
+    <p>Blocked on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive.</p>
+  </div>
+</li>
+<li>
+  <span class="order">9</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/327">#327</a>
+    
+    <strong>Conformance and substitution against live adapters</strong>
+    <p>After live Telegram and WhatsApp exist. Fakes do not re-enter just verify.</p>
+  </div>
+</li>
+<li>
+  <span class="order">10</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/328">#328</a>
+    
+    <strong>Surface IR and Attention on live channels</strong>
+    <p>packages/surface and packages/attention stay. The fake-delivery e2e does not.</p>
+  </div>
+</li>
+<li>
+  <span class="order">11</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/214">#214</a>
+    
+    <strong>Live Brazil fiscal homologation</strong>
+    <p>Parked. Systax, PlugNotas, Protheus. Do not advertise.</p>
+  </div>
+</li>
+<li>
+  <span class="order">12</span>
+  <div>
+    <a href="https://github.com/EnzoTironi/OS/issues/267">#267</a>
+    
+    <strong>Human comprehension of the public surface</strong>
+    <p>Stays OPEN. Live conversation study. Not closable by e2e.</p>
+  </div>
+</li>
+      </ol>
+    </section>
+    <section>
+      <h2>Gates</h2>
+      <p class="blurb">Green just verify is not a V1 release. Green just verify-v1-fixtures is a labeled contract, not production.</p>
+      <ul>
+        <li><code>just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale.</code></li>
+        <li><code>just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.</code></li>
+        <li><code>just verify-activation. Signed activation evidence. Same fixture rule.</code></li>
+      </ul>
+    </section>
+    <section>
+      <h2>Forbidden</h2>
+      <ul class="forbidden">
+<li>Treat a fake adapter as a live channel.</li>
+<li>Use official Meta Cloud API as the Brazil WhatsApp path.</li>
+<li>Restore createFake* exports on package indexes.</li>
+<li>Import vercel/chat npm as the messaging product.</li>
+<li>Use Baileys or Evolution as a JSON shell.</li>
+<li>Pair production WhatsApp to personal 31999941160 as the Zoen door.</li>
+<li>Advertise live fiscal vendors while #214 is parked.</li>
+<li>Post fiscal traffic to Metal Fort production.</li>
+<li>Merge 0f156d9.</li>
+<li>Close #267 from e2e green bars.</li>
+      </ul>
+    </section>
+<section class="group" data-group="have">
+  <h2>HAVE</h2>
+  <p class="blurb">On main. Real implementation. This is product.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>plane</th>
+        <th>capability</th>
+        <th>proof</th>
+        <th>issue</th>
+      </tr>
+    </thead>
+    <tbody>
+<tr data-status="have">
+  <td><code>authority-rust</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">Rust semantic authority</div>
+    <div class="path">crates/zoen-core, crates/zoen-engine, apps/zoend</div>
+    
+  </td>
+  <td>just e2e governed-action</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>authority-postgres</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">PostgreSQL authority store</div>
+    <div class="path">crates/zoen-adapters</div>
+    
+  </td>
+  <td>PostgresAuthorityStore is the only store. No in-memory authority in crates.</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>authority-cedar</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">Cedar policy evaluation</div>
+    <div class="path">crates/zoen-adapters/src/cedar.rs</div>
+    
+  </td>
+  <td>just e2e governed-action. Empty-manifest default is being killed in #317 / PR #321.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/317">#317</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>authority-wasm</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">Wasmtime sandbox</div>
+    <div class="path">crates/zoen-adapters/src/wasmtime_adapter.rs</div>
+    
+  </td>
+  <td>Committed .wasm fixtures with pinned sha256. Not JS mocks.</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>authority-query</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">DataFusion semantic query</div>
+    <div class="path">crates/zoen-query</div>
+    
+  </td>
+  <td>just e2e semantic-query</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/325">#325</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>authority-restate</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">Restate durable orchestration</div>
+    <div class="path">crates/zoen-adapters/src/restate.rs</div>
+    
+  </td>
+  <td>just e2e durable-commit. Remote Restate e2e is a named harness, not the product claim.</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>identity-oidc</code></td>
+  <td>identity</td>
+  <td>
+    <div class="name">OIDC identity (Keycloak)</div>
+    <div class="path">apps/web, e2e/activation-sample</div>
+    
+  </td>
+  <td>just start. just e2e activation-identity. JWT claims are evidence. Membership is authority.</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>web-tanstack</code></td>
+  <td>experience</td>
+  <td>
+    <div class="name">Web application</div>
+    <div class="path">apps/web</div>
+    
+  </td>
+  <td>just start. OIDC login, packs, propose/approve, step-up.</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>surface-ir</code></td>
+  <td>experience</td>
+  <td>
+    <div class="name">Surface IR package</div>
+    <div class="path">packages/surface</div>
+    
+  </td>
+  <td>Unit tests in packages/surface. Delivery through live channels is #328.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>attention</code></td>
+  <td>experience</td>
+  <td>
+    <div class="name">Proactive attention package</div>
+    <div class="path">packages/attention</div>
+    
+  </td>
+  <td>Package exists with Postgres store. Wake/DM through live channels is #328.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>ontology-libs</code></td>
+  <td>ontology</td>
+  <td>
+    <div class="name">V1 ontology libraries</div>
+    <div class="path">packages/{party,product,commercial,inventory,procurement,manufacturing,quality,accounting-foundation}</div>
+    
+  </td>
+  <td>just e2e domain-commercial, domain-inventory-procurement, domain-manufacturing-accounting, domain-quality</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>pack-compiler</code></td>
+  <td>packs</td>
+  <td>
+    <div class="name">Pack compiler, registry, Kitchen</div>
+    <div class="path">packages/pack, packages/kitchen</div>
+    
+  </td>
+  <td>just e2e pack-install, pack-registry, pack-kitchen</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>sample-company</code></td>
+  <td>activation</td>
+  <td>
+    <div class="name">Sample Company five-minute path</div>
+    <div class="path">e2e/activation-sample</div>
+    
+  </td>
+  <td>just start. just e2e activation-sample. Effect remote is the named fault-provider harness.</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>activation-onboarding</code></td>
+  <td>activation</td>
+  <td>
+    <div class="name">Conversational onboarding and messy data</div>
+    <div class="path">packages/onboarding, e2e/activation-onboarding, e2e/company-bootstrap-shadow</div>
+    
+  </td>
+  <td>just e2e activation-onboarding. just e2e company-bootstrap-shadow (in-memory mapping, labeled).</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>brain-live</code></td>
+  <td>intelligence</td>
+  <td>
+    <div class="name">Company Brain and agent live suites</div>
+    <div class="path">packages/harness, e2e/company-brain-live, e2e/agent-capabilities-live</div>
+    
+  </td>
+  <td>just e2e company-brain-live and agent-capabilities-live. Need OPENCODE_API_KEY. In just verify.</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>fiscal-adapters</code></td>
+  <td>fiscal</td>
+  <td>
+    <div class="name">Brazil fiscal HTTP adapters (code)</div>
+    <div class="path">packages/fiscal-brazil/src/adapter/vendors</div>
+    
+  </td>
+  <td>just e2e fiscal-fault-matrix uses vendor-fault-proxy. Live homologation is #214.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/214">#214</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>linq-live</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Live Linq iMessage adapter</div>
+    <div class="path">packages/messaging/src/adapters/linq-live.ts</div>
+    
+  </td>
+  <td>just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/253">#253</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>messaging-boundary-law</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Chat SDK import-graph law</div>
+    <div class="path">e2e/messaging-boundary/import-graph.ts</div>
+    
+  </td>
+  <td>just e2e messaging-boundary after rewrite without createFake*. Core/crates must not import vercel/chat.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>deploy-helm</code></td>
+  <td>deploy</td>
+  <td>
+    <div class="name">Helm profiles (shared, dedicated, self-hosted)</div>
+    <div class="path">deploy/helm/zoen</div>
+    
+  </td>
+  <td>just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify.</td>
+  <td>—</td>
+</tr>
+<tr data-status="have">
+  <td><code>public-surface</code></td>
+  <td>public</td>
+  <td>
+    <div class="name">Public narrative checker</div>
+    <div class="path">e2e/public-surface.ts, docs/product/public-narrative.md</div>
+    
+  </td>
+  <td>npx tsx e2e/public-surface.ts. Live conversation study is #267.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/267">#267</a></td>
+</tr>
+    </tbody>
+  </table>
+</section>
+<section class="group" data-group="dont-have">
+  <h2>DON'T HAVE</h2>
+  <p class="blurb">Not product. Restore issue is the row. Code, if any, lives on the backup branch.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>plane</th>
+        <th>capability</th>
+        <th>proof</th>
+        <th>issue</th>
+      </tr>
+    </thead>
+    <tbody>
+<tr data-status="dont-have">
+  <td><code>identity-legacy-sessions</code></td>
+  <td>identity</td>
+  <td>
+    <div class="name">OIDC on definition-publication and semantic-query</div>
+    <div class="path">e2e/definition-publication, e2e/semantic-query</div>
+    
+  </td>
+  <td>Those suites still boot with ZOEN_SESSION_TOKENS. After #321 they need ZOEN_ALLOW_LEGACY_SESSIONS=1. They are not an OIDC proof.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/325">#325</a></td>
+</tr>
+<tr data-status="dont-have">
+  <td><code>whatsapp-unofficial</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Unofficial WhatsApp (whatsmeow) for Brazil</div>
+    <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
+    <div class="blocker">Blocked on Dedicated Zoen WhatsApp number</div>
+  </td>
+  <td>Never shipped live. The only WhatsApp code on main is a Cloud API envelope fake. That fake is not this path.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
+</tr>
+    </tbody>
+  </table>
+</section>
+<section class="group" data-group="stub-on-main">
+  <h2>STUB ON MAIN</h2>
+  <p class="blurb">On main today only as a fake or stub. Leaves main. Backup already holds the files. Restore issue is the row.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>plane</th>
+        <th>capability</th>
+        <th>proof</th>
+        <th>issue</th>
+      </tr>
+    </thead>
+    <tbody>
+<tr data-status="stub-on-main">
+  <td><code>telegram-live</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Telegram channel</div>
+    <div class="path">packages/messaging/src/adapters/telegram-fake.ts</div>
+    <div class="blocker">Blocked on Telegram bot token</div>
+  </td>
+  <td>None. In-process fake only. Leaves main. Restore as live Bot API on #329.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/329">#329</a></td>
+</tr>
+<tr data-status="stub-on-main">
+  <td><code>whatsapp-cloud-api-fake</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">WhatsApp Cloud API fake</div>
+    <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
+    
+  </td>
+  <td>None as product. Leaves main. Do not restore as Brazil proof. Official Cloud API cannot do consumer groups and contacts.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
+</tr>
+<tr data-status="stub-on-main">
+  <td><code>linq-fake</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Linq fake adapter</div>
+    <div class="path">packages/messaging/src/adapters/linq-fake.ts</div>
+    
+  </td>
+  <td>Live Linq exists. The fake still exports from the package index and feeds lying e2e. Leaves main. Live stays.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
+</tr>
+<tr data-status="stub-on-main">
+  <td><code>messaging-conformance-fake</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Messaging conformance e2e (fakes)</div>
+    <div class="path">e2e/messaging-conformance.ts<br>e2e/channel-provider-substitution.ts</div>
+    
+  </td>
+  <td>just verify currently greens this against three fakes. Leaves main. Live rewrite is #327.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
+</tr>
+<tr data-status="stub-on-main">
+  <td><code>surface-ir-e2e-fake</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Surface IR and Attention e2e through fakes</div>
+    <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
+    
+  </td>
+  <td>Packages stay. These e2e paths delivered through fake Linq/Telegram. Leave main. Restore on live is #328.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
+</tr>
+    </tbody>
+  </table>
+</section>
+<section class="group" data-group="in-flight">
+  <h2>IN FLIGHT</h2>
+  <p class="blurb">Fail-closed work in an open PR. Do not duplicate.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>plane</th>
+        <th>capability</th>
+        <th>proof</th>
+        <th>issue</th>
+      </tr>
+    </thead>
+    <tbody>
+<tr data-status="in-flight">
+  <td><code>fail-closed-boot</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">Fail-closed zoend boot</div>
+    <div class="path">apps/zoend/src/config.rs</div>
+    
+  </td>
+  <td>PR #321. Cedar required. Explicit legacy sessions. Required stores.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/317">#317</a></td>
+</tr>
+<tr data-status="in-flight">
+  <td><code>channel-provider-linq</code></td>
+  <td>identity</td>
+  <td>
+    <div class="name">Distinct Linq ChannelProvider</div>
+    <div class="path">packages/interaction/src/identity-directory.ts</div>
+    
+  </td>
+  <td>PR #323 stacked on #321. toChannelProvider(&quot;linq&quot;) === &quot;linq&quot;.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/318">#318</a></td>
+</tr>
+<tr data-status="in-flight">
+  <td><code>fixture-as-production</code></td>
+  <td>gate</td>
+  <td>
+    <div class="name">Production verify-v1 rejects fixtureContract</div>
+    <div class="path">e2e/verify-v1.ts</div>
+    
+  </td>
+  <td>PR #320. Stamp on publication/query is PR #322 stacked on #321.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/319">#319</a></td>
+</tr>
+    </tbody>
+  </table>
+</section>
+<section class="group" data-group="parked">
+  <h2>PARKED</h2>
+  <p class="blurb">Intent exists. Blocked on a vendor, a credential, or a named issue. Do not advertise.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>plane</th>
+        <th>capability</th>
+        <th>proof</th>
+        <th>issue</th>
+      </tr>
+    </thead>
+    <tbody>
+<tr data-status="parked">
+  <td><code>fiscal-live</code></td>
+  <td>fiscal</td>
+  <td>
+    <div class="name">Live Systax, PlugNotas, Protheus homologation</div>
+    <div class="path">e2e/fiscal-systax-live, e2e/fiscal-plugnotas-live, e2e/fiscal-protheus-live</div>
+    
+  </td>
+  <td>Skipped by just verify. Not advertised. Do not post to Metal Fort production.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/214">#214</a></td>
+</tr>
+<tr data-status="parked">
+  <td><code>human-comprehension</code></td>
+  <td>public</td>
+  <td>
+    <div class="name">Human comprehension / live conversation</div>
+    <div class="path">docs/demo, docs/demos</div>
+    
+  </td>
+  <td>Not this inventory. Stays OPEN on #267.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/267">#267</a></td>
+</tr>
+    </tbody>
+  </table>
+</section>
+<section class="group" data-group="harness">
+  <h2>HARNESS</h2>
+  <p class="blurb">Named test double next to a real implementation. Not a product path. Allowed only when labeled and not exported as product.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>plane</th>
+        <th>capability</th>
+        <th>proof</th>
+        <th>issue</th>
+      </tr>
+    </thead>
+    <tbody>
+<tr data-status="harness">
+  <td><code>fault-provider</code></td>
+  <td>effects</td>
+  <td>
+    <div class="name">Sample Company effect fault-provider</div>
+    <div class="path">e2e/effects/fault-provider.ts</div>
+    
+  </td>
+  <td>Named fault injection against the real dispatcher/connector/Restate. Not a stub of the company. Allowed by ADR-0021 as supplement.</td>
+  <td>—</td>
+</tr>
+<tr data-status="harness">
+  <td><code>fiscal-fault-proxy</code></td>
+  <td>fiscal</td>
+  <td>
+    <div class="name">Fiscal vendor-fault-proxy</div>
+    <div class="path">e2e/fiscal-fault-matrix</div>
+    
+  </td>
+  <td>just e2e fiscal-fault-matrix. Artifact liveEvidence: not-run-no-credentials. Not Systax/PlugNotas/Protheus live.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/214">#214</a></td>
+</tr>
+<tr data-status="harness">
+  <td><code>verify-fixtures</code></td>
+  <td>gate</td>
+  <td>
+    <div class="name">verify-v1-fixtures labeled contract</div>
+    <div class="path">e2e/verify-v1/testdata</div>
+    
+  </td>
+  <td>just verify-v1-fixtures. fixtureContract: true. Never treat PASS as production.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/319">#319</a></td>
+</tr>
+    </tbody>
+  </table>
+</section>
+  </main>
+  <script>
+    const buttons = [...document.querySelectorAll(".stat")];
+    let current = "all";
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        const status = button.getAttribute("data-filter");
+        current = current === status ? "all" : status;
+        for (const b of buttons) {
+          b.classList.toggle("active", b.getAttribute("data-filter") === current);
+        }
+        for (const group of document.querySelectorAll(".group")) {
+          group.hidden = current !== "all" && group.getAttribute("data-group") !== current;
+        }
+      });
+    }
+  </script>
+</body>
+</html>
