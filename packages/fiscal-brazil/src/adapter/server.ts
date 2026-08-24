@@ -362,10 +362,6 @@ function splitListenAddress(value: string): [string, string] {
 export function configFromEnvironment(
   environment: NodeJS.ProcessEnv,
 ): FiscalAdapterConfig {
-  const providerTimeoutMs = positiveIntegerEnvironment(
-    environment.ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS ?? "5000",
-    "ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS",
-  );
   return {
     callerBindings: parseJsonEnvironment(
       environment.ZOEN_FISCAL_ADAPTER_CALLER_BINDINGS,
@@ -385,13 +381,10 @@ export function configFromEnvironment(
         "ZOEN_FISCAL_ADAPTER_OIDC_TOKEN_URL",
       ),
     ),
-    providerRoutes:
-      environment.ZOEN_FISCAL_ADAPTER_ROUTES === undefined
-        ? legacyProviderRoutes(environment, providerTimeoutMs)
-        : parseJsonEnvironment(
-            environment.ZOEN_FISCAL_ADAPTER_ROUTES,
-            "ZOEN_FISCAL_ADAPTER_ROUTES",
-          ),
+    providerRoutes: parseJsonEnvironment(
+      environment.ZOEN_FISCAL_ADAPTER_ROUTES,
+      "ZOEN_FISCAL_ADAPTER_ROUTES",
+    ),
     zoenUrl: new URL(
       requiredEnvironment(
         environment.ZOEN_FISCAL_ADAPTER_ZOEN_URL,
@@ -399,30 +392,6 @@ export function configFromEnvironment(
       ),
     ),
   };
-}
-
-function legacyProviderRoutes(
-  environment: NodeJS.ProcessEnv,
-  timeoutMs: number,
-): unknown {
-  const provider = fiscalProviderSchema.parse(
-    environment.ZOEN_FISCAL_ADAPTER_PROVIDER,
-  );
-  const route = {
-    baseUrl: requiredEnvironment(
-      environment.ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL,
-      "ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL",
-    ),
-    credential: requiredEnvironment(
-      environment.ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL,
-      "ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL",
-    ),
-    provider,
-    timeoutMs,
-  };
-  return provider === "systax"
-    ? { documents: {}, tax: route }
-    : { documents: { "*": route } };
 }
 
 function requiredEnvironment(
@@ -433,14 +402,6 @@ function requiredEnvironment(
     throw new Error(`${name} is required`);
   }
   return value;
-}
-
-function positiveIntegerEnvironment(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return parsed;
 }
 
 function parseJsonEnvironment(

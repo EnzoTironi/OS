@@ -331,11 +331,11 @@ export async function startFiscalAdapter(input: {
 }): Promise<ManagedProcess> {
   const listenProvider = input.listenProvider ?? input.provider ?? "systax";
   const port = fiscalAdapterPort(listenProvider);
-  const routeEnvironment =
-    input.routes === undefined
-      ? legacyRouteEnvironment(input)
-      : {
-          ZOEN_FISCAL_ADAPTER_ROUTES: JSON.stringify({
+  const routeEnvironment = {
+    ZOEN_FISCAL_ADAPTER_ROUTES: JSON.stringify(
+      input.routes === undefined
+        ? singleProviderRoutes(input)
+        : {
             documents: Object.fromEntries(
               Object.entries(input.routes.documents).map(
                 ([issuerRegistration, route]) => [
@@ -363,8 +363,9 @@ export async function startFiscalAdapter(input: {
                     timeoutMs:
                       input.routes.tax.providerTimeoutMs ?? 5_000,
                   },
-          }),
-        };
+          },
+    ),
+  };
   return startManagedProcess({
     arguments: [
       path.join(
@@ -407,24 +408,27 @@ export function adapterProviderUrl(
   return `http://127.0.0.1:${fiscalAdapterPort(provider)}/v1/operations`;
 }
 
-function legacyRouteEnvironment(input: {
+function singleProviderRoutes(input: {
   readonly provider?: "plugnotas" | "protheus" | "systax";
   readonly providerBaseUrl?: string;
   readonly providerCredential?: string;
   readonly providerTimeoutMs?: number;
-}): Readonly<Record<string, string>> {
+}): {
+  readonly documents: Readonly<Record<string, unknown>>;
+  readonly tax?: unknown;
+} {
   if (input.provider === undefined || input.providerCredential === undefined) {
-    throw new Error("a legacy fiscal adapter route requires a provider");
+    throw new Error("a fiscal adapter route requires a provider");
   }
-  return {
-    ZOEN_FISCAL_ADAPTER_PROVIDER: input.provider,
-    ZOEN_FISCAL_ADAPTER_PROVIDER_BASE_URL:
-      input.providerBaseUrl ?? `http://127.0.0.1:${proxyPort}`,
-    ZOEN_FISCAL_ADAPTER_PROVIDER_CREDENTIAL: input.providerCredential,
-    ZOEN_FISCAL_ADAPTER_PROVIDER_TIMEOUT_MS: (
-      input.providerTimeoutMs ?? 5_000
-    ).toString(),
+  const route = {
+    baseUrl: input.providerBaseUrl ?? `http://127.0.0.1:${proxyPort}`,
+    credential: input.providerCredential,
+    provider: input.provider,
+    timeoutMs: input.providerTimeoutMs ?? 5_000,
   };
+  return input.provider === "systax"
+    ? { documents: {}, tax: route }
+    : { documents: { "*": route } };
 }
 
 export async function setFiscalProxyMode(mode: ProxyMode): Promise<void> {
