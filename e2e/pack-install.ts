@@ -70,6 +70,39 @@ async function main(): Promise<void> {
   const sample = buildSamplePack(fixtures);
   await writePackFixture(sample);
 
+  const commercial = fixtures.find(
+    (fixture) => fixture.metadata.definitionId === "commercial.sales",
+  );
+  assert.ok(commercial);
+  const identityRelationIds = [
+    "commercial.buyerPartyReference",
+    "commercial.cancellationOf",
+    "commercial.commitmentReference",
+    "commercial.correctionOf",
+    "commercial.productReference",
+    "commercial.proposedByMessage",
+    "commercial.quoteReference",
+    "commercial.requestReference",
+  ] as const;
+  record(
+    "commercial_identity_relations_are_type_targets",
+    commercial.metadata.revision === 2 &&
+      identityRelationIds.every((relationId) => {
+        const relation = commercial.metadata.relations.find(
+          (item) => item.id === relationId,
+        );
+        return relation?.target.kind === "type";
+      }),
+  );
+  const packDocument = JSON.parse(sample.canonicalJson) as {
+    firstSuccessContract: { outcome: { actionId?: string } };
+  };
+  record(
+    "first_success_is_change_commitment",
+    packDocument.firstSuccessContract.outcome.actionId ===
+      "commercial.changeCommitment",
+  );
+
   const adminToken = await oidcToken("admin-a");
   const boundBaitToken = await oidcToken("bound-bait");
   let server: ServerProcess = await startServer(policyManifestPath);
