@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use axum::Json;
-use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
+use axum::Json;
+use axum::Router;
+use connectrpc::ErrorCode;
 use serde::Deserialize;
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore, PostgresPackStore};
 use zoen_core::{
@@ -115,7 +116,7 @@ async fn verify_and_stage(
     headers: HeaderMap,
     Json(body): Json<VerifyBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -165,7 +166,7 @@ async fn preview_install(
     headers: HeaderMap,
     Json(body): Json<DigestBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -207,7 +208,7 @@ async fn install(
     headers: HeaderMap,
     Json(body): Json<InstallBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -244,7 +245,7 @@ async fn get_install(
     headers: HeaderMap,
     Json(body): Json<InstallIdBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -267,7 +268,7 @@ async fn decide_grants(
     headers: HeaderMap,
     Json(body): Json<DecideBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -303,7 +304,7 @@ async fn activate_installed(
     headers: HeaderMap,
     Json(body): Json<ActivateBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -405,7 +406,7 @@ async fn preview_update(
     headers: HeaderMap,
     Json(body): Json<UpdatePreviewBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -439,7 +440,7 @@ async fn evaluate_first_success(
     headers: HeaderMap,
     Json(body): Json<InstallIdBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id) {
+    let context = match require_context(&state, &headers, &body.tenant_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -484,7 +485,7 @@ enum ContextError {
     BadRequest(String),
 }
 
-fn require_context(
+async fn require_context(
     state: &PackAdminState,
     headers: &HeaderMap,
     tenant_id: &str,
@@ -492,21 +493,28 @@ fn require_context(
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    let verified = state
-        .sessions
-        .verify_bearer(authorization)
-        .map_err(|error| ContextError::Unauthorized(error.to_string()))?;
-    let tenant =
+    let claimed =
         TenantId::parse(tenant_id).map_err(|error| ContextError::BadRequest(error.to_string()))?;
-    let context = verified
-        .into_unbound_execution_context()
-        .map_err(|error| ContextError::Unauthorized(error.to_string()))?;
-    if context.tenant_id() != &tenant {
+    let context = state
+        .sessions
+        .resolve(authorization, Some(&claimed))
+        .await
+        .map_err(map_resolve_error)?;
+    if context.tenant_id() != &claimed {
         return Err(ContextError::Forbidden(
             "payload tenant does not match the trusted session".to_owned(),
         ));
     }
     Ok(context)
+}
+
+fn map_resolve_error(error: connectrpc::ConnectError) -> ContextError {
+    match error.code {
+        ErrorCode::Unauthenticated => ContextError::Unauthorized(error.to_string()),
+        ErrorCode::InvalidArgument => ContextError::BadRequest(error.to_string()),
+        ErrorCode::PermissionDenied => ContextError::Forbidden(error.to_string()),
+        _ => ContextError::Forbidden(error.to_string()),
+    }
 }
 
 fn context_error(error: ContextError) -> axum::response::Response {

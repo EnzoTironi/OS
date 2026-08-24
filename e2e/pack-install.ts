@@ -17,6 +17,11 @@ import {
 } from "./governed-action/support.js";
 import { e2ePostgresUrl, writeScenarioArtifact } from "./host-env.js";
 import {
+  seedBoundTenantMembership,
+  seedVerifiedBindingOnly,
+} from "./pack-bound-membership.js";
+import {
+  baseUrl,
   buildSamplePack,
   generatedDirectory,
   packAdmin,
@@ -66,10 +71,40 @@ async function main(): Promise<void> {
   await writePackFixture(sample);
 
   const adminToken = await oidcToken("admin-a");
+  const boundBaitToken = await oidcToken("bound-bait");
   let server: ServerProcess = await startServer(policyManifestPath);
 
   try {
+    await seedBoundTenantMembership({
+      actorId: "actor.admin.a",
+      baseUrl,
+      principalId: "principal.admin.a",
+      tenantId: tenantA,
+      token: adminToken,
+      workloadId: "workload.admin.a",
+    });
+    await seedVerifiedBindingOnly({
+      baseUrl,
+      token: boundBaitToken,
+    });
+
     const beforeActive = await activeDefinitionCount(tenantA);
+
+    const unboundDenied = await packAdmin(
+      "POST",
+      "/pack/admin/verify-and-stage",
+      boundBaitToken,
+      {
+        expectedDigest: sample.digest,
+        manifestJcs: sample.canonicalJson,
+        ontologyArtifacts: sample.ontologyArtifacts,
+        tenantId: tenantA,
+      },
+    );
+    record(
+      "unbound_or_membership_miss_rejected",
+      unboundDenied.status === 401 || unboundDenied.status === 403,
+    );
 
     const staged = await packAdmin(
       "POST",

@@ -34,9 +34,11 @@ import {
   stopServer,
   type ServerProcess,
 } from "./governed-action/support.js";
+import { seedBoundTenantMembership } from "./pack-bound-membership.js";
 import {
   api,
   applicationDatabaseUrl,
+  baseUrl,
   buildSurfaceForFixture,
   generatedDirectory,
   preparePolicyManifest,
@@ -369,6 +371,23 @@ async function main(): Promise<void> {
   let firstSuccessOutcomeRef = "";
 
   try {
+    await seedBoundTenantMembership({
+      actorId: "actor.admin.a",
+      baseUrl,
+      principalId: "principal.admin.a",
+      tenantId: tenantCreator,
+      token: adminCreator,
+      workloadId: "workload.admin.a",
+    });
+    await seedBoundTenantMembership({
+      actorId: "actor.admin.b",
+      baseUrl,
+      principalId: "principal.admin.b",
+      tenantId: tenantFresh,
+      token: adminFresh,
+      workloadId: "workload.admin.b",
+    });
+
     const registered = await api("POST", "/pack/registry/keys", adminCreator, {
       algorithm: "ed25519",
       publicKeyId: keys.publicKeyId,
