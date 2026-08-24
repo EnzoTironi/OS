@@ -4,14 +4,13 @@ import {
   type ChannelPresentationCapability,
   type DeliveryTarget,
   type InteractionControlRef,
-  type ProviderKey,
 } from "../../interaction/src/index.js";
 import type {
   ConversationalBlock,
   PresentationIntent,
 } from "../../surface/src/presentation-intent.js";
 import type { CapabilityProbes, DegradeTarget } from "./capability-probes.js";
-import type { ChatSdkOutbound } from "./chat-sdk-shape.js";
+import type { ChatSdkOutbound, ChatSdkThreadRef } from "./chat-sdk-shape.js";
 
 export class CriticalControlUnreachableError extends Error {
   constructor(message: string) {
@@ -40,7 +39,7 @@ export interface LowerPresentationIntentInput {
   readonly publicWebOrigin: string;
   readonly clientDeliveryId: string;
   readonly target: DeliveryTarget;
-  readonly provider: ProviderKey;
+  readonly threadKind: ChatSdkThreadRef["kind"];
 }
 
 export interface LowerPresentationResult {
@@ -178,7 +177,7 @@ export function lowerPresentationIntent(
         ? undefined
         : {
             id: String(input.target.thread),
-            kind: String(input.provider) === "linq" ? "guid" : "chat",
+            kind: input.threadKind,
           },
     toUser:
       input.target.kind === "dm"

@@ -17,10 +17,9 @@ import {
 import type { PresentationIntent } from "../../surface/src/presentation-intent.js";
 import {
   projectPresentationCaps,
-  type CapabilityId,
   type DegradeTarget,
 } from "./capability-probes.js";
-import type { ChatSdkOutbound, ChatSdkShapedAdapter } from "./chat-sdk-shape.js";
+import type { ChatSdkShapedAdapter } from "./chat-sdk-shape.js";
 import { lowerPresentationIntent } from "./lower-presentation-intent.js";
 
 export class ProviderDisabledError extends Error {
@@ -57,13 +56,10 @@ export interface MessagingGatewayOptions {
   readonly providers: Readonly<Record<string, ChatSdkShapedAdapter>>;
   readonly now?: () => Date;
   readonly publicWebOrigin?: string;
-  /**
-   * When set and returns a document, deliver lowers via lowerPresentationIntent.
-   * Legacy prefix heuristics remain only for unresolved refs (existing callers).
-   */
-  readonly resolvePresentation?: (
+  /** Required Surface IR for deliver. No prefix fallback. */
+  readonly resolvePresentation: (
     intent: DeliveryIntent,
-  ) => Promise<ResolvedPresentation | undefined>;
+  ) => Promise<ResolvedPresentation>;
 }
 
 export function createMessagingGateway(
@@ -121,122 +117,44 @@ export function createMessagingGateway(
         disabled,
       );
 
-      const resolved =
-        options.resolvePresentation !== undefined
-          ? await options.resolvePresentation(intent)
-          : undefined;
-
-      if (resolved !== undefined) {
-        const caps = projectPresentationCaps(adapter.probes);
-        let target = intent.target;
-        const ephemeralProbe = adapter.probes.canEphemeral();
-        if (
-          ephemeralProbe.status === "unsupported" &&
-          target.kind === "ephemeral_in_thread"
-        ) {
-          target = {
-            kind: "dm",
-            providerUser: providerUserRef(
-              `dm_fallback:${String(target.thread)}`,
-            ),
-          };
-        }
-        const lowered = lowerPresentationIntent({
-          caps,
-          clientDeliveryId: intent.stableProviderDeliveryId,
-          controlRefs: intent.controlRefs,
-          disclosedBody: resolved.disclosedBody,
-          disclosure: resolved.disclosure,
-          includesConfidentialBody: resolved.includesConfidentialBody,
-          intent: resolved.intent,
-          probes: adapter.probes,
-          provider: intent.provider,
-          publicWebOrigin: options.publicWebOrigin ?? "https://app.zoen.local",
-          target,
-        });
-        const receipt = await adapter.send(lowered.outbound);
-        const degradeMeta =
-          lowered.degraded && lowered.fallback !== undefined
-            ? { degradeTo: lowered.fallback }
-            : undefined;
-        const outcome = buildOutcome(
-          receipt,
-          degradeMeta,
-          lowered.outbound.surfaceUrl,
-        );
-        const observation: DeliveryObservation = {
-          id: deliveryObservationId(`do_${intent.stableProviderDeliveryId}`),
-          intentId: intent.id,
-          observedAt: now().toISOString(),
-          outcome,
-        };
-        deliverySeen.set(intent.stableProviderDeliveryId, observation);
-        return observation;
-      }
-
-      const needs = presentationNeeds(intent);
-      const degrade = firstUnsupported(adapter, needs);
-      const text = `presentation:${String(intent.presentation)}`;
-      const surfaceUrl =
-        degrade?.degradeTo === "web_surface"
-          ? surfaceUrlFor(intent)
-          : undefined;
-
+      const resolved = await options.resolvePresentation(intent);
+      const caps = projectPresentationCaps(adapter.probes);
       let target = intent.target;
+      const ephemeralProbe = adapter.probes.canEphemeral();
       if (
-        degrade?.capability === "ephemeral" &&
-        intent.target.kind === "ephemeral_in_thread"
+        ephemeralProbe.status === "unsupported" &&
+        target.kind === "ephemeral_in_thread"
       ) {
         target = {
           kind: "dm",
           providerUser: providerUserRef(
-            `dm_fallback:${String(intent.target.thread)}`,
+            `dm_fallback:${String(target.thread)}`,
           ),
         };
       }
-
-      const attachButtons =
-        needs.buttons &&
-        adapter.probes.canNativeButton().status === "native" &&
-        degrade === undefined;
-      const buttons = attachButtons
-        ? intent.controlRefs.map((ref, index) => ({
-            callbackData: String(ref),
-            label: `action_${index + 1}`,
-          }))
-        : undefined;
-
-      const outbound: ChatSdkOutbound = {
-        buttons,
-        card:
-          needs.card && adapter.probes.canNativeCard().status === "native"
-            ? true
-            : undefined,
+      const lowered = lowerPresentationIntent({
+        caps,
         clientDeliveryId: intent.stableProviderDeliveryId,
-        ephemeral: target.kind === "ephemeral_in_thread",
-        experience:
-          projectPresentationCaps(adapter.probes).extensions.imessageExperience,
-        surfaceUrl,
-        text:
-          surfaceUrl !== undefined
-            ? `${text}\nsurface:${surfaceUrl}`
-            : text,
-        thread:
-          target.kind === "dm"
-            ? undefined
-            : {
-                id: String(target.thread),
-                kind: String(intent.provider) === "linq" ? "guid" : "chat",
-              },
-        toUser:
-          target.kind === "dm"
-            ? { id: String(target.providerUser) }
-            : undefined,
-        typing: needs.typing || undefined,
-      };
-
-      const receipt = await adapter.send(outbound);
-      const outcome = buildOutcome(receipt, degrade, surfaceUrl);
+        controlRefs: intent.controlRefs,
+        disclosedBody: resolved.disclosedBody,
+        disclosure: resolved.disclosure,
+        includesConfidentialBody: resolved.includesConfidentialBody,
+        intent: resolved.intent,
+        probes: adapter.probes,
+        publicWebOrigin: options.publicWebOrigin ?? "https://app.zoen.local",
+        target,
+        threadKind: adapter.threadKind,
+      });
+      const receipt = await adapter.send(lowered.outbound);
+      const degradeMeta =
+        lowered.degraded && lowered.fallback !== undefined
+          ? { degradeTo: lowered.fallback }
+          : undefined;
+      const outcome = buildOutcome(
+        receipt,
+        degradeMeta,
+        lowered.outbound.surfaceUrl,
+      );
       const observation: DeliveryObservation = {
         id: deliveryObservationId(`do_${intent.stableProviderDeliveryId}`),
         intentId: intent.id,
@@ -252,59 +170,6 @@ export function createMessagingGateway(
       return projectPresentationCaps(adapter.probes);
     },
   };
-}
-
-function presentationNeeds(intent: DeliveryIntent): {
-  buttons: boolean;
-  card: boolean;
-  typing: boolean;
-  ephemeral: boolean;
-} {
-  const presentation = String(intent.presentation);
-  return {
-    buttons: intent.controlRefs.length > 0,
-    card:
-      presentation.startsWith("card:") ||
-      presentation.startsWith("rich:") ||
-      (intent.controlRefs.length > 0 && presentation.startsWith("card:")),
-    ephemeral: intent.target.kind === "ephemeral_in_thread",
-    typing: presentation.startsWith("typing:"),
-  };
-}
-
-function firstUnsupported(
-  adapter: ChatSdkShapedAdapter,
-  needs: ReturnType<typeof presentationNeeds>,
-): { capability: CapabilityId; degradeTo: DegradeTarget } | undefined {
-  if (needs.card) {
-    const card = adapter.probes.probe("native_card");
-    if (card.status === "unsupported") {
-      return { capability: "native_card", degradeTo: card.degradeTo };
-    }
-  }
-  if (needs.typing) {
-    const typing = adapter.probes.probe("typing");
-    if (typing.status === "unsupported") {
-      return { capability: "typing", degradeTo: typing.degradeTo };
-    }
-  }
-  if (needs.ephemeral) {
-    const ephemeral = adapter.probes.probe("ephemeral");
-    if (ephemeral.status === "unsupported") {
-      return { capability: "ephemeral", degradeTo: ephemeral.degradeTo };
-    }
-  }
-  if (needs.buttons) {
-    const buttons = adapter.probes.probe("native_button");
-    if (buttons.status === "unsupported") {
-      return { capability: "native_button", degradeTo: buttons.degradeTo };
-    }
-  }
-  return undefined;
-}
-
-function surfaceUrlFor(intent: DeliveryIntent): string {
-  return `https://surface.zoen.local/p/${String(intent.presentation)}`;
 }
 
 function buildOutcome(
