@@ -5,6 +5,7 @@ import {
   createIdentityDirectoryClient,
   createInteractionBoundary,
   createInteractionControlRegistry,
+  createMemoryControlStore,
   interactionControlRef,
   presentationIntentRef,
   providerKey,
@@ -158,7 +159,9 @@ async function runProviderScenario(
   observationKind: string;
 }> {
   const identity = createIdentityDirectoryClient({ baseUrl });
-  const controls = createInteractionControlRegistry();
+  const controls = createInteractionControlRegistry({
+    store: createMemoryControlStore(),
+  });
   const interaction = createInteractionBoundary({
     controls,
     correlationNamespace: semanticCorrelationSeed,
@@ -280,7 +283,9 @@ async function main(): Promise<void> {
     killMutant("Treat channel.providerUser as principalId");
 
     // Mutant: raw button value cannot authorize.
-    const controls = createInteractionControlRegistry();
+    const controls = createInteractionControlRegistry({
+      store: createMemoryControlStore(),
+    });
     const identity = createIdentityDirectoryClient({ baseUrl });
     const interaction = createInteractionBoundary({ controls, identity });
     const messaging = createMessagingGateway({

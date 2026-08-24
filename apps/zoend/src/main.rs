@@ -20,7 +20,7 @@ use zoen_adapters::{
 use zoen_core::WorkloadId;
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
 use zoen_query::QueryRuntime;
-use zoend::config::object_store_config;
+use zoend::config::{self, ProcessAuth, object_store_config};
 use zoend::integrity::{self, StateClassification};
 
 use crate::action_service::ActionServiceImpl;
@@ -54,18 +54,15 @@ pub mod proto {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let database_url = env::var("DATABASE_URL")?;
-    let sessions = match env::var("ZOEN_OIDC_ISSUER") {
-        Ok(issuer) => SessionRegistry::from_oidc(issuer, env::var("ZOEN_OIDC_AUDIENCE")?).await?,
-        Err(env::VarError::NotPresent) => {
-            SessionRegistry::from_json(&env::var("ZOEN_SESSION_TOKENS")?)?
+    let sessions = match config::process_auth()? {
+        ProcessAuth::Oidc { issuer, audience } => {
+            SessionRegistry::from_oidc(issuer, audience).await?
         }
-        Err(error) => return Err(error.into()),
+        ProcessAuth::LegacySessions { tokens_json } => SessionRegistry::from_json(&tokens_json)?,
     };
-    let policy = Arc::new(match env::var("ZOEN_CEDAR_POLICY_MANIFEST") {
-        Ok(path) => CedarPolicyEvaluator::from_path(path)?,
-        Err(env::VarError::NotPresent) => CedarPolicyEvaluator::from_json(r#"{"policies":[]}"#)?,
-        Err(error) => return Err(error.into()),
-    });
+    let policy = Arc::new(CedarPolicyEvaluator::from_path(
+        config::cedar_manifest_path()?,
+    )?);
     let listen_address = env::var("ZOEN_LISTEN_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
         .parse::<SocketAddr>()?;

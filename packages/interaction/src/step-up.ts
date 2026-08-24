@@ -11,10 +11,7 @@ import {
   asApprovalControl,
   type InteractionControlRegistry,
 } from "./controls.js";
-import {
-  createMemoryControlStore,
-  type ControlStore,
-} from "./store.js";
+import { type ControlStore } from "./store.js";
 import type { ApprovalControl, StepUpSession } from "./types.js";
 
 export interface StepUpRegistry {
@@ -37,14 +34,14 @@ export interface StepUpRegistry {
 }
 
 export interface StepUpRegistryOptions {
-  readonly store?: ControlStore;
+  readonly store: ControlStore;
   readonly now?: () => Date;
 }
 
 export function createStepUpRegistry(
-  options: StepUpRegistryOptions = {},
+  options: StepUpRegistryOptions,
 ): StepUpRegistry {
-  const store = options.store ?? createMemoryControlStore();
+  const store = options.store;
   const now = options.now ?? (() => new Date());
 
   return {

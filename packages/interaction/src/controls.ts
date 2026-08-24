@@ -5,10 +5,7 @@ import {
   type InteractionControlRef,
   type ProposalRef,
 } from "./brands.js";
-import {
-  createMemoryControlStore,
-  type ControlStore,
-} from "./store.js";
+import { type ControlStore } from "./store.js";
 import type {
   ApprovalControl,
   InteractionControl,
@@ -29,18 +26,15 @@ export interface InteractionControlRegistry {
 }
 
 export interface InteractionControlRegistryOptions {
-  readonly store?: ControlStore;
+  readonly store: ControlStore;
   readonly now?: () => Date;
 }
 
 export function createInteractionControlRegistry(
-  nowOrOptions: (() => Date) | InteractionControlRegistryOptions = () =>
-    new Date(),
+  options: InteractionControlRegistryOptions,
 ): InteractionControlRegistry {
-  const options: InteractionControlRegistryOptions =
-    typeof nowOrOptions === "function" ? { now: nowOrOptions } : nowOrOptions;
   const now = options.now ?? (() => new Date());
-  const store = options.store ?? createMemoryControlStore();
+  const store = options.store;
   const liveIndex = new Map<string, InteractionControlRef[]>();
 
   return {

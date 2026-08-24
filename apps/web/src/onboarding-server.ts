@@ -1,6 +1,5 @@
 import {
   createFileStore,
-  createMemoryStore,
   observeCapabilities,
   planNext,
   zoenAccountId,
@@ -29,10 +28,10 @@ export function onboardingStore(): OnboardingSessionStore {
     return storeSingleton;
   }
   const filePath = process.env.ZOEN_ONBOARDING_STORE_PATH;
-  storeSingleton =
-    filePath === undefined || filePath === ""
-      ? createMemoryStore()
-      : createFileStore(filePath);
+  if (filePath === undefined || filePath === "") {
+    throw new Error("ZOEN_ONBOARDING_STORE_PATH is required");
+  }
+  storeSingleton = createFileStore(filePath);
   return storeSingleton;
 }
 

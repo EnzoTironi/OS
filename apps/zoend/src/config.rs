@@ -1,16 +1,72 @@
 use std::env::{self, VarError};
 use std::error::Error;
 use std::io::{Error as IoError, ErrorKind};
+use std::path::PathBuf;
 
 use zoen_query::ObjectStoreConfig;
 
+/// Auth mode selected at process boot from the environment boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProcessAuth {
+    Oidc { issuer: String, audience: String },
+    LegacySessions { tokens_json: String },
+}
+
+type EnvLookup<'a> = dyn Fn(&str) -> Result<Option<String>, VarError> + 'a;
+
 pub fn object_store_config() -> Result<Option<ObjectStoreConfig>, Box<dyn Error + Send + Sync>> {
-    let access_key_id = optional_env("S3_ACCESS_KEY_ID")?;
-    let allow_http = optional_env("S3_ALLOW_HTTP")?;
-    let bucket = optional_env("S3_BUCKET")?;
-    let endpoint = optional_env("S3_ENDPOINT")?;
-    let region = optional_env("S3_REGION")?;
-    let secret_access_key = optional_env("S3_SECRET_ACCESS_KEY")?;
+    object_store_config_from(&|name| optional_env(name))
+}
+
+pub fn process_auth() -> Result<ProcessAuth, Box<dyn Error + Send + Sync>> {
+    process_auth_from(&|name| optional_env(name))
+}
+
+pub fn cedar_manifest_path() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    cedar_manifest_path_from(&|name| optional_env(name))
+}
+
+pub fn process_auth_from(
+    lookup: &EnvLookup<'_>,
+) -> Result<ProcessAuth, Box<dyn Error + Send + Sync>> {
+    let issuer = nonempty(lookup("ZOEN_OIDC_ISSUER")?);
+    if let Some(issuer) = issuer {
+        let audience = nonempty(lookup("ZOEN_OIDC_AUDIENCE")?).ok_or_else(|| {
+            config_error("ZOEN_OIDC_AUDIENCE is required when ZOEN_OIDC_ISSUER is set")
+        })?;
+        return Ok(ProcessAuth::Oidc { issuer, audience });
+    }
+
+    let allow_legacy = lookup("ZOEN_ALLOW_LEGACY_SESSIONS")?;
+    if allow_legacy.as_deref() != Some("1") {
+        return Err(config_error(
+            "ZOEN_OIDC_ISSUER is required unless ZOEN_ALLOW_LEGACY_SESSIONS=1",
+        ));
+    }
+
+    let tokens_json = nonempty(lookup("ZOEN_SESSION_TOKENS")?).ok_or_else(|| {
+        config_error("ZOEN_SESSION_TOKENS is required when ZOEN_ALLOW_LEGACY_SESSIONS=1")
+    })?;
+    Ok(ProcessAuth::LegacySessions { tokens_json })
+}
+
+pub fn cedar_manifest_path_from(
+    lookup: &EnvLookup<'_>,
+) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    nonempty(lookup("ZOEN_CEDAR_POLICY_MANIFEST")?)
+        .map(PathBuf::from)
+        .ok_or_else(|| config_error("ZOEN_CEDAR_POLICY_MANIFEST is required"))
+}
+
+fn object_store_config_from(
+    lookup: &EnvLookup<'_>,
+) -> Result<Option<ObjectStoreConfig>, Box<dyn Error + Send + Sync>> {
+    let access_key_id = lookup("S3_ACCESS_KEY_ID")?;
+    let allow_http = lookup("S3_ALLOW_HTTP")?;
+    let bucket = lookup("S3_BUCKET")?;
+    let endpoint = lookup("S3_ENDPOINT")?;
+    let region = lookup("S3_REGION")?;
+    let secret_access_key = lookup("S3_SECRET_ACCESS_KEY")?;
     if [
         &access_key_id,
         &allow_http,
@@ -42,6 +98,17 @@ fn optional_env(name: &str) -> Result<Option<String>, VarError> {
     }
 }
 
+fn nonempty(value: Option<String>) -> Option<String> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    })
+}
+
 fn required_env(name: &str, value: Option<String>) -> Result<String, Box<dyn Error + Send + Sync>> {
     value.ok_or_else(|| {
         IoError::new(
@@ -50,4 +117,131 @@ fn required_env(name: &str, value: Option<String>) -> Result<String, Box<dyn Err
         )
         .into()
     })
+}
+
+fn config_error(message: &str) -> Box<dyn Error + Send + Sync> {
+    IoError::new(ErrorKind::InvalidInput, message.to_owned()).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::env::VarError;
+
+    use super::{ProcessAuth, cedar_manifest_path_from, process_auth_from};
+
+    fn lookup_from<'a>(
+        map: &'a HashMap<&'a str, &'a str>,
+    ) -> impl Fn(&str) -> Result<Option<String>, VarError> + 'a {
+        move |name| Ok(map.get(name).map(|value| (*value).to_owned()))
+    }
+
+    #[test]
+    fn process_auth_requires_oidc_without_legacy_flag() {
+        let env = HashMap::new();
+        let error = process_auth_from(&lookup_from(&env)).expect_err("missing auth");
+        assert!(
+            error
+                .to_string()
+                .contains("ZOEN_OIDC_ISSUER is required unless ZOEN_ALLOW_LEGACY_SESSIONS=1"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn process_auth_parses_oidc() {
+        let env = HashMap::from([
+            ("ZOEN_OIDC_ISSUER", "https://issuer.example/realms/zoen"),
+            ("ZOEN_OIDC_AUDIENCE", "zoend"),
+        ]);
+        let auth = process_auth_from(&lookup_from(&env)).expect("oidc");
+        assert_eq!(
+            auth,
+            ProcessAuth::Oidc {
+                issuer: "https://issuer.example/realms/zoen".to_owned(),
+                audience: "zoend".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn process_auth_oidc_requires_audience() {
+        let env = HashMap::from([("ZOEN_OIDC_ISSUER", "https://issuer.example/realms/zoen")]);
+        let error = process_auth_from(&lookup_from(&env)).expect_err("missing audience");
+        assert!(
+            error
+                .to_string()
+                .contains("ZOEN_OIDC_AUDIENCE is required when ZOEN_OIDC_ISSUER is set"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn process_auth_legacy_requires_exact_flag_and_tokens() {
+        let missing_flag = HashMap::from([("ZOEN_SESSION_TOKENS", r#"{"tok":"tenant.a"}"#)]);
+        let error = process_auth_from(&lookup_from(&missing_flag)).expect_err("no flag");
+        assert!(
+            error.to_string().contains("ZOEN_ALLOW_LEGACY_SESSIONS=1"),
+            "{error}"
+        );
+
+        let wrong_flag = HashMap::from([
+            ("ZOEN_ALLOW_LEGACY_SESSIONS", "true"),
+            ("ZOEN_SESSION_TOKENS", r#"{"tok":"tenant.a"}"#),
+        ]);
+        let error = process_auth_from(&lookup_from(&wrong_flag)).expect_err("flag not 1");
+        assert!(
+            error.to_string().contains("ZOEN_ALLOW_LEGACY_SESSIONS=1"),
+            "{error}"
+        );
+
+        let missing_tokens = HashMap::from([("ZOEN_ALLOW_LEGACY_SESSIONS", "1")]);
+        let error = process_auth_from(&lookup_from(&missing_tokens)).expect_err("no tokens");
+        assert!(
+            error
+                .to_string()
+                .contains("ZOEN_SESSION_TOKENS is required when ZOEN_ALLOW_LEGACY_SESSIONS=1"),
+            "{error}"
+        );
+
+        let ok = HashMap::from([
+            ("ZOEN_ALLOW_LEGACY_SESSIONS", "1"),
+            ("ZOEN_SESSION_TOKENS", r#"{"tok":"tenant.a"}"#),
+        ]);
+        let auth = process_auth_from(&lookup_from(&ok)).expect("legacy");
+        assert_eq!(
+            auth,
+            ProcessAuth::LegacySessions {
+                tokens_json: r#"{"tok":"tenant.a"}"#.to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn process_auth_prefers_oidc_over_legacy_flag() {
+        let env = HashMap::from([
+            ("ZOEN_OIDC_ISSUER", "https://issuer.example/realms/zoen"),
+            ("ZOEN_OIDC_AUDIENCE", "zoend"),
+            ("ZOEN_ALLOW_LEGACY_SESSIONS", "1"),
+            ("ZOEN_SESSION_TOKENS", r#"{"tok":"tenant.a"}"#),
+        ]);
+        let auth = process_auth_from(&lookup_from(&env)).expect("oidc wins");
+        assert!(matches!(auth, ProcessAuth::Oidc { .. }));
+    }
+
+    #[test]
+    fn cedar_manifest_path_is_required() {
+        let env = HashMap::new();
+        let error = cedar_manifest_path_from(&lookup_from(&env)).expect_err("missing cedar");
+        assert!(
+            error
+                .to_string()
+                .contains("ZOEN_CEDAR_POLICY_MANIFEST is required"),
+            "{error}"
+        );
+
+        let env = HashMap::from([("ZOEN_CEDAR_POLICY_MANIFEST", "/tmp/policies.json")]);
+        let path = cedar_manifest_path_from(&lookup_from(&env)).expect("path");
+        assert_eq!(path, std::path::PathBuf::from("/tmp/policies.json"));
+    }
 }

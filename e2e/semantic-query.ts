@@ -1059,6 +1059,7 @@ async function startServer(policyManifestPath: string): Promise<ServerProcess> {
     env: {
       ...process.env,
       ...workerEnvironment(),
+      ZOEN_ALLOW_LEGACY_SESSIONS: "1",
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
       ZOEN_SESSION_TOKENS: sessionTokens(),
