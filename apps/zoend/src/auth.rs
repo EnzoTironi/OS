@@ -270,7 +270,21 @@ impl SessionRegistry {
                         ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
                     })?)
                     .map_err(map_authentication_error)?;
-                self.resolve_verified(verified, None).await
+                // Request tenant wins over JWT tenant_id claim. Bound Personal
+                // tenants are minted at bootstrap and cannot live in IdP claims.
+                let requested_tenant = match request_context
+                    .header("x-zoen-tenant")
+                    .and_then(|value| value.to_str().ok())
+                {
+                    Some(raw) => Some(
+                        TenantId::parse(raw).map_err(|error| {
+                            ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
+                        })?,
+                    ),
+                    None => None,
+                };
+                self.resolve_verified(verified, requested_tenant.as_ref())
+                    .await
             }
         }
     }
