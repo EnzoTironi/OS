@@ -6,5 +6,8 @@
   "exports": {
     ".": "./src/fiscal-brazil.zoen.ts",
     "./adapter": "./src/adapter/server.ts"
+  },
+  "scripts": {
+    "test": "npm exec -- tsc -p ../../tsconfig.json --pretty false && node --test ../../dist/packages/fiscal-brazil/src/adapter/server.test.js"
   }
 }
