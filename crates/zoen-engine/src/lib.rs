@@ -49,7 +49,8 @@ pub use history::{
     HistoryError, HistorySnapshot, MigrationHistorySnapshot,
 };
 pub use human::{
-    HumanPacketError, effect_payload_kind, encode_human_task_contract, is_human_task_payload,
+    HumanPacketError, effect_payload_kind, encode_human_task_contract, is_human_executor_action,
+    is_human_task_payload, mint_human_task_contract, mint_human_task_contract_payload,
     parse_human_task_contract, project_human_task_packet, request_digest_for_payload,
 };
 pub use migration::{
