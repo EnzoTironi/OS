@@ -117,7 +117,7 @@
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
-  <span class="stat-count">4</span>
+  <span class="stat-count">3</span>
   <span class="stat-label">DON'T HAVE</span>
 </button>
 <button class="stat" data-filter="stub-on-main" type="button">
@@ -125,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">0</span>
+  <span class="stat-count">1</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -147,7 +147,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/325">#325</a>
     
     <strong>definition-publication and semantic-query on OIDC</strong>
-    <p>Landing. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted in the same PR.</p>
+    <p>Done on main. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted.</p>
   </div>
 </li>
 <li>
@@ -156,7 +156,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/326">#326</a>
     
     <strong>Unofficial WhatsApp via whatsmeow sidecar</strong>
-    <p>Waiting on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive. Do not restore the Cloud API fake.</p>
+    <p>In flight. CompanionSession + Chat SDK adapter + zoend HTTP ingress. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Not a dump of go-zoen.</p>
   </div>
 </li>
 <li>
@@ -520,17 +520,6 @@
   <td><a href="https://github.com/EnzoTironi/OS/issues/329">#329</a></td>
 </tr>
 <tr data-status="dont-have">
-  <td><code>whatsapp-unofficial</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Unofficial WhatsApp (whatsmeow) for Brazil</div>
-    <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
-    <div class="blocker">Blocked on Dedicated Zoen WhatsApp number</div>
-  </td>
-  <td>Never shipped live. Cloud API fake was removed and is not this path. Waiting on the dedicated Zoen number. #326.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
-</tr>
-<tr data-status="dont-have">
   <td><code>messaging-conformance-live</code></td>
   <td>channels</td>
   <td>
@@ -556,7 +545,34 @@
   </table>
 </section>
 
-
+<section class="group" data-group="in-flight">
+  <h2>IN FLIGHT</h2>
+  <p class="blurb">Fail-closed work in an open PR. Do not duplicate.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>plane</th>
+        <th>capability</th>
+        <th>proof</th>
+        <th>issue</th>
+      </tr>
+    </thead>
+    <tbody>
+<tr data-status="in-flight">
+  <td><code>whatsapp-unofficial</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Unofficial WhatsApp (whatsmeow) for Brazil</div>
+    <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
+    <div class="blocker">Blocked on Dedicated Zoen WhatsApp number</div>
+  </td>
+  <td>just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Cloud API fake stays deleted.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
+</tr>
+    </tbody>
+  </table>
+</section>
 <section class="group" data-group="parked">
   <h2>PARKED</h2>
   <p class="blurb">Intent exists. Blocked on a vendor, a credential, or a named issue. Do not advertise.</p>

@@ -34,6 +34,39 @@ export {
   type LiveLinqProviderOptions,
 } from "./adapters/linq-live.js";
 export {
+  companionSessionIsReady,
+  composeOutboundChatJid,
+  createHttpCompanionSession,
+  createRecordingCompanionSession,
+  enrichInboundPersonRefs,
+  normalizeCompanionInbound,
+  type CompanionInbound,
+  type CompanionOutbound,
+  type CompanionReady,
+  type CompanionSendReceipt,
+  type CompanionSession,
+  type RecordingCompanionSession,
+  type WhatsAppWireShape,
+} from "./companion-session.js";
+export {
+  assertLiveWhatsAppAdvertisement,
+  createLiveWhatsAppProvider,
+  createLiveWhatsAppProviderFromEnv,
+  parseCompanionInboundEnvelope,
+  parseWhatsAppDoorE164,
+  PERSONAL_WHATSAPP_DOOR_E164,
+  selectWhatsAppShape,
+  LiveWhatsAppConfigError,
+  WhatsAppEnvelopeError,
+  WhatsAppSurfaceUrlError,
+  type LiveWhatsAppProvider,
+} from "./adapters/whatsapp-live.js";
+export {
+  createWhatsAppMessagingIngress,
+  evaluateWhatsAppAdvertisement,
+  type WhatsAppMessagingIngress,
+} from "./whatsapp-ingress.js";
+export {
   extractStandardWebhookHeaders,
   generateWhsecSecret,
   signStandardWebhook,

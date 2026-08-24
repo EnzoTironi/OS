@@ -14,14 +14,14 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | HAVE | DON'T HAVE | STUB ON MAIN | IN FLIGHT | PARKED | HARNESS |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 24 | 4 | 0 | 0 | 2 | 3 |
+| 24 | 3 | 0 | 1 | 2 | 3 |
 
 ## Do next
 
 | order | issue | PR | title | note |
 | ---: | ---: | --- | --- | --- |
-| 1 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on OIDC | Landing. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted in the same PR. |
-| 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | Waiting on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive. Do not restore the Cloud API fake. |
+| 1 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on OIDC | Done on main. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted. |
+| 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | In flight. CompanionSession + Chat SDK adapter + zoend HTTP ingress. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Not a dump of go-zoen. |
 | 3 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | Waiting on a bot token. Do not restore the fake. |
 | 4 | [#327](https://github.com/EnzoTironi/OS/issues/327) | — | Conformance and substitution against live adapters | After live Telegram and WhatsApp exist. Fakes do not re-enter just verify. |
 | 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | packages/surface and packages/attention stay. Fake-delivery e2e does not return. |
@@ -86,9 +86,16 @@ Not product. Restore issue is the row. Code, if any, lives on the backup branch.
 | id | plane | name | proof | issue |
 | --- | --- | --- | --- | ---: |
 | `telegram-live` | channels | Telegram channel | Not on main. Fake was removed. Code on backup/stubs-channels. Restore as live Bot API on #329. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
-| `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | Never shipped live. Cloud API fake was removed and is not this path. Waiting on the dedicated Zoen number. #326. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
 | `messaging-conformance-live` | channels | Messaging conformance against live adapters | Not on main. Fake-backed e2e was removed. Live rewrite is #327. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `surface-ir-e2e-live` | channels | Surface IR and Attention e2e on live channels | Packages stay on main. Fake-delivery e2e was removed. Restore on live is #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+
+## IN FLIGHT
+
+Fail-closed work in an open PR. Do not duplicate.
+
+| id | plane | name | proof | issue |
+| --- | --- | --- | --- | ---: |
+| `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Cloud API fake stays deleted. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
 
 ## PARKED
 
