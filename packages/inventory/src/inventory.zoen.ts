@@ -237,6 +237,26 @@ const procurementShortage = defineComputation({
   returns: { kind: "quantity", unit: "each" },
 });
 
+const assignLocation = defineAction({
+  effects: [
+    {
+      relationId: "inventory.location",
+      value: { inputId: "location", kind: "input" },
+    },
+  ],
+  id: "inventory.assignLocation",
+  inputs: [
+    {
+      id: "location",
+      valueType: { kind: "entity", typeId: "inventory.Location" },
+    },
+  ],
+  precondition: {
+    kind: "literal",
+    value: { kind: "bool", value: true },
+  },
+});
+
 const acceptPhysicalQuantity = defineAction({
   effects: [
     {
@@ -472,6 +492,7 @@ const correctInventory = defineAction({
 export default defineBundle({
   actions: [
     acceptPhysicalQuantity,
+    assignLocation,
     correctInventory,
     recordCommercialCommitment,
     recordMovement,
