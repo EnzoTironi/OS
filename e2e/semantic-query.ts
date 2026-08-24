@@ -699,6 +699,7 @@ async function main(): Promise<void> {
     assert.ok(activeAfterRebuild);
     const manifest = {
       assertions,
+      authMode: "legacy-sessions",
       componentVersions: {
         dataFusion: dataFusionVersion,
         minio: minioVersion.split("\n")[0],
