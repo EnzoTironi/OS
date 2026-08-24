@@ -9,7 +9,6 @@ use zoen_query::ObjectStoreConfig;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProcessAuth {
     Oidc { issuer: String, audience: String },
-    LegacySessions { tokens_json: String },
 }
 
 type EnvLookup<'a> = dyn Fn(&str) -> Result<Option<String>, VarError> + 'a;
@@ -29,25 +28,12 @@ pub fn cedar_manifest_path() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
 pub fn process_auth_from(
     lookup: &EnvLookup<'_>,
 ) -> Result<ProcessAuth, Box<dyn Error + Send + Sync>> {
-    let issuer = nonempty(lookup("ZOEN_OIDC_ISSUER")?);
-    if let Some(issuer) = issuer {
-        let audience = nonempty(lookup("ZOEN_OIDC_AUDIENCE")?).ok_or_else(|| {
-            config_error("ZOEN_OIDC_AUDIENCE is required when ZOEN_OIDC_ISSUER is set")
-        })?;
-        return Ok(ProcessAuth::Oidc { issuer, audience });
-    }
-
-    let allow_legacy = lookup("ZOEN_ALLOW_LEGACY_SESSIONS")?;
-    if allow_legacy.as_deref() != Some("1") {
-        return Err(config_error(
-            "ZOEN_OIDC_ISSUER is required unless ZOEN_ALLOW_LEGACY_SESSIONS=1",
-        ));
-    }
-
-    let tokens_json = nonempty(lookup("ZOEN_SESSION_TOKENS")?).ok_or_else(|| {
-        config_error("ZOEN_SESSION_TOKENS is required when ZOEN_ALLOW_LEGACY_SESSIONS=1")
+    let issuer = nonempty(lookup("ZOEN_OIDC_ISSUER")?)
+        .ok_or_else(|| config_error("ZOEN_OIDC_ISSUER is required"))?;
+    let audience = nonempty(lookup("ZOEN_OIDC_AUDIENCE")?).ok_or_else(|| {
+        config_error("ZOEN_OIDC_AUDIENCE is required when ZOEN_OIDC_ISSUER is set")
     })?;
-    Ok(ProcessAuth::LegacySessions { tokens_json })
+    Ok(ProcessAuth::Oidc { issuer, audience })
 }
 
 pub fn cedar_manifest_path_from(
@@ -137,13 +123,11 @@ mod tests {
     }
 
     #[test]
-    fn process_auth_requires_oidc_without_legacy_flag() {
+    fn process_auth_requires_oidc_issuer() {
         let env = HashMap::new();
         let error = process_auth_from(&lookup_from(&env)).expect_err("missing auth");
         assert!(
-            error
-                .to_string()
-                .contains("ZOEN_OIDC_ISSUER is required unless ZOEN_ALLOW_LEGACY_SESSIONS=1"),
+            error.to_string().contains("ZOEN_OIDC_ISSUER is required"),
             "{error}"
         );
     }
@@ -174,59 +158,6 @@ mod tests {
                 .contains("ZOEN_OIDC_AUDIENCE is required when ZOEN_OIDC_ISSUER is set"),
             "{error}"
         );
-    }
-
-    #[test]
-    fn process_auth_legacy_requires_exact_flag_and_tokens() {
-        let missing_flag = HashMap::from([("ZOEN_SESSION_TOKENS", r#"{"tok":"tenant.a"}"#)]);
-        let error = process_auth_from(&lookup_from(&missing_flag)).expect_err("no flag");
-        assert!(
-            error.to_string().contains("ZOEN_ALLOW_LEGACY_SESSIONS=1"),
-            "{error}"
-        );
-
-        let wrong_flag = HashMap::from([
-            ("ZOEN_ALLOW_LEGACY_SESSIONS", "true"),
-            ("ZOEN_SESSION_TOKENS", r#"{"tok":"tenant.a"}"#),
-        ]);
-        let error = process_auth_from(&lookup_from(&wrong_flag)).expect_err("flag not 1");
-        assert!(
-            error.to_string().contains("ZOEN_ALLOW_LEGACY_SESSIONS=1"),
-            "{error}"
-        );
-
-        let missing_tokens = HashMap::from([("ZOEN_ALLOW_LEGACY_SESSIONS", "1")]);
-        let error = process_auth_from(&lookup_from(&missing_tokens)).expect_err("no tokens");
-        assert!(
-            error
-                .to_string()
-                .contains("ZOEN_SESSION_TOKENS is required when ZOEN_ALLOW_LEGACY_SESSIONS=1"),
-            "{error}"
-        );
-
-        let ok = HashMap::from([
-            ("ZOEN_ALLOW_LEGACY_SESSIONS", "1"),
-            ("ZOEN_SESSION_TOKENS", r#"{"tok":"tenant.a"}"#),
-        ]);
-        let auth = process_auth_from(&lookup_from(&ok)).expect("legacy");
-        assert_eq!(
-            auth,
-            ProcessAuth::LegacySessions {
-                tokens_json: r#"{"tok":"tenant.a"}"#.to_owned(),
-            }
-        );
-    }
-
-    #[test]
-    fn process_auth_prefers_oidc_over_legacy_flag() {
-        let env = HashMap::from([
-            ("ZOEN_OIDC_ISSUER", "https://issuer.example/realms/zoen"),
-            ("ZOEN_OIDC_AUDIENCE", "zoend"),
-            ("ZOEN_ALLOW_LEGACY_SESSIONS", "1"),
-            ("ZOEN_SESSION_TOKENS", r#"{"tok":"tenant.a"}"#),
-        ]);
-        let auth = process_auth_from(&lookup_from(&env)).expect("oidc wins");
-        assert!(matches!(auth, ProcessAuth::Oidc { .. }));
     }
 
     #[test]

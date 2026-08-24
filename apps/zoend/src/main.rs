@@ -54,12 +54,8 @@ pub mod proto {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let database_url = env::var("DATABASE_URL")?;
-    let sessions = match config::process_auth()? {
-        ProcessAuth::Oidc { issuer, audience } => {
-            SessionRegistry::from_oidc(issuer, audience).await?
-        }
-        ProcessAuth::LegacySessions { tokens_json } => SessionRegistry::from_json(&tokens_json)?,
-    };
+    let ProcessAuth::Oidc { issuer, audience } = config::process_auth()?;
+    let sessions = SessionRegistry::from_oidc(issuer, audience).await?;
     let policy = Arc::new(CedarPolicyEvaluator::from_path(
         config::cedar_manifest_path()?,
     )?);

@@ -55,10 +55,20 @@ const adminDatabaseUrl = e2ePostgresUrl(
   postgresPortFallback,
 );
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const keycloakPortFallback = 58_084;
+const oidcIssuer = e2eHttpUrl(
+  "ZOEN_E2E_KEYCLOAK_PORT",
+  keycloakPortFallback,
+  "/realms/zoen",
+);
+const oidcAudience = "zoend";
 const tenantA = "tenant.a";
 const tenantB = "tenant.b";
-const tokenA = "definition-session-a";
-const tokenB = "definition-session-b";
+const tokenResponseSchema = z
+  .object({
+    access_token: z.string().min(1),
+  })
+  .passthrough();
 
 const compiledDefinitionSchema = z
   .object({
@@ -148,6 +158,8 @@ async function main(): Promise<void> {
   );
   recordAssertion("computationMutationChangedDigest");
 
+  const tokenA = await oidcToken("admin-a");
+  const tokenB = await oidcToken("admin-b");
   let server = await startServer();
   const clientA = definitionClient(tokenA);
   const clientB = definitionClient(tokenB);
@@ -347,7 +359,7 @@ async function main(): Promise<void> {
     );
     const manifest = {
       assertions,
-      authMode: "legacy-sessions",
+      authMode: "oidc",
       componentVersions: {
         postgres: version,
       },
@@ -445,6 +457,23 @@ function command(executable: string, arguments_: readonly string[]): Promise<str
   });
 }
 
+async function oidcToken(clientId: string): Promise<string> {
+  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: `${clientId}-secret`,
+      grant_type: "client_credentials",
+    }),
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    method: "POST",
+  });
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return tokenResponseSchema.parse(body).access_token;
+}
+
 async function startServer(): Promise<ServerProcess> {
   const policyManifestPath = path.join(
     repositoryRoot,
@@ -458,13 +487,10 @@ async function startServer(): Promise<ServerProcess> {
     env: {
       ...process.env,
       DATABASE_URL: applicationDatabaseUrl,
-      ZOEN_ALLOW_LEGACY_SESSIONS: "1",
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
-      ZOEN_SESSION_TOKENS: JSON.stringify({
-        [tokenA]: tenantA,
-        [tokenB]: tenantB,
-      }),
+      ZOEN_OIDC_AUDIENCE: oidcAudience,
+      ZOEN_OIDC_ISSUER: oidcIssuer,
     },
     stdio: ["pipe", "pipe", "pipe"],
   });

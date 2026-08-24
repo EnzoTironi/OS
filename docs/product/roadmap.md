@@ -14,13 +14,13 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | HAVE | DON'T HAVE | STUB ON MAIN | IN FLIGHT | PARKED | HARNESS |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 23 | 5 | 0 | 0 | 2 | 3 |
+| 24 | 4 | 0 | 0 | 2 | 3 |
 
 ## Do next
 
 | order | issue | PR | title | note |
 | ---: | ---: | --- | --- | --- |
-| 1 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on OIDC | Unblocked. #321 is on main. Drop ZOEN_SESSION_TOKENS on those two suites. |
+| 1 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on OIDC | Landing. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted in the same PR. |
 | 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | Waiting on the dedicated Zoen number. Port go-zoen internal/whatsappchannel. Not Cognitive. Do not restore the Cloud API fake. |
 | 3 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | Waiting on a bot token. Do not restore the fake. |
 | 4 | [#327](https://github.com/EnzoTironi/OS/issues/327) | — | Conformance and substitution against live adapters | After live Telegram and WhatsApp exist. Fakes do not re-enter just verify. |
@@ -61,6 +61,7 @@ On main. Real implementation. This is product.
 | `authority-query` | authority | DataFusion semantic query | just e2e semantic-query | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `authority-restate` | authority | Restate durable orchestration | just e2e durable-commit. Remote Restate e2e is a named harness, not the product claim. | — |
 | `identity-oidc` | identity | OIDC identity (Keycloak) | just start. just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
+| `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `web-tanstack` | experience | Web application | just start. OIDC login, packs, propose/approve, step-up. | — |
 | `surface-ir` | experience | Surface IR package | Unit tests in packages/surface. Delivery through live channels is #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `attention` | experience | Proactive attention package | Package exists with Postgres store. Wake/DM through live channels is #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
@@ -74,7 +75,7 @@ On main. Real implementation. This is product.
 | `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `deploy-helm` | deploy | Helm profiles (shared, dedicated, self-hosted) | just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify. | — |
 | `public-surface` | public | Public narrative checker | npx tsx e2e/public-surface.ts. Live conversation study is #267. | [#267](https://github.com/EnzoTironi/OS/issues/267) |
-| `fail-closed-boot` | authority | Fail-closed zoend boot | On main via #321. ProcessAuth is Oidc or LegacySessions. Legacy only with ZOEN_ALLOW_LEGACY_SESSIONS=1. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
+| `fail-closed-boot` | authority | Fail-closed zoend boot | On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. ChannelProvider::Linq. toChannelProvider("linq") === "linq". | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
 
@@ -84,7 +85,6 @@ Not product. Restore issue is the row. Code, if any, lives on the backup branch.
 
 | id | plane | name | proof | issue |
 | --- | --- | --- | --- | ---: |
-| `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | Those suites still boot with ZOEN_SESSION_TOKENS. After #321 they need ZOEN_ALLOW_LEGACY_SESSIONS=1. They are not an OIDC proof. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `telegram-live` | channels | Telegram channel | Not on main. Fake was removed. Code on backup/stubs-channels. Restore as live Bot API on #329. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
 | `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | Never shipped live. Cloud API fake was removed and is not this path. Waiting on the dedicated Zoen number. #326. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
 | `messaging-conformance-live` | channels | Messaging conformance against live adapters | Not on main. Fake-backed e2e was removed. Live rewrite is #327. | [#327](https://github.com/EnzoTironi/OS/issues/327) |

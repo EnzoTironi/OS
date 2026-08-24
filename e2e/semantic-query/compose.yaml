@@ -17,6 +17,27 @@ services:
       timeout: 3s
       retries: 30
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${ZOEN_E2E_KEYCLOAK_PORT}:8080"
+    volumes:
+      - ./.generated/realm.json:/opt/keycloak/data/import/realm.json:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bash -c ': > /dev/tcp/127.0.0.1/8080'"
+      interval: 1s
+      timeout: 3s
+      retries: 90
+
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"

@@ -20,6 +20,7 @@ import { createConnectTransport } from "@connectrpc/connect-node";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Client as PostgresClient } from "pg";
+import { z } from "zod";
 import { DefinitionService } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import {
   DefinitionReferenceSchema,
@@ -79,12 +80,22 @@ const adminDatabaseUrl = e2ePostgresUrl(
   postgresPortFallback,
 );
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const keycloakPortFallback = 58_086;
+const oidcIssuer = e2eHttpUrl(
+  "ZOEN_E2E_KEYCLOAK_PORT",
+  keycloakPortFallback,
+  "/realms/zoen",
+);
+const oidcAudience = "zoend";
 const tenantA = "tenant.a";
 const tenantB = "tenant.b";
-const tokenA = "semantic-session-a";
-const tokenB = "semantic-session-b";
 const entityId = "entity.item";
 const definitionId = "world.definition";
+const tokenResponseSchema = z
+  .object({
+    access_token: z.string().min(1),
+  })
+  .passthrough();
 const onHand = "world.onHand";
 const reserved = "world.reserved";
 const available = "world.available";
@@ -124,6 +135,8 @@ async function main(): Promise<void> {
     digest: definitionDigest,
     revision: 1n,
   });
+  const tokenA = await oidcToken("admin-a");
+  const tokenB = await oidcToken("admin-b");
   const clientA = definitionClient(tokenA);
   const clientB = definitionClient(tokenB);
   const worldA = worldClient(tokenA);
@@ -699,7 +712,7 @@ async function main(): Promise<void> {
     assert.ok(activeAfterRebuild);
     const manifest = {
       assertions,
-      authMode: "legacy-sessions",
+      authMode: "oidc",
       componentVersions: {
         dataFusion: dataFusionVersion,
         minio: minioVersion.split("\n")[0],
@@ -1004,12 +1017,6 @@ function assertComputationLineage(
   }
 }
 
-/**
- * Bind the published definition digest to the session-token activation policy.
- *
- * Session worlds have no Keycloak realm, so the runner writes the Cedar
- * manifest that `activateRevision` evaluates after the kernel grant check.
- */
 async function writeActivationManifest(definitionDigest: string): Promise<string> {
   const source = await readFile(
     path.join(repositoryRoot, "e2e", "semantic-query", "activation.cedar"),
@@ -1042,15 +1049,21 @@ async function writeActivationManifest(definitionDigest: string): Promise<string
   return outputPath;
 }
 
-function sessionTokens(): string {
-  const grant = {
-    actionIds: ["action.legacy", "zoen.definition.activate"],
-    resourceIds: ["resource.legacy", definitionId],
-  };
-  return JSON.stringify({
-    [tokenA]: { ...grant, tenantId: tenantA },
-    [tokenB]: { ...grant, tenantId: tenantB },
+async function oidcToken(clientId: string): Promise<string> {
+  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: `${clientId}-secret`,
+      grant_type: "client_credentials",
+    }),
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    method: "POST",
   });
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return tokenResponseSchema.parse(body).access_token;
 }
 
 async function startServer(policyManifestPath: string): Promise<ServerProcess> {
@@ -1060,10 +1073,10 @@ async function startServer(policyManifestPath: string): Promise<ServerProcess> {
     env: {
       ...process.env,
       ...workerEnvironment(),
-      ZOEN_ALLOW_LEGACY_SESSIONS: "1",
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
-      ZOEN_SESSION_TOKENS: sessionTokens(),
+      ZOEN_OIDC_AUDIENCE: oidcAudience,
+      ZOEN_OIDC_ISSUER: oidcIssuer,
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
