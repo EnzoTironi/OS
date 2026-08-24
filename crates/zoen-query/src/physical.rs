@@ -167,6 +167,17 @@ pub(crate) fn claims_to_batch(rows: &[PhysicalClaim]) -> Result<RecordBatch, Que
         .map_err(|error| QueryError::Corrupt(error.to_string()))
 }
 
+pub(crate) fn batches_to_entity_ids(batches: &[RecordBatch]) -> Result<Vec<String>, QueryError> {
+    let mut entity_ids = Vec::new();
+    for batch in batches {
+        let values = strings(batch, "entity_id")?;
+        for index in 0..batch.num_rows() {
+            entity_ids.push(required_string(values, index, "entity_id")?);
+        }
+    }
+    Ok(entity_ids)
+}
+
 pub(crate) fn batches_to_claims(batches: &[RecordBatch]) -> Result<Vec<PhysicalClaim>, QueryError> {
     let mut rows = Vec::new();
     for batch in batches {

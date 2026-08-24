@@ -11,13 +11,13 @@ use object_store::path::Path;
 use object_store::{ObjectStore, ObjectStoreExt};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use zoen_adapters::{PostgresClaimLoader, PostgresClaimQuery};
+use zoen_adapters::{PostgresClaimLoader, PostgresClaimQuery, PostgresTypeQuery};
 use zoen_core::{
     CanonicalDefinition, CanonicalJson, ClaimId, CommitSequence, Consistency, DefinitionReference,
     EntityId, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, Expression,
     LineageDependency, LineageRole, MigrationOrigin, MigrationRuleId, MigrationRuleKind,
     OperationId, RelationId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
-    SourceId, TenantId, UnitId, expression_relations,
+    SourceId, TenantId, TimestampMicros, TypeId, UnitId, expression_relations,
 };
 use zoen_engine::{
     QueryExecutor, QueryPortError, SemanticClaim, StoreError, decode_canonical_definition,
@@ -28,7 +28,7 @@ mod physical;
 mod projection;
 mod storage;
 
-use physical::{PhysicalClaim, batches_to_claims};
+use physical::{PhysicalClaim, batches_to_claims, batches_to_entity_ids};
 use projection::load_source_state;
 pub use projection::{ProjectionMode, ProjectionOutcome, ProjectionRunOptions, ProjectionWorker};
 pub use storage::ObjectStoreConfig;
@@ -93,16 +93,56 @@ impl QueryRuntime {
         query: &SemanticQuery,
     ) -> Result<SemanticResult, QueryError> {
         let source = self
-            .select_source(context.tenant_id(), &query.consistency)
+            .select_source(context.tenant_id(), query.consistency())
             .await?;
         let cut = source.cut();
         let canonical_json = self
-            .load_definition(context.tenant_id(), &query.definition, cut)
+            .load_definition(context.tenant_id(), query.definition(), cut)
             .await?;
         let definition = decode_canonical_definition(&canonical_json)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
-        let plan = QueryPlan::new(&query.selection, &definition)?;
-        let mut claims = match &source {
+        let values = match query {
+            SemanticQuery::ByEntity { .. } => {
+                self.execute_by_entity(context, query, &definition, &source, cut)
+                    .await?
+            }
+            SemanticQuery::ByType { .. } => {
+                self.execute_by_type(context, query, &definition, &source)
+                    .await?
+            }
+        };
+        let actual_commit_sequence = commit_sequence(cut, "query cut")?;
+        Ok(SemanticResult {
+            actual_commit_sequence,
+            definition: query.definition().clone(),
+            knowledge_cut: actual_commit_sequence,
+            valid_at: query.valid_at(),
+            values,
+        })
+    }
+
+    async fn execute_by_entity(
+        &self,
+        context: &ExecutionContext,
+        query: &SemanticQuery,
+        definition: &CanonicalDefinition,
+        source: &SourcePlan,
+        cut: i64,
+    ) -> Result<Vec<SemanticValue>, QueryError> {
+        let SemanticQuery::ByEntity {
+            definition: definition_ref,
+            entity_id,
+            selection,
+            valid_at,
+            ..
+        } = query
+        else {
+            return Err(QueryError::Corrupt(
+                "by-entity execution received a type query".to_owned(),
+            ));
+        };
+        let plan = QueryPlan::new(selection, definition)?;
+        let mut claims = match source {
             SourcePlan::Postgres { cut } => {
                 let claims = self
                     .claim_loader
@@ -110,15 +150,15 @@ impl QueryRuntime {
                         context,
                         &PostgresClaimQuery {
                             cut: commit_sequence(*cut, "query cut")?,
-                            definition: query.definition.clone(),
-                            entity_id: query.entity_id.clone(),
+                            definition: definition_ref.clone(),
+                            entity_id: entity_id.clone(),
                             relation_ids: plan
                                 .relation_ids
                                 .iter()
                                 .map(RelationId::parse)
                                 .collect::<Result<_, _>>()
                                 .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-                            valid_at: query.valid_at,
+                            valid_at: *valid_at,
                         },
                     )
                     .await
@@ -132,7 +172,9 @@ impl QueryRuntime {
             } => {
                 self.load_projected_claims(
                     context,
-                    query,
+                    definition_ref,
+                    entity_id,
+                    *valid_at,
                     &plan.relation_ids,
                     *cut,
                     parquet_digest,
@@ -148,15 +190,71 @@ impl QueryRuntime {
             claim.dependency.migration =
                 migration_origins.remove(claim.dependency.claim_id.as_str());
         }
-        let values = plan.evaluate(&claims)?;
-        let actual_commit_sequence = commit_sequence(cut, "query cut")?;
-        Ok(SemanticResult {
-            actual_commit_sequence,
-            definition: query.definition.clone(),
-            knowledge_cut: actual_commit_sequence,
-            valid_at: query.valid_at,
-            values,
-        })
+        plan.evaluate(&claims)
+    }
+
+    async fn execute_by_type(
+        &self,
+        context: &ExecutionContext,
+        query: &SemanticQuery,
+        definition: &CanonicalDefinition,
+        source: &SourcePlan,
+    ) -> Result<Vec<SemanticValue>, QueryError> {
+        let SemanticQuery::ByType {
+            definition: definition_ref,
+            limit,
+            type_id,
+            valid_at,
+            ..
+        } = query
+        else {
+            return Err(QueryError::Corrupt(
+                "by-type execution received an entity query".to_owned(),
+            ));
+        };
+        let limit = require_positive_limit(*limit)?;
+        let relation_ids = relation_ids_for_type(definition, type_id)?;
+        if relation_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let entity_ids = match source {
+            SourcePlan::Postgres { cut } => self
+                .claim_loader
+                .load_entity_ids(
+                    context,
+                    &PostgresTypeQuery {
+                        cut: commit_sequence(*cut, "query cut")?,
+                        definition: definition_ref.clone(),
+                        limit,
+                        relation_ids: relation_ids
+                            .iter()
+                            .map(RelationId::parse)
+                            .collect::<Result<_, _>>()
+                            .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+                        valid_at: *valid_at,
+                    },
+                )
+                .await
+                .map_err(adapter_error)?,
+            SourcePlan::Projection {
+                cut,
+                parquet_digest,
+                parquet_object_key,
+            } => {
+                self.load_projected_entity_ids(
+                    context,
+                    definition_ref,
+                    *valid_at,
+                    &relation_ids,
+                    limit,
+                    *cut,
+                    parquet_digest,
+                    parquet_object_key,
+                )
+                .await?
+            }
+        };
+        Ok(entity_values(entity_ids))
     }
 
     async fn select_source(
@@ -355,15 +453,99 @@ impl QueryRuntime {
             .ok_or_else(|| QueryError::Corrupt("stored canonical definition is empty".to_owned()))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn load_projected_claims(
         &self,
         context: &ExecutionContext,
-        query: &SemanticQuery,
+        definition: &DefinitionReference,
+        entity_id: &EntityId,
+        valid_at: TimestampMicros,
         relation_ids: &BTreeSet<String>,
         cut: i64,
         parquet_digest: &str,
         parquet_object_key: &str,
     ) -> Result<Vec<SemanticClaim>, QueryError> {
+        let data = self
+            .scan_projected_claims(
+                context,
+                definition,
+                Some(entity_id),
+                valid_at,
+                relation_ids,
+                cut,
+                parquet_digest,
+                parquet_object_key,
+            )
+            .await?
+            .sort(vec![col("claim_id").sort(true, true)])
+            .map_err(projected_corrupt)?
+            .collect()
+            .await
+            .map_err(projected_corrupt)?;
+        batches_to_claims(&data)?
+            .into_iter()
+            .map(|claim| parse_claim(claim, context, definition, entity_id, valid_at))
+            .collect()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn load_projected_entity_ids(
+        &self,
+        context: &ExecutionContext,
+        definition: &DefinitionReference,
+        valid_at: TimestampMicros,
+        relation_ids: &BTreeSet<String>,
+        limit: u32,
+        cut: i64,
+        parquet_digest: &str,
+        parquet_object_key: &str,
+    ) -> Result<Vec<EntityId>, QueryError> {
+        let data = self
+            .scan_projected_claims(
+                context,
+                definition,
+                None,
+                valid_at,
+                relation_ids,
+                cut,
+                parquet_digest,
+                parquet_object_key,
+            )
+            .await?
+            .select(vec![col("entity_id")])
+            .map_err(projected_corrupt)?
+            .distinct()
+            .map_err(projected_corrupt)?
+            .limit(
+                0,
+                Some(usize::try_from(limit).map_err(|_| {
+                    QueryError::Invalid("type query limit exceeds usize".to_owned())
+                })?),
+            )
+            .map_err(projected_corrupt)?
+            .collect()
+            .await
+            .map_err(projected_corrupt)?;
+        batches_to_entity_ids(&data)?
+            .into_iter()
+            .map(|entity_id| {
+                EntityId::parse(entity_id).map_err(|error| QueryError::Corrupt(error.to_string()))
+            })
+            .collect()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn scan_projected_claims(
+        &self,
+        context: &ExecutionContext,
+        definition: &DefinitionReference,
+        entity_id: Option<&EntityId>,
+        valid_at: TimestampMicros,
+        relation_ids: &BTreeSet<String>,
+        cut: i64,
+        parquet_digest: &str,
+        parquet_object_key: &str,
+    ) -> Result<datafusion::dataframe::DataFrame, QueryError> {
         let object_store_config = self.object_store_config.as_ref().ok_or_else(|| {
             QueryError::Unavailable("object storage is not configured".to_owned())
         })?;
@@ -374,17 +556,8 @@ impl QueryRuntime {
         let store_url = ObjectStoreUrl::parse(object_store_config.registration_url())
             .map_err(|error| QueryError::Unavailable(error.to_string()))?;
         session.register_object_store(store_url.as_ref(), verified_store);
-        let mut relation_filter: Option<Expr> = None;
-        for relation_id in relation_ids {
-            let current = col("relation_id").eq(lit(relation_id.clone()));
-            relation_filter = Some(match relation_filter {
-                Some(existing) => existing.or(current),
-                None => current,
-            });
-        }
-        let relation_filter = relation_filter
-            .ok_or_else(|| QueryError::Invalid("query plan has no relations".to_owned()))?;
-        let valid_at = query.valid_at.get();
+        let relation_filter = relation_or_filter(relation_ids)?;
+        let valid_at = valid_at.get();
         let valid_filter = col("valid_time_kind")
             .eq(lit("instant"))
             .and(col("valid_from_micros").eq(lit(valid_at)))
@@ -393,37 +566,29 @@ impl QueryRuntime {
                     .lt_eq(lit(valid_at))
                     .and(col("valid_to_micros").gt(lit(valid_at))),
             ));
-        let data = session
+        let mut filter = col("tenant_id")
+            .eq(lit(context.tenant_id().as_str()))
+            .and(col("definition_id").eq(lit(definition.definition_id.as_str())))
+            .and(col("definition_digest").eq(lit(definition.digest.as_str())))
+            .and(col("definition_revision").eq(lit(u64_to_i64(
+                definition.revision.get(),
+                "definition revision",
+            )?)))
+            .and(relation_filter)
+            .and(col("commit_sequence").lt_eq(lit(cut)))
+            .and(valid_filter);
+        if let Some(entity_id) = entity_id {
+            filter = filter.and(col("entity_id").eq(lit(entity_id.as_str())));
+        }
+        session
             .read_parquet(
                 object_store_config.object_url(parquet_object_key),
                 ParquetReadOptions::default(),
             )
             .await
             .map_err(projected_corrupt)?
-            .filter(
-                col("tenant_id")
-                    .eq(lit(context.tenant_id().as_str()))
-                    .and(col("definition_id").eq(lit(query.definition.definition_id.as_str())))
-                    .and(col("definition_digest").eq(lit(query.definition.digest.as_str())))
-                    .and(col("definition_revision").eq(lit(u64_to_i64(
-                        query.definition.revision.get(),
-                        "definition revision",
-                    )?)))
-                    .and(col("entity_id").eq(lit(query.entity_id.as_str())))
-                    .and(relation_filter)
-                    .and(col("commit_sequence").lt_eq(lit(cut)))
-                    .and(valid_filter),
-            )
-            .map_err(projected_corrupt)?
-            .sort(vec![col("claim_id").sort(true, true)])
-            .map_err(projected_corrupt)?
-            .collect()
-            .await
-            .map_err(projected_corrupt)?;
-        batches_to_claims(&data)?
-            .into_iter()
-            .map(|claim| parse_claim(claim, context, query))
-            .collect()
+            .filter(filter)
+            .map_err(projected_corrupt)
     }
 }
 
@@ -499,14 +664,16 @@ impl SourcePlan {
 fn parse_claim(
     physical: PhysicalClaim,
     context: &ExecutionContext,
-    query: &SemanticQuery,
+    definition: &DefinitionReference,
+    entity_id: &EntityId,
+    valid_at: TimestampMicros,
 ) -> Result<SemanticClaim, QueryError> {
     if physical.tenant_id != context.tenant_id().as_str()
-        || physical.definition_id != query.definition.definition_id.as_str()
-        || physical.definition_digest != query.definition.digest.as_str()
+        || physical.definition_id != definition.definition_id.as_str()
+        || physical.definition_digest != definition.digest.as_str()
         || physical.definition_revision
-            != u64_to_i64(query.definition.revision.get(), "definition revision")?
-        || physical.entity_id != query.entity_id.as_str()
+            != u64_to_i64(definition.revision.get(), "definition revision")?
+        || physical.entity_id != entity_id.as_str()
     {
         return Err(QueryError::Corrupt(
             "physical provider returned a row outside the semantic query scope".to_owned(),
@@ -518,11 +685,10 @@ fn parse_claim(
             && physical
                 .valid_to_micros
                 .is_none_or(|end| physical.valid_from_micros >= end)
-        || physical.valid_time_kind == "instant"
-            && physical.valid_from_micros != query.valid_at.get()
+        || physical.valid_time_kind == "instant" && physical.valid_from_micros != valid_at.get()
         || physical.valid_time_kind == "interval"
-            && !(physical.valid_from_micros <= query.valid_at.get()
-                && query.valid_at.get()
+            && !(physical.valid_from_micros <= valid_at.get()
+                && valid_at.get()
                     < physical
                         .valid_to_micros
                         .unwrap_or(physical.valid_from_micros))
@@ -616,6 +782,60 @@ impl QueryPlan {
         evaluate_semantic_claims(&self.expression, claims, self.relation_role)
             .map_err(|error| QueryError::Evaluation(error.to_string()))
     }
+}
+
+fn require_positive_limit(limit: u32) -> Result<u32, QueryError> {
+    if limit == 0 {
+        Err(QueryError::Invalid(
+            "type query limit must be positive".to_owned(),
+        ))
+    } else {
+        Ok(limit)
+    }
+}
+
+fn relation_ids_for_type(
+    definition: &CanonicalDefinition,
+    type_id: &TypeId,
+) -> Result<BTreeSet<String>, QueryError> {
+    if !definition
+        .types
+        .iter()
+        .any(|candidate| candidate.id == *type_id)
+    {
+        return Err(QueryError::Invalid(format!(
+            "definition has no type: {}",
+            type_id.as_str()
+        )));
+    }
+    Ok(definition
+        .relations
+        .iter()
+        .filter(|relation| relation.source_type == *type_id)
+        .map(|relation| relation.id.as_str().to_owned())
+        .collect())
+}
+
+fn entity_values(entity_ids: Vec<EntityId>) -> Vec<SemanticValue> {
+    entity_ids
+        .into_iter()
+        .map(|entity_id| SemanticValue {
+            dependencies: Vec::new(),
+            value: ExactValue::Entity(entity_id),
+        })
+        .collect()
+}
+
+fn relation_or_filter(relation_ids: &BTreeSet<String>) -> Result<Expr, QueryError> {
+    let mut relation_filter: Option<Expr> = None;
+    for relation_id in relation_ids {
+        let current = col("relation_id").eq(lit(relation_id.clone()));
+        relation_filter = Some(match relation_filter {
+            Some(existing) => existing.or(current),
+            None => current,
+        });
+    }
+    relation_filter.ok_or_else(|| QueryError::Invalid("query plan has no relations".to_owned()))
 }
 
 fn parse_value(physical: &PhysicalClaim) -> Result<ExactValue, QueryError> {
@@ -712,4 +932,73 @@ fn adapter_error(error: StoreError) -> QueryError {
 
 fn projected_corrupt(error: datafusion::error::DataFusionError) -> QueryError {
     QueryError::Corrupt(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use zoen_core::{
+        Cardinality, DefinitionId, DefinitionRevisionNumber, DefinitionSchema, RelationDefinition,
+        RelationTarget, TypeDefinition, ValueType,
+    };
+
+    use super::*;
+
+    fn item_definition() -> CanonicalDefinition {
+        CanonicalDefinition {
+            actions: Vec::new(),
+            computations: Vec::new(),
+            id: DefinitionId::parse("world.definition").expect("definition"),
+            relations: vec![RelationDefinition {
+                cardinality: Cardinality::One,
+                id: RelationId::parse("world.onHand").expect("relation"),
+                source_type: TypeId::parse("world.Item").expect("type"),
+                target: RelationTarget::Value(ValueType::Integer),
+            }],
+            revision: DefinitionRevisionNumber::new(1).expect("revision"),
+            schema: DefinitionSchema::V1,
+            types: vec![TypeDefinition {
+                attributes: Vec::new(),
+                id: TypeId::parse("world.Item").expect("type"),
+            }],
+        }
+    }
+
+    #[test]
+    fn type_query_rejects_unknown_type() {
+        let error = relation_ids_for_type(
+            &item_definition(),
+            &TypeId::parse("world.Bin").expect("type"),
+        )
+        .expect_err("unknown type");
+        assert!(matches!(error, QueryError::Invalid(_)));
+    }
+
+    #[test]
+    fn type_query_collects_source_relations() {
+        let relation_ids = relation_ids_for_type(
+            &item_definition(),
+            &TypeId::parse("world.Item").expect("type"),
+        )
+        .expect("type");
+        assert_eq!(relation_ids, BTreeSet::from(["world.onHand".to_owned()]));
+    }
+
+    #[test]
+    fn type_query_rejects_zero_limit() {
+        let error = require_positive_limit(0).expect_err("zero limit");
+        assert!(matches!(error, QueryError::Invalid(_)));
+    }
+
+    #[test]
+    fn type_query_values_are_entity_ids_without_hydration() {
+        let values = entity_values(vec![
+            EntityId::parse("entity.bin.one").expect("entity"),
+            EntityId::parse("entity.bin.two").expect("entity"),
+        ]);
+        assert_eq!(values.len(), 2);
+        for value in values {
+            assert!(value.dependencies.is_empty());
+            assert!(matches!(value.value, ExactValue::Entity(_)));
+        }
+    }
 }

@@ -225,7 +225,7 @@ impl ComputationHost for ScopedComputationHost {
             let result = QueryExecutor::execute(
                 &self.query,
                 &self.context,
-                &SemanticQuery {
+                &SemanticQuery::ByEntity {
                     consistency: Consistency::Strong,
                     definition,
                     entity_id,

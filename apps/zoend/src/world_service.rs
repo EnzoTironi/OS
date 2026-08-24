@@ -9,13 +9,14 @@ use zoen_core::{
     DefinitionReference as CoreDefinitionReference, DefinitionRevisionNumber, EntityId,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger,
     ExactValue as CoreExactValue, ExecutionContext, LineageRole as CoreLineageRole, RelationId,
-    SemanticQuery, SemanticResult, SemanticSelection, SourceId, TenantId, TimestampMicros, UnitId,
-    ValidTime,
+    SemanticQuery, SemanticResult, SemanticSelection, SourceId, TenantId, TimestampMicros, TypeId,
+    UnitId, ValidTime,
 };
 use zoen_engine::{RecordEvidenceError, WorldEngine};
 use zoen_query::{QueryError, QueryRuntime};
 
 use crate::auth::SessionRegistry;
+use crate::proto::zoen::world::v1::__buffa::view::oneof::semantic_query_request as semantic_query_view;
 use crate::proto::zoen::world::v1::{
     DefinitionReference, EvidenceClaim, ExactValue, LineageDependency, LineageRole,
     MigrationOrigin, QuantityValue, RecordEvidenceBatchRequest, RecordEvidenceBatchResponse,
@@ -64,7 +65,6 @@ impl WorldServiceImpl {
         }
         Ok(context)
     }
-
 }
 
 impl WorldService for WorldServiceImpl {
@@ -146,12 +146,6 @@ impl WorldService for WorldServiceImpl {
             .ok_or_else(|| invalid("definition is required"))?
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
-        let selection = request
-            .selection
-            .as_option()
-            .ok_or_else(|| invalid("selection is required"))?
-            .to_owned_message()
-            .map_err(|error| invalid(error.to_string()))?;
         let valid_at = request
             .valid_at
             .as_option()
@@ -164,13 +158,36 @@ impl WorldService for WorldServiceImpl {
             .ok_or_else(|| invalid("consistency is required"))?
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
-        let query = SemanticQuery {
-            consistency: parse_consistency(&consistency)?,
-            definition: parse_definition_reference(&definition)?,
-            entity_id: EntityId::parse(request.entity_id)
-                .map_err(|error| invalid(error.to_string()))?,
-            selection: parse_selection(&selection)?,
-            valid_at: parse_timestamp(&valid_at)?,
+        let query = match request.query.as_ref() {
+            Some(semantic_query_view::Query::ByType(type_query)) => {
+                if type_query.limit == 0 {
+                    return Err(invalid("type query limit must be positive"));
+                }
+                SemanticQuery::ByType {
+                    consistency: parse_consistency(&consistency)?,
+                    definition: parse_definition_reference(&definition)?,
+                    limit: type_query.limit,
+                    type_id: TypeId::parse(type_query.type_id)
+                        .map_err(|error| invalid(error.to_string()))?,
+                    valid_at: parse_timestamp(&valid_at)?,
+                }
+            }
+            None => {
+                let selection = request
+                    .selection
+                    .as_option()
+                    .ok_or_else(|| invalid("selection is required"))?
+                    .to_owned_message()
+                    .map_err(|error| invalid(error.to_string()))?;
+                SemanticQuery::ByEntity {
+                    consistency: parse_consistency(&consistency)?,
+                    definition: parse_definition_reference(&definition)?,
+                    entity_id: EntityId::parse(request.entity_id)
+                        .map_err(|error| invalid(error.to_string()))?,
+                    selection: parse_selection(&selection)?,
+                    valid_at: parse_timestamp(&valid_at)?,
+                }
+            }
         };
         let result = self
             .query

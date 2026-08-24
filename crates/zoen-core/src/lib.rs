@@ -882,12 +882,41 @@ pub enum SemanticSelection {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SemanticQuery {
-    pub consistency: Consistency,
-    pub definition: DefinitionReference,
-    pub entity_id: EntityId,
-    pub selection: SemanticSelection,
-    pub valid_at: TimestampMicros,
+pub enum SemanticQuery {
+    ByEntity {
+        consistency: Consistency,
+        definition: DefinitionReference,
+        entity_id: EntityId,
+        selection: SemanticSelection,
+        valid_at: TimestampMicros,
+    },
+    ByType {
+        consistency: Consistency,
+        definition: DefinitionReference,
+        limit: u32,
+        type_id: TypeId,
+        valid_at: TimestampMicros,
+    },
+}
+
+impl SemanticQuery {
+    pub fn consistency(&self) -> &Consistency {
+        match self {
+            Self::ByEntity { consistency, .. } | Self::ByType { consistency, .. } => consistency,
+        }
+    }
+
+    pub fn definition(&self) -> &DefinitionReference {
+        match self {
+            Self::ByEntity { definition, .. } | Self::ByType { definition, .. } => definition,
+        }
+    }
+
+    pub fn valid_at(&self) -> TimestampMicros {
+        match self {
+            Self::ByEntity { valid_at, .. } | Self::ByType { valid_at, .. } => *valid_at,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
