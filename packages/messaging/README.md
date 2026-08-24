@@ -13,4 +13,7 @@ In-process fake adapters were removed from main; restore issues are #326 #327
 #329 and the code lives on `backup/stubs-channels`.
 AD-02.3 adds `createLiveLinqProvider` against `api.linqapp.com` with Standard
 Webhooks verify, outbound allowlist, and env-gated fail-closed advertise.
+`createLiveWhatsAppProvider` wraps CompanionSession (whatsmeow Go process).
+Advertise fails closed without `ZOEN_WHATSAPP_DOOR_E164` and a ready session.
+Never `@chat-adapter/whatsapp`. Cloud API envelopes are rejected.
 Chat SDK types stay in this package only.

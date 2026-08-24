@@ -269,6 +269,30 @@ function mapAudience(
       };
     }
   }
+  if (key === "whatsapp" && raw !== null && typeof raw === "object") {
+    const record = raw as {
+      chatJid?: unknown;
+      isGroup?: unknown;
+      senderAltJid?: unknown;
+      senderJid?: unknown;
+    };
+    const chatJid = typeof record.chatJid === "string" ? record.chatJid : "";
+    if (record.isGroup === true || chatJid.includes("@g.us")) {
+      const speaker =
+        typeof record.senderAltJid === "string" &&
+        record.senderAltJid.length > 0
+          ? record.senderAltJid
+          : typeof record.senderJid === "string"
+            ? record.senderJid
+            : undefined;
+      return {
+        kind: "group",
+        observedParticipantCount: speaker === undefined ? undefined : 1,
+        observedParticipants:
+          speaker === undefined ? undefined : [providerUserRef(speaker)],
+      };
+    }
+  }
   return { kind: "dm" };
 }
 

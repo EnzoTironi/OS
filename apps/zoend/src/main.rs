@@ -43,6 +43,7 @@ mod computation_service;
 mod effect_service;
 mod history_service;
 mod identity_admin;
+mod messaging_ingress;
 mod pack_admin;
 mod pack_registry;
 mod service;
@@ -126,6 +127,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         identity,
         sessions: sessions.clone(),
     });
+    let messaging_routes = messaging_ingress::router(messaging_ingress::from_env());
     let workload_routes = workload_ingress_service::router(WorkloadIngressState {
         credentials: PostgresWorkloadCredentialStore::new(store.pool()),
         signals: PostgresExternalSignalStore::new(store.pool()),
@@ -147,6 +149,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             store,
         })
         .merge(identity_routes)
+        .merge(messaging_routes)
         .merge(workload_routes)
         .merge(pack_routes)
         .merge(pack_registry_routes)
