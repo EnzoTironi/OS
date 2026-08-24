@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Json;
+use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Json;
-use axum::Router;
 use reqwest::Client;
 use serde_json::json;
 
