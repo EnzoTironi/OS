@@ -21,6 +21,7 @@ import {
   createIdentityDirectoryClient,
   createInteractionBoundary,
   createInteractionControlRegistry,
+  createMemoryControlStore,
   presentationIntentRef,
   providerKey,
   toChannelProvider,
@@ -310,7 +311,9 @@ async function main(): Promise<void> {
     });
 
     const identity = createIdentityDirectoryClient({ baseUrl });
-    const controls = createInteractionControlRegistry();
+    const controls = createInteractionControlRegistry({
+      store: createMemoryControlStore(),
+    });
     const interaction = createInteractionBoundary({
       controls,
       correlationNamespace: semanticCorrelationSeed,

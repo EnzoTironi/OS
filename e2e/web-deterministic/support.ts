@@ -11,7 +11,9 @@ import {
 } from "node:http";
 import { createConnection } from "node:net";
 import path from "node:path";
+import { mkdir } from "node:fs/promises";
 import {
+  e2eGeneratedDirectory,
   e2eHttpUrl,
   e2ePort,
 } from "../host-env.js";
@@ -54,6 +56,7 @@ export interface WebProcess {
 export interface WebProcessOptions {
   readonly adaptiveSurfaceUrl?: string;
   readonly definitionId?: string;
+  readonly onboardingStorePath?: string;
   readonly resourceId?: string;
   readonly validAt?: string;
 }
@@ -182,6 +185,13 @@ export async function startWeb(
 ): Promise<WebProcess> {
   const output: string[] = [];
   const webPort = e2ePort("ZOEN_E2E_WEB_PORT", webPortFallback);
+  const onboardingStorePath =
+    options.onboardingStorePath ??
+    path.join(
+      e2eGeneratedDirectory(repositoryRoot, "web-deterministic"),
+      "onboarding-store.json",
+    );
+  await mkdir(path.dirname(onboardingStorePath), { recursive: true });
   const child = spawn(
     process.execPath,
     [path.join(repositoryRoot, "apps", "web", ".output", "server", "index.mjs")],
@@ -193,6 +203,7 @@ export async function startWeb(
         NITRO_HOST: "127.0.0.1",
         NITRO_PORT: webPort.toString(),
         PORT: webPort.toString(),
+        ZOEN_ONBOARDING_STORE_PATH: onboardingStorePath,
         ZOEN_WEB_DEFINITION_ID: options.definitionId ?? definitionId,
         ZOEN_WEB_OIDC_CLIENT_ID: "zoen-web",
         ZOEN_WEB_OIDC_ISSUER: oidcIssuer,

@@ -445,12 +445,20 @@ function command(executable: string, arguments_: readonly string[]): Promise<str
 }
 
 async function startServer(): Promise<ServerProcess> {
+  const policyManifestPath = path.join(
+    repositoryRoot,
+    "e2e",
+    "definition-publication",
+    "policies.json",
+  );
   const output: string[] = [];
   const child = spawn(serverPath, [], {
     cwd: repositoryRoot,
     env: {
       ...process.env,
       DATABASE_URL: applicationDatabaseUrl,
+      ZOEN_ALLOW_LEGACY_SESSIONS: "1",
+      ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
       ZOEN_SESSION_TOKENS: JSON.stringify({
         [tokenA]: tenantA,

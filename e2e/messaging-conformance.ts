@@ -5,6 +5,7 @@ import {
   createIdentityDirectoryClient,
   createInteractionBoundary,
   createInteractionControlRegistry,
+  createMemoryControlStore,
   interactionControlRef,
   presentationIntentRef,
   providerKey,
@@ -339,7 +340,9 @@ async function main(): Promise<void> {
     record("capability_matrix_derived", matrix.length === 14 * 3);
 
     const identity = createIdentityDirectoryClient({ baseUrl });
-    const controls = createInteractionControlRegistry();
+    const controls = createInteractionControlRegistry({
+      store: createMemoryControlStore(),
+    });
     const interaction = createInteractionBoundary({
       controls,
       correlationNamespace: semanticCorrelationSeed,

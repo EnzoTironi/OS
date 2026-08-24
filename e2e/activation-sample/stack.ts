@@ -294,6 +294,7 @@ export async function startStack(
     );
     liveWeb = await startWeb(endpoints.zoendOrigin, {
       definitionId: sample?.webBindings.definitionId,
+      onboardingStorePath: path.join(generatedDir, "onboarding-store.json"),
       resourceId: sample?.webBindings.resourceId,
       validAt: sample?.webBindings.validAt,
     });

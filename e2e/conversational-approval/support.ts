@@ -2,9 +2,11 @@ import {
   spawn,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import {
+  e2eGeneratedDirectory,
   e2eHttpUrl,
   e2ePort,
   e2ePostgresUrl,
@@ -39,6 +41,11 @@ export async function startWeb(input: {
     "server",
     "index.mjs",
   );
+  const onboardingStorePath = path.join(
+    e2eGeneratedDirectory(repositoryRoot, "conversational-approval"),
+    "onboarding-store.json",
+  );
+  await mkdir(path.dirname(onboardingStorePath), { recursive: true });
   const child = spawn(process.execPath, [serverEntry], {
     cwd: repositoryRoot,
     env: {
@@ -48,6 +55,7 @@ export async function startWeb(input: {
       NITRO_PORT: webPort.toString(),
       PORT: webPort.toString(),
       ZOEN_INTERACTION_DATABASE_URL: interactionDatabaseUrl,
+      ZOEN_ONBOARDING_STORE_PATH: onboardingStorePath,
       ZOEN_WEB_DEFINITION_ID: input.definitionId,
       ZOEN_WEB_OIDC_CLIENT_ID: "zoen-web",
       ZOEN_WEB_OIDC_ISSUER: input.oidcIssuer,

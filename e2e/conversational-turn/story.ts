@@ -8,6 +8,7 @@ import {
   createConversationTurnCoordinator,
   createInteractionBoundary,
   createInteractionControlRegistry,
+  createMemoryControlStore,
   createPostgresTurnStore,
   interactionId,
   presentationIntentRef,
@@ -194,7 +195,9 @@ export async function main(): Promise<void> {
       transportCache,
     });
 
-    const controls = createInteractionControlRegistry();
+    const controls = createInteractionControlRegistry({
+      store: createMemoryControlStore(),
+    });
     const boundary = createInteractionBoundary({
       controls,
       correlationNamespace: "conversational-turn.v1",
