@@ -122,6 +122,8 @@ jobs:
           - pack-registry
           - personal-family
           - proactive-attention
+          - public-surface
+          - public-surface-web
           - rolling-upgrade
           - rpo-rto
           - semantic-query
@@ -140,7 +142,7 @@ jobs:
         with:
           toolchain: "1.88.0"
       - run: npm ci
-      - if: matrix.scenario == 'web-deterministic' || startsWith(matrix.scenario, 'deploy-')
+      - if: matrix.scenario == 'web-deterministic' || matrix.scenario == 'public-surface-web' || startsWith(matrix.scenario, 'deploy-')
         run: npx playwright install --with-deps chromium
       - uses: actions/download-artifact@v4
         with:
