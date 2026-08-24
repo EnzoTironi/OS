@@ -347,6 +347,7 @@ async function main(): Promise<void> {
     );
     const manifest = {
       assertions,
+      authMode: "legacy-sessions",
       componentVersions: {
         postgres: version,
       },
