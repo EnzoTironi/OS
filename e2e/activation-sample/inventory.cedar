@@ -25,3 +25,17 @@ permit (
     action == Action::"commit",
     resource
 );
+
+@id("inventory-web-a-discover")
+permit (
+    principal == Zoen::Principal::"principal.web.a",
+    action == Action::"discover",
+    resource
+);
+
+@id("inventory-web-a-commit")
+permit (
+    principal == Zoen::Principal::"principal.web.a",
+    action == Action::"commit",
+    resource
+);
