@@ -52,6 +52,8 @@ Schema id: `zoen.verify.v1`.
 
 Fixture runs under `e2e/verify-v1/testdata/` still write the signed bundle to `artifacts/verify-v1/`. The gate substitutes `__CANDIDATE_SHA__` placeholders in memory for fixture paths only. It never rewrites real `artifacts/` scenario evidence.
 
+STRICT production evaluation rejects scenario evidence marked `fixture: true` or `fixtureContract: true` unless the evidence root is under `e2e/verify-v1/testdata/`. Copying fixture JSON into `artifacts/` and running `just verify-v1` fails with `fixture-as-production`; it cannot mint a ship attestation.
+
 The bundle records candidate identity, per-scenario digests/commits/status, live-provider slots, semantic survivors, verification-layer mutant results, RPO/RTO targets, warnings, failures, final verdict, manifest digest, and an ed25519 signature. Secrets and private keys are never embedded.
 
 ## Failure path
@@ -62,6 +64,7 @@ The gate fails closed on:
 - evidence from another candidate commit
 - missing source commit (including fiscal-fault-matrix)
 - scenario bodies without an explicit PASS `verdict`/`status`
+- fixture-marked scenario evidence outside `e2e/verify-v1/testdata/`
 - scale evidence that is not an explicit pass, or whose `scaleClass`/`targetRecords` do not match smoke=`10000` or reference=`100000000`
 - unsigned OCI metadata where signatures are required
 - surviving semantic mutants
@@ -80,6 +83,7 @@ In-process mutants the gate must kill:
 - ignore RPO threshold
 - accept unsigned artifact
 - reuse stale scale results (accepts stale scale by itself)
+- accept fixture evidence as production (would treat `fixture: true` outside testdata as a ship bundle)
 
 ## Resume
 

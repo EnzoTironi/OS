@@ -96,6 +96,7 @@ type GateOptions = {
   ignoreRpoThreshold: boolean;
   acceptUnsigned: boolean;
   reuseStaleScale: boolean;
+  acceptFixtureAsProduction: boolean;
 };
 
 const STRICT_OPTIONS: GateOptions = {
@@ -106,6 +107,7 @@ const STRICT_OPTIONS: GateOptions = {
   ignoreRpoThreshold: false,
   acceptUnsigned: false,
   reuseStaleScale: false,
+  acceptFixtureAsProduction: false,
 };
 
 type Failure = {
@@ -120,6 +122,7 @@ type ScenarioEvidence = {
   readonly body: Record<string, unknown>;
   readonly artifactDigest: string;
   readonly sourceCommit: string | null;
+  readonly fixtureMarked: boolean;
   readonly signedOci: z.infer<typeof signedOciSchema> | null;
   readonly signedOciPath: string | null;
   readonly mutantsPath: string | null;
@@ -192,6 +195,10 @@ function scenarioPassed(body: Record<string, unknown>): boolean {
     return status === "pass" || status === "passed" || status === "ok";
   }
   return false;
+}
+
+function isFixtureMarked(body: Record<string, unknown>): boolean {
+  return body.fixture === true || body.fixtureContract === true;
 }
 
 function listSurvivingMutants(
@@ -347,6 +354,7 @@ async function loadScenarioEvidence(
     body,
     artifactDigest: sha256Text(text),
     sourceCommit: extractSourceCommit(body),
+    fixtureMarked: isFixtureMarked(body),
     signedOci,
     signedOciPath: signedOci === null ? null : signedOciPath,
     mutantsPath: resolvedMutantsPath,
@@ -440,6 +448,7 @@ function evaluateGate(
   candidate: string,
   loaded: Array<ScenarioEvidence | null>,
   live: LiveSlot[],
+  fixtureMode: boolean,
   options: GateOptions,
 ): GateResult {
   const failures: Failure[] = [];
@@ -469,6 +478,15 @@ function evaluateGate(
         code: "failed-scenario",
         scenario: spec.id,
         detail: `scenario verdict/status is not PASS`,
+      });
+    }
+
+    if (evidence.fixtureMarked && !fixtureMode && !options.acceptFixtureAsProduction) {
+      failures.push({
+        code: "fixture-as-production",
+        scenario: spec.id,
+        detail:
+          "fixture-marked evidence cannot satisfy just verify-v1; copy into artifacts/ still fails. Use just verify-v1-fixtures for gate-contract only",
       });
     }
 
@@ -640,6 +658,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     body: { scenario: "v1-company", verdict: "PASS", sourceCommit: commit },
     artifactDigest: "00",
     sourceCommit: commit,
+    fixtureMarked: false,
     signedOci: {
       chartSignatureDigest: "sig-chart",
       nodeSignatureDigest: "sig-node",
@@ -668,6 +687,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
           body: { scenario: "rpo-rto", verdict: "PASS", sourceSha: candidate },
           artifactDigest: "01",
           sourceCommit: candidate,
+          fixtureMarked: false,
           signedOci: {
             chartSignatureDigest: "sig-chart",
             nodeSignatureDigest: "sig-node",
@@ -699,6 +719,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
           },
           artifactDigest: "02",
           sourceCommit: candidate,
+          fixtureMarked: false,
           signedOci: {
             chartSignatureDigest: "sig-chart",
             nodeSignatureDigest: "sig-node",
@@ -729,6 +750,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
           },
           artifactDigest: "03",
           sourceCommit: candidate,
+          fixtureMarked: false,
           signedOci: null,
           signedOciPath: null,
           mutantsPath: null,
@@ -747,6 +769,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
         },
         artifactDigest: "aa",
         sourceCommit: candidate,
+        fixtureMarked: false,
         signedOci: spec.requiresSignedOci
           ? {
               chartSignatureDigest: "sig-chart",
@@ -771,7 +794,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     detail: "sandbox-pass",
   }));
 
-  const healthy = evaluateGate(candidate, fillGraph({}), liveAll, STRICT_OPTIONS);
+  const healthy = evaluateGate(candidate, fillGraph({}), liveAll, false, STRICT_OPTIONS);
   assert.equal(healthy.failures.length, 0, JSON.stringify(healthy.failures));
 
   {
@@ -782,8 +805,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
         body: { scenario: "v1-company", verdict: "FAIL", sourceCommit: candidate },
       },
     });
-    const strict = evaluateGate(candidate, loaded, liveAll, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, {
+    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
       ...STRICT_OPTIONS,
       ignoreFailedScenario: true,
     });
@@ -805,8 +828,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     const loaded = fillGraph({
       "v1-company": passingCompany(other),
     });
-    const strict = evaluateGate(candidate, loaded, liveAll, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, {
+    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
       ...STRICT_OPTIONS,
       acceptWrongCommit: true,
     });
@@ -834,8 +857,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
       },
     ];
     const loaded = fillGraph({});
-    const strict = evaluateGate(candidate, loaded, liveMissing, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveMissing, {
+    const strict = evaluateGate(candidate, loaded, liveMissing, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, liveMissing, false, {
       ...STRICT_OPTIONS,
       skipLiveProvider: true,
     });
@@ -861,8 +884,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
         },
       },
     });
-    const strict = evaluateGate(candidate, loaded, liveAll, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, {
+    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
       ...STRICT_OPTIONS,
       ignoreSurvivingMutant: true,
     });
@@ -887,6 +910,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
         body: { scenario: "rpo-rto", verdict: "PASS", sourceSha: candidate },
         artifactDigest: "01",
         sourceCommit: candidate,
+        fixtureMarked: false,
         signedOci: {
           chartSignatureDigest: "sig-chart",
           nodeSignatureDigest: "sig-node",
@@ -905,8 +929,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
         },
       },
     });
-    const strict = evaluateGate(candidate, loaded, liveAll, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, {
+    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
       ...STRICT_OPTIONS,
       ignoreRpoThreshold: true,
     });
@@ -928,8 +952,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     const loaded = fillGraph({
       "v1-company": { ...company, signedOci: null, signedOciPath: null },
     });
-    const strict = evaluateGate(candidate, loaded, liveAll, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, {
+    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
       ...STRICT_OPTIONS,
       acceptUnsigned: true,
     });
@@ -962,6 +986,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
         },
         artifactDigest: "02",
         sourceCommit: other,
+        fixtureMarked: false,
         signedOci: {
           chartSignatureDigest: "sig-chart",
           nodeSignatureDigest: "sig-node",
@@ -976,8 +1001,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
         rpoBody: null,
       },
     });
-    const strict = evaluateGate(candidate, loaded, liveAll, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, {
+    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
       ...STRICT_OPTIONS,
       reuseStaleScale: true,
     });
@@ -990,6 +1015,46 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
       observation: killed
         ? "strict gate rejected another candidate's scale evidence; reuse-stale-scale-results mutant would accept it"
         : "mutant was not distinguished from the strict gate",
+    });
+  }
+
+  {
+    const id = "accept-fixture-as-production";
+    const company = passingCompany(candidate);
+    const fixtureEvidence: ScenarioEvidence = {
+      ...company,
+      fixtureMarked: true,
+      body: {
+        scenario: "v1-company",
+        verdict: "PASS",
+        sourceCommit: candidate,
+        fixture: true,
+        note: "Gate contract fixture. Not production evidence.",
+      },
+    };
+    const loaded = fillGraph({ "v1-company": fixtureEvidence });
+    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
+      ...STRICT_OPTIONS,
+      acceptFixtureAsProduction: true,
+    });
+    const fixtureModeOk = evaluateGate(
+      candidate,
+      loaded,
+      liveAll,
+      true,
+      STRICT_OPTIONS,
+    );
+    const killed =
+      strict.failures.some((row) => row.code === "fixture-as-production") &&
+      mutant.failures.every((row) => row.code !== "fixture-as-production") &&
+      fixtureModeOk.failures.every((row) => row.code !== "fixture-as-production");
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "strict production path rejected fixture-marked evidence copied outside e2e/verify-v1/testdata; accept-fixture-as-production mutant would accept it as a ship bundle"
+        : "accept-fixture-as-production mutant was not distinguished from the strict gate",
     });
   }
 
@@ -1071,6 +1136,7 @@ function bindFixtureEvidence(
     signedOci,
     rpoBody,
     sourceCommit: extractSourceCommit(body) ?? signedOci?.sourceSha ?? null,
+    fixtureMarked: isFixtureMarked(body),
   };
 }
 
@@ -1177,7 +1243,7 @@ async function main(): Promise<void> {
   const fiscalIndex = REQUIRED_SCENARIOS.findIndex((row) => row.id === "fiscal-fault-matrix");
   const fiscalMatrix = fiscalIndex >= 0 ? loaded[fiscalIndex] ?? null : null;
   const live = await resolveLiveSlots(evidenceRoot, fiscalMatrix, candidate);
-  const gate = evaluateGate(candidate, loaded, live, STRICT_OPTIONS);
+  const gate = evaluateGate(candidate, loaded, live, fixtureMode, STRICT_OPTIONS);
 
   const mutantFailures = verificationMutants
     .filter((row) => !row.killed)
@@ -1264,6 +1330,11 @@ async function main(): Promise<void> {
       ...live
         .filter((slot) => !slot.present)
         .map((slot) => `live provider ${slot.id} absent (${slot.detail})`),
+      ...(fixtureMode
+        ? [
+            "fixtureContract=true: gate-contract only; not production evidence. Official command remains `just verify-v1`.",
+          ]
+        : []),
     ],
     failures,
     verdict,
@@ -1297,6 +1368,7 @@ async function main(): Promise<void> {
     `- candidate: \`${candidate}\``,
     `- verdict: **${verdict}**`,
     `- digest: \`${digest}\``,
+    `- fixtureContract: ${fixtureMode}`,
     `- missing scenarios: ${gate.missing.length === 0 ? "(none)" : gate.missing.join(", ")}`,
     `- failures: ${failures.length}`,
     `- verification-layer mutants killed: ${verificationMutants.filter((row) => row.killed).length}/${verificationMutants.length}`,
@@ -1310,7 +1382,7 @@ async function main(): Promise<void> {
         )),
     ``,
     fixtureMode
-      ? `Named fixture command: \`ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-v1/testdata/complete just verify-v1\` (or \`just verify-v1-fixtures\`)`
+      ? `Named fixture command: \`just verify-v1-fixtures\` (not production evidence)`
       : `Official command: \`just verify-v1\``,
     ``,
   ];
@@ -1322,6 +1394,7 @@ async function main(): Promise<void> {
         bundlePath: path.relative(repositoryRoot, bundlePath),
         digest,
         failures: failures.length,
+        fixtureContract: fixtureMode,
         missingScenarios: gate.missing,
         schema: SCHEMA_ID,
         verdict,
