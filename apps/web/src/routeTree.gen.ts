@@ -23,6 +23,8 @@ import { Route as ApiOnboardingCaptureRouteImport } from './routes/api.onboardin
 import { Route as ApiOnboardingResumeRouteImport } from './routes/api.onboarding.resume'
 import { Route as ApiPacksOpenRouteImport } from './routes/api.packs.open'
 import { Route as ApiPacksSearchRouteImport } from './routes/api.packs.search'
+import { Route as ApiStepUpCommitRouteImport } from './routes/api.step-up.commit'
+import { Route as ApiStepUpOpenRouteImport } from './routes/api.step-up.open'
 import { Route as ApproveAuthCallbackRouteImport } from './routes/approve.auth.callback'
 import { Route as OnboardingAuthCallbackRouteImport } from './routes/onboarding.auth.callback'
 
@@ -96,6 +98,16 @@ const ApiPacksSearchRoute = ApiPacksSearchRouteImport.update({
   path: '/api/packs/search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiStepUpCommitRoute = ApiStepUpCommitRouteImport.update({
+  id: '/api/step-up/commit',
+  path: '/api/step-up/commit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiStepUpOpenRoute = ApiStepUpOpenRouteImport.update({
+  id: '/api/step-up/open',
+  path: '/api/step-up/open',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApproveAuthCallbackRoute = ApproveAuthCallbackRouteImport.update({
   id: '/approve/auth/callback',
   path: '/approve/auth/callback',
@@ -122,6 +134,8 @@ export interface FileRoutesByFullPath {
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
   '/api/packs/open': typeof ApiPacksOpenRoute
   '/api/packs/search': typeof ApiPacksSearchRoute
+  '/api/step-up/commit': typeof ApiStepUpCommitRoute
+  '/api/step-up/open': typeof ApiStepUpOpenRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
@@ -140,6 +154,8 @@ export interface FileRoutesByTo {
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
   '/api/packs/open': typeof ApiPacksOpenRoute
   '/api/packs/search': typeof ApiPacksSearchRoute
+  '/api/step-up/commit': typeof ApiStepUpCommitRoute
+  '/api/step-up/open': typeof ApiStepUpOpenRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
@@ -159,6 +175,8 @@ export interface FileRoutesById {
   '/api/onboarding/resume': typeof ApiOnboardingResumeRoute
   '/api/packs/open': typeof ApiPacksOpenRoute
   '/api/packs/search': typeof ApiPacksSearchRoute
+  '/api/step-up/commit': typeof ApiStepUpCommitRoute
+  '/api/step-up/open': typeof ApiStepUpOpenRoute
   '/approve/auth/callback': typeof ApproveAuthCallbackRoute
   '/onboarding/auth/callback': typeof OnboardingAuthCallbackRoute
 }
@@ -179,6 +197,8 @@ export interface FileRouteTypes {
     | '/api/onboarding/resume'
     | '/api/packs/open'
     | '/api/packs/search'
+    | '/api/step-up/commit'
+    | '/api/step-up/open'
     | '/approve/auth/callback'
     | '/onboarding/auth/callback'
   fileRoutesByTo: FileRoutesByTo
@@ -197,6 +217,8 @@ export interface FileRouteTypes {
     | '/api/onboarding/resume'
     | '/api/packs/open'
     | '/api/packs/search'
+    | '/api/step-up/commit'
+    | '/api/step-up/open'
     | '/approve/auth/callback'
     | '/onboarding/auth/callback'
   id:
@@ -215,6 +237,8 @@ export interface FileRouteTypes {
     | '/api/onboarding/resume'
     | '/api/packs/open'
     | '/api/packs/search'
+    | '/api/step-up/commit'
+    | '/api/step-up/open'
     | '/approve/auth/callback'
     | '/onboarding/auth/callback'
   fileRoutesById: FileRoutesById
@@ -234,6 +258,8 @@ export interface RootRouteChildren {
   ApiOnboardingResumeRoute: typeof ApiOnboardingResumeRoute
   ApiPacksOpenRoute: typeof ApiPacksOpenRoute
   ApiPacksSearchRoute: typeof ApiPacksSearchRoute
+  ApiStepUpCommitRoute: typeof ApiStepUpCommitRoute
+  ApiStepUpOpenRoute: typeof ApiStepUpOpenRoute
   ApproveAuthCallbackRoute: typeof ApproveAuthCallbackRoute
   OnboardingAuthCallbackRoute: typeof OnboardingAuthCallbackRoute
 }
@@ -338,6 +364,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPacksSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/step-up/commit': {
+      id: '/api/step-up/commit'
+      path: '/api/step-up/commit'
+      fullPath: '/api/step-up/commit'
+      preLoaderRoute: typeof ApiStepUpCommitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/step-up/open': {
+      id: '/api/step-up/open'
+      path: '/api/step-up/open'
+      fullPath: '/api/step-up/open'
+      preLoaderRoute: typeof ApiStepUpOpenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/approve/auth/callback': {
       id: '/approve/auth/callback'
       path: '/approve/auth/callback'
@@ -370,6 +410,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiOnboardingResumeRoute: ApiOnboardingResumeRoute,
   ApiPacksOpenRoute: ApiPacksOpenRoute,
   ApiPacksSearchRoute: ApiPacksSearchRoute,
+  ApiStepUpCommitRoute: ApiStepUpCommitRoute,
+  ApiStepUpOpenRoute: ApiStepUpOpenRoute,
   ApproveAuthCallbackRoute: ApproveAuthCallbackRoute,
   OnboardingAuthCallbackRoute: OnboardingAuthCallbackRoute,
 }

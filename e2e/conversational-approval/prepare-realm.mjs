@@ -9,6 +9,8 @@ const activationActionId = "zoen.definition.activate";
 const definitionIds = ["inventory.governed"];
 const resourceId = "inventory.item.1";
 const farFuture = 4_102_444_800;
+const webPort = process.env.ZOEN_E2E_WEB_PORT ?? "58592";
+const webOrigin = `http://127.0.0.1:${webPort}`;
 
 function hardcodedClaim(name, value) {
   return {
@@ -104,6 +106,27 @@ function confidentialClient({
   };
 }
 
+function webUser({ username, email }) {
+  return {
+    credentials: [
+      {
+        temporary: false,
+        type: "password",
+        value: "web-password",
+      },
+    ],
+    email,
+    emailVerified: true,
+    enabled: true,
+    firstName: "Web",
+    lastName: username,
+    requiredActions: [],
+    username,
+  };
+}
+
+const webWorkloadId = "workload.web.stepup";
+
 const realm = {
   accessTokenLifespan: 300,
   clients: [
@@ -113,7 +136,6 @@ const realm = {
       enabled: true,
       protocol: "openid-connect",
     },
-    // Unbound V1 path: claims mint TEC directly.
     confidentialClient({
       actorId: "actor.unbound.a",
       clientId: "unbound-a",
@@ -129,7 +151,6 @@ const realm = {
       tenantId: "tenant.a",
       workloadId: "workload.admin.a",
     }),
-    // Bound path bait: JWT principal looks like a phone; membership must win.
     confidentialClient({
       actorId: "actor.bound.bait",
       clientId: "bound-bait",
@@ -144,12 +165,40 @@ const realm = {
       tenantId: "tenant.evil.fallback",
       workloadId: "workload.bound.second",
     }),
+    {
+      attributes: {
+        "pkce.code.challenge.method": "S256",
+      },
+      clientId: "zoen-web",
+      directAccessGrantsEnabled: false,
+      enabled: true,
+      protocol: "openid-connect",
+      protocolMappers: [
+        hardcodedClaim("tenant_id", "tenant.a"),
+        hardcodedClaim("actor_id", "actor.web.stepup"),
+        hardcodedClaim("principal_id", "principal.web.stepup"),
+        hardcodedClaim("workload_id", webWorkloadId),
+        hardcodedClaim("zoen_delegation", delegation(webWorkloadId)),
+        audienceMapper(),
+      ],
+      publicClient: true,
+      redirectUris: [`${webOrigin}/*`],
+      serviceAccountsEnabled: false,
+      standardFlowEnabled: true,
+      webOrigins: [webOrigin],
+    },
   ],
   enabled: true,
   realm: "zoen",
   registrationAllowed: false,
   resetPasswordAllowed: false,
   sslRequired: "none",
+  users: [
+    webUser({
+      email: "web-stepup@example.test",
+      username: "web-stepup",
+    }),
+  ],
 };
 
 await mkdir(outputDirectory, { recursive: true });

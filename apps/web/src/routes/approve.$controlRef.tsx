@@ -1,18 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createZoenBrowserClient } from "@zoen/sdk";
-import {
-  compileStepUpSurface,
-  type SurfaceDocument,
-} from "@zoen/surface";
 import { useEffect, useState } from "react";
 import {
   beginApproveOidcLogin,
   currentAccessToken,
 } from "../auth.js";
-import {
-  commitAuthorityAction,
-  type ActionIdentity,
-} from "../authority.js";
 import { loadRuntimeConfig, type RuntimeConfig } from "../config.js";
 
 export const Route = createFileRoute("/approve/$controlRef")({
@@ -25,7 +16,7 @@ type PageState =
   | {
       readonly kind: "ready";
       readonly config: RuntimeConfig;
-      readonly document: SurfaceDocument;
+      readonly sessionId: string;
       readonly summary: string;
     }
   | { readonly kind: "error"; readonly message: string }
@@ -50,14 +41,13 @@ function ApproveStepUpPage() {
           setState({ config, kind: "need_oidc" });
           return;
         }
-        const document = compileLocalStepUp(controlRef);
-        const summaryNode = document.nodes["node.decision-summary"];
-        const summary =
-          summaryNode !== undefined &&
-          summaryNode.kind === "decision-summary"
-            ? summaryNode.summary
-            : "";
-        setState({ config, document, kind: "ready", summary });
+        const opened = await openStepUp(token, controlRef);
+        setState({
+          config,
+          kind: "ready",
+          sessionId: opened.sessionId,
+          summary: opened.summary,
+        });
       } catch (cause: unknown) {
         setState({
           kind: "error",
@@ -77,23 +67,10 @@ function ApproveStepUpPage() {
       if (token === undefined) {
         throw new Error("chat_cookie_insufficient");
       }
-      const client = createZoenBrowserClient({
-        accessToken: token,
-        baseUrl: state.config.rpcBaseUrl,
-      });
-      const binding = state.document.actionBindings[0];
-      if (binding === undefined) {
-        throw new Error("step-up Surface missing ActionBinding");
-      }
-      const identity: ActionIdentity = {
-        bindingId: binding.id,
-        operationId: crypto.randomUUID(),
-        proposalId: "resolved-by-server",
-      };
-      const response = await commitAuthorityAction(client, identity);
+      const receipt = await commitStepUp(token, state.sessionId);
       setState({
         kind: "committed",
-        operationId: response.receipt?.operationId ?? identity.operationId,
+        operationId: receipt.operationId,
       });
     } catch (cause: unknown) {
       setState({
@@ -180,23 +157,67 @@ function ApproveStepUpPage() {
   );
 }
 
-function compileLocalStepUp(controlRef: string): SurfaceDocument {
-  return compileStepUpSurface({
-    actionRef: {
-      actionId: "inventory.requestStock",
-      definition: {
-        definitionId: "inventory.governed",
-        digest: "stepup.local",
-        revision: "1",
-      },
-      resourceId: "inventory.item.1",
+async function openStepUp(
+  accessToken: string,
+  controlRef: string,
+): Promise<{
+  readonly sessionId: string;
+  readonly summary: string;
+}> {
+  const response = await fetch("/api/step-up/open", {
+    body: JSON.stringify({ controlRef }),
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
     },
-    explanation: "Step-up approval for sealed ProposalRef via opaque control.",
-    materialInputs: [{ label: "Control", value: controlRef }],
-    proposalRef: "(resolved server-side from control)",
-    requiredAssurance: "oidc_step_up",
-    stale: false,
-    subjectLabel: "inventory.item.1",
-    workspaceLabel: "(from sealed tenant)",
+    method: "POST",
   });
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    throw new Error(errorMessage(body, "step_up_open_failed"));
+  }
+  const parsed = body as { sessionId?: unknown; summary?: unknown };
+  if (
+    typeof parsed.sessionId !== "string" ||
+    parsed.sessionId.length === 0 ||
+    typeof parsed.summary !== "string"
+  ) {
+    throw new Error("step_up_open_invalid");
+  }
+  return { sessionId: parsed.sessionId, summary: parsed.summary };
+}
+
+async function commitStepUp(
+  accessToken: string,
+  sessionId: string,
+): Promise<{ readonly operationId: string }> {
+  const response = await fetch("/api/step-up/commit", {
+    body: JSON.stringify({ sessionId }),
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    throw new Error(errorMessage(body, "step_up_commit_failed"));
+  }
+  const parsed = body as { operationId?: unknown };
+  if (typeof parsed.operationId !== "string" || parsed.operationId.length === 0) {
+    throw new Error("step_up_commit_missing_receipt");
+  }
+  return { operationId: parsed.operationId };
+}
+
+function errorMessage(body: unknown, fallback: string): string {
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    "error" in body &&
+    typeof (body as { error: unknown }).error === "string"
+  ) {
+    return (body as { error: string }).error;
+  }
+  return fallback;
 }

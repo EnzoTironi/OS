@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { chromium, type Browser } from "playwright";
 import { Client as PostgresClient } from "pg";
 import {
   assuranceForRisk,
@@ -14,7 +15,6 @@ import {
   interactionControlRef,
   issueApprovalControl,
   openStepUpSession,
-  completeStepUpCommit,
   planDisclosureDelivery,
   planLinkButtonDegrade,
   presentationIntentRef,
@@ -30,10 +30,10 @@ import {
   type InboundInteraction,
   type TrustedInteractionContext,
 } from "../../packages/interaction/src/index.js";
-import { compileStepUpSurface } from "../../packages/surface/src/index.js";
 import {
   actionClient,
   definitionClient,
+  oidcIssuer,
   oidcToken,
   propose,
   recordAvailable,
@@ -49,14 +49,23 @@ import {
   writeScenarioArtifact,
 } from "../host-env.js";
 import { create } from "@bufbuild/protobuf";
+import { CommitStatus } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import { DefinitionReferenceSchema } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import {
+  startWeb,
+  stopWeb,
+  webOrigin,
+  type WebProcess,
+} from "./support.js";
 
 const scenario = "conversational-approval";
 const repositoryRoot = process.cwd();
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_591);
-const publicWebOrigin = "http://127.0.0.1:3000";
+const publicWebOrigin = webOrigin;
 const telegramSubject = `tg_user_ca_${Date.now()}`;
+const webStepUpPrincipal = "principal.web.stepup";
+const webStepUpTenant = "tenant.a";
 
 const assertions: Record<string, boolean> = {};
 const mutantsKilled: string[] = [];
@@ -220,6 +229,8 @@ export async function main(): Promise<void> {
   await storeClient.connect();
 
   let server: ServerProcess = await startServer(policyManifestPath);
+  let web: WebProcess | undefined;
+  let browser: Browser | undefined;
   try {
     const boundToken = await oidcToken("bound-bait");
     const secondToken = await oidcToken("bound-second");
@@ -526,7 +537,7 @@ export async function main(): Promise<void> {
     );
     void redactedRef;
 
-    // High-risk step-up: chat cookie alone fails; OIDC succeeds; wrong account denied.
+    // High-risk step-up URL shape (opaque control only).
     const highDisclosure = decideAudienceDisclosure({
       actionRisk: "high",
       audience: { kind: "dm" },
@@ -537,107 +548,7 @@ export async function main(): Promise<void> {
       "high_risk_requires_step_up",
       highDisclosure.kind === "require_step_up",
     );
-    const highRef = await issueApprovalControl(controls, {
-      actionBindingId: "action.inventory.requestStock",
-      actionRef: demoActionRef(),
-      assurance: "oidc_step_up",
-      disclosure: highDisclosure,
-      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
-      principalId: principalIdString(principalA),
-      proposalRef: proposalRef("proposal.high.risk"),
-      sealedAudienceKind: "dm",
-      tenantId: tenantIdString(tenantA),
-    });
-    const stepAct = await handleControlClick({
-      controls,
-      ctx: ctxA,
-      inbound: controlClickInbound(highRef, "dm"),
-      publicWebOrigin,
-      stepUps,
-    });
-    record(
-      "high_risk_click_requires_step_up_url",
-      stepAct.kind === "step_up_required" &&
-        stepAct.stepUpUrl === stepUpUrl(publicWebOrigin, highRef) &&
-        !stepAct.stepUpUrl.includes("proposal.high.risk") &&
-        !stepAct.stepUpUrl.includes("/onboarding"),
-    );
-    record(
-      "step_up_surface_is_approve_not_onboarding",
-      stepAct.kind === "step_up_required" &&
-        stepAct.stepUpUrl.includes("/approve/"),
-    );
 
-    let cookieRejected = false;
-    try {
-      await openStepUpSession({
-        chatCookieOnly: true,
-        controlRef: highRef,
-        controls,
-        oidcBearerVerified: undefined,
-        stepUps,
-      });
-    } catch (cause: unknown) {
-      cookieRejected =
-        cause instanceof Error && cause.message === "chat_cookie_insufficient";
-    }
-    record("chat_cookie_alone_fails_closed", cookieRejected);
-    killMutant("Chat cookie / channel assurance satisfies oidc_step_up");
-
-    let wrongAccountRejected = false;
-    try {
-      await openStepUpSession({
-        controlRef: highRef,
-        controls,
-        oidcBearerVerified: {
-          accountId: accountB,
-          oidcSubject: "other-subject",
-          principalId: principalIdString(principalB),
-          tenantId: tenantIdString(tenantA),
-        },
-        stepUps,
-      });
-    } catch {
-      wrongAccountRejected = true;
-    }
-    record("wrong_account_step_up_denied", wrongAccountRejected);
-    killMutant("Step-up link opened by other account");
-
-    const session = await openStepUpSession({
-      controlRef: highRef,
-      controls,
-      oidcBearerVerified: {
-        accountId: accountA,
-        oidcSubject: "bound-bait-subject",
-        principalId: principalIdString(principalA),
-        tenantId: tenantIdString(tenantA),
-      },
-      stepUps,
-    });
-    record(
-      "oidc_step_up_binds_proposal",
-      session.status === "authenticated" &&
-        String(session.proposalRef) === "proposal.high.risk",
-    );
-
-    const surface = compileStepUpSurface({
-      actionRef: demoActionRef(),
-      explanation: "e2e step-up",
-      materialInputs: [{ label: "qty", value: "2" }],
-      proposalRef: String(session.proposalRef),
-      requiredAssurance: "oidc_step_up",
-      stale: false,
-      subjectLabel: "inventory.item.1",
-      workspaceLabel: tenantA,
-    });
-    record(
-      "step_up_surface_has_action_binding",
-      surface.actionBindings.length === 1 &&
-        surface.actionBindings[0]?.ref.actionId === "inventory.requestStock",
-    );
-    killMutant("Mini-app bespoke mutate bypassing Action API");
-
-    // Commit via Action API (Cedar + StateBasis inside zoend).
     const actions = actionClient(unboundToken);
     const world = worldClient(unboundToken);
     const definitionRef = create(DefinitionReferenceSchema, {
@@ -675,36 +586,205 @@ export async function main(): Promise<void> {
       proposeResponse.proposal !== undefined,
     );
 
-    const receipt = await completeStepUpCommit({
-      commit: async () => {
-        const committed = await actions.commit({
-          operationId,
-          proposalId,
-        });
-        assert.ok(committed.receipt);
-        return { operationId: committed.receipt.operationId };
+    const liveActionRef = {
+      actionId: "inventory.requestStock",
+      definition: {
+        definitionId: fixture.definitionId,
+        digest: fixture.digest,
+        revision: "1",
       },
+      resourceId: "inventory.item.1",
+    };
+    const highRef = await issueApprovalControl(controls, {
+      actionBindingId: "action.inventory.requestStock",
+      actionRef: liveActionRef,
+      assurance: "oidc_step_up",
+      disclosure: highDisclosure,
+      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      operationId,
+      principalId: principalIdString(webStepUpPrincipal),
+      proposalRef: proposalRef(proposalId),
+      sealedAudienceKind: "dm",
+      tenantId: tenantIdString(webStepUpTenant),
+    });
+    const stepAct = await handleControlClick({
       controls,
-      session,
+      ctx: {
+        ...ctxA,
+        principalId: principalIdString(webStepUpPrincipal),
+        tenantId: tenantIdString(webStepUpTenant),
+      },
+      inbound: controlClickInbound(highRef, "dm"),
+      publicWebOrigin,
       stepUps,
     });
     record(
-      "step_up_commit_reenters_action",
-      receipt.operationId === operationId,
+      "high_risk_click_requires_step_up_url",
+      stepAct.kind === "step_up_required" &&
+        stepAct.stepUpUrl === stepUpUrl(publicWebOrigin, highRef) &&
+        !stepAct.stepUpUrl.includes(proposalId) &&
+        !stepAct.stepUpUrl.includes("/onboarding"),
+    );
+    record(
+      "step_up_surface_is_approve_not_onboarding",
+      stepAct.kind === "step_up_required" &&
+        stepAct.stepUpUrl.includes("/approve/"),
     );
 
-    let secondCommitRejected = false;
+    web = await startWeb({
+      definitionId: fixture.definitionId,
+      oidcIssuer,
+      rpcOrigin: baseUrl,
+    });
+
+    const cookieOpen = await fetch(`${webOrigin}/api/step-up/open`, {
+      body: JSON.stringify({ controlRef: String(highRef) }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const cookieBody = (await cookieOpen.json()) as { error?: string };
+    record(
+      "chat_cookie_alone_fails_closed",
+      cookieOpen.status === 401 &&
+        cookieBody.error === "chat_cookie_insufficient",
+    );
+    killMutant("Chat cookie / channel assurance satisfies oidc_step_up");
+
+    const skippedOpen = await fetch(`${webOrigin}/api/step-up/open`, {
+      body: JSON.stringify({ controlRef: "icr_not_a_real_control" }),
+      headers: {
+        authorization: "Bearer not-a-jwt",
+        "content-type": "application/json",
+      },
+      method: "POST",
+    });
+    record("control_ref_skipped_fails_closed", skippedOpen.status >= 400);
+    killMutant("Control ref skipped / unknown accepted");
+
+    let wrongAccountRejected = false;
     try {
-      await completeStepUpCommit({
-        commit: async () => ({ operationId: "should-not" }),
+      await openStepUpSession({
+        controlRef: highRef,
         controls,
-        session,
+        oidcBearerVerified: {
+          accountId: accountB,
+          oidcSubject: "other-subject",
+          principalId: principalIdString(principalB),
+          tenantId: tenantIdString(webStepUpTenant),
+        },
         stepUps,
       });
     } catch {
-      secondCommitRejected = true;
+      wrongAccountRejected = true;
     }
-    record("step_up_commit_once", secondCommitRejected);
+    record("wrong_account_step_up_denied", wrongAccountRejected);
+    killMutant("Step-up link opened by other account");
+
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto(stepUpUrl(webOrigin, highRef));
+    await page.getByRole("button", { name: "Sign in with IdP" }).click();
+    await page.locator("#username").fill("web-stepup");
+    await page.locator("#password").fill("web-password");
+    await page.locator("#kc-login").click();
+    try {
+      await page
+        .getByRole("button", { name: "Commit via Action API" })
+        .waitFor({ timeout: 30_000 });
+    } catch (cause: unknown) {
+      throw new Error(
+        `OIDC/step-up ready failed at ${page.url()}:\n${await page.locator("body").innerText()}`,
+        { cause },
+      );
+    }
+    record(
+      "oidc_step_up_binds_proposal",
+      (await page.locator("pre").innerText()).includes(proposalId),
+    );
+    record(
+      "step_up_surface_has_action_binding",
+      (await page.locator("pre").innerText()).includes("inventory.item.1"),
+    );
+    killMutant("Mini-app bespoke mutate bypassing Action API");
+
+    await page.getByRole("button", { name: "Commit via Action API" }).click();
+    try {
+      await page.getByRole("status").waitFor({ timeout: 30_000 });
+    } catch (cause: unknown) {
+      throw new Error(
+        `Action commit UI failed at ${page.url()}:\n${await page.locator("body").innerText()}`,
+        { cause },
+      );
+    }
+    const committedText = await page.getByRole("status").innerText();
+    record(
+      "step_up_commit_reenters_action",
+      committedText.includes(operationId),
+    );
+    const statusAfter = await actions.getOperationStatus({ operationId });
+    record(
+      "live_pkce_action_receipt",
+      statusAfter.receipt?.operationId === operationId,
+    );
+
+    // PKCE success without a prior Action propose must not mint a receipt.
+    const orphanOperationId = `op.orphan.${randomUUID()}`;
+    const orphanProposalId = `prop.orphan.${randomUUID()}`;
+    const orphanRef = await issueApprovalControl(controls, {
+      actionBindingId: "action.inventory.requestStock",
+      actionRef: liveActionRef,
+      assurance: "oidc_step_up",
+      disclosure: highDisclosure,
+      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      operationId: orphanOperationId,
+      principalId: principalIdString(webStepUpPrincipal),
+      proposalRef: proposalRef(orphanProposalId),
+      sealedAudienceKind: "dm",
+      tenantId: tenantIdString(webStepUpTenant),
+    });
+    const orphanContext = await browser.newContext();
+    const orphanPage = await orphanContext.newPage();
+    await orphanPage.goto(stepUpUrl(webOrigin, orphanRef));
+    await orphanPage.getByRole("button", { name: "Sign in with IdP" }).click();
+    await orphanPage.locator("#username").fill("web-stepup");
+    await orphanPage.locator("#password").fill("web-password");
+    await orphanPage.locator("#kc-login").click();
+    try {
+      await orphanPage
+        .getByRole("button", { name: "Commit via Action API" })
+        .waitFor({ timeout: 30_000 });
+    } catch (cause: unknown) {
+      throw new Error(
+        `Orphan step-up ready failed at ${orphanPage.url()}:\n${await orphanPage.locator("body").innerText()}`,
+        { cause },
+      );
+    }
+    await orphanPage
+      .getByRole("button", { name: "Commit via Action API" })
+      .click();
+    await orphanPage.getByRole("alert").waitFor({ timeout: 30_000 });
+    record(
+      "pkce_without_action_commit_fails",
+      (await orphanPage.getByRole("alert").innerText()).length > 0,
+    );
+    killMutant("PKCE success without Action commit");
+    await orphanContext.close();
+
+    // Second open/commit on consumed control fails closed.
+    const replayContext = await browser.newContext();
+    const replayPage = await replayContext.newPage();
+    await replayPage.goto(stepUpUrl(webOrigin, highRef));
+    await replayPage.getByRole("button", { name: "Sign in with IdP" }).click();
+    await replayPage.locator("#username").fill("web-stepup");
+    await replayPage.locator("#password").fill("web-password");
+    await replayPage.locator("#kc-login").click();
+    await replayPage.getByRole("alert").waitFor({ timeout: 30_000 });
+    const replayMessage = await replayPage.getByRole("alert").innerText();
+    record(
+      "step_up_commit_once",
+      /consumed|already|expired|unknown/iu.test(replayMessage),
+    );
+    await replayContext.close();
 
     // Durable registry survives "restart" (new registry over same Postgres).
     const controlsAfter = createInteractionControlRegistry({
@@ -776,9 +856,20 @@ export async function main(): Promise<void> {
     });
     record("link_button_degrades_to_text", degrade.kind === "link_text");
 
-    // Stale StateBasis: second propose after state change would be rejected by Action;
-    // here we assert commit path requires fresh propose (no binding skip).
-    record("binding_does_not_skip_action", true);
+    // Observe Action rejecting a commit that skips a real proposal/StateBasis.
+    let skipRejected = false;
+    try {
+      const skipCommit = await actions.commit({
+        operationId: `op.skip.${randomUUID()}`,
+        proposalId: `prop.skip.${randomUUID()}`,
+      });
+      skipRejected =
+        skipCommit.receipt === undefined &&
+        skipCommit.status !== CommitStatus.COMMITTED;
+    } catch {
+      skipRejected = true;
+    }
+    record("binding_does_not_skip_action", skipRejected);
     killMutant("Old proposal commits without StateBasis revalidation");
 
     const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
@@ -789,6 +880,7 @@ export async function main(): Promise<void> {
       ports: {
         keycloak: 58_590,
         postgres: 55_498,
+        web: 58_592,
         zoend: 58_591,
       },
       sealedBindings: {
@@ -800,14 +892,18 @@ export async function main(): Promise<void> {
       },
       startedAt,
       stepUp: {
-        operationId: receipt.operationId,
-        proposalRef: String(session.proposalRef),
+        operationId,
+        proposalRef: proposalId,
         urlShape: "/approve/<InteractionControlRef>",
       },
       verdict: "PASS",
     });
     console.log(`conversational-approval PASS → ${artifactPath}`);
   } finally {
+    await browser?.close();
+    if (web !== undefined) {
+      await stopWeb(web);
+    }
     await stopServer(server);
     await storeClient.end();
   }
