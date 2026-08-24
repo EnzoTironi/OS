@@ -20,11 +20,11 @@ use zoen_adapters::{
 use zoen_core::WorkloadId;
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
 use zoen_query::QueryRuntime;
+use zoend::auth::SessionRegistry;
 use zoend::config::{self, ProcessAuth, object_store_config};
 use zoend::integrity::{self, StateClassification};
 
 use crate::action_service::ActionServiceImpl;
-use crate::auth::SessionRegistry;
 use crate::computation_service::ComputationServiceImpl;
 use crate::effect_service::EffectServiceImpl;
 use crate::history_service::HistoryServiceImpl;
@@ -36,7 +36,9 @@ use crate::workload_ingress_service::WorkloadIngressState;
 use crate::world_service::WorldServiceImpl;
 
 mod action_service;
-mod auth;
+mod auth {
+    pub use zoend::auth::*;
+}
 mod computation_service;
 mod effect_service;
 mod history_service;
@@ -55,7 +57,6 @@ pub mod proto {
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let database_url = env::var("DATABASE_URL")?;
     let ProcessAuth::Oidc { issuer, audience } = config::process_auth()?;
-    let sessions = SessionRegistry::from_oidc(issuer, audience).await?;
     let policy = Arc::new(CedarPolicyEvaluator::from_path(
         config::cedar_manifest_path()?,
     )?);
@@ -64,7 +65,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .parse::<SocketAddr>()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
     let identity = PostgresIdentityStore::new(store.pool());
-    let sessions = sessions.with_identity(identity.clone());
+    let sessions = SessionRegistry::from_oidc(issuer, audience, identity.clone()).await?;
     let classification = Arc::new(integrity::load_classification()?);
     let require_reference = integrity::require_reference_tables();
     store

@@ -49,7 +49,7 @@ struct WorkloadExchangeBinding {
 
 #[derive(Clone)]
 pub struct SessionRegistry {
-    identity: Option<PostgresIdentityStore>,
+    identity: PostgresIdentityStore,
     verifier: Arc<OidcVerifier>,
     workload_exchanges: Arc<Mutex<HashMap<String, WorkloadExchangeBinding>>>,
 }
@@ -66,9 +66,24 @@ enum AuthenticationError {
 }
 
 impl SessionRegistry {
-    pub fn with_identity(mut self, identity: PostgresIdentityStore) -> Self {
-        self.identity = Some(identity);
-        self
+    pub fn bearer_from(request_context: &RequestContext) -> Option<&str> {
+        request_context
+            .header("authorization")
+            .and_then(|value| value.to_str().ok())
+    }
+
+    pub fn tenant_from_header(
+        request_context: &RequestContext,
+    ) -> Result<Option<TenantId>, ConnectError> {
+        match request_context
+            .header("x-zoen-tenant")
+            .and_then(|value| value.to_str().ok())
+        {
+            Some(raw) => Ok(Some(TenantId::parse(raw).map_err(|error| {
+                ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
+            })?)),
+            None => Ok(None),
+        }
     }
 
     pub fn register_workload_exchange(
@@ -122,6 +137,7 @@ impl SessionRegistry {
     pub async fn from_oidc(
         issuer: impl Into<String>,
         audience: impl Into<String>,
+        identity: PostgresIdentityStore,
     ) -> Result<Self, SessionConfigError> {
         let issuer = issuer.into().trim_end_matches('/').to_owned();
         let audience = audience.into();
@@ -176,7 +192,7 @@ impl SessionRegistry {
             ));
         }
         Ok(Self {
-            identity: None,
+            identity,
             verifier: Arc::new(OidcVerifier {
                 audience,
                 issuer,
@@ -207,13 +223,11 @@ impl SessionRegistry {
             .map_err(map_authentication_error)
     }
 
-    pub async fn trusted_context(
+    pub async fn resolve(
         &self,
-        request_context: &RequestContext,
+        authorization: Option<&str>,
+        claimed_tenant: Option<&TenantId>,
     ) -> Result<ExecutionContext, ConnectError> {
-        let authorization = request_context
-            .header("authorization")
-            .and_then(|value| value.to_str().ok());
         if let Ok((_, context)) = self.resolve_workload_exchange(authorization) {
             return Ok(context);
         }
@@ -223,50 +237,7 @@ impl SessionRegistry {
                 ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
             })?)
             .map_err(map_authentication_error)?;
-        // Request tenant wins over JWT tenant_id claim. Bound Personal
-        // tenants are minted at bootstrap and cannot live in IdP claims.
-        let requested_tenant = match request_context
-            .header("x-zoen-tenant")
-            .and_then(|value| value.to_str().ok())
-        {
-            Some(raw) => Some(TenantId::parse(raw).map_err(|error| {
-                ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
-            })?),
-            None => None,
-        };
-        self.resolve_verified(verified, requested_tenant.as_ref())
-            .await
-    }
-
-    pub async fn execution_context(
-        &self,
-        request_context: &RequestContext,
-        claimed_tenant: &str,
-    ) -> Result<ExecutionContext, ConnectError> {
-        let claimed_tenant = TenantId::parse(claimed_tenant)
-            .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
-        let authorization = request_context
-            .header("authorization")
-            .and_then(|value| value.to_str().ok());
-        let context = if let Ok((_, context)) = self.resolve_workload_exchange(authorization) {
-            context
-        } else {
-            let verified = self
-                .verifier
-                .verify(self.bearer_token(authorization).map_err(|_| {
-                    ConnectError::new(ErrorCode::Unauthenticated, "invalid OIDC bearer token")
-                })?)
-                .map_err(map_authentication_error)?;
-            self.resolve_verified(verified, Some(&claimed_tenant))
-                .await?
-        };
-        if context.tenant_id() != &claimed_tenant {
-            return Err(ConnectError::new(
-                ErrorCode::PermissionDenied,
-                "payload tenant does not match the trusted session",
-            ));
-        }
-        Ok(context)
+        self.resolve_verified(verified, claimed_tenant).await
     }
 
     async fn resolve_verified(
@@ -274,10 +245,8 @@ impl SessionRegistry {
         verified: VerifiedOidcSubject,
         tenant: Option<&TenantId>,
     ) -> Result<ExecutionContext, ConnectError> {
-        let Some(identity) = &self.identity else {
-            return unbound_context(verified);
-        };
-        let binding = identity
+        let binding = self
+            .identity
             .binding_for_oidc_sub(&verified.subject)
             .await
             .map_err(map_identity_error)?;
@@ -291,7 +260,7 @@ impl SessionRegistry {
                             "bound subject requires a tenant membership hint",
                         )
                     })?;
-                identity
+                self.identity
                     .resolve_for_tenant(&verified, tenant)
                     .await
                     .map_err(map_identity_error)
@@ -445,4 +414,58 @@ struct DelegationClaim {
     not_before: i64,
     resource_ids: Vec<String>,
     workload_ids: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use connectrpc::ErrorCode;
+    use sqlx::postgres::PgPoolOptions;
+    use zoen_adapters::PostgresIdentityStore;
+    use zoen_core::TenantId;
+
+    use super::{OidcVerifier, SessionRegistry};
+
+    fn registry_with_identity() -> SessionRegistry {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://127.0.0.1/zoen_session_registry_test")
+            .expect("lazy identity pool");
+        SessionRegistry {
+            identity: PostgresIdentityStore::new(pool),
+            verifier: Arc::new(OidcVerifier {
+                audience: "zoend".to_owned(),
+                issuer: "https://issuer.test/realms/zoen".to_owned(),
+                keys: HashMap::new(),
+            }),
+            workload_exchanges: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    #[tokio::test]
+    async fn session_registry_requires_identity_store() {
+        let _registry = registry_with_identity();
+    }
+
+    #[tokio::test]
+    async fn resolve_rejects_missing_bearer() {
+        let registry = registry_with_identity();
+        let error = registry
+            .resolve(None, None)
+            .await
+            .expect_err("missing bearer");
+        assert_eq!(error.code, ErrorCode::Unauthenticated);
+    }
+
+    #[tokio::test]
+    async fn resolve_accepts_optional_tenant_claim() {
+        let registry = registry_with_identity();
+        let tenant = TenantId::parse("tenant.a").expect("tenant");
+        let error = registry
+            .resolve(Some("Bearer not-a-jwt"), Some(&tenant))
+            .await
+            .expect_err("invalid bearer");
+        assert_eq!(error.code, ErrorCode::Unauthenticated);
+    }
 }
