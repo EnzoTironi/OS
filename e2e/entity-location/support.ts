@@ -26,6 +26,7 @@ import {
   ActionService,
   type ActionInput,
 } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { bindActionPreviewHash } from "../action-preview-bind.js";
 import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import {
   DefinitionReferenceSchema,
@@ -206,7 +207,7 @@ export function definitionClient(token: string): DefinitionClient {
 }
 
 export function actionClient(token: string): ActionClient {
-  return createClient(ActionService, transport(token));
+  return bindActionPreviewHash(createClient(ActionService, transport(token)));
 }
 
 export function worldClient(token: string): WorldClient {

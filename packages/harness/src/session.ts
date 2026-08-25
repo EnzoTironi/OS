@@ -213,6 +213,7 @@ export const agentSessionResultSchema = z.discriminatedUnion("kind", [
         "evaluation_error",
         "identity_collision",
         "operation_mismatch",
+        "preview_mismatch",
         "stale",
       ]),
       sessionId: sessionIdSchema,
@@ -241,12 +242,16 @@ export type AgentProposalOutcome =
       readonly kind: "ready";
       readonly intentDigest: string;
       readonly policy: PolicyEvidence;
+      readonly previewHash: string;
+      readonly previewText: string;
       readonly proposalId: string;
     }
   | {
       readonly kind: "awaiting_approval";
       readonly intentDigest: string;
       readonly policy: PolicyEvidence;
+      readonly previewHash: string;
+      readonly previewText: string;
       readonly proposalId: string;
     }
   | {
@@ -273,6 +278,7 @@ export type AgentCommitOutcome =
         | "evaluation_error"
         | "identity_collision"
         | "operation_mismatch"
+        | "preview_mismatch"
         | "stale";
     };
 
@@ -280,6 +286,7 @@ export interface AgentCommitCommand {
   readonly actionId: string;
   readonly intentDigest: string;
   readonly operationId: string;
+  readonly previewHash: string;
   readonly proposalId: string;
 }
 
@@ -541,6 +548,7 @@ export async function runAgentSession(
       actionId: action.actionId,
       intentDigest: proposal.intentDigest,
       operationId: command.operationId,
+      previewHash: proposal.previewHash,
       proposalId: command.proposalId,
     }),
   );

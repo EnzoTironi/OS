@@ -168,6 +168,7 @@ test("PT instructions ban helpdesk greetings and keep speak_to_user as the only 
   assert.match(instructions, /Estou por aqui e pronto para ajudar/);
   assert.match(instructions, /Recebi/);
   assert.match(instructions, /\bwait\b/);
+  assert.match(instructions, /nunca fale proposal/);
   assert.doesNotMatch(instructions, /Mastra|LangGraph/);
   assert.doesNotMatch(instructions, /ficar quieto|stay quiet/i);
   assert.doesNotMatch(instructions, /—/);
@@ -609,6 +610,7 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
       return {
         kind: "committed",
         operationId: "operation.remind",
+        previewText: "Vou criar este lembrete para amanhã: dentista",
         recordIds: ["record.1"],
       };
     },
@@ -616,6 +618,7 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
       return {
         kind: "committed",
         operationId: "operation.note",
+        previewText: "Vou guardar esta nota: pão",
         recordIds: ["record.1"],
       };
     },

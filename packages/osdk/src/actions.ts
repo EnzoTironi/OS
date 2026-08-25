@@ -37,6 +37,8 @@ export type ActionPreviewResult =
   | { readonly kind: "error"; readonly message: string }
   | {
       readonly kind: "permit";
+      readonly previewHash: string;
+      readonly previewText: string;
       readonly proposalId: string;
       readonly status: "awaiting_approval" | "ready";
     };
@@ -45,11 +47,13 @@ export type ActionCommitResult =
   | {
       readonly kind: "committed";
       readonly operationId: string;
+      readonly previewText: string;
       readonly recordIds: readonly string[];
     }
   | { readonly kind: "conflict"; readonly message: string }
   | { readonly kind: "denied"; readonly message: string }
   | { readonly kind: "error"; readonly message: string }
+  | { readonly kind: "preview_mismatch"; readonly message: string }
   | { readonly kind: "stale"; readonly message: string };
 
 export interface OsdkActionHandle<TInputs> {
@@ -161,10 +165,11 @@ export async function commitAction(input: {
   const committed = await input.runtime.actions.commit(
     create(CommitRequestSchema, {
       operationId: input.call.operationId,
+      previewHash: proposed.proposal.previewHash,
       proposalId: proposed.proposal.proposalId,
     }),
   );
-  return commitFromResponse(committed);
+  return commitFromResponse(committed, proposed.proposal.canonicalPreviewText);
 }
 
 function proposeRequest(runtime: ActionRuntime, call: ActionCall<unknown>) {
@@ -200,6 +205,8 @@ function previewFromPropose(
       }
       return {
         kind: "permit",
+        previewHash: proposed.proposal.previewHash,
+        previewText: proposed.proposal.canonicalPreviewText,
         proposalId: proposed.proposal.proposalId,
         status:
           proposed.proposal.status === ProposalStatus.AWAITING_APPROVAL
@@ -218,6 +225,7 @@ function previewFromPropose(
 
 function commitFromResponse(
   response: Awaited<ReturnType<OsdkActionsPort["commit"]>>,
+  previewText = "",
 ): ActionCommitResult {
   switch (response.status) {
     case CommitStatus.COMMITTED: {
@@ -227,6 +235,7 @@ function commitFromResponse(
       return {
         kind: "committed",
         operationId: response.receipt.operationId,
+        previewText,
         recordIds: response.receipt.recordIds,
       };
     }
@@ -238,6 +247,11 @@ function commitFromResponse(
       };
     case CommitStatus.DENIED:
       return { kind: "denied", message: response.error || "commit denied" };
+    case CommitStatus.PREVIEW_MISMATCH:
+      return {
+        kind: "preview_mismatch",
+        message: response.error || "preview hash does not match the stored proposal",
+      };
     case CommitStatus.EVALUATION_ERROR:
     case CommitStatus.OPERATION_MISMATCH:
     case CommitStatus.UNSPECIFIED:

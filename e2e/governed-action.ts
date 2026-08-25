@@ -18,13 +18,17 @@ import {
   assertPolicy,
   command,
   composeOutput,
+  commitProposal,
   corruptToken,
   databaseSnapshot,
   definitionClient,
   definitionId,
   delay,
   expectConnectCode,
+  flippedPreviewHash,
   generatedDirectory,
+  isPreviewHash,
+  leaksInternalId,
   loadFixture,
   millisecondsFromNow,
   minutesFromNow,
@@ -43,6 +47,7 @@ import {
   tenantA,
   tenantB,
   textInput,
+  unboundActionClient,
   unrelatedResourceId,
   worldClient,
   writePolicyManifest,
@@ -241,6 +246,45 @@ async function main(): Promise<void> {
     assert.equal(directProposal.status, ProposalStatus.READY);
     assert.equal(directProposal.stateBasis?.dependencies.length, 1);
     assertPolicy(directProposal.policy, fixtures.direct);
+    recordAssertion(
+      "proposeReturnsPreviewHash",
+      isPreviewHash(directProposal.previewHash),
+    );
+    recordAssertion(
+      "proposeReturnsPortuguesePreviewWithoutIds",
+      directProposal.canonicalPreviewText ===
+        "Vou executar requestStock com quantidade 2." &&
+        !leaksInternalId(directProposal.canonicalPreviewText),
+    );
+    const rawActionA = unboundActionClient(agentAToken);
+    const missingPreview = await rawActionA.commit({
+      operationId: "operation.direct",
+      proposalId: "proposal.direct",
+    });
+    assert.equal(missingPreview.status, CommitStatus.PREVIEW_MISMATCH);
+    const tamperedPreview = await commitProposal(actionA, directProposal, {
+      previewHash: flippedPreviewHash(directProposal.previewHash),
+    });
+    assert.equal(tamperedPreview.status, CommitStatus.PREVIEW_MISMATCH);
+    const stalePreviewSource = await propose(actionA, {
+      expiresAt: minutesFromNow(5),
+      fixture: fixtures.direct,
+      operationId: "operation.previewStale",
+      proposalId: "proposal.previewStale",
+      quantity: "3",
+    });
+    assert.ok(stalePreviewSource.proposal);
+    const stalePreview = await commitProposal(actionA, directProposal, {
+      previewHash: stalePreviewSource.proposal.previewHash,
+    });
+    assert.equal(stalePreview.status, CommitStatus.PREVIEW_MISMATCH);
+    recordAssertion(
+      "previewHashGateRejectsMissingTamperedAndStale",
+      missingPreview.status === CommitStatus.PREVIEW_MISMATCH &&
+        tamperedPreview.status === CommitStatus.PREVIEW_MISMATCH &&
+        stalePreview.status === CommitStatus.PREVIEW_MISMATCH &&
+        stalePreviewSource.proposal.previewHash !== directProposal.previewHash,
+    );
     const beforeReservedClaim = await databaseSnapshot(admin, tenantA);
     const reservedClaimCode = await expectConnectCode(
       () =>

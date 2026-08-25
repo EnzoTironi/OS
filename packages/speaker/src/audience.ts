@@ -4,6 +4,7 @@ import type {
   PresentationIntentRef,
 } from "./brands.js";
 import type { InteractionBoundary } from "./boundary.js";
+import { speakerPreviewLeaksInternalIds } from "./action-preview.js";
 import type {
   AudienceDisclosure,
   AudienceDisclosureInput,
@@ -82,6 +83,7 @@ export async function planDisclosureDelivery(input: {
   readonly controlRef: InteractionControlRef;
   readonly disclosure: AudienceDisclosure;
   readonly confidentialBody?: string;
+  readonly previewText?: string;
 }): Promise<{
   readonly intent: DeliveryIntent;
   readonly body: string;
@@ -115,7 +117,7 @@ export async function planDisclosureDelivery(input: {
       recordId: input.recordId,
     });
     return {
-      body: input.confidentialBody ?? "",
+      body: spokenDisclosureBody(input),
       includesConfidentialBody: true,
       intent,
     };
@@ -150,7 +152,7 @@ export async function planDisclosureDelivery(input: {
             },
     });
     return {
-      body: input.confidentialBody ?? "",
+      body: spokenDisclosureBody(input),
       includesConfidentialBody: true,
       intent,
     };
@@ -167,6 +169,22 @@ export async function planDisclosureDelivery(input: {
     includesConfidentialBody: false,
     intent,
   };
+}
+
+/**
+ * Context: Speaker may show the kernel preview, never an internal id.
+ * Inputs: optional previewText plus the older confidentialBody fallback.
+ * Outputs: the spoken body. Rejects leaked identifiers.
+ */
+function spokenDisclosureBody(input: {
+  readonly confidentialBody?: string;
+  readonly previewText?: string;
+}): string {
+  const body = input.previewText ?? input.confidentialBody ?? "";
+  if (body.length > 0 && speakerPreviewLeaksInternalIds(body)) {
+    throw new Error("preview text leaked an internal identifier");
+  }
+  return body;
 }
 
 /** Graft from C: degrade to link text when provider has no URL buttons. */

@@ -212,6 +212,8 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
   });
   assert.deepEqual(preview, {
     kind: "permit",
+    previewHash: "a".repeat(64),
+    previewText: "Vou executar recordQuote.",
     proposalId: "proposal.preview",
     status: "ready",
   });
@@ -232,7 +234,48 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
   assert.deepEqual(committed, {
     kind: "committed",
     operationId: "operation.commit",
+    previewText: "Vou executar recordQuote.",
     recordIds: ["record.1"],
+  });
+  assert.deepEqual(calls, ["action.propose", "action.commit"]);
+});
+
+test("commit reports preview_mismatch without mutating", async () => {
+  const compiled = await compileDefinition(commercialDefinition);
+  const calls: string[] = [];
+  const osdk = createOsdkFromCompiled(compiled, {
+    actions: {
+      ...fakeActions(calls, ProposalStatus.READY),
+      async commit(request) {
+        calls.push("action.commit");
+        assert.match(request.previewHash, /^[0-9a-f]{64}$/);
+        return create(CommitResponseSchema, {
+          collisionKind: CommitIdentityKind.UNSPECIFIED,
+          error: "preview hash does not match the stored proposal",
+          status: CommitStatus.PREVIEW_MISMATCH,
+        });
+      },
+    },
+    tenantId: "tenant.a",
+    validAt,
+    world: fakeWorld(calls),
+  });
+  const recordQuote = osdk.actions.recordQuote;
+  assert.ok(recordQuote);
+  const rejected = await recordQuote.commit({
+    approvalId: "approval.commit",
+    expiresAt,
+    inputs: {
+      quoteReference: { kind: "entity", value: "commercial.quote.1" },
+    },
+    operationId: "operation.commit",
+    proposalId: "proposal.commit",
+    resourceId: "commercial.orderLine.1",
+    validAt,
+  });
+  assert.deepEqual(rejected, {
+    kind: "preview_mismatch",
+    message: "preview hash does not match the stored proposal",
   });
   assert.deepEqual(calls, ["action.propose", "action.commit"]);
 });
@@ -514,7 +557,9 @@ function fakeActions(
         decision: PolicyDecision.PERMIT,
         evaluationError: "",
         proposal: create(ProposalSchema, {
+          canonicalPreviewText: "Vou executar recordQuote.",
           operationId: request.operationId,
+          previewHash: "a".repeat(64),
           proposalId: request.proposalId,
           status,
         }),

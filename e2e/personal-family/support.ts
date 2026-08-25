@@ -9,6 +9,7 @@ import {
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
 import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { bindActionPreviewHash } from "../action-preview-bind.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
@@ -191,12 +192,14 @@ export function actionClientForTenant(
     request.header.set(tenantHeader, tenantId);
     return next(request);
   };
-  return createClient(
-    ActionService,
-    createConnectTransport({
-      baseUrl,
-      httpVersion: "1.1",
-      interceptors: [intercept],
-    }),
+  return bindActionPreviewHash(
+    createClient(
+      ActionService,
+      createConnectTransport({
+        baseUrl,
+        httpVersion: "1.1",
+        interceptors: [intercept],
+      }),
+    ),
   );
 }
