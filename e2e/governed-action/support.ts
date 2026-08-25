@@ -135,6 +135,7 @@ export interface ActionCommitFailpoint {
 export type ServerOptions =
   | {
       kind: "default";
+      extraEnv?: Record<string, string>;
       injectedEnvironment?: ActionCommitFailpoint;
     }
   | {
@@ -546,6 +547,9 @@ export async function startServer(
                     failpoint.pauseMs.toString(),
                 }),
           }),
+      ...(options.kind === "default" && options.extraEnv !== undefined
+        ? options.extraEnv
+        : {}),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });

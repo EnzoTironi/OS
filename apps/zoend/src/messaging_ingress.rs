@@ -1,4 +1,8 @@
+#[cfg(test)]
+use std::collections::HashSet;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use axum::Json;
@@ -11,8 +15,68 @@ use axum::routing::{get, post};
 use reqwest::Client;
 use serde_json::json;
 use zoen_adapters::PostgresIngressReplayStore;
+#[cfg(test)]
+use zoen_adapters::ZOEND_INGRESS_REPLAY_NAMESPACE;
 
 use crate::ingress_hmac::{self, IngressAuthError, ReplayGate};
+
+#[derive(Clone)]
+enum HopReplayStore {
+    Postgres(PostgresIngressReplayStore),
+    #[cfg(test)]
+    Memory(MemoryIngressReplay),
+}
+
+#[cfg(test)]
+#[derive(Clone, Default)]
+struct MemoryIngressReplay {
+    keys: Arc<Mutex<HashSet<String>>>,
+}
+
+impl HopReplayStore {
+    async fn contains(&self, webhook_id: &str) -> Result<bool, IngressAuthError> {
+        match self {
+            Self::Postgres(store) => store
+                .contains(webhook_id)
+                .await
+                .map_err(|_| IngressAuthError::StoreFailure),
+            #[cfg(test)]
+            Self::Memory(store) => Ok(store.contains(webhook_id)),
+        }
+    }
+
+    async fn claim(&self, webhook_id: &str) -> Result<bool, IngressAuthError> {
+        match self {
+            Self::Postgres(store) => store
+                .claim(webhook_id)
+                .await
+                .map_err(|_| IngressAuthError::StoreFailure),
+            #[cfg(test)]
+            Self::Memory(store) => Ok(store.claim(webhook_id)),
+        }
+    }
+}
+
+#[cfg(test)]
+impl MemoryIngressReplay {
+    fn namespaced(webhook_id: &str) -> String {
+        format!("{ZOEND_INGRESS_REPLAY_NAMESPACE}{webhook_id}")
+    }
+
+    fn contains(&self, webhook_id: &str) -> bool {
+        self.keys
+            .lock()
+            .expect("ingress replay lock")
+            .contains(&Self::namespaced(webhook_id))
+    }
+
+    fn claim(&self, webhook_id: &str) -> bool {
+        self.keys
+            .lock()
+            .expect("ingress replay lock")
+            .insert(Self::namespaced(webhook_id))
+    }
+}
 
 #[derive(Clone)]
 pub struct IngressState {
@@ -20,7 +84,7 @@ pub struct IngressState {
     pub client: Client,
     pub whatsapp_secret: Option<String>,
     pub replay: Arc<ReplayGate>,
-    pub replay_store: PostgresIngressReplayStore,
+    replay_store: HopReplayStore,
 }
 
 pub fn from_env(replay_store: PostgresIngressReplayStore) -> IngressState {
@@ -36,7 +100,7 @@ pub fn from_env(replay_store: PostgresIngressReplayStore) -> IngressState {
         client: Client::new(),
         gateway_url,
         replay: Arc::new(ReplayGate::new()),
-        replay_store,
+        replay_store: HopReplayStore::Postgres(replay_store),
         whatsapp_secret,
     }
 }
@@ -86,9 +150,9 @@ async fn whatsapp_inbound(
             return ingress_denied(IngressAuthError::Replay);
         }
         Ok(false) => {}
-        Err(_) => {
+        Err(error) => {
             state.replay.release(&webhook_id);
-            return ingress_denied(IngressAuthError::StoreFailure);
+            return ingress_denied(error);
         }
     }
     let response = proxy(
@@ -105,9 +169,9 @@ async fn whatsapp_inbound(
     if succeeded {
         match state.replay_store.claim(&webhook_id).await {
             Ok(_) => {}
-            Err(_) => {
+            Err(error) => {
                 state.replay.release(&webhook_id);
-                return ingress_denied(IngressAuthError::StoreFailure);
+                return ingress_denied(error);
             }
         }
     }
@@ -218,4 +282,174 @@ fn unavailable(error: &'static str, reason: &'static str) -> Response {
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use axum::Json;
+    use axum::Router;
+    use axum::routing::post;
+    use reqwest::Client;
+    use serde_json::{Value, json};
+    use tokio::net::TcpListener;
+    use zoen_adapters::ZOEND_INGRESS_REPLAY_NAMESPACE;
+
+    use super::{HopReplayStore, IngressState, MemoryIngressReplay, router};
+    use crate::ingress_hmac::{ReplayGate, sign_whatsapp_ingress};
+
+    const SECRET: &str = "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==";
+    const BODY: &[u8] = br#"{"body":"oi"}"#;
+
+    #[tokio::test]
+    async fn inbound_http_probes_fail_closed_and_namespace_replay() {
+        let replay = MemoryIngressReplay::default();
+        let forwarded_ids = Arc::new(Mutex::new(Vec::<String>::new()));
+        let gateway_url = spawn_ok_gateway(forwarded_ids.clone()).await;
+        let inbound = spawn_inbound(IngressState {
+            client: Client::new(),
+            gateway_url: Some(gateway_url),
+            replay: Arc::new(ReplayGate::new()),
+            replay_store: HopReplayStore::Memory(replay.clone()),
+            whatsapp_secret: Some(SECRET.to_owned()),
+        })
+        .await;
+
+        let missing = post_inbound(
+            &spawn_inbound(IngressState {
+                client: Client::new(),
+                gateway_url: None,
+                replay: Arc::new(ReplayGate::new()),
+                replay_store: HopReplayStore::Memory(MemoryIngressReplay::default()),
+                whatsapp_secret: None,
+            })
+            .await,
+            None,
+            BODY,
+        )
+        .await;
+        assert_eq!(missing.0, reqwest::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(missing.1["reason"], "whatsapp_ingress_secret_missing");
+
+        let now = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_secs(),
+        )
+        .expect("secs");
+        let (id, timestamp, signature) =
+            sign_whatsapp_ingress(SECRET, "msg_http", now, BODY).expect("sign");
+
+        let forged = post_inbound(
+            &inbound,
+            Some((
+                id.as_str(),
+                timestamp.as_str(),
+                "v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            )),
+            BODY,
+        )
+        .await;
+        assert_eq!(forged.0, reqwest::StatusCode::UNAUTHORIZED);
+        assert_eq!(forged.1["reason"], "whatsapp_ingress_signature_invalid");
+
+        let stale = post_inbound(
+            &inbound,
+            Some((id.as_str(), "100", signature.as_str())),
+            BODY,
+        )
+        .await;
+        assert_eq!(stale.0, reqwest::StatusCode::UNAUTHORIZED);
+        assert_eq!(stale.1["reason"], "whatsapp_ingress_timestamp_stale");
+
+        let accepted = post_inbound(
+            &inbound,
+            Some((id.as_str(), timestamp.as_str(), signature.as_str())),
+            BODY,
+        )
+        .await;
+        assert_eq!(accepted.0, reqwest::StatusCode::OK);
+        assert_eq!(accepted.1["ok"], true);
+        assert_eq!(forwarded_ids.lock().expect("ids").as_slice(), ["msg_http"]);
+        assert!(replay.contains("msg_http"));
+        assert!(!replay.keys.lock().expect("keys").contains("msg_http"));
+        assert!(
+            replay
+                .keys
+                .lock()
+                .expect("keys")
+                .contains(&format!("{ZOEND_INGRESS_REPLAY_NAMESPACE}msg_http"))
+        );
+
+        let replayed = post_inbound(
+            &inbound,
+            Some((id.as_str(), timestamp.as_str(), signature.as_str())),
+            BODY,
+        )
+        .await;
+        assert_eq!(replayed.0, reqwest::StatusCode::UNAUTHORIZED);
+        assert_eq!(replayed.1["reason"], "whatsapp_ingress_replay");
+    }
+
+    async fn spawn_inbound(state: IngressState) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state))
+                .await
+                .expect("serve inbound");
+        });
+        format!("http://{addr}")
+    }
+
+    async fn spawn_ok_gateway(forwarded_ids: Arc<Mutex<Vec<String>>>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let app = Router::new().route(
+            "/inbound",
+            post({
+                let forwarded_ids = forwarded_ids.clone();
+                move |headers: axum::http::HeaderMap| {
+                    let forwarded_ids = forwarded_ids.clone();
+                    async move {
+                        if let Some(id) = headers
+                            .get("webhook-id")
+                            .and_then(|value| value.to_str().ok())
+                        {
+                            forwarded_ids.lock().expect("ids").push(id.to_owned());
+                        }
+                        Json(json!({ "ok": true }))
+                    }
+                }
+            }),
+        );
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve gateway");
+        });
+        format!("http://{addr}")
+    }
+
+    async fn post_inbound(
+        base: &str,
+        signed: Option<(&str, &str, &str)>,
+        body: &[u8],
+    ) -> (reqwest::StatusCode, Value) {
+        let mut request = Client::new()
+            .post(format!("{base}/channels/whatsapp/inbound"))
+            .header("content-type", "application/json")
+            .body(body.to_vec());
+        if let Some((id, timestamp, signature)) = signed {
+            request = request
+                .header("webhook-id", id)
+                .header("webhook-timestamp", timestamp)
+                .header("webhook-signature", signature);
+        }
+        let response = request.send().await.expect("post");
+        let status = response.status();
+        let value = response.json::<Value>().await.expect("json");
+        (status, value)
+    }
 }
