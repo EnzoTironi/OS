@@ -234,24 +234,110 @@ test("mocked turn with two World rivals speaks the readings, not a helpdesk gree
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
 });
 
-test("wait leaves empty bubbles and a null href", async () => {
-  const model = new MockLanguageModelV3({
-    doGenerate: async () =>
-      ({
-        content: [],
-        finishReason: { raw: "stop", unified: "stop" },
-        usage: usage(),
-        warnings: [],
-      }) satisfies LanguageModelV3GenerateResult,
-  });
+test("empty inbound with a silent model waits (empty bubbles)", async () => {
   const result = await runInteractionTurn({
-    inbound: textInbound("Oi"),
+    inbound: textInbound(""),
     membership: membership("wait"),
-    model,
+    model: silentStopModel(),
+    world: emptyWorld(),
   });
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
+});
+
+test("silent model with two World rivals speaks both readings, not Recebi or a greeting", async () => {
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return {
+        entityIds: ["commercial.order-line.dirty-quote"],
+        notes: ["10 each", "12 each"],
+        rivals: [{ label: "10 each" }, { label: "12 each" }],
+      };
+    },
+  };
+  const result = await runInteractionTurn({
+    inbound: textInbound("quanto ficou a cotacao"),
+    membership: membership("silent-rivals"),
+    model: silentStopModel(),
+    world,
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(
+    result.bubbles[0],
+    "Tem mais de uma leitura e as duas ficam de pé.",
+  );
+  assert.ok(result.bubbles.includes("10 each"));
+  assert.ok(result.bubbles.includes("12 each"));
+  assert.doesNotMatch(sent, /Recebi/i);
+  assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
+  assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
+});
+
+test("silent model with ClaimRead two-rival snapshot speaks Poke lines, not Recebi", async () => {
+  const snapshot = snapshotFromClaims(supportingQuantityClaims());
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return snapshot;
+    },
+  };
+  const result = await runInteractionTurn({
+    inbound: textInbound("quanto ficou a cotacao"),
+    membership: membership("silent-claim-rivals"),
+    model: silentStopModel(),
+    world,
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(
+    result.bubbles[0],
+    "Tem mais de uma leitura e as duas ficam de pé.",
+  );
+  assert.ok(result.bubbles.includes("source.sheet"));
+  assert.ok(result.bubbles.includes("source.erp"));
+  assert.doesNotMatch(sent, /Recebi/i);
+  assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
+  assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
+});
+
+test("silent model with two World notes and no rivals speaks both readings", async () => {
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return {
+        entityIds: [],
+        notes: ["10 each", "12 each"],
+        rivals: [],
+      };
+    },
+  };
+  const result = await runInteractionTurn({
+    inbound: textInbound("how much is the quote"),
+    membership: membership("silent-notes"),
+    model: silentStopModel(),
+    world,
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(
+    result.bubbles[0],
+    "There is more than one reading, and both still stand.",
+  );
+  assert.ok(result.bubbles.includes("10 each"));
+  assert.ok(result.bubbles.includes("12 each"));
+  assert.doesNotMatch(sent, /Recebi/i);
+  assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
+});
+
+test("silent model with empty World fail-closes PT for non-empty inbound", async () => {
+  const result = await runInteractionTurn({
+    inbound: textInbound("quanto ficou a cotacao"),
+    membership: membership("silent-empty-world"),
+    model: silentStopModel(),
+    world: emptyWorld(),
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.match(sent, /Não consegui consultar agora/);
+  assert.doesNotMatch(sent, /Recebi/i);
+  assert.doesNotMatch(sent, /auxiliar|pronto para ajudar/i);
+  assert.notEqual(result.bubbles.length, 0);
 });
 
 test("spawn_execution with injected executeWork records executionNotes and does not leak them into bubbles", async () => {
@@ -383,6 +469,26 @@ test("at most one href survives a double mint", async () => {
   assert.match(sent, /Segue o resumo/);
   assert.doesNotMatch(sent, /Recebi/i);
 });
+
+function silentStopModel(): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    doGenerate: async () =>
+      ({
+        content: [],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: usage(),
+        warnings: [],
+      }) satisfies LanguageModelV3GenerateResult,
+  });
+}
+
+function emptyWorld(): WorldQueryClient {
+  return {
+    async semanticQuery() {
+      return undefined;
+    },
+  };
+}
 
 function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {
   return prompt

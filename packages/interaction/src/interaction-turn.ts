@@ -83,6 +83,8 @@ const MEDIA_INBOUND_EN =
  * Context: bound 1:1 WhatsApp (and other channels) after membership resolve.
  * Inputs: membership + inbound. Optional model/world/coordinator for tests.
  * Outputs: conversational bubbles and at most one https URL. Empty bubbles mean wait (no send).
+ * A silent model (no speak_to_user) fail-closes: World rivals/notes if two stand, else PT/EN lookup copy.
+ * Wait stays only for empty inbound or an explicit coordinator wait.
  * Side effects: claims the burst on the coordinator and advances attempt phases.
  * Does not invent OrderLines. Does not echo inbound as "Recebi".
  */
@@ -402,7 +404,65 @@ async function reasonTurn(input: {
       input.snapshot,
     );
   }
-  return scratch;
+  if (scratch.bubbles.length > 0) {
+    return scratch;
+  }
+  if (isSilentWaitInbound(input.inbound, input.inboundText)) {
+    return scratch;
+  }
+  const fallback = failClosedScratch(
+    input.locale,
+    input.inbound,
+    input.inboundText,
+    input.snapshot,
+  );
+  if (scratch.href !== undefined) {
+    fallback.href = scratch.href;
+  }
+  if (scratch.executionNotes.length > 0) {
+    fallback.executionNotes.push(...scratch.executionNotes);
+  }
+  return fallback;
+}
+
+/**
+ * Empty inbound after a silent model is a wait. The coordinator also waits
+ * when outbound bubbles stay empty. Non-empty text must not go quiet.
+ */
+function isSilentWaitInbound(
+  inbound: InteractionInbound,
+  inboundText: string,
+): boolean {
+  return inbound.kind === "text" && inboundText.trim().length === 0;
+}
+
+/**
+ * Speakable World labels for a Poke-style fail-closed reply.
+ *
+ * Context: ToolLoopAgent finished without speak_to_user, or no model ran.
+ * Inputs: membership World snapshot, if assembled.
+ * Outputs: ≥2 rival labels, else ≥2 notes. Entity ids are dropped.
+ */
+function speakableWorldLabels(
+  snapshot: WorldQuerySnapshot | undefined,
+): string[] {
+  const rivals = speakableLabels(
+    (snapshot?.rivals ?? []).map((rival) => rival.label),
+  );
+  if (rivals.length >= 2) {
+    return rivals;
+  }
+  const notes = speakableLabels(snapshot?.notes ?? []);
+  if (notes.length >= 2) {
+    return notes;
+  }
+  return [];
+}
+
+function speakableLabels(values: readonly string[]): string[] {
+  return values
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0 && !looksLikeEntityId(value));
 }
 
 function failClosedScratch(
@@ -412,9 +472,7 @@ function failClosedScratch(
   snapshot: WorldQuerySnapshot | undefined,
 ): InteractionScratch {
   const scratch = createInteractionScratch();
-  const rivalLabels = (snapshot?.rivals ?? [])
-    .map((rival) => rival.label.trim())
-    .filter((label) => label.length > 0 && !looksLikeEntityId(label));
+  const labels = speakableWorldLabels(snapshot);
   switch (inbound.kind) {
     case "media":
       scratch.bubbles.push(
@@ -432,13 +490,13 @@ function failClosedScratch(
     scratch.bubbles.push(locale === "pt" ? EMPTY_INBOUND_PT : EMPTY_INBOUND_EN);
     return scratch;
   }
-  if (rivalLabels.length >= 2) {
+  if (labels.length >= 2) {
     scratch.bubbles.push(
       locale === "pt"
         ? "Tem mais de uma leitura e as duas ficam de pé."
         : "There is more than one reading, and both still stand.",
     );
-    for (const label of rivalLabels) {
+    for (const label of labels) {
       scratch.bubbles.push(label);
     }
     if (snapshot?.href !== undefined) {
