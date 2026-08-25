@@ -5,6 +5,7 @@ import {
   admitWhatsAppIngress,
   createMemoryIngressReplayStore,
   createPostgresIngressReplayStore,
+  GATEWAY_INGRESS_REPLAY_NAMESPACE,
   verifyWhatsAppInbound,
   WhatsAppIngressAuthError,
 } from "./whatsapp-ingress-auth.js";
@@ -131,7 +132,52 @@ test("durable ingress replay uses one webhook-id key", async () => {
     (error: unknown) =>
       error instanceof WhatsAppIngressAuthError && error.code === "replay",
   );
-  assert.deepEqual([...seen], ["msg_pg"]);
+  assert.deepEqual([...seen], [`${GATEWAY_INGRESS_REPLAY_NAMESPACE}msg_pg`]);
+});
+
+test("gateway and zoend replay keys do not collide", async () => {
+  const seen = new Set<string>();
+  const queried: string[] = [];
+  const client = {
+    async query(text: string, values?: readonly unknown[]) {
+      assert.match(text, /ingress_replay/);
+      const key = String(values?.[0]);
+      queried.push(key);
+      if (text.includes("SELECT")) {
+        return { rows: seen.has(key) ? [{ webhook_id: key }] : [] };
+      }
+      if (seen.has(key)) {
+        return { rows: [] };
+      }
+      seen.add(key);
+      return { rows: [{ webhook_id: key }] };
+    },
+  };
+  const store = createPostgresIngressReplayStore(client);
+  await admitWhatsAppIngress({
+    store,
+    webhookId: "shared",
+    work: async () => undefined,
+  });
+  seen.add("zoend:shared");
+  await assert.rejects(
+    () =>
+      admitWhatsAppIngress({
+        store,
+        webhookId: "shared",
+        work: async () => undefined,
+      }),
+    (error: unknown) =>
+      error instanceof WhatsAppIngressAuthError && error.code === "replay",
+  );
+  assert.deepEqual(queried, [
+    "gateway:shared",
+    "gateway:shared",
+    "gateway:shared",
+  ]);
+  assert.equal(seen.has("gateway:shared"), true);
+  assert.equal(seen.has("zoend:shared"), true);
+  assert.equal(seen.has("shared"), false);
 });
 
 test("failed hop releases inflight so a retry can run", async () => {

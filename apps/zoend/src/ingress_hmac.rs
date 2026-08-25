@@ -180,9 +180,7 @@ mod tests {
         verify_whatsapp_ingress,
     };
 
-    const SECRET: &str = "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==";
-
-    fn sign_whatsapp_ingress(
+    pub(crate) fn sign_whatsapp_ingress(
         secret: &str,
         webhook_id: &str,
         timestamp_secs: i64,
@@ -198,6 +196,8 @@ mod tests {
             format!("v1,{}", STANDARD.encode(digest)),
         ))
     }
+
+    const SECRET: &str = "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==";
 
     fn headers(id: &str, timestamp: &str, signature: &str) -> HeaderMap {
         let mut map = HeaderMap::new();
