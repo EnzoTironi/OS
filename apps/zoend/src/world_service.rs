@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use buffa::MessageView;
 use buffa_types::google::protobuf::Timestamp;
 use connectrpc::{
@@ -8,9 +10,9 @@ use zoen_core::{
     ClaimId, CommitSequence, ComputationId, Consistency, DefinitionDigest, DefinitionId,
     DefinitionReference as CoreDefinitionReference, DefinitionRevisionNumber, EntityId,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger,
-    ExactValue as CoreExactValue, ExecutionContext, LineageRole as CoreLineageRole, RelationId,
-    SemanticQuery, SemanticResult, SemanticSelection, SourceId, TenantId, TimestampMicros, TypeId,
-    UnitId, ValidTime,
+    ExactValue as CoreExactValue, ExecutionContext, LineageRole as CoreLineageRole, OperationId,
+    RelationId, SemanticQuery, SemanticResult, SemanticSelection, SourceId, TenantId,
+    TimestampMicros, TypeId, UnitId, ValidTime,
 };
 use zoen_engine::{RecordEvidenceError, WorldEngine};
 use zoen_query::{QueryError, QueryRuntime};
@@ -83,9 +85,10 @@ impl WorldService for WorldServiceImpl {
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
         let draft = parse_evidence_claim(&claim)?;
+        let operation_id = parse_optional_operation_id(request.operation_id)?;
         let recorded = self
             .engine
-            .record_evidence(&execution_context, draft)
+            .record_evidence(&execution_context, operation_id.as_ref(), draft, now()?)
             .await
             .map_err(map_record_error)?;
         Response::ok(RecordEvidenceResponse {
@@ -116,9 +119,10 @@ impl WorldService for WorldServiceImpl {
                 .map_err(|error| invalid(error.to_string()))?;
             drafts.push(parse_evidence_claim(&owned)?);
         }
+        let operation_id = parse_optional_operation_id(request.operation_id)?;
         let recorded = self
             .engine
-            .record_evidence_batch(&execution_context, drafts)
+            .record_evidence_batch(&execution_context, operation_id.as_ref(), drafts, now()?)
             .await
             .map_err(map_record_error)?;
         let commit_sequence = recorded
@@ -158,6 +162,9 @@ impl WorldService for WorldServiceImpl {
             .ok_or_else(|| invalid("consistency is required"))?
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
+        if request.query.as_ref().is_none() && !request.page_token.is_empty() {
+            return Err(invalid("page_token is only valid for type queries"));
+        }
         let query = match request.query.as_ref() {
             Some(semantic_query_view::Query::ByType(type_query)) => {
                 if type_query.limit == 0 {
@@ -167,6 +174,7 @@ impl WorldService for WorldServiceImpl {
                     consistency: parse_consistency(&consistency)?,
                     definition: parse_definition_reference(&definition)?,
                     limit: type_query.limit,
+                    page_token: request.page_token.to_owned(),
                     type_id: TypeId::parse(type_query.type_id)
                         .map_err(|error| invalid(error.to_string()))?,
                     valid_at: parse_timestamp(&valid_at)?,
@@ -220,6 +228,8 @@ pub(crate) fn parse_evidence_claim(claim: &EvidenceClaim) -> Result<EvidenceDraf
         definition: parse_definition_reference(definition)?,
         entity_id: EntityId::parse(&claim.entity_id).map_err(|error| invalid(error.to_string()))?,
         provenance: EvidenceProvenance {
+            ingested_at: None,
+            observed_at: parse_optional_timestamp(provenance.observed_at.as_option())?,
             source_digest: EvidenceDigest::parse(&provenance.source_digest)
                 .map_err(|error| invalid(error.to_string()))?,
             source_id: SourceId::parse(&provenance.source_id)
@@ -331,6 +341,33 @@ fn parse_consistency(
     }
 }
 
+fn parse_optional_operation_id(
+    value: impl AsRef<str>,
+) -> Result<Option<OperationId>, ConnectError> {
+    let value = value.as_ref();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    OperationId::parse(value)
+        .map(Some)
+        .map_err(|error| invalid(error.to_string()))
+}
+
+fn parse_optional_timestamp(
+    value: Option<&Timestamp>,
+) -> Result<Option<TimestampMicros>, ConnectError> {
+    value.map(parse_timestamp).transpose()
+}
+
+fn now() -> Result<TimestampMicros, ConnectError> {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?;
+    let micros = i64::try_from(duration.as_micros())
+        .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?;
+    Ok(TimestampMicros::new(micros))
+}
+
 pub(crate) fn parse_timestamp(value: &Timestamp) -> Result<TimestampMicros, ConnectError> {
     if !(0..1_000_000_000).contains(&value.nanos) || value.nanos % 1_000 != 0 {
         return Err(invalid(
@@ -350,6 +387,7 @@ fn to_query_response(result: SemanticResult) -> SemanticQueryResponse {
         actual_commit_sequence: result.actual_commit_sequence.get(),
         definition: Some(to_definition_reference(result.definition)).into(),
         knowledge_cut: result.knowledge_cut.get(),
+        next_page_token: result.next_page_token,
         valid_at: Some(to_timestamp(result.valid_at)).into(),
         values: result
             .values

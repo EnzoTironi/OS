@@ -14,6 +14,7 @@ mod action;
 mod admission;
 mod computation;
 mod effect;
+mod evidence;
 mod evolution;
 mod history;
 mod human;
@@ -45,6 +46,7 @@ pub use effect::{
     EffectReconcileCommand, EffectUpdateTransaction, effect_state_after_attempt,
     effect_state_after_evidence,
 };
+pub use evidence::EvidenceOperation;
 pub use history::{
     ActionHistorySnapshot, ClaimHistorySnapshot, EffectHistorySnapshot, HistoryEngine,
     HistoryError, HistorySnapshot, MigrationHistorySnapshot,
@@ -669,16 +671,24 @@ pub trait AuthorityStore: Send + Sync {
         digest: &DefinitionDigest,
     ) -> Result<DefinitionRevision, StoreError>;
 
+    async fn get_evidence_operation(
+        &self,
+        context: &ExecutionContext,
+        operation_id: &OperationId,
+    ) -> Result<Option<crate::EvidenceOperation>, StoreError>;
+
     async fn record_evidence(
         &self,
         context: &ExecutionContext,
         evidence: &AdmittedEvidence,
+        operation: Option<(&OperationId, &IntentDigest)>,
     ) -> Result<EvidenceClaim, StoreError>;
 
     async fn record_evidence_batch(
         &self,
         context: &ExecutionContext,
         evidence: &[AdmittedEvidence],
+        operation: Option<(&OperationId, &IntentDigest)>,
     ) -> Result<Vec<EvidenceClaim>, StoreError>;
 
     async fn save_approval(
@@ -720,33 +730,51 @@ where
     pub async fn record_evidence(
         &self,
         context: &ExecutionContext,
+        operation_id: Option<&OperationId>,
         draft: EvidenceDraft,
+        ingested_at: TimestampMicros,
     ) -> Result<EvidenceClaim, RecordEvidenceError> {
-        let revision = self
-            .store
-            .get_revision(
-                context.tenant_id(),
-                &draft.definition.definition_id,
-                &draft.definition.digest,
-            )
-            .await
-            .map_err(RecordEvidenceError::Store)?;
-        let admitted = admission::admit_evidence(&revision, draft)?;
-        self.store
-            .record_evidence(context, &admitted)
-            .await
-            .map_err(RecordEvidenceError::Store)
+        let mut claims = self
+            .record_evidence_batch(context, operation_id, vec![draft], ingested_at)
+            .await?;
+        claims.pop().ok_or_else(|| {
+            RecordEvidenceError::EventEncoding("evidence write returned no claim".to_owned())
+        })
     }
 
     pub async fn record_evidence_batch(
         &self,
         context: &ExecutionContext,
-        drafts: Vec<EvidenceDraft>,
+        operation_id: Option<&OperationId>,
+        mut drafts: Vec<EvidenceDraft>,
+        ingested_at: TimestampMicros,
     ) -> Result<Vec<EvidenceClaim>, RecordEvidenceError> {
         if drafts.is_empty() {
             return Err(RecordEvidenceError::InvalidEvidence(
                 EvidenceValidationError::EmptySourceReference,
             ));
+        }
+        let intent = operation_id
+            .map(|_| {
+                evidence::evidence_intent_digest(context.tenant_id(), &drafts)
+                    .map_err(RecordEvidenceError::EventEncoding)
+            })
+            .transpose()?;
+        if let (Some(operation_id), Some(intent)) = (operation_id, intent.as_ref()) {
+            let existing = self
+                .store
+                .get_evidence_operation(context, operation_id)
+                .await
+                .map_err(RecordEvidenceError::Store)?;
+            match evidence::evidence_write_plan(existing.as_ref(), intent)
+                .map_err(RecordEvidenceError::Store)?
+            {
+                evidence::EvidenceWritePlan::Replay(claims) => return Ok(claims),
+                evidence::EvidenceWritePlan::Admit => {}
+            }
+        }
+        for draft in &mut drafts {
+            evidence::stamp_ingested_at(draft, ingested_at);
         }
         let mut admitted = Vec::with_capacity(drafts.len());
         for draft in drafts {
@@ -761,8 +789,9 @@ where
                 .map_err(RecordEvidenceError::Store)?;
             admitted.push(admission::admit_evidence(&revision, draft)?);
         }
+        let operation = operation_id.zip(intent.as_ref());
         self.store
-            .record_evidence_batch(context, &admitted)
+            .record_evidence_batch(context, &admitted, operation)
             .await
             .map_err(RecordEvidenceError::Store)
     }

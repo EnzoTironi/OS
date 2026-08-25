@@ -1095,6 +1095,8 @@ fn build_effects(
                 definition: proposal.definition.clone(),
                 entity_id: resource.clone(),
                 provenance: EvidenceProvenance {
+                    ingested_at: None,
+                    observed_at: None,
                     source_digest: EvidenceDigest::parse(proposal.intent_digest.as_str())
                         .map_err(|error| ActionError::Evaluation(error.to_string()))?,
                     source_id: zoen_core::SourceId::parse("zoen.action")

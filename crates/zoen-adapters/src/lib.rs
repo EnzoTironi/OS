@@ -8,12 +8,19 @@ use zoen_core::{
     DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
     DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EntityId, EvidenceClaim,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExecutionContext, ExplanationTarget,
-    OperationId, ProposalId, RelationId, SourceId, TenantId,
+    OperationId, ProposalId, RelationId, SourceId, TenantId, TimestampMicros,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore,
-    CommitPreparation, HistorySnapshot, StoreError,
+    CommitPreparation, EvidenceOperation, HistorySnapshot, StoreError,
 };
+
+pub(crate) const SEMANTIC_CLAIM_COLUMNS: &str =
+    "claim_id, definition_id, definition_digest, definition_revision,
+                entity_id, relation_id, value_kind, value_text, value_unit,
+                valid_time_kind, valid_from_micros, valid_to_micros,
+                source_id, source_digest, source_ref, commit_sequence,
+                observed_at_micros, ingested_at_micros";
 
 mod action_store;
 mod cedar;
@@ -586,6 +593,14 @@ impl AuthorityStore for PostgresAuthorityStore {
         migration_store::preflight(self, tenant_id, operation_id, batch_index, intent_digest).await
     }
 
+    async fn get_evidence_operation(
+        &self,
+        context: &ExecutionContext,
+        operation_id: &OperationId,
+    ) -> Result<Option<EvidenceOperation>, StoreError> {
+        evidence_store::get_operation(self, context, operation_id).await
+    }
+
     async fn get_revision(
         &self,
         tenant_id: &TenantId,
@@ -615,16 +630,18 @@ impl AuthorityStore for PostgresAuthorityStore {
         &self,
         context: &ExecutionContext,
         evidence: &AdmittedEvidence,
+        operation: Option<(&OperationId, &zoen_core::IntentDigest)>,
     ) -> Result<EvidenceClaim, StoreError> {
-        evidence_store::record(self, context, evidence).await
+        evidence_store::record(self, context, evidence, operation).await
     }
 
     async fn record_evidence_batch(
         &self,
         context: &ExecutionContext,
         evidence: &[AdmittedEvidence],
+        operation: Option<(&OperationId, &zoen_core::IntentDigest)>,
     ) -> Result<Vec<EvidenceClaim>, StoreError> {
-        evidence_store::record_batch(self, context, evidence).await
+        evidence_store::record_batch(self, context, evidence, operation).await
     }
 
     async fn save_approval(
@@ -829,6 +846,11 @@ pub(crate) fn row_to_claim(row: &PgRow) -> Result<EvidenceClaim, StoreError> {
             },
             entity_id,
             provenance: EvidenceProvenance {
+                ingested_at: Some(TimestampMicros::new(row_i64(row, "ingested_at_micros")?)),
+                observed_at: row
+                    .try_get::<Option<i64>, _>("observed_at_micros")
+                    .map_err(store_unavailable)?
+                    .map(TimestampMicros::new),
                 source_digest,
                 source_id,
                 source_ref: row_string(row, "source_ref")?,

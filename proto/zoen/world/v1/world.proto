@@ -48,6 +48,10 @@ message EvidenceProvenance {
   string source_id = 1;
   string source_digest = 2;
   string source_ref = 3;
+  // Source-supplied observation time. Not ontological valid time.
+  google.protobuf.Timestamp observed_at = 4;
+  // Server-stamped knowledge/record time. A client value is overwritten.
+  google.protobuf.Timestamp ingested_at = 5;
 }
 
 message EvidenceClaim {
@@ -63,6 +67,8 @@ message EvidenceClaim {
 message RecordEvidenceRequest {
   string tenant_id = 1;
   EvidenceClaim claim = 2;
+  // Request identity. Same tenant + operation + intent replays the first receipt.
+  string operation_id = 3;
 }
 
 message RecordEvidenceResponse {
@@ -73,6 +79,8 @@ message RecordEvidenceResponse {
 message RecordEvidenceBatchRequest {
   string tenant_id = 1;
   repeated EvidenceClaim claims = 2;
+  // Request identity for the atomic batch. Same semantics as RecordEvidence.
+  string operation_id = 3;
 }
 
 message RecordEvidenceBatchResponse {
@@ -115,6 +123,8 @@ message SemanticQueryRequest {
   oneof query {
     TypeQuery by_type = 7;
   }
+  // Opaque page cursor bound to the query's consistency cut.
+  string page_token = 8;
 }
 
 enum LineageRole {
@@ -154,4 +164,6 @@ message SemanticQueryResponse {
   uint64 knowledge_cut = 3;
   google.protobuf.Timestamp valid_at = 4;
   repeated SemanticValueResult values = 5;
+  // Empty means this is the last page.
+  string next_page_token = 6;
 }
