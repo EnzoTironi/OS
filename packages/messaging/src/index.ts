@@ -55,6 +55,8 @@ export {
   parseCompanionInboundEnvelope,
   parseWhatsAppDoorE164,
   PERSONAL_WHATSAPP_DOOR_E164,
+  PERSON_WHATSAPP_SUBJECT_JID,
+  assertWhatsAppPersonSubject,
   selectWhatsAppShape,
   LiveWhatsAppConfigError,
   WhatsAppEnvelopeError,

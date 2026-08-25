@@ -20,6 +20,8 @@ import {
   parseCompanionInboundEnvelope,
   parseWhatsAppDoorE164,
   PERSONAL_WHATSAPP_DOOR_E164,
+  PERSON_WHATSAPP_SUBJECT_JID,
+  assertWhatsAppPersonSubject,
   selectWhatsAppShape,
   WhatsAppEnvelopeError,
   WhatsAppSurfaceUrlError,
@@ -79,6 +81,27 @@ test("door E.164 is ITU-ish and rejects empty, personal, username, and JID", () 
   assert.equal(parseWhatsAppDoorE164("+553798136141"), "+553798136141");
   assert.equal(parseWhatsAppDoorE164("+15551234567"), "+15551234567");
   assert.equal(parseWhatsAppDoorE164("+5537911111111"), "+5537911111111");
+});
+
+test("person subject is the inbox JID and never the door", () => {
+  const door = "+553798136141";
+  assert.equal(
+    assertWhatsAppPersonSubject(PERSON_WHATSAPP_SUBJECT_JID, door),
+    PERSON_WHATSAPP_SUBJECT_JID,
+  );
+  assert.throws(
+    () =>
+      assertWhatsAppPersonSubject("553798136141@s.whatsapp.net", door),
+    /door JID/,
+  );
+  assert.throws(
+    () => assertWhatsAppPersonSubject("120363000000000000@g.us", door),
+    /person phone/,
+  );
+  assert.throws(
+    () => assertWhatsAppPersonSubject("146454777753827@lid", door),
+    /person phone/,
+  );
 });
 
 test("advertise without door fails closed", () => {
