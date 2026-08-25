@@ -3,6 +3,10 @@ import test from "node:test";
 import type { LanguageModelV3GenerateResult } from "@ai-sdk/provider";
 import { MockLanguageModelV3 } from "ai/test";
 import {
+  createInteractionScratch,
+  createInteractionTools,
+} from "./interaction-tools.js";
+import {
   outboundBubbles,
   runInteractionTurn,
   type InteractionInbound,
@@ -130,6 +134,83 @@ test("wait leaves empty bubbles and a null href", async () => {
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
+});
+
+test("spawn_execution with injected executeWork records executionNotes and does not leak them into bubbles", async () => {
+  const status = "status: workbench counted rivals";
+  const scratch = createInteractionScratch();
+  const tools = createInteractionTools(scratch, {
+    executeWork: async (task) => {
+      assert.equal(task, "contar rivais");
+      return status;
+    },
+  });
+  const spawn = tools.spawn_execution;
+  const speak = tools.speak_to_user;
+  assert.ok(spawn?.execute !== undefined);
+  assert.ok(speak?.execute !== undefined);
+  await spawn.execute(
+    { task: "contar rivais" },
+    { context: undefined, messages: [], toolCallId: "call_spawn" },
+  );
+  await speak.execute(
+    { text: "Tem duas leituras e as duas ficam de pé." },
+    { context: undefined, messages: [], toolCallId: "call_speak" },
+  );
+  assert.deepEqual(scratch.executionNotes, [status]);
+  assert.deepEqual(scratch.bubbles, [
+    "Tem duas leituras e as duas ficam de pé.",
+  ]);
+  assert.equal(scratch.bubbles.join("\n").includes(status), false);
+
+  let step = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({ task: "contar rivais" }),
+              toolCallId: "call_spawn",
+              toolName: "spawn_execution",
+              type: "tool-call",
+            },
+            {
+              input: JSON.stringify({
+                text: `${status}\nTem duas leituras e as duas ficam de pé.`,
+              }),
+              toolCallId: "call_speak",
+              toolName: "speak_to_user",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      return {
+        content: [],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: usage(),
+        warnings: [],
+      } satisfies LanguageModelV3GenerateResult;
+    },
+  });
+  const result = await runInteractionTurn({
+    executeWork: async () => status,
+    inbound: textInbound("Quanto ficou o pedido?"),
+    membership: membership("spawn"),
+    model,
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.match(sent, /leituras/);
+  assert.doesNotMatch(sent, /status: workbench/);
+  assert.doesNotMatch(sent, /Recebi/i);
+  assert.doesNotMatch(sent, /spawn_execution/);
+  assert.doesNotMatch(sent, /membership\.wa\.enzo/);
+  assert.equal(sent.split("https://").length - 1, 0);
 });
 
 test("at most one href survives a double mint", async () => {

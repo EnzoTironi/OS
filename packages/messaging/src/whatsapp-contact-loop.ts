@@ -94,6 +94,7 @@ export interface WhatsAppContactLoopOptions {
   readonly doorE164?: string;
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
+  readonly executeWork?: (task: string) => Promise<string>;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -261,6 +262,7 @@ export function createWhatsAppContactLoop(
       const reply = await runInteractionTurn({
         attemptId: claimed.attempt.id,
         coordinator,
+        executeWork: options.executeWork,
         inbound: toInteractionInbound(record.inbound),
         membership: ctx,
         now,
