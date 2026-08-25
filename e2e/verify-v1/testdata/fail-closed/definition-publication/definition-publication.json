@@ -1,7 +1,0 @@
-{
-  "scenario": "definition-publication",
-  "verdict": "PASS",
-  "sourceCommit": "ffffffffffffffffffffffffffffffffffffffff",
-  "fixture": true,
-  "note": "Fail-closed fixture with foreign commit."
-}

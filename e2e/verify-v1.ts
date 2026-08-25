@@ -486,7 +486,7 @@ function evaluateGate(
         code: "fixture-as-production",
         scenario: spec.id,
         detail:
-          "fixture-marked evidence cannot satisfy just verify-v1; copy into artifacts/ still fails. Use just verify-v1-fixtures for gate-contract only",
+          "fixture-marked evidence cannot satisfy just verify-v1; copy into artifacts/ still fails",
       });
     }
 
@@ -1382,7 +1382,7 @@ async function main(): Promise<void> {
         )),
     ``,
     fixtureMode
-      ? `Named fixture command: \`just verify-v1-fixtures\` (not production evidence)`
+      ? `Fixture evidence is not a ship attestation`
       : `Official command: \`just verify-v1\``,
     ``,
   ];

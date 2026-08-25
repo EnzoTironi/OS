@@ -82,13 +82,6 @@ export {
   type WhatsAppContactLoopOptions,
 } from "./whatsapp-contact-loop.js";
 export {
-  formatWhatsAppMinuteText,
-  parseWhatsAppMinuteSpec,
-  WhatsAppMinuteError,
-  type WhatsAppMinuteInput,
-  type WhatsAppMinuteRival,
-} from "./whatsapp-minute.js";
-export {
   assertLiveTelegramAdvertisement,
   createLiveTelegramProvider,
   createLiveTelegramProviderFromEnv,
