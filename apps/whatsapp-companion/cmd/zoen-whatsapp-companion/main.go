@@ -58,6 +58,7 @@ func configFromEnv() companion.Config {
 		IngressURL:           strings.TrimSpace(os.Getenv("ZOEN_WHATSAPP_INGRESS_URL")),
 		ListenAddr:           listen,
 		QRFile:               strings.TrimSpace(os.Getenv("ZOEN_WHATSAPP_QR_FILE")),
+		MediaDir:             strings.TrimSpace(os.Getenv("ZOEN_WHATSAPP_MEDIA_DIR")),
 		DropLog:              os.Stderr,
 		Log:                  waLog.Stdout("companion", "INFO", false),
 	}

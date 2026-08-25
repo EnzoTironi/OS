@@ -331,6 +331,28 @@ test("bound minute lists rivals and exactly one https URL", async () => {
   await session.close();
 });
 
+test("spreadsheet inbound is not dropped as empty", async () => {
+  const calls: string[] = [];
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    doorE164,
+    identity: unboundIdentity(calls),
+    session,
+  });
+  const result = await loop.handleRaw(
+    inbound({
+      body: "",
+      filename: "quote.xlsx",
+      mediaKind: "document",
+      mediaRef: "/tmp/quote.xlsx",
+      messageId: "wamid.xlsx",
+      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  );
+  assert.notEqual(result.kind, "dropped");
+  await session.close();
+});
+
 test("provider key stays unofficial whatsapp", () => {
   assert.equal(String(providerKey("whatsapp")), "whatsapp");
 });

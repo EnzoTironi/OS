@@ -56,6 +56,57 @@ func TestPairedJIDEmptyWhenUnpaired(t *testing.T) {
 	}
 }
 
+func TestNormalizeInboundAcceptsSpreadsheetAndVoice(t *testing.T) {
+	t.Parallel()
+	sheet := &events.Message{
+		Info: textEvent("wamid.xlsx", "5531888888888@s.whatsapp.net", "5531888888888@s.whatsapp.net", "", false, false).Info,
+		Message: &waE2E.Message{
+			DocumentMessage: &waE2E.DocumentMessage{
+				FileName:  strPtr("quote.xlsx"),
+				Mimetype:  strPtr("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+			},
+		},
+	}
+	got, accept, err := normalizeInboundMessage(sheet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !accept || got.MediaKind != "document" {
+		t.Fatalf("xlsx accept=%v kind=%q", accept, got.MediaKind)
+	}
+	voice := &events.Message{
+		Info: textEvent("wamid.ogg", "5531888888888@s.whatsapp.net", "5531888888888@s.whatsapp.net", "", false, false).Info,
+		Message: &waE2E.Message{
+			AudioMessage: &waE2E.AudioMessage{
+				Mimetype: strPtr("audio/ogg; codecs=opus"),
+			},
+		},
+	}
+	got, accept, err = normalizeInboundMessage(voice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !accept || got.MediaKind != "audio" {
+		t.Fatalf("voice accept=%v kind=%q", accept, got.MediaKind)
+	}
+	fromMeMedia := &events.Message{
+		Info: textEvent("wamid.me.xlsx", "5531888888888@s.whatsapp.net", "5531888888888@s.whatsapp.net", "", true, false).Info,
+		Message: &waE2E.Message{
+			DocumentMessage: &waE2E.DocumentMessage{
+				FileName: strPtr("quote.xlsx"),
+				Mimetype: strPtr("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+			},
+		},
+	}
+	_, accept, err = normalizeInboundMessage(fromMeMedia)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accept {
+		t.Fatal("fromMe spreadsheet must drop")
+	}
+}
+
 func TestNormalizeInboundDropsFromMe(t *testing.T) {
 	t.Parallel()
 	event := textEvent("wamid.me", "5531888888888@s.whatsapp.net", "5531888888888@s.whatsapp.net", "oi", true, false)

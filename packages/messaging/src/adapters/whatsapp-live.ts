@@ -185,6 +185,8 @@ export function parseCompanionInboundEnvelope(raw: unknown): ChatSdkMessage {
     callbackData: inbound.callbackData,
     from: { id: fromId },
     id: inbound.messageId,
+    mediaRef: inbound.mediaRef,
+    mime: inbound.mime,
     receivedAt: inbound.observedAt,
     text: inbound.body.length > 0 ? inbound.body : undefined,
     thread: { id: inbound.chatJid, kind: "chat" },
@@ -277,14 +279,24 @@ function asCompanionInbound(raw: unknown): CompanionInbound {
   if (isGroupJid(senderJid)) {
     throw new WhatsAppEnvelopeError("group JID is not a speaker");
   }
+  const mediaKindRaw = optionalString(record.mediaKind);
+  const mediaKind =
+    mediaKindRaw === "document" || mediaKindRaw === "audio"
+      ? mediaKindRaw
+      : undefined;
   return {
     body: optionalString(record.body),
     callbackData:
       typeof record.callbackData === "string" ? record.callbackData : undefined,
     chatJid,
+    filename:
+      typeof record.filename === "string" ? record.filename : undefined,
     fromMe: record.fromMe === true,
     isGroup: record.isGroup === true || isGroupJid(chatJid),
+    mediaKind,
+    mediaRef: typeof record.mediaRef === "string" ? record.mediaRef : undefined,
     messageId,
+    mime: typeof record.mime === "string" ? record.mime : undefined,
     observedAt: requiredString(record, "observedAt"),
     senderAltJid: optionalString(record.senderAltJid),
     senderJid,
