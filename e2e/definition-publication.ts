@@ -201,6 +201,7 @@ async function main(): Promise<void> {
     assert.equal(await rowCount(admin, "authority_commits", tenantB), 1);
     assert.equal(await rowCount(admin, "definition_revisions", tenantB), 1);
 
+    const beforeDigestMismatch = await processMetrics();
     await expectConnectCode(
       () =>
         clientA.publish({
@@ -210,6 +211,8 @@ async function main(): Promise<void> {
         }),
       Code.InvalidArgument,
     );
+    const afterDigestMismatch = await processMetrics();
+    assert.equal(afterDigestMismatch.jcs, beforeDigestMismatch.jcs);
 
     const invalidReference = first.canonicalJson.replace(
       '"sourceType":"inventory.Item"',
@@ -243,6 +246,27 @@ async function main(): Promise<void> {
       );
     }
     recordAssertion("noncanonicalIntegersRejected");
+
+    const afterInvalidIntegers = await processMetrics();
+    assert.equal(afterInvalidIntegers.jcs, afterDigestMismatch.jcs);
+    const spacedCanonical = first.canonicalJson.replace("{", "{ ");
+    assert.notEqual(spacedCanonical, first.canonicalJson);
+    await expectConnectCode(
+      () =>
+        clientA.publish({
+          canonicalJson: encode(spacedCanonical),
+          digest: sha256(spacedCanonical),
+          tenantId: tenantA,
+        }),
+      Code.InvalidArgument,
+    );
+    const afterSpaced = await processMetrics();
+    assert.ok(afterSpaced.jcs > afterInvalidIntegers.jcs);
+    assert.ok(afterSpaced.admitCount > afterInvalidIntegers.admitCount);
+    assert.ok(!afterSpaced.body.includes(tenantA));
+    assert.ok(!afterSpaced.body.includes(tenantB));
+    assert.ok(!afterSpaced.body.includes(first.definition.definitionId));
+    recordAssertion("jcsMismatchCounted");
 
     await expectConnectCode(
       () =>
@@ -689,6 +713,40 @@ async function assertRlsIsolation(): Promise<void> {
   } finally {
     await application.end();
   }
+}
+
+async function processMetrics(): Promise<{
+  admitCount: number;
+  body: string;
+  jcs: number;
+}> {
+  const response = await fetch(`${baseUrl}/metrics`);
+  if (!response.ok) {
+    throw new Error(`/metrics returned HTTP ${response.status}`);
+  }
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/plain")) {
+    throw new Error(`/metrics content-type was ${contentType}`);
+  }
+  const body = await response.text();
+  return {
+    admitCount: metricCount(body, "zoen_admit_duration_seconds_count"),
+    body,
+    jcs: metricCount(body, "zoen_jcs_mismatch_total"),
+  };
+}
+
+function metricCount(body: string, name: string): number {
+  const prefix = `${name} `;
+  const line = body.split("\n").find((entry) => entry.startsWith(prefix));
+  if (line === undefined) {
+    throw new Error(`/metrics omitted ${name}`);
+  }
+  const value = Number(line.slice(prefix.length));
+  if (!Number.isFinite(value)) {
+    throw new Error(`/metrics ${name} was not a number: ${line}`);
+  }
+  return value;
 }
 
 function encode(value: string): Uint8Array {
