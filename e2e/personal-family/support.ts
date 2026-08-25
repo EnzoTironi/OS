@@ -12,6 +12,7 @@ import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "../host-env.js";
@@ -158,7 +159,7 @@ export async function admin(
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      authorization: `Bearer ${token ?? e2eIdentityAdminToken()}`,
     },
     method,
   });

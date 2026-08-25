@@ -29,6 +29,7 @@ import {
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   writeScenarioArtifact,
 } from "./host-env.js";
 
@@ -159,7 +160,7 @@ async function main(): Promise<void> {
 
   const unboundToken = await oidcToken("unbound-a");
   const adminToken = await oidcToken("admin-a");
-  identityAdminBearer = adminToken;
+  identityAdminBearer = e2eIdentityAdminToken();
   const boundToken = await oidcToken("bound-bait");
   const secondToken = await oidcToken("bound-second");
 
@@ -185,6 +186,22 @@ async function main(): Promise<void> {
       digest: fixture.digest,
       tenantId: "tenant.a",
     });
+
+    // OIDC can authenticate, but minting a foreign subject is machine-only.
+    const oidcProvisional = await admin(
+      "POST",
+      "/identity/admin/provisional",
+      {
+        provider: "whatsapp",
+        subjectKey: "+5511988887777",
+      },
+      adminToken,
+    );
+    record(
+      "oidc_cannot_mint_provisional",
+      oidcProvisional.status === 403 &&
+        oidcProvisional.body.error === "identity_admin_forbidden",
+    );
 
     // Provisional account + restart before verify.
     const provisional = await admin("POST", "/identity/admin/provisional", {

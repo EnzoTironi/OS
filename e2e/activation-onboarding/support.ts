@@ -19,6 +19,7 @@ import {
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
 } from "../host-env.js";
 import {
   activateDefinition,
@@ -153,7 +154,7 @@ export async function admin(
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      authorization: `Bearer ${token ?? e2eIdentityAdminToken()}`,
     },
     method,
   });

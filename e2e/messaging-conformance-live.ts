@@ -56,6 +56,7 @@ import {
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   writeScenarioArtifact,
 } from "./host-env.js";
 import { assertImportGraphLaw } from "./messaging-boundary/import-graph.js";
@@ -156,7 +157,7 @@ async function admin(
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      authorization: `Bearer ${token ?? e2eIdentityAdminToken()}`,
     },
     method,
   });

@@ -46,6 +46,7 @@ import {
   archivedWebServerEntry,
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "../host-env.js";
@@ -240,7 +241,7 @@ export async function main(): Promise<void> {
     const secondToken = await oidcToken("bound-second");
     const unboundToken = await oidcToken("unbound-a");
     const adminToken = await oidcToken("admin-a");
-    identityAdminBearer = adminToken;
+    identityAdminBearer = e2eIdentityAdminToken();
 
     const bootstrapA = await admin(
       "POST",

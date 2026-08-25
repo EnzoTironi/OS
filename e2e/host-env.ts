@@ -35,6 +35,23 @@ export function e2eHttpUrl(
   return `http://127.0.0.1:${e2ePort(name, fallback)}${suffix}`;
 }
 
+const defaultIdentityAdminToken = "e2e-identity-admin";
+
+/**
+ * Machine bearer for identity-admin god routes in e2e.
+ *
+ * zoend fail-closes `provisional`, `invites`, and merge unless this matches
+ * `ZOEN_IDENTITY_ADMIN_TOKEN`. OIDC bearers may bootstrap and mutate only
+ * their own bound account.
+ */
+export function e2eIdentityAdminToken(): string {
+  const configured = process.env.ZOEN_IDENTITY_ADMIN_TOKEN?.trim();
+  if (configured !== undefined && configured !== "") {
+    return configured;
+  }
+  return defaultIdentityAdminToken;
+}
+
 /** Postgres URL on the scenario’s published host port. */
 export function e2ePostgresUrl(
   user: string,

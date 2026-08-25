@@ -41,6 +41,7 @@ import {
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
@@ -514,6 +515,7 @@ export async function startServer(
       ...process.env,
       DATABASE_URL: applicationDatabaseUrl,
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
+      ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
       ZOEN_OIDC_AUDIENCE: oidcAudience,
       ZOEN_OIDC_ISSUER: oidcIssuer,
