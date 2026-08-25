@@ -186,6 +186,7 @@ run_lint() {
   node scripts/check-domain-leakage.mjs
   node scripts/check-commercial-lake.mjs
   node scripts/check-e2e-workflow-matrix.mjs
+  node scripts/check-semantic-mutants.mjs
   node scripts/generate-jcs-fixtures.mjs --check
   node scripts/check-production-artifacts.mjs
   npm test

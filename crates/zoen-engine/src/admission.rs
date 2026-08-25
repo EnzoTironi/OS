@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt::Display;
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use zoen_core::{
@@ -11,6 +12,7 @@ use zoen_core::{
     UnitId, ValueType,
 };
 
+use crate::metrics::{record_admit_latency, record_jcs_mismatch};
 use crate::{
     AdmittedDefinitionPublication, AdmittedEvidence, EvidenceValidationError, ProjectionEvent,
     PublishError, RecordEvidenceError, verify_digest,
@@ -25,9 +27,20 @@ pub(crate) fn admit(
     bytes: &[u8],
     claimed_digest: DefinitionDigest,
 ) -> Result<AdmittedDefinitionPublication, PublishError> {
+    let started = Instant::now();
+    let result = admit_inner(bytes, claimed_digest);
+    record_admit_latency(started);
+    result
+}
+
+fn admit_inner(
+    bytes: &[u8],
+    claimed_digest: DefinitionDigest,
+) -> Result<AdmittedDefinitionPublication, PublishError> {
     let canonical = zoen_core::canonicalize_json_bytes(bytes)
         .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
     if canonical.as_bytes() != bytes {
+        record_jcs_mismatch();
         return Err(PublishError::NonCanonicalDefinition);
     }
     let mut dto = serde_json::from_str::<CanonicalDefinitionDto>(&canonical)
@@ -36,6 +49,7 @@ pub(crate) fn admit(
     let via_serde_jcs = serde_jcs::to_vec(&dto)
         .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
     if via_serde_jcs != bytes {
+        record_jcs_mismatch();
         return Err(PublishError::NonCanonicalDefinition);
     }
     let canonical_json = CanonicalJson::new(canonical)
@@ -680,9 +694,11 @@ mod tests {
         let raw = INVENTORY.trim();
         let spaced = raw.replacen('{', "{ ", 1);
         assert_ne!(spaced.as_bytes(), raw.as_bytes());
+        let before = crate::metrics::jcs_mismatch_total();
         let error = admit(spaced.as_bytes(), digest(spaced.as_bytes()))
             .expect_err("zoen-core must reject non-canonical bytes");
         assert_eq!(error, PublishError::NonCanonicalDefinition);
+        assert!(crate::metrics::jcs_mismatch_total() > before);
     }
 
     #[test]

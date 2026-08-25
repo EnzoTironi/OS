@@ -19,6 +19,7 @@ mod evidence;
 mod evolution;
 mod history;
 mod human;
+pub mod metrics;
 mod migration;
 
 pub use action::{
