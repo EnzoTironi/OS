@@ -10,7 +10,7 @@
         "scenario": "durable-commit",
         "entrypoint": "e2e/durable-commit.ts",
         "needles": [
-          "verifyTenantIsolation",
+          "await verifyTenantIsolation(scenario)",
           "tenantScopedOperationNamespace"
         ]
       }
@@ -23,7 +23,7 @@
         "scenario": "durable-commit",
         "entrypoint": "e2e/durable-commit.ts",
         "needles": [
-          "verifyReplayAndMismatch",
+          "await verifyReplayAndMismatch(scenario)",
           "sameOperationDifferentIntentTypedMismatch"
         ]
       }
@@ -55,7 +55,10 @@
         "kind": "e2e",
         "scenario": "durable-commit",
         "entrypoint": "e2e/durable-commit.ts",
-        "needles": ["verifyRollback", "allPreCommitFailpointsRolledBack"]
+        "needles": [
+          "await verifyRollback(scenario)",
+          "allPreCommitFailpointsRolledBack"
+        ]
       }
     },
     {

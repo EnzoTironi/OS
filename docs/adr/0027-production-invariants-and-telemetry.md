@@ -25,7 +25,7 @@ This ADR does not add a scrape crate, a new CI matrix job, or a second evidence 
 
 A scraper can hit `/metrics` on the listen address. A stolen token is not required. The series stay process-local. Restart resets them.
 
-The mutant inventory is the release list. Moving a proof to an archive or optional scenario fails lint. Unhooking the runner call or deleting the named assertion also fails lint.
+The mutant inventory is the release list. Moving a proof to an archive or optional scenario fails lint. Deleting the named assertion or the exact `await verify*(scenario)` invocation also fails lint. An unused import is not a proof.
 
 ## Revisit if
 
