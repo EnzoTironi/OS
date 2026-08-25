@@ -43,6 +43,24 @@ pub(crate) async fn save_proposal(
         if existing.operation_id == proposal.operation_id
             && existing.intent_digest == proposal.intent_digest
         {
+            if existing.preview_hash.is_uncomputed_placeholder()
+                && existing.canonical_preview_text.is_empty()
+            {
+                sqlx::query(
+                    "UPDATE action_proposals
+                     SET preview_hash = $1, canonical_preview_text = $2
+                     WHERE tenant_id = $3 AND proposal_id = $4",
+                )
+                .bind(proposal.preview_hash.as_str())
+                .bind(&proposal.canonical_preview_text)
+                .bind(context.tenant_id().as_str())
+                .bind(proposal.proposal_id.as_str())
+                .execute(&mut *transaction)
+                .await
+                .map_err(store_unavailable)?;
+                transaction.commit().await.map_err(store_unavailable)?;
+                return Ok(proposal.clone());
+            }
             transaction.commit().await.map_err(store_unavailable)?;
             return Ok(existing);
         }

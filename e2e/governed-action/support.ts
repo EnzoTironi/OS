@@ -38,9 +38,9 @@ import {
   WorldService,
   type DefinitionReference,
 } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import { bindActionPreviewHash } from "../action-preview-bind.js";
 
 export {
+  approveProposal,
   commitProposal,
   flippedPreviewHash,
   isPreviewHash,
@@ -311,7 +311,7 @@ export async function oidcToken(clientId: string): Promise<string> {
 }
 
 export function actionClient(token: string): ActionClient {
-  return bindActionPreviewHash(createClient(ActionService, transport(token)));
+  return createClient(ActionService, transport(token));
 }
 
 /** Raw Action client. Does not fill preview_hash. Used by negative tests. */

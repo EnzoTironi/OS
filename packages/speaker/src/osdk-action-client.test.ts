@@ -75,7 +75,7 @@ test("WriteMemory and CreateReminder Propose+Commit with permissive Cedar become
     previewText: "Vou guardar esta nota: comprar pão",
     recordIds: ["record.writeMemory"],
   });
-  assert.deepEqual(calls, ["action.propose", "action.commit"]);
+  assert.deepEqual(calls, ["action.propose", "action.propose", "action.commit"]);
   assert.equal(proposed[0]?.actionId, "personal.writeMemory");
   assert.equal(proposed[0]?.resourceId, "personal.note.1");
   assert.deepEqual(
@@ -95,7 +95,7 @@ test("WriteMemory and CreateReminder Propose+Commit with permissive Cedar become
     previewText: "Vou criar este lembrete para amanhã 15h: dentista",
     recordIds: ["record.createReminder"],
   });
-  assert.deepEqual(calls, ["action.propose", "action.commit"]);
+  assert.deepEqual(calls, ["action.propose", "action.propose", "action.commit"]);
   assert.equal(proposed[0]?.actionId, "personal.createReminder");
   assert.equal(proposed[0]?.resourceId, "personal.reminder.1");
   assert.deepEqual(

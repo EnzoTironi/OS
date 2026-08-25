@@ -57,6 +57,7 @@ export function leaksInternalId(text: string): boolean {
     text.includes("actor.") ||
     text.includes("workload.") ||
     text.includes("approval.") ||
+    /\b(?:inventory|personal|commercial)\.[A-Za-z0-9._-]+/.test(text) ||
     /zoen-engine|zoen-core|packages\/|crates\//i.test(text) ||
     SHA256_HEX.test(text)
   );
@@ -80,6 +81,28 @@ export function commitProposal(
 ) {
   return client.commit({
     operationId: proposal.operationId,
+    previewHash: overrides?.previewHash ?? proposal.previewHash,
+    proposalId: proposal.proposalId,
+  });
+}
+
+/**
+ * Approve with the stored hash, or an override for mismatch cases.
+ */
+export function approveProposal(
+  client: BoundActionClient,
+  proposal: { previewHash: string; proposalId: string },
+  input: {
+    readonly approvalId: string;
+    readonly expiresAt: NonNullable<
+      Parameters<BoundActionClient["approve"]>[0]["expiresAt"]
+    >;
+  },
+  overrides?: { previewHash?: string },
+) {
+  return client.approve({
+    approvalId: input.approvalId,
+    expiresAt: input.expiresAt,
     previewHash: overrides?.previewHash ?? proposal.previewHash,
     proposalId: proposal.proposalId,
   });

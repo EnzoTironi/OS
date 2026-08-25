@@ -146,6 +146,7 @@ pub enum ApproveOutcome {
         message: String,
         policy: Option<PolicyEvidence>,
     },
+    PreviewMismatch,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -470,12 +471,25 @@ where
         approval_id: ApprovalId,
         approved_at: TimestampMicros,
         expires_at: TimestampMicros,
+        preview_hash: Option<&str>,
     ) -> Result<ApproveOutcome, ActionError> {
         let proposal = self
             .store
             .get_proposal(context, proposal_id)
             .await
             .map_err(ActionError::Store)?;
+        if bind_proposal_preview(
+            &proposal.action_id,
+            &proposal.resource_id,
+            &proposal.inputs,
+            &proposal.preview_hash,
+            &proposal.canonical_preview_text,
+            preview_hash,
+        )
+        .is_err()
+        {
+            return Ok(ApproveOutcome::PreviewMismatch);
+        }
         if approved_at >= expires_at {
             return Err(ActionError::ApprovalExpired);
         }
@@ -567,18 +581,6 @@ where
         if &proposal.operation_id != operation_id {
             return Ok(CommitOutcome::OperationMismatch);
         }
-        if bind_proposal_preview(
-            &proposal.action_id,
-            &proposal.resource_id,
-            &proposal.inputs,
-            &proposal.preview_hash,
-            &proposal.canonical_preview_text,
-            preview_hash,
-        )
-        .is_err()
-        {
-            return Ok(CommitOutcome::PreviewMismatch);
-        }
         let transaction = match self
             .store
             .begin_action_commit(context, &proposal)
@@ -593,6 +595,19 @@ where
                 return Ok(CommitOutcome::Committed(receipt));
             }
         };
+        if bind_proposal_preview(
+            &proposal.action_id,
+            &proposal.resource_id,
+            &proposal.inputs,
+            &proposal.preview_hash,
+            &proposal.canonical_preview_text,
+            preview_hash,
+        )
+        .is_err()
+        {
+            transaction.rollback().await.map_err(ActionError::Store)?;
+            return Ok(CommitOutcome::PreviewMismatch);
+        }
         if committed_at >= proposal.expires_at {
             transaction.rollback().await.map_err(ActionError::Store)?;
             return Err(ActionError::ExpiredProposal);

@@ -30,8 +30,8 @@ export interface ActionCall<TInputs> {
 
 export interface CommitCall<TInputs> extends ActionCall<TInputs> {
   readonly approvalId: string;
-  /** Hash the caller confirmed. Must match the Propose result when set. */
-  readonly previewHash?: string;
+  /** Hash the caller confirmed. Required. OSDK never invents this value. */
+  readonly previewHash: string;
 }
 
 export type ActionPreviewResult =
@@ -144,10 +144,13 @@ export async function commitAction(input: {
     };
   }
   const confirmed = input.call.previewHash;
-  if (
-    confirmed !== undefined &&
-    confirmed !== proposed.proposal.previewHash
-  ) {
+  if (confirmed.length === 0) {
+    return {
+      kind: "preview_mismatch",
+      message: "preview hash does not match the stored proposal",
+    };
+  }
+  if (confirmed !== proposed.proposal.previewHash) {
     return {
       kind: "preview_mismatch",
       message: "preview hash does not match the stored proposal",
@@ -158,6 +161,7 @@ export async function commitAction(input: {
       create(ApproveRequestSchema, {
         approvalId: input.call.approvalId,
         expiresAt: timestampFromDate(input.call.expiresAt),
+        previewHash: confirmed,
         proposalId: proposed.proposal.proposalId,
       }),
     );
@@ -177,7 +181,7 @@ export async function commitAction(input: {
   const committed = await input.runtime.actions.commit(
     create(CommitRequestSchema, {
       operationId: input.call.operationId,
-      previewHash: proposed.proposal.previewHash,
+      previewHash: confirmed,
       proposalId: proposed.proposal.proposalId,
     }),
   );

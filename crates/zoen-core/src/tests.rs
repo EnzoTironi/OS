@@ -345,6 +345,14 @@ fn delegation<const A: usize, const R: usize, const W: usize>(
 }
 
 #[test]
+fn action_preview_hash_placeholder_is_all_zero_hex() {
+    let placeholder = ActionPreviewHash::parse("0".repeat(64)).expect("placeholder");
+    let real = ActionPreviewHash::parse("ab".repeat(32)).expect("real");
+    assert!(placeholder.is_uncomputed_placeholder());
+    assert!(!real.is_uncomputed_placeholder());
+}
+
+#[test]
 fn action_preview_hash_constant_time_eq_requires_identical_hex() {
     let left = ActionPreviewHash::parse("ab".repeat(32)).expect("left");
     let right = ActionPreviewHash::parse("ab".repeat(32)).expect("right");

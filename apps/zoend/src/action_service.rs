@@ -202,6 +202,11 @@ impl ActionService for ActionServiceImpl {
             .ok_or_else(|| invalid("expires_at is required"))?
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
+        let preview_hash = if request.preview_hash.is_empty() {
+            None
+        } else {
+            Some(request.preview_hash)
+        };
         let outcome = self
             .engine
             .approve(
@@ -212,6 +217,7 @@ impl ActionService for ActionServiceImpl {
                     .map_err(|error| invalid(error.to_string()))?,
                 now()?,
                 parse_timestamp(&expires_at)?,
+                preview_hash,
             )
             .await
             .map_err(map_action_error)?;
@@ -232,6 +238,9 @@ impl ActionService for ActionServiceImpl {
                 policy: policy.map(to_policy_evidence).into(),
                 ..Default::default()
             }),
+            ApproveOutcome::PreviewMismatch => {
+                Err(invalid("preview hash does not match the stored proposal"))
+            }
         }
     }
 

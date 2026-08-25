@@ -209,6 +209,10 @@ test("approval and deny policy outcomes stop before commit", async () => {
       result.kind,
       proposal.kind === "denied" ? "denied" : "awaiting_approval",
     );
+    if (result.kind === "awaiting_approval") {
+      assert.equal(result.previewText, "Vou executar requestStock.");
+      assert.equal(result.previewHash, "e".repeat(64));
+    }
     assert.equal(authority.commitCalls, 0);
   }
 });

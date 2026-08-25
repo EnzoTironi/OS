@@ -1,5 +1,6 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
+import { speakerPreviewLeaksInternalIds } from "./action-preview.js";
 import type {
   PersonalWriteKind,
   SpeakerActionClient,
@@ -178,6 +179,10 @@ async function commitPersonalWrite(
     if (result.kind !== "committed") {
       scratch.writeFail = kind;
       return { ok: false, reason: result.message };
+    }
+    if (speakerPreviewLeaksInternalIds(result.previewText)) {
+      scratch.writeFail = kind;
+      return { ok: false, reason: "preview text leaked an internal identifier" };
     }
     return { ok: true, previewText: result.previewText };
   } catch (error: unknown) {

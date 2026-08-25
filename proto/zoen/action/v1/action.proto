@@ -145,6 +145,7 @@ message ApproveRequest {
   string proposal_id = 1;
   string approval_id = 2;
   google.protobuf.Timestamp expires_at = 3;
+  string preview_hash = 4;
 }
 
 message Approval {

@@ -3,23 +3,19 @@ import test from "node:test";
 import { buildActionPreviewDocument } from "../../ontology/src/action-preview.js";
 import {
   renderSpeakerActionPreview,
-  speakerActionPreview,
   speakerPreviewLeaksInternalIds,
 } from "./action-preview.js";
 
 test("speaker preview shows the kernel text and hides resource ids", () => {
-  const rendered = speakerActionPreview({
+  const document = buildActionPreviewDocument({
     actionId: "personal.writeMemory",
     inputs: [{ id: "body", value: { kind: "text", value: "comprar pão" } }],
     resourceId: "personal.note.deadbeef",
   });
-  assert.equal(rendered.previewText, "Vou guardar esta nota: comprar pão");
-  assert.equal(
-    speakerPreviewLeaksInternalIds(rendered.previewText),
-    false,
-  );
-  assert.doesNotMatch(rendered.previewText, /personal\.note|proposal\.|deadbeef/);
-  assert.match(rendered.previewHash, /^[0-9a-f]{64}$/);
+  const previewText = renderSpeakerActionPreview(document);
+  assert.equal(previewText, "Vou guardar esta nota: comprar pão");
+  assert.equal(speakerPreviewLeaksInternalIds(previewText), false);
+  assert.doesNotMatch(previewText, /personal\.note|proposal\.|deadbeef/);
 });
 
 test("speaker preview refuses spoken internal identifiers", () => {
@@ -36,5 +32,18 @@ test("speaker preview refuses spoken internal identifiers", () => {
           "Confirme proposal.direct e claim.action.operation.direct.0",
       }),
     /leaked an internal identifier/,
+  );
+});
+
+test("speaker preview treats resource ids as leaks", () => {
+  assert.equal(
+    speakerPreviewLeaksInternalIds(
+      "Vou executar requestStock em inventory.item.1.",
+    ),
+    true,
+  );
+  assert.equal(
+    speakerPreviewLeaksInternalIds("Vou executar requestStock."),
+    false,
   );
 });
