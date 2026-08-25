@@ -22,6 +22,14 @@ zoen.dev/profile: {{ .Values.profile | quote }}
       key: {{ .Values.runtimeSecret.databaseUrlKey }}
 {{- end }}
 
+{{- define "zoen.projectionDatabaseEnv" -}}
+- name: ZOEN_PROJECTION_DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.runtimeSecret.name }}
+      key: {{ .Values.runtimeSecret.projectionDatabaseUrlKey }}
+{{- end }}
+
 {{- define "zoen.objectStoreEnv" -}}
 - name: S3_ACCESS_KEY_ID
   valueFrom:

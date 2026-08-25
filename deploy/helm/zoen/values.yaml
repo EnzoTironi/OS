@@ -33,6 +33,7 @@ images:
 runtimeSecret:
   name: zoen-runtime
   databaseUrlKey: databaseUrl
+  projectionDatabaseUrlKey: projectionDatabaseUrl
   postgresAdminPasswordKey: postgresAdminPassword
   postgresApplicationPasswordKey: postgresApplicationPassword
   s3AccessKeyIdKey: s3AccessKeyId
@@ -52,6 +53,7 @@ postgres:
   port: 5432
   database: zoen
   applicationUser: zoen_app
+  projectionUser: zoen_projection
   nodePort: 32085
   storage: 5Gi
   topology:

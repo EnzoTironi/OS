@@ -21,6 +21,7 @@ postgres:
   port: 5432
   database: zoen
   applicationUser: zoen_app
+  projectionUser: zoen_projection
   nodePort: 32285
   storage: 5Gi
 

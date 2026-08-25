@@ -295,10 +295,12 @@ zoen_create_runtime_secret() {
   local namespace="$1"
   local postgres_host="$2"
   local database_url="postgres://zoen_app:zoen_app@${postgres_host}:5432/zoen"
+  local projection_database_url="postgres://zoen_projection:zoen_projection@${postgres_host}:5432/zoen"
   kubectl --namespace "${namespace}" create secret generic zoen-runtime \
     --from-literal=connectorCallerToken=zoen-e2e-connector-token \
     --from-literal=connectorCredentials='{"secret.provider.a":{"secret":"unused","tenantId":"tenant.a"},"secret.provider.b":{"secret":"unused","tenantId":"tenant.b"}}' \
     --from-literal=databaseUrl="${database_url}" \
+    --from-literal=projectionDatabaseUrl="${projection_database_url}" \
     --from-literal=databaseUrlTenantA="${database_url}?options=-c%20zoen.tenant_id%3Dtenant.a" \
     --from-literal=databaseUrlTenantB="${database_url}?options=-c%20zoen.tenant_id%3Dtenant.b" \
     --from-literal=effectOidcClients='{"tenant.a":{"clientId":"effect-worker-a","clientSecret":"effect-worker-a-secret"},"tenant.b":{"clientId":"effect-worker-b","clientSecret":"effect-worker-b-secret"}}' \

@@ -17,6 +17,14 @@ data:
       NOCREATEROLE
       NOINHERIT
       NOBYPASSRLS;
+    CREATE ROLE {{ .Values.postgres.projectionUser }}
+      LOGIN
+      PASSWORD '{{ .Values.postgres.projectionUser }}'
+      NOSUPERUSER
+      NOCREATEDB
+      NOCREATEROLE
+      NOINHERIT
+      NOBYPASSRLS;
     CREATE ROLE zoen_platform_observer
       LOGIN
       PASSWORD 'observer'
@@ -25,9 +33,9 @@ data:
       NOCREATEROLE
       NOINHERIT
       BYPASSRLS;
-    GRANT CONNECT ON DATABASE zoen TO zoen_app, zoen_platform_observer;
+    GRANT CONNECT ON DATABASE zoen TO zoen_app, {{ .Values.postgres.projectionUser }}, zoen_platform_observer;
     GRANT ALL ON SCHEMA public TO zoen_app;
-    GRANT USAGE ON SCHEMA public TO zoen_platform_observer;
+    GRANT USAGE ON SCHEMA public TO {{ .Values.postgres.projectionUser }}, zoen_platform_observer;
     ALTER DEFAULT PRIVILEGES FOR ROLE zoen_app IN SCHEMA public
       GRANT SELECT ON TABLES TO zoen_platform_observer;
   002-company-brain.sql: |

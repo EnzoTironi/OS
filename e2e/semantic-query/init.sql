@@ -6,5 +6,15 @@ CREATE ROLE zoen_app
     NOCREATEROLE
     NOINHERIT;
 
-GRANT CONNECT ON DATABASE zoen TO zoen_app;
+CREATE ROLE zoen_projection
+    LOGIN
+    PASSWORD 'zoen_projection'
+    NOSUPERUSER
+    NOCREATEDB
+    NOCREATEROLE
+    NOINHERIT
+    NOBYPASSRLS;
+
+GRANT CONNECT ON DATABASE zoen TO zoen_app, zoen_projection;
 GRANT ALL ON SCHEMA public TO zoen_app;
+GRANT USAGE ON SCHEMA public TO zoen_projection;

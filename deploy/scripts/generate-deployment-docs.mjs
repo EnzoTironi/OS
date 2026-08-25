@@ -61,6 +61,7 @@ Every profile keeps \`tenantAwareness: true\`, \`configVersion: zoen.config.v1\`
 Create \`zoen-runtime\` in each application namespace before installation. The chart reads these keys:
 
 - \`databaseUrl\`
+- \`projectionDatabaseUrl\` for the projection worker
 - \`databaseUrlTenantA\`, and \`databaseUrlTenantB\` for the shared profile
 - \`postgresAdminPassword\` and \`postgresApplicationPassword\` for reference PostgreSQL
 - \`s3AccessKeyId\` and \`s3SecretAccessKey\`
