@@ -10,10 +10,10 @@ use zoen_core::{
     Consistency, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
     LineageRole, OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation,
-    ProposalAuthority, ProposalId, RelationId, ResourceId, SemanticQuery, SemanticResult,
-    SemanticSelection, SemanticValue, StateBasis, StateBasisDigest, StateDependency,
-    TimestampMicros, TrustedExecutionContext, ValidTime, ValueType, evaluate_expression,
-    expression_relations,
+    PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget, ResourceId,
+    SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
+    StateDependency, TenantId, TimestampMicros, TrustedExecutionContext, TypeId, ValidTime,
+    ValueType, evaluate_expression, expression_relations,
 };
 
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
@@ -37,6 +37,32 @@ pub enum PolicyOperation {
     RollbackRevision,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyMembershipProjection {
+    pub principal_id: PrincipalId,
+    pub tenant_id: TenantId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyLinkProjection {
+    pub relation_id: RelationId,
+    pub targets: Vec<EntityId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyObjectProjection {
+    pub entity_id: EntityId,
+    pub links: Vec<PolicyLinkProjection>,
+    pub object_type: Option<TypeId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyWorldProjection {
+    pub membership: PolicyMembershipProjection,
+    pub neighbors: Vec<PolicyObjectProjection>,
+    pub resource: PolicyObjectProjection,
+}
+
 #[derive(Clone, Debug)]
 pub struct PolicyRequest<'a> {
     pub action_id: &'a ActionId,
@@ -46,6 +72,7 @@ pub struct PolicyRequest<'a> {
     pub definition: &'a DefinitionReference,
     pub inputs: &'a [ActionInput],
     pub operation: PolicyOperation,
+    pub projection: Option<&'a PolicyWorldProjection>,
     pub resource_id: &'a ResourceId,
 }
 
@@ -270,13 +297,16 @@ where
         let decoded = decode_canonical_definition(&canonical.canonical_json)
             .map_err(|error| ActionError::Definition(error.to_string()))?;
         let mut discoveries = Vec::with_capacity(decoded.actions.len());
-        for action in decoded.actions {
+        for action in &decoded.actions {
             if !context
                 .delegation()
                 .permits(&action.id, resource_id, context.workload_id(), at)
             {
                 continue;
             }
+            let projection = self
+                .load_world_projection(context, &decoded, &canonical, action, resource_id, at)
+                .await?;
             let evaluation = self
                 .policy
                 .evaluate(&PolicyRequest {
@@ -287,11 +317,12 @@ where
                     definition,
                     inputs: &[],
                     operation: PolicyOperation::Discover,
+                    projection: Some(&projection),
                     resource_id,
                 })
                 .await;
             discoveries.push(ActionDiscovery {
-                action_id: action.id,
+                action_id: action.id.clone(),
                 evaluation,
             });
         }
@@ -331,6 +362,16 @@ where
                 return Ok(ProposeOutcome::PreconditionDenied(state_basis));
             }
         };
+        let projection = self
+            .load_world_projection(
+                context,
+                &loaded.definition,
+                &loaded.revision,
+                &loaded.action,
+                &command.resource_id,
+                command.valid_at,
+            )
+            .await?;
         let direct = self
             .policy
             .evaluate(&PolicyRequest {
@@ -341,6 +382,7 @@ where
                 definition: &command.definition,
                 inputs: &command.inputs,
                 operation: PolicyOperation::Commit,
+                projection: Some(&projection),
                 resource_id: &command.resource_id,
             })
             .await;
@@ -366,6 +408,7 @@ where
                         definition: &command.definition,
                         inputs: &command.inputs,
                         operation: PolicyOperation::RequestApproval,
+                        projection: Some(&projection),
                         resource_id: &command.resource_id,
                     })
                     .await
@@ -444,6 +487,19 @@ where
             &proposal.resource_id,
             approved_at,
         )?;
+        let loaded = self
+            .load_action(context, &proposal.definition, &proposal.action_id)
+            .await?;
+        let projection = self
+            .load_world_projection(
+                context,
+                &loaded.definition,
+                &loaded.revision,
+                &loaded.action,
+                &proposal.resource_id,
+                proposal.valid_at,
+            )
+            .await?;
         match self
             .policy
             .evaluate(&PolicyRequest {
@@ -454,6 +510,7 @@ where
                 definition: &proposal.definition,
                 inputs: &proposal.inputs,
                 operation: PolicyOperation::Approve,
+                projection: Some(&projection),
                 resource_id: &proposal.resource_id,
             })
             .await
@@ -546,6 +603,33 @@ where
                 }
             }
         };
+        let loaded = match self
+            .load_action(context, &proposal.definition, &proposal.action_id)
+            .await
+        {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                transaction.rollback().await.map_err(ActionError::Store)?;
+                return Err(error);
+            }
+        };
+        let projection = match self
+            .load_world_projection(
+                context,
+                &loaded.definition,
+                &loaded.revision,
+                &loaded.action,
+                &proposal.resource_id,
+                proposal.valid_at,
+            )
+            .await
+        {
+            Ok(projection) => projection,
+            Err(error) => {
+                transaction.rollback().await.map_err(ActionError::Store)?;
+                return Err(error);
+            }
+        };
         let policy = match self
             .policy
             .evaluate(&PolicyRequest {
@@ -556,6 +640,7 @@ where
                 definition: &proposal.definition,
                 inputs: &proposal.inputs,
                 operation: PolicyOperation::Commit,
+                projection: Some(&projection),
                 resource_id: &proposal.resource_id,
             })
             .await
@@ -576,14 +661,11 @@ where
                 });
             }
         };
-        let loaded = self
-            .load_action(context, &proposal.definition, &proposal.action_id)
-            .await?;
         let relation_ids = effect_evaluation_relations(&loaded.action);
         let snapshot = self
             .load_relation_snapshot(
                 context,
-                &loaded,
+                &loaded.revision,
                 &proposal.resource_id,
                 relation_ids,
                 proposal.valid_at,
@@ -693,7 +775,7 @@ where
         let snapshot = self
             .load_relation_snapshot(
                 context,
-                loaded,
+                &loaded.revision,
                 resource_id,
                 expression_relations(&loaded.action.precondition),
                 valid_at,
@@ -706,7 +788,7 @@ where
     async fn load_relation_snapshot(
         &self,
         context: &TrustedExecutionContext,
-        loaded: &LoadedAction,
+        revision: &DefinitionRevision,
         resource_id: &ResourceId,
         relations: BTreeSet<RelationId>,
         valid_at: TimestampMicros,
@@ -728,9 +810,9 @@ where
                     &SemanticQuery::ByEntity {
                         consistency,
                         definition: DefinitionReference {
-                            definition_id: loaded.revision.definition_id.clone(),
-                            digest: loaded.revision.digest.clone(),
-                            revision: loaded.revision.revision,
+                            definition_id: revision.definition_id.clone(),
+                            digest: revision.digest.clone(),
+                            revision: revision.revision,
                         },
                         entity_id: entity_id.clone(),
                         selection: SemanticSelection::Relation(relation_id.clone()),
@@ -746,9 +828,116 @@ where
             values.insert(relation_id, result.values);
         }
         Ok(ActionStateSnapshot {
-            observed_commit_sequence: observed.unwrap_or(loaded.revision.commit_sequence),
+            observed_commit_sequence: observed.unwrap_or(revision.commit_sequence),
             relations: values,
         })
+    }
+
+    async fn load_world_projection(
+        &self,
+        context: &TrustedExecutionContext,
+        definition: &CanonicalDefinition,
+        revision: &DefinitionRevision,
+        action: &ActionDefinition,
+        resource_id: &ResourceId,
+        valid_at: TimestampMicros,
+    ) -> Result<PolicyWorldProjection, ActionError> {
+        let entity_id = EntityId::parse(resource_id.as_str())
+            .map_err(|error| ActionError::Input(error.to_string()))?;
+        let object_type = action_resource_type(action, definition);
+        let mut link_relations = BTreeSet::new();
+        if let Some(object_type) = &object_type {
+            for relation in &definition.relations {
+                if relation.source_type == *object_type
+                    && matches!(relation.target, RelationTarget::Type(_))
+                {
+                    link_relations.insert(relation.id.clone());
+                }
+            }
+        }
+        let snapshot = self
+            .load_relation_snapshot(
+                context,
+                revision,
+                resource_id,
+                link_relations,
+                valid_at,
+                "Action policy projection relations used different authority cuts",
+            )
+            .await?;
+        let mut seen = BTreeSet::from([entity_id.clone()]);
+        let mut neighbors = Vec::new();
+        let mut links = Vec::new();
+        if let Some(object_type) = &object_type {
+            for relation in &definition.relations {
+                if relation.source_type != *object_type {
+                    continue;
+                }
+                let RelationTarget::Type(target_type) = &relation.target else {
+                    continue;
+                };
+                let mut targets = Vec::new();
+                for value in snapshot.relations.get(&relation.id).into_iter().flatten() {
+                    let ExactValue::Entity(target) = &value.value else {
+                        continue;
+                    };
+                    if seen.insert(target.clone()) {
+                        neighbors.push(PolicyObjectProjection {
+                            entity_id: target.clone(),
+                            links: Vec::new(),
+                            object_type: Some(target_type.clone()),
+                        });
+                    }
+                    targets.push(target.clone());
+                }
+                if !targets.is_empty() {
+                    links.push(PolicyLinkProjection {
+                        relation_id: relation.id.clone(),
+                        targets,
+                    });
+                }
+            }
+        }
+        Ok(PolicyWorldProjection {
+            membership: PolicyMembershipProjection {
+                principal_id: context.principal_id().clone(),
+                tenant_id: context.tenant_id().clone(),
+            },
+            neighbors,
+            resource: PolicyObjectProjection {
+                entity_id,
+                links,
+                object_type,
+            },
+        })
+    }
+}
+
+fn action_resource_type(
+    action: &ActionDefinition,
+    definition: &CanonicalDefinition,
+) -> Option<TypeId> {
+    let mut types = BTreeSet::new();
+    let mut relation_ids = expression_relations(&action.precondition);
+    relation_ids.extend(
+        action
+            .effects
+            .iter()
+            .map(|effect| effect.relation_id.clone()),
+    );
+    for relation_id in relation_ids {
+        if let Some(relation) = definition
+            .relations
+            .iter()
+            .find(|relation| relation.id == relation_id)
+        {
+            types.insert(relation.source_type.clone());
+        }
+    }
+    if types.len() == 1 {
+        types.pop_first()
+    } else {
+        None
     }
 }
 

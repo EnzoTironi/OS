@@ -38,6 +38,7 @@ scenario_table=(
   "domain-manufacturing-accounting:domain-manufacturing-accounting:"
   "domain-quality:domain-quality:"
   "entity-location:entity-location:"
+  "cedar-object-projection:cedar-object-projection:"
   "commercial-identity:commercial-identity:"
   "durable-commit:governed-action:failpoints"
   "effects:governed-action:"

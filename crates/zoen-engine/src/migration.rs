@@ -328,6 +328,7 @@ where
                 definition: target,
                 inputs: &[],
                 operation,
+                projection: None,
                 resource_id: &resource_id,
             })
             .await
