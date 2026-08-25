@@ -84,6 +84,8 @@ fn world_claim(definition: DefinitionReference) -> EvidenceClaim {
             definition,
             entity_id: EntityId::parse("inventory.item.1").expect("entity id"),
             provenance: EvidenceProvenance {
+                ingested_at: None,
+                observed_at: None,
                 source_digest: EvidenceDigest::parse(ZERO_DIGEST).expect("evidence digest"),
                 source_id: SourceId::parse("source.world").expect("source id"),
                 source_ref: "world fixture".to_owned(),

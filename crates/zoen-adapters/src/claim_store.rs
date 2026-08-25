@@ -7,7 +7,7 @@ use zoen_core::{
 };
 use zoen_engine::StoreError;
 
-use crate::{row_to_claim, set_tenant, store_unavailable, u64_to_i64};
+use crate::{SEMANTIC_CLAIM_COLUMNS, row_to_claim, set_tenant, store_unavailable, u64_to_i64};
 
 #[derive(Clone)]
 pub struct PostgresClaimLoader {
@@ -25,6 +25,7 @@ pub struct PostgresClaimQuery {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PostgresTypeQuery {
+    pub after_entity_id: Option<EntityId>,
     pub cut: CommitSequence,
     pub definition: DefinitionReference,
     pub limit: u32,
@@ -72,11 +73,8 @@ pub(crate) async fn load_in_transaction(
         .iter()
         .map(|relation_id| relation_id.as_str().to_owned())
         .collect::<Vec<_>>();
-    let rows = sqlx::query(
-        "SELECT claim_id, definition_id, definition_digest, definition_revision,
-                entity_id, relation_id, value_kind, value_text, value_unit,
-                valid_time_kind, valid_from_micros, valid_to_micros,
-                source_id, source_digest, source_ref, commit_sequence
+    let rows = sqlx::query(&format!(
+        "SELECT {SEMANTIC_CLAIM_COLUMNS}
          FROM semantic_claims
          WHERE tenant_id = $1
            AND definition_id = $2
@@ -93,8 +91,8 @@ pub(crate) async fn load_in_transaction(
                     AND valid_to_micros > $8
                 )
            )
-         ORDER BY claim_id",
-    )
+         ORDER BY claim_id"
+    ))
     .bind(context.tenant_id().as_str())
     .bind(query.definition.definition_id.as_str())
     .bind(query.definition.digest.as_str())
@@ -139,6 +137,7 @@ pub(crate) async fn load_entity_ids_in_transaction(
                     AND valid_to_micros > $7
                 )
            )
+           AND ($9::text IS NULL OR entity_id > $9)
          ORDER BY entity_id
          LIMIT $8",
     )
@@ -153,6 +152,7 @@ pub(crate) async fn load_entity_ids_in_transaction(
     .bind(u64_to_i64(query.cut.get(), "query cut")?)
     .bind(query.valid_at.get())
     .bind(i64::from(query.limit))
+    .bind(query.after_entity_id.as_ref().map(EntityId::as_str))
     .fetch_all(&mut **transaction)
     .await
     .map_err(store_unavailable)?;

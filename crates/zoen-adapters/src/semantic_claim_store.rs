@@ -26,17 +26,24 @@ pub(crate) async fn insert(
     let (value_kind, value_text, value_unit) = value_columns(&draft.value);
     let (valid_time_kind, valid_from_micros, valid_to_micros) =
         valid_time_columns(&draft.valid_time);
+    let ingested_at = draft
+        .provenance
+        .ingested_at
+        .map(|value| value.get())
+        .unwrap_or_else(clock_micros);
     sqlx::query(
         "INSERT INTO semantic_claims (
             tenant_id, claim_id, definition_id, definition_digest, definition_revision,
             entity_id, relation_id, value_kind, value_text, value_unit,
             valid_time_kind, valid_from_micros, valid_to_micros,
-            source_id, source_digest, source_ref, commit_sequence
+            source_id, source_digest, source_ref, commit_sequence,
+            observed_at_micros, ingested_at_micros
          ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9, $10,
             $11, $12, $13,
-            $14, $15, $16, $17
+            $14, $15, $16, $17,
+            $18, $19
          )",
     )
     .bind(tenant_id.as_str())
@@ -59,10 +66,22 @@ pub(crate) async fn insert(
     .bind(draft.provenance.source_digest.as_str())
     .bind(&draft.provenance.source_ref)
     .bind(commit_sequence)
+    .bind(draft.provenance.observed_at.map(|value| value.get()))
+    .bind(ingested_at)
     .execute(&mut **transaction)
     .await
     .map_err(map_insert)?;
     Ok(())
+}
+
+fn clock_micros() -> i64 {
+    i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_micros())
+            .unwrap_or(0),
+    )
+    .unwrap_or(i64::MAX)
 }
 
 fn map_insert(error: sqlx::Error) -> StoreError {

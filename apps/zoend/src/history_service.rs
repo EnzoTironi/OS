@@ -286,6 +286,8 @@ fn to_causal_claim(causal: CoreCausalClaim) -> CausalClaim {
             definition: Some(to_definition_reference(structure.definition)).into(),
             entity_id: structure.entity_id.as_str().to_owned(),
             provenance: Some(EvidenceProvenance {
+                ingested_at: structure.provenance.ingested_at.map(to_timestamp).into(),
+                observed_at: structure.provenance.observed_at.map(to_timestamp).into(),
                 source_digest: structure.provenance.source_digest.as_str().to_owned(),
                 source_id: structure.provenance.source_id.as_str().to_owned(),
                 source_ref: structure.provenance.source_ref,

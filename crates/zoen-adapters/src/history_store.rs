@@ -275,7 +275,8 @@ async fn load_claim(
         "SELECT claim_id, definition_id, definition_digest, definition_revision,
                 entity_id, relation_id, value_kind, value_text, value_unit,
                 valid_time_kind, valid_from_micros, valid_to_micros,
-                source_id, source_digest, source_ref, commit_sequence
+                source_id, source_digest, source_ref, commit_sequence,
+                observed_at_micros, ingested_at_micros
          FROM semantic_claims
          WHERE tenant_id = $1 AND claim_id = $2",
     )
@@ -364,7 +365,8 @@ async fn load_claims(
         "SELECT claim_id, definition_id, definition_digest, definition_revision,
                 entity_id, relation_id, value_kind, value_text, value_unit,
                 valid_time_kind, valid_from_micros, valid_to_micros,
-                source_id, source_digest, source_ref, commit_sequence
+                source_id, source_digest, source_ref, commit_sequence,
+                observed_at_micros, ingested_at_micros
          FROM semantic_claims
          WHERE tenant_id = $1 AND claim_id = ANY($2::text[])
          ORDER BY claim_id",

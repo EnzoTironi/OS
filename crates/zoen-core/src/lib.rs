@@ -845,9 +845,20 @@ pub struct DefinitionReference {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvidenceProvenance {
+    pub ingested_at: Option<TimestampMicros>,
+    pub observed_at: Option<TimestampMicros>,
     pub source_digest: EvidenceDigest,
     pub source_id: SourceId,
     pub source_ref: String,
+}
+
+impl EvidenceProvenance {
+    pub fn same_intent(&self, other: &Self) -> bool {
+        self.observed_at == other.observed_at
+            && self.source_digest == other.source_digest
+            && self.source_id == other.source_id
+            && self.source_ref == other.source_ref
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -859,6 +870,18 @@ pub struct EvidenceDraft {
     pub relation_id: RelationId,
     pub valid_time: ValidTime,
     pub value: ExactValue,
+}
+
+impl EvidenceDraft {
+    pub fn same_intent(&self, other: &Self) -> bool {
+        self.claim_id == other.claim_id
+            && self.definition == other.definition
+            && self.entity_id == other.entity_id
+            && self.relation_id == other.relation_id
+            && self.valid_time == other.valid_time
+            && self.value == other.value
+            && self.provenance.same_intent(&other.provenance)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -894,6 +917,7 @@ pub enum SemanticQuery {
         consistency: Consistency,
         definition: DefinitionReference,
         limit: u32,
+        page_token: String,
         type_id: TypeId,
         valid_at: TimestampMicros,
     },
@@ -950,6 +974,7 @@ pub struct SemanticResult {
     pub actual_commit_sequence: CommitSequence,
     pub definition: DefinitionReference,
     pub knowledge_cut: CommitSequence,
+    pub next_page_token: String,
     pub valid_at: TimestampMicros,
     pub values: Vec<SemanticValue>,
 }

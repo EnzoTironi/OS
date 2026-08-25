@@ -24,6 +24,7 @@ use zoen_engine::{
     evaluate_semantic_claims,
 };
 
+mod page;
 mod physical;
 mod projection;
 mod storage;
@@ -92,8 +93,13 @@ impl QueryRuntime {
         context: &ExecutionContext,
         query: &SemanticQuery,
     ) -> Result<SemanticResult, QueryError> {
+        let page = page::bind_type_page(context.tenant_id(), query)?;
+        let consistency = page
+            .as_ref()
+            .map(|cursor| Consistency::Snapshot(cursor.commit_sequence))
+            .unwrap_or_else(|| query.consistency().clone());
         let source = self
-            .select_source(context.tenant_id(), query.consistency())
+            .select_source(context.tenant_id(), &consistency)
             .await?;
         let cut = source.cut();
         let canonical_json = self
@@ -101,14 +107,21 @@ impl QueryRuntime {
             .await?;
         let definition = decode_canonical_definition(&canonical_json)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
-        let values = match query {
-            SemanticQuery::ByEntity { .. } => {
+        let (values, next_page_token) = match query {
+            SemanticQuery::ByEntity { .. } => (
                 self.execute_by_entity(context, query, &definition, &source, cut)
-                    .await?
-            }
+                    .await?,
+                String::new(),
+            ),
             SemanticQuery::ByType { .. } => {
-                self.execute_by_type(context, query, &definition, &source)
-                    .await?
+                self.execute_by_type(
+                    context,
+                    query,
+                    &definition,
+                    &source,
+                    page.as_ref().map(|cursor| cursor.after_entity_id.clone()),
+                )
+                .await?
             }
         };
         let actual_commit_sequence = commit_sequence(cut, "query cut")?;
@@ -116,6 +129,7 @@ impl QueryRuntime {
             actual_commit_sequence,
             definition: query.definition().clone(),
             knowledge_cut: actual_commit_sequence,
+            next_page_token,
             valid_at: query.valid_at(),
             values,
         })
@@ -199,7 +213,8 @@ impl QueryRuntime {
         query: &SemanticQuery,
         definition: &CanonicalDefinition,
         source: &SourcePlan,
-    ) -> Result<Vec<SemanticValue>, QueryError> {
+        after_entity_id: Option<EntityId>,
+    ) -> Result<(Vec<SemanticValue>, String), QueryError> {
         let SemanticQuery::ByType {
             definition: definition_ref,
             limit,
@@ -213,19 +228,23 @@ impl QueryRuntime {
             ));
         };
         let limit = require_positive_limit(*limit)?;
+        let fetch_limit = limit
+            .checked_add(1)
+            .ok_or_else(|| QueryError::Invalid("type query limit is too large".to_owned()))?;
         let relation_ids = relation_ids_for_type(definition, type_id)?;
         if relation_ids.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), String::new()));
         }
-        let entity_ids = match source {
+        let mut entity_ids = match source {
             SourcePlan::Postgres { cut } => self
                 .claim_loader
                 .load_entity_ids(
                     context,
                     &PostgresTypeQuery {
+                        after_entity_id,
                         cut: commit_sequence(*cut, "query cut")?,
                         definition: definition_ref.clone(),
-                        limit,
+                        limit: fetch_limit,
                         relation_ids: relation_ids
                             .iter()
                             .map(RelationId::parse)
@@ -246,7 +265,8 @@ impl QueryRuntime {
                     definition_ref,
                     *valid_at,
                     &relation_ids,
-                    limit,
+                    fetch_limit,
+                    after_entity_id.as_ref(),
                     *cut,
                     parquet_digest,
                     parquet_object_key,
@@ -254,7 +274,24 @@ impl QueryRuntime {
                 .await?
             }
         };
-        Ok(entity_values(entity_ids))
+        let has_more = entity_ids.len()
+            > usize::try_from(limit)
+                .map_err(|_| QueryError::Invalid("type query limit exceeds usize".to_owned()))?;
+        if has_more {
+            entity_ids.truncate(
+                usize::try_from(limit).map_err(|_| {
+                    QueryError::Invalid("type query limit exceeds usize".to_owned())
+                })?,
+            );
+        }
+        let next_page_token = page::next_page_token(
+            context.tenant_id(),
+            query,
+            commit_sequence(source.cut(), "query cut")?,
+            entity_ids.last(),
+            has_more,
+        )?;
+        Ok((entity_values(entity_ids), next_page_token))
     }
 
     async fn select_source(
@@ -496,11 +533,12 @@ impl QueryRuntime {
         valid_at: TimestampMicros,
         relation_ids: &BTreeSet<String>,
         limit: u32,
+        after_entity_id: Option<&EntityId>,
         cut: i64,
         parquet_digest: &str,
         parquet_object_key: &str,
     ) -> Result<Vec<EntityId>, QueryError> {
-        let data = self
+        let mut frame = self
             .scan_projected_claims(
                 context,
                 definition,
@@ -516,6 +554,14 @@ impl QueryRuntime {
             .map_err(projected_corrupt)?
             .distinct()
             .map_err(projected_corrupt)?
+            .sort(vec![col("entity_id").sort(true, true)])
+            .map_err(projected_corrupt)?;
+        if let Some(after_entity_id) = after_entity_id {
+            frame = frame
+                .filter(col("entity_id").gt(lit(after_entity_id.as_str())))
+                .map_err(projected_corrupt)?;
+        }
+        let data = frame
             .limit(
                 0,
                 Some(usize::try_from(limit).map_err(|_| {
