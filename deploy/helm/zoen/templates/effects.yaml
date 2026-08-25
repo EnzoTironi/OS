@@ -97,7 +97,7 @@ spec:
         - name: effect-worker
           image: {{ include "zoen.nodeImage" . }}
           imagePullPolicy: Always
-          command: [node, /app/dist/e2e/effects/worker.js]
+          command: [node, /app/dist/packages/effect-worker/src/worker.js]
           env:
             - name: ZOEN_CONNECTOR_CALLER_TOKEN
               valueFrom:

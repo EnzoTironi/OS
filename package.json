@@ -13,7 +13,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "deployment-docs:check": "node deploy/scripts/generate-deployment-docs.mjs --check",
     "roadmap:check": "node scripts/render-roadmap.mjs --check",
-    "test": "node --test dist/packages/ontology/src/compiler.test.js dist/packages/osdk/src/osdk.test.js dist/packages/harness/src/*.test.js dist/packages/speaker/src/*.test.js dist/packages/transport/src/companion-session.test.js dist/packages/transport/src/whatsapp-contact-loop.test.js dist/packages/transport/src/adapters/whatsapp-live.test.js"
+    "test": "node --test --test-force-exit --test-timeout=60000 dist/packages/ontology/src/compiler.test.js dist/packages/ontology/src/jcs.test.js dist/packages/osdk/src/osdk.test.js dist/packages/harness/src/*.test.js dist/packages/speaker/src/*.test.js dist/packages/transport/src/companion-session.test.js dist/packages/transport/src/whatsapp-contact-loop.test.js dist/packages/transport/src/adapters/whatsapp-live.test.js dist/packages/transport/src/whatsapp-ingress-auth.test.js dist/packages/transport/src/media-ingress.test.js dist/packages/harness/src/sandbox-adversarial.test.js"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

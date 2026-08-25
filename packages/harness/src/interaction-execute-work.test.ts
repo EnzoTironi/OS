@@ -1,3 +1,5 @@
+process.env.ZOEN_ALLOW_JS_SANDBOX = "1";
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MockLanguageModelV3 } from "ai/test";

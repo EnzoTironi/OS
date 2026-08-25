@@ -1,5 +1,6 @@
 import type { LanguageModel } from "ai";
 import { resolveLanguageModel } from "../../speaker/src/interaction-turn.js";
+import { jsSandboxAllowed } from "./js-sandbox-gate.js";
 import {
   createExecutionAgent,
   type CreateExecutionAgentOptions,
@@ -36,6 +37,9 @@ export interface InteractionExecuteWork {
 export async function createInteractionExecuteWork(
   options: CreateInteractionExecuteWorkOptions = {},
 ): Promise<InteractionExecuteWork | undefined> {
+  if (!jsSandboxAllowed()) {
+    return undefined;
+  }
   const model = options.model ?? resolveLanguageModel();
   if (model === undefined) {
     return undefined;

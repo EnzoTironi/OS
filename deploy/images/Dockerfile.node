@@ -10,4 +10,4 @@ RUN npm ci \
 
 ENV NODE_ENV=production
 USER node
-CMD ["node", "dist/e2e/effects/worker.js"]
+CMD ["node", "dist/packages/effect-worker/src/worker.js"]

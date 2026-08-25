@@ -2,6 +2,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { createContext, Script } from "node:vm";
 import { tool, type Tool } from "ai";
 import { z } from "zod";
+import { jsSandboxAllowed } from "./js-sandbox-gate.js";
 
 export const EXECUTION_EXTERNAL_IDS = ["action_preview", "world_query"] as const;
 export const executionExternalIdSchema = z.enum(EXECUTION_EXTERNAL_IDS);
@@ -128,6 +129,9 @@ export interface RunExecuteTypescriptInput {
 export async function runExecuteTypescript(
   input: RunExecuteTypescriptInput,
 ): Promise<CodeModeResult> {
+  if (!jsSandboxAllowed()) {
+    return { kind: "denied", reason: "host_escape" };
+  }
   if (BLOCKED_HOST_ESCAPE.test(input.source)) {
     return { kind: "denied", reason: "host_escape" };
   }
@@ -148,17 +152,19 @@ export async function runExecuteTypescript(
       }
     }
   }
+  const timeoutMs = input.timeoutMs ?? 10_000;
   try {
     const value = await withTimeout(
       runInHostInterpreter({
         source: input.source,
+        timeoutMs,
         tools,
       }),
-      input.timeoutMs ?? 10_000,
+      timeoutMs,
     );
     return { kind: "ok", value };
   } catch (error: unknown) {
-    if (error instanceof Error && error.message === "execute_typescript timed out") {
+    if (isExecuteTimeout(error)) {
       return { kind: "failed", reason: "timeout" };
     }
     return { kind: "failed", reason: "code_mode_failed" };
@@ -227,6 +233,7 @@ function classifyExternalReference(raw: string):
 
 async function runInHostInterpreter(input: {
   readonly source: string;
+  readonly timeoutMs: number;
   readonly tools: ReadonlyMap<ExecutionExternalId, HostToolBinding>;
 }): Promise<unknown> {
   const send = (raw: string) => dispatchHostRpc(raw, input.tools);
@@ -259,8 +266,32 @@ async function runInHostInterpreter(input: {
   const script = new Script(javascript, {
     filename: "execute_typescript.js",
   });
-  const completion: unknown = script.runInContext(context);
-  return await Promise.resolve(completion);
+  try {
+    const completion: unknown = script.runInContext(context, {
+      breakOnSigint: true,
+      timeout: input.timeoutMs,
+    });
+    return await Promise.resolve(completion);
+  } catch (error: unknown) {
+    if (isExecuteTimeout(error)) {
+      throw new Error("execute_typescript timed out");
+    }
+    throw error;
+  }
+}
+
+function isExecuteTimeout(error: unknown): boolean {
+  const message =
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+      ? error.message
+      : "";
+  return (
+    message === "execute_typescript timed out" ||
+    message.includes("Script execution timed out")
+  );
 }
 
 function createExternalBindings(

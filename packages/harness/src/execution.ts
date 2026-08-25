@@ -22,6 +22,8 @@ import {
   type WorkerCodeModeHost,
 } from "./execution-host.js";
 import { actionPlanSchema, type ActionPlan } from "./types.js";
+import { assertJsSandboxAllowed } from "./js-sandbox-gate.js";
+import { inspectBashInvocation } from "./vfs-guard.js";
 
 export const EXECUTION_WORKSPACE = "/workspace";
 export const WORLD_QUERY_HOST_TOOL_ID = "world_query";
@@ -127,6 +129,7 @@ export function executionIsolateDestination(options: {
 export async function createExecutionAgent(
   options: CreateExecutionAgentOptions,
 ): Promise<ExecutionWorkbench> {
+  assertJsSandboxAllowed();
   const destination = executionIsolateDestination(options);
   const files = plantExecutionIsolateFiles(
     options.files === undefined ? {} : { ...options.files },
@@ -143,8 +146,36 @@ export async function createExecutionAgent(
     files,
     sandbox: bash,
   });
+  const bashTool = toolkit.tools.bash;
   const tools: ToolSet = {
-    bash: toolkit.tools.bash,
+    bash: {
+      ...bashTool,
+      execute: async (input, extra) => {
+        const command =
+          input !== null &&
+          typeof input === "object" &&
+          "command" in input &&
+          typeof input.command === "string"
+            ? input.command
+            : "";
+        const verdict = inspectBashInvocation(command, destination);
+        if (verdict.kind === "deny") {
+          return {
+            exitCode: 1,
+            stderr: verdict.reason,
+            stdout: "",
+          };
+        }
+        if (bashTool.execute === undefined) {
+          return {
+            exitCode: 1,
+            stderr: "bash tool execute missing",
+            stdout: "",
+          };
+        }
+        return bashTool.execute(input, extra);
+      },
+    },
   };
   const agent = new ToolLoopAgent({
     id: "zoen-execution",
