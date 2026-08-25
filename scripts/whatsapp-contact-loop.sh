@@ -48,7 +48,7 @@ zoend_url="http://127.0.0.1:${zoend_port}"
 ingress_url="http://127.0.0.1:${ingress_port}"
 
 usage() {
-  echo "usage: $0 start|stop|status|advertise" >&2
+  echo "usage: $0 start|stop|status|advertise|bind" >&2
   exit 2
 }
 
@@ -133,6 +133,10 @@ cmd_advertise() {
   echo
 }
 
+cmd_bind() {
+  "$root/scripts/whatsapp-contact-bind.sh"
+}
+
 cmd_start() {
   if [[ ! -x target/debug/zoend ]]; then
     echo "building zoend..." >&2
@@ -171,6 +175,7 @@ cmd_start() {
   target/debug/zoend >"$zoend_log" 2>&1 &
   local zoend_pid=$!
   wait_http "${zoend_url}/ready" 80
+  "$root/scripts/whatsapp-contact-bind.sh"
 
   # Retarget the paired companion at zoend. Same whatsmeow store. Not a new pair.
   pkill -f 'zoen-whatsapp-companion serve' >/dev/null 2>&1 || true
@@ -220,5 +225,6 @@ case "$command" in
   stop) cmd_stop ;;
   status) cmd_status ;;
   advertise) cmd_advertise ;;
+  bind) cmd_bind ;;
   *) usage ;;
 esac
