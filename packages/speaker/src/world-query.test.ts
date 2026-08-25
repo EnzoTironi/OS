@@ -16,17 +16,29 @@ import {
 import {
   createOsdkWorldQueryClient,
   createWorldQueryClientFromEnv,
+  defaultCommercialDefinitionPath,
 } from "./osdk-world-query.js";
 import { snapshotFromClaims } from "./world-query.js";
 
 const dirtyQuoteId = "commercial.order-line.dirty-quote";
 
-test("createWorldQueryClientFromEnv returns an OSDK client from World credentials alone", () => {
+test("createWorldQueryClientFromEnv returns an OSDK client from World credentials and an explicit definition path", () => {
   const client = createWorldQueryClientFromEnv({
     ZOEN_AGENT_BEARER_TOKEN: "token",
     ZOEN_WORLD_BASE_URL: "https://world.zoen.local",
+    ZOEN_WORLD_DEFINITION_PATH: defaultCommercialDefinitionPath(),
   });
   assert.ok(client);
+});
+
+test("createWorldQueryClientFromEnv skips credentials without a definition path", () => {
+  assert.equal(
+    createWorldQueryClientFromEnv({
+      ZOEN_AGENT_BEARER_TOKEN: "token",
+      ZOEN_WORLD_BASE_URL: "https://world.zoen.local",
+    }),
+    undefined,
+  );
 });
 
 test("createWorldQueryClientFromEnv skips without zoend World credentials", () => {

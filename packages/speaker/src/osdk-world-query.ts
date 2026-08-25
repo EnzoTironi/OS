@@ -27,7 +27,7 @@ const EXISTING_OBJECT_LIMIT = 8;
 const compiledByPath = new Map<string, Promise<CompiledDefinition>>();
 
 /**
- * Default lake fixture for Interaction World assembly.
+ * Lake fixture path for tests that pass a definition explicitly.
  * `OrderLine` is used only when that type exists on the compiled definition.
  */
 export function defaultCommercialDefinitionPath(
@@ -104,20 +104,22 @@ export function createOsdkWorldQueryClient(
 }
 
 /**
- * Live zoend World credentials are enough. Definition/entity from env stay
- * membership-scoped when present; otherwise the commercial lake fixture is
- * compiled and existing objects on that definition are queried.
+ * Live zoend World credentials are not enough. The process must name a
+ * definition file (`ZOEN_WORLD_DEFINITION_PATH`) or callers inject
+ * `compiled`. Shipping speaker does not compile the commercial lake by
+ * `process.cwd()`.
  */
 export function createWorldQueryClientFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): WorldQueryClient | undefined {
   const credentials = worldCredentialsFromEnv(env);
-  if (credentials === undefined) {
+  const definitionPath = env.ZOEN_WORLD_DEFINITION_PATH?.trim();
+  if (credentials === undefined || definitionPath === undefined) {
     return undefined;
   }
   return createOsdkWorldQueryClient({
     definition: definitionRefFromEnv(env),
-    definitionPath: env.ZOEN_WORLD_DEFINITION_PATH?.trim(),
+    definitionPath,
     entityId: env.ZOEN_WORLD_ENTITY_ID?.trim(),
     typeApiName: env.ZOEN_WORLD_TYPE_API_NAME?.trim(),
     world: createConnectOsdkWorld(credentials),
@@ -188,8 +190,10 @@ function loadCompiled(
   if (options.compiled !== undefined) {
     return Promise.resolve(options.compiled);
   }
-  const definitionPath =
-    options.definitionPath ?? defaultCommercialDefinitionPath();
+  const definitionPath = options.definitionPath;
+  if (definitionPath === undefined || definitionPath === "") {
+    throw new Error("definitionPath or compiled is required");
+  }
   const cached = compiledByPath.get(definitionPath);
   if (cached !== undefined) {
     return cached;
