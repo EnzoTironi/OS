@@ -53,7 +53,7 @@
       "issue": 327,
       "pr": null,
       "title": "Conformance and substitution against live adapters",
-      "note": "After live Telegram and WhatsApp exist. Fakes do not re-enter just verify."
+      "note": "In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify."
     },
     {
       "order": 5,
@@ -306,13 +306,13 @@
     },
     {
       "id": "messaging-conformance-live",
-      "status": "dont-have",
+      "status": "in-flight",
       "plane": "channels",
       "name": "Messaging conformance against live adapters",
       "onMain": false,
       "product": false,
-      "path": null,
-      "proof": "Not on main. Fake-backed e2e was removed. Live rewrite is #327.",
+      "path": "e2e/messaging-conformance-live.ts, e2e/messaging-conformance-live, e2e/run.sh",
+      "proof": "just e2e messaging-conformance-live. Live unofficial WhatsApp + live Telegram required. Linq optional. Fail closed without TELEGRAM_BOT_TOKEN / ZOEN_WHATSAPP_DOOR_E164 / companion. Fakes stay deleted.",
       "issue": 327,
       "backup": [
         "e2e/messaging-conformance.ts",
