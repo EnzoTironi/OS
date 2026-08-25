@@ -6,8 +6,8 @@ import {
   opaqueId,
   type Exporter,
   type ObservationStore,
-} from "../../../packages/activation-metrics/src/index.js";
-import { createMemoryFrictionStore } from "../../../packages/activation-metrics/src/memory-store.js";
+} from "../../../archive/packages/activation-metrics/src/index.js";
+import { createMemoryFrictionStore } from "../../../archive/packages/activation-metrics/src/memory-store.js";
 
 export async function verifyExporterIsolation(args: {
   readonly store: ObservationStore;

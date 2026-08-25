@@ -7,7 +7,6 @@
   },
   "dependencies": {
     "@zoen/harness": "*",
-    "@zoen/workload-ingress": "*",
     "zod": "4.4.3"
   }
 }

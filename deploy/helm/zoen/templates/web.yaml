@@ -36,7 +36,7 @@ spec:
         - name: web
           image: {{ include "zoen.nodeImage" . }}
           imagePullPolicy: Always
-          command: [node, /app/apps/web/.output/server/index.mjs]
+          command: [node, /app/archive/apps/web/.output/server/index.mjs]
           env:
             - name: HOST
               value: 0.0.0.0

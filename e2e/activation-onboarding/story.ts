@@ -18,7 +18,7 @@ import {
   type MissingCapability,
   type ObservedCapabilities,
   type OnboardingSession,
-} from "../../packages/onboarding/src/index.js";
+} from "../../archive/packages/onboarding/src/index.js";
 import { e2ePort, writeScenarioArtifact } from "../host-env.js";
 import {
   admin,

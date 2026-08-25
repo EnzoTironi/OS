@@ -24,7 +24,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 | 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | In flight. Companion posts zoend /channels/whatsapp/inbound. Unbound 1:1 pokes in the same thread. Bound runs the turn coordinator. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Python log sink is not the live path. #375 then #376. |
 | 3 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | In flight. Live Bot API adapter behind MessagingGateway. Advertise fails closed without TELEGRAM_BOT_TOKEN. Webhook is production. Do not restore the fake. |
 | 4 | [#327](https://github.com/EnzoTironi/OS/issues/327) | — | Conformance and substitution against live adapters | In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify. |
-| 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | packages/surface and packages/attention stay. Fake-delivery e2e does not return. live-attention proves lowering plus one AttentionItem on createLiveWhatsAppProvider. Paired door still missing. |
+| 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | Surface and attention are archived. Live WhatsApp lowers PresentationIntent from packages/messaging. Interaction debounce is local. Paired door still missing. |
 
 ## Gates
 
@@ -60,15 +60,15 @@ On main. Real implementation. This is product.
 | `authority-wasm` | authority | Wasmtime sandbox | Committed .wasm fixtures with pinned sha256. Not JS mocks. | — |
 | `authority-query` | authority | DataFusion semantic query | just e2e semantic-query | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `authority-restate` | authority | Restate durable orchestration | just e2e durable-commit. Remote Restate e2e is a named harness, not the product claim. | — |
-| `identity-oidc` | identity | OIDC identity (Keycloak) | just start. just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
+| `identity-oidc` | identity | OIDC identity (Keycloak) | just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
 | `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
-| `web-tanstack` | experience | Web application | just start. OIDC login, packs, propose/approve, step-up. | — |
-| `surface-ir` | experience | Surface IR package | Unit tests in packages/surface. just e2e live-attention lowers PresentationIntent onto unofficial WhatsApp text plus https. Paired door is still #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-| `attention` | experience | Proactive attention package | Package exists with Postgres store. just e2e live-attention opens one AttentionItem and one delivery. Restart does not duplicate. Paired door is still #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `web-tanstack` | experience | Web application | Archived from default workspace and CI. Optional just e2e web-deterministic builds archive/apps/web. | — |
+| `surface-ir` | experience | Surface IR package | Archived. Live WhatsApp uses PresentationIntent types in packages/messaging. Harness still compiles the archived Surface generator. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `attention` | experience | Proactive attention package | Archived. Messaging and Interaction do not import it; debounce is local to the turn coordinator. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `ontology-libs` | ontology | Archived pre-modeled ERP libraries | Outside default workspace and CI. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* reads archive/domain. | — |
-| `pack-compiler` | packs | Pack compiler, registry, Kitchen | Kitchen derives capabilities from active definitions. pack-install, pack-registry, and pack-kitchen compile archive/domain and are optional, not default CI. | — |
+| `pack-compiler` | packs | Pack compiler, registry, Kitchen | Archived. Kitchen/pack e2e is optional and not default CI. | — |
 | `sample-company` | activation | Sample Company five-minute path | Pack and ontology live under archive/domain. just start / just e2e activation-sample are optional and not default CI. | — |
-| `activation-onboarding` | activation | Conversational onboarding and messy data | just e2e activation-onboarding. just e2e company-bootstrap-shadow (in-memory mapping, labeled). | — |
+| `activation-onboarding` | activation | Conversational onboarding and messy data | Archived. just e2e activation-onboarding and company-bootstrap-shadow are optional and not default CI. | — |
 | `brain-live` | intelligence | Company Brain and agent live suites | just e2e company-brain-live and agent-capabilities-live. Need OPENCODE_API_KEY. In just verify. | — |
 | `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | Archived with the ERP packs. just e2e fiscal-fault-matrix is optional and not default CI. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
 | `linq-live` | channels | Live Linq iMessage adapter | just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host. | [#253](https://github.com/EnzoTironi/OS/issues/253) |

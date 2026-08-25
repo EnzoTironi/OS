@@ -79,6 +79,19 @@ export function e2eGeneratedDirectory(
   return path.join(repositoryRoot, "e2e", scenario, ".generated");
 }
 
+/** Nitro server entry for the archived TanStack web app. */
+export function archivedWebServerEntry(repositoryRoot: string): string {
+  return path.join(
+    repositoryRoot,
+    "archive",
+    "apps",
+    "web",
+    ".output",
+    "server",
+    "index.mjs",
+  );
+}
+
 /** Write `artifacts/<scenario>/<scenario>.json` and return the path. */
 export async function writeScenarioArtifact(
   repositoryRoot: string,

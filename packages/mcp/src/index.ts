@@ -10,8 +10,8 @@ import type {
 import type {
   ProvenancedKnowledge,
   WorkloadSession,
-} from "../../workload-ingress/src/index.js";
-import { WorkloadIngressError } from "../../workload-ingress/src/index.js";
+} from "../../../archive/packages/workload-ingress/src/index.js";
+import { WorkloadIngressError } from "../../../archive/packages/workload-ingress/src/index.js";
 
 export type ProjectedCapabilityKind =
   | "discover"

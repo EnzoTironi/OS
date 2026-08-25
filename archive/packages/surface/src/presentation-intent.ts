@@ -3,7 +3,7 @@ import {
   presentationIntentRef,
   type InteractionControlRef,
   type PresentationIntentRef,
-} from "../../speaker/src/index.js";
+} from "../../../../packages/speaker/src/index.js";
 import type { SurfaceDocument, SurfaceNode } from "./model.js";
 
 export const presentationSchema = "zoen.presentation.v1" as const;

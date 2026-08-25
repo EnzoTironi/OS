@@ -74,7 +74,6 @@ jobs:
           name: e2e-binaries
           path: |
             dist/
-            apps/web/.output/
             target/debug/zoend
             target/debug/zoen-effect-dispatcher
             target/debug/zoen-http-connector
@@ -90,32 +89,18 @@ jobs:
       matrix:
         scenario:
           - activation-identity
-          - activation-onboarding
-          - backup-restore
-          - company-bootstrap-shadow
           - conversational-approval
           - conversational-turn
           - definition-publication
-          - deploy-dedicated
-          - deploy-self-hosted-isolated
           - durable-commit
-          - effects
           - evolution-breaking
           - evolution-compatible
           - explain
           - governed-action
-          - ha-chaos
-          - human-executor
           - messaging-boundary
-          - personal-family
           - public-surface
-          - rolling-upgrade
-          - rpo-rto
           - semantic-query
-          - shared-tenancy
           - wasm-code-mode
-          - web-deterministic
-          - workload-api-mcp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

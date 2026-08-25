@@ -8,11 +8,11 @@ import {
   opaqueId,
   type FrictionStore,
   type ObservationStore,
-} from "../../packages/activation-metrics/src/index.js";
+} from "../../archive/packages/activation-metrics/src/index.js";
 import {
   createPostgresFrictionStore,
   createPostgresObservationStore,
-} from "../../packages/activation-metrics/src/postgres-store.js";
+} from "../../archive/packages/activation-metrics/src/postgres-store.js";
 import {
   oidcToken,
   startServer,

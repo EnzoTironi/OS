@@ -1,9 +1,19 @@
-# Archived pre-modeled ERP domain packs
+# Archived from the default workspace
 
-These packages are on `main` for git history. They are outside the default npm workspace, TypeScript project, and CI.
+These trees are on `main` for git history. They are outside the default npm workspace, TypeScript project, and CI.
 
-Zoen is not a prebuilt SAP. Each company brings its own world. Kitchen derives Pack capabilities from the definitions that company activates, the same way a kitchen/recipe surface is a capability set rather than a shipped ERP module.
+## Live target tree
 
-Live World and OSDK tests compile `packages/ontology/fixtures/commercial.zoen.ts`. That file is a lake copy of `commercial/src/commercial.zoen.ts`. `compileDefinition` on a `.zoen.ts` stays on the default path.
+`crates/*`, `apps/zoend`, `apps/whatsapp-companion`, `proto`, `wit`, `packages/ontology`, `packages/sdk`, `packages/osdk`, `packages/harness`, `packages/speaker`, `packages/transport`. `packages/mcp` stays deferred (CLI/API first).
 
-Do not add these folders back to `package.json` workspaces or `tsconfig.json` include.
+## What lives here
+
+- `archive/domain/` — pre-modeled ERP packs and sample-company. Each company brings its own world.
+- `archive/packages/` — surface, pack, kitchen, onboarding, attention, activation-metrics, effect-worker, workload-ingress.
+- `archive/apps/web` — TanStack web app.
+
+Live WhatsApp compiles `packages/ontology/fixtures/commercial.zoen.ts`. Transport owns `PresentationIntent` types and does not import the Surface compiler. Speaker debounce is local; attention is not on that path.
+
+`archive/packages/effect-worker` stays out of npm workspaces. Default `tsc` still emits it so `just e2e explain` can start the Restate worker. KIND/web deploy scenarios are optional.
+
+Do not add these folders back to `package.json` workspaces.

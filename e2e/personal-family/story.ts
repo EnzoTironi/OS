@@ -18,7 +18,7 @@ import {
   type ActiveMembership,
   type AttentionClassPolicy,
   type AttentionDeliveryPreference,
-} from "../../packages/attention/src/index.js";
+} from "../../archive/packages/attention/src/index.js";
 import {
   createTrustTaggedAssembler,
   createRetrievedContextRecord,

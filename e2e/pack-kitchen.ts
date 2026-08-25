@@ -16,18 +16,18 @@ import {
   publishSurface,
   runKitchenTests,
   validateCandidate,
-} from "../packages/kitchen/src/index.js";
+} from "../archive/packages/kitchen/src/index.js";
 import {
   assertNoSecretFields,
   compilePack,
   definePack,
-} from "../packages/pack/src/index.js";
+} from "../archive/packages/pack/src/index.js";
 import {
   createMemoryObservationStore,
   observePackFirstSuccess,
   opaqueId,
   type FirstSuccessEvalResult,
-} from "../packages/activation-metrics/src/index.js";
+} from "../archive/packages/activation-metrics/src/index.js";
 import {
   oidcToken,
   startServer,

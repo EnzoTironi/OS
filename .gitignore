@@ -6,6 +6,9 @@
 apps/web/.nitro/
 apps/web/.output/
 apps/web/dist/
+archive/apps/web/.nitro/
+archive/apps/web/.output/
+archive/apps/web/dist/
 e2e/**/.generated/
 .DS_Store
 *.log

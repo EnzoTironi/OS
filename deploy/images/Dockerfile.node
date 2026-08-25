@@ -10,4 +10,4 @@ RUN npm ci \
 
 ENV NODE_ENV=production
 USER node
-CMD ["node", "apps/web/.output/server/index.mjs"]
+CMD ["node", "archive/apps/web/.output/server/index.mjs"]

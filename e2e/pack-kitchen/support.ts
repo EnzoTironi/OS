@@ -5,11 +5,13 @@ import {
   createPublisherKeyPair,
   signPackDigest,
   type PublisherKeyPair,
-} from "../../packages/pack/src/index.js";
+} from "../../archive/packages/pack/src/index.js";
 import {
   compileDeterministicSurface,
+} from "../../archive/packages/surface/src/compiler.js";
+import {
   type SurfaceDocument,
-} from "../../packages/surface/src/index.js";
+} from "../../archive/packages/surface/src/model.js";
 import {
   compilePackage,
   writePolicyManifest,

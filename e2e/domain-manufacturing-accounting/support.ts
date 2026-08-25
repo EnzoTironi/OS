@@ -7,8 +7,10 @@ import { DefinitionReferenceSchema } from "../../packages/sdk/src/gen/zoen/world
 import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
 import {
   compileDeterministicSurface,
+} from "../../archive/packages/surface/src/compiler.js";
+import {
   type SurfaceDocument,
-} from "../../packages/surface/src/index.js";
+} from "../../archive/packages/surface/src/model.js";
 import {
   activeDigest,
   actionClient,

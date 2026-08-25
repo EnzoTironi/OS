@@ -1,3 +1,8 @@
+export {
+  presentationSchema,
+  type ConversationalBlock,
+  type PresentationIntent,
+} from "./presentation-intent.js";
 export type {
   ChatSdkDeliveryReceipt,
   ChatSdkMessage,

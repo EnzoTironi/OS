@@ -25,7 +25,7 @@ import {
 import {
   presentationSchema,
   type PresentationIntent,
-} from "../../surface/src/presentation-intent.js";
+} from "./presentation-intent.js";
 import {
   parseCompanionInboundEnvelope,
   parseWhatsAppDoorE164,

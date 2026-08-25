@@ -7,7 +7,7 @@ import {
   compilePack,
   definePack,
   optionalCapability,
-} from "../packages/pack/src/index.js";
+} from "../archive/packages/pack/src/index.js";
 import {
   definitionClient,
   oidcToken,

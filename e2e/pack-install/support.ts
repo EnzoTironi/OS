@@ -9,7 +9,7 @@ import {
   optionalCapability,
   requireCapability,
   type CompiledPack,
-} from "../../packages/pack/src/index.js";
+} from "../../archive/packages/pack/src/index.js";
 import {
   compilePackage,
   writePolicyManifest,

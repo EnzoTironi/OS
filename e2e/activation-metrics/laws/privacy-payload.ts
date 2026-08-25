@@ -4,7 +4,7 @@ import {
   CONTENT_PAYLOAD_DENYLIST,
   sanitizeExportBatch,
   type ObservationRecord,
-} from "../../../packages/activation-metrics/src/index.js";
+} from "../../../archive/packages/activation-metrics/src/index.js";
 
 export function verifyPrivacyPayload(args: {
   readonly records: readonly ObservationRecord[];

@@ -2,11 +2,11 @@ import {
   LineageRole,
   type ExactValue,
   type SemanticQueryResponse,
-} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   EffectKnowledgeState,
   type EffectSnapshot,
-} from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import type {
   EffectStatusView,
   QueryBindingView,

@@ -227,6 +227,7 @@ export async function startWorker(tokens: {
     arguments: [
       path.join(
         distDirectory,
+        "archive",
         "packages",
         "effect-worker",
         "src",

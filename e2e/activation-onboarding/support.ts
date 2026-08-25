@@ -7,7 +7,7 @@ import {
   observeCapabilities,
   type IdentityAccountSnapshot,
   type ObservedCapabilities,
-} from "../../packages/onboarding/src/index.js";
+} from "../../archive/packages/onboarding/src/index.js";
 import {
   DefinitionReferenceSchema,
   QueryConsistencySchema,

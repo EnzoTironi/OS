@@ -4,7 +4,7 @@ import {
   observeContract,
   opaqueId,
   type ObservationStore,
-} from "../../../packages/activation-metrics/src/index.js";
+} from "../../../archive/packages/activation-metrics/src/index.js";
 
 export async function verifyIdempotentExport(args: {
   readonly store: ObservationStore;

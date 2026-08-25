@@ -3,7 +3,7 @@ import {
   appendFriction,
   opaqueId,
   type FrictionStore,
-} from "../../../packages/activation-metrics/src/index.js";
+} from "../../../archive/packages/activation-metrics/src/index.js";
 
 export async function verifyFrictionBuild(args: {
   readonly frictionStore: FrictionStore;

@@ -13,8 +13,8 @@ const EFFECT_IMPORT_MARKERS = [
 function resolveSourceRoot(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.join(process.cwd(), "packages", "attention", "src"),
-    path.resolve(here, "..", "..", "..", "..", "packages", "attention", "src"),
+    path.join(process.cwd(), "archive", "packages", "attention", "src"),
+    path.resolve(here, "..", "..", "..", "..", "archive", "packages", "attention", "src"),
     path.resolve(here, "..", "src"),
     here,
   ];
@@ -26,7 +26,7 @@ function resolveSourceRoot(): string {
       return candidate;
     }
   }
-  return path.join(process.cwd(), "packages", "attention", "src");
+  return path.join(process.cwd(), "archive", "packages", "attention", "src");
 }
 
 /**

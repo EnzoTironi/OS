@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Ticket command stays `just e2e <scenario>` (check + native build + run).
 # `just verify` runs check and native build once, then each scenario runner.
-# Archived ERP domain packs (archive/domain) stay optional: just verify skips
-# those scenarios so they are not built by default.
+# Archived ERP domain packs (archive/domain) and archived web/surface/pack
+# trees stay optional: just verify skips those scenarios so they are not
+# built by default.
 # `just verify-v1` aggregates typed artifacts into a signed zoen.verify.v1 bundle.
 # `just verify-activation` aggregates AD artifacts into a signed zoen.activation.v1 bundle.
 # `just e2e-run` executes a built workspace and does not lint.
@@ -222,8 +223,8 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
-  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f apps/web/.output/server/index.mjs ]]; then
-    echo "missing apps/web/.output/server/index.mjs; run \`just build\` or \`just e2e ${scenario}\`" >&2
+  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f archive/apps/web/.output/server/index.mjs ]]; then
+    echo "missing archive/apps/web/.output/server/index.mjs; archived web is optional" >&2
     exit 1
   fi
 }
@@ -393,7 +394,7 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == whatsapp-dirty-quote || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 || "$name" == activation-metrics || "$name" == activation-sample || "$name" == adr-0007 || "$name" == domain-commercial || "$name" == domain-inventory-procurement || "$name" == domain-manufacturing-accounting || "$name" == domain-quality || "$name" == entity-location || "$name" == fiscal-fault-matrix || "$name" == pack-install || "$name" == pack-kitchen || "$name" == pack-registry || "$name" == public-surface-web || "$name" == v1-company || "$name" == workshop-miniapp ]]; then
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == whatsapp-dirty-quote || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 || "$name" == activation-metrics || "$name" == activation-onboarding || "$name" == activation-sample || "$name" == adr-0007 || "$name" == company-bootstrap-shadow || "$name" == deploy-dedicated || "$name" == deploy-self-hosted-isolated || "$name" == domain-commercial || "$name" == domain-inventory-procurement || "$name" == domain-manufacturing-accounting || "$name" == domain-quality || "$name" == effects || "$name" == entity-location || "$name" == fiscal-fault-matrix || "$name" == human-executor || "$name" == pack-install || "$name" == pack-kitchen || "$name" == pack-registry || "$name" == personal-family || "$name" == public-surface-web || "$name" == shared-tenancy || "$name" == v1-company || "$name" == web-adaptive-live || "$name" == web-deterministic || "$name" == workload-api-mcp || "$name" == workshop-miniapp ]]; then
       continue
     fi
     resolve_scenario "$name"

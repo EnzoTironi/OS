@@ -47,7 +47,7 @@ just e2e activation-sample
 
 ## Sample Company
 
-Sample Company is the five-minute first Action path. Its pre-modeled ontology and pack live under `archive/domain/` and are not built by default.
+Sample Company is the five-minute first Action path. Its pre-modeled ontology, pack, and web app live under `archive/` and are not built by default.
 
 1. Start the stack with `just start`.
 2. Sign in at the printed web URL with the sample OIDC user.
@@ -122,7 +122,7 @@ The reference production architecture targets single-region HA (>=99.9%), RPO <5
 
 V1 does not ship a prebuilt SAP. Each company brings its own world. Kitchen derives Pack capabilities from the definitions that company activates.
 
-Pre-modeled ERP libraries (Party, Product, Commercial, Inventory, Procurement, Manufacturing, Accounting Foundation, and the Brazil fiscal extension) live under `archive/domain/` and are outside the default workspace and CI. Live World/OSDK compile stays on `packages/ontology/fixtures/commercial.zoen.ts`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
+Pre-modeled ERP libraries live under `archive/domain/`. Web, Surface, Pack, Kitchen, onboarding, attention, activation-metrics, effect-worker, and workload-ingress live under `archive/packages/` and `archive/apps/web`. They are outside the default workspace and CI. Live World/OSDK compile stays on `packages/ontology/fixtures/commercial.zoen.ts`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
 ### Research phase
 
