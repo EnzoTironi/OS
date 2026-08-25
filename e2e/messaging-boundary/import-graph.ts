@@ -5,7 +5,7 @@ import path from "node:path";
 const FORBIDDEN_ROOTS = [
   "crates",
   "apps/zoend",
-  "packages/interaction",
+  "packages/speaker",
   "packages/surface",
   "packages/sdk",
 ] as const;
@@ -32,29 +32,29 @@ const SOURCE_EXTENSIONS = new Set([
 export async function assertImportGraphLaw(
   repositoryRoot: string,
 ): Promise<void> {
-  const messagingPackage = JSON.parse(
+  const transportPackage = JSON.parse(
     await readFile(
-      path.join(repositoryRoot, "packages/messaging/package.json"),
+      path.join(repositoryRoot, "packages/transport/package.json"),
       "utf8",
     ),
   ) as { dependencies?: Record<string, string>; name?: string };
-  const interactionPackage = JSON.parse(
+  const speakerPackage = JSON.parse(
     await readFile(
-      path.join(repositoryRoot, "packages/interaction/package.json"),
+      path.join(repositoryRoot, "packages/speaker/package.json"),
       "utf8",
     ),
   ) as { dependencies?: Record<string, string> };
 
-  const interactionDeps = Object.keys(interactionPackage.dependencies ?? {});
+  const speakerDeps = Object.keys(speakerPackage.dependencies ?? {});
   assert.equal(
-    interactionDeps.some(
+    speakerDeps.some(
       (name) =>
         name === "vercel/chat" ||
         name.startsWith("@chat-adapter/") ||
         name.startsWith("@chat-sdk"),
     ),
     false,
-    "packages/interaction must not depend on Chat SDK packages",
+    "packages/speaker must not depend on Chat SDK packages",
   );
 
   for (const root of FORBIDDEN_ROOTS) {
@@ -67,8 +67,8 @@ export async function assertImportGraphLaw(
     );
   }
 
-  // packages/messaging is the sole allowed Chat SDK / shaped-adapter site.
-  assert.equal(messagingPackage.name, "@zoen/messaging");
+  // packages/transport is the sole allowed Chat SDK / shaped-adapter site.
+  assert.equal(transportPackage.name, "@zoen/transport");
 }
 
 async function scanDirectory(
@@ -104,8 +104,8 @@ async function scanDirectory(
     if (!SOURCE_EXTENSIONS.has(ext)) {
       continue;
     }
-    // Skip package.json dependency declarations outside messaging — already checked.
-    if (entry.name === "package.json" && !full.includes(`${path.sep}messaging${path.sep}`)) {
+    // Skip package.json dependency declarations outside transport — already checked.
+    if (entry.name === "package.json" && !full.includes(`${path.sep}transport${path.sep}`)) {
       const text = await readFile(full, "utf8");
       for (const pattern of FORBIDDEN_PATTERNS) {
         if (pattern.test(text)) {

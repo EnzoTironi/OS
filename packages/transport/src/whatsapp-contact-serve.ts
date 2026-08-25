@@ -2,7 +2,7 @@ import { createInteractionExecuteWork } from "../../harness/src/interaction-exec
 import {
   createIdentityDirectoryClient,
   type IdentityDirectory,
-} from "../../interaction/src/index.js";
+} from "../../speaker/src/index.js";
 import {
   companionSessionIsReady,
   createHttpCompanionSession,

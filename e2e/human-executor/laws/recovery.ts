@@ -58,7 +58,7 @@ export async function verifyRecovery(scenario: HumanScenario): Promise<void> {
   const workerLogs = scenario.runtime.worker.output.join("");
   scenario.recorder.kill(
     "submitNeverTouchesMessaging",
-    !workerLogs.includes("packages/messaging") &&
-      !workerLogs.includes("@zoen/messaging"),
+    !workerLogs.includes("packages/transport") &&
+      !workerLogs.includes("@zoen/transport"),
   );
 }

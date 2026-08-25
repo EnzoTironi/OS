@@ -18,7 +18,7 @@ import type {
   AttentionSubject,
   PreferenceDecisionEvidence,
 } from "./types.js";
-import type { AudienceDisclosure } from "../../interaction/src/index.js";
+import type { AudienceDisclosure } from "../../speaker/src/index.js";
 
 export async function setTenant(
   client: Client,

@@ -18,7 +18,7 @@ import {
   type StepUpSession,
   type StepUpSessionId,
   stepUpSessionId,
-} from "@zoen/interaction";
+} from "@zoen/speaker";
 import pg from "pg";
 
 let storeClient: pg.Client | undefined;

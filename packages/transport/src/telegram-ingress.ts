@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { InboundInteraction } from "../../interaction/src/index.js";
-import { providerKey } from "../../interaction/src/index.js";
+import type { InboundInteraction } from "../../speaker/src/index.js";
+import { providerKey } from "../../speaker/src/index.js";
 import type { MessagingGateway } from "./gateway.js";
 import {
   LiveTelegramConfigError,

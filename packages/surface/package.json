@@ -8,7 +8,7 @@
   "dependencies": {
     "@json-render/core": "^0.20.0",
     "@json-render/react": "^0.20.0",
-    "@zoen/interaction": "*",
+    "@zoen/speaker": "*",
     "@zoen/sdk": "*",
     "react": "^19.2.8",
     "zod": "^4.4.3"

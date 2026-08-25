@@ -12,7 +12,7 @@ import {
   providerKey,
   tenantIdString,
   toChannelProvider,
-} from "../packages/interaction/src/index.js";
+} from "../packages/speaker/src/index.js";
 import {
   assertLiveWhatsAppAdvertisement,
   companionSessionIsReady,
@@ -26,7 +26,7 @@ import {
   LiveWhatsAppConfigError,
   PERSONAL_WHATSAPP_DOOR_E164,
   UNBOUND_WHATSAPP_POKE_TEXT,
-} from "../packages/messaging/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   startServer,
   stopServer,

@@ -4,7 +4,7 @@ import {
   type ChannelPresentationCapability,
   type DeliveryTarget,
   type InteractionControlRef,
-} from "../../interaction/src/index.js";
+} from "../../speaker/src/index.js";
 import type {
   ConversationalBlock,
   PresentationIntent,

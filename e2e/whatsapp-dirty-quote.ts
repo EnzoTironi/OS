@@ -18,7 +18,7 @@ import {
 import {
   decideAudienceDisclosure,
   interactionControlRef,
-} from "../packages/interaction/src/index.js";
+} from "../packages/speaker/src/index.js";
 import {
   companionSessionIsReady,
   createHttpCompanionSession,
@@ -29,7 +29,7 @@ import {
   type CompanionReady,
   type CompanionSession,
   type WhatsAppWireShape,
-} from "../packages/messaging/src/index.js";
+} from "../packages/transport/src/index.js";
 import { parseDefinitionMetadata } from "../packages/sdk/src/definition.js";
 import {
   CommitStatus,

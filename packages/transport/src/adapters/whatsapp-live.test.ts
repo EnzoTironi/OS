@@ -6,7 +6,7 @@ import {
   presentationIntentRef,
   providerKey,
   providerThreadRef,
-} from "../../../interaction/src/index.js";
+} from "../../../speaker/src/index.js";
 import {
   presentationSchema,
   type PresentationIntent,

@@ -1,5 +1,5 @@
 {
-  "name": "@zoen/messaging",
+  "name": "@zoen/transport",
   "private": true,
   "type": "module",
   "exports": {
@@ -8,7 +8,7 @@
   "dependencies": {
     "@chat-adapter/telegram": "^4.38.1",
     "@zoen/harness": "*",
-    "@zoen/interaction": "*",
+    "@zoen/speaker": "*",
     "@zoen/surface": "*"
   }
 }
