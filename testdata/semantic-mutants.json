@@ -1,0 +1,115 @@
+{
+  "schema": "zoen.semantic-mutants.v1",
+  "source": "docs/adr/0021-v1-end-to-end-verification-and-release-gates.md",
+  "mutants": [
+    {
+      "id": 1,
+      "law": "foreign namespace/operation commit",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "durable-commit",
+        "file": "e2e/durable-commit/laws/tenant-isolation.ts",
+        "needle": "operation.namespace"
+      }
+    },
+    {
+      "id": 2,
+      "law": "intent mismatch replay",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "durable-commit",
+        "file": "e2e/durable-commit/laws/replay.ts",
+        "needle": "proposal.intent-mismatch"
+      }
+    },
+    {
+      "id": 3,
+      "law": "stale-basis omission",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "governed-action",
+        "file": "e2e/governed-action.ts",
+        "needle": "CommitStatus.STALE"
+      }
+    },
+    {
+      "id": 4,
+      "law": "child delegation escalation",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "governed-action",
+        "file": "e2e/governed-action.ts",
+        "needle": "childDelegationExpansionRejected"
+      }
+    },
+    {
+      "id": 5,
+      "law": "partial multi-record commit",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "durable-commit",
+        "file": "e2e/durable-commit/laws/rollback.ts",
+        "needle": "failpoint${index}RolledBack"
+      }
+    },
+    {
+      "id": 6,
+      "law": "live mutation of published executable definition material",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "definition-publication",
+        "file": "e2e/definition-publication.ts",
+        "needle": "immutableMutationKilled"
+      }
+    },
+    {
+      "id": 7,
+      "law": "missing rival/computational lineage",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "semantic-query",
+        "file": "e2e/semantic-query.ts",
+        "needle": "rivalLineageComplete"
+      }
+    },
+    {
+      "id": 8,
+      "law": "unsafe retry after ambiguous external effect",
+      "proof": {
+        "kind": "cargo-test",
+        "file": "crates/zoen-engine/src/effect.rs",
+        "needle": "fn ambiguous_attempt_stays_unknown"
+      }
+    },
+    {
+      "id": 9,
+      "law": "tenant-crossing query/cache key",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "semantic-query",
+        "file": "e2e/semantic-query.ts",
+        "needle": "tenantCollisionsIsolated"
+      }
+    },
+    {
+      "id": 10,
+      "law": "projection served below requested freshness cut",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "semantic-query",
+        "file": "e2e/semantic-query.ts",
+        "needle": "staleAtLeastRejected"
+      }
+    },
+    {
+      "id": 11,
+      "law": "direct agent/UI bypass of Action authority",
+      "proof": {
+        "kind": "e2e",
+        "scenario": "governed-action",
+        "file": "e2e/governed-action.ts",
+        "needle": "CommitStatus.PREVIEW_MISMATCH"
+      }
+    }
+  ]
+}
