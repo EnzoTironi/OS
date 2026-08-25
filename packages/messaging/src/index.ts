@@ -74,7 +74,6 @@ export {
   createMemoryReplyLedger,
   createWhatsAppContactLoop,
   UNBOUND_WHATSAPP_POKE_TEXT,
-  type BoundWhatsAppReply,
   type ReplyLedger,
   type WhatsAppContactDisposition,
   type WhatsAppContactDropReason,

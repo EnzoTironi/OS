@@ -1,0 +1,186 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { LanguageModelV3GenerateResult } from "@ai-sdk/provider";
+import { MockLanguageModelV3 } from "ai/test";
+import {
+  outboundBubbles,
+  runInteractionTurn,
+  type InteractionInbound,
+} from "./interaction-turn.js";
+import {
+  principalIdString,
+  providerKey,
+  providerThreadRef,
+  providerUserRef,
+  tenantIdString,
+} from "./brands.js";
+import type { TrustedInteractionContext } from "./types.js";
+import type { WorldQueryClient } from "./world-query.js";
+
+function membership(suffix: string): TrustedInteractionContext {
+  return {
+    accountId: "account.wa.enzo",
+    actorId: "actor.personal",
+    bindingId: "binding.wa.enzo",
+    channel: {
+      provider: providerKey("whatsapp"),
+      providerUser: providerUserRef("553199941160@s.whatsapp.net"),
+      receivedAt: "2026-08-25T02:28:12.000Z",
+      thread: providerThreadRef(`553199941160@s.whatsapp.net:${suffix}`),
+    },
+    membershipId: "membership.wa.enzo",
+    principalId: principalIdString("principal.wa.enzo"),
+    tenantId: tenantIdString("tenant.wa.enzo"),
+    workloadId: "workload.personal",
+  };
+}
+
+function textInbound(text: string): InteractionInbound {
+  return { kind: "text", text };
+}
+
+function usage() {
+  return {
+    inputTokens: {
+      cacheRead: 0,
+      cacheWrite: 0,
+      noCache: 1,
+      total: 1,
+    },
+    outputTokens: { reasoning: 0, text: 1, total: 1 },
+  };
+}
+
+test("PT inbound does not contain Recebi", async () => {
+  const result = await runInteractionTurn({
+    inbound: textInbound("Oi"),
+    membership: membership("oi"),
+  });
+  assert.ok(result.bubbles.length >= 1);
+  assert.equal(result.href, null);
+  for (const bubble of result.bubbles) {
+    assert.doesNotMatch(bubble, /Recebi/i);
+    assert.doesNotMatch(bubble, /membership\.wa\.enzo/);
+  }
+  assert.equal(outboundBubbles(result).join("\n").includes("Recebi"), false);
+});
+
+test("empty inbound does not dump entity ids", async () => {
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return {
+        entityIds: ["commercial.order-line.dirty-quote", "entity.hidden.1"],
+        notes: ["commercial.order-line.dirty-quote"],
+        rivals: [{ label: "commercial.order-line.dirty-quote" }],
+      };
+    },
+  };
+  const result = await runInteractionTurn({
+    inbound: textInbound(""),
+    membership: membership("empty"),
+    world,
+  });
+  const text = outboundBubbles(result).join("\n");
+  assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
+  assert.doesNotMatch(text, /entity\.hidden\.1/);
+  assert.doesNotMatch(text, /membership\.wa\.enzo/);
+  assert.doesNotMatch(text, /Recebi/i);
+  assert.equal(result.href, null);
+  assert.ok(text.trim().length > 0);
+});
+
+test("media inbound stays PT and does not dump entity ids", async () => {
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return {
+        entityIds: ["commercial.order-line.dirty-quote"],
+        notes: ["commercial.order-line.dirty-quote"],
+        rivals: [],
+      };
+    },
+  };
+  const result = await runInteractionTurn({
+    inbound: { kind: "media", mediaRef: "wa-media-1", mime: "image/jpeg" },
+    membership: membership("media"),
+    world,
+  });
+  const text = outboundBubbles(result).join("\n");
+  assert.ok(result.bubbles.length >= 1);
+  assert.equal(result.href, null);
+  assert.doesNotMatch(text, /Recebi/i);
+  assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
+  assert.match(text, /texto|arquivo/i);
+});
+
+test("wait leaves empty bubbles and a null href", async () => {
+  const model = new MockLanguageModelV3({
+    doGenerate: async () =>
+      ({
+        content: [],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: usage(),
+        warnings: [],
+      }) satisfies LanguageModelV3GenerateResult,
+  });
+  const result = await runInteractionTurn({
+    inbound: textInbound("Oi"),
+    membership: membership("wait"),
+    model,
+  });
+  assert.deepEqual(result.bubbles, []);
+  assert.equal(result.href, null);
+  assert.deepEqual(outboundBubbles(result), []);
+});
+
+test("at most one href survives a double mint", async () => {
+  let step = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({ url: "https://app.zoen.local/a" }),
+              toolCallId: "call_href_1",
+              toolName: "mint_href",
+              type: "tool-call",
+            },
+            {
+              input: JSON.stringify({ url: "https://app.zoen.local/b" }),
+              toolCallId: "call_href_2",
+              toolName: "mint_href",
+              type: "tool-call",
+            },
+            {
+              input: JSON.stringify({ text: "Segue o resumo." }),
+              toolCallId: "call_speak",
+              toolName: "speak_to_user",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      return {
+        content: [],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: usage(),
+        warnings: [],
+      } satisfies LanguageModelV3GenerateResult;
+    },
+  });
+  const result = await runInteractionTurn({
+    inbound: textInbound("Oi"),
+    membership: membership("href"),
+    model,
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(sent.split("https://").length - 1, 1);
+  assert.ok(result.href instanceof URL);
+  assert.equal(result.href.href, "https://app.zoen.local/a");
+  assert.match(sent, /Segue o resumo/);
+  assert.doesNotMatch(sent, /Recebi/i);
+});

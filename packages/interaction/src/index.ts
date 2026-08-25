@@ -9,3 +9,6 @@ export * from "./identity-directory.js";
 export * from "./boundary.js";
 export * from "./turn-store.js";
 export * from "./turn-coordinator.js";
+export * from "./world-query.js";
+export * from "./interaction-tools.js";
+export * from "./interaction-turn.js";
