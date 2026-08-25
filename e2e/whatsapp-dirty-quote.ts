@@ -38,7 +38,7 @@ import {
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
   compileDeterministicSurface,
-} from "../archive/packages/surface/src/compiler.js";
+} from "../packages/harness/src/surface/compiler.js";
 import {
   createPresentationIntent,
 } from "../archive/packages/surface/src/presentation-intent.js";

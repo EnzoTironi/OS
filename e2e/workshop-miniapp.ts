@@ -15,7 +15,7 @@ import {
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   compileDeterministicSurface,
-} from "../archive/packages/surface/src/compiler.js";
+} from "../packages/harness/src/surface/compiler.js";
 import {
   activateDefinition,
   publishDefinition,

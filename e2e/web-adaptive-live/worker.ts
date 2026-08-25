@@ -23,7 +23,7 @@ import {
   registerLiveProviders,
   semanticCapabilityScopeSchema,
 } from "../../packages/harness/src/index.js";
-import type { AdaptiveSurfaceSession } from "../../archive/packages/surface/src/model.js";
+import type { AdaptiveSurfaceSession } from "../../packages/harness/src/surface/model.js";
 import { e2ePort } from "../host-env.js";
 
 const environment = z

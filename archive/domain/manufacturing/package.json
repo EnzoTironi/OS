@@ -1,9 +1,0 @@
-{
-  "name": "@zoen/manufacturing",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": "./src/manufacturing.zoen.ts"
-  }
-}

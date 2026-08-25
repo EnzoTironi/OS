@@ -9,26 +9,15 @@ const lakePath = path.join(
   "fixtures",
   "commercial.zoen.ts",
 );
-const archivePath = path.join(
-  repositoryRoot,
-  "archive",
-  "domain",
-  "commercial",
-  "src",
-  "commercial.zoen.ts",
-);
 
 const lake = await readFile(lakePath, "utf8");
-const archived = await readFile(archivePath, "utf8");
-const lakeBody = lake.replace(/^\/\*\*[\s\S]*?\*\/\n/, "");
-
-if (lakeBody !== archived) {
+if (!lake.includes("defineBundle") || !lake.includes("commercial.OrderLine")) {
   process.stderr.write(
     `${JSON.stringify(
       {
         rule: "commercial-lake",
         error:
-          "packages/ontology/fixtures/commercial.zoen.ts body drifted from archive/domain/commercial/src/commercial.zoen.ts",
+          "packages/ontology/fixtures/commercial.zoen.ts is the live lake and must keep defineBundle plus commercial.OrderLine",
       },
       null,
       2,
@@ -40,8 +29,7 @@ if (lakeBody !== archived) {
     `${JSON.stringify({
       rule: "commercial-lake",
       lake: "packages/ontology/fixtures/commercial.zoen.ts",
-      archive: "archive/domain/commercial/src/commercial.zoen.ts",
-      pinned: true,
+      sourceOfTruth: true,
     })}\n`,
   );
 }

@@ -1,5 +1,4 @@
-# Optional archived Sample Company stack.
-# Live tsc, then activation-sample. Archived web is not built by default.
+# Optional Sample Company stack. Lives on archive/pre-modeled-erp.
 start:
     #!/usr/bin/env bash
     set -euo pipefail

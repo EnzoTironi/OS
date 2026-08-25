@@ -414,7 +414,7 @@ export async function doctorStack(root = repositoryRoot): Promise<DoctorReport> 
     blockers.push(
       `missing ${archivedWebServerEntry(repositoryRoot)}; archived web is optional`,
     );
-    hints.push("Build archive/apps/web after restoring its workspace deps");
+    hints.push("Checkout archive/pre-modeled-erp and build its web app");
   }
   try {
     await command("docker", ["info"]);

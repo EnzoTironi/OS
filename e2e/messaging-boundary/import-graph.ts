@@ -6,7 +6,7 @@ const FORBIDDEN_ROOTS = [
   "crates",
   "apps/zoend",
   "packages/speaker",
-  "archive/packages/surface",
+  "packages/harness/src/surface",
   "packages/sdk",
 ] as const;
 

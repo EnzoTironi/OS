@@ -21,7 +21,7 @@ if [[ ! -x target/debug/zoend ]]; then
   exit 1
 fi
 if [[ ! -f archive/apps/web/.output/server/index.mjs ]]; then
-  echo "missing archive/apps/web/.output/server/index.mjs; archived web is optional" >&2
+  echo "missing archived web; checkout archive/pre-modeled-erp to run this optional scenario" >&2
   exit 1
 fi
 

@@ -8,10 +8,10 @@ import {
 } from "../../archive/packages/pack/src/index.js";
 import {
   compileDeterministicSurface,
-} from "../../archive/packages/surface/src/compiler.js";
+} from "../../packages/harness/src/surface/compiler.js";
 import {
   type SurfaceDocument,
-} from "../../archive/packages/surface/src/model.js";
+} from "../../packages/harness/src/surface/model.js";
 import {
   compilePackage,
   writePolicyManifest,

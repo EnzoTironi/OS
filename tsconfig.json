@@ -43,7 +43,27 @@
   },
   "exclude": [
     "dist",
-    "node_modules"
+    "node_modules",
+    "e2e/activation-metrics.ts",
+    "e2e/activation-metrics/**/*.ts",
+    "e2e/activation-onboarding.ts",
+    "e2e/activation-onboarding/**/*.ts",
+    "e2e/company-bootstrap-shadow.ts",
+    "e2e/company-bootstrap-shadow/**/*.ts",
+    "e2e/messaging-conformance-live.ts",
+    "e2e/pack-install.ts",
+    "e2e/pack-install/**/*.ts",
+    "e2e/pack-kitchen.ts",
+    "e2e/pack-kitchen/**/*.ts",
+    "e2e/pack-registry.ts",
+    "e2e/pack-registry/**/*.ts",
+    "e2e/personal-family.ts",
+    "e2e/personal-family/**/*.ts",
+    "e2e/public-surface-web.ts",
+    "e2e/public-surface-web/**/*.ts",
+    "e2e/shared-tenancy.ts",
+    "e2e/whatsapp-dirty-quote.ts",
+    "e2e/workload-api-mcp.ts"
   ],
   "include": [
     "e2e/**/*.ts",

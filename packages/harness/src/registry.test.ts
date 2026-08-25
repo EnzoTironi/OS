@@ -4,10 +4,10 @@ import { InvalidToolInputError } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import {
   adaptiveSurfaceTemplate,
-} from "../../../archive/packages/surface/src/adaptive.js";
+} from "./surface/adaptive.js";
 import {
   type QueryBinding,
-} from "../../../archive/packages/surface/src/model.js";
+} from "./surface/model.js";
 import {
   AiSdkPlanner,
   planningRequestDigest,
