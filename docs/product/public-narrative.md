@@ -4,7 +4,7 @@ Visitor-facing copy follows this order. Architecture stays after first value.
 
 1. Promise: one sentence for what Zoen is.
 2. Demo: three entry demos in `docs/demos/README.md` (Five-minute company, Agent safely acts, Your messy data), then recorded video when #267 closes that gap.
-3. Quickstart: `just start` and `just e2e activation-sample`.
+3. Quickstart: `just build` on default main. `just start` and `just e2e activation-sample` stay on `archive/pre-modeled-erp`.
 4. Sample Company: first governed Action without ADR reading.
 5. Packs: outcome-first examples. Live directory at `/packs`. Directory copy in `docs/product/pack-directory.md`. Install/share from #260; Kitchen from #264 has landed (`just e2e pack-kitchen`).
 6. Why not LLM + tools: evidence vs truth, shared contracts, governed Actions, unknown effects, reproducible history, self-host.
