@@ -8,7 +8,7 @@ export interface TypeQuery<TProjection = ClaimProjection> {
   ids(limit: number): Promise<readonly string[]>;
 }
 
-export type ClaimField = ClaimRead | readonly ClaimRead[];
+export type ClaimField = ClaimRead | ClaimRead[];
 
 /**
  * Projection of World claims for one entity. Not a hydrated object row.
@@ -73,7 +73,7 @@ async function fetchClaimProjection(
     });
     switch (relation.cardinality) {
       case "many":
-        values[relation.apiName] = claims;
+        values[relation.apiName] = [...claims];
         break;
       case "one":
         values[relation.apiName] = claims[0] ?? emptyClaimRead(entityId);
