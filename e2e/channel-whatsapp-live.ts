@@ -560,7 +560,8 @@ async function proveContactLoop(
     const boundShape = boundSession.sent()[0]?.shape;
     assert.equal(boundShape?.kind, "text");
     if (boundShape?.kind === "text") {
-      assert.equal(boundShape.text, "Recebi: Oi");
+      assert.doesNotMatch(boundShape.text, /Recebi/i);
+      assert.ok(boundShape.text.trim().length > 0);
     }
     await boundSession.close();
 

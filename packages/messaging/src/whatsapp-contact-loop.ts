@@ -10,9 +10,12 @@ import {
   createMemoryControlStore,
   createMemoryTurnStore,
   deliveryIntentId,
+  deliveryObservationId,
   interactionId,
+  outboundBubbles,
   presentationIntentRef,
   providerKey,
+  runInteractionTurn,
   type DeliveryIntent,
   type DeliveryObservation,
   type IdentityDirectory,
@@ -214,25 +217,18 @@ export function createWhatsAppContactLoop(
     },
   });
   const store = createMemoryTurnStore();
+  const outboundByAttempt = new Map<string, string[]>();
   const coordinator = createConversationTurnCoordinator({
     debounceMs: 30_000,
     deliver: async (intent: DeliveryIntent) => {
-      const record = await store.getRecord(intent.recordId);
-      if (record === undefined) {
-        throw new Error("bound whatsapp turn missing InteractionRecord");
+      const attemptId = intent.turnAttemptId;
+      const bubbles =
+        attemptId === undefined ? undefined : outboundByAttempt.get(attemptId);
+      const text = bubbles?.[intent.sequenceIndex ?? 0];
+      if (text === undefined) {
+        throw new Error("bound whatsapp turn missing outbound bubble");
       }
-      const inboundText =
-        record.inbound.body.kind === "text"
-          ? record.inbound.body.text
-          : "sua mensagem";
-      const reply =
-        options.boundReply === undefined
-          ? { text: boundReplyText(inboundText) }
-          : await options.boundReply({
-              ctx: record.ctx,
-              inbound: record.inbound,
-            });
-      bodies.set(intent.stableProviderDeliveryId, reply.text);
+      bodies.set(intent.stableProviderDeliveryId, text);
       const observation = await gateway.deliver(intent);
       return observation.outcome;
     },
@@ -266,11 +262,43 @@ export function createWhatsAppContactLoop(
         record,
         workspaceId: ctx.workloadId,
       });
-      const flushed = await coordinator.flush(conversationKey);
-      const observation = flushed?.delivered[0];
-      if (observation === undefined) {
-        throw new Error("bound whatsapp turn produced no delivery");
+      const claimed = await coordinator.claimBurst(conversationKey);
+      if (claimed === undefined) {
+        throw new Error("bound whatsapp turn claimed no inbound");
       }
+      const reply =
+        options.boundReply === undefined
+          ? await runInteractionTurn({
+              attemptId: claimed.attempt.id,
+              coordinator,
+              inbound: record.inbound,
+              membership: ctx,
+              now,
+              store,
+            })
+          : {
+              bubbles: [
+                (
+                  await options.boundReply({
+                    ctx: record.ctx,
+                    inbound: record.inbound,
+                  })
+                ).text,
+              ],
+            };
+      const bubbles = outboundBubbles(reply);
+      outboundByAttempt.set(claimed.attempt.id, bubbles);
+      const delivered =
+        bubbles.length === 0
+          ? []
+          : await coordinator.planAndDeliver({
+              attemptId: claimed.attempt.id,
+              presentation: `turn:${claimed.turn.id}`,
+              sequenceCount: bubbles.length,
+            });
+      const observation =
+        delivered[delivered.length - 1] ??
+        waitObservation(claimed.attempt.id);
       stored = { inbound, kind: "bound", observation };
     } catch (error) {
       if (
@@ -397,12 +425,13 @@ function isDoorJid(jid: string, doorE164: string): boolean {
   return user.replace(/\D/g, "") === doorDigits;
 }
 
-function boundReplyText(inboundText: string): string {
-  const trimmed = inboundText.trim();
-  if (trimmed.length === 0) {
-    return "Recebi sua mensagem.";
-  }
-  return `Recebi: ${trimmed}`;
+function waitObservation(attemptId: string): DeliveryObservation {
+  return {
+    id: deliveryObservationId(`do_wait_${attemptId}`.slice(0, 200)),
+    intentId: deliveryIntentId(`di_wait_${attemptId}`.slice(0, 200)),
+    observedAt: new Date().toISOString(),
+    outcome: { kind: "unknown" },
+  };
 }
 
 function textPresentation(

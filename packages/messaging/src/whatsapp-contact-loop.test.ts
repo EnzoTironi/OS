@@ -170,7 +170,8 @@ test("bound 1:1 runs the turn coordinator and replies in the same thread", async
   assert.equal(sent.chatJid, speaker);
   assert.equal(sent.shape.kind, "text");
   if (sent.shape.kind === "text") {
-    assert.equal(sent.shape.text, "Recebi: Oi");
+    assert.doesNotMatch(sent.shape.text, /Recebi/i);
+    assert.ok(sent.shape.text.trim().length > 0);
     assert.doesNotMatch(sent.shape.text, /cta_url|quick_reply/);
   }
   await session.close();
