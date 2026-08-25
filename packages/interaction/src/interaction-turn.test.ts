@@ -159,6 +159,8 @@ test("PT instructions ban helpdesk greetings and keep speak_to_user as the only 
   assert.match(instructions, /Estou por aqui e pronto para ajudar/);
   assert.match(instructions, /Recebi/);
   assert.doesNotMatch(instructions, /Mastra|LangGraph/);
+  assert.doesNotMatch(instructions, /ficar quieto|stay quiet/i);
+  assert.doesNotMatch(interactionInstructions("en"), /ficar quieto|stay quiet/i);
 });
 
 test("reasoningPrompt frames World rivals as the subject, not optional JSON", () => {
@@ -234,24 +236,34 @@ test("mocked turn with two World rivals speaks the readings, not a helpdesk gree
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
 });
 
-test("wait leaves empty bubbles and a null href", async () => {
-  const model = new MockLanguageModelV3({
-    doGenerate: async () =>
-      ({
-        content: [],
-        finishReason: { raw: "stop", unified: "stop" },
-        usage: usage(),
-        warnings: [],
-      }) satisfies LanguageModelV3GenerateResult,
-  });
+test("empty inbound with a silent model waits (empty bubbles)", async () => {
   const result = await runInteractionTurn({
-    inbound: textInbound("Oi"),
+    inbound: textInbound(""),
     membership: membership("wait"),
-    model,
+    model: silentStopModel(),
+    world: twoRivalWorld(),
   });
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
+});
+
+test("silent model with two World rivals fail-closes lookup copy, not rival speech", async () => {
+  const result = await runInteractionTurn({
+    inbound: textInbound("quanto ficou a cotacao"),
+    membership: membership("silent-rivals"),
+    model: silentStopModel(),
+    world: twoRivalWorld(),
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.deepEqual(result.bubbles, [
+    "Não consegui consultar agora. Tenta de novo em instantes.",
+  ]);
+  assert.doesNotMatch(sent, /Tem mais de uma leitura/);
+  assert.doesNotMatch(sent, /10 each|12 each/);
+  assert.doesNotMatch(sent, /Recebi/i);
+  assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
+  assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
 });
 
 test("spawn_execution with injected executeWork records executionNotes and does not leak them into bubbles", async () => {
@@ -383,6 +395,30 @@ test("at most one href survives a double mint", async () => {
   assert.match(sent, /Segue o resumo/);
   assert.doesNotMatch(sent, /Recebi/i);
 });
+
+function silentStopModel(): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    doGenerate: async () =>
+      ({
+        content: [],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: usage(),
+        warnings: [],
+      }) satisfies LanguageModelV3GenerateResult,
+  });
+}
+
+function twoRivalWorld(): WorldQueryClient {
+  return {
+    async semanticQuery() {
+      return {
+        entityIds: ["commercial.order-line.dirty-quote"],
+        notes: ["10 each", "12 each"],
+        rivals: [{ label: "10 each" }, { label: "12 each" }],
+      };
+    },
+  };
+}
 
 function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {
   return prompt
