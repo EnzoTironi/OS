@@ -31,9 +31,9 @@ type ScenarioSpec = {
 };
 
 /**
- * Slots 1-16 from #268. Slot 2 is messaging-boundary alone.
+ * Remaining live activation slots after archive. Slot 2 is messaging-boundary.
+ * Sample Company, Pack, Kitchen, onboarding, and metrics are archive-class.
  * Live Linq is optional `channel-linq-live`, not a verify-activation required slot.
- * Fake messaging/attention scenarios left main; restore on live is #327 / #328.
  */
 const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
   {
@@ -58,81 +58,11 @@ const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
     ticket: "#254",
   },
   {
-    id: "activation-sample",
-    kind: "activation",
-    primary: "activation-sample.json",
-    slot: 4,
-    ticket: "#255",
-  },
-  {
-    id: "activation-onboarding",
-    kind: "activation",
-    primary: "activation-onboarding.json",
-    slot: 5,
-    ticket: "#256",
-  },
-  {
     id: "activation-context",
     kind: "activation",
     primary: "activation-context.json",
     slot: 6,
     ticket: "#257",
-  },
-  {
-    id: "company-bootstrap-shadow",
-    kind: "activation",
-    primary: "company-bootstrap-shadow.json",
-    slot: 7,
-    ticket: "#258",
-  },
-  {
-    id: "pack-install",
-    kind: "activation",
-    primary: "pack-install.json",
-    slot: 8,
-    ticket: "#259",
-  },
-  {
-    id: "pack-registry",
-    kind: "activation",
-    primary: "pack-registry.json",
-    slot: 9,
-    ticket: "#260",
-  },
-  {
-    id: "human-executor",
-    kind: "activation",
-    primary: "human-executor.json",
-    slot: 11,
-    ticket: "#262",
-  },
-  {
-    id: "workload-api-mcp",
-    kind: "activation",
-    primary: "workload-api-mcp.json",
-    slot: 12,
-    ticket: "#263",
-  },
-  {
-    id: "pack-kitchen",
-    kind: "activation",
-    primary: "pack-kitchen.json",
-    slot: 13,
-    ticket: "#264",
-  },
-  {
-    id: "personal-family",
-    kind: "activation",
-    primary: "personal-family.json",
-    slot: 14,
-    ticket: "#265",
-  },
-  {
-    id: "activation-metrics",
-    kind: "activation",
-    primary: "activation-metrics.json",
-    slot: 15,
-    ticket: "#266",
   },
   {
     id: "public-surface",
