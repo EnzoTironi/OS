@@ -25,6 +25,7 @@ import {
   createWhatsAppContactLoop,
   UNBOUND_WHATSAPP_POKE_TEXT,
 } from "./whatsapp-contact-loop.js";
+import { formatWhatsAppMinuteText } from "./whatsapp-minute.js";
 
 const doorE164 = "+553798136141";
 const doorJid = "553798136141@s.whatsapp.net";
@@ -294,6 +295,40 @@ test("zoend inbound with processInbound replies through the recording session", 
       process.env.ZOEN_WHATSAPP_DOOR_E164 = previousDoor;
     }
   }
+});
+
+test("bound minute lists rivals and exactly one https URL", async () => {
+  const session = await readySession();
+  const minute = formatWhatsAppMinuteText({
+    actionUrl: "https://app.zoen.local/",
+    entityId: "commercial.order-line.dirty-quote",
+    rivals: [
+      { label: "10 each", sourceId: "source.sheet" },
+      { label: "12 each", sourceId: "source.erp" },
+    ],
+  });
+  assert.equal(minute.split("https://").length - 1, 1);
+  const loop = createWhatsAppContactLoop({
+    boundReply: async () => ({ text: minute }),
+    doorE164,
+    identity: boundIdentity(speaker),
+    session,
+  });
+  const result = await loop.handleRaw(
+    inbound({ body: "oi", messageId: "wamid.minute" }),
+  );
+  assert.equal(result.kind, "bound");
+  const sent = session.sent()[0];
+  assert.ok(sent);
+  assert.equal(sent.shape.kind, "text");
+  if (sent.shape.kind === "text") {
+    assert.equal(sent.shape.text.includes("10 each"), true);
+    assert.equal(sent.shape.text.includes("12 each"), true);
+    assert.equal(sent.shape.text.includes("https://app.zoen.local/"), true);
+    assert.equal(sent.shape.text.split("https://").length - 1, 1);
+    assert.equal(sent.shape.text.includes("cta_url"), false);
+  }
+  await session.close();
 });
 
 test("provider key stays unofficial whatsapp", () => {
