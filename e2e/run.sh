@@ -41,6 +41,7 @@ scenario_table=(
   "entity-location:entity-location:"
   "cedar-object-projection:cedar-object-projection:"
   "commercial-identity:commercial-identity:"
+  "dirty-quote:dirty-quote:"
   "durable-commit:governed-action:failpoints"
   "effects:governed-action:"
   "evolution-breaking:evolution-breaking:"
