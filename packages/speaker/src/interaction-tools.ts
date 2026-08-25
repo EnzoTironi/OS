@@ -19,29 +19,44 @@ const mintHrefSchema = z
   })
   .strict();
 
+const waitSchema = z.object({}).strict();
+
 /**
  * Mutable scratch for one reasoning stage. Tools record here.
  * User-visible text comes only from speak_to_user.
+ * `wait` clears the turn: empty bubbles, no send.
  */
 export interface InteractionScratch {
   bubbles: string[];
   executionNotes: string[];
   href?: string;
+  waited: boolean;
+  slowWork: boolean;
 }
 
 export interface InteractionToolOptions {
   readonly executeWork?: (task: string) => Promise<string>;
+  /** Wall time that marks spawn_execution as slow. Production default is 2000. */
+  readonly statusAfterMs?: number;
 }
 
 export function createInteractionScratch(): InteractionScratch {
   return {
     bubbles: [],
     executionNotes: [],
+    slowWork: false,
+    waited: false,
   };
 }
 
 /**
  * Poke-style Interaction tools. Few, and never named in user text.
+ *
+ * Context: one ToolLoopAgent turn. Closing inbound (valeu, ok, thanks) must
+ * call `wait`, not `speak_to_user`.
+ * Inputs: turn-local scratch plus optional executeWork / statusAfterMs.
+ * Outputs: ToolSet. User-visible text is only what `speak_to_user` recorded.
+ * Side effects: mutates scratch. `wait` marks the turn silent.
  *
  * @param scratch - Turn-local recorder for bubbles, one href, and execution notes
  * @param options.executeWork - Optional harness hand-off; defaults to a status string
@@ -50,6 +65,7 @@ export function createInteractionTools(
   scratch: InteractionScratch,
   options: InteractionToolOptions = {},
 ): ToolSet {
+  const statusAfterMs = options.statusAfterMs ?? 2000;
   return {
     mint_href: tool({
       description:
@@ -71,10 +87,14 @@ export function createInteractionTools(
       description:
         "Hand work off the conversation. Returns a short status string. Do not mention this hand-off in user text.",
       execute: async ({ task }) => {
+        const started = Date.now();
         const status =
           options.executeWork === undefined
             ? `status: accepted (${task.trim().slice(0, 80)})`
             : await options.executeWork(task);
+        if (Date.now() - started > statusAfterMs) {
+          scratch.slowWork = true;
+        }
         scratch.executionNotes.push(status);
         return { status };
       },
@@ -90,6 +110,17 @@ export function createInteractionTools(
         return { ok: true };
       },
       inputSchema: speakToUserSchema,
+    }),
+    wait: tool({
+      description:
+        "End the turn with no user-facing text (empty bubbles). Use for thanks, ok, show, or other closing inbound. Do not speak.",
+      execute: async () => {
+        scratch.waited = true;
+        scratch.bubbles.length = 0;
+        scratch.href = undefined;
+        return { ok: true };
+      },
+      inputSchema: waitSchema,
     }),
   };
 }
