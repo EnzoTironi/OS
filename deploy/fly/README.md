@@ -25,3 +25,16 @@ Manual: Actions → `fly-deploy` → Run workflow.
 App exists. Volume, IPs, cert, and secrets are staged. Zero machines until the first `fly-deploy` succeeds.
 Cedar is `deploy/fly/policies.json` in `/etc/zoen/policies.json`.
 Realm is `deploy/fly/realm.template.json`; boot fills client `admin-a` from Fly secret `ZOEN_OIDC_CLIENT_SECRET`.
+
+## After the first `/ready`
+
+Secrets stay on the Fly app, not in `fly.toml`. Door is `+553798136141`.
+
+```
+fly ssh console --app zoen -C "zoen-whatsapp-companion pair"
+fly ssh console --app zoen -C "zoen-bind-inbox"
+```
+
+Pair prints the QR. Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID (`5531999941160@s.whatsapp.net` by default). Never the door.
+
+`ZOEN_MODEL` / `OPENAI_API_KEY` are Fly secrets. Effects/connector stay unset on this VM.

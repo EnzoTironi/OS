@@ -7,7 +7,14 @@ if [ -z "$secret" ]; then
   echo "realm: ZOEN_OIDC_CLIENT_SECRET is required" >&2
   exit 1
 fi
-mkdir -p "$(dirname "$dest")"
+mkdir -p /data/keycloak /opt/keycloak/data/import
+if [ ! -L /opt/keycloak/data ]; then
+  if [ -d /opt/keycloak/data ]; then
+    cp -a /opt/keycloak/data/. /data/keycloak/ 2>/dev/null || true
+  fi
+  rm -rf /opt/keycloak/data
+  ln -s /data/keycloak /opt/keycloak/data
+fi
 python3 -c 'import sys; src, dest, secret = sys.argv[1:4]; text = open(src, encoding="utf-8").read();
 assert "__ZOEN_OIDC_CLIENT_SECRET__" in text, "realm template missing placeholder"
 open(dest, "w", encoding="utf-8").write(text.replace("__ZOEN_OIDC_CLIENT_SECRET__", secret))' \

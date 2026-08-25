@@ -105,7 +105,7 @@ services:
       dockerfile: deploy/fly/Dockerfile.speaker
     network_mode: host
     environment:
-      ZOEN_WHATSAPP_DOOR_E164: ${ZOEN_WHATSAPP_DOOR_E164:-}+553798136141
+      ZOEN_WHATSAPP_DOOR_E164: ${ZOEN_WHATSAPP_DOOR_E164:-+553798136141}
       ZOEN_WHATSAPP_COMPANION_URL: http://127.0.0.1:8081
       ZOEN_IDENTITY_BASE_URL: http://127.0.0.1:58701
       ZOEN_MESSAGING_INGRESS_HOST: 127.0.0.1

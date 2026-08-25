@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 /**
  * OSDK World adapter for Interaction. Must not import `@zoen/harness`
  * (harness already depends on speaker).
@@ -151,9 +152,7 @@ function worldCredentialsFromEnv(env: NodeJS.ProcessEnv):
   const baseUrl = (
     env.ZOEN_WORLD_BASE_URL ?? env.ZOEN_IDENTITY_BASE_URL
   )?.trim();
-  const bearerToken = (
-    env.ZOEN_AGENT_BEARER_TOKEN ?? env.ZOEN_WORLD_BEARER_TOKEN
-  )?.trim();
+  const bearerToken = agentBearerToken(env);
   if (baseUrl === undefined || bearerToken === undefined) {
     return undefined;
   }
@@ -296,4 +295,19 @@ function readOnlyActionsPort(): OsdkActionsPort {
     discover: reject,
     propose: reject,
   };
+}
+
+function agentBearerToken(env: NodeJS.ProcessEnv): string | undefined {
+  const file = env.ZOEN_AGENT_BEARER_TOKEN_FILE?.trim();
+  if (file !== undefined) {
+    try {
+      const fromFile = readFileSync(file, "utf8").trim();
+      if (fromFile.length > 0) {
+        return fromFile;
+      }
+    } catch {
+      // remint has not written yet
+    }
+  }
+  return (env.ZOEN_AGENT_BEARER_TOKEN ?? env.ZOEN_WORLD_BEARER_TOKEN)?.trim();
 }

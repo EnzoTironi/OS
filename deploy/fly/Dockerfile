@@ -53,6 +53,10 @@ COPY deploy/fly/zoen-ensure-minio-bucket /usr/local/bin/zoen-ensure-minio-bucket
 COPY deploy/fly/zoen-start-keycloak /usr/local/bin/zoen-start-keycloak
 COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/realm.template.json /etc/zoen/realm.template.json
+COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
+COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
+COPY packages/ontology/fixtures/commercial.zoen.ts /etc/zoen/commercial.zoen.ts
+COPY packages/ontology/fixtures/personal.zoen.ts /etc/zoen/personal.zoen.ts
 COPY deploy/fly/init /docker-entrypoint-initdb.d
 
 ENV PGDATA=/data/pg

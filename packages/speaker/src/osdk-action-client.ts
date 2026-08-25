@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 /**
  * Speaker Action client for the personal lake.
  * Must not import `@zoen/harness` (harness already depends on speaker).
@@ -164,9 +165,7 @@ function actionCredentialsFromEnv(env: NodeJS.ProcessEnv):
     env.ZOEN_WORLD_BASE_URL ??
     env.ZOEN_IDENTITY_BASE_URL
   )?.trim();
-  const bearerToken = (
-    env.ZOEN_AGENT_BEARER_TOKEN ?? env.ZOEN_WORLD_BEARER_TOKEN
-  )?.trim();
+  const bearerToken = agentBearerToken(env);
   if (baseUrl === undefined || bearerToken === undefined) {
     return undefined;
   }
@@ -323,4 +322,19 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
       clearTimeout(timer);
     }
   }
+}
+
+function agentBearerToken(env: NodeJS.ProcessEnv): string | undefined {
+  const file = env.ZOEN_AGENT_BEARER_TOKEN_FILE?.trim();
+  if (file !== undefined) {
+    try {
+      const fromFile = readFileSync(file, "utf8").trim();
+      if (fromFile.length > 0) {
+        return fromFile;
+      }
+    } catch {
+      // remint has not written yet
+    }
+  }
+  return (env.ZOEN_AGENT_BEARER_TOKEN ?? env.ZOEN_WORLD_BEARER_TOKEN)?.trim();
 }

@@ -37,6 +37,10 @@ primary_region = "gru"
 
 [env]
   ZOEN_LISTEN_ADDR = "0.0.0.0:58701"
+  ZOEN_WHATSAPP_DOOR_E164 = "+553798136141"
+  ZOEN_WORLD_DEFINITION_PATH = "/etc/zoen/commercial.zoen.ts"
+  ZOEN_PERSONAL_DEFINITION_PATH = "/etc/zoen/personal.zoen.ts"
+  ZOEN_AGENT_BEARER_TOKEN_FILE = "/data/zoen/agent.token"
   ZOEN_CEDAR_POLICY_MANIFEST = "/etc/zoen/policies.json"
   ZOEN_OIDC_AUDIENCE = "zoend"
   ZOEN_OIDC_ISSUER = "http://127.0.0.1:8080/realms/zoen"
