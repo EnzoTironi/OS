@@ -25,6 +25,30 @@ export type EvaluateAttentionInput = {
   readonly lastDeliveredAt?: string;
 };
 
+export function attentionDeliveryNeeded(
+  decision: AttentionEvaluateDecision,
+): decision is Extract<
+  AttentionEvaluateDecision,
+  { kind: "opened" | "reopened" | "materially_changed" }
+> {
+  switch (decision.kind) {
+    case "opened":
+    case "reopened":
+    case "materially_changed":
+      return true;
+    case "unchanged":
+    case "resolved":
+    case "suppressed":
+    case "denied":
+      return false;
+    default: {
+      const _exhaustive: never = decision;
+      void _exhaustive;
+      return false;
+    }
+  }
+}
+
 export async function evaluateAttention(
   input: EvaluateAttentionInput,
 ): Promise<AttentionEvaluateDecision> {

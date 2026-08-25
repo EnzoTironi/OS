@@ -39,7 +39,11 @@ export {
   setTenant,
 } from "./postgres-store.js";
 
-export { evaluateAttention, type EvaluateAttentionInput } from "./evaluate.js";
+export {
+  attentionDeliveryNeeded,
+  evaluateAttention,
+  type EvaluateAttentionInput,
+} from "./evaluate.js";
 
 export {
   planAttentionDelivery,
