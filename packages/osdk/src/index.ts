@@ -8,6 +8,7 @@ export type {
   ActionCommitResult,
   ActionPreviewResult,
   ActionRuntime,
+  CommitCall,
   OsdkActionHandle,
 } from "./actions.js";
 export { createOsdkFromCompiled } from "./client.js";
@@ -23,22 +24,12 @@ export type {
   OsdkValuePropModel,
 } from "./model.js";
 export { apiNameFromId } from "./names.js";
-export {
-  createObjectSet,
-  createObjectSets,
-} from "./objects.js";
-export type {
-  ManyLinkAccessor,
-  ObjectRuntime,
-  ObjectSet,
-  ProjectedObject,
-  SingleLinkAccessor,
-} from "./objects.js";
+export { createTypeQueries, createTypeQuery } from "./objects.js";
+export type { ClaimProjection, ObjectRuntime, TypeQuery } from "./objects.js";
 export type {
   OsdkActionsPort,
   OsdkDefinitionRef,
   OsdkWorld,
 } from "./ports.js";
 export { queryClaims } from "./query.js";
-export { decodeWireValue, isQuantity } from "./values.js";
-export type { OsdkInputValue, OsdkQuantity, PropScalar, PropValue } from "./values.js";
+export { exactValueFromProto, isExactValue } from "./values.js";

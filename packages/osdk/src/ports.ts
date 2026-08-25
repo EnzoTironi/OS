@@ -1,121 +1,39 @@
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import type {
-  CommitStatus,
-  PolicyDecision,
-  ProposalStatus,
+  ApproveRequest,
+  ApproveResponse,
+  CommitRequest,
+  CommitResponse,
+  ProposeRequest,
+  ProposeResponse,
 } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
-
-export interface OsdkDefinitionRef {
-  readonly definitionId: string;
-  readonly digest: string;
-  readonly revision: bigint | number | string;
-}
-
-export interface SemanticQueryView {
-  readonly values: readonly {
-    readonly dependencies: readonly { readonly entityId: string }[];
-    readonly value?: {
-      readonly value: {
-        readonly case:
-          | "boolValue"
-          | "decimalValue"
-          | "entityRefValue"
-          | "integerValue"
-          | "quantityValue"
-          | "textValue"
-          | undefined;
-        readonly value?:
-          | boolean
-          | string
-          | { readonly amount: string; readonly unit: string };
-      };
-    };
-  }[];
-}
-
-export interface SemanticQueryInit {
-  readonly consistency?: object;
-  readonly definition: OsdkDefinitionRef;
-  readonly entityId: string;
-  readonly query?: {
-    readonly case?: "byType";
-    readonly value?: { readonly limit: number; readonly typeId: string };
-  };
-  readonly selection?: {
-    readonly value?: {
-      readonly case?: "computationId" | "relationId";
-      readonly value?: string;
-    };
-  };
-  readonly tenantId: string;
-  readonly validAt?: Timestamp;
-}
+import type {
+  DefinitionReference,
+  SemanticQueryRequest,
+  SemanticQueryResponse,
+} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 
 /**
- * World read port. Intentionally has no `recordEvidence` — belief writes
- * go through Action preview/commit on zoend (Cedar), not a second store.
+ * Live `DefinitionReference` from World/Action RPCs. `revision` is bigint
+ * on the wire; compileDefinition's number is converted at the boundary.
  */
-export interface OsdkWorld {
-  semanticQuery(request: SemanticQueryInit): Promise<SemanticQueryView>;
-}
-
-export interface ProposeInit {
-  readonly actionId: string;
-  readonly definition: OsdkDefinitionRef;
-  readonly expiresAt?: Timestamp;
-  readonly inputs: readonly object[];
-  readonly operationId: string;
-  readonly proposalId: string;
-  readonly resourceId: string;
-  readonly validAt?: Timestamp;
-}
-
-export interface ProposeView {
-  readonly decision: PolicyDecision;
-  readonly evaluationError?: string;
-  readonly proposal?: {
-    readonly operationId?: string;
-    readonly proposalId?: string;
-    readonly status: ProposalStatus;
-  };
-}
-
-export interface ApproveInit {
-  readonly approvalId: string;
-  readonly expiresAt?: Timestamp;
-  readonly proposalId: string;
-}
-
-export interface ApproveView {
-  readonly decision: PolicyDecision;
-  readonly evaluationError?: string;
-}
-
-export interface CommitInit {
-  readonly operationId: string;
-  readonly proposalId: string;
-}
-
-export interface CommitView {
-  readonly error?: string;
-  readonly receipt?: {
-    readonly operationId?: string;
-    readonly recordIds?: readonly string[];
-  };
-  readonly status: CommitStatus;
-}
+export type OsdkDefinitionRef = Pick<
+  DefinitionReference,
+  "definitionId" | "digest" | "revision"
+>;
 
 /**
- * zoend ActionService subset. Preview calls `propose` only. Commit calls
- * `propose`, `approve` when the proposal is awaiting approval, then `commit`.
- * Cedar evaluation happens on zoend, not in this client.
+ * Live World read. No `recordEvidence` — belief writes go through Action.
  */
-export interface OsdkActionsPort {
-  approve(request: ApproveInit): Promise<ApproveView>;
-  commit(request: CommitInit): Promise<CommitView>;
-  propose(request: ProposeInit): Promise<ProposeView>;
-}
+export type OsdkWorld = {
+  semanticQuery(request: SemanticQueryRequest): Promise<SemanticQueryResponse>;
+};
 
-export function definitionRevision(ref: OsdkDefinitionRef): bigint {
-  return typeof ref.revision === "bigint" ? ref.revision : BigInt(ref.revision);
-}
+/**
+ * Live ActionService subset used by preview (`propose`) and commit
+ * (`propose` → `approve` when awaiting → `commit`). Cedar stays on zoend.
+ */
+export type OsdkActionsPort = {
+  approve(request: ApproveRequest): Promise<ApproveResponse>;
+  commit(request: CommitRequest): Promise<CommitResponse>;
+  propose(request: ProposeRequest): Promise<ProposeResponse>;
+};

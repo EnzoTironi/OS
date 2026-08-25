@@ -1,82 +1,74 @@
+import type { ExactValue } from "@zoen/ontology";
 import type { OsdkLinkModel, OsdkModel, OsdkTypeModel } from "./model.js";
-import { typeModelById } from "./model.js";
 import type { OsdkDefinitionRef, OsdkWorld } from "./ports.js";
 import {
   entityIdsFromClaims,
   queryClaims,
 } from "./query.js";
-import type { PropValue } from "./values.js";
 
-export interface SingleLinkAccessor<TObject> {
-  fetch(): Promise<TObject | undefined>;
-}
-
-export interface ManyLinkAccessor<TObject> {
-  fetchPage(options?: { readonly limit?: number }): Promise<readonly TObject[]>;
-}
-
-export interface ObjectSet<TObject> {
-  fetch(entityId: string): Promise<TObject>;
-  fetchPage(options?: { readonly limit?: number }): Promise<readonly TObject[]>;
+export interface TypeQuery<TProjection = ClaimProjection> {
+  fetch(entityId: string): Promise<TProjection>;
+  ids(limit: number): Promise<readonly string[]>;
 }
 
 /**
- * Claim projection of one World entity. Not a row in a second object store.
+ * Projection of World claims for one entity. Not a hydrated object row.
+ * Cardinality-one values are `ExactValue | null` (known empty).
+ * Links walk relations and return entity ids, not nested objects.
  */
-export interface ProjectedObject {
-  readonly $claimProjection: true;
-  readonly $primaryKey: string;
-  readonly $typeId: string;
+export interface ClaimProjection {
+  readonly entityId: string;
   readonly links: Readonly<
     Record<
       string,
-      ManyLinkAccessor<ProjectedObject> | SingleLinkAccessor<ProjectedObject>
+      () => Promise<readonly string[]> | Promise<string | null>
     >
   >;
-  readonly props: Readonly<Record<string, PropValue>>;
+  readonly typeId: string;
+  readonly values: Readonly<
+    Record<string, ExactValue | null | readonly ExactValue[]>
+  >;
 }
 
 export interface ObjectRuntime {
   readonly definition: OsdkDefinitionRef;
   readonly model: OsdkModel;
   readonly tenantId: string;
-  readonly validAt?: Date;
+  readonly validAt: Date;
   readonly world: OsdkWorld;
 }
 
-export function createObjectSet(
+export function createTypeQuery(
   runtime: ObjectRuntime,
   type: OsdkTypeModel,
-): ObjectSet<ProjectedObject> {
+): TypeQuery {
   return {
-    fetch: (entityId) => fetchProjectedObject(runtime, type, entityId),
-    fetchPage: (options) => fetchProjectedPage(runtime, type, options?.limit),
+    fetch: (entityId) => fetchClaimProjection(runtime, type, entityId),
+    ids: (limit) => fetchTypeIds(runtime, type, limit),
   };
 }
 
-export function createObjectSets(
+export function createTypeQueries(
   runtime: ObjectRuntime,
-): Readonly<Record<string, ObjectSet<ProjectedObject>>> {
-  const objects: Record<string, ObjectSet<ProjectedObject>> = {};
+): Readonly<Record<string, TypeQuery>> {
+  const objects: Record<string, TypeQuery> = {};
   for (const type of runtime.model.types) {
-    objects[type.apiName] = createObjectSet(runtime, type);
+    objects[type.apiName] = createTypeQuery(runtime, type);
   }
   return objects;
 }
 
-async function fetchProjectedObject(
+async function fetchClaimProjection(
   runtime: ObjectRuntime,
   type: OsdkTypeModel,
   entityId: string,
-): Promise<ProjectedObject> {
-  const props: Record<string, PropValue> = {};
-  for (const attribute of type.attributes) {
-    props[attribute.apiName] = undefined;
-  }
+): Promise<ClaimProjection> {
+  const values: Record<string, ExactValue | null | readonly ExactValue[]> = {};
   for (const prop of type.props) {
     const claims = await queryClaims({
       definition: runtime.definition,
       entityId,
+      kind: "relation",
       relationId: prop.relationId,
       tenantId: runtime.tenantId,
       validAt: runtime.validAt,
@@ -84,11 +76,13 @@ async function fetchProjectedObject(
     });
     switch (prop.cardinality) {
       case "many":
-        props[prop.apiName] = claims.map((claim) => claim.scalar);
+        values[prop.apiName] = claims.flatMap((claim) =>
+          claim.value === null ? [] : [claim.value],
+        );
         break;
       case "one": {
         const first = claims[0];
-        props[prop.apiName] = first?.scalar;
+        values[prop.apiName] = first?.value ?? null;
         break;
       }
       default: {
@@ -98,63 +92,48 @@ async function fetchProjectedObject(
     }
   }
   return {
-    $claimProjection: true,
-    $primaryKey: entityId,
-    $typeId: type.typeId,
-    links: createLinks(runtime, type, entityId),
-    props,
+    entityId,
+    links: createLinkWalks(runtime, type, entityId),
+    typeId: type.typeId,
+    values,
   };
 }
 
-async function fetchProjectedPage(
+async function fetchTypeIds(
   runtime: ObjectRuntime,
   type: OsdkTypeModel,
-  limit?: number,
-): Promise<readonly ProjectedObject[]> {
+  limit: number,
+): Promise<readonly string[]> {
   const listed = await queryClaims({
     definition: runtime.definition,
+    kind: "byType",
+    limit,
     tenantId: runtime.tenantId,
     typeId: type.typeId,
-    typeLimit: limit ?? 50,
     validAt: runtime.validAt,
     world: runtime.world,
   });
-  const ids = entityIdsFromClaims(listed);
-  const objects: ProjectedObject[] = [];
-  for (const entityId of ids) {
-    objects.push(await fetchProjectedObject(runtime, type, entityId));
-  }
-  return objects;
+  return entityIdsFromClaims(listed);
 }
 
-function createLinks(
+function createLinkWalks(
   runtime: ObjectRuntime,
   type: OsdkTypeModel,
   sourceEntityId: string,
-): ProjectedObject["links"] {
+): ClaimProjection["links"] {
   const links: Record<
     string,
-    ManyLinkAccessor<ProjectedObject> | SingleLinkAccessor<ProjectedObject>
+    () => Promise<readonly string[]> | Promise<string | null>
   > = {};
   for (const link of type.links) {
     switch (link.cardinality) {
       case "many":
-        links[link.apiName] = {
-          fetchPage: (options) =>
-            fetchLinkTargets(runtime, link, sourceEntityId, options?.limit),
-        };
+        links[link.apiName] = () => walkRelationIds(runtime, link, sourceEntityId);
         break;
       case "one":
-        links[link.apiName] = {
-          fetch: async () => {
-            const targets = await fetchLinkTargets(
-              runtime,
-              link,
-              sourceEntityId,
-              1,
-            );
-            return targets[0];
-          },
+        links[link.apiName] = async () => {
+          const ids = await walkRelationIds(runtime, link, sourceEntityId);
+          return ids[0] ?? null;
         };
         break;
       default: {
@@ -166,25 +145,19 @@ function createLinks(
   return links;
 }
 
-async function fetchLinkTargets(
+async function walkRelationIds(
   runtime: ObjectRuntime,
   link: OsdkLinkModel,
   sourceEntityId: string,
-  limit?: number,
-): Promise<readonly ProjectedObject[]> {
+): Promise<readonly string[]> {
   const claims = await queryClaims({
     definition: runtime.definition,
     entityId: sourceEntityId,
+    kind: "relation",
     relationId: link.relationId,
     tenantId: runtime.tenantId,
     validAt: runtime.validAt,
     world: runtime.world,
   });
-  const targetIds = entityIdsFromClaims(claims).slice(0, limit ?? 50);
-  const targetType = typeModelById(runtime.model, link.targetTypeId);
-  const targets: ProjectedObject[] = [];
-  for (const entityId of targetIds) {
-    targets.push(await fetchProjectedObject(runtime, targetType, entityId));
-  }
-  return targets;
+  return entityIdsFromClaims(claims);
 }

@@ -5,15 +5,30 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
+import { create } from "@bufbuild/protobuf";
 import { compileDefinition } from "../../ontology/src/index.js";
 import {
+  ApproveResponseSchema,
+  CommitIdentityKind,
+  CommitReceiptSchema,
+  CommitResponseSchema,
   CommitStatus,
   PolicyDecision,
+  ProposalSchema,
+  ProposeResponseSchema,
   ProposalStatus,
 } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
+import {
+  ExactValueSchema,
+  LineageDependencySchema,
+  SemanticQueryResponseSchema,
+  SemanticValueResultSchema,
+  type ExactValue,
+  type SemanticQueryRequest,
+} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import { createOsdkFromCompiled } from "./client.js";
 import { generateOsdkModules } from "./generator.js";
-import type { OsdkActionsPort, OsdkWorld, SemanticQueryInit } from "./ports.js";
+import type { OsdkActionsPort, OsdkWorld } from "./ports.js";
 
 type _WorldHasNoBeliefWrite = "recordEvidence" extends keyof OsdkWorld
   ? false
@@ -29,28 +44,27 @@ const commercialDefinition = path.join(
   "src",
   "commercial.zoen.ts",
 );
+const validAt = new Date("2026-08-25T00:00:00.000Z");
+const expiresAt = new Date("2026-08-25T00:05:00.000Z");
 
 test("generated OSDK typechecks objects.OrderLine and a link accessor", async () => {
   const compiled = await compileDefinition(commercialDefinition);
   const modules = generateOsdkModules(compiled);
 
   assert.match(modules.files["objects.ts"], /export interface OsdkObjects/);
-  assert.match(modules.files["objects.ts"], /readonly OrderLine: ObjectSet<OrderLine>/);
+  assert.match(modules.files["objects.ts"], /readonly OrderLine: TypeQuery<OrderLine>/);
   assert.match(
     modules.files["objects.ts"],
-    /readonly requestReference: SingleLinkAccessor<Request>/,
+    /readonly requestReference: \(\) => Promise<string \| null>/,
   );
   assert.match(
     modules.files["objects.ts"],
-    /readonly commitmentReference: ManyLinkAccessor<Commitment>/,
+    /readonly commitmentReference: \(\) => Promise<readonly string\[\]>/,
   );
+  assert.match(modules.files["objects.ts"], /ExactValue \| null/);
   assert.match(modules.files["actions.ts"], /preview\(call:/);
-  assert.match(modules.files["actions.ts"], /commit\(call:/);
+  assert.match(modules.files["actions.ts"], /approvalId: string/);
   assert.match(modules.files["actions.ts"], /recordQuote/);
-  assert.match(
-    modules.files["actions.ts"],
-    /never writes belief through World\.recordEvidence/,
-  );
 
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "zoen-osdk-"));
   await writeFile(
@@ -109,27 +123,28 @@ test("generated OSDK typechecks objects.OrderLine and a link accessor", async ()
 test("preview and commit are distinct; commit uses Action+Cedar, not World writes", async () => {
   const compiled = await compileDefinition(commercialDefinition);
   const calls: string[] = [];
-  const world = fakeWorld(calls);
-  const actions = fakeActions(calls, ProposalStatus.READY);
   const osdk = createOsdkFromCompiled(compiled, {
-    actions,
+    actions: fakeActions(calls, ProposalStatus.READY),
     tenantId: "tenant.a",
-    world,
+    validAt,
+    world: fakeWorld(calls),
   });
   const orderLines = osdk.objects.OrderLine;
   assert.ok(orderLines);
   const line = await orderLines.fetch("commercial.orderLine.1");
-  assert.equal(line.$typeId, "commercial.OrderLine");
-  assert.equal(line.$claimProjection, true);
-  assert.equal(line.$primaryKey, "commercial.orderLine.1");
-  assert.deepEqual(line.props.quotedUnitPrice, "19.99");
+  assert.equal(line.typeId, "commercial.OrderLine");
+  assert.equal(line.entityId, "commercial.orderLine.1");
+  assert.deepEqual(line.values.quotedUnitPrice, {
+    kind: "decimal",
+    value: "19.99",
+  });
 
   const requestLink = line.links.requestReference;
-  assert.ok(requestLink);
-  assert.ok("fetch" in requestLink);
-  const request = await requestLink.fetch();
-  assert.equal(request?.$typeId, "commercial.Request");
-  assert.equal(request?.$primaryKey, "commercial.request.1");
+  if (requestLink === undefined) {
+    throw new Error("requestReference walk is missing");
+  }
+  const requestId = await requestLink();
+  assert.equal(requestId, "commercial.request.1");
 
   const recordQuote = osdk.actions.recordQuote;
   assert.ok(recordQuote);
@@ -137,27 +152,33 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
 
   calls.length = 0;
   const preview = await recordQuote.preview({
-    inputs: { quoteReference: "commercial.quote.1" },
+    expiresAt,
+    inputs: {
+      quoteReference: { kind: "entity", value: "commercial.quote.1" },
+    },
     operationId: "operation.preview",
     proposalId: "proposal.preview",
     resourceId: "commercial.orderLine.1",
+    validAt,
   });
   assert.deepEqual(preview, {
     kind: "permit",
     proposalId: "proposal.preview",
     status: "ready",
-    wroteBelief: false,
   });
   assert.deepEqual(calls, ["action.propose"]);
-  assert.ok(!calls.includes("action.commit"));
-  assert.ok(!calls.includes("world.recordEvidence"));
 
   calls.length = 0;
   const committed = await recordQuote.commit({
-    inputs: { quoteReference: "commercial.quote.1" },
+    approvalId: "approval.commit",
+    expiresAt,
+    inputs: {
+      quoteReference: { kind: "entity", value: "commercial.quote.1" },
+    },
     operationId: "operation.commit",
     proposalId: "proposal.commit",
     resourceId: "commercial.orderLine.1",
+    validAt,
   });
   assert.deepEqual(committed, {
     kind: "committed",
@@ -165,8 +186,6 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
     recordIds: ["record.1"],
   });
   assert.deepEqual(calls, ["action.propose", "action.commit"]);
-  assert.ok(!calls.includes("world.recordEvidence"));
-  assert.ok(!calls.includes("action.approve"));
 });
 
 test("commit approves when the proposal is awaiting approval", async () => {
@@ -175,45 +194,53 @@ test("commit approves when the proposal is awaiting approval", async () => {
   const osdk = createOsdkFromCompiled(compiled, {
     actions: fakeActions(calls, ProposalStatus.AWAITING_APPROVAL),
     tenantId: "tenant.a",
+    validAt,
     world: fakeWorld(calls),
   });
   const recordQuote = osdk.actions.recordQuote;
   assert.ok(recordQuote);
   const committed = await recordQuote.commit({
     approvalId: "approval.commit",
-    inputs: { quoteReference: "commercial.quote.1" },
+    expiresAt,
+    inputs: {
+      quoteReference: { kind: "entity", value: "commercial.quote.1" },
+    },
     operationId: "operation.commit",
     proposalId: "proposal.commit",
     resourceId: "commercial.orderLine.1",
+    validAt,
   });
   assert.equal(committed.kind, "committed");
   assert.deepEqual(calls, ["action.propose", "action.approve", "action.commit"]);
 });
 
-const commercialUsageSource = `import type { OrderLine, OsdkObjects } from "./objects.js";
+const commercialUsageSource = `import type { ExactValue } from "@zoen/ontology";
+import type { OrderLine, OsdkObjects } from "./objects.js";
 import type { OsdkActions } from "./actions.js";
 
 type OrderLineSet = OsdkObjects["OrderLine"];
 type FetchedOrderLine = Awaited<ReturnType<OrderLineSet["fetch"]>>;
 type RequestLink = FetchedOrderLine["links"]["requestReference"];
 type CommitmentLink = FetchedOrderLine["links"]["commitmentReference"];
+type QuotedPrice = FetchedOrderLine["values"]["quotedUnitPrice"];
 type Preview = OsdkActions["recordQuote"]["preview"];
 type Commit = OsdkActions["recordQuote"]["commit"];
 
 type _FetchedIsOrderLine = FetchedOrderLine extends OrderLine ? true : false;
 const fetchedIsOrderLine: _FetchedIsOrderLine = true;
 
-type _HasSingleLink = RequestLink extends { fetch: () => Promise<unknown> }
+type _HasSingleLink = RequestLink extends () => Promise<string | null>
   ? true
   : false;
 const hasSingleLink: _HasSingleLink = true;
 
-type _HasManyLink = CommitmentLink extends {
-  fetchPage: (options?: { readonly limit?: number }) => Promise<unknown>;
-}
+type _HasManyLink = CommitmentLink extends () => Promise<readonly string[]>
   ? true
   : false;
 const hasManyLink: _HasManyLink = true;
+
+type _PriceIsExactValue = QuotedPrice extends ExactValue | null ? true : false;
+const priceIsExactValue: _PriceIsExactValue = true;
 
 type _Distinct = Preview extends Commit
   ? Commit extends Preview
@@ -225,12 +252,13 @@ const previewAndCommitAreDistinct: _Distinct = true;
 export function typecheck(objects: OsdkObjects, actions: OsdkActions): void {
   const orderLines = objects.OrderLine;
   void orderLines.fetch;
-  void orderLines.fetchPage;
+  void orderLines.ids;
   void actions.recordQuote.preview;
   void actions.recordQuote.commit;
   void fetchedIsOrderLine;
   void hasSingleLink;
   void hasManyLink;
+  void priceIsExactValue;
   void previewAndCommitAreDistinct;
 }
 `;
@@ -251,30 +279,30 @@ function commandOutput(error: unknown): string {
 
 function fakeWorld(calls: string[]): OsdkWorld {
   return {
-    async semanticQuery(request: SemanticQueryInit) {
+    async semanticQuery(request: SemanticQueryRequest) {
       calls.push("world.semanticQuery");
-      if (request.query?.case === "byType") {
-        return {
-          values: [
-            {
-              dependencies: [{ entityId: "commercial.orderLine.1" }],
-              value: {
-                value: {
-                  case: "entityRefValue",
-                  value: "commercial.orderLine.1",
-                },
-              },
+      if (request.query.case === "byType") {
+        return queryResponse(
+          "commercial.orderLine.1",
+          create(ExactValueSchema, {
+            value: {
+              case: "entityRefValue",
+              value: "commercial.orderLine.1",
             },
-          ],
-        };
+          }),
+        );
       }
-      if (
-        request.selection?.value?.case === "relationId" &&
-        request.selection.value.value !== undefined
-      ) {
-        return claimsForRelation(request.selection.value.value, request.entityId);
+      if (request.selection?.value.case === "relationId") {
+        return claimsForRelation(
+          request.selection.value.value,
+          request.entityId,
+        );
       }
-      return { values: [] };
+      return create(SemanticQueryResponseSchema, {
+        actualCommitSequence: 0n,
+        knowledgeCut: 0n,
+        values: [],
+      });
     },
   };
 }
@@ -282,31 +310,42 @@ function fakeWorld(calls: string[]): OsdkWorld {
 function claimsForRelation(relationId: string, entityId: string) {
   switch (relationId) {
     case "commercial.quotedUnitPrice":
-      return {
-        values: [
-          {
-            dependencies: [{ entityId }],
-            value: { value: { case: "decimalValue" as const, value: "19.99" } },
-          },
-        ],
-      };
+      return queryResponse(
+        entityId,
+        create(ExactValueSchema, {
+          value: { case: "decimalValue", value: "19.99" },
+        }),
+      );
     case "commercial.requestReference":
-      return {
-        values: [
-          {
-            dependencies: [{ entityId }],
-            value: {
-              value: {
-                case: "entityRefValue" as const,
-                value: "commercial.request.1",
-              },
-            },
+      return queryResponse(
+        entityId,
+        create(ExactValueSchema, {
+          value: {
+            case: "entityRefValue",
+            value: "commercial.request.1",
           },
-        ],
-      };
+        }),
+      );
     default:
-      return { values: [] };
+      return create(SemanticQueryResponseSchema, {
+        actualCommitSequence: 0n,
+        knowledgeCut: 0n,
+        values: [],
+      });
   }
+}
+
+function queryResponse(entityId: string, value: ExactValue) {
+  return create(SemanticQueryResponseSchema, {
+    actualCommitSequence: 0n,
+    knowledgeCut: 0n,
+    values: [
+      create(SemanticValueResultSchema, {
+        dependencies: [create(LineageDependencySchema, { entityId })],
+        value,
+      }),
+    ],
+  });
 }
 
 function fakeActions(
@@ -314,34 +353,36 @@ function fakeActions(
   status: ProposalStatus,
 ): OsdkActionsPort {
   return {
-    async approve(request) {
+    async approve() {
       calls.push("action.approve");
-      return {
+      return create(ApproveResponseSchema, {
         decision: PolicyDecision.PERMIT,
         evaluationError: "",
-      };
+      });
     },
     async commit(request) {
       calls.push("action.commit");
-      return {
-        receipt: {
+      return create(CommitResponseSchema, {
+        collisionKind: CommitIdentityKind.UNSPECIFIED,
+        error: "",
+        receipt: create(CommitReceiptSchema, {
           operationId: request.operationId,
           recordIds: ["record.1"],
-        },
+        }),
         status: CommitStatus.COMMITTED,
-      };
+      });
     },
     async propose(request) {
       calls.push("action.propose");
-      return {
+      return create(ProposeResponseSchema, {
         decision: PolicyDecision.PERMIT,
         evaluationError: "",
-        proposal: {
+        proposal: create(ProposalSchema, {
           operationId: request.operationId,
           proposalId: request.proposalId,
           status,
-        },
-      };
+        }),
+      });
     },
   };
 }

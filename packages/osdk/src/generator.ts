@@ -2,7 +2,7 @@ import type { CompiledDefinition, InputDefinition } from "@zoen/ontology";
 import type { OsdkActionModel, OsdkModel, OsdkTypeModel } from "./model.js";
 import { buildOsdkModel } from "./model.js";
 import { emitPropertyName } from "./names.js";
-import { emitCardinalTypeScript, emitValueTypeScript } from "./values.js";
+import { emitClaimTypeScript, emitExactValueTypeScript } from "./values.js";
 
 export interface GeneratedOsdkModules {
   readonly files: {
@@ -12,13 +12,6 @@ export interface GeneratedOsdkModules {
   };
 }
 
-/**
- * Context: compile a `.zoen.ts` bundle, then emit typed OSDK modules.
- * Inputs: `CompiledDefinition` from `@zoen/ontology`.
- * Outputs: TypeScript modules for `objects.<Type>`, links, and
- * `actions.<Name>.preview` / `actions.<Name>.commit`.
- * Side effects: none. Pure string generation.
- */
 export function generateOsdkModules(
   compiled: CompiledDefinition,
 ): GeneratedOsdkModules {
@@ -38,17 +31,13 @@ function emitObjectsModule(model: OsdkModel): string {
     "export interface OsdkObjects {",
     ...model.types.map(
       (type) =>
-        `  readonly ${emitPropertyName(type.apiName)}: ObjectSet<${type.apiName}>;`,
+        `  readonly ${emitPropertyName(type.apiName)}: TypeQuery<${type.apiName}>;`,
     ),
     "}",
   ].join("\n");
   return `${generatedHeader()}
-import type {
-  ManyLinkAccessor,
-  ObjectSet,
-  OsdkQuantity,
-  SingleLinkAccessor,
-} from "@zoen/osdk";
+import type { ExactValue } from "@zoen/ontology";
+import type { TypeQuery } from "@zoen/osdk";
 
 ${interfaces}
 
@@ -59,15 +48,11 @@ export const osdkDefinition = ${JSON.stringify(definitionDocument(model), null, 
 }
 
 function emitTypeInterfaces(type: OsdkTypeModel): string {
-  const props = [
-    `export interface ${type.apiName}Props {`,
-    ...type.attributes.map(
-      (attribute) =>
-        `  readonly ${emitPropertyName(attribute.apiName)}: ${emitValueTypeScript(attribute.valueType)} | undefined;`,
-    ),
+  const values = [
+    `export interface ${type.apiName}Values {`,
     ...type.props.map(
       (prop) =>
-        `  readonly ${emitPropertyName(prop.apiName)}: ${emitCardinalTypeScript(prop.cardinality, emitValueTypeScript(prop.valueType))};`,
+        `  readonly ${emitPropertyName(prop.apiName)}: ${emitClaimTypeScript(prop.cardinality)};`,
     ),
     "}",
   ].join("\n");
@@ -76,9 +61,9 @@ function emitTypeInterfaces(type: OsdkTypeModel): string {
     ...type.links.map((link) => {
       switch (link.cardinality) {
         case "many":
-          return `  readonly ${emitPropertyName(link.apiName)}: ManyLinkAccessor<${link.targetApiName}>;`;
+          return `  readonly ${emitPropertyName(link.apiName)}: () => Promise<readonly string[]>;`;
         case "one":
-          return `  readonly ${emitPropertyName(link.apiName)}: SingleLinkAccessor<${link.targetApiName}>;`;
+          return `  readonly ${emitPropertyName(link.apiName)}: () => Promise<string | null>;`;
         default: {
           const exhaustive: never = link.cardinality;
           return exhaustive;
@@ -89,14 +74,13 @@ function emitTypeInterfaces(type: OsdkTypeModel): string {
   ].join("\n");
   const object = [
     `export interface ${type.apiName} {`,
-    "  readonly $claimProjection: true;",
-    "  readonly $primaryKey: string;",
-    `  readonly $typeId: ${JSON.stringify(type.typeId)};`,
+    "  readonly entityId: string;",
     `  readonly links: ${type.apiName}Links;`,
-    `  readonly props: ${type.apiName}Props;`,
+    `  readonly typeId: ${JSON.stringify(type.typeId)};`,
+    `  readonly values: ${type.apiName}Values;`,
     "}",
   ].join("\n");
-  return `${props}\n\n${links}\n\n${object}`;
+  return `${values}\n\n${links}\n\n${object}`;
 }
 
 function emitActionsModule(model: OsdkModel): string {
@@ -107,10 +91,10 @@ function emitActionsModule(model: OsdkModel): string {
     "}",
   ].join("\n");
   return `${generatedHeader()}
+import type { ExactValue } from "@zoen/ontology";
 import type {
   ActionCommitResult,
   ActionPreviewResult,
-  OsdkQuantity,
 } from "@zoen/osdk";
 
 ${inputTypes}
@@ -121,7 +105,7 @@ ${actionsType}
 
 function emitActionInputs(action: OsdkActionModel): string {
   const fields = action.action.inputs.map((input) => {
-    return `  readonly ${emitPropertyName(input.id)}: ${emitValueTypeScript(input.valueType)};`;
+    return `  readonly ${emitPropertyName(input.id)}: ${emitExactValueTypeScript()};`;
   });
   return `export interface ${action.apiName}Inputs {\n${fields.join("\n")}\n}`;
 }
@@ -133,25 +117,25 @@ function emitActionHandle(action: OsdkActionModel): string {
      * Propose only. Does not write World claims. Cedar runs on zoend.
      */
     preview(call: {
-      readonly expiresAt?: Date;
+      readonly expiresAt: Date;
       readonly inputs: ${inputs};
       readonly operationId: string;
       readonly proposalId: string;
       readonly resourceId: string;
-      readonly validAt?: Date;
+      readonly validAt: Date;
     }): Promise<ActionPreviewResult>;
     /**
      * Propose → Approve if required → Commit on zoend (Action + Cedar).
      * This client never writes belief through World.recordEvidence.
      */
     commit(call: {
-      readonly approvalId?: string;
-      readonly expiresAt?: Date;
+      readonly approvalId: string;
+      readonly expiresAt: Date;
       readonly inputs: ${inputs};
       readonly operationId: string;
       readonly proposalId: string;
       readonly resourceId: string;
-      readonly validAt?: Date;
+      readonly validAt: Date;
     }): Promise<ActionCommitResult>;
   };`;
 }
@@ -160,7 +144,7 @@ function emitIndexModule(model: OsdkModel): string {
   const objectExports = model.types
     .map(
       (type) =>
-        `  ${type.apiName},\n  ${type.apiName}Links,\n  ${type.apiName}Props,`,
+        `  ${type.apiName},\n  ${type.apiName}Links,\n  ${type.apiName}Values,`,
     )
     .join("\n");
   const actionExports = model.actions
@@ -191,13 +175,9 @@ function definitionDocument(model: OsdkModel) {
     revision: model.revision,
     types: model.types.map((type) => ({
       apiName: type.apiName,
-      attributes: type.attributes.map((attribute) => ({
-        apiName: attribute.apiName,
-        valueType: attribute.valueType,
-      })),
       links: type.links,
-      props: type.props,
       typeId: type.typeId,
+      values: type.props,
     })),
   };
 }
@@ -208,6 +188,6 @@ function inputDocument(input: InputDefinition) {
 
 function generatedHeader(): string {
   return `// Generated by @zoen/osdk from a compiled .zoen.ts definition.
-// Objects are projections of World claims, not a second store.
+// objects.<Type> is a SemanticQuery helper. Links walk relations to entity ids.
 // Belief writes go through actions.preview / actions.commit (zoend Action + Cedar).`;
 }

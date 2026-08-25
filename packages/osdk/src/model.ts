@@ -168,13 +168,3 @@ function sortByApiName<T extends { readonly apiName: string }>(
   );
 }
 
-export function typeModelById(
-  model: OsdkModel,
-  typeId: string,
-): OsdkTypeModel {
-  const found = model.types.find((type) => type.typeId === typeId);
-  if (found === undefined) {
-    throw new Error(`unknown OSDK type id ${typeId}`);
-  }
-  return found;
-}
