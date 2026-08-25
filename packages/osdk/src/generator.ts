@@ -142,6 +142,7 @@ function emitActionHandle(action: OsdkActionModel): string {
       readonly expiresAt: Date;
       readonly inputs: ${inputs};
       readonly operationId: string;
+      readonly previewHash: string;
       readonly proposalId: string;
       readonly resourceId: string;
       readonly validAt: Date;

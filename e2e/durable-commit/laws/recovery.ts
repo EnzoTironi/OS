@@ -91,6 +91,7 @@ export async function verifyRecovery(
   });
   const doomedClient = startCommitProcess({
     operationId: "operation.client-death",
+    previewHash: clientDeathProposal.proposal.previewHash,
     proposalId: "proposal.client-death",
     token: scenario.agentAToken,
   });
@@ -138,6 +139,7 @@ export async function verifyRecovery(
   });
   const interruptedClient = startCommitProcess({
     operationId: "operation.server-death",
+    previewHash: serverDeathProposal.proposal.previewHash,
     proposalId: "proposal.server-death",
     token: scenario.agentAToken,
   });

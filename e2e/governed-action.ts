@@ -15,16 +15,21 @@ import {
   actionId,
   activateDefinition,
   adminDatabaseUrl,
+  approveProposal,
   assertPolicy,
   command,
   composeOutput,
+  commitProposal,
   corruptToken,
   databaseSnapshot,
   definitionClient,
   definitionId,
   delay,
   expectConnectCode,
+  flippedPreviewHash,
   generatedDirectory,
+  isPreviewHash,
+  leaksInternalId,
   loadFixture,
   millisecondsFromNow,
   minutesFromNow,
@@ -43,6 +48,7 @@ import {
   tenantA,
   tenantB,
   textInput,
+  unboundActionClient,
   unrelatedResourceId,
   worldClient,
   writePolicyManifest,
@@ -241,6 +247,45 @@ async function main(): Promise<void> {
     assert.equal(directProposal.status, ProposalStatus.READY);
     assert.equal(directProposal.stateBasis?.dependencies.length, 1);
     assertPolicy(directProposal.policy, fixtures.direct);
+    recordAssertion(
+      "proposeReturnsPreviewHash",
+      isPreviewHash(directProposal.previewHash),
+    );
+    recordAssertion(
+      "proposeReturnsPortuguesePreviewWithoutIds",
+      directProposal.canonicalPreviewText ===
+        "Vou executar requestStock com quantidade 2." &&
+        !leaksInternalId(directProposal.canonicalPreviewText),
+    );
+    const rawActionA = unboundActionClient(agentAToken);
+    const missingPreview = await rawActionA.commit({
+      operationId: "operation.direct",
+      proposalId: "proposal.direct",
+    });
+    assert.equal(missingPreview.status, CommitStatus.PREVIEW_MISMATCH);
+    const tamperedPreview = await commitProposal(actionA, directProposal, {
+      previewHash: flippedPreviewHash(directProposal.previewHash),
+    });
+    assert.equal(tamperedPreview.status, CommitStatus.PREVIEW_MISMATCH);
+    const stalePreviewSource = await propose(actionA, {
+      expiresAt: minutesFromNow(5),
+      fixture: fixtures.direct,
+      operationId: "operation.previewStale",
+      proposalId: "proposal.previewStale",
+      quantity: "3",
+    });
+    assert.ok(stalePreviewSource.proposal);
+    const stalePreview = await commitProposal(actionA, directProposal, {
+      previewHash: stalePreviewSource.proposal.previewHash,
+    });
+    assert.equal(stalePreview.status, CommitStatus.PREVIEW_MISMATCH);
+    recordAssertion(
+      "previewHashGateRejectsMissingTamperedAndStale",
+      missingPreview.status === CommitStatus.PREVIEW_MISMATCH &&
+        tamperedPreview.status === CommitStatus.PREVIEW_MISMATCH &&
+        stalePreview.status === CommitStatus.PREVIEW_MISMATCH &&
+        stalePreviewSource.proposal.previewHash !== directProposal.previewHash,
+    );
     const beforeReservedClaim = await databaseSnapshot(admin, tenantA);
     const reservedClaimCode = await expectConnectCode(
       () =>
@@ -256,10 +301,7 @@ async function main(): Promise<void> {
     const afterReservedClaim = await databaseSnapshot(admin, tenantA);
     assert.deepEqual(afterReservedClaim, beforeReservedClaim);
     recordFailureInjection("reserved-action-claim-id");
-    const directCommit = await actionA.commit({
-      operationId: "operation.direct",
-      proposalId: "proposal.direct",
-    });
+    const directCommit = await commitProposal(actionA, directProposal);
     assert.equal(directCommit.status, CommitStatus.COMMITTED);
     assert.ok(directCommit.receipt);
     assertPolicy(directCommit.receipt.policy, fixtures.direct);
@@ -272,7 +314,7 @@ async function main(): Promise<void> {
       directStatus.receipt?.intentDigest,
       directCommit.receipt.intentDigest,
     );
-    const directReplay = await actionA.commit({
+    const directReplay = await rawActionA.commit({
       operationId: "operation.direct",
       proposalId: "proposal.direct",
     });
@@ -295,6 +337,12 @@ async function main(): Promise<void> {
       directReplay.receipt?.commitSequence ===
         directCommit.receipt.commitSequence,
     );
+    recordAssertion(
+      "replayWithoutPreviewHashReturnsReceipt",
+      directReplay.status === CommitStatus.COMMITTED &&
+        directReplay.receipt?.commitSequence ===
+          directCommit.receipt.commitSequence,
+    );
 
     const duplicateIntent = await propose(actionA, {
       expiresAt: minutesFromNow(5),
@@ -307,10 +355,11 @@ async function main(): Promise<void> {
       duplicateIntent.proposal?.intentDigest,
       directCommit.receipt.intentDigest,
     );
-    const duplicateIntentCommit = await actionA.commit({
-      operationId: "operation.duplicateIntent",
-      proposalId: "proposal.duplicateIntent",
-    });
+    assert.ok(duplicateIntent.proposal);
+    const duplicateIntentCommit = await commitProposal(
+      actionA,
+      duplicateIntent.proposal,
+    );
     assert.equal(duplicateIntentCommit.status, CommitStatus.COMMITTED);
     assert.ok(duplicateIntentCommit.receipt);
     assert.deepEqual(
@@ -340,10 +389,10 @@ async function main(): Promise<void> {
       quantity: "2",
     });
     assert.ok(selfMutating.proposal);
-    const selfMutatingCommit = await actionA.commit({
-      operationId: "operation.selfMutating",
-      proposalId: "proposal.selfMutating",
-    });
+    const selfMutatingCommit = await commitProposal(
+      actionA,
+      selfMutating.proposal,
+    );
     assert.equal(selfMutatingCommit.status, CommitStatus.COMMITTED);
     const selfMutatingReplay = await actionA.commit({
       operationId: "operation.selfMutating",
@@ -446,26 +495,40 @@ async function main(): Promise<void> {
       human.proposal.proposedAt?.seconds,
     );
     const humanApprovalExpiresAt = minutesFromNow(4);
-    const humanApproval = await approverA.approve({
+    const humanProposal = humanRetry.proposal;
+    assert.ok(humanProposal);
+    const flippedHumanApproveCode = await expectConnectCode(
+      () =>
+        approveProposal(
+          approverA,
+          humanProposal,
+          {
+            approvalId: "approval.human.flipped",
+            expiresAt: timestampFromDate(humanApprovalExpiresAt),
+          },
+          { previewHash: flippedPreviewHash(humanProposal.previewHash) },
+        ),
+      Code.InvalidArgument,
+    );
+    recordAssertion(
+      "approveRejectsFlippedPreviewHash",
+      flippedHumanApproveCode === Code.InvalidArgument,
+    );
+    const humanApproval = await approveProposal(approverA, humanProposal, {
       approvalId: "approval.human",
       expiresAt: timestampFromDate(humanApprovalExpiresAt),
-      proposalId: "proposal.human",
     });
     assert.equal(humanApproval.decision, PolicyDecision.PERMIT);
     assert.equal(humanApproval.approval?.approvedBy, "actor.approver.a");
-    const humanApprovalRetry = await approverA.approve({
+    const humanApprovalRetry = await approveProposal(approverA, humanProposal, {
       approvalId: "approval.human",
       expiresAt: timestampFromDate(humanApprovalExpiresAt),
-      proposalId: "proposal.human",
     });
     assert.equal(
       humanApprovalRetry.approval?.approvedAt?.seconds,
       humanApproval.approval?.approvedAt?.seconds,
     );
-    const humanCommit = await actionA.commit({
-      operationId: "operation.human",
-      proposalId: "proposal.human",
-    });
+    const humanCommit = await commitProposal(actionA, humanProposal);
     assert.equal(humanCommit.status, CommitStatus.COMMITTED);
     const authorityBasis = (
       await admin.query<{
@@ -532,7 +595,8 @@ async function main(): Promise<void> {
       proposalId: "proposal.approvalBounds",
       quantity: "2",
     });
-    assert.ok(boundedProposal.proposal);
+    const boundedHumanProposal = boundedProposal.proposal;
+    assert.ok(boundedHumanProposal);
     const approvalsBeforeBounds = await rowCount(
       admin,
       "action_approvals",
@@ -540,10 +604,9 @@ async function main(): Promise<void> {
     );
     const approvalBoundsCode = await expectConnectCode(
       () =>
-        approverA.approve({
+        approveProposal(approverA, boundedHumanProposal, {
           approvalId: "approval.outsideBounds",
           expiresAt: timestampFromDate(minutesFromNow(2)),
-          proposalId: "proposal.approvalBounds",
         }),
       Code.FailedPrecondition,
     );
@@ -567,21 +630,22 @@ async function main(): Promise<void> {
       proposalId: "proposal.expiredApproval",
       quantity: "2",
     });
-    assert.ok(expiringProposal.proposal);
-    const expiringApproval = await approverA.approve({
-      approvalId: "approval.expired",
-      expiresAt: timestampFromDate(millisecondsFromNow(1_000)),
-      proposalId: "proposal.expiredApproval",
-    });
+    const expiringHumanProposal = expiringProposal.proposal;
+    assert.ok(expiringHumanProposal);
+    const expiringApproval = await approveProposal(
+      approverA,
+      expiringHumanProposal,
+      {
+        approvalId: "approval.expired",
+        expiresAt: timestampFromDate(millisecondsFromNow(1_000)),
+      },
+    );
     assert.equal(expiringApproval.decision, PolicyDecision.PERMIT);
     await delay(1_200);
     const beforeExpiredCommit = await databaseSnapshot(admin, tenantA);
     const expiredApprovalCode = await expectConnectCode(
       () =>
-        actionA.commit({
-          operationId: "operation.expiredApproval",
-          proposalId: "proposal.expiredApproval",
-        }),
+        commitProposal(actionA, expiringHumanProposal),
       Code.FailedPrecondition,
     );
     const afterExpiredCommit = await databaseSnapshot(admin, tenantA);
@@ -601,11 +665,11 @@ async function main(): Promise<void> {
       quantity: "2",
     });
     assert.ok(stale.proposal?.stateBasis);
+    assert.ok(stale.proposal);
     assert.equal(stale.proposal.stateBasis.digest, humanBasisDigest);
-    await approverA.approve({
+    await approveProposal(approverA, stale.proposal, {
       approvalId: "approval.stale",
       expiresAt: timestampFromDate(minutesFromNow(4)),
-      proposalId: "proposal.stale",
     });
     await recordAvailable(worldA, {
       claimId: "claim.available.changed.a",
@@ -615,10 +679,7 @@ async function main(): Promise<void> {
       value: "6",
     });
     const beforeStaleCommit = await databaseSnapshot(admin, tenantA);
-    const staleCommit = await actionA.commit({
-      operationId: "operation.stale",
-      proposalId: "proposal.stale",
-    });
+    const staleCommit = await commitProposal(actionA, stale.proposal);
     assert.equal(staleCommit.status, CommitStatus.STALE);
     assert.ok(staleCommit.currentStateBasis);
     assert.notEqual(staleCommit.currentStateBasis.digest, humanBasisDigest);
@@ -644,15 +705,15 @@ async function main(): Promise<void> {
       underChangedState.proposal?.stateBasis?.digest,
       staleCommit.currentStateBasis.digest,
     );
-    await approverA.approve({
+    assert.ok(underChangedState.proposal);
+    await approveProposal(approverA, underChangedState.proposal, {
       approvalId: "approval.changed",
       expiresAt: timestampFromDate(minutesFromNow(4)),
-      proposalId: "proposal.changed",
     });
-    const changedCommit = await actionA.commit({
-      operationId: "operation.changed",
-      proposalId: "proposal.changed",
-    });
+    const changedCommit = await commitProposal(
+      actionA,
+      underChangedState.proposal,
+    );
     assert.equal(changedCommit.status, CommitStatus.COMMITTED);
     recordAssertion(
       "secondProposalUnderChangedStateCommitted",
@@ -808,10 +869,10 @@ async function main(): Promise<void> {
     );
     const afterForeignOperation = await databaseSnapshot(admin, tenantA);
     assert.deepEqual(afterForeignOperation, beforeForeignOperation);
-    const foreignRecovery = await actionA.commit({
-      operationId: "operation.foreign",
-      proposalId: "proposal.foreign",
-    });
+    const foreignRecovery = await commitProposal(
+      actionA,
+      foreignOperation.proposal,
+    );
     assert.equal(foreignRecovery.status, CommitStatus.COMMITTED);
     recordFailureInjection("foreign-operation-identity");
     recordAssertion(
@@ -848,15 +909,16 @@ async function main(): Promise<void> {
       quantity: "3",
     });
     assert.ok(tenantBCollision.proposal);
-    const tenantBCommit = await actionB.commit({
-      operationId: "operation.tenantCollision",
-      proposalId: "proposal.tenantCollision",
-    });
+    const tenantBCommit = await commitProposal(
+      actionB,
+      tenantBCollision.proposal,
+    );
     assert.equal(tenantBCommit.status, CommitStatus.COMMITTED);
-    const tenantACommit = await actionA.commit({
-      operationId: "operation.tenantCollision",
-      proposalId: "proposal.tenantCollision",
-    });
+    assert.ok(tenantACollision.proposal);
+    const tenantACommit = await commitProposal(
+      actionA,
+      tenantACollision.proposal,
+    );
     assert.equal(tenantACommit.status, CommitStatus.COMMITTED);
     const crossTenantDefinitionCode = await expectConnectCode(
       () =>

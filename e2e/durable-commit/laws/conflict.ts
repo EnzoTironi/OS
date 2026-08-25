@@ -39,11 +39,13 @@ export async function verifyConflictingCas(
   const conflictingRace = await Promise.all([
     runCommitProcess({
       operationId: "operation.conflict.a",
+      previewHash: conflictingProposalA.proposal.previewHash,
       proposalId: "proposal.conflict.a",
       token: scenario.agentAToken,
     }),
     runCommitProcess({
       operationId: "operation.conflict.b",
+      previewHash: conflictingProposalB.proposal.previewHash,
       proposalId: "proposal.conflict.b",
       token: scenario.agentAToken,
     }),

@@ -72,6 +72,7 @@ test("generated OSDK typechecks objects.OrderLine and a link accessor", async ()
   );
   assert.match(modules.files["actions.ts"], /preview\(call:/);
   assert.match(modules.files["actions.ts"], /approvalId: string/);
+  assert.match(modules.files["actions.ts"], /previewHash: string/);
   assert.match(modules.files["actions.ts"], /recordQuote/);
 
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "zoen-osdk-"));
@@ -212,6 +213,8 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
   });
   assert.deepEqual(preview, {
     kind: "permit",
+    previewHash: "a".repeat(64),
+    previewText: "Vou executar recordQuote.",
     proposalId: "proposal.preview",
     status: "ready",
   });
@@ -225,6 +228,7 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
       quoteReference: { kind: "entity", value: "commercial.quote.1" },
     },
     operationId: "operation.commit",
+    previewHash: "a".repeat(64),
     proposalId: "proposal.commit",
     resourceId: "commercial.orderLine.1",
     validAt,
@@ -232,9 +236,111 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
   assert.deepEqual(committed, {
     kind: "committed",
     operationId: "operation.commit",
+    previewText: "Vou executar recordQuote.",
     recordIds: ["record.1"],
   });
   assert.deepEqual(calls, ["action.propose", "action.commit"]);
+});
+
+test("commit reports preview_mismatch without mutating", async () => {
+  const compiled = await compileDefinition(commercialDefinition);
+  const calls: string[] = [];
+  const osdk = createOsdkFromCompiled(compiled, {
+    actions: {
+      ...fakeActions(calls, ProposalStatus.READY),
+      async commit(request) {
+        calls.push("action.commit");
+        assert.match(request.previewHash, /^[0-9a-f]{64}$/);
+        return create(CommitResponseSchema, {
+          collisionKind: CommitIdentityKind.UNSPECIFIED,
+          error: "preview hash does not match the stored proposal",
+          status: CommitStatus.PREVIEW_MISMATCH,
+        });
+      },
+    },
+    tenantId: "tenant.a",
+    validAt,
+    world: fakeWorld(calls),
+  });
+  const recordQuote = osdk.actions.recordQuote;
+  assert.ok(recordQuote);
+  const rejected = await recordQuote.commit({
+    approvalId: "approval.commit",
+    expiresAt,
+    inputs: {
+      quoteReference: { kind: "entity", value: "commercial.quote.1" },
+    },
+    operationId: "operation.commit",
+    previewHash: "a".repeat(64),
+    proposalId: "proposal.commit",
+    resourceId: "commercial.orderLine.1",
+    validAt,
+  });
+  assert.deepEqual(rejected, {
+    kind: "preview_mismatch",
+    message: "preview hash does not match the stored proposal",
+  });
+  assert.deepEqual(calls, ["action.propose", "action.commit"]);
+});
+
+test("commit without a presented previewHash fails closed", async () => {
+  const compiled = await compileDefinition(commercialDefinition);
+  const calls: string[] = [];
+  const osdk = createOsdkFromCompiled(compiled, {
+    actions: fakeActions(calls, ProposalStatus.READY),
+    tenantId: "tenant.a",
+    validAt,
+    world: fakeWorld(calls),
+  });
+  const recordQuote = osdk.actions.recordQuote;
+  assert.ok(recordQuote);
+  const rejected = await recordQuote.commit({
+    approvalId: "approval.commit",
+    expiresAt,
+    inputs: {
+      quoteReference: { kind: "entity", value: "commercial.quote.1" },
+    },
+    operationId: "operation.commit",
+    previewHash: "",
+    proposalId: "proposal.commit",
+    resourceId: "commercial.orderLine.1",
+    validAt,
+  });
+  assert.deepEqual(rejected, {
+    kind: "preview_mismatch",
+    message: "preview hash does not match the stored proposal",
+  });
+  assert.deepEqual(calls, ["action.propose"]);
+});
+
+test("commit refuses a confirmed hash that does not match Propose", async () => {
+  const compiled = await compileDefinition(commercialDefinition);
+  const calls: string[] = [];
+  const osdk = createOsdkFromCompiled(compiled, {
+    actions: fakeActions(calls, ProposalStatus.READY),
+    tenantId: "tenant.a",
+    validAt,
+    world: fakeWorld(calls),
+  });
+  const recordQuote = osdk.actions.recordQuote;
+  assert.ok(recordQuote);
+  const rejected = await recordQuote.commit({
+    approvalId: "approval.commit",
+    expiresAt,
+    inputs: {
+      quoteReference: { kind: "entity", value: "commercial.quote.1" },
+    },
+    operationId: "operation.commit",
+    previewHash: "b".repeat(64),
+    proposalId: "proposal.commit",
+    resourceId: "commercial.orderLine.1",
+    validAt,
+  });
+  assert.deepEqual(rejected, {
+    kind: "preview_mismatch",
+    message: "preview hash does not match the stored proposal",
+  });
+  assert.deepEqual(calls, ["action.propose"]);
 });
 
 test("commit approves when the proposal is awaiting approval", async () => {
@@ -255,6 +361,7 @@ test("commit approves when the proposal is awaiting approval", async () => {
       quoteReference: { kind: "entity", value: "commercial.quote.1" },
     },
     operationId: "operation.commit",
+    previewHash: "a".repeat(64),
     proposalId: "proposal.commit",
     resourceId: "commercial.orderLine.1",
     validAt,
@@ -514,7 +621,9 @@ function fakeActions(
         decision: PolicyDecision.PERMIT,
         evaluationError: "",
         proposal: create(ProposalSchema, {
+          canonicalPreviewText: "Vou executar recordQuote.",
           operationId: request.operationId,
+          previewHash: "a".repeat(64),
           proposalId: request.proposalId,
           status,
         }),

@@ -1,5 +1,6 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
+import { speakerPreviewLeaksInternalIds } from "./action-preview.js";
 import type {
   PersonalWriteKind,
   SpeakerActionClient,
@@ -166,7 +167,9 @@ async function commitPersonalWrite(
   kind: PersonalWriteKind,
   body: string,
   dueAt?: string,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<
+  { ok: true; previewText: string } | { ok: false; reason: string }
+> {
   if (actions === undefined) {
     scratch.writeFail = kind;
     return { ok: false, reason: "action client missing" };
@@ -177,7 +180,11 @@ async function commitPersonalWrite(
       scratch.writeFail = kind;
       return { ok: false, reason: result.message };
     }
-    return { ok: true };
+    if (speakerPreviewLeaksInternalIds(result.previewText)) {
+      scratch.writeFail = kind;
+      return { ok: false, reason: "preview text leaked an internal identifier" };
+    }
+    return { ok: true, previewText: result.previewText };
   } catch (error: unknown) {
     scratch.writeFail = kind;
     const message = error instanceof Error ? error.message : "action commit failed";

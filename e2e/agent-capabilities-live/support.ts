@@ -35,6 +35,7 @@ import {
   ActionInputSchema,
   ActionService,
 } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { bindActionPreviewHash } from "../action-preview-bind.js";
 import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import { HistoryService } from "../../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
 import {
@@ -342,7 +343,7 @@ export async function oidcToken(clientId: string): Promise<string> {
 }
 
 export function actionClient(token: string): ActionClient {
-  return createClient(ActionService, transport(token));
+  return bindActionPreviewHash(createClient(ActionService, transport(token)));
 }
 
 export function definitionClient(token: string): DefinitionClient {

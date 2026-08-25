@@ -159,6 +159,10 @@ export interface InteractionControl {
   readonly actionRef?: SealedActionRef;
   readonly stepUpSessionId?: StepUpSessionId;
   readonly sealedAudienceKind?: AudienceObservation["kind"];
+  /** Kernel preview text. Safe to speak. Never an internal id. */
+  readonly previewText?: string;
+  /** Hash binding. Host-only. Never rendered. */
+  readonly previewHash?: string;
 }
 
 /** Structurally matches Surface ActionRef; kept local to avoid React coupling. */
@@ -220,6 +224,8 @@ export interface ApprovalControl {
   readonly consumedAt?: string;
   readonly stepUpSessionId?: StepUpSessionId;
   readonly sealedAudienceKind: AudienceObservation["kind"];
+  readonly previewText?: string;
+  readonly previewHash?: string;
 }
 
 export interface IssueApprovalControlInput {
@@ -233,6 +239,8 @@ export interface IssueApprovalControlInput {
   readonly assurance: AssuranceGate;
   readonly expiresAt: string;
   readonly sealedAudienceKind: AudienceObservation["kind"];
+  readonly previewText?: string;
+  readonly previewHash?: string;
 }
 
 export interface AudienceDisclosureInput {

@@ -280,6 +280,8 @@ class ZoenConnectAuthority implements AgentAuthority {
     const base = {
       intentDigest: proposal.intentDigest,
       policy: requiredPolicyEvidence(proposal.policy),
+      previewHash: proposal.previewHash,
+      previewText: proposal.canonicalPreviewText,
       proposalId: proposal.proposalId,
     };
     switch (proposal.status) {
@@ -328,6 +330,7 @@ class ZoenConnectAuthority implements AgentAuthority {
 
     const response = await this.#actionClient.commit({
       operationId: command.operationId,
+      previewHash: command.previewHash,
       proposalId: command.proposalId,
     });
     if (
@@ -789,6 +792,7 @@ function rejectedCommitReason(
   | "evaluation_error"
   | "identity_collision"
   | "operation_mismatch"
+  | "preview_mismatch"
   | "stale" {
   switch (status) {
     case CommitStatus.STALE:
@@ -803,6 +807,8 @@ function rejectedCommitReason(
       return "operation_mismatch";
     case CommitStatus.IDENTITY_COLLISION:
       return "identity_collision";
+    case CommitStatus.PREVIEW_MISMATCH:
+      return "preview_mismatch";
     case CommitStatus.COMMITTED:
       throw new Error("committed Action returned no receipt");
     case CommitStatus.UNSPECIFIED:

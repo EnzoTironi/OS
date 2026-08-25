@@ -16,6 +16,7 @@ use zoen_core::{
     ValueType, evaluate_expression, expression_relations,
 };
 
+use crate::action_preview::{bind_proposal_preview, build_action_preview, preview_hash};
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
 
 mod state_basis;
@@ -145,6 +146,7 @@ pub enum ApproveOutcome {
         message: String,
         policy: Option<PolicyEvidence>,
     },
+    PreviewMismatch,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -157,6 +159,7 @@ pub enum CommitOutcome {
     },
     IdentityCollision(CommitIdentityKind),
     OperationMismatch,
+    PreviewMismatch,
     Stale(StateBasis),
 }
 
@@ -432,15 +435,20 @@ where
             }
         };
         let intent_digest = intent_digest(context, &command, &state_basis)?;
+        let preview =
+            build_action_preview(&command.action_id, &command.resource_id, &command.inputs);
+        let preview_hash = preview_hash(&preview)?;
         let proposal = ActionProposal {
             action_id: command.action_id,
             authority,
+            canonical_preview_text: preview.canonical_preview_text,
             definition: command.definition,
             execution: command.execution,
             expires_at: command.expires_at,
             inputs: command.inputs,
             intent_digest,
             operation_id: command.operation_id,
+            preview_hash,
             proposal_id: command.proposal_id,
             proposed_at: command.proposed_at,
             proposed_by: context.clone(),
@@ -463,12 +471,25 @@ where
         approval_id: ApprovalId,
         approved_at: TimestampMicros,
         expires_at: TimestampMicros,
+        preview_hash: Option<&str>,
     ) -> Result<ApproveOutcome, ActionError> {
         let proposal = self
             .store
             .get_proposal(context, proposal_id)
             .await
             .map_err(ActionError::Store)?;
+        if bind_proposal_preview(
+            &proposal.action_id,
+            &proposal.resource_id,
+            &proposal.inputs,
+            &proposal.preview_hash,
+            &proposal.canonical_preview_text,
+            preview_hash,
+        )
+        .is_err()
+        {
+            return Ok(ApproveOutcome::PreviewMismatch);
+        }
         if approved_at >= expires_at {
             return Err(ActionError::ApprovalExpired);
         }
@@ -549,6 +570,7 @@ where
         context: &TrustedExecutionContext,
         proposal_id: &ProposalId,
         operation_id: &OperationId,
+        preview_hash: Option<&str>,
         committed_at: TimestampMicros,
     ) -> Result<CommitOutcome, ActionError> {
         let proposal = self
@@ -573,6 +595,19 @@ where
                 return Ok(CommitOutcome::Committed(receipt));
             }
         };
+        if bind_proposal_preview(
+            &proposal.action_id,
+            &proposal.resource_id,
+            &proposal.inputs,
+            &proposal.preview_hash,
+            &proposal.canonical_preview_text,
+            preview_hash,
+        )
+        .is_err()
+        {
+            transaction.rollback().await.map_err(ActionError::Store)?;
+            return Ok(CommitOutcome::PreviewMismatch);
+        }
         if committed_at >= proposal.expires_at {
             transaction.rollback().await.map_err(ActionError::Store)?;
             return Err(ActionError::ExpiredProposal);

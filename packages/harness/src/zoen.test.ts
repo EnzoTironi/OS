@@ -6,6 +6,7 @@ const command = {
   actionId: "inventory.requestStock",
   intentDigest: "a".repeat(64),
   operationId: "operation.1",
+  previewHash: "c".repeat(64),
   proposalId: "proposal.1",
 };
 

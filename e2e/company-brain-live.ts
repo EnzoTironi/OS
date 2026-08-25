@@ -25,6 +25,7 @@ import {
   PolicyDecision,
   ProposalStatus,
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { bindActionPreviewHash } from "./action-preview-bind.js";
 import { DefinitionService } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
 import { HistoryService } from "../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
 import {
@@ -754,7 +755,7 @@ function worldClient(token: string) {
 }
 
 function actionClient(token: string) {
-  return createClient(ActionService, transport(token));
+  return bindActionPreviewHash(createClient(ActionService, transport(token)));
 }
 
 function historyClient(token: string) {

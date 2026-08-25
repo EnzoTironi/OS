@@ -9,7 +9,7 @@ The two-day research scaffolding is intentionally absent from the active source 
 - `Accepted for Architecture v0` on ADR-0001 through ADR-0013 means a semantic law discovered before the V1 synthesis. These decisions are **inherited by V1** unless explicitly superseded by a later ADR.
 - `Accepted for V1` means the production implementation and release verification must assume the decision. A listed revisit condition requires a new ADR; an implementation agent cannot silently choose a different architecture.
 
-When a later ADR narrows an earlier one, the later ADR controls. ADR-0016 promotes DataFusion from an Architecture-v0 candidate to the selected V1 read/compute engine. ADR-0021 strengthens conformance into a no-stub production E2E release law. ADR-0022 supersedes ADR-0020’s “V1 ships enterprise libraries” clause, keeps pre-modeled ERP/web/pack trees on `archive/pre-modeled-erp`, and removes those proofs from default `verify-v1` / `verify-activation` slots. ADR-0023 freezes JCS/`DefinitionDigest` versioning. ADR-0024 removes e2e Restate/JS-sandbox substitutes from production and hardens WhatsApp identity and durable turns.
+When a later ADR narrows an earlier one, the later ADR controls. ADR-0016 promotes DataFusion from an Architecture-v0 candidate to the selected V1 read/compute engine. ADR-0021 strengthens conformance into a no-stub production E2E release law. ADR-0022 supersedes ADR-0020’s “V1 ships enterprise libraries” clause, keeps pre-modeled ERP/web/pack trees on `archive/pre-modeled-erp`, and removes those proofs from default `verify-v1` / `verify-activation` slots. ADR-0023 freezes JCS/`DefinitionDigest` versioning. ADR-0024 removes e2e Restate/JS-sandbox substitutes from production and hardens WhatsApp identity and durable turns. ADR-0025 binds Action commit to `preview_hash`.
 
 ## Semantic constitution
 
@@ -40,6 +40,7 @@ When a later ADR narrows an earlier one, the later ADR controls. ADR-0016 promot
 - [ADR-0022 — Each company brings its own world; pre-modeled ERP packs leave the default product](0022-company-worlds-and-archived-erp-packs.md)
 - [ADR-0023 — JCS RFC 8785 is the DefinitionDigest hasher; never silently rehash history](0023-jcs-rfc8785-and-definition-digest-versioning.md)
 - [ADR-0024 — Production substitutes stay out of live paths](0024-production-sandbox-and-durable-channel-hardening.md)
+- [ADR-0025 — Action preview_hash is SHA-256 of RFC 8785 JCS](0025-action-preview-hash-binding.md)
 
 ## Implementation discipline
 

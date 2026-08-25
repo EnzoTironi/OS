@@ -10,9 +10,9 @@ use zoen_adapters::{
     CedarPolicyEvaluator, PostgresAuthorityStore, WasmtimeComputationExecutor, WasmtimeConfigError,
 };
 use zoen_core::{
-    CapabilityId, ClaimId, ComponentDigest, ComponentExecutionEvidence, ComponentInterface,
-    Consistency, ExecutionContext, ExecutionId, ExecutionResultDigest, ExplanationTarget,
-    IntentDigest, OperationId, ProposalAuthority, ProposalId, SemanticQuery,
+    ActionPreviewHash, CapabilityId, ClaimId, ComponentDigest, ComponentExecutionEvidence,
+    ComponentInterface, Consistency, ExecutionContext, ExecutionId, ExecutionResultDigest,
+    ExplanationTarget, IntentDigest, OperationId, ProposalAuthority, ProposalId, SemanticQuery,
 };
 use zoen_engine::{
     ActionEngine, ActionError, CapabilityManifest, CommitOutcome, ComponentAdmissionError,
@@ -163,6 +163,7 @@ struct ScopedComputationHost {
 struct AuthorizedProposal {
     intent_digest: IntentDigest,
     operation_id: OperationId,
+    preview_hash: ActionPreviewHash,
     proposal_id: ProposalId,
 }
 
@@ -341,6 +342,7 @@ impl ComputationHost for ScopedComputationHost {
                     let authorized = AuthorizedProposal {
                         intent_digest: proposal.intent_digest.clone(),
                         operation_id: proposal.operation_id.clone(),
+                        preview_hash: proposal.preview_hash.clone(),
                         proposal_id: proposal.proposal_id.clone(),
                     };
                     self.proposals
@@ -412,6 +414,7 @@ impl ComputationHost for ScopedComputationHost {
                     &self.context,
                     &request.proposal_id,
                     &request.operation_id,
+                    Some(authorized.preview_hash.as_str()),
                     current_time()?,
                 )
                 .await
@@ -422,6 +425,7 @@ impl ComputationHost for ScopedComputationHost {
                 CommitOutcome::EvaluationError { .. } => HostCommitOutcome::EvaluationError,
                 CommitOutcome::IdentityCollision(_) => HostCommitOutcome::IdentityCollision,
                 CommitOutcome::OperationMismatch => HostCommitOutcome::OperationMismatch,
+                CommitOutcome::PreviewMismatch => HostCommitOutcome::Denied,
                 CommitOutcome::Stale(_) => HostCommitOutcome::Stale,
             })
         })

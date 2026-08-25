@@ -98,8 +98,9 @@ export function createConnectOsdkActions(options: {
 /**
  * Context: speaker writes on personal.memory. Not commercial.sales.
  * Inputs: compiled personal definition plus a live or test Action port.
- * Outputs: Propose then Commit for writeMemory / createReminder.
- * Side effects: Action.propose and Action.commit on zoend. No World writes.
+ * Outputs: Preview then Commit for writeMemory / createReminder.
+ * Side effects: Action.propose twice (preview + commit) and Action.commit.
+ * Commit sends the kernel previewHash. Still one tool turn.
  */
 export function createSpeakerActionClient(
   options: SpeakerActionClientOptions,
@@ -207,11 +208,26 @@ async function commitPersonalAction(input: {
     input.options.definition,
   );
   const handle = actionHandle(compiled, input.actionId, input.options.actions);
+  const proposed = await handle.preview({
+    expiresAt: input.ids.expiresAt,
+    inputs: input.inputs,
+    operationId: input.ids.operationId,
+    proposalId: input.ids.proposalId,
+    resourceId: input.ids.resourceId,
+    validAt: input.ids.validAt,
+  });
+  if (proposed.kind !== "permit") {
+    return {
+      kind: proposed.kind === "deny" ? "denied" : "error",
+      message: proposed.message,
+    };
+  }
   return handle.commit({
     approvalId: input.ids.approvalId,
     expiresAt: input.ids.expiresAt,
     inputs: input.inputs,
     operationId: input.ids.operationId,
+    previewHash: proposed.previewHash,
     proposalId: input.ids.proposalId,
     resourceId: input.ids.resourceId,
     validAt: input.ids.validAt,

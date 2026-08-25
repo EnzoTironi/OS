@@ -6,6 +6,7 @@ import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_
 const environmentSchema = z.object({
   ZOEN_E2E_BASE_URL: z.url(),
   ZOEN_E2E_OPERATION_ID: z.string().min(1),
+  ZOEN_E2E_PREVIEW_HASH: z.string().min(1),
   ZOEN_E2E_PROPOSAL_ID: z.string().min(1),
   ZOEN_E2E_TOKEN: z.string().min(1),
 });
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
   });
   const response = await createClient(ActionService, transport).commit({
     operationId: environment.ZOEN_E2E_OPERATION_ID,
+    previewHash: environment.ZOEN_E2E_PREVIEW_HASH,
     proposalId: environment.ZOEN_E2E_PROPOSAL_ID,
   });
   process.stdout.write(

@@ -202,6 +202,11 @@ impl ActionService for ActionServiceImpl {
             .ok_or_else(|| invalid("expires_at is required"))?
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
+        let preview_hash = if request.preview_hash.is_empty() {
+            None
+        } else {
+            Some(request.preview_hash)
+        };
         let outcome = self
             .engine
             .approve(
@@ -212,6 +217,7 @@ impl ActionService for ActionServiceImpl {
                     .map_err(|error| invalid(error.to_string()))?,
                 now()?,
                 parse_timestamp(&expires_at)?,
+                preview_hash,
             )
             .await
             .map_err(map_action_error)?;
@@ -232,6 +238,9 @@ impl ActionService for ActionServiceImpl {
                 policy: policy.map(to_policy_evidence).into(),
                 ..Default::default()
             }),
+            ApproveOutcome::PreviewMismatch => {
+                Err(invalid("preview hash does not match the stored proposal"))
+            }
         }
     }
 
@@ -250,14 +259,24 @@ impl ActionService for ActionServiceImpl {
             ProposalId::parse(request.proposal_id).map_err(|error| invalid(error.to_string()))?;
         let operation_id =
             OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
+        let preview_hash = if request.preview_hash.is_empty() {
+            None
+        } else {
+            Some(request.preview_hash)
+        };
         let outcome = self
             .engine
-            .commit(&trusted, &proposal_id, &operation_id, now()?)
+            .commit(&trusted, &proposal_id, &operation_id, preview_hash, now()?)
             .await;
         match outcome {
             Ok(CommitOutcome::Committed(receipt)) => Response::ok(CommitResponse {
                 receipt: Some(to_commit_receipt(*receipt)).into(),
                 status: CommitStatus::Committed.into(),
+                ..Default::default()
+            }),
+            Ok(CommitOutcome::PreviewMismatch) => Response::ok(CommitResponse {
+                error: "preview hash does not match the stored proposal".to_owned(),
+                status: CommitStatus::PreviewMismatch.into(),
                 ..Default::default()
             }),
             Ok(CommitOutcome::Stale(current)) => Response::ok(CommitResponse {
@@ -426,9 +445,11 @@ pub(crate) fn to_proposal(proposal: ActionProposal) -> Proposal {
                 ..Default::default()
             })
             .collect(),
+        canonical_preview_text: proposal.canonical_preview_text,
         intent_digest: proposal.intent_digest.as_str().to_owned(),
         operation_id: proposal.operation_id.as_str().to_owned(),
         policy: Some(to_policy_evidence(policy)).into(),
+        preview_hash: proposal.preview_hash.as_str().to_owned(),
         proposal_id: proposal.proposal_id.as_str().to_owned(),
         proposed_at: Some(to_timestamp(proposal.proposed_at)).into(),
         proposed_by: proposal.proposed_by.actor_id().as_str().to_owned(),

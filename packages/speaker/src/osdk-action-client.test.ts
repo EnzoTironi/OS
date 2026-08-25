@@ -72,9 +72,10 @@ test("WriteMemory and CreateReminder Propose+Commit with permissive Cedar become
   assert.deepEqual(noted, {
     kind: "committed",
     operationId: "operation.note",
+    previewText: "Vou guardar esta nota: comprar pão",
     recordIds: ["record.writeMemory"],
   });
-  assert.deepEqual(calls, ["action.propose", "action.commit"]);
+  assert.deepEqual(calls, ["action.propose", "action.propose", "action.commit"]);
   assert.equal(proposed[0]?.actionId, "personal.writeMemory");
   assert.equal(proposed[0]?.resourceId, "personal.note.1");
   assert.deepEqual(
@@ -91,9 +92,10 @@ test("WriteMemory and CreateReminder Propose+Commit with permissive Cedar become
   assert.deepEqual(reminded, {
     kind: "committed",
     operationId: "operation.remind",
+    previewText: "Vou criar este lembrete para amanhã 15h: dentista",
     recordIds: ["record.createReminder"],
   });
-  assert.deepEqual(calls, ["action.propose", "action.commit"]);
+  assert.deepEqual(calls, ["action.propose", "action.propose", "action.commit"]);
   assert.equal(proposed[0]?.actionId, "personal.createReminder");
   assert.equal(proposed[0]?.resourceId, "personal.reminder.1");
   assert.deepEqual(
@@ -144,7 +146,12 @@ function readyActionsPort(
         decision: PolicyDecision.PERMIT,
         evaluationError: "",
         proposal: create(ProposalSchema, {
+          canonicalPreviewText:
+            request.actionId === "personal.createReminder"
+              ? "Vou criar este lembrete para amanhã 15h: dentista"
+              : "Vou guardar esta nota: comprar pão",
           operationId: request.operationId,
+          previewHash: "a".repeat(64),
           proposalId: request.proposalId,
           status: ProposalStatus.READY,
         }),

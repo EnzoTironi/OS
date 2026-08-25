@@ -43,11 +43,13 @@ export async function verifyTenantIsolation(
   const independentRace = await Promise.all([
     runCommitProcess({
       operationId: "operation.independent",
+      previewHash: independentProposalA.proposal.previewHash,
       proposalId: "proposal.independent",
       token: scenario.agentAToken,
     }),
     runCommitProcess({
       operationId: "operation.independent",
+      previewHash: independentProposalB.proposal.previewHash,
       proposalId: "proposal.independent",
       token: scenario.agentBToken,
     }),

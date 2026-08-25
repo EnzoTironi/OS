@@ -4,14 +4,14 @@ use std::fmt::Display;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    ActionApproval, ActionId, ActionInput, ActionProposal, ActorId, ApprovalId, CapabilityId,
-    CapabilityManifestDigest, ClaimId, CommitReceipt, CommitSequence, ComponentDigest,
-    ComponentExecutionEvidence, ComponentInterface, DefinitionDigest, DefinitionId,
-    DefinitionReference, DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId,
-    EffectRequestId, EntityId, EvidenceDigest, ExecutionContext, ExecutionId, InputId,
-    IntentDigest, LineageRole, OperationId, PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision,
-    PolicyRevisionNumber, PrincipalId, ProposalAuthority, ProposalId, RelationId, ResourceId,
-    SourceId, StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
+    ActionApproval, ActionId, ActionInput, ActionPreviewHash, ActionProposal, ActorId, ApprovalId,
+    CapabilityId, CapabilityManifestDigest, ClaimId, CommitReceipt, CommitSequence,
+    ComponentDigest, ComponentExecutionEvidence, ComponentInterface, DefinitionDigest,
+    DefinitionId, DefinitionReference, DefinitionRevisionNumber, DelegationChain, DelegationGrant,
+    DelegationId, EffectRequestId, EntityId, EvidenceDigest, ExecutionContext, ExecutionId,
+    InputId, IntentDigest, LineageRole, OperationId, PolicyDigest, PolicyEvidence, PolicyId,
+    PolicyRevision, PolicyRevisionNumber, PrincipalId, ProposalAuthority, ProposalId, RelationId,
+    ResourceId, SourceId, StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
     TrustedExecutionContext, WorkloadId,
 };
 use zoen_engine::StoreError;
@@ -43,6 +43,24 @@ pub(crate) async fn save_proposal(
         if existing.operation_id == proposal.operation_id
             && existing.intent_digest == proposal.intent_digest
         {
+            if existing.preview_hash.is_uncomputed_placeholder()
+                && existing.canonical_preview_text.is_empty()
+            {
+                sqlx::query(
+                    "UPDATE action_proposals
+                     SET preview_hash = $1, canonical_preview_text = $2
+                     WHERE tenant_id = $3 AND proposal_id = $4",
+                )
+                .bind(proposal.preview_hash.as_str())
+                .bind(&proposal.canonical_preview_text)
+                .bind(context.tenant_id().as_str())
+                .bind(proposal.proposal_id.as_str())
+                .execute(&mut *transaction)
+                .await
+                .map_err(store_unavailable)?;
+                transaction.commit().await.map_err(store_unavailable)?;
+                return Ok(proposal.clone());
+            }
             transaction.commit().await.map_err(store_unavailable)?;
             return Ok(existing);
         }
@@ -72,7 +90,8 @@ pub(crate) async fn save_proposal(
             authority_kind, policy_id, policy_digest, policy_revision,
             determining_policies, state_basis_digest, observed_commit_sequence,
             execution_id, component_digest, component_interface,
-            capability_manifest_digest, capability_ids
+            capability_manifest_digest, capability_ids,
+            preview_hash, canonical_preview_text
          ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
@@ -80,7 +99,8 @@ pub(crate) async fn save_proposal(
             $13, $14, $15,
             $16, $17, $18, $19,
             $20, $21, $22,
-            $23, $24, $25, $26, $27
+            $23, $24, $25, $26, $27,
+            $28, $29
          )",
     )
     .bind(context.tenant_id().as_str())
@@ -145,6 +165,8 @@ pub(crate) async fn save_proposal(
             .map(|capability| capability.as_str().to_owned())
             .collect::<Vec<_>>()
     }))
+    .bind(proposal.preview_hash.as_str())
+    .bind(&proposal.canonical_preview_text)
     .execute(&mut *transaction)
     .await
     .map_err(map_action_insert)?;
@@ -335,7 +357,8 @@ pub(crate) async fn load_proposal(
                 authority_kind, policy_id, policy_digest, policy_revision,
                 determining_policies, state_basis_digest, observed_commit_sequence,
                 execution_id, component_digest, component_interface,
-                capability_manifest_digest, capability_ids
+                capability_manifest_digest, capability_ids,
+                preview_hash, canonical_preview_text
          FROM action_proposals
          WHERE tenant_id = $1 AND proposal_id = $2",
     )
@@ -368,12 +391,15 @@ pub(crate) async fn load_proposal(
     Ok(Some(ActionProposal {
         action_id: ActionId::parse(row_string(&row, "action_id")?).map_err(corrupt)?,
         authority,
+        canonical_preview_text: row_string(&row, "canonical_preview_text")?,
         definition: definition_from_row(&row)?,
         execution: execution_from_row(&row)?,
         expires_at: TimestampMicros::new(row_i64(&row, "expires_at_micros")?),
         inputs: load_inputs(transaction, tenant_id, proposal_id).await?,
         intent_digest: IntentDigest::parse(row_string(&row, "intent_digest")?).map_err(corrupt)?,
         operation_id: OperationId::parse(row_string(&row, "operation_id")?).map_err(corrupt)?,
+        preview_hash: ActionPreviewHash::parse(row_string(&row, "preview_hash")?)
+            .map_err(corrupt)?,
         proposal_id: ProposalId::parse(row_string(&row, "proposal_id")?).map_err(corrupt)?,
         proposed_at: TimestampMicros::new(row_i64(&row, "proposed_at_micros")?),
         proposed_by,

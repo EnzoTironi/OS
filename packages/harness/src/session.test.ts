@@ -106,6 +106,8 @@ test("ready policy uses journaled discovery and ordinary commit", async () => {
     kind: "ready",
     intentDigest: "c".repeat(64),
     policy,
+    previewHash: "e".repeat(64),
+    previewText: "Vou executar requestStock.",
     proposalId: command.proposalId,
   });
   const journal = new RecordingJournal();
@@ -132,6 +134,8 @@ test("out-of-scope Action plans are terminal", async () => {
     kind: "ready",
     intentDigest: "c".repeat(64),
     policy,
+    previewHash: "e".repeat(64),
+    previewText: "Vou executar requestStock.",
     proposalId: command.proposalId,
   });
   const planner = new InventedActionPlanner();
@@ -162,6 +166,8 @@ test("unexpected provider failures become model errors", async () => {
     kind: "ready",
     intentDigest: "c".repeat(64),
     policy,
+    previewHash: "e".repeat(64),
+    previewText: "Vou executar requestStock.",
     proposalId: command.proposalId,
   });
   const planner: ModelPlanner = {
@@ -187,6 +193,8 @@ test("approval and deny policy outcomes stop before commit", async () => {
       kind: "awaiting_approval",
       intentDigest: "c".repeat(64),
       policy,
+      previewHash: "e".repeat(64),
+      previewText: "Vou executar requestStock.",
       proposalId: command.proposalId,
     },
     { kind: "denied", policy },
@@ -201,6 +209,10 @@ test("approval and deny policy outcomes stop before commit", async () => {
       result.kind,
       proposal.kind === "denied" ? "denied" : "awaiting_approval",
     );
+    if (result.kind === "awaiting_approval") {
+      assert.equal(result.previewText, "Vou executar requestStock.");
+      assert.equal(result.previewHash, "e".repeat(64));
+    }
     assert.equal(authority.commitCalls, 0);
   }
 });
@@ -210,6 +222,8 @@ test("journaled scope and provider survive registry unmount", async () => {
     kind: "ready",
     intentDigest: "c".repeat(64),
     policy,
+    previewHash: "e".repeat(64),
+    previewText: "Vou executar requestStock.",
     proposalId: command.proposalId,
   });
   const configured = runtime(authority);
@@ -390,6 +404,7 @@ class FixedAuthority implements AgentAuthority {
       actionId: action.actionId,
       intentDigest: "c".repeat(64),
       operationId: command.operationId,
+      previewHash: "e".repeat(64),
       proposalId: command.proposalId,
     });
     return {

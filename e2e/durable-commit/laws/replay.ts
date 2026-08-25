@@ -52,11 +52,13 @@ export async function verifyReplayAndMismatch(
   const sameOperationRace = await Promise.all([
     runCommitProcess({
       operationId: "operation.same-race",
+      previewHash: sameOperationProposal.proposal.previewHash,
       proposalId: "proposal.same-race",
       token: scenario.agentAToken,
     }),
     runCommitProcess({
       operationId: "operation.same-race",
+      previewHash: sameOperationProposal.proposal.previewHash,
       proposalId: "proposal.same-race",
       token: scenario.agentAToken,
     }),
@@ -201,6 +203,7 @@ export async function verifyReplayAndMismatch(
   });
   const firstCommit = startCommitProcess({
     operationId: "operation.expiring-race",
+    previewHash: expiringProposal.proposal.previewHash,
     proposalId: "proposal.expiring-race",
     token: scenario.agentAToken,
   });

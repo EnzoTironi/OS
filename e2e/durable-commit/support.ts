@@ -42,6 +42,7 @@ export type CommitProcessResult = z.infer<typeof commitResultSchema>;
 
 export interface CommitProcessInput {
   operationId: string;
+  previewHash: string;
   proposalId: string;
   token: string;
 }
@@ -72,6 +73,7 @@ export function startCommitProcess(input: CommitProcessInput): CommitProcess {
       ...process.env,
       ZOEN_E2E_BASE_URL: baseUrl,
       ZOEN_E2E_OPERATION_ID: input.operationId,
+      ZOEN_E2E_PREVIEW_HASH: input.previewHash,
       ZOEN_E2E_PROPOSAL_ID: input.proposalId,
       ZOEN_E2E_TOKEN: input.token,
     },
