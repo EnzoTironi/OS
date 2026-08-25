@@ -3,10 +3,10 @@ import test from "node:test";
 import { z } from "zod";
 import {
   adaptiveSurfaceDocumentSchema,
-} from "../../../archive/packages/surface/src/schema.js";
+} from "./surface/schema.js";
 import {
   type AdaptiveSurfaceModel, type AdaptiveSurfaceSession,
-} from "../../../archive/packages/surface/src/model.js";
+} from "./surface/model.js";
 import {
   generateAdaptiveDecisionSurface,
   type AdaptiveSurfaceSessionPersistence,

@@ -1,3 +1,7 @@
+{{/*
+TanStack web is not in the default main tree. Build this image from
+archive/pre-modeled-erp if you need the archived web process.
+*/}}
 {{- if .Values.applications.enabled }}
 apiVersion: v1
 kind: Service
@@ -36,7 +40,7 @@ spec:
         - name: web
           image: {{ include "zoen.nodeImage" . }}
           imagePullPolicy: Always
-          command: [node, /app/archive/apps/web/.output/server/index.mjs]
+          command: [node, /app/apps/web/.output/server/index.mjs]
           env:
             - name: HOST
               value: 0.0.0.0

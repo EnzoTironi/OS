@@ -31,7 +31,7 @@ import {
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   parseAdaptiveSurfaceSession,
-} from "../archive/packages/surface/src/adaptive.js";
+} from "../packages/harness/src/surface/adaptive.js";
 import {
   actionClient,
   activateDefinition,

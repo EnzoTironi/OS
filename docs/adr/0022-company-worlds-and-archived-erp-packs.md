@@ -13,7 +13,7 @@ That locked the repo into a prebuilt ERP. Companies do not share one Commercial 
 
 ## Decision
 
-Zoen is not a prebuilt SAP. Each company brings its own published definition. Pre-modeled ERP packs and the extra trees that only existed to run those packs leave the default workspace and CI. Git keeps them under `archive/` (rename, not delete).
+Zoen is not a prebuilt SAP. Each company brings its own published definition. Pre-modeled ERP packs and the extra trees that only existed to run those packs leave the default workspace and CI. Git keeps them on the long-lived branch `archive/pre-modeled-erp`. Default `main` does not contain `archive/`.
 
 ### Still live
 
@@ -23,25 +23,25 @@ Zoen is not a prebuilt SAP. Each company brings its own published definition. Pr
 - `packages/speaker`, `packages/transport`
 - `packages/mcp` (deferred; CLI/API first)
 
-### Archive
+### Archive (`archive/pre-modeled-erp`)
 
 - `archive/domain/` — Party, Product, Commercial, Inventory, Procurement, Manufacturing, Quality, Accounting Foundation, fiscal-brazil ontology, sample-company
 - `archive/packages/` — surface, pack, kitchen, onboarding, attention, activation-metrics, effect-worker, workload-ingress
 - `archive/apps/web`
 
-`archive/` is unpublished history plus optional TypeScript projects. Live `tsc -p tsconfig.json` does not include it. Scenarios that still spawn archived processes compile `archive/packages/effect-worker/tsconfig.json` or `archive/domain/fiscal-brazil/tsconfig.json` themselves.
+Those trees are unpublished history. Checkout `archive/pre-modeled-erp` to read or run them. Default live `tsc -p tsconfig.json` does not include them.
 
 ### Live lake
 
-World/OSDK/compiler tests that need an OrderLine-shaped definition compile `packages/ontology/fixtures/commercial.zoen.ts`. That file stays pinned to `archive/domain/commercial/src/commercial.zoen.ts` (`scripts/check-commercial-lake.mjs`). Speaker does not compile it from `process.cwd()`. `createWorldQueryClientFromEnv` requires `ZOEN_WORLD_DEFINITION_PATH` or an injected `CompiledDefinition`.
+World/OSDK/compiler tests that need an OrderLine-shaped definition compile `packages/ontology/fixtures/commercial.zoen.ts`. That file is the source of truth. `scripts/check-commercial-lake.mjs` checks the lake itself and does not require `archive/domain/commercial`. Speaker does not compile it from `process.cwd()`. `createWorldQueryClientFromEnv` requires `ZOEN_WORLD_DEFINITION_PATH` or an injected `CompiledDefinition`.
 
 ### Surface IR
 
-ADR-0012’s law stands: presentation is not business truth; renderer replacement must not change ontology or Action semantics. The `@zoen/surface` package is archived. Live WhatsApp lowers `PresentationIntent` from `packages/transport`. Do not treat archived Surface as a second compiler.
+ADR-0012’s law stands: presentation is not business truth; renderer replacement must not change ontology or Action semantics. The full `@zoen/surface` package lives on `archive/pre-modeled-erp`. The live subset harness needs lives in `packages/harness/src/surface`. Live WhatsApp lowers `PresentationIntent` from `packages/transport`. Do not treat archived Surface as a second compiler.
 
 ### Fiscal adapters
 
-ADR-0020’s provider ports stand. Fiscal HTTP adapters are not live product. Optional `just e2e fiscal-fault-matrix` compiles the archived adapter project before spawn. Live vendors stay parked on #214.
+ADR-0020’s provider ports stand. Fiscal HTTP adapters are not live product. Optional `just e2e fiscal-fault-matrix` runs on `archive/pre-modeled-erp`. Live vendors stay parked on #214.
 
 ### Kitchen
 
@@ -62,9 +62,10 @@ Kitchen is archived. It does not derive live Pack capabilities from arbitrary co
 
 ## Evidence
 
-- PR #399. Parent #324. Lock 2026-08-25.
+- PR #399 archived the trees on `main`. The follow-up moved them onto `archive/pre-modeled-erp` and removed `archive/` from default `main`.
+- Parent #324. Lock 2026-08-25.
 - `packages/ontology/fixtures/commercial.zoen.ts` remains the live lake.
 
 ## Revisit if
 
-Company worlds are only published definition revisions and local `just start` activates a digest instead of any `archive/**/*.zoen.ts`. Then delete remaining archive consumers and keep one synthetic compiler fixture.
+Company worlds are only published definition revisions and local `just start` activates a digest instead of any archived `.zoen.ts`. Then delete remaining archive-branch consumers and keep one synthetic compiler fixture.

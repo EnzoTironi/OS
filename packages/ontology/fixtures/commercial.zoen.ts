@@ -1,7 +1,6 @@
 /**
- * Lake fixture copy of the archived commercial pack.
- * Live Interaction/OSDK World tests compile this file via compileDefinition.
- * The authored package lives in archive/domain/commercial.
+ * Live commercial lake. World/OSDK/compiler tests compile this file.
+ * Historical ERP pack source lives on archive/pre-modeled-erp.
  */
 import {
   defineAction,

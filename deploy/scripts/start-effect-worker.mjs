@@ -15,7 +15,7 @@ for (const name of required) {
 const tokenEndpoint = process.env.ZOEN_EFFECT_TOKEN_ENDPOINT;
 const worker = spawn(
   process.execPath,
-  ["/app/dist/archive/packages/effect-worker/src/index.js"],
+  ["/app/dist/e2e/effects/worker.js"],
   {
     env: {
       ...process.env,

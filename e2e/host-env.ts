@@ -81,8 +81,8 @@ export function e2eGeneratedDirectory(
 }
 
 /**
- * Emit one archived TypeScript project through its own tsconfig.
- * Live `tsc -p tsconfig.json` does not include archive/.
+ * Emit a TypeScript project through its own tsconfig.
+ * Used by optional scenarios that still live on archive/pre-modeled-erp.
  */
 export function compileArchivedTsconfig(
   repositoryRoot: string,
@@ -101,7 +101,7 @@ export function compileArchivedTsconfig(
   );
 }
 
-/** Nitro server entry for the archived TanStack web app. */
+/** Nitro server entry when archive/pre-modeled-erp web is checked out. */
 export function archivedWebServerEntry(repositoryRoot: string): string {
   return path.join(
     repositoryRoot,

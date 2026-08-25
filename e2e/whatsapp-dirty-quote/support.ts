@@ -42,10 +42,10 @@ import {
 import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
 import {
   compileDeterministicSurface,
-} from "../../archive/packages/surface/src/compiler.js";
+} from "../../packages/harness/src/surface/compiler.js";
 import {
   type SurfaceDocument,
-} from "../../archive/packages/surface/src/model.js";
+} from "../../packages/harness/src/surface/model.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,

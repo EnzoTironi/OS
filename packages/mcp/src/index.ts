@@ -7,11 +7,17 @@ import type {
   SemanticCapabilityScope,
   TrustedAgentContext,
 } from "../../harness/src/index.js";
-import type {
-  ProvenancedKnowledge,
-  WorkloadSession,
-} from "../../../archive/packages/workload-ingress/src/index.js";
-import { WorkloadIngressError } from "../../../archive/packages/workload-ingress/src/index.js";
+import {
+  WorkloadIngressError,
+  type ProvenancedKnowledge,
+  type WorkloadSession,
+} from "./workload.js";
+
+export {
+  WorkloadIngressError,
+  type ProvenancedKnowledge,
+  type WorkloadSession,
+} from "./workload.js";
 
 export type ProjectedCapabilityKind =
   | "discover"

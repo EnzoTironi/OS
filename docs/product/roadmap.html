@@ -320,10 +320,10 @@
   <td>experience</td>
   <td>
     <div class="name">Web application</div>
-    <div class="path">archive/apps/web</div>
+    <div class="path">archive/pre-modeled-erp:archive/apps/web</div>
     
   </td>
-  <td>Archived from default workspace and CI. Optional just e2e web-deterministic builds archive/apps/web.</td>
+  <td>Not on default main. Lives on archive/pre-modeled-erp. Optional just e2e web-deterministic there.</td>
   <td>—</td>
 </tr>
 <tr data-status="have">
@@ -331,10 +331,10 @@
   <td>experience</td>
   <td>
     <div class="name">Surface IR package</div>
-    <div class="path">archive/packages/surface</div>
+    <div class="path">packages/harness/src/surface</div>
     
   </td>
-  <td>Archived. Live WhatsApp uses PresentationIntent types in packages/transport. Harness still compiles the archived Surface generator.</td>
+  <td>Live subset is packages/harness/src/surface. Full @zoen/surface package lives on archive/pre-modeled-erp. Live WhatsApp uses PresentationIntent types in packages/transport.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
 <tr data-status="have">
@@ -342,10 +342,10 @@
   <td>experience</td>
   <td>
     <div class="name">Proactive attention package</div>
-    <div class="path">archive/packages/attention</div>
+    <div class="path">archive/pre-modeled-erp:archive/packages/attention</div>
     
   </td>
-  <td>Archived. Transport and speaker do not import it; debounce is local to the turn coordinator.</td>
+  <td>Not on default main. Transport and speaker do not import it; debounce is local to the turn coordinator.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
 <tr data-status="have">
@@ -353,10 +353,10 @@
   <td>ontology</td>
   <td>
     <div class="name">Archived pre-modeled ERP libraries</div>
-    <div class="path">archive/domain/{party,product,commercial,inventory,procurement,manufacturing,quality,accounting-foundation}</div>
+    <div class="path">archive/pre-modeled-erp:archive/domain</div>
     
   </td>
-  <td>Outside default workspace and CI. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* reads archive/domain.</td>
+  <td>Not on default main. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* on archive/pre-modeled-erp.</td>
   <td>—</td>
 </tr>
 <tr data-status="have">
@@ -364,10 +364,10 @@
   <td>packs</td>
   <td>
     <div class="name">Pack compiler, registry, Kitchen</div>
-    <div class="path">archive/packages/pack, archive/packages/kitchen</div>
+    <div class="path">archive/pre-modeled-erp:archive/packages/pack</div>
     
   </td>
-  <td>Archived. Kitchen/pack e2e is optional and not default CI.</td>
+  <td>Not on default main. Kitchen/pack e2e is optional on archive/pre-modeled-erp.</td>
   <td>—</td>
 </tr>
 <tr data-status="have">
@@ -375,10 +375,10 @@
   <td>activation</td>
   <td>
     <div class="name">Sample Company five-minute path</div>
-    <div class="path">archive/domain/sample-company, e2e/activation-sample</div>
+    <div class="path">archive/pre-modeled-erp:archive/domain/sample-company</div>
     
   </td>
-  <td>Pack and ontology live under archive/domain. just start / just e2e activation-sample are optional and not default CI.</td>
+  <td>Not on default main. just start / just e2e activation-sample on archive/pre-modeled-erp.</td>
   <td>—</td>
 </tr>
 <tr data-status="have">
@@ -386,10 +386,10 @@
   <td>activation</td>
   <td>
     <div class="name">Conversational onboarding and messy data</div>
-    <div class="path">archive/packages/onboarding, e2e/activation-onboarding, e2e/company-bootstrap-shadow</div>
+    <div class="path">archive/pre-modeled-erp:archive/packages/onboarding</div>
     
   </td>
-  <td>Archived. just e2e activation-onboarding and company-bootstrap-shadow are optional and not default CI.</td>
+  <td>Not on default main. just e2e activation-onboarding and company-bootstrap-shadow on archive/pre-modeled-erp.</td>
   <td>—</td>
 </tr>
 <tr data-status="have">
@@ -408,10 +408,10 @@
   <td>fiscal</td>
   <td>
     <div class="name">Brazil fiscal HTTP adapters (code)</div>
-    <div class="path">archive/domain/fiscal-brazil/src/adapter/vendors</div>
+    <div class="path">archive/pre-modeled-erp:archive/domain/fiscal-brazil</div>
     
   </td>
-  <td>Archived with the ERP packs. just e2e fiscal-fault-matrix is optional and not default CI. Live homologation is #214.</td>
+  <td>Not on default main. just e2e fiscal-fault-matrix on archive/pre-modeled-erp. Live homologation is #214.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/214">#214</a></td>
 </tr>
 <tr data-status="have">
@@ -537,10 +537,10 @@
   <td>experience</td>
   <td>
     <div class="name">Workshop mini-app lists commercial objects and commits changeCommitment</div>
-    <div class="path">archive/apps/web, archive/packages/surface, e2e/workshop-miniapp</div>
+    <div class="path">archive/pre-modeled-erp, e2e/workshop-miniapp</div>
     
   </td>
-  <td>just e2e workshop-miniapp. SemanticQuery ByType lists commercial.OrderLine. Mini-app renders one object. commercial.changeCommitment commits through Action API. A denied propose still denies.</td>
+  <td>Optional on archive/pre-modeled-erp. just e2e workshop-miniapp there.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/356">#356</a></td>
 </tr>
 <tr data-status="in-flight">

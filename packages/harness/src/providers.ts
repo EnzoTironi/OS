@@ -13,10 +13,10 @@ import {
 import { z } from "zod";
 import {
   adaptiveSurfaceDocumentSchema,
-} from "../../../archive/packages/surface/src/schema.js";
+} from "./surface/schema.js";
 import {
   type AdaptiveSurfaceModel, type AdaptiveSurfaceModelRequest, type AdaptiveSurfaceModelResponse,
-} from "../../../archive/packages/surface/src/model.js";
+} from "./surface/model.js";
 import { projectAssembledForModel } from "./context-source.js";
 import { AgentRegistry, type Registration } from "./registry.js";
 import {

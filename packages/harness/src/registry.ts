@@ -1,4 +1,4 @@
-import type { AdaptiveSurfaceModel } from "../../../archive/packages/surface/src/model.js";
+import type { AdaptiveSurfaceModel } from "./surface/model.js";
 import {
   type CapabilityAlias,
   capabilityAliasForScope,

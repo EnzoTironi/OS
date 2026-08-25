@@ -9,7 +9,7 @@ The two-day research scaffolding is intentionally absent from the active source 
 - `Accepted for Architecture v0` on ADR-0001 through ADR-0013 means a semantic law discovered before the V1 synthesis. These decisions are **inherited by V1** unless explicitly superseded by a later ADR.
 - `Accepted for V1` means the production implementation and release verification must assume the decision. A listed revisit condition requires a new ADR; an implementation agent cannot silently choose a different architecture.
 
-When a later ADR narrows an earlier one, the later ADR controls. ADR-0016 promotes DataFusion from an Architecture-v0 candidate to the selected V1 read/compute engine. ADR-0021 strengthens conformance into a no-stub production E2E release law. ADR-0022 supersedes ADR-0020’s “V1 ships enterprise libraries” clause, parks `@zoen/surface` under `archive/`, and removes archived ERP/web/pack proofs from default `verify-v1` / `verify-activation` slots.
+When a later ADR narrows an earlier one, the later ADR controls. ADR-0016 promotes DataFusion from an Architecture-v0 candidate to the selected V1 read/compute engine. ADR-0021 strengthens conformance into a no-stub production E2E release law. ADR-0022 supersedes ADR-0020’s “V1 ships enterprise libraries” clause, keeps pre-modeled ERP/web/pack trees on `archive/pre-modeled-erp`, and removes those proofs from default `verify-v1` / `verify-activation` slots.
 
 ## Semantic constitution
 
