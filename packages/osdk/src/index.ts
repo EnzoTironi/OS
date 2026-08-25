@@ -42,6 +42,6 @@ export type {
   OsdkDefinitionRef,
   OsdkWorld,
 } from "./ports.js";
-export { queryClaims } from "./query.js";
+export { decodeClaims, queryClaims } from "./query.js";
 export type { ClaimQuery } from "./query.js";
 export { exactValueFromProto, isExactValue } from "./values.js";
