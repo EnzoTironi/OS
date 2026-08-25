@@ -104,6 +104,33 @@ test("entity input compiles to the existing value type", async () => {
   ]);
 });
 
+test("personal.zoen.ts compileDefinition succeeds with all four families", async () => {
+  const compiled = await compileDefinition(
+    path.join(fixtureDirectory, "personal.zoen.ts"),
+  );
+  const document = JSON.parse(compiled.canonicalJson) as {
+    readonly actions: readonly { readonly id: string }[];
+    readonly computations: readonly { readonly id: string }[];
+    readonly id: string;
+    readonly relations: readonly { readonly id: string }[];
+    readonly types: readonly { readonly id: string }[];
+  };
+  assert.equal(document.id, "personal.memory");
+  assert.notEqual(document.id, "commercial.sales");
+  assert.ok(document.types.length > 0);
+  assert.ok(document.relations.length > 0);
+  assert.ok(document.computations.length > 0);
+  assert.ok(document.actions.length > 0);
+  assert.ok(document.types.some((entry) => entry.id === "personal.Note"));
+  assert.ok(document.relations.some((entry) => entry.id === "personal.body"));
+  assert.ok(document.computations.some((entry) => entry.id === "personal.alwaysTrue"));
+  assert.deepEqual(
+    document.actions.map((action) => action.id).sort(),
+    ["personal.createReminder", "personal.writeMemory"],
+  );
+  assert.doesNotMatch(compiled.canonicalJson, /datetime/);
+});
+
 test("entity input rejects an unknown type id", async () => {
   const source = await readFile(
     path.join(fixtureDirectory, "entity-input.zoen.ts"),
