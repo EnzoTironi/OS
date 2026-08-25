@@ -19,6 +19,7 @@ scenario_table=(
   "channel-whatsapp-live:channel-whatsapp-live:"
   "channel-telegram-live:channel-telegram-live:"
   "messaging-conformance-live:messaging-conformance-live:"
+  "live-attention::"
   "company-bootstrap-shadow:company-bootstrap-shadow:"
   "conversational-approval:conversational-approval:"
   "conversational-turn:conversational-turn:"
@@ -209,7 +210,7 @@ run_build() {
 }
 
 require_built() {
-  if [[ "$scenario" != "public-surface" && ! -x target/debug/zoend ]]; then
+  if [[ "$scenario" != "public-surface" && "$scenario" != "live-attention" && ! -x target/debug/zoend ]]; then
     echo "missing target/debug/zoend; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
@@ -230,11 +231,22 @@ require_fiscal_live_environment() {
     source "${HOME}/.config/zoen/linq-sandbox.env"
     set +a
   fi
-  if [[ "$scenario" == "channel-whatsapp-live" && -f "${HOME}/.config/zoen/whatsapp-door.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${HOME}/.config/zoen/whatsapp-door.env"
-    set +a
+  if [[ "$scenario" == "channel-whatsapp-live" || "$scenario" == "live-attention" ]]; then
+    if [[ -f "${HOME}/.config/zoen/whatsapp-door.env" ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      source "${HOME}/.config/zoen/whatsapp-door.env"
+      set +a
+    fi
+    if [[ -f /tmp/zoen-wa-pair/door.env ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      source /tmp/zoen-wa-pair/door.env
+      set +a
+    fi
+    if [[ -z "${ZOEN_WHATSAPP_COMPANION_URL:-}" ]]; then
+      export ZOEN_WHATSAPP_COMPANION_URL="http://127.0.0.1:8081"
+    fi
   fi
   if [[ "$scenario" == "channel-telegram-live" && -f "${HOME}/.config/zoen/telegram-bot.env" ]]; then
     set -a
@@ -366,7 +378,7 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == live-attention || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
       continue
     fi
     resolve_scenario "$name"

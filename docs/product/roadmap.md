@@ -14,7 +14,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | HAVE | DON'T HAVE | STUB ON MAIN | IN FLIGHT | PARKED | HARNESS |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 24 | 1 | 0 | 5 | 2 | 3 |
+| 24 | 0 | 0 | 6 | 2 | 3 |
 
 ## Do next
 
@@ -24,7 +24,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 | 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | In flight. CompanionSession + Chat SDK adapter + zoend HTTP ingress. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Not a dump of go-zoen. |
 | 3 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | In flight. Live Bot API adapter behind MessagingGateway. Advertise fails closed without TELEGRAM_BOT_TOKEN. Webhook is production. Do not restore the fake. |
 | 4 | [#327](https://github.com/EnzoTironi/OS/issues/327) | — | Conformance and substitution against live adapters | In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify. |
-| 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | packages/surface and packages/attention stay. Fake-delivery e2e does not return. |
+| 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | packages/surface and packages/attention stay. Fake-delivery e2e does not return. live-attention proves lowering plus one AttentionItem on createLiveWhatsAppProvider. Paired door still missing. |
 
 ## Gates
 
@@ -63,8 +63,8 @@ On main. Real implementation. This is product.
 | `identity-oidc` | identity | OIDC identity (Keycloak) | just start. just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
 | `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `web-tanstack` | experience | Web application | just start. OIDC login, packs, propose/approve, step-up. | — |
-| `surface-ir` | experience | Surface IR package | Unit tests in packages/surface. Delivery through live channels is #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-| `attention` | experience | Proactive attention package | Package exists with Postgres store. Wake/DM through live channels is #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `surface-ir` | experience | Surface IR package | Unit tests in packages/surface. just e2e live-attention lowers PresentationIntent onto unofficial WhatsApp text plus https. Paired door is still #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `attention` | experience | Proactive attention package | Package exists with Postgres store. just e2e live-attention opens one AttentionItem and one delivery. Restart does not duplicate. Paired door is still #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `ontology-libs` | ontology | V1 ontology libraries | just e2e domain-commercial, domain-inventory-procurement, domain-manufacturing-accounting, domain-quality | — |
 | `pack-compiler` | packs | Pack compiler, registry, Kitchen | just e2e pack-install, pack-registry, pack-kitchen | — |
 | `sample-company` | activation | Sample Company five-minute path | just start. just e2e activation-sample. Effect remote is the named fault-provider harness. | — |
@@ -79,14 +79,6 @@ On main. Real implementation. This is product.
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. ChannelProvider::Linq. toChannelProvider("linq") === "linq". | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
 
-## DON'T HAVE
-
-Not product. Restore issue is the row. Code, if any, lives on the backup branch.
-
-| id | plane | name | proof | issue |
-| --- | --- | --- | --- | ---: |
-| `surface-ir-e2e-live` | channels | Surface IR and Attention e2e on live channels | Packages stay on main. Fake-delivery e2e was removed. Restore on live is #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-
 ## IN FLIGHT
 
 Fail-closed work in an open PR. Do not duplicate.
@@ -98,6 +90,7 @@ Fail-closed work in an open PR. Do not duplicate.
 | `telegram-live` | channels | Telegram channel | just e2e channel-telegram-live. Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
 | `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Cloud API fake stays deleted. | [#326](https://github.com/EnzoTironi/OS/issues/326) |
 | `messaging-conformance-live` | channels | Messaging conformance against live adapters | just e2e messaging-conformance-live. Live unofficial WhatsApp + live Telegram required. Linq optional. Fail closed without TELEGRAM_BOT_TOKEN / ZOEN_WHATSAPP_DOOR_E164 / companion. Fakes stay deleted. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
+| `surface-ir-e2e-live` | channels | Surface IR and Attention e2e on live channels | CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 
 ## PARKED
 

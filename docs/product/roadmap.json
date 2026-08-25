@@ -60,7 +60,7 @@
       "issue": 328,
       "pr": null,
       "title": "Surface IR and Attention on live channels",
-      "note": "packages/surface and packages/attention stay. Fake-delivery e2e does not return."
+      "note": "packages/surface and packages/attention stay. Fake-delivery e2e does not return. live-attention proves lowering plus one AttentionItem on createLiveWhatsAppProvider. Paired door still missing."
     }
   ],
   "rows": [
@@ -194,7 +194,7 @@
       "onMain": true,
       "product": true,
       "path": "packages/surface",
-      "proof": "Unit tests in packages/surface. Delivery through live channels is #328.",
+      "proof": "Unit tests in packages/surface. just e2e live-attention lowers PresentationIntent onto unofficial WhatsApp text plus https. Paired door is still #328.",
       "issue": 328
     },
     {
@@ -205,7 +205,7 @@
       "onMain": true,
       "product": true,
       "path": "packages/attention",
-      "proof": "Package exists with Postgres store. Wake/DM through live channels is #328.",
+      "proof": "Package exists with Postgres store. just e2e live-attention opens one AttentionItem and one delivery. Restart does not duplicate. Paired door is still #328.",
       "issue": 328
     },
     {
@@ -343,18 +343,19 @@
     },
     {
       "id": "surface-ir-e2e-live",
-      "status": "dont-have",
+      "status": "in-flight",
       "plane": "channels",
       "name": "Surface IR and Attention e2e on live channels",
       "onMain": false,
       "product": false,
-      "path": "packages/surface, packages/attention",
-      "proof": "Packages stay on main. Fake-delivery e2e was removed. Restore on live is #328.",
+      "path": "packages/attention, e2e/live-attention.ts",
+      "proof": "CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM.",
       "issue": 328,
       "backup": [
         "e2e/surface-ir-renderer",
         "e2e/proactive-attention"
-      ]
+      ],
+      "blocker": "Paired ZOEN_WHATSAPP_DOOR_E164 plus a ready CompanionSession"
     },
     {
       "id": "messaging-boundary-law",

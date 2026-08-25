@@ -117,7 +117,7 @@
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
-  <span class="stat-count">1</span>
+  <span class="stat-count">0</span>
   <span class="stat-label">DON'T HAVE</span>
 </button>
 <button class="stat" data-filter="stub-on-main" type="button">
@@ -125,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">5</span>
+  <span class="stat-count">6</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -183,7 +183,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/328">#328</a>
     
     <strong>Surface IR and Attention on live channels</strong>
-    <p>packages/surface and packages/attention stay. Fake-delivery e2e does not return.</p>
+    <p>packages/surface and packages/attention stay. Fake-delivery e2e does not return. live-attention proves lowering plus one AttentionItem on createLiveWhatsAppProvider. Paired door still missing.</p>
   </div>
 </li>
       </ol>
@@ -334,7 +334,7 @@
     <div class="path">packages/surface</div>
     
   </td>
-  <td>Unit tests in packages/surface. Delivery through live channels is #328.</td>
+  <td>Unit tests in packages/surface. just e2e live-attention lowers PresentationIntent onto unofficial WhatsApp text plus https. Paired door is still #328.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
 <tr data-status="have">
@@ -345,7 +345,7 @@
     <div class="path">packages/attention</div>
     
   </td>
-  <td>Package exists with Postgres store. Wake/DM through live channels is #328.</td>
+  <td>Package exists with Postgres store. just e2e live-attention opens one AttentionItem and one delivery. Restart does not duplicate. Paired door is still #328.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
 <tr data-status="have">
@@ -494,34 +494,7 @@
     </tbody>
   </table>
 </section>
-<section class="group" data-group="dont-have">
-  <h2>DON'T HAVE</h2>
-  <p class="blurb">Not product. Restore issue is the row. Code, if any, lives on the backup branch.</p>
-  <table>
-    <thead>
-      <tr>
-        <th>id</th>
-        <th>plane</th>
-        <th>capability</th>
-        <th>proof</th>
-        <th>issue</th>
-      </tr>
-    </thead>
-    <tbody>
-<tr data-status="dont-have">
-  <td><code>surface-ir-e2e-live</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Surface IR and Attention e2e on live channels</div>
-    <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
-    
-  </td>
-  <td>Packages stay on main. Fake-delivery e2e was removed. Restore on live is #328.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
-</tr>
-    </tbody>
-  </table>
-</section>
+
 
 <section class="group" data-group="in-flight">
   <h2>IN FLIGHT</h2>
@@ -591,6 +564,17 @@
   </td>
   <td>just e2e messaging-conformance-live. Live unofficial WhatsApp + live Telegram required. Linq optional. Fail closed without TELEGRAM_BOT_TOKEN / ZOEN_WHATSAPP_DOOR_E164 / companion. Fakes stay deleted.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
+</tr>
+<tr data-status="in-flight">
+  <td><code>surface-ir-e2e-live</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Surface IR and Attention e2e on live channels</div>
+    <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
+    <div class="blocker">Blocked on Paired ZOEN_WHATSAPP_DOOR_E164 plus a ready CompanionSession</div>
+  </td>
+  <td>CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
     </tbody>
   </table>
