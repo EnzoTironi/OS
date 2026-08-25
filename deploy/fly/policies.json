@@ -1,0 +1,44 @@
+{
+  "policies": [
+    {
+      "actionId": "commercial.changeCommitment",
+      "definitionDigest": "ac2a21af8aacad316bb94ddadea759e84bdfb5f3679673e24ebaa8a5dda7178d",
+      "digest": "761e009d36d072eeb452d4fbad0eb736188a5160ea0b778cab99bf96d975f685",
+      "policyId": "policy.changeCommitment.r1",
+      "revision": 2,
+      "source": "permit (\n    principal,\n    action == Action::\"discover\",\n    resource\n);\n\npermit (\n    principal,\n    action == Action::\"commit\",\n    resource\n)\nwhen {\n    context.actionId == \"commercial.changeCommitment\"\n};\n"
+    },
+    {
+      "actionId": "zoen.definition.activate",
+      "definitionDigest": "ac2a21af8aacad316bb94ddadea759e84bdfb5f3679673e24ebaa8a5dda7178d",
+      "digest": "5acdc2a55ceb692bf2108e03427051fbdebf895900248356f4394d6432976727",
+      "policyId": "policy.activation.r1",
+      "revision": 2,
+      "source": "permit (\n    principal,\n    action == Action::\"activate_revision\",\n    resource\n)\nwhen {\n    principal == Zoen::Principal::\"principal.admin.a\"\n};\n"
+    },
+    {
+      "actionId": "personal.writeMemory",
+      "definitionDigest": "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548",
+      "digest": "866c7b688c1bcc62b0283d41485c5ee69a6c651bd8ffee730ba3fcb9b060623a",
+      "policyId": "policy.personal.writeMemory.r1",
+      "revision": 1,
+      "source": "@id(\"personal-writeMemory-discover\")\npermit (\n    principal,\n    action == Action::\"discover\",\n    resource\n)\nwhen {\n    context.actionId == \"personal.writeMemory\"\n};\n\n@id(\"personal-writeMemory-commit\")\npermit (\n    principal,\n    action == Action::\"commit\",\n    resource\n)\nwhen {\n    context.actionId == \"personal.writeMemory\"\n};\n"
+    },
+    {
+      "actionId": "personal.createReminder",
+      "definitionDigest": "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548",
+      "digest": "e5dd6559b6730c926a53a81276479927559b889f522126995d2f4456b3bdf171",
+      "policyId": "policy.personal.createReminder.r1",
+      "revision": 1,
+      "source": "@id(\"personal-createReminder-discover\")\npermit (\n    principal,\n    action == Action::\"discover\",\n    resource\n)\nwhen {\n    context.actionId == \"personal.createReminder\"\n};\n\n@id(\"personal-createReminder-commit\")\npermit (\n    principal,\n    action == Action::\"commit\",\n    resource\n)\nwhen {\n    context.actionId == \"personal.createReminder\"\n};\n"
+    },
+    {
+      "actionId": "zoen.definition.activate",
+      "definitionDigest": "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548",
+      "digest": "5acdc2a55ceb692bf2108e03427051fbdebf895900248356f4394d6432976727",
+      "policyId": "policy.personal.activation.r1",
+      "revision": 1,
+      "source": "permit (\n    principal,\n    action == Action::\"activate_revision\",\n    resource\n)\nwhen {\n    principal == Zoen::Principal::\"principal.admin.a\"\n};\n"
+    }
+  ]
+}

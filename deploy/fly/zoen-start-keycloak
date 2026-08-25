@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+src="${ZOEN_REALM_TEMPLATE:-/etc/zoen/realm.template.json}"
+dest="${ZOEN_REALM_JSON:-/opt/keycloak/data/import/realm.json}"
+secret="${ZOEN_OIDC_CLIENT_SECRET:-}"
+if [ -z "$secret" ]; then
+  echo "realm: ZOEN_OIDC_CLIENT_SECRET is required" >&2
+  exit 1
+fi
+mkdir -p "$(dirname "$dest")"
+python3 -c 'import sys; src, dest, secret = sys.argv[1:4]; text = open(src, encoding="utf-8").read();
+assert "__ZOEN_OIDC_CLIENT_SECRET__" in text, "realm template missing placeholder"
+open(dest, "w", encoding="utf-8").write(text.replace("__ZOEN_OIDC_CLIENT_SECRET__", secret))' \
+  "$src" "$dest" "$secret"
+exec /opt/keycloak/bin/kc.sh start-dev --import-realm

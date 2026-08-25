@@ -23,4 +23,5 @@ Manual: Actions → `fly-deploy` → Run workflow.
 ## First boot (not done yet)
 
 App exists. Volume, IPs, cert, and secrets are staged. Zero machines until the first `fly-deploy` succeeds.
-The image still needs a realm + Cedar manifest baked in, or zoend will fail `/ready`.
+Cedar is `deploy/fly/policies.json` in `/etc/zoen/policies.json`.
+Realm is `deploy/fly/realm.template.json`; boot fills client `admin-a` from Fly secret `ZOEN_OIDC_CLIENT_SECRET`.

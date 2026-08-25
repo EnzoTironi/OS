@@ -37,6 +37,7 @@ primary_region = "gru"
 
 [env]
   ZOEN_LISTEN_ADDR = "0.0.0.0:58701"
+  ZOEN_CEDAR_POLICY_MANIFEST = "/etc/zoen/policies.json"
   ZOEN_OIDC_AUDIENCE = "zoend"
   ZOEN_OIDC_ISSUER = "http://127.0.0.1:8080/realms/zoen"
   ZOEN_MESSAGING_GATEWAY_URL = "http://127.0.0.1:18082"

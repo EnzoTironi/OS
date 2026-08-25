@@ -33,7 +33,7 @@ RUN npm ci \
 FROM postgres:18
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
-      ca-certificates curl supervisor openjdk-21-jre-headless \
+      ca-certificates curl supervisor openjdk-21-jre-headless python3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=zoend /src/target/release/zoend /usr/local/bin/zoend
@@ -50,6 +50,9 @@ COPY --from=minio/mc:RELEASE.2025-08-13T08-35-41Z /usr/bin/mc /usr/local/bin/mc
 
 COPY deploy/fly/supervisord.conf /etc/supervisor/conf.d/zoen.conf
 COPY deploy/fly/zoen-ensure-minio-bucket /usr/local/bin/zoen-ensure-minio-bucket
+COPY deploy/fly/zoen-start-keycloak /usr/local/bin/zoen-start-keycloak
+COPY deploy/fly/policies.json /etc/zoen/policies.json
+COPY deploy/fly/realm.template.json /etc/zoen/realm.template.json
 COPY deploy/fly/init /docker-entrypoint-initdb.d
 
 ENV PGDATA=/data/pg
@@ -58,6 +61,7 @@ ENV MINIO_ROOT_USER=zoenminio
 ENV POSTGRES_DB=zoen
 ENV POSTGRES_USER=postgres
 ENV ZOEN_LISTEN_ADDR=0.0.0.0:58701
+ENV ZOEN_CEDAR_POLICY_MANIFEST=/etc/zoen/policies.json
 
 EXPOSE 58701
 CMD ["/usr/bin/supervisord", "-n"]
