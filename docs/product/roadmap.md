@@ -14,7 +14,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | HAVE | DON'T HAVE | STUB ON MAIN | IN FLIGHT | PARKED | HARNESS |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 24 | 0 | 0 | 6 | 2 | 3 |
+| 25 | 0 | 0 | 6 | 2 | 3 |
 
 ## Do next
 
@@ -78,6 +78,7 @@ On main. Real implementation. This is product.
 | `fail-closed-boot` | authority | Fail-closed zoend boot | On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. ChannelProvider::Linq. toChannelProvider("linq") === "linq". | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
+| `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | ./e2e/run.sh run adr-0007. Timeout after possible delivery is UNKNOWN. Provider requests stay 1. | — |
 
 ## IN FLIGHT
 

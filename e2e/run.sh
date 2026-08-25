@@ -35,6 +35,7 @@ scenario_table=(
   "deploy-dedicated::"
   "deploy-self-hosted-isolated::"
   "ha-chaos::"
+  "adr-0007:adr-0007:"
   "domain-commercial:domain-commercial:"
   "domain-inventory-procurement:domain-inventory-procurement:"
   "domain-manufacturing-accounting:domain-manufacturing-accounting:"
