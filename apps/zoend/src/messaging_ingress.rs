@@ -1,8 +1,5 @@
-#[cfg(test)]
 use std::collections::HashSet;
-use std::sync::Arc;
-#[cfg(test)]
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use axum::Json;
@@ -14,21 +11,19 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use reqwest::Client;
 use serde_json::json;
-use zoen_adapters::PostgresIngressReplayStore;
-#[cfg(test)]
-use zoen_adapters::ZOEND_INGRESS_REPLAY_NAMESPACE;
+use zoen_adapters::{PostgresIngressReplayStore, ZOEND_INGRESS_REPLAY_NAMESPACE};
 
 use crate::ingress_hmac::{self, IngressAuthError, ReplayGate};
 
 #[derive(Clone)]
 enum HopReplayStore {
     Postgres(PostgresIngressReplayStore),
-    #[cfg(test)]
+    #[allow(dead_code)]
     Memory(MemoryIngressReplay),
 }
 
-#[cfg(test)]
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 struct MemoryIngressReplay {
     keys: Arc<Mutex<HashSet<String>>>,
 }
@@ -40,7 +35,6 @@ impl HopReplayStore {
                 .contains(webhook_id)
                 .await
                 .map_err(|_| IngressAuthError::StoreFailure),
-            #[cfg(test)]
             Self::Memory(store) => Ok(store.contains(webhook_id)),
         }
     }
@@ -51,13 +45,12 @@ impl HopReplayStore {
                 .claim(webhook_id)
                 .await
                 .map_err(|_| IngressAuthError::StoreFailure),
-            #[cfg(test)]
             Self::Memory(store) => Ok(store.claim(webhook_id)),
         }
     }
 }
 
-#[cfg(test)]
+#[allow(dead_code)]
 impl MemoryIngressReplay {
     fn namespaced(webhook_id: &str) -> String {
         format!("{ZOEND_INGRESS_REPLAY_NAMESPACE}{webhook_id}")
@@ -292,16 +285,42 @@ mod tests {
     use axum::Json;
     use axum::Router;
     use axum::routing::post;
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
+    use hmac::{Hmac, Mac};
     use reqwest::Client;
     use serde_json::{Value, json};
+    use sha2_hmac::Sha256 as HmacSha256Hash;
     use tokio::net::TcpListener;
     use zoen_adapters::ZOEND_INGRESS_REPLAY_NAMESPACE;
 
     use super::{HopReplayStore, IngressState, MemoryIngressReplay, router};
-    use crate::ingress_hmac::{ReplayGate, sign_whatsapp_ingress};
+    use crate::ingress_hmac::ReplayGate;
 
     const SECRET: &str = "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==";
     const BODY: &[u8] = br#"{"body":"oi"}"#;
+
+    fn sign_whatsapp_ingress(
+        secret: &str,
+        webhook_id: &str,
+        timestamp_secs: i64,
+        raw_body: &[u8],
+    ) -> (String, String, String) {
+        let stripped = secret.strip_prefix("whsec_").unwrap_or(secret);
+        let key = STANDARD.decode(stripped).expect("secret");
+        let timestamp = timestamp_secs.to_string();
+        let mut mac = Hmac::<HmacSha256Hash>::new_from_slice(&key).expect("hmac");
+        mac.update(webhook_id.as_bytes());
+        mac.update(b".");
+        mac.update(timestamp.as_bytes());
+        mac.update(b".");
+        mac.update(raw_body);
+        (
+            webhook_id.to_owned(),
+            timestamp,
+            format!("v1,{}", STANDARD.encode(mac.finalize().into_bytes())),
+        )
+    }
 
     #[tokio::test]
     async fn inbound_http_probes_fail_closed_and_namespace_replay() {
@@ -340,8 +359,7 @@ mod tests {
                 .as_secs(),
         )
         .expect("secs");
-        let (id, timestamp, signature) =
-            sign_whatsapp_ingress(SECRET, "msg_http", now, BODY).expect("sign");
+        let (id, timestamp, signature) = sign_whatsapp_ingress(SECRET, "msg_http", now, BODY);
 
         let forged = post_inbound(
             &inbound,

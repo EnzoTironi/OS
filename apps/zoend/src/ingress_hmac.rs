@@ -157,24 +157,6 @@ pub fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     diff == 0 && left.len() == right.len()
 }
 
-#[cfg(test)]
-pub(crate) fn sign_whatsapp_ingress(
-    secret: &str,
-    webhook_id: &str,
-    timestamp_secs: i64,
-    raw_body: &[u8],
-) -> Result<(String, String, String), IngressAuthError> {
-    let key = decode_whsec(secret).ok_or(IngressAuthError::BadSignature)?;
-    let timestamp = timestamp_secs.to_string();
-    let signed = signed_content(webhook_id, &timestamp, raw_body);
-    let digest = hmac_sha256(&key, &signed).ok_or(IngressAuthError::BadSignature)?;
-    Ok((
-        webhook_id.to_owned(),
-        timestamp,
-        format!("v1,{}", STANDARD.encode(digest)),
-    ))
-}
-
 fn header(headers: &HeaderMap, name: &'static str) -> Option<String> {
     let key = HeaderName::from_static(name);
     headers
@@ -190,8 +172,30 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use axum::http::{HeaderMap, HeaderValue};
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
 
-    use super::{IngressAuthError, ReplayGate, sign_whatsapp_ingress, verify_whatsapp_ingress};
+    use super::{
+        IngressAuthError, ReplayGate, decode_whsec, hmac_sha256, signed_content,
+        verify_whatsapp_ingress,
+    };
+
+    pub(crate) fn sign_whatsapp_ingress(
+        secret: &str,
+        webhook_id: &str,
+        timestamp_secs: i64,
+        raw_body: &[u8],
+    ) -> Result<(String, String, String), IngressAuthError> {
+        let key = decode_whsec(secret).ok_or(IngressAuthError::BadSignature)?;
+        let timestamp = timestamp_secs.to_string();
+        let signed = signed_content(webhook_id, &timestamp, raw_body);
+        let digest = hmac_sha256(&key, &signed).ok_or(IngressAuthError::BadSignature)?;
+        Ok((
+            webhook_id.to_owned(),
+            timestamp,
+            format!("v1,{}", STANDARD.encode(digest)),
+        ))
+    }
 
     const SECRET: &str = "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==";
 
