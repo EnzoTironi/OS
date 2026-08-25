@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -77,6 +78,27 @@ export function e2eGeneratedDirectory(
       : path.join(repositoryRoot, override);
   }
   return path.join(repositoryRoot, "e2e", scenario, ".generated");
+}
+
+/**
+ * Emit one archived TypeScript project through its own tsconfig.
+ * Live `tsc -p tsconfig.json` does not include archive/.
+ */
+export function compileArchivedTsconfig(
+  repositoryRoot: string,
+  tsconfigRelative: string,
+): void {
+  execFileSync(
+    process.execPath,
+    [
+      path.join(repositoryRoot, "node_modules", "typescript", "bin", "tsc"),
+      "-p",
+      path.join(repositoryRoot, tsconfigRelative),
+      "--pretty",
+      "false",
+    ],
+    { cwd: repositoryRoot, stdio: "inherit" },
+  );
 }
 
 /** Nitro server entry for the archived TanStack web app. */

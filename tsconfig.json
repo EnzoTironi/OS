@@ -46,7 +46,6 @@
     "node_modules"
   ],
   "include": [
-    "archive/packages/effect-worker/src/**/*.ts",
     "e2e/**/*.ts",
     "packages/**/*.ts"
   ]

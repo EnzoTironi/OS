@@ -16,6 +16,7 @@ import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1
 import { EffectService } from "../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import { WorldService } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
+  compileArchivedTsconfig,
   e2eHttpUrl,
   e2eListenAddr,
   e2ePort,
@@ -222,6 +223,10 @@ export async function startWorker(tokens: {
   readonly [tenantA]: string;
   readonly [tenantB]: string;
 }): Promise<ManagedProcess> {
+  compileArchivedTsconfig(
+    repositoryRoot,
+    "archive/packages/effect-worker/tsconfig.json",
+  );
   return startProcess({
     command: process.execPath,
     arguments: [

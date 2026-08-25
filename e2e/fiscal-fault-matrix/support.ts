@@ -43,6 +43,7 @@ import {
 } from "../domain-manufacturing-accounting/support.js";
 import { compileDefinition } from "../evolution-compatible/support.js";
 import {
+  compileArchivedTsconfig,
   e2eHttpUrl,
   e2ePort,
 } from "../host-env.js";
@@ -367,6 +368,10 @@ export async function startFiscalAdapter(input: {
           },
     ),
   };
+  compileArchivedTsconfig(
+    repositoryRoot,
+    "archive/domain/fiscal-brazil/tsconfig.json",
+  );
   return startManagedProcess({
     arguments: [
       path.join(
