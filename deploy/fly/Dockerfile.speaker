@@ -1,0 +1,14 @@
+FROM node:22.18.0-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json tsconfig.json ./
+COPY packages/transport packages/transport
+COPY packages/speaker packages/speaker
+COPY packages/harness packages/harness
+COPY packages/ontology packages/ontology
+RUN npm ci --omit=dev=false \
+    && npx tsc -p packages/transport/tsconfig.json --pretty false \
+    && npm cache clean --force \
+    && chown -R node:node /app
+ENV NODE_ENV=production
+USER node
+CMD ["node", "dist/packages/transport/src/whatsapp-contact-serve.js"]

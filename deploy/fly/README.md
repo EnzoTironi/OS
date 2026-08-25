@@ -1,0 +1,26 @@
+# Fly `zoen`
+
+One machine in `gru`. Volume `zoen_data` → `/data` (postgres, Restate, MinIO).
+Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Companion stays up (`auto_stop_machines = off`).
+
+## Ship a change
+
+1. Land on `main` (PR, not from the laptop).
+2. GitHub Actions `fly-deploy` builds `deploy/fly/Dockerfile` on the runner.
+3. It pushes `registry.fly.io/zoen:$GITHUB_SHA` and runs `fly deploy --image` (no Fly remote builder).
+4. Volume data survives. WhatsApp session is in postgres on that volume.
+
+Manual: Actions → `fly-deploy` → Run workflow.
+
+## Do not
+
+- `fly deploy` without `--image` (that bills a Fly builder).
+- Preview apps per PR.
+- GitHub Release on every push. A `v*` tag can make a Release later; rollback is the previous image SHA.
+- Companion `/send`. Pair from companion logs (QR) after the first boot.
+- Merge from the laptop.
+
+## First boot (not done yet)
+
+App exists. Volume, IPs, cert, and secrets are staged. Zero machines until the first `fly-deploy` succeeds.
+The image still needs a realm + Cedar manifest baked in, or zoend will fail `/ready`.

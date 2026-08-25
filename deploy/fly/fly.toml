@@ -1,0 +1,57 @@
+# Dedicated Zoen on one Fly machine. Volume holds pgdata + Restate + MinIO.
+# WhatsApp companion cannot survive auto-stop.
+
+app = "zoen"
+primary_region = "gru"
+
+[build]
+  dockerfile = "deploy/fly/Dockerfile"
+
+[http_service]
+  internal_port = 58701
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+[[http_service.checks]]
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "2m"
+  method = "GET"
+  path = "/ready"
+
+[mounts]
+  source = "zoen_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "4096"
+
+[env]
+  ZOEN_LISTEN_ADDR = "0.0.0.0:58701"
+  ZOEN_OIDC_AUDIENCE = "zoend"
+  ZOEN_OIDC_ISSUER = "http://127.0.0.1:8080/realms/zoen"
+  ZOEN_MESSAGING_GATEWAY_URL = "http://127.0.0.1:18082"
+  ZOEN_WHATSAPP_INGRESS_URL = "http://127.0.0.1:58701/channels/whatsapp/inbound"
+  ZOEN_WHATSAPP_COMPANION_URL = "http://127.0.0.1:8081"
+  ZOEN_IDENTITY_BASE_URL = "http://127.0.0.1:58701"
+  ZOEN_WHATSAPP_LISTEN_ADDR = "127.0.0.1:8081"
+  ZOEN_MESSAGING_INGRESS_HOST = "127.0.0.1"
+  ZOEN_MESSAGING_INGRESS_PORT = "18082"
+  S3_ALLOW_HTTP = "true"
+  S3_REGION = "us-east-1"
+  S3_ENDPOINT = "http://127.0.0.1:9000"
+  S3_BUCKET = "zoen-projections"
+  RESTATE_INGRESS = "http://127.0.0.1:9071"
+  KC_HOSTNAME = "127.0.0.1"
+  KC_HOSTNAME_STRICT = "false"
+  KC_HTTP_ENABLED = "true"
+  KC_HEALTH_ENABLED = "true"
