@@ -500,6 +500,8 @@ function failClosedPath(
   return cause;
 }
 
+let lastReasonTurnLogValue: ReasonTurnLog | undefined;
+
 function emitReasonTurnLog(log: Omit<ReasonTurnLog, "event">): void {
   const line: ReasonTurnLog = {
     event: "reasonTurn",
@@ -507,7 +509,13 @@ function emitReasonTurnLog(log: Omit<ReasonTurnLog, "event">): void {
     rivals: log.rivals,
     generate: log.generate,
   };
+  lastReasonTurnLogValue = line;
   process.stderr.write(`${JSON.stringify(line)}\n`);
+}
+
+/** Last `reasonTurn` stderr line. Tests read this instead of patching stderr. */
+export function lastReasonTurnLog(): ReasonTurnLog | undefined {
+  return lastReasonTurnLogValue;
 }
 
 function applySlowStatus(input: {

@@ -13,6 +13,7 @@ import {
 } from "./interaction-tools.js";
 import {
   interactionInstructions,
+  lastReasonTurnLog,
   outboundBubbles,
   reasoningPrompt,
   runInteractionTurn,
@@ -32,26 +33,6 @@ import {
   snapshotFromClaims,
   type WorldQueryClient,
 } from "./world-query.js";
-
-const reasonTurnLines: ReasonTurnLog[] = [];
-const originalStderrWrite = process.stderr.write;
-process.stderr.write = ((
-  chunk: string | Uint8Array,
-  encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
-  cb?: (err?: Error | null) => void,
-): boolean => {
-  const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
-  for (const line of text.split("\n")) {
-    const parsed = parseReasonTurnLog(line.trim());
-    if (parsed !== undefined) {
-      reasonTurnLines.push(parsed);
-    }
-  }
-  if (typeof encodingOrCb === "function") {
-    return originalStderrWrite.call(process.stderr, chunk, encodingOrCb);
-  }
-  return originalStderrWrite.call(process.stderr, chunk, encodingOrCb, cb);
-}) as typeof originalStderrWrite;
 
 function membership(suffix: string): TrustedInteractionContext {
   return {
@@ -99,7 +80,7 @@ test("PT inbound does not contain Recebi", async () => {
     assert.doesNotMatch(bubble, /membership\.wa\.enzo/);
   }
   assert.equal(outboundBubbles(result).join("\n").includes("Recebi"), false);
-  assertReasonTurnLog(lastReasonTurnLog(), "failClosed", 0, "ok");
+  assertReasonTurnLog(requireReasonTurnLog(), "failClosed", 0, "ok");
 });
 
 test("empty inbound does not dump entity ids", async () => {
@@ -173,7 +154,7 @@ test("two ClaimRead rows without RIVAL speak fail-closed PT rivals", async () =>
   assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
   assert.doesNotMatch(text, /não consegui consultar agora/i);
   assertReasonTurnLog(
-    lastReasonTurnLog(),
+    requireReasonTurnLog(),
     "noModel",
     snapshot.rivals.length,
     "ok",
@@ -268,7 +249,7 @@ test("mocked turn with two World rivals speaks the readings, not a helpdesk gree
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|Recebi/i);
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
   assertReasonTurnLog(
-    lastReasonTurnLog(),
+    requireReasonTurnLog(),
     "spoke",
     snapshot.rivals.length,
     "ok",
@@ -285,7 +266,7 @@ test("empty inbound with a silent model waits (empty bubbles)", async () => {
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
-  assertReasonTurnLog(lastReasonTurnLog(), "wait", 2, "ok");
+  assertReasonTurnLog(requireReasonTurnLog(), "wait", 2, "ok");
 });
 
 test("silent model with two World rivals fail-closes lookup copy, not rival speech", async () => {
@@ -303,7 +284,7 @@ test("silent model with two World rivals fail-closes lookup copy, not rival spee
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
   assert.doesNotMatch(sent, /Tenta de novo/i);
-  assertReasonTurnLog(lastReasonTurnLog(), "lookupFail", 2, "ok");
+  assertReasonTurnLog(requireReasonTurnLog(), "lookupFail", 2, "ok");
 });
 
 test("spawn_execution with injected executeWork records executionNotes and does not leak them into bubbles", async () => {
@@ -461,7 +442,7 @@ test("mocked oi is a short greeting, not helpdesk", async () => {
   assert.match(sent, /^oi$/im);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help|Recebi/i);
   assert.doesNotMatch(sent, /vendo aqui|um seg/);
-  assertReasonTurnLog(lastReasonTurnLog(), "spoke", 0, "ok");
+  assertReasonTurnLog(requireReasonTurnLog(), "spoke", 0, "ok");
 });
 
 test("mocked valeu calls wait and sends empty bubbles", async () => {
@@ -496,7 +477,7 @@ test("mocked valeu calls wait and sends empty bubbles", async () => {
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
-  assertReasonTurnLog(lastReasonTurnLog(), "wait", 0, "ok");
+  assertReasonTurnLog(requireReasonTurnLog(), "wait", 0, "ok");
 });
 
 test("wait tool produces no Recebi and no helpdesk", async () => {
@@ -522,7 +503,37 @@ test("wait tool produces no Recebi and no helpdesk", async () => {
   assert.equal(sent, "");
   assert.doesNotMatch(sent, /Recebi/i);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
-  assertReasonTurnLog(lastReasonTurnLog(), "wait", 0, "ok");
+  assertReasonTurnLog(requireReasonTurnLog(), "wait", 0, "ok");
+});
+
+test("reasonTurn writes one stderr JSON line", async () => {
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    chunks.push(
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+    );
+    return true;
+  }) as typeof original;
+  try {
+    await runInteractionTurn({
+      inbound: textInbound("oi"),
+      membership: membership("stderr-log"),
+      model: speakThenStopModel("oi"),
+    });
+  } finally {
+    process.stderr.write = original;
+  }
+  const lines = chunks
+    .join("")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.includes('"event":"reasonTurn"'));
+  assert.equal(lines.length, 1);
+  assert.equal(
+    lines[0],
+    '{"event":"reasonTurn","path":"spoke","rivals":0,"generate":"ok"}',
+  );
 });
 
 test("slow generate prepends one status bubble, fast path does not", async () => {
@@ -564,7 +575,7 @@ test("generate throw logs failClosed", async () => {
     model,
   });
   assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
-  assertReasonTurnLog(lastReasonTurnLog(), "failClosed", 0, "throw");
+  assertReasonTurnLog(requireReasonTurnLog(), "failClosed", 0, "throw");
 });
 
 test("slow spawn_execution prepends one status bubble", async () => {
@@ -714,8 +725,8 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-function lastReasonTurnLog(): ReasonTurnLog {
-  const log = reasonTurnLines.at(-1);
+function requireReasonTurnLog(): ReasonTurnLog {
+  const log = lastReasonTurnLog();
   assert.ok(log !== undefined, "expected a reasonTurn log line");
   return log;
 }
@@ -731,55 +742,6 @@ function assertReasonTurnLog(
   assert.equal(log.rivals, rivals);
   assert.equal(log.generate, generate);
   assert.equal(Object.keys(log).sort().join(","), "event,generate,path,rivals");
-}
-
-function parseReasonTurnLog(text: string): ReasonTurnLog | undefined {
-  if (!text.startsWith("{") || !text.includes('"event":"reasonTurn"')) {
-    return undefined;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-  if (!isReasonTurnLog(parsed)) {
-    return undefined;
-  }
-  return parsed;
-}
-
-function isReasonTurnLog(value: unknown): value is ReasonTurnLog {
-  if (value === null || typeof value !== "object") {
-    return false;
-  }
-  if (!("event" in value) || value.event !== "reasonTurn") {
-    return false;
-  }
-  if (!("path" in value) || !isReasonTurnPath(value.path)) {
-    return false;
-  }
-  if (!("rivals" in value) || typeof value.rivals !== "number") {
-    return false;
-  }
-  if (!("generate" in value)) {
-    return false;
-  }
-  return value.generate === "ok" || value.generate === "throw";
-}
-
-function isReasonTurnPath(value: unknown): value is ReasonTurnPath {
-  switch (value) {
-    case "lookupFail":
-    case "failClosed":
-    case "threw":
-    case "noModel":
-    case "spoke":
-    case "wait":
-      return true;
-    default:
-      return false;
-  }
 }
 
 function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {
