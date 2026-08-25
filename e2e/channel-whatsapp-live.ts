@@ -6,7 +6,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import {
+  ChannelSubjectResolveError,
+  createIdentityDirectoryClient,
+  principalIdString,
   providerKey,
+  tenantIdString,
   toChannelProvider,
 } from "../packages/interaction/src/index.js";
 import {
@@ -14,11 +18,14 @@ import {
   companionSessionIsReady,
   createHttpCompanionSession,
   createLiveWhatsAppProvider,
+  createMemoryReplyLedger,
   createMessagingGateway,
   createRecordingCompanionSession,
+  createWhatsAppContactLoop,
   createWhatsAppMessagingIngress,
   LiveWhatsAppConfigError,
   PERSONAL_WHATSAPP_DOOR_E164,
+  UNBOUND_WHATSAPP_POKE_TEXT,
 } from "../packages/messaging/src/index.js";
 import {
   startServer,
@@ -250,6 +257,9 @@ async function main(): Promise<void> {
   kill("group_jid_is_speaker", "outbound dest is group chat JID");
   await recording.close();
 
+  await proveContactLoop(record, kill);
+  record("contact_loop_same_thread_reply", true);
+
   await runGoTests();
   record("companion_go_unit_tests", true);
 
@@ -419,6 +429,165 @@ async function main(): Promise<void> {
   record("signed_fail_closed_artifact", true);
   console.log(`channel-whatsapp-live PASS → ${artifactPath}`);
   console.log(JSON.stringify({ digest, failClosedReason, zoendAdvertiseStatus }, null, 2));
+}
+
+async function proveContactLoop(
+  record: (name: string, observed: boolean) => void,
+  kill: (id: string, evidence: string) => void,
+): Promise<void> {
+  const doorE164 = "+553798136141";
+  const doorJid = "553798136141@s.whatsapp.net";
+  const person = "553199941160@s.whatsapp.net";
+  const previousDoor = process.env.ZOEN_WHATSAPP_DOOR_E164;
+  process.env.ZOEN_WHATSAPP_DOOR_E164 = doorE164;
+
+  const identityCalls: string[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const method = (init?.method ?? "GET").toUpperCase();
+    identityCalls.push(`${method} ${String(input)}`);
+    assert.equal(method, "GET");
+    assert.doesNotMatch(
+      String(input),
+      /\/provisional|\/verify-binding|\/bind-verified/,
+    );
+    return new Response(
+      JSON.stringify({ error: "OIDC subject has no verified binding" }),
+      { headers: { "content-type": "application/json" }, status: 401 },
+    );
+  };
+
+  try {
+    const unboundSession = createRecordingCompanionSession({
+      ready: { connected: true, loggedIn: true, paired: true },
+    });
+    await unboundSession.open();
+    const ledger = createMemoryReplyLedger();
+    const unboundLoop = createWhatsAppContactLoop({
+      doorE164,
+      identity: createIdentityDirectoryClient({
+        baseUrl: "http://zoend.test",
+        fetchImpl,
+      }),
+      ledger,
+      session: unboundSession,
+    });
+    const envelope = {
+      body: "Oi",
+      chatJid: person,
+      fromMe: false,
+      isGroup: false,
+      messageId: "wamid.e2e.contact",
+      observedAt: new Date().toISOString(),
+      senderAltJid: person,
+      senderJid: person,
+    };
+    const unbound = await unboundLoop.handleRaw(envelope);
+    assert.equal(unbound.kind, "unbound");
+    assert.equal(unboundSession.sent().length, 1);
+    assert.equal(unboundSession.sent()[0]?.chatJid, person);
+    const unboundShape = unboundSession.sent()[0]?.shape;
+    assert.equal(unboundShape?.kind, "text");
+    if (unboundShape?.kind === "text") {
+      assert.equal(unboundShape.text, UNBOUND_WHATSAPP_POKE_TEXT);
+    }
+    const duplicate = await unboundLoop.handleRaw(envelope);
+    assert.equal(duplicate.kind, "duplicate");
+    assert.equal(unboundSession.sent().length, 1);
+
+    const fromMe = await unboundLoop.handleRaw({ ...envelope, fromMe: true });
+    assert.equal(fromMe.kind, "dropped");
+    const door = await unboundLoop.handleRaw({
+      ...envelope,
+      chatJid: doorJid,
+      messageId: "wamid.e2e.door",
+      senderAltJid: doorJid,
+      senderJid: doorJid,
+    });
+    assert.equal(door.kind, "dropped");
+    await unboundSession.close();
+
+    const restarted = createRecordingCompanionSession({
+      ready: { connected: true, loggedIn: true, paired: true },
+    });
+    await restarted.open();
+    const restartedLoop = createWhatsAppContactLoop({
+      doorE164,
+      identity: createIdentityDirectoryClient({
+        baseUrl: "http://zoend.test",
+        fetchImpl,
+      }),
+      ledger,
+      session: restarted,
+    });
+    const afterRestart = await restartedLoop.handleRaw(envelope);
+    assert.equal(afterRestart.kind, "duplicate");
+    assert.equal(restarted.sent().length, 0);
+    await restarted.close();
+
+    const boundSession = createRecordingCompanionSession({
+      ready: { connected: true, loggedIn: true, paired: true },
+    });
+    await boundSession.open();
+    const boundLoop = createWhatsAppContactLoop({
+      doorE164,
+      identity: {
+        async resolveChannelSubject(input) {
+          if (input.subjectKey !== person) {
+            throw new ChannelSubjectResolveError({
+              kind: "unbound",
+              message: "unresolved channel subject: no verified binding",
+            });
+          }
+          return {
+            accountId: "account.wa.e2e",
+            actorId: "actor.personal",
+            bindingId: "binding.wa.e2e",
+            membershipId: "membership.wa.e2e",
+            principalId: principalIdString("principal.wa.e2e"),
+            tenantId: tenantIdString("tenant.wa.e2e"),
+            workloadId: "workload.personal",
+          };
+        },
+      },
+      session: boundSession,
+    });
+    const bound = await boundLoop.handleRaw({
+      ...envelope,
+      messageId: "wamid.e2e.bound",
+    });
+    assert.equal(bound.kind, "bound");
+    assert.equal(boundSession.sent()[0]?.chatJid, person);
+    const boundShape = boundSession.sent()[0]?.shape;
+    assert.equal(boundShape?.kind, "text");
+    if (boundShape?.kind === "text") {
+      assert.equal(boundShape.text, "Recebi: Oi");
+    }
+    await boundSession.close();
+
+    record("unbound_poke_same_thread", true);
+    record("bound_turn_same_thread", true);
+    record("restart_does_not_duplicate_reply", true);
+    record("door_jid_is_never_the_person", true);
+    record(
+      "identity_resolve_is_get_only",
+      identityCalls.length > 0 &&
+        identityCalls.every((call) => call.startsWith("GET ")),
+    );
+    kill(
+      "invent_membership_on_unbound",
+      "IdentityDirectory GET resolve-subject; unbound poke; no Membership row",
+    );
+    kill(
+      "harness_verified_on_inbound",
+      "inbound never POST /identity/admin/verify-binding",
+    );
+  } finally {
+    if (previousDoor === undefined) {
+      delete process.env.ZOEN_WHATSAPP_DOOR_E164;
+    } else {
+      process.env.ZOEN_WHATSAPP_DOOR_E164 = previousDoor;
+    }
+  }
 }
 
 function commandCapture(

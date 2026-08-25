@@ -9,6 +9,7 @@ import type { MessagingGateway } from "./gateway.js";
 import {
   LiveWhatsAppConfigError,
   parseWhatsAppDoorE164,
+  WhatsAppEnvelopeError,
 } from "./adapters/whatsapp-live.js";
 
 export interface WhatsAppMessagingIngress {
@@ -47,6 +48,8 @@ export function createWhatsAppMessagingIngress(options: {
   readonly session: CompanionSession;
   readonly host?: string;
   readonly port: number;
+  /** When set, companion retries unless this returns (HTTP 2xx). */
+  readonly processInbound?: (raw: unknown) => Promise<unknown>;
 }): Promise<WhatsAppMessagingIngress> {
   const host = options.host ?? "127.0.0.1";
   let lastInbound: InboundInteraction | undefined;
@@ -84,6 +87,11 @@ export function createWhatsAppMessagingIngress(options: {
           return;
         }
         const raw = JSON.parse(await readBody(request)) as unknown;
+        if (options.processInbound !== undefined) {
+          const result = await options.processInbound(raw);
+          writeJson(response, 200, result);
+          return;
+        }
         const inbound = await options.gateway.acceptProviderEvent(
           providerKey("whatsapp"),
           raw,
@@ -95,7 +103,13 @@ export function createWhatsAppMessagingIngress(options: {
       writeJson(response, 404, { error: "not_found" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      writeJson(response, 400, { error: "ingress_error", reason: message });
+      const status =
+        error instanceof SyntaxError ||
+        error instanceof WhatsAppEnvelopeError ||
+        error instanceof LiveWhatsAppConfigError
+          ? 400
+          : 500;
+      writeJson(response, status, { error: "ingress_error", reason: message });
     }
   }
 

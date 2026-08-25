@@ -59,7 +59,7 @@ func configFromEnv() companion.Config {
 		ListenAddr:           listen,
 		QRFile:               strings.TrimSpace(os.Getenv("ZOEN_WHATSAPP_QR_FILE")),
 		DropLog:              os.Stderr,
-		Log:                  waLog.Noop,
+		Log:                  waLog.Stdout("companion", "INFO", false),
 	}
 }
 

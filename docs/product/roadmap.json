@@ -39,7 +39,7 @@
       "issue": 326,
       "pr": null,
       "title": "Unofficial WhatsApp via whatsmeow sidecar",
-      "note": "In flight. CompanionSession + Chat SDK adapter + zoend HTTP ingress. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Not a dump of go-zoen."
+      "note": "In flight. Companion posts zoend /channels/whatsapp/inbound. Unbound 1:1 pokes in the same thread. Bound runs the turn coordinator. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Python log sink is not the live path. #375 then #376."
     },
     {
       "order": 3,
@@ -318,9 +318,9 @@
       "name": "Unofficial WhatsApp (whatsmeow) for Brazil",
       "onMain": false,
       "product": false,
-      "path": "apps/whatsapp-companion, packages/messaging/src/adapters/whatsapp-live.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-whatsapp-live.ts",
-      "proof": "just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Cloud API fake stays deleted.",
-      "issue": 326,
+      "path": "apps/whatsapp-companion, packages/messaging/src/adapters/whatsapp-live.ts, packages/messaging/src/whatsapp-contact-loop.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-whatsapp-live.ts",
+      "proof": "just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Human 1:1 to the Vivo door must get a same-thread reply. Cloud API fake stays deleted. Python log sink is not the live path.",
+      "issue": 375,
       "backup": [
         "packages/messaging/src/adapters/whatsapp-business-fake.ts"
       ],
