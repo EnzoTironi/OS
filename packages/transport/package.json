@@ -8,6 +8,7 @@
   "dependencies": {
     "@chat-adapter/telegram": "^4.38.1",
     "@zoen/harness": "*",
-    "@zoen/speaker": "*"
+    "@zoen/speaker": "*",
+    "pg": "8.23.0"
   }
 }

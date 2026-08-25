@@ -46,6 +46,7 @@ import {
   archivedWebServerEntry,
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "../host-env.js";
@@ -67,6 +68,7 @@ const publicWebOrigin = webOrigin;
 const telegramSubject = `tg_user_ca_${Date.now()}`;
 const webStepUpPrincipal = "principal.web.stepup";
 const webStepUpTenant = "tenant.a";
+let identityAdminBearer: string | undefined;
 
 const assertions: Record<string, boolean> = {};
 const mutantsKilled: string[] = [];
@@ -91,7 +93,9 @@ async function admin(
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      ...((token ?? identityAdminBearer) === undefined
+        ? {}
+        : { authorization: `Bearer ${token ?? identityAdminBearer}` }),
     },
     method,
   });
@@ -237,6 +241,7 @@ export async function main(): Promise<void> {
     const secondToken = await oidcToken("bound-second");
     const unboundToken = await oidcToken("unbound-a");
     const adminToken = await oidcToken("admin-a");
+    identityAdminBearer = e2eIdentityAdminToken();
 
     const bootstrapA = await admin(
       "POST",

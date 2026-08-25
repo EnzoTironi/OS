@@ -7,6 +7,13 @@ import type {
 } from "./model.js";
 
 export { compileDefinition } from "./compiler.js";
+export {
+  JcsError,
+  canonicalizeJson,
+  canonicalizeJsonBytes,
+  isCanonicalDigestHex,
+  sha256Hex,
+} from "./jcs.js";
 export type {
   ActionDefinition,
   ActionEffect,

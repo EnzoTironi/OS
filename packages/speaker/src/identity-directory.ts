@@ -25,6 +25,7 @@ export type ChannelSubjectResolveFailure =
   | { readonly kind: "unbound"; readonly message: string }
   | { readonly kind: "merged"; readonly message: string }
   | { readonly kind: "inactive_membership"; readonly message: string }
+  | { readonly kind: "ambiguous_membership"; readonly message: string }
   | { readonly kind: "tenant_hint_miss"; readonly message: string };
 
 export class ChannelSubjectResolveError extends Error {
@@ -73,6 +74,7 @@ interface SnapshotJson {
 export interface IdentityDirectoryClientOptions {
   readonly baseUrl: string;
   readonly fetchImpl?: typeof fetch;
+  readonly adminToken?: string;
 }
 
 /**
@@ -84,9 +86,16 @@ export function createIdentityDirectoryClient(
 ): IdentityDirectory {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = options.baseUrl.replace(/\/$/, "");
+  const adminToken =
+    options.adminToken?.trim() ||
+    process.env.ZOEN_IDENTITY_ADMIN_TOKEN?.trim() ||
+    "";
 
   return {
     async resolveChannelSubject(input) {
+      if (adminToken.length === 0) {
+        throw new Error("ZOEN_IDENTITY_ADMIN_TOKEN required for identity directory");
+      }
       const channelProvider = toChannelProvider(input.provider);
       const params = new URLSearchParams({
         provider: channelProvider,
@@ -95,6 +104,7 @@ export function createIdentityDirectoryClient(
       const snapshot = await getJson<SnapshotJson>(
         fetchImpl,
         `${baseUrl}/identity/admin/resolve-subject?${params.toString()}`,
+        adminToken,
       );
 
       if (snapshot.account.status === "merged_into") {
@@ -129,12 +139,17 @@ export function createIdentityDirectoryClient(
 
       const membership =
         input.tenantHint === undefined
-          ? active[0]
+          ? uniqueMembership(active)
           : active.find((row) => row.tenantId === input.tenantHint);
       if (membership === undefined) {
         throw new ChannelSubjectResolveError({
-          kind: "tenant_hint_miss",
-          message: "no active membership for tenant hint",
+          kind: input.tenantHint === undefined
+            ? "ambiguous_membership"
+            : "tenant_hint_miss",
+          message:
+            input.tenantHint === undefined
+              ? "multiple active memberships require a tenant hint"
+              : "no active membership for tenant hint",
         });
       }
 
@@ -152,8 +167,24 @@ export function createIdentityDirectoryClient(
   };
 }
 
-async function getJson<T>(fetchImpl: typeof fetch, url: string): Promise<T> {
-  const response = await fetchImpl(url, { method: "GET" });
+function uniqueMembership(
+  active: readonly MembershipJson[],
+): MembershipJson | undefined {
+  if (active.length === 1) {
+    return active[0];
+  }
+  return undefined;
+}
+
+async function getJson<T>(
+  fetchImpl: typeof fetch,
+  url: string,
+  adminToken: string,
+): Promise<T> {
+  const response = await fetchImpl(url, {
+    headers: { authorization: `Bearer ${adminToken}` },
+    method: "GET",
+  });
   const text = await response.text();
   const parsed = text.length === 0 ? {} : (JSON.parse(text) as unknown);
   if (!response.ok) {
@@ -164,8 +195,10 @@ async function getJson<T>(fetchImpl: typeof fetch, url: string): Promise<T> {
       typeof (parsed as { error: unknown }).error === "string"
         ? (parsed as { error: string }).error
         : JSON.stringify(parsed);
-    // resolve-subject is unauthenticated; 401 is SubjectUnbound.
     if (response.status === 401) {
+      throw new Error(`identity admin unauthenticated: ${message}`);
+    }
+    if (response.status === 404) {
       throw new ChannelSubjectResolveError({
         kind: "unbound",
         message,

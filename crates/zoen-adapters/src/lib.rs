@@ -31,6 +31,7 @@ mod evidence_store;
 mod external_signal_store;
 mod history_store;
 mod identity_store;
+mod ingress_replay_store;
 mod integrity;
 mod migration_store;
 mod pack_registry_store;
@@ -52,6 +53,7 @@ pub use effect_dispatcher::{
 pub use effect_store::PostgresEffectUpdate;
 pub use external_signal_store::PostgresExternalSignalStore;
 pub use identity_store::{AccountSnapshot, CreateInvite, PostgresIdentityStore};
+pub use ingress_replay_store::PostgresIngressReplayStore;
 pub use integrity::IntegrityError;
 pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
 pub use pack_store::{PostgresPackStore, admit_pack};

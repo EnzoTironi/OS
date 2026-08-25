@@ -8,6 +8,7 @@ mod external_signal;
 mod history;
 mod human;
 mod identity;
+pub mod jcs;
 mod migration;
 mod pack;
 
@@ -51,6 +52,7 @@ pub use identity::{
     WorkloadEvidenceKind, WorkloadRevocationReason, WorkloadSecretId, ZoenAccount, ZoenAccountId,
     trusted_context_from_membership, trusted_context_from_workload_credential,
 };
+pub use jcs::{JcsError, canonicalize_json, canonicalize_json_bytes, is_canonical_digest_hex};
 pub use migration::{
     MigrationArtifactDependency, MigrationDependency, MigrationElement, MigrationLineage,
     MigrationObligation, MigrationObligationSource, MigrationOrigin, MigrationPlan,

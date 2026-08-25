@@ -25,19 +25,21 @@ pub(crate) fn admit(
     bytes: &[u8],
     claimed_digest: DefinitionDigest,
 ) -> Result<AdmittedDefinitionPublication, PublishError> {
-    let mut dto = serde_json::from_slice::<CanonicalDefinitionDto>(bytes)
+    let canonical = zoen_core::canonicalize_json_bytes(bytes)
         .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
-    normalize(&mut dto);
-    let normalized = serde_jcs::to_vec(&dto)
-        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
-    if normalized != bytes {
+    if canonical.as_bytes() != bytes {
         return Err(PublishError::NonCanonicalDefinition);
     }
-    let canonical_json = CanonicalJson::new(
-        String::from_utf8(normalized)
-            .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?,
-    )
-    .ok_or_else(|| PublishError::MalformedDefinition("empty document".to_owned()))?;
+    let mut dto = serde_json::from_str::<CanonicalDefinitionDto>(&canonical)
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
+    normalize(&mut dto);
+    let via_serde_jcs = serde_jcs::to_vec(&dto)
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
+    if via_serde_jcs != bytes {
+        return Err(PublishError::NonCanonicalDefinition);
+    }
+    let canonical_json = CanonicalJson::new(canonical)
+        .ok_or_else(|| PublishError::MalformedDefinition("empty document".to_owned()))?;
     if !verify_digest(&canonical_json, &claimed_digest) {
         return Err(PublishError::DigestMismatch);
     }
@@ -646,6 +648,55 @@ mod tests {
         let expected = serde_jcs::to_string(&dto).expect("canonical JSON");
         assert_eq!(raw, expected, "expected RFC 8785:\n{expected}");
         admit(raw.as_bytes(), digest(raw.as_bytes())).expect("scale fixture must admit");
+    }
+
+    #[test]
+    fn admission_jcs_matches_shared_rfc8785_vectors() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/jcs");
+        for group in ["rfc8785", "zoen"] {
+            let dir = root.join(group);
+            for entry in std::fs::read_dir(&dir).expect("testdata") {
+                let entry = entry.expect("entry");
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                let Some(stem) = name.strip_suffix(".json") else {
+                    continue;
+                };
+                let input = std::fs::read(dir.join(format!("{stem}.json"))).expect("input");
+                let expected =
+                    String::from_utf8(std::fs::read(dir.join(format!("{stem}.jcs"))).expect("jcs"))
+                        .expect("utf8");
+                let via_core = zoen_core::canonicalize_json_bytes(&input).expect(stem);
+                let parsed: serde_json::Value = serde_json::from_slice(&input).expect("json");
+                let via_serde = serde_jcs::to_string(&parsed).expect("serde_jcs");
+                assert_eq!(via_core, expected, "{group}/{stem} zoen-core");
+                assert_eq!(via_serde, expected, "{group}/{stem} serde_jcs");
+            }
+        }
+    }
+
+    #[test]
+    fn admission_rejects_non_jcs_bytes_via_zoen_core() {
+        let raw = INVENTORY.trim();
+        let spaced = raw.replacen('{', "{ ", 1);
+        assert_ne!(spaced.as_bytes(), raw.as_bytes());
+        let error = admit(spaced.as_bytes(), digest(spaced.as_bytes()))
+            .expect_err("zoen-core must reject non-canonical bytes");
+        assert_eq!(error, PublishError::NonCanonicalDefinition);
+    }
+
+    #[test]
+    fn historical_inventory_definition_digest_is_not_silently_rehashed() {
+        let canonical = INVENTORY.trim();
+        let pinned = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../packages/ontology/fixtures/inventory.sha256"),
+        )
+        .expect("inventory.sha256");
+        let pinned = pinned.trim();
+        assert_eq!(digest(canonical.as_bytes()).as_str(), pinned);
+        admit(canonical.as_bytes(), digest(canonical.as_bytes()))
+            .expect("historical inventory must still admit");
     }
 
     #[test]

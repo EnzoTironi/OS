@@ -3,6 +3,7 @@ import type {
   ConversationTurnId,
   DeliveryIntentId,
   InteractionId,
+  TenantIdString,
   TurnAttemptId,
 } from "./brands.js";
 import type {
@@ -36,11 +37,14 @@ export interface TurnStore {
   selectUnclaimed(
     conversationKey: ConversationKey,
   ): Promise<readonly PendingInteraction[]>;
-  claimPending(input: {
+  /**
+   * Atomically claim every unclaimed pending row for the conversation.
+   * Returns the claimed rows, or empty when another worker won.
+   */
+  claimUnclaimed(input: {
     readonly conversationKey: ConversationKey;
-    readonly interactionIds: readonly InteractionId[];
     readonly attemptId: TurnAttemptId;
-  }): Promise<void>;
+  }): Promise<readonly PendingInteraction[]>;
 
   putTurn(turn: ConversationTurn): Promise<void>;
   getTurn(id: ConversationTurnId): Promise<ConversationTurn | undefined>;
@@ -53,6 +57,7 @@ export interface TurnStore {
   openAttemptForKey(
     conversationKey: ConversationKey,
   ): Promise<TurnAttempt | undefined>;
+  listOpenAttempts(): Promise<readonly TurnAttempt[]>;
 
   putDeliveryIntent(intent: DeliveryIntent): Promise<void>;
   getDeliveryIntent(
@@ -62,6 +67,24 @@ export interface TurnStore {
   getDeliveryObservation(
     intentId: DeliveryIntentId,
   ): Promise<DeliveryObservation | undefined>;
+
+  upsertArm(arm: ConversationArm): Promise<void>;
+  getArm(conversationKey: ConversationKey): Promise<ConversationArm | undefined>;
+  clearArm(conversationKey: ConversationKey): Promise<void>;
+  listUnclaimedConversationKeys(): Promise<readonly ConversationKey[]>;
+  claimDelivery(stableProviderDeliveryId: string): Promise<DeliveryClaimResult>;
+}
+
+export type DeliveryClaimResult = "claimed" | "duplicate";
+
+export interface ConversationArm {
+  readonly conversationKey: ConversationKey;
+  readonly workspaceId: string;
+  readonly tenantId: TenantIdString;
+  readonly accountId: string;
+  readonly reservedAttemptId?: TurnAttemptId;
+  readonly armedAt: string;
+  readonly debounceMs: number;
 }
 
 export interface PostgresTurnStoreClient {
@@ -78,6 +101,8 @@ export function createMemoryTurnStore(): TurnStore {
   const attempts = new Map<string, TurnAttempt>();
   const intents = new Map<string, DeliveryIntent>();
   const observations = new Map<string, DeliveryObservation>();
+  const arms = new Map<string, ConversationArm>();
+  const deliveryClaims = new Set<string>();
 
   return {
     async putRecord(record) {
@@ -106,17 +131,21 @@ export function createMemoryTurnStore(): TurnStore {
         (row) => row.claimedByAttemptId === null,
       );
     },
-    async claimPending(input) {
+    async claimUnclaimed(input) {
       const list = pending.get(input.conversationKey) ?? [];
-      const claimed = new Set(input.interactionIds);
+      const unclaimed = list.filter((row) => row.claimedByAttemptId === null);
+      if (unclaimed.length === 0) {
+        return [];
+      }
       pending.set(
         input.conversationKey,
         list.map((row) =>
-          claimed.has(row.interactionId) && row.claimedByAttemptId === null
+          row.claimedByAttemptId === null
             ? { ...row, claimedByAttemptId: input.attemptId }
             : row,
         ),
       );
+      return unclaimed;
     },
     async putTurn(turn) {
       turns.set(turn.id, turn);
@@ -140,11 +169,12 @@ export function createMemoryTurnStore(): TurnStore {
       const open = [...attempts.values()].filter(
         (attempt) =>
           attempt.conversationKey === conversationKey &&
-          attempt.phase.kind !== "completed" &&
-          attempt.phase.kind !== "superseded" &&
-          attempt.phase.kind !== "failed",
+          isOpenAttemptPhase(attempt),
       );
       return open.sort((a, b) => a.openedAt.localeCompare(b.openedAt)).at(-1);
+    },
+    async listOpenAttempts() {
+      return [...attempts.values()].filter(isOpenAttemptPhase);
     },
     async putDeliveryIntent(intent) {
       intents.set(intent.id, intent);
@@ -157,6 +187,31 @@ export function createMemoryTurnStore(): TurnStore {
     },
     async getDeliveryObservation(intentId) {
       return observations.get(intentId);
+    },
+    async upsertArm(arm) {
+      arms.set(arm.conversationKey, arm);
+    },
+    async getArm(conversationKey) {
+      return arms.get(conversationKey);
+    },
+    async clearArm(conversationKey) {
+      arms.delete(conversationKey);
+    },
+    async listUnclaimedConversationKeys() {
+      const keys = new Set<ConversationKey>();
+      for (const [key, rows] of pending) {
+        if (rows.some((row) => row.claimedByAttemptId === null)) {
+          keys.add(key as ConversationKey);
+        }
+      }
+      return [...keys];
+    },
+    async claimDelivery(stableProviderDeliveryId) {
+      if (deliveryClaims.has(stableProviderDeliveryId)) {
+        return "duplicate";
+      }
+      deliveryClaims.add(stableProviderDeliveryId);
+      return "claimed";
     },
   };
 }
@@ -204,18 +259,31 @@ export function createPostgresTurnStore(
         interactionId: row.interaction_id as InteractionId,
       }));
     },
-    async claimPending(input) {
-      if (input.interactionIds.length === 0) {
-        return;
-      }
-      await client.query(
-        `UPDATE conversation_pending
+    async claimUnclaimed(input) {
+      const result = await client.query(
+        `WITH take AS MATERIALIZED (
+           SELECT conversation_key, interaction_id
+           FROM conversation_pending
+           WHERE conversation_key = $2
+             AND claimed_by_attempt_id IS NULL
+           ORDER BY accepted_at ASC
+           FOR UPDATE SKIP LOCKED
+         )
+         UPDATE conversation_pending AS pending
          SET claimed_by_attempt_id = $1
-         WHERE conversation_key = $2
-           AND interaction_id = ANY($3::text[])
-           AND claimed_by_attempt_id IS NULL`,
-        [input.attemptId, input.conversationKey, [...input.interactionIds]],
+         FROM take
+         WHERE pending.conversation_key = take.conversation_key
+           AND pending.interaction_id = take.interaction_id
+         RETURNING pending.conversation_key, pending.interaction_id,
+                   pending.accepted_at, pending.claimed_by_attempt_id`,
+        [input.attemptId, input.conversationKey],
       );
+      return result.rows.map((row) => ({
+        acceptedAt: String(row.accepted_at),
+        claimedByAttemptId: input.attemptId,
+        conversationKey: row.conversation_key as ConversationKey,
+        interactionId: row.interaction_id as InteractionId,
+      }));
     },
     async putTurn(turn) {
       await client.query(
@@ -302,6 +370,16 @@ export function createPostgresTurnStore(
       );
       return parseRow<TurnAttempt>(result.rows[0]);
     },
+    async listOpenAttempts() {
+      const result = await client.query(
+        `SELECT payload FROM turn_attempts
+         WHERE phase_kind NOT IN ('completed', 'superseded', 'failed')
+         ORDER BY opened_at ASC`,
+      );
+      return result.rows
+        .map((row) => parseRow<TurnAttempt>(row))
+        .filter((row): row is TurnAttempt => row !== undefined);
+    },
     async putDeliveryIntent(intent) {
       await client.query(
         `INSERT INTO delivery_intents (
@@ -345,7 +423,103 @@ export function createPostgresTurnStore(
       );
       return parseRow<DeliveryObservation>(result.rows[0]);
     },
+    async upsertArm(arm) {
+      await client.query(
+        `INSERT INTO conversation_arms (
+           conversation_key, workspace_id, tenant_id, account_id,
+           reserved_attempt_id, armed_at, debounce_ms
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (conversation_key) DO UPDATE SET
+           workspace_id = EXCLUDED.workspace_id,
+           tenant_id = EXCLUDED.tenant_id,
+           account_id = EXCLUDED.account_id,
+           reserved_attempt_id = EXCLUDED.reserved_attempt_id,
+           armed_at = EXCLUDED.armed_at,
+           debounce_ms = EXCLUDED.debounce_ms`,
+        [
+          arm.conversationKey,
+          arm.workspaceId,
+          arm.tenantId,
+          arm.accountId,
+          arm.reservedAttemptId ?? null,
+          arm.armedAt,
+          arm.debounceMs,
+        ],
+      );
+    },
+    async getArm(conversationKey) {
+      const result = await client.query(
+        `SELECT conversation_key, workspace_id, tenant_id, account_id,
+                reserved_attempt_id, armed_at, debounce_ms
+         FROM conversation_arms WHERE conversation_key = $1`,
+        [conversationKey],
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        return undefined;
+      }
+      return {
+        accountId: String(row.account_id),
+        armedAt:
+          row.armed_at instanceof Date
+            ? row.armed_at.toISOString()
+            : String(row.armed_at),
+        conversationKey: row.conversation_key as ConversationKey,
+        debounceMs: Number(row.debounce_ms),
+        reservedAttemptId:
+          row.reserved_attempt_id === null || row.reserved_attempt_id === undefined
+            ? undefined
+            : (row.reserved_attempt_id as TurnAttemptId),
+        tenantId: row.tenant_id as TenantIdString,
+        workspaceId: String(row.workspace_id),
+      };
+    },
+    async clearArm(conversationKey) {
+      await client.query(
+        `DELETE FROM conversation_arms WHERE conversation_key = $1`,
+        [conversationKey],
+      );
+    },
+    async listUnclaimedConversationKeys() {
+      const result = await client.query(
+        `SELECT DISTINCT conversation_key
+         FROM conversation_pending
+         WHERE claimed_by_attempt_id IS NULL`,
+      );
+      return result.rows.map((row) => row.conversation_key as ConversationKey);
+    },
+    async claimDelivery(stableProviderDeliveryId) {
+      const result = await client.query(
+        `INSERT INTO delivery_send_claims (stable_provider_delivery_id)
+         VALUES ($1)
+         ON CONFLICT (stable_provider_delivery_id) DO NOTHING
+         RETURNING stable_provider_delivery_id`,
+        [stableProviderDeliveryId],
+      );
+      return result.rows[0] === undefined ? "duplicate" : "claimed";
+    },
   };
+}
+
+function isOpenAttemptPhase(attempt: TurnAttempt): boolean {
+  switch (attempt.phase.kind) {
+    case "completed":
+    case "superseded":
+    case "failed":
+      return false;
+    case "debouncing":
+    case "claiming":
+    case "assembling_context":
+    case "reasoning":
+    case "rendering":
+    case "planning_delivery":
+    case "delivering":
+      return true;
+    default: {
+      const exhaustive: never = attempt.phase;
+      return exhaustive;
+    }
+  }
 }
 
 function parseRow<T>(row: Record<string, unknown> | undefined): T | undefined {

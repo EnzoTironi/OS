@@ -15,6 +15,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  ONNXRUNTIME_NODE_INSTALL: skip
   RUST_BACKTRACE: 1
 
 jobs:
@@ -80,6 +81,29 @@ jobs:
             target/debug/zoen-projection
             target/failpoints/debug/zoend
 
+  jcs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: jcs
+      - run: npm ci
+      - run: node scripts/generate-jcs-fixtures.mjs --check
+      - run: cargo test --locked --package zoen-core --lib jcs
+      - run: cargo test --locked --package zoen-engine --lib admission_jcs
+      - run: cargo test --locked --package zoen-engine --lib historical_inventory_definition
+      - run: npm run build
+      - run: node --test dist/packages/ontology/src/jcs.test.js dist/packages/speaker/src/jcs.test.js
+
   e2e:
     needs: [check, clippy, build]
     runs-on: ubuntu-latest
@@ -127,7 +151,7 @@ jobs:
 
   required:
     if: always()
-    needs: [check, clippy, build, e2e]
+    needs: [check, clippy, build, e2e, jcs]
     runs-on: ubuntu-latest
     steps:
       - name: Require every gate
@@ -136,3 +160,4 @@ jobs:
           test "${{ needs.clippy.result }}" = "success"
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.e2e.result }}" = "success"
+          test "${{ needs.jcs.result }}" = "success"

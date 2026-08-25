@@ -69,10 +69,31 @@ impl ExternalSubject {
         if subject_key.is_empty() || subject_key.len() > 200 {
             return Err(IdentityError::InvalidSubject);
         }
+        if provider == ChannelProvider::WhatsApp && !is_whatsapp_person_subject(&subject_key) {
+            return Err(IdentityError::InvalidSubject);
+        }
         Ok(Self {
             provider,
             subject_key,
         })
+    }
+
+    /// Fail closed when the WhatsApp door cannot be distinguished from a person.
+    /// Missing or empty door is `InvalidSubject`. A configured door that matches
+    /// this subject is also `InvalidSubject`.
+    pub fn reject_if_whatsapp_door(&self, door_e164: Option<&str>) -> Result<(), IdentityError> {
+        if self.provider != ChannelProvider::WhatsApp {
+            return Ok(());
+        }
+        let Some(door) = door_e164.map(str::trim).filter(|value| !value.is_empty()) else {
+            return Err(IdentityError::InvalidSubject);
+        };
+        let door_digits = whatsapp_digits(door);
+        let subject_digits = whatsapp_digits(&self.subject_key);
+        if !door_digits.is_empty() && door_digits == subject_digits {
+            return Err(IdentityError::InvalidSubject);
+        }
+        Ok(())
     }
 }
 
@@ -82,6 +103,31 @@ pub enum ChannelProvider {
     WhatsApp,
     Telegram,
     Linq,
+}
+
+fn whatsapp_digits(value: &str) -> String {
+    value.chars().filter(|ch| ch.is_ascii_digit()).collect()
+}
+
+fn is_whatsapp_person_subject(subject_key: &str) -> bool {
+    if let Some(digits) = subject_key.strip_prefix('+') {
+        return digits.len() >= 7
+            && digits.len() <= 15
+            && digits.as_bytes()[0].is_ascii_digit()
+            && digits.as_bytes()[0] != b'0'
+            && digits.bytes().all(|byte| byte.is_ascii_digit());
+    }
+    let Some((user, server)) = subject_key.split_once('@') else {
+        return false;
+    };
+    if server != "s.whatsapp.net" && server != "c.us" {
+        return false;
+    }
+    user.len() >= 7
+        && user.len() <= 15
+        && user.as_bytes()[0].is_ascii_digit()
+        && user.as_bytes()[0] != b'0'
+        && user.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 impl ChannelProvider {
@@ -667,5 +713,59 @@ mod tests {
             ChannelProvider::parse("not_a_provider"),
             Err(IdentityError::InvalidProvider)
         );
+    }
+
+    #[test]
+    fn whatsapp_subject_accepts_e164_and_person_jid() {
+        use super::ExternalSubject;
+        ExternalSubject::new(ChannelProvider::WhatsApp, "+5511999999999").expect("e164");
+        ExternalSubject::new(ChannelProvider::WhatsApp, "553199941160@s.whatsapp.net")
+            .expect("jid");
+        ExternalSubject::new(ChannelProvider::WhatsApp, "553199941160@c.us").expect("c.us");
+    }
+
+    #[test]
+    fn whatsapp_subject_rejects_group_lid_and_short() {
+        use super::ExternalSubject;
+        assert_eq!(
+            ExternalSubject::new(ChannelProvider::WhatsApp, "120363000000000000@g.us")
+                .expect_err("group"),
+            IdentityError::InvalidSubject
+        );
+        assert_eq!(
+            ExternalSubject::new(ChannelProvider::WhatsApp, "146454777753827@lid")
+                .expect_err("lid"),
+            IdentityError::InvalidSubject
+        );
+        assert_eq!(
+            ExternalSubject::new(ChannelProvider::WhatsApp, "+12").expect_err("short"),
+            IdentityError::InvalidSubject
+        );
+    }
+
+    #[test]
+    fn whatsapp_door_fails_closed_without_env_and_on_match() {
+        use super::ExternalSubject;
+        let person =
+            ExternalSubject::new(ChannelProvider::WhatsApp, "+5511999999999").expect("person");
+        let door = ExternalSubject::new(ChannelProvider::WhatsApp, "+553798136141").expect("door");
+        assert_eq!(
+            person.reject_if_whatsapp_door(None),
+            Err(IdentityError::InvalidSubject)
+        );
+        assert_eq!(
+            person.reject_if_whatsapp_door(Some("   ")),
+            Err(IdentityError::InvalidSubject)
+        );
+        assert_eq!(
+            door.reject_if_whatsapp_door(Some("+553798136141")),
+            Err(IdentityError::InvalidSubject)
+        );
+        assert_eq!(
+            person.reject_if_whatsapp_door(Some("+553798136141")),
+            Ok(())
+        );
+        let oidc = ExternalSubject::new(ChannelProvider::WebOidc, "user-1").expect("oidc");
+        assert_eq!(oidc.reject_if_whatsapp_door(None), Ok(()));
     }
 }

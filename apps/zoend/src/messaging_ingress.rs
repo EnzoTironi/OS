@@ -1,30 +1,43 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use reqwest::Client;
 use serde_json::json;
+use zoen_adapters::PostgresIngressReplayStore;
+
+use crate::ingress_hmac::{self, IngressAuthError, ReplayGate};
 
 #[derive(Clone)]
 pub struct IngressState {
     pub gateway_url: Option<String>,
     pub client: Client,
+    pub whatsapp_secret: Option<String>,
+    pub replay: Arc<ReplayGate>,
+    pub replay_store: PostgresIngressReplayStore,
 }
 
-pub fn from_env() -> IngressState {
+pub fn from_env(replay_store: PostgresIngressReplayStore) -> IngressState {
     let gateway_url = std::env::var("ZOEN_MESSAGING_GATEWAY_URL")
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_owned())
         .filter(|value| !value.is_empty());
+    let whatsapp_secret = std::env::var("ZOEN_WHATSAPP_INGRESS_SECRET")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
     IngressState {
         client: Client::new(),
         gateway_url,
+        replay: Arc::new(ReplayGate::new()),
+        replay_store,
+        whatsapp_secret,
     }
 }
 
@@ -44,21 +57,62 @@ async fn whatsapp_advertise(State(state): State<Arc<IngressState>>) -> Response 
         "/advertise",
         None,
         None,
+        None,
         "whatsapp_not_advertised",
     )
     .await
 }
 
-async fn whatsapp_inbound(State(state): State<Arc<IngressState>>, body: Bytes) -> Response {
-    proxy(
+async fn whatsapp_inbound(
+    State(state): State<Arc<IngressState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let webhook_id = match ingress_hmac::verify_whatsapp_ingress(
+        state.whatsapp_secret.as_deref(),
+        &headers,
+        &body,
+        SystemTime::now(),
+    ) {
+        Ok(webhook_id) => webhook_id,
+        Err(error) => return ingress_denied(error),
+    };
+    if let Err(error) = state.replay.begin(&webhook_id) {
+        return ingress_denied(error);
+    }
+    match state.replay_store.contains(&webhook_id).await {
+        Ok(true) => {
+            state.replay.release(&webhook_id);
+            return ingress_denied(IngressAuthError::Replay);
+        }
+        Ok(false) => {}
+        Err(_) => {
+            state.replay.release(&webhook_id);
+            return ingress_denied(IngressAuthError::StoreFailure);
+        }
+    }
+    let response = proxy(
         &state,
         reqwest::Method::POST,
         "/inbound",
         Some(body),
         None,
+        Some(&headers),
         "whatsapp_not_advertised",
     )
-    .await
+    .await;
+    let succeeded = response.status().is_success();
+    if succeeded {
+        match state.replay_store.claim(&webhook_id).await {
+            Ok(_) => {}
+            Err(_) => {
+                state.replay.release(&webhook_id);
+                return ingress_denied(IngressAuthError::StoreFailure);
+            }
+        }
+    }
+    state.replay.release(&webhook_id);
+    response
 }
 
 async fn telegram_advertise(State(state): State<Arc<IngressState>>) -> Response {
@@ -66,6 +120,7 @@ async fn telegram_advertise(State(state): State<Arc<IngressState>>) -> Response 
         &state,
         reqwest::Method::GET,
         "/advertise",
+        None,
         None,
         None,
         "telegram_not_advertised",
@@ -88,6 +143,7 @@ async fn telegram_inbound(
         "/inbound",
         Some(body),
         secret.as_deref(),
+        None,
         "telegram_not_advertised",
     )
     .await
@@ -99,6 +155,7 @@ async fn proxy(
     path: &str,
     body: Option<Bytes>,
     secret_token: Option<&str>,
+    inbound_headers: Option<&HeaderMap>,
     missing_error: &'static str,
 ) -> Response {
     let Some(base) = state.gateway_url.as_deref() else {
@@ -117,6 +174,15 @@ async fn proxy(
     if let Some(secret) = secret_token {
         request = request.header("x-telegram-bot-api-secret-token", secret);
     }
+    if let Some(headers) = inbound_headers {
+        for name in ["webhook-id", "webhook-timestamp", "webhook-signature"] {
+            if let Some(value) = headers.get(HeaderName::from_static(name)) {
+                if let Ok(header) = HeaderValue::from_bytes(value.as_bytes()) {
+                    request = request.header(name, header);
+                }
+            }
+        }
+    }
     match request.send().await {
         Ok(upstream) => {
             let status =
@@ -130,6 +196,17 @@ async fn proxy(
         }
         Err(_) => unavailable(missing_error, "messaging_gateway_unreachable"),
     }
+}
+
+fn ingress_denied(error: IngressAuthError) -> Response {
+    (
+        error.status(),
+        Json(json!({
+            "error": "whatsapp_ingress_denied",
+            "reason": error.reason()
+        })),
+    )
+        .into_response()
 }
 
 fn unavailable(error: &'static str, reason: &'static str) -> Response {

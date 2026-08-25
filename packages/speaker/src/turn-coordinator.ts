@@ -13,7 +13,7 @@ import {
   type TenantIdString,
   type TurnAttemptId,
 } from "./brands.js";
-import type { TurnStore } from "./turn-store.js";
+import type { ConversationArm, TurnStore } from "./turn-store.js";
 import {
   isCancellableTurnPhase,
   type ConversationTurn,
@@ -32,10 +32,23 @@ export type ConversationalStage =
   | "rendering"
   | "planning_delivery";
 
+export const TURN_DEBOUNCE_MS = 1750;
+export const TURN_STATUS_AFTER_MS = 2000;
+
+export type ScheduleHandle = {
+  cancel(): void;
+};
+
+export type ScheduleFn = (
+  callback: () => void,
+  delayMs: number,
+) => ScheduleHandle;
+
 export interface TurnCoordinatorOptions {
   readonly store: TurnStore;
   readonly debounceMs?: number;
   readonly now?: () => Date;
+  readonly schedule?: ScheduleFn;
   /** Spectrum/Chat SDK stand-in. Cleared on restart proofs; never product SoR. */
   readonly transportCache?: Map<string, unknown>;
   /** Probe hook: must stay uncalled when conversational work is superseded. */
@@ -66,9 +79,15 @@ export interface ConversationTurnCoordinator {
   signalInbound(input: SignalInboundInput): Promise<void>;
   /** Cancel armed debounce without claiming. Pending rows must survive. */
   cancelDebounce(conversationKey: ConversationKey): Promise<void>;
+  /** Wait for the rearmed debounce, then claim one burst. Does not deliver. */
+  awaitClaim(conversationKey: ConversationKey): Promise<ClaimResult | undefined>;
   /** Claim pending interactions into a turn/attempt without running stages. */
   claimBurst(conversationKey: ConversationKey): Promise<ClaimResult | undefined>;
   flush(conversationKey: ConversationKey): Promise<FlushResult | undefined>;
+  acknowledgeSilentClose(
+    attemptId: TurnAttemptId,
+  ): Promise<readonly DeliveryObservation[]>;
+  recoverPending(): Promise<void>;
   assertNotSuperseded(attemptId: TurnAttemptId): Promise<void>;
   advanceStage(
     attemptId: TurnAttemptId,
@@ -99,8 +118,10 @@ export function createConversationTurnCoordinator(
 ): ConversationTurnCoordinator {
   const store = options.store;
   const now = options.now ?? (() => new Date());
-  const debounceMs = options.debounceMs ?? 50;
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const debounceMs = options.debounceMs ?? TURN_DEBOUNCE_MS;
+  const schedule = options.schedule ?? defaultSchedule;
+  const timers = new Map<string, ScheduleHandle>();
+  const claims = new Map<string, ArmedClaim>();
   const meta = new Map<string, ConversationMeta>();
 
   const coordinator: ConversationTurnCoordinator = {
@@ -145,35 +166,45 @@ export function createConversationTurnCoordinator(
         });
       }
 
-      const existingTimer = timers.get(conversationKey);
-      if (existingTimer !== undefined) {
-        clearTimeout(existingTimer);
+      await persistArm(store, conversationKey, meta.get(conversationKey)!, now, debounceMs);
+      if (open !== undefined && isDeliveringPhase(open.phase)) {
+        return;
       }
-      timers.set(
-        conversationKey,
-        setTimeout(() => {
-          timers.delete(conversationKey);
-          void coordinator.flush(conversationKey);
-        }, debounceMs),
-      );
+      armClaim(conversationKey);
     },
 
     async cancelDebounce(conversationKey) {
       const timer = timers.get(conversationKey);
       if (timer !== undefined) {
-        clearTimeout(timer);
+        timer.cancel();
         timers.delete(conversationKey);
+      }
+      const pending = claims.get(conversationKey);
+      if (pending !== undefined) {
+        claims.delete(conversationKey);
+        pending.resolve(undefined);
       }
     },
 
+    async awaitClaim(conversationKey) {
+      const pending = claims.get(conversationKey);
+      if (pending !== undefined) {
+        return pending.promise;
+      }
+      const open = await store.openAttemptForKey(conversationKey);
+      if (open !== undefined && isDeliveringPhase(open.phase)) {
+        return ensureWaiter(claims, conversationKey).promise;
+      }
+      return coordinator.claimBurst(conversationKey);
+    },
+
     async claimBurst(conversationKey) {
-      await coordinator.cancelDebounce(conversationKey);
-      const unclaimed = await store.selectUnclaimed(conversationKey);
-      if (unclaimed.length === 0) {
+      const open = await store.openAttemptForKey(conversationKey);
+      if (open !== undefined && isDeliveringPhase(open.phase)) {
         return undefined;
       }
-
-      const info = meta.get(conversationKey);
+      await coordinator.cancelDebounce(conversationKey);
+      const info = await resolveMeta(store, meta, conversationKey);
       if (info === undefined) {
         throw new Error("missing conversation metadata for flush");
       }
@@ -182,6 +213,13 @@ export function createConversationTurnCoordinator(
       const attemptId =
         info.reservedAttemptId ??
         turnAttemptId(`attempt_${randomBytes(10).toString("hex")}`);
+      const unclaimed = await store.claimUnclaimed({
+        attemptId,
+        conversationKey,
+      });
+      if (unclaimed.length === 0) {
+        return undefined;
+      }
       meta.set(conversationKey, {
         ...info,
         reservedAttemptId: undefined,
@@ -233,11 +271,7 @@ export function createConversationTurnCoordinator(
         turnId: turn.id,
       };
       await store.putAttempt(attempt);
-      await store.claimPending({
-        attemptId,
-        conversationKey,
-        interactionIds,
-      });
+      await store.clearArm(conversationKey);
       return { attempt, supersededPriorAttemptId, turn };
     },
 
@@ -334,7 +368,7 @@ export function createConversationTurnCoordinator(
         sequenceIndex++
       ) {
         await coordinator.assertNotSuperseded(input.attemptId);
-        const stableProviderDeliveryId = `spd_${input.attemptId}_${sequenceIndex}`;
+        const stableProviderDeliveryId = `spd_${primaryId}_${sequenceIndex}`;
         const intent: DeliveryIntent = {
           controlRefs: [],
           deliveryGroupId: groupId,
@@ -350,6 +384,10 @@ export function createConversationTurnCoordinator(
           },
           turnAttemptId: input.attemptId,
         };
+        const claim = await store.claimDelivery(stableProviderDeliveryId);
+        if (claim === "duplicate") {
+          continue;
+        }
         await store.putDeliveryIntent(intent);
         options.transportCache?.set(`intent:${intent.id}`, intent);
 
@@ -359,8 +397,18 @@ export function createConversationTurnCoordinator(
         };
         await store.putAttempt(current);
 
-        const outcome =
-          (await options.deliver?.(intent)) ?? defaultDeliver(intent);
+        let outcome: DeliveryOutcome;
+        try {
+          outcome = (await options.deliver?.(intent)) ?? defaultDeliver(intent);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          await store.putAttempt({
+            ...current,
+            phase: { kind: "failed", reason },
+          });
+          await resumeQueuedAfterTerminal(attempt.conversationKey);
+          throw error;
+        }
         const observation: DeliveryObservation = {
           id: deliveryObservationId(`do_${randomBytes(10).toString("hex")}`),
           intentId: intent.id,
@@ -380,6 +428,7 @@ export function createConversationTurnCoordinator(
           closedAt: now().toISOString(),
         });
       }
+      await resumeQueuedAfterTerminal(attempt.conversationKey);
       return observations;
     },
 
@@ -391,6 +440,17 @@ export function createConversationTurnCoordinator(
       const intent = await store.getDeliveryIntent(intentId);
       if (intent === undefined) {
         throw new Error(`unknown DeliveryIntent ${intentId}`);
+      }
+      const claim = await store.claimDelivery(intent.stableProviderDeliveryId);
+      if (claim === "duplicate") {
+        const observation: DeliveryObservation = {
+          id: deliveryObservationId(`do_${randomBytes(10).toString("hex")}`),
+          intentId: intent.id,
+          observedAt: now().toISOString(),
+          outcome: { kind: "unknown" },
+        };
+        await store.putDeliveryObservation(observation);
+        return observation;
       }
       const outcome =
         (await options.deliver?.(intent)) ?? defaultDeliver(intent);
@@ -410,9 +470,190 @@ export function createConversationTurnCoordinator(
     async getAttempt(attemptId) {
       return store.getAttempt(attemptId);
     },
+
+    async acknowledgeSilentClose(attemptId) {
+      const attempt = await store.getAttempt(attemptId);
+      if (attempt === undefined) {
+        throw new Error(`unknown TurnAttempt ${attemptId}`);
+      }
+      const stableProviderDeliveryId = `wait_${attemptId}`;
+      const claim = await store.claimDelivery(stableProviderDeliveryId);
+      const existing = await store.getDeliveryObservation(
+        deliveryIntentId(`di_wait_${attemptId}`.slice(0, 200)),
+      );
+      if (claim === "duplicate" && existing !== undefined) {
+        return [existing];
+      }
+      const intentId = deliveryIntentId(`di_wait_${attemptId}`.slice(0, 200));
+      const observation: DeliveryObservation = {
+        id: deliveryObservationId(`do_wait_${attemptId}`.slice(0, 200)),
+        intentId,
+        observedAt: now().toISOString(),
+        outcome: { kind: "unknown" },
+      };
+      if (claim === "claimed") {
+        await store.putDeliveryObservation(observation);
+      }
+      await store.putAttempt({ ...attempt, phase: { kind: "completed" } });
+      const turn = await store.getTurn(attempt.turnId);
+      if (turn !== undefined) {
+        await store.putTurn({ ...turn, closedAt: now().toISOString() });
+      }
+      await resumeQueuedAfterTerminal(attempt.conversationKey);
+      return [observation];
+    },
+
+    async recoverPending() {
+      for (const attempt of await store.listOpenAttempts()) {
+        if (!isDeliveringPhase(attempt.phase)) {
+          continue;
+        }
+        await store.putAttempt({
+          ...attempt,
+          phase: {
+            kind: "failed",
+            reason: "recovered after restart; pre-send claim held",
+          },
+        });
+      }
+      const keys = await store.listUnclaimedConversationKeys();
+      for (const conversationKey of keys) {
+        const arm = await store.getArm(conversationKey);
+        if (arm !== undefined) {
+          meta.set(conversationKey, {
+            accountId: arm.accountId,
+            reservedAttemptId: arm.reservedAttemptId,
+            tenantId: arm.tenantId,
+            workspaceId: arm.workspaceId,
+          });
+        }
+        armClaim(conversationKey);
+      }
+    },
   };
 
+  function armClaim(conversationKey: ConversationKey): void {
+    const existingTimer = timers.get(conversationKey);
+    existingTimer?.cancel();
+    const waiter = ensureWaiter(claims, conversationKey);
+    const handle = schedule(() => {
+      timers.delete(conversationKey);
+      claims.delete(conversationKey);
+      void coordinator.claimBurst(conversationKey).then(waiter.resolve, () => {
+        waiter.resolve(undefined);
+      });
+    }, debounceMs);
+    timers.set(conversationKey, handle);
+  }
+
+  async function resumeQueuedAfterTerminal(
+    conversationKey: ConversationKey,
+  ): Promise<void> {
+    const unclaimed = await store.selectUnclaimed(conversationKey);
+    if (unclaimed.length === 0) {
+      return;
+    }
+    armClaim(conversationKey);
+  }
+
   return coordinator;
+}
+
+type ArmedClaim = {
+  promise: Promise<ClaimResult | undefined>;
+  resolve: (result: ClaimResult | undefined) => void;
+};
+
+function ensureWaiter(
+  claims: Map<string, ArmedClaim>,
+  conversationKey: ConversationKey,
+): ArmedClaim {
+  const existing = claims.get(conversationKey);
+  if (existing !== undefined) {
+    return existing;
+  }
+  let resolve: ((result: ClaimResult | undefined) => void) | undefined;
+  const promise = new Promise<ClaimResult | undefined>((res) => {
+    resolve = res;
+  });
+  if (resolve === undefined) {
+    throw new Error("debounce waiter missing resolver");
+  }
+  const waiter = { promise, resolve };
+  claims.set(conversationKey, waiter);
+  return waiter;
+}
+
+function isDeliveringPhase(phase: TurnAttemptPhase): boolean {
+  switch (phase.kind) {
+    case "delivering":
+      return true;
+    case "debouncing":
+    case "claiming":
+    case "assembling_context":
+    case "reasoning":
+    case "rendering":
+    case "planning_delivery":
+    case "completed":
+    case "superseded":
+    case "failed":
+      return false;
+    default: {
+      const exhaustive: never = phase;
+      return exhaustive;
+    }
+  }
+}
+
+function defaultSchedule(callback: () => void, delayMs: number): ScheduleHandle {
+  const timer = setTimeout(callback, delayMs);
+  return {
+    cancel() {
+      clearTimeout(timer);
+    },
+  };
+}
+
+async function persistArm(
+  store: TurnStore,
+  conversationKey: ConversationKey,
+  info: ConversationMeta,
+  now: () => Date,
+  debounceMs: number,
+): Promise<void> {
+  const arm: ConversationArm = {
+    accountId: info.accountId,
+    armedAt: now().toISOString(),
+    conversationKey,
+    debounceMs,
+    reservedAttemptId: info.reservedAttemptId,
+    tenantId: info.tenantId,
+    workspaceId: info.workspaceId,
+  };
+  await store.upsertArm(arm);
+}
+
+async function resolveMeta(
+  store: TurnStore,
+  meta: Map<string, ConversationMeta>,
+  conversationKey: ConversationKey,
+): Promise<ConversationMeta | undefined> {
+  const cached = meta.get(conversationKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const arm = await store.getArm(conversationKey);
+  if (arm === undefined) {
+    return undefined;
+  }
+  const restored: ConversationMeta = {
+    accountId: arm.accountId,
+    reservedAttemptId: arm.reservedAttemptId,
+    tenantId: arm.tenantId,
+    workspaceId: arm.workspaceId,
+  };
+  meta.set(conversationKey, restored);
+  return restored;
 }
 
 async function runPipeline(

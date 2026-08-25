@@ -29,6 +29,8 @@ import {
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
+  e2eWhatsAppDoorE164,
   writeScenarioArtifact,
 } from "./host-env.js";
 
@@ -36,6 +38,7 @@ const scenario = "activation-identity";
 const repositoryRoot = process.cwd();
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_401);
+let identityAdminBearer: string | undefined;
 const phoneSubject = "+5511999999999";
 const assertions: Record<string, boolean> = {};
 const mutantsKilled: string[] = [];
@@ -61,7 +64,9 @@ async function admin(
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      ...((token ?? identityAdminBearer) === undefined
+        ? {}
+        : { authorization: `Bearer ${token ?? identityAdminBearer}` }),
     },
     method,
   });
@@ -156,6 +161,7 @@ async function main(): Promise<void> {
 
   const unboundToken = await oidcToken("unbound-a");
   const adminToken = await oidcToken("admin-a");
+  identityAdminBearer = e2eIdentityAdminToken();
   const boundToken = await oidcToken("bound-bait");
   const secondToken = await oidcToken("bound-second");
 
@@ -181,6 +187,32 @@ async function main(): Promise<void> {
       digest: fixture.digest,
       tenantId: "tenant.a",
     });
+
+    // OIDC can authenticate, but minting a foreign subject is machine-only.
+    const oidcProvisional = await admin(
+      "POST",
+      "/identity/admin/provisional",
+      {
+        provider: "whatsapp",
+        subjectKey: "+5511988887777",
+      },
+      adminToken,
+    );
+    record(
+      "oidc_cannot_mint_provisional",
+      oidcProvisional.status === 403 &&
+        oidcProvisional.body.error === "identity_admin_forbidden",
+    );
+
+    const doorProvisional = await admin("POST", "/identity/admin/provisional", {
+      provider: "whatsapp",
+      subjectKey: e2eWhatsAppDoorE164(),
+    });
+    record(
+      "whatsapp_door_rejected",
+      doorProvisional.status === 400 &&
+        doorProvisional.body.error === "invalid external subject",
+    );
 
     // Provisional account + restart before verify.
     const provisional = await admin("POST", "/identity/admin/provisional", {

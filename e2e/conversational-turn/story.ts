@@ -42,6 +42,7 @@ const repositoryRoot = process.cwd();
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_631);
 const postgresFallback = 55_506;
+let identityAdminBearer: string | undefined;
 
 const assertions: Record<string, boolean> = {};
 const mutantsKilled: string[] = [];
@@ -65,7 +66,9 @@ async function admin(
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      ...((token ?? identityAdminBearer) === undefined
+        ? {}
+        : { authorization: `Bearer ${token ?? identityAdminBearer}` }),
     },
     method,
   });
@@ -138,6 +141,7 @@ export async function main(): Promise<void> {
   try {
     const boundToken = await oidcToken("bound-bait");
     const secondToken = await oidcToken("bound-second");
+    identityAdminBearer = boundToken;
 
     const bootstrapA = await admin(
       "POST",
