@@ -16,11 +16,11 @@ import {
   presentationIntentRef,
   providerKey,
   runInteractionTurn,
+  toInteractionInbound,
   type DeliveryIntent,
   type DeliveryObservation,
   type IdentityDirectory,
   type InboundInteraction,
-  type TrustedInteractionContext,
 } from "../../interaction/src/index.js";
 import {
   presentationSchema,
@@ -87,10 +87,6 @@ export interface WhatsAppContactLoop {
   handleRaw(raw: unknown): Promise<WhatsAppContactDisposition>;
 }
 
-export interface BoundWhatsAppReply {
-  readonly text: string;
-}
-
 export interface WhatsAppContactLoopOptions {
   readonly session: CompanionSession;
   readonly identity: IdentityDirectory;
@@ -98,10 +94,6 @@ export interface WhatsAppContactLoopOptions {
   readonly doorE164?: string;
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
-  readonly boundReply?: (input: {
-    readonly inbound: InboundInteraction;
-    readonly ctx: TrustedInteractionContext;
-  }) => Promise<BoundWhatsAppReply>;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -266,27 +258,14 @@ export function createWhatsAppContactLoop(
       if (claimed === undefined) {
         throw new Error("bound whatsapp turn claimed no inbound");
       }
-      const reply =
-        options.boundReply === undefined
-          ? await runInteractionTurn({
-              attemptId: claimed.attempt.id,
-              coordinator,
-              inbound: record.inbound,
-              membership: ctx,
-              now,
-              store,
-            })
-          : {
-              bubbles: [
-                (
-                  await options.boundReply({
-                    ctx: record.ctx,
-                    inbound: record.inbound,
-                  })
-                ).text,
-              ],
-              href: null,
-            };
+      const reply = await runInteractionTurn({
+        attemptId: claimed.attempt.id,
+        coordinator,
+        inbound: toInteractionInbound(record.inbound),
+        membership: ctx,
+        now,
+        store,
+      });
       const bubbles = outboundBubbles(reply);
       outboundByAttempt.set(claimed.attempt.id, bubbles);
       const delivered =

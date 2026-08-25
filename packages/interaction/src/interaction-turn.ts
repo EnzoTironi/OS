@@ -22,7 +22,6 @@ import { createMemoryTurnStore, type TurnStore } from "./turn-store.js";
 import type {
   InboundInteraction,
   InteractionRecord,
-  ResolvedChannelIdentity,
   TrustedInteractionContext,
 } from "./types.js";
 import {
@@ -41,11 +40,23 @@ export interface OutboundTurn {
   readonly href: URL | null;
 }
 
+/**
+ * Live inbound for one Interaction turn. Text or media only.
+ * Other InboundKind values are mapped at the channel edge.
+ */
+export type InteractionInbound =
+  | { readonly kind: "text"; readonly text: string }
+  | {
+      readonly kind: "media";
+      readonly mediaRef: string;
+      readonly mime?: string;
+    };
+
 export type InteractionLocale = "pt" | "en";
 
 export interface InteractionTurnInput {
-  readonly membership: ResolvedChannelIdentity | TrustedInteractionContext;
-  readonly inbound: InboundInteraction;
+  readonly membership: TrustedInteractionContext;
+  readonly inbound: InteractionInbound;
   readonly model?: LanguageModel;
   readonly world?: WorldQueryClient;
   readonly coordinator?: ConversationTurnCoordinator;
@@ -61,6 +72,10 @@ const FAIL_CLOSED_EN =
   "I couldn't look that up just now. Try again in a moment.";
 const EMPTY_INBOUND_PT = "Pode mandar de novo? Não entendi o que você precisa.";
 const EMPTY_INBOUND_EN = "Can you send that again? I didn't catch what you need.";
+const MEDIA_INBOUND_PT =
+  "Ainda não abro arquivo por aqui. Manda em texto?";
+const MEDIA_INBOUND_EN =
+  "I can't open files here yet. Send it as text?";
 
 /**
  * Run one Interaction turn: coordinator stages plus a ToolLoopAgent reasoning step.
@@ -75,7 +90,7 @@ export async function runInteractionTurn(
   input: InteractionTurnInput,
 ): Promise<OutboundTurn> {
   const now = input.now ?? (() => new Date());
-  const ctx = trustedContext(input.membership, input.inbound);
+  const ctx = input.membership;
   const store = input.store ?? createMemoryTurnStore();
   const coordinator =
     input.coordinator ??
@@ -95,13 +110,16 @@ export async function runInteractionTurn(
 
   await coordinator.advanceStage(attemptId, "assembling_context");
   const inboundText = inboundBodyText(input.inbound);
-  const locale = detectInboundLocale(inboundText);
+  const locale = detectInboundLocale(
+    input.inbound.kind === "text" ? inboundText : "",
+  );
   const snapshot = await assembleWorld(ctx, input.world);
   const hiddenIds = hiddenIdentityTokens(ctx, snapshot);
 
   await coordinator.advanceStage(attemptId, "reasoning");
   const scratch = await reasonTurn({
     executeWork: input.executeWork,
+    inbound: input.inbound,
     inboundText,
     locale,
     model: input.model ?? resolveLanguageModel(),
@@ -111,6 +129,7 @@ export async function runInteractionTurn(
   await coordinator.advanceStage(attemptId, "rendering");
   const result = renderTurn({
     hiddenIds,
+    inbound: input.inbound,
     inboundText,
     locale,
     scratch,
@@ -155,15 +174,39 @@ export function detectInboundLocale(text: string): InteractionLocale {
   return "pt";
 }
 
-export function inboundBodyText(inbound: InboundInteraction): string {
+export function inboundBodyText(inbound: InteractionInbound): string {
+  switch (inbound.kind) {
+    case "text":
+      return inbound.text;
+    case "media":
+      return "";
+    default: {
+      const exhaustive: never = inbound;
+      return exhaustive;
+    }
+  }
+}
+
+/**
+ * Narrow a channel inbound to the live Interaction contract.
+ * Non-text/media kinds become empty text so the turn can fail closed.
+ */
+export function toInteractionInbound(
+  inbound: InboundInteraction,
+): InteractionInbound {
   switch (inbound.body.kind) {
     case "text":
-      return inbound.body.text;
+      return { kind: "text", text: inbound.body.text };
     case "media":
+      return {
+        kind: "media",
+        mediaRef: inbound.body.mediaRef,
+        mime: inbound.body.mime,
+      };
     case "control_click":
     case "reaction":
     case "unsupported":
-      return "";
+      return { kind: "text", text: "" };
     default: {
       const exhaustive: never = inbound.body;
       return exhaustive;
@@ -238,7 +281,7 @@ async function claimAttempt(input: {
   readonly attemptId?: TurnAttemptId;
   readonly coordinator: ConversationTurnCoordinator;
   readonly ctx: TrustedInteractionContext;
-  readonly inbound: InboundInteraction;
+  readonly inbound: InteractionInbound;
   readonly now: () => Date;
 }): Promise<TurnAttemptId> {
   if (input.attemptId !== undefined) {
@@ -265,29 +308,37 @@ async function claimAttempt(input: {
 
 function interactionRecord(
   ctx: TrustedInteractionContext,
-  inbound: InboundInteraction,
+  inbound: InteractionInbound,
   now: () => Date,
 ): InteractionRecord {
   return {
     acceptedAt: now().toISOString(),
     ctx,
     id: interactionId(`ixn_${randomBytes(12).toString("hex")}`),
-    inbound,
+    inbound: {
+      audienceObservation: { kind: "dm" },
+      body: inbound,
+      channel: ctx.channel,
+      idempotencyKey: inboundIdempotencyKey(ctx, inbound),
+    },
     semanticCorrelationKey: `turn:${ctx.membershipId}`,
   };
 }
 
-function trustedContext(
-  membership: ResolvedChannelIdentity | TrustedInteractionContext,
-  inbound: InboundInteraction,
-): TrustedInteractionContext {
-  if ("channel" in membership) {
-    return membership;
+function inboundIdempotencyKey(
+  ctx: TrustedInteractionContext,
+  inbound: InteractionInbound,
+): string {
+  switch (inbound.kind) {
+    case "text":
+      return `turn:${ctx.membershipId}:text:${inbound.text.slice(0, 48)}`;
+    case "media":
+      return `turn:${ctx.membershipId}:media:${inbound.mediaRef.slice(0, 48)}`;
+    default: {
+      const exhaustive: never = inbound;
+      return exhaustive;
+    }
   }
-  return {
-    ...membership,
-    channel: inbound.channel,
-  };
 }
 
 async function assembleWorld(
@@ -310,13 +361,19 @@ async function assembleWorld(
 
 async function reasonTurn(input: {
   readonly executeWork?: (task: string) => Promise<string>;
+  readonly inbound: InteractionInbound;
   readonly inboundText: string;
   readonly locale: InteractionLocale;
   readonly model: LanguageModel | undefined;
   readonly snapshot: WorldQuerySnapshot | undefined;
 }): Promise<InteractionScratch> {
   if (input.model === undefined) {
-    return failClosedScratch(input.locale, input.inboundText, input.snapshot);
+    return failClosedScratch(
+      input.locale,
+      input.inbound,
+      input.inboundText,
+      input.snapshot,
+    );
   }
   const scratch = createInteractionScratch();
   const agent = new ToolLoopAgent({
@@ -330,25 +387,43 @@ async function reasonTurn(input: {
   });
   try {
     await agent.generate({
-      prompt: reasoningPrompt(input.inboundText, input.snapshot),
+      prompt: reasoningPrompt(input.inbound, input.inboundText, input.snapshot),
     });
   } catch {
-    return failClosedScratch(input.locale, input.inboundText, input.snapshot);
+    return failClosedScratch(
+      input.locale,
+      input.inbound,
+      input.inboundText,
+      input.snapshot,
+    );
   }
   return scratch;
 }
 
 function failClosedScratch(
   locale: InteractionLocale,
+  inbound: InteractionInbound,
   inboundText: string,
   snapshot: WorldQuerySnapshot | undefined,
 ): InteractionScratch {
   const scratch = createInteractionScratch();
-  const empty = inboundText.trim().length === 0;
   const rivalLabels = (snapshot?.rivals ?? [])
     .map((rival) => rival.label.trim())
     .filter((label) => label.length > 0 && !looksLikeEntityId(label));
-  if (empty) {
+  switch (inbound.kind) {
+    case "media":
+      scratch.bubbles.push(
+        locale === "pt" ? MEDIA_INBOUND_PT : MEDIA_INBOUND_EN,
+      );
+      return scratch;
+    case "text":
+      break;
+    default: {
+      const exhaustive: never = inbound;
+      return exhaustive;
+    }
+  }
+  if (inboundText.trim().length === 0) {
     scratch.bubbles.push(locale === "pt" ? EMPTY_INBOUND_PT : EMPTY_INBOUND_EN);
     return scratch;
   }
@@ -372,6 +447,7 @@ function failClosedScratch(
 
 function renderTurn(input: {
   readonly hiddenIds: readonly string[];
+  readonly inbound: InteractionInbound;
   readonly inboundText: string;
   readonly locale: InteractionLocale;
   readonly scratch: InteractionScratch;
@@ -387,7 +463,8 @@ function renderTurn(input: {
     }
   }
   const href = pickHref(input.scratch.href, spoken, input.snapshot);
-  const emptyInbound = input.inboundText.trim().length === 0;
+  const emptyInbound =
+    input.inbound.kind === "text" && input.inboundText.trim().length === 0;
   const stripped = emptyInbound
     ? spoken.filter((bubble) => !containsHiddenId(bubble, input.hiddenIds))
     : spoken;
@@ -501,11 +578,15 @@ function interactionInstructions(locale: InteractionLocale): string {
 }
 
 function reasoningPrompt(
+  inbound: InteractionInbound,
   inboundText: string,
   snapshot: WorldQuerySnapshot | undefined,
 ): string {
   return JSON.stringify({
-    inbound: inboundText,
+    inbound:
+      inbound.kind === "text"
+        ? { kind: "text", text: inboundText }
+        : { kind: "media", mediaRef: inbound.mediaRef },
     world:
       snapshot === undefined
         ? null

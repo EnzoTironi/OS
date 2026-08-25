@@ -5,6 +5,7 @@ import { MockLanguageModelV3 } from "ai/test";
 import {
   outboundBubbles,
   runInteractionTurn,
+  type InteractionInbound,
 } from "./interaction-turn.js";
 import {
   principalIdString,
@@ -13,31 +14,29 @@ import {
   providerUserRef,
   tenantIdString,
 } from "./brands.js";
-import type { InboundInteraction, ResolvedChannelIdentity } from "./types.js";
+import type { TrustedInteractionContext } from "./types.js";
 import type { WorldQueryClient } from "./world-query.js";
 
-const membership: ResolvedChannelIdentity = {
-  accountId: "account.wa.enzo",
-  actorId: "actor.personal",
-  bindingId: "binding.wa.enzo",
-  membershipId: "membership.wa.enzo",
-  principalId: principalIdString("principal.wa.enzo"),
-  tenantId: tenantIdString("tenant.wa.enzo"),
-  workloadId: "workload.personal",
-};
-
-function inbound(text: string, suffix = "t"): InboundInteraction {
+function membership(suffix: string): TrustedInteractionContext {
   return {
-    audienceObservation: { kind: "dm" },
-    body: { kind: "text", text },
+    accountId: "account.wa.enzo",
+    actorId: "actor.personal",
+    bindingId: "binding.wa.enzo",
     channel: {
       provider: providerKey("whatsapp"),
       providerUser: providerUserRef("553199941160@s.whatsapp.net"),
       receivedAt: "2026-08-25T02:28:12.000Z",
       thread: providerThreadRef(`553199941160@s.whatsapp.net:${suffix}`),
     },
-    idempotencyKey: `wa.turn.${suffix}`,
+    membershipId: "membership.wa.enzo",
+    principalId: principalIdString("principal.wa.enzo"),
+    tenantId: tenantIdString("tenant.wa.enzo"),
+    workloadId: "workload.personal",
   };
+}
+
+function textInbound(text: string): InteractionInbound {
+  return { kind: "text", text };
 }
 
 function usage() {
@@ -54,8 +53,8 @@ function usage() {
 
 test("PT inbound does not contain Recebi", async () => {
   const result = await runInteractionTurn({
-    inbound: inbound("Oi", "oi"),
-    membership,
+    inbound: textInbound("Oi"),
+    membership: membership("oi"),
   });
   assert.ok(result.bubbles.length >= 1);
   assert.equal(result.href, null);
@@ -77,8 +76,8 @@ test("empty inbound does not dump entity ids", async () => {
     },
   };
   const result = await runInteractionTurn({
-    inbound: inbound("", "empty"),
-    membership,
+    inbound: textInbound(""),
+    membership: membership("empty"),
     world,
   });
   const text = outboundBubbles(result).join("\n");
@@ -88,6 +87,49 @@ test("empty inbound does not dump entity ids", async () => {
   assert.doesNotMatch(text, /Recebi/i);
   assert.equal(result.href, null);
   assert.ok(text.trim().length > 0);
+});
+
+test("media inbound stays PT and does not dump entity ids", async () => {
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return {
+        entityIds: ["commercial.order-line.dirty-quote"],
+        notes: ["commercial.order-line.dirty-quote"],
+        rivals: [],
+      };
+    },
+  };
+  const result = await runInteractionTurn({
+    inbound: { kind: "media", mediaRef: "wa-media-1", mime: "image/jpeg" },
+    membership: membership("media"),
+    world,
+  });
+  const text = outboundBubbles(result).join("\n");
+  assert.ok(result.bubbles.length >= 1);
+  assert.equal(result.href, null);
+  assert.doesNotMatch(text, /Recebi/i);
+  assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
+  assert.match(text, /texto|arquivo/i);
+});
+
+test("wait leaves empty bubbles and a null href", async () => {
+  const model = new MockLanguageModelV3({
+    doGenerate: async () =>
+      ({
+        content: [],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: usage(),
+        warnings: [],
+      }) satisfies LanguageModelV3GenerateResult,
+  });
+  const result = await runInteractionTurn({
+    inbound: textInbound("Oi"),
+    membership: membership("wait"),
+    model,
+  });
+  assert.deepEqual(result.bubbles, []);
+  assert.equal(result.href, null);
+  assert.deepEqual(outboundBubbles(result), []);
 });
 
 test("at most one href survives a double mint", async () => {
@@ -131,8 +173,8 @@ test("at most one href survives a double mint", async () => {
     },
   });
   const result = await runInteractionTurn({
-    inbound: inbound("Oi", "href"),
-    membership,
+    inbound: textInbound("Oi"),
+    membership: membership("href"),
     model,
   });
   const sent = outboundBubbles(result).join("\n");

@@ -297,6 +297,29 @@ test("zoend inbound with processInbound replies through the recording session", 
   }
 });
 
+test("bound 1:1 live send is the turn, not a minute callback", async () => {
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    doorE164,
+    identity: boundIdentity(speaker),
+    session,
+  });
+  const result = await loop.handleRaw(
+    inbound({ body: "oi", messageId: "wamid.live-turn" }),
+  );
+  assert.equal(result.kind, "bound");
+  const sent = session.sent()[0];
+  assert.ok(sent);
+  assert.equal(sent.shape.kind, "text");
+  if (sent.shape.kind === "text") {
+    assert.doesNotMatch(sent.shape.text, /Recebi/i);
+    assert.ok(sent.shape.text.trim().length > 0);
+    assert.equal(sent.shape.text.includes("cta_url"), false);
+    assert.ok(sent.shape.text.split("https://").length - 1 <= 1);
+  }
+  await session.close();
+});
+
 test("provider key stays unofficial whatsapp", () => {
   assert.equal(String(providerKey("whatsapp")), "whatsapp");
 });
