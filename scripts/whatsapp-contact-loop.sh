@@ -161,6 +161,7 @@ cmd_start() {
   export ZOEN_MESSAGING_INGRESS_PORT="$ingress_port"
   export ZOEN_WHATSAPP_REPLY_LEDGER="$pair_dir/reply-ledger.json"
   export ZOEN_MESSAGING_GATEWAY_URL="$ingress_url"
+  export ZOEN_WHATSAPP_TENANT_HINT="${ZOEN_WHATSAPP_TENANT_HINT:-tenant.a}"
   export DATABASE_URL="postgres://zoen_app:zoen_app@127.0.0.1:${postgres_port}/zoen"
   export ZOEN_CEDAR_POLICY_MANIFEST="$ZOEN_E2E_GENERATED_DIR/policies.json"
   export ZOEN_LISTEN_ADDR="127.0.0.1:${zoend_port}"

@@ -65,6 +65,7 @@ if [[ "$person_code" != "200" ]]; then
   cat "$pair_dir/person-resolve.json" >&2
   exit 1
 fi
+account_id="$(python3 -c 'import json; print(json.load(open("'"$pair_dir"'/person-resolve.json"))["account"]["accountId"])')"
 
 door_jid="${door_digits}@s.whatsapp.net"
 door_code="$(curl -sS -o "$pair_dir/door-resolve.json" -w '%{http_code}' \
@@ -74,6 +75,38 @@ door_code="$(curl -sS -o "$pair_dir/door-resolve.json" -w '%{http_code}' \
 if [[ "$door_code" != "401" ]]; then
   echo "door JID must stay unbound, got HTTP ${door_code}" >&2
   cat "$pair_dir/door-resolve.json" >&2
+  exit 1
+fi
+
+live_tenant="${ZOEN_WHATSAPP_TENANT:-tenant.a}"
+invite_token="invite.whatsapp.live.${account_id}"
+expires_at="$(python3 -c 'import time; print(int(time.time() * 1_000_000) + 3_600_000_000_000)')"
+invite_code="$(curl -sS -o "$pair_dir/invite-response.json" -w '%{http_code}' \
+  -X POST "${zoend_url}/identity/admin/invites" \
+  -H 'content-type: application/json' \
+  -d "{\"tenantId\":\"${live_tenant}\",\"principalId\":\"principal.live.whatsapp\",\"token\":\"${invite_token}\",\"expiresAtMicros\":${expires_at},\"workloadId\":\"workload.admin.a\",\"actorId\":\"actor.admin.a\",\"actionIds\":[\"commercial.changeCommitment\",\"zoen.definition.activate\"],\"resourceIds\":[\"commercial.sales\",\"commercial.order-line.dirty-quote\"]}")"
+if [[ "$invite_code" != "200" && "$invite_code" != "409" ]]; then
+  echo "create invite HTTP ${invite_code}" >&2
+  cat "$pair_dir/invite-response.json" >&2
+  exit 1
+fi
+accept_code="$(curl -sS -o "$pair_dir/accept-invite.json" -w '%{http_code}' \
+  -X POST "${zoend_url}/identity/admin/accept-invite" \
+  -H 'content-type: application/json' \
+  -d "{\"accountId\":\"${account_id}\",\"token\":\"${invite_token}\"}")"
+if [[ "$accept_code" != "200" && "$accept_code" != "409" ]]; then
+  echo "accept-invite HTTP ${accept_code}" >&2
+  cat "$pair_dir/accept-invite.json" >&2
+  exit 1
+fi
+
+person_code="$(curl -sS -o "$pair_dir/person-resolve.json" -w '%{http_code}' \
+  --get "${zoend_url}/identity/admin/resolve-subject" \
+  --data-urlencode "provider=whatsapp" \
+  --data-urlencode "subjectKey=${person_subject}")"
+if [[ "$person_code" != "200" ]]; then
+  echo "person subject did not resolve after invite HTTP ${person_code}" >&2
+  cat "$pair_dir/person-resolve.json" >&2
   exit 1
 fi
 
@@ -100,17 +133,26 @@ whatsapp = next(
     ),
     {},
 )
+memberships = [
+    row
+    for row in resolve.get("memberships", [])
+    if row.get("status") == "active"
+]
+live = next((row for row in memberships if row.get("tenantId") == "$live_tenant"), None)
+membership = live or (memberships[0] if memberships else {})
+account = resolve.get("account") or {}
 payload = {
-    "accountId": bootstrap["accountId"],
-    "membershipId": bootstrap["membershipId"],
-    "tenantId": bootstrap["tenantId"],
-    "principalId": bootstrap["principalId"],
+    "accountId": whatsapp.get("accountId") or account.get("accountId") or bootstrap["accountId"],
+    "membershipId": membership.get("membershipId") or bootstrap["membershipId"],
+    "tenantId": membership.get("tenantId") or bootstrap["tenantId"],
+    "principalId": membership.get("principalId") or bootstrap["principalId"],
     "provider": "whatsapp",
     "subjectKey": "$person_subject",
     "bindingId": bind.get("bindingId") or whatsapp.get("bindingId"),
     "status": bind.get("status") or whatsapp.get("status") or "verified",
     "doorE164": "$door_e164",
     "doorBound": False,
+    "liveTenant": "$live_tenant",
 }
 (pair / "binding.json").write_text(json.dumps(payload, indent=2) + "\n")
 print(json.dumps(payload, indent=2))

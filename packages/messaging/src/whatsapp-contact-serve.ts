@@ -1,4 +1,7 @@
-import { createIdentityDirectoryClient } from "../../interaction/src/index.js";
+import {
+  createIdentityDirectoryClient,
+  type IdentityDirectory,
+} from "../../interaction/src/index.js";
 import {
   companionSessionIsReady,
   createHttpCompanionSession,
@@ -24,9 +27,13 @@ async function main(): Promise<void> {
   const session = createHttpCompanionSession(companionUrl);
   await session.open();
   const ready = await session.ready();
+  const tenantHint = process.env.ZOEN_WHATSAPP_TENANT_HINT?.trim();
   const loop = createWhatsAppContactLoop({
     doorE164,
-    identity: createIdentityDirectoryClient({ baseUrl: identityBaseUrl }),
+    identity: withTenantHint(
+      createIdentityDirectoryClient({ baseUrl: identityBaseUrl }),
+      tenantHint,
+    ),
     ledger:
       ledgerPath === undefined || ledgerPath.trim().length === 0
         ? createMemoryReplyLedger()
@@ -66,6 +73,20 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => {
     void shutdown();
   });
+}
+
+function withTenantHint(
+  identity: IdentityDirectory,
+  tenantHint: string | undefined,
+): IdentityDirectory {
+  if (tenantHint === undefined || tenantHint.length === 0) {
+    return identity;
+  }
+  return {
+    resolveChannelSubject(input) {
+      return identity.resolveChannelSubject({ ...input, tenantHint });
+    },
+  };
 }
 
 function requiredEnv(name: string): string {
