@@ -27,13 +27,19 @@ const EXISTING_OBJECT_LIMIT = 8;
 const compiledByPath = new Map<string, Promise<CompiledDefinition>>();
 
 /**
- * Default in-repo pack for Interaction World assembly.
+ * Default lake fixture for Interaction World assembly.
  * `OrderLine` is used only when that type exists on the compiled definition.
  */
 export function defaultCommercialDefinitionPath(
   cwd: string = process.cwd(),
 ): string {
-  return path.join(cwd, "packages", "commercial", "src", "commercial.zoen.ts");
+  return path.join(
+    cwd,
+    "packages",
+    "ontology",
+    "fixtures",
+    "commercial.zoen.ts",
+  );
 }
 
 export interface OsdkWorldQueryOptions {
@@ -99,8 +105,8 @@ export function createOsdkWorldQueryClient(
 
 /**
  * Live zoend World credentials are enough. Definition/entity from env stay
- * membership-scoped when present; otherwise the commercial pack is compiled
- * and existing objects on that definition are queried.
+ * membership-scoped when present; otherwise the commercial lake fixture is
+ * compiled and existing objects on that definition are queried.
  */
 export function createWorldQueryClientFromEnv(
   env: NodeJS.ProcessEnv = process.env,

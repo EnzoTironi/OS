@@ -96,7 +96,8 @@ const compilerPath = path.join(
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
 const inventorySource = path.join(
   repositoryRoot,
-  "packages",
+  "archive",
+  "domain",
   "inventory",
   "src",
   "inventory.zoen.ts",

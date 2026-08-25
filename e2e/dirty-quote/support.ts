@@ -122,8 +122,8 @@ const serverPath = path.join(cargoTargetDir, "debug", "zoend");
 const commercialSource = path.join(
   repositoryRoot,
   "packages",
-  "commercial",
-  "src",
+  "ontology",
+  "fixtures",
   "commercial.zoen.ts",
 );
 const ingestStorePath = path.join(

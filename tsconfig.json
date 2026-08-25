@@ -62,9 +62,12 @@
       "node"
     ]
   },
+  "exclude": [
+    "dist",
+    "node_modules"
+  ],
   "include": [
     "e2e/**/*.ts",
-    "packages/**/*.ts",
-    "packs/**/*.ts"
+    "packages/**/*.ts"
   ]
 }

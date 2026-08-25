@@ -8,7 +8,7 @@
     "url": "https://github.com/EnzoTironi/OS/tree/backup/stubs-channels"
   },
   "gates": {
-    "verify": "just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale.",
+    "verify": "just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale, and archived ERP domain packs.",
     "verifyV1": "just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.",
     "verifyActivation": "just verify-activation. Signed activation evidence. Same fixture rule.",
     "note": "Green just verify is not a V1 release. Green just verify-v1-fixtures is a labeled contract, not production."
@@ -212,11 +212,11 @@
       "id": "ontology-libs",
       "status": "have",
       "plane": "ontology",
-      "name": "V1 ontology libraries",
+      "name": "Archived pre-modeled ERP libraries",
       "onMain": true,
-      "product": true,
-      "path": "packages/{party,product,commercial,inventory,procurement,manufacturing,quality,accounting-foundation}",
-      "proof": "just e2e domain-commercial, domain-inventory-procurement, domain-manufacturing-accounting, domain-quality",
+      "product": false,
+      "path": "archive/domain/{party,product,commercial,inventory,procurement,manufacturing,quality,accounting-foundation}",
+      "proof": "Outside default workspace and CI. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* reads archive/domain.",
       "issue": null
     },
     {
@@ -227,7 +227,7 @@
       "onMain": true,
       "product": true,
       "path": "packages/pack, packages/kitchen",
-      "proof": "just e2e pack-install, pack-registry, pack-kitchen",
+      "proof": "Kitchen derives capabilities from active definitions. pack-install, pack-registry, and pack-kitchen compile archive/domain and are optional, not default CI.",
       "issue": null
     },
     {
@@ -236,9 +236,9 @@
       "plane": "activation",
       "name": "Sample Company five-minute path",
       "onMain": true,
-      "product": true,
-      "path": "e2e/activation-sample",
-      "proof": "just start. just e2e activation-sample. Effect remote is the named fault-provider harness.",
+      "product": false,
+      "path": "archive/domain/sample-company, e2e/activation-sample",
+      "proof": "Pack and ontology live under archive/domain. just start / just e2e activation-sample are optional and not default CI.",
       "issue": null
     },
     {
@@ -269,9 +269,9 @@
       "plane": "fiscal",
       "name": "Brazil fiscal HTTP adapters (code)",
       "onMain": true,
-      "product": true,
-      "path": "packages/fiscal-brazil/src/adapter/vendors",
-      "proof": "just e2e fiscal-fault-matrix uses vendor-fault-proxy. Live homologation is #214.",
+      "product": false,
+      "path": "archive/domain/fiscal-brazil/src/adapter/vendors",
+      "proof": "Archived with the ERP packs. just e2e fiscal-fault-matrix is optional and not default CI. Live homologation is #214.",
       "issue": 214
     },
     {

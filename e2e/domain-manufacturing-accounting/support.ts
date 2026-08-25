@@ -142,14 +142,16 @@ const scenarioDirectory = path.join(
 const packageSources = {
   "accounting-foundation": path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "accounting-foundation",
     "src",
     "accounting-foundation.zoen.ts",
   ),
   manufacturing: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "manufacturing",
     "src",
     "manufacturing.zoen.ts",

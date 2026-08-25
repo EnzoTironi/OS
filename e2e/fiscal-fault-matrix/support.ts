@@ -99,7 +99,8 @@ const proxyMetricsSchema = z.object({
 
 const packageSourcePath = path.join(
   repositoryRoot,
-  "packages",
+  "archive",
+  "domain",
   "fiscal-brazil",
   "src",
   "fiscal-brazil.zoen.ts",
@@ -370,7 +371,8 @@ export async function startFiscalAdapter(input: {
     arguments: [
       path.join(
         distDirectory,
-        "packages",
+        "archive",
+        "domain",
         "fiscal-brazil",
         "src",
         "adapter",

@@ -149,21 +149,24 @@ export type QueryConsistency =
 const packageSources = {
   commercial: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "commercial",
     "src",
     "commercial.zoen.ts",
   ),
   party: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "party",
     "src",
     "party.zoen.ts",
   ),
   product: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "product",
     "src",
     "product.zoen.ts",

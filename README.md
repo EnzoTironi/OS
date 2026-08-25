@@ -47,7 +47,7 @@ just e2e activation-sample
 
 ## Sample Company
 
-Sample Company is the five-minute first Action path.
+Sample Company is the five-minute first Action path. Its pre-modeled ontology and pack live under `archive/domain/` and are not built by default.
 
 1. Start the stack with `just start`.
 2. Sign in at the printed web URL with the sample OIDC user.
@@ -120,7 +120,9 @@ The reference production architecture targets single-region HA (>=99.9%), RPO <5
 
 ### V1 enterprise scope
 
-V1 ships versioned ontology libraries for Party, Product, Commercial, Inventory, Procurement, Manufacturing and an Accounting Foundation. Brazilian fiscal semantics remain a versioned domain extension behind replaceable provider boundaries. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
+V1 does not ship a prebuilt SAP. Each company brings its own world. Kitchen derives Pack capabilities from the definitions that company activates.
+
+Pre-modeled ERP libraries (Party, Product, Commercial, Inventory, Procurement, Manufacturing, Accounting Foundation, and the Brazil fiscal extension) live under `archive/domain/` and are outside the default workspace and CI. Live World/OSDK compile stays on `packages/ontology/fixtures/commercial.zoen.ts`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
 ### Research phase
 

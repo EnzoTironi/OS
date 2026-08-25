@@ -3,6 +3,8 @@ set -euo pipefail
 
 # Ticket command stays `just e2e <scenario>` (check + native build + run).
 # `just verify` runs check and native build once, then each scenario runner.
+# Archived ERP domain packs (archive/domain) stay optional: just verify skips
+# those scenarios so they are not built by default.
 # `just verify-v1` aggregates typed artifacts into a signed zoen.verify.v1 bundle.
 # `just verify-activation` aggregates AD artifacts into a signed zoen.activation.v1 bundle.
 # `just e2e-run` executes a built workspace and does not lint.
@@ -391,7 +393,7 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == whatsapp-dirty-quote || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == whatsapp-dirty-quote || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 || "$name" == activation-metrics || "$name" == activation-sample || "$name" == adr-0007 || "$name" == domain-commercial || "$name" == domain-inventory-procurement || "$name" == domain-manufacturing-accounting || "$name" == domain-quality || "$name" == entity-location || "$name" == fiscal-fault-matrix || "$name" == pack-install || "$name" == pack-kitchen || "$name" == pack-registry || "$name" == public-surface-web || "$name" == v1-company || "$name" == workshop-miniapp ]]; then
       continue
     fi
     resolve_scenario "$name"

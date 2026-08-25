@@ -28,7 +28,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 ## Gates
 
-- `just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale.`
+- `just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale, and archived ERP domain packs.`
 - `just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.`
 - `just verify-activation. Signed activation evidence. Same fixture rule.`
 
@@ -65,12 +65,12 @@ On main. Real implementation. This is product.
 | `web-tanstack` | experience | Web application | just start. OIDC login, packs, propose/approve, step-up. | — |
 | `surface-ir` | experience | Surface IR package | Unit tests in packages/surface. just e2e live-attention lowers PresentationIntent onto unofficial WhatsApp text plus https. Paired door is still #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `attention` | experience | Proactive attention package | Package exists with Postgres store. just e2e live-attention opens one AttentionItem and one delivery. Restart does not duplicate. Paired door is still #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-| `ontology-libs` | ontology | V1 ontology libraries | just e2e domain-commercial, domain-inventory-procurement, domain-manufacturing-accounting, domain-quality | — |
-| `pack-compiler` | packs | Pack compiler, registry, Kitchen | just e2e pack-install, pack-registry, pack-kitchen | — |
-| `sample-company` | activation | Sample Company five-minute path | just start. just e2e activation-sample. Effect remote is the named fault-provider harness. | — |
+| `ontology-libs` | ontology | Archived pre-modeled ERP libraries | Outside default workspace and CI. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* reads archive/domain. | — |
+| `pack-compiler` | packs | Pack compiler, registry, Kitchen | Kitchen derives capabilities from active definitions. pack-install, pack-registry, and pack-kitchen compile archive/domain and are optional, not default CI. | — |
+| `sample-company` | activation | Sample Company five-minute path | Pack and ontology live under archive/domain. just start / just e2e activation-sample are optional and not default CI. | — |
 | `activation-onboarding` | activation | Conversational onboarding and messy data | just e2e activation-onboarding. just e2e company-bootstrap-shadow (in-memory mapping, labeled). | — |
 | `brain-live` | intelligence | Company Brain and agent live suites | just e2e company-brain-live and agent-capabilities-live. Need OPENCODE_API_KEY. In just verify. | — |
-| `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | just e2e fiscal-fault-matrix uses vendor-fault-proxy. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
+| `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | Archived with the ERP packs. just e2e fiscal-fault-matrix is optional and not default CI. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
 | `linq-live` | channels | Live Linq iMessage adapter | just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host. | [#253](https://github.com/EnzoTironi/OS/issues/253) |
 | `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `deploy-helm` | deploy | Helm profiles (shared, dedicated, self-hosted) | just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify. | — |
