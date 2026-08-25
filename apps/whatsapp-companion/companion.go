@@ -229,25 +229,77 @@ func (s *Session) WaitUntilConnected(ctx context.Context, timeout time.Duration)
 }
 
 func (s *Session) handleEvent(event any) bool {
-	messageEvent, ok := event.(*events.Message)
-	if !ok {
-		return true
+	switch evt := event.(type) {
+	case *events.Disconnected:
+		s.note("disconnected")
+	case *events.LoggedOut:
+		s.note("logged_out on_connect=%v reason=%v", evt.OnConnect, evt.Reason)
+	case *events.KeepAliveTimeout:
+		s.note("keepalive_timeout")
+	case *events.ConnectFailure:
+		s.note("connect_failure reason=%v message=%s", evt.Reason, evt.Message)
+	case *events.TemporaryBan:
+		s.note("temporary_ban %v", evt)
+	case *events.StreamReplaced:
+		s.note("stream_replaced")
+	case *events.OfflineSyncPreview:
+		s.note("offline_sync_preview messages=%d", evt.Messages)
+	case *events.OfflineSyncCompleted:
+		s.note("offline_sync_completed count=%d", evt.Count)
+	case *events.Message:
+		return s.handleMessage(evt)
 	}
-	inbound, accept, err := normalizeInboundMessage(messageEvent)
+	return true
+}
+
+func (s *Session) handleMessage(event *events.Message) bool {
+	inbound, accept, err := normalizeInboundMessage(event)
 	if err != nil {
+		s.note(
+			"inbound reject id=%s chat=%s err=%v",
+			event.Info.ID,
+			event.Info.Chat.String(),
+			err,
+		)
 		return false
 	}
 	if !accept {
-		if messageEvent.Info.IsFromMe {
+		if event.Info.IsFromMe {
 			s.noteDroppedFromMe("text")
+			return true
 		}
+		s.note(
+			"inbound drop id=%s chat=%s from_me=%v group=%v",
+			event.Info.ID,
+			event.Info.Chat.String(),
+			event.Info.IsFromMe,
+			event.Info.IsGroup,
+		)
 		return true
 	}
 	s.applyLIDMap(&inbound.SenderAltJID, &inbound.ChatJID, inbound.SenderJID, inbound.IsGroup)
 	if s.ingress == "" {
+		s.note("inbound skip id=%s ingress_url_empty", inbound.MessageID)
 		return true
 	}
-	return s.postInbound(inbound) == nil
+	if err := s.postInbound(inbound); err != nil {
+		s.note("inbound post fail id=%s err=%v", inbound.MessageID, err)
+		return false
+	}
+	s.note(
+		"inbound posted id=%s chat=%s body_len=%d",
+		inbound.MessageID,
+		inbound.ChatJID,
+		len(inbound.Body),
+	)
+	return true
+}
+
+func (s *Session) note(format string, args ...any) {
+	if s == nil || s.dropLog == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(s.dropLog, "companion: "+format+"\n", args...)
 }
 
 func (s *Session) noteDroppedFromMe(kind string) {
