@@ -85,20 +85,10 @@ verify:
 verify-v1:
     ./e2e/run.sh verify-v1
 
-# Named gate-contract PASS using fixtures under e2e/verify-v1/testdata/complete.
-# Not production evidence. Bundle still lands in artifacts/verify-v1/.
-verify-v1-fixtures fixture="complete":
-    ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-v1/testdata/{{fixture}} ./e2e/run.sh verify-v1
-
 # Activation release gate: aggregate AD artifacts into a signed zoen.activation.v1 bundle.
 # Does not rerun scenarios. Missing/stale/wrong-commit/fixture-as-production fails closed.
 verify-activation:
     ./e2e/run.sh verify-activation
-
-# Named gate-contract PASS using fixtures under e2e/verify-activation/testdata/complete.
-# Not production evidence. Bundle still lands in artifacts/verify-activation/.
-verify-activation-fixtures fixture="complete":
-    ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-activation/testdata/{{fixture}} ./e2e/run.sh verify-activation
 
 # Live unofficial WhatsApp contact loop against the paired Vivo door.
 # Companion already paired on 127.0.0.1:8081. Does not POST /send as the human.

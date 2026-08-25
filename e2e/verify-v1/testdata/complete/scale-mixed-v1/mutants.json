@@ -1,9 +1,0 @@
-{
-  "killed": [
-    {
-      "id": "fixture-mutant",
-      "killed": true,
-      "observation": "fixture"
-    }
-  ]
-}

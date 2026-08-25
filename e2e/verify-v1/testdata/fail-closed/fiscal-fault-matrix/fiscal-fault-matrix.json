@@ -1,9 +1,0 @@
-{
-  "scenario": "fiscal-fault-matrix",
-  "status": "pass",
-  "fixture": true,
-  "note": "Fail-closed fixture missing source commit.",
-  "liveEvidence": {
-    "systax": "sandbox-pass"
-  }
-}

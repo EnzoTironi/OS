@@ -407,7 +407,7 @@ function evaluateGate(
         code: "fixture-as-production",
         scenario: spec.id,
         detail:
-          "fixture-marked evidence cannot satisfy just verify-activation; use just verify-activation-fixtures for gate-contract only",
+          "fixture-marked evidence cannot satisfy just verify-activation",
       });
     }
 
@@ -934,7 +934,7 @@ async function main(): Promise<void> {
         )),
     ``,
     fixtureMode
-      ? `Named fixture command: \`just verify-activation-fixtures\` (not production evidence)`
+      ? `Fixture evidence is not a ship attestation`
       : `Official command: \`just verify-activation\``,
     ``,
   ];

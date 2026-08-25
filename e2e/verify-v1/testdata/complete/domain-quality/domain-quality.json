@@ -1,7 +1,0 @@
-{
-  "scenario": "domain-quality",
-  "verdict": "PASS",
-  "sourceCommit": "__CANDIDATE_SHA__",
-  "fixture": true,
-  "note": "Gate contract fixture. Not production evidence."
-}

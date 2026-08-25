@@ -1,7 +1,0 @@
-{
-  "chartSignatureDigest": "sha256:fixture-chart-sig",
-  "nodeSignatureDigest": "sha256:fixture-node-sig",
-  "publicKeyDigest": "sha256:fixture-pubkey",
-  "rustSignatureDigest": "sha256:fixture-rust-sig",
-  "sourceSha": "__CANDIDATE_SHA__"
-}
