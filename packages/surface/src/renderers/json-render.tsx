@@ -142,7 +142,11 @@ const { registry } = defineRegistry(catalog, {
       />
     ),
     ObjectDetail: ({ children, props }) => (
-      <article className="object-detail json-object">
+      <article
+        className="object-detail json-object"
+        data-entity-id={props.entityId}
+        data-type-id={props.typeId}
+      >
         <header>
           <span>{props.typeId}</span>
           <code>{props.entityId}</code>

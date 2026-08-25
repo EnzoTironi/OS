@@ -13,6 +13,7 @@ import {
   QueryConsistencySchema,
   QuerySelectionSchema,
   StrongConsistencySchema,
+  TypeQuerySchema,
   type ActionInput,
   type CommitReceipt,
   type CommitResponse,
@@ -88,6 +89,7 @@ export async function loadAuthoritySurface(
   client: ZoenBrowserClient,
   config: RuntimeConfig,
   queryClient: QueryClient,
+  options: { readonly selectedEntityId?: string } = {},
 ): Promise<LoadedAuthoritySurface> {
   const active = await client.definitions.getActiveRevision({
     definitionId: config.definitionId,
@@ -98,14 +100,31 @@ export async function loadAuthoritySurface(
     throw new Error(`Unknown definition ${config.definitionId}`);
   }
   const metadata = parseDefinitionMetadata(revision.canonicalJson);
+  const typeQuery =
+    config.typeId === undefined
+      ? undefined
+      : {
+          limit: config.typeLimit ?? 32,
+          typeId: config.typeId,
+        };
+  const definition = {
+    definitionId: revision.definitionId,
+    digest: revision.digest,
+    revision: revision.revision.toString(),
+  };
+  const entityId = await resolveSelectedEntityId({
+    client,
+    config,
+    definition,
+    selectedEntityId: options.selectedEntityId,
+    typeQuery,
+  });
   const compiled = compileDeterministicSurface({
-    definition: {
-      definitionId: revision.definitionId,
-      digest: revision.digest,
-      revision: revision.revision.toString(),
-    },
-    entityId: config.resourceId,
+    actionIds: config.actionIds,
+    definition,
+    entityId,
     metadata,
+    typeQuery,
   });
   const document = parseSurfaceDocument(compiled, metadata);
   const actions = await discoverActionViews(client, document);
@@ -262,6 +281,63 @@ function requireActiveAdaptiveSession(
   }
 }
 
+async function resolveSelectedEntityId(input: {
+  readonly client: ZoenBrowserClient;
+  readonly config: RuntimeConfig;
+  readonly definition: {
+    readonly definitionId: string;
+    readonly digest: string;
+    readonly revision: string;
+  };
+  readonly selectedEntityId: string | undefined;
+  readonly typeQuery:
+    | { readonly limit: number; readonly typeId: string }
+    | undefined;
+}): Promise<string> {
+  if (
+    input.selectedEntityId !== undefined &&
+    input.selectedEntityId.length > 0
+  ) {
+    return input.selectedEntityId;
+  }
+  if (input.config.resourceId !== undefined && input.config.resourceId.length > 0) {
+    return input.config.resourceId;
+  }
+  if (input.typeQuery === undefined) {
+    throw new Error("Web runtime configuration is missing a resource id");
+  }
+  const response = await input.client.world.semanticQuery({
+    consistency: create(QueryConsistencySchema, {
+      value: {
+        case: "strong",
+        value: create(StrongConsistencySchema),
+      },
+    }),
+    definition: create(DefinitionReferenceSchema, {
+      definitionId: input.definition.definitionId,
+      digest: input.definition.digest,
+      revision: BigInt(input.definition.revision),
+    }),
+    entityId: "",
+    query: {
+      case: "byType",
+      value: create(TypeQuerySchema, {
+        limit: input.typeQuery.limit,
+        typeId: input.typeQuery.typeId,
+      }),
+    },
+    tenantId: input.client.tenantId,
+    validAt: timestampFromDate(new Date(input.config.validAt)),
+  });
+  const first = response.values.find(
+    (result) => result.value?.value.case === "entityRefValue",
+  );
+  if (first?.value?.value.case !== "entityRefValue") {
+    throw new Error(`Type query ${input.typeQuery.typeId} returned no objects`);
+  }
+  return first.value.value.value;
+}
+
 export function generatedActionIsFresh(
   freshness: ActionFreshness,
   queries: Readonly<Record<string, QueryBindingView>>,
@@ -292,20 +368,7 @@ export async function refreshQueries(
   const entries = await Promise.all(
     document.queryBindings.map(async (binding): Promise<[string, QueryBindingView]> => {
       const response = await queryClient.fetchQuery({
-        queryFn: () =>
-          client.world.semanticQuery({
-            consistency: create(QueryConsistencySchema, {
-              value: {
-                case: "strong",
-                value: create(StrongConsistencySchema),
-              },
-            }),
-            definition: protocolDefinition(document),
-            entityId: binding.ref.entityId,
-            selection: selection(binding),
-            tenantId: client.tenantId,
-            validAt: timestampFromDate(new Date(config.validAt)),
-          }),
+        queryFn: () => semanticQuery(client, config, document, binding),
         queryKey: semanticQueryCacheKey({
           commitSequence,
           query: binding.ref,
@@ -581,6 +644,50 @@ function protocolDefinition(document: SurfaceDocument) {
   });
 }
 
+function semanticQuery(
+  client: ZoenBrowserClient,
+  config: RuntimeConfig,
+  document: SurfaceDocument,
+  binding: QueryBinding,
+) {
+  const shared = {
+    consistency: create(QueryConsistencySchema, {
+      value: {
+        case: "strong",
+        value: create(StrongConsistencySchema),
+      },
+    }),
+    definition: protocolDefinition(document),
+    tenantId: client.tenantId,
+    validAt: timestampFromDate(new Date(config.validAt)),
+  };
+  switch (binding.ref.kind) {
+    case "type":
+      return client.world.semanticQuery({
+        ...shared,
+        entityId: "",
+        query: {
+          case: "byType",
+          value: create(TypeQuerySchema, {
+            limit: binding.ref.limit,
+            typeId: binding.ref.typeId,
+          }),
+        },
+      });
+    case "relation":
+    case "computation":
+      return client.world.semanticQuery({
+        ...shared,
+        entityId: binding.ref.entityId,
+        selection: selection(binding),
+      });
+    default: {
+      const exhaustive: never = binding.ref;
+      return exhaustive;
+    }
+  }
+}
+
 function selection(binding: QueryBinding) {
   switch (binding.ref.kind) {
     case "relation":
@@ -597,6 +704,8 @@ function selection(binding: QueryBinding) {
           value: binding.ref.computationId,
         },
       });
+    case "type":
+      throw new Error("type QueryRef does not use QuerySelection");
     default: {
       const exhaustive: never = binding.ref;
       return exhaustive;

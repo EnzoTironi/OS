@@ -66,6 +66,7 @@ scenario_table=(
   "wasm-code-mode:wasm-code-mode:"
   "web-adaptive-live:web-adaptive-live:"
   "web-deterministic:web-deterministic:"
+  "workshop-miniapp:workshop-miniapp:"
 )
 
 scenario=""
@@ -215,7 +216,7 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
-  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" ) && ! -f apps/web/.output/server/index.mjs ]]; then
+  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f apps/web/.output/server/index.mjs ]]; then
     echo "missing apps/web/.output/server/index.mjs; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi

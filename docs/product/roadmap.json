@@ -165,6 +165,17 @@
       "issue": null
     },
     {
+      "id": "workshop-miniapp",
+      "status": "in-flight",
+      "plane": "experience",
+      "name": "Workshop mini-app lists commercial objects and commits changeCommitment",
+      "onMain": false,
+      "product": false,
+      "path": "apps/web, packages/surface, e2e/workshop-miniapp",
+      "proof": "just e2e workshop-miniapp. SemanticQuery ByType lists commercial.OrderLine. Mini-app renders one object. commercial.changeCommitment commits through Action API. A denied propose still denies.",
+      "issue": 356
+    },
+    {
       "id": "surface-ir",
       "status": "have",
       "plane": "experience",

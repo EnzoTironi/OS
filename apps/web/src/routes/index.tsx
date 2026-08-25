@@ -151,6 +151,10 @@ function AuthorityPage() {
     fieldValue: (bindingId, inputId) =>
       state.fields[fieldKey(bindingId, inputId)] ?? "",
     propose: (bindingId) => propose(state, bindingId, setState),
+    selectEntity: (entityId) => {
+      void selectEntity(state, entityId, setState);
+    },
+    selectedEntityId: state.document.semanticContext.entityId,
     setFieldValue: (bindingId, inputId, value) =>
       updateReady(setState, (current) => ({
         ...current,
@@ -170,9 +174,11 @@ function AuthorityPage() {
           : undefined
       }
       data-compiler={state.document.attribution.compiler}
+      data-entity-id={state.document.semanticContext.entityId}
       data-generated-without-llm={
         state.document.attribution.generatedWithoutLlm
       }
+      data-type-id={state.document.semanticContext.typeQuery?.typeId}
     >
       <header className="app-header">
         <div>
@@ -449,6 +455,27 @@ async function setLoadedState(
         : { kind: "deterministic" },
     ...recovered,
   });
+}
+
+async function selectEntity(
+  state: ReadyState,
+  entityId: string,
+  setState: SetPageState,
+): Promise<void> {
+  if (entityId === state.document.semanticContext.entityId) {
+    return;
+  }
+  try {
+    const loaded = await loadAuthoritySurface(
+      state.client,
+      state.config,
+      queryClient,
+      { selectedEntityId: entityId },
+    );
+    await setLoadedState(state.client, state.config, loaded, setState);
+  } catch (cause: unknown) {
+    setState({ error: errorText(cause), kind: "failed" });
+  }
 }
 
 async function propose(

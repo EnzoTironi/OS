@@ -20,10 +20,44 @@ import { surfaceCatalog, surfaceSchema } from "./model.js";
 export function compileDeterministicSurface(
   input: CompileSurfaceInput,
 ): SurfaceDocument {
-  const relations = [...input.metadata.relations].sort(byId);
-  const computations = [...input.metadata.computations].sort(byId);
-  const actions = [...input.metadata.actions].sort(byId);
+  const typeQuery = requireTypeQuery(input);
+  const relations = [...input.metadata.relations]
+    .filter(
+      (relation) =>
+        typeQuery === undefined || relation.sourceType === typeQuery.typeId,
+    )
+    .sort(byId);
+  const computations =
+    typeQuery === undefined
+      ? [...input.metadata.computations].sort(byId)
+      : [];
+  const actions = [...input.metadata.actions]
+    .filter(
+      (action) =>
+        input.actionIds === undefined || input.actionIds.includes(action.id),
+    )
+    .sort(byId);
+  if (input.actionIds !== undefined) {
+    for (const actionId of input.actionIds) {
+      if (!input.metadata.actions.some((action) => action.id === actionId)) {
+        throw new Error(`Unknown ActionRef ${actionId}`);
+      }
+    }
+  }
+  const typeBinding: QueryBinding | undefined =
+    typeQuery === undefined
+      ? undefined
+      : {
+          id: `query.type.${typeQuery.typeId}`,
+          ref: {
+            definition: input.definition,
+            kind: "type",
+            limit: typeQuery.limit,
+            typeId: typeQuery.typeId,
+          },
+        };
   const queryBindings: QueryBinding[] = [
+    ...(typeBinding === undefined ? [] : [typeBinding]),
     ...relations.map((relation): QueryBinding => ({
       id: `query.relation.${relation.id}`,
       ref: {
@@ -58,10 +92,13 @@ export function compileDeterministicSurface(
   }));
 
   const table: DataTableNode = {
-    bindingIds: queryBindings.map((binding) => binding.id),
+    bindingIds:
+      typeBinding === undefined
+        ? queryBindings.map((binding) => binding.id)
+        : [typeBinding.id],
     id: "node.semantic-table",
     kind: "data-table",
-    label: "Semantic state",
+    label: typeBinding === undefined ? "Semantic state" : "Objects",
   };
   const relationNodes: (RelationListNode | RelationValueNode)[] = relations.map(
     (relation) =>
@@ -89,15 +126,15 @@ export function compileDeterministicSurface(
     })),
   };
   const object: ObjectDetailNode = {
-    children: [
-      table.id,
-      ...relationNodes.map((node) => node.id),
-      evidence.id,
-    ],
+    children:
+      typeBinding === undefined
+        ? [table.id, ...relationNodes.map((node) => node.id), evidence.id]
+        : [...relationNodes.map((node) => node.id), evidence.id],
     entityId: input.entityId,
     id: "node.object",
     kind: "object-detail",
     typeId:
+      typeQuery?.typeId ??
       relations[0]?.sourceType ??
       input.metadata.types[0]?.id ??
       "semantic.object",
@@ -113,18 +150,26 @@ export function compileDeterministicSurface(
     title: "Governed actions",
   };
   const root: SectionNode = {
-    children: [
-      object.id,
-      ...(actionNodes.length === 0 ? [] : [actionSection.id]),
-    ],
+    children:
+      typeBinding === undefined
+        ? [
+            object.id,
+            ...(actionNodes.length === 0 ? [] : [actionSection.id]),
+          ]
+        : [
+            table.id,
+            object.id,
+            ...(actionNodes.length === 0 ? [] : [actionSection.id]),
+          ],
     id: "node.root",
     kind: "section",
     title: input.presentation?.title ?? humanLabel(input.metadata.definitionId),
   };
   const nodes = [
     root,
+    ...(typeBinding === undefined ? [] : [table]),
     object,
-    table,
+    ...(typeBinding === undefined ? [table] : []),
     ...relationNodes,
     evidence,
     ...(actionNodes.length === 0 ? [] : [actionSection]),
@@ -139,7 +184,10 @@ export function compileDeterministicSurface(
       generatedWithoutLlm: true,
     },
     catalog: surfaceCatalog,
-    id: `surface.${input.definition.definitionId}.${input.entityId}`,
+    id:
+      typeQuery === undefined
+        ? `surface.${input.definition.definitionId}.${input.entityId}`
+        : `surface.${input.definition.definitionId}.${typeQuery.typeId}`,
     nodes: Object.fromEntries(
       nodes.map((node): [string, SurfaceNode] => [node.id, node]),
     ),
@@ -154,8 +202,26 @@ export function compileDeterministicSurface(
     semanticContext: {
       definition: input.definition,
       entityId: input.entityId,
+      ...(typeQuery === undefined ? {} : { typeQuery }),
     },
   };
+}
+
+function requireTypeQuery(
+  input: CompileSurfaceInput,
+): CompileSurfaceInput["typeQuery"] {
+  if (input.typeQuery === undefined) {
+    return undefined;
+  }
+  if (
+    !input.metadata.types.some((type) => type.id === input.typeQuery?.typeId)
+  ) {
+    throw new Error(`Unknown type QueryRef ${input.typeQuery.typeId}`);
+  }
+  if (input.typeQuery.limit < 1) {
+    throw new Error("type query limit must be positive");
+  }
+  return input.typeQuery;
 }
 
 function actionNodesFor(

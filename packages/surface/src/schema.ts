@@ -29,6 +29,12 @@ export const surfaceDefinitionRefSchema = z
     revision: z.string().regex(/^[1-9][0-9]*$/),
   })
   .strict();
+const typeQueryRefSchema = z
+  .object({
+    limit: z.number().int().positive().max(10_000),
+    typeId: semanticIdSchema,
+  })
+  .strict();
 const queryRefSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -44,6 +50,14 @@ const queryRefSchema = z.discriminatedUnion("kind", [
       definition: surfaceDefinitionRefSchema,
       entityId: semanticIdSchema,
       kind: z.literal("computation"),
+    })
+    .strict(),
+  z
+    .object({
+      definition: surfaceDefinitionRefSchema,
+      kind: z.literal("type"),
+      limit: z.number().int().positive().max(10_000),
+      typeId: semanticIdSchema,
     })
     .strict(),
 ]);
@@ -288,6 +302,7 @@ const documentShape = {
     .object({
       definition: surfaceDefinitionRefSchema,
       entityId: semanticIdSchema,
+      typeQuery: typeQueryRefSchema.optional(),
     })
     .strict(),
 };
@@ -494,6 +509,14 @@ function validateQueryRef(
     case "computation":
       if (!computationIds.has(reference.computationId)) {
         throw new Error(`Unknown QueryRef ${reference.computationId}`);
+      }
+      return;
+    case "type":
+      if (
+        metadata !== undefined &&
+        !metadata.types.some((type) => type.id === reference.typeId)
+      ) {
+        throw new Error(`Unknown type QueryRef ${reference.typeId}`);
       }
       return;
     default: {

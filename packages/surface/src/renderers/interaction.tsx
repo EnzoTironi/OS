@@ -12,6 +12,8 @@ export interface SurfaceInteraction {
   readonly document: SurfaceDocument;
   readonly fieldValue: (bindingId: string, inputId: string) => string | boolean;
   readonly propose: (bindingId: string) => Promise<void>;
+  readonly selectEntity: (entityId: string) => void;
+  readonly selectedEntityId: string;
   readonly setFieldValue: (
     bindingId: string,
     inputId: string,

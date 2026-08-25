@@ -20,10 +20,24 @@ export function semanticQueryCacheKey(
     "zoen-semantic-query",
     input.tenantId,
     input.query.definition.digest,
-    input.query.entityId,
+    queryScope(input.query),
     querySelection(input.query),
     input.commitSequence,
   ];
+}
+
+function queryScope(query: QueryRef): string {
+  switch (query.kind) {
+    case "relation":
+    case "computation":
+      return query.entityId;
+    case "type":
+      return `type:${query.typeId}`;
+    default: {
+      const exhaustive: never = query;
+      return exhaustive;
+    }
+  }
 }
 
 function querySelection(query: QueryRef): string {
@@ -32,6 +46,8 @@ function querySelection(query: QueryRef): string {
       return `relation:${query.relationId}`;
     case "computation":
       return `computation:${query.computationId}`;
+    case "type":
+      return `type:${query.typeId}:${query.limit}`;
     default: {
       const exhaustive: never = query;
       return exhaustive;
