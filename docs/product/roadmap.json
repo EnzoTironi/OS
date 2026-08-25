@@ -98,6 +98,17 @@
       "issue": 317
     },
     {
+      "id": "authority-cedar-projection",
+      "status": "in-flight",
+      "plane": "authority",
+      "name": "Cedar object and link projection",
+      "onMain": false,
+      "product": true,
+      "path": "crates/zoen-adapters/src/cedar.rs, crates/zoen-engine/src/action.rs, e2e/cedar-object-projection.ts",
+      "proof": "just e2e cedar-object-projection. Membership, object type, and links are projected into Cedar Entities from semantic records. Empty-entity evaluation is gone for that path.",
+      "issue": 357
+    },
+    {
       "id": "authority-wasm",
       "status": "have",
       "plane": "authority",

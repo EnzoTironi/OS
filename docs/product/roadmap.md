@@ -14,7 +14,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | HAVE | DON'T HAVE | STUB ON MAIN | IN FLIGHT | PARKED | HARNESS |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 24 | 1 | 0 | 4 | 2 | 3 |
+| 24 | 1 | 0 | 5 | 2 | 3 |
 
 ## Do next
 
@@ -93,6 +93,7 @@ Fail-closed work in an open PR. Do not duplicate.
 
 | id | plane | name | proof | issue |
 | --- | --- | --- | --- | ---: |
+| `authority-cedar-projection` | authority | Cedar object and link projection | just e2e cedar-object-projection. Membership, object type, and links are projected into Cedar Entities from semantic records. Empty-entity evaluation is gone for that path. | [#357](https://github.com/EnzoTironi/OS/issues/357) |
 | `workshop-miniapp` | experience | Workshop mini-app lists commercial objects and commits changeCommitment | just e2e workshop-miniapp. SemanticQuery ByType lists commercial.OrderLine. Mini-app renders one object. commercial.changeCommitment commits through Action API. A denied propose still denies. | [#356](https://github.com/EnzoTironi/OS/issues/356) |
 | `telegram-live` | channels | Telegram channel | just e2e channel-telegram-live. Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
 | `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Cloud API fake stays deleted. | [#326](https://github.com/EnzoTironi/OS/issues/326) |

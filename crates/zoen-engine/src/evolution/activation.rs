@@ -109,6 +109,7 @@ where
                 definition: &target_reference,
                 inputs: &[],
                 operation: PolicyOperation::ActivateRevision,
+                projection: None,
                 resource_id: &resource_id,
             })
             .await
@@ -208,6 +209,7 @@ where
                 definition: &current_reference,
                 inputs: &[],
                 operation: PolicyOperation::RollbackRevision,
+                projection: None,
                 resource_id: &resource_id,
             })
             .await

@@ -125,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">4</span>
+  <span class="stat-count">5</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -537,6 +537,17 @@
       </tr>
     </thead>
     <tbody>
+<tr data-status="in-flight">
+  <td><code>authority-cedar-projection</code></td>
+  <td>authority</td>
+  <td>
+    <div class="name">Cedar object and link projection</div>
+    <div class="path">crates/zoen-adapters/src/cedar.rs, crates/zoen-engine/src/action.rs, e2e/cedar-object-projection.ts</div>
+    
+  </td>
+  <td>just e2e cedar-object-projection. Membership, object type, and links are projected into Cedar Entities from semantic records. Empty-entity evaluation is gone for that path.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/357">#357</a></td>
+</tr>
 <tr data-status="in-flight">
   <td><code>workshop-miniapp</code></td>
   <td>experience</td>
