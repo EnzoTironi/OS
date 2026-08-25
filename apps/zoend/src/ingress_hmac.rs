@@ -102,24 +102,6 @@ pub fn verify_whatsapp_ingress(
     Ok(webhook_id)
 }
 
-#[cfg(test)]
-pub fn sign_whatsapp_ingress(
-    secret: &str,
-    webhook_id: &str,
-    timestamp_secs: i64,
-    raw_body: &[u8],
-) -> Result<(String, String, String), IngressAuthError> {
-    let key = decode_whsec(secret).ok_or(IngressAuthError::BadSignature)?;
-    let timestamp = timestamp_secs.to_string();
-    let signed = signed_content(webhook_id, &timestamp, raw_body);
-    let digest = hmac_sha256(&key, &signed);
-    Ok((
-        webhook_id.to_owned(),
-        timestamp,
-        format!("v1,{}", STANDARD.encode(digest)),
-    ))
-}
-
 fn signed_content(webhook_id: &str, timestamp: &str, raw_body: &[u8]) -> Vec<u8> {
     let mut signed = Vec::with_capacity(webhook_id.len() + timestamp.len() + raw_body.len() + 2);
     signed.extend_from_slice(webhook_id.as_bytes());
@@ -205,10 +187,32 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use axum::http::{HeaderMap, HeaderValue};
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
 
-    use super::{IngressAuthError, ReplayCache, sign_whatsapp_ingress, verify_whatsapp_ingress};
+    use super::{
+        IngressAuthError, ReplayCache, decode_whsec, hmac_sha256, signed_content,
+        verify_whatsapp_ingress,
+    };
 
     const SECRET: &str = "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==";
+
+    fn sign_whatsapp_ingress(
+        secret: &str,
+        webhook_id: &str,
+        timestamp_secs: i64,
+        raw_body: &[u8],
+    ) -> Result<(String, String, String), IngressAuthError> {
+        let key = decode_whsec(secret).ok_or(IngressAuthError::BadSignature)?;
+        let timestamp = timestamp_secs.to_string();
+        let signed = signed_content(webhook_id, &timestamp, raw_body);
+        let digest = hmac_sha256(&key, &signed);
+        Ok((
+            webhook_id.to_owned(),
+            timestamp,
+            format!("v1,{}", STANDARD.encode(digest)),
+        ))
+    }
 
     fn headers(id: &str, timestamp: &str, signature: &str) -> HeaderMap {
         let mut map = HeaderMap::new();
