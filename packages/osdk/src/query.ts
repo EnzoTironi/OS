@@ -5,7 +5,7 @@ import {
   QuerySelectionSchema,
   StrongConsistencySchema,
   TypeQuerySchema,
-} from "@zoen/sdk";
+} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import type { OsdkDefinitionRef, OsdkWorld, SemanticQueryView } from "./ports.js";
 import { definitionRevision } from "./ports.js";
 import {

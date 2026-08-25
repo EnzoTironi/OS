@@ -168,17 +168,6 @@ function sortByApiName<T extends { readonly apiName: string }>(
   );
 }
 
-export function typeModelByApiName(
-  model: OsdkModel,
-  apiName: string,
-): OsdkTypeModel {
-  const found = model.types.find((type) => type.apiName === apiName);
-  if (found === undefined) {
-    throw new Error(`unknown OSDK object type ${apiName}`);
-  }
-  return found;
-}
-
 export function typeModelById(
   model: OsdkModel,
   typeId: string,
@@ -186,17 +175,6 @@ export function typeModelById(
   const found = model.types.find((type) => type.typeId === typeId);
   if (found === undefined) {
     throw new Error(`unknown OSDK type id ${typeId}`);
-  }
-  return found;
-}
-
-export function actionModelByApiName(
-  model: OsdkModel,
-  apiName: string,
-): OsdkActionModel {
-  const found = model.actions.find((action) => action.apiName === apiName);
-  if (found === undefined) {
-    throw new Error(`unknown OSDK action ${apiName}`);
   }
   return found;
 }

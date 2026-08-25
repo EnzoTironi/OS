@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { compileDefinition } from "@zoen/ontology";
+import { compileDefinition } from "../../ontology/src/index.js";
 import { generateOsdkModules } from "./generator.js";
 
 async function main(): Promise<void> {

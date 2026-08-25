@@ -60,9 +60,7 @@ export const osdkDefinition = ${JSON.stringify(definitionDocument(model), null, 
 
 function emitTypeInterfaces(type: OsdkTypeModel): string {
   const props = [
-    "export interface ",
-    type.apiName,
-    "Props {",
+    `export interface ${type.apiName}Props {`,
     ...type.attributes.map(
       (attribute) =>
         `  readonly ${emitPropertyName(attribute.apiName)}: ${emitValueTypeScript(attribute.valueType)} | undefined;`,
@@ -74,9 +72,7 @@ function emitTypeInterfaces(type: OsdkTypeModel): string {
     "}",
   ].join("\n");
   const links = [
-    "export interface ",
-    type.apiName,
-    "Links {",
+    `export interface ${type.apiName}Links {`,
     ...type.links.map((link) => {
       switch (link.cardinality) {
         case "many":
@@ -92,9 +88,7 @@ function emitTypeInterfaces(type: OsdkTypeModel): string {
     "}",
   ].join("\n");
   const object = [
-    "export interface ",
-    type.apiName,
-    " {",
+    `export interface ${type.apiName} {`,
     "  readonly $claimProjection: true;",
     "  readonly $primaryKey: string;",
     `  readonly $typeId: ${JSON.stringify(type.typeId)};`,

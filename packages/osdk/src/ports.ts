@@ -1,5 +1,9 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import type { CommitStatus, PolicyDecision, ProposalStatus } from "@zoen/sdk";
+import type {
+  CommitStatus,
+  PolicyDecision,
+  ProposalStatus,
+} from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
 
 export interface OsdkDefinitionRef {
   readonly definitionId: string;
@@ -34,13 +38,14 @@ export interface SemanticQueryInit {
   readonly definition: OsdkDefinitionRef;
   readonly entityId: string;
   readonly query?: {
-    readonly case: "byType";
-    readonly value: { readonly limit: number; readonly typeId: string };
+    readonly case?: "byType";
+    readonly value?: { readonly limit: number; readonly typeId: string };
   };
   readonly selection?: {
-    readonly value:
-      | { readonly case: "computationId"; readonly value: string }
-      | { readonly case: "relationId"; readonly value: string };
+    readonly value?: {
+      readonly case?: "computationId" | "relationId";
+      readonly value?: string;
+    };
   };
   readonly tenantId: string;
   readonly validAt?: Timestamp;

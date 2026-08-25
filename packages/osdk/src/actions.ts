@@ -6,8 +6,11 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "@zoen/sdk";
-import { ExactValueSchema, QuantityValueSchema } from "@zoen/sdk";
+} from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
+import {
+  ExactValueSchema,
+  QuantityValueSchema,
+} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import type {
   CommitView,
   OsdkActionsPort,
@@ -17,9 +20,7 @@ import type {
 import { definitionRevision } from "./ports.js";
 import { isQuantity, type OsdkInputValue, type OsdkQuantity } from "./values.js";
 
-export interface ActionCall<
-  TInputs extends object = Readonly<Record<string, OsdkInputValue>>,
-> {
+export interface ActionCall<TInputs extends object = object> {
   readonly approvalId?: string;
   readonly expiresAt?: Date;
   readonly inputs: TInputs;
@@ -54,9 +55,7 @@ export type ActionCommitResult =
   | { readonly kind: "error"; readonly message: string }
   | { readonly kind: "stale" };
 
-export interface OsdkActionHandle<
-  TInputs extends object = Readonly<Record<string, OsdkInputValue>>,
-> {
+export interface OsdkActionHandle<TInputs extends object = object> {
   /**
    * Propose only. Does not write World claims. Cedar runs on zoend during
    * Propose. `wroteBelief` is always false.
@@ -83,9 +82,9 @@ export interface ActionRuntime {
  * Outputs: preview (no belief write) or commit (Cedar-governed belief write).
  * Side effects: RPC only. No in-memory claim store.
  */
-export function createActionHandle<
-  TInputs extends object = Readonly<Record<string, OsdkInputValue>>,
->(runtime: ActionRuntime): OsdkActionHandle<TInputs> {
+export function createActionHandle<TInputs extends object = object>(
+  runtime: ActionRuntime,
+): OsdkActionHandle<TInputs> {
   return {
     commit: (call) => commitAction({ call, runtime }),
     preview: (call) => previewAction({ call, runtime }),
@@ -123,10 +122,13 @@ export async function commitAction(input: {
     proposeRequest(input.runtime, input.call),
   );
   if (proposed.decision !== PolicyDecision.PERMIT || proposed.proposal === undefined) {
-    return {
-      kind: proposed.decision === PolicyDecision.EVALUATION_ERROR ? "error" : "denied",
-      message: proposed.evaluationError,
-    };
+    if (proposed.decision === PolicyDecision.EVALUATION_ERROR) {
+      return {
+        kind: "error",
+        message: proposed.evaluationError ?? "action evaluation error",
+      };
+    }
+    return { kind: "denied", message: proposed.evaluationError };
   }
   const proposalId = proposed.proposal.proposalId ?? input.call.proposalId;
   if (proposed.proposal.status === ProposalStatus.AWAITING_APPROVAL) {
@@ -138,11 +140,13 @@ export async function commitAction(input: {
         : { expiresAt: timestampFromDate(input.call.expiresAt) }),
     });
     if (approved.decision !== PolicyDecision.PERMIT) {
-      return {
-        kind:
-          approved.decision === PolicyDecision.EVALUATION_ERROR ? "error" : "denied",
-        message: approved.evaluationError,
-      };
+      if (approved.decision === PolicyDecision.EVALUATION_ERROR) {
+        return {
+          kind: "error",
+          message: approved.evaluationError ?? "action approval evaluation error",
+        };
+      }
+      return { kind: "denied", message: approved.evaluationError };
     }
   }
   const committed = await input.runtime.actions.commit({

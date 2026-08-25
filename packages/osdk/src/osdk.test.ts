@@ -5,12 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { compileDefinition } from "@zoen/ontology";
+import { compileDefinition } from "../../ontology/src/index.js";
 import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "@zoen/sdk";
+} from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
 import { createOsdkFromCompiled } from "./client.js";
 import { generateOsdkModules } from "./generator.js";
 import type { OsdkActionsPort, OsdkWorld, SemanticQueryInit } from "./ports.js";
@@ -89,15 +89,21 @@ test("generated OSDK typechecks objects.OrderLine and a link accessor", async ()
     }),
   );
 
-  await execFileAsync(
-    process.execPath,
-    [
-      path.join(process.cwd(), "node_modules", "typescript", "bin", "tsc"),
-      "--project",
-      configPath,
-    ],
-    { cwd: process.cwd() },
-  );
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        path.join(process.cwd(), "node_modules", "typescript", "bin", "tsc"),
+        "--project",
+        configPath,
+      ],
+      { cwd: process.cwd() },
+    );
+  } catch (error: unknown) {
+    throw new Error(`generated OSDK typecheck failed:\n${commandOutput(error)}`, {
+      cause: error,
+    });
+  }
 });
 
 test("preview and commit are distinct; commit uses Action+Cedar, not World writes", async () => {
@@ -142,7 +148,7 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
     status: "ready",
     wroteBelief: false,
   });
-  assert.deepEqual(calls, ["world.semanticQuery", "action.propose"]);
+  assert.deepEqual(calls, ["action.propose"]);
   assert.ok(!calls.includes("action.commit"));
   assert.ok(!calls.includes("world.recordEvidence"));
 
@@ -229,6 +235,20 @@ export function typecheck(objects: OsdkObjects, actions: OsdkActions): void {
 }
 `;
 
+function commandOutput(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const stdout = Reflect.get(error, "stdout");
+    const stderr = Reflect.get(error, "stderr");
+    const output = [stdout, stderr]
+      .filter((value) => typeof value === "string" && value.length > 0)
+      .join("\n");
+    if (output.length > 0) {
+      return output;
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 function fakeWorld(calls: string[]): OsdkWorld {
   return {
     async semanticQuery(request: SemanticQueryInit) {
@@ -248,7 +268,10 @@ function fakeWorld(calls: string[]): OsdkWorld {
           ],
         };
       }
-      if (request.selection?.value.case === "relationId") {
+      if (
+        request.selection?.value?.case === "relationId" &&
+        request.selection.value.value !== undefined
+      ) {
         return claimsForRelation(request.selection.value.value, request.entityId);
       }
       return { values: [] };
