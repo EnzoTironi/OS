@@ -34,7 +34,7 @@ npx tsx e2e/public-surface-web.ts
 
 ## Kitchen authoring
 
-Kitchen (#264) has landed. It is the creator workflow that turns a working tenant or local use case into a candidate Pack, validates dependencies and permissions, signs or exports it, and optionally publishes a Surface. Prove it with `just e2e pack-kitchen`. Do not invent a marketplace storefront, payments, or ranking UI here.
+Kitchen (#264) has landed. It is archived (optional `just e2e pack-kitchen`). It is the creator workflow that turns a working tenant or local use case into a candidate Pack, validates dependencies and permissions, signs or exports it, and optionally publishes a Surface. Do not invent a marketplace storefront, payments, or ranking UI here.
 
 ## Out of scope
 

@@ -1,6 +1,6 @@
 # Archived from the default workspace
 
-These trees are on `main` for git history. They are outside the default npm workspace, TypeScript project, and CI.
+These trees are on `main` for git history. They are unpublished history plus optional TypeScript projects. They are outside the default npm workspace and the live `tsconfig.json` include.
 
 ## Live target tree
 
@@ -12,8 +12,13 @@ These trees are on `main` for git history. They are outside the default npm work
 - `archive/packages/` — surface, pack, kitchen, onboarding, attention, activation-metrics, effect-worker, workload-ingress.
 - `archive/apps/web` — TanStack web app.
 
-Live WhatsApp compiles `packages/ontology/fixtures/commercial.zoen.ts`. Transport owns `PresentationIntent` types and does not import the Surface compiler. Speaker debounce is local; attention is not on that path.
+Live WhatsApp compiles `packages/ontology/fixtures/commercial.zoen.ts` when a test or process passes that path. Transport owns `PresentationIntent` types and does not import the Surface compiler. Speaker debounce is local; attention is not on that path. `createWorldQueryClientFromEnv` does not default to the lake.
 
-`archive/packages/effect-worker` stays out of npm workspaces. Default `tsc` still emits it so `just e2e explain` can start the Restate worker. KIND/web deploy scenarios are optional.
+Optional scenarios compile their own projects:
 
-Do not add these folders back to `package.json` workspaces or the live `tsconfig.json` include. Optional adapter unit tests under `archive/domain/fiscal-brazil` use that package’s own `tsconfig.json`.
+- `archive/packages/effect-worker/tsconfig.json` — `just e2e explain` and other effect runners call this before spawn. The node image does the same.
+- `archive/domain/fiscal-brazil/tsconfig.json` — `just e2e fiscal-fault-matrix` and `cd archive/domain/fiscal-brazil && npm test`.
+
+Do not add these folders back to `package.json` workspaces or the live `tsconfig.json` include.
+
+KIND/web deploy scenarios are class=`kind` / `archive` and are not default CI.

@@ -28,7 +28,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 ## Gates
 
-- `just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale, and archived ERP domain packs.`
+- `just verify. Serial class=live runners. Skips credential channels, KIND, scale, archived ERP/web/pack, effects, and adr-0007.`
 - `just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.`
 - `just verify-activation. Signed activation evidence. Same fixture rule.`
 
@@ -73,12 +73,12 @@ On main. Real implementation. This is product.
 | `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | Archived with the ERP packs. just e2e fiscal-fault-matrix is optional and not default CI. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
 | `linq-live` | channels | Live Linq iMessage adapter | just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host. | [#253](https://github.com/EnzoTironi/OS/issues/253) |
 | `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
-| `deploy-helm` | deploy | Helm profiles (shared, dedicated, self-hosted) | just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify. | — |
+| `deploy-helm` | deploy | Helm profiles (shared, dedicated, self-hosted) | Optional KIND. just e2e deploy-dedicated and deploy-self-hosted-isolated are class=kind and skipped by just verify. | — |
 | `public-surface` | public | Public narrative checker | npx tsx e2e/public-surface.ts. Live conversation study is #267. | [#267](https://github.com/EnzoTironi/OS/issues/267) |
 | `fail-closed-boot` | authority | Fail-closed zoend boot | On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. ChannelProvider::Linq. toChannelProvider("linq") === "linq". | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
-| `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | ./e2e/run.sh run adr-0007. Timeout after possible delivery is UNKNOWN. Provider requests stay 1. | — |
+| `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | Archived. ./e2e/run.sh run adr-0007 still compilePackage(commercial). Timeout after possible delivery is UNKNOWN. | — |
 
 ## IN FLIGHT
 

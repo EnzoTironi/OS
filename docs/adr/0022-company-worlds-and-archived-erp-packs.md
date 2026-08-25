@@ -1,0 +1,70 @@
+# ADR-0022: Each company brings its own world; pre-modeled ERP packs leave the default product
+
+**Status:** Accepted for V1  
+**Date:** 2026-08-25  
+**Supersedes:** ADR-0020 “V1 ships Party/Product/Commercial/…” library-shipping clause  
+**Narrows:** ADR-0012 package location; ADR-0021 archived-proof slots
+
+## Context
+
+ADR-0020 required V1 to ship production-grade Party, Product, Commercial, Inventory, Procurement, Manufacturing, and Accounting Foundation libraries. ADR-0012 placed Surface IR in a live experience package. ADR-0021 required a production-shaped E2E proof for every advertised V1 capability.
+
+That locked the repo into a prebuilt ERP. Companies do not share one Commercial world. Kitchen’s `derive.ts` still switches on `inventory` / `procurement` / `party` / `product`, so “Kitchen derives Pack capabilities from activated definitions” cannot be the reason those packs stay in default CI.
+
+## Decision
+
+Zoen is not a prebuilt SAP. Each company brings its own published definition. Pre-modeled ERP packs and the extra trees that only existed to run those packs leave the default workspace and CI. Git keeps them under `archive/` (rename, not delete).
+
+### Still live
+
+- `crates/*`, `apps/zoend`, `apps/whatsapp-companion`, `proto`, `wit`
+- `packages/ontology` (compiler + lake fixture)
+- `packages/sdk`, `packages/osdk`, `packages/harness`
+- `packages/speaker`, `packages/transport`
+- `packages/mcp` (deferred; CLI/API first)
+
+### Archive
+
+- `archive/domain/` — Party, Product, Commercial, Inventory, Procurement, Manufacturing, Quality, Accounting Foundation, fiscal-brazil ontology, sample-company
+- `archive/packages/` — surface, pack, kitchen, onboarding, attention, activation-metrics, effect-worker, workload-ingress
+- `archive/apps/web`
+
+`archive/` is unpublished history plus optional TypeScript projects. Live `tsc -p tsconfig.json` does not include it. Scenarios that still spawn archived processes compile `archive/packages/effect-worker/tsconfig.json` or `archive/domain/fiscal-brazil/tsconfig.json` themselves.
+
+### Live lake
+
+World/OSDK/compiler tests that need an OrderLine-shaped definition compile `packages/ontology/fixtures/commercial.zoen.ts`. That file stays pinned to `archive/domain/commercial/src/commercial.zoen.ts` (`scripts/check-commercial-lake.mjs`). Speaker does not compile it from `process.cwd()`. `createWorldQueryClientFromEnv` requires `ZOEN_WORLD_DEFINITION_PATH` or an injected `CompiledDefinition`.
+
+### Surface IR
+
+ADR-0012’s law stands: presentation is not business truth; renderer replacement must not change ontology or Action semantics. The `@zoen/surface` package is archived. Live WhatsApp lowers `PresentationIntent` from `packages/transport`. Do not treat archived Surface as a second compiler.
+
+### Fiscal adapters
+
+ADR-0020’s provider ports stand. Fiscal HTTP adapters are not live product. Optional `just e2e fiscal-fault-matrix` compiles the archived adapter project before spawn. Live vendors stay parked on #214.
+
+### Kitchen
+
+Kitchen is archived. It does not derive live Pack capabilities from arbitrary company definitions. Do not advertise that sentence as current product law.
+
+## Default gates
+
+`just verify` and GitHub `verify` run `scenario_table` class `live` only. Classes `archive`, `kind`, `scale`, and `credential` are optional. `scripts/check-domain-leakage.mjs` is in `run_lint` so a `commercial.*` kernel branch still fails default CI.
+
+`just verify-v1` no longer requires archived ERP/web/pack/effects slots. KIND and scale evidence remain production-release slots; `just verify` does not produce them. `just verify-activation` keeps the live activation and public-surface slots.
+
+## Invariants
+
+- No Rust kernel branch identifies an ERP package.
+- Shipping speaker does not default to an ERP module.
+- `product: true` roadmap rows name a live producer, or they flip.
+- A listed ADR revisit still requires a new ADR.
+
+## Evidence
+
+- PR #399. Parent #324. Lock 2026-08-25.
+- `packages/ontology/fixtures/commercial.zoen.ts` remains the live lake.
+
+## Revisit if
+
+Company worlds are only published definition revisions and local `just start` activates a digest instead of any `archive/**/*.zoen.ts`. Then delete remaining archive consumers and keep one synthetic compiler fixture.

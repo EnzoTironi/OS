@@ -8,7 +8,7 @@
     "url": "https://github.com/EnzoTironi/OS/tree/backup/stubs-channels"
   },
   "gates": {
-    "verify": "just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale, and archived ERP domain packs.",
+    "verify": "just verify. Serial class=live runners. Skips credential channels, KIND, scale, archived ERP/web/pack, effects, and adr-0007.",
     "verifyV1": "just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.",
     "verifyActivation": "just verify-activation. Signed activation evidence. Same fixture rule.",
     "note": "Green just verify is not a V1 release. Green just verify-v1-fixtures is a labeled contract, not production."
@@ -374,9 +374,9 @@
       "plane": "deploy",
       "name": "Helm profiles (shared, dedicated, self-hosted)",
       "onMain": true,
-      "product": true,
+      "product": false,
       "path": "deploy/helm/zoen",
-      "proof": "just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify.",
+      "proof": "Optional KIND. just e2e deploy-dedicated and deploy-self-hosted-isolated are class=kind and skipped by just verify.",
       "issue": null
     },
     {
@@ -450,9 +450,9 @@
       "plane": "effects",
       "name": "ADR-0007 timeout on commercial.OrderLine",
       "onMain": true,
-      "product": true,
+      "product": false,
       "path": "e2e/adr-0007.ts, docs/adr/0007-external-effects-reconciliation.md",
-      "proof": "./e2e/run.sh run adr-0007. Timeout after possible delivery is UNKNOWN. Provider requests stay 1.",
+      "proof": "Archived. ./e2e/run.sh run adr-0007 still compilePackage(commercial). Timeout after possible delivery is UNKNOWN.",
       "issue": null
     },
     {
