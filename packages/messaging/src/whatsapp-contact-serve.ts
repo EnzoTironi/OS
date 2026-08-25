@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import {
   createIdentityDirectoryClient,
   type IdentityDirectory,
@@ -12,10 +11,6 @@ import {
   createMemoryReplyLedger,
   createWhatsAppContactLoop,
 } from "./whatsapp-contact-loop.js";
-import {
-  formatWhatsAppMinuteText,
-  parseWhatsAppMinuteSpec,
-} from "./whatsapp-minute.js";
 import { createWhatsAppMessagingIngress } from "./whatsapp-ingress.js";
 import { parseWhatsAppDoorE164 } from "./adapters/whatsapp-live.js";
 
@@ -33,16 +28,7 @@ async function main(): Promise<void> {
   await session.open();
   const ready = await session.ready();
   const tenantHint = process.env.ZOEN_WHATSAPP_TENANT_HINT?.trim();
-  const minutePath = process.env.ZOEN_WHATSAPP_MINUTE_PATH?.trim();
   const loop = createWhatsAppContactLoop({
-    boundReply:
-      minutePath === undefined || minutePath.length === 0
-        ? undefined
-        : async () => ({
-            text: formatWhatsAppMinuteText(
-              parseWhatsAppMinuteSpec(await readFile(minutePath, "utf8")),
-            ),
-          }),
     doorE164,
     identity: withTenantHint(
       createIdentityDirectoryClient({ baseUrl: identityBaseUrl }),
