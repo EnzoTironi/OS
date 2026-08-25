@@ -94,9 +94,7 @@ jobs:
           - activation-onboarding
           - activation-sample
           - backup-restore
-          - company-bootstrap-shadow
           - conversational-approval
-          - conversational-turn
           - definition-publication
           - deploy-dedicated
           - deploy-self-hosted-isolated

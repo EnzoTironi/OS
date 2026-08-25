@@ -20,10 +20,7 @@ scenario_table=(
   "channel-telegram-live:channel-telegram-live:"
   "messaging-conformance-live:messaging-conformance-live:"
   "live-attention::"
-  "whatsapp-dirty-quote:whatsapp-dirty-quote:"
-  "company-bootstrap-shadow:company-bootstrap-shadow:"
   "conversational-approval:conversational-approval:"
-  "conversational-turn:conversational-turn:"
   "pack-kitchen:pack-kitchen:"
   "personal-family:personal-family:"
   "workload-api-mcp:workload-api-mcp:"
@@ -71,7 +68,6 @@ scenario_table=(
   "wasm-code-mode:wasm-code-mode:"
   "web-adaptive-live:web-adaptive-live:"
   "web-deterministic:web-deterministic:"
-  "workshop-miniapp:workshop-miniapp:"
 )
 
 scenario=""
@@ -221,7 +217,7 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
-  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f apps/web/.output/server/index.mjs ]]; then
+  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" ) && ! -f apps/web/.output/server/index.mjs ]]; then
     echo "missing apps/web/.output/server/index.mjs; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
@@ -241,17 +237,6 @@ require_fiscal_live_environment() {
       source "${HOME}/.config/zoen/whatsapp-door.env"
       set +a
     fi
-    if [[ -f /tmp/zoen-wa-pair/door.env ]]; then
-      set -a
-      # shellcheck disable=SC1091
-      source /tmp/zoen-wa-pair/door.env
-      set +a
-    fi
-    if [[ -z "${ZOEN_WHATSAPP_COMPANION_URL:-}" ]]; then
-      export ZOEN_WHATSAPP_COMPANION_URL="http://127.0.0.1:8081"
-    fi
-  fi
-  if [[ "$scenario" == "whatsapp-dirty-quote" ]]; then
     if [[ -f /tmp/zoen-wa-pair/door.env ]]; then
       set -a
       # shellcheck disable=SC1091
@@ -392,7 +377,7 @@ run_verify() {
   local name
   for row in "${scenario_table[@]}"; do
     IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == live-attention || "$name" == whatsapp-dirty-quote || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
+    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == live-attention || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
       continue
     fi
     resolve_scenario "$name"
