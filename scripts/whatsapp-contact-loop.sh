@@ -48,7 +48,7 @@ zoend_url="http://127.0.0.1:${zoend_port}"
 ingress_url="http://127.0.0.1:${ingress_port}"
 
 usage() {
-  echo "usage: $0 start|stop|status|advertise" >&2
+  echo "usage: $0 start|stop|status|advertise|bind" >&2
   exit 2
 }
 
@@ -133,6 +133,10 @@ cmd_advertise() {
   echo
 }
 
+cmd_bind() {
+  "$root/scripts/whatsapp-contact-bind.sh"
+}
+
 cmd_start() {
   if [[ ! -x target/debug/zoend ]]; then
     echo "building zoend..." >&2
@@ -157,6 +161,7 @@ cmd_start() {
   export ZOEN_MESSAGING_INGRESS_PORT="$ingress_port"
   export ZOEN_WHATSAPP_REPLY_LEDGER="$pair_dir/reply-ledger.json"
   export ZOEN_MESSAGING_GATEWAY_URL="$ingress_url"
+  export ZOEN_WHATSAPP_TENANT_HINT="${ZOEN_WHATSAPP_TENANT_HINT:-tenant.a}"
   export DATABASE_URL="postgres://zoen_app:zoen_app@127.0.0.1:${postgres_port}/zoen"
   export ZOEN_CEDAR_POLICY_MANIFEST="$ZOEN_E2E_GENERATED_DIR/policies.json"
   export ZOEN_LISTEN_ADDR="127.0.0.1:${zoend_port}"
@@ -171,6 +176,7 @@ cmd_start() {
   target/debug/zoend >"$zoend_log" 2>&1 &
   local zoend_pid=$!
   wait_http "${zoend_url}/ready" 80
+  "$root/scripts/whatsapp-contact-bind.sh"
 
   # Retarget the paired companion at zoend. Same whatsmeow store. Not a new pair.
   pkill -f 'zoen-whatsapp-companion serve' >/dev/null 2>&1 || true
@@ -220,5 +226,6 @@ case "$command" in
   stop) cmd_stop ;;
   status) cmd_status ;;
   advertise) cmd_advertise ;;
+  bind) cmd_bind ;;
   *) usage ;;
 esac

@@ -44,6 +44,9 @@ const WHATSAPP_TABLE = {
 
 export const PERSONAL_WHATSAPP_DOOR_E164 = "+5531999941160";
 
+/** Personal inbox JID. Bind this. Never bind the Vivo door. */
+export const PERSON_WHATSAPP_SUBJECT_JID = "553199941160@s.whatsapp.net";
+
 const ITU_E164 = /^\+[1-9]\d{6,14}$/;
 const PERSONAL_DOOR_SUFFIXES = ["3199941160", "31999941160"] as const;
 
@@ -97,6 +100,30 @@ export function parseWhatsAppDoorE164(
     );
   }
   return value;
+}
+
+/**
+ * Bind the person inbox JID. Fail closed on the Vivo door or a non-person JID.
+ */
+export function assertWhatsAppPersonSubject(
+  subjectKey: string,
+  doorE164: string,
+): string {
+  const subject = subjectKey.trim();
+  if (!isPersonPhoneJid(subject)) {
+    throw new LiveWhatsAppConfigError(
+      "WhatsApp bind subject must be a person phone JID",
+    );
+  }
+  const doorDigits = parseWhatsAppDoorE164(doorE164).replace(/\D/g, "");
+  const at = subject.indexOf("@");
+  const user = at === -1 ? subject : subject.slice(0, at);
+  if (user.replace(/\D/g, "") === doorDigits) {
+    throw new LiveWhatsAppConfigError(
+      "door JID is not a person subject (fail closed)",
+    );
+  }
+  return subject;
 }
 
 /**
