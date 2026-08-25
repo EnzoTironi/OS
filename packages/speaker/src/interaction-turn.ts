@@ -16,6 +16,8 @@ import {
 } from "./interaction-tools.js";
 import {
   createConversationTurnCoordinator,
+  TURN_DEBOUNCE_MS,
+  TURN_STATUS_AFTER_MS,
   type ConversationTurnCoordinator,
 } from "./turn-coordinator.js";
 import { createMemoryTurnStore, type TurnStore } from "./turn-store.js";
@@ -85,6 +87,8 @@ export interface InteractionTurnInput {
   readonly executeWork?: (task: string) => Promise<string>;
   /** Status bubble after generate/spawn_execution exceeds this. Default 2000. */
   readonly statusAfterMs?: number;
+  readonly debounceMs?: number;
+  readonly clock?: () => number;
   readonly actions?: SpeakerActionClient;
 }
 
@@ -98,7 +102,7 @@ const WRITE_FAIL_EN = {
   note: "couldn't note that down now",
   remind: "couldn't schedule that now",
 } as const;
-const STATUS_AFTER_MS = 2000;
+const STATUS_AFTER_MS = TURN_STATUS_AFTER_MS;
 
 export interface ReasonTurnLog {
   readonly event: "reasonTurn";
@@ -127,7 +131,7 @@ export async function runInteractionTurn(
   const coordinator =
     input.coordinator ??
     createConversationTurnCoordinator({
-      debounceMs: 50,
+      debounceMs: input.debounceMs ?? TURN_DEBOUNCE_MS,
       now,
       store,
     });
@@ -157,6 +161,7 @@ export async function runInteractionTurn(
     locale,
     model: input.model ?? resolveLanguageModel(),
     snapshot,
+    clock: input.clock,
     statusAfterMs: input.statusAfterMs ?? STATUS_AFTER_MS,
   });
   const scratch = reasoned.scratch;
@@ -342,7 +347,7 @@ async function claimAttempt(input: {
     record,
     workspaceId: input.ctx.workloadId,
   });
-  const claimed = await input.coordinator.claimBurst(conversationKey);
+  const claimed = await input.coordinator.awaitClaim(conversationKey);
   if (claimed === undefined) {
     throw new Error("interaction turn claimed no inbound");
   }
@@ -417,6 +422,7 @@ async function reasonTurn(input: {
   readonly model: LanguageModel | undefined;
   readonly snapshot: WorldQuerySnapshot | undefined;
   readonly statusAfterMs: number;
+  readonly clock?: () => number;
 }): Promise<ReasonTurnResult> {
   if (input.model === undefined) {
     return {
@@ -433,11 +439,13 @@ async function reasonTurn(input: {
     stopWhen: isStepCount(8),
     tools: createInteractionTools(scratch, {
       actions: input.actions,
+      clock: input.clock,
       executeWork: input.executeWork,
       statusAfterMs: input.statusAfterMs,
     }),
   });
-  const started = Date.now();
+  const nowMs = input.clock ?? Date.now;
+  const started = nowMs();
   try {
     await agent.generate({
       prompt: reasoningPrompt(
@@ -474,7 +482,7 @@ async function reasonTurn(input: {
     };
   }
   const slow =
-    Date.now() - started > input.statusAfterMs || scratch.slowWork;
+    nowMs() - started > input.statusAfterMs || scratch.slowWork;
   if (slow && scratch.bubbles.length > 0) {
     applySlowStatus(scratch, input.locale, input.inboundText);
   }

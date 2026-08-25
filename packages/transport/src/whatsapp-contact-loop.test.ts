@@ -15,9 +15,11 @@ import {
   createRecordingCompanionSession,
   type RecordingCompanionSession,
 } from "./companion-session.js";
+import { generateWhsecSecret, signStandardWebhook } from "./standard-webhooks.js";
 import {
   createWhatsAppMessagingIngress,
 } from "./whatsapp-ingress.js";
+import { resetWhatsAppIngressReplay } from "./whatsapp-ingress-auth.js";
 import {
   classifyWhatsAppContactInbound,
   createFileReplyLedger,
@@ -91,6 +93,7 @@ test("fromMe, door, and group are dropped before IdentityDirectory", async () =>
   const calls: string[] = [];
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: unboundIdentity(calls),
     session,
@@ -126,13 +129,15 @@ test("unbound 1:1 pokes the same thread and does not mint membership", async () 
     assert.doesNotMatch(String(input), /\/provisional|\/verify-binding|\/bind-verified/);
     return new Response(
       JSON.stringify({ error: "OIDC subject has no verified binding" }),
-      { headers: { "content-type": "application/json" }, status: 401 },
+      { headers: { "content-type": "application/json" }, status: 404 },
     );
   };
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: createIdentityDirectoryClient({
+      adminToken: "identity-admin",
       baseUrl: "http://zoend.test",
       fetchImpl,
     }),
@@ -158,6 +163,7 @@ test("unbound 1:1 pokes the same thread and does not mint membership", async () 
 test("bound 1:1 runs the turn coordinator and replies in the same thread", async () => {
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: boundIdentity(speaker),
     session,
@@ -180,6 +186,7 @@ test("bound 1:1 runs the turn coordinator and replies in the same thread", async
 test("bound 1:1 records composing then paused around the turn", async () => {
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: boundIdentity(speaker),
     session,
@@ -215,6 +222,7 @@ test("bound 1:1 records composing then paused around the turn", async () => {
 test("unbound 1:1 does not send composing presence", async () => {
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: unboundIdentity([]),
     session,
@@ -231,6 +239,7 @@ test("restart with the same ledger does not send a second reply", async () => {
   const ledger = createMemoryReplyLedger();
   const first = await readySession();
   const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: unboundIdentity([]),
     ledger,
@@ -245,6 +254,7 @@ test("restart with the same ledger does not send a second reply", async () => {
 
   const second = await readySession();
   const restarted = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: unboundIdentity([]),
     ledger,
@@ -263,6 +273,7 @@ test("file ledger survives a new process-shaped loop", async () => {
     const ledger = createFileReplyLedger(filePath);
     const first = await readySession();
     const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
       doorE164,
       identity: unboundIdentity([]),
       ledger,
@@ -274,6 +285,7 @@ test("file ledger survives a new process-shaped loop", async () => {
     const reloaded = createFileReplyLedger(filePath);
     const second = await readySession();
     const restarted = createWhatsAppContactLoop({
+      debounceMs: 0,
       doorE164,
       identity: unboundIdentity([]),
       ledger: reloaded,
@@ -306,12 +318,16 @@ test("zoend inbound with processInbound replies through the recording session", 
   process.env.ZOEN_WHATSAPP_DOOR_E164 = doorE164;
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: unboundIdentity([]),
     session,
   });
+  resetWhatsAppIngressReplay();
+  const secret = generateWhsecSecret();
   const ingress = await createWhatsAppMessagingIngress({
     gateway: loop.gateway,
+    ingressSecret: secret,
     port: 0,
     processInbound: (raw) => loop.handleRaw(raw),
     session,
@@ -323,11 +339,21 @@ test("zoend inbound with processInbound replies through the recording session", 
       `http://127.0.0.1:${String(address.port)}/advertise`,
     );
     assert.equal(advertised.status, 204);
+    const rawBody = JSON.stringify(inbound({ messageId: "wamid.http" }));
+    const signed = signStandardWebhook({
+      rawBody,
+      secret,
+      timestampSeconds: Math.floor(Date.now() / 1000),
+      webhookId: "msg_http",
+    });
     const response = await fetch(
       `http://127.0.0.1:${String(address.port)}/inbound`,
       {
-        body: JSON.stringify(inbound({ messageId: "wamid.http" })),
-        headers: { "content-type": "application/json" },
+        body: rawBody,
+        headers: {
+          "content-type": "application/json",
+          ...signed,
+        },
         method: "POST",
       },
     );
@@ -350,6 +376,7 @@ test("zoend inbound with processInbound replies through the recording session", 
 test("bound 1:1 live send is the turn, not a minute callback", async () => {
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
     doorE164,
     identity: boundIdentity(speaker),
     session,
@@ -377,6 +404,7 @@ test("bound 1:1 with executeWork stays Recebi-free when ZOEN_MODEL is unset", as
   let handed = 0;
   try {
     const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
       doorE164,
       executeWork: async () => {
         handed += 1;

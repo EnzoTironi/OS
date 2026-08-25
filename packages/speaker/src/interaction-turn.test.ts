@@ -71,6 +71,7 @@ function usage() {
 
 test("PT inbound does not contain Recebi", async () => {
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("Oi"),
     membership: membership("oi"),
   });
@@ -96,6 +97,7 @@ test("empty inbound does not dump entity ids", async () => {
     },
   };
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound(""),
     membership: membership("empty"),
     world,
@@ -121,6 +123,7 @@ test("media inbound stays PT and does not dump entity ids", async () => {
     },
   };
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: { kind: "media", mediaRef: "wa-media-1", mime: "image/jpeg" },
     membership: membership("media"),
     world,
@@ -143,6 +146,7 @@ test("no model with two World rivals is fail copy, not host rival speech", async
     },
   };
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("Quanto ficou?"),
     membership: membership("supporting-rivals"),
     world,
@@ -233,6 +237,7 @@ test("mocked turn with two World rivals speaks the readings, not a helpdesk gree
     },
   });
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("Oi"),
     membership: membership("rivals-model"),
     model,
@@ -248,6 +253,7 @@ test("mocked turn with two World rivals speaks the readings, not a helpdesk gree
 
 test("empty inbound with a silent model waits (empty bubbles)", async () => {
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound(""),
     membership: membership("wait"),
     model: silentStopModel(),
@@ -261,6 +267,7 @@ test("empty inbound with a silent model waits (empty bubbles)", async () => {
 
 test("silent model with two World rivals fail-closes lookup copy, not rival speech", async () => {
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("quanto ficou a cotacao"),
     membership: membership("silent-rivals"),
     model: silentStopModel(),
@@ -340,6 +347,7 @@ test("spawn_execution with injected executeWork records executionNotes and does 
     },
   });
   const result = await runInteractionTurn({
+    debounceMs: 0,
     executeWork: async () => status,
     inbound: textInbound("Quanto ficou o pedido?"),
     membership: membership("spawn"),
@@ -395,6 +403,7 @@ test("at most one href survives a double mint", async () => {
     },
   });
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("Oi"),
     membership: membership("href"),
     model,
@@ -423,6 +432,7 @@ test("mocked oi is a short greeting, not helpdesk", async () => {
     },
   });
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("oi"),
     membership: membership("mocked-oi"),
     model,
@@ -459,6 +469,7 @@ test("mocked valeu calls wait and sends empty bubbles", async () => {
     },
   });
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("valeu"),
     membership: membership("mocked-valeu"),
     model,
@@ -484,6 +495,7 @@ test("wait tool produces no Recebi and no helpdesk", async () => {
   assert.equal(scratch.href, undefined);
 
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("show"),
     membership: membership("wait-tool"),
     model: waitThenStopModel(),
@@ -508,6 +520,7 @@ test("reasonTurn writes one stderr JSON line from the turn result", async () => 
   let result: OutboundTurn;
   try {
     result = await runInteractionTurn({
+      debounceMs: 0,
       inbound: textInbound("oi"),
       membership: membership("stderr-log"),
       model: speakThenStopModel("oi"),
@@ -535,6 +548,7 @@ test("reasonTurn writes one stderr JSON line from the turn result", async () => 
 
 test("slow wait stays silent", async () => {
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("valeu"),
     membership: membership("slow-wait"),
     model: delayedWaitModel(20),
@@ -547,6 +561,7 @@ test("slow wait stays silent", async () => {
 
 test("slow lookupFail does not prepend status", async () => {
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("quanto ficou a cotacao"),
     membership: membership("slow-lookup"),
     model: delayedSilentModel(20),
@@ -559,6 +574,7 @@ test("slow lookupFail does not prepend status", async () => {
 
 test("slow generate prepends one status bubble, fast path does not", async () => {
   const fast = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("oi"),
     membership: membership("fast-status"),
     model: speakThenStopModel("oi"),
@@ -570,6 +586,7 @@ test("slow generate prepends one status bubble, fast path does not", async () =>
   );
 
   const slow = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("oi"),
     membership: membership("slow-status"),
     model: delayedSpeakModel("ta aqui", 20),
@@ -613,6 +630,7 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
   };
 
   const success = await runInteractionTurn({
+    debounceMs: 0,
     actions: committed,
     inbound: textInbound("me lembra do dentista amanhã"),
     membership: membership("remind-ok"),
@@ -623,6 +641,7 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
   assertReasonTurn(success, "spoke", 0, "ok");
 
   const failedNote = await runInteractionTurn({
+    debounceMs: 0,
     actions: denied,
     inbound: textInbound("anota que o pão acabou"),
     membership: membership("note-fail"),
@@ -633,6 +652,7 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
   assertReasonTurn(failedNote, "spoke", 0, "ok");
 
   const failedRemind = await runInteractionTurn({
+    debounceMs: 0,
     actions: denied,
     inbound: textInbound("me lembra do dentista amanhã"),
     membership: membership("remind-fail"),
@@ -650,6 +670,7 @@ test("generate throw is fail copy, not rival speech", async () => {
     },
   });
   const result = await runInteractionTurn({
+    debounceMs: 0,
     inbound: textInbound("quanto ficou a cotacao"),
     membership: membership("threw"),
     model,
@@ -689,6 +710,7 @@ test("slow spawn_execution prepends one status bubble", async () => {
     },
   });
   const result = await runInteractionTurn({
+    debounceMs: 0,
     executeWork: async () => {
       await delay(20);
       return "status: ok";
@@ -942,3 +964,44 @@ function supportingQuantityClaims(): readonly ClaimRead[] {
     },
   ];
 }
+
+test("status stays silent at 2000ms and emits one line at 2001ms", async () => {
+  let clock = 0;
+  const fast = await runInteractionTurn({
+    clock: () => clock,
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("status-2000"),
+    model: speakThenStopModel("oi"),
+    statusAfterMs: 2000,
+  });
+  assert.equal(
+    fast.bubbles.some((bubble) => /^(vendo aqui|um seg|looking|one sec)$/.test(bubble)),
+    false,
+  );
+
+  clock = 0;
+  let step = 0;
+  const slow = await runInteractionTurn({
+    clock: () => clock,
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("status-2001"),
+    model: new MockLanguageModelV3({
+      doGenerate: async () => {
+        clock = 2001;
+        step += 1;
+        if (step === 1) {
+          return speakCall("ta aqui");
+        }
+        return stopCall();
+      },
+    }),
+    statusAfterMs: 2000,
+  });
+  assert.equal(
+    slow.bubbles.filter((bubble) => /^(vendo aqui|um seg)$/.test(bubble)).length,
+    1,
+  );
+});
+

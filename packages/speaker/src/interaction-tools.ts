@@ -57,6 +57,7 @@ export interface InteractionToolOptions {
   readonly executeWork?: (task: string) => Promise<string>;
   /** Wall time that marks spawn_execution as slow. Production default is 2000. */
   readonly statusAfterMs?: number;
+  readonly clock?: () => number;
 }
 
 export function createInteractionScratch(): InteractionScratch {
@@ -86,6 +87,7 @@ export function createInteractionTools(
   options: InteractionToolOptions = {},
 ): ToolSet {
   const statusAfterMs = options.statusAfterMs ?? 2000;
+  const clock = options.clock ?? Date.now;
   return {
     note: tool({
       description:
@@ -120,12 +122,12 @@ export function createInteractionTools(
       description:
         "Hand work off the conversation. Returns a short status string. Do not mention this hand-off in user text.",
       execute: async ({ task }) => {
-        const started = Date.now();
+        const started = clock();
         const status =
           options.executeWork === undefined
             ? `status: accepted (${task.trim().slice(0, 80)})`
             : await options.executeWork(task);
-        if (Date.now() - started > statusAfterMs) {
+        if (clock() - started > statusAfterMs) {
           scratch.slowWork = true;
         }
         scratch.executionNotes.push(status);

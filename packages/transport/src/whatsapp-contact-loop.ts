@@ -9,6 +9,7 @@ import {
   createInteractionControlRegistry,
   createMemoryControlStore,
   createMemoryTurnStore,
+  createPostgresTurnStore,
   deliveryIntentId,
   deliveryObservationId,
   interactionId,
@@ -17,11 +18,15 @@ import {
   providerKey,
   runInteractionTurn,
   toInteractionInbound,
+  TURN_DEBOUNCE_MS,
   type DeliveryIntent,
   type DeliveryObservation,
   type IdentityDirectory,
   type InboundInteraction,
+  type PostgresTurnStoreClient,
+  type TurnStore,
 } from "../../speaker/src/index.js";
+import { rejectWhatsAppMediaFields } from "./media-ingress.js";
 import {
   presentationSchema,
   type PresentationIntent,
@@ -92,6 +97,8 @@ export interface WhatsAppContactLoopOptions {
   readonly session: CompanionSession;
   readonly identity: IdentityDirectory;
   readonly ledger?: ReplyLedger;
+  readonly store?: TurnStore;
+  readonly debounceMs?: number;
   readonly doorE164?: string;
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
@@ -109,6 +116,35 @@ export function createMemoryReplyLedger(): ReplyLedger {
         return;
       }
       rows.set(idempotencyKey, disposition);
+    },
+  };
+}
+
+export function createPostgresReplyLedger(
+  client: PostgresTurnStoreClient,
+): ReplyLedger {
+  return {
+    async get(idempotencyKey) {
+      const result = await client.query(
+        `SELECT disposition FROM reply_ledger WHERE idempotency_key = $1`,
+        [idempotencyKey],
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        return undefined;
+      }
+      const value = row.disposition;
+      const parsed =
+        typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+      return isStoredReply(parsed) ? parsed : undefined;
+    },
+    async put(idempotencyKey, disposition) {
+      await client.query(
+        `INSERT INTO reply_ledger (idempotency_key, disposition)
+         VALUES ($1, $2)
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [idempotencyKey, JSON.stringify(disposition)],
+      );
     },
   };
 }
@@ -210,10 +246,10 @@ export function createWhatsAppContactLoop(
       };
     },
   });
-  const store = createMemoryTurnStore();
+  const store = options.store ?? createMemoryTurnStore();
   const outboundByAttempt = new Map<string, string[]>();
   const coordinator = createConversationTurnCoordinator({
-    debounceMs: 30_000,
+    debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
     deliver: async (intent: DeliveryIntent) => {
       const attemptId = intent.turnAttemptId;
       const bubbles =
@@ -259,13 +295,14 @@ export function createWhatsAppContactLoop(
           record,
           workspaceId: ctx.workloadId,
         });
-        const claimed = await coordinator.claimBurst(conversationKey);
+        const claimed = await coordinator.awaitClaim(conversationKey);
         if (claimed === undefined) {
           throw new Error("bound whatsapp turn claimed no inbound");
         }
         const reply = await runInteractionTurn({
           attemptId: claimed.attempt.id,
           coordinator,
+          debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
           executeWork: options.executeWork,
           inbound: toInteractionInbound(record.inbound),
           membership: ctx,
@@ -276,7 +313,7 @@ export function createWhatsAppContactLoop(
         outboundByAttempt.set(claimed.attempt.id, bubbles);
         const delivered =
           bubbles.length === 0
-            ? []
+            ? await coordinator.acknowledgeSilentClose(claimed.attempt.id)
             : await coordinator.planAndDeliver({
                 attemptId: claimed.attempt.id,
                 presentation: `turn:${claimed.turn.id}`,
@@ -326,10 +363,13 @@ export function createWhatsAppContactLoop(
     });
   }
 
+  void coordinator.recoverPending();
+
   return {
     gateway,
 
     async handleRaw(raw) {
+      rejectWhatsAppMediaFields(raw);
       const dropped = classifyWhatsAppContactInbound(raw, doorE164);
       if (dropped.drop) {
         return { kind: "dropped", reason: dropped.reason };
