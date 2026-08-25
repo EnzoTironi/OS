@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { z } from "zod";
-import { runExecuteTypescript, type HostTool } from "./code-mode.js";
-import { createExecutionAgent } from "./execution.js";
+import {
+  executionExternalIdSchema,
+  runExecuteTypescript,
+  type ExecutionExternalId,
+} from "./code-mode.js";
+import {
+  createExecutionAgent,
+  createWorldQueryHostTool,
+} from "./execution.js";
 
 const usage = {
   inputTokens: {
@@ -14,6 +20,11 @@ const usage = {
   },
   outputTokens: { reasoning: undefined, text: 1, total: 1 },
 };
+
+type PingIsNotExternal = "ping" extends ExecutionExternalId ? never : true;
+const pingIsNotExternal: PingIsNotExternal = true;
+assert.equal(pingIsNotExternal, true);
+assert.equal(executionExternalIdSchema.safeParse("ping").success, false);
 
 test("execution agent lists a sandbox file with bash or readFile", async () => {
   let step = 0;
@@ -56,43 +67,48 @@ test("execution agent lists a sandbox file with bash or readFile", async () => {
   });
   const result = await workbench.run("List the files in the workspace.");
 
-  assert.equal(result.kind, "completed");
+  assert.equal(result.kind, "ok");
+  if (result.kind !== "ok") {
+    assert.fail("execution should succeed");
+  }
   assert.ok(
     result.invokedTools.includes("bash") ||
       result.invokedTools.includes("readFile"),
   );
-  if (result.kind !== "completed") {
-    assert.fail("execution should complete");
-  }
   assert.equal(workbench.destination, "/workspace");
 });
 
-test("execute_typescript allowlists external_ping and rejects unknown names", async () => {
-  const ping: HostTool = {
-    description: "Stub ping",
-    async execute(input: unknown) {
-      const parsed = z.object({ message: z.string() }).strict().parse(input);
-      return { pong: parsed.message };
-    },
-    id: "ping",
-    inputSchema: z.object({ message: z.string() }).strict(),
+test("execute_typescript allowlists external_world_query and denies unknown names", async () => {
+  const externals = {
+    world_query: createWorldQueryHostTool(async (input) => ({
+      pong: input.alias,
+    })),
   };
 
   const completed = await runExecuteTypescript({
-    hostTools: [ping],
-    source: 'return await external_ping({ message: "ok" });',
+    externals,
+    source: 'return await external_world_query({ alias: "ok" });',
   });
   assert.deepEqual(completed, {
-    kind: "completed",
+    kind: "ok",
     value: { pong: "ok" },
   });
 
-  await assert.rejects(
-    () =>
-      runExecuteTypescript({
-        hostTools: [ping],
-        source: "return await external_secret({ message: \"nope\" });",
-      }),
-    /host tool secret is not allowlisted/,
-  );
+  const denied = await runExecuteTypescript({
+    externals,
+    source: "return await external_secret({ alias: \"nope\" });",
+  });
+  assert.deepEqual(denied, {
+    kind: "denied",
+    reason: "external_not_allowlisted",
+  });
+
+  const forbidden = await runExecuteTypescript({
+    externals,
+    source: "return await external_commit({});",
+  });
+  assert.deepEqual(forbidden, {
+    kind: "denied",
+    reason: "commit_forbidden",
+  });
 });

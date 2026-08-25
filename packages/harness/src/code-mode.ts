@@ -3,13 +3,11 @@ import { createContext, Script } from "node:vm";
 import { tool, type Tool } from "ai";
 import { z } from "zod";
 
-const hostToolIdSchema = z
-  .string()
-  .regex(/^[A-Za-z][A-Za-z0-9_]*$/);
-const BLOCKED_HOST_ESCAPE =
-  /\brequire\s*\(|\bprocess\b|\beval\s*\(|\bnew\s+Function\b|\bglobalThis\b|\b__dirname\b|\b__filename\b/;
-const EXTERNAL_CALL = /\bexternal_([A-Za-z][A-Za-z0-9_]*)\b/g;
-const FORBIDDEN_HOST_TOOL_IDS = new Set([
+export const EXECUTION_EXTERNAL_IDS = ["action_preview", "world_query"] as const;
+export const executionExternalIdSchema = z.enum(EXECUTION_EXTERNAL_IDS);
+export type ExecutionExternalId = z.infer<typeof executionExternalIdSchema>;
+
+const forbiddenCommitExternalIdSchema = z.enum([
   "action_commit",
   "cedar_commit",
   "commit",
@@ -18,30 +16,98 @@ const FORBIDDEN_HOST_TOOL_IDS = new Set([
   "semantic_commit",
 ]);
 
+export const codeModeDeniedReasonSchema = z.enum([
+  "commit_forbidden",
+  "external_not_allowlisted",
+  "host_escape",
+]);
+export type CodeModeDeniedReason = z.infer<typeof codeModeDeniedReasonSchema>;
+
+export const codeModeFailedReasonSchema = z.enum([
+  "code_mode_failed",
+  "timeout",
+]);
+export type CodeModeFailedReason = z.infer<typeof codeModeFailedReasonSchema>;
+
+export type CodeModeResult =
+  | {
+      readonly kind: "ok";
+      readonly value: unknown;
+    }
+  | {
+      readonly kind: "denied";
+      readonly reason: CodeModeDeniedReason;
+    }
+  | {
+      readonly kind: "failed";
+      readonly reason: CodeModeFailedReason;
+    };
+
+export const codeModeResultSchema: z.ZodType<CodeModeResult> = z.discriminatedUnion(
+  "kind",
+  [
+    z.object({ kind: z.literal("ok"), value: z.unknown() }).strict(),
+    z
+      .object({
+        kind: z.literal("denied"),
+        reason: codeModeDeniedReasonSchema,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("failed"),
+        reason: codeModeFailedReasonSchema,
+      })
+      .strict(),
+  ],
+);
+
+export interface HostToolBinding {
+  readonly description: string;
+  readonly inputSchema: z.ZodType;
+  execute(input: unknown): Promise<unknown>;
+}
+
+export type ExecutionExternals = {
+  readonly [K in ExecutionExternalId]?: HostToolBinding;
+};
+
+const BLOCKED_HOST_ESCAPE =
+  /\brequire\s*\(|\bprocess\b|\beval\s*\(|\bnew\s+Function\b|\bglobalThis\b|\b__dirname\b|\b__filename\b/;
+const EXTERNAL_CALL = /\bexternal_([A-Za-z][A-Za-z0-9_]*)\b/g;
+
 const codeModeRpcRequestSchema = z
   .object({
     args: z.unknown(),
     id: z.number().int(),
-    tool: z.string().min(1),
+    tool: executionExternalIdSchema,
     type: z.literal("rpc"),
   })
   .strict();
 
-const codeModeRpcResponseSchema = z
-  .object({
-    error: z
-      .object({
-        message: z.string(),
-        name: z.string().optional(),
-      })
-      .strict()
-      .optional(),
-    id: z.number().int(),
-    ok: z.boolean(),
-    result: z.unknown().optional(),
-    type: z.literal("rpc-result"),
-  })
-  .strict();
+const codeModeRpcResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      id: z.number().int(),
+      ok: z.literal(true),
+      result: z.unknown(),
+      type: z.literal("rpc-result"),
+    })
+    .strict(),
+  z
+    .object({
+      error: z
+        .object({
+          message: z.string(),
+          name: z.string(),
+        })
+        .strict(),
+      id: z.number().int(),
+      ok: z.literal(false),
+      type: z.literal("rpc-result"),
+    })
+    .strict(),
+]);
 
 const executeTypescriptInputSchema = z
   .object({
@@ -49,25 +115,8 @@ const executeTypescriptInputSchema = z
   })
   .strict();
 
-export interface HostTool {
-  readonly description: string;
-  readonly id: string;
-  readonly inputSchema: z.ZodType;
-  execute(input: unknown): Promise<unknown>;
-}
-
-export type CodeModeResult =
-  | {
-      readonly kind: "completed";
-      readonly value: unknown;
-    }
-  | {
-      readonly kind: "failed";
-      readonly reason: string;
-    };
-
 export interface RunExecuteTypescriptInput {
-  readonly hostTools: readonly HostTool[];
+  readonly externals: ExecutionExternals;
   readonly source: string;
   readonly timeoutMs?: number;
 }
@@ -80,14 +129,23 @@ export async function runExecuteTypescript(
   input: RunExecuteTypescriptInput,
 ): Promise<CodeModeResult> {
   if (BLOCKED_HOST_ESCAPE.test(input.source)) {
-    throw new Error(
-      "execute_typescript cannot access require, process, eval, or globalThis",
-    );
+    return { kind: "denied", reason: "host_escape" };
   }
-  const tools = indexHostTools(input.hostTools);
-  for (const toolId of referencedHostToolIds(input.source)) {
-    if (!tools.has(toolId)) {
-      throw new Error(`host tool ${toolId} is not allowlisted`);
+  const tools = indexExternals(input.externals);
+  for (const referenced of referencedExternalNames(input.source)) {
+    const classified = classifyExternalReference(referenced);
+    switch (classified.kind) {
+      case "allowlisted":
+        if (!tools.has(classified.id)) {
+          return { kind: "denied", reason: "external_not_allowlisted" };
+        }
+        break;
+      case "denied":
+        return { kind: "denied", reason: classified.reason };
+      default: {
+        const exhaustive: never = classified;
+        return exhaustive;
+      }
     }
   }
   try {
@@ -98,74 +156,78 @@ export async function runExecuteTypescript(
       }),
       input.timeoutMs ?? 10_000,
     );
-    return { kind: "completed", value };
+    return { kind: "ok", value };
   } catch (error: unknown) {
-    if (error instanceof Error && error.message.includes("is not allowlisted")) {
-      throw error;
+    if (error instanceof Error && error.message === "execute_typescript timed out") {
+      return { kind: "failed", reason: "timeout" };
     }
-    return {
-      kind: "failed",
-      reason: error instanceof Error ? error.message : String(error),
-    };
+    return { kind: "failed", reason: "code_mode_failed" };
   }
 }
 
 export function createExecuteTypescriptTool(input: {
-  readonly hostTools: readonly HostTool[];
+  readonly externals: ExecutionExternals;
 }): Tool {
-  const hostTools = input.hostTools;
+  const externals = input.externals;
   return tool({
     description:
       "Run one TypeScript program that may call only allowlisted external_* host tools. Host tools run on the host after JSON-RPC validation. Commit is not available.",
     execute: async ({ source }) =>
       runExecuteTypescript({
-        hostTools,
+        externals,
         source,
       }),
     inputSchema: executeTypescriptInputSchema,
   });
 }
 
-export function indexHostTools(
-  tools: readonly HostTool[],
-): ReadonlyMap<string, HostTool> {
-  const byId = new Map<string, HostTool>();
-  for (const hostTool of tools) {
-    const id = hostToolIdSchema.parse(hostTool.id);
-    if (FORBIDDEN_HOST_TOOL_IDS.has(id)) {
-      throw new Error(
-        `host tool ${id} cannot redefine semantic commit`,
-      );
+export function indexExternals(
+  externals: ExecutionExternals,
+): ReadonlyMap<ExecutionExternalId, HostToolBinding> {
+  const byId = new Map<ExecutionExternalId, HostToolBinding>();
+  for (const id of EXECUTION_EXTERNAL_IDS) {
+    const binding = externals[id];
+    if (binding !== undefined) {
+      byId.set(id, binding);
     }
-    if (byId.has(id)) {
-      throw new Error(`host tool ${id} is already registered`);
-    }
-    byId.set(id, hostTool);
   }
   return byId;
 }
 
 export function handleHostRpc(
   raw: string,
-  tools: ReadonlyMap<string, HostTool>,
+  tools: ReadonlyMap<ExecutionExternalId, HostToolBinding>,
 ): Promise<string> {
   return dispatchHostRpc(raw, tools);
 }
 
-function referencedHostToolIds(source: string): readonly string[] {
-  const ids = new Set<string>();
+function referencedExternalNames(source: string): readonly string[] {
+  const names = new Set<string>();
   for (const match of source.matchAll(EXTERNAL_CALL)) {
-    const id = match[1];
-    if (id !== undefined) {
-      ids.add(id);
+    const name = match[1];
+    if (name !== undefined) {
+      names.add(name);
     }
   }
-  return [...ids];
+  return [...names];
+}
+
+function classifyExternalReference(raw: string):
+  | { readonly kind: "allowlisted"; readonly id: ExecutionExternalId }
+  | { readonly kind: "denied"; readonly reason: CodeModeDeniedReason } {
+  const allowlisted = executionExternalIdSchema.safeParse(raw);
+  if (allowlisted.success) {
+    return { kind: "allowlisted", id: allowlisted.data };
+  }
+  if (forbiddenCommitExternalIdSchema.safeParse(raw).success) {
+    return { kind: "denied", reason: "commit_forbidden" };
+  }
+  return { kind: "denied", reason: "external_not_allowlisted" };
 }
 
 async function runInHostInterpreter(input: {
   readonly source: string;
-  readonly tools: ReadonlyMap<string, HostTool>;
+  readonly tools: ReadonlyMap<ExecutionExternalId, HostToolBinding>;
 }): Promise<unknown> {
   const send = (raw: string) => dispatchHostRpc(raw, input.tools);
   const bindings = createExternalBindings([...input.tools.keys()], send);
@@ -202,10 +264,14 @@ async function runInHostInterpreter(input: {
 }
 
 function createExternalBindings(
-  toolIds: readonly string[],
+  toolIds: readonly ExecutionExternalId[],
   send: (raw: string) => Promise<string>,
-): Record<string, (args: unknown) => Promise<unknown>> {
-  const bindings: Record<string, (args: unknown) => Promise<unknown>> = {};
+): { [K in ExecutionExternalId as `external_${K}`]?: (args: unknown) => Promise<unknown> } {
+  const bindings: {
+    [K in ExecutionExternalId as `external_${K}`]?: (
+      args: unknown,
+    ) => Promise<unknown>;
+  } = {};
   let nextId = 1;
   for (const toolId of toolIds) {
     bindings[`external_${toolId}`] = async (args: unknown) => {
@@ -223,12 +289,16 @@ function createExternalBindings(
           ),
         ),
       );
-      if (!response.ok) {
-        throw new Error(
-          response.error?.message ?? `host tool ${toolId} failed`,
-        );
+      switch (response.ok) {
+        case true:
+          return response.result;
+        case false:
+          throw new Error(response.error.message);
+        default: {
+          const exhaustive: never = response;
+          return exhaustive;
+        }
       }
-      return response.result;
     };
   }
   return bindings;
@@ -236,7 +306,7 @@ function createExternalBindings(
 
 async function dispatchHostRpc(
   raw: string,
-  tools: ReadonlyMap<string, HostTool>,
+  tools: ReadonlyMap<ExecutionExternalId, HostToolBinding>,
 ): Promise<string> {
   const request = codeModeRpcRequestSchema.parse(JSON.parse(raw));
   const hostTool = tools.get(request.tool);
