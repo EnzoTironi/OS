@@ -67,6 +67,18 @@ export {
   type WhatsAppMessagingIngress,
 } from "./whatsapp-ingress.js";
 export {
+  classifyWhatsAppContactInbound,
+  createFileReplyLedger,
+  createMemoryReplyLedger,
+  createWhatsAppContactLoop,
+  UNBOUND_WHATSAPP_POKE_TEXT,
+  type ReplyLedger,
+  type WhatsAppContactDisposition,
+  type WhatsAppContactDropReason,
+  type WhatsAppContactLoop,
+  type WhatsAppContactLoopOptions,
+} from "./whatsapp-contact-loop.js";
+export {
   assertLiveTelegramAdvertisement,
   createLiveTelegramProvider,
   createLiveTelegramProviderFromEnv,

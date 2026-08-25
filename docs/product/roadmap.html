@@ -156,7 +156,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/326">#326</a>
     
     <strong>Unofficial WhatsApp via whatsmeow sidecar</strong>
-    <p>In flight. CompanionSession + Chat SDK adapter + zoend HTTP ingress. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Not a dump of go-zoen.</p>
+    <p>In flight. Companion posts zoend /channels/whatsapp/inbound. Unbound 1:1 pokes in the same thread. Bound runs the turn coordinator. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Python log sink is not the live path. #375 then #376.</p>
   </div>
 </li>
 <li>
@@ -562,8 +562,8 @@
     <div class="path">packages/messaging/src/adapters/whatsapp-business-fake.ts</div>
     <div class="blocker">Blocked on Dedicated Zoen WhatsApp number</div>
   </td>
-  <td>just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Cloud API fake stays deleted.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/326">#326</a></td>
+  <td>just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Human 1:1 to the Vivo door must get a same-thread reply. Cloud API fake stays deleted. Python log sink is not the live path.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/375">#375</a></td>
 </tr>
 <tr data-status="in-flight">
   <td><code>messaging-conformance-live</code></td>
