@@ -230,7 +230,7 @@ export async function compileQuality(
   const output = await command(process.execPath, [
     compilerPath,
     "compile",
-    path.join(repositoryRoot, "packages", "quality", "src", sourceName),
+    path.join(repositoryRoot, "archive", "domain", "quality", "src", sourceName),
   ]);
   const compiled = compiledDefinitionSchema.parse(JSON.parse(output));
   assert.equal(compiled.definition.definitionId, vocabulary.definitionId);

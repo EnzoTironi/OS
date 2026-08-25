@@ -12,7 +12,7 @@ import {
   signPackDigest,
   type CompiledPack,
   type PublisherKeyPair,
-} from "../../packages/pack/src/index.js";
+} from "../../archive/packages/pack/src/index.js";
 import {
   compilePackage,
   writePolicyManifest,

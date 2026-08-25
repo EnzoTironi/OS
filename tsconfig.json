@@ -17,17 +17,8 @@
       "@zoen/osdk": [
         "./packages/osdk/src/index.ts"
       ],
-      "@zoen/pack": [
-        "./packages/pack/src/index.ts"
-      ],
-      "@zoen/kitchen": [
-        "./packages/kitchen/src/index.ts"
-      ],
       "@zoen/sdk": [
         "./packages/sdk/src/index.ts"
-      ],
-      "@zoen/surface": [
-        "./packages/surface/src/index.ts"
       ],
       "@zoen/speaker": [
         "./packages/speaker/src/index.ts"
@@ -35,23 +26,11 @@
       "@zoen/transport": [
         "./packages/transport/src/index.ts"
       ],
-      "@zoen/onboarding": [
-        "./packages/onboarding/src/index.ts"
-      ],
-      "@zoen/activation-metrics": [
-        "./packages/activation-metrics/src/index.ts"
-      ],
-      "@zoen/workload-ingress": [
-        "./packages/workload-ingress/src/index.ts"
-      ],
       "@zoen/mcp": [
         "./packages/mcp/src/index.ts"
       ],
       "@zoen/harness": [
         "./packages/harness/src/index.ts"
-      ],
-      "@zoen/attention": [
-        "./packages/attention/src/index.ts"
       ]
     },
     "rootDir": ".",
@@ -62,9 +41,12 @@
       "node"
     ]
   },
+  "exclude": [
+    "dist",
+    "node_modules"
+  ],
   "include": [
     "e2e/**/*.ts",
-    "packages/**/*.ts",
-    "packs/**/*.ts"
+    "packages/**/*.ts"
   ]
 }

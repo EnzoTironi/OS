@@ -135,14 +135,16 @@ const scenarioDirectory = path.join(
 const packageSources = {
   inventory: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "inventory",
     "src",
     "inventory.zoen.ts",
   ),
   procurement: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "procurement",
     "src",
     "procurement.zoen.ts",
@@ -189,7 +191,8 @@ export function packageSource(packageName: PackageName): Promise<string> {
       return readFile(
         path.join(
           repositoryRoot,
-          "packages",
+          "archive",
+          "domain",
           packageName,
           "src",
           `${packageName}.zoen.ts`,

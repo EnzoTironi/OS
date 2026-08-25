@@ -1,6 +1,5 @@
-# Product local Sample Company stack.
-# Rebuilds web, then compose + zoend + effect chain (provider/connector/worker/dispatcher) + web.
-# Ready requires /onboarding+/packs HTTP 200 and the effect chain up.
+# Optional archived Sample Company stack.
+# Live tsc, then activation-sample. Archived web is not built by default.
 start:
     #!/usr/bin/env bash
     set -euo pipefail

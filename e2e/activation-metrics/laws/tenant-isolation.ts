@@ -3,7 +3,7 @@ import {
   observeContract,
   opaqueId,
   type ObservationStore,
-} from "../../../packages/activation-metrics/src/index.js";
+} from "../../../archive/packages/activation-metrics/src/index.js";
 
 export async function verifyTenantIsolation(args: {
   readonly store: ObservationStore;

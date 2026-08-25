@@ -8,7 +8,7 @@ import {
   openFileObjectSource,
   openInlinePack,
   writeFileObjectSource,
-} from "../packages/pack/src/index.js";
+} from "../archive/packages/pack/src/index.js";
 import {
   oidcToken,
   startServer,

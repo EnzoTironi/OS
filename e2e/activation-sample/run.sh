@@ -20,8 +20,8 @@ if [[ ! -x target/debug/zoend ]]; then
   echo "missing target/debug/zoend; run \`just build\`" >&2
   exit 1
 fi
-if [[ ! -f apps/web/.output/server/index.mjs ]]; then
-  echo "missing apps/web/.output/server/index.mjs; run \`npm run build\`" >&2
+if [[ ! -f archive/apps/web/.output/server/index.mjs ]]; then
+  echo "missing archive/apps/web/.output/server/index.mjs; archived web is optional" >&2
   exit 1
 fi
 

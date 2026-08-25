@@ -14,7 +14,7 @@ import {
   type AttentionClassPolicy,
   type AttentionDeliveryPreference,
   type AttentionEvaluateDecision,
-} from "../packages/attention/src/index.js";
+} from "../archive/packages/attention/src/index.js";
 import {
   decideAudienceDisclosure,
   interactionControlRef,
@@ -38,8 +38,10 @@ import {
 } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
   compileDeterministicSurface,
+} from "../archive/packages/surface/src/compiler.js";
+import {
   createPresentationIntent,
-} from "../packages/surface/src/index.js";
+} from "../archive/packages/surface/src/presentation-intent.js";
 import { writeScenarioArtifact } from "./host-env.js";
 import {
   changeCommitmentRequest,

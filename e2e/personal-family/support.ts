@@ -58,6 +58,7 @@ export async function applyAttentionSchema(
   const sql = await readFile(
     path.join(
       repositoryRoot,
+      "archive",
       "packages",
       "attention",
       "sql",

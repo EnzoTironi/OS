@@ -4,7 +4,7 @@ import {
   opaqueId,
   type FirstSuccessEvalResult,
   type ObservationStore,
-} from "../../../packages/activation-metrics/src/index.js";
+} from "../../../archive/packages/activation-metrics/src/index.js";
 import { packAdmin } from "../support.js";
 
 export async function verifyFirstSuccessOutcome(args: {

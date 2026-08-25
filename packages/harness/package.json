@@ -18,7 +18,6 @@
     "@restatedev/restate-sdk": "1.16.7",
     "@zoen/speaker": "*",
     "@zoen/ontology": "*",
-    "@zoen/surface": "*",
     "ai": "7.0.69",
     "bash-tool": "1.3.19",
     "just-bash": "3.4.2",

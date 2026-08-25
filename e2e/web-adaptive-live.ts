@@ -29,7 +29,9 @@ import {
   ExactValueSchema,
   ValidTimeSchema,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import { parseAdaptiveSurfaceSession } from "../packages/surface/src/index.js";
+import {
+  parseAdaptiveSurfaceSession,
+} from "../archive/packages/surface/src/adaptive.js";
 import {
   actionClient,
   activateDefinition,

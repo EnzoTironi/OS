@@ -14,7 +14,7 @@ import {
   type InboundInteraction,
   type ProviderKey,
 } from "../../speaker/src/index.js";
-import type { PresentationIntent } from "../../surface/src/presentation-intent.js";
+import type { PresentationIntent } from "./presentation-intent.js";
 import {
   projectPresentationCaps,
   type DegradeTarget,

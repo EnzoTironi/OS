@@ -8,7 +8,7 @@ import {
 import type {
   ConversationalBlock,
   PresentationIntent,
-} from "../../surface/src/presentation-intent.js";
+} from "./presentation-intent.js";
 import type { CapabilityProbes, DegradeTarget } from "./capability-probes.js";
 import type { ChatSdkOutbound, ChatSdkThreadRef } from "./chat-sdk-shape.js";
 

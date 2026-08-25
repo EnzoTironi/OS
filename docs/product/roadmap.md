@@ -24,11 +24,11 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 | 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | In flight. Companion posts zoend /channels/whatsapp/inbound. Unbound 1:1 pokes in the same thread. Bound runs the turn coordinator. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Python log sink is not the live path. #375 then #376. |
 | 3 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | In flight. Live Bot API adapter behind MessagingGateway. Advertise fails closed without TELEGRAM_BOT_TOKEN. Webhook is production. Do not restore the fake. |
 | 4 | [#327](https://github.com/EnzoTironi/OS/issues/327) | — | Conformance and substitution against live adapters | In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify. |
-| 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | packages/surface and packages/attention stay. Fake-delivery e2e does not return. live-attention proves lowering plus one AttentionItem on createLiveWhatsAppProvider. Paired door still missing. |
+| 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | Surface and attention are archived. Live WhatsApp lowers PresentationIntent from packages/transport. Speaker debounce is local. Paired door still missing. |
 
 ## Gates
 
-- `just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale.`
+- `just verify. Serial class=live runners. Skips credential channels, KIND, scale, archived ERP/web/pack, effects, and adr-0007.`
 - `just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.`
 - `just verify-activation. Signed activation evidence. Same fixture rule.`
 
@@ -60,25 +60,25 @@ On main. Real implementation. This is product.
 | `authority-wasm` | authority | Wasmtime sandbox | Committed .wasm fixtures with pinned sha256. Not JS mocks. | — |
 | `authority-query` | authority | DataFusion semantic query | just e2e semantic-query | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `authority-restate` | authority | Restate durable orchestration | just e2e durable-commit. Remote Restate e2e is a named harness, not the product claim. | — |
-| `identity-oidc` | identity | OIDC identity (Keycloak) | just start. just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
+| `identity-oidc` | identity | OIDC identity (Keycloak) | just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
 | `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
-| `web-tanstack` | experience | Web application | just start. OIDC login, packs, propose/approve, step-up. | — |
-| `surface-ir` | experience | Surface IR package | Unit tests in packages/surface. just e2e live-attention lowers PresentationIntent onto unofficial WhatsApp text plus https. Paired door is still #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-| `attention` | experience | Proactive attention package | Package exists with Postgres store. just e2e live-attention opens one AttentionItem and one delivery. Restart does not duplicate. Paired door is still #328. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-| `ontology-libs` | ontology | V1 ontology libraries | just e2e domain-commercial, domain-inventory-procurement, domain-manufacturing-accounting, domain-quality | — |
-| `pack-compiler` | packs | Pack compiler, registry, Kitchen | just e2e pack-install, pack-registry, pack-kitchen | — |
-| `sample-company` | activation | Sample Company five-minute path | just start. just e2e activation-sample. Effect remote is the named fault-provider harness. | — |
-| `activation-onboarding` | activation | Conversational onboarding and messy data | just e2e activation-onboarding. just e2e company-bootstrap-shadow (in-memory mapping, labeled). | — |
+| `web-tanstack` | experience | Web application | Archived from default workspace and CI. Optional just e2e web-deterministic builds archive/apps/web. | — |
+| `surface-ir` | experience | Surface IR package | Archived. Live WhatsApp uses PresentationIntent types in packages/transport. Harness still compiles the archived Surface generator. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `attention` | experience | Proactive attention package | Archived. Transport and speaker do not import it; debounce is local to the turn coordinator. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `ontology-libs` | ontology | Archived pre-modeled ERP libraries | Outside default workspace and CI. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* reads archive/domain. | — |
+| `pack-compiler` | packs | Pack compiler, registry, Kitchen | Archived. Kitchen/pack e2e is optional and not default CI. | — |
+| `sample-company` | activation | Sample Company five-minute path | Pack and ontology live under archive/domain. just start / just e2e activation-sample are optional and not default CI. | — |
+| `activation-onboarding` | activation | Conversational onboarding and messy data | Archived. just e2e activation-onboarding and company-bootstrap-shadow are optional and not default CI. | — |
 | `brain-live` | intelligence | Company Brain and agent live suites | just e2e company-brain-live and agent-capabilities-live. Need OPENCODE_API_KEY. In just verify. | — |
-| `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | just e2e fiscal-fault-matrix uses vendor-fault-proxy. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
+| `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | Archived with the ERP packs. just e2e fiscal-fault-matrix is optional and not default CI. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
 | `linq-live` | channels | Live Linq iMessage adapter | just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host. | [#253](https://github.com/EnzoTironi/OS/issues/253) |
 | `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
-| `deploy-helm` | deploy | Helm profiles (shared, dedicated, self-hosted) | just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify. | — |
+| `deploy-helm` | deploy | Helm profiles (shared, dedicated, self-hosted) | Optional KIND. just e2e deploy-dedicated and deploy-self-hosted-isolated are class=kind and skipped by just verify. | — |
 | `public-surface` | public | Public narrative checker | npx tsx e2e/public-surface.ts. Live conversation study is #267. | [#267](https://github.com/EnzoTironi/OS/issues/267) |
 | `fail-closed-boot` | authority | Fail-closed zoend boot | On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. ChannelProvider::Linq. toChannelProvider("linq") === "linq". | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
-| `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | ./e2e/run.sh run adr-0007. Timeout after possible delivery is UNKNOWN. Provider requests stay 1. | — |
+| `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | Archived. ./e2e/run.sh run adr-0007 still compilePackage(commercial). Timeout after possible delivery is UNKNOWN. | — |
 
 ## IN FLIGHT
 

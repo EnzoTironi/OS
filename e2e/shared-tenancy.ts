@@ -58,7 +58,9 @@ import {
   WorldService,
   type DefinitionReference,
 } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import { semanticQueryCacheKey } from "../packages/surface/src/index.js";
+import {
+  semanticQueryCacheKey,
+} from "../archive/packages/surface/src/cache.js";
 
 const environment = z
   .object({

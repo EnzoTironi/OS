@@ -30,8 +30,10 @@ import {
 import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
 import {
   compileDeterministicSurface,
+} from "../../archive/packages/surface/src/compiler.js";
+import {
   type SurfaceDocument,
-} from "../../packages/surface/src/index.js";
+} from "../../archive/packages/surface/src/model.js";
 import { waitForState } from "../effects/scenario.js";
 import {
   dispatchOnce,
@@ -149,21 +151,24 @@ export type QueryConsistency =
 const packageSources = {
   commercial: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "commercial",
     "src",
     "commercial.zoen.ts",
   ),
   party: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "party",
     "src",
     "party.zoen.ts",
   ),
   product: path.join(
     repositoryRoot,
-    "packages",
+    "archive",
+    "domain",
     "product",
     "src",
     "product.zoen.ts",

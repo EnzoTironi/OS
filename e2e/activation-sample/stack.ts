@@ -11,6 +11,7 @@ import { createConnection } from "node:net";
 import path from "node:path";
 import { Client as PostgresClient } from "pg";
 import {
+  archivedWebServerEntry,
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2eListenAddr,
@@ -407,13 +408,13 @@ export async function doctorStack(root = repositoryRoot): Promise<DoctorReport> 
   }
   if (
     !(await pathExists(
-      path.join(repositoryRoot, "apps", "web", ".output", "server", "index.mjs"),
+      archivedWebServerEntry(repositoryRoot),
     ))
   ) {
     blockers.push(
-      "missing apps/web/.output/server/index.mjs; `just start` rebuilds web",
+      `missing ${archivedWebServerEntry(repositoryRoot)}; archived web is optional`,
     );
-    hints.push("Run `just start` (rebuilds @zoen/web before serving)");
+    hints.push("Build archive/apps/web after restoring its workspace deps");
   }
   try {
     await command("docker", ["info"]);
@@ -791,18 +792,13 @@ async function startZoend(handle: StackHandle): Promise<HostProcess> {
 }
 
 async function ensureCurrentWebBuild(): Promise<void> {
-  await command("npm", ["run", "build", "--workspace", "@zoen/web"]);
-  const serverEntry = path.join(
-    repositoryRoot,
-    "apps",
-    "web",
-    ".output",
-    "server",
-    "index.mjs",
-  );
-  if (!(await pathExists(serverEntry))) {
-    throw new Error(`web build missing ${serverEntry}`);
+  const serverEntry = archivedWebServerEntry(repositoryRoot);
+  if (await pathExists(serverEntry)) {
+    return;
   }
+  throw new Error(
+    `missing ${serverEntry}; archived web is optional and not a default workspace`,
+  );
 }
 
 async function startEffectChain(handle: StackHandle): Promise<void> {

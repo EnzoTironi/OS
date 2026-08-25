@@ -1,15 +1,10 @@
 import { createHash } from "node:crypto";
 import {
-  generateAdaptiveSurface,
-  type ActionBinding,
-  type ActionInputControl,
-  type AdaptiveSurfaceContext,
-  type AdaptiveSurfaceSession,
-  type GenerateAdaptiveSurfaceResult,
-  type QueryBinding,
-  type SurfaceDefinitionRef,
-  type SurfaceExactValue,
-} from "../../surface/src/index.js";
+  generateAdaptiveSurface, type GenerateAdaptiveSurfaceResult,
+} from "../../../archive/packages/surface/src/adaptive.js";
+import {
+  type ActionBinding, type ActionInputControl, type AdaptiveSurfaceContext, type AdaptiveSurfaceSession, type QueryBinding, type SurfaceDefinitionRef, type SurfaceExactValue,
+} from "../../../archive/packages/surface/src/model.js";
 import type { AgentRegistry } from "./registry.js";
 import type { AgentAuthority } from "./session.js";
 import {

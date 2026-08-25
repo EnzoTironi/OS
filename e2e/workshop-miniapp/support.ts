@@ -16,6 +16,7 @@ import {
   repositoryRoot,
 } from "../governed-action/support.js";
 import {
+  archivedWebServerEntry,
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2ePort,
@@ -91,7 +92,7 @@ export async function startWeb(rpcOrigin: string): Promise<WebProcess> {
   await mkdir(path.dirname(onboardingStorePath), { recursive: true });
   const child = spawn(
     process.execPath,
-    [path.join(repositoryRoot, "apps", "web", ".output", "server", "index.mjs")],
+    [archivedWebServerEntry(repositoryRoot)],
     {
       cwd: repositoryRoot,
       env: {

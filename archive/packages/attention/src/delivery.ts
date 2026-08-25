@@ -6,7 +6,7 @@ import {
   providerUserRef,
   type DeliveryIntent,
   type InteractionControlRef,
-} from "../../speaker/src/index.js";
+} from "../../../../packages/speaker/src/index.js";
 import type { AttentionStore } from "./store.js";
 import type {
   ActiveMembership,

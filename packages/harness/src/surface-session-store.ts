@@ -4,8 +4,10 @@ import type { Pool } from "pg";
 import { z } from "zod";
 import {
   parseAdaptiveSurfaceSession,
+} from "../../../archive/packages/surface/src/adaptive.js";
+import {
   type AdaptiveSurfaceSession,
-} from "../../surface/src/index.js";
+} from "../../../archive/packages/surface/src/model.js";
 import type { AdaptiveSurfaceSessionPersistence } from "./adaptive-surface.js";
 
 const identifierSchema = z

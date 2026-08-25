@@ -1,13 +1,13 @@
 # Demo paths
 
-Runnable demos use the production Sample Company stack and landed e2e scenarios. There is no separate marketing backend and no fake chat widget.
+Runnable demos use landed e2e scenarios. Sample Company and archived web are optional. There is no separate marketing backend and no fake chat widget.
 
 ## Five-minute company
 
-First governed Action on Sample Company.
+Optional archived first governed Action on Sample Company.
 
 1. From the repository root, run `just build` then `just start`.
-2. Open the printed web URL and sign in with the sample OIDC user (`web-user` / `web-password`).
+2. If archived web is built, open the printed web URL and sign in with the sample OIDC user (`web-user` / `web-password`).
 3. Walk at-risk stock → propose → approve on the seeded Sample Company tenant.
 4. Confirm the non-interactive path with `just e2e activation-sample`.
 
@@ -31,7 +31,7 @@ Read-only enterprise source to mapping ambiguity to Shadow recommendation withou
 just e2e company-bootstrap-shadow
 ```
 
-This is the #258 bootstrap path. Shadow may recommend; it must not call `commitOrRecover` or write an `EffectRequest` on its own.
+This is the optional archived #258 bootstrap path. Shadow may recommend; it must not call `commitOrRecover` or write an `EffectRequest` on its own.
 
 ## Killer path script (manual, production stack)
 

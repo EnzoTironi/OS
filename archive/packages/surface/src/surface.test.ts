@@ -5,8 +5,8 @@ import {
   EffectKnowledgeState,
   EffectRequestSchema,
   EffectSnapshotSchema,
-} from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
-import { parseDefinitionMetadata } from "../../sdk/src/definition.js";
+} from "../../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import { parseDefinitionMetadata } from "../../../../packages/sdk/src/definition.js";
 import {
   adaptiveSurfaceTemplate,
   compileDeterministicSurface,

@@ -3,6 +3,10 @@ set -euo pipefail
 
 # Ticket command stays `just e2e <scenario>` (check + native build + run).
 # `just verify` runs check and native build once, then each scenario runner.
+# scenario_table fields: name:realm:variant:class
+# class is live | archive | kind | scale | credential.
+# just verify runs only class=live. Archive, KIND, scale, and credential
+# scenarios stay optional.
 # `just verify-v1` aggregates typed artifacts into a signed zoen.verify.v1 bundle.
 # `just verify-activation` aggregates AD artifacts into a signed zoen.activation.v1 bundle.
 # `just e2e-run` executes a built workspace and does not lint.
@@ -10,67 +14,67 @@ set -euo pipefail
 # never share host ports or generated files with another scenario.
 
 scenario_table=(
-  "activation-identity:activation-identity:"
-  "activation-context:activation-context:"
-  "activation-onboarding:activation-onboarding:"
-  "activation-metrics:activation-metrics:"
-  "messaging-boundary:messaging-boundary:"
-  "channel-linq-live:channel-linq-live:"
-  "channel-whatsapp-live:channel-whatsapp-live:"
-  "channel-telegram-live:channel-telegram-live:"
-  "messaging-conformance-live:messaging-conformance-live:"
-  "whatsapp-dirty-quote:whatsapp-dirty-quote:"
-  "company-bootstrap-shadow:company-bootstrap-shadow:"
-  "conversational-approval:conversational-approval:"
-  "conversational-turn:conversational-turn:"
-  "pack-kitchen:pack-kitchen:"
-  "personal-family:personal-family:"
-  "workload-api-mcp:workload-api-mcp:"
-  "activation-sample::"
-  "agent-capabilities-live:agent-capabilities-live:"
-  "backup-restore::"
-  "company-brain-live:company-brain-live:"
-  "definition-publication:governed-action:"
-  "deploy-dedicated::"
-  "deploy-self-hosted-isolated::"
-  "ha-chaos::"
-  "adr-0007:adr-0007:"
-  "domain-commercial:domain-commercial:"
-  "domain-inventory-procurement:domain-inventory-procurement:"
-  "domain-manufacturing-accounting:domain-manufacturing-accounting:"
-  "domain-quality:domain-quality:"
-  "entity-location:entity-location:"
-  "cedar-object-projection:cedar-object-projection:"
-  "commercial-identity:commercial-identity:"
-  "dirty-quote:dirty-quote:"
-  "durable-commit:governed-action:failpoints"
-  "effects:governed-action:"
-  "evolution-breaking:evolution-breaking:"
-  "evolution-compatible:evolution-compatible:"
-  "explain:governed-action:"
-  "fiscal-fault-matrix:fiscal-fault-matrix:"
-  "fiscal-systax-live:fiscal-systax-live:"
-  "fiscal-plugnotas-live:fiscal-plugnotas-live:"
-  "fiscal-protheus-live:fiscal-protheus-live:"
-  "governed-action:governed-action:"
-  "human-executor:human-executor:"
-  "pack-install:pack-install:"
-  "pack-registry:pack-registry:"
-  "public-surface::"
-  "public-surface-web:public-surface-web:"
-  "rolling-upgrade::"
-  "rpo-rto::"
-  "scale-actions-v1::"
-  "scale-mixed-v1::"
-  "scale-query-v1::"
-  "scale-seed-v1::"
-  "semantic-query:semantic-query:"
-  "shared-tenancy::"
-  "v1-company::"
-  "wasm-code-mode:wasm-code-mode:"
-  "web-adaptive-live:web-adaptive-live:"
-  "web-deterministic:web-deterministic:"
-  "workshop-miniapp:workshop-miniapp:"
+  "activation-identity:activation-identity::live"
+  "activation-context:activation-context::live"
+  "activation-onboarding:activation-onboarding::archive"
+  "activation-metrics:activation-metrics::archive"
+  "messaging-boundary:messaging-boundary::live"
+  "channel-linq-live:channel-linq-live::credential"
+  "channel-whatsapp-live:channel-whatsapp-live::credential"
+  "channel-telegram-live:channel-telegram-live::credential"
+  "messaging-conformance-live:messaging-conformance-live::credential"
+  "whatsapp-dirty-quote:whatsapp-dirty-quote::credential"
+  "company-bootstrap-shadow:company-bootstrap-shadow::archive"
+  "conversational-approval:conversational-approval::live"
+  "conversational-turn:conversational-turn::live"
+  "pack-kitchen:pack-kitchen::archive"
+  "personal-family:personal-family::archive"
+  "workload-api-mcp:workload-api-mcp::archive"
+  "activation-sample:::archive"
+  "agent-capabilities-live:agent-capabilities-live::live"
+  "backup-restore:::kind"
+  "company-brain-live:company-brain-live::live"
+  "definition-publication:governed-action::live"
+  "deploy-dedicated:::kind"
+  "deploy-self-hosted-isolated:::kind"
+  "ha-chaos:::kind"
+  "adr-0007:adr-0007::archive"
+  "domain-commercial:domain-commercial::archive"
+  "domain-inventory-procurement:domain-inventory-procurement::archive"
+  "domain-manufacturing-accounting:domain-manufacturing-accounting::archive"
+  "domain-quality:domain-quality::archive"
+  "entity-location:entity-location::archive"
+  "cedar-object-projection:cedar-object-projection::live"
+  "commercial-identity:commercial-identity::live"
+  "dirty-quote:dirty-quote::live"
+  "durable-commit:governed-action:failpoints:live"
+  "effects:governed-action::archive"
+  "evolution-breaking:evolution-breaking::live"
+  "evolution-compatible:evolution-compatible::live"
+  "explain:governed-action::live"
+  "fiscal-fault-matrix:fiscal-fault-matrix::archive"
+  "fiscal-systax-live:fiscal-systax-live::credential"
+  "fiscal-plugnotas-live:fiscal-plugnotas-live::credential"
+  "fiscal-protheus-live:fiscal-protheus-live::credential"
+  "governed-action:governed-action::live"
+  "human-executor:human-executor::archive"
+  "pack-install:pack-install::archive"
+  "pack-registry:pack-registry::archive"
+  "public-surface:::live"
+  "public-surface-web:public-surface-web::archive"
+  "rolling-upgrade:::kind"
+  "rpo-rto:::kind"
+  "scale-actions-v1:::scale"
+  "scale-mixed-v1:::scale"
+  "scale-query-v1:::scale"
+  "scale-seed-v1:::scale"
+  "semantic-query:semantic-query::live"
+  "shared-tenancy:::kind"
+  "v1-company:::kind"
+  "wasm-code-mode:wasm-code-mode::live"
+  "web-adaptive-live:web-adaptive-live::archive"
+  "web-deterministic:web-deterministic::archive"
+  "workshop-miniapp:workshop-miniapp::archive"
 )
 
 scenario=""
@@ -160,7 +164,7 @@ build_needs_failpoints() {
   local name
   local variant
   for row in "${scenario_table[@]}"; do
-    IFS=: read -r name _ variant <<< "$row"
+    IFS=: read -r name _ variant _ <<< "$row"
     if [[ "$variant" == "failpoints" && ( "$target" == "all" || "$target" == "$name" ) ]]; then
       return 0
     fi
@@ -179,6 +183,8 @@ run_lint() {
   npm run deployment-docs:check
   npm run roadmap:check
   node scripts/check-no-fake-exports.mjs
+  node scripts/check-domain-leakage.mjs
+  node scripts/check-commercial-lake.mjs
   node scripts/check-e2e-workflow-matrix.mjs
   npm test
   cargo fmt --all --check
@@ -220,8 +226,8 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
-  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f apps/web/.output/server/index.mjs ]]; then
-    echo "missing apps/web/.output/server/index.mjs; run \`just build\` or \`just e2e ${scenario}\`" >&2
+  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f archive/apps/web/.output/server/index.mjs ]]; then
+    echo "missing archive/apps/web/.output/server/index.mjs; archived web is optional" >&2
     exit 1
   fi
 }
@@ -390,8 +396,8 @@ run_verify() {
   local row
   local name
   for row in "${scenario_table[@]}"; do
-    IFS=: read -r name _ <<< "$row"
-    if [[ "$name" == fiscal-systax-live || "$name" == fiscal-plugnotas-live || "$name" == fiscal-protheus-live || "$name" == channel-linq-live || "$name" == channel-whatsapp-live || "$name" == channel-telegram-live || "$name" == messaging-conformance-live || "$name" == whatsapp-dirty-quote || "$name" == ha-chaos || "$name" == backup-restore || "$name" == rolling-upgrade || "$name" == rpo-rto || "$name" == scale-seed-v1 || "$name" == scale-query-v1 || "$name" == scale-actions-v1 || "$name" == scale-mixed-v1 ]]; then
+    IFS=: read -r name _ _ klass <<< "$row"
+    if [[ "$klass" != "live" ]]; then
       continue
     fi
     resolve_scenario "$name"

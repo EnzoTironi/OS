@@ -36,7 +36,7 @@ import {
   type ShadowAuthorityPort,
   type ShadowDecision,
   type SourceSchemaRef,
-} from "../../packages/onboarding/src/index.js";
+} from "../../archive/packages/onboarding/src/index.js";
 import { compileDefinition } from "../../packages/ontology/src/compiler.js";
 import { e2ePort, e2ePostgresUrl, writeScenarioArtifact } from "../host-env.js";
 import { REQUIRED_MUTANTS } from "./mutants.js";

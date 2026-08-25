@@ -6,6 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import {
+  archivedWebServerEntry,
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2ePort,
@@ -33,14 +34,7 @@ export async function startWeb(input: {
 }): Promise<WebProcess> {
   const output: string[] = [];
   const webPort = e2ePort("ZOEN_E2E_WEB_PORT", webPortFallback);
-  const serverEntry = path.join(
-    repositoryRoot,
-    "apps",
-    "web",
-    ".output",
-    "server",
-    "index.mjs",
-  );
+  const serverEntry = archivedWebServerEntry(repositoryRoot);
   const onboardingStorePath = path.join(
     e2eGeneratedDirectory(repositoryRoot, "conversational-approval"),
     "onboarding-store.json",

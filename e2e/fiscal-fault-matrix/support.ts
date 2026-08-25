@@ -43,6 +43,7 @@ import {
 } from "../domain-manufacturing-accounting/support.js";
 import { compileDefinition } from "../evolution-compatible/support.js";
 import {
+  compileArchivedTsconfig,
   e2eHttpUrl,
   e2ePort,
 } from "../host-env.js";
@@ -99,7 +100,8 @@ const proxyMetricsSchema = z.object({
 
 const packageSourcePath = path.join(
   repositoryRoot,
-  "packages",
+  "archive",
+  "domain",
   "fiscal-brazil",
   "src",
   "fiscal-brazil.zoen.ts",
@@ -366,11 +368,16 @@ export async function startFiscalAdapter(input: {
           },
     ),
   };
+  compileArchivedTsconfig(
+    repositoryRoot,
+    "archive/domain/fiscal-brazil/tsconfig.json",
+  );
   return startManagedProcess({
     arguments: [
       path.join(
         distDirectory,
-        "packages",
+        "archive",
+        "domain",
         "fiscal-brazil",
         "src",
         "adapter",

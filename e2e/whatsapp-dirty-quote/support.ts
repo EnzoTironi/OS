@@ -42,8 +42,10 @@ import {
 import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
 import {
   compileDeterministicSurface,
+} from "../../archive/packages/surface/src/compiler.js";
+import {
   type SurfaceDocument,
-} from "../../packages/surface/src/index.js";
+} from "../../archive/packages/surface/src/model.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
@@ -122,8 +124,8 @@ const serverPath = path.join(cargoTargetDir, "debug", "zoend");
 const commercialSource = path.join(
   repositoryRoot,
   "packages",
-  "commercial",
-  "src",
+  "ontology",
+  "fixtures",
   "commercial.zoen.ts",
 );
 const ingestStorePath = path.join(

@@ -1,4 +1,4 @@
-import type { PreferencePayload } from "../../harness/src/index.js";
+import type { PreferencePayload } from "../../../../packages/harness/src/index.js";
 import type {
   AttentionClassPolicy,
   AttentionDeliveryPreference,

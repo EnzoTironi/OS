@@ -8,6 +8,6 @@
     "./adapter": "./src/adapter/server.ts"
   },
   "scripts": {
-    "test": "npm exec -- tsc -p ../../tsconfig.json --pretty false && node --test ../../dist/packages/fiscal-brazil/src/adapter/server.test.js"
+    "test": "npm exec -- tsc -p ./tsconfig.json --pretty false && node --test ../../../dist/archive/domain/fiscal-brazil/src/adapter/server.test.js"
   }
 }

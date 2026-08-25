@@ -46,7 +46,7 @@ import {
 import {
   presentationSchema,
   type PresentationIntent,
-} from "../packages/surface/src/presentation-intent.js";
+} from "../archive/packages/surface/src/presentation-intent.js";
 import {
   oidcToken,
   startServer,

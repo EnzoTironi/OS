@@ -16,7 +16,7 @@ If a capability is only a stub, it is not product. Stubs leave `main` for [`back
 
 Three production-shaped entry demos are documented in `docs/demos/README.md`:
 
-1. **Five-minute company.** Sample Company walkthrough (`just e2e activation-sample`).
+1. **Five-minute company.** Optional archived Sample Company (`just e2e activation-sample`).
 2. **Agent safely acts.** Real model harness and governed Action (`just e2e agent-capabilities-live`).
 3. **Your messy data.** Read-only source to mapping ambiguity to Shadow recommendation (`just e2e company-bootstrap-shadow`).
 
@@ -26,31 +26,27 @@ Record the Sample Company five-minute path on `just start` with `./docs/demo/rec
 
 Prerequisites: Docker, `just`, Node 22+, and a Rust toolchain (or a prebuilt `target/debug/zoend`).
 
+Default clone path is `just build` (zoend + speaker/transport). Sample Company and the archived web URL are optional.
+
 ```bash
 git clone https://github.com/EnzoTironi/OS.git && cd OS
 just build
-just start                 # compose up, wait on real probes, seed Sample Company, print URLs
-open http://127.0.0.1:58359 # OIDC login (web-user / web-password), at-risk stock, propose/approve
+just start                 # optional archive: compose + Sample Company; web is not built by default
+just e2e activation-sample # same optional path, non-interactive
 just status                # Ready | Degraded | Stopped + component lines
 just doctor                # fail-closed diagnosis; never claims Ready while unhealthy
 just reset-sample          # wipe sample tenant authority rows and reseed
 just stop                  # tear down compose + host processes
 ```
 
-Acceptance of the same path (non-interactive):
-
-```bash
-just e2e activation-sample
-```
-
-`just start` is idempotent. It waits on postgres, Keycloak OIDC discovery, zoend, web, and a Sample Company world probe. It never treats sleep as readiness. Restart/`ensure` keeps the Sample commitment operation id stable.
+`just start` is idempotent for that archived stack. It waits on postgres, Keycloak OIDC discovery, and zoend. It never treats sleep as readiness. Archived web prints “optional” unless `archive/apps/web/.output` exists.
 
 ## Sample Company
 
-Sample Company is the five-minute first Action path.
+Sample Company is an optional five-minute first Action path. Its pre-modeled ontology, pack, and web app live under `archive/` and are not built by default.
 
-1. Start the stack with `just start`.
-2. Sign in at the printed web URL with the sample OIDC user.
+1. Optionally start the archived stack with `just start`.
+2. If archived web is built, sign in at the printed web URL with the sample OIDC user.
 3. Open at-risk stock, propose a governed recommendation, and approve it.
 4. Follow the effect path when the connector is ambiguous: local commit is not remote success, and blind retry stays forbidden.
 
@@ -68,7 +64,7 @@ Packs ship outcomes, not module names.
 
 Each Pack should answer what it does for the company, who published it, which integrations or data it needs, high-level permissions, how FirstSuccess looks, and how to install or share it.
 
-Outcome-first directory copy lives in `docs/product/pack-directory.md`. The live web directory is `/packs`. Install and share resolve through the signed Pack registry from #260 (`just e2e pack-registry`). Kitchen authoring (#264) has landed (`just e2e pack-kitchen`). Full marketplace commerce is out of scope.
+Outcome-first directory copy lives in `docs/product/pack-directory.md`. The archived web directory is `/packs`. Install and share resolve through the signed Pack registry from #260 (`just e2e pack-registry`, archive-class). Kitchen authoring (#264) has landed (`just e2e pack-kitchen`, archive-class). Full marketplace commerce is out of scope.
 
 ## Why not LLM + tools
 
@@ -120,7 +116,9 @@ The reference production architecture targets single-region HA (>=99.9%), RPO <5
 
 ### V1 enterprise scope
 
-V1 ships versioned ontology libraries for Party, Product, Commercial, Inventory, Procurement, Manufacturing and an Accounting Foundation. Brazilian fiscal semantics remain a versioned domain extension behind replaceable provider boundaries. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
+V1 does not ship a prebuilt SAP. Each company brings its own world. Kitchen is archived and does not derive live Pack capabilities from activated definitions. See ADR-0022.
+
+Pre-modeled ERP libraries live under `archive/domain/`. Web, Surface, Pack, Kitchen, onboarding, attention, activation-metrics, effect-worker, and workload-ingress live under `archive/packages/` and `archive/apps/web`. They are outside the default workspace and CI. Live World/OSDK compile stays on `packages/ontology/fixtures/commercial.zoen.ts`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
 ### Research phase
 

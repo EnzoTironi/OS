@@ -44,8 +44,8 @@ const execFileAsync = promisify(execFile);
 const commercialDefinition = path.join(
   process.cwd(),
   "packages",
-  "commercial",
-  "src",
+  "ontology",
+  "fixtures",
   "commercial.zoen.ts",
 );
 const validAt = new Date("2026-08-25T00:00:00.000Z");

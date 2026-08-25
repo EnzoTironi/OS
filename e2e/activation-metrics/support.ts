@@ -10,7 +10,7 @@ import {
   optionalCapability,
   requireCapability,
   type CompiledPack,
-} from "../../packages/pack/src/index.js";
+} from "../../archive/packages/pack/src/index.js";
 import {
   compilePackage,
   writePolicyManifest,
@@ -180,6 +180,7 @@ export async function applyActivationSchema(
   const sql = await readFile(
     path.join(
       repositoryRoot,
+      "archive",
       "packages",
       "activation-metrics",
       "sql",

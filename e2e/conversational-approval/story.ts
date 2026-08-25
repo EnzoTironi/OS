@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { Client as PostgresClient } from "pg";
@@ -43,6 +43,7 @@ import {
   type ServerProcess,
 } from "../governed-action/support.js";
 import {
+  archivedWebServerEntry,
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2ePostgresUrl,
@@ -631,6 +632,14 @@ export async function main(): Promise<void> {
         stepAct.stepUpUrl.includes("/approve/"),
     );
 
+    const webBuilt = await access(archivedWebServerEntry(repositoryRoot))
+      .then(() => true)
+      .catch(() => false);
+    if (!webBuilt) {
+      record("archived_web_step_up_skipped", true);
+    }
+
+    if (webBuilt) {
     web = await startWeb({
       definitionId: fixture.definitionId,
       oidcIssuer,
@@ -785,6 +794,7 @@ export async function main(): Promise<void> {
       /consumed|already|expired|unknown/iu.test(replayMessage),
     );
     await replayContext.close();
+    }
 
     // Durable registry survives "restart" (new registry over same Postgres).
     const controlsAfter = createInteractionControlRegistry({

@@ -8,7 +8,7 @@
     "url": "https://github.com/EnzoTironi/OS/tree/backup/stubs-channels"
   },
   "gates": {
-    "verify": "just verify. Serial scenario runners. Skips live Linq, live fiscal, KIND reliability, scale.",
+    "verify": "just verify. Serial class=live runners. Skips credential channels, KIND, scale, archived ERP/web/pack, effects, and adr-0007.",
     "verifyV1": "just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.",
     "verifyActivation": "just verify-activation. Signed activation evidence. Same fixture rule.",
     "note": "Green just verify is not a V1 release. Green just verify-v1-fixtures is a labeled contract, not production."
@@ -60,7 +60,7 @@
       "issue": 328,
       "pr": null,
       "title": "Surface IR and Attention on live channels",
-      "note": "packages/surface and packages/attention stay. Fake-delivery e2e does not return. live-attention proves lowering plus one AttentionItem on createLiveWhatsAppProvider. Paired door still missing."
+      "note": "Surface and attention are archived. Live WhatsApp lowers PresentationIntent from packages/transport. Speaker debounce is local. Paired door still missing."
     }
   ],
   "rows": [
@@ -148,8 +148,8 @@
       "name": "OIDC identity (Keycloak)",
       "onMain": true,
       "product": true,
-      "path": "apps/web, e2e/activation-sample",
-      "proof": "just start. just e2e activation-identity. JWT claims are evidence. Membership is authority.",
+      "path": "e2e/activation-identity",
+      "proof": "just e2e activation-identity. JWT claims are evidence. Membership is authority.",
       "issue": null
     },
     {
@@ -170,9 +170,9 @@
       "plane": "experience",
       "name": "Web application",
       "onMain": true,
-      "product": true,
-      "path": "apps/web",
-      "proof": "just start. OIDC login, packs, propose/approve, step-up.",
+      "product": false,
+      "path": "archive/apps/web",
+      "proof": "Archived from default workspace and CI. Optional just e2e web-deterministic builds archive/apps/web.",
       "issue": null
     },
     {
@@ -182,7 +182,7 @@
       "name": "Workshop mini-app lists commercial objects and commits changeCommitment",
       "onMain": false,
       "product": false,
-      "path": "apps/web, packages/surface, e2e/workshop-miniapp",
+      "path": "archive/apps/web, archive/packages/surface, e2e/workshop-miniapp",
       "proof": "just e2e workshop-miniapp. SemanticQuery ByType lists commercial.OrderLine. Mini-app renders one object. commercial.changeCommitment commits through Action API. A denied propose still denies.",
       "issue": 356
     },
@@ -192,9 +192,9 @@
       "plane": "experience",
       "name": "Surface IR package",
       "onMain": true,
-      "product": true,
-      "path": "packages/surface",
-      "proof": "Unit tests in packages/surface. just e2e live-attention lowers PresentationIntent onto unofficial WhatsApp text plus https. Paired door is still #328.",
+      "product": false,
+      "path": "archive/packages/surface",
+      "proof": "Archived. Live WhatsApp uses PresentationIntent types in packages/transport. Harness still compiles the archived Surface generator.",
       "issue": 328
     },
     {
@@ -203,20 +203,20 @@
       "plane": "experience",
       "name": "Proactive attention package",
       "onMain": true,
-      "product": true,
-      "path": "packages/attention",
-      "proof": "Package exists with Postgres store. just e2e live-attention opens one AttentionItem and one delivery. Restart does not duplicate. Paired door is still #328.",
+      "product": false,
+      "path": "archive/packages/attention",
+      "proof": "Archived. Transport and speaker do not import it; debounce is local to the turn coordinator.",
       "issue": 328
     },
     {
       "id": "ontology-libs",
       "status": "have",
       "plane": "ontology",
-      "name": "V1 ontology libraries",
+      "name": "Archived pre-modeled ERP libraries",
       "onMain": true,
-      "product": true,
-      "path": "packages/{party,product,commercial,inventory,procurement,manufacturing,quality,accounting-foundation}",
-      "proof": "just e2e domain-commercial, domain-inventory-procurement, domain-manufacturing-accounting, domain-quality",
+      "product": false,
+      "path": "archive/domain/{party,product,commercial,inventory,procurement,manufacturing,quality,accounting-foundation}",
+      "proof": "Outside default workspace and CI. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* reads archive/domain.",
       "issue": null
     },
     {
@@ -225,9 +225,9 @@
       "plane": "packs",
       "name": "Pack compiler, registry, Kitchen",
       "onMain": true,
-      "product": true,
-      "path": "packages/pack, packages/kitchen",
-      "proof": "just e2e pack-install, pack-registry, pack-kitchen",
+      "product": false,
+      "path": "archive/packages/pack, archive/packages/kitchen",
+      "proof": "Archived. Kitchen/pack e2e is optional and not default CI.",
       "issue": null
     },
     {
@@ -236,9 +236,9 @@
       "plane": "activation",
       "name": "Sample Company five-minute path",
       "onMain": true,
-      "product": true,
-      "path": "e2e/activation-sample",
-      "proof": "just start. just e2e activation-sample. Effect remote is the named fault-provider harness.",
+      "product": false,
+      "path": "archive/domain/sample-company, e2e/activation-sample",
+      "proof": "Pack and ontology live under archive/domain. just start / just e2e activation-sample are optional and not default CI.",
       "issue": null
     },
     {
@@ -247,9 +247,9 @@
       "plane": "activation",
       "name": "Conversational onboarding and messy data",
       "onMain": true,
-      "product": true,
-      "path": "packages/onboarding, e2e/activation-onboarding, e2e/company-bootstrap-shadow",
-      "proof": "just e2e activation-onboarding. just e2e company-bootstrap-shadow (in-memory mapping, labeled).",
+      "product": false,
+      "path": "archive/packages/onboarding, e2e/activation-onboarding, e2e/company-bootstrap-shadow",
+      "proof": "Archived. just e2e activation-onboarding and company-bootstrap-shadow are optional and not default CI.",
       "issue": null
     },
     {
@@ -269,9 +269,9 @@
       "plane": "fiscal",
       "name": "Brazil fiscal HTTP adapters (code)",
       "onMain": true,
-      "product": true,
-      "path": "packages/fiscal-brazil/src/adapter/vendors",
-      "proof": "just e2e fiscal-fault-matrix uses vendor-fault-proxy. Live homologation is #214.",
+      "product": false,
+      "path": "archive/domain/fiscal-brazil/src/adapter/vendors",
+      "proof": "Archived with the ERP packs. just e2e fiscal-fault-matrix is optional and not default CI. Live homologation is #214.",
       "issue": 214
     },
     {
@@ -348,7 +348,7 @@
       "name": "Surface IR and Attention e2e on live channels",
       "onMain": false,
       "product": false,
-      "path": "packages/attention, e2e/live-attention.ts",
+      "path": "archive/packages/attention, e2e/live-attention.ts",
       "proof": "CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM.",
       "issue": 328,
       "backup": [
@@ -374,9 +374,9 @@
       "plane": "deploy",
       "name": "Helm profiles (shared, dedicated, self-hosted)",
       "onMain": true,
-      "product": true,
+      "product": false,
       "path": "deploy/helm/zoen",
-      "proof": "just e2e deploy-dedicated, deploy-self-hosted-isolated. KIND reliability drills exist and are skipped by just verify.",
+      "proof": "Optional KIND. just e2e deploy-dedicated and deploy-self-hosted-isolated are class=kind and skipped by just verify.",
       "issue": null
     },
     {
@@ -450,9 +450,9 @@
       "plane": "effects",
       "name": "ADR-0007 timeout on commercial.OrderLine",
       "onMain": true,
-      "product": true,
+      "product": false,
       "path": "e2e/adr-0007.ts, docs/adr/0007-external-effects-reconciliation.md",
-      "proof": "./e2e/run.sh run adr-0007. Timeout after possible delivery is UNKNOWN. Provider requests stay 1.",
+      "proof": "Archived. ./e2e/run.sh run adr-0007 still compilePackage(commercial). Timeout after possible delivery is UNKNOWN.",
       "issue": null
     },
     {
