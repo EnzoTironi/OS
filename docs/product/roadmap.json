@@ -60,7 +60,7 @@
       "issue": 328,
       "pr": null,
       "title": "Surface IR and Attention on live channels",
-      "note": "Surface and attention are archived. Live WhatsApp lowers PresentationIntent from packages/messaging. Interaction debounce is local. Paired door still missing."
+      "note": "Surface and attention are archived. Live WhatsApp lowers PresentationIntent from packages/transport. Speaker debounce is local. Paired door still missing."
     }
   ],
   "rows": [
@@ -194,7 +194,7 @@
       "onMain": true,
       "product": false,
       "path": "archive/packages/surface",
-      "proof": "Archived. Live WhatsApp uses PresentationIntent types in packages/messaging. Harness still compiles the archived Surface generator.",
+      "proof": "Archived. Live WhatsApp uses PresentationIntent types in packages/transport. Harness still compiles the archived Surface generator.",
       "issue": 328
     },
     {
@@ -205,7 +205,7 @@
       "onMain": true,
       "product": false,
       "path": "archive/packages/attention",
-      "proof": "Archived. Messaging and Interaction do not import it; debounce is local to the turn coordinator.",
+      "proof": "Archived. Transport and speaker do not import it; debounce is local to the turn coordinator.",
       "issue": 328
     },
     {
