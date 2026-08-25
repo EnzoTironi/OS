@@ -95,17 +95,20 @@ async function main(): Promise<void> {
   killMutant("architecture wall before Quickstart");
 
   const quickstart = sectionBody(readme, "Quickstart");
-  record("quickstart_has_just_start", /`?just start`?/.test(quickstart));
-  record(
-    "quickstart_has_activation_sample",
-    /`?just e2e activation-sample`?/.test(quickstart),
-  );
+  record("quickstart_has_just_build", /`?just build`?/.test(quickstart));
   killMutant("README Quickstart command that no longer works");
+
+  const sampleCompany = sectionBody(readme, "Sample Company");
+  record("sample_company_has_just_start", /`?just start`?/.test(sampleCompany));
+  record(
+    "sample_company_has_activation_sample",
+    /`?just e2e activation-sample`?/.test(sampleCompany),
+  );
 
   const packs = sectionBody(readme, "Packs");
   record(
     "packs_outcome_first",
-    /outcome/i.test(packs) && (/#260/.test(packs) || /coming/i.test(packs)),
+    /outcome/i.test(packs) && /pack-directory/i.test(packs),
   );
 
   const demo = sectionBody(readme, "Demo");
