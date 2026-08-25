@@ -649,6 +649,45 @@ mod tests {
     }
 
     #[test]
+    fn admission_jcs_matches_shared_rfc8785_vectors() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/jcs");
+        for group in ["rfc8785", "zoen"] {
+            let dir = root.join(group);
+            for entry in std::fs::read_dir(&dir).expect("testdata") {
+                let entry = entry.expect("entry");
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                let Some(stem) = name.strip_suffix(".json") else {
+                    continue;
+                };
+                let input = std::fs::read(dir.join(format!("{stem}.json"))).expect("input");
+                let expected =
+                    String::from_utf8(std::fs::read(dir.join(format!("{stem}.jcs"))).expect("jcs"))
+                        .expect("utf8");
+                let via_core = zoen_core::canonicalize_json_bytes(&input).expect(stem);
+                let parsed: serde_json::Value = serde_json::from_slice(&input).expect("json");
+                let via_serde = serde_jcs::to_string(&parsed).expect("serde_jcs");
+                assert_eq!(via_core, expected, "{group}/{stem} zoen-core");
+                assert_eq!(via_serde, expected, "{group}/{stem} serde_jcs");
+            }
+        }
+    }
+
+    #[test]
+    fn historical_inventory_definition_digest_is_not_silently_rehashed() {
+        let canonical = INVENTORY.trim();
+        let pinned = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../packages/ontology/fixtures/inventory.sha256"),
+        )
+        .expect("inventory.sha256");
+        let pinned = pinned.trim();
+        assert_eq!(digest(canonical.as_bytes()).as_str(), pinned);
+        admit(canonical.as_bytes(), digest(canonical.as_bytes()))
+            .expect("historical inventory must still admit");
+    }
+
+    #[test]
     fn admission_normalizes_unordered_families_before_comparing_bytes() {
         let mut dto =
             serde_json::from_str::<CanonicalDefinitionDto>(INVENTORY.trim()).expect("fixture");
