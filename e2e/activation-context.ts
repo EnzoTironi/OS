@@ -18,7 +18,7 @@ import {
   providerThreadRef,
   providerUserRef,
   tenantIdString,
-} from "../packages/interaction/src/index.js";
+} from "../packages/speaker/src/index.js";
 import {
   agentSessionCommandSchema,
   capabilityAliasForScope,

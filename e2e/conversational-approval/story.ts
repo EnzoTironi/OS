@@ -29,7 +29,7 @@ import {
   type ApprovalControl,
   type InboundInteraction,
   type TrustedInteractionContext,
-} from "../../packages/interaction/src/index.js";
+} from "../../packages/speaker/src/index.js";
 import {
   actionClient,
   definitionClient,

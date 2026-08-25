@@ -9,7 +9,7 @@ import {
   providerUserRef,
   tenantIdString,
   type InteractionRecord,
-} from "../../interaction/src/index.js";
+} from "../../speaker/src/index.js";
 import {
   createEvidenceAdmission,
   createMemoryInteractionContextStore,

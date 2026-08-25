@@ -10,7 +10,7 @@ import {
   providerThreadRef,
   tenantIdString,
   toChannelProvider,
-} from "../packages/interaction/src/index.js";
+} from "../packages/speaker/src/index.js";
 import {
   oidcToken,
   startServer,
@@ -120,10 +120,10 @@ async function main(): Promise<void> {
   await assertImportGraphLaw(repositoryRoot);
   record("import_graph_forbids_chat_sdk_outside_messaging", true);
   killMutant("business / surface code imports Chat SDK Card/action types");
-  killMutant("packages/interaction depends on vercel/chat");
+  killMutant("packages/speaker depends on vercel/chat");
   killMutant("Read Chat SDK adapter state as semantic memory / StateBasis");
 
-  const messagingModule = await import("../packages/messaging/src/index.js");
+  const messagingModule = await import("../packages/transport/src/index.js");
   record(
     "no_project_interaction_records_api",
     !("projectInteractionRecords" in messagingModule),

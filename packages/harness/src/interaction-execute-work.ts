@@ -1,5 +1,5 @@
 import type { LanguageModel } from "ai";
-import { resolveLanguageModel } from "../../interaction/src/interaction-turn.js";
+import { resolveLanguageModel } from "../../speaker/src/interaction-turn.js";
 import {
   createExecutionAgent,
   type CreateExecutionAgentOptions,

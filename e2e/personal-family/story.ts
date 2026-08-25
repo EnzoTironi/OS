@@ -24,7 +24,7 @@ import {
   createRetrievedContextRecord,
   projectAssembledForModel,
 } from "../../packages/harness/src/index.js";
-import { decideAudienceDisclosure } from "../../packages/interaction/src/index.js";
+import { decideAudienceDisclosure } from "../../packages/speaker/src/index.js";
 import {
   ActionInputSchema,
   ProposalStatus,

@@ -6,7 +6,7 @@ import path from "node:path";
 import {
   providerKey,
   toChannelProvider,
-} from "../packages/interaction/src/index.js";
+} from "../packages/speaker/src/index.js";
 import {
   assertLiveTelegramAdvertisement,
   createLiveTelegramProvider,
@@ -14,7 +14,7 @@ import {
   createTelegramMessagingIngress,
   LiveTelegramConfigError,
   parseTelegramBotUpdate,
-} from "../packages/messaging/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   startServer,
   stopServer,
@@ -82,7 +82,7 @@ async function main(): Promise<void> {
     "assertImportGraphLaw on crates/zoend/interaction/surface/sdk",
   );
 
-  const messaging = await import("../packages/messaging/src/index.js");
+  const messaging = await import("../packages/transport/src/index.js");
   assert.equal(
     "createFakeTelegramProvider" in messaging,
     false,

@@ -23,7 +23,7 @@ import {
   type SemanticCommitRef,
   type TrustedInteractionContext,
   type TurnAttempt,
-} from "../../packages/interaction/src/index.js";
+} from "../../packages/speaker/src/index.js";
 import {
   oidcToken,
   startServer,

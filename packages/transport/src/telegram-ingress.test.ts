@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { providerKey } from "../../interaction/src/index.js";
+import { providerKey } from "../../speaker/src/index.js";
 import { createMessagingGateway } from "./gateway.js";
 import {
   createLiveTelegramProvider,

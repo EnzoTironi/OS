@@ -9,7 +9,7 @@ import {
   createMemoryControlStore,
   providerKey,
   toChannelProvider,
-} from "../packages/interaction/src/index.js";
+} from "../packages/speaker/src/index.js";
 import {
   assertLiveLinqAdvertisement,
   createLiveLinqProvider,
@@ -21,7 +21,7 @@ import {
   signStandardWebhook,
   verifyStandardWebhook,
   WebhookVerificationError,
-} from "../packages/messaging/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   oidcToken,
   startServer,

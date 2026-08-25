@@ -292,7 +292,7 @@
       "name": "Live Linq iMessage adapter",
       "onMain": true,
       "product": true,
-      "path": "packages/messaging/src/adapters/linq-live.ts",
+      "path": "packages/transport/src/adapters/linq-live.ts",
       "proof": "just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host.",
       "issue": 253
     },
@@ -303,11 +303,11 @@
       "name": "Telegram channel",
       "onMain": false,
       "product": false,
-      "path": "packages/messaging/src/adapters/telegram-live.ts, packages/messaging/src/telegram-ingress.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-telegram-live.ts",
+      "path": "packages/transport/src/adapters/telegram-live.ts, packages/transport/src/telegram-ingress.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-telegram-live.ts",
       "proof": "just e2e channel-telegram-live. Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted.",
       "issue": 329,
       "backup": [
-        "packages/messaging/src/adapters/telegram-fake.ts"
+        "packages/transport/src/adapters/telegram-fake.ts"
       ],
       "blocker": "Telegram bot token"
     },
@@ -318,11 +318,11 @@
       "name": "Unofficial WhatsApp (whatsmeow) for Brazil",
       "onMain": false,
       "product": false,
-      "path": "apps/whatsapp-companion, packages/messaging/src/adapters/whatsapp-live.ts, packages/messaging/src/whatsapp-contact-loop.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-whatsapp-live.ts",
+      "path": "apps/whatsapp-companion, packages/transport/src/adapters/whatsapp-live.ts, packages/transport/src/whatsapp-contact-loop.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-whatsapp-live.ts",
       "proof": "just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Human 1:1 to the Vivo door must get a same-thread reply. Cloud API fake stays deleted. Python log sink is not the live path.",
       "issue": 375,
       "backup": [
-        "packages/messaging/src/adapters/whatsapp-business-fake.ts"
+        "packages/transport/src/adapters/whatsapp-business-fake.ts"
       ],
       "blocker": "Dedicated Zoen WhatsApp number"
     },
@@ -422,7 +422,7 @@
       "name": "Distinct Linq ChannelProvider",
       "onMain": true,
       "product": true,
-      "path": "packages/interaction/src/identity-directory.ts",
+      "path": "packages/speaker/src/identity-directory.ts",
       "proof": "On main via #331. ChannelProvider::Linq. toChannelProvider(\"linq\") === \"linq\".",
       "issue": 318,
       "pr": [

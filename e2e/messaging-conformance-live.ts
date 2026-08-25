@@ -16,7 +16,7 @@ import {
   type InboundInteraction,
   type InteractionRecord,
   type TrustedInteractionContext,
-} from "../packages/interaction/src/index.js";
+} from "../packages/speaker/src/index.js";
 import {
   assertLiveTelegramAdvertisement,
   assertLiveWhatsAppAdvertisement,
@@ -42,7 +42,7 @@ import {
   type ResolvedPresentation,
   type ScenarioContext,
   type ScenarioTrace,
-} from "../packages/messaging/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   presentationSchema,
   type PresentationIntent,
@@ -863,7 +863,7 @@ async function main(): Promise<void> {
   await assertImportGraphLaw(repositoryRoot);
   record("import_graph_forbids_chat_sdk_outside_messaging", true);
 
-  const messagingIndex = await import("../packages/messaging/src/index.js");
+  const messagingIndex = await import("../packages/transport/src/index.js");
   record(
     "fake_providers_absent",
     !("createFakeTelegramProvider" in messagingIndex) &&

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { InteractionRecord } from "@zoen/interaction";
+import type { InteractionRecord } from "@zoen/speaker";
 import {
   audienceAllowsScope,
   createRetrievedContextRecord,

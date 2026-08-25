@@ -1,7 +1,7 @@
 import {
   providerKey,
   type ChannelPresentationCapability,
-} from "../../interaction/src/index.js";
+} from "../../speaker/src/index.js";
 
 /** Closed set of probeable capabilities (ticket matrix ∩ presentation). */
 export type CapabilityId =

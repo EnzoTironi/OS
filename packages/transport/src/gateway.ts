@@ -13,7 +13,7 @@ import {
   type DeliveryOutcome,
   type InboundInteraction,
   type ProviderKey,
-} from "../../interaction/src/index.js";
+} from "../../speaker/src/index.js";
 import type { PresentationIntent } from "../../surface/src/presentation-intent.js";
 import {
   projectPresentationCaps,

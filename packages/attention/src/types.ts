@@ -2,7 +2,7 @@ import type {
   AudienceDisclosure,
   DeliveryIntent,
   DeliveryObservation,
-} from "../../interaction/src/index.js";
+} from "../../speaker/src/index.js";
 import type {
   AttentionDefinitionId,
   AttentionDefinitionVersion,

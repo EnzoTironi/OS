@@ -10,7 +10,7 @@ import {
   providerKey,
   tenantIdString,
   type IdentityDirectory,
-} from "../../interaction/src/index.js";
+} from "../../speaker/src/index.js";
 import {
   createRecordingCompanionSession,
   type RecordingCompanionSession,

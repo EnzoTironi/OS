@@ -106,7 +106,7 @@ cmd_stop() {
     stop_pid "${ZOEND_PID:-}"
     rm -f "$pid_file"
   fi
-  pkill -f 'dist/packages/messaging/src/whatsapp-contact-serve.js' >/dev/null 2>&1 || true
+  pkill -f 'dist/packages/transport/src/whatsapp-contact-serve.js' >/dev/null 2>&1 || true
   pkill -f '/tmp/zoen-wa-pair/ingress.py' >/dev/null 2>&1 || true
 }
 
@@ -168,7 +168,7 @@ cmd_start() {
   export ZOEN_OIDC_AUDIENCE=zoend
   export ZOEN_OIDC_ISSUER="http://127.0.0.1:${keycloak_port}/realms/zoen"
 
-  node dist/packages/messaging/src/whatsapp-contact-serve.js \
+  node dist/packages/transport/src/whatsapp-contact-serve.js \
     >"$ingress_log" 2>&1 &
   local serve_pid=$!
   wait_listen "$ingress_port" 40

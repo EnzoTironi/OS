@@ -1,6 +1,6 @@
 /**
  * OSDK World adapter for Interaction. Must not import `@zoen/harness`
- * (harness already depends on interaction).
+ * (harness already depends on speaker).
  */
 import path from "node:path";
 import { createClient, type Interceptor } from "@connectrpc/connect";
