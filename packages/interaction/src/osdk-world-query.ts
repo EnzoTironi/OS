@@ -11,10 +11,12 @@ import {
 } from "../../ontology/src/index.js";
 import {
   createOsdkFromCompiled,
+  queryClaims,
   type ClaimRead,
   type OsdkActionsPort,
   type OsdkDefinitionRef,
   type OsdkRuntimeClient,
+  type OsdkTypeModel,
   type OsdkWorld,
   type TypeQuery,
 } from "../../osdk/src/index.js";
@@ -60,18 +62,31 @@ export function createOsdkWorldQueryClient(
           await loadCompiled(options),
           options.definition,
         );
+        const validAt = (options.now ?? (() => new Date()))();
         const osdk = createOsdkFromCompiled(compiled, {
           actions: options.actions ?? readOnlyActionsPort(),
           tenantId: input.tenantId,
-          validAt: (options.now ?? (() => new Date()))(),
+          validAt,
           world: options.world,
         });
-        const typeQuery = typeQueryOnDefinition(
+        const typed = typeOnDefinition(
           osdk,
           input.typeApiName ?? options.typeApiName,
         );
         const entityId = input.entityId ?? options.entityId;
-        const claims = await readObjectClaims(typeQuery, entityId);
+        const claims = await readObjectClaims({
+          definition: {
+            definitionId: compiled.definition.definitionId,
+            digest: compiled.digest,
+            revision: BigInt(compiled.definition.revision),
+          },
+          entityId,
+          tenantId: input.tenantId,
+          type: typed.type,
+          typeQuery: typed.query,
+          validAt,
+          world: options.world,
+        });
         return snapshotFromClaims(claims, {
           extraEntityIds: entityId === undefined ? [] : [entityId],
         });
@@ -196,65 +211,69 @@ function applyDefinitionRef(
   };
 }
 
-function typeQueryOnDefinition(
+function typeOnDefinition(
   osdk: OsdkRuntimeClient,
   typeApiName: string | undefined,
-): TypeQuery {
+): { readonly query: TypeQuery; readonly type: OsdkTypeModel } {
   if (typeApiName !== undefined) {
-    const named = osdk.objects[typeApiName];
-    if (named === undefined) {
-      throw new Error(`OSDK type ${typeApiName} is not on this definition`);
-    }
-    return named;
+    return requireType(osdk, typeApiName);
   }
-  const orderLine = osdk.objects.OrderLine;
-  if (orderLine !== undefined) {
-    return orderLine;
+  if (osdk.objects.OrderLine !== undefined) {
+    return requireType(osdk, "OrderLine");
   }
   const first = osdk.model.types[0];
   if (first === undefined) {
     throw new Error("compiled definition has no object types");
   }
-  const fallback = osdk.objects[first.apiName];
-  if (fallback === undefined) {
-    throw new Error(`OSDK type ${first.apiName} is not on this definition`);
-  }
-  return fallback;
+  return requireType(osdk, first.apiName);
 }
 
-async function readObjectClaims(
-  typeQuery: TypeQuery,
-  entityId: string | undefined,
-): Promise<readonly ClaimRead[]> {
-  if (entityId !== undefined && entityId.length > 0) {
-    return claimsFromProjection(await typeQuery.fetch(entityId));
+function requireType(
+  osdk: OsdkRuntimeClient,
+  typeApiName: string,
+): { readonly query: TypeQuery; readonly type: OsdkTypeModel } {
+  const query = osdk.objects[typeApiName];
+  const type = osdk.model.types.find((entry) => entry.apiName === typeApiName);
+  if (query === undefined || type === undefined) {
+    throw new Error(`OSDK type ${typeApiName} is not on this definition`);
   }
-  const ids = await typeQuery.ids(EXISTING_OBJECT_LIMIT);
-  const claims: ClaimRead[] = [];
-  for (const id of ids) {
-    claims.push(...claimsFromProjection(await typeQuery.fetch(id)));
-  }
-  return claims;
+  return { query, type };
 }
 
-function claimsFromProjection(projection: {
-  readonly values: Readonly<Record<string, ClaimRead | readonly ClaimRead[]>>;
-}): ClaimRead[] {
+/**
+ * Keep every SemanticQuery row. `objects.<Type>.fetch` collapses
+ * cardinality-one fields to `claims[0]`, which drops ADR-0003 rivals.
+ */
+async function readObjectClaims(input: {
+  readonly definition: OsdkDefinitionRef;
+  readonly entityId: string | undefined;
+  readonly tenantId: string;
+  readonly type: OsdkTypeModel;
+  readonly typeQuery: TypeQuery;
+  readonly validAt: Date;
+  readonly world: OsdkWorld;
+}): Promise<readonly ClaimRead[]> {
+  const entityIds =
+    input.entityId !== undefined && input.entityId.length > 0
+      ? [input.entityId]
+      : [...(await input.typeQuery.ids(EXISTING_OBJECT_LIMIT))];
   const claims: ClaimRead[] = [];
-  for (const field of Object.values(projection.values)) {
-    if (isClaimMany(field)) {
-      claims.push(...field);
-    } else {
-      claims.push(field);
+  for (const entityId of entityIds) {
+    for (const relation of input.type.valueRelations) {
+      claims.push(
+        ...(await queryClaims({
+          definition: input.definition,
+          entityId,
+          kind: "relation",
+          relationId: relation.relationId,
+          tenantId: input.tenantId,
+          validAt: input.validAt,
+          world: input.world,
+        })),
+      );
     }
   }
   return claims;
-}
-
-function isClaimMany(
-  field: ClaimRead | readonly ClaimRead[],
-): field is readonly ClaimRead[] {
-  return Array.isArray(field);
 }
 
 function readOnlyActionsPort(): OsdkActionsPort {

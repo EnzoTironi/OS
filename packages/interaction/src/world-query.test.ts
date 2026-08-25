@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { create } from "@bufbuild/protobuf";
 import type { CompiledDefinition } from "../../ontology/src/index.js";
-import type { OsdkWorld } from "../../osdk/src/index.js";
+import type { ClaimRead, OsdkWorld } from "../../osdk/src/index.js";
 import {
   ExactValueSchema,
   LineageDependencySchema,
@@ -17,6 +17,7 @@ import {
   createOsdkWorldQueryClient,
   createWorldQueryClientFromEnv,
 } from "./osdk-world-query.js";
+import { snapshotFromClaims } from "./world-query.js";
 
 const dirtyQuoteId = "commercial.order-line.dirty-quote";
 
@@ -102,6 +103,46 @@ test("without env entity, OSDK lists objects that exist on the definition", asyn
   );
 });
 
+test("two ClaimRead rows without RIVAL still become snapshot rivals", () => {
+  const snapshot = snapshotFromClaims(supportingQuantityClaims());
+  assert.ok(snapshot.rivals.length >= 2);
+  assert.deepEqual(
+    snapshot.rivals.map((rival) => rival.label),
+    ["source.sheet", "source.erp"],
+  );
+  assert.ok(snapshot.notes.includes("10 each"));
+  assert.ok(snapshot.notes.includes("12 each"));
+  const visible = [
+    ...snapshot.notes,
+    ...snapshot.rivals.map((rival) => rival.label),
+  ].join("\n");
+  assert.doesNotMatch(visible, /commercial\.order-line\.dirty-quote/);
+  assert.doesNotMatch(visible, /Recebi/i);
+});
+
+test("two SUPPORTING SemanticQuery rows stay rivals after OSDK assemble", async () => {
+  const requests: SemanticQueryRequest[] = [];
+  const client = createOsdkWorldQueryClient({
+    compiled: commercialOrderLineCompiled(),
+    entityId: dirtyQuoteId,
+    world: fakeSupportingQuantityWorld(requests),
+  });
+  const snapshot = await client.semanticQuery({
+    membershipId: "membership.wa.enzo",
+    tenantId: "tenant.a",
+  });
+  assert.ok(snapshot);
+  assert.ok(snapshot.rivals.length >= 2);
+  assert.deepEqual(
+    snapshot.rivals.map((rival) => rival.label),
+    ["source.sheet", "source.erp"],
+  );
+  assert.equal(
+    requests.some((request) => request.query.case === "byType"),
+    false,
+  );
+});
+
 test("OSDK world query fails closed when World is down", async () => {
   const client = createOsdkWorldQueryClient({
     compiled: commercialOrderLineCompiled(),
@@ -118,6 +159,39 @@ test("OSDK world query fails closed when World is down", async () => {
   });
   assert.equal(snapshot, undefined);
 });
+
+function supportingQuantityClaims(): readonly ClaimRead[] {
+  return [
+    {
+      entityId: dirtyQuoteId,
+      lineage: [
+        {
+          claimId: "claim.quotedQuantity.sheet",
+          commitSequence: 1n,
+          entityId: dirtyQuoteId,
+          relationId: "commercial.quotedQuantity",
+          role: LineageRole.SUPPORTING,
+          sourceId: "source.sheet",
+        },
+      ],
+      value: { amount: "10", kind: "quantity", unit: "each" },
+    },
+    {
+      entityId: dirtyQuoteId,
+      lineage: [
+        {
+          claimId: "claim.quotedQuantity.erp",
+          commitSequence: 2n,
+          entityId: dirtyQuoteId,
+          relationId: "commercial.quotedQuantity",
+          role: LineageRole.UNSPECIFIED,
+          sourceId: "source.erp",
+        },
+      ],
+      value: { amount: "12", kind: "quantity", unit: "each" },
+    },
+  ];
+}
 
 function commercialOrderLineCompiled(): CompiledDefinition {
   return {
@@ -222,6 +296,77 @@ function fakeOsdkWorld(requests: SemanticQueryRequest[]): OsdkWorld {
       }
     },
   };
+}
+
+function fakeSupportingQuantityWorld(
+  requests: SemanticQueryRequest[],
+): OsdkWorld {
+  return {
+    async semanticQuery(request) {
+      requests.push(request);
+      if (request.selection?.value.case !== "relationId") {
+        return create(SemanticQueryResponseSchema, {
+          actualCommitSequence: 0n,
+          knowledgeCut: 0n,
+          values: [],
+        });
+      }
+      if (request.selection.value.value !== "commercial.quotedQuantity") {
+        return create(SemanticQueryResponseSchema, {
+          actualCommitSequence: 0n,
+          knowledgeCut: 0n,
+          values: [],
+        });
+      }
+      return create(SemanticQueryResponseSchema, {
+        actualCommitSequence: 0n,
+        knowledgeCut: 0n,
+        values: [
+          quantityRow({
+            amount: "10",
+            entityId: request.entityId,
+            role: LineageRole.SUPPORTING,
+            sourceId: "source.sheet",
+          }),
+          quantityRow({
+            amount: "12",
+            entityId: request.entityId,
+            role: LineageRole.UNSPECIFIED,
+            sourceId: "source.erp",
+          }),
+        ],
+      });
+    },
+  };
+}
+
+function quantityRow(input: {
+  readonly amount: string;
+  readonly entityId: string;
+  readonly role: LineageRole;
+  readonly sourceId: string;
+}) {
+  return create(SemanticValueResultSchema, {
+    dependencies: [
+      create(LineageDependencySchema, {
+        claimId: `claim.quotedQuantity.${input.sourceId}`,
+        commitSequence: 1n,
+        entityId: input.entityId,
+        relationId: "commercial.quotedQuantity",
+        role: input.role,
+        sourceId: input.sourceId,
+      }),
+    ],
+    value: create(ExactValueSchema, {
+      value: {
+        case: "quantityValue",
+        value: create(QuantityValueSchema, {
+          amount: input.amount,
+          unit: "each",
+        }),
+      },
+    }),
+  });
 }
 
 function queryResponse(input: {

@@ -125,6 +125,8 @@ export function snapshotFromResponse(
 
 /**
  * Project `ClaimRead` rows into user-visible labels.
+ * Conflicting speakable values on one relation are rivalry (ADR-0003),
+ * even when zoend tags lineage SUPPORTING or UNSPECIFIED.
  * Entity ids stay on `entityIds` for sanitization only.
  */
 export function snapshotFromClaims(
@@ -140,7 +142,16 @@ export function snapshotFromClaims(
   const rivals: WorldRivalView[] = [];
   const notes: string[] = [];
   const seenRivalLabels = new Set<string>();
+  const claimsByRelation = new Map<string, ClaimRead[]>();
   let href: string | undefined;
+
+  const addRival = (rival: WorldRivalView): void => {
+    if (seenRivalLabels.has(rival.label)) {
+      return;
+    }
+    seenRivalLabels.add(rival.label);
+    rivals.push(rival);
+  };
 
   for (const claim of claims) {
     if (claim.entityId.length > 0) {
@@ -154,6 +165,10 @@ export function snapshotFromClaims(
         href = found;
       }
     }
+    const key = relationKey(claim);
+    const relationClaims = claimsByRelation.get(key) ?? [];
+    relationClaims.push(claim);
+    claimsByRelation.set(key, relationClaims);
     for (const lineage of claim.lineage) {
       if (lineage.entityId.length > 0) {
         entityIds.add(lineage.entityId);
@@ -161,9 +176,8 @@ export function snapshotFromClaims(
       switch (lineage.role) {
         case LineageRole.RIVAL: {
           const rival = rivalViewFromClaim(claim, lineage);
-          if (rival !== undefined && !seenRivalLabels.has(rival.label)) {
-            seenRivalLabels.add(rival.label);
-            rivals.push(rival);
+          if (rival !== undefined) {
+            addRival(rival);
           }
           break;
         }
@@ -176,6 +190,12 @@ export function snapshotFromClaims(
           return exhaustive;
         }
       }
+    }
+  }
+
+  for (const group of claimsByRelation.values()) {
+    for (const rival of conflictingSpeakableRivals(group)) {
+      addRival(rival);
     }
   }
 
@@ -231,11 +251,68 @@ function rivalViewFromClaim(
   if (sourceId !== undefined && !looksLikeEntityId(sourceId)) {
     return { label: sourceId, sourceId };
   }
-  const valueLabel = claimValueLabel(claim.value);
-  if (valueLabel !== undefined && !looksLikeEntityId(valueLabel)) {
-    return { label: valueLabel, sourceId };
+  return valueRivalView(claim, sourceId);
+}
+
+/**
+ * Prefer `source.*` labels when two readings coexist; otherwise quantity/text.
+ */
+function conflictingSpeakableRivals(
+  claims: readonly ClaimRead[],
+): readonly WorldRivalView[] {
+  const sources: WorldRivalView[] = [];
+  const values: WorldRivalView[] = [];
+  const seenSources = new Set<string>();
+  const seenValues = new Set<string>();
+  for (const claim of claims) {
+    const source = sourceRivalView(claim);
+    if (source !== undefined && !seenSources.has(source.label)) {
+      seenSources.add(source.label);
+      sources.push(source);
+    }
+    const value = valueRivalView(claim, source?.sourceId);
+    if (value !== undefined && !seenValues.has(value.label)) {
+      seenValues.add(value.label);
+      values.push(value);
+    }
+  }
+  if (sources.length >= 2) {
+    return sources;
+  }
+  if (values.length >= 2) {
+    return values;
+  }
+  return [];
+}
+
+function sourceRivalView(claim: ClaimRead): WorldRivalView | undefined {
+  for (const lineage of claim.lineage) {
+    const sourceId = lineage.sourceId.trim();
+    if (sourceId.length > 0 && !looksLikeEntityId(sourceId)) {
+      return { label: sourceId, sourceId };
+    }
   }
   return undefined;
+}
+
+function valueRivalView(
+  claim: ClaimRead,
+  sourceId: string | undefined,
+): WorldRivalView | undefined {
+  const valueLabel = claimValueLabel(claim.value);
+  if (valueLabel === undefined || looksLikeEntityId(valueLabel)) {
+    return undefined;
+  }
+  return { label: valueLabel, sourceId };
+}
+
+function relationKey(claim: ClaimRead): string {
+  for (const lineage of claim.lineage) {
+    if (lineage.relationId.length > 0) {
+      return lineage.relationId;
+    }
+  }
+  return "";
 }
 
 function firstHttpsUrl(text: string): string | undefined {
