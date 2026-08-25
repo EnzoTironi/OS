@@ -1,0 +1,1 @@
+{"action":"personal.writeMemory","canonical_preview_text":"Vou guardar esta nota: comprar pão","inputs":[{"id":"body","kind":"text","value":"comprar pão"}],"locale":"pt-BR","resource":"personal.note.1","schema":"zoen.action.preview.v1"}

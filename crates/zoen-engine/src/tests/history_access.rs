@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    ActionId, ActionInput, ActionProposal, ActorId, CanonicalJson, ClaimId, CommitSequence,
+    ActionId, ActionInput, ActionPreviewHash, ActionProposal, ActorId, CanonicalJson, ClaimId,
+    CommitSequence,
     DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
     DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EntityId,
     EvidenceClaim, EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactInteger, ExactValue,
@@ -134,6 +135,7 @@ fn action_proposal(proposed_by: TrustedExecutionContext) -> ActionProposal {
                 revision: PolicyRevisionNumber::new(1).expect("policy revision"),
             },
         }),
+        canonical_preview_text: "Vou executar requestStock com quantidade 2.".to_owned(),
         definition: definition_reference(&revision),
         execution: None,
         expires_at: TimestampMicros::new(100),
@@ -143,6 +145,7 @@ fn action_proposal(proposed_by: TrustedExecutionContext) -> ActionProposal {
         }],
         intent_digest: IntentDigest::parse(ZERO_DIGEST).expect("intent digest"),
         operation_id: OperationId::parse("operation.test").expect("operation id"),
+        preview_hash: ActionPreviewHash::parse(ZERO_DIGEST).expect("preview hash"),
         proposal_id: ProposalId::parse("proposal.test").expect("proposal id"),
         proposed_at: TimestampMicros::new(1),
         proposed_by,

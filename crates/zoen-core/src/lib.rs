@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+mod action_preview;
 mod effect;
 mod expression;
 mod external_signal;
@@ -12,6 +13,10 @@ pub mod jcs;
 mod migration;
 mod pack;
 
+pub use action_preview::{
+    ACTION_PREVIEW_LOCALE, ACTION_PREVIEW_SCHEMA, ActionPreviewDocument, ActionPreviewInput,
+    canonical_preview_text,
+};
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
     EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation, EffectRequest,
@@ -301,6 +306,7 @@ sha256_digest!(PolicyDigest);
 sha256_digest!(ExecutionRequestDigest);
 sha256_digest!(ExecutionResultDigest);
 sha256_digest!(StateBasisDigest);
+sha256_digest!(ActionPreviewHash);
 
 impl CapabilityManifestDigest {
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
@@ -327,6 +333,12 @@ impl ExecutionResultDigest {
 }
 
 impl PayloadDigest {
+    pub fn from_sha256(bytes: [u8; 32]) -> Self {
+        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
+}
+
+impl ActionPreviewHash {
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
         Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
     }
@@ -1137,12 +1149,14 @@ impl ComponentExecutionEvidence {
 pub struct ActionProposal {
     pub action_id: ActionId,
     pub authority: ProposalAuthority,
+    pub canonical_preview_text: String,
     pub definition: DefinitionReference,
     pub execution: Option<ComponentExecutionEvidence>,
     pub expires_at: TimestampMicros,
     pub inputs: Vec<ActionInput>,
     pub intent_digest: IntentDigest,
     pub operation_id: OperationId,
+    pub preview_hash: ActionPreviewHash,
     pub proposal_id: ProposalId,
     pub proposed_at: TimestampMicros,
     pub proposed_by: TrustedExecutionContext,

@@ -1,0 +1,14 @@
+{
+  "action": "inventory.requestStock",
+  "canonical_preview_text": "Vou executar requestStock com quantidade 2.",
+  "inputs": [
+    {
+      "id": "quantity",
+      "kind": "integer",
+      "value": "2"
+    }
+  ],
+  "locale": "pt-BR",
+  "resource": "inventory.item.1",
+  "schema": "zoen.action.preview.v1"
+}

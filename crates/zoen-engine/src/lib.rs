@@ -11,6 +11,7 @@ use zoen_core::{
 };
 
 mod action;
+mod action_preview;
 mod admission;
 mod computation;
 mod effect;
@@ -28,6 +29,9 @@ pub use action::{
     PolicyWorldProjection, ProposeCommand, ProposeOutcome, QueryExecutor, QueryPortError,
     SemanticClaim, calculate_state_basis_digest, evaluate_action_state_basis,
     evaluate_semantic_claims, read_action_state_basis, state_basis_digest_matches,
+};
+pub use action_preview::{
+    PreviewBindingError, bind_preview_hash, build_action_preview, preview_hash,
 };
 pub use admission::{
     DefinitionFamily, ReferenceKind, ValidationError, decode_canonical_definition,

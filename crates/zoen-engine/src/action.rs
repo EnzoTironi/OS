@@ -16,6 +16,7 @@ use zoen_core::{
     ValueType, evaluate_expression, expression_relations,
 };
 
+use crate::action_preview::{bind_preview_hash, build_action_preview, preview_hash};
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
 
 mod state_basis;
@@ -157,6 +158,7 @@ pub enum CommitOutcome {
     },
     IdentityCollision(CommitIdentityKind),
     OperationMismatch,
+    PreviewMismatch,
     Stale(StateBasis),
 }
 
@@ -432,15 +434,20 @@ where
             }
         };
         let intent_digest = intent_digest(context, &command, &state_basis)?;
+        let preview =
+            build_action_preview(&command.action_id, &command.resource_id, &command.inputs);
+        let preview_hash = preview_hash(&preview)?;
         let proposal = ActionProposal {
             action_id: command.action_id,
             authority,
+            canonical_preview_text: preview.canonical_preview_text,
             definition: command.definition,
             execution: command.execution,
             expires_at: command.expires_at,
             inputs: command.inputs,
             intent_digest,
             operation_id: command.operation_id,
+            preview_hash,
             proposal_id: command.proposal_id,
             proposed_at: command.proposed_at,
             proposed_by: context.clone(),
@@ -549,6 +556,7 @@ where
         context: &TrustedExecutionContext,
         proposal_id: &ProposalId,
         operation_id: &OperationId,
+        preview_hash: Option<&str>,
         committed_at: TimestampMicros,
     ) -> Result<CommitOutcome, ActionError> {
         let proposal = self
@@ -558,6 +566,9 @@ where
             .map_err(ActionError::Store)?;
         if &proposal.operation_id != operation_id {
             return Ok(CommitOutcome::OperationMismatch);
+        }
+        if bind_preview_hash(&proposal.preview_hash, preview_hash).is_err() {
+            return Ok(CommitOutcome::PreviewMismatch);
         }
         let transaction = match self
             .store

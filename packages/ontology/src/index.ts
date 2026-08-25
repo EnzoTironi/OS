@@ -8,6 +8,19 @@ import type {
 
 export { compileDefinition } from "./compiler.js";
 export {
+  ACTION_PREVIEW_LOCALE,
+  ACTION_PREVIEW_SCHEMA,
+  actionPreviewHash,
+  buildActionPreviewDocument,
+  canonicalPreviewText,
+  toWireDocument,
+} from "./action-preview.js";
+export type {
+  ActionPreviewDocument,
+  ActionPreviewInput,
+  ActionPreviewValue,
+} from "./action-preview.js";
+export {
   JcsError,
   canonicalizeJson,
   canonicalizeJsonBytes,

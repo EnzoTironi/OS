@@ -168,12 +168,17 @@ fn to_causal_proposal(proposal: CoreCausalActionProposal) -> CausalActionProposa
     let structure = to_proposal(CoreActionProposal {
         action_id,
         authority,
+        canonical_preview_text: String::new(),
         definition,
         execution,
         expires_at,
         inputs: Vec::new(),
         intent_digest,
         operation_id,
+        preview_hash: zoen_core::ActionPreviewHash::parse(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .expect("history preview hash placeholder"),
         proposal_id,
         proposed_at,
         proposed_by,

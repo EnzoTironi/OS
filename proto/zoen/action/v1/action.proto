@@ -117,6 +117,8 @@ message Proposal {
   google.protobuf.Timestamp valid_at = 13;
   string proposed_by = 14;
   ComponentExecutionEvidence execution = 15;
+  string preview_hash = 16;
+  string canonical_preview_text = 17;
 }
 
 message ProposeRequest {
@@ -170,6 +172,7 @@ enum CommitStatus {
   COMMIT_STATUS_CONFLICT = 5;
   COMMIT_STATUS_OPERATION_MISMATCH = 6;
   COMMIT_STATUS_IDENTITY_COLLISION = 7;
+  COMMIT_STATUS_PREVIEW_MISMATCH = 8;
 }
 
 enum CommitIdentityKind {
@@ -181,6 +184,7 @@ enum CommitIdentityKind {
 message CommitRequest {
   string proposal_id = 1;
   string operation_id = 2;
+  string preview_hash = 3;
 }
 
 message CommitReceipt {
