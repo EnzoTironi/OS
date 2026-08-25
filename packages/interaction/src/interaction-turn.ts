@@ -24,8 +24,8 @@ import type {
   InteractionRecord,
   TrustedInteractionContext,
 } from "./types.js";
+import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
 import {
-  createWorldQueryClientFromEnv,
   looksLikeEntityId,
   type WorldQueryClient,
   type WorldQuerySnapshot,

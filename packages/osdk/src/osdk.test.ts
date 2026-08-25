@@ -158,6 +158,7 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
       entityId: "commercial.orderLine.1",
       relationId: "commercial.quotedUnitPrice",
       role: LineageRole.SUPPORTING,
+      sourceId: "",
     },
   ]);
 

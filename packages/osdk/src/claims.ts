@@ -6,7 +6,7 @@ import type { LineageDependency } from "../../sdk/src/gen/zoen/world/v1/world_pb
  */
 export type ClaimLineage = Pick<
   LineageDependency,
-  "claimId" | "commitSequence" | "entityId" | "relationId" | "role"
+  "claimId" | "commitSequence" | "entityId" | "relationId" | "role" | "sourceId"
 >;
 
 /**
@@ -28,6 +28,7 @@ export function lineageFrom(
     entityId: dependency.entityId,
     relationId: dependency.relationId,
     role: dependency.role,
+    sourceId: dependency.sourceId,
   }));
 }
 

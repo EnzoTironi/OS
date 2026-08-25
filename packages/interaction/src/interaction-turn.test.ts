@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { LanguageModelV3GenerateResult } from "@ai-sdk/provider";
 import { MockLanguageModelV3 } from "ai/test";
+import type { ClaimRead } from "../../osdk/src/index.js";
+import { LineageRole } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   createInteractionScratch,
   createInteractionTools,
@@ -19,7 +21,10 @@ import {
   tenantIdString,
 } from "./brands.js";
 import type { TrustedInteractionContext } from "./types.js";
-import type { WorldQueryClient } from "./world-query.js";
+import {
+  snapshotFromClaims,
+  type WorldQueryClient,
+} from "./world-query.js";
 
 function membership(suffix: string): TrustedInteractionContext {
   return {
@@ -114,6 +119,31 @@ test("media inbound stays PT and does not dump entity ids", async () => {
   assert.doesNotMatch(text, /Recebi/i);
   assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
   assert.match(text, /texto|arquivo/i);
+});
+
+test("two ClaimRead rows without RIVAL speak fail-closed PT rivals", async () => {
+  const snapshot = snapshotFromClaims(supportingQuantityClaims());
+  assert.ok(snapshot.rivals.length >= 2);
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return snapshot;
+    },
+  };
+  const result = await runInteractionTurn({
+    inbound: textInbound("Quanto ficou?"),
+    membership: membership("supporting-rivals"),
+    world,
+  });
+  const text = outboundBubbles(result).join("\n");
+  assert.equal(
+    result.bubbles[0],
+    "Tem mais de uma leitura e as duas ficam de pé.",
+  );
+  assert.ok(result.bubbles.includes("source.sheet"));
+  assert.ok(result.bubbles.includes("source.erp"));
+  assert.doesNotMatch(text, /Recebi/i);
+  assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
+  assert.doesNotMatch(text, /Não consegui consultar agora/);
 });
 
 test("wait leaves empty bubbles and a null href", async () => {
@@ -265,3 +295,37 @@ test("at most one href survives a double mint", async () => {
   assert.match(sent, /Segue o resumo/);
   assert.doesNotMatch(sent, /Recebi/i);
 });
+
+function supportingQuantityClaims(): readonly ClaimRead[] {
+  const entityId = "commercial.order-line.dirty-quote";
+  return [
+    {
+      entityId,
+      lineage: [
+        {
+          claimId: "claim.quotedQuantity.sheet",
+          commitSequence: 1n,
+          entityId,
+          relationId: "commercial.quotedQuantity",
+          role: LineageRole.SUPPORTING,
+          sourceId: "source.sheet",
+        },
+      ],
+      value: { amount: "10", kind: "quantity", unit: "each" },
+    },
+    {
+      entityId,
+      lineage: [
+        {
+          claimId: "claim.quotedQuantity.erp",
+          commitSequence: 2n,
+          entityId,
+          relationId: "commercial.quotedQuantity",
+          role: LineageRole.UNSPECIFIED,
+          sourceId: "source.erp",
+        },
+      ],
+      value: { amount: "12", kind: "quantity", unit: "each" },
+    },
+  ];
+}

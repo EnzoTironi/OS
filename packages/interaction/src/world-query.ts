@@ -2,6 +2,12 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
+import type { ExactValue } from "../../ontology/src/index.js";
+import {
+  decodeClaims,
+  type ClaimLineage,
+  type ClaimRead,
+} from "../../osdk/src/index.js";
 import {
   DefinitionReferenceSchema,
   LineageRole,
@@ -9,7 +15,6 @@ import {
   QuerySelectionSchema,
   StrongConsistencySchema,
   WorldService,
-  type ExactValue,
   type SemanticQueryResponse,
 } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 
@@ -24,7 +29,7 @@ export interface WorldRivalView {
 
 /**
  * Membership-scoped World snapshot. Never invents OrderLines.
- * Callers must pass a real entity/definition from env or the live World.
+ * `href` stays an optional string; the turn boundary parses `URL | null`.
  */
 export interface WorldQuerySnapshot {
   readonly entityIds: readonly string[];
@@ -37,6 +42,7 @@ export interface WorldQueryInput {
   readonly membershipId: string;
   readonly tenantId: string;
   readonly entityId?: string;
+  readonly typeApiName?: string;
 }
 
 export interface WorldQueryClient {
@@ -107,85 +113,71 @@ export function createConnectWorldQueryClient(
   };
 }
 
-/**
- * Build a World client from env when zoend credentials and a real entity exist.
- * Missing definition/entity is a skip, not an invented OrderLine.
- */
-export function createWorldQueryClientFromEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): WorldQueryClient | undefined {
-  const baseUrl = (
-    env.ZOEN_WORLD_BASE_URL ?? env.ZOEN_IDENTITY_BASE_URL
-  )?.trim();
-  const bearerToken = (
-    env.ZOEN_AGENT_BEARER_TOKEN ?? env.ZOEN_WORLD_BEARER_TOKEN
-  )?.trim();
-  const definitionId = env.ZOEN_WORLD_DEFINITION_ID?.trim();
-  const definitionDigest = env.ZOEN_WORLD_DEFINITION_DIGEST?.trim();
-  const revisionRaw = env.ZOEN_WORLD_DEFINITION_REVISION?.trim();
-  const entityId = env.ZOEN_WORLD_ENTITY_ID?.trim();
-  if (
-    baseUrl === undefined ||
-    bearerToken === undefined ||
-    definitionId === undefined ||
-    definitionDigest === undefined ||
-    revisionRaw === undefined ||
-    entityId === undefined
-  ) {
-    return undefined;
-  }
-  const revision = BigInt(revisionRaw);
-  if (revision <= 0n) {
-    return undefined;
-  }
-  return createConnectWorldQueryClient({
-    baseUrl,
-    bearerToken,
-    definitionDigest,
-    definitionId,
-    definitionRevision: revision,
-    entityId,
-    relationId: env.ZOEN_WORLD_RELATION_ID?.trim(),
-  });
-}
-
 export function snapshotFromResponse(
   response: SemanticQueryResponse,
   queriedEntityId: string,
 ): WorldQuerySnapshot {
+  return snapshotFromClaims(decodeClaims(response, queriedEntityId), {
+    extraEntityIds:
+      queriedEntityId.length > 0 ? [queriedEntityId] : [],
+  });
+}
+
+/**
+ * Project `ClaimRead` rows into user-visible labels.
+ * Conflicting speakable values on one relation are rivalry (ADR-0003),
+ * even when zoend tags lineage SUPPORTING or UNSPECIFIED.
+ * Entity ids stay on `entityIds` for sanitization only.
+ */
+export function snapshotFromClaims(
+  claims: readonly ClaimRead[],
+  options: { readonly extraEntityIds?: readonly string[] } = {},
+): WorldQuerySnapshot {
   const entityIds = new Set<string>();
-  if (queriedEntityId.length > 0) {
-    entityIds.add(queriedEntityId);
+  for (const extraId of options.extraEntityIds ?? []) {
+    if (extraId.length > 0) {
+      entityIds.add(extraId);
+    }
   }
   const rivals: WorldRivalView[] = [];
   const notes: string[] = [];
+  const seenRivalLabels = new Set<string>();
+  const claimsByRelation = new Map<string, ClaimRead[]>();
   let href: string | undefined;
 
-  for (const row of response.values) {
-    const label = exactValueLabel(row.value);
-    if (label !== undefined) {
-      notes.push(label);
-      const found = firstHttpsUrl(label);
+  const addRival = (rival: WorldRivalView): void => {
+    if (seenRivalLabels.has(rival.label)) {
+      return;
+    }
+    seenRivalLabels.add(rival.label);
+    rivals.push(rival);
+  };
+
+  for (const claim of claims) {
+    if (claim.entityId.length > 0) {
+      entityIds.add(claim.entityId);
+    }
+    const valueLabel = claimValueLabel(claim.value);
+    if (valueLabel !== undefined && !looksLikeEntityId(valueLabel)) {
+      notes.push(valueLabel);
+      const found = firstHttpsUrl(valueLabel);
       if (found !== undefined && href === undefined) {
         href = found;
       }
     }
-    for (const dependency of row.dependencies) {
-      if (dependency.entityId.length > 0) {
-        entityIds.add(dependency.entityId);
+    const key = relationKey(claim);
+    const relationClaims = claimsByRelation.get(key) ?? [];
+    relationClaims.push(claim);
+    claimsByRelation.set(key, relationClaims);
+    for (const lineage of claim.lineage) {
+      if (lineage.entityId.length > 0) {
+        entityIds.add(lineage.entityId);
       }
-      const sourceId =
-        dependency.sourceId.length > 0 ? dependency.sourceId : undefined;
-      switch (dependency.role) {
+      switch (lineage.role) {
         case LineageRole.RIVAL: {
-          const rivalLabel =
-            sourceId !== undefined && !looksLikeEntityId(sourceId)
-              ? sourceId
-              : dependency.relationId.length > 0
-                ? dependency.relationId
-                : undefined;
-          if (rivalLabel !== undefined) {
-            rivals.push({ label: rivalLabel, sourceId });
+          const rival = rivalViewFromClaim(claim, lineage);
+          if (rival !== undefined) {
+            addRival(rival);
           }
           break;
         }
@@ -194,10 +186,16 @@ export function snapshotFromResponse(
         case LineageRole.UNSPECIFIED:
           break;
         default: {
-          const exhaustive: never = dependency.role;
+          const exhaustive: never = lineage.role;
           return exhaustive;
         }
       }
+    }
+  }
+
+  for (const group of claimsByRelation.values()) {
+    for (const rival of conflictingSpeakableRivals(group)) {
+      addRival(rival);
     }
   }
 
@@ -209,32 +207,112 @@ export function snapshotFromResponse(
   };
 }
 
+/**
+ * Dotted entity/membership ids. Provenance `source.*` labels stay speakable.
+ */
 export function looksLikeEntityId(value: string): boolean {
-  return /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9._-]+$/.test(value.trim());
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || /^source\./u.test(trimmed)) {
+    return false;
+  }
+  return /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9._-]+$/u.test(trimmed);
 }
 
-function exactValueLabel(value: ExactValue | undefined): string | undefined {
-  if (value === undefined) {
+export function claimValueLabel(
+  value: ExactValue | null,
+): string | undefined {
+  if (value === null) {
     return undefined;
   }
-  switch (value.value.case) {
-    case "textValue":
-    case "decimalValue":
-    case "integerValue":
-      return value.value.value;
-    case "boolValue":
-      return value.value.value ? "sim" : "não";
-    case "quantityValue":
-      return `${value.value.value.amount} ${value.value.value.unit}`;
-    case "entityRefValue":
-      return undefined;
-    case undefined:
+  switch (value.kind) {
+    case "text":
+    case "decimal":
+    case "integer":
+      return value.value;
+    case "bool":
+      return value.value ? "sim" : "não";
+    case "quantity":
+      return `${value.amount} ${value.unit}`;
+    case "entity":
       return undefined;
     default: {
-      const exhaustive: never = value.value;
+      const exhaustive: never = value;
       return exhaustive;
     }
   }
+}
+
+function rivalViewFromClaim(
+  claim: ClaimRead,
+  lineage: ClaimLineage,
+): WorldRivalView | undefined {
+  const sourceId =
+    lineage.sourceId.length > 0 ? lineage.sourceId : undefined;
+  if (sourceId !== undefined && !looksLikeEntityId(sourceId)) {
+    return { label: sourceId, sourceId };
+  }
+  return valueRivalView(claim, sourceId);
+}
+
+/**
+ * Prefer `source.*` labels when two readings coexist; otherwise quantity/text.
+ */
+function conflictingSpeakableRivals(
+  claims: readonly ClaimRead[],
+): readonly WorldRivalView[] {
+  const sources: WorldRivalView[] = [];
+  const values: WorldRivalView[] = [];
+  const seenSources = new Set<string>();
+  const seenValues = new Set<string>();
+  for (const claim of claims) {
+    const source = sourceRivalView(claim);
+    if (source !== undefined && !seenSources.has(source.label)) {
+      seenSources.add(source.label);
+      sources.push(source);
+    }
+    const value = valueRivalView(claim, source?.sourceId);
+    if (value !== undefined && !seenValues.has(value.label)) {
+      seenValues.add(value.label);
+      values.push(value);
+    }
+  }
+  if (sources.length >= 2) {
+    return sources;
+  }
+  if (values.length >= 2) {
+    return values;
+  }
+  return [];
+}
+
+function sourceRivalView(claim: ClaimRead): WorldRivalView | undefined {
+  for (const lineage of claim.lineage) {
+    const sourceId = lineage.sourceId.trim();
+    if (sourceId.length > 0 && !looksLikeEntityId(sourceId)) {
+      return { label: sourceId, sourceId };
+    }
+  }
+  return undefined;
+}
+
+function valueRivalView(
+  claim: ClaimRead,
+  sourceId: string | undefined,
+): WorldRivalView | undefined {
+  const valueLabel = claimValueLabel(claim.value);
+  if (valueLabel === undefined || looksLikeEntityId(valueLabel)) {
+    return undefined;
+  }
+  return { label: valueLabel, sourceId };
+}
+
+function relationKey(claim: ClaimRead): string {
+  for (const lineage of claim.lineage) {
+    if (lineage.relationId.length > 0) {
+      return lineage.relationId;
+    }
+  }
+  return "";
 }
 
 function firstHttpsUrl(text: string): string | undefined {
