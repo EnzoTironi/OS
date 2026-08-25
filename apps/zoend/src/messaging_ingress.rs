@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use axum::Json;
@@ -11,76 +10,47 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use reqwest::Client;
 use serde_json::json;
-use zoen_adapters::{PostgresIngressReplayStore, ZOEND_INGRESS_REPLAY_NAMESPACE};
+use zoen_adapters::PostgresIngressReplayStore;
 
 use crate::ingress_hmac::{self, IngressAuthError, ReplayGate};
 
-#[derive(Clone)]
-enum HopReplayStore {
-    Postgres(PostgresIngressReplayStore),
-    #[allow(dead_code)]
-    Memory(MemoryIngressReplay),
+pub(crate) trait HopReplay: Clone + Send + Sync + 'static {
+    fn contains(
+        &self,
+        webhook_id: &str,
+    ) -> impl std::future::Future<Output = Result<bool, IngressAuthError>> + Send;
+    fn claim(
+        &self,
+        webhook_id: &str,
+    ) -> impl std::future::Future<Output = Result<bool, IngressAuthError>> + Send;
 }
 
-#[derive(Clone, Default)]
-#[allow(dead_code)]
-struct MemoryIngressReplay {
-    keys: Arc<Mutex<HashSet<String>>>,
-}
-
-impl HopReplayStore {
+impl HopReplay for PostgresIngressReplayStore {
     async fn contains(&self, webhook_id: &str) -> Result<bool, IngressAuthError> {
-        match self {
-            Self::Postgres(store) => store
-                .contains(webhook_id)
-                .await
-                .map_err(|_| IngressAuthError::StoreFailure),
-            Self::Memory(store) => Ok(store.contains(webhook_id)),
-        }
+        PostgresIngressReplayStore::contains(self, webhook_id)
+            .await
+            .map_err(|_| IngressAuthError::StoreFailure)
     }
 
     async fn claim(&self, webhook_id: &str) -> Result<bool, IngressAuthError> {
-        match self {
-            Self::Postgres(store) => store
-                .claim(webhook_id)
-                .await
-                .map_err(|_| IngressAuthError::StoreFailure),
-            Self::Memory(store) => Ok(store.claim(webhook_id)),
-        }
-    }
-}
-
-#[allow(dead_code)]
-impl MemoryIngressReplay {
-    fn namespaced(webhook_id: &str) -> String {
-        format!("{ZOEND_INGRESS_REPLAY_NAMESPACE}{webhook_id}")
-    }
-
-    fn contains(&self, webhook_id: &str) -> bool {
-        self.keys
-            .lock()
-            .expect("ingress replay lock")
-            .contains(&Self::namespaced(webhook_id))
-    }
-
-    fn claim(&self, webhook_id: &str) -> bool {
-        self.keys
-            .lock()
-            .expect("ingress replay lock")
-            .insert(Self::namespaced(webhook_id))
+        PostgresIngressReplayStore::claim(self, webhook_id)
+            .await
+            .map_err(|_| IngressAuthError::StoreFailure)
     }
 }
 
 #[derive(Clone)]
-pub struct IngressState {
+pub struct IngressState<R> {
     pub gateway_url: Option<String>,
     pub client: Client,
     pub whatsapp_secret: Option<String>,
     pub replay: Arc<ReplayGate>,
-    replay_store: HopReplayStore,
+    replay_store: R,
 }
 
-pub fn from_env(replay_store: PostgresIngressReplayStore) -> IngressState {
+pub fn from_env(
+    replay_store: PostgresIngressReplayStore,
+) -> IngressState<PostgresIngressReplayStore> {
     let gateway_url = std::env::var("ZOEN_MESSAGING_GATEWAY_URL")
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_owned())
@@ -93,21 +63,21 @@ pub fn from_env(replay_store: PostgresIngressReplayStore) -> IngressState {
         client: Client::new(),
         gateway_url,
         replay: Arc::new(ReplayGate::new()),
-        replay_store: HopReplayStore::Postgres(replay_store),
+        replay_store,
         whatsapp_secret,
     }
 }
 
-pub fn router(state: IngressState) -> Router {
+pub(crate) fn router<R: HopReplay>(state: IngressState<R>) -> Router {
     Router::new()
-        .route("/channels/whatsapp/advertise", get(whatsapp_advertise))
-        .route("/channels/whatsapp/inbound", post(whatsapp_inbound))
-        .route("/channels/telegram/advertise", get(telegram_advertise))
-        .route("/channels/telegram/inbound", post(telegram_inbound))
+        .route("/channels/whatsapp/advertise", get(whatsapp_advertise::<R>))
+        .route("/channels/whatsapp/inbound", post(whatsapp_inbound::<R>))
+        .route("/channels/telegram/advertise", get(telegram_advertise::<R>))
+        .route("/channels/telegram/inbound", post(telegram_inbound::<R>))
         .with_state(Arc::new(state))
 }
 
-async fn whatsapp_advertise(State(state): State<Arc<IngressState>>) -> Response {
+async fn whatsapp_advertise<R: HopReplay>(State(state): State<Arc<IngressState<R>>>) -> Response {
     proxy(
         &state,
         reqwest::Method::GET,
@@ -120,8 +90,8 @@ async fn whatsapp_advertise(State(state): State<Arc<IngressState>>) -> Response 
     .await
 }
 
-async fn whatsapp_inbound(
-    State(state): State<Arc<IngressState>>,
+async fn whatsapp_inbound<R: HopReplay>(
+    State(state): State<Arc<IngressState<R>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -172,7 +142,7 @@ async fn whatsapp_inbound(
     response
 }
 
-async fn telegram_advertise(State(state): State<Arc<IngressState>>) -> Response {
+async fn telegram_advertise<R: HopReplay>(State(state): State<Arc<IngressState<R>>>) -> Response {
     proxy(
         &state,
         reqwest::Method::GET,
@@ -185,8 +155,8 @@ async fn telegram_advertise(State(state): State<Arc<IngressState>>) -> Response 
     .await
 }
 
-async fn telegram_inbound(
-    State(state): State<Arc<IngressState>>,
+async fn telegram_inbound<R: HopReplay>(
+    State(state): State<Arc<IngressState<R>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -206,8 +176,8 @@ async fn telegram_inbound(
     .await
 }
 
-async fn proxy(
-    state: &IngressState,
+async fn proxy<R>(
+    state: &IngressState<R>,
     method: reqwest::Method,
     path: &str,
     body: Option<Bytes>,
@@ -279,6 +249,7 @@ fn unavailable(error: &'static str, reason: &'static str) -> Response {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -294,8 +265,40 @@ mod tests {
     use tokio::net::TcpListener;
     use zoen_adapters::ZOEND_INGRESS_REPLAY_NAMESPACE;
 
-    use super::{HopReplayStore, IngressState, MemoryIngressReplay, router};
-    use crate::ingress_hmac::ReplayGate;
+    use super::{HopReplay, IngressState, router};
+    use crate::ingress_hmac::{IngressAuthError, ReplayGate};
+
+    #[derive(Clone, Default)]
+    struct MemoryIngressReplay {
+        keys: Arc<Mutex<HashSet<String>>>,
+    }
+
+    impl MemoryIngressReplay {
+        fn namespaced(webhook_id: &str) -> String {
+            format!("{ZOEND_INGRESS_REPLAY_NAMESPACE}{webhook_id}")
+        }
+
+        fn persisted(&self, webhook_id: &str) -> bool {
+            self.keys
+                .lock()
+                .expect("ingress replay lock")
+                .contains(&Self::namespaced(webhook_id))
+        }
+    }
+
+    impl HopReplay for MemoryIngressReplay {
+        async fn contains(&self, webhook_id: &str) -> Result<bool, IngressAuthError> {
+            Ok(self.persisted(webhook_id))
+        }
+
+        async fn claim(&self, webhook_id: &str) -> Result<bool, IngressAuthError> {
+            Ok(self
+                .keys
+                .lock()
+                .expect("ingress replay lock")
+                .insert(Self::namespaced(webhook_id)))
+        }
+    }
 
     const SECRET: &str = "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==";
     const BODY: &[u8] = br#"{"body":"oi"}"#;
@@ -331,7 +334,7 @@ mod tests {
             client: Client::new(),
             gateway_url: Some(gateway_url),
             replay: Arc::new(ReplayGate::new()),
-            replay_store: HopReplayStore::Memory(replay.clone()),
+            replay_store: replay.clone(),
             whatsapp_secret: Some(SECRET.to_owned()),
         })
         .await;
@@ -341,7 +344,7 @@ mod tests {
                 client: Client::new(),
                 gateway_url: None,
                 replay: Arc::new(ReplayGate::new()),
-                replay_store: HopReplayStore::Memory(MemoryIngressReplay::default()),
+                replay_store: MemoryIngressReplay::default(),
                 whatsapp_secret: None,
             })
             .await,
@@ -392,7 +395,7 @@ mod tests {
         assert_eq!(accepted.0, reqwest::StatusCode::OK);
         assert_eq!(accepted.1["ok"], true);
         assert_eq!(forwarded_ids.lock().expect("ids").as_slice(), ["msg_http"]);
-        assert!(replay.contains("msg_http"));
+        assert!(replay.persisted("msg_http"));
         assert!(!replay.keys.lock().expect("keys").contains("msg_http"));
         assert!(
             replay
@@ -412,13 +415,76 @@ mod tests {
         assert_eq!(replayed.1["reason"], "whatsapp_ingress_replay");
     }
 
-    async fn spawn_inbound(state: IngressState) -> String {
+    #[tokio::test]
+    async fn failed_proxy_does_not_claim_so_retry_can_succeed() {
+        let replay = MemoryIngressReplay::default();
+        let attempts = Arc::new(Mutex::new(0_u8));
+        let gateway_url = spawn_failing_then_ok_gateway(attempts.clone()).await;
+        let inbound = spawn_inbound(IngressState {
+            client: Client::new(),
+            gateway_url: Some(gateway_url),
+            replay: Arc::new(ReplayGate::new()),
+            replay_store: replay.clone(),
+            whatsapp_secret: Some(SECRET.to_owned()),
+        })
+        .await;
+        let now = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_secs(),
+        )
+        .expect("secs");
+        let (id, timestamp, signature) = sign_whatsapp_ingress(SECRET, "msg_retry", now, BODY);
+        let signed = Some((id.as_str(), timestamp.as_str(), signature.as_str()));
+
+        let failed = post_inbound(&inbound, signed, BODY).await;
+        assert_eq!(failed.0, reqwest::StatusCode::BAD_GATEWAY);
+        assert!(!replay.persisted("msg_retry"));
+
+        let retried = post_inbound(&inbound, signed, BODY).await;
+        assert_eq!(retried.0, reqwest::StatusCode::OK);
+        assert!(replay.persisted("msg_retry"));
+        assert_eq!(*attempts.lock().expect("attempts"), 2);
+    }
+
+    async fn spawn_inbound<R: HopReplay>(state: IngressState<R>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("addr");
         tokio::spawn(async move {
             axum::serve(listener, router(state))
                 .await
                 .expect("serve inbound");
+        });
+        format!("http://{addr}")
+    }
+
+    async fn spawn_failing_then_ok_gateway(attempts: Arc<Mutex<u8>>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let app = Router::new().route(
+            "/inbound",
+            post({
+                let attempts = attempts.clone();
+                move || {
+                    let attempts = attempts.clone();
+                    async move {
+                        let mut count = attempts.lock().expect("attempts");
+                        *count = count.saturating_add(1);
+                        if *count == 1 {
+                            (
+                                axum::http::StatusCode::BAD_GATEWAY,
+                                Json(json!({ "error": "upstream" })),
+                            )
+                        } else {
+                            (axum::http::StatusCode::OK, Json(json!({ "ok": true })))
+                        }
+                    }
+                }
+            }),
+        );
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve gateway");
         });
         format!("http://{addr}")
     }

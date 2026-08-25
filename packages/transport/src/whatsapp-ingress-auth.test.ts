@@ -137,10 +137,12 @@ test("durable ingress replay uses one webhook-id key", async () => {
 
 test("gateway and zoend replay keys do not collide", async () => {
   const seen = new Set<string>();
+  const queried: string[] = [];
   const client = {
     async query(text: string, values?: readonly unknown[]) {
       assert.match(text, /ingress_replay/);
       const key = String(values?.[0]);
+      queried.push(key);
       if (text.includes("SELECT")) {
         return { rows: seen.has(key) ? [{ webhook_id: key }] : [] };
       }
@@ -168,6 +170,11 @@ test("gateway and zoend replay keys do not collide", async () => {
     (error: unknown) =>
       error instanceof WhatsAppIngressAuthError && error.code === "replay",
   );
+  assert.deepEqual(queried, [
+    "gateway:shared",
+    "gateway:shared",
+    "gateway:shared",
+  ]);
   assert.equal(seen.has("gateway:shared"), true);
   assert.equal(seen.has("zoend:shared"), true);
   assert.equal(seen.has("shared"), false);
