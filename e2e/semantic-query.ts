@@ -77,6 +77,11 @@ const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
   postgresPortFallback,
 );
+const projectionDatabaseUrl = e2ePostgresUrl(
+  "zoen_projection",
+  "zoen_projection",
+  postgresPortFallback,
+);
 const adminDatabaseUrl = e2ePostgresUrl(
   "postgres",
   "postgres",
@@ -283,7 +288,11 @@ async function main(): Promise<void> {
     );
 
     await compose("stop", "minio");
-    await expectCommandFailure(workerPath, ["--once", tenantA], workerEnvironment());
+    await expectCommandFailure(
+      workerPath,
+      ["--once", tenantA],
+      projectionWorkerEnvironment(),
+    );
     assert.equal(await projectionState(admin, tenantA), null);
     await compose("start", "minio");
     await waitForObjectStore();
@@ -295,7 +304,7 @@ async function main(): Promise<void> {
       await expectCommandFailure(
         workerPath,
         ["--once", tenantA],
-        workerEnvironment(),
+        projectionWorkerEnvironment(),
       );
     } finally {
       await removeProjectionPublishFailure(admin);
@@ -322,6 +331,8 @@ async function main(): Promise<void> {
     );
     recordFailureInjection("duplicate-projection-delivery");
     recordAssertion("duplicateOutboxDeliveryIdempotent");
+    await assertProjectionRoleIsolation(tenantA);
+    recordAssertion("projectionRoleCannotWriteAuthority");
 
     const strongAfterReserved = await query(worldA, {
       consistency: strong(),
@@ -1254,8 +1265,99 @@ function workerEnvironment(): NodeJS.ProcessEnv {
   };
 }
 
+function projectionWorkerEnvironment(): NodeJS.ProcessEnv {
+  return {
+    ...workerEnvironment(),
+    ZOEN_PROJECTION_DATABASE_URL: projectionDatabaseUrl,
+  };
+}
+
+function postgresErrorCode(error: unknown): string {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = error.code;
+    if (typeof code === "string") {
+      return code;
+    }
+  }
+  return "";
+}
+
+async function expectPermissionDenied(
+  client: PostgresClient,
+  sql: string,
+  values: string[] = [],
+): Promise<void> {
+  try {
+    await client.query(sql, values);
+    assert.fail(`expected permission denied: ${sql}`);
+  } catch (error: unknown) {
+    assert.equal(postgresErrorCode(error), "42501", String(error));
+  }
+}
+
+async function assertProjectionRoleIsolation(tenantId: string): Promise<void> {
+  const client = new PostgresClient({ connectionString: projectionDatabaseUrl });
+  await client.connect();
+  try {
+    await client.query("SELECT set_config('zoen.tenant_id', $1, false)", [
+      tenantId,
+    ]);
+    const readable = await client.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM semantic_claims WHERE tenant_id = $1",
+      [tenantId],
+    );
+    assert.ok(Number(readable.rows[0]?.count) > 0);
+    await expectPermissionDenied(
+      client,
+      `INSERT INTO semantic_claims (
+         tenant_id, claim_id, definition_id, definition_digest,
+         definition_revision, entity_id, relation_id, value_kind, value_text,
+         valid_time_kind, valid_from_micros, source_id, source_digest,
+         source_ref, commit_sequence
+       ) VALUES (
+         $1, 'claim.forbidden', 'world.definition',
+         '0000000000000000000000000000000000000000000000000000000000000000',
+         1, 'entity.forbidden', 'world.onHand', 'integer', '0',
+         'instant', 0, 'source.forbidden',
+         '0000000000000000000000000000000000000000000000000000000000000000',
+         'ref.forbidden', 1
+       )`,
+      [tenantId],
+    );
+    await expectPermissionDenied(
+      client,
+      "INSERT INTO authority_heads (tenant_id, commit_sequence) VALUES ($1, 1)",
+      [tenantId],
+    );
+    await expectPermissionDenied(
+      client,
+      "UPDATE authority_heads SET commit_sequence = commit_sequence + 1 WHERE tenant_id = $1",
+      [tenantId],
+    );
+    await expectPermissionDenied(
+      client,
+      "DELETE FROM semantic_claims WHERE tenant_id = $1",
+      [tenantId],
+    );
+    const watermark = await client.query(
+      `UPDATE projection_watermarks
+       SET updated_at = clock_timestamp()
+       WHERE tenant_id = $1
+       RETURNING tenant_id`,
+      [tenantId],
+    );
+    assert.equal(watermark.rowCount, 1);
+  } finally {
+    await client.end();
+  }
+}
+
 async function runProjection(arguments_: readonly string[]) {
-  const output = await command(workerPath, arguments_, workerEnvironment());
+  const output = await command(
+    workerPath,
+    arguments_,
+    projectionWorkerEnvironment(),
+  );
   return JSON.parse(output) as {
     manifestDigest: string;
     manifestObjectKey: string;
