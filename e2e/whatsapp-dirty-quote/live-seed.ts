@@ -1,8 +1,18 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  PolicyDecision,
+  ProposalStatus,
+} from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
 import { formatWhatsAppMinuteText } from "../../packages/messaging/src/whatsapp-minute.js";
 import {
+  changeCommitmentRequest,
+  previewChangeCommitment,
+} from "./agent.js";
+import {
+  actionClient,
   compileCommercial,
+  definitionClient,
   definitionReference,
   ingestChangeCommitmentBasis,
   ingestQuotedQuantityRivals,
@@ -13,9 +23,8 @@ import {
   quantityRelationId,
   resourceId,
   waitForOidc,
-  writePolicyManifest,
-  definitionClient,
   worldClient,
+  writePolicyManifest,
 } from "./support.js";
 
 const pairDir = process.env.ZOEN_WA_PAIR_DIR ?? "/tmp/zoen-wa-pair";
@@ -32,15 +41,19 @@ async function main(): Promise<void> {
   const definitions = definitionClient(token);
   const world = worldClient(token);
   const published = await publish(definitions, commercial);
-  await definitions.activateRevision({
-    activeRevisionPrecondition: {
-      case: "expectNoActiveRevision",
-      value: true,
-    },
-    definitionId: commercial.definition.definitionId,
-    digest: commercial.digest,
-    tenantId: "tenant.a",
-  });
+  try {
+    await definitions.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectNoActiveRevision",
+        value: true,
+      },
+      definitionId: commercial.definition.definitionId,
+      digest: commercial.digest,
+      tenantId: "tenant.a",
+    });
+  } catch {
+    process.stderr.write("activate already had a revision; continuing\n");
+  }
   const definition = definitionReference(commercial);
   await ingestQuotedQuantityRivals(world, definition);
   await ingestChangeCommitmentBasis(world, definition);
@@ -48,6 +61,26 @@ async function main(): Promise<void> {
   const labels = quantityLabels(quoted);
   if (labels.join(",") !== "10 each,12 each") {
     throw new Error(`unexpected rivals ${labels.join(",")}`);
+  }
+  const actions = actionClient(token);
+  const previewRequest = changeCommitmentRequest(definition, "preview");
+  const preview = await previewChangeCommitment(actions, previewRequest);
+  const quotedAfterPreview = await queryRelation(
+    world,
+    definition,
+    quantityRelationId,
+  );
+  if (
+    preview.decision !== PolicyDecision.PERMIT ||
+    preview.proposal?.status !== ProposalStatus.READY ||
+    quantityLabels(quotedAfterPreview).join(",") !== "10 each,12 each"
+  ) {
+    throw new Error("preview wrote belief or was not PERMIT");
+  }
+  const commitRequest = changeCommitmentRequest(definition, "commit");
+  const proposed = await previewChangeCommitment(actions, commitRequest);
+  if (proposed.decision !== PolicyDecision.PERMIT) {
+    throw new Error("commit propose denied");
   }
   const rivals = [
     { label: "10 each", sourceId: "source.sheet" },
