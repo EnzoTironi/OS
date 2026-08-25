@@ -34,6 +34,7 @@ export {
   type LiveLinqProviderOptions,
 } from "./adapters/linq-live.js";
 export {
+  assertCompanionPresenceState,
   companionSessionIsReady,
   composeOutboundChatJid,
   createHttpCompanionSession,
@@ -42,9 +43,12 @@ export {
   normalizeCompanionInbound,
   type CompanionInbound,
   type CompanionOutbound,
+  type CompanionPresence,
+  type CompanionPresenceState,
   type CompanionReady,
   type CompanionSendReceipt,
   type CompanionSession,
+  type CompanionTraceEvent,
   type RecordingCompanionSession,
   type WhatsAppWireShape,
 } from "./companion-session.js";

@@ -63,11 +63,23 @@ export type PairingEvent =
 
 export type LidPnLookup = (lidJid: string) => string | undefined;
 
+export type CompanionPresenceState = "composing" | "paused";
+
+export type CompanionPresence = {
+  readonly chatJid: string;
+  readonly state: CompanionPresenceState;
+};
+
+export type CompanionTraceEvent =
+  | { readonly kind: "presence"; readonly chatJid: string; readonly state: CompanionPresenceState }
+  | { readonly kind: "send"; readonly chatJid: string };
+
 export interface CompanionSession {
   open(): Promise<void>;
   beginPairing(): AsyncIterable<PairingEvent>;
   ready(): Promise<CompanionReady>;
   send(outbound: CompanionOutbound): Promise<CompanionSendReceipt>;
+  presence(chatJid: string, state: CompanionPresenceState): Promise<void>;
   subscribeInbound(
     handler: (event: CompanionInbound) => void | Promise<void>,
   ): () => void;
@@ -214,6 +226,20 @@ export function normalizeCompanionInbound(
   };
 }
 
+export function assertCompanionPresenceState(
+  state: string,
+): CompanionPresenceState {
+  switch (state) {
+    case "composing":
+    case "paused":
+      return state;
+    default:
+      throw new CompanionSessionError(
+        `presence state must be composing or paused, got ${state}`,
+      );
+  }
+}
+
 export interface RecordingCompanionSession extends CompanionSession {
   readonly kind: "recording";
   injectInbound(
@@ -221,6 +247,8 @@ export interface RecordingCompanionSession extends CompanionSession {
   ): Promise<"delivered" | "dropped">;
   sent(): readonly CompanionOutbound[];
   delivered(): readonly CompanionInbound[];
+  presences(): readonly CompanionPresence[];
+  trace(): readonly CompanionTraceEvent[];
   setReady(ready: CompanionReady): void;
 }
 
@@ -237,6 +265,8 @@ export function createRecordingCompanionSession(options: {
   };
   const sent: CompanionOutbound[] = [];
   const delivered: CompanionInbound[] = [];
+  const presences: CompanionPresence[] = [];
+  const trace: CompanionTraceEvent[] = [];
   const handlers = new Set<
     (event: CompanionInbound) => void | Promise<void>
   >();
@@ -280,11 +310,23 @@ export function createRecordingCompanionSession(options: {
       const chatJid = composeOutboundChatJid(outbound.chatJid);
       const recorded: CompanionOutbound = { ...outbound, chatJid };
       sent.push(recorded);
+      trace.push({ chatJid, kind: "send" });
       return {
         messageId: `rec_${outbound.clientDeliveryId}`,
         shape: outbound.shape,
         status: "accepted",
       };
+    },
+
+    async presence(chatJid, state) {
+      if (!opened || closed) {
+        throw new CompanionSessionError("companion session is not open");
+      }
+      const dest = composeOutboundChatJid(chatJid);
+      const next = assertCompanionPresenceState(state);
+      const recorded: CompanionPresence = { chatJid: dest, state: next };
+      presences.push(recorded);
+      trace.push({ chatJid: dest, kind: "presence", state: next });
     },
 
     subscribeInbound(handler) {
@@ -315,6 +357,14 @@ export function createRecordingCompanionSession(options: {
 
     delivered() {
       return delivered;
+    },
+
+    presences() {
+      return presences;
+    },
+
+    trace() {
+      return trace;
     },
 
     async close() {
@@ -386,6 +436,21 @@ export function createHttpCompanionSession(baseUrl: string): CompanionSession {
         shape: outbound.shape,
         status: "accepted",
       };
+    },
+
+    async presence(chatJid, state) {
+      const dest = composeOutboundChatJid(chatJid);
+      const next = assertCompanionPresenceState(state);
+      const response = await fetch(`${root}/presence`, {
+        body: JSON.stringify({ chatJid: dest, state: next }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new CompanionSessionError(
+          `companion /presence HTTP ${String(response.status)}`,
+        );
+      }
     },
 
     subscribeInbound() {

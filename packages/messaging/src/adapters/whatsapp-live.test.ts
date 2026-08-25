@@ -227,6 +227,11 @@ test("whatsapp native widgets degrade to text or link", () => {
   if (link.status === "unsupported") {
     assert.equal(link.degradeTo, "link");
   }
+  const typing = provider.probes.canType();
+  assert.equal(typing.status, "unsupported");
+  if (typing.status === "unsupported") {
+    assert.equal(typing.degradeTo, "text");
+  }
 });
 
 test("recording companion drops from_me", async () => {

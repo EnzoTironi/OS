@@ -1,7 +1,11 @@
 package companion
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +111,80 @@ func TestLIDMapHitAndMiss(t *testing.T) {
 	}
 	if missChat != lid {
 		t.Fatalf("miss chat=%q", missChat)
+	}
+}
+
+func TestParseChatPresence(t *testing.T) {
+	t.Parallel()
+	composing, err := parseChatPresence("composing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if composing != types.ChatPresenceComposing {
+		t.Fatalf("composing = %q", composing)
+	}
+	paused, err := parseChatPresence("paused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused != types.ChatPresencePaused {
+		t.Fatalf("paused = %q", paused)
+	}
+	if _, err := parseChatPresence("recording"); err == nil {
+		t.Fatal("recording must fail closed")
+	}
+}
+
+func TestHandlePresenceRejectsBroadcastAndBadState(t *testing.T) {
+	t.Parallel()
+	session := &Session{}
+	server := httptest.NewServer(session.Handler())
+	t.Cleanup(server.Close)
+
+	broadcast, err := http.Post(
+		server.URL+"/presence",
+		"application/json",
+		bytes.NewBufferString(`{"chatJid":"status@broadcast","state":"composing"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broadcast.Body.Close()
+	if broadcast.StatusCode != http.StatusBadRequest {
+		t.Fatalf("broadcast status = %d", broadcast.StatusCode)
+	}
+
+	badState, err := http.Post(
+		server.URL+"/presence",
+		"application/json",
+		bytes.NewBufferString(`{"chatJid":"553199941160@s.whatsapp.net","state":"recording"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer badState.Body.Close()
+	if badState.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad state status = %d", badState.StatusCode)
+	}
+
+	valid, err := http.Post(
+		server.URL+"/presence",
+		"application/json",
+		bytes.NewBufferString(`{"chatJid":"553199941160@s.whatsapp.net","state":"composing"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer valid.Body.Close()
+	if valid.StatusCode != http.StatusBadRequest {
+		t.Fatalf("nil session status = %d", valid.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(valid.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body["error"], "session is nil") {
+		t.Fatalf("error = %q", body["error"])
 	}
 }
 

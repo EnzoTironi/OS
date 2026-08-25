@@ -177,6 +177,56 @@ test("bound 1:1 runs the turn coordinator and replies in the same thread", async
   await session.close();
 });
 
+test("bound 1:1 records composing then paused around the turn", async () => {
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    doorE164,
+    identity: boundIdentity(speaker),
+    session,
+  });
+  const result = await loop.handleRaw(
+    inbound({ body: "Oi", messageId: "wamid.typing" }),
+  );
+  assert.equal(result.kind, "bound");
+  assert.deepEqual(
+    session.presences().map((row) => row.state),
+    ["composing", "paused"],
+  );
+  assert.deepEqual(
+    session.presences().map((row) => row.chatJid),
+    [speaker, speaker],
+  );
+  assert.deepEqual(
+    session.trace().map((event) =>
+      event.kind === "presence" ? event.state : event.kind,
+    ),
+    ["composing", "send", "paused"],
+  );
+  const sent = session.sent()[0];
+  assert.ok(sent);
+  assert.equal(sent.shape.kind, "text");
+  if (sent.shape.kind === "text") {
+    assert.doesNotMatch(sent.shape.text, /Recebi/i);
+    assert.doesNotMatch(sent.shape.text, /auxiliar|pronto para ajudar/i);
+  }
+  await session.close();
+});
+
+test("unbound 1:1 does not send composing presence", async () => {
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    doorE164,
+    identity: unboundIdentity([]),
+    session,
+  });
+  const result = await loop.handleRaw(
+    inbound({ messageId: "wamid.unbound.presence" }),
+  );
+  assert.equal(result.kind, "unbound");
+  assert.deepEqual(session.presences(), []);
+  await session.close();
+});
+
 test("restart with the same ledger does not send a second reply", async () => {
   const ledger = createMemoryReplyLedger();
   const first = await readySession();

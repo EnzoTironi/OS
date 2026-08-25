@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  assertCompanionPresenceState,
   companionSessionIsReady,
   composeOutboundChatJid,
+  createHttpCompanionSession,
   createRecordingCompanionSession,
   enrichInboundPersonRefs,
   enrichPersonAltRef,
@@ -129,4 +131,77 @@ test("outbound dest is the chat JID including groups", () => {
     () => composeOutboundChatJid("status@broadcast"),
     /unsupported outbound session server/,
   );
+});
+
+test("recording presence rejects broadcast the same way send does", async () => {
+  const session = createRecordingCompanionSession();
+  await session.open();
+  await assert.rejects(
+    () => session.presence("status@broadcast", "composing"),
+    /unsupported outbound session server/,
+  );
+  assert.deepEqual(session.presences(), []);
+  await session.close();
+});
+
+test("recording presence records composing then paused", async () => {
+  const session = createRecordingCompanionSession();
+  await session.open();
+  await session.presence(speakerPhone, "composing");
+  await session.send({
+    chatJid: speakerPhone,
+    clientDeliveryId: "spd_presence",
+    shape: { kind: "text", text: "ok" },
+  });
+  await session.presence(speakerPhone, "paused");
+  assert.deepEqual(
+    session.presences().map((row) => row.state),
+    ["composing", "paused"],
+  );
+  assert.deepEqual(
+    session.trace().map((event) =>
+      event.kind === "presence" ? event.state : event.kind,
+    ),
+    ["composing", "send", "paused"],
+  );
+  await session.close();
+});
+
+test("HTTP companion posts /presence and rejects broadcast locally", async () => {
+  const seen: string[] = [];
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input);
+    seen.push(`${(init?.method ?? "GET").toUpperCase()} ${url}`);
+    if (url.endsWith("/presence")) {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        chatJid?: unknown;
+        state?: unknown;
+      };
+      assert.equal(body.chatJid, speakerPhone);
+      assert.equal(body.state, "composing");
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      });
+    }
+    return new Response("missing", { status: 404 });
+  }) as typeof fetch;
+  try {
+    const session = createHttpCompanionSession("http://companion.test");
+    await session.presence(speakerPhone, "composing");
+    await assert.rejects(
+      () => session.presence("status@broadcast", "paused"),
+      /unsupported outbound session server/,
+    );
+    assert.deepEqual(seen, ["POST http://companion.test/presence"]);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("presence state is composing or paused", () => {
+  assert.equal(assertCompanionPresenceState("composing"), "composing");
+  assert.equal(assertCompanionPresenceState("paused"), "paused");
+  assert.throws(() => assertCompanionPresenceState("recording"), /paused/);
 });
