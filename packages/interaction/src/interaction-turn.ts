@@ -387,7 +387,12 @@ async function reasonTurn(input: {
   });
   try {
     await agent.generate({
-      prompt: reasoningPrompt(input.inbound, input.inboundText, input.snapshot),
+      prompt: reasoningPrompt(
+        input.inbound,
+        input.inboundText,
+        input.snapshot,
+        input.locale,
+      ),
     });
   } catch {
     return failClosedScratch(
@@ -567,41 +572,131 @@ function hiddenIdentityTokens(
   ].filter((token) => token.length > 0);
 }
 
-function interactionInstructions(locale: InteractionLocale): string {
-  const language =
-    locale === "pt"
-      ? "Reply in Portuguese (Brazil)."
-      : "Reply in English to match the inbound.";
-  return [
-    "You talk to one person. Interaction only.",
-    language,
-    "Use speak_to_user for every user-visible sentence.",
-    "Use spawn_execution to hand work off. Use mint_href for at most one https URL.",
-    "If you should stay quiet, call no speak_to_user.",
-    "Never mention tools, agents, models, or this loop.",
-    "Never invent OrderLines or other business entities.",
-    "Rival claims coexist. Do not collapse disagreement into one number.",
-    "Do not dump membership ids, tenant ids, or entity ids into user text.",
-    "Do not echo the inbound with Recebi or I received.",
-  ].join(" ");
+/**
+ * Locale-aware Interaction system prompt.
+ * Interaction talks. Execution never talks to the person.
+ *
+ * @param locale - Detected inbound locale (`pt` or `en`)
+ * @returns Instructions for ToolLoopAgent. Never names harness internals.
+ */
+export function interactionInstructions(locale: InteractionLocale): string {
+  switch (locale) {
+    case "pt":
+      return [
+        "Você é a Interaction da Zoen. Você conversa com uma pessoa. Execution nunca fala com ela.",
+        "O único texto visível sai de speak_to_user. spawn_execution trabalha fora do chat. mint_href libera no máximo um https.",
+        "Fala como um amigo ocupado: curto, quente, sem abertura e sem fecho de atendimento.",
+        "Frases proibidas: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi.",
+        "Responde o inbound mais recente. Se o World trouxer rivais ou notas, fala esses fatos. Duas leituras ficam de pé. Não cumprimente no lugar de responder.",
+        "Responde em português do Brasil. Um oi ou um probe é um toque curto, não um parágrafo de helpdesk.",
+        "Nunca cite tools, agents, models, ToolLoopAgent, spawn_execution.",
+        "Não invente OrderLines nem ids de entidade. Rivais convivem. Não junte desacordo num número só.",
+        "Não despeje membership, tenant ou entity id no texto. Sem widgets nativos do WhatsApp.",
+        "Se o certo é ficar quieto, não chame speak_to_user.",
+      ].join("\n");
+    case "en":
+      return [
+        "You are Zoen's Interaction. You talk to one person. Execution never talks to them.",
+        "User-visible text comes only from speak_to_user. spawn_execution works off-chat. mint_href mints at most one https URL.",
+        "Write like a busy friend: terse, warm, no preamble and no helpdesk sign-off.",
+        "Forbidden phrases: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi.",
+        "Answer the latest inbound. If World has rivals or notes, speak those facts. Two readings stand. Do not greet instead of answering.",
+        "Reply in English. A hi or a probe is one short beat, not a helpdesk paragraph.",
+        "Never mention tools, agents, models, ToolLoopAgent, spawn_execution.",
+        "Never invent OrderLines or entity ids. Rival claims coexist. Do not collapse disagreement into one number.",
+        "Do not dump membership, tenant, or entity ids into user text. No native WhatsApp widgets.",
+        "If you should stay quiet, call no speak_to_user.",
+      ].join("\n");
+    default: {
+      const exhaustive: never = locale;
+      return exhaustive;
+    }
+  }
 }
 
-function reasoningPrompt(
+/**
+ * User prompt for one turn. World rivals and notes are the subject, not optional JSON.
+ *
+ * @param inbound - Live inbound (text or media)
+ * @param inboundText - Body text already extracted from inbound
+ * @param snapshot - Membership World snapshot, if assembled
+ * @param locale - Detected inbound locale
+ * @returns Prompt the model must answer
+ */
+export function reasoningPrompt(
   inbound: InteractionInbound,
   inboundText: string,
   snapshot: WorldQuerySnapshot | undefined,
+  locale: InteractionLocale = "pt",
 ): string {
-  return JSON.stringify({
-    inbound:
-      inbound.kind === "text"
-        ? { kind: "text", text: inboundText }
-        : { kind: "media", mediaRef: inbound.mediaRef },
-    world:
-      snapshot === undefined
-        ? null
-        : {
-            notes: snapshot.notes,
-            rivals: snapshot.rivals.map((rival) => rival.label),
-          },
-  });
+  const inboundBlock =
+    inbound.kind === "text"
+      ? `kind: text\ntext: ${inboundText}`
+      : `kind: media\nmediaRef: ${inbound.mediaRef}`;
+  const worldBlock = formatWorldSubject(snapshot, locale);
+  switch (locale) {
+    case "pt":
+      return [
+        "Responde o inbound abaixo. O World abaixo é o assunto desta fala, não um JSON opcional que você pode ignorar.",
+        "",
+        "Inbound",
+        inboundBlock,
+        "",
+        "World",
+        worldBlock,
+        "",
+        "Não cumprimente no lugar de responder. Não use as frases proibidas.",
+      ].join("\n");
+    case "en":
+      return [
+        "Answer the inbound below. The World below is the subject of this reply, not optional JSON you can ignore.",
+        "",
+        "Inbound",
+        inboundBlock,
+        "",
+        "World",
+        worldBlock,
+        "",
+        "Do not greet instead of answering. Do not use the forbidden phrases.",
+      ].join("\n");
+    default: {
+      const exhaustive: never = locale;
+      return exhaustive;
+    }
+  }
+}
+
+function formatWorldSubject(
+  snapshot: WorldQuerySnapshot | undefined,
+  locale: InteractionLocale,
+): string {
+  const rivalLabels = (snapshot?.rivals ?? [])
+    .map((rival) => rival.label.trim())
+    .filter((label) => label.length > 0);
+  const notes = (snapshot?.notes ?? [])
+    .map((note) => note.trim())
+    .filter((note) => note.length > 0);
+  if (rivalLabels.length === 0 && notes.length === 0) {
+    return locale === "pt"
+      ? "(vazio — responde o inbound num toque curto)"
+      : "(empty — answer the inbound in one short beat)";
+  }
+  const header =
+    locale === "pt"
+      ? "Estas são as leituras em pé. Se houver rivais ou notas, fala esses fatos. Duas leituras ficam de pé. Não invente entidades. Rivais convivem."
+      : "These readings stand. If rivals or notes are present, speak those facts. Two readings stand. Do not invent entities. Rivals coexist.";
+  const lines = [header];
+  if (rivalLabels.length > 0) {
+    lines.push("rivals:");
+    for (const label of rivalLabels) {
+      lines.push(`- ${label}`);
+    }
+  }
+  if (notes.length > 0) {
+    lines.push("notes:");
+    for (const note of notes) {
+      lines.push(`- ${note}`);
+    }
+  }
+  return lines.join("\n");
 }

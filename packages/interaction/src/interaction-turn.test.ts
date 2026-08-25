@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { LanguageModelV3GenerateResult } from "@ai-sdk/provider";
+import type {
+  LanguageModelV3CallOptions,
+  LanguageModelV3GenerateResult,
+} from "@ai-sdk/provider";
 import { MockLanguageModelV3 } from "ai/test";
 import type { ClaimRead } from "../../osdk/src/index.js";
 import { LineageRole } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
@@ -9,7 +12,9 @@ import {
   createInteractionTools,
 } from "./interaction-tools.js";
 import {
+  interactionInstructions,
   outboundBubbles,
+  reasoningPrompt,
   runInteractionTurn,
   type InteractionInbound,
 } from "./interaction-turn.js";
@@ -144,6 +149,89 @@ test("two ClaimRead rows without RIVAL speak fail-closed PT rivals", async () =>
   assert.doesNotMatch(text, /Recebi/i);
   assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
   assert.doesNotMatch(text, /Não consegui consultar agora/);
+});
+
+test("PT instructions ban helpdesk greetings and keep speak_to_user as the only voice", () => {
+  const instructions = interactionInstructions("pt");
+  assert.match(instructions, /speak_to_user/);
+  assert.match(instructions, /Execution nunca fala/);
+  assert.match(instructions, /Como posso te auxiliar/);
+  assert.match(instructions, /Estou por aqui e pronto para ajudar/);
+  assert.match(instructions, /Recebi/);
+  assert.doesNotMatch(instructions, /Mastra|LangGraph/);
+});
+
+test("reasoningPrompt frames World rivals as the subject, not optional JSON", () => {
+  const snapshot = snapshotFromClaims(supportingQuantityClaims());
+  const prompt = reasoningPrompt(
+    textInbound("Oi"),
+    "Oi",
+    snapshot,
+    "pt",
+  );
+  assert.match(prompt, /O World abaixo é o assunto/);
+  assert.doesNotMatch(prompt, /^\s*\{/u);
+  assert.match(prompt, /source\.sheet/);
+  assert.match(prompt, /source\.erp/);
+  assert.match(prompt, /10 each/);
+  assert.match(prompt, /12 each/);
+  assert.match(prompt, /Duas leituras ficam de pé/);
+});
+
+test("mocked turn with two World rivals speaks the readings, not a helpdesk greeting", async () => {
+  const snapshot = snapshotFromClaims(supportingQuantityClaims());
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return snapshot;
+    },
+  };
+  let step = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async (options) => {
+      step += 1;
+      if (step === 1) {
+        const blob = flattenPrompt(options.prompt);
+        assert.match(blob, /O World abaixo é o assunto|The World below is the subject/);
+        assert.match(blob, /source\.sheet/);
+        assert.match(blob, /source\.erp/);
+        const text = /O World abaixo é o assunto|The World below is the subject/i.test(
+          blob,
+        )
+          ? "Tem duas leituras: 10 each e 12 each. As duas ficam de pé."
+          : "Olá! Estou por aqui e pronto para ajudar. Como posso te auxiliar hoje?";
+        return {
+          content: [
+            {
+              input: JSON.stringify({ text }),
+              toolCallId: "call_speak",
+              toolName: "speak_to_user",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      return {
+        content: [],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: usage(),
+        warnings: [],
+      } satisfies LanguageModelV3GenerateResult;
+    },
+  });
+  const result = await runInteractionTurn({
+    inbound: textInbound("Oi"),
+    membership: membership("rivals-model"),
+    model,
+    world,
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.match(sent, /10 each/);
+  assert.match(sent, /12 each/);
+  assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|Recebi/i);
+  assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
 });
 
 test("wait leaves empty bubbles and a null href", async () => {
@@ -295,6 +383,22 @@ test("at most one href survives a double mint", async () => {
   assert.match(sent, /Segue o resumo/);
   assert.doesNotMatch(sent, /Recebi/i);
 });
+
+function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {
+  return prompt
+    .map((message) => {
+      if (message.role === "system") {
+        return message.content;
+      }
+      if (message.role === "user") {
+        return message.content
+          .map((part) => (part.type === "text" ? part.text : ""))
+          .join("\n");
+      }
+      return "";
+    })
+    .join("\n");
+}
 
 function supportingQuantityClaims(): readonly ClaimRead[] {
   const entityId = "commercial.order-line.dirty-quote";
