@@ -15,8 +15,18 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         print_help();
         return Ok(());
     }
-    let database_url = env::var("DATABASE_URL")?;
-    let store = PostgresAuthorityStore::connect(&database_url).await?;
+    let migrate_url = env::var("DATABASE_URL")?;
+    PostgresAuthorityStore::connect(&migrate_url).await?;
+    let worker_url = env::var("ZOEN_PROJECTION_DATABASE_URL")
+        .ok()
+        .filter(|url| !url.is_empty());
+    if worker_url.is_some() {
+        eprintln!("zoen-projection: using ZOEN_PROJECTION_DATABASE_URL");
+    } else {
+        eprintln!("zoen-projection: ZOEN_PROJECTION_DATABASE_URL unset; using DATABASE_URL");
+    }
+    let store =
+        PostgresAuthorityStore::connect_pool(worker_url.as_deref().unwrap_or(&migrate_url)).await?;
     let object_store = object_store_config()?.ok_or("S3 storage is required for projection")?;
     let worker = ProjectionWorker::new(store.pool(), &object_store)?;
     match arguments.as_slice() {
@@ -104,6 +114,10 @@ fn print_help() {
   zoen-projection --rebuild <tenant>
 
 The default command polls tenants from ZOEN_PROJECTION_TENANTS.
+
+DATABASE_URL must be a role that can migrate (zoen_app).
+ZOEN_PROJECTION_DATABASE_URL, when set, is the worker pool. Use zoen_projection
+so the process cannot write authority tables. Unset falls back to DATABASE_URL.
 
 Examples:
   ZOEN_PROJECTION_TENANTS=tenant.a zoen-projection

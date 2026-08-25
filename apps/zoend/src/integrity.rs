@@ -115,6 +115,12 @@ mod tests {
         );
         assert!(
             classification
+                .rebuildable
+                .object_storage
+                .contains(&"zoen-projections".to_owned())
+        );
+        assert!(
+            classification
                 .authority
                 .reference_tables
                 .contains(&"company_sources".to_owned())

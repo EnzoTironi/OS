@@ -96,15 +96,25 @@ pub struct PostgresAuthorityStore {
 
 impl PostgresAuthorityStore {
     pub async fn connect(database_url: &str) -> Result<Self, PostgresInitError> {
+        let store = Self::connect_pool(database_url).await?;
+        sqlx::migrate!("./migrations")
+            .run(&store.pool)
+            .await
+            .map_err(PostgresInitError::Migrate)?;
+        Ok(store)
+    }
+
+    /// Open a pool without running migrations.
+    ///
+    /// Use after `connect` has already applied the schema, so a
+    /// least-privilege role such as `zoen_projection` can work without
+    /// CREATE/ALTER rights.
+    pub async fn connect_pool(database_url: &str) -> Result<Self, PostgresInitError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
             .connect(database_url)
             .await
             .map_err(PostgresInitError::Connect)?;
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .map_err(PostgresInitError::Migrate)?;
         Ok(Self { pool })
     }
 
