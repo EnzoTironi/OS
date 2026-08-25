@@ -30,6 +30,7 @@ import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2eIdentityAdminToken,
+  e2eWhatsAppDoorE164,
   writeScenarioArtifact,
 } from "./host-env.js";
 
@@ -201,6 +202,16 @@ async function main(): Promise<void> {
       "oidc_cannot_mint_provisional",
       oidcProvisional.status === 403 &&
         oidcProvisional.body.error === "identity_admin_forbidden",
+    );
+
+    const doorProvisional = await admin("POST", "/identity/admin/provisional", {
+      provider: "whatsapp",
+      subjectKey: e2eWhatsAppDoorE164(),
+    });
+    record(
+      "whatsapp_door_rejected",
+      doorProvisional.status === 400 &&
+        doorProvisional.body.error === "invalid external subject",
     );
 
     // Provisional account + restart before verify.
