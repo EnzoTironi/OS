@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::Router as HttpRouter;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use connectrpc::Router;
@@ -149,13 +149,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .add_service(Arc::new(history_service))
         .add_service(Arc::new(world_service))
         .into_axum_router();
-    let application = HttpRouter::new()
+    let ready_routes = HttpRouter::new()
         .route("/ready", get(ready))
         .with_state(ReadyState {
             classification,
             require_reference,
             store,
-        })
+        });
+    let application = HttpRouter::new()
+        .route("/metrics", get(metrics))
+        .merge(ready_routes)
         .merge(identity_routes)
         .merge(messaging_routes)
         .merge(workload_routes)
@@ -175,6 +178,16 @@ struct ReadyState {
     classification: Arc<StateClassification>,
     require_reference: bool,
     store: PostgresAuthorityStore,
+}
+
+async fn metrics() -> impl IntoResponse {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        zoen_engine::metrics::prometheus_text(),
+    )
 }
 
 async fn ready(State(state): State<ReadyState>) -> impl IntoResponse {
