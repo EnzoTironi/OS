@@ -3,11 +3,17 @@ package companion
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,12 +35,14 @@ var (
 	ErrNotLoggedIn     = errors.New("companion: client is not logged in")
 	ErrDatabaseURL     = errors.New("companion: ZOEN_WHATSAPP_DATABASE_URL required")
 	ErrAuthorityStore  = errors.New("companion: ZOEN_WHATSAPP_DATABASE_URL must be distinct from ZOEN_DATABASE_URL")
+	ErrIngressSecret   = errors.New("companion: ZOEN_WHATSAPP_INGRESS_SECRET required when ZOEN_WHATSAPP_INGRESS_URL is set")
 )
 
 type Config struct {
 	DatabaseURL          string
 	AuthorityDatabaseURL string
 	IngressURL           string
+	IngressSecret        string
 	ListenAddr           string
 	QRFile               string
 	DropLog              io.Writer
@@ -54,6 +62,7 @@ type Session struct {
 	device    *store.Device
 	container *sqlstore.Container
 	ingress   string
+	secret    string
 	dropLog   io.Writer
 	http      *http.Client
 	lidPN     lidPNLookup
@@ -70,6 +79,9 @@ func ValidateConfig(cfg Config) error {
 	authority := strings.TrimSpace(cfg.AuthorityDatabaseURL)
 	if authority != "" && strings.TrimSpace(cfg.DatabaseURL) == authority {
 		return ErrAuthorityStore
+	}
+	if strings.TrimSpace(cfg.IngressURL) != "" && strings.TrimSpace(cfg.IngressSecret) == "" {
+		return ErrIngressSecret
 	}
 	return nil
 }
@@ -103,6 +115,7 @@ func Open(ctx context.Context, cfg Config) (*Session, error) {
 		device:    device,
 		container: container,
 		ingress:   strings.TrimSpace(cfg.IngressURL),
+		secret:    strings.TrimSpace(cfg.IngressSecret),
 		dropLog:   cfg.DropLog,
 		http:      &http.Client{Timeout: 15 * time.Second},
 	}
@@ -320,6 +333,9 @@ func (s *Session) postInbound(inbound Inbound) error {
 		return err
 	}
 	req.Header.Set("content-type", "application/json")
+	if err := signIngressRequest(req, s.secret, body); err != nil {
+		return err
+	}
 	resp, err := s.http.Do(req)
 	if err != nil {
 		return err
@@ -329,6 +345,48 @@ func (s *Session) postInbound(inbound Inbound) error {
 		return fmt.Errorf("companion: ingress HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func signIngressRequest(req *http.Request, secret string, body []byte) error {
+	if strings.TrimSpace(secret) == "" {
+		return ErrIngressSecret
+	}
+	key, err := decodeWhsec(secret)
+	if err != nil {
+		return err
+	}
+	id, err := newWebhookID()
+	if err != nil {
+		return err
+	}
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(id))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+	req.Header.Set("webhook-id", id)
+	req.Header.Set("webhook-timestamp", timestamp)
+	req.Header.Set("webhook-signature", "v1,"+base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+	return nil
+}
+
+func decodeWhsec(secret string) ([]byte, error) {
+	stripped := strings.TrimPrefix(secret, "whsec_")
+	key, err := base64.StdEncoding.DecodeString(stripped)
+	if err != nil || len(key) == 0 {
+		return nil, fmt.Errorf("companion: ingress secret is not whsec_ + base64")
+	}
+	return key, nil
+}
+
+func newWebhookID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return "msg_" + hex.EncodeToString(raw[:]), nil
 }
 
 func (s *Session) Send(ctx context.Context, dest string, wireShape WireShape) (string, error) {

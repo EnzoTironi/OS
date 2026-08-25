@@ -56,6 +56,7 @@ func configFromEnv() companion.Config {
 		DatabaseURL:          strings.TrimSpace(os.Getenv("ZOEN_WHATSAPP_DATABASE_URL")),
 		AuthorityDatabaseURL: firstNonEmpty(os.Getenv("ZOEN_DATABASE_URL"), os.Getenv("DATABASE_URL")),
 		IngressURL:           strings.TrimSpace(os.Getenv("ZOEN_WHATSAPP_INGRESS_URL")),
+		IngressSecret:        strings.TrimSpace(os.Getenv("ZOEN_WHATSAPP_INGRESS_SECRET")),
 		ListenAddr:           listen,
 		QRFile:               strings.TrimSpace(os.Getenv("ZOEN_WHATSAPP_QR_FILE")),
 		DropLog:              os.Stderr,

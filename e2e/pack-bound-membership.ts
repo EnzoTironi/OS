@@ -58,7 +58,7 @@ export async function seedBoundTenantMembership(args: {
     tenantId: args.tenantId,
     token: inviteToken,
     workloadId: args.workloadId,
-  });
+  }, args.token);
   if (invite.status !== 200) {
     throw new Error(
       `create invite failed: ${invite.status} ${JSON.stringify(invite.body)}`,
@@ -69,6 +69,7 @@ export async function seedBoundTenantMembership(args: {
     "POST",
     "/identity/admin/accept-invite",
     { accountId, token: inviteToken },
+    args.token,
   );
   if (accepted.status !== 200) {
     throw new Error(

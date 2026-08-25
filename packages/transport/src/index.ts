@@ -78,9 +78,23 @@ export {
   type WhatsAppMessagingIngress,
 } from "./whatsapp-ingress.js";
 export {
+  MediaIngressError,
+  rejectWhatsAppMediaFields,
+  validateMediaBlob,
+  whatsappAdvertisesMedia,
+  WHATSAPP_INGESTED_MEDIA_TYPES,
+} from "./media-ingress.js";
+export {
+  claimWhatsAppIngressReplay,
+  readWhatsAppIngressSecret,
+  verifyWhatsAppInbound,
+  WhatsAppIngressAuthError,
+} from "./whatsapp-ingress-auth.js";
+export {
   classifyWhatsAppContactInbound,
   createFileReplyLedger,
   createMemoryReplyLedger,
+  createPostgresReplyLedger,
   createWhatsAppContactLoop,
   UNBOUND_WHATSAPP_POKE_TEXT,
   type ReplyLedger,

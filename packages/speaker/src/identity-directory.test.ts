@@ -13,6 +13,7 @@ test("resolveChannelSubject GETs resolve-subject and never POSTs provisional", a
     const method = (init?.method ?? "GET").toUpperCase();
     calls.push({ method, url });
     assert.equal(method, "GET");
+    assert.equal(init?.headers && (init.headers as { authorization?: string }).authorization, "Bearer admin-token");
     assert.match(url, /\/identity\/admin\/resolve-subject\?/);
     assert.doesNotMatch(url, /\/provisional/);
     return new Response(
@@ -44,6 +45,7 @@ test("resolveChannelSubject GETs resolve-subject and never POSTs provisional", a
   };
 
   const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
     baseUrl: "http://zoend.test",
     fetchImpl,
   });
@@ -72,11 +74,12 @@ test("resolveChannelSubject returns typed unbound error without minting", async 
     assert.doesNotMatch(String(input), /\/provisional/);
     return new Response(
       JSON.stringify({ error: "OIDC subject has no verified binding" }),
-      { headers: { "content-type": "application/json" }, status: 401 },
+      { headers: { "content-type": "application/json" }, status: 404 },
     );
   };
 
   const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
     baseUrl: "http://zoend.test",
     fetchImpl,
   });
@@ -94,6 +97,56 @@ test("resolveChannelSubject returns typed unbound error without minting", async 
     },
   );
   assert.deepEqual(methods, ["GET"]);
+});
+
+test("resolveChannelSubject fails closed without an admin token", async () => {
+  const previous = process.env.ZOEN_IDENTITY_ADMIN_TOKEN;
+  delete process.env.ZOEN_IDENTITY_ADMIN_TOKEN;
+  try {
+    const identity = createIdentityDirectoryClient({
+      baseUrl: "http://zoend.test",
+      fetchImpl: async () => {
+        throw new Error("must not fetch without a token");
+      },
+    });
+    await assert.rejects(
+      () =>
+        identity.resolveChannelSubject({
+          provider: providerKey("whatsapp"),
+          subjectKey: "+15551212",
+        }),
+      /ZOEN_IDENTITY_ADMIN_TOKEN/,
+    );
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ZOEN_IDENTITY_ADMIN_TOKEN;
+    } else {
+      process.env.ZOEN_IDENTITY_ADMIN_TOKEN = previous;
+    }
+  }
+});
+
+test("resolveChannelSubject does not map auth 401 to unbound", async () => {
+  const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
+    baseUrl: "http://zoend.test",
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ error: "unauthenticated" }), {
+        headers: { "content-type": "application/json" },
+        status: 401,
+      }),
+  });
+  await assert.rejects(
+    () =>
+      identity.resolveChannelSubject({
+        provider: providerKey("telegram"),
+        subjectKey: "tg_never_bound",
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      !(error instanceof ChannelSubjectResolveError) &&
+      error.message.includes("unauthenticated"),
+  );
 });
 
 test("resolveChannelSubject rejects inactive membership with typed error", async () => {
@@ -124,6 +177,7 @@ test("resolveChannelSubject rejects inactive membership with typed error", async
     );
 
   const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
     baseUrl: "http://zoend.test",
     fetchImpl,
   });
@@ -140,4 +194,66 @@ test("resolveChannelSubject rejects inactive membership with typed error", async
       return true;
     },
   );
+});
+
+test("resolveChannelSubject fails closed on ambiguous membership without tenant hint", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        account: { accountId: "account.1", status: "verified" },
+        bindings: [
+          {
+            accountId: "account.1",
+            bindingId: "binding.1",
+            provider: "whatsapp",
+            status: "verified",
+            subjectKey: "+15551212",
+          },
+        ],
+        memberships: [
+          {
+            accountId: "account.1",
+            membershipId: "membership.a",
+            principalId: "principal.a",
+            status: "active",
+            tenantId: "tenant.a",
+          },
+          {
+            accountId: "account.1",
+            membershipId: "membership.b",
+            principalId: "principal.b",
+            status: "active",
+            tenantId: "tenant.b",
+          },
+        ],
+      }),
+      { headers: { "content-type": "application/json" }, status: 200 },
+    );
+
+  const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
+    baseUrl: "http://zoend.test",
+    fetchImpl,
+  });
+
+  await assert.rejects(
+    () =>
+      identity.resolveChannelSubject({
+        provider: providerKey("whatsapp"),
+        subjectKey: "+15551212",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof ChannelSubjectResolveError);
+      assert.equal(error.kind, "ambiguous_membership");
+      return true;
+    },
+  );
+
+  const resolved = await identity.resolveChannelSubject({
+    provider: providerKey("whatsapp"),
+    subjectKey: "+15551212",
+    tenantHint: "tenant.b",
+  });
+  assert.equal(resolved.membershipId, "membership.b");
+  assert.equal(String(resolved.tenantId), "tenant.b");
 });

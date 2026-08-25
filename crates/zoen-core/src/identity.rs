@@ -69,6 +69,9 @@ impl ExternalSubject {
         if subject_key.is_empty() || subject_key.len() > 200 {
             return Err(IdentityError::InvalidSubject);
         }
+        if provider == ChannelProvider::WhatsApp && !is_whatsapp_person_subject(&subject_key) {
+            return Err(IdentityError::InvalidSubject);
+        }
         Ok(Self {
             provider,
             subject_key,
@@ -82,6 +85,27 @@ pub enum ChannelProvider {
     WhatsApp,
     Telegram,
     Linq,
+}
+
+fn is_whatsapp_person_subject(subject_key: &str) -> bool {
+    if let Some(digits) = subject_key.strip_prefix('+') {
+        return digits.len() >= 7
+            && digits.len() <= 15
+            && digits.as_bytes()[0].is_ascii_digit()
+            && digits.as_bytes()[0] != b'0'
+            && digits.bytes().all(|byte| byte.is_ascii_digit());
+    }
+    let Some((user, server)) = subject_key.split_once('@') else {
+        return false;
+    };
+    if server != "s.whatsapp.net" && server != "c.us" {
+        return false;
+    }
+    user.len() >= 7
+        && user.len() <= 15
+        && user.as_bytes()[0].is_ascii_digit()
+        && user.as_bytes()[0] != b'0'
+        && user.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 impl ChannelProvider {
@@ -666,6 +690,34 @@ mod tests {
         assert_eq!(
             ChannelProvider::parse("not_a_provider"),
             Err(IdentityError::InvalidProvider)
+        );
+    }
+
+    #[test]
+    fn whatsapp_subject_accepts_e164_and_person_jid() {
+        use super::ExternalSubject;
+        ExternalSubject::new(ChannelProvider::WhatsApp, "+5511999999999").expect("e164");
+        ExternalSubject::new(ChannelProvider::WhatsApp, "553199941160@s.whatsapp.net")
+            .expect("jid");
+        ExternalSubject::new(ChannelProvider::WhatsApp, "553199941160@c.us").expect("c.us");
+    }
+
+    #[test]
+    fn whatsapp_subject_rejects_group_lid_and_short() {
+        use super::ExternalSubject;
+        assert_eq!(
+            ExternalSubject::new(ChannelProvider::WhatsApp, "120363000000000000@g.us")
+                .expect_err("group"),
+            IdentityError::InvalidSubject
+        );
+        assert_eq!(
+            ExternalSubject::new(ChannelProvider::WhatsApp, "146454777753827@lid")
+                .expect_err("lid"),
+            IdentityError::InvalidSubject
+        );
+        assert_eq!(
+            ExternalSubject::new(ChannelProvider::WhatsApp, "+12").expect_err("short"),
+            IdentityError::InvalidSubject
         );
     }
 }

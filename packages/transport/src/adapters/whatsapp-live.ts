@@ -29,7 +29,7 @@ const WHATSAPP_TABLE = {
   dm: NATIVE,
   ephemeral: NATIVE,
   group: NATIVE,
-  image_file: NATIVE,
+  image_file: TEXT,
   native_button: TEXT,
   native_card: TEXT,
   native_link: LINK,
@@ -40,7 +40,7 @@ const WHATSAPP_TABLE = {
   text: NATIVE,
   // Chat SDK typing stays text-degrade. Live composing is companion /presence.
   typing: TEXT,
-  voice_audio: NATIVE,
+  voice_audio: TEXT,
 } as const;
 
 export const PERSONAL_WHATSAPP_DOOR_E164 = "+5531999941160";

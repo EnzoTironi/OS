@@ -157,6 +157,7 @@ async function startCompanion(binary: string): Promise<ChildProcess> {
       ZOEN_DATABASE_URL: `postgres://zoen_app:zoen_app@127.0.0.1:${String(postgresPort)}/zoen`,
       ZOEN_WHATSAPP_DATABASE_URL: `postgres://postgres:postgres@127.0.0.1:${String(postgresPort)}/zoen_whatsapp?sslmode=disable`,
       ZOEN_WHATSAPP_INGRESS_URL: `${baseUrl}/channels/whatsapp/inbound`,
+      ZOEN_WHATSAPP_INGRESS_SECRET: "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==",
       ZOEN_WHATSAPP_LISTEN_ADDR: companionListen,
     },
     stdio: ["ignore", "pipe", "pipe"],

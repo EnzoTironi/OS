@@ -42,6 +42,7 @@ const selfTestPhone = "+5531999941160";
 const liveOutboundHandle = "enzotironi.dev@gmail.com";
 const sandboxLine = "+14045698064";
 const knownChatId = "446e2437-410b-492b-94ad-7030194d9484";
+let identityAdminBearer: string | undefined;
 /** Stable across reruns so partner Idempotency-Key does not spam a new iMessage. */
 const liveClientDeliveryId = "spd_zoen_channel_linq_live_outbound_v1";
 const semanticCorrelationSeed = "channel-linq-live.v1";
@@ -80,7 +81,9 @@ async function admin(
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      ...((token ?? identityAdminBearer) === undefined
+        ? {}
+        : { authorization: `Bearer ${token ?? identityAdminBearer}` }),
     },
     method,
   });
@@ -97,6 +100,7 @@ async function seedBoundAccount(handle: string): Promise<{
   membershipId: string;
 }> {
   const boundToken = await oidcToken("bound-bait");
+  identityAdminBearer = boundToken;
   const bootstrap = await admin(
     "POST",
     "/identity/admin/bootstrap-bound",
@@ -308,7 +312,10 @@ async function main(): Promise<void> {
       `principalId=${seed.principalId} !== handle; tenantId=${seed.tenantId} !== handle`,
     );
 
-    const identity = createIdentityDirectoryClient({ baseUrl });
+    const identity = createIdentityDirectoryClient({
+      adminToken: identityAdminBearer ?? (await oidcToken("bound-bait")),
+      baseUrl,
+    });
     const controls = createInteractionControlRegistry({
       store: createMemoryControlStore(),
     });

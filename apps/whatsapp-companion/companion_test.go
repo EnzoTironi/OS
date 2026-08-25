@@ -35,6 +35,12 @@ func TestValidateConfigRejectsEmptyAndAuthorityCollision(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := ValidateConfig(Config{
+		DatabaseURL: "postgres://whatsmeow",
+		IngressURL:  "http://zoend/channels/whatsapp/inbound",
+	}); err != ErrIngressSecret {
+		t.Fatalf("missing ingress secret: %v", err)
+	}
 }
 
 func TestConfigureCompanionDevicePropsUsesChromeQRClient(t *testing.T) {

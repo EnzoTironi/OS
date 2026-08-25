@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
 use zoen_adapters::{CreateInvite, PostgresIdentityStore};
@@ -17,14 +18,17 @@ use zoen_core::{
 };
 
 use crate::auth::SessionRegistry;
+use crate::ingress_hmac::constant_time_eq;
 
 #[derive(Clone)]
 pub struct IdentityAdminState {
     pub identity: PostgresIdentityStore,
     pub sessions: SessionRegistry,
+    pub admin_token: Option<String>,
 }
 
 pub fn router(state: IdentityAdminState) -> Router {
+    let shared = Arc::new(state);
     Router::new()
         .route("/identity/admin/provisional", post(ensure_provisional))
         .route("/identity/admin/verify-binding", post(verify_binding))
@@ -44,7 +48,48 @@ pub fn router(state: IdentityAdminState) -> Router {
         .route("/identity/admin/resolve-subject", get(resolve_subject))
         .route("/identity/admin/bootstrap-bound", post(bootstrap_bound))
         .route("/identity/admin/resolve-context", get(resolve_context))
-        .with_state(Arc::new(state))
+        .layer(middleware::from_fn_with_state(
+            shared.clone(),
+            require_identity_admin_auth,
+        ))
+        .with_state(shared)
+}
+
+async fn require_identity_admin_auth(
+    State(state): State<Arc<IdentityAdminState>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let authorization = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok());
+    if authorize_identity_admin(&state, authorization) {
+        return next.run(request).await;
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({"error": "unauthenticated"})),
+    )
+        .into_response()
+}
+
+fn authorize_identity_admin(state: &IdentityAdminState, authorization: Option<&str>) -> bool {
+    if state.sessions.verify_bearer(authorization).is_ok() {
+        return true;
+    }
+    let Some(expected) = state
+        .admin_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let Some(provided) = authorization.and_then(|value| value.strip_prefix("Bearer ")) else {
+        return false;
+    };
+    constant_time_eq(expected.as_bytes(), provided.as_bytes())
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,6 +251,9 @@ async fn ensure_provisional(
         Ok(subject) => subject,
         Err(error) => return identity_error(error),
     };
+    if let Err(error) = reject_whatsapp_door(&subject) {
+        return identity_error(error);
+    }
     match state.identity.ensure_provisional(subject).await {
         Ok(account) => (
             StatusCode::OK,
@@ -249,6 +297,9 @@ async fn bind_verified(
         Ok(subject) => subject,
         Err(error) => return identity_error(error),
     };
+    if let Err(error) = reject_whatsapp_door(&subject) {
+        return identity_error(error);
+    }
     match state
         .identity
         .bind_verified_subject(account_id, subject)
@@ -594,6 +645,29 @@ fn parse_subject(provider: &str, subject_key: &str) -> Result<ExternalSubject, I
     ExternalSubject::new(provider, subject_key.to_owned())
 }
 
+fn reject_whatsapp_door(subject: &ExternalSubject) -> Result<(), IdentityError> {
+    if subject.provider != ChannelProvider::WhatsApp {
+        return Ok(());
+    }
+    let Ok(door) = std::env::var("ZOEN_WHATSAPP_DOOR_E164") else {
+        return Ok(());
+    };
+    let door = door.trim();
+    if door.is_empty() {
+        return Ok(());
+    }
+    if whatsapp_digits(door) == whatsapp_digits(&subject.subject_key)
+        && !whatsapp_digits(door).is_empty()
+    {
+        return Err(IdentityError::InvalidSubject);
+    }
+    Ok(())
+}
+
+fn whatsapp_digits(value: &str) -> String {
+    value.chars().filter(|ch| ch.is_ascii_digit()).collect()
+}
+
 fn build_delegation(
     workload_id: &WorkloadId,
     action_ids: &[String],
@@ -689,7 +763,8 @@ fn identity_error(error: IdentityError) -> axum::response::Response {
 
 fn identity_error_response(error: IdentityError) -> axum::response::Response {
     let status = match error {
-        IdentityError::Unauthenticated | IdentityError::SubjectUnbound => StatusCode::UNAUTHORIZED,
+        IdentityError::Unauthenticated => StatusCode::UNAUTHORIZED,
+        IdentityError::SubjectUnbound => StatusCode::NOT_FOUND,
         IdentityError::AccountNotFound
         | IdentityError::BindingNotFound
         | IdentityError::InviteNotFound

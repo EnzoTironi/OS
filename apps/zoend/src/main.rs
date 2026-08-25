@@ -14,8 +14,8 @@ use axum::routing::get;
 use connectrpc::Router;
 use zoen_adapters::{
     CedarPolicyEvaluator, PostgresAuthorityStore, PostgresExternalSignalStore,
-    PostgresIdentityStore, PostgresPackRegistryStore, PostgresPackStore,
-    PostgresWorkloadCredentialStore,
+    PostgresIdentityStore, PostgresIngressReplayStore, PostgresPackRegistryStore,
+    PostgresPackStore, PostgresWorkloadCredentialStore,
 };
 use zoen_core::WorkloadId;
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
@@ -43,6 +43,7 @@ mod computation_service;
 mod effect_service;
 mod history_service;
 mod identity_admin;
+mod ingress_hmac;
 mod messaging_ingress;
 mod pack_admin;
 mod pack_registry;
@@ -124,10 +125,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let world_service =
         WorldServiceImpl::new(WorldEngine::new(store.clone()), query, sessions.clone());
     let identity_routes = identity_admin::router(IdentityAdminState {
+        admin_token: env::var("ZOEN_IDENTITY_ADMIN_TOKEN")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty()),
         identity,
         sessions: sessions.clone(),
     });
-    let messaging_routes = messaging_ingress::router(messaging_ingress::from_env());
+    let messaging_routes = messaging_ingress::router(messaging_ingress::from_env(
+        PostgresIngressReplayStore::new(store.pool()),
+    ));
     let workload_routes = workload_ingress_service::router(WorkloadIngressState {
         credentials: PostgresWorkloadCredentialStore::new(store.pool()),
         signals: PostgresExternalSignalStore::new(store.pool()),

@@ -28,6 +28,7 @@ const scenario = "messaging-boundary";
 const repositoryRoot = process.cwd();
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_501);
+let identityAdminBearer: string | undefined;
 
 const telegramSubject = "tg_user_bound_1";
 const linqSubject = "linq_handle_bound_1";
@@ -54,7 +55,9 @@ async function admin(
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      ...((token ?? identityAdminBearer) === undefined
+        ? {}
+        : { authorization: `Bearer ${token ?? identityAdminBearer}` }),
     },
     method,
   });
@@ -75,6 +78,7 @@ async function seedBoundAccount(): Promise<{
   linqBindingId: string;
 }> {
   const boundToken = await oidcToken("bound-bait");
+  identityAdminBearer = boundToken;
   const bootstrap = await admin(
     "POST",
     "/identity/admin/bootstrap-bound",
@@ -132,7 +136,10 @@ async function main(): Promise<void> {
   let server: ServerProcess = await startServer(policyManifestPath);
   try {
     const seed = await seedBoundAccount();
-    const identity = createIdentityDirectoryClient({ baseUrl });
+    const identity = createIdentityDirectoryClient({
+      adminToken: await oidcToken("admin-a"),
+      baseUrl,
+    });
     const controls = createInteractionControlRegistry({
       store: createMemoryControlStore(),
     });

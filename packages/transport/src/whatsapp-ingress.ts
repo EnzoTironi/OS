@@ -11,6 +11,13 @@ import {
   parseWhatsAppDoorE164,
   WhatsAppEnvelopeError,
 } from "./adapters/whatsapp-live.js";
+import { rejectWhatsAppMediaFields } from "./media-ingress.js";
+import type { PostgresTurnStoreClient } from "../../speaker/src/turn-store.js";
+import {
+  claimWhatsAppIngressReplay,
+  verifyWhatsAppInbound,
+  WhatsAppIngressAuthError,
+} from "./whatsapp-ingress-auth.js";
 
 export interface WhatsAppMessagingIngress {
   readonly url: string;
@@ -48,6 +55,8 @@ export function createWhatsAppMessagingIngress(options: {
   readonly session: CompanionSession;
   readonly host?: string;
   readonly port: number;
+  readonly ingressSecret?: string;
+  readonly replayClient?: PostgresTurnStoreClient;
   /** When set, companion retries unless this returns (HTTP 2xx). */
   readonly processInbound?: (raw: unknown) => Promise<unknown>;
 }): Promise<WhatsAppMessagingIngress> {
@@ -78,6 +87,26 @@ export function createWhatsAppMessagingIngress(options: {
         return;
       }
       if (request.method === "POST" && path === "/inbound") {
+        const rawBody = await readBody(request);
+        try {
+          const webhookId = verifyWhatsAppInbound({
+            headers: request.headers as Record<string, string | string[] | undefined>,
+            rawBody,
+            secret: options.ingressSecret,
+          });
+          if (options.replayClient !== undefined) {
+            await claimWhatsAppIngressReplay(options.replayClient, webhookId);
+          }
+        } catch (error) {
+          if (error instanceof WhatsAppIngressAuthError) {
+            writeJson(response, error.status(), {
+              error: "whatsapp_ingress_denied",
+              reason: error.code,
+            });
+            return;
+          }
+          throw error;
+        }
         const advertised = await evaluateWhatsAppAdvertisement(options.session);
         if (!advertised.ok) {
           writeJson(response, 503, {
@@ -86,7 +115,8 @@ export function createWhatsAppMessagingIngress(options: {
           });
           return;
         }
-        const raw = JSON.parse(await readBody(request)) as unknown;
+        const raw = JSON.parse(rawBody) as unknown;
+        rejectWhatsAppMediaFields(raw);
         if (options.processInbound !== undefined) {
           const result = await options.processInbound(raw);
           writeJson(response, 200, result);
@@ -106,7 +136,8 @@ export function createWhatsAppMessagingIngress(options: {
       const status =
         error instanceof SyntaxError ||
         error instanceof WhatsAppEnvelopeError ||
-        error instanceof LiveWhatsAppConfigError
+        error instanceof LiveWhatsAppConfigError ||
+        (error instanceof Error && error.name === "MediaIngressError")
           ? 400
           : 500;
       writeJson(response, status, { error: "ingress_error", reason: message });
