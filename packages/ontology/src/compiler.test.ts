@@ -108,24 +108,20 @@ test("personal.zoen.ts compileDefinition succeeds with all four families", async
   const compiled = await compileDefinition(
     path.join(fixtureDirectory, "personal.zoen.ts"),
   );
-  const document = JSON.parse(compiled.canonicalJson) as {
-    readonly actions: readonly { readonly id: string }[];
-    readonly computations: readonly { readonly id: string }[];
-    readonly id: string;
-    readonly relations: readonly { readonly id: string }[];
-    readonly types: readonly { readonly id: string }[];
-  };
-  assert.equal(document.id, "personal.memory");
-  assert.notEqual(document.id, "commercial.sales");
-  assert.ok(document.types.length > 0);
-  assert.ok(document.relations.length > 0);
-  assert.ok(document.computations.length > 0);
-  assert.ok(document.actions.length > 0);
-  assert.ok(document.types.some((entry) => entry.id === "personal.Note"));
-  assert.ok(document.relations.some((entry) => entry.id === "personal.body"));
-  assert.ok(document.computations.some((entry) => entry.id === "personal.alwaysTrue"));
+  const definition = compiled.definition;
+  assert.equal(definition.definitionId, "personal.memory");
+  assert.notEqual(definition.definitionId, "commercial.sales");
+  assert.ok(definition.types.length > 0);
+  assert.ok(definition.relations.length > 0);
+  assert.ok(definition.computations.length > 0);
+  assert.ok(definition.actions.length > 0);
+  assert.ok(definition.types.some((entry) => entry.id === "personal.Note"));
+  assert.ok(definition.relations.some((entry) => entry.id === "personal.body"));
+  assert.ok(
+    definition.computations.some((entry) => entry.id === "personal.alwaysTrue"),
+  );
   assert.deepEqual(
-    document.actions.map((action) => action.id).sort(),
+    definition.actions.map((action) => action.id),
     ["personal.createReminder", "personal.writeMemory"],
   );
   assert.doesNotMatch(compiled.canonicalJson, /datetime/);
