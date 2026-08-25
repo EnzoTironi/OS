@@ -83,6 +83,7 @@ const MEDIA_INBOUND_EN =
  * Context: bound 1:1 WhatsApp (and other channels) after membership resolve.
  * Inputs: membership + inbound. Optional model/world/coordinator for tests.
  * Outputs: conversational bubbles and at most one https URL. Empty bubbles mean wait (no send).
+ * A successful generate that never called speak_to_user on non-empty inbound is a lookup fail, not a wait.
  * Side effects: claims the burst on the coordinator and advances attempt phases.
  * Does not invent OrderLines. Does not echo inbound as "Recebi".
  */
@@ -402,6 +403,19 @@ async function reasonTurn(input: {
       input.snapshot,
     );
   }
+  if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
+    return lookupFailScratch(input.locale);
+  }
+  return scratch;
+}
+
+/**
+ * Hard fail after a successful generate that never called speak_to_user.
+ * Lookup copy only. Does not speak World rivals.
+ */
+function lookupFailScratch(locale: InteractionLocale): InteractionScratch {
+  const scratch = createInteractionScratch();
+  scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
   return scratch;
 }
 
@@ -592,7 +606,6 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "Nunca cite tools, agents, models, ToolLoopAgent, spawn_execution.",
         "Não invente OrderLines nem ids de entidade. Rivais convivem. Não junte desacordo num número só.",
         "Não despeje membership, tenant ou entity id no texto. Sem widgets nativos do WhatsApp.",
-        "Se o certo é ficar quieto, não chame speak_to_user.",
       ].join("\n");
     case "en":
       return [
@@ -605,7 +618,6 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "Never mention tools, agents, models, ToolLoopAgent, spawn_execution.",
         "Never invent OrderLines or entity ids. Rival claims coexist. Do not collapse disagreement into one number.",
         "Do not dump membership, tenant, or entity ids into user text. No native WhatsApp widgets.",
-        "If you should stay quiet, call no speak_to_user.",
       ].join("\n");
     default: {
       const exhaustive: never = locale;
