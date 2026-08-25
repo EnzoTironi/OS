@@ -16,4 +16,4 @@ Live WhatsApp compiles `packages/ontology/fixtures/commercial.zoen.ts`. Transpor
 
 `archive/packages/effect-worker` stays out of npm workspaces. Default `tsc` still emits it so `just e2e explain` can start the Restate worker. KIND/web deploy scenarios are optional.
 
-Do not add these folders back to `package.json` workspaces.
+Do not add these folders back to `package.json` workspaces or the live `tsconfig.json` include. Optional adapter unit tests under `archive/domain/fiscal-brazil` use that package’s own `tsconfig.json`.

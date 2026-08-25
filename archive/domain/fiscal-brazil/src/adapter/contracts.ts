@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DefinitionReference } from "../../../sdk/src/gen/zoen/world/v1/world_pb.js";
+import type { DefinitionReference } from "../../../../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 
 export const fiscalProviderSchema = z.enum([
   "plugnotas",

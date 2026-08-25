@@ -13,12 +13,12 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../../../sdk/src/gen/zoen/action/v1/action_pb.js";
-import { EffectService } from "../../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../../../../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { EffectService } from "../../../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
 import {
   ExplanationTargetSchema,
   HistoryService,
-} from "../../../sdk/src/gen/zoen/history/v1/history_pb.js";
+} from "../../../../../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
 import {
   ExactValueSchema,
   LineageRole,
@@ -27,7 +27,7 @@ import {
   type DefinitionReference,
   type SemanticValueResult,
   WorldService,
-} from "../../../sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../../../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   claimRecordedSchema,
   type ConnectorDispatch,
