@@ -1,0 +1,117 @@
+{
+  "accessTokenLifespan": 300,
+  "clients": [
+    {
+      "bearerOnly": true,
+      "clientId": "zoend",
+      "enabled": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "attributes": {},
+      "clientAuthenticatorType": "client-secret",
+      "clientId": "admin-a",
+      "directAccessGrantsEnabled": false,
+      "enabled": true,
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "config": {
+            "access.token.claim": "true",
+            "claim.name": "tenant_id",
+            "claim.value": "tenant.a",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "jsonType.label": "String",
+            "userinfo.token.claim": "false"
+          },
+          "consentRequired": false,
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper"
+        },
+        {
+          "config": {
+            "access.token.claim": "true",
+            "claim.name": "actor_id",
+            "claim.value": "actor.admin.a",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "jsonType.label": "String",
+            "userinfo.token.claim": "false"
+          },
+          "consentRequired": false,
+          "name": "actor_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper"
+        },
+        {
+          "config": {
+            "access.token.claim": "true",
+            "claim.name": "principal_id",
+            "claim.value": "principal.admin.a",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "jsonType.label": "String",
+            "userinfo.token.claim": "false"
+          },
+          "consentRequired": false,
+          "name": "principal_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper"
+        },
+        {
+          "config": {
+            "access.token.claim": "true",
+            "claim.name": "workload_id",
+            "claim.value": "workload.admin.a",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "jsonType.label": "String",
+            "userinfo.token.claim": "false"
+          },
+          "consentRequired": false,
+          "name": "workload_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper"
+        },
+        {
+          "config": {
+            "access.token.claim": "true",
+            "claim.name": "zoen_delegation",
+            "claim.value": "[{\"actionIds\":[\"zoen.definition.activate\",\"commercial.changeCommitment\",\"personal.writeMemory\",\"personal.createReminder\"],\"delegationId\":\"delegation.admin.a\",\"expiresAt\":4102444800,\"notBefore\":0,\"resourceIds\":[\"personal.memory\",\"commercial.sales\",\"commercial.order-line.dirty-quote\"],\"workloadIds\":[\"workload.admin.a\"]}]",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "jsonType.label": "String",
+            "userinfo.token.claim": "false"
+          },
+          "consentRequired": false,
+          "name": "zoen_delegation",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper"
+        },
+        {
+          "config": {
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "included.client.audience": "zoend",
+            "introspection.token.claim": "true"
+          },
+          "consentRequired": false,
+          "name": "zoend-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper"
+        }
+      ],
+      "publicClient": false,
+      "secret": "__ZOEN_OIDC_CLIENT_SECRET__",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false
+    }
+  ],
+  "enabled": true,
+  "realm": "zoen",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "sslRequired": "none"
+}

@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+user="${MINIO_ROOT_USER:-${S3_ACCESS_KEY_ID:-}}"
+pass="${MINIO_ROOT_PASSWORD:-${S3_SECRET_ACCESS_KEY:-}}"
+bucket="${S3_BUCKET:-zoen-projections}"
+if [ -z "$user" ] || [ -z "$pass" ]; then
+  echo "minio-bucket: missing MINIO_ROOT_USER/S3_ACCESS_KEY_ID" >&2
+  exit 1
+fi
+i=0
+while [ "$i" -lt 60 ]; do
+  if curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+if ! curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null; then
+  echo "minio-bucket: minio never became live" >&2
+  exit 1
+fi
+mc alias set local http://127.0.0.1:9000 "$user" "$pass" >/dev/null
+mc mb -p "local/${bucket}"

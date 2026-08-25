@@ -1,0 +1,12 @@
+FROM golang:1.25-bookworm AS build
+WORKDIR /src
+COPY apps/whatsapp-companion/go.mod apps/whatsapp-companion/go.sum ./
+RUN go mod download
+COPY apps/whatsapp-companion/ ./
+RUN CGO_ENABLED=0 go build -o /zoen-whatsapp-companion ./cmd/zoen-whatsapp-companion
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /zoen-whatsapp-companion /usr/local/bin/zoen-whatsapp-companion
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/zoen-whatsapp-companion"]
+CMD ["serve"]

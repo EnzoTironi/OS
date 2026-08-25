@@ -1,0 +1,24 @@
+FROM rust:1.89-bookworm AS build
+WORKDIR /src
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+      pkg-config protobuf-compiler cmake clang binutils \
+    && rm -rf /var/lib/apt/lists/*
+COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
+COPY crates crates
+COPY apps/zoend apps/zoend
+COPY proto proto
+RUN cargo build --locked --release --package zoend \
+    && strip --strip-debug target/release/zoend target/release/zoen-effect-dispatcher \
+         target/release/zoen-http-connector target/release/zoen-projection
+
+FROM ubuntu:24.04
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/target/release/zoend /usr/local/bin/zoend
+COPY --from=build /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
+COPY --from=build /src/target/release/zoen-http-connector /usr/local/bin/zoen-http-connector
+COPY --from=build /src/target/release/zoen-projection /usr/local/bin/zoen-projection
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/zoend"]
