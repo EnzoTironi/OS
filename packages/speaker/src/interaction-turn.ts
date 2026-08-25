@@ -25,19 +25,33 @@ import type {
   TrustedInteractionContext,
 } from "./types.js";
 import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
-import {
-  looksLikeEntityId,
-  type WorldQueryClient,
-  type WorldQuerySnapshot,
+import type {
+  WorldQueryClient,
+  WorldQuerySnapshot,
 } from "./world-query.js";
+
+export type ReasonTurnPath =
+  | "lookupFail"
+  | "threw"
+  | "noModel"
+  | "spoke"
+  | "wait";
+
+export type ReasonTurnGenerate = "ok" | "throw";
 
 /**
  * Live outbound for one Interaction turn.
  * `href` is always present: a URL or null. Empty `bubbles` means wait (no send).
+ * Visible text is speak_to_user, or the single fail copy on noModel/threw/lookupFail.
  */
 export interface OutboundTurn {
   readonly bubbles: string[];
   readonly href: URL | null;
+  readonly reasonTurn: {
+    readonly path: ReasonTurnPath;
+    readonly rivals: number;
+    readonly generate: ReasonTurnGenerate;
+  };
 }
 
 /**
@@ -71,18 +85,6 @@ export interface InteractionTurnInput {
 const FAIL_CLOSED_PT = "não consegui consultar agora";
 const FAIL_CLOSED_EN = "couldn't look that up";
 const STATUS_AFTER_MS = 2000;
-const STATUS_PHRASES_PT = ["vendo aqui", "um seg"] as const;
-const STATUS_PHRASES_EN = ["looking", "one sec"] as const;
-
-export type ReasonTurnPath =
-  | "lookupFail"
-  | "failClosed"
-  | "threw"
-  | "noModel"
-  | "spoke"
-  | "wait";
-
-export type ReasonTurnGenerate = "ok" | "throw";
 
 export interface ReasonTurnLog {
   readonly event: "reasonTurn";
@@ -90,13 +92,6 @@ export interface ReasonTurnLog {
   readonly rivals: number;
   readonly generate: ReasonTurnGenerate;
 }
-
-const EMPTY_INBOUND_PT = "Pode mandar de novo? Não entendi o que você precisa.";
-const EMPTY_INBOUND_EN = "Can you send that again? I didn't catch what you need.";
-const MEDIA_INBOUND_PT =
-  "Ainda não abro arquivo por aqui. Manda em texto?";
-const MEDIA_INBOUND_EN =
-  "I can't open files here yet. Send it as text?";
 
 /**
  * Run one Interaction turn: coordinator stages plus a ToolLoopAgent reasoning step.
@@ -149,22 +144,25 @@ export async function runInteractionTurn(
     snapshot,
     statusAfterMs: input.statusAfterMs ?? STATUS_AFTER_MS,
   });
-  emitReasonTurnLog({
-    generate: reasoned.generate,
-    path: reasoned.path,
-    rivals: snapshot?.rivals.length ?? 0,
-  });
   const scratch = reasoned.scratch;
 
   await coordinator.advanceStage(attemptId, "rendering");
-  const result = renderTurn({
+  const rendered = renderTurn({
     hiddenIds,
     inbound: input.inbound,
     inboundText,
-    locale,
     scratch,
     snapshot,
   });
+  const result: OutboundTurn = {
+    ...rendered,
+    reasonTurn: {
+      generate: reasoned.generate,
+      path: reasoned.path,
+      rivals: snapshot?.rivals.length ?? 0,
+    },
+  };
+  emitReasonTurnLog(result.reasonTurn);
 
   await coordinator.advanceStage(attemptId, "planning_delivery");
   return result;
@@ -405,16 +403,10 @@ async function reasonTurn(input: {
   readonly statusAfterMs: number;
 }): Promise<ReasonTurnResult> {
   if (input.model === undefined) {
-    const scratch = failClosedScratch(
-      input.locale,
-      input.inbound,
-      input.inboundText,
-      input.snapshot,
-    );
     return {
       generate: "ok",
-      path: failClosedPath("noModel", scratch, input.locale),
-      scratch,
+      path: "noModel",
+      scratch: failCopyScratch(input.locale),
     };
   }
   const scratch = createInteractionScratch();
@@ -439,48 +431,29 @@ async function reasonTurn(input: {
       ),
     });
   } catch {
-    const failed = failClosedScratch(
-      input.locale,
-      input.inbound,
-      input.inboundText,
-      input.snapshot,
-    );
-    applySlowStatus({
-      locale: input.locale,
-      scratch: failed,
-      seed: input.inboundText,
-      slow:
-        Date.now() - started > input.statusAfterMs || failed.slowWork,
-    });
     return {
       generate: "throw",
-      path: failClosedPath("threw", failed, input.locale),
-      scratch: failed,
+      path: "threw",
+      scratch: failCopyScratch(input.locale),
     };
   }
-  const slow =
-    Date.now() - started > input.statusAfterMs || scratch.slowWork;
   if (scratch.waited) {
     scratch.bubbles.length = 0;
     scratch.href = undefined;
     return { generate: "ok", path: "wait", scratch };
   }
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
-    const failed = lookupFailScratch(input.locale);
-    applySlowStatus({
-      locale: input.locale,
-      scratch: failed,
-      seed: input.inboundText,
-      slow,
-    });
-    return { generate: "ok", path: "lookupFail", scratch: failed };
+    return {
+      generate: "ok",
+      path: "lookupFail",
+      scratch: failCopyScratch(input.locale),
+    };
   }
-  applySlowStatus({
-    locale: input.locale,
-    scratch,
-    seed: input.inboundText,
-    slow,
-  });
+  const slow =
+    Date.now() - started > input.statusAfterMs || scratch.slowWork;
+  if (slow && scratch.bubbles.length > 0) {
+    applySlowStatus(scratch, input.locale, input.inboundText);
+  }
   return {
     generate: "ok",
     path: scratch.bubbles.length === 0 ? "wait" : "spoke",
@@ -488,86 +461,39 @@ async function reasonTurn(input: {
   };
 }
 
-function failClosedPath(
-  cause: "noModel" | "threw",
-  scratch: InteractionScratch,
-  locale: InteractionLocale,
-): ReasonTurnPath {
-  const copy = locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
-  if (scratch.bubbles.length === 1 && scratch.bubbles[0] === copy) {
-    return "failClosed";
-  }
-  return cause;
-}
-
-let lastReasonTurnLogValue: ReasonTurnLog | undefined;
-
-function emitReasonTurnLog(log: Omit<ReasonTurnLog, "event">): void {
+function emitReasonTurnLog(reasonTurn: OutboundTurn["reasonTurn"]): void {
   const line: ReasonTurnLog = {
     event: "reasonTurn",
-    path: log.path,
-    rivals: log.rivals,
-    generate: log.generate,
+    path: reasonTurn.path,
+    rivals: reasonTurn.rivals,
+    generate: reasonTurn.generate,
   };
-  lastReasonTurnLogValue = line;
   process.stderr.write(`${JSON.stringify(line)}\n`);
 }
 
-/** Last `reasonTurn` stderr line. Tests read this instead of patching stderr. */
-export function lastReasonTurnLog(): ReasonTurnLog | undefined {
-  return lastReasonTurnLogValue;
-}
-
-function applySlowStatus(input: {
-  readonly locale: InteractionLocale;
-  readonly scratch: InteractionScratch;
-  readonly seed: string;
-  readonly slow: boolean;
-}): void {
-  if (!input.slow || input.scratch.waited) {
-    return;
-  }
-  if (input.scratch.bubbles.length === 0) {
-    return;
-  }
-  const first = input.scratch.bubbles[0];
-  if (first !== undefined && isStatusPhrase(first, input.locale)) {
-    return;
-  }
-  input.scratch.bubbles.unshift(pickStatusPhrase(input.locale, input.seed));
-}
-
-function statusPhrases(
+function applySlowStatus(
+  scratch: InteractionScratch,
   locale: InteractionLocale,
-): readonly ["vendo aqui", "um seg"] | readonly ["looking", "one sec"] {
-  switch (locale) {
-    case "pt":
-      return STATUS_PHRASES_PT;
-    case "en":
-      return STATUS_PHRASES_EN;
-    default: {
-      const exhaustive: never = locale;
-      return exhaustive;
-    }
+  seed: string,
+): void {
+  const first = scratch.bubbles[0];
+  if (first !== undefined && isStatusPhrase(first, locale)) {
+    return;
   }
+  scratch.bubbles.unshift(pickStatusPhrase(locale, seed));
 }
 
 function pickStatusPhrase(locale: InteractionLocale, seed: string): string {
-  const phrases = statusPhrases(locale);
   let sum = 0;
   for (const char of seed) {
     sum = (sum + char.charCodeAt(0)) | 0;
   }
-  const index = Math.abs(sum) % phrases.length;
-  const phrase = phrases[index];
-  if (phrase !== undefined) {
-    return phrase;
-  }
+  const even = Math.abs(sum) % 2 === 0;
   switch (locale) {
-    case "pt":
-      return "vendo aqui";
     case "en":
-      return "looking";
+      return even ? "looking" : "one sec";
+    case "pt":
+      return even ? "vendo aqui" : "um seg";
     default: {
       const exhaustive: never = locale;
       return exhaustive;
@@ -577,65 +503,20 @@ function pickStatusPhrase(locale: InteractionLocale, seed: string): string {
 
 function isStatusPhrase(text: string, locale: InteractionLocale): boolean {
   const needle = text.trim();
-  for (const phrase of statusPhrases(locale)) {
-    if (phrase === needle) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Hard fail after a successful generate that never called speak_to_user.
- * Lookup copy only. Does not speak World rivals.
- */
-function lookupFailScratch(locale: InteractionLocale): InteractionScratch {
-  const scratch = createInteractionScratch();
-  scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
-  return scratch;
-}
-
-function failClosedScratch(
-  locale: InteractionLocale,
-  inbound: InteractionInbound,
-  inboundText: string,
-  snapshot: WorldQuerySnapshot | undefined,
-): InteractionScratch {
-  const scratch = createInteractionScratch();
-  const rivalLabels = (snapshot?.rivals ?? [])
-    .map((rival) => rival.label.trim())
-    .filter((label) => label.length > 0 && !looksLikeEntityId(label));
-  switch (inbound.kind) {
-    case "media":
-      scratch.bubbles.push(
-        locale === "pt" ? MEDIA_INBOUND_PT : MEDIA_INBOUND_EN,
-      );
-      return scratch;
-    case "text":
-      break;
+  switch (locale) {
+    case "en":
+      return needle === "looking" || needle === "one sec";
+    case "pt":
+      return needle === "vendo aqui" || needle === "um seg";
     default: {
-      const exhaustive: never = inbound;
+      const exhaustive: never = locale;
       return exhaustive;
     }
   }
-  if (inboundText.trim().length === 0) {
-    scratch.bubbles.push(locale === "pt" ? EMPTY_INBOUND_PT : EMPTY_INBOUND_EN);
-    return scratch;
-  }
-  if (rivalLabels.length >= 2) {
-    scratch.bubbles.push(
-      locale === "pt"
-        ? "Tem mais de uma leitura e as duas ficam de pé."
-        : "There is more than one reading, and both still stand.",
-    );
-    for (const label of rivalLabels) {
-      scratch.bubbles.push(label);
-    }
-    if (snapshot?.href !== undefined) {
-      scratch.href = snapshot.href;
-    }
-    return scratch;
-  }
+}
+
+function failCopyScratch(locale: InteractionLocale): InteractionScratch {
+  const scratch = createInteractionScratch();
   scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
   return scratch;
 }
@@ -644,10 +525,9 @@ function renderTurn(input: {
   readonly hiddenIds: readonly string[];
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
-  readonly locale: InteractionLocale;
   readonly scratch: InteractionScratch;
   readonly snapshot: WorldQuerySnapshot | undefined;
-}): OutboundTurn {
+}): { readonly bubbles: string[]; readonly href: URL | null } {
   const spoken: string[] = [];
   for (const raw of input.scratch.bubbles) {
     for (const piece of splitSpokenBubbles(raw)) {
@@ -667,17 +547,6 @@ function renderTurn(input: {
   const stripped = emptyInbound
     ? spoken.filter((bubble) => !containsHiddenId(bubble, input.hiddenIds))
     : spoken;
-  if (stripped.length === 0 && input.scratch.bubbles.length === 0) {
-    return { bubbles: [], href };
-  }
-  if (stripped.length === 0) {
-    return {
-      bubbles: [
-        input.locale === "pt" ? EMPTY_INBOUND_PT : EMPTY_INBOUND_EN,
-      ],
-      href,
-    };
-  }
   return { bubbles: stripped, href };
 }
 

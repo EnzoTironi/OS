@@ -13,12 +13,12 @@ import {
 } from "./interaction-tools.js";
 import {
   interactionInstructions,
-  lastReasonTurnLog,
   outboundBubbles,
   reasoningPrompt,
   runInteractionTurn,
   type InteractionInbound,
-  type ReasonTurnLog,
+  type OutboundTurn,
+  type ReasonTurnGenerate,
   type ReasonTurnPath,
 } from "./interaction-turn.js";
 import {
@@ -80,7 +80,8 @@ test("PT inbound does not contain Recebi", async () => {
     assert.doesNotMatch(bubble, /membership\.wa\.enzo/);
   }
   assert.equal(outboundBubbles(result).join("\n").includes("Recebi"), false);
-  assertReasonTurnLog(requireReasonTurnLog(), "failClosed", 0, "ok");
+  assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
+  assertReasonTurn(result, "noModel", 0, "ok");
 });
 
 test("empty inbound does not dump entity ids", async () => {
@@ -104,7 +105,8 @@ test("empty inbound does not dump entity ids", async () => {
   assert.doesNotMatch(text, /membership\.wa\.enzo/);
   assert.doesNotMatch(text, /Recebi/i);
   assert.equal(result.href, null);
-  assert.ok(text.trim().length > 0);
+  assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
+  assertReasonTurn(result, "noModel", 1, "ok");
 });
 
 test("media inbound stays PT and does not dump entity ids", async () => {
@@ -127,10 +129,11 @@ test("media inbound stays PT and does not dump entity ids", async () => {
   assert.equal(result.href, null);
   assert.doesNotMatch(text, /Recebi/i);
   assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
-  assert.match(text, /texto|arquivo/i);
+  assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
+  assertReasonTurn(result, "noModel", 0, "ok");
 });
 
-test("two ClaimRead rows without RIVAL speak fail-closed PT rivals", async () => {
+test("no model with two World rivals is fail copy, not host rival speech", async () => {
   const snapshot = snapshotFromClaims(supportingQuantityClaims());
   assert.ok(snapshot.rivals.length >= 2);
   const world: WorldQueryClient = {
@@ -144,21 +147,12 @@ test("two ClaimRead rows without RIVAL speak fail-closed PT rivals", async () =>
     world,
   });
   const text = outboundBubbles(result).join("\n");
-  assert.equal(
-    result.bubbles[0],
-    "Tem mais de uma leitura e as duas ficam de pé.",
-  );
-  assert.ok(result.bubbles.includes("source.sheet"));
-  assert.ok(result.bubbles.includes("source.erp"));
+  assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
+  assert.doesNotMatch(text, /Tem mais de uma leitura/);
+  assert.doesNotMatch(text, /source\.sheet|source\.erp/);
   assert.doesNotMatch(text, /Recebi/i);
   assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
-  assert.doesNotMatch(text, /não consegui consultar agora/i);
-  assertReasonTurnLog(
-    requireReasonTurnLog(),
-    "noModel",
-    snapshot.rivals.length,
-    "ok",
-  );
+  assertReasonTurn(result, "noModel", snapshot.rivals.length, "ok");
 });
 
 test("PT instructions ban helpdesk greetings and keep speak_to_user as the only voice", () => {
@@ -248,12 +242,7 @@ test("mocked turn with two World rivals speaks the readings, not a helpdesk gree
   assert.match(sent, /12 each/);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|Recebi/i);
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
-  assertReasonTurnLog(
-    requireReasonTurnLog(),
-    "spoke",
-    snapshot.rivals.length,
-    "ok",
-  );
+  assertReasonTurn(result, "spoke", snapshot.rivals.length, "ok");
 });
 
 test("empty inbound with a silent model waits (empty bubbles)", async () => {
@@ -266,7 +255,7 @@ test("empty inbound with a silent model waits (empty bubbles)", async () => {
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
-  assertReasonTurnLog(requireReasonTurnLog(), "wait", 2, "ok");
+  assertReasonTurn(result, "wait", 2, "ok");
 });
 
 test("silent model with two World rivals fail-closes lookup copy, not rival speech", async () => {
@@ -284,7 +273,7 @@ test("silent model with two World rivals fail-closes lookup copy, not rival spee
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
   assert.doesNotMatch(sent, /Tenta de novo/i);
-  assertReasonTurnLog(requireReasonTurnLog(), "lookupFail", 2, "ok");
+  assertReasonTurn(result, "lookupFail", 2, "ok");
 });
 
 test("spawn_execution with injected executeWork records executionNotes and does not leak them into bubbles", async () => {
@@ -373,13 +362,13 @@ test("at most one href survives a double mint", async () => {
         return {
           content: [
             {
-              input: JSON.stringify({ url: "https://app.zoen.local/a" }),
+              input: JSON.stringify({ url: "https://example.com/a" }),
               toolCallId: "call_href_1",
               toolName: "mint_href",
               type: "tool-call",
             },
             {
-              input: JSON.stringify({ url: "https://app.zoen.local/b" }),
+              input: JSON.stringify({ url: "https://example.com/b" }),
               toolCallId: "call_href_2",
               toolName: "mint_href",
               type: "tool-call",
@@ -412,7 +401,7 @@ test("at most one href survives a double mint", async () => {
   const sent = outboundBubbles(result).join("\n");
   assert.equal(sent.split("https://").length - 1, 1);
   assert.ok(result.href instanceof URL);
-  assert.equal(result.href.href, "https://app.zoen.local/a");
+  assert.equal(result.href.href, "https://example.com/a");
   assert.match(sent, /Segue o resumo/);
   assert.doesNotMatch(sent, /Recebi/i);
 });
@@ -442,7 +431,7 @@ test("mocked oi is a short greeting, not helpdesk", async () => {
   assert.match(sent, /^oi$/im);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help|Recebi/i);
   assert.doesNotMatch(sent, /vendo aqui|um seg/);
-  assertReasonTurnLog(requireReasonTurnLog(), "spoke", 0, "ok");
+  assertReasonTurn(result, "spoke", 0, "ok");
 });
 
 test("mocked valeu calls wait and sends empty bubbles", async () => {
@@ -477,7 +466,7 @@ test("mocked valeu calls wait and sends empty bubbles", async () => {
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
-  assertReasonTurnLog(requireReasonTurnLog(), "wait", 0, "ok");
+  assertReasonTurn(result, "wait", 0, "ok");
 });
 
 test("wait tool produces no Recebi and no helpdesk", async () => {
@@ -503,10 +492,10 @@ test("wait tool produces no Recebi and no helpdesk", async () => {
   assert.equal(sent, "");
   assert.doesNotMatch(sent, /Recebi/i);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
-  assertReasonTurnLog(requireReasonTurnLog(), "wait", 0, "ok");
+  assertReasonTurn(result, "wait", 0, "ok");
 });
 
-test("reasonTurn writes one stderr JSON line", async () => {
+test("reasonTurn writes one stderr JSON line from the turn result", async () => {
   const chunks: string[] = [];
   const original = process.stderr.write;
   process.stderr.write = ((chunk: string | Uint8Array) => {
@@ -515,8 +504,9 @@ test("reasonTurn writes one stderr JSON line", async () => {
     );
     return true;
   }) as typeof original;
+  let result: OutboundTurn;
   try {
-    await runInteractionTurn({
+    result = await runInteractionTurn({
       inbound: textInbound("oi"),
       membership: membership("stderr-log"),
       model: speakThenStopModel("oi"),
@@ -524,6 +514,7 @@ test("reasonTurn writes one stderr JSON line", async () => {
   } finally {
     process.stderr.write = original;
   }
+  assertReasonTurn(result, "spoke", 0, "ok");
   const lines = chunks
     .join("")
     .split("\n")
@@ -532,8 +523,37 @@ test("reasonTurn writes one stderr JSON line", async () => {
   assert.equal(lines.length, 1);
   assert.equal(
     lines[0],
-    '{"event":"reasonTurn","path":"spoke","rivals":0,"generate":"ok"}',
+    JSON.stringify({
+      event: "reasonTurn",
+      path: result.reasonTurn.path,
+      rivals: result.reasonTurn.rivals,
+      generate: result.reasonTurn.generate,
+    }),
   );
+});
+
+test("slow wait stays silent", async () => {
+  const result = await runInteractionTurn({
+    inbound: textInbound("valeu"),
+    membership: membership("slow-wait"),
+    model: delayedWaitModel(20),
+    statusAfterMs: 5,
+  });
+  assert.deepEqual(result.bubbles, []);
+  assert.equal(result.href, null);
+  assertReasonTurn(result, "wait", 0, "ok");
+});
+
+test("slow lookupFail does not prepend status", async () => {
+  const result = await runInteractionTurn({
+    inbound: textInbound("quanto ficou a cotacao"),
+    membership: membership("slow-lookup"),
+    model: delayedSilentModel(20),
+    statusAfterMs: 5,
+    world: twoRivalWorld(),
+  });
+  assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
+  assertReasonTurn(result, "lookupFail", 2, "ok");
 });
 
 test("slow generate prepends one status bubble, fast path does not", async () => {
@@ -561,9 +581,11 @@ test("slow generate prepends one status bubble, fast path does not", async () =>
     1,
   );
   assert.equal(slow.bubbles.includes("ta aqui"), true);
+  assertReasonTurn(fast, "spoke", 0, "ok");
+  assertReasonTurn(slow, "spoke", 0, "ok");
 });
 
-test("generate throw logs failClosed", async () => {
+test("generate throw is fail copy, not rival speech", async () => {
   const model = new MockLanguageModelV3({
     doGenerate: async () => {
       throw new Error("generate failed");
@@ -573,9 +595,13 @@ test("generate throw logs failClosed", async () => {
     inbound: textInbound("quanto ficou a cotacao"),
     membership: membership("threw"),
     model,
+    world: twoRivalWorld(),
   });
+  const sent = outboundBubbles(result).join("\n");
   assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
-  assertReasonTurnLog(requireReasonTurnLog(), "failClosed", 0, "throw");
+  assert.doesNotMatch(sent, /Tem mais de uma leitura/);
+  assert.doesNotMatch(sent, /10 each|12 each/);
+  assertReasonTurn(result, "threw", 2, "throw");
 });
 
 test("slow spawn_execution prepends one status bubble", async () => {
@@ -616,6 +642,7 @@ test("slow spawn_execution prepends one status bubble", async () => {
   });
   assert.match(result.bubbles[0] ?? "", /^(vendo aqui|um seg)$/);
   assert.match(outboundBubbles(result).join("\n"), /leituras/);
+  assertReasonTurn(result, "spoke", 0, "ok");
 });
 
 function silentStopModel(): MockLanguageModelV3 {
@@ -680,6 +707,41 @@ function speakThenStopModel(text: string): MockLanguageModelV3 {
   });
 }
 
+function delayedWaitModel(ms: number): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        await delay(ms);
+        return {
+          content: [
+            {
+              input: JSON.stringify({}),
+              toolCallId: "call_wait",
+              toolName: "wait",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      return stopCall();
+    },
+  });
+}
+
+function delayedSilentModel(ms: number): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      await delay(ms);
+      return stopCall();
+    },
+  });
+}
+
 function delayedSpeakModel(text: string, ms: number): MockLanguageModelV3 {
   let step = 0;
   return new MockLanguageModelV3({
@@ -725,23 +787,15 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-function requireReasonTurnLog(): ReasonTurnLog {
-  const log = lastReasonTurnLog();
-  assert.ok(log !== undefined, "expected a reasonTurn log line");
-  return log;
-}
-
-function assertReasonTurnLog(
-  log: ReasonTurnLog,
+function assertReasonTurn(
+  result: OutboundTurn,
   path: ReasonTurnPath,
   rivals: number,
-  generate: ReasonTurnLog["generate"],
+  generate: ReasonTurnGenerate,
 ): void {
-  assert.equal(log.event, "reasonTurn");
-  assert.equal(log.path, path);
-  assert.equal(log.rivals, rivals);
-  assert.equal(log.generate, generate);
-  assert.equal(Object.keys(log).sort().join(","), "event,generate,path,rivals");
+  assert.equal(result.reasonTurn.path, path);
+  assert.equal(result.reasonTurn.rivals, rivals);
+  assert.equal(result.reasonTurn.generate, generate);
 }
 
 function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {
