@@ -1,7 +1,8 @@
 -- Least-privilege grants for zoen_projection when that role exists.
--- Role creation is cluster init (Helm 001-roles.sql / scenario init.sql).
+-- Role creation is cluster init or the Helm projection-role Job.
 -- zoen_app owns the tables and can GRANT; it cannot CREATE ROLE.
--- Clusters that never created the role keep working: this block no-ops.
+-- PostgresAuthorityStore::connect re-runs this file after migrate so a
+-- role created after sqlx records 0021 still receives the grants.
 
 DO $$
 BEGIN

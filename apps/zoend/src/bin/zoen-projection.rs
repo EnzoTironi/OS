@@ -17,16 +17,21 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     }
     let migrate_url = env::var("DATABASE_URL")?;
     PostgresAuthorityStore::connect(&migrate_url).await?;
-    let worker_url = env::var("ZOEN_PROJECTION_DATABASE_URL")
-        .ok()
-        .filter(|url| !url.is_empty());
-    if worker_url.is_some() {
-        eprintln!("zoen-projection: using ZOEN_PROJECTION_DATABASE_URL");
-    } else {
-        eprintln!("zoen-projection: ZOEN_PROJECTION_DATABASE_URL unset; using DATABASE_URL");
-    }
-    let store =
-        PostgresAuthorityStore::connect_pool(worker_url.as_deref().unwrap_or(&migrate_url)).await?;
+    let worker_url = projection_worker_url(env::var("ZOEN_PROJECTION_DATABASE_URL"))?;
+    let store = match &worker_url {
+        Some(url) => {
+            eprintln!("zoen-projection: worker pool from ZOEN_PROJECTION_DATABASE_URL");
+            let store = PostgresAuthorityStore::connect_pool(url).await?;
+            store.require_projection_cannot_write_authority().await?;
+            store
+        }
+        None => {
+            eprintln!(
+                "zoen-projection: ZOEN_PROJECTION_DATABASE_URL unset; worker pool from DATABASE_URL"
+            );
+            PostgresAuthorityStore::connect_pool(&migrate_url).await?
+        }
+    };
     let object_store = object_store_config()?.ok_or("S3 storage is required for projection")?;
     let worker = ProjectionWorker::new(store.pool(), &object_store)?;
     match arguments.as_slice() {
@@ -79,6 +84,17 @@ async fn run_continuously(
     }
 }
 
+fn projection_worker_url(
+    configured: Result<String, env::VarError>,
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    match configured {
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(error) => Err(error.into()),
+        Ok(url) if url.is_empty() => Err("ZOEN_PROJECTION_DATABASE_URL is set but empty".into()),
+        Ok(url) => Ok(Some(url)),
+    }
+}
+
 fn projection_tenants() -> Result<Vec<TenantId>, Box<dyn Error + Send + Sync>> {
     let tenants = env::var("ZOEN_PROJECTION_TENANTS")?
         .split(',')
@@ -115,13 +131,45 @@ fn print_help() {
 
 The default command polls tenants from ZOEN_PROJECTION_TENANTS.
 
-DATABASE_URL must be a role that can migrate (zoen_app).
-ZOEN_PROJECTION_DATABASE_URL, when set, is the worker pool. Use zoen_projection
-so the process cannot write authority tables. Unset falls back to DATABASE_URL.
+DATABASE_URL is the migrate credential (zoen_app) and stays in this process.
+ZOEN_PROJECTION_DATABASE_URL is the worker pool. When set it must be non-empty
+and must not be able to INSERT into semantic_claims. Unset uses DATABASE_URL
+as the worker pool for compose scenarios that never create zoen_projection.
 
 Examples:
   ZOEN_PROJECTION_TENANTS=tenant.a zoen-projection
   zoen-projection --once tenant.a
   zoen-projection --rebuild tenant.a"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{env, projection_worker_url};
+
+    #[test]
+    fn unset_projection_url_falls_back() {
+        assert_eq!(
+            projection_worker_url(Err(env::VarError::NotPresent))
+                .expect("unset")
+                .as_deref(),
+            None
+        );
+    }
+
+    #[test]
+    fn empty_projection_url_is_rejected() {
+        let error = projection_worker_url(Ok(String::new())).expect_err("empty");
+        assert!(error.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn set_projection_url_is_used() {
+        assert_eq!(
+            projection_worker_url(Ok("postgres://zoen_projection@db/zoen".to_owned()))
+                .expect("set")
+                .as_deref(),
+            Some("postgres://zoen_projection@db/zoen")
+        );
+    }
 }

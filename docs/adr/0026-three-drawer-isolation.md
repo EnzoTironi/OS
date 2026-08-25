@@ -17,13 +17,11 @@ Durable state has three drawers. Each has one write role.
 
 1. **Authority.** PostgreSQL 18. Role `zoen_app`. `zoend` and `zoen-effect-dispatcher` write here. Tables listed under `authority.postgresTables` are canonical. They are not rebuilt from Parquet or Restate journals.
 
-2. **Evidence.** Immutable Arrow/Parquet objects plus DataFusion. PostgreSQL holds only rebuildable `projection_manifests` and `projection_watermarks`. Role `zoen_projection` may `SELECT` any public table and may `INSERT`/`UPDATE` only those two watermark tables. It has no `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` on authority tables. Helm creates the role for in-cluster Postgres. Migration `0021_projection_role_grants.sql` applies the table grants when the role exists and no-ops otherwise.
+2. **Evidence.** Immutable Arrow/Parquet objects plus DataFusion. PostgreSQL holds only rebuildable `projection_manifests` and `projection_watermarks`. Role `zoen_projection` may `SELECT` any public table and may `INSERT`/`UPDATE` only those two watermark tables. It has no `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` on authority tables. Helm init SQL and a `post-install,pre-upgrade` Job create the role as the Postgres admin (`CREATE ROLE IF NOT EXISTS`, `CONNECT`, schema `USAGE`). `PostgresAuthorityStore::connect` re-applies migration `0021` after every migrate so a role created after sqlx records that checksum still receives table grants.
 
 3. **Orchestration.** Restate plus `packages/effect-worker`. Helm runs `node /app/dist/packages/effect-worker/src/worker.js`. Journals are rebuildable. Restate retry must not become semantic truth.
 
-`zoen-projection` migrates with `DATABASE_URL` (`zoen_app`) and opens the worker pool from `ZOEN_PROJECTION_DATABASE_URL` when that variable is non-empty. Helm always sets the projection URL from secret key `projectionDatabaseUrl`. Compose scenarios that never create the role may omit the variable and keep using `DATABASE_URL`.
-
-Existing clusters must `CREATE ROLE zoen_projection` before pointing the worker at it. `zoen_app` cannot create roles. Init SQL owns `CONNECT` and schema `USAGE`. The migration owns table grants.
+`zoen-projection` migrates with `DATABASE_URL` (`zoen_app`). That migrate credential stays in the process. The worker pool comes from `ZOEN_PROJECTION_DATABASE_URL` when that variable is present. A present empty value fails closed. A URL that can `INSERT` into `semantic_claims` fails closed. Compose scenarios that never create the role omit the variable and keep using `DATABASE_URL` as the worker pool. Helm always injects the projection URL from secret key `projectionDatabaseUrl`.
 
 ## Consequences
 

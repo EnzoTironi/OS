@@ -69,6 +69,8 @@ pub use workload_credential_store::{
 pub enum PostgresInitError {
     Connect(sqlx::Error),
     Migrate(sqlx::migrate::MigrateError),
+    Grant(sqlx::Error),
+    PrivilegedProjection,
 }
 
 impl Display for PostgresInitError {
@@ -76,6 +78,13 @@ impl Display for PostgresInitError {
         match self {
             Self::Connect(error) => write!(formatter, "failed to connect to PostgreSQL: {error}"),
             Self::Migrate(error) => write!(formatter, "failed to migrate PostgreSQL: {error}"),
+            Self::Grant(error) => {
+                write!(formatter, "failed to apply zoen_projection grants: {error}")
+            }
+            Self::PrivilegedProjection => write!(
+                formatter,
+                "ZOEN_PROJECTION_DATABASE_URL can INSERT into semantic_claims"
+            ),
         }
     }
 }
@@ -83,8 +92,9 @@ impl Display for PostgresInitError {
 impl Error for PostgresInitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Connect(error) => Some(error),
+            Self::Connect(error) | Self::Grant(error) => Some(error),
             Self::Migrate(error) => Some(error),
+            Self::PrivilegedProjection => None,
         }
     }
 }
@@ -101,6 +111,7 @@ impl PostgresAuthorityStore {
             .run(&store.pool)
             .await
             .map_err(PostgresInitError::Migrate)?;
+        store.apply_projection_role_grants().await?;
         Ok(store)
     }
 
@@ -120,6 +131,37 @@ impl PostgresAuthorityStore {
 
     pub fn pool(&self) -> PgPool {
         self.pool.clone()
+    }
+
+    /// Re-apply `zoen_projection` table grants when that role exists.
+    ///
+    /// sqlx records migration `0021` once. A role created later still
+    /// needs the same GRANT/REVOKE on the next `connect`.
+    pub async fn apply_projection_role_grants(&self) -> Result<(), PostgresInitError> {
+        sqlx::query(include_str!(
+            "../migrations/0021_projection_role_grants.sql"
+        ))
+        .execute(&self.pool)
+        .await
+        .map_err(PostgresInitError::Grant)?;
+        Ok(())
+    }
+
+    /// Fail closed when this pool can write `semantic_claims`.
+    ///
+    /// Call on the worker pool after `ZOEN_PROJECTION_DATABASE_URL` is set
+    /// so an empty or `zoen_app` URL cannot start the projection process.
+    pub async fn require_projection_cannot_write_authority(&self) -> Result<(), PostgresInitError> {
+        let can_insert: bool =
+            sqlx::query_scalar("SELECT has_table_privilege('semantic_claims', 'INSERT')")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(PostgresInitError::Connect)?;
+        if can_insert {
+            Err(PostgresInitError::PrivilegedProjection)
+        } else {
+            Ok(())
+        }
     }
 }
 
