@@ -14,7 +14,7 @@ import type {
   VariableDeclaration,
 } from "@babel/types";
 import { z } from "zod";
-import { canonicalizeJson } from "./jcs.js";
+import canonicalize from "canonicalize";
 import type {
   ActionDefinition,
   ActionEffect,
@@ -245,7 +245,10 @@ export async function compileDefinition(
   const raw = rawBundleSchema.parse(authorValue);
   validateBundle(raw);
   const definition = normalize(raw);
-  const canonicalJson = canonicalizeJson(JSON.stringify(definition));
+  const canonicalJson = canonicalize(definition);
+  if (typeof canonicalJson !== "string") {
+    throw new Error("definition is not JSON-canonicalizable");
+  }
   const digest = createHash("sha256").update(canonicalJson).digest("hex");
 
   return { canonicalJson, definition, digest };

@@ -15,7 +15,10 @@ import {
 } from "./whatsapp-contact-loop.js";
 import { createWhatsAppMessagingIngress } from "./whatsapp-ingress.js";
 import { parseWhatsAppDoorE164 } from "./adapters/whatsapp-live.js";
-import { readWhatsAppIngressSecret } from "./whatsapp-ingress-auth.js";
+import {
+  createPostgresIngressReplayStore,
+  readWhatsAppIngressSecret,
+} from "./whatsapp-ingress-auth.js";
 
 async function main(): Promise<void> {
   const doorE164 = parseWhatsAppDoorE164(process.env.ZOEN_WHATSAPP_DOOR_E164);
@@ -64,11 +67,11 @@ async function main(): Promise<void> {
     host,
     ingressSecret,
     port,
-    replayClient: {
+    replay: createPostgresIngressReplayStore({
       query: (text, values) => pg.query(text, values as unknown[] | undefined),
-    },
+    }),
     processInbound: async (raw) => {
-      const result = await loop.handleRaw(raw);
+      const result = await loop.acknowledgeRaw(raw);
       process.stdout.write(`${JSON.stringify({ event: "inbound", result })}\n`);
       return result;
     },

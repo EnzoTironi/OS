@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{Extension, Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -18,7 +18,10 @@ use zoen_core::{
 };
 
 use crate::auth::SessionRegistry;
-use crate::ingress_hmac::constant_time_eq;
+use crate::identity_admin_auth::{
+    IdentityAdminActor, authenticate_identity_admin, identity_error_response, require_account,
+    require_machine,
+};
 
 #[derive(Clone)]
 pub struct IdentityAdminState {
@@ -64,32 +67,18 @@ async fn require_identity_admin_auth(
         .headers()
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    if authorize_identity_admin(&state, authorization) {
-        return next.run(request).await;
-    }
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(serde_json::json!({"error": "unauthenticated"})),
-    )
-        .into_response()
-}
-
-fn authorize_identity_admin(state: &IdentityAdminState, authorization: Option<&str>) -> bool {
-    if state.sessions.verify_bearer(authorization).is_ok() {
-        return true;
-    }
-    let Some(expected) = state
-        .admin_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    let Some(actor) =
+        authenticate_identity_admin(&state.sessions, state.admin_token.as_deref(), authorization)
     else {
-        return false;
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthenticated"})),
+        )
+            .into_response();
     };
-    let Some(provided) = authorization.and_then(|value| value.strip_prefix("Bearer ")) else {
-        return false;
-    };
-    constant_time_eq(expected.as_bytes(), provided.as_bytes())
+    let mut request = request;
+    request.extensions_mut().insert(actor);
+    next.run(request).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -245,8 +234,12 @@ struct MergePlanJson {
 
 async fn ensure_provisional(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<SubjectBody>,
 ) -> impl IntoResponse {
+    if let Some(error) = require_machine(&actor) {
+        return error;
+    }
     let subject = match parse_subject(&body.provider, &body.subject_key) {
         Ok(subject) => subject,
         Err(error) => return identity_error(error),
@@ -269,12 +262,16 @@ async fn ensure_provisional(
 
 async fn verify_binding(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<AccountBody>,
 ) -> impl IntoResponse {
     let account_id = match ZoenAccountId::parse(body.account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
     };
+    if let Some(error) = require_account(&state.identity, &actor, &account_id).await {
+        return error;
+    }
     match state
         .identity
         .verify_binding(account_id, BindingProof::HarnessVerified)
@@ -287,12 +284,16 @@ async fn verify_binding(
 
 async fn bind_verified(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<BindBody>,
 ) -> impl IntoResponse {
     let account_id = match ZoenAccountId::parse(body.account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
     };
+    if let Some(error) = require_account(&state.identity, &actor, &account_id).await {
+        return error;
+    }
     let subject = match parse_subject(&body.provider, &body.subject_key) {
         Ok(subject) => subject,
         Err(error) => return identity_error(error),
@@ -312,12 +313,20 @@ async fn bind_verified(
 
 async fn unbind(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<UnbindBody>,
 ) -> impl IntoResponse {
     let binding_id = match zoen_core::ExternalBindingId::parse(body.binding_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
     };
+    let binding = match state.identity.get_binding(&binding_id).await {
+        Ok(binding) => binding,
+        Err(error) => return identity_error(error),
+    };
+    if let Some(error) = require_account(&state.identity, &actor, &binding.account_id).await {
+        return error;
+    }
     let reason = match UnbindReason::parse(&body.reason) {
         Ok(reason) => reason,
         Err(error) => return identity_error(error),
@@ -330,12 +339,16 @@ async fn unbind(
 
 async fn ensure_personal(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<AccountBody>,
 ) -> impl IntoResponse {
     let account_id = match ZoenAccountId::parse(body.account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
     };
+    if let Some(error) = require_account(&state.identity, &actor, &account_id).await {
+        return error;
+    }
     match state.identity.ensure_personal_workspace(account_id).await {
         Ok(membership) => (StatusCode::OK, Json(membership_json(&membership))).into_response(),
         Err(error) => identity_error(error),
@@ -344,8 +357,12 @@ async fn ensure_personal(
 
 async fn create_invite(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<InviteBody>,
 ) -> impl IntoResponse {
+    if let Some(error) = require_machine(&actor) {
+        return error;
+    }
     let tenant_id = match TenantId::parse(body.tenant_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
@@ -398,12 +415,16 @@ async fn create_invite(
 
 async fn accept_invite(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<AcceptInviteBody>,
 ) -> impl IntoResponse {
     let account_id = match ZoenAccountId::parse(body.account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
     };
+    if let Some(error) = require_account(&state.identity, &actor, &account_id).await {
+        return error;
+    }
     let token = match InviteToken::parse(body.token) {
         Ok(token) => token,
         Err(error) => return identity_error(error),
@@ -416,12 +437,20 @@ async fn accept_invite(
 
 async fn revoke_membership(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<RevokeBody>,
 ) -> impl IntoResponse {
     let membership_id = match MembershipId::parse(body.membership_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
     };
+    let membership = match state.identity.get_membership(&membership_id).await {
+        Ok(membership) => membership,
+        Err(error) => return identity_error(error),
+    };
+    if let Some(error) = require_account(&state.identity, &actor, &membership.account_id).await {
+        return error;
+    }
     let reason = match RevocationReason::parse(&body.reason) {
         Ok(reason) => reason,
         Err(error) => return identity_error(error),
@@ -438,12 +467,20 @@ async fn revoke_membership(
 
 async fn leave_membership(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<LeaveBody>,
 ) -> impl IntoResponse {
     let membership_id = match MembershipId::parse(body.membership_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
     };
+    let membership = match state.identity.get_membership(&membership_id).await {
+        Ok(membership) => membership,
+        Err(error) => return identity_error(error),
+    };
+    if let Some(error) = require_account(&state.identity, &actor, &membership.account_id).await {
+        return error;
+    }
     match state.identity.leave_membership(membership_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => identity_error(error),
@@ -452,8 +489,12 @@ async fn leave_membership(
 
 async fn plan_merge(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<MergeBody>,
 ) -> impl IntoResponse {
+    if let Some(error) = require_machine(&actor) {
+        return error;
+    }
     let survivor = match ZoenAccountId::parse(body.survivor) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
@@ -478,8 +519,12 @@ async fn plan_merge(
 
 async fn commit_merge(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<CommitMergeBody>,
 ) -> impl IntoResponse {
+    if let Some(error) = require_machine(&actor) {
+        return error;
+    }
     let survivor = match ZoenAccountId::parse(body.survivor) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
@@ -513,12 +558,16 @@ async fn commit_merge(
 
 async fn snapshot_account(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Path(account_id): Path<String>,
 ) -> impl IntoResponse {
     let account_id = match ZoenAccountId::parse(account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(error.to_string()),
     };
+    if let Some(error) = require_account(&state.identity, &actor, &account_id).await {
+        return error;
+    }
     match state.identity.snapshot_account(&account_id).await {
         Ok(snapshot) => (StatusCode::OK, Json(snapshot_json(&snapshot))).into_response(),
         Err(error) => identity_error(error),
@@ -527,6 +576,7 @@ async fn snapshot_account(
 
 async fn resolve_subject(
     State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
     Query(query): Query<ResolveSubjectQuery>,
 ) -> impl IntoResponse {
     let subject = match parse_subject(&query.provider, &query.subject_key) {
@@ -535,6 +585,11 @@ async fn resolve_subject(
     };
     match state.identity.snapshot_for_verified_subject(&subject).await {
         Ok((_binding, snapshot)) => {
+            if let Some(error) =
+                require_account(&state.identity, &actor, &snapshot.account.id).await
+            {
+                return error;
+            }
             (StatusCode::OK, Json(snapshot_json(&snapshot))).into_response()
         }
         Err(error) => identity_error(error),
@@ -646,26 +701,7 @@ fn parse_subject(provider: &str, subject_key: &str) -> Result<ExternalSubject, I
 }
 
 fn reject_whatsapp_door(subject: &ExternalSubject) -> Result<(), IdentityError> {
-    if subject.provider != ChannelProvider::WhatsApp {
-        return Ok(());
-    }
-    let Ok(door) = std::env::var("ZOEN_WHATSAPP_DOOR_E164") else {
-        return Ok(());
-    };
-    let door = door.trim();
-    if door.is_empty() {
-        return Ok(());
-    }
-    if whatsapp_digits(door) == whatsapp_digits(&subject.subject_key)
-        && !whatsapp_digits(door).is_empty()
-    {
-        return Err(IdentityError::InvalidSubject);
-    }
-    Ok(())
-}
-
-fn whatsapp_digits(value: &str) -> String {
-    value.chars().filter(|ch| ch.is_ascii_digit()).collect()
+    subject.reject_if_whatsapp_door(std::env::var("ZOEN_WHATSAPP_DOOR_E164").ok().as_deref())
 }
 
 fn build_delegation(
@@ -759,31 +795,6 @@ fn membership_json(membership: &zoen_core::Membership) -> MembershipJson {
 
 fn identity_error(error: IdentityError) -> axum::response::Response {
     identity_error_response(error)
-}
-
-fn identity_error_response(error: IdentityError) -> axum::response::Response {
-    let status = match error {
-        IdentityError::Unauthenticated => StatusCode::UNAUTHORIZED,
-        IdentityError::SubjectUnbound => StatusCode::NOT_FOUND,
-        IdentityError::AccountNotFound
-        | IdentityError::BindingNotFound
-        | IdentityError::InviteNotFound
-        | IdentityError::MembershipNotFound => StatusCode::NOT_FOUND,
-        IdentityError::AlreadyBound
-        | IdentityError::AlreadyConsumed
-        | IdentityError::InviteExpired
-        | IdentityError::MembershipInactive
-        | IdentityError::AccountMerged { .. }
-        | IdentityError::InviteTenantMismatch
-        | IdentityError::Conflict(_)
-        | IdentityError::PersonalExists => StatusCode::CONFLICT,
-        _ => StatusCode::BAD_REQUEST,
-    };
-    (
-        status,
-        Json(serde_json::json!({ "error": error.to_string() })),
-    )
-        .into_response()
 }
 
 fn bad_request(message: String) -> axum::response::Response {

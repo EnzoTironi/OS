@@ -85,10 +85,13 @@ export {
   WHATSAPP_INGESTED_MEDIA_TYPES,
 } from "./media-ingress.js";
 export {
-  claimWhatsAppIngressReplay,
+  admitWhatsAppIngress,
+  createMemoryIngressReplayStore,
+  createPostgresIngressReplayStore,
   readWhatsAppIngressSecret,
   verifyWhatsAppInbound,
   WhatsAppIngressAuthError,
+  type IngressReplayStore,
 } from "./whatsapp-ingress-auth.js";
 export {
   classifyWhatsAppContactInbound,

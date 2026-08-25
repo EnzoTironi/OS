@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { generateWhsecSecret, signStandardWebhook } from "./standard-webhooks.js";
 import {
-  claimWhatsAppIngressReplay,
-  resetWhatsAppIngressReplay,
+  admitWhatsAppIngress,
+  createMemoryIngressReplayStore,
+  createPostgresIngressReplayStore,
   verifyWhatsAppInbound,
   WhatsAppIngressAuthError,
 } from "./whatsapp-ingress-auth.js";
@@ -13,8 +14,7 @@ const body = JSON.stringify({ body: "oi" });
 const now = () => new Date("2026-08-25T12:00:00.000Z");
 const timestampSeconds = Math.floor(now().getTime() / 1000);
 
-test("WhatsApp inbound HMAC accepts a valid Standard Webhooks signature once", () => {
-  resetWhatsAppIngressReplay();
+test("WhatsApp inbound HMAC is pure and replay is a store", async () => {
   const headers = signStandardWebhook({
     rawBody: body,
     secret,
@@ -25,15 +25,35 @@ test("WhatsApp inbound HMAC accepts a valid Standard Webhooks signature once", (
     verifyWhatsAppInbound({ headers, now, rawBody: body, secret }),
     "msg_ok",
   );
-  assert.throws(
-    () => verifyWhatsAppInbound({ headers, now, rawBody: body, secret }),
+  assert.equal(
+    verifyWhatsAppInbound({ headers, now, rawBody: body, secret }),
+    "msg_ok",
+  );
+  const store = createMemoryIngressReplayStore();
+  let runs = 0;
+  await admitWhatsAppIngress({
+    store,
+    webhookId: "msg_ok",
+    work: async () => {
+      runs += 1;
+    },
+  });
+  await assert.rejects(
+    () =>
+      admitWhatsAppIngress({
+        store,
+        webhookId: "msg_ok",
+        work: async () => {
+          runs += 1;
+        },
+      }),
     (error: unknown) =>
       error instanceof WhatsAppIngressAuthError && error.code === "replay",
   );
+  assert.equal(runs, 1);
 });
 
 test("WhatsApp inbound HMAC fails closed on missing secret, forged, and stale", () => {
-  resetWhatsAppIngressReplay();
   assert.throws(
     () =>
       verifyWhatsAppInbound({
@@ -79,12 +99,15 @@ test("WhatsApp inbound HMAC fails closed on missing secret, forged, and stale", 
   );
 });
 
-test("durable ingress replay claims once per namespaced webhook id", async () => {
+test("durable ingress replay uses one webhook-id key", async () => {
   const seen = new Set<string>();
   const client = {
     async query(text: string, values?: readonly unknown[]) {
       assert.match(text, /ingress_replay/);
       const key = String(values?.[0]);
+      if (text.includes("SELECT")) {
+        return { rows: seen.has(key) ? [{ webhook_id: key }] : [] };
+      }
       if (seen.has(key)) {
         return { rows: [] };
       }
@@ -92,12 +115,45 @@ test("durable ingress replay claims once per namespaced webhook id", async () =>
       return { rows: [{ webhook_id: key }] };
     },
   };
-  await claimWhatsAppIngressReplay(client, "msg_pg");
+  const store = createPostgresIngressReplayStore(client);
+  await admitWhatsAppIngress({
+    store,
+    webhookId: "msg_pg",
+    work: async () => undefined,
+  });
   await assert.rejects(
-    () => claimWhatsAppIngressReplay(client, "msg_pg"),
+    () =>
+      admitWhatsAppIngress({
+        store,
+        webhookId: "msg_pg",
+        work: async () => undefined,
+      }),
     (error: unknown) =>
       error instanceof WhatsAppIngressAuthError && error.code === "replay",
   );
-  await claimWhatsAppIngressReplay(client, "msg_pg", "zoend");
-  assert.deepEqual([...seen], ["gateway:msg_pg", "zoend:msg_pg"]);
+  assert.deepEqual([...seen], ["msg_pg"]);
+});
+
+test("failed hop releases inflight so a retry can run", async () => {
+  const store = createMemoryIngressReplayStore();
+  await assert.rejects(
+    () =>
+      admitWhatsAppIngress({
+        store,
+        webhookId: "msg_retry",
+        work: async () => {
+          throw new Error("gateway down");
+        },
+      }),
+    /gateway down/,
+  );
+  let ran = false;
+  await admitWhatsAppIngress({
+    store,
+    webhookId: "msg_retry",
+    work: async () => {
+      ran = true;
+    },
+  });
+  assert.equal(ran, true);
 });

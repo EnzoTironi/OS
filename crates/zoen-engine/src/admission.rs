@@ -25,19 +25,21 @@ pub(crate) fn admit(
     bytes: &[u8],
     claimed_digest: DefinitionDigest,
 ) -> Result<AdmittedDefinitionPublication, PublishError> {
-    let mut dto = serde_json::from_slice::<CanonicalDefinitionDto>(bytes)
+    let canonical = zoen_core::canonicalize_json_bytes(bytes)
         .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
-    normalize(&mut dto);
-    let normalized = serde_jcs::to_vec(&dto)
-        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
-    if normalized != bytes {
+    if canonical.as_bytes() != bytes {
         return Err(PublishError::NonCanonicalDefinition);
     }
-    let canonical_json = CanonicalJson::new(
-        String::from_utf8(normalized)
-            .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?,
-    )
-    .ok_or_else(|| PublishError::MalformedDefinition("empty document".to_owned()))?;
+    let mut dto = serde_json::from_str::<CanonicalDefinitionDto>(&canonical)
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
+    normalize(&mut dto);
+    let via_serde_jcs = serde_jcs::to_vec(&dto)
+        .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
+    if via_serde_jcs != bytes {
+        return Err(PublishError::NonCanonicalDefinition);
+    }
+    let canonical_json = CanonicalJson::new(canonical)
+        .ok_or_else(|| PublishError::MalformedDefinition("empty document".to_owned()))?;
     if !verify_digest(&canonical_json, &claimed_digest) {
         return Err(PublishError::DigestMismatch);
     }
@@ -671,6 +673,16 @@ mod tests {
                 assert_eq!(via_serde, expected, "{group}/{stem} serde_jcs");
             }
         }
+    }
+
+    #[test]
+    fn admission_rejects_non_jcs_bytes_via_zoen_core() {
+        let raw = INVENTORY.trim();
+        let spaced = raw.replacen('{', "{ ", 1);
+        assert_ne!(spaced.as_bytes(), raw.as_bytes());
+        let error = admit(spaced.as_bytes(), digest(spaced.as_bytes()))
+            .expect_err("zoen-core must reject non-canonical bytes");
+        assert_eq!(error, PublishError::NonCanonicalDefinition);
     }
 
     #[test]

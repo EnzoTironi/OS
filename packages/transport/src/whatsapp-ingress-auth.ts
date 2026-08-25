@@ -6,15 +6,13 @@ import {
 
 export const WHATSAPP_INGRESS_SECRET_ENV = "ZOEN_WHATSAPP_INGRESS_SECRET";
 
-const replay = new Map<string, number>();
-const REPLAY_TTL_MS = 10 * 60 * 1000;
-
 export type WhatsAppIngressAuthFailure =
   | "secret_missing"
   | "headers_missing"
   | "stale_timestamp"
   | "bad_signature"
-  | "replay";
+  | "replay"
+  | "store_failure";
 
 export class WhatsAppIngressAuthError extends Error {
   readonly code: WhatsAppIngressAuthFailure;
@@ -26,8 +24,76 @@ export class WhatsAppIngressAuthError extends Error {
   }
 
   status(): number {
-    return this.code === "secret_missing" ? 503 : 401;
+    return this.code === "secret_missing" || this.code === "store_failure"
+      ? 503
+      : 401;
   }
+}
+
+export interface IngressReplayStore {
+  begin(webhookId: string): Promise<void>;
+  commit(webhookId: string): Promise<void>;
+  contains(webhookId: string): Promise<boolean>;
+  release(webhookId: string): Promise<void>;
+}
+
+export function createMemoryIngressReplayStore(): IngressReplayStore {
+  const inflight = new Set<string>();
+  const committed = new Set<string>();
+  return {
+    async begin(webhookId) {
+      if (inflight.has(webhookId)) {
+        throw new WhatsAppIngressAuthError("replay", "webhook-id already accepted");
+      }
+      inflight.add(webhookId);
+    },
+    async contains(webhookId) {
+      return committed.has(webhookId);
+    },
+    async commit(webhookId) {
+      committed.add(webhookId);
+      inflight.delete(webhookId);
+    },
+    async release(webhookId) {
+      inflight.delete(webhookId);
+    },
+  };
+}
+
+export function createPostgresIngressReplayStore(
+  client: PostgresTurnStoreClient,
+): IngressReplayStore {
+  const inflight = new Set<string>();
+  return {
+    async begin(webhookId) {
+      if (inflight.has(webhookId)) {
+        throw new WhatsAppIngressAuthError("replay", "webhook-id already accepted");
+      }
+      inflight.add(webhookId);
+    },
+    async contains(webhookId) {
+      const result = await client.query(
+        `SELECT webhook_id FROM ingress_replay WHERE webhook_id = $1`,
+        [webhookId],
+      );
+      return result.rows[0] !== undefined;
+    },
+    async commit(webhookId) {
+      try {
+        await client.query(
+          `INSERT INTO ingress_replay (webhook_id)
+           VALUES ($1)
+           ON CONFLICT (webhook_id) DO NOTHING`,
+          [webhookId],
+        );
+      } finally {
+        inflight.delete(webhookId);
+      }
+    },
+    async release(webhookId) {
+      inflight.delete(webhookId);
+    },
+  };
 }
 
 export function readWhatsAppIngressSecret(
@@ -37,6 +103,7 @@ export function readWhatsAppIngressSecret(
   return value === undefined || value.length === 0 ? undefined : value;
 }
 
+/** HMAC-only Standard Webhooks check. Replay is a store. */
 export function verifyWhatsAppInbound(input: {
   readonly secret?: string;
   readonly rawBody: string;
@@ -50,9 +117,8 @@ export function verifyWhatsAppInbound(input: {
       "ZOEN_WHATSAPP_INGRESS_SECRET required",
     );
   }
-  let webhookId: string;
   try {
-    webhookId = verifyStandardWebhook({
+    return verifyStandardWebhook({
       headers: input.headers,
       now: input.now,
       rawBody: input.rawBody,
@@ -71,41 +137,31 @@ export function verifyWhatsAppInbound(input: {
     }
     throw error;
   }
-  const nowMs = (input.now?.() ?? new Date()).getTime();
-  for (const [id, seen] of replay) {
-    if (nowMs - seen > REPLAY_TTL_MS) {
-      replay.delete(id);
-    }
-  }
-  if (replay.has(webhookId)) {
-    throw new WhatsAppIngressAuthError("replay", "webhook-id already accepted");
-  }
-  replay.set(webhookId, nowMs);
-  return webhookId;
-}
-
-export function resetWhatsAppIngressReplay(): void {
-  replay.clear();
 }
 
 /**
- * Durable webhook-id claim. Namespaced so zoend and the gateway can both
- * persist without colliding on the same hop.
+ * In-flight lock, then work, then durable commit after success.
+ * Release the lock on error so a retry can run.
  */
-export async function claimWhatsAppIngressReplay(
-  client: PostgresTurnStoreClient,
-  webhookId: string,
-  namespace = "gateway",
-): Promise<void> {
-  const key = `${namespace}:${webhookId}`;
-  const result = await client.query(
-    `INSERT INTO ingress_replay (webhook_id)
-     VALUES ($1)
-     ON CONFLICT (webhook_id) DO NOTHING
-     RETURNING webhook_id`,
-    [key],
-  );
-  if (result.rows[0] === undefined) {
-    throw new WhatsAppIngressAuthError("replay", "webhook-id already accepted");
+export async function admitWhatsAppIngress(input: {
+  readonly store: IngressReplayStore;
+  readonly webhookId: string;
+  readonly work: () => Promise<void>;
+}): Promise<void> {
+  await input.store.begin(input.webhookId);
+  try {
+    if (await input.store.contains(input.webhookId)) {
+      throw new WhatsAppIngressAuthError("replay", "webhook-id already accepted");
+    }
+    await input.work();
+    await input.store.commit(input.webhookId);
+  } catch (error) {
+    await input.store.release(input.webhookId);
+    throw error;
   }
+}
+
+/** Kept for tests that reset module state between cases. */
+export function resetWhatsAppIngressReplay(): void {
+  return;
 }

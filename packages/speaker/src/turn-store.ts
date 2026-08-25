@@ -37,11 +37,14 @@ export interface TurnStore {
   selectUnclaimed(
     conversationKey: ConversationKey,
   ): Promise<readonly PendingInteraction[]>;
-  claimPending(input: {
+  /**
+   * Atomically claim every unclaimed pending row for the conversation.
+   * Returns the claimed rows, or empty when another worker won.
+   */
+  claimUnclaimed(input: {
     readonly conversationKey: ConversationKey;
-    readonly interactionIds: readonly InteractionId[];
     readonly attemptId: TurnAttemptId;
-  }): Promise<void>;
+  }): Promise<readonly PendingInteraction[]>;
 
   putTurn(turn: ConversationTurn): Promise<void>;
   getTurn(id: ConversationTurnId): Promise<ConversationTurn | undefined>;
@@ -128,17 +131,21 @@ export function createMemoryTurnStore(): TurnStore {
         (row) => row.claimedByAttemptId === null,
       );
     },
-    async claimPending(input) {
+    async claimUnclaimed(input) {
       const list = pending.get(input.conversationKey) ?? [];
-      const claimed = new Set(input.interactionIds);
+      const unclaimed = list.filter((row) => row.claimedByAttemptId === null);
+      if (unclaimed.length === 0) {
+        return [];
+      }
       pending.set(
         input.conversationKey,
         list.map((row) =>
-          claimed.has(row.interactionId) && row.claimedByAttemptId === null
+          row.claimedByAttemptId === null
             ? { ...row, claimedByAttemptId: input.attemptId }
             : row,
         ),
       );
+      return unclaimed;
     },
     async putTurn(turn) {
       turns.set(turn.id, turn);
@@ -252,18 +259,31 @@ export function createPostgresTurnStore(
         interactionId: row.interaction_id as InteractionId,
       }));
     },
-    async claimPending(input) {
-      if (input.interactionIds.length === 0) {
-        return;
-      }
-      await client.query(
-        `UPDATE conversation_pending
+    async claimUnclaimed(input) {
+      const result = await client.query(
+        `WITH take AS MATERIALIZED (
+           SELECT conversation_key, interaction_id
+           FROM conversation_pending
+           WHERE conversation_key = $2
+             AND claimed_by_attempt_id IS NULL
+           ORDER BY accepted_at ASC
+           FOR UPDATE SKIP LOCKED
+         )
+         UPDATE conversation_pending AS pending
          SET claimed_by_attempt_id = $1
-         WHERE conversation_key = $2
-           AND interaction_id = ANY($3::text[])
-           AND claimed_by_attempt_id IS NULL`,
-        [input.attemptId, input.conversationKey, [...input.interactionIds]],
+         FROM take
+         WHERE pending.conversation_key = take.conversation_key
+           AND pending.interaction_id = take.interaction_id
+         RETURNING pending.conversation_key, pending.interaction_id,
+                   pending.accepted_at, pending.claimed_by_attempt_id`,
+        [input.attemptId, input.conversationKey],
       );
+      return result.rows.map((row) => ({
+        acceptedAt: String(row.accepted_at),
+        claimedByAttemptId: input.attemptId,
+        conversationKey: row.conversation_key as ConversationKey,
+        interactionId: row.interaction_id as InteractionId,
+      }));
     },
     async putTurn(turn) {
       await client.query(

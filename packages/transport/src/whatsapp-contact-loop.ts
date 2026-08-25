@@ -19,11 +19,14 @@ import {
   runInteractionTurn,
   toInteractionInbound,
   TURN_DEBOUNCE_MS,
+  type ClaimResult,
+  type ConversationKey,
   type DeliveryIntent,
   type DeliveryObservation,
   type IdentityDirectory,
   type InboundInteraction,
   type PostgresTurnStoreClient,
+  type TrustedInteractionContext,
   type TurnStore,
 } from "../../speaker/src/index.js";
 import { rejectWhatsAppMediaFields } from "./media-ingress.js";
@@ -76,6 +79,10 @@ export type WhatsAppContactDisposition =
       readonly kind: "bound";
       readonly inbound: InboundInteraction;
       readonly observation: DeliveryObservation;
+    }
+  | {
+      readonly kind: "queued";
+      readonly inbound: InboundInteraction;
     };
 
 type StoredReply = Extract<
@@ -91,6 +98,9 @@ export interface ReplyLedger {
 export interface WhatsAppContactLoop {
   readonly gateway: MessagingGateway;
   handleRaw(raw: unknown): Promise<WhatsAppContactDisposition>;
+  /** Enqueue and rearm debounce. HTTP hops should call this, not handleRaw. */
+  acknowledgeRaw(raw: unknown): Promise<WhatsAppContactDisposition>;
+  waitUntilIdle(): Promise<void>;
 }
 
 export interface WhatsAppContactLoopOptions {
@@ -228,6 +238,7 @@ export function createWhatsAppContactLoop(
   const now = options.now ?? (() => new Date());
   const bodies = new Map<string, string>();
   const inflight = new Map<string, Promise<WhatsAppContactDisposition>>();
+  const pumps = new Map<string, Promise<void>>();
   const provider = createLiveWhatsAppProvider({ session: options.session });
   const gateway = createMessagingGateway({
     now,
@@ -274,73 +285,185 @@ export function createWhatsAppContactLoop(
     now,
   });
 
-  async function settleInbound(
+  async function finishBoundTurn(
+    claimed: ClaimResult,
+    membership: TrustedInteractionContext,
+  ): Promise<DeliveryObservation> {
+    const primaryId =
+      claimed.attempt.claimedInteractionIds[0] ??
+      claimed.attempt.carryForwardInteractionIds[0];
+    if (primaryId === undefined) {
+      throw new Error("bound whatsapp turn claimed no inbound");
+    }
+    const record = await store.getRecord(primaryId);
+    if (record === undefined) {
+      throw new Error("bound whatsapp turn missing InteractionRecord");
+    }
+    const chatJid = String(record.inbound.channel.thread);
+    await sendPresence(options.session, chatJid, "composing");
+    try {
+      const reply = await runInteractionTurn({
+        attemptId: claimed.attempt.id,
+        coordinator,
+        debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
+        executeWork: options.executeWork,
+        inbound: toInteractionInbound(record.inbound),
+        membership,
+        now,
+        store,
+      });
+      const bubbles = outboundBubbles(reply);
+      outboundByAttempt.set(claimed.attempt.id, bubbles);
+      const delivered =
+        bubbles.length === 0
+          ? await coordinator.acknowledgeSilentClose(claimed.attempt.id)
+          : await coordinator.planAndDeliver({
+              attemptId: claimed.attempt.id,
+              presentation: `turn:${claimed.turn.id}`,
+              sequenceCount: bubbles.length,
+            });
+      return delivered[delivered.length - 1] ?? waitObservation(claimed.attempt.id);
+    } finally {
+      await sendPresence(options.session, chatJid, "paused");
+    }
+  }
+
+  function ensurePump(conversationKey: ConversationKey): Promise<void> {
+    const existing = pumps.get(conversationKey);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const run = (async () => {
+      try {
+        for (;;) {
+          const claimed = await coordinator.awaitClaim(conversationKey);
+          if (claimed === undefined) {
+            const leftover = await store.selectUnclaimed(conversationKey);
+            if (leftover.length === 0) {
+              return;
+            }
+            continue;
+          }
+          const primaryId =
+            claimed.attempt.claimedInteractionIds[0] ??
+            claimed.attempt.carryForwardInteractionIds[0];
+          if (primaryId === undefined) {
+            continue;
+          }
+          const record = await store.getRecord(primaryId);
+          if (record === undefined) {
+            continue;
+          }
+          const observation = await finishBoundTurn(claimed, record.ctx);
+          for (const interactionId of claimed.attempt.claimedInteractionIds) {
+            const claimedRecord = await store.getRecord(interactionId);
+            if (claimedRecord === undefined) {
+              continue;
+            }
+            await ledger.put(claimedRecord.inbound.idempotencyKey, {
+              inbound: claimedRecord.inbound,
+              kind: "bound",
+              observation,
+            });
+          }
+        }
+      } finally {
+        pumps.delete(conversationKey);
+      }
+    })();
+    pumps.set(conversationKey, run);
+    return run;
+  }
+
+  async function enqueueBound(
     inbound: InboundInteraction,
   ): Promise<WhatsAppContactDisposition> {
-    let stored: StoredReply;
-    try {
-      const ctx = await boundary.resolveTrustedContext(inbound);
-      const chatJid = String(inbound.channel.thread);
-      await sendPresence(options.session, chatJid, "composing");
-      try {
-        const record = await boundary.accept(inbound, ctx);
-        const conversationKey = conversationKeyFrom({
-          accountId: ctx.accountId,
-          conversationId: `wa:${String(inbound.channel.thread)}`,
-          tenantId: String(ctx.tenantId),
-          workspaceId: ctx.workloadId,
-        });
-        await coordinator.signalInbound({
-          conversationKey,
-          record,
-          workspaceId: ctx.workloadId,
-        });
-        const claimed = await coordinator.awaitClaim(conversationKey);
-        if (claimed === undefined) {
-          throw new Error("bound whatsapp turn claimed no inbound");
-        }
-        const reply = await runInteractionTurn({
-          attemptId: claimed.attempt.id,
-          coordinator,
-          debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
-          executeWork: options.executeWork,
-          inbound: toInteractionInbound(record.inbound),
-          membership: ctx,
-          now,
-          store,
-        });
-        const bubbles = outboundBubbles(reply);
-        outboundByAttempt.set(claimed.attempt.id, bubbles);
-        const delivered =
-          bubbles.length === 0
-            ? await coordinator.acknowledgeSilentClose(claimed.attempt.id)
-            : await coordinator.planAndDeliver({
-                attemptId: claimed.attempt.id,
-                presentation: `turn:${claimed.turn.id}`,
-                sequenceCount: bubbles.length,
-              });
-        const observation =
-          delivered[delivered.length - 1] ??
-          waitObservation(claimed.attempt.id);
-        stored = { inbound, kind: "bound", observation };
-      } finally {
-        await sendPresence(options.session, chatJid, "paused");
-      }
-    } catch (error) {
-      if (
-        !(error instanceof ChannelSubjectResolveError) ||
-        error.kind !== "unbound"
-      ) {
-        throw error;
-      }
-      stored = {
+    const ctx = await boundary.resolveTrustedContext(inbound);
+    const record = await boundary.accept(inbound, ctx);
+    const conversationKey = conversationKeyFrom({
+      accountId: ctx.accountId,
+      conversationId: `wa:${String(inbound.channel.thread)}`,
+      tenantId: String(ctx.tenantId),
+      workspaceId: ctx.workloadId,
+    });
+    await coordinator.signalInbound({
+      conversationKey,
+      record,
+      workspaceId: ctx.workloadId,
+    });
+    ensurePump(conversationKey);
+    return { inbound, kind: "queued" };
+  }
+
+  async function dispatchRaw(
+    raw: unknown,
+    wait: boolean,
+  ): Promise<WhatsAppContactDisposition> {
+    rejectWhatsAppMediaFields(raw);
+    const dropped = classifyWhatsAppContactInbound(raw, doorE164);
+    if (dropped.drop) {
+      return { kind: "dropped", reason: dropped.reason };
+    }
+    const inbound = await gateway.acceptProviderEvent(
+      providerKey("whatsapp"),
+      raw,
+    );
+    const existing = await ledger.get(inbound.idempotencyKey);
+    if (existing !== undefined) {
+      return {
         inbound,
-        kind: "unbound",
-        observation: await deliverPoke(inbound),
+        kind: "duplicate",
+        observation: existing.observation,
       };
     }
-    await ledger.put(inbound.idempotencyKey, stored);
-    return stored;
+    const pending = inflight.get(inbound.idempotencyKey);
+    if (pending !== undefined) {
+      return pending;
+    }
+    const work = (async (): Promise<WhatsAppContactDisposition> => {
+      try {
+        const queued = await enqueueBound(inbound);
+        if (!wait) {
+          return queued;
+        }
+        await waitUntilIdle();
+        const stored = await ledger.get(inbound.idempotencyKey);
+        if (stored === undefined) {
+          throw new Error("bound whatsapp turn claimed no inbound");
+        }
+        return stored;
+      } catch (error) {
+        if (
+          !(error instanceof ChannelSubjectResolveError) ||
+          error.kind !== "unbound"
+        ) {
+          throw error;
+        }
+        const stored: StoredReply = {
+          inbound,
+          kind: "unbound",
+          observation: await deliverPoke(inbound),
+        };
+        await ledger.put(inbound.idempotencyKey, stored);
+        return stored;
+      }
+    })();
+    inflight.set(inbound.idempotencyKey, work);
+    try {
+      return await work;
+    } finally {
+      inflight.delete(inbound.idempotencyKey);
+    }
+  }
+
+  async function waitUntilIdle(): Promise<void> {
+    for (;;) {
+      const running = [...pumps.values()];
+      if (running.length === 0) {
+        return;
+      }
+      await Promise.all(running);
+    }
   }
 
   async function deliverPoke(
@@ -368,36 +491,15 @@ export function createWhatsAppContactLoop(
   return {
     gateway,
 
-    async handleRaw(raw) {
-      rejectWhatsAppMediaFields(raw);
-      const dropped = classifyWhatsAppContactInbound(raw, doorE164);
-      if (dropped.drop) {
-        return { kind: "dropped", reason: dropped.reason };
-      }
-      const inbound = await gateway.acceptProviderEvent(
-        providerKey("whatsapp"),
-        raw,
-      );
-      const existing = await ledger.get(inbound.idempotencyKey);
-      if (existing !== undefined) {
-        return {
-          inbound,
-          kind: "duplicate",
-          observation: existing.observation,
-        };
-      }
-      const pending = inflight.get(inbound.idempotencyKey);
-      if (pending !== undefined) {
-        return pending;
-      }
-      const work = settleInbound(inbound);
-      inflight.set(inbound.idempotencyKey, work);
-      try {
-        return await work;
-      } finally {
-        inflight.delete(inbound.idempotencyKey);
-      }
+    acknowledgeRaw(raw) {
+      return dispatchRaw(raw, false);
     },
+
+    handleRaw(raw) {
+      return dispatchRaw(raw, true);
+    },
+
+    waitUntilIdle,
   };
 }
 

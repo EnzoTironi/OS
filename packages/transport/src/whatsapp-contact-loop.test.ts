@@ -160,6 +160,29 @@ test("unbound 1:1 pokes the same thread and does not mint membership", async () 
   await session.close();
 });
 
+test("acknowledge rearms debounce without waiting for generate", async () => {
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    debounceMs: 80,
+    doorE164,
+    identity: boundIdentity(speaker),
+    session,
+  });
+  const first = await loop.acknowledgeRaw(
+    inbound({ body: "um", messageId: "wamid.ack1" }),
+  );
+  assert.equal(first.kind, "queued");
+  assert.equal(session.sent().length, 0);
+  const second = await loop.acknowledgeRaw(
+    inbound({ body: "dois", messageId: "wamid.ack2" }),
+  );
+  assert.equal(second.kind, "queued");
+  assert.equal(session.sent().length, 0);
+  await loop.waitUntilIdle();
+  assert.equal(session.sent().length, 1);
+  await session.close();
+});
+
 test("bound 1:1 runs the turn coordinator and replies in the same thread", async () => {
   const session = await readySession();
   const loop = createWhatsAppContactLoop({

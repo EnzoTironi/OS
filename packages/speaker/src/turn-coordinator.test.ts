@@ -335,7 +335,9 @@ test("pre-send claim prevents a second deliver of the same stable id", async () 
     attemptId: claimed.attempt.id,
     presentation: "turn:claim",
   });
-  const again = await store.claimDelivery(`spd_${claimed.attempt.id}_0`);
+  const again = await store.claimDelivery(
+    `spd_${claimed.attempt.claimedInteractionIds[0]}_0`,
+  );
   assert.equal(again, "duplicate");
   assert.equal(sends, 1);
 });
@@ -372,6 +374,36 @@ test("deliver throw marks the attempt failed", async () => {
   );
   const attempt = await store.getAttempt(claimed.attempt.id);
   assert.equal(attempt?.phase.kind, "failed");
+});
+
+test("two claimBurst callers get one exclusive claim", async () => {
+  const store = createMemoryTurnStore();
+  const conversationKey = conversationKeyFrom({
+    accountId: "account.wa.enzo",
+    conversationId: "wa:exclusive",
+    tenantId: "tenant.wa.enzo",
+    workspaceId: "workload.personal",
+  });
+  const first = createConversationTurnCoordinator({ debounceMs: 10_000, store });
+  const second = createConversationTurnCoordinator({ debounceMs: 10_000, store });
+  await first.signalInbound({
+    conversationKey,
+    record: record("um", "excl1"),
+    workspaceId: "workload.personal",
+  });
+  await first.signalInbound({
+    conversationKey,
+    record: record("dois", "excl2"),
+    workspaceId: "workload.personal",
+  });
+  const [left, right] = await Promise.all([
+    first.claimBurst(conversationKey),
+    second.claimBurst(conversationKey),
+  ]);
+  const won = [left, right].filter((row) => row !== undefined);
+  assert.equal(won.length, 1);
+  assert.equal(won[0]?.attempt.claimedInteractionIds.length, 2);
+  assert.equal((await store.selectUnclaimed(conversationKey)).length, 0);
 });
 
 test("silent close is durable and does not send", async () => {

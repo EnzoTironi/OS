@@ -1,14 +1,17 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::http::{HeaderMap, HeaderName, StatusCode};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
+use sha2_hmac::Sha256 as HmacSha256Hash;
 
 const MAX_SKEW_SECS: i64 = 5 * 60;
-const REPLAY_TTL: Duration = Duration::from_secs(10 * 60);
+
+type HmacSha256 = Hmac<HmacSha256Hash>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IngressAuthError {
@@ -42,38 +45,40 @@ impl IngressAuthError {
     }
 }
 
+/// Process-local in-flight lock. Durable commit lives in `ingress_replay`.
 #[derive(Debug)]
-pub struct ReplayCache {
-    seen: Mutex<HashMap<String, SystemTime>>,
+pub struct ReplayGate {
+    inflight: Mutex<HashSet<String>>,
 }
 
-impl ReplayCache {
+impl ReplayGate {
     pub fn new() -> Self {
         Self {
-            seen: Mutex::new(HashMap::new()),
+            inflight: Mutex::new(HashSet::new()),
         }
     }
 
-    pub fn claim(&self, webhook_id: &str, now: SystemTime) -> Result<(), IngressAuthError> {
-        let mut guard = self.seen.lock().expect("ingress replay lock");
-        guard.retain(|_, seen_at| {
-            now.duration_since(*seen_at)
-                .map(|age| age < REPLAY_TTL)
-                .unwrap_or(false)
-        });
-        if guard.contains_key(webhook_id) {
+    pub fn begin(&self, webhook_id: &str) -> Result<(), IngressAuthError> {
+        let mut guard = self.inflight.lock().expect("ingress replay lock");
+        if !guard.insert(webhook_id.to_owned()) {
             return Err(IngressAuthError::Replay);
         }
-        guard.insert(webhook_id.to_owned(), now);
         Ok(())
+    }
+
+    pub fn release(&self, webhook_id: &str) {
+        self.inflight
+            .lock()
+            .expect("ingress replay lock")
+            .remove(webhook_id);
     }
 }
 
+/// HMAC-only Standard Webhooks check. Replay is a store, not this function.
 pub fn verify_whatsapp_ingress(
     secret: Option<&str>,
     headers: &HeaderMap,
     raw_body: &[u8],
-    replay: &ReplayCache,
     now: SystemTime,
 ) -> Result<String, IngressAuthError> {
     let Some(secret) = secret.map(str::trim).filter(|value| !value.is_empty()) else {
@@ -94,11 +99,10 @@ pub fn verify_whatsapp_ingress(
     }
     let key = decode_whsec(secret).ok_or(IngressAuthError::BadSignature)?;
     let signed = signed_content(&webhook_id, &timestamp, raw_body);
-    let expected = hmac_sha256(&key, &signed);
+    let expected = hmac_sha256(&key, &signed).ok_or(IngressAuthError::BadSignature)?;
     if !signature_matches(&signature, &expected) {
         return Err(IngressAuthError::BadSignature);
     }
-    replay.claim(&webhook_id, now)?;
     Ok(webhook_id)
 }
 
@@ -121,29 +125,10 @@ fn decode_whsec(secret: &str) -> Option<Vec<u8>> {
     Some(key)
 }
 
-fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
-    const BLOCK: usize = 64;
-    let mut key_block = [0u8; BLOCK];
-    if key.len() > BLOCK {
-        let hashed = Sha256::digest(key);
-        key_block[..hashed.len()].copy_from_slice(&hashed);
-    } else {
-        key_block[..key.len()].copy_from_slice(key);
-    }
-    let mut ipad = [0x36u8; BLOCK];
-    let mut opad = [0x5cu8; BLOCK];
-    for index in 0..BLOCK {
-        ipad[index] ^= key_block[index];
-        opad[index] ^= key_block[index];
-    }
-    let mut inner = Sha256::new();
-    inner.update(ipad);
-    inner.update(message);
-    let inner_hash = inner.finalize();
-    let mut outer = Sha256::new();
-    outer.update(opad);
-    outer.update(inner_hash);
-    outer.finalize().into()
+fn hmac_sha256(key: &[u8], message: &[u8]) -> Option<[u8; 32]> {
+    let mut mac = HmacSha256::new_from_slice(key).ok()?;
+    mac.update(message);
+    Some(mac.finalize().into_bytes().into())
 }
 
 fn signature_matches(header: &str, expected: &[u8; 32]) -> bool {
@@ -191,7 +176,7 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
 
     use super::{
-        IngressAuthError, ReplayCache, decode_whsec, hmac_sha256, signed_content,
+        IngressAuthError, ReplayGate, decode_whsec, hmac_sha256, signed_content,
         verify_whatsapp_ingress,
     };
 
@@ -206,7 +191,7 @@ mod tests {
         let key = decode_whsec(secret).ok_or(IngressAuthError::BadSignature)?;
         let timestamp = timestamp_secs.to_string();
         let signed = signed_content(webhook_id, &timestamp, raw_body);
-        let digest = hmac_sha256(&key, &signed);
+        let digest = hmac_sha256(&key, &signed).ok_or(IngressAuthError::BadSignature)?;
         Ok((
             webhook_id.to_owned(),
             timestamp,
@@ -234,22 +219,15 @@ mod tests {
 
     #[test]
     fn missing_secret_is_unavailable() {
-        let replay = ReplayCache::new();
-        let error = verify_whatsapp_ingress(
-            None,
-            &HeaderMap::new(),
-            b"{}",
-            &replay,
-            now_secs(1_700_000_000),
-        )
-        .expect_err("secret");
+        let error =
+            verify_whatsapp_ingress(None, &HeaderMap::new(), b"{}", now_secs(1_700_000_000))
+                .expect_err("secret");
         assert_eq!(error, IngressAuthError::MissingSecret);
         assert_eq!(error.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[test]
-    fn valid_signature_is_accepted_once() {
-        let replay = ReplayCache::new();
+    fn valid_signature_is_pure_and_replay_is_the_gate() {
         let body = br#"{"body":"oi"}"#;
         let (id, timestamp, signature) =
             sign_whatsapp_ingress(SECRET, "msg_1", 1_700_000_000, body).expect("sign");
@@ -257,25 +235,28 @@ mod tests {
             Some(SECRET),
             &headers(&id, &timestamp, &signature),
             body,
-            &replay,
             now_secs(1_700_000_000),
         )
         .expect("verify");
         assert_eq!(accepted, "msg_1");
-        let replayed = verify_whatsapp_ingress(
+        let again = verify_whatsapp_ingress(
             Some(SECRET),
             &headers(&id, &timestamp, &signature),
             body,
-            &replay,
             now_secs(1_700_000_010),
         )
-        .expect_err("replay");
-        assert_eq!(replayed, IngressAuthError::Replay);
+        .expect("hmac is pure");
+        assert_eq!(again, "msg_1");
+
+        let gate = ReplayGate::new();
+        gate.begin("msg_1").expect("first inflight");
+        assert_eq!(gate.begin("msg_1"), Err(IngressAuthError::Replay));
+        gate.release("msg_1");
+        gate.begin("msg_1").expect("released");
     }
 
     #[test]
     fn forged_and_stale_signatures_fail_closed() {
-        let replay = ReplayCache::new();
         let body = br#"{"body":"oi"}"#;
         let (id, timestamp, _signature) =
             sign_whatsapp_ingress(SECRET, "msg_2", 1_700_000_000, body).expect("sign");
@@ -287,7 +268,6 @@ mod tests {
                 "v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             ),
             body,
-            &replay,
             now_secs(1_700_000_000),
         )
         .expect_err("forged");
@@ -301,7 +281,6 @@ mod tests {
                 "v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             ),
             body,
-            &replay,
             now_secs(1_700_000_000),
         )
         .expect_err("stale");

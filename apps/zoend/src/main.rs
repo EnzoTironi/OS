@@ -43,6 +43,7 @@ mod computation_service;
 mod effect_service;
 mod history_service;
 mod identity_admin;
+mod identity_admin_auth;
 mod ingress_hmac;
 mod messaging_ingress;
 mod pack_admin;

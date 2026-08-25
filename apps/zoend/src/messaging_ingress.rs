@@ -12,14 +12,14 @@ use reqwest::Client;
 use serde_json::json;
 use zoen_adapters::PostgresIngressReplayStore;
 
-use crate::ingress_hmac::{self, IngressAuthError, ReplayCache};
+use crate::ingress_hmac::{self, IngressAuthError, ReplayGate};
 
 #[derive(Clone)]
 pub struct IngressState {
     pub gateway_url: Option<String>,
     pub client: Client,
     pub whatsapp_secret: Option<String>,
-    pub replay: Arc<ReplayCache>,
+    pub replay: Arc<ReplayGate>,
     pub replay_store: PostgresIngressReplayStore,
 }
 
@@ -35,7 +35,7 @@ pub fn from_env(replay_store: PostgresIngressReplayStore) -> IngressState {
     IngressState {
         client: Client::new(),
         gateway_url,
-        replay: Arc::new(ReplayCache::new()),
+        replay: Arc::new(ReplayGate::new()),
         replay_store,
         whatsapp_secret,
     }
@@ -72,18 +72,26 @@ async fn whatsapp_inbound(
         state.whatsapp_secret.as_deref(),
         &headers,
         &body,
-        &state.replay,
         SystemTime::now(),
     ) {
         Ok(webhook_id) => webhook_id,
         Err(error) => return ingress_denied(error),
     };
-    match state.replay_store.claim("zoend", &webhook_id).await {
-        Ok(true) => {}
-        Ok(false) => return ingress_denied(IngressAuthError::Replay),
-        Err(_) => return ingress_denied(IngressAuthError::StoreFailure),
+    if let Err(error) = state.replay.begin(&webhook_id) {
+        return ingress_denied(error);
     }
-    proxy(
+    match state.replay_store.contains(&webhook_id).await {
+        Ok(true) => {
+            state.replay.release(&webhook_id);
+            return ingress_denied(IngressAuthError::Replay);
+        }
+        Ok(false) => {}
+        Err(_) => {
+            state.replay.release(&webhook_id);
+            return ingress_denied(IngressAuthError::StoreFailure);
+        }
+    }
+    let response = proxy(
         &state,
         reqwest::Method::POST,
         "/inbound",
@@ -92,7 +100,19 @@ async fn whatsapp_inbound(
         Some(&headers),
         "whatsapp_not_advertised",
     )
-    .await
+    .await;
+    let succeeded = response.status().is_success();
+    if succeeded {
+        match state.replay_store.claim(&webhook_id).await {
+            Ok(_) => {}
+            Err(_) => {
+                state.replay.release(&webhook_id);
+                return ingress_denied(IngressAuthError::StoreFailure);
+            }
+        }
+    }
+    state.replay.release(&webhook_id);
+    response
 }
 
 async fn telegram_advertise(State(state): State<Arc<IngressState>>) -> Response {

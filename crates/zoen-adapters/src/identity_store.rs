@@ -668,6 +668,16 @@ impl PostgresIdentityStore {
         Ok(context)
     }
 
+    pub async fn get_binding(
+        &self,
+        id: &ExternalBindingId,
+    ) -> Result<ExternalBinding, IdentityError> {
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        let binding = load_binding(&mut transaction, id).await?;
+        transaction.commit().await.map_err(unavailable)?;
+        Ok(binding)
+    }
+
     pub async fn get_membership(&self, id: &MembershipId) -> Result<Membership, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let tenant: String =

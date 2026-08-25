@@ -204,11 +204,6 @@ export function createConversationTurnCoordinator(
         return undefined;
       }
       await coordinator.cancelDebounce(conversationKey);
-      const unclaimed = await store.selectUnclaimed(conversationKey);
-      if (unclaimed.length === 0) {
-        return undefined;
-      }
-
       const info = await resolveMeta(store, meta, conversationKey);
       if (info === undefined) {
         throw new Error("missing conversation metadata for flush");
@@ -218,6 +213,13 @@ export function createConversationTurnCoordinator(
       const attemptId =
         info.reservedAttemptId ??
         turnAttemptId(`attempt_${randomBytes(10).toString("hex")}`);
+      const unclaimed = await store.claimUnclaimed({
+        attemptId,
+        conversationKey,
+      });
+      if (unclaimed.length === 0) {
+        return undefined;
+      }
       meta.set(conversationKey, {
         ...info,
         reservedAttemptId: undefined,
@@ -269,11 +271,6 @@ export function createConversationTurnCoordinator(
         turnId: turn.id,
       };
       await store.putAttempt(attempt);
-      await store.claimPending({
-        attemptId,
-        conversationKey,
-        interactionIds,
-      });
       await store.clearArm(conversationKey);
       return { attempt, supersededPriorAttemptId, turn };
     },
@@ -371,7 +368,7 @@ export function createConversationTurnCoordinator(
         sequenceIndex++
       ) {
         await coordinator.assertNotSuperseded(input.attemptId);
-        const stableProviderDeliveryId = `spd_${input.attemptId}_${sequenceIndex}`;
+        const stableProviderDeliveryId = `spd_${primaryId}_${sequenceIndex}`;
         const intent: DeliveryIntent = {
           controlRefs: [],
           deliveryGroupId: groupId,

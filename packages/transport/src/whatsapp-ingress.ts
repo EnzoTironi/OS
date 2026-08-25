@@ -14,9 +14,11 @@ import {
 import { rejectWhatsAppMediaFields } from "./media-ingress.js";
 import type { PostgresTurnStoreClient } from "../../speaker/src/turn-store.js";
 import {
-  claimWhatsAppIngressReplay,
+  createMemoryIngressReplayStore,
+  createPostgresIngressReplayStore,
   verifyWhatsAppInbound,
   WhatsAppIngressAuthError,
+  type IngressReplayStore,
 } from "./whatsapp-ingress-auth.js";
 
 export interface WhatsAppMessagingIngress {
@@ -56,12 +58,18 @@ export function createWhatsAppMessagingIngress(options: {
   readonly host?: string;
   readonly port: number;
   readonly ingressSecret?: string;
+  readonly replay?: IngressReplayStore;
   readonly replayClient?: PostgresTurnStoreClient;
   /** When set, companion retries unless this returns (HTTP 2xx). */
   readonly processInbound?: (raw: unknown) => Promise<unknown>;
 }): Promise<WhatsAppMessagingIngress> {
   const host = options.host ?? "127.0.0.1";
   let lastInbound: InboundInteraction | undefined;
+  const replay =
+    options.replay ??
+    (options.replayClient === undefined
+      ? createMemoryIngressReplayStore()
+      : createPostgresIngressReplayStore(options.replayClient));
 
   const server = createServer((request, response) => {
     void handle(request, response);
@@ -88,15 +96,13 @@ export function createWhatsAppMessagingIngress(options: {
       }
       if (request.method === "POST" && path === "/inbound") {
         const rawBody = await readBody(request);
+        let webhookId: string;
         try {
-          const webhookId = verifyWhatsAppInbound({
+          webhookId = verifyWhatsAppInbound({
             headers: request.headers as Record<string, string | string[] | undefined>,
             rawBody,
             secret: options.ingressSecret,
           });
-          if (options.replayClient !== undefined) {
-            await claimWhatsAppIngressReplay(options.replayClient, webhookId);
-          }
         } catch (error) {
           if (error instanceof WhatsAppIngressAuthError) {
             writeJson(response, error.status(), {
@@ -107,28 +113,50 @@ export function createWhatsAppMessagingIngress(options: {
           }
           throw error;
         }
-        const advertised = await evaluateWhatsAppAdvertisement(options.session);
-        if (!advertised.ok) {
-          writeJson(response, 503, {
-            error: "whatsapp_not_advertised",
-            reason: advertised.reason,
-          });
+        await replay.begin(webhookId);
+        try {
+          if (await replay.contains(webhookId)) {
+            throw new WhatsAppIngressAuthError(
+              "replay",
+              "webhook-id already accepted",
+            );
+          }
+          const advertised = await evaluateWhatsAppAdvertisement(options.session);
+          if (!advertised.ok) {
+            await replay.release(webhookId);
+            writeJson(response, 503, {
+              error: "whatsapp_not_advertised",
+              reason: advertised.reason,
+            });
+            return;
+          }
+          const raw = JSON.parse(rawBody) as unknown;
+          rejectWhatsAppMediaFields(raw);
+          if (options.processInbound !== undefined) {
+            const result = await options.processInbound(raw);
+            await replay.commit(webhookId);
+            writeJson(response, 200, result);
+            return;
+          }
+          const inbound = await options.gateway.acceptProviderEvent(
+            providerKey("whatsapp"),
+            raw,
+          );
+          lastInbound = inbound;
+          await replay.commit(webhookId);
+          writeJson(response, 200, inbound);
           return;
+        } catch (error) {
+          await replay.release(webhookId);
+          if (error instanceof WhatsAppIngressAuthError) {
+            writeJson(response, error.status(), {
+              error: "whatsapp_ingress_denied",
+              reason: error.code,
+            });
+            return;
+          }
+          throw error;
         }
-        const raw = JSON.parse(rawBody) as unknown;
-        rejectWhatsAppMediaFields(raw);
-        if (options.processInbound !== undefined) {
-          const result = await options.processInbound(raw);
-          writeJson(response, 200, result);
-          return;
-        }
-        const inbound = await options.gateway.acceptProviderEvent(
-          providerKey("whatsapp"),
-          raw,
-        );
-        lastInbound = inbound;
-        writeJson(response, 200, inbound);
-        return;
       }
       writeJson(response, 404, { error: "not_found" });
     } catch (error) {
