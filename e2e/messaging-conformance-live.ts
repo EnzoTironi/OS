@@ -127,7 +127,7 @@ function envPresent(name: string): boolean {
 }
 
 async function waitForOidc(timeoutMs = 90_000): Promise<void> {
-  const keycloakPort = process.env.ZOEN_E2E_KEYCLOAK_PORT ?? "58720";
+  const keycloakPort = process.env.ZOEN_E2E_KEYCLOAK_PORT ?? "58752";
   const url = `http://127.0.0.1:${keycloakPort}/realms/zoen/.well-known/openid-configuration`;
   const deadline = Date.now() + timeoutMs;
   let last = "not attempted";

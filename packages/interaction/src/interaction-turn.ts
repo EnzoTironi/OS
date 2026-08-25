@@ -456,7 +456,11 @@ function renderTurn(input: {
   const spoken: string[] = [];
   for (const raw of input.scratch.bubbles) {
     for (const piece of splitSpokenBubbles(raw)) {
-      const cleaned = sanitizeUserText(piece, input.hiddenIds);
+      const cleaned = sanitizeUserText(
+        piece,
+        input.hiddenIds,
+        input.scratch.executionNotes,
+      );
       if (cleaned.length > 0) {
         spoken.push(cleaned);
       }
@@ -518,12 +522,17 @@ function parseHttpsUrl(value: string): URL | null {
   }
 }
 
-function sanitizeUserText(text: string, hiddenIds: readonly string[]): string {
+function sanitizeUserText(
+  text: string,
+  hiddenIds: readonly string[],
+  executionNotes: readonly string[] = [],
+): string {
   let next = text.replace(
     /\b(speak_to_user|spawn_execution|mint_href|ToolLoopAgent|LangGraph|Mastra)\b/gi,
     "",
   );
   next = stripTokens(next, hiddenIds);
+  next = stripTokens(next, executionNotes);
   return next.replace(/\s{2,}/gu, " ").trim();
 }
 

@@ -6,7 +6,7 @@ const outputDirectory =
   process.env.ZOEN_E2E_GENERATED_DIR ??
   path.join("e2e", "workshop-miniapp", ".generated");
 const realmPath = path.join(outputDirectory, "realm.json");
-const webOrigin = `http://127.0.0.1:${process.env.ZOEN_E2E_WEB_PORT ?? "58722"}`;
+const webOrigin = `http://127.0.0.1:${process.env.ZOEN_E2E_WEB_PORT ?? "58756"}`;
 const definitionId = "commercial.sales";
 const orderLines = [
   "commercial.order-line.1001",
