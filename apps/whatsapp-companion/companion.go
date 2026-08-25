@@ -17,6 +17,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
@@ -350,6 +351,27 @@ func (s *Session) Send(ctx context.Context, dest string, wireShape WireShape) (s
 		return "", fmt.Errorf("companion: send: %w", err)
 	}
 	return string(resp.ID), nil
+}
+
+func (s *Session) SendPresence(ctx context.Context, dest string, state string) error {
+	to, err := parseOutboundChatJID(dest)
+	if err != nil {
+		return err
+	}
+	presence, err := parseChatPresence(state)
+	if err != nil {
+		return err
+	}
+	if s == nil || s.client == nil {
+		return errors.New("companion: session is nil")
+	}
+	if !s.client.IsLoggedIn() {
+		return ErrNotLoggedIn
+	}
+	if err := s.client.SendChatPresence(ctx, to, presence, types.ChatPresenceMediaText); err != nil {
+		return fmt.Errorf("companion: presence: %w", err)
+	}
+	return nil
 }
 
 func (s *Session) Close() error {

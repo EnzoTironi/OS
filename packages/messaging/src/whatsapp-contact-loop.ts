@@ -35,6 +35,7 @@ import {
 import {
   isGroupJid,
   isPersonPhoneJid,
+  type CompanionPresenceState,
   type CompanionSession,
 } from "./companion-session.js";
 import {
@@ -243,45 +244,51 @@ export function createWhatsAppContactLoop(
     let stored: StoredReply;
     try {
       const ctx = await boundary.resolveTrustedContext(inbound);
-      const record = await boundary.accept(inbound, ctx);
-      const conversationKey = conversationKeyFrom({
-        accountId: ctx.accountId,
-        conversationId: `wa:${String(inbound.channel.thread)}`,
-        tenantId: String(ctx.tenantId),
-        workspaceId: ctx.workloadId,
-      });
-      await coordinator.signalInbound({
-        conversationKey,
-        record,
-        workspaceId: ctx.workloadId,
-      });
-      const claimed = await coordinator.claimBurst(conversationKey);
-      if (claimed === undefined) {
-        throw new Error("bound whatsapp turn claimed no inbound");
+      const chatJid = String(inbound.channel.thread);
+      await sendPresence(options.session, chatJid, "composing");
+      try {
+        const record = await boundary.accept(inbound, ctx);
+        const conversationKey = conversationKeyFrom({
+          accountId: ctx.accountId,
+          conversationId: `wa:${String(inbound.channel.thread)}`,
+          tenantId: String(ctx.tenantId),
+          workspaceId: ctx.workloadId,
+        });
+        await coordinator.signalInbound({
+          conversationKey,
+          record,
+          workspaceId: ctx.workloadId,
+        });
+        const claimed = await coordinator.claimBurst(conversationKey);
+        if (claimed === undefined) {
+          throw new Error("bound whatsapp turn claimed no inbound");
+        }
+        const reply = await runInteractionTurn({
+          attemptId: claimed.attempt.id,
+          coordinator,
+          executeWork: options.executeWork,
+          inbound: toInteractionInbound(record.inbound),
+          membership: ctx,
+          now,
+          store,
+        });
+        const bubbles = outboundBubbles(reply);
+        outboundByAttempt.set(claimed.attempt.id, bubbles);
+        const delivered =
+          bubbles.length === 0
+            ? []
+            : await coordinator.planAndDeliver({
+                attemptId: claimed.attempt.id,
+                presentation: `turn:${claimed.turn.id}`,
+                sequenceCount: bubbles.length,
+              });
+        const observation =
+          delivered[delivered.length - 1] ??
+          waitObservation(claimed.attempt.id);
+        stored = { inbound, kind: "bound", observation };
+      } finally {
+        await sendPresence(options.session, chatJid, "paused");
       }
-      const reply = await runInteractionTurn({
-        attemptId: claimed.attempt.id,
-        coordinator,
-        executeWork: options.executeWork,
-        inbound: toInteractionInbound(record.inbound),
-        membership: ctx,
-        now,
-        store,
-      });
-      const bubbles = outboundBubbles(reply);
-      outboundByAttempt.set(claimed.attempt.id, bubbles);
-      const delivered =
-        bubbles.length === 0
-          ? []
-          : await coordinator.planAndDeliver({
-              attemptId: claimed.attempt.id,
-              presentation: `turn:${claimed.turn.id}`,
-              sequenceCount: bubbles.length,
-            });
-      const observation =
-        delivered[delivered.length - 1] ??
-        waitObservation(claimed.attempt.id);
-      stored = { inbound, kind: "bound", observation };
     } catch (error) {
       if (
         !(error instanceof ChannelSubjectResolveError) ||
@@ -395,6 +402,18 @@ export function classifyWhatsAppContactInbound(
   }
   parseCompanionInboundEnvelope(raw);
   return { drop: false };
+}
+
+async function sendPresence(
+  session: CompanionSession,
+  chatJid: string,
+  state: CompanionPresenceState,
+): Promise<void> {
+  try {
+    await session.presence(chatJid, state);
+  } catch {
+    return;
+  }
 }
 
 function isDoorJid(jid: string, doorE164: string): boolean {

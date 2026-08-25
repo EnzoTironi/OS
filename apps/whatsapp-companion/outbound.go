@@ -27,6 +27,17 @@ type WireShape struct {
 	Rows    []WireRow    `json:"rows,omitempty"`
 }
 
+func parseChatPresence(state string) (types.ChatPresence, error) {
+	switch strings.TrimSpace(state) {
+	case "composing":
+		return types.ChatPresenceComposing, nil
+	case "paused":
+		return types.ChatPresencePaused, nil
+	default:
+		return "", fmt.Errorf("companion: presence state must be composing or paused")
+	}
+}
+
 func parseOutboundChatJID(raw string) (types.JID, error) {
 	session := strings.TrimSpace(raw)
 	if session == "" {

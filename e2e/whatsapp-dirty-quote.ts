@@ -135,6 +135,7 @@ function wrapCountingCompanionSession(
     beginPairing: () => inner.beginPairing(),
     close: () => inner.close(),
     open: () => inner.open(),
+    presence: (chatJid, state) => inner.presence(chatJid, state),
     ready: () => inner.ready(),
     subscribeInbound: (handler) => inner.subscribeInbound(handler),
     async send(outbound) {

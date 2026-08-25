@@ -38,6 +38,7 @@ const WHATSAPP_TABLE = {
   read_receipts: NATIVE,
   reply_thread: NATIVE,
   text: NATIVE,
+  // Chat SDK typing stays text-degrade. Live composing is companion /presence.
   typing: TEXT,
   voice_audio: NATIVE,
 } as const;
