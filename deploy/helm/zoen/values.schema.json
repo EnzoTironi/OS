@@ -182,6 +182,7 @@
         "host",
         "nodePort",
         "port",
+        "projectionUser",
         "storage",
         "topology",
         "walArchive"
@@ -205,6 +206,10 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 65535
+        },
+        "projectionUser": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
         },
         "storage": { "$ref": "#/definitions/storageSize" },
         "topology": {
@@ -325,6 +330,7 @@
         "name",
         "postgresAdminPasswordKey",
         "postgresApplicationPasswordKey",
+        "projectionDatabaseUrlKey",
         "s3AccessKeyIdKey",
         "s3SecretAccessKeyKey",
         "workerCredentialRefsKey"
@@ -333,6 +339,7 @@
         "connectorCallerTokenKey": { "$ref": "#/definitions/secretKey" },
         "connectorCredentialsKey": { "$ref": "#/definitions/secretKey" },
         "databaseUrlKey": { "$ref": "#/definitions/secretKey" },
+        "projectionDatabaseUrlKey": { "$ref": "#/definitions/secretKey" },
         "effectOidcClientsKey": { "$ref": "#/definitions/secretKey" },
         "harnessBindingKeyKey": { "$ref": "#/definitions/secretKey" },
         "name": { "$ref": "#/definitions/kubernetesName" },

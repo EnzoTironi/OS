@@ -27,6 +27,7 @@ spec:
           command: [/usr/local/bin/zoen-projection]
           env:
             {{- include "zoen.databaseEnv" . | nindent 12 }}
+            {{- include "zoen.projectionDatabaseEnv" . | nindent 12 }}
             {{- include "zoen.objectStoreEnv" . | nindent 12 }}
             - name: S3_BUCKET
               value: {{ .Values.objectStorage.projectionBucket | quote }}
