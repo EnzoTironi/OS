@@ -8,6 +8,8 @@
     "../../packages/transport/src/**/*.ts",
     "../../packages/speaker/src/**/*.ts",
     "../../packages/ontology/src/**/*.ts",
+    "../../packages/osdk/src/**/*.ts",
+    "../../packages/sdk/src/**/*.ts",
     "../../packages/harness/src/interaction-execute-work.ts",
     "../../packages/harness/src/execution.ts",
     "../../packages/harness/src/execution-cli.ts",
@@ -17,5 +19,8 @@
     "../../packages/harness/src/vfs-guard.ts",
     "../../packages/harness/src/types.ts"
   ],
-  "exclude": ["**/*.test.ts"]
+  "exclude": [
+    "../../packages/**/*.test.ts",
+    "../../packages/**/*.test.tsx"
+  ]
 }
