@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../dist",
+    "rootDir": "../.."
+  },
+  "include": [
+    "../../packages/transport/src/**/*.ts",
+    "../../packages/speaker/src/**/*.ts",
+    "../../packages/ontology/src/**/*.ts",
+    "../../packages/harness/src/interaction-execute-work.ts",
+    "../../packages/harness/src/execution.ts",
+    "../../packages/harness/src/execution-cli.ts",
+    "../../packages/harness/src/execution-host.ts",
+    "../../packages/harness/src/code-mode.ts",
+    "../../packages/harness/src/js-sandbox-gate.ts",
+    "../../packages/harness/src/vfs-guard.ts",
+    "../../packages/harness/src/types.ts"
+  ],
+  "exclude": ["**/*.test.ts"]
+}
