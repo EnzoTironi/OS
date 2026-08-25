@@ -17,6 +17,7 @@ import {
   type DeliveryObservation,
   type IdentityDirectory,
   type InboundInteraction,
+  type TrustedInteractionContext,
 } from "../../interaction/src/index.js";
 import {
   presentationSchema,
@@ -83,6 +84,10 @@ export interface WhatsAppContactLoop {
   handleRaw(raw: unknown): Promise<WhatsAppContactDisposition>;
 }
 
+export interface BoundWhatsAppReply {
+  readonly text: string;
+}
+
 export interface WhatsAppContactLoopOptions {
   readonly session: CompanionSession;
   readonly identity: IdentityDirectory;
@@ -90,6 +95,10 @@ export interface WhatsAppContactLoopOptions {
   readonly doorE164?: string;
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
+  readonly boundReply?: (input: {
+    readonly inbound: InboundInteraction;
+    readonly ctx: TrustedInteractionContext;
+  }) => Promise<BoundWhatsAppReply>;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -209,11 +218,21 @@ export function createWhatsAppContactLoop(
     debounceMs: 30_000,
     deliver: async (intent: DeliveryIntent) => {
       const record = await store.getRecord(intent.recordId);
+      if (record === undefined) {
+        throw new Error("bound whatsapp turn missing InteractionRecord");
+      }
       const inboundText =
-        record?.inbound.body.kind === "text"
+        record.inbound.body.kind === "text"
           ? record.inbound.body.text
           : "sua mensagem";
-      bodies.set(intent.stableProviderDeliveryId, boundReplyText(inboundText));
+      const reply =
+        options.boundReply === undefined
+          ? { text: boundReplyText(inboundText) }
+          : await options.boundReply({
+              ctx: record.ctx,
+              inbound: record.inbound,
+            });
+      bodies.set(intent.stableProviderDeliveryId, reply.text);
       const observation = await gateway.deliver(intent);
       return observation.outcome;
     },

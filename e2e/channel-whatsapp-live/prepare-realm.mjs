@@ -124,7 +124,23 @@ const realm = {
     confidentialClient({
       actorId: "actor.admin.a",
       clientId: "admin-a",
-      delegationClaim: activationDelegation("workload.admin.a"),
+      delegationClaim: delegation("workload.admin.a", [
+        {
+          actionIds: [
+            "zoen.definition.activate",
+            "commercial.changeCommitment",
+          ],
+          delegationId: "delegation.admin.a",
+          expiresAt: farFuture,
+          notBefore: 0,
+          resourceIds: [
+            "inventory.governed",
+            "commercial.sales",
+            "commercial.order-line.dirty-quote",
+          ],
+          workloadIds: ["workload.admin.a"],
+        },
+      ]),
       principalId: "principal.admin.a",
       tenantId: "tenant.a",
       workloadId: "workload.admin.a",

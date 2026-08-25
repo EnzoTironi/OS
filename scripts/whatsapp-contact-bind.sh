@@ -100,11 +100,20 @@ whatsapp = next(
     ),
     {},
 )
+membership = next(
+    (
+        row
+        for row in resolve.get("memberships", [])
+        if row.get("status") == "active"
+    ),
+    {},
+)
+account = resolve.get("account") or {}
 payload = {
-    "accountId": bootstrap["accountId"],
-    "membershipId": bootstrap["membershipId"],
-    "tenantId": bootstrap["tenantId"],
-    "principalId": bootstrap["principalId"],
+    "accountId": whatsapp.get("accountId") or account.get("accountId") or bootstrap["accountId"],
+    "membershipId": membership.get("membershipId") or bootstrap["membershipId"],
+    "tenantId": membership.get("tenantId") or bootstrap["tenantId"],
+    "principalId": membership.get("principalId") or bootstrap["principalId"],
     "provider": "whatsapp",
     "subjectKey": "$person_subject",
     "bindingId": bind.get("bindingId") or whatsapp.get("bindingId"),
