@@ -32,9 +32,13 @@ import {
   type WorldQuerySnapshot,
 } from "./world-query.js";
 
-export interface InteractionTurnResult {
+/**
+ * Live outbound for one Interaction turn.
+ * `href` is always present: a URL or null. Empty `bubbles` means wait (no send).
+ */
+export interface OutboundTurn {
   readonly bubbles: string[];
-  readonly href?: string;
+  readonly href: URL | null;
 }
 
 export type InteractionLocale = "pt" | "en";
@@ -69,7 +73,7 @@ const EMPTY_INBOUND_EN = "Can you send that again? I didn't catch what you need.
  */
 export async function runInteractionTurn(
   input: InteractionTurnInput,
-): Promise<InteractionTurnResult> {
+): Promise<OutboundTurn> {
   const now = input.now ?? (() => new Date());
   const ctx = trustedContext(input.membership, input.inbound);
   const store = input.store ?? createMemoryTurnStore();
@@ -120,15 +124,13 @@ export async function runInteractionTurn(
 /**
  * Place href into the bubble list when the agent minted one but did not speak it.
  */
-export function outboundBubbles(result: InteractionTurnResult): string[] {
+export function outboundBubbles(result: OutboundTurn): string[] {
   const bubbles = result.bubbles
     .map((bubble) => bubble.trim())
     .filter((bubble) => bubble.length > 0);
-  if (
-    result.href !== undefined &&
-    !bubbles.some((bubble) => bubble.includes(result.href!))
-  ) {
-    return [...bubbles, result.href];
+  const href = result.href;
+  if (href !== null && !bubbles.some((bubble) => bubble.includes(href.href))) {
+    return [...bubbles, href.href];
   }
   return bubbles;
 }
@@ -374,7 +376,7 @@ function renderTurn(input: {
   readonly locale: InteractionLocale;
   readonly scratch: InteractionScratch;
   readonly snapshot: WorldQuerySnapshot | undefined;
-}): InteractionTurnResult {
+}): OutboundTurn {
   const spoken: string[] = [];
   for (const raw of input.scratch.bubbles) {
     for (const piece of splitSpokenBubbles(raw)) {
@@ -389,8 +391,8 @@ function renderTurn(input: {
   const stripped = emptyInbound
     ? spoken.filter((bubble) => !containsHiddenId(bubble, input.hiddenIds))
     : spoken;
-  if (stripped.length === 0 && input.scratch.bubbles.length === 0 && href === undefined) {
-    return { bubbles: [] };
+  if (stripped.length === 0 && input.scratch.bubbles.length === 0) {
+    return { bubbles: [], href };
   }
   if (stripped.length === 0) {
     return {
@@ -407,9 +409,9 @@ function pickHref(
   minted: string | undefined,
   bubbles: readonly string[],
   snapshot: WorldQuerySnapshot | undefined,
-): string | undefined {
+): URL | null {
   const candidates: string[] = [];
-  if (minted !== undefined && /^https:\/\//i.test(minted)) {
+  if (minted !== undefined) {
     candidates.push(minted);
   }
   for (const bubble of bubbles) {
@@ -418,14 +420,25 @@ function pickHref(
       candidates.push(url);
     }
   }
-  if (
-    snapshot?.href !== undefined &&
-    /^https:\/\//i.test(snapshot.href) &&
-    candidates.length === 0
-  ) {
+  if (snapshot?.href !== undefined && candidates.length === 0) {
     candidates.push(snapshot.href);
   }
-  return candidates[0];
+  for (const candidate of candidates) {
+    const parsed = parseHttpsUrl(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function parseHttpsUrl(value: string): URL | null {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function sanitizeUserText(text: string, hiddenIds: readonly string[]): string {

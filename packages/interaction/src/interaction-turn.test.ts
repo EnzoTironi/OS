@@ -58,6 +58,7 @@ test("PT inbound does not contain Recebi", async () => {
     membership,
   });
   assert.ok(result.bubbles.length >= 1);
+  assert.equal(result.href, null);
   for (const bubble of result.bubbles) {
     assert.doesNotMatch(bubble, /Recebi/i);
     assert.doesNotMatch(bubble, /membership\.wa\.enzo/);
@@ -85,6 +86,7 @@ test("empty inbound does not dump entity ids", async () => {
   assert.doesNotMatch(text, /entity\.hidden\.1/);
   assert.doesNotMatch(text, /membership\.wa\.enzo/);
   assert.doesNotMatch(text, /Recebi/i);
+  assert.equal(result.href, null);
   assert.ok(text.trim().length > 0);
 });
 
@@ -135,7 +137,8 @@ test("at most one href survives a double mint", async () => {
   });
   const sent = outboundBubbles(result).join("\n");
   assert.equal(sent.split("https://").length - 1, 1);
-  assert.equal(result.href, "https://app.zoen.local/a");
+  assert.ok(result.href instanceof URL);
+  assert.equal(result.href.href, "https://app.zoen.local/a");
   assert.match(sent, /Segue o resumo/);
   assert.doesNotMatch(sent, /Recebi/i);
 });

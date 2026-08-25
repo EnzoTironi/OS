@@ -285,6 +285,7 @@ export function createWhatsAppContactLoop(
                   })
                 ).text,
               ],
+              href: null,
             };
       const bubbles = outboundBubbles(reply);
       outboundByAttempt.set(claimed.attempt.id, bubbles);
