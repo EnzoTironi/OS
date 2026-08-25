@@ -74,18 +74,18 @@ test("createInteractionExecuteWork with MockLanguageModelV3 returns ExecutionRes
     doGenerate: async (options) => {
       const names = options.tools?.map((candidate) => candidate.name) ?? [];
       assert.ok(names.includes("bash"));
-      assert.ok(names.includes("readFile"));
-      assert.ok(names.includes("writeFile"));
-      assert.ok(names.includes("execute_typescript"));
+      assert.equal(names.includes("readFile"), false);
+      assert.equal(names.includes("writeFile"), false);
+      assert.equal(names.includes("execute_typescript"), false);
       assert.equal(names.includes("speak_to_user"), false);
       step += 1;
       if (step === 1) {
         return {
           content: [
             {
-              input: JSON.stringify({ path: "note.txt" }),
-              toolCallId: "call.read-note",
-              toolName: "readFile",
+              input: JSON.stringify({ command: "ls -1" }),
+              toolCallId: "call.ls",
+              toolName: "bash",
               type: "tool-call",
             },
           ],
@@ -138,7 +138,7 @@ test("createInteractionExecuteWork maps provider failure to failed kind", async 
 
 test("executionStatus covers the ExecutionResult kind union", () => {
   const ok: ExecutionResult = {
-    invokedTools: ["readFile"],
+    invokedTools: ["bash"],
     kind: "ok",
     text: "rivals still stand",
   };

@@ -44,8 +44,11 @@ export async function createInteractionExecuteWork(
     destination: options.destination,
     externals: options.externals,
     files: options.files,
+    host: options.host,
     maxSteps: options.maxSteps,
+    membershipId: options.membershipId,
     model,
+    tenantId: options.tenantId,
   });
   return {
     workbench,
