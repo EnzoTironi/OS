@@ -7,6 +7,7 @@ import { LineageRole } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   createInteractionScratch,
   createInteractionTools,
+  SPAWN_NOT_WIRED_STATUS,
 } from "./interaction-tools.js";
 import {
   outboundBubbles,
@@ -164,6 +165,21 @@ test("wait leaves empty bubbles and a null href", async () => {
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
+});
+
+test("unwired spawn_execution is denied/not_wired and never accepted", async () => {
+  const scratch = createInteractionScratch();
+  const tools = createInteractionTools(scratch);
+  const spawn = tools.spawn_execution;
+  assert.ok(spawn?.execute !== undefined);
+  const result = await spawn.execute(
+    { task: "commit commercial.createCommitment for tenant.secret" },
+    { context: undefined, messages: [], toolCallId: "call_spawn" },
+  );
+  assert.deepEqual(result, { status: SPAWN_NOT_WIRED_STATUS });
+  assert.deepEqual(scratch.executionNotes, [SPAWN_NOT_WIRED_STATUS]);
+  assert.doesNotMatch(scratch.executionNotes.join("\n"), /accepted/i);
+  assert.deepEqual(scratch.bubbles, []);
 });
 
 test("spawn_execution with injected executeWork records executionNotes and does not leak them into bubbles", async () => {

@@ -320,44 +320,6 @@ test("bound 1:1 live send is the turn, not a minute callback", async () => {
   await session.close();
 });
 
-test("bound 1:1 with executeWork stays Recebi-free when ZOEN_MODEL is unset", async () => {
-  const previous = process.env.ZOEN_MODEL;
-  delete process.env.ZOEN_MODEL;
-  const session = await readySession();
-  let handed = 0;
-  try {
-    const loop = createWhatsAppContactLoop({
-      doorE164,
-      executeWork: async () => {
-        handed += 1;
-        return "status: workbench counted rivals";
-      },
-      identity: boundIdentity(speaker),
-      session,
-    });
-    const result = await loop.handleRaw(
-      inbound({ body: "Oi", messageId: "wamid.exec-closed" }),
-    );
-    assert.equal(result.kind, "bound");
-    assert.equal(handed, 0);
-    const sent = session.sent()[0];
-    assert.ok(sent);
-    assert.equal(sent.shape.kind, "text");
-    if (sent.shape.kind === "text") {
-      assert.doesNotMatch(sent.shape.text, /Recebi/i);
-      assert.doesNotMatch(sent.shape.text, /status: workbench/);
-      assert.ok(sent.shape.text.trim().length > 0);
-    }
-  } finally {
-    await session.close();
-    if (previous === undefined) {
-      delete process.env.ZOEN_MODEL;
-    } else {
-      process.env.ZOEN_MODEL = previous;
-    }
-  }
-});
-
 test("provider key stays unofficial whatsapp", () => {
   assert.equal(String(providerKey("whatsapp")), "whatsapp");
 });

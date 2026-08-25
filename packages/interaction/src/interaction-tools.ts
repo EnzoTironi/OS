@@ -29,6 +29,8 @@ export interface InteractionScratch {
   href?: string;
 }
 
+export const SPAWN_NOT_WIRED_STATUS = "denied/not_wired";
+
 export interface InteractionToolOptions {
   readonly executeWork?: (task: string) => Promise<string>;
 }
@@ -44,7 +46,7 @@ export function createInteractionScratch(): InteractionScratch {
  * Poke-style Interaction tools. Few, and never named in user text.
  *
  * @param scratch - Turn-local recorder for bubbles, one href, and execution notes
- * @param options.executeWork - Optional harness hand-off; defaults to a status string
+ * @param options.executeWork - Optional hand-off. Unwired spawn is denied/not_wired, never accepted.
  */
 export function createInteractionTools(
   scratch: InteractionScratch,
@@ -73,7 +75,7 @@ export function createInteractionTools(
       execute: async ({ task }) => {
         const status =
           options.executeWork === undefined
-            ? `status: accepted (${task.trim().slice(0, 80)})`
+            ? SPAWN_NOT_WIRED_STATUS
             : await options.executeWork(task);
         scratch.executionNotes.push(status);
         return { status };

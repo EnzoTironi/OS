@@ -2,7 +2,6 @@ export * from "./adaptive-surface.js";
 export * from "./code-mode.js";
 export * from "./context.js";
 export * from "./execution.js";
-export * from "./interaction-execute-work.js";
 export * from "./embeddings.js";
 export * from "./extraction.js";
 export * from "./ingestion.js";

@@ -1,4 +1,3 @@
-import { createInteractionExecuteWork } from "../../harness/src/interaction-execute-work.js";
 import {
   createIdentityDirectoryClient,
   type IdentityDirectory,
@@ -29,10 +28,8 @@ async function main(): Promise<void> {
   await session.open();
   const ready = await session.ready();
   const tenantHint = process.env.ZOEN_WHATSAPP_TENANT_HINT?.trim();
-  const executeWork = (await createInteractionExecuteWork())?.executeWork;
   const loop = createWhatsAppContactLoop({
     doorE164,
-    executeWork,
     identity: withTenantHint(
       createIdentityDirectoryClient({ baseUrl: identityBaseUrl }),
       tenantHint,

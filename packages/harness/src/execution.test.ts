@@ -111,4 +111,38 @@ test("execute_typescript allowlists external_world_query and denies unknown name
     kind: "denied",
     reason: "commit_forbidden",
   });
+
+  const escaped = await runExecuteTypescript({
+    externals,
+    source: "return process.pid;",
+  });
+  assert.deepEqual(escaped, {
+    kind: "denied",
+    reason: "host_escape",
+  });
+});
+
+test("separate workbenches do not share just-bash files", async () => {
+  const idle = () =>
+    new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [{ text: "idle", type: "text" }],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage,
+        warnings: [],
+      }),
+    });
+  const workA = await createExecutionAgent({
+    destination: "/workspace-a",
+    files: { "secret.txt": "secret-from-a" },
+    model: idle(),
+  });
+  const workB = await createExecutionAgent({
+    destination: "/workspace-b",
+    files: {},
+    model: idle(),
+  });
+  assert.equal(await workA.sandbox.readFile("/workspace-a/secret.txt"), "secret-from-a");
+  await assert.rejects(workB.sandbox.readFile("/workspace-a/secret.txt"));
+  await assert.rejects(workB.sandbox.readFile("/workspace-b/secret.txt"));
 });
