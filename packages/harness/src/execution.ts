@@ -1,27 +1,33 @@
 import { createBashTool, type Sandbox } from "bash-tool";
+import { Bash } from "just-bash";
 import { isStepCount, ToolLoopAgent, type LanguageModel, type ToolSet } from "ai";
 import { z } from "zod";
 import {
-  createExecuteTypescriptTool,
-  EXECUTION_EXTERNAL_IDS,
-  indexExternals,
   type CodeModeDeniedReason,
   type CodeModeFailedReason,
   type ExecutionExternals,
   type HostToolBinding,
 } from "./code-mode.js";
+import {
+  createZoenCliCommand,
+  plantExecutionIsolateFiles,
+  zoenCliBashInstructions,
+} from "./execution-cli.js";
+import {
+  createExecutionIsolateGate,
+  createWorkerCodeModeHost,
+  isolatePathSegmentSchema,
+  type ExecutionCodeModeHost,
+  type ExecutionIsolateGate,
+  type WorkerCodeModeHost,
+} from "./execution-host.js";
 import { actionPlanSchema, type ActionPlan } from "./types.js";
 
 export const EXECUTION_WORKSPACE = "/workspace";
 export const WORLD_QUERY_HOST_TOOL_ID = "world_query";
 export const ACTION_PREVIEW_HOST_TOOL_ID = "action_preview";
 
-export const EXECUTION_INVOKED_TOOLS = [
-  "bash",
-  "execute_typescript",
-  "readFile",
-  "writeFile",
-] as const;
+export const EXECUTION_INVOKED_TOOLS = ["bash"] as const;
 export const executionInvokedToolSchema = z.enum(EXECUTION_INVOKED_TOOLS);
 export type ExecutionInvokedTool = z.infer<typeof executionInvokedToolSchema>;
 
@@ -68,40 +74,81 @@ export interface CreateExecutionAgentOptions {
   readonly destination?: string;
   readonly externals?: ExecutionExternals;
   readonly files?: Readonly<Record<string, string>>;
+  readonly host?: ExecutionCodeModeHost;
   readonly maxSteps?: number;
+  readonly membershipId?: string;
   readonly model: LanguageModel;
+  readonly tenantId?: string;
 }
 
 export interface ExecutionWorkbench {
   readonly agent: ToolLoopAgent;
   readonly destination: string;
+  readonly gate: ExecutionIsolateGate;
+  readonly host: WorkerCodeModeHost;
   readonly sandbox: Sandbox;
   run(prompt: string): Promise<ExecutionResult>;
 }
 
 /**
+ * Isolate destination for one membership/tenant. Override with `destination`.
+ */
+export function executionIsolateDestination(options: {
+  readonly destination?: string;
+  readonly membershipId?: string;
+  readonly tenantId?: string;
+}): string {
+  if (options.destination !== undefined) {
+    return options.destination;
+  }
+  const tenant =
+    options.tenantId === undefined
+      ? undefined
+      : isolatePathSegmentSchema.parse(options.tenantId);
+  const membership =
+    options.membershipId === undefined
+      ? undefined
+      : isolatePathSegmentSchema.parse(options.membershipId);
+  if (tenant !== undefined && membership !== undefined) {
+    return `${EXECUTION_WORKSPACE}/${tenant}/${membership}`;
+  }
+  if (tenant !== undefined) {
+    return `${EXECUTION_WORKSPACE}/${tenant}`;
+  }
+  return EXECUTION_WORKSPACE;
+}
+
+/**
  * Parallel execution workbench. The planner stays one required Action tool
- * call. This agent loops over just-bash plus CodeMode host tools.
+ * call. The model-visible ToolSet is only `bash` against a just-bash VFS.
+ * World query and propose go through the planted `zoen` CLI onto the same
+ * host functions as `wit/zoen-code-mode`. Commit is denied.
  */
 export async function createExecutionAgent(
   options: CreateExecutionAgentOptions,
 ): Promise<ExecutionWorkbench> {
-  const destination = options.destination ?? EXECUTION_WORKSPACE;
-  const externals = options.externals ?? {};
-  indexExternals(externals);
+  const destination = executionIsolateDestination(options);
+  const files = plantExecutionIsolateFiles(
+    options.files === undefined ? {} : { ...options.files },
+  );
+  const gate = createExecutionIsolateGate();
+  const host = createWorkerCodeModeHost(options.host, gate);
+  const bash = new Bash({
+    cwd: destination,
+    customCommands: [createZoenCliCommand(host)],
+  });
   const toolkit = await createBashTool({
     destination,
-    files: options.files === undefined ? {} : { ...options.files },
+    extraInstructions: zoenCliBashInstructions(),
+    files,
+    sandbox: bash,
   });
   const tools: ToolSet = {
     bash: toolkit.tools.bash,
-    execute_typescript: createExecuteTypescriptTool({ externals }),
-    readFile: toolkit.tools.readFile,
-    writeFile: toolkit.tools.writeFile,
   };
   const agent = new ToolLoopAgent({
     id: "zoen-execution",
-    instructions: executionInstructions(externals),
+    instructions: executionInstructions(destination),
     model: options.model,
     stopWhen: isStepCount(options.maxSteps ?? 20),
     tools,
@@ -109,9 +156,14 @@ export async function createExecutionAgent(
   return {
     agent,
     destination,
+    gate,
+    host,
     async run(prompt: string): Promise<ExecutionResult> {
       try {
         const result = await agent.generate({ prompt });
+        if (gate.commitDenied) {
+          return { kind: "denied", reason: "commit_forbidden" };
+        }
         const invoked = parseInvokedTools(
           result.toolCalls.map((call) => call.toolName),
         );
@@ -130,6 +182,9 @@ export async function createExecutionAgent(
           }
         }
       } catch {
+        if (gate.commitDenied) {
+          return { kind: "denied", reason: "commit_forbidden" };
+        }
         return { kind: "failed", reason: "provider_call_failed" };
       }
     },
@@ -160,6 +215,19 @@ export function createActionPreviewHostTool(
   };
 }
 
+export {
+  createWorkerCodeModeHost,
+  type CodeModeQueryRequest,
+  type CodeModeQueryResult,
+  type ExecutionCodeModeHost,
+  type WorkerCodeModeHost,
+} from "./execution-host.js";
+export {
+  runZoenCli,
+  ZOEN_CLI_RELATIVE_PATH,
+  type ZoenCliProcessResult,
+} from "./execution-cli.js";
+
 function parseInvokedTools(names: readonly string[]):
   | { readonly kind: "ok"; readonly tools: ExecutionInvokedTool[] }
   | { readonly kind: "denied"; readonly reason: "tool_not_allowlisted" } {
@@ -174,21 +242,14 @@ function parseInvokedTools(names: readonly string[]):
   return { kind: "ok", tools };
 }
 
-function executionInstructions(externals: ExecutionExternals): string {
-  const listed = EXECUTION_EXTERNAL_IDS.filter(
-    (id) => externals[id] !== undefined,
-  ).map((id) => `external_${id}`);
-  const allowlist =
-    listed.length === 0
-      ? "No host tools are allowlisted."
-      : `Allowlisted host tools: ${listed.join(", ")}.`;
+function executionInstructions(destination: string): string {
   return [
     "You are Zoen's execution workbench.",
     "You have no user chat channel and no speak_to_user tool.",
-    `Use bash, readFile, and writeFile against the just-bash workspace at ${EXECUTION_WORKSPACE}.`,
-    "Use execute_typescript to orchestrate allowlisted external_* host tools.",
-    allowlist,
-    "Only world_query and action_preview may be allowlisted. Commit is never available.",
+    "The only model-visible tool is bash.",
+    `Use bash to list, read, and write files in the just-bash workspace at ${destination}.`,
+    "Use the planted zoen CLI for world query and action propose: zoen query, zoen propose.",
+    "zoen commit is forbidden. Cedar commit stays on the host speaker path.",
     "Return a short factual summary for the interaction agent.",
   ].join(" ");
 }
