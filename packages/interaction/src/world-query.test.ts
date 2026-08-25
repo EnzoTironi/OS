@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { create } from "@bufbuild/protobuf";
-import type { CompiledDefinition } from "@zoen/ontology";
-import type { OsdkWorld } from "@zoen/osdk";
+import type { CompiledDefinition } from "../../ontology/src/index.js";
+import type { OsdkWorld } from "../../osdk/src/index.js";
 import {
   ExactValueSchema,
   LineageDependencySchema,

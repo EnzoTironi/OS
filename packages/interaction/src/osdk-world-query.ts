@@ -5,7 +5,10 @@
 import path from "node:path";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
-import { compileDefinition, type CompiledDefinition } from "@zoen/ontology";
+import {
+  compileDefinition,
+  type CompiledDefinition,
+} from "../../ontology/src/index.js";
 import {
   createOsdkFromCompiled,
   type ClaimRead,
@@ -14,7 +17,7 @@ import {
   type OsdkRuntimeClient,
   type OsdkWorld,
   type TypeQuery,
-} from "@zoen/osdk";
+} from "../../osdk/src/index.js";
 import { WorldService } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import { snapshotFromClaims, type WorldQueryClient } from "./world-query.js";
 

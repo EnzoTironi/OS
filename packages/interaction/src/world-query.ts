@@ -2,12 +2,12 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
-import type { ExactValue } from "@zoen/ontology";
+import type { ExactValue } from "../../ontology/src/index.js";
 import {
   decodeClaims,
   type ClaimLineage,
   type ClaimRead,
-} from "@zoen/osdk";
+} from "../../osdk/src/index.js";
 import {
   DefinitionReferenceSchema,
   LineageRole,
