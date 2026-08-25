@@ -6,6 +6,13 @@ import {
 
 export const WHATSAPP_INGRESS_SECRET_ENV = "ZOEN_WHATSAPP_INGRESS_SECRET";
 
+/** Persist-only hop prefix. HMAC still signs the raw `webhook-id`. */
+export const GATEWAY_INGRESS_REPLAY_NAMESPACE = "gateway:";
+
+function namespacedIngressReplayId(webhookId: string): string {
+  return `${GATEWAY_INGRESS_REPLAY_NAMESPACE}${webhookId}`;
+}
+
 export type WhatsAppIngressAuthFailure =
   | "secret_missing"
   | "headers_missing"
@@ -42,20 +49,22 @@ export function createMemoryIngressReplayStore(): IngressReplayStore {
   const committed = new Set<string>();
   return {
     async begin(webhookId) {
-      if (inflight.has(webhookId)) {
+      const key = namespacedIngressReplayId(webhookId);
+      if (inflight.has(key)) {
         throw new WhatsAppIngressAuthError("replay", "webhook-id already accepted");
       }
-      inflight.add(webhookId);
+      inflight.add(key);
     },
     async contains(webhookId) {
-      return committed.has(webhookId);
+      return committed.has(namespacedIngressReplayId(webhookId));
     },
     async commit(webhookId) {
-      committed.add(webhookId);
-      inflight.delete(webhookId);
+      const key = namespacedIngressReplayId(webhookId);
+      committed.add(key);
+      inflight.delete(key);
     },
     async release(webhookId) {
-      inflight.delete(webhookId);
+      inflight.delete(namespacedIngressReplayId(webhookId));
     },
   };
 }
@@ -66,32 +75,35 @@ export function createPostgresIngressReplayStore(
   const inflight = new Set<string>();
   return {
     async begin(webhookId) {
-      if (inflight.has(webhookId)) {
+      const key = namespacedIngressReplayId(webhookId);
+      if (inflight.has(key)) {
         throw new WhatsAppIngressAuthError("replay", "webhook-id already accepted");
       }
-      inflight.add(webhookId);
+      inflight.add(key);
     },
     async contains(webhookId) {
+      const key = namespacedIngressReplayId(webhookId);
       const result = await client.query(
         `SELECT webhook_id FROM ingress_replay WHERE webhook_id = $1`,
-        [webhookId],
+        [key],
       );
       return result.rows[0] !== undefined;
     },
     async commit(webhookId) {
+      const key = namespacedIngressReplayId(webhookId);
       try {
         await client.query(
           `INSERT INTO ingress_replay (webhook_id)
            VALUES ($1)
            ON CONFLICT (webhook_id) DO NOTHING`,
-          [webhookId],
+          [key],
         );
       } finally {
-        inflight.delete(webhookId);
+        inflight.delete(key);
       }
     },
     async release(webhookId) {
-      inflight.delete(webhookId);
+      inflight.delete(namespacedIngressReplayId(webhookId));
     },
   };
 }

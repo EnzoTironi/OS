@@ -88,6 +88,7 @@ export {
   admitWhatsAppIngress,
   createMemoryIngressReplayStore,
   createPostgresIngressReplayStore,
+  GATEWAY_INGRESS_REPLAY_NAMESPACE,
   readWhatsAppIngressSecret,
   verifyWhatsAppInbound,
   WhatsAppIngressAuthError,
