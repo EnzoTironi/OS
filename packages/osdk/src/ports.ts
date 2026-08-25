@@ -3,6 +3,8 @@ import type {
   ApproveResponse,
   CommitRequest,
   CommitResponse,
+  DiscoverRequest,
+  DiscoverResponse,
   ProposeRequest,
   ProposeResponse,
 } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
@@ -29,11 +31,12 @@ export type OsdkWorld = {
 };
 
 /**
- * Live ActionService subset used by preview (`propose`) and commit
- * (`propose` → `approve` when awaiting → `commit`). Cedar stays on zoend.
+ * Live ActionService: Discover → Propose → optional Approve → Commit.
+ * Cedar stays on zoend. This is not applyAction on a row.
  */
 export type OsdkActionsPort = {
   approve(request: ApproveRequest): Promise<ApproveResponse>;
   commit(request: CommitRequest): Promise<CommitResponse>;
+  discover(request: DiscoverRequest): Promise<DiscoverResponse>;
   propose(request: ProposeRequest): Promise<ProposeResponse>;
 };

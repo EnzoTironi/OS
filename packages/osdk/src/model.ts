@@ -11,7 +11,7 @@ export interface OsdkAttributeModel {
   readonly valueType: ValueType;
 }
 
-export interface OsdkValuePropModel {
+export interface OsdkValueRelationModel {
   readonly apiName: string;
   readonly cardinality: "many" | "one";
   readonly relationId: string;
@@ -30,8 +30,8 @@ export interface OsdkTypeModel {
   readonly apiName: string;
   readonly attributes: readonly OsdkAttributeModel[];
   readonly links: readonly OsdkLinkModel[];
-  readonly props: readonly OsdkValuePropModel[];
   readonly typeId: string;
+  readonly valueRelations: readonly OsdkValueRelationModel[];
 }
 
 export interface OsdkActionModel {
@@ -39,8 +39,15 @@ export interface OsdkActionModel {
   readonly apiName: string;
 }
 
+export interface OsdkComputationModel {
+  readonly apiName: string;
+  readonly computationId: string;
+  readonly returns: ValueType;
+}
+
 export interface OsdkModel {
   readonly actions: readonly OsdkActionModel[];
+  readonly computations: readonly OsdkComputationModel[];
   readonly definitionId: string;
   readonly digest: string;
   readonly revision: number;
@@ -48,7 +55,7 @@ export interface OsdkModel {
 }
 
 /**
- * Projects a compiled definition into the OSDK object/link/action namespace.
+ * Projects a compiled definition into objects / links / computations / actions.
  * API names are the last id segment (`commercial.OrderLine` → `OrderLine`).
  */
 export function buildOsdkModel(compiled: CompiledDefinition): OsdkModel {
@@ -61,6 +68,10 @@ export function buildOsdkModel(compiled: CompiledDefinition): OsdkModel {
     definition.actions.map((action) => action.id),
     "action",
   );
+  assertUniqueApiNames(
+    definition.computations.map((computation) => computation.id),
+    "computation",
+  );
 
   const types = sortByApiName(
     definition.types.map((type) => {
@@ -69,19 +80,19 @@ export function buildOsdkModel(compiled: CompiledDefinition): OsdkModel {
         valueType: attribute.valueType,
       }));
       const links: OsdkLinkModel[] = [];
-      const props: OsdkValuePropModel[] = [];
+      const valueRelations: OsdkValueRelationModel[] = [];
       for (const relation of definition.relations) {
         if (relation.sourceType !== type.id) {
           continue;
         }
-        pushRelation(relation, links, props);
+        pushRelation(relation, links, valueRelations);
       }
       const model: OsdkTypeModel = {
         apiName: apiNameFromId(type.id),
         attributes,
         links: sortByApiName(links),
-        props: sortByApiName(props),
         typeId: type.id,
+        valueRelations: sortByApiName(valueRelations),
       };
       assertUniqueMemberNames(model);
       return model;
@@ -95,6 +106,13 @@ export function buildOsdkModel(compiled: CompiledDefinition): OsdkModel {
         apiName: apiNameFromId(action.id),
       })),
     ),
+    computations: sortByApiName(
+      definition.computations.map((computation) => ({
+        apiName: apiNameFromId(computation.id),
+        computationId: computation.id,
+        returns: computation.returns,
+      })),
+    ),
     definitionId: definition.definitionId,
     digest,
     revision: definition.revision,
@@ -105,7 +123,7 @@ export function buildOsdkModel(compiled: CompiledDefinition): OsdkModel {
 function pushRelation(
   relation: RelationDefinition,
   links: OsdkLinkModel[],
-  props: OsdkValuePropModel[],
+  valueRelations: OsdkValueRelationModel[],
 ): void {
   switch (relation.target.kind) {
     case "type":
@@ -118,7 +136,7 @@ function pushRelation(
       });
       return;
     case "value":
-      props.push({
+      valueRelations.push({
         apiName: apiNameFromId(relation.id),
         cardinality: relation.cardinality,
         relationId: relation.id,
@@ -140,7 +158,7 @@ function assertUniqueMemberNames(type: OsdkTypeModel): void {
         apiName: member.apiName,
         kind: "attribute",
       })),
-      ...type.props.map((member) => ({
+      ...type.valueRelations.map((member) => ({
         apiName: member.apiName,
         kind: "value relation",
       })),
@@ -167,4 +185,3 @@ function sortByApiName<T extends { readonly apiName: string }>(
     left.apiName < right.apiName ? -1 : left.apiName > right.apiName ? 1 : 0,
   );
 }
-

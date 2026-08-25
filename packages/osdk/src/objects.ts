@@ -1,19 +1,18 @@
-import type { ExactValue } from "@zoen/ontology";
+import { emptyClaimRead, type ClaimRead } from "./claims.js";
 import type { OsdkLinkModel, OsdkModel, OsdkTypeModel } from "./model.js";
 import type { OsdkDefinitionRef, OsdkWorld } from "./ports.js";
-import {
-  entityIdsFromClaims,
-  queryClaims,
-} from "./query.js";
+import { entityIdsFromClaims, queryClaims } from "./query.js";
 
 export interface TypeQuery<TProjection = ClaimProjection> {
   fetch(entityId: string): Promise<TProjection>;
   ids(limit: number): Promise<readonly string[]>;
 }
 
+export type ClaimField = ClaimRead | readonly ClaimRead[];
+
 /**
  * Projection of World claims for one entity. Not a hydrated object row.
- * Cardinality-one values are `ExactValue | null` (known empty).
+ * Cardinality-one values are always a `ClaimRead` (`value` may be null).
  * Links walk relations and return entity ids, not nested objects.
  */
 export interface ClaimProjection {
@@ -25,9 +24,7 @@ export interface ClaimProjection {
     >
   >;
   readonly typeId: string;
-  readonly values: Readonly<
-    Record<string, ExactValue | null | readonly ExactValue[]>
-  >;
+  readonly values: Readonly<Record<string, ClaimField>>;
 }
 
 export interface ObjectRuntime {
@@ -63,30 +60,26 @@ async function fetchClaimProjection(
   type: OsdkTypeModel,
   entityId: string,
 ): Promise<ClaimProjection> {
-  const values: Record<string, ExactValue | null | readonly ExactValue[]> = {};
-  for (const prop of type.props) {
+  const values: Record<string, ClaimField> = {};
+  for (const relation of type.valueRelations) {
     const claims = await queryClaims({
       definition: runtime.definition,
       entityId,
       kind: "relation",
-      relationId: prop.relationId,
+      relationId: relation.relationId,
       tenantId: runtime.tenantId,
       validAt: runtime.validAt,
       world: runtime.world,
     });
-    switch (prop.cardinality) {
+    switch (relation.cardinality) {
       case "many":
-        values[prop.apiName] = claims.flatMap((claim) =>
-          claim.value === null ? [] : [claim.value],
-        );
+        values[relation.apiName] = claims;
         break;
-      case "one": {
-        const first = claims[0];
-        values[prop.apiName] = first?.value ?? null;
+      case "one":
+        values[relation.apiName] = claims[0] ?? emptyClaimRead(entityId);
         break;
-      }
       default: {
-        const exhaustive: never = prop.cardinality;
+        const exhaustive: never = relation.cardinality;
         return exhaustive;
       }
     }
@@ -128,7 +121,8 @@ function createLinkWalks(
   for (const link of type.links) {
     switch (link.cardinality) {
       case "many":
-        links[link.apiName] = () => walkRelationIds(runtime, link, sourceEntityId);
+        links[link.apiName] = () =>
+          walkRelationIds(runtime, link, sourceEntityId);
         break;
       case "one":
         links[link.apiName] = async () => {

@@ -8,11 +8,13 @@ import { promisify } from "node:util";
 import { create } from "@bufbuild/protobuf";
 import { compileDefinition } from "../../ontology/src/index.js";
 import {
+  ActionCapabilitySchema,
   ApproveResponseSchema,
   CommitIdentityKind,
   CommitReceiptSchema,
   CommitResponseSchema,
   CommitStatus,
+  DiscoverResponseSchema,
   PolicyDecision,
   ProposalSchema,
   ProposeResponseSchema,
@@ -21,6 +23,8 @@ import {
 import {
   ExactValueSchema,
   LineageDependencySchema,
+  LineageRole,
+  QuantityValueSchema,
   SemanticQueryResponseSchema,
   SemanticValueResultSchema,
   type ExactValue,
@@ -61,7 +65,11 @@ test("generated OSDK typechecks objects.OrderLine and a link accessor", async ()
     modules.files["objects.ts"],
     /readonly commitmentReference: \(\) => Promise<readonly string\[\]>/,
   );
-  assert.match(modules.files["objects.ts"], /ExactValue \| null/);
+  assert.match(modules.files["objects.ts"], /readonly quotedUnitPrice: ClaimRead/);
+  assert.match(
+    modules.files["objects.ts"],
+    /readonly openQuantity: \(input: \{ readonly entityId: string \}\) => Promise<ClaimRead>/,
+  );
   assert.match(modules.files["actions.ts"], /preview\(call:/);
   assert.match(modules.files["actions.ts"], /approvalId: string/);
   assert.match(modules.files["actions.ts"], /recordQuote/);
@@ -134,10 +142,50 @@ test("preview and commit are distinct; commit uses Action+Cedar, not World write
   const line = await orderLines.fetch("commercial.orderLine.1");
   assert.equal(line.typeId, "commercial.OrderLine");
   assert.equal(line.entityId, "commercial.orderLine.1");
-  assert.deepEqual(line.values.quotedUnitPrice, {
+  const quotedUnitPrice = line.values.quotedUnitPrice;
+  if (quotedUnitPrice === undefined || Array.isArray(quotedUnitPrice)) {
+    throw new Error("quotedUnitPrice must be a single ClaimRead");
+  }
+  assert.deepEqual(quotedUnitPrice.value, {
     kind: "decimal",
     value: "19.99",
   });
+  assert.equal(quotedUnitPrice.entityId, "commercial.orderLine.1");
+  assert.deepEqual(quotedUnitPrice.lineage, [
+    {
+      claimId: "claim.quotedUnitPrice.1",
+      commitSequence: 1n,
+      entityId: "commercial.orderLine.1",
+      relationId: "commercial.quotedUnitPrice",
+      role: LineageRole.SUPPORTING,
+    },
+  ]);
+
+  const queryOpenQuantity = osdk.computations.openQuantity;
+  assert.ok(queryOpenQuantity);
+  const openQuantity = await queryOpenQuantity({
+    entityId: "commercial.orderLine.1",
+  });
+  assert.deepEqual(openQuantity.value, {
+    amount: "3",
+    kind: "quantity",
+    unit: "each",
+  });
+  assert.equal(
+    openQuantity.lineage[0]?.role,
+    LineageRole.COMPUTATION_DEPENDENCY,
+  );
+
+  const discovered = await osdk.discover({
+    resourceId: "commercial.orderLine.1",
+  });
+  assert.deepEqual(discovered, [
+    {
+      actionId: "commercial.recordQuote",
+      decision: PolicyDecision.PERMIT,
+      evaluationError: "",
+    },
+  ]);
 
   const requestLink = line.links.requestReference;
   if (requestLink === undefined) {
@@ -214,8 +262,8 @@ test("commit approves when the proposal is awaiting approval", async () => {
   assert.deepEqual(calls, ["action.propose", "action.approve", "action.commit"]);
 });
 
-const commercialUsageSource = `import type { ExactValue } from "@zoen/ontology";
-import type { OrderLine, OsdkObjects } from "./objects.js";
+const commercialUsageSource = `import type { ClaimRead } from "@zoen/osdk";
+import type { OrderLine, OsdkComputations, OsdkObjects } from "./objects.js";
 import type { OsdkActions } from "./actions.js";
 
 type OrderLineSet = OsdkObjects["OrderLine"];
@@ -239,8 +287,20 @@ type _HasManyLink = CommitmentLink extends () => Promise<readonly string[]>
   : false;
 const hasManyLink: _HasManyLink = true;
 
-type _PriceIsExactValue = QuotedPrice extends ExactValue | null ? true : false;
-const priceIsExactValue: _PriceIsExactValue = true;
+type _PriceIsClaimRead = QuotedPrice extends ClaimRead ? true : false;
+const priceIsClaimRead: _PriceIsClaimRead = true;
+
+type OpenQuantity = OsdkComputations["openQuantity"];
+type _OpenNeedsEntity = Parameters<OpenQuantity>[0] extends {
+  readonly entityId: string;
+}
+  ? true
+  : false;
+const openNeedsEntity: _OpenNeedsEntity = true;
+type _OpenReturnsClaim = Awaited<ReturnType<OpenQuantity>> extends ClaimRead
+  ? true
+  : false;
+const openReturnsClaim: _OpenReturnsClaim = true;
 
 type _Distinct = Preview extends Commit
   ? Commit extends Preview
@@ -258,7 +318,9 @@ export function typecheck(objects: OsdkObjects, actions: OsdkActions): void {
   void fetchedIsOrderLine;
   void hasSingleLink;
   void hasManyLink;
-  void priceIsExactValue;
+  void priceIsClaimRead;
+  void openNeedsEntity;
+  void openReturnsClaim;
   void previewAndCommitAreDistinct;
 }
 `;
@@ -292,6 +354,12 @@ function fakeWorld(calls: string[]): OsdkWorld {
           }),
         );
       }
+      if (request.selection?.value.case === "computationId") {
+        return claimsForComputation(
+          request.selection.value.value,
+          request.entityId,
+        );
+      }
       if (request.selection?.value.case === "relationId") {
         return claimsForRelation(
           request.selection.value.value,
@@ -307,24 +375,25 @@ function fakeWorld(calls: string[]): OsdkWorld {
   };
 }
 
-function claimsForRelation(relationId: string, entityId: string) {
-  switch (relationId) {
-    case "commercial.quotedUnitPrice":
-      return queryResponse(
-        entityId,
-        create(ExactValueSchema, {
-          value: { case: "decimalValue", value: "19.99" },
-        }),
-      );
-    case "commercial.requestReference":
+function claimsForComputation(computationId: string, entityId: string) {
+  switch (computationId) {
+    case "commercial.openQuantity":
       return queryResponse(
         entityId,
         create(ExactValueSchema, {
           value: {
-            case: "entityRefValue",
-            value: "commercial.request.1",
+            case: "quantityValue",
+            value: create(QuantityValueSchema, {
+              amount: "3",
+              unit: "each",
+            }),
           },
         }),
+        {
+          claimId: "claim.committedQuantity.1",
+          relationId: "commercial.committedQuantity",
+          role: LineageRole.COMPUTATION_DEPENDENCY,
+        },
       );
     default:
       return create(SemanticQueryResponseSchema, {
@@ -335,13 +404,67 @@ function claimsForRelation(relationId: string, entityId: string) {
   }
 }
 
-function queryResponse(entityId: string, value: ExactValue) {
+function claimsForRelation(relationId: string, entityId: string) {
+  switch (relationId) {
+    case "commercial.quotedUnitPrice":
+      return queryResponse(
+        entityId,
+        create(ExactValueSchema, {
+          value: { case: "decimalValue", value: "19.99" },
+        }),
+        {
+          claimId: "claim.quotedUnitPrice.1",
+          relationId: "commercial.quotedUnitPrice",
+          role: LineageRole.SUPPORTING,
+        },
+      );
+    case "commercial.requestReference":
+      return queryResponse(
+        entityId,
+        create(ExactValueSchema, {
+          value: {
+            case: "entityRefValue",
+            value: "commercial.request.1",
+          },
+        }),
+        {
+          claimId: "claim.requestReference.1",
+          relationId: "commercial.requestReference",
+          role: LineageRole.SUPPORTING,
+        },
+      );
+    default:
+      return create(SemanticQueryResponseSchema, {
+        actualCommitSequence: 0n,
+        knowledgeCut: 0n,
+        values: [],
+      });
+  }
+}
+
+function queryResponse(
+  entityId: string,
+  value: ExactValue,
+  lineage?: {
+    readonly claimId: string;
+    readonly relationId: string;
+    readonly role: LineageRole;
+  },
+) {
   return create(SemanticQueryResponseSchema, {
     actualCommitSequence: 0n,
     knowledgeCut: 0n,
     values: [
       create(SemanticValueResultSchema, {
-        dependencies: [create(LineageDependencySchema, { entityId })],
+        dependencies: [
+          create(LineageDependencySchema, {
+            claimId: lineage?.claimId ?? "",
+            commitSequence: lineage === undefined ? 0n : 1n,
+            entityId,
+            relationId: lineage?.relationId ?? "",
+            role: lineage?.role ?? LineageRole.UNSPECIFIED,
+          }),
+        ],
         value,
       }),
     ],
@@ -370,6 +493,18 @@ function fakeActions(
           recordIds: ["record.1"],
         }),
         status: CommitStatus.COMMITTED,
+      });
+    },
+    async discover() {
+      calls.push("action.discover");
+      return create(DiscoverResponseSchema, {
+        actions: [
+          create(ActionCapabilitySchema, {
+            actionId: "commercial.recordQuote",
+            decision: PolicyDecision.PERMIT,
+            evaluationError: "",
+          }),
+        ],
       });
     },
     async propose(request) {

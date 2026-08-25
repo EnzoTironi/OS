@@ -6,9 +6,11 @@ import {
   ApproveRequestSchema,
   CommitRequestSchema,
   CommitStatus,
+  DiscoverRequestSchema,
   PolicyDecision,
   ProposalStatus,
   ProposeRequestSchema,
+  type ActionCapability,
 } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
   ExactValueSchema,
@@ -62,10 +64,39 @@ export interface OsdkActionHandle<TInputs> {
   commit(call: CommitCall<TInputs>): Promise<ActionCommitResult>;
 }
 
+export type DiscoveredAction = Pick<
+  ActionCapability,
+  "actionId" | "decision" | "evaluationError"
+>;
+
 export interface ActionRuntime {
   readonly action: ActionDefinition;
   readonly actions: OsdkActionsPort;
   readonly definition: OsdkDefinitionRef;
+}
+
+/**
+ * Context: first Action door (Cedar capability list for a resource).
+ * Inputs: compiled definition reference and the resource entity id.
+ * Outputs: action id + decision + evaluation error. No optional policy bag.
+ * Side effects: Action.discover on zoend. Does not Propose or write claims.
+ */
+export async function discoverActions(input: {
+  readonly actions: OsdkActionsPort;
+  readonly definition: OsdkDefinitionRef;
+  readonly resourceId: string;
+}): Promise<readonly DiscoveredAction[]> {
+  const response = await input.actions.discover(
+    create(DiscoverRequestSchema, {
+      definition: input.definition,
+      resourceId: input.resourceId,
+    }),
+  );
+  return response.actions.map((item) => ({
+    actionId: item.actionId,
+    decision: item.decision,
+    evaluationError: item.evaluationError,
+  }));
 }
 
 export function createActionHandle<TInputs>(

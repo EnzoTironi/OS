@@ -12,9 +12,9 @@ export function emitExactValueTypeScript(): string {
 export function emitClaimTypeScript(cardinality: "many" | "one"): string {
   switch (cardinality) {
     case "many":
-      return "readonly ExactValue[]";
+      return "readonly ClaimRead[]";
     case "one":
-      return "ExactValue | null";
+      return "ClaimRead";
     default: {
       const exhaustive: never = cardinality;
       return exhaustive;

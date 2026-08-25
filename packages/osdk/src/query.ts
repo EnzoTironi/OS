@@ -10,19 +10,24 @@ import {
   type SemanticQueryRequest,
   type SemanticQueryResponse,
 } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
+import { lineageFrom, type ClaimRead } from "./claims.js";
 import type { OsdkDefinitionRef, OsdkWorld } from "./ports.js";
 import { exactValueFromProto } from "./values.js";
 
-export interface DecodedClaim {
-  readonly entityId: string;
-  readonly value: ExactValue | null;
-}
-
 /**
- * Live SemanticQuery shapes: entity+relation, or by-type (ids only).
- * Not an optional-field bag.
+ * Live SemanticQuery shapes: entity+relation, entity+computation, or
+ * by-type (ids only). Not an optional-field bag.
  */
 export type ClaimQuery =
+  | {
+      readonly definition: OsdkDefinitionRef;
+      readonly entityId: string;
+      readonly kind: "computation";
+      readonly computationId: string;
+      readonly tenantId: string;
+      readonly validAt: Date;
+      readonly world: OsdkWorld;
+    }
   | {
       readonly definition: OsdkDefinitionRef;
       readonly entityId: string;
@@ -44,9 +49,10 @@ export type ClaimQuery =
 
 export async function queryClaims(
   input: ClaimQuery,
-): Promise<readonly DecodedClaim[]> {
+): Promise<readonly ClaimRead[]> {
   const response = await input.world.semanticQuery(semanticQueryRequest(input));
-  return decodeClaims(response);
+  const fallbackEntityId = input.kind === "byType" ? null : input.entityId;
+  return decodeClaims(response, fallbackEntityId);
 }
 
 export function semanticQueryRequest(input: ClaimQuery): SemanticQueryRequest {
@@ -68,6 +74,22 @@ export function semanticQueryRequest(input: ClaimQuery): SemanticQueryRequest {
             typeId: input.typeId,
           }),
         },
+        tenantId: input.tenantId,
+        validAt: timestampFromDate(input.validAt),
+      });
+    case "computation":
+      return create(SemanticQueryRequestSchema, {
+        consistency: create(QueryConsistencySchema, {
+          value: {
+            case: "strong",
+            value: create(StrongConsistencySchema),
+          },
+        }),
+        definition: input.definition,
+        entityId: input.entityId,
+        selection: create(QuerySelectionSchema, {
+          value: { case: "computationId", value: input.computationId },
+        }),
         tenantId: input.tenantId,
         validAt: timestampFromDate(input.validAt),
       });
@@ -96,22 +118,25 @@ export function semanticQueryRequest(input: ClaimQuery): SemanticQueryRequest {
 
 export function decodeClaims(
   response: SemanticQueryResponse,
-): DecodedClaim[] {
-  const claims: DecodedClaim[] = [];
+  fallbackEntityId: string | null,
+): ClaimRead[] {
+  const claims: ClaimRead[] = [];
   for (const row of response.values) {
     const value = exactValueFromProto(row.value);
-    const entityId = entityIdFromRow(row.dependencies, value);
+    const entityId = entityIdFromRow(row.dependencies, value) ?? fallbackEntityId;
     if (entityId === null) {
       continue;
     }
-    claims.push({ entityId, value });
+    claims.push({
+      entityId,
+      lineage: lineageFrom(row.dependencies),
+      value,
+    });
   }
   return claims;
 }
 
-export function entityIdsFromClaims(
-  claims: readonly DecodedClaim[],
-): string[] {
+export function entityIdsFromClaims(claims: readonly ClaimRead[]): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const claim of claims) {
