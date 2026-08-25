@@ -11,6 +11,7 @@ import {
   createInteractionScratch,
   createInteractionTools,
 } from "./interaction-tools.js";
+import type { SpeakerActionClient } from "./osdk-action-client.js";
 import {
   interactionInstructions,
   outboundBubbles,
@@ -585,6 +586,63 @@ test("slow generate prepends one status bubble, fast path does not", async () =>
   assertReasonTurn(slow, "spoke", 0, "ok");
 });
 
+test("Speaker speaks one bubble after a successful commit and fail-copies when commit fails", async () => {
+  const committed: SpeakerActionClient = {
+    async commitCreateReminder() {
+      return {
+        kind: "committed",
+        operationId: "operation.remind",
+        recordIds: ["record.1"],
+      };
+    },
+    async commitWriteMemory() {
+      return {
+        kind: "committed",
+        operationId: "operation.note",
+        recordIds: ["record.1"],
+      };
+    },
+  };
+  const denied: SpeakerActionClient = {
+    async commitCreateReminder() {
+      return { kind: "denied", message: "commit denied" };
+    },
+    async commitWriteMemory() {
+      return { kind: "denied", message: "commit denied" };
+    },
+  };
+
+  const success = await runInteractionTurn({
+    actions: committed,
+    inbound: textInbound("me lembra do dentista amanhã"),
+    membership: membership("remind-ok"),
+    model: writeThenSpeakModel("remind", "agendei o dentista"),
+  });
+  assert.deepEqual(success.bubbles, ["agendei o dentista"]);
+  assert.doesNotMatch(success.bubbles.join("\n"), /não consegui/);
+  assertReasonTurn(success, "spoke", 0, "ok");
+
+  const failedNote = await runInteractionTurn({
+    actions: denied,
+    inbound: textInbound("anota que o pão acabou"),
+    membership: membership("note-fail"),
+    model: writeThenSpeakModel("note", "anotei o pão"),
+  });
+  assert.deepEqual(failedNote.bubbles, ["não consegui anotar agora"]);
+  assert.doesNotMatch(failedNote.bubbles.join("\n"), /anotei/);
+  assertReasonTurn(failedNote, "spoke", 0, "ok");
+
+  const failedRemind = await runInteractionTurn({
+    actions: denied,
+    inbound: textInbound("me lembra do dentista amanhã"),
+    membership: membership("remind-fail"),
+    model: writeThenSpeakModel("remind", "agendei o dentista"),
+  });
+  assert.deepEqual(failedRemind.bubbles, ["não consegui agendar agora"]);
+  assert.doesNotMatch(failedRemind.bubbles.join("\n"), /agendei/);
+  assertReasonTurn(failedRemind, "spoke", 0, "ok");
+});
+
 test("generate throw is fail copy, not rival speech", async () => {
   const model = new MockLanguageModelV3({
     doGenerate: async () => {
@@ -688,6 +746,43 @@ function waitThenStopModel(): MockLanguageModelV3 {
           usage: usage(),
           warnings: [],
         } satisfies LanguageModelV3GenerateResult;
+      }
+      return stopCall();
+    },
+  });
+}
+
+function writeThenSpeakModel(
+  kind: "note" | "remind",
+  spoken: string,
+): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input:
+                kind === "note"
+                  ? JSON.stringify({ body: "o pão acabou" })
+                  : JSON.stringify({
+                      body: "dentista",
+                      dueAt: "amanhã 15h",
+                    }),
+              toolCallId: `call_${kind}`,
+              toolName: kind,
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      if (step === 2) {
+        return speakCall(spoken);
       }
       return stopCall();
     },

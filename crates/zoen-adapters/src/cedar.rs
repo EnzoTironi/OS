@@ -592,6 +592,84 @@ when {
         assert!(!matches!(empty, zoen_core::PolicyEvaluation::Permit(_)));
     }
 
+    #[tokio::test]
+    async fn personal_text_actions_permit_commit_without_quantity() {
+        let definition_digest = "b".repeat(64);
+        let write_memory =
+            include_str!("../../../packages/ontology/fixtures/personal.writeMemory.cedar");
+        let create_reminder =
+            include_str!("../../../packages/ontology/fixtures/personal.createReminder.cedar");
+        assert!(!write_memory.contains("quantity"));
+        assert!(!create_reminder.contains("quantity"));
+        let evaluator = CedarPolicyEvaluator::from_json(&format!(
+            r#"{{"policies":[
+                {{"actionId":"personal.writeMemory","definitionDigest":"{definition_digest}","digest":"{}","policyId":"policy.writeMemory.r1","revision":1,"source":{}}},
+                {{"actionId":"personal.createReminder","definitionDigest":"{definition_digest}","digest":"{}","policyId":"policy.createReminder.r1","revision":1,"source":{}}}
+            ]}}"#,
+            sha256(write_memory.as_bytes()),
+            serde_json::to_string(write_memory).expect("source"),
+            sha256(create_reminder.as_bytes()),
+            serde_json::to_string(create_reminder).expect("source"),
+        ))
+        .expect("manifest");
+        let definition = DefinitionReference {
+            definition_id: DefinitionId::parse("personal.memory").expect("definition"),
+            digest: DefinitionDigest::parse(&definition_digest).expect("digest"),
+            revision: DefinitionRevisionNumber::new(1).expect("revision"),
+        };
+        let resource = ResourceId::parse("personal.note.1").expect("resource");
+        let body = zoen_core::ActionInput {
+            id: InputId::parse("body").expect("input"),
+            value: zoen_core::ExactValue::Text("comprar pão".to_owned()),
+        };
+        let due_at = zoen_core::ActionInput {
+            id: InputId::parse("dueAt").expect("input"),
+            value: zoen_core::ExactValue::Text("amanhã 15h".to_owned()),
+        };
+
+        for (action_id, inputs) in [
+            ("personal.writeMemory", vec![body.clone()]),
+            ("personal.createReminder", vec![body, due_at]),
+        ] {
+            let context = trusted_context(action_id);
+            let action = ActionId::parse(action_id).expect("action");
+            let commit = evaluator
+                .evaluate(&PolicyRequest {
+                    action_id: &action,
+                    approved: false,
+                    classification: None,
+                    context: &context,
+                    definition: &definition,
+                    inputs: &inputs,
+                    operation: PolicyOperation::Commit,
+                    projection: None,
+                    resource_id: &resource,
+                })
+                .await;
+            assert!(
+                matches!(commit, zoen_core::PolicyEvaluation::Permit(_)),
+                "{action_id} commit should permit, got {commit:?}"
+            );
+            let discover = evaluator
+                .evaluate(&PolicyRequest {
+                    action_id: &action,
+                    approved: false,
+                    classification: None,
+                    context: &context,
+                    definition: &definition,
+                    inputs: &[],
+                    operation: PolicyOperation::Discover,
+                    projection: None,
+                    resource_id: &resource,
+                })
+                .await;
+            assert!(
+                matches!(discover, zoen_core::PolicyEvaluation::Permit(_)),
+                "{action_id} discover should permit, got {discover:?}"
+            );
+        }
+    }
+
     fn order_line_projection(
         context: &TrustedExecutionContext,
         resource: &str,

@@ -1,5 +1,9 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
+import type {
+  PersonalWriteKind,
+  SpeakerActionClient,
+} from "./osdk-action-client.js";
 
 const speakToUserSchema = z
   .object({
@@ -21,6 +25,19 @@ const mintHrefSchema = z
 
 const waitSchema = z.object({}).strict();
 
+const noteSchema = z
+  .object({
+    body: z.string().min(1),
+  })
+  .strict();
+
+const remindSchema = z
+  .object({
+    body: z.string().min(1),
+    dueAt: z.string().min(1),
+  })
+  .strict();
+
 /**
  * Mutable scratch for one reasoning stage. Tools record here.
  * User-visible text comes only from speak_to_user.
@@ -32,9 +49,11 @@ export interface InteractionScratch {
   href?: string;
   waited: boolean;
   slowWork: boolean;
+  writeFail?: PersonalWriteKind;
 }
 
 export interface InteractionToolOptions {
+  readonly actions?: SpeakerActionClient;
   readonly executeWork?: (task: string) => Promise<string>;
   /** Wall time that marks spawn_execution as slow. Production default is 2000. */
   readonly statusAfterMs?: number;
@@ -53,13 +72,14 @@ export function createInteractionScratch(): InteractionScratch {
  * Poke-style Interaction tools. Few, and never named in user text.
  *
  * Context: one ToolLoopAgent turn. Closing inbound (valeu, ok, thanks) must
- * call `wait`, not `speak_to_user`.
- * Inputs: turn-local scratch plus optional executeWork / statusAfterMs.
+ * call `wait`, not `speak_to_user`. `note` / `remind` Propose then Commit.
+ * Inputs: turn-local scratch plus optional executeWork / actions / statusAfterMs.
  * Outputs: ToolSet. User-visible text is only what `speak_to_user` recorded.
- * Side effects: mutates scratch. `wait` marks the turn silent.
+ * Side effects: mutates scratch. Failed writes set `writeFail`. `wait` is silent.
  *
  * @param scratch - Turn-local recorder for bubbles, one href, and execution notes
  * @param options.executeWork - Optional harness hand-off; defaults to a status string
+ * @param options.actions - Personal lake Action client. Missing client fails the write.
  */
 export function createInteractionTools(
   scratch: InteractionScratch,
@@ -67,6 +87,19 @@ export function createInteractionTools(
 ): ToolSet {
   const statusAfterMs = options.statusAfterMs ?? 2000;
   return {
+    note: tool({
+      description:
+        "Write a personal memory through Propose then Commit. Speak only after this returns ok. Never claim you wrote it if this fails.",
+      execute: async ({ body }) => commitPersonalWrite(scratch, options.actions, "note", body),
+      inputSchema: noteSchema,
+    }),
+    remind: tool({
+      description:
+        "Create a personal reminder through Propose then Commit. dueAt is text, not a datetime. Speak only after this returns ok. Never claim you scheduled it if this fails.",
+      execute: async ({ body, dueAt }) =>
+        commitPersonalWrite(scratch, options.actions, "remind", body, dueAt),
+      inputSchema: remindSchema,
+    }),
     mint_href: tool({
       description:
         "Mint at most one https URL for this turn. The mini-app door is a plain https link in the body. Never invent a second URL.",
@@ -125,6 +158,31 @@ export function createInteractionTools(
   };
 }
 
+async function commitPersonalWrite(
+  scratch: InteractionScratch,
+  actions: SpeakerActionClient | undefined,
+  kind: PersonalWriteKind,
+  body: string,
+  dueAt?: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (actions === undefined) {
+    scratch.writeFail = kind;
+    return { ok: false, reason: "action client missing" };
+  }
+  try {
+    const result = await commitByKind(actions, kind, body, dueAt);
+    if (result.kind !== "committed") {
+      scratch.writeFail = kind;
+      return { ok: false, reason: result.message };
+    }
+    return { ok: true };
+  } catch (error: unknown) {
+    scratch.writeFail = kind;
+    const message = error instanceof Error ? error.message : "action commit failed";
+    return { ok: false, reason: message };
+  }
+}
+
 /**
  * Split spoken text on newlines unless the whole payload is wrapped.
  */
@@ -140,6 +198,27 @@ export function splitSpokenBubbles(text: string): string[] {
     .split(/\n+/u)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+async function commitByKind(
+  actions: SpeakerActionClient,
+  kind: PersonalWriteKind,
+  body: string,
+  dueAt: string | undefined,
+) {
+  switch (kind) {
+    case "note":
+      return actions.commitWriteMemory({ body });
+    case "remind":
+      return actions.commitCreateReminder({
+        body,
+        dueAt: dueAt ?? "",
+      });
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
+  }
 }
 
 function isWrappedSpeech(text: string): boolean {

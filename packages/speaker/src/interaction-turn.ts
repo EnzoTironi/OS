@@ -24,6 +24,11 @@ import type {
   InteractionRecord,
   TrustedInteractionContext,
 } from "./types.js";
+import {
+  createSpeakerActionClientFromEnv,
+  type PersonalWriteKind,
+  type SpeakerActionClient,
+} from "./osdk-action-client.js";
 import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
 import type {
   WorldQueryClient,
@@ -80,10 +85,19 @@ export interface InteractionTurnInput {
   readonly executeWork?: (task: string) => Promise<string>;
   /** Status bubble after generate/spawn_execution exceeds this. Default 2000. */
   readonly statusAfterMs?: number;
+  readonly actions?: SpeakerActionClient;
 }
 
 const FAIL_CLOSED_PT = "não consegui consultar agora";
 const FAIL_CLOSED_EN = "couldn't look that up";
+const WRITE_FAIL_PT = {
+  note: "não consegui anotar agora",
+  remind: "não consegui agendar agora",
+} as const;
+const WRITE_FAIL_EN = {
+  note: "couldn't note that down now",
+  remind: "couldn't schedule that now",
+} as const;
 const STATUS_AFTER_MS = 2000;
 
 export interface ReasonTurnLog {
@@ -136,6 +150,7 @@ export async function runInteractionTurn(
 
   await coordinator.advanceStage(attemptId, "reasoning");
   const reasoned = await reasonTurn({
+    actions: input.actions ?? createSpeakerActionClientFromEnv(),
     executeWork: input.executeWork,
     inbound: input.inbound,
     inboundText,
@@ -394,6 +409,7 @@ interface ReasonTurnResult {
 }
 
 async function reasonTurn(input: {
+  readonly actions?: SpeakerActionClient;
   readonly executeWork?: (task: string) => Promise<string>;
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
@@ -416,6 +432,7 @@ async function reasonTurn(input: {
     model: input.model,
     stopWhen: isStepCount(8),
     tools: createInteractionTools(scratch, {
+      actions: input.actions,
       executeWork: input.executeWork,
       statusAfterMs: input.statusAfterMs,
     }),
@@ -435,6 +452,13 @@ async function reasonTurn(input: {
       generate: "throw",
       path: "threw",
       scratch: failCopyScratch(input.locale),
+    };
+  }
+  if (scratch.writeFail !== undefined) {
+    return {
+      generate: "ok",
+      path: "spoke",
+      scratch: writeFailScratch(input.locale, scratch.writeFail),
     };
   }
   if (scratch.waited) {
@@ -521,6 +545,26 @@ function failCopyScratch(locale: InteractionLocale): InteractionScratch {
   return scratch;
 }
 
+function writeFailScratch(
+  locale: InteractionLocale,
+  kind: PersonalWriteKind,
+): InteractionScratch {
+  const scratch = createInteractionScratch();
+  switch (locale) {
+    case "pt":
+      scratch.bubbles.push(WRITE_FAIL_PT[kind]);
+      break;
+    case "en":
+      scratch.bubbles.push(WRITE_FAIL_EN[kind]);
+      break;
+    default: {
+      const exhaustive: never = locale;
+      return exhaustive;
+    }
+  }
+  return scratch;
+}
+
 function renderTurn(input: {
   readonly hiddenIds: readonly string[];
   readonly inbound: InteractionInbound;
@@ -592,7 +636,7 @@ function sanitizeUserText(
   executionNotes: readonly string[] = [],
 ): string {
   let next = text.replace(
-    /\b(speak_to_user|spawn_execution|mint_href|ToolLoopAgent|LangGraph|Mastra)\b/gi,
+    /\b(speak_to_user|spawn_execution|mint_href|note|remind|wait|ToolLoopAgent|LangGraph|Mastra)\b/gi,
     "",
   );
   next = stripTokens(next, hiddenIds);
@@ -644,6 +688,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
       return [
         "você é a zoen. uma só entidade. você fala com a pessoa. execution nunca fala",
         "texto visível só por speak_to_user. spawn_execution trabalha fora. mint_href: no máximo um https de verdade",
+        "note grava memória. remind agenda. só speak_to_user depois que a tool voltar ok. se falhar, não diga que anotou ou agendou",
         "valeu, ok, show, obrigado: chame wait. sem bolha. não fale",
         "minúsculas por padrão. linha curta sem ponto final. sem travessão",
         "casa língua e tamanho. inbound em pt sai em pt. um oi é um oi, não um parágrafo",
@@ -658,6 +703,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
       return [
         "you are zoen. one entity. you talk to the person. execution never talks",
         "visible text only from speak_to_user. spawn_execution works off-chat. mint_href: at most one real https",
+        "note writes a memory. remind schedules. speak_to_user only after the tool returns ok. if it fails, do not claim you wrote or scheduled it",
         "thanks, ok, show: call wait. no bubble. do not speak",
         "lowercase default. short line, no trailing period. no em dash",
         "match language and length. english in, english out. a hi is a hi, not a paragraph",
