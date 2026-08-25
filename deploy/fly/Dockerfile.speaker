@@ -6,7 +6,7 @@ COPY packages/speaker packages/speaker
 COPY packages/harness packages/harness
 COPY packages/ontology packages/ontology
 RUN npm ci --omit=dev=false \
-    && npx tsc -p packages/transport/tsconfig.json --pretty false \
+    && npx tsc -p tsconfig.json --pretty false \
     && npm cache clean --force \
     && chown -R node:node /app
 ENV NODE_ENV=production

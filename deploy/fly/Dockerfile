@@ -28,7 +28,7 @@ COPY packages/speaker packages/speaker
 COPY packages/harness packages/harness
 COPY packages/ontology packages/ontology
 RUN npm ci \
-    && npx tsc -p packages/transport/tsconfig.json --pretty false
+    && npx tsc -p tsconfig.json --pretty false
 
 FROM postgres:18
 RUN apt-get update \
