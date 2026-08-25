@@ -17,6 +17,8 @@ import {
   reasoningPrompt,
   runInteractionTurn,
   type InteractionInbound,
+  type ReasonTurnLog,
+  type ReasonTurnPath,
 } from "./interaction-turn.js";
 import {
   principalIdString,
@@ -30,6 +32,26 @@ import {
   snapshotFromClaims,
   type WorldQueryClient,
 } from "./world-query.js";
+
+const reasonTurnLines: ReasonTurnLog[] = [];
+const originalStderrWrite = process.stderr.write;
+process.stderr.write = ((
+  chunk: string | Uint8Array,
+  encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
+  cb?: (err?: Error | null) => void,
+): boolean => {
+  const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+  for (const line of text.split("\n")) {
+    const parsed = parseReasonTurnLog(line.trim());
+    if (parsed !== undefined) {
+      reasonTurnLines.push(parsed);
+    }
+  }
+  if (typeof encodingOrCb === "function") {
+    return originalStderrWrite.call(process.stderr, chunk, encodingOrCb);
+  }
+  return originalStderrWrite.call(process.stderr, chunk, encodingOrCb, cb);
+}) as typeof originalStderrWrite;
 
 function membership(suffix: string): TrustedInteractionContext {
   return {
@@ -77,6 +99,7 @@ test("PT inbound does not contain Recebi", async () => {
     assert.doesNotMatch(bubble, /membership\.wa\.enzo/);
   }
   assert.equal(outboundBubbles(result).join("\n").includes("Recebi"), false);
+  assertReasonTurnLog(lastReasonTurnLog(), "failClosed", 0, "ok");
 });
 
 test("empty inbound does not dump entity ids", async () => {
@@ -148,19 +171,29 @@ test("two ClaimRead rows without RIVAL speak fail-closed PT rivals", async () =>
   assert.ok(result.bubbles.includes("source.erp"));
   assert.doesNotMatch(text, /Recebi/i);
   assert.doesNotMatch(text, /commercial\.order-line\.dirty-quote/);
-  assert.doesNotMatch(text, /Não consegui consultar agora/);
+  assert.doesNotMatch(text, /não consegui consultar agora/i);
+  assertReasonTurnLog(
+    lastReasonTurnLog(),
+    "noModel",
+    snapshot.rivals.length,
+    "ok",
+  );
 });
 
 test("PT instructions ban helpdesk greetings and keep speak_to_user as the only voice", () => {
   const instructions = interactionInstructions("pt");
   assert.match(instructions, /speak_to_user/);
-  assert.match(instructions, /Execution nunca fala/);
+  assert.match(instructions, /execution nunca fala/i);
   assert.match(instructions, /Como posso te auxiliar/);
   assert.match(instructions, /Estou por aqui e pronto para ajudar/);
   assert.match(instructions, /Recebi/);
+  assert.match(instructions, /\bwait\b/);
   assert.doesNotMatch(instructions, /Mastra|LangGraph/);
   assert.doesNotMatch(instructions, /ficar quieto|stay quiet/i);
+  assert.doesNotMatch(instructions, /—/);
   assert.doesNotMatch(interactionInstructions("en"), /ficar quieto|stay quiet/i);
+  assert.doesNotMatch(interactionInstructions("en"), /—/);
+  assert.doesNotMatch(interactionInstructions("en"), /Mastra|LangGraph/);
 });
 
 test("reasoningPrompt frames World rivals as the subject, not optional JSON", () => {
@@ -234,6 +267,12 @@ test("mocked turn with two World rivals speaks the readings, not a helpdesk gree
   assert.match(sent, /12 each/);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|Recebi/i);
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
+  assertReasonTurnLog(
+    lastReasonTurnLog(),
+    "spoke",
+    snapshot.rivals.length,
+    "ok",
+  );
 });
 
 test("empty inbound with a silent model waits (empty bubbles)", async () => {
@@ -246,6 +285,7 @@ test("empty inbound with a silent model waits (empty bubbles)", async () => {
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
+  assertReasonTurnLog(lastReasonTurnLog(), "wait", 2, "ok");
 });
 
 test("silent model with two World rivals fail-closes lookup copy, not rival speech", async () => {
@@ -256,14 +296,14 @@ test("silent model with two World rivals fail-closes lookup copy, not rival spee
     world: twoRivalWorld(),
   });
   const sent = outboundBubbles(result).join("\n");
-  assert.deepEqual(result.bubbles, [
-    "Não consegui consultar agora. Tenta de novo em instantes.",
-  ]);
+  assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
   assert.doesNotMatch(sent, /Tem mais de uma leitura/);
   assert.doesNotMatch(sent, /10 each|12 each/);
   assert.doesNotMatch(sent, /Recebi/i);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
+  assert.doesNotMatch(sent, /Tenta de novo/i);
+  assertReasonTurnLog(lastReasonTurnLog(), "lookupFail", 2, "ok");
 });
 
 test("spawn_execution with injected executeWork records executionNotes and does not leak them into bubbles", async () => {
@@ -396,6 +436,177 @@ test("at most one href survives a double mint", async () => {
   assert.doesNotMatch(sent, /Recebi/i);
 });
 
+test("mocked oi is a short greeting, not helpdesk", async () => {
+  let generated = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async (options) => {
+      generated += 1;
+      if (generated === 1) {
+        const blob = flattenPrompt(options.prompt);
+        assert.match(blob, /speak_to_user/);
+        assert.match(blob, /\bwait\b/);
+        assert.doesNotMatch(blob, /Mastra|LangGraph/);
+        return speakCall("oi");
+      }
+      return stopCall();
+    },
+  });
+  const result = await runInteractionTurn({
+    inbound: textInbound("oi"),
+    membership: membership("mocked-oi"),
+    model,
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(generated >= 1, true);
+  assert.match(sent, /^oi$/im);
+  assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help|Recebi/i);
+  assert.doesNotMatch(sent, /vendo aqui|um seg/);
+  assertReasonTurnLog(lastReasonTurnLog(), "spoke", 0, "ok");
+});
+
+test("mocked valeu calls wait and sends empty bubbles", async () => {
+  let generated = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      generated += 1;
+      if (generated === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({}),
+              toolCallId: "call_wait",
+              toolName: "wait",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      return stopCall();
+    },
+  });
+  const result = await runInteractionTurn({
+    inbound: textInbound("valeu"),
+    membership: membership("mocked-valeu"),
+    model,
+  });
+  assert.equal(generated >= 1, true);
+  assert.deepEqual(result.bubbles, []);
+  assert.equal(result.href, null);
+  assert.deepEqual(outboundBubbles(result), []);
+  assertReasonTurnLog(lastReasonTurnLog(), "wait", 0, "ok");
+});
+
+test("wait tool produces no Recebi and no helpdesk", async () => {
+  const scratch = createInteractionScratch();
+  const tools = createInteractionTools(scratch);
+  const wait = tools.wait;
+  assert.ok(wait?.execute !== undefined);
+  await wait.execute(
+    {},
+    { context: undefined, messages: [], toolCallId: "call_wait" },
+  );
+  assert.equal(scratch.waited, true);
+  assert.deepEqual(scratch.bubbles, []);
+  assert.equal(scratch.href, undefined);
+
+  const result = await runInteractionTurn({
+    inbound: textInbound("show"),
+    membership: membership("wait-tool"),
+    model: waitThenStopModel(),
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.deepEqual(result.bubbles, []);
+  assert.equal(sent, "");
+  assert.doesNotMatch(sent, /Recebi/i);
+  assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help/i);
+  assertReasonTurnLog(lastReasonTurnLog(), "wait", 0, "ok");
+});
+
+test("slow generate prepends one status bubble, fast path does not", async () => {
+  const fast = await runInteractionTurn({
+    inbound: textInbound("oi"),
+    membership: membership("fast-status"),
+    model: speakThenStopModel("oi"),
+  });
+  assert.equal(fast.bubbles.includes("oi"), true);
+  assert.equal(
+    fast.bubbles.some((bubble) => /^(vendo aqui|um seg)$/.test(bubble)),
+    false,
+  );
+
+  const slow = await runInteractionTurn({
+    inbound: textInbound("oi"),
+    membership: membership("slow-status"),
+    model: delayedSpeakModel("ta aqui", 20),
+    statusAfterMs: 5,
+  });
+  const status = slow.bubbles[0] ?? "";
+  assert.match(status, /^(vendo aqui|um seg)$/);
+  assert.equal(
+    slow.bubbles.filter((bubble) => /^(vendo aqui|um seg)$/.test(bubble)).length,
+    1,
+  );
+  assert.equal(slow.bubbles.includes("ta aqui"), true);
+});
+
+test("generate throw logs failClosed", async () => {
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      throw new Error("generate failed");
+    },
+  });
+  const result = await runInteractionTurn({
+    inbound: textInbound("quanto ficou a cotacao"),
+    membership: membership("threw"),
+    model,
+  });
+  assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
+  assertReasonTurnLog(lastReasonTurnLog(), "failClosed", 0, "throw");
+});
+
+test("slow spawn_execution prepends one status bubble", async () => {
+  let step = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({ task: "consultar" }),
+              toolCallId: "call_spawn",
+              toolName: "spawn_execution",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      if (step === 2) {
+        return speakCall("duas leituras de pé");
+      }
+      return stopCall();
+    },
+  });
+  const result = await runInteractionTurn({
+    executeWork: async () => {
+      await delay(20);
+      return "status: ok";
+    },
+    inbound: textInbound("quanto ficou"),
+    membership: membership("slow-spawn"),
+    model,
+    statusAfterMs: 5,
+  });
+  assert.match(result.bubbles[0] ?? "", /^(vendo aqui|um seg)$/);
+  assert.match(outboundBubbles(result).join("\n"), /leituras/);
+});
+
 function silentStopModel(): MockLanguageModelV3 {
   return new MockLanguageModelV3({
     doGenerate: async () =>
@@ -418,6 +629,157 @@ function twoRivalWorld(): WorldQueryClient {
       };
     },
   };
+}
+
+function waitThenStopModel(): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({}),
+              toolCallId: "call_wait",
+              toolName: "wait",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      return stopCall();
+    },
+  });
+}
+
+function speakThenStopModel(text: string): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return speakCall(text);
+      }
+      return stopCall();
+    },
+  });
+}
+
+function delayedSpeakModel(text: string, ms: number): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        await delay(ms);
+        return speakCall(text);
+      }
+      return stopCall();
+    },
+  });
+}
+
+function speakCall(text: string): LanguageModelV3GenerateResult {
+  return {
+    content: [
+      {
+        input: JSON.stringify({ text }),
+        toolCallId: "call_speak",
+        toolName: "speak_to_user",
+        type: "tool-call",
+      },
+    ],
+    finishReason: { raw: "tool-calls", unified: "tool-calls" },
+    usage: usage(),
+    warnings: [],
+  };
+}
+
+function stopCall(): LanguageModelV3GenerateResult {
+  return {
+    content: [],
+    finishReason: { raw: "stop", unified: "stop" },
+    usage: usage(),
+    warnings: [],
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function lastReasonTurnLog(): ReasonTurnLog {
+  const log = reasonTurnLines.at(-1);
+  assert.ok(log !== undefined, "expected a reasonTurn log line");
+  return log;
+}
+
+function assertReasonTurnLog(
+  log: ReasonTurnLog,
+  path: ReasonTurnPath,
+  rivals: number,
+  generate: ReasonTurnLog["generate"],
+): void {
+  assert.equal(log.event, "reasonTurn");
+  assert.equal(log.path, path);
+  assert.equal(log.rivals, rivals);
+  assert.equal(log.generate, generate);
+  assert.equal(Object.keys(log).sort().join(","), "event,generate,path,rivals");
+}
+
+function parseReasonTurnLog(text: string): ReasonTurnLog | undefined {
+  if (!text.startsWith("{") || !text.includes('"event":"reasonTurn"')) {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!isReasonTurnLog(parsed)) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function isReasonTurnLog(value: unknown): value is ReasonTurnLog {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  if (!("event" in value) || value.event !== "reasonTurn") {
+    return false;
+  }
+  if (!("path" in value) || !isReasonTurnPath(value.path)) {
+    return false;
+  }
+  if (!("rivals" in value) || typeof value.rivals !== "number") {
+    return false;
+  }
+  if (!("generate" in value)) {
+    return false;
+  }
+  return value.generate === "ok" || value.generate === "throw";
+}
+
+function isReasonTurnPath(value: unknown): value is ReasonTurnPath {
+  switch (value) {
+    case "lookupFail":
+    case "failClosed":
+    case "threw":
+    case "noModel":
+    case "spoke":
+    case "wait":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {

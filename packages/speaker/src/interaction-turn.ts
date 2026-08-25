@@ -64,12 +64,33 @@ export interface InteractionTurnInput {
   readonly store?: TurnStore;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  /** Status bubble after generate/spawn_execution exceeds this. Default 2000. */
+  readonly statusAfterMs?: number;
 }
 
-const FAIL_CLOSED_PT =
-  "Não consegui consultar agora. Tenta de novo em instantes.";
-const FAIL_CLOSED_EN =
-  "I couldn't look that up just now. Try again in a moment.";
+const FAIL_CLOSED_PT = "não consegui consultar agora";
+const FAIL_CLOSED_EN = "couldn't look that up";
+const STATUS_AFTER_MS = 2000;
+const STATUS_PHRASES_PT = ["vendo aqui", "um seg"] as const;
+const STATUS_PHRASES_EN = ["looking", "one sec"] as const;
+
+export type ReasonTurnPath =
+  | "lookupFail"
+  | "failClosed"
+  | "threw"
+  | "noModel"
+  | "spoke"
+  | "wait";
+
+export type ReasonTurnGenerate = "ok" | "throw";
+
+export interface ReasonTurnLog {
+  readonly event: "reasonTurn";
+  readonly path: ReasonTurnPath;
+  readonly rivals: number;
+  readonly generate: ReasonTurnGenerate;
+}
+
 const EMPTY_INBOUND_PT = "Pode mandar de novo? Não entendi o que você precisa.";
 const EMPTY_INBOUND_EN = "Can you send that again? I didn't catch what you need.";
 const MEDIA_INBOUND_PT =
@@ -84,6 +105,7 @@ const MEDIA_INBOUND_EN =
  * Inputs: membership + inbound. Optional model/world/coordinator for tests.
  * Outputs: conversational bubbles and at most one https URL. Empty bubbles mean wait (no send).
  * A successful generate that never called speak_to_user on non-empty inbound is a lookup fail, not a wait.
+ * Closing inbound should call the `wait` tool. That is an empty send, not a lookup fail.
  * Side effects: claims the burst on the coordinator and advances attempt phases.
  * Does not invent OrderLines. Does not echo inbound as "Recebi".
  */
@@ -118,14 +140,21 @@ export async function runInteractionTurn(
   const hiddenIds = hiddenIdentityTokens(ctx, snapshot);
 
   await coordinator.advanceStage(attemptId, "reasoning");
-  const scratch = await reasonTurn({
+  const reasoned = await reasonTurn({
     executeWork: input.executeWork,
     inbound: input.inbound,
     inboundText,
     locale,
     model: input.model ?? resolveLanguageModel(),
     snapshot,
+    statusAfterMs: input.statusAfterMs ?? STATUS_AFTER_MS,
   });
+  emitReasonTurnLog({
+    generate: reasoned.generate,
+    path: reasoned.path,
+    rivals: snapshot?.rivals.length ?? 0,
+  });
+  const scratch = reasoned.scratch;
 
   await coordinator.advanceStage(attemptId, "rendering");
   const result = renderTurn({
@@ -360,6 +389,12 @@ async function assembleWorld(
   }
 }
 
+interface ReasonTurnResult {
+  readonly generate: ReasonTurnGenerate;
+  readonly path: ReasonTurnPath;
+  readonly scratch: InteractionScratch;
+}
+
 async function reasonTurn(input: {
   readonly executeWork?: (task: string) => Promise<string>;
   readonly inbound: InteractionInbound;
@@ -367,14 +402,20 @@ async function reasonTurn(input: {
   readonly locale: InteractionLocale;
   readonly model: LanguageModel | undefined;
   readonly snapshot: WorldQuerySnapshot | undefined;
-}): Promise<InteractionScratch> {
+  readonly statusAfterMs: number;
+}): Promise<ReasonTurnResult> {
   if (input.model === undefined) {
-    return failClosedScratch(
+    const scratch = failClosedScratch(
       input.locale,
       input.inbound,
       input.inboundText,
       input.snapshot,
     );
+    return {
+      generate: "ok",
+      path: failClosedPath("noModel", scratch, input.locale),
+      scratch,
+    };
   }
   const scratch = createInteractionScratch();
   const agent = new ToolLoopAgent({
@@ -384,8 +425,10 @@ async function reasonTurn(input: {
     stopWhen: isStepCount(8),
     tools: createInteractionTools(scratch, {
       executeWork: input.executeWork,
+      statusAfterMs: input.statusAfterMs,
     }),
   });
+  const started = Date.now();
   try {
     await agent.generate({
       prompt: reasoningPrompt(
@@ -396,17 +439,142 @@ async function reasonTurn(input: {
       ),
     });
   } catch {
-    return failClosedScratch(
+    const failed = failClosedScratch(
       input.locale,
       input.inbound,
       input.inboundText,
       input.snapshot,
     );
+    applySlowStatus({
+      locale: input.locale,
+      scratch: failed,
+      seed: input.inboundText,
+      slow:
+        Date.now() - started > input.statusAfterMs || failed.slowWork,
+    });
+    return {
+      generate: "throw",
+      path: failClosedPath("threw", failed, input.locale),
+      scratch: failed,
+    };
+  }
+  const slow =
+    Date.now() - started > input.statusAfterMs || scratch.slowWork;
+  if (scratch.waited) {
+    scratch.bubbles.length = 0;
+    scratch.href = undefined;
+    return { generate: "ok", path: "wait", scratch };
   }
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
-    return lookupFailScratch(input.locale);
+    const failed = lookupFailScratch(input.locale);
+    applySlowStatus({
+      locale: input.locale,
+      scratch: failed,
+      seed: input.inboundText,
+      slow,
+    });
+    return { generate: "ok", path: "lookupFail", scratch: failed };
   }
-  return scratch;
+  applySlowStatus({
+    locale: input.locale,
+    scratch,
+    seed: input.inboundText,
+    slow,
+  });
+  return {
+    generate: "ok",
+    path: scratch.bubbles.length === 0 ? "wait" : "spoke",
+    scratch,
+  };
+}
+
+function failClosedPath(
+  cause: "noModel" | "threw",
+  scratch: InteractionScratch,
+  locale: InteractionLocale,
+): ReasonTurnPath {
+  const copy = locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
+  if (scratch.bubbles.length === 1 && scratch.bubbles[0] === copy) {
+    return "failClosed";
+  }
+  return cause;
+}
+
+function emitReasonTurnLog(log: Omit<ReasonTurnLog, "event">): void {
+  const line: ReasonTurnLog = {
+    event: "reasonTurn",
+    path: log.path,
+    rivals: log.rivals,
+    generate: log.generate,
+  };
+  process.stderr.write(`${JSON.stringify(line)}\n`);
+}
+
+function applySlowStatus(input: {
+  readonly locale: InteractionLocale;
+  readonly scratch: InteractionScratch;
+  readonly seed: string;
+  readonly slow: boolean;
+}): void {
+  if (!input.slow || input.scratch.waited) {
+    return;
+  }
+  if (input.scratch.bubbles.length === 0) {
+    return;
+  }
+  const first = input.scratch.bubbles[0];
+  if (first !== undefined && isStatusPhrase(first, input.locale)) {
+    return;
+  }
+  input.scratch.bubbles.unshift(pickStatusPhrase(input.locale, input.seed));
+}
+
+function statusPhrases(
+  locale: InteractionLocale,
+): readonly ["vendo aqui", "um seg"] | readonly ["looking", "one sec"] {
+  switch (locale) {
+    case "pt":
+      return STATUS_PHRASES_PT;
+    case "en":
+      return STATUS_PHRASES_EN;
+    default: {
+      const exhaustive: never = locale;
+      return exhaustive;
+    }
+  }
+}
+
+function pickStatusPhrase(locale: InteractionLocale, seed: string): string {
+  const phrases = statusPhrases(locale);
+  let sum = 0;
+  for (const char of seed) {
+    sum = (sum + char.charCodeAt(0)) | 0;
+  }
+  const index = Math.abs(sum) % phrases.length;
+  const phrase = phrases[index];
+  if (phrase !== undefined) {
+    return phrase;
+  }
+  switch (locale) {
+    case "pt":
+      return "vendo aqui";
+    case "en":
+      return "looking";
+    default: {
+      const exhaustive: never = locale;
+      return exhaustive;
+    }
+  }
+}
+
+function isStatusPhrase(text: string, locale: InteractionLocale): boolean {
+  const needle = text.trim();
+  for (const phrase of statusPhrases(locale)) {
+    if (phrase === needle) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -591,33 +759,37 @@ function hiddenIdentityTokens(
  * Interaction talks. Execution never talks to the person.
  *
  * @param locale - Detected inbound locale (`pt` or `en`)
- * @returns Instructions for ToolLoopAgent. Never names harness internals.
+ * @returns Short Poke-density instructions. Never names harness internals.
  */
 export function interactionInstructions(locale: InteractionLocale): string {
   switch (locale) {
     case "pt":
       return [
-        "Você é a Interaction da Zoen. Você conversa com uma pessoa. Execution nunca fala com ela.",
-        "O único texto visível sai de speak_to_user. spawn_execution trabalha fora do chat. mint_href libera no máximo um https.",
-        "Fala como um amigo ocupado: curto, quente, sem abertura e sem fecho de atendimento.",
-        "Frases proibidas: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi.",
-        "Responde o inbound mais recente. Se o World trouxer rivais ou notas, fala esses fatos. Duas leituras ficam de pé. Não cumprimente no lugar de responder.",
-        "Responde em português do Brasil. Um oi ou um probe é um toque curto, não um parágrafo de helpdesk.",
-        "Nunca cite tools, agents, models, ToolLoopAgent, spawn_execution.",
-        "Não invente OrderLines nem ids de entidade. Rivais convivem. Não junte desacordo num número só.",
-        "Não despeje membership, tenant ou entity id no texto. Sem widgets nativos do WhatsApp.",
+        "você é a zoen. uma só entidade. você fala com a pessoa. execution nunca fala",
+        "texto visível só por speak_to_user. spawn_execution trabalha fora. mint_href: no máximo um https de verdade",
+        "valeu, ok, show, obrigado: chame wait. sem bolha. não fale",
+        "minúsculas por padrão. linha curta sem ponto final. sem travessão",
+        "casa língua e tamanho. inbound em pt sai em pt. um oi é um oi, não um parágrafo",
+        "proibido: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
+        "world é o assunto. rivais se falam como sujeito. duas leituras ficam de pé. não cumprimente no lugar de responder",
+        "status (vendo aqui / um seg) só se generate ou spawn_execution passar de 2s. turno rápido: sem essa bolha",
+        "sem link falso. sem app.zoen.local. sem nome de tool no texto",
+        "erro: não consegui [ação] / deu ruim ao [ação]. fiz merda só se a gente quebrou parse ou código",
+        "xinga só se a pessoa já xinga muito nesta conversa. nunca comece",
       ].join("\n");
     case "en":
       return [
-        "You are Zoen's Interaction. You talk to one person. Execution never talks to them.",
-        "User-visible text comes only from speak_to_user. spawn_execution works off-chat. mint_href mints at most one https URL.",
-        "Write like a busy friend: terse, warm, no preamble and no helpdesk sign-off.",
-        "Forbidden phrases: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi.",
-        "Answer the latest inbound. If World has rivals or notes, speak those facts. Two readings stand. Do not greet instead of answering.",
-        "Reply in English. A hi or a probe is one short beat, not a helpdesk paragraph.",
-        "Never mention tools, agents, models, ToolLoopAgent, spawn_execution.",
-        "Never invent OrderLines or entity ids. Rival claims coexist. Do not collapse disagreement into one number.",
-        "Do not dump membership, tenant, or entity ids into user text. No native WhatsApp widgets.",
+        "you are zoen. one entity. you talk to the person. execution never talks",
+        "visible text only from speak_to_user. spawn_execution works off-chat. mint_href: at most one real https",
+        "thanks, ok, show: call wait. no bubble. do not speak",
+        "lowercase default. short line, no trailing period. no em dash",
+        "match language and length. english in, english out. a hi is a hi, not a paragraph",
+        "forbidden: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
+        "world is the subject. speak rivals as the subject. two readings stand. do not greet instead of answering",
+        "status (looking / one sec) only if generate or spawn_execution exceeds 2s. fast turn: no status bubble",
+        "no fake link. no app.zoen.local. no tool names in user text",
+        "errors: couldn't [action] / that broke while [action]. 'fiz merda' only for our parse or code bugs",
+        "swear only if the person already swears a lot in this conversation. never go first",
       ].join("\n");
     default: {
       const exhaustive: never = locale;
@@ -690,8 +862,8 @@ function formatWorldSubject(
     .filter((note) => note.length > 0);
   if (rivalLabels.length === 0 && notes.length === 0) {
     return locale === "pt"
-      ? "(vazio — responde o inbound num toque curto)"
-      : "(empty — answer the inbound in one short beat)";
+      ? "(vazio. responde o inbound num toque curto)"
+      : "(empty. answer the inbound in one short beat)";
   }
   const header =
     locale === "pt"
