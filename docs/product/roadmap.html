@@ -113,7 +113,7 @@
   </header>
   <div class="stats">
 <button class="stat" data-filter="have" type="button">
-  <span class="stat-count">24</span>
+  <span class="stat-count">25</span>
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
@@ -490,6 +490,17 @@
   </td>
   <td>On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/319">#319</a></td>
+</tr>
+<tr data-status="have">
+  <td><code>adr-0007-order-line</code></td>
+  <td>effects</td>
+  <td>
+    <div class="name">ADR-0007 timeout on commercial.OrderLine</div>
+    <div class="path">e2e/adr-0007.ts, docs/adr/0007-external-effects-reconciliation.md</div>
+    
+  </td>
+  <td>./e2e/run.sh run adr-0007. Timeout after possible delivery is UNKNOWN. Provider requests stay 1.</td>
+  <td>—</td>
 </tr>
     </tbody>
   </table>

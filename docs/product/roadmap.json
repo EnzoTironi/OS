@@ -445,6 +445,17 @@
       ]
     },
     {
+      "id": "adr-0007-order-line",
+      "status": "have",
+      "plane": "effects",
+      "name": "ADR-0007 timeout on commercial.OrderLine",
+      "onMain": true,
+      "product": true,
+      "path": "e2e/adr-0007.ts, docs/adr/0007-external-effects-reconciliation.md",
+      "proof": "./e2e/run.sh run adr-0007. Timeout after possible delivery is UNKNOWN. Provider requests stay 1.",
+      "issue": null
+    },
+    {
       "id": "fault-provider",
       "status": "harness",
       "plane": "effects",
