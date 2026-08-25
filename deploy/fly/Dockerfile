@@ -27,6 +27,8 @@ COPY packages/transport packages/transport
 COPY packages/speaker packages/speaker
 COPY packages/harness packages/harness
 COPY packages/ontology packages/ontology
+COPY packages/osdk packages/osdk
+COPY packages/sdk packages/sdk
 COPY deploy/fly/tsconfig.speaker.json deploy/fly/tsconfig.speaker.json
 RUN npm ci \
     && npx tsc -p deploy/fly/tsconfig.speaker.json --pretty false
