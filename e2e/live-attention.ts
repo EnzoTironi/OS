@@ -23,22 +23,25 @@ import {
 } from "../packages/attention/src/index.js";
 import {
   decideAudienceDisclosure,
+  deliveryIntentId,
   interactionControlRef,
   providerKey,
+  providerUserRef,
   type DeliveryIntent,
 } from "../packages/interaction/src/index.js";
 import {
   companionSessionIsReady,
+  composeOutboundChatJid,
   createHttpCompanionSession,
   createLiveWhatsAppProvider,
   createMessagingGateway,
   createRecordingCompanionSession,
-  LiveWhatsAppConfigError,
   parseWhatsAppDoorE164,
   PERSONAL_WHATSAPP_DOOR_E164,
   type ChatSdkOutbound,
   type ChatSdkShapedAdapter,
   type CompanionReady,
+  type CompanionSession,
 } from "../packages/messaging/src/index.js";
 import { parseDefinitionMetadata } from "../packages/sdk/src/definition.js";
 import {
@@ -63,6 +66,7 @@ const applicationDatabaseUrl = e2ePostgresUrl(
 );
 const publicWebOrigin = "https://app.zoen.local";
 const speaker = "5531888888888@s.whatsapp.net";
+const defaultLiveRecipientJid = "553199941160@s.whatsapp.net";
 const controlRef = interactionControlRef("ctrl.attn.approve.1");
 const stateBasis = "basis.attn.live.1";
 const proposalId = "prop.attn.live.1";
@@ -178,6 +182,104 @@ function wireIsTextPlusHttps(text: string): boolean {
   );
 }
 
+function jidUserDigits(jid: string): string {
+  const at = jid.indexOf("@");
+  const user = at > 0 ? jid.slice(0, at) : jid;
+  const device = user.indexOf(":");
+  const phone = device > 0 ? user.slice(0, device) : user;
+  return phone.replace(/\D/g, "");
+}
+
+function resolveLiveRecipientJid(doorE164: string):
+  | { readonly jid: string }
+  | { readonly missing: string } {
+  const raw = (
+    process.env.ZOEN_WHATSAPP_LIVE_RECIPIENT_JID ?? defaultLiveRecipientJid
+  ).trim();
+  const at = raw.indexOf("@");
+  if (at <= 0) {
+    return { missing: `live recipient is not a person JID: ${raw}` };
+  }
+  const server = raw.slice(at + 1).toLowerCase();
+  if (server !== "s.whatsapp.net" && server !== "c.us") {
+    return { missing: `live recipient is not a person JID: ${raw}` };
+  }
+  if (raw.includes(":")) {
+    return {
+      missing: `live recipient must be a person JID, never a device: ${raw}`,
+    };
+  }
+  if (raw === speaker) {
+    return { missing: "test speaker is not a live recipient" };
+  }
+  const recipientDigits = jidUserDigits(raw);
+  const doorDigits = doorE164.replace(/\D/g, "");
+  if (recipientDigits.length === 0 || doorDigits.length === 0) {
+    return { missing: "live recipient or door E.164 is empty" };
+  }
+  if (recipientDigits === doorDigits) {
+    return { missing: "live recipient must be a person JID, never the door" };
+  }
+  return { jid: raw };
+}
+
+function createDiagnosingHttpCompanionSession(
+  baseUrl: string,
+): CompanionSession {
+  const inner = createHttpCompanionSession(baseUrl);
+  const root = baseUrl.replace(/\/$/, "");
+  return {
+    beginPairing: () => inner.beginPairing(),
+    close: () => inner.close(),
+    open: () => inner.open(),
+    ready: () => inner.ready(),
+    subscribeInbound: (handler) => inner.subscribeInbound(handler),
+    async send(outbound) {
+      const chatJid = composeOutboundChatJid(outbound.chatJid);
+      let response: Response;
+      try {
+        response = await fetch(`${root}/send`, {
+          body: JSON.stringify({ ...outbound, chatJid }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        });
+      } catch (error) {
+        throw new Error(
+          `companion /send ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      const raw = (await response.text()).trim();
+      if (!response.ok) {
+        throw new Error(
+          `companion /send HTTP ${String(response.status)} ${raw}`,
+        );
+      }
+      let body: { messageId?: unknown } = {};
+      if (raw.length > 0) {
+        try {
+          body = JSON.parse(raw) as { messageId?: unknown };
+        } catch {
+          throw new Error(
+            `companion /send HTTP ${String(response.status)} invalid json ${raw}`,
+          );
+        }
+      }
+      return {
+        messageId:
+          typeof body.messageId === "string"
+            ? body.messageId
+            : `wa_${outbound.clientDeliveryId}`,
+        shape: outbound.shape,
+        status: "accepted",
+      };
+    },
+  };
+}
+
+function failMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function maybeLiveDoor(input: {
   readonly intent: DeliveryIntent;
   readonly presentation: ReturnType<typeof createPresentationIntent>;
@@ -185,12 +287,19 @@ async function maybeLiveDoor(input: {
 }): Promise<{
   liveAttempted: boolean;
   liveMissing: string;
+  liveRecipientJid: string;
+  liveSentCount: number;
 }> {
+  const skipped = {
+    liveAttempted: false,
+    liveRecipientJid: "",
+    liveSentCount: 0,
+  };
   const companionUrl = process.env.ZOEN_WHATSAPP_COMPANION_URL;
   const doorRaw = process.env.ZOEN_WHATSAPP_DOOR_E164;
   if (doorRaw === undefined || doorRaw.trim().length === 0) {
     return {
-      liveAttempted: false,
+      ...skipped,
       liveMissing:
         "ZOEN_WHATSAPP_DOOR_E164 and a ready paired CompanionSession",
     };
@@ -198,37 +307,40 @@ async function maybeLiveDoor(input: {
   try {
     parseWhatsAppDoorE164(doorRaw);
   } catch (error) {
-    const message =
-      error instanceof LiveWhatsAppConfigError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : String(error);
-    return { liveAttempted: false, liveMissing: message };
+    return { ...skipped, liveMissing: failMessage(error) };
   }
   if (companionUrl === undefined || companionUrl.trim().length === 0) {
     return {
-      liveAttempted: false,
+      ...skipped,
       liveMissing: "ZOEN_WHATSAPP_COMPANION_URL and a ready CompanionSession",
     };
   }
-  const httpSession = createHttpCompanionSession(companionUrl);
+  const recipient = resolveLiveRecipientJid(doorRaw);
+  if ("missing" in recipient) {
+    return { ...skipped, liveMissing: recipient.missing };
+  }
+  const httpSession = createDiagnosingHttpCompanionSession(companionUrl);
   let ready: CompanionReady;
   try {
     ready = await httpSession.ready();
   } catch (error) {
-    return {
-      liveAttempted: false,
-      liveMissing:
-        error instanceof Error ? error.message : String(error),
-    };
+    return { ...skipped, liveMissing: failMessage(error) };
   }
   if (!companionSessionIsReady(ready)) {
     return {
-      liveAttempted: false,
+      ...skipped,
       liveMissing: "CompanionSession is not ready (paired+connected+loggedIn)",
     };
   }
+  const liveIntent: DeliveryIntent = {
+    ...input.intent,
+    id: deliveryIntentId(`${String(input.intent.id)}_live`),
+    stableProviderDeliveryId: `${input.intent.stableProviderDeliveryId}:live`,
+    target: {
+      kind: "dm",
+      providerUser: providerUserRef(recipient.jid),
+    },
+  };
   const liveProvider = createLiveWhatsAppProvider({ session: httpSession });
   const liveGateway = createMessagingGateway({
     publicWebOrigin,
@@ -240,14 +352,35 @@ async function maybeLiveDoor(input: {
       intent: input.presentation,
     }),
   });
-  const liveObservation = await liveGateway.deliver(input.intent);
-  if (
-    liveObservation.outcome.kind !== "accepted" &&
-    liveObservation.outcome.kind !== "degraded"
-  ) {
-    throw new Error(`live WhatsApp deliver ${liveObservation.outcome.kind}`);
+  try {
+    const liveObservation = await liveGateway.deliver(liveIntent);
+    if (
+      liveObservation.outcome.kind !== "accepted" &&
+      liveObservation.outcome.kind !== "degraded"
+    ) {
+      const reason =
+        liveObservation.outcome.kind === "rejected"
+          ? liveObservation.outcome.reason
+          : liveObservation.outcome.kind;
+      return {
+        ...skipped,
+        liveMissing: `live WhatsApp deliver ${reason}`,
+        liveRecipientJid: recipient.jid,
+      };
+    }
+  } catch (error) {
+    return {
+      ...skipped,
+      liveMissing: failMessage(error),
+      liveRecipientJid: recipient.jid,
+    };
   }
-  return { liveAttempted: true, liveMissing: "" };
+  return {
+    liveAttempted: true,
+    liveMissing: "",
+    liveRecipientJid: recipient.jid,
+    liveSentCount: 1,
+  };
 }
 
 async function main(): Promise<void> {
@@ -614,6 +747,16 @@ async function main(): Promise<void> {
     "personal_door_constant_locked",
     PERSONAL_WHATSAPP_DOOR_E164 === "+5531999941160",
   );
+  record(
+    "live_recipient_is_not_door",
+    !live.liveAttempted ||
+      (live.liveRecipientJid !== speaker &&
+        !live.liveRecipientJid.includes(":") &&
+        (live.liveRecipientJid.endsWith("@s.whatsapp.net") ||
+          live.liveRecipientJid.endsWith("@c.us")) &&
+        jidUserDigits(live.liveRecipientJid) !==
+          (process.env.ZOEN_WHATSAPP_DOOR_E164 ?? "").replace(/\D/g, "")),
+  );
   assertions.live_whatsapp_dm_proven = live.liveAttempted;
   const sentCount = session.sent().length;
 
@@ -630,6 +773,8 @@ async function main(): Promise<void> {
     generatedDirectory,
     liveAttempted: live.liveAttempted,
     liveMissing: live.liveMissing,
+    liveRecipientJid: live.liveRecipientJid,
+    liveSentCount: live.liveSentCount,
     mutantsKilled,
     postgresPort,
     provider: String(providerKey("whatsapp")),
@@ -652,6 +797,8 @@ async function main(): Promise<void> {
         commit,
         liveAttempted: live.liveAttempted,
         liveMissing: live.liveMissing,
+        liveRecipientJid: live.liveRecipientJid,
+        liveSentCount: live.liveSentCount,
         sentCount: payload.sentCount,
         wireKind: payload.wireKind,
       },

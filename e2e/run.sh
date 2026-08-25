@@ -231,11 +231,22 @@ require_fiscal_live_environment() {
     source "${HOME}/.config/zoen/linq-sandbox.env"
     set +a
   fi
-  if [[ ( "$scenario" == "channel-whatsapp-live" || "$scenario" == "live-attention" ) && -f "${HOME}/.config/zoen/whatsapp-door.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${HOME}/.config/zoen/whatsapp-door.env"
-    set +a
+  if [[ "$scenario" == "channel-whatsapp-live" || "$scenario" == "live-attention" ]]; then
+    if [[ -f "${HOME}/.config/zoen/whatsapp-door.env" ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      source "${HOME}/.config/zoen/whatsapp-door.env"
+      set +a
+    fi
+    if [[ -f /tmp/zoen-wa-pair/door.env ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      source /tmp/zoen-wa-pair/door.env
+      set +a
+    fi
+    if [[ -z "${ZOEN_WHATSAPP_COMPANION_URL:-}" ]]; then
+      export ZOEN_WHATSAPP_COMPANION_URL="http://127.0.0.1:8081"
+    fi
   fi
   if [[ "$scenario" == "channel-telegram-live" && -f "${HOME}/.config/zoen/telegram-bot.env" ]]; then
     set -a
