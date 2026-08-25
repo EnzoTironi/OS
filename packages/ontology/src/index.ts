@@ -6,6 +6,7 @@ import type {
   TypeDefinition,
 } from "./model.js";
 
+export { compileDefinition } from "./compiler.js";
 export type {
   ActionDefinition,
   ActionEffect,
