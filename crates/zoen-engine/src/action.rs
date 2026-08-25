@@ -16,7 +16,7 @@ use zoen_core::{
     ValueType, evaluate_expression, expression_relations,
 };
 
-use crate::action_preview::{bind_preview_hash, build_action_preview, preview_hash};
+use crate::action_preview::{bind_proposal_preview, build_action_preview, preview_hash};
 use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
 
 mod state_basis;
@@ -567,7 +567,16 @@ where
         if &proposal.operation_id != operation_id {
             return Ok(CommitOutcome::OperationMismatch);
         }
-        if bind_preview_hash(&proposal.preview_hash, preview_hash).is_err() {
+        if bind_proposal_preview(
+            &proposal.action_id,
+            &proposal.resource_id,
+            &proposal.inputs,
+            &proposal.preview_hash,
+            &proposal.canonical_preview_text,
+            preview_hash,
+        )
+        .is_err()
+        {
             return Ok(CommitOutcome::PreviewMismatch);
         }
         let transaction = match self

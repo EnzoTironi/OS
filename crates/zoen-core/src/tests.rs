@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::expression::apply_expression_operator;
 use crate::{
-    ActionId, BinaryOperator, DefinitionDigest, DelegationChain, DelegationError, DelegationGrant,
-    DelegationId, ExactDecimal, ExactInteger, ExactValue, Expression, InputId, RelationId,
-    ResourceId, SemanticValue, TimestampMicros, UnitId, ValidTime, WorkloadId, evaluate_expression,
+    ActionId, ActionPreviewHash, BinaryOperator, DefinitionDigest, DelegationChain,
+    DelegationError, DelegationGrant, DelegationId, ExactDecimal, ExactInteger, ExactValue,
+    Expression, InputId, RelationId, ResourceId, SemanticValue, TimestampMicros, UnitId, ValidTime,
+    WorkloadId, evaluate_expression,
 };
 
 #[test]
@@ -341,4 +342,13 @@ fn delegation<const A: usize, const R: usize, const W: usize>(
         TimestampMicros::new(expires_at),
     )
     .expect("delegation grant")
+}
+
+#[test]
+fn action_preview_hash_constant_time_eq_requires_identical_hex() {
+    let left = ActionPreviewHash::parse("ab".repeat(32)).expect("left");
+    let right = ActionPreviewHash::parse("ab".repeat(32)).expect("right");
+    let other = ActionPreviewHash::parse("ba".repeat(32)).expect("other");
+    assert!(left.constant_time_eq(&right));
+    assert!(!left.constant_time_eq(&other));
 }

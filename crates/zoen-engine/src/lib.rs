@@ -31,7 +31,8 @@ pub use action::{
     evaluate_semantic_claims, read_action_state_basis, state_basis_digest_matches,
 };
 pub use action_preview::{
-    PreviewBindingError, bind_preview_hash, build_action_preview, preview_hash,
+    PreviewBindingError, bind_preview_hash, bind_proposal_preview, build_action_preview,
+    preview_hash,
 };
 pub use admission::{
     DefinitionFamily, ReferenceKind, ValidationError, decode_canonical_definition,

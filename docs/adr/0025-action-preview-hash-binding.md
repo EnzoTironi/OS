@@ -13,7 +13,7 @@ ADR-0002 requires proposal, approval, revalidation, then commit. ADR-0023 froze 
 
 1. The kernel builds `zoen.action.preview.v1` at propose time. The document contains `schema`, `locale` (`pt-BR`), `action`, `resource`, sorted `inputs`, and `canonical_preview_text`.
 2. `preview_hash` is SHA-256 (lowercase hex) of the RFC 8785 JCS bytes of that document. `zoen-core` builds the JSON; `zoen-engine` canonicalizes and hashes. TypeScript uses the same document and the in-repo JCS module.
-3. Commit accepts only when `proposal_id`, `operation_id`, and the presented `preview_hash` match the stored proposal. Missing, invalid, or unequal hashes return `COMMIT_STATUS_PREVIEW_MISMATCH` and do not mutate.
+3. Commit recomputes the preview from stored action, resource, and inputs. It accepts only when that digest equals the stored hash, the stored spoken text, `proposal_id`, `operation_id`, and the presented `preview_hash`. Missing, invalid, drifted, or unequal hashes return `COMMIT_STATUS_PREVIEW_MISMATCH` and do not mutate. Comparison is constant-time.
 4. Speaker renders `canonical_preview_text` only. `preview_hash`, proposal ids, and resource ids stay on the host binding.
 5. A hasher or grammar change requires a new `schema` value and a new ADR. Stored hashes are not rewritten.
 

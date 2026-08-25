@@ -30,6 +30,8 @@ export interface ActionCall<TInputs> {
 
 export interface CommitCall<TInputs> extends ActionCall<TInputs> {
   readonly approvalId: string;
+  /** Hash the caller confirmed. Must match the Propose result when set. */
+  readonly previewHash?: string;
 }
 
 export type ActionPreviewResult =
@@ -139,6 +141,16 @@ export async function commitAction(input: {
     return {
       kind: "denied",
       message: proposed.evaluationError || "action denied",
+    };
+  }
+  const confirmed = input.call.previewHash;
+  if (
+    confirmed !== undefined &&
+    confirmed !== proposed.proposal.previewHash
+  ) {
+    return {
+      kind: "preview_mismatch",
+      message: "preview hash does not match the stored proposal",
     };
   }
   if (proposed.proposal.status === ProposalStatus.AWAITING_APPROVAL) {

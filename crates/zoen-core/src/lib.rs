@@ -342,6 +342,20 @@ impl ActionPreviewHash {
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
         Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
     }
+
+    /// Compare two parsed digests without an early exit on the first mismatch.
+    pub fn constant_time_eq(&self, other: &Self) -> bool {
+        let left = self.0.as_bytes();
+        let right = other.0.as_bytes();
+        if left.len() != right.len() {
+            return false;
+        }
+        let mut diff = 0u8;
+        for (a, b) in left.iter().zip(right.iter()) {
+            diff |= a ^ b;
+        }
+        diff == 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

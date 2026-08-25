@@ -54,6 +54,10 @@ export function leaksInternalId(text: string): boolean {
     text.includes("claim.") ||
     text.includes("tenant.") ||
     text.includes("principal.") ||
+    text.includes("actor.") ||
+    text.includes("workload.") ||
+    text.includes("approval.") ||
+    /zoen-engine|zoen-core|packages\/|crates\//i.test(text) ||
     SHA256_HEX.test(text)
   );
 }

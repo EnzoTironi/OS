@@ -33,10 +33,33 @@ pub fn bind_preview_hash(
     };
     let presented =
         ActionPreviewHash::parse(presented).map_err(|_| PreviewBindingError::Invalid)?;
-    if presented != *stored {
+    if !stored.constant_time_eq(&presented) {
         return Err(PreviewBindingError::Mismatch);
     }
     Ok(())
+}
+
+/// Recompute the kernel preview from stored proposal fields, then bind.
+///
+/// A row whose stored hash or spoken text drifted from action/resource/inputs
+/// fails closed even when the client repeats the stored digest.
+pub fn bind_proposal_preview(
+    action_id: &ActionId,
+    resource_id: &ResourceId,
+    inputs: &[ActionInput],
+    stored_hash: &ActionPreviewHash,
+    stored_text: &str,
+    presented: Option<&str>,
+) -> Result<(), PreviewBindingError> {
+    let preview = build_action_preview(action_id, resource_id, inputs);
+    if preview.canonical_preview_text != stored_text {
+        return Err(PreviewBindingError::Mismatch);
+    }
+    let recomputed = preview_hash(&preview).map_err(|_| PreviewBindingError::Invalid)?;
+    if !recomputed.constant_time_eq(stored_hash) {
+        return Err(PreviewBindingError::Mismatch);
+    }
+    bind_preview_hash(&recomputed, presented)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,10 +82,14 @@ impl PreviewBindingError {
 #[cfg(test)]
 mod tests {
     use zoen_core::{
-        ActionId, ActionInput, ExactInteger, ExactValue, InputId, ResourceId, canonicalize_json,
+        ActionId, ActionInput, ActionPreviewHash, ExactInteger, ExactValue, InputId, ResourceId,
+        canonicalize_json,
     };
 
-    use super::{PreviewBindingError, bind_preview_hash, build_action_preview, preview_hash};
+    use super::{
+        PreviewBindingError, bind_preview_hash, bind_proposal_preview, build_action_preview,
+        preview_hash,
+    };
 
     fn quantity_two() -> ActionInput {
         ActionInput {
@@ -196,6 +223,68 @@ mod tests {
                 "{name} hash"
             );
         }
+    }
+
+    #[test]
+    fn bind_proposal_preview_rejects_stored_hash_or_text_drift() {
+        let (action, resource) = request_stock();
+        let inputs = [quantity_two()];
+        let document = build_action_preview(&action, &resource, &inputs);
+        let stored = preview_hash(&document).expect("stored");
+        assert_eq!(
+            bind_proposal_preview(
+                &action,
+                &resource,
+                &inputs,
+                &stored,
+                &document.canonical_preview_text,
+                Some(stored.as_str()),
+            ),
+            Ok(())
+        );
+
+        let zeros = ActionPreviewHash::parse(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .expect("zeros");
+        assert_eq!(
+            bind_proposal_preview(
+                &action,
+                &resource,
+                &inputs,
+                &zeros,
+                &document.canonical_preview_text,
+                Some(zeros.as_str()),
+            ),
+            Err(PreviewBindingError::Mismatch)
+        );
+
+        let mut tweaked = document.canonical_preview_text.clone();
+        tweaked.push('!');
+        assert_eq!(
+            bind_proposal_preview(
+                &action,
+                &resource,
+                &inputs,
+                &stored,
+                &tweaked,
+                Some(stored.as_str()),
+            ),
+            Err(PreviewBindingError::Mismatch)
+        );
+
+        let other_resource = ResourceId::parse("inventory.item.2").expect("resource");
+        assert_eq!(
+            bind_proposal_preview(
+                &action,
+                &other_resource,
+                &inputs,
+                &stored,
+                &document.canonical_preview_text,
+                Some(stored.as_str()),
+            ),
+            Err(PreviewBindingError::Mismatch)
+        );
     }
 
     #[test]
