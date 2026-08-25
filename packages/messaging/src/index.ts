@@ -74,12 +74,20 @@ export {
   createMemoryReplyLedger,
   createWhatsAppContactLoop,
   UNBOUND_WHATSAPP_POKE_TEXT,
+  type BoundWhatsAppReply,
   type ReplyLedger,
   type WhatsAppContactDisposition,
   type WhatsAppContactDropReason,
   type WhatsAppContactLoop,
   type WhatsAppContactLoopOptions,
 } from "./whatsapp-contact-loop.js";
+export {
+  formatWhatsAppMinuteText,
+  parseWhatsAppMinuteSpec,
+  WhatsAppMinuteError,
+  type WhatsAppMinuteInput,
+  type WhatsAppMinuteRival,
+} from "./whatsapp-minute.js";
 export {
   assertLiveTelegramAdvertisement,
   createLiveTelegramProvider,
