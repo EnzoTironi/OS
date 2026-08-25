@@ -30,6 +30,7 @@ const adr = await readFile(adrPath, "utf8");
 const workflow = parseYaml(await readFile(workflowPath, "utf8"));
 const runSh = await readFile(runShPath, "utf8");
 const errors = [];
+const sourceCache = new Map();
 
 const matrixScenarios = workflow?.jobs?.e2e?.strategy?.matrix?.scenario;
 if (!Array.isArray(matrixScenarios) || matrixScenarios.length === 0) {
@@ -78,38 +79,17 @@ for (const [index, law] of LAWS.entries()) {
     errors.push(`mutant ${index + 1} missing proof`);
     continue;
   }
-  if (typeof proof.file !== "string" || typeof proof.needle !== "string") {
-    errors.push(`mutant ${index + 1} proof needs file and needle`);
+  const needles = proofNeedles(proof, index);
+  if (needles.length === 0) {
     continue;
-  }
-  if (proof.file.includes("v1-company")) {
-    errors.push(`mutant ${index + 1} cites v1-company; that scenario is not default CI`);
-  }
-  const source = await readFile(path.join(repositoryRoot, proof.file), "utf8").catch(() => {
-    errors.push(`mutant ${index + 1} missing file ${proof.file}`);
-    return "";
-  });
-  if (source !== "" && !source.includes(proof.needle)) {
-    errors.push(`mutant ${index + 1} needle missing from ${proof.file}: ${proof.needle}`);
   }
   switch (proof.kind) {
     case "e2e": {
-      if (typeof proof.scenario !== "string") {
-        errors.push(`mutant ${index + 1} e2e proof needs scenario`);
-        break;
-      }
-      if (!defaultCi.has(proof.scenario)) {
-        errors.push(`mutant ${index + 1} scenario ${proof.scenario} is not in default CI`);
-      }
-      if (!liveScenarios.has(proof.scenario)) {
-        errors.push(`mutant ${index + 1} scenario ${proof.scenario} is not live`);
-      }
+      await checkE2eProof({ index, needles, proof });
       break;
     }
     case "cargo-test": {
-      if (!runSh.includes("cargo test --locked --workspace")) {
-        errors.push("run_lint no longer runs cargo test --locked --workspace");
-      }
+      await checkCargoProof({ index, needles, proof });
       break;
     }
     default: {
@@ -131,4 +111,93 @@ if (errors.length > 0) {
         .length,
     })}\n`,
   );
+}
+
+function proofNeedles(proof, index) {
+  if ("needle" in proof) {
+    errors.push(`mutant ${index + 1} uses needle; use a non-empty needles array`);
+    return [];
+  }
+  if (!Array.isArray(proof.needles) || proof.needles.length === 0) {
+    errors.push(`mutant ${index + 1} proof needs a non-empty needles array`);
+    return [];
+  }
+  const needles = [];
+  for (const [needleIndex, needle] of proof.needles.entries()) {
+    if (typeof needle !== "string" || needle.trim() === "") {
+      errors.push(`mutant ${index + 1} needles[${needleIndex}] is empty`);
+      continue;
+    }
+    needles.push(needle);
+  }
+  return needles;
+}
+
+async function checkE2eProof({ index, needles, proof }) {
+  if (typeof proof.scenario !== "string" || proof.scenario.trim() === "") {
+    errors.push(`mutant ${index + 1} e2e proof needs scenario`);
+    return;
+  }
+  if (proof.scenario.includes("v1-company") || proof.entrypoint?.includes("v1-company")) {
+    errors.push(`mutant ${index + 1} cites v1-company; that scenario is not default CI`);
+  }
+  if (!defaultCi.has(proof.scenario)) {
+    errors.push(`mutant ${index + 1} scenario ${proof.scenario} is not in default CI`);
+  }
+  if (!liveScenarios.has(proof.scenario)) {
+    errors.push(`mutant ${index + 1} scenario ${proof.scenario} is not live`);
+  }
+  const expectedEntrypoint = `e2e/${proof.scenario}.ts`;
+  if (typeof proof.entrypoint !== "string" || proof.entrypoint.trim() === "") {
+    errors.push(`mutant ${index + 1} e2e proof needs entrypoint`);
+    return;
+  }
+  if (proof.entrypoint !== expectedEntrypoint) {
+    errors.push(
+      `mutant ${index + 1} entrypoint must be the executed runner ${expectedEntrypoint}`,
+    );
+  }
+  const source = await readSource(proof.entrypoint, index);
+  requireNeedles({ index, needles, source, target: proof.entrypoint });
+}
+
+async function checkCargoProof({ index, needles, proof }) {
+  if (typeof proof.file !== "string" || proof.file.trim() === "") {
+    errors.push(`mutant ${index + 1} cargo-test proof needs file`);
+    return;
+  }
+  if (!runSh.includes("cargo test --locked --workspace")) {
+    errors.push("run_lint no longer runs cargo test --locked --workspace");
+  }
+  const source = await readSource(proof.file, index);
+  requireNeedles({ index, needles, source, target: proof.file });
+}
+
+async function readSource(relativePath, index) {
+  if (sourceCache.has(relativePath)) {
+    return sourceCache.get(relativePath);
+  }
+  const source = await readFile(path.join(repositoryRoot, relativePath), "utf8").catch(() => {
+    errors.push(`mutant ${index + 1} missing file ${relativePath}`);
+    return "";
+  });
+  sourceCache.set(relativePath, source);
+  return source;
+}
+
+function requireNeedles({ index, needles, source, target }) {
+  if (source.trim() === "") {
+    errors.push(`mutant ${index + 1} ${target} is empty`);
+    return;
+  }
+  for (const needle of needles) {
+    if (!containsToken(source, needle)) {
+      errors.push(`mutant ${index + 1} needle missing from ${target}: ${needle}`);
+    }
+  }
+}
+
+function containsToken(source, needle) {
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<!\\w)${escaped}(?!\\w)`).test(source);
 }

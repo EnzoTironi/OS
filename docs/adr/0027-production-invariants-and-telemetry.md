@@ -17,7 +17,7 @@ ADR-0021 names eleven semantic mutants. Named copies live in `e2e/v1-company.ts`
 2. Histogram `zoen_admit_duration_seconds` uses cumulative Prometheus buckets 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, and +Inf.
 3. `zoend` serves `GET /metrics` as Prometheus 0.0.4 text without authentication, the same class as `/ready`. The body has no tenant, document, or digest bytes. `/ready` keeps its own router state. `/metrics` does not open the database.
 4. `definition-publication` proves the door: a digest mismatch and non-canonical integers leave the counter unchanged, spaced JSON increments it, and the histogram count moves.
-5. `testdata/semantic-mutants.json` maps the eleven ADR-0021 laws to default-CI needles. `scripts/check-semantic-mutants.mjs` runs from `e2e/run.sh lint`. `v1-company` stays optional.
+5. `testdata/semantic-mutants.json` maps the eleven ADR-0021 laws to named assertions on the executed `e2e/<scenario>.ts` runner, plus one `cargo test`. `scripts/check-semantic-mutants.mjs` runs from `e2e/run.sh lint`. Empty needles fail. An e2e proof whose entrypoint is not that runner fails. `v1-company` stays optional.
 
 This ADR does not add a scrape crate, a new CI matrix job, or a second evidence log.
 
@@ -25,7 +25,7 @@ This ADR does not add a scrape crate, a new CI matrix job, or a second evidence 
 
 A scraper can hit `/metrics` on the listen address. A stolen token is not required. The series stay process-local. Restart resets them.
 
-The mutant inventory is the release list. Moving a proof to an archive or optional scenario fails lint.
+The mutant inventory is the release list. Moving a proof to an archive or optional scenario fails lint. Unhooking the runner call or deleting the named assertion also fails lint.
 
 ## Revisit if
 

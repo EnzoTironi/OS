@@ -8,8 +8,11 @@
       "proof": {
         "kind": "e2e",
         "scenario": "durable-commit",
-        "file": "e2e/durable-commit/laws/tenant-isolation.ts",
-        "needle": "operation.namespace"
+        "entrypoint": "e2e/durable-commit.ts",
+        "needles": [
+          "verifyTenantIsolation",
+          "tenantScopedOperationNamespace"
+        ]
       }
     },
     {
@@ -18,8 +21,11 @@
       "proof": {
         "kind": "e2e",
         "scenario": "durable-commit",
-        "file": "e2e/durable-commit/laws/replay.ts",
-        "needle": "proposal.intent-mismatch"
+        "entrypoint": "e2e/durable-commit.ts",
+        "needles": [
+          "verifyReplayAndMismatch",
+          "sameOperationDifferentIntentTypedMismatch"
+        ]
       }
     },
     {
@@ -28,8 +34,8 @@
       "proof": {
         "kind": "e2e",
         "scenario": "governed-action",
-        "file": "e2e/governed-action.ts",
-        "needle": "CommitStatus.STALE"
+        "entrypoint": "e2e/governed-action.ts",
+        "needles": ["relevantDependencyChangeRejectedBeforeMutation"]
       }
     },
     {
@@ -38,8 +44,8 @@
       "proof": {
         "kind": "e2e",
         "scenario": "governed-action",
-        "file": "e2e/governed-action.ts",
-        "needle": "childDelegationExpansionRejected"
+        "entrypoint": "e2e/governed-action.ts",
+        "needles": ["childDelegationExpansionRejected"]
       }
     },
     {
@@ -48,8 +54,8 @@
       "proof": {
         "kind": "e2e",
         "scenario": "durable-commit",
-        "file": "e2e/durable-commit/laws/rollback.ts",
-        "needle": "failpoint${index}RolledBack"
+        "entrypoint": "e2e/durable-commit.ts",
+        "needles": ["verifyRollback", "allPreCommitFailpointsRolledBack"]
       }
     },
     {
@@ -58,8 +64,8 @@
       "proof": {
         "kind": "e2e",
         "scenario": "definition-publication",
-        "file": "e2e/definition-publication.ts",
-        "needle": "immutableMutationKilled"
+        "entrypoint": "e2e/definition-publication.ts",
+        "needles": ["immutableMutationKilled"]
       }
     },
     {
@@ -68,8 +74,8 @@
       "proof": {
         "kind": "e2e",
         "scenario": "semantic-query",
-        "file": "e2e/semantic-query.ts",
-        "needle": "rivalLineageComplete"
+        "entrypoint": "e2e/semantic-query.ts",
+        "needles": ["rivalLineageComplete", "crossRelationLineageComplete"]
       }
     },
     {
@@ -78,7 +84,7 @@
       "proof": {
         "kind": "cargo-test",
         "file": "crates/zoen-engine/src/effect.rs",
-        "needle": "fn ambiguous_attempt_stays_unknown"
+        "needles": ["fn ambiguous_attempt_stays_unknown"]
       }
     },
     {
@@ -87,8 +93,8 @@
       "proof": {
         "kind": "e2e",
         "scenario": "semantic-query",
-        "file": "e2e/semantic-query.ts",
-        "needle": "tenantCollisionsIsolated"
+        "entrypoint": "e2e/semantic-query.ts",
+        "needles": ["tenantCollisionsIsolated"]
       }
     },
     {
@@ -97,8 +103,8 @@
       "proof": {
         "kind": "e2e",
         "scenario": "semantic-query",
-        "file": "e2e/semantic-query.ts",
-        "needle": "staleAtLeastRejected"
+        "entrypoint": "e2e/semantic-query.ts",
+        "needles": ["staleAtLeastRejected"]
       }
     },
     {
@@ -107,8 +113,8 @@
       "proof": {
         "kind": "e2e",
         "scenario": "governed-action",
-        "file": "e2e/governed-action.ts",
-        "needle": "CommitStatus.PREVIEW_MISMATCH"
+        "entrypoint": "e2e/governed-action.ts",
+        "needles": ["previewHashGateRejectsMissingTamperedAndStale"]
       }
     }
   ]
