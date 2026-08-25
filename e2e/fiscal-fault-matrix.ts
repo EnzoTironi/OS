@@ -315,7 +315,7 @@ async function main(): Promise<void> {
       inputs: [
         {
           id: "commitmentReference",
-          value: text("commitment.fiscal.order-1"),
+          value: entityRef("commitment.fiscal.order-1"),
         },
         { id: "quantity", value: quantity("3", "each") },
         { id: "revision", value: integer("1") },
@@ -1609,6 +1609,10 @@ function actionId(
 
 function text(value: string): SemanticValue {
   return { kind: "text", value };
+}
+
+function entityRef(value: string): SemanticValue {
+  return { kind: "entity-ref", value };
 }
 
 function decimal(value: string): SemanticValue {

@@ -82,6 +82,45 @@ export async function openAppClient(): Promise<PostgresClient> {
   return client;
 }
 
+export async function grantPersonalDefinitionActivation(
+  membershipId: string,
+): Promise<void> {
+  const client = new PostgresClient({ connectionString: adminDatabaseUrl });
+  await client.connect();
+  try {
+    const result = await client.query(
+      `UPDATE memberships
+       SET delegation_json = jsonb_set(
+         jsonb_set(
+           delegation_json,
+           '{grants,0,actionIds}',
+           $2::jsonb
+         ),
+         '{grants,0,resourceIds}',
+         $3::jsonb
+       )
+       WHERE membership_id = $1
+         AND status = 'active'`,
+      [
+        membershipId,
+        JSON.stringify(["inventory.requestStock", "zoen.definition.activate"]),
+        JSON.stringify([
+          sharedEntityId,
+          "inventory.governed",
+          "zoen.personal.workspace",
+        ]),
+      ],
+    );
+    if (result.rowCount !== 1) {
+      throw new Error(
+        `personal membership grant update failed for ${membershipId}`,
+      );
+    }
+  } finally {
+    await client.end();
+  }
+}
+
 export async function writePolicyManifest(outputPath: string): Promise<{
   canonicalJson: string;
   digest: string;

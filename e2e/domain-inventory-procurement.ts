@@ -342,7 +342,7 @@ async function main(): Promise<void> {
         ),
       ]);
     const commercialQuantity = singleQuantityValue(commercialQuantityResult);
-    const commercialReference = singleTextValue(commercialReferenceResult);
+    const commercialReference = singleEntityRefValue(commercialReferenceResult);
 
     await recordInventoryIdentity(worldA, inventory, tenantA);
     await Promise.all(
@@ -414,10 +414,10 @@ async function main(): Promise<void> {
       "commercialCommitmentFromV115FeedsInventoryLifecycle",
       commercialCommitment.receipt.definition?.digest === commercial.digest &&
         commercialCommitment.receipt.policy?.revision?.policyId ===
-          "policy.commercial.createCommitment.r1" &&
+          `policy.commercial.createCommitment.r${commercial.metadata.revision}` &&
         commitmentFeedAtProposal.receipt.recordIds.length === 3 &&
         sameStrings(quantityValues(commercialQuantityResult), ["10 each"]) &&
-        sameStrings(textValues(commercialReferenceResult), [
+        sameStrings(entityRefValues(commercialReferenceResult), [
           "commitment.order-2001",
         ]),
     );
@@ -1529,7 +1529,7 @@ function commercialCommitmentRequest(fixture: DomainFixture) {
     inputs: [
       {
         id: "commitmentReference",
-        value: { kind: "text", value: "commitment.order-2001" },
+        value: { kind: "entity-ref", value: "commitment.order-2001" },
       },
       {
         id: "quantity",
@@ -1952,6 +1952,14 @@ function textValues(
   );
 }
 
+function entityRefValues(
+  response: Awaited<ReturnType<typeof semanticQuery>>,
+): string[] {
+  return valueShapes(response).flatMap((value) =>
+    value.kind === "entity-ref" ? [value.value] : [],
+  );
+}
+
 function quantityValues(
   response: Awaited<ReturnType<typeof semanticQuery>>,
 ): string[] {
@@ -1972,10 +1980,10 @@ function singleQuantityValue(
   return quantity;
 }
 
-function singleTextValue(
+function singleEntityRefValue(
   response: Awaited<ReturnType<typeof semanticQuery>>,
 ): string {
-  const values = textValues(response);
+  const values = entityRefValues(response);
   assert.equal(values.length, 1);
   const value = values[0];
   assert.ok(value);

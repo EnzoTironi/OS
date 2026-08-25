@@ -58,6 +58,7 @@ import {
   familyTenantId,
   familyViewerPrincipal,
   generatedDirectory,
+  grantPersonalDefinitionActivation,
   keycloakPort,
   openAppClient,
   orgMemberPrincipal,
@@ -164,6 +165,7 @@ export async function main(): Promise<PersonalFamilyEvidence> {
       "personal_workspace_provisioned",
       personalTenant.startsWith("tenant.") && personalPrincipal.startsWith("principal."),
     );
+    await grantPersonalDefinitionActivation(personalMembershipId);
 
     const bootstrapSecond = await admin(
       "POST",

@@ -2314,7 +2314,7 @@ function commercialCommitmentRequest(fixture: DomainFixture) {
     inputs: [
       {
         id: "commitmentReference",
-        value: { kind: "text", value: "commitment.order-3001" },
+        value: { kind: "entity-ref", value: "commitment.order-3001" },
       },
       {
         id: "quantity",

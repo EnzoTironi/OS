@@ -449,7 +449,7 @@ async function main(): Promise<void> {
       sourceId: "source.customer-request",
       tenantId: tenantA,
       time: { at: lifecycleAt, kind: "instant" },
-      value: { kind: "text", value: organizationId },
+      value: { kind: "entity-ref", value: organizationId },
     });
     await recordEvidence(worldA, {
       claimId: "claim.commercial.product",
@@ -459,7 +459,7 @@ async function main(): Promise<void> {
       sourceId: "source.customer-request",
       tenantId: tenantA,
       time: { at: lifecycleAt, kind: "instant" },
-      value: { kind: "text", value: productId },
+      value: { kind: "entity-ref", value: productId },
     });
     await recordEvidence(worldA, {
       claimId: "claim.commercial.request",
@@ -469,7 +469,7 @@ async function main(): Promise<void> {
       sourceId: "source.customer-request",
       tenantId: tenantA,
       time: { at: lifecycleAt, kind: "instant" },
-      value: { kind: "text", value: "request.rfq-1001" },
+      value: { kind: "entity-ref", value: "request.rfq-1001" },
     });
 
     const humanCommit = await commitReady(

@@ -587,11 +587,11 @@ async function main(): Promise<void> {
     observe(
       "requestQuoteAndCommitmentAreDistinctBeforeAction",
       sameStrings(quantityValues(intentSnapshot), ["10 each"]) &&
-        sameStrings(textValues(requestReference), ["request.rfq-1001"]) &&
+        sameStrings(entityRefValues(requestReference), ["request.rfq-1001"]) &&
         sameStrings(decimalValues(quoteSnapshot), ["19.99"]) &&
-        sameStrings(textValues(quoteReference), ["quote.q-1001"]) &&
-        sameStrings(textValues(buyerReference), [organizationId]) &&
-        sameStrings(textValues(orderedProductReference), [productId]) &&
+        sameStrings(entityRefValues(quoteReference), ["quote.q-1001"]) &&
+        sameStrings(entityRefValues(buyerReference), [organizationId]) &&
+        sameStrings(entityRefValues(orderedProductReference), [productId]) &&
         commitmentBeforeAction.values.length === 0 &&
         hasSource(intentSnapshot, "source.customer-request") &&
         hasSource(quoteSnapshot, "source.sales-quote"),
@@ -649,7 +649,7 @@ async function main(): Promise<void> {
               {
                 id: "commitmentReference",
                 value: {
-                  kind: "text",
+                  kind: "entity-ref",
                   value: "commitment.order-1001",
                 },
               },
@@ -742,10 +742,12 @@ async function main(): Promise<void> {
       "commercialCreateUsesOidcCedarDelegationAndExactValues",
       created.receipt.definition?.digest === commercial.digest &&
         created.receipt.policy?.revision?.policyId ===
-          "policy.commercial.createCommitment.r1" &&
+          `policy.commercial.createCommitment.r${commercial.metadata.revision}` &&
         sameStrings(quantityValues(createdQuantity), ["10 each"]) &&
         sameStrings(decimalValues(createdPrice), ["19.99"]) &&
-        sameStrings(textValues(createdReference), ["commitment.order-1001"]) &&
+        sameStrings(entityRefValues(createdReference), [
+          "commitment.order-1001",
+        ]) &&
         sameStrings(textValues(createdTerms), ["net-30"]),
     );
 
@@ -757,7 +759,7 @@ async function main(): Promise<void> {
       sourceId: "source.customer-message",
       tenantId: tenantA,
       time: instant(lifecycleAt),
-      value: { kind: "text", value: "message.customer.change-1" },
+      value: { kind: "entity-ref", value: "message.customer.change-1" },
     });
     await recordEvidence(commercialWorldA, {
       claimId: "claim.commercial.proposed-quantity-1",
@@ -809,7 +811,7 @@ async function main(): Promise<void> {
       sourceId: "source.customer-message-confirmation",
       tenantId: tenantA,
       time: instant(lifecycleAt),
-      value: { kind: "text", value: "message.customer.change-2" },
+      value: { kind: "entity-ref", value: "message.customer.change-2" },
     });
     await recordEvidence(commercialWorldA, {
       claimId: "claim.commercial.proposed-quantity-2",
@@ -915,7 +917,7 @@ async function main(): Promise<void> {
         changedExplanation.subject.value.policies.some(
           (policy) =>
             policy.policy?.revision?.policyId ===
-            "policy.commercial.changeCommitment.r1",
+            `policy.commercial.changeCommitment.r${commercial.metadata.revision}`,
         ),
     );
     const changedExplanationBeforeRestart =
@@ -990,7 +992,9 @@ async function main(): Promise<void> {
       "explicitCorrectionAppendsWithoutRewritingCommitment",
       correctionBeforeCommit.values.length === 1 &&
         correctionAfterCommit.values.length === 2 &&
-        textValues(correctionAfterCommit).includes("commitment.order-1001") &&
+        entityRefValues(correctionAfterCommit).includes(
+          "commitment.order-1001",
+        ) &&
         sameStrings(quantityValues(commitmentAfterChange), [
           "10 each",
           "8 each",
@@ -1040,11 +1044,11 @@ async function main(): Promise<void> {
       "cancellationIsANewGovernedHistoricalRecord",
       cancellableCreated.receipt.commitSequence <
         cancelled.receipt.commitSequence &&
-        sameStrings(textValues(cancellationHistory), [
+        sameStrings(entityRefValues(cancellationHistory), [
           "commitment.order-1002",
         ]) &&
         cancelled.receipt.policy?.revision?.policyId ===
-          "policy.commercial.cancelCommitment.r1",
+          `policy.commercial.cancelCommitment.r${commercial.metadata.revision}`,
     );
 
     await recordEvidence(commercialWorldB, {
@@ -1444,19 +1448,19 @@ async function recordCommercialIntent(
       claimId: "claim.commercial.request-reference",
       relationId: "commercial.requestReference",
       sourceId: "source.customer-request",
-      value: { kind: "text", value: "request.rfq-1001" },
+      value: { kind: "entity-ref", value: "request.rfq-1001" },
     },
     {
       claimId: "claim.commercial.buyer-party",
       relationId: "commercial.buyerPartyReference",
       sourceId: "source.customer-request",
-      value: { kind: "text", value: organizationId },
+      value: { kind: "entity-ref", value: organizationId },
     },
     {
       claimId: "claim.commercial.product-reference",
       relationId: "commercial.productReference",
       sourceId: "source.customer-request",
-      value: { kind: "text", value: productId },
+      value: { kind: "entity-ref", value: productId },
     },
     {
       claimId: "claim.commercial.requested-quantity",
@@ -1468,7 +1472,7 @@ async function recordCommercialIntent(
       claimId: "claim.commercial.quote-reference",
       relationId: "commercial.quoteReference",
       sourceId: "source.sales-quote",
-      value: { kind: "text", value: "quote.q-1001" },
+      value: { kind: "entity-ref", value: "quote.q-1001" },
     },
     {
       claimId: "claim.commercial.quoted-quantity",
@@ -1561,7 +1565,7 @@ function createCommitmentRequest(
       {
         id: "commitmentReference",
         value: {
-          kind: "text",
+          kind: "entity-ref",
           value:
             resourceId === partnerOrderLineId
               ? "commitment.partner-1"
@@ -1595,7 +1599,7 @@ function changeCommitmentRequest(
     inputs: [
       {
         id: "correctionOf",
-        value: { kind: "text", value: "commitment.order-1001" },
+        value: { kind: "entity-ref", value: "commitment.order-1001" },
       },
       {
         id: "quantity",
@@ -1643,7 +1647,7 @@ function cancellationRequest(
     inputs: [
       {
         id: "cancellationOf",
-        value: { kind: "text", value: cancellationOf },
+        value: { kind: "entity-ref", value: cancellationOf },
       },
       {
         id: "quantity",
@@ -1667,7 +1671,7 @@ function correctionRequest(
     inputs: [
       {
         id: "correctionOf",
-        value: { kind: "text", value: "commitment.order-1001" },
+        value: { kind: "entity-ref", value: "commitment.order-1001" },
       },
       {
         id: "quantity",

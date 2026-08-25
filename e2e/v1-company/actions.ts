@@ -81,7 +81,7 @@ export function createCommitment(
     inputs: [
       {
         id: "commitmentReference",
-        value: { kind: "text", value: "commitment.order-1001" },
+        value: { kind: "entity-ref", value: "commitment.order-1001" },
       },
       {
         id: "quantity",
@@ -120,7 +120,7 @@ export function correctCommitment(fixture: CompanyFixture, suffix: string) {
     inputs: [
       {
         id: "correctionOf",
-        value: { kind: "text", value: "commitment.order-1001" },
+        value: { kind: "entity-ref", value: "commitment.order-1001" },
       },
       {
         id: "quantity",
