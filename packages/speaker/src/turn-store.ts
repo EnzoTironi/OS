@@ -325,14 +325,15 @@ export function createPostgresTurnStore(
         `INSERT INTO turn_attempts (
            id, turn_id, conversation_key, claimed_interaction_ids,
            carry_forward_interaction_ids, phase_kind, opened_at,
-           observed_commit_refs, payload
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           observed_commit_refs, payload, context_hash
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (id) DO UPDATE SET
            claimed_interaction_ids = EXCLUDED.claimed_interaction_ids,
            carry_forward_interaction_ids = EXCLUDED.carry_forward_interaction_ids,
            phase_kind = EXCLUDED.phase_kind,
            observed_commit_refs = EXCLUDED.observed_commit_refs,
-           payload = EXCLUDED.payload`,
+           payload = EXCLUDED.payload,
+           context_hash = EXCLUDED.context_hash`,
         [
           attempt.id,
           attempt.turnId,
@@ -343,6 +344,7 @@ export function createPostgresTurnStore(
           attempt.openedAt,
           JSON.stringify(attempt.observedCommitRefs),
           JSON.stringify(attempt),
+          attempt.contextHash ?? null,
         ],
       );
     },

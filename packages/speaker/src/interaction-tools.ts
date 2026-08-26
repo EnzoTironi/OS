@@ -1,6 +1,7 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { speakerPreviewLeaksInternalIds } from "./action-preview.js";
+import type { ConversationAudienceKind } from "./context-document.js";
 import type {
   PersonalWriteKind,
   SpeakerActionClient,
@@ -66,11 +67,20 @@ export interface InteractionScratch {
   writeFail?: PersonalWriteKind;
 }
 
+export interface InteractionWriteCommit {
+  readonly actionId: string;
+  readonly kind: PersonalWriteKind;
+}
+
 export interface InteractionToolOptions {
   readonly actions?: SpeakerActionClient;
+  readonly audienceKind?: ConversationAudienceKind;
   readonly executeWork?: (task: string) => Promise<string>;
   readonly channelAssurance?: ChannelAssurance;
   readonly publicWebOrigin?: string;
+  readonly onWriteCommitted?: (
+    commit: InteractionWriteCommit,
+  ) => Promise<void>;
 }
 
 export function createInteractionScratch(): InteractionScratch {
@@ -130,7 +140,7 @@ export function createInteractionTools(
         "Write a personal memory through Propose then Commit. Speak only after this returns ok. Never claim you wrote it if this fails.",
       execute: async ({ body }) => {
         scratch.startedWork = true;
-        return commitPersonalWrite(scratch, options.actions, "note", body);
+        return commitPersonalWrite(scratch, options, "note", body);
       },
       inputSchema: noteSchema,
     }),
@@ -139,7 +149,7 @@ export function createInteractionTools(
         "Create a personal reminder through Propose then Commit. dueAt is text, not a datetime. Speak only after this returns ok. Never claim you scheduled it if this fails.",
       execute: async ({ body, dueAt }) => {
         scratch.startedWork = true;
-        return commitPersonalWrite(scratch, options.actions, "remind", body, dueAt);
+        return commitPersonalWrite(scratch, options, "remind", body, dueAt);
       },
       inputSchema: remindSchema,
     }),
@@ -216,19 +226,26 @@ export function createFirstContactTools(scratch: InteractionScratch): ToolSet {
 
 async function commitPersonalWrite(
   scratch: InteractionScratch,
-  actions: SpeakerActionClient | undefined,
+  options: InteractionToolOptions,
   kind: PersonalWriteKind,
   body: string,
   dueAt?: string,
 ): Promise<
   { ok: true; previewText: string } | { ok: false; reason: string }
 > {
-  if (actions === undefined) {
+  if (
+    options.audienceKind === "group" ||
+    options.audienceKind === "channel"
+  ) {
+    scratch.writeFail = kind;
+    return { ok: false, reason: "audience refuses personal write" };
+  }
+  if (options.actions === undefined) {
     scratch.writeFail = kind;
     return { ok: false, reason: "action client missing" };
   }
   try {
-    const result = await commitByKind(actions, kind, body, dueAt);
+    const result = await commitByKind(options.actions, kind, body, dueAt);
     if (result.kind !== "committed") {
       scratch.writeFail = kind;
       return { ok: false, reason: result.message };
@@ -237,11 +254,30 @@ async function commitPersonalWrite(
       scratch.writeFail = kind;
       return { ok: false, reason: "preview text leaked an internal identifier" };
     }
+    if (options.onWriteCommitted !== undefined) {
+      await options.onWriteCommitted({
+        actionId: personalWriteActionId(kind),
+        kind,
+      });
+    }
     return { ok: true, previewText: result.previewText };
   } catch (error: unknown) {
     scratch.writeFail = kind;
     const message = error instanceof Error ? error.message : "action commit failed";
     return { ok: false, reason: message };
+  }
+}
+
+function personalWriteActionId(kind: PersonalWriteKind): string {
+  switch (kind) {
+    case "note":
+      return "personal.writeMemory";
+    case "remind":
+      return "personal.createReminder";
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
   }
 }
 

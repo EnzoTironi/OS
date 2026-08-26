@@ -43,6 +43,7 @@ export interface WorldQueryInput {
   readonly tenantId: string;
   readonly entityId?: string;
   readonly typeApiName?: string;
+  readonly validAt?: Date;
 }
 
 export interface WorldQueryClient {
@@ -103,7 +104,7 @@ export function createConnectWorldQueryClient(
                   },
                 }),
           tenantId: input.tenantId,
-          validAt: timestampFromDate(new Date()),
+          validAt: timestampFromDate(input.validAt ?? new Date()),
         });
         return snapshotFromResponse(response, input.entityId ?? options.entityId);
       } catch {

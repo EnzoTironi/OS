@@ -4,7 +4,7 @@ import type { LanguageModel } from "ai";
 import {
   ChannelSubjectResolveError,
   classifyStatusIntent,
-  conversationKeyFrom,
+  conversationKeyFromChannel,
   createConversationTurnCoordinator,
   createInteractionBoundary,
   createInteractionControlRegistry,
@@ -441,9 +441,9 @@ export function createWhatsAppContactLoop(
   ): Promise<WhatsAppContactDisposition> {
     const ctx = await boundary.resolveTrustedContext(inbound);
     const record = await boundary.accept(inbound, ctx);
-    const conversationKey = conversationKeyFrom({
+    const conversationKey = conversationKeyFromChannel({
       accountId: ctx.accountId,
-      conversationId: `wa:${String(inbound.channel.thread)}`,
+      channel: inbound.channel,
       tenantId: String(ctx.tenantId),
       workspaceId: ctx.workloadId,
     });

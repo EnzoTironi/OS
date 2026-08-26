@@ -3,11 +3,24 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { isStepCount, ToolLoopAgent, type LanguageModel } from "ai";
+import { interactionId, type TurnAttemptId } from "./brands.js";
 import {
-  conversationKeyFrom,
-  interactionId,
-  type TurnAttemptId,
-} from "./brands.js";
+  assembleTurnContext,
+  audienceKindFromMembership,
+  createConversationContextAssembler,
+  defaultConversationSources,
+  type ConversationContextAssembler,
+  type ConversationWorkspaceKind,
+} from "./context-assembler.js";
+import {
+  conversationKeyFromChannel,
+  conversationKeyFromKind,
+} from "./conversation-kind.js";
+import type {
+  ConversationAudienceKind,
+  ConversationContextDocument,
+} from "./context-document.js";
+import type { HistoryQueryClient } from "./history-query.js";
 import {
   createFirstContactTools,
   createInteractionScratch,
@@ -22,6 +35,7 @@ import {
 } from "./turn-coordinator.js";
 import { createMemoryTurnStore, type TurnStore } from "./turn-store.js";
 import type {
+  AudienceObservation,
   InboundInteraction,
   InteractionRecord,
   TrustedInteractionContext,
@@ -33,9 +47,9 @@ import {
 } from "./osdk-action-client.js";
 import type { ChannelAssurance } from "./permission.js";
 import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
-import type {
-  WorldQueryClient,
-  WorldQuerySnapshot,
+import {
+  looksLikeEntityId,
+  type WorldQueryClient,
 } from "./world-query.js";
 
 export type ReasonTurnPath =
@@ -96,6 +110,10 @@ export interface InteractionTurnInput {
    */
   readonly scratch?: InteractionScratch;
   readonly actions?: SpeakerActionClient;
+  readonly assembler?: ConversationContextAssembler;
+  readonly audienceKind?: ConversationAudienceKind;
+  readonly history?: HistoryQueryClient;
+  readonly workspaceKind?: ConversationWorkspaceKind;
 }
 
 const FAIL_CLOSED_PT = "não consegui consultar agora";
@@ -154,38 +172,83 @@ export async function runInteractionTurn(
   const locale = detectInboundLocale(
     input.inbound.kind === "text" ? inboundText : "",
   );
-  const snapshot = await assembleWorld(ctx, input.world);
+  const attempt = await coordinator.getAttempt(attemptId);
+  if (attempt === undefined) {
+    throw new Error("interaction turn missing claimed attempt");
+  }
+  const audienceKind =
+    input.audienceKind ?? audienceKindFromMembership(ctx);
+  const world = input.world ?? createWorldQueryClientFromEnv();
+  const assembler =
+    input.assembler ??
+    createConversationContextAssembler({
+      now,
+      sources: defaultConversationSources({
+        history: input.history,
+        store,
+        world,
+      }),
+    });
+  const envelope = await assembleTurnContext({
+    assembler,
+    attempt,
+    audienceKind,
+    hiddenTokens: hiddenIdentityTokens(ctx),
+    inbound: input.inbound,
+    instructions: interactionInstructions(locale),
+    locale,
+    membership: ctx,
+    store,
+    workspaceKind: input.workspaceKind,
+  });
+  await store.putAttempt({
+    ...attempt,
+    contextDigest: envelope.contextDigest,
+    contextDroppedIds: envelope.document.dropped.map((row) => row.recordId),
+    contextHash: envelope.contextDigest,
+    contextRef: envelope.contextRef,
+  });
+  const hiddenIds = [
+    ...hiddenIdentityTokens(ctx),
+    ...entityIdsFromDocument(envelope.document),
+  ];
   const scratch = input.scratch ?? createInteractionScratch();
 
   await coordinator.advanceStage(attemptId, "reasoning");
   const reasoned = await reasonTurn({
     actions: input.actions ?? createSpeakerActionClientFromEnv(),
+    audienceKind,
     channelAssurance: input.channelAssurance,
     executeWork: input.executeWork,
     inbound: input.inbound,
     inboundText,
     locale,
     model: input.model ?? resolveLanguageModel(),
+    onWriteCommitted: async (commit) => {
+      await coordinator.recordSemanticCommit(attemptId, {
+        actionId: commit.actionId,
+        kind: "action",
+      });
+    },
+    prompt: reasoningPrompt(envelope.projection.data),
     publicWebOrigin: input.publicWebOrigin,
     scratch,
-    snapshot,
   });
-  const hiddenIds = hiddenIdentityTokens(ctx, snapshot);
 
   await coordinator.advanceStage(attemptId, "rendering");
   const rendered = renderTurn({
     hiddenIds,
+    hrefFallback: hrefFromDocument(envelope.document),
     inbound: input.inbound,
     inboundText,
     scratch,
-    snapshot,
   });
   const result: OutboundTurn = {
     ...rendered,
     reasonTurn: {
       generate: reasoned.generate,
       path: reasoned.path,
-      rivals: snapshot?.rivals.length ?? 0,
+      rivals: rivalCount(envelope.document),
     },
   };
   emitReasonTurnLog(result.reasonTurn);
@@ -342,12 +405,7 @@ async function claimAttempt(input: {
     return input.attemptId;
   }
   const record = interactionRecord(input.ctx, input.inbound, input.now);
-  const conversationKey = conversationKeyFrom({
-    accountId: input.ctx.accountId,
-    conversationId: `${String(input.ctx.channel.provider)}:${String(input.ctx.channel.thread)}`,
-    tenantId: String(input.ctx.tenantId),
-    workspaceId: input.ctx.workloadId,
-  });
+  const conversationKey = conversationKeyFromMembership(input.ctx);
   await input.coordinator.signalInbound({
     conversationKey,
     record,
@@ -370,7 +428,7 @@ function interactionRecord(
     ctx,
     id: interactionId(`ixn_${randomBytes(12).toString("hex")}`),
     inbound: {
-      audienceObservation: { kind: "dm" },
+      audienceObservation: audienceObservationFromMembership(ctx),
       body: inbound,
       channel: ctx.channel,
       idempotencyKey: inboundIdempotencyKey(ctx, inbound),
@@ -395,24 +453,6 @@ function inboundIdempotencyKey(
   }
 }
 
-async function assembleWorld(
-  ctx: TrustedInteractionContext,
-  world: WorldQueryClient | undefined,
-): Promise<WorldQuerySnapshot | undefined> {
-  const client = world ?? createWorldQueryClientFromEnv();
-  if (client === undefined) {
-    return undefined;
-  }
-  try {
-    return await client.semanticQuery({
-      membershipId: ctx.membershipId,
-      tenantId: String(ctx.tenantId),
-    });
-  } catch {
-    return undefined;
-  }
-}
-
 interface ReasonTurnResult {
   readonly generate: ReasonTurnGenerate;
   readonly path: ReasonTurnPath;
@@ -421,6 +461,7 @@ interface ReasonTurnResult {
 
 async function reasonTurn(input: {
   readonly actions?: SpeakerActionClient;
+  readonly audienceKind: ConversationAudienceKind;
   readonly channelAssurance?: ChannelAssurance;
   readonly publicWebOrigin?: string;
   readonly executeWork?: (task: string) => Promise<string>;
@@ -428,8 +469,12 @@ async function reasonTurn(input: {
   readonly inboundText: string;
   readonly locale: InteractionLocale;
   readonly model: LanguageModel | undefined;
+  readonly onWriteCommitted: (commit: {
+    readonly actionId: string;
+    readonly kind: PersonalWriteKind;
+  }) => Promise<void>;
+  readonly prompt: string;
   readonly scratch: InteractionScratch;
-  readonly snapshot: WorldQuerySnapshot | undefined;
 }): Promise<ReasonTurnResult> {
   const scratch = input.scratch;
   if (input.model === undefined) {
@@ -446,19 +491,16 @@ async function reasonTurn(input: {
     stopWhen: isStepCount(8),
     tools: createInteractionTools(scratch, {
       actions: input.actions,
+      audienceKind: input.audienceKind,
       channelAssurance: input.channelAssurance,
       executeWork: input.executeWork,
+      onWriteCommitted: input.onWriteCommitted,
       publicWebOrigin: input.publicWebOrigin,
     }),
   });
   try {
     await agent.generate({
-      prompt: reasoningPrompt(
-        input.inbound,
-        input.inboundText,
-        input.snapshot,
-        input.locale,
-      ),
+      prompt: input.prompt,
     });
   } catch {
     return {
@@ -539,10 +581,10 @@ function applyWriteFail(
 
 function renderTurn(input: {
   readonly hiddenIds: readonly string[];
+  readonly hrefFallback?: string;
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
   readonly scratch: InteractionScratch;
-  readonly snapshot: WorldQuerySnapshot | undefined;
 }): { readonly bubbles: string[]; readonly href: URL | null } {
   const spoken: string[] = [];
   for (const raw of input.scratch.bubbles) {
@@ -557,7 +599,7 @@ function renderTurn(input: {
       }
     }
   }
-  const href = pickHref(input.scratch.href, spoken, input.snapshot);
+  const href = pickHref(input.scratch.href, spoken, input.hrefFallback);
   const emptyInbound =
     input.inbound.kind === "text" && input.inboundText.trim().length === 0;
   const stripped = emptyInbound
@@ -569,7 +611,7 @@ function renderTurn(input: {
 function pickHref(
   minted: string | undefined,
   bubbles: readonly string[],
-  snapshot: WorldQuerySnapshot | undefined,
+  hrefFallback: string | undefined,
 ): URL | null {
   const candidates: string[] = [];
   if (minted !== undefined) {
@@ -581,8 +623,8 @@ function pickHref(
       candidates.push(url);
     }
   }
-  if (snapshot?.href !== undefined && candidates.length === 0) {
-    candidates.push(snapshot.href);
+  if (hrefFallback !== undefined && candidates.length === 0) {
+    candidates.push(hrefFallback);
   }
   for (const candidate of candidates) {
     const parsed = parseHttpsUrl(candidate);
@@ -631,10 +673,7 @@ function containsHiddenId(text: string, hiddenIds: readonly string[]): boolean {
   return hiddenIds.some((id) => id.length > 0 && text.includes(id));
 }
 
-function hiddenIdentityTokens(
-  ctx: TrustedInteractionContext,
-  snapshot: WorldQuerySnapshot | undefined,
-): string[] {
+function hiddenIdentityTokens(ctx: TrustedInteractionContext): string[] {
   return [
     ctx.accountId,
     ctx.actorId,
@@ -643,8 +682,73 @@ function hiddenIdentityTokens(
     String(ctx.principalId),
     String(ctx.tenantId),
     ctx.workloadId,
-    ...(snapshot?.entityIds ?? []),
   ].filter((token) => token.length > 0);
+}
+
+function conversationKeyFromMembership(
+  ctx: TrustedInteractionContext,
+): ReturnType<typeof conversationKeyFromKind> {
+  return conversationKeyFromChannel({
+    accountId: ctx.accountId,
+    channel: ctx.channel,
+    tenantId: String(ctx.tenantId),
+    workspaceId: ctx.workloadId,
+  });
+}
+
+function audienceObservationFromMembership(
+  ctx: TrustedInteractionContext,
+): AudienceObservation {
+  return { kind: audienceKindFromMembership(ctx) };
+}
+
+function rivalCount(document: ConversationContextDocument): number {
+  let count = 0;
+  for (const record of document.records) {
+    if (record.payload.type === "world") {
+      count += record.payload.rivals.length;
+    }
+  }
+  return count;
+}
+
+function hrefFromDocument(
+  document: ConversationContextDocument,
+): string | undefined {
+  for (const record of document.records) {
+    if (record.payload.type !== "world") {
+      continue;
+    }
+    for (const note of record.payload.notes) {
+      const found = note.match(/https:\/\/[^\s]+/i);
+      if (found?.[0] !== undefined) {
+        return found[0];
+      }
+    }
+  }
+  return undefined;
+}
+
+function entityIdsFromDocument(
+  document: ConversationContextDocument,
+): string[] {
+  const ids: string[] = [];
+  for (const record of document.records) {
+    if (record.payload.type !== "world") {
+      continue;
+    }
+    for (const note of record.payload.notes) {
+      if (looksLikeEntityId(note)) {
+        ids.push(note);
+      }
+    }
+    for (const rival of record.payload.rivals) {
+      if (looksLikeEntityId(rival.label)) {
+        ids.push(rival.label);
+      }
+    }
+  }
+  return ids;
 }
 
 export function firstContactAddendum(locale: InteractionLocale): string {
@@ -684,12 +788,21 @@ export function firstContactInstructions(locale: InteractionLocale): string {
 
 export async function runFirstContactTurn(input: {
   readonly inboundText: string;
+  readonly assembler?: ConversationContextAssembler;
   readonly generate?: (inboundText: string) => Promise<string>;
   readonly href?: string;
   readonly model?: LanguageModel;
 }): Promise<string> {
   const locale = detectInboundLocale(input.inboundText);
   const fallback = locale === "en" ? "hey" : "oi";
+  const assembler =
+    input.assembler ?? createConversationContextAssembler();
+  const assembly = await assembler.assembleUnbound({
+    href: input.href,
+    inbound: { kind: "text", text: input.inboundText },
+    instructions: firstContactInstructions(locale),
+    locale,
+  });
   let spoken: string;
   if (input.generate !== undefined) {
     spoken = (await input.generate(input.inboundText)).trim();
@@ -708,14 +821,7 @@ export async function runFirstContactTurn(input: {
       });
       try {
         await agent.generate({
-          prompt: [
-            firstContactAddendum(locale),
-            "",
-            `inbound: ${input.inboundText}`,
-            input.href === undefined ? "" : `href: ${input.href}`,
-          ]
-            .filter((line) => line.length > 0)
-            .join("\n"),
+          prompt: reasoningPrompt(assembly.projection.data),
         });
         spoken = scratch.bubbles
           .map((bubble) => bubble.trim())
@@ -787,125 +893,9 @@ export function interactionInstructions(locale: InteractionLocale): string {
 }
 
 /**
- * User prompt for one turn. World rivals and notes are the subject, not optional JSON.
- * Empty world: answer the inbound. A greeting is a short speak_to_user, never wait.
- * World with rivals or notes: do not greet instead of answering.
- *
- * @param inbound - Live inbound (text or media)
- * @param inboundText - Body text already extracted from inbound
- * @param snapshot - Membership World snapshot, if assembled
- * @param locale - Detected inbound locale
- * @returns Prompt the model must answer
+ * User prompt for one turn. Only labeled `projection.data`.
+ * Instruction copy stays on ToolLoopAgent.instructions and is not hashed.
  */
-export function reasoningPrompt(
-  inbound: InteractionInbound,
-  inboundText: string,
-  snapshot: WorldQuerySnapshot | undefined,
-  locale: InteractionLocale = "pt",
-): string {
-  const inboundBlock =
-    inbound.kind === "text"
-      ? `kind: text\ntext: ${inboundText}`
-      : `kind: media\nmediaRef: ${inbound.mediaRef}`;
-  const worldBlock = formatWorldSubject(snapshot, locale);
-  const closer = reasoningCloser(locale, worldIsEmpty(snapshot));
-  switch (locale) {
-    case "pt":
-      return [
-        "Responde o inbound abaixo. O World abaixo é o assunto desta fala, não um JSON opcional que você pode ignorar.",
-        "",
-        "Inbound",
-        inboundBlock,
-        "",
-        "World",
-        worldBlock,
-        "",
-        closer,
-      ].join("\n");
-    case "en":
-      return [
-        "Answer the inbound below. The World below is the subject of this reply, not optional JSON you can ignore.",
-        "",
-        "Inbound",
-        inboundBlock,
-        "",
-        "World",
-        worldBlock,
-        "",
-        closer,
-      ].join("\n");
-    default: {
-      const exhaustive: never = locale;
-      return exhaustive;
-    }
-  }
-}
-
-function reasoningCloser(
-  locale: InteractionLocale,
-  emptyWorld: boolean,
-): string {
-  switch (locale) {
-    case "pt":
-      return emptyWorld
-        ? "Responde o inbound. Cumprimento (oi, e aí, fala, hi, hey) é speak_to_user curto. Nunca wait. Não use as frases proibidas."
-        : "Não cumprimente no lugar de responder. Não use as frases proibidas.";
-    case "en":
-      return emptyWorld
-        ? "Answer the inbound. A greeting (oi, e aí, fala, hi, hey) is a short speak_to_user. Never wait. Do not use the forbidden phrases."
-        : "Do not greet instead of answering. Do not use the forbidden phrases.";
-    default: {
-      const exhaustive: never = locale;
-      return exhaustive;
-    }
-  }
-}
-
-function standingWorldReadings(snapshot: WorldQuerySnapshot | undefined): {
-  readonly notes: readonly string[];
-  readonly rivalLabels: readonly string[];
-} {
-  return {
-    notes: (snapshot?.notes ?? [])
-      .map((note) => note.trim())
-      .filter((note) => note.length > 0),
-    rivalLabels: (snapshot?.rivals ?? [])
-      .map((rival) => rival.label.trim())
-      .filter((label) => label.length > 0),
-  };
-}
-
-function worldIsEmpty(snapshot: WorldQuerySnapshot | undefined): boolean {
-  const standing = standingWorldReadings(snapshot);
-  return standing.notes.length === 0 && standing.rivalLabels.length === 0;
-}
-
-function formatWorldSubject(
-  snapshot: WorldQuerySnapshot | undefined,
-  locale: InteractionLocale,
-): string {
-  const { notes, rivalLabels } = standingWorldReadings(snapshot);
-  if (rivalLabels.length === 0 && notes.length === 0) {
-    return locale === "pt"
-      ? "(vazio. responde o inbound num toque curto)"
-      : "(empty. answer the inbound in one short beat)";
-  }
-  const header =
-    locale === "pt"
-      ? "Estas são as leituras em pé. Se houver rivais ou notas, fala esses fatos. Duas leituras ficam de pé. Não invente entidades. Rivais convivem."
-      : "These readings stand. If rivals or notes are present, speak those facts. Two readings stand. Do not invent entities. Rivals coexist.";
-  const lines = [header];
-  if (rivalLabels.length > 0) {
-    lines.push("rivals:");
-    for (const label of rivalLabels) {
-      lines.push(`- ${label}`);
-    }
-  }
-  if (notes.length > 0) {
-    lines.push("notes:");
-    for (const note of notes) {
-      lines.push(`- ${note}`);
-    }
-  }
-  return lines.join("\n");
+export function reasoningPrompt(data: string): string {
+  return data;
 }

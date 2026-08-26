@@ -69,7 +69,8 @@ export function createOsdkWorldQueryClient(
           await loadCompiled(options),
           options.definition,
         );
-        const validAt = (options.now ?? (() => new Date()))();
+        const validAt =
+          input.validAt ?? (options.now ?? (() => new Date()))();
         const osdk = createOsdkFromCompiled(compiled, {
           actions: options.actions ?? readOnlyActionsPort(),
           tenantId: input.tenantId,

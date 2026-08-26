@@ -385,6 +385,10 @@ export interface TurnAttempt {
   readonly openedAt: string;
   readonly observedCommitRefs: readonly SemanticCommitRef[];
   readonly supersedesAttemptId?: TurnAttemptId;
+  readonly contextHash?: string;
+  readonly contextRef?: string;
+  readonly contextDigest?: string;
+  readonly contextDroppedIds?: readonly string[];
 }
 
 export type CancellableTurnPhaseKind =
