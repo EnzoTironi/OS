@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { LanguageModel } from "ai";
 import {
   ChannelSubjectResolveError,
   conversationKeyFrom,
@@ -16,6 +17,7 @@ import {
   providerKey,
   resolvePublicOrigin,
   runInteractionTurn,
+  STATUS_DELIVERY_SEQUENCE_INDEX,
   toInteractionInbound,
   TURN_DEBOUNCE_MS,
   type ClaimResult,
@@ -25,6 +27,7 @@ import {
   type IdentityDirectory,
   type InboundInteraction,
   type PostgresTurnStoreClient,
+  type ScheduleFn,
   type TrustedInteractionContext,
   type TurnStore,
 } from "../../speaker/src/index.js";
@@ -109,6 +112,12 @@ export interface WhatsAppContactLoopOptions {
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  /** Tier 2 model override, mainly for tests. Production reads ZOEN_MODEL. */
+  readonly model?: LanguageModel;
+  /** Status gate threshold in ms. Default TURN_STATUS_AFTER_MS (2000). */
+  readonly statusAfterMs?: number;
+  /** Injectable timer for the status gate, mainly for tests. */
+  readonly schedule?: ScheduleFn;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -254,14 +263,14 @@ export function createWhatsAppContactLoop(
     },
   });
   const store = options.store ?? createMemoryTurnStore();
-  const outboundByAttempt = new Map<string, string[]>();
+  const outboundByAttempt = new Map<string, Map<number, string>>();
   const coordinator = createConversationTurnCoordinator({
     debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
     deliver: async (intent: DeliveryIntent) => {
       const attemptId = intent.turnAttemptId;
       const bubbles =
         attemptId === undefined ? undefined : outboundByAttempt.get(attemptId);
-      const text = bubbles?.[intent.sequenceIndex ?? 0];
+      const text = bubbles?.get(intent.sequenceIndex ?? 0);
       if (text === undefined) {
         throw new Error("bound whatsapp turn missing outbound bubble");
       }
@@ -306,12 +315,29 @@ export function createWhatsAppContactLoop(
         executeWork: options.executeWork,
         inbound: toInteractionInbound(record.inbound),
         membership,
+        model: options.model,
         now,
+        onStatusLine: async (text) => {
+          setOutboundBubble(
+            outboundByAttempt,
+            claimed.attempt.id,
+            STATUS_DELIVERY_SEQUENCE_INDEX,
+            text,
+          );
+          await coordinator.deliverStatusLine({
+            attemptId: claimed.attempt.id,
+            presentation: `turn:${claimed.turn.id}:status`,
+          });
+        },
         publicWebOrigin: options.publicWebOrigin,
+        schedule: options.schedule,
+        statusAfterMs: options.statusAfterMs,
         store,
       });
       const bubbles = outboundBubbles(reply);
-      outboundByAttempt.set(claimed.attempt.id, bubbles);
+      bubbles.forEach((text, index) =>
+        setOutboundBubble(outboundByAttempt, claimed.attempt.id, index, text),
+      );
       const delivered =
         bubbles.length === 0
           ? await coordinator.acknowledgeSilentClose(claimed.attempt.id)
@@ -552,6 +578,17 @@ function isDoorJid(jid: string, doorE164: string): boolean {
   const at = jid.indexOf("@");
   const user = at === -1 ? jid : jid.slice(0, at);
   return user.replace(/\D/g, "") === doorDigits;
+}
+
+function setOutboundBubble(
+  map: Map<string, Map<number, string>>,
+  attemptId: string,
+  sequenceIndex: number,
+  text: string,
+): void {
+  const existing = map.get(attemptId) ?? new Map<number, string>();
+  existing.set(sequenceIndex, text);
+  map.set(attemptId, existing);
 }
 
 function waitObservation(attemptId: string): DeliveryObservation {
