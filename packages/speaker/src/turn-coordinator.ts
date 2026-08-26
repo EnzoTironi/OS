@@ -35,6 +35,13 @@ export type ConversationalStage =
 export const TURN_DEBOUNCE_MS = 1750;
 export const TURN_STATUS_AFTER_MS = 2000;
 
+/**
+ * Reserved `DeliveryIntent.sequenceIndex` for the one interim status bubble
+ * a turn may send while Tier 2 is still working. Never collides with a
+ * final answer's sequence, which always starts at 0.
+ */
+export const STATUS_DELIVERY_SEQUENCE_INDEX = -1;
+
 export type ScheduleHandle = {
   cancel(): void;
 };
@@ -102,6 +109,17 @@ export interface ConversationTurnCoordinator {
     readonly presentation: string;
     readonly sequenceCount?: number;
   }): Promise<readonly DeliveryObservation[]>;
+  /**
+   * Send exactly one interim status bubble while the attempt is still open.
+   * Unlike `planAndDeliver`, this never advances the attempt phase to
+   * `delivering`/`completed` and never closes the turn: Tier 2 is still
+   * running and a later `planAndDeliver` call still owns the terminal
+   * phase transition. A superseded attempt is skipped, not thrown.
+   */
+  deliverStatusLine(input: {
+    readonly attemptId: TurnAttemptId;
+    readonly presentation: string;
+  }): Promise<DeliveryObservation | undefined>;
   recoverDelivery(intentId: DeliveryIntentId): Promise<DeliveryObservation>;
   getAttempt(attemptId: TurnAttemptId): Promise<TurnAttempt | undefined>;
 }
@@ -430,6 +448,55 @@ export function createConversationTurnCoordinator(
       }
       await resumeQueuedAfterTerminal(attempt.conversationKey);
       return observations;
+    },
+
+    async deliverStatusLine(input) {
+      const attempt = await store.getAttempt(input.attemptId);
+      if (attempt === undefined || attempt.phase.kind === "superseded") {
+        return undefined;
+      }
+      const primaryId =
+        attempt.claimedInteractionIds[0] ??
+        attempt.carryForwardInteractionIds[0];
+      if (primaryId === undefined) {
+        return undefined;
+      }
+      const record = await store.getRecord(primaryId);
+      if (record === undefined) {
+        return undefined;
+      }
+      const stableProviderDeliveryId = `spd_${primaryId}_status`;
+      const claim = await store.claimDelivery(stableProviderDeliveryId);
+      if (claim === "duplicate") {
+        return undefined;
+      }
+      const intent: DeliveryIntent = {
+        controlRefs: [],
+        deliveryGroupId: deliveryGroupId(`dg_${randomBytes(8).toString("hex")}`),
+        id: deliveryIntentId(`di_${randomBytes(10).toString("hex")}`),
+        presentation: presentationIntentRef(input.presentation),
+        provider: record.ctx.channel.provider,
+        recordId: primaryId,
+        sequenceIndex: STATUS_DELIVERY_SEQUENCE_INDEX,
+        stableProviderDeliveryId,
+        target: {
+          kind: "same_thread",
+          thread: record.ctx.channel.thread,
+        },
+        turnAttemptId: input.attemptId,
+      };
+      await store.putDeliveryIntent(intent);
+      options.transportCache?.set(`intent:${intent.id}`, intent);
+      const outcome =
+        (await options.deliver?.(intent)) ?? defaultDeliver(intent);
+      const observation: DeliveryObservation = {
+        id: deliveryObservationId(`do_${randomBytes(10).toString("hex")}`),
+        intentId: intent.id,
+        observedAt: now().toISOString(),
+        outcome,
+      };
+      await store.putDeliveryObservation(observation);
+      return observation;
     },
 
     async recoverDelivery(intentId) {
