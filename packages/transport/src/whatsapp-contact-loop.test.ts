@@ -424,6 +424,29 @@ test("file ledger survives a new process-shaped loop", async () => {
   }
 });
 
+test("spreadsheet inbound is not dropped as empty", async () => {
+  const calls: string[] = [];
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
+    doorE164,
+    identity: unboundIdentity(calls),
+    session,
+  });
+  const result = await loop.handleRaw(
+    inbound({
+      body: "",
+      filename: "quote.xlsx",
+      mediaKind: "document",
+      mediaRef: "/tmp/quote.xlsx",
+      messageId: "wamid.xlsx",
+      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  );
+  assert.notEqual(result.kind, "dropped");
+  await session.close();
+});
+
 test("classify rejects Cloud API envelopes and personal inbox is not the door", () => {
   assert.throws(
     () =>

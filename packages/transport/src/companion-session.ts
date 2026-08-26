@@ -23,6 +23,10 @@ export type CompanionInbound = {
   readonly body: string;
   readonly observedAt: string;
   readonly callbackData?: string;
+  readonly mediaKind?: "document" | "audio";
+  readonly mime?: string;
+  readonly filename?: string;
+  readonly mediaRef?: string;
 };
 
 export type WhatsAppWireShape =

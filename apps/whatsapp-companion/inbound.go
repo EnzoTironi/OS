@@ -23,6 +23,10 @@ type Inbound struct {
 	Body         string `json:"body"`
 	ObservedAt   string `json:"observedAt"`
 	CallbackData string `json:"callbackData,omitempty"`
+	MediaKind    string `json:"mediaKind,omitempty"`
+	Mime         string `json:"mime,omitempty"`
+	Filename     string `json:"filename,omitempty"`
+	MediaRef     string `json:"mediaRef,omitempty"`
 }
 
 type lidPNLookup func(context.Context, types.JID) (types.JID, error)
@@ -48,7 +52,8 @@ func normalizeInboundMessage(event *events.Message) (Inbound, bool, error) {
 		body = strings.TrimSpace(event.Message.GetExtendedTextMessage().GetText())
 	}
 	callback := selectedCallback(event.Message)
-	if body == "" && callback == "" {
+	kind, mime, filename := mediaMeta(event.Message)
+	if body == "" && callback == "" && kind == "" {
 		return Inbound{}, false, nil
 	}
 	return Inbound{
@@ -61,7 +66,34 @@ func normalizeInboundMessage(event *events.Message) (Inbound, bool, error) {
 		Body:         body,
 		ObservedAt:   event.Info.Timestamp.UTC().Format(time.RFC3339Nano),
 		CallbackData: callback,
+		MediaKind:    kind,
+		Mime:         mime,
+		Filename:     filename,
 	}, true, nil
+}
+
+func mediaMeta(msg *waE2E.Message) (kind, mime, filename string) {
+	if msg == nil {
+		return "", "", ""
+	}
+	if doc := msg.GetDocumentMessage(); doc != nil {
+		name := strings.TrimSpace(doc.GetFileName())
+		mime = strings.TrimSpace(doc.GetMimetype())
+		lower := strings.ToLower(name + " " + mime)
+		if strings.Contains(lower, "sheet") ||
+			strings.Contains(lower, "excel") ||
+			strings.Contains(lower, "csv") ||
+			strings.HasSuffix(strings.ToLower(name), ".xlsx") ||
+			strings.HasSuffix(strings.ToLower(name), ".csv") ||
+			strings.HasSuffix(strings.ToLower(name), ".xls") {
+			return "document", mime, name
+		}
+		return "", "", ""
+	}
+	if audio := msg.GetAudioMessage(); audio != nil {
+		return "audio", strings.TrimSpace(audio.GetMimetype()), ""
+	}
+	return "", "", ""
 }
 
 func selectedCallback(msg *waE2E.Message) string {

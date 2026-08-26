@@ -577,7 +577,14 @@ export function classifyWhatsAppContactInbound(
   const body = stringField(record.body);
   const callback =
     typeof record.callbackData === "string" ? record.callbackData.trim() : "";
-  if (body.length === 0 && callback.length === 0) {
+  const mediaKind = stringField(record.mediaKind);
+  const mediaRef = stringField(record.mediaRef);
+  if (
+    body.length === 0 &&
+    callback.length === 0 &&
+    mediaKind.length === 0 &&
+    mediaRef.length === 0
+  ) {
     return { drop: true, reason: "empty" };
   }
   const person =

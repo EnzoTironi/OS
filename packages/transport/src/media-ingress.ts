@@ -58,7 +58,11 @@ export function rejectWhatsAppMediaFields(raw: unknown): void {
     return;
   }
   const record = raw as Record<string, unknown>;
+  const admitted = admittedCompanionSpreadsheetOrVoice(record);
   for (const field of MEDIA_FIELDS) {
+    if (admitted && (field === "mediaRef" || field === "mime")) {
+      continue;
+    }
     const value = record[field];
     if (value !== undefined && value !== null && value !== "") {
       throw new MediaIngressError(
@@ -67,6 +71,36 @@ export function rejectWhatsAppMediaFields(raw: unknown): void {
       );
     }
   }
+}
+
+/** Spreadsheet and voice notes are admitted as inbound evidence. Not native. */
+function admittedCompanionSpreadsheetOrVoice(
+  record: Record<string, unknown>,
+): boolean {
+  const kind = typeof record.mediaKind === "string" ? record.mediaKind : "";
+  const ref =
+    typeof record.mediaRef === "string" ? record.mediaRef.trim() : "";
+  if (ref.length === 0) {
+    return false;
+  }
+  if (kind === "audio") {
+    return true;
+  }
+  if (kind !== "document") {
+    return false;
+  }
+  const mime = typeof record.mime === "string" ? record.mime.toLowerCase() : "";
+  const filename =
+    typeof record.filename === "string" ? record.filename.toLowerCase() : "";
+  const blob = `${filename} ${mime}`;
+  return (
+    blob.includes("sheet") ||
+    blob.includes("excel") ||
+    blob.includes("csv") ||
+    filename.endsWith(".xlsx") ||
+    filename.endsWith(".csv") ||
+    filename.endsWith(".xls")
+  );
 }
 
 export function validateMediaBlob(input: {

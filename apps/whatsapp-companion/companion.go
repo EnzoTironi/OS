@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,6 +47,7 @@ type Config struct {
 	IngressSecret        string
 	ListenAddr           string
 	QRFile               string
+	MediaDir             string
 	DropLog              io.Writer
 	Log                  waLog.Logger
 }
@@ -63,6 +66,7 @@ type Session struct {
 	container *sqlstore.Container
 	ingress   string
 	secret    string
+	mediaDir  string
 	dropLog   io.Writer
 	http      *http.Client
 	lidPN     lidPNLookup
@@ -116,6 +120,7 @@ func Open(ctx context.Context, cfg Config) (*Session, error) {
 		container: container,
 		ingress:   strings.TrimSpace(cfg.IngressURL),
 		secret:    strings.TrimSpace(cfg.IngressSecret),
+		mediaDir:  strings.TrimSpace(cfg.MediaDir),
 		dropLog:   cfg.DropLog,
 		http:      &http.Client{Timeout: 15 * time.Second},
 	}
@@ -292,6 +297,14 @@ func (s *Session) handleMessage(event *events.Message) bool {
 		return true
 	}
 	s.applyLIDMap(&inbound.SenderAltJID, &inbound.ChatJID, inbound.SenderJID, inbound.IsGroup)
+	if inbound.MediaKind != "" {
+		ref, err := s.storeInboundMedia(event, inbound.MessageID)
+		if err != nil {
+			s.note("inbound media fail id=%s err=%v", inbound.MessageID, err)
+			return false
+		}
+		inbound.MediaRef = ref
+	}
 	if s.ingress == "" {
 		s.note("inbound skip id=%s ingress_url_empty", inbound.MessageID)
 		return true
@@ -314,6 +327,28 @@ func (s *Session) note(format string, args ...any) {
 		return
 	}
 	_, _ = fmt.Fprintf(s.dropLog, "companion: "+format+"\n", args...)
+}
+
+func (s *Session) storeInboundMedia(event *events.Message, messageID string) (string, error) {
+	if s == nil || s.client == nil || event == nil || event.Message == nil {
+		return "", errors.New("companion: media session missing")
+	}
+	data, err := s.client.DownloadAny(s.ctx, event.Message)
+	if err != nil {
+		return "", err
+	}
+	dir := s.mediaDir
+	if dir == "" {
+		dir = "/tmp/zoen-wa-pair/media"
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, messageID)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (s *Session) noteDroppedFromMe(kind string) {
