@@ -425,24 +425,23 @@ test("file ledger survives a new process-shaped loop", async () => {
 });
 
 test("spreadsheet inbound is not dropped as empty", async () => {
-  const calls: string[] = [];
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
     debounceMs: 0,
     doorE164,
-    identity: unboundIdentity(calls),
+    identity: boundIdentity(speaker),
     session,
   });
-  const result = await loop.handleRaw(
-    inbound({
-      body: "",
-      filename: "quote.xlsx",
-      mediaKind: "document",
-      mediaRef: "/tmp/quote.xlsx",
-      messageId: "wamid.xlsx",
-      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }),
-  );
+  const payload = inbound({
+    body: "",
+    filename: "quote.xlsx",
+    mediaKind: "document",
+    mediaRef: "/tmp/quote.xlsx",
+    messageId: "wamid.xlsx",
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  assert.equal(classifyWhatsAppContactInbound(payload, doorE164).drop, false);
+  const result = await loop.handleRaw(payload);
   assert.notEqual(result.kind, "dropped");
   await session.close();
 });
