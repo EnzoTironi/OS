@@ -57,6 +57,7 @@ COPY deploy/fly/supervisord.conf /etc/supervisor/conf.d/zoen.conf
 COPY deploy/fly/zoen-ensure-minio-bucket /usr/local/bin/zoen-ensure-minio-bucket
 COPY deploy/fly/zoen-start-keycloak /usr/local/bin/zoen-start-keycloak
 COPY deploy/fly/zoen-wait-for-pg /usr/local/bin/zoen-wait-for-pg
+COPY deploy/fly/zoen-wait-for-oidc /usr/local/bin/zoen-wait-for-oidc
 COPY deploy/fly/zoen-start-restate /usr/local/bin/zoen-start-restate
 COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/realm.template.json /etc/zoen/realm.template.json

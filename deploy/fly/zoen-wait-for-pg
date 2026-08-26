@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-until pg_isready -h 127.0.0.1; do
+until pg_isready -h 127.0.0.1 -U postgres; do
   sleep 1
 done
 exec "$@"
