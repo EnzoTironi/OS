@@ -22,13 +22,6 @@ export interface ApplyConversationBudgetInput {
   readonly records: readonly ConversationContextRecord[];
 }
 
-/**
- * Context: data-token budget for a sealed conversation document.
- * Inputs: records plus claimed/carry-forward ids. Default 6000 tokens.
- * Outputs: records after drop order, with budget drops recorded.
- * Instructions, current-burst inbound, world rivals, and provenance stay.
- * Count is `ceil(chars / 4)` over speakable data text.
- */
 export function applyConversationBudget(
   input: ApplyConversationBudgetInput,
 ): ConversationBudgetResult {

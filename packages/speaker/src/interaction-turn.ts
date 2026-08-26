@@ -13,8 +13,8 @@ import {
   type ConversationWorkspaceKind,
 } from "./context-assembler.js";
 import {
+  conversationKeyFromChannel,
   conversationKeyFromKind,
-  conversationKindFromChannel,
 } from "./conversation-kind.js";
 import type {
   ConversationAudienceKind,
@@ -688,10 +688,9 @@ function hiddenIdentityTokens(ctx: TrustedInteractionContext): string[] {
 function conversationKeyFromMembership(
   ctx: TrustedInteractionContext,
 ): ReturnType<typeof conversationKeyFromKind> {
-  return conversationKeyFromKind({
+  return conversationKeyFromChannel({
     accountId: ctx.accountId,
-    kind: conversationKindFromChannel(ctx.channel),
-    provider: String(ctx.channel.provider),
+    channel: ctx.channel,
     tenantId: String(ctx.tenantId),
     workspaceId: ctx.workloadId,
   });

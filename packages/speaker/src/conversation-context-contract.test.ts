@@ -16,12 +16,14 @@ import {
 } from "./context-document.js";
 import {
   conversationKeyFrom,
+  conversationTurnId,
   interactionId,
   principalIdString,
   providerKey,
   providerThreadRef,
   providerUserRef,
   tenantIdString,
+  turnAttemptId,
 } from "./brands.js";
 import { createConversationTurnCoordinator } from "./turn-coordinator.js";
 import { createMemoryTurnStore } from "./turn-store.js";
@@ -310,6 +312,89 @@ test("token budget changes the digest and instruction copy does not", async () =
   assert.equal(left.contextDigest, sameCopy.contextDigest);
   assert.notEqual(left.contextDigest, right.contextDigest);
   assert.ok(right.document.dropped.some((drop) => drop.reason === "budget"));
+});
+
+test("wa conversationId still includes durable claimed and carry-forward text", async () => {
+  const store = createMemoryTurnStore();
+  const now = () => new Date("2026-08-26T15:00:00.000Z");
+  const ctx = membership({
+    thread: "553199941160@s.whatsapp.net",
+  });
+  const claimed = record(ctx, "agora", "now");
+  const carry = record(ctx, "antes", "old");
+  await store.putRecord(claimed);
+  await store.putRecord(carry);
+  const conversationKey = conversationKeyFrom({
+    accountId: ctx.accountId,
+    conversationId: `wa:${String(ctx.channel.thread)}`,
+    tenantId: String(ctx.tenantId),
+    workspaceId: ctx.workloadId,
+  });
+  assert.notEqual(conversationKey, keyFor(ctx));
+  const envelope = await assembleTurnContext({
+    assembler: createConversationContextAssembler({
+      now,
+      sources: defaultConversationSources({ store }),
+    }),
+    attempt: {
+      carryForwardInteractionIds: [carry.id],
+      claimedInteractionIds: [claimed.id],
+      conversationKey,
+      id: turnAttemptId("att_wa"),
+      observedCommitRefs: [],
+      openedAt: "2026-08-26T15:00:00.000Z",
+      phase: { kind: "assembling_context" },
+      turnId: conversationTurnId("turn_wa"),
+    },
+    membership: ctx,
+    store,
+  });
+  const texts = envelope.document.records.flatMap((row) => {
+    if (row.payload.type !== "interaction" || row.payload.text === undefined) {
+      return [];
+    }
+    return [row.payload.text];
+  });
+  assert.equal(texts.includes("agora"), true);
+  assert.equal(texts.includes("antes"), true);
+});
+
+test("interaction source drops a group thread from a 1:1 assemble", async () => {
+  const store = createMemoryTurnStore();
+  const now = () => new Date("2026-08-26T15:00:00.000Z");
+  const dm = membership({
+    thread: "553199941160@s.whatsapp.net",
+  });
+  const group = membership({
+    group: true,
+    thread: "120363-group@g.us",
+  });
+  const dmRec = record(dm, "privado", "dm1");
+  const groupRec = record(group, "grupo", "g1");
+  await store.putRecord(dmRec);
+  await store.putRecord(groupRec);
+  const assembled = await createConversationContextAssembler({
+    now,
+    sources: defaultConversationSources({ store }),
+  }).assembleBound({
+    attemptId: "att_iso_src",
+    audienceKind: "dm",
+    claimedInteractionIds: [String(dmRec.id), String(groupRec.id)],
+    conversationKey: keyFor(dm),
+    conversationKind: conversationKindFromChannel(dm.channel),
+    inbound: { kind: "text", text: "privado" },
+    instructions: "x",
+    locale: "pt",
+    membership: dm,
+  });
+  const texts = assembled.document.records.flatMap((row) => {
+    if (row.payload.type !== "interaction" || row.payload.text === undefined) {
+      return [];
+    }
+    return [row.payload.text];
+  });
+  assert.equal(texts.includes("privado"), true);
+  assert.equal(texts.includes("grupo"), false);
 });
 
 test("conversationContext metric is structured JSON without inbound text", async () => {

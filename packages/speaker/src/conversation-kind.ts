@@ -80,6 +80,21 @@ export function conversationKeyFromKind(input: {
   });
 }
 
+export function conversationKeyFromChannel(input: {
+  readonly accountId: string;
+  readonly channel: ChannelObservation;
+  readonly tenantId: string;
+  readonly workspaceId: string;
+}): ConversationKey {
+  return conversationKeyFromKind({
+    accountId: input.accountId,
+    kind: conversationKindFromChannel(input.channel),
+    provider: String(input.channel.provider),
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+  });
+}
+
 export function conversationKindFromChannel(
   channel: ChannelObservation,
 ): ConversationKind {

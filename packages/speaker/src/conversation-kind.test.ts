@@ -8,6 +8,7 @@ import {
 } from "./brands.js";
 import {
   conversationIdFromKind,
+  conversationKeyFromChannel,
   conversationKeyFromKind,
   conversationKind,
   conversationKindFromChannel,
@@ -114,6 +115,38 @@ test("1:1 and group kinds produce different ConversationKeys", () => {
       conversationId: "whatsapp:120363-group@g.us",
       tenantId: base.tenantId,
       workspaceId: base.workspaceId,
+    }),
+  );
+});
+
+test("conversationKeyFromChannel hashes tenant account workspace and kind thread", () => {
+  const observed = channel({
+    thread: "553199941160@s.whatsapp.net",
+    user: "553199941160@s.whatsapp.net",
+  });
+  const fromChannel = conversationKeyFromChannel({
+    accountId: "account.wa.enzo",
+    channel: observed,
+    tenantId: "tenant.wa.enzo",
+    workspaceId: "workload.personal",
+  });
+  assert.equal(
+    fromChannel,
+    conversationKeyFromKind({
+      accountId: "account.wa.enzo",
+      kind: conversationKindFromChannel(observed),
+      provider: "whatsapp",
+      tenantId: "tenant.wa.enzo",
+      workspaceId: "workload.personal",
+    }),
+  );
+  assert.notEqual(
+    fromChannel,
+    conversationKeyFrom({
+      accountId: "account.wa.enzo",
+      conversationId: `wa:${String(observed.thread)}`,
+      tenantId: "tenant.wa.enzo",
+      workspaceId: "workload.personal",
     }),
   );
 });

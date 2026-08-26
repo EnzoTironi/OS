@@ -21,7 +21,6 @@ import {
 } from "./context-document.js";
 import { interactionId } from "./brands.js";
 import {
-  conversationKeyFromKind,
   conversationKindFromChannel,
   type ConversationKind,
 } from "./conversation-kind.js";
@@ -114,10 +113,6 @@ export function emitConversationContextMetric(
   process.stderr.write(`${JSON.stringify(input)}\n`);
 }
 
-/**
- * Speaker-owned conversation assembler. Does not import `@zoen/harness`.
- * Sources fail open into `failures[]`. Isolation is audience + tenant + group JID.
- */
 export function createConversationContextAssembler(
   options: ConversationContextAssemblerOptions = {},
 ): ConversationContextAssembler {
@@ -275,13 +270,15 @@ export function createInteractionConversationSource(
         if (stored === undefined) {
           continue;
         }
-        const storedKey = conversationKeyFromKind({
-          accountId: stored.ctx.accountId,
-          kind: conversationKindFromChannel(stored.ctx.channel),
-          provider: String(stored.ctx.channel.provider),
-          tenantId: String(stored.ctx.tenantId),
-          workspaceId: stored.ctx.workloadId,
-        });
+        let storedKind: ConversationKind;
+        try {
+          storedKind = conversationKindFromChannel(stored.ctx.channel);
+        } catch {
+          continue;
+        }
+        if (!audienceAllowsKind(request.audienceKind, storedKind)) {
+          continue;
+        }
         records.push(
           createConversationContextRecord({
             attribution: {
@@ -291,7 +288,7 @@ export function createInteractionConversationSource(
             payload: inboundPayload(stored.inbound.body),
             retention: "interaction",
             scope: {
-              conversationKey: storedKey,
+              conversationKey: request.conversationKey,
               kind: "conversation",
             },
             trustClass: "interaction",
@@ -462,6 +459,25 @@ export function audienceKindFromMembership(
   membership: TrustedInteractionContext,
 ): ConversationAudienceKind {
   return membership.channel.group === undefined ? "dm" : "group";
+}
+
+function audienceAllowsKind(
+  audienceKind: ConversationAudienceKind,
+  kind: ConversationKind,
+): boolean {
+  switch (audienceKind) {
+    case "dm":
+      return kind.kind === "one_to_one";
+    case "group":
+      return kind.kind === "group";
+    case "channel":
+    case "unknown":
+      return true;
+    default: {
+      const exhaustive: never = audienceKind;
+      return exhaustive;
+    }
+  }
 }
 
 function allowConversationRecord(input: {
