@@ -25,7 +25,6 @@ import {
   createFileReplyLedger,
   createMemoryReplyLedger,
   createWhatsAppContactLoop,
-  UNBOUND_WHATSAPP_POKE_TEXT,
 } from "./whatsapp-contact-loop.js";
 
 const doorE164 = "+553798136141";
@@ -47,8 +46,13 @@ function inbound(overrides: Record<string, unknown> = {}): Record<string, unknow
   };
 }
 
+const onboardHref = "https://zoen.tironi.xyz/onboard/testtok";
+
 function unboundIdentity(calls: string[]): IdentityDirectory {
   return {
+    async mintOnboardToken() {
+      return { href: onboardHref, token: "testtok" };
+    },
     async resolveChannelSubject(input) {
       calls.push(`GET ${input.subjectKey}`);
       throw new ChannelSubjectResolveError({
@@ -96,6 +100,7 @@ test("fromMe, door, and group are dropped before IdentityDirectory", async () =>
     debounceMs: 0,
     doorE164,
     identity: unboundIdentity(calls),
+    publicWebOrigin: "https://zoen.tironi.xyz",
     session,
   });
   const fromMe = await loop.handleRaw(inbound({ fromMe: true }));
@@ -124,9 +129,24 @@ test("fromMe, door, and group are dropped before IdentityDirectory", async () =>
 
 test("unbound 1:1 pokes the same thread and does not mint membership", async () => {
   const methods: string[] = [];
+  const generated = "oi, entra quando quiser";
+  const generateCalls: string[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {
-    methods.push(`${(init?.method ?? "GET").toUpperCase()} ${String(input)}`);
-    assert.doesNotMatch(String(input), /\/provisional|\/verify-binding|\/bind-verified/);
+    const method = (init?.method ?? "GET").toUpperCase();
+    methods.push(`${method} ${String(input)}`);
+    assert.doesNotMatch(
+      String(input),
+      /\/provisional|\/verify-binding|\/bind-verified|\/personal$/,
+    );
+    if (method === "POST" && String(input).includes("/identity/admin/onboard-tokens")) {
+      return new Response(
+        JSON.stringify({
+          href: onboardHref,
+          token: "testtok",
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      );
+    }
     return new Response(
       JSON.stringify({ error: "OIDC subject has no verified binding" }),
       { headers: { "content-type": "application/json" }, status: 404 },
@@ -136,11 +156,16 @@ test("unbound 1:1 pokes the same thread and does not mint membership", async () 
   const loop = createWhatsAppContactLoop({
     debounceMs: 0,
     doorE164,
+    generateFirstContact: async (inboundText) => {
+      generateCalls.push(inboundText);
+      return generated;
+    },
     identity: createIdentityDirectoryClient({
       adminToken: "identity-admin",
       baseUrl: "http://zoend.test",
       fetchImpl,
     }),
+    publicWebOrigin: "https://zoen.tironi.xyz",
     session,
   });
   const result = await loop.handleRaw(inbound());
@@ -151,11 +176,19 @@ test("unbound 1:1 pokes the same thread and does not mint membership", async () 
   assert.equal(sent.chatJid, speaker);
   assert.equal(sent.shape.kind, "text");
   if (sent.shape.kind === "text") {
-    assert.equal(sent.shape.text, UNBOUND_WHATSAPP_POKE_TEXT);
-    assert.equal(sent.shape.text.includes("https://"), false);
+    assert.equal(sent.shape.text.includes(generated), true);
+    assert.equal(sent.shape.text.includes(onboardHref), true);
+    assert.equal(sent.shape.text.split("https://").length - 1, 1);
+    assert.deepEqual(generateCalls, ["Oi"]);
+    assert.doesNotMatch(
+      sent.shape.text,
+      /Este WhatsApp ainda não está vinculado|unbound|unlinked|unregistered/i,
+    );
+    assert.doesNotMatch(sent.shape.text, /app\.zoen\.local|workshop\.example/);
   }
   assert.deepEqual(methods, [
     "GET http://zoend.test/identity/admin/resolve-subject?provider=whatsapp&subjectKey=553199941160%40s.whatsapp.net",
+    "POST http://zoend.test/identity/admin/onboard-tokens",
   ]);
   await session.close();
 });

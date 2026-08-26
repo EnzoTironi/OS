@@ -478,6 +478,45 @@ async function main(): Promise<void> {
     );
     killMutant("stale membership cache");
 
+    const onboardSubject = "5531888888888@s.whatsapp.net";
+    const mintedOnboard = await admin("POST", "/identity/admin/onboard-tokens", {
+      provider: "whatsapp",
+      subjectKey: onboardSubject,
+    });
+    assert.equal(mintedOnboard.status, 200, JSON.stringify(mintedOnboard.body));
+    const onboardToken = String(mintedOnboard.body.token);
+    record(
+      "onboard_mint_href_is_public_path",
+      String(mintedOnboard.body.href).includes(`/onboard/${onboardToken}`),
+    );
+    const onboardPage = await fetch(`${baseUrl}/onboard/${onboardToken}`);
+    const onboardHtml = await onboardPage.text();
+    record(
+      "onboard_get_is_html",
+      onboardPage.status === 200 &&
+        (onboardPage.headers.get("content-type") ?? "").includes("text/html") &&
+        onboardHtml.includes("Confirmar este WhatsApp") &&
+        !onboardHtml.trim().startsWith("{"),
+    );
+    const onboardConfirm = await fetch(
+      `${baseUrl}/onboard/${onboardToken}/confirm`,
+      { method: "POST" },
+    );
+    record("onboard_confirm_binds", onboardConfirm.status === 200);
+    const onboardReplay = await fetch(
+      `${baseUrl}/onboard/${onboardToken}/confirm`,
+      { method: "POST" },
+    );
+    record("onboard_confirm_idempotent_409", onboardReplay.status === 409);
+    const onboardBound = await admin(
+      "GET",
+      `/identity/admin/resolve-subject?provider=whatsapp&subjectKey=${encodeURIComponent(onboardSubject)}`,
+    );
+    record(
+      "onboard_confirm_verified_membership",
+      onboardBound.status === 200,
+    );
+
     const boundExplainCode = await expectConnectCode(
       () =>
         historyClient(boundToken).explain({

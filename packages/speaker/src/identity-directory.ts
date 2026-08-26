@@ -19,6 +19,10 @@ export interface IdentityDirectory {
     /** Product policy tenant — never a thread id. */
     tenantHint?: string;
   }): Promise<ResolvedChannelIdentity>;
+  mintOnboardToken?(input: {
+    provider: ProviderKey;
+    subjectKey: string;
+  }): Promise<{ href: string; token: string }>;
 }
 
 export type ChannelSubjectResolveFailure =
@@ -92,6 +96,49 @@ export function createIdentityDirectoryClient(
     "";
 
   return {
+    async mintOnboardToken(input) {
+      if (adminToken.length === 0) {
+        throw new Error("ZOEN_IDENTITY_ADMIN_TOKEN required for identity directory");
+      }
+      const response = await fetchImpl(
+        `${baseUrl}/identity/admin/onboard-tokens`,
+        {
+          body: JSON.stringify({
+            provider: toChannelProvider(input.provider),
+            subjectKey: input.subjectKey,
+          }),
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            "content-type": "application/json",
+          },
+          method: "POST",
+        },
+      );
+      const text = await response.text();
+      const parsed = text.length === 0 ? {} : (JSON.parse(text) as unknown);
+      if (!response.ok) {
+        const message =
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "error" in parsed &&
+          typeof (parsed as { error: unknown }).error === "string"
+            ? (parsed as { error: string }).error
+            : `onboard mint HTTP ${String(response.status)}`;
+        throw new Error(message);
+      }
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        typeof (parsed as { href?: unknown }).href !== "string" ||
+        typeof (parsed as { token?: unknown }).token !== "string"
+      ) {
+        throw new Error("onboard mint missing href");
+      }
+      return {
+        href: (parsed as { href: string }).href,
+        token: (parsed as { token: string }).token,
+      };
+    },
     async resolveChannelSubject(input) {
       if (adminToken.length === 0) {
         throw new Error("ZOEN_IDENTITY_ADMIN_TOKEN required for identity directory");

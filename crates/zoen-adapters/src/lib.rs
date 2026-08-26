@@ -52,7 +52,10 @@ pub use effect_dispatcher::{
 };
 pub use effect_store::PostgresEffectUpdate;
 pub use external_signal_store::PostgresExternalSignalStore;
-pub use identity_store::{AccountSnapshot, CreateInvite, PostgresIdentityStore};
+pub use identity_store::{
+    AccountSnapshot, CompleteOnboard, CreateInvite, MintedOnboardToken, OnboardTokenRow,
+    PostgresIdentityStore,
+};
 pub use ingress_replay_store::{PostgresIngressReplayStore, ZOEND_INGRESS_REPLAY_NAMESPACE};
 pub use integrity::IntegrityError;
 pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};

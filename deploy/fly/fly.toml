@@ -37,6 +37,7 @@ primary_region = "gru"
 
 [env]
   ZOEN_LISTEN_ADDR = "0.0.0.0:58701"
+  ZOEN_PUBLIC_ORIGIN = "https://zoen.tironi.xyz"
   ZOEN_WHATSAPP_DOOR_E164 = "+553798136141"
   ZOEN_WORLD_DEFINITION_PATH = "/etc/zoen/commercial.zoen.ts"
   ZOEN_PERSONAL_DEFINITION_PATH = "/etc/zoen/personal.zoen.ts"

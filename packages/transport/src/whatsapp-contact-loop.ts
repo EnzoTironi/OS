@@ -16,6 +16,8 @@ import {
   outboundBubbles,
   presentationIntentRef,
   providerKey,
+  resolvePublicOrigin,
+  runFirstContactTurn,
   runInteractionTurn,
   toInteractionInbound,
   TURN_DEBOUNCE_MS,
@@ -50,9 +52,6 @@ import {
   createMessagingGateway,
   type MessagingGateway,
 } from "./gateway.js";
-
-export const UNBOUND_WHATSAPP_POKE_TEXT =
-  "Este WhatsApp ainda não está vinculado a uma conta Zoen.";
 
 export type WhatsAppContactDropReason =
   | "from_me"
@@ -113,6 +112,7 @@ export interface WhatsAppContactLoopOptions {
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  readonly generateFirstContact?: (inboundText: string) => Promise<string>;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -242,7 +242,7 @@ export function createWhatsAppContactLoop(
   const provider = createLiveWhatsAppProvider({ session: options.session });
   const gateway = createMessagingGateway({
     now,
-    publicWebOrigin: options.publicWebOrigin ?? "https://app.zoen.local",
+    publicWebOrigin: resolvePublicOrigin(options.publicWebOrigin),
     providers: { whatsapp: provider },
     resolvePresentation: async (intent) => {
       const body = bodies.get(intent.stableProviderDeliveryId);
@@ -469,8 +469,32 @@ export function createWhatsAppContactLoop(
   async function deliverPoke(
     inbound: InboundInteraction,
   ): Promise<DeliveryObservation> {
+    const inboundText = inbound.body.kind === "text" ? inbound.body.text : "";
+    const origin = resolvePublicOrigin(options.publicWebOrigin);
+    if (options.identity.mintOnboardToken === undefined) {
+      throw new Error("identity directory cannot mint onboard token");
+    }
+    const minted = await options.identity.mintOnboardToken({
+      provider: inbound.channel.provider,
+      subjectKey: String(inbound.channel.providerUser),
+    });
+    const href =
+      minted.href.startsWith("https://") && minted.href.includes("/onboard/")
+        ? minted.href
+        : `${origin}/onboard/${minted.token}`;
+    if (!href.includes("/onboard/")) {
+      throw new Error("onboard href missing /onboard/");
+    }
+    if (origin !== "https://app.zoen.local" && href.includes("app.zoen.local")) {
+      throw new Error("onboard href must not use app.zoen.local");
+    }
+    const spoken = await runFirstContactTurn({
+      generate: options.generateFirstContact,
+      href,
+      inboundText,
+    });
     const stableProviderDeliveryId = inbound.idempotencyKey;
-    bodies.set(stableProviderDeliveryId, UNBOUND_WHATSAPP_POKE_TEXT);
+    bodies.set(stableProviderDeliveryId, spoken);
     return gateway.deliver({
       controlRefs: [],
       id: deliveryIntentId(deliveryIdFrom(inbound.idempotencyKey)),

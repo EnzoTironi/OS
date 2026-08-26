@@ -100,7 +100,6 @@ export {
   createMemoryReplyLedger,
   createPostgresReplyLedger,
   createWhatsAppContactLoop,
-  UNBOUND_WHATSAPP_POKE_TEXT,
   type ReplyLedger,
   type WhatsAppContactDisposition,
   type WhatsAppContactDropReason,

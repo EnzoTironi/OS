@@ -49,6 +49,7 @@ pub fn router(state: IdentityAdminState) -> Router {
             get(snapshot_account),
         )
         .route("/identity/admin/resolve-subject", get(resolve_subject))
+        .route("/identity/admin/onboard-tokens", post(mint_onboard_token))
         .route("/identity/admin/bootstrap-bound", post(bootstrap_bound))
         .route("/identity/admin/resolve-context", get(resolve_context))
         .layer(middleware::from_fn_with_state(
@@ -594,6 +595,55 @@ async fn resolve_subject(
         }
         Err(error) => identity_error(error),
     }
+}
+
+async fn mint_onboard_token(
+    State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
+    Json(body): Json<SubjectBody>,
+) -> impl IntoResponse {
+    if let Some(error) = require_machine(&actor) {
+        return error;
+    }
+    let subject = match parse_subject(&body.provider, &body.subject_key) {
+        Ok(subject) => subject,
+        Err(error) => return identity_error(error),
+    };
+    if let Err(error) = reject_whatsapp_door(&subject) {
+        return identity_error(error);
+    }
+    let hours = std::env::var("ZOEN_ONBOARD_TTL_HOURS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0 && *value <= 168)
+        .unwrap_or(24);
+    match state
+        .identity
+        .mint_onboard_token(subject, std::time::Duration::from_secs(hours * 3600))
+        .await
+    {
+        Ok(minted) => {
+            let origin = public_origin();
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "token": minted.token,
+                    "href": format!("{origin}/onboard/{}", minted.token),
+                    "expiresAtMicros": minted.expires_at.get(),
+                })),
+            )
+                .into_response()
+        }
+        Err(error) => identity_error(error),
+    }
+}
+
+fn public_origin() -> String {
+    std::env::var("ZOEN_PUBLIC_ORIGIN")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "https://app.zoen.local".to_owned())
 }
 
 async fn bootstrap_bound(

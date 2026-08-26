@@ -46,6 +46,7 @@ mod identity_admin;
 mod identity_admin_auth;
 mod ingress_hmac;
 mod messaging_ingress;
+mod onboard;
 mod pack_admin;
 mod pack_registry;
 mod service;
@@ -130,9 +131,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             .ok()
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty()),
-        identity,
+        identity: identity.clone(),
         sessions: sessions.clone(),
     });
+    let onboard_routes = onboard::router(identity);
     let messaging_routes = messaging_ingress::router(messaging_ingress::from_env(
         PostgresIngressReplayStore::new(store.pool()),
     ));
@@ -160,6 +162,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .route("/metrics", get(metrics))
         .merge(ready_routes)
         .merge(identity_routes)
+        .merge(onboard_routes)
         .merge(messaging_routes)
         .merge(workload_routes)
         .merge(pack_routes)

@@ -13,9 +13,12 @@ import {
 } from "./interaction-tools.js";
 import type { SpeakerActionClient } from "./osdk-action-client.js";
 import {
+  firstContactAddendum,
+  firstContactInstructions,
   interactionInstructions,
   outboundBubbles,
   reasoningPrompt,
+  runFirstContactTurn,
   runInteractionTurn,
   type InteractionInbound,
   type OutboundTurn,
@@ -664,6 +667,29 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
   assert.deepEqual(failedRemind.bubbles, ["não consegui agendar agora"]);
   assert.doesNotMatch(failedRemind.bubbles.join("\n"), /agendei/);
   assertReasonTurn(failedRemind, "spoke", 0, "ok");
+});
+
+test("first contact addendum never says unbound and generate mock is the spoken text", async () => {
+  const addendum = firstContactAddendum("pt");
+  assert.match(addendum, /pessoa desconhecida/);
+  assert.match(addendum, /amigo afiado/);
+  assert.match(addendum, /se disseram oi, só cumprimente/);
+  assert.match(addendum, /nunca diga que/);
+  const instructions = firstContactInstructions("pt");
+  assert.ok(instructions.includes(interactionInstructions("pt")));
+  assert.ok(instructions.includes(addendum));
+  const href = "https://zoen.tironi.xyz/onboard/tok";
+  const spoken = await runFirstContactTurn({
+    generate: async (inboundText) => {
+      assert.equal(inboundText, "oi");
+      return "oi, entra quando quiser";
+    },
+    href,
+    inboundText: "oi",
+  });
+  assert.equal(spoken.includes("oi, entra quando quiser"), true);
+  assert.equal(spoken.includes(href), true);
+  assert.doesNotMatch(spoken, /Este WhatsApp ainda não está vinculado/i);
 });
 
 test("generate throw is fail copy, not rival speech", async () => {

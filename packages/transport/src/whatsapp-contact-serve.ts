@@ -55,6 +55,7 @@ async function main(): Promise<void> {
       }),
       tenantHint,
     ),
+    publicWebOrigin: process.env.ZOEN_PUBLIC_ORIGIN,
     ledger: createPostgresReplyLedger({
       query: (text, values) => pg.query(text, values as unknown[] | undefined),
     }),
@@ -109,6 +110,7 @@ function withTenantHint(
     return identity;
   }
   return {
+    mintOnboardToken: identity.mintOnboardToken?.bind(identity),
     resolveChannelSubject(input) {
       return identity.resolveChannelSubject({ ...input, tenantHint });
     },
