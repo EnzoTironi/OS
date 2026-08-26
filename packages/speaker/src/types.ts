@@ -385,8 +385,9 @@ export interface TurnAttempt {
   readonly openedAt: string;
   readonly observedCommitRefs: readonly SemanticCommitRef[];
   readonly supersedesAttemptId?: TurnAttemptId;
-  /** SHA-256 hex of the sealed conversation context. Not the prompt. */
   readonly contextHash?: string;
+  readonly contextRef?: string;
+  readonly contextDigest?: string;
   readonly contextDroppedIds?: readonly string[];
 }
 

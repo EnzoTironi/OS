@@ -664,6 +664,9 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
   const hashed = attempts.at(-1);
   assert.ok(hashed?.contextHash);
   assert.match(hashed.contextHash, /^[0-9a-f]{64}$/);
+  assert.equal(hashed.contextDigest, hashed.contextHash);
+  assert.ok(hashed.contextRef);
+  assert.equal(hashed.contextRef, `${successKey}:${hashed.id}`);
   assert.ok(
     hashed.observedCommitRefs.some(
       (ref) =>
@@ -732,7 +735,8 @@ test("first contact uses unbound assemble and never calls the bound assembler", 
         assert.equal(input.inbound.text, "oi");
       }
       return {
-        contextHash: "a".repeat(64),
+        contextDigest: "a".repeat(64),
+        contextRef: "unbound:unbound",
         document: {
           audienceKind: "unknown",
           attemptId: "unbound",

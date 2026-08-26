@@ -13,6 +13,12 @@ import {
   type TenantIdString,
   type TurnAttemptId,
 } from "./brands.js";
+import {
+  assembleTurnContext,
+  createConversationContextAssembler,
+  defaultConversationSources,
+  type ConversationContextAssembler,
+} from "./context-assembler.js";
 import type { ConversationArm, TurnStore } from "./turn-store.js";
 import {
   isCancellableTurnPhase,
@@ -59,6 +65,7 @@ export type ScheduleFn = (
 
 export interface TurnCoordinatorOptions {
   readonly store: TurnStore;
+  readonly assembler?: ConversationContextAssembler;
   readonly debounceMs?: number;
   readonly now?: () => Date;
   readonly schedule?: ScheduleFn;
@@ -309,6 +316,7 @@ export function createConversationTurnCoordinator(
         store,
         claimed.attempt,
         coordinator.assertNotSuperseded,
+        options.assembler,
       );
       const delivered = await coordinator.planAndDeliver({
         attemptId: attempt.id,
@@ -784,6 +792,7 @@ async function runPipeline(
   store: TurnStore,
   attempt: TurnAttempt,
   assertNotSuperseded: (id: TurnAttemptId) => Promise<void>,
+  assembler?: ConversationContextAssembler,
 ): Promise<TurnAttempt> {
   let current = attempt;
   for (const stage of [
@@ -797,6 +806,24 @@ async function runPipeline(
       ...current,
       phase: { kind: stage },
     };
+    if (stage === "assembling_context") {
+      const envelope = await assembleTurnContext({
+        assembler:
+          assembler ??
+          createConversationContextAssembler({
+            sources: defaultConversationSources({ store }),
+          }),
+        attempt: current,
+        store,
+      });
+      current = {
+        ...current,
+        contextDigest: envelope.contextDigest,
+        contextDroppedIds: envelope.document.dropped.map((row) => row.recordId),
+        contextHash: envelope.contextDigest,
+        contextRef: envelope.contextRef,
+      };
+    }
     await store.putAttempt(current);
   }
   return current;

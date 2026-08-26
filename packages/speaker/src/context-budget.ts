@@ -50,7 +50,8 @@ export function applyConversationBudget(
   stripOldestCarryForwardText(records, carryForward, claimed, dropped, overBudget);
   dropOldestPersonalMemory(records, dropped, overBudget);
   dropWorldNotes(records, dropped, overBudget);
-  truncateRemainingText(records, claimed, budget);
+  truncateRemainingText(records, claimed, dropped, budget);
+  lastResortTruncateOversized(records, dropped, budget);
 
   return { dropped, records };
 }
@@ -180,6 +181,7 @@ function dropWorldNotes(
 function truncateRemainingText(
   records: ConversationContextRecord[],
   claimed: ReadonlySet<string>,
+  dropped: ConversationBudgetDrop[],
   budget: number,
 ): void {
   if (dataTokens(records) <= budget) {
@@ -189,62 +191,96 @@ function truncateRemainingText(
     if (dataTokens(records) <= budget) {
       return;
     }
-    switch (record.payload.type) {
-      case "instruction":
-      case "world":
-      case "history":
-        break;
-      case "interaction": {
-        if (record.attribution.kind === "interaction") {
-          if (claimed.has(record.attribution.interactionId)) {
-            break;
-          }
-        }
-        const text = record.payload.text;
-        if (text === undefined || text.length === 0) {
-          break;
-        }
-        record.payload = {
-          kind: record.payload.kind,
-          text: truncateToBudget(text, remainingChars(records, text.length, budget)),
-          type: "interaction",
-          ...(record.payload.mediaRef === undefined
-            ? {}
-            : { mediaRef: record.payload.mediaRef }),
-        };
-        break;
+    if (isClaimedInbound(record, claimed)) {
+      continue;
+    }
+    const before = speakableChars(record);
+    applyTextTruncate(record, remainingChars(records, before, budget));
+    if (speakableChars(record) < before) {
+      dropped.push({ reason: "budget", recordId: record.recordId });
+    }
+  }
+}
+
+function lastResortTruncateOversized(
+  records: ConversationContextRecord[],
+  dropped: ConversationBudgetDrop[],
+  budget: number,
+): void {
+  if (dataTokens(records) <= budget) {
+    return;
+  }
+  for (const record of records) {
+    if (dataTokens(records) <= budget) {
+      return;
+    }
+    const chars = speakableChars(record);
+    if (chars <= budget * 4) {
+      continue;
+    }
+    applyTextTruncate(record, remainingChars(records, chars, budget));
+    if (speakableChars(record) < chars) {
+      dropped.push({ reason: "budget", recordId: record.recordId });
+    }
+  }
+}
+
+function isClaimedInbound(
+  record: ConversationContextRecord,
+  claimed: ReadonlySet<string>,
+): boolean {
+  return (
+    record.payload.type === "interaction" &&
+    record.attribution.kind === "interaction" &&
+    claimed.has(record.attribution.interactionId)
+  );
+}
+
+function applyTextTruncate(
+  record: ConversationContextRecord,
+  maxChars: number,
+): void {
+  switch (record.payload.type) {
+    case "instruction":
+    case "world":
+    case "history":
+      return;
+    case "interaction": {
+      const text = record.payload.text;
+      if (text === undefined || text.length === 0) {
+        return;
       }
-      case "preference":
-        record.payload = {
-          ...record.payload,
-          text: truncateToBudget(
-            record.payload.text,
-            remainingChars(records, record.payload.text.length, budget),
-          ),
-        };
-        break;
-      case "knowledge":
-        record.payload = {
-          ...record.payload,
-          text: truncateToBudget(
-            record.payload.text,
-            remainingChars(records, record.payload.text.length, budget),
-          ),
-        };
-        break;
-      case "personal_memory":
-        record.payload = {
-          ...record.payload,
-          body: truncateToBudget(
-            record.payload.body,
-            remainingChars(records, record.payload.body.length, budget),
-          ),
-        };
-        break;
-      default: {
-        const exhaustive: never = record.payload;
-        return exhaustive;
-      }
+      record.payload = {
+        kind: record.payload.kind,
+        text: truncateToBudget(text, maxChars),
+        type: "interaction",
+        ...(record.payload.mediaRef === undefined
+          ? {}
+          : { mediaRef: record.payload.mediaRef }),
+      };
+      return;
+    }
+    case "preference":
+      record.payload = {
+        ...record.payload,
+        text: truncateToBudget(record.payload.text, maxChars),
+      };
+      return;
+    case "knowledge":
+      record.payload = {
+        ...record.payload,
+        text: truncateToBudget(record.payload.text, maxChars),
+      };
+      return;
+    case "personal_memory":
+      record.payload = {
+        ...record.payload,
+        body: truncateToBudget(record.payload.body, maxChars),
+      };
+      return;
+    default: {
+      const exhaustive: never = record.payload;
+      return exhaustive;
     }
   }
 }

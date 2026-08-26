@@ -171,3 +171,35 @@ test("token estimate is ceil(chars / 4)", () => {
   assert.equal(estimateDataTokens(4), 1);
   assert.equal(estimateDataTokens(5), 2);
 });
+
+test("last-resort truncation cuts oversized claimed text and records a budget drop", () => {
+  const claimed = interaction("ixn_now", "x".repeat(400));
+  const result = applyConversationBudget({
+    budget: 2,
+    carryForwardInteractionIds: [],
+    claimedInteractionIds: ["ixn_now"],
+    records: [instruction(), claimed],
+  });
+  const kept = result.records.find(
+    (record) =>
+      record.attribution.kind === "interaction" &&
+      record.attribution.interactionId === "ixn_now",
+  );
+  assert.ok(kept);
+  assert.equal(kept.payload.type, "interaction");
+  if (kept.payload.type === "interaction") {
+    assert.ok((kept.payload.text ?? "").length < 400);
+    assert.ok((kept.payload.text ?? "").length > 0);
+  }
+  assert.ok(
+    result.dropped.some(
+      (drop) => drop.reason === "budget" && drop.recordId === kept.recordId,
+    ),
+  );
+  assert.ok(estimateDataTokens(result.records.reduce((sum, record) => {
+    if (record.payload.type === "interaction") {
+      return sum + (record.payload.text ?? "").length;
+    }
+    return sum;
+  }, 0)) <= 2);
+});

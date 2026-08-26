@@ -250,8 +250,9 @@ export interface ConversationContextProjection {
   readonly instructions: string;
 }
 
-export interface ConversationContextAssembly {
-  readonly contextHash: string;
+export interface ContextEnvelope {
+  readonly contextRef: string;
+  readonly contextDigest: string;
   readonly document: ConversationContextDocument;
   readonly projection: ConversationContextProjection;
 }

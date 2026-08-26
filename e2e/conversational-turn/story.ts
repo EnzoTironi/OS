@@ -349,7 +349,7 @@ export async function main(): Promise<void> {
     });
     record(
       "context_hash_is_64_hex",
-      /^[0-9a-f]{64}$/.test(assembled.contextHash),
+      /^[0-9a-f]{64}$/.test(assembled.contextDigest),
     );
     record(
       "assembled_carry_forward_is_ids",
@@ -507,7 +507,7 @@ export async function main(): Promise<void> {
       turns: {
         burstInteractionIds: burst.turn.interactionIds,
         carryForward: next.attempt.carryForwardInteractionIds,
-        contextHash: assembled.contextHash,
+        contextHash: assembled.contextDigest,
         deliveryIntentId: intentId,
         stableProviderDeliveryId: firstSendId,
       },

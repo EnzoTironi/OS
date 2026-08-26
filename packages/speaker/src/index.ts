@@ -1,6 +1,7 @@
 export * from "./jcs.js";
 export * from "./action-preview.js";
 export * from "./brands.js";
+export * from "./conversation-kind.js";
 export * from "./types.js";
 export * from "./controls.js";
 export * from "./store.js";

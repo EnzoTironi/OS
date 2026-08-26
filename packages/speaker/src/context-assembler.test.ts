@@ -171,8 +171,10 @@ test("bound assemble keeps distinct trust classes and a stable hash for the same
   };
   const first = await assembler.assembleBound(input);
   const second = await assembler.assembleBound(input);
-  assert.equal(first.contextHash, second.contextHash);
-  assert.match(first.contextHash, /^[0-9a-f]{64}$/);
+  assert.equal(first.contextDigest, second.contextDigest);
+  assert.match(first.contextDigest, /^[0-9a-f]{64}$/);
+  assert.equal(first.contextRef, "ck_src:att_1");
+  assert.equal(first.contextRef, second.contextRef);
   const classes = new Set(
     first.document.records.map((record) => record.trustClass),
   );
@@ -184,7 +186,7 @@ test("bound assemble keeps distinct trust classes and a stable hash for the same
   assert.doesNotMatch(first.projection.data, /tenant\.wa\.enzo/);
 });
 
-test("same world and different inbound produce a different contextHash", async () => {
+test("same world and different inbound produce a different contextDigest", async () => {
   const now = () => new Date("2026-08-26T15:00:00.000Z");
   const assembler = createConversationContextAssembler({
     now,
@@ -207,7 +209,7 @@ test("same world and different inbound produce a different contextHash", async (
     ...base,
     inbound: { kind: "text", text: "quanto ficou" },
   });
-  assert.notEqual(left.contextHash, right.contextHash);
+  assert.notEqual(left.contextDigest, right.contextDigest);
 });
 
 test("instruction copy is not hashed; a tighter budget is", async () => {
@@ -244,8 +246,8 @@ test("instruction copy is not hashed; a tighter budget is", async () => {
     ...input,
     instructions: "you are zoen",
   });
-  assert.equal(left.contextHash, sameCopy.contextHash);
-  assert.notEqual(left.contextHash, right.contextHash);
+  assert.equal(left.contextDigest, sameCopy.contextDigest);
+  assert.notEqual(left.contextDigest, right.contextDigest);
   assert.ok(right.document.dropped.some((drop) => drop.reason === "budget"));
 });
 
@@ -273,6 +275,8 @@ test("unbound assemble keeps inbound and href and never pulls world or memory", 
   );
   assert.match(assembled.projection.data, /oi/);
   assert.match(assembled.projection.data, /https:\/\/zoen\.example\/onboard\/tok/);
+  assert.equal(assembled.contextRef, "unbound:unbound");
+  assert.match(assembled.contextDigest, /^[0-9a-f]{64}$/);
 });
 
 test("group assemble drops personal_memory", async () => {

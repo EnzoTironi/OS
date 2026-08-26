@@ -3,18 +3,19 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { isStepCount, ToolLoopAgent, type LanguageModel } from "ai";
+import { interactionId, type TurnAttemptId } from "./brands.js";
 import {
-  conversationKeyFrom,
-  interactionId,
-  type TurnAttemptId,
-} from "./brands.js";
-import {
+  assembleTurnContext,
   audienceKindFromMembership,
   createConversationContextAssembler,
   defaultConversationSources,
   type ConversationContextAssembler,
   type ConversationWorkspaceKind,
 } from "./context-assembler.js";
+import {
+  conversationKeyFromKind,
+  conversationKindFromChannel,
+} from "./conversation-kind.js";
 import type {
   ConversationAudienceKind,
   ConversationContextDocument,
@@ -171,8 +172,10 @@ export async function runInteractionTurn(
   const locale = detectInboundLocale(
     input.inbound.kind === "text" ? inboundText : "",
   );
-  const conversationKey = conversationKeyFromMembership(ctx);
   const attempt = await coordinator.getAttempt(attemptId);
+  if (attempt === undefined) {
+    throw new Error("interaction turn missing claimed attempt");
+  }
   const audienceKind =
     input.audienceKind ?? audienceKindFromMembership(ctx);
   const world = input.world ?? createWorldQueryClientFromEnv();
@@ -186,30 +189,28 @@ export async function runInteractionTurn(
         world,
       }),
     });
-  const assembly = await assembler.assembleBound({
-    attemptId: String(attemptId),
+  const envelope = await assembleTurnContext({
+    assembler,
+    attempt,
     audienceKind,
-    carryForwardInteractionIds: attempt?.carryForwardInteractionIds ?? [],
-    claimedInteractionIds: (attempt?.claimedInteractionIds ?? []).map(String),
-    conversationKey,
     hiddenTokens: hiddenIdentityTokens(ctx),
     inbound: input.inbound,
     instructions: interactionInstructions(locale),
     locale,
     membership: ctx,
-    observedCommitRefs: attempt?.observedCommitRefs ?? [],
+    store,
     workspaceKind: input.workspaceKind,
   });
-  if (attempt !== undefined) {
-    await store.putAttempt({
-      ...attempt,
-      contextDroppedIds: assembly.document.dropped.map((row) => row.recordId),
-      contextHash: assembly.contextHash,
-    });
-  }
+  await store.putAttempt({
+    ...attempt,
+    contextDigest: envelope.contextDigest,
+    contextDroppedIds: envelope.document.dropped.map((row) => row.recordId),
+    contextHash: envelope.contextDigest,
+    contextRef: envelope.contextRef,
+  });
   const hiddenIds = [
     ...hiddenIdentityTokens(ctx),
-    ...entityIdsFromDocument(assembly.document),
+    ...entityIdsFromDocument(envelope.document),
   ];
   const scratch = input.scratch ?? createInteractionScratch();
 
@@ -229,7 +230,7 @@ export async function runInteractionTurn(
         kind: "action",
       });
     },
-    prompt: reasoningPrompt(assembly.projection.data),
+    prompt: reasoningPrompt(envelope.projection.data),
     publicWebOrigin: input.publicWebOrigin,
     scratch,
   });
@@ -237,7 +238,7 @@ export async function runInteractionTurn(
   await coordinator.advanceStage(attemptId, "rendering");
   const rendered = renderTurn({
     hiddenIds,
-    hrefFallback: hrefFromDocument(assembly.document),
+    hrefFallback: hrefFromDocument(envelope.document),
     inbound: input.inbound,
     inboundText,
     scratch,
@@ -247,7 +248,7 @@ export async function runInteractionTurn(
     reasonTurn: {
       generate: reasoned.generate,
       path: reasoned.path,
-      rivals: rivalCount(assembly.document),
+      rivals: rivalCount(envelope.document),
     },
   };
   emitReasonTurnLog(result.reasonTurn);
@@ -686,10 +687,11 @@ function hiddenIdentityTokens(ctx: TrustedInteractionContext): string[] {
 
 function conversationKeyFromMembership(
   ctx: TrustedInteractionContext,
-): ReturnType<typeof conversationKeyFrom> {
-  return conversationKeyFrom({
+): ReturnType<typeof conversationKeyFromKind> {
+  return conversationKeyFromKind({
     accountId: ctx.accountId,
-    conversationId: `${String(ctx.channel.provider)}:${String(ctx.channel.thread)}`,
+    kind: conversationKindFromChannel(ctx.channel),
+    provider: String(ctx.channel.provider),
     tenantId: String(ctx.tenantId),
     workspaceId: ctx.workloadId,
   });

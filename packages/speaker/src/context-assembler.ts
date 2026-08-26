@@ -9,8 +9,8 @@ import {
   defaultConversationJcs,
   hashCanonicalJson,
   sealConversationContextDocument,
+  type ContextEnvelope,
   type ConversationAudienceKind,
-  type ConversationContextAssembly,
   type ConversationContextDocument,
   type ConversationContextRecord,
   type ConversationContextScope,
@@ -19,14 +19,22 @@ import {
   type ConversationJcs,
   type ConversationLocale,
 } from "./context-document.js";
-import { conversationKeyFrom, interactionId } from "./brands.js";
+import { interactionId } from "./brands.js";
+import {
+  conversationKeyFromKind,
+  conversationKindFromChannel,
+  type ConversationKind,
+} from "./conversation-kind.js";
 import { projectConversationContext } from "./context-project.js";
 import type { HistoryQueryClient } from "./history-query.js";
 import type { TurnStore } from "./turn-store.js";
 import type {
   AudienceObservation,
+  InboundKind,
+  InteractionRecord,
   SemanticCommitRef,
   TrustedInteractionContext,
+  TurnAttempt,
 } from "./types.js";
 import type { WorldQueryClient, WorldQuerySnapshot } from "./world-query.js";
 
@@ -64,6 +72,7 @@ export interface AssembleBoundInput {
   readonly carryForwardInteractionIds?: readonly string[];
   readonly claimedInteractionIds: readonly string[];
   readonly conversationKey: string;
+  readonly conversationKind?: ConversationKind;
   readonly hiddenTokens?: readonly string[];
   readonly inbound: ConversationInbound;
   readonly instructions: string;
@@ -81,10 +90,28 @@ export interface AssembleUnboundInput {
 }
 
 export interface ConversationContextAssembler {
-  assembleBound(input: AssembleBoundInput): Promise<ConversationContextAssembly>;
-  assembleUnbound(
-    input: AssembleUnboundInput,
-  ): Promise<ConversationContextAssembly>;
+  assembleBound(input: AssembleBoundInput): Promise<ContextEnvelope>;
+  assembleUnbound(input: AssembleUnboundInput): Promise<ContextEnvelope>;
+}
+
+export type ConversationContextMetricKind = ConversationKind["kind"] | "unbound";
+
+export interface ConversationContextMetric {
+  readonly event: "conversationContext";
+  readonly conversationKind: ConversationContextMetricKind;
+  readonly contextRef: string;
+  readonly contextDigest: string;
+  readonly droppedCount: number;
+  readonly failureCount: number;
+  readonly recordCount: number;
+  readonly tokenBudget: number;
+  readonly audienceKind: ConversationAudienceKind;
+}
+
+export function emitConversationContextMetric(
+  input: ConversationContextMetric,
+): void {
+  process.stderr.write(`${JSON.stringify(input)}\n`);
 }
 
 /**
@@ -185,6 +212,7 @@ export function createConversationContextAssembler(
         validAt: validAt.toISOString(),
       });
       return sealAssembly({
+        conversationKind: metricKind(input.conversationKind, input.audienceKind),
         document,
         hiddenTokens: [
           ...hiddenMembershipTokens(input.membership),
@@ -192,6 +220,7 @@ export function createConversationContextAssembler(
         ],
         instructions: input.instructions,
         jcs,
+        tokenBudget: budget,
       });
     },
 
@@ -219,10 +248,12 @@ export function createConversationContextAssembler(
         validAt: validAt.toISOString(),
       });
       return sealAssembly({
+        conversationKind: "unbound",
         document,
         hiddenTokens: [],
         instructions: input.instructions,
         jcs,
+        tokenBudget: budget,
       });
     },
   };
@@ -244,10 +275,10 @@ export function createInteractionConversationSource(
         if (stored === undefined) {
           continue;
         }
-        const conversationId = `${String(stored.ctx.channel.provider)}:${String(stored.ctx.channel.thread)}`;
-        const storedKey = conversationKeyFrom({
+        const storedKey = conversationKeyFromKind({
           accountId: stored.ctx.accountId,
-          conversationId,
+          kind: conversationKindFromChannel(stored.ctx.channel),
+          provider: String(stored.ctx.channel.provider),
           tenantId: String(stored.ctx.tenantId),
           workspaceId: stored.ctx.workloadId,
         });
@@ -634,13 +665,16 @@ function inboundPayload(
 }
 
 function sealAssembly(input: {
+  readonly conversationKind: ConversationContextMetricKind;
   readonly document: ConversationContextDocument;
   readonly hiddenTokens: readonly string[];
   readonly instructions: string;
   readonly jcs: ConversationJcs;
-}): ConversationContextAssembly {
-  return {
-    contextHash: conversationContextHash(input.document, input.jcs),
+  readonly tokenBudget: number;
+}): ContextEnvelope {
+  const envelope: ContextEnvelope = {
+    contextDigest: conversationContextHash(input.document, input.jcs),
+    contextRef: `${input.document.conversationKey}:${input.document.attemptId}`,
     document: input.document,
     projection: projectConversationContext({
       document: input.document,
@@ -648,6 +682,114 @@ function sealAssembly(input: {
       instructions: input.instructions,
     }),
   };
+  emitConversationContextMetric({
+    audienceKind: input.document.audienceKind,
+    contextDigest: envelope.contextDigest,
+    contextRef: envelope.contextRef,
+    conversationKind: input.conversationKind,
+    droppedCount: input.document.dropped.length,
+    event: "conversationContext",
+    failureCount: input.document.failures.length,
+    recordCount: input.document.records.length,
+    tokenBudget: input.tokenBudget,
+  });
+  return envelope;
+}
+
+function metricKind(
+  conversationKind: ConversationKind | undefined,
+  audienceKind: ConversationAudienceKind,
+): ConversationContextMetricKind {
+  if (conversationKind !== undefined) {
+    return conversationKind.kind;
+  }
+  return audienceKind === "group" ? "group" : "one_to_one";
+}
+
+export async function assembleTurnContext(input: {
+  readonly attempt: TurnAttempt;
+  readonly store: TurnStore;
+  readonly assembler?: ConversationContextAssembler;
+  readonly audienceKind?: ConversationAudienceKind;
+  readonly hiddenTokens?: readonly string[];
+  readonly inbound?: ConversationInbound;
+  readonly instructions?: string;
+  readonly locale?: ConversationLocale;
+  readonly membership?: TrustedInteractionContext;
+  readonly workspaceKind?: ConversationWorkspaceKind;
+}): Promise<ContextEnvelope> {
+  const records = await loadClaimedRecords(input.store, input.attempt);
+  const membership = input.membership ?? records[0]?.ctx;
+  if (membership === undefined) {
+    throw new Error("assembleTurnContext requires a claimed membership");
+  }
+  const inbound =
+    input.inbound ?? inboundFromBody(records.at(-1)?.inbound.body);
+  const conversationKind = conversationKindFromChannel(membership.channel);
+  const assembler =
+    input.assembler ??
+    createConversationContextAssembler({
+      sources: defaultConversationSources({ store: input.store }),
+    });
+  return assembler.assembleBound({
+    attemptId: String(input.attempt.id),
+    audienceKind:
+      input.audienceKind ?? audienceKindFromMembership(membership),
+    carryForwardInteractionIds: input.attempt.carryForwardInteractionIds.map(
+      String,
+    ),
+    claimedInteractionIds: input.attempt.claimedInteractionIds.map(String),
+    conversationKey: input.attempt.conversationKey,
+    conversationKind,
+    hiddenTokens: [
+      ...hiddenMembershipTokens(membership),
+      ...(input.hiddenTokens ?? []),
+    ],
+    inbound,
+    instructions: input.instructions ?? "",
+    locale: input.locale ?? "pt",
+    membership,
+    observedCommitRefs: input.attempt.observedCommitRefs,
+    workspaceKind: input.workspaceKind,
+  });
+}
+
+async function loadClaimedRecords(
+  store: TurnStore,
+  attempt: TurnAttempt,
+): Promise<InteractionRecord[]> {
+  const records: InteractionRecord[] = [];
+  for (const id of attempt.claimedInteractionIds) {
+    const stored = await store.getRecord(id);
+    if (stored !== undefined) {
+      records.push(stored);
+    }
+  }
+  return records;
+}
+
+function inboundFromBody(body: InboundKind | undefined): ConversationInbound {
+  if (body === undefined) {
+    return { kind: "text", text: "" };
+  }
+  switch (body.kind) {
+    case "text":
+      return { kind: "text", text: body.text };
+    case "media":
+      return {
+        kind: "media",
+        mediaRef: body.mediaRef,
+        mime: body.mime,
+      };
+    case "control_click":
+    case "reaction":
+    case "unsupported":
+      return { kind: "text", text: "" };
+    default: {
+      const exhaustive: never = body;
+      return exhaustive;
+    }
+  }
 }
 
 function hiddenMembershipTokens(
