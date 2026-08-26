@@ -693,13 +693,6 @@ function hiddenIdentityTokens(
   ].filter((token) => token.length > 0);
 }
 
-/**
- * Locale-aware Interaction system prompt.
- * Interaction talks. Execution never talks to the person.
- *
- * @param locale - Detected inbound locale (`pt` or `en`)
- * @returns Short Poke-density instructions. Never names harness internals.
- */
 export function firstContactAddendum(locale: InteractionLocale): string {
   switch (locale) {
     case "pt":

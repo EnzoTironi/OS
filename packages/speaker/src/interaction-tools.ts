@@ -84,19 +84,6 @@ export function createInteractionScratch(): InteractionScratch {
   };
 }
 
-/**
- * Poke-style Interaction tools. Few, and never named in user text.
- *
- * Context: one ToolLoopAgent turn. Closing inbound (valeu, ok, thanks) must
- * call `wait`, not `speak_to_user`. `note` / `remind` Propose then Commit.
- * Inputs: turn-local scratch plus optional executeWork / actions / statusAfterMs.
- * Outputs: ToolSet. User-visible text is only what `speak_to_user` recorded.
- * Side effects: mutates scratch. Failed writes set `writeFail`. `wait` is silent.
- *
- * @param scratch - Turn-local recorder for bubbles, one href, and execution notes
- * @param options.executeWork - Optional harness hand-off; defaults to a status string
- * @param options.actions - Personal lake Action client. Missing client fails the write.
- */
 export function createInteractionTools(
   scratch: InteractionScratch,
   options: InteractionToolOptions = {},

@@ -16,7 +16,6 @@ export interface IdentityDirectory {
   resolveChannelSubject(input: {
     provider: ProviderKey;
     subjectKey: string;
-    /** Product policy tenant — never a thread id. */
     tenantHint?: string;
   }): Promise<ResolvedChannelIdentity>;
   mintOnboardToken?(input: {
@@ -50,7 +49,6 @@ export class ChannelSubjectResolveError extends Error {
   }
 }
 
-/** ProviderKey is already a ChannelProvider.as_str() value. */
 export function toChannelProvider(provider: ProviderKey): string {
   return String(provider);
 }
@@ -86,10 +84,6 @@ export interface IdentityDirectoryClientOptions {
   readonly adminToken?: string;
 }
 
-/**
- * Tiny HTTP client over zoend identity admin.
- * Resolve is load-only (GET resolve-subject). Admit is the WhatsApp write.
- */
 export function createIdentityDirectoryClient(
   options: IdentityDirectoryClientOptions,
 ): IdentityDirectory {
