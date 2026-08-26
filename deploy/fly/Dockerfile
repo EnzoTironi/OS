@@ -9,6 +9,7 @@ COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates crates
 COPY apps/zoend apps/zoend
 COPY proto proto
+COPY wit wit
 RUN cargo build --locked --release --package zoend \
     && strip --strip-debug target/release/zoend target/release/zoen-effect-dispatcher \
          target/release/zoen-http-connector target/release/zoen-projection
