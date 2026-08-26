@@ -13,6 +13,7 @@ export * from "./public-origin.js";
 export * from "./boundary.js";
 export * from "./turn-store.js";
 export * from "./turn-coordinator.js";
+export * from "./fast-path.js";
 export * from "./world-query.js";
 export * from "./osdk-world-query.js";
 export * from "./osdk-action-client.js";
