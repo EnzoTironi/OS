@@ -800,6 +800,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "note grava memória. remind agenda. só speak_to_user depois que a tool voltar ok. se falhar, não diga que anotou ou agendou",
         "preview da tool é o texto canônico. nunca fale proposal, operation, claim, tenant, principal nem hash",
         "valeu, ok, show, obrigado: chame wait. sem bolha. não fale",
+        "oi, e aí, fala, hi, hey: speak_to_user. nunca wait",
         "minúsculas por padrão. linha curta sem ponto final. sem travessão",
         "casa língua e tamanho. inbound em pt sai em pt. um oi é um oi, não um parágrafo",
         "proibido: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
@@ -816,6 +817,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "note writes a memory. remind schedules. speak_to_user only after the tool returns ok. if it fails, do not claim you wrote or scheduled it",
         "tool preview is the canonical text. never speak proposal, operation, claim, tenant, principal, or hash",
         "thanks, ok, show: call wait. no bubble. do not speak",
+        "oi, e aí, fala, hi, hey: speak_to_user. never wait",
         "lowercase default. short line, no trailing period. no em dash",
         "match language and length. english in, english out. a hi is a hi, not a paragraph",
         "forbidden: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
@@ -834,6 +836,8 @@ export function interactionInstructions(locale: InteractionLocale): string {
 
 /**
  * User prompt for one turn. World rivals and notes are the subject, not optional JSON.
+ * Empty world: answer the inbound. A greeting is a short speak_to_user, never wait.
+ * World with rivals or notes: do not greet instead of answering.
  *
  * @param inbound - Live inbound (text or media)
  * @param inboundText - Body text already extracted from inbound
@@ -852,6 +856,7 @@ export function reasoningPrompt(
       ? `kind: text\ntext: ${inboundText}`
       : `kind: media\nmediaRef: ${inbound.mediaRef}`;
   const worldBlock = formatWorldSubject(snapshot, locale);
+  const closer = reasoningCloser(locale, worldIsEmpty(snapshot));
   switch (locale) {
     case "pt":
       return [
@@ -863,7 +868,7 @@ export function reasoningPrompt(
         "World",
         worldBlock,
         "",
-        "Não cumprimente no lugar de responder. Não use as frases proibidas.",
+        closer,
       ].join("\n");
     case "en":
       return [
@@ -875,7 +880,7 @@ export function reasoningPrompt(
         "World",
         worldBlock,
         "",
-        "Do not greet instead of answering. Do not use the forbidden phrases.",
+        closer,
       ].join("\n");
     default: {
       const exhaustive: never = locale;
@@ -884,16 +889,50 @@ export function reasoningPrompt(
   }
 }
 
+function reasoningCloser(
+  locale: InteractionLocale,
+  emptyWorld: boolean,
+): string {
+  switch (locale) {
+    case "pt":
+      return emptyWorld
+        ? "Responde o inbound. Cumprimento (oi, e aí, fala, hi, hey) é speak_to_user curto. Nunca wait. Não use as frases proibidas."
+        : "Não cumprimente no lugar de responder. Não use as frases proibidas.";
+    case "en":
+      return emptyWorld
+        ? "Answer the inbound. A greeting (oi, e aí, fala, hi, hey) is a short speak_to_user. Never wait. Do not use the forbidden phrases."
+        : "Do not greet instead of answering. Do not use the forbidden phrases.";
+    default: {
+      const exhaustive: never = locale;
+      return exhaustive;
+    }
+  }
+}
+
+function standingWorldReadings(snapshot: WorldQuerySnapshot | undefined): {
+  readonly notes: readonly string[];
+  readonly rivalLabels: readonly string[];
+} {
+  return {
+    notes: (snapshot?.notes ?? [])
+      .map((note) => note.trim())
+      .filter((note) => note.length > 0),
+    rivalLabels: (snapshot?.rivals ?? [])
+      .map((rival) => rival.label.trim())
+      .filter((label) => label.length > 0),
+  };
+}
+
+function worldIsEmpty(snapshot: WorldQuerySnapshot | undefined): boolean {
+  const standing = standingWorldReadings(snapshot);
+  return standing.notes.length === 0 && standing.rivalLabels.length === 0;
+}
+
 function formatWorldSubject(
   snapshot: WorldQuerySnapshot | undefined,
   locale: InteractionLocale,
 ): string {
-  const rivalLabels = (snapshot?.rivals ?? [])
-    .map((rival) => rival.label.trim())
-    .filter((label) => label.length > 0);
-  const notes = (snapshot?.notes ?? [])
-    .map((note) => note.trim())
-    .filter((note) => note.length > 0);
+  const { notes, rivalLabels } = standingWorldReadings(snapshot);
   if (rivalLabels.length === 0 && notes.length === 0) {
     return locale === "pt"
       ? "(vazio. responde o inbound num toque curto)"

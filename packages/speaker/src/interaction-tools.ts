@@ -84,6 +84,12 @@ export function createInteractionScratch(): InteractionScratch {
   };
 }
 
+/**
+ * `wait` is only for thanks / ok closers. Greetings must speak.
+ */
+export const WAIT_TOOL_DESCRIPTION =
+  "End the turn with no user-facing text (empty bubbles). Use only for thanks, ok, show, valeu, or obrigado. Never for greetings (oi, e aí, hi, hey, fala). Do not speak.";
+
 export function createInteractionTools(
   scratch: InteractionScratch,
   options: InteractionToolOptions = {},
@@ -181,8 +187,7 @@ export function createInteractionTools(
       inputSchema: speakToUserSchema,
     }),
     wait: tool({
-      description:
-        "End the turn with no user-facing text (empty bubbles). Use for thanks, ok, show, or other closing inbound. Do not speak.",
+      description: WAIT_TOOL_DESCRIPTION,
       execute: async () => {
         scratch.waited = true;
         scratch.bubbles.length = 0;
