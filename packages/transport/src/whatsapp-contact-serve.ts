@@ -110,6 +110,7 @@ function withTenantHint(
     return identity;
   }
   return {
+    admitWhatsAppSubject: identity.admitWhatsAppSubject?.bind(identity),
     mintOnboardToken: identity.mintOnboardToken?.bind(identity),
     resolveChannelSubject(input) {
       return identity.resolveChannelSubject({ ...input, tenantHint });

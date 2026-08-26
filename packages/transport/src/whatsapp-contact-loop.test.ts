@@ -46,19 +46,49 @@ function inbound(overrides: Record<string, unknown> = {}): Record<string, unknow
   };
 }
 
-const onboardHref = "https://zoen.tironi.xyz/onboard/testtok";
+function membershipFor() {
+  return {
+    accountId: "account.wa.enzo",
+    actorId: "actor.personal",
+    bindingId: "binding.wa.enzo",
+    membershipId: "membership.wa.enzo",
+    principalId: principalIdString("principal.wa.enzo"),
+    tenantId: tenantIdString("tenant.wa.enzo"),
+    workloadId: "workload.personal",
+  };
+}
 
 function unboundIdentity(calls: string[]): IdentityDirectory {
   return {
-    async mintOnboardToken() {
-      return { href: onboardHref, token: "testtok" };
-    },
     async resolveChannelSubject(input) {
       calls.push(`GET ${input.subjectKey}`);
       throw new ChannelSubjectResolveError({
         kind: "unbound",
         message: "unresolved channel subject: no verified binding",
       });
+    },
+  };
+}
+
+function admittingIdentity(subjectKey: string): IdentityDirectory {
+  let admitted = false;
+  const membership = membershipFor();
+  return {
+    async admitWhatsAppSubject(input) {
+      assert.equal(input.subjectKey, subjectKey);
+      assert.notEqual(String(membership.principalId), subjectKey);
+      assert.notEqual(String(membership.tenantId), subjectKey);
+      admitted = true;
+      return membershipFor();
+    },
+    async resolveChannelSubject(input) {
+      if (!admitted || input.subjectKey !== subjectKey) {
+        throw new ChannelSubjectResolveError({
+          kind: "unbound",
+          message: "unresolved channel subject: no verified binding",
+        });
+      }
+      return membership;
     },
   };
 }
@@ -72,15 +102,7 @@ function boundIdentity(subjectKey: string): IdentityDirectory {
           message: "unresolved channel subject: no verified binding",
         });
       }
-      return {
-        accountId: "account.wa.enzo",
-        actorId: "actor.personal",
-        bindingId: "binding.wa.enzo",
-        membershipId: "membership.wa.enzo",
-        principalId: principalIdString("principal.wa.enzo"),
-        tenantId: tenantIdString("tenant.wa.enzo"),
-        workloadId: "workload.personal",
-      };
+      return membershipFor();
     },
   };
 }
@@ -127,39 +149,60 @@ test("fromMe, door, and group are dropped before IdentityDirectory", async () =>
   await session.close();
 });
 
-test("unbound 1:1 pokes the same thread and does not mint membership", async () => {
+test("first unbound 1:1 admits then runs a bound turn without login", async () => {
   const methods: string[] = [];
-  const generated = "oi, entra quando quiser";
-  const generateCalls: string[] = [];
+  const snapshot = {
+    account: { accountId: "account.wa.enzo", status: "verified" },
+    bindings: [
+      {
+        accountId: "account.wa.enzo",
+        bindingId: "binding.wa.enzo",
+        provider: "whatsapp",
+        status: "verified",
+        subjectKey: speaker,
+      },
+    ],
+    memberships: [
+      {
+        accountId: "account.wa.enzo",
+        actorId: "actor.personal",
+        kind: "personal",
+        membershipId: "membership.wa.enzo",
+        principalId: "principal.wa.enzo",
+        status: "active",
+        tenantId: "tenant.wa.enzo",
+        workloadId: "workload.personal",
+      },
+    ],
+  };
   const fetchImpl: typeof fetch = async (input, init) => {
     const method = (init?.method ?? "GET").toUpperCase();
     methods.push(`${method} ${String(input)}`);
-    assert.doesNotMatch(
-      String(input),
-      /\/provisional|\/verify-binding|\/bind-verified|\/personal$/,
-    );
-    if (method === "POST" && String(input).includes("/identity/admin/onboard-tokens")) {
-      return new Response(
-        JSON.stringify({
-          href: onboardHref,
-          token: "testtok",
-        }),
-        { headers: { "content-type": "application/json" }, status: 200 },
-      );
+    assert.doesNotMatch(String(input), /\/onboard-tokens/);
+    if (method === "GET" && String(input).includes("/resolve-subject")) {
+      if (methods.filter((row) => row.startsWith("POST ")).length === 0) {
+        return new Response(
+          JSON.stringify({ error: "OIDC subject has no verified binding" }),
+          { headers: { "content-type": "application/json" }, status: 404 },
+        );
+      }
+      return new Response(JSON.stringify(snapshot), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      });
     }
-    return new Response(
-      JSON.stringify({ error: "OIDC subject has no verified binding" }),
-      { headers: { "content-type": "application/json" }, status: 404 },
-    );
+    if (method === "POST" && String(input).includes("/identity/admin/admit-whatsapp")) {
+      return new Response(JSON.stringify(snapshot), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      });
+    }
+    throw new Error(`unexpected ${method} ${String(input)}`);
   };
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
     debounceMs: 0,
     doorE164,
-    generateFirstContact: async (inboundText) => {
-      generateCalls.push(inboundText);
-      return generated;
-    },
     identity: createIdentityDirectoryClient({
       adminToken: "identity-admin",
       baseUrl: "http://zoend.test",
@@ -169,27 +212,46 @@ test("unbound 1:1 pokes the same thread and does not mint membership", async () 
     session,
   });
   const result = await loop.handleRaw(inbound());
-  assert.equal(result.kind, "unbound");
+  assert.equal(result.kind, "bound");
   assert.equal(session.sent().length, 1);
   const sent = session.sent()[0];
   assert.ok(sent);
   assert.equal(sent.chatJid, speaker);
   assert.equal(sent.shape.kind, "text");
   if (sent.shape.kind === "text") {
-    assert.equal(sent.shape.text.includes(generated), true);
-    assert.equal(sent.shape.text.includes(onboardHref), true);
-    assert.equal(sent.shape.text.split("https://").length - 1, 1);
-    assert.deepEqual(generateCalls, ["Oi"]);
+    assert.doesNotMatch(sent.shape.text, /\/onboard\//);
     assert.doesNotMatch(
       sent.shape.text,
       /Este WhatsApp ainda não está vinculado|unbound|unlinked|unregistered/i,
     );
-    assert.doesNotMatch(sent.shape.text, /app\.zoen\.local|workshop\.example/);
+    assert.ok(sent.shape.text.trim().length > 0);
   }
   assert.deepEqual(methods, [
     "GET http://zoend.test/identity/admin/resolve-subject?provider=whatsapp&subjectKey=553199941160%40s.whatsapp.net",
-    "POST http://zoend.test/identity/admin/onboard-tokens",
+    "POST http://zoend.test/identity/admin/admit-whatsapp",
+    "GET http://zoend.test/identity/admin/resolve-subject?provider=whatsapp&subjectKey=553199941160%40s.whatsapp.net",
   ]);
+  await session.close();
+});
+
+test("first real input is accepted without an onboard URL", async () => {
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
+    doorE164,
+    identity: admittingIdentity(speaker),
+    session,
+  });
+  const result = await loop.handleRaw(
+    inbound({ body: "anota o leite", messageId: "wamid.note" }),
+  );
+  assert.equal(result.kind, "bound");
+  const sent = session.sent()[0];
+  assert.ok(sent);
+  assert.equal(sent.shape.kind, "text");
+  if (sent.shape.kind === "text") {
+    assert.doesNotMatch(sent.shape.text, /\/onboard\/|\/approve\/external\./);
+  }
   await session.close();
 });
 
@@ -275,7 +337,7 @@ test("bound 1:1 records composing then paused around the turn", async () => {
   await session.close();
 });
 
-test("unbound 1:1 does not send composing presence", async () => {
+test("unbound without admit fails closed and does not send", async () => {
   const session = await readySession();
   const loop = createWhatsAppContactLoop({
     debounceMs: 0,
@@ -283,10 +345,12 @@ test("unbound 1:1 does not send composing presence", async () => {
     identity: unboundIdentity([]),
     session,
   });
-  const result = await loop.handleRaw(
-    inbound({ messageId: "wamid.unbound.presence" }),
+  await assert.rejects(
+    () => loop.handleRaw(inbound({ messageId: "wamid.unbound.presence" })),
+    (error: unknown) =>
+      error instanceof ChannelSubjectResolveError && error.kind === "unbound",
   );
-  assert.equal(result.kind, "unbound");
+  assert.equal(session.sent().length, 0);
   assert.deepEqual(session.presences(), []);
   await session.close();
 });
@@ -297,12 +361,12 @@ test("restart with the same ledger does not send a second reply", async () => {
   const loop = createWhatsAppContactLoop({
     debounceMs: 0,
     doorE164,
-    identity: unboundIdentity([]),
+    identity: admittingIdentity(speaker),
     ledger,
     session: first,
   });
   const once = await loop.handleRaw(inbound());
-  assert.equal(once.kind, "unbound");
+  assert.equal(once.kind, "bound");
   const again = await loop.handleRaw(inbound());
   assert.equal(again.kind, "duplicate");
   assert.equal(first.sent().length, 1);
@@ -331,11 +395,11 @@ test("file ledger survives a new process-shaped loop", async () => {
     const loop = createWhatsAppContactLoop({
     debounceMs: 0,
       doorE164,
-      identity: unboundIdentity([]),
+      identity: admittingIdentity(speaker),
       ledger,
       session: first,
     });
-    assert.equal((await loop.handleRaw(inbound())).kind, "unbound");
+    assert.equal((await loop.handleRaw(inbound())).kind, "bound");
     await first.close();
 
     const reloaded = createFileReplyLedger(filePath);
@@ -376,7 +440,7 @@ test("zoend inbound with processInbound replies through the recording session", 
   const loop = createWhatsAppContactLoop({
     debounceMs: 0,
     doorE164,
-    identity: unboundIdentity([]),
+    identity: admittingIdentity(speaker),
     session,
   });
   resetWhatsAppIngressReplay();
@@ -415,7 +479,7 @@ test("zoend inbound with processInbound replies through the recording session", 
     );
     assert.equal(response.status, 200);
     const body = (await response.json()) as { kind?: unknown };
-    assert.equal(body.kind, "unbound");
+    assert.equal(body.kind, "bound");
     assert.equal(session.sent().length, 1);
     assert.equal(session.sent()[0]?.chatJid, speaker);
   } finally {
