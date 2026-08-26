@@ -179,6 +179,8 @@ test("PT instructions ban helpdesk greetings and keep speak_to_user as the only 
   assert.doesNotMatch(interactionInstructions("en"), /ficar quieto|stay quiet/i);
   assert.doesNotMatch(interactionInstructions("en"), /—/);
   assert.doesNotMatch(interactionInstructions("en"), /Mastra|LangGraph/);
+  assert.doesNotMatch(instructions, /vendo|anotando|agendando|um seg/);
+  assert.doesNotMatch(interactionInstructions("en"), /looking|noting|scheduling|one sec/);
 });
 
 test("reasoningPrompt frames World rivals as the subject, not optional JSON", () => {
@@ -482,40 +484,17 @@ test("mocked oi is a short greeting, not helpdesk", async () => {
   assert.equal(generated >= 1, true);
   assert.match(sent, /^oi$/im);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help|Recebi/i);
-  assert.doesNotMatch(sent, /vendo aqui|um seg/);
+  assert.doesNotMatch(sent, STATUS_PHRASE_PT);
   assertReasonTurn(result, "spoke", 0, "ok");
 });
 
-test("mocked valeu calls wait and sends empty bubbles", async () => {
-  let generated = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      generated += 1;
-      if (generated === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({}),
-              toolCallId: "call_wait",
-              toolName: "wait",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      return stopCall();
-    },
-  });
+test("valeu via wait tool stays empty, not a host-classified ack", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
     inbound: textInbound("valeu"),
     membership: membership("mocked-valeu"),
-    model,
+    model: waitThenStopModel(),
   });
-  assert.equal(generated >= 1, true);
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
@@ -532,12 +511,15 @@ test("wait tool produces no Recebi and no helpdesk", async () => {
     { context: undefined, messages: [], toolCallId: "call_wait" },
   );
   assert.equal(scratch.waited, true);
+  assert.equal(scratch.startedWork, false);
   assert.deepEqual(scratch.bubbles, []);
   assert.equal(scratch.href, undefined);
+});
 
+test("model-driven wait on a non-ack closing message stays empty, not a fast ack", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
-    inbound: textInbound("show"),
+    inbound: textInbound("pode fechar por aqui"),
     membership: membership("wait-tool"),
     model: waitThenStopModel(),
   });
@@ -590,10 +572,9 @@ test("reasonTurn writes one stderr JSON line from the turn result", async () => 
 test("slow wait stays silent", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
-    inbound: textInbound("valeu"),
+    inbound: textInbound("deixa que eu confirmo depois"),
     membership: membership("slow-wait"),
     model: delayedWaitModel(20),
-    statusAfterMs: 5,
   });
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
@@ -606,42 +587,21 @@ test("slow lookupFail does not prepend status", async () => {
     inbound: textInbound("quanto ficou a cotacao"),
     membership: membership("slow-lookup"),
     model: delayedSilentModel(20),
-    statusAfterMs: 5,
     world: twoRivalWorld(),
   });
   assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
   assertReasonTurn(result, "lookupFail", 2, "ok");
 });
 
-test("slow generate prepends one status bubble, fast path does not", async () => {
-  const fast = await runInteractionTurn({
+test("speaker does not fold a status phrase into bubbles", async () => {
+  const result = await runInteractionTurn({
     debounceMs: 0,
     inbound: textInbound("oi"),
-    membership: membership("fast-status"),
-    model: speakThenStopModel("oi"),
-  });
-  assert.equal(fast.bubbles.includes("oi"), true);
-  assert.equal(
-    fast.bubbles.some((bubble) => /^(vendo aqui|um seg)$/.test(bubble)),
-    false,
-  );
-
-  const slow = await runInteractionTurn({
-    debounceMs: 0,
-    inbound: textInbound("oi"),
-    membership: membership("slow-status"),
+    membership: membership("no-status-fold"),
     model: delayedSpeakModel("ta aqui", 20),
-    statusAfterMs: 5,
   });
-  const status = slow.bubbles[0] ?? "";
-  assert.match(status, /^(vendo aqui|um seg)$/);
-  assert.equal(
-    slow.bubbles.filter((bubble) => /^(vendo aqui|um seg)$/.test(bubble)).length,
-    1,
-  );
-  assert.equal(slow.bubbles.includes("ta aqui"), true);
-  assertReasonTurn(fast, "spoke", 0, "ok");
-  assertReasonTurn(slow, "spoke", 0, "ok");
+  assert.deepEqual(result.bubbles, ["ta aqui"]);
+  assertReasonTurn(result, "spoke", 0, "ok");
 });
 
 test("Speaker speaks one bubble after a successful commit and fail-copies when commit fails", async () => {
@@ -840,48 +800,6 @@ test("generate throw is fail copy, not rival speech", async () => {
   assertReasonTurn(result, "threw", 2, "throw");
 });
 
-test("slow spawn_execution prepends one status bubble", async () => {
-  let step = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({ task: "consultar" }),
-              toolCallId: "call_spawn",
-              toolName: "spawn_execution",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      if (step === 2) {
-        return speakCall("duas leituras de pé");
-      }
-      return stopCall();
-    },
-  });
-  const result = await runInteractionTurn({
-    debounceMs: 0,
-    executeWork: async () => {
-      await delay(20);
-      return "status: ok";
-    },
-    inbound: textInbound("quanto ficou"),
-    membership: membership("slow-spawn"),
-    model,
-    statusAfterMs: 5,
-  });
-  assert.match(result.bubbles[0] ?? "", /^(vendo aqui|um seg)$/);
-  assert.match(outboundBubbles(result).join("\n"), /leituras/);
-  assertReasonTurn(result, "spoke", 0, "ok");
-});
-
 function silentStopModel(): MockLanguageModelV3 {
   return new MockLanguageModelV3({
     doGenerate: async () =>
@@ -1061,6 +979,8 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+const STATUS_PHRASE_PT = /^(vendo|anotando|agendando|um seg)$/;
+
 function assertReasonTurn(
   result: OutboundTurn,
   path: ReasonTurnPath,
@@ -1121,44 +1041,4 @@ function supportingQuantityClaims(): readonly ClaimRead[] {
     },
   ];
 }
-
-test("status stays silent at 2000ms and emits one line at 2001ms", async () => {
-  let clock = 0;
-  const fast = await runInteractionTurn({
-    clock: () => clock,
-    debounceMs: 0,
-    inbound: textInbound("oi"),
-    membership: membership("status-2000"),
-    model: speakThenStopModel("oi"),
-    statusAfterMs: 2000,
-  });
-  assert.equal(
-    fast.bubbles.some((bubble) => /^(vendo aqui|um seg|looking|one sec)$/.test(bubble)),
-    false,
-  );
-
-  clock = 0;
-  let step = 0;
-  const slow = await runInteractionTurn({
-    clock: () => clock,
-    debounceMs: 0,
-    inbound: textInbound("oi"),
-    membership: membership("status-2001"),
-    model: new MockLanguageModelV3({
-      doGenerate: async () => {
-        clock = 2001;
-        step += 1;
-        if (step === 1) {
-          return speakCall("ta aqui");
-        }
-        return stopCall();
-      },
-    }),
-    statusAfterMs: 2000,
-  });
-  assert.equal(
-    slow.bubbles.filter((bubble) => /^(vendo aqui|um seg)$/.test(bubble)).length,
-    1,
-  );
-});
 

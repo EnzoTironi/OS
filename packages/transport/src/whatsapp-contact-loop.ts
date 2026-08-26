@@ -1,23 +1,33 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { LanguageModel } from "ai";
 import {
   ChannelSubjectResolveError,
+  classifyStatusIntent,
   conversationKeyFrom,
   createConversationTurnCoordinator,
   createInteractionBoundary,
   createInteractionControlRegistry,
+  createInteractionScratch,
   createMemoryControlStore,
   createMemoryTurnStore,
   createPostgresTurnStore,
   deliveryIntentId,
   deliveryObservationId,
+  detectInboundLocale,
+  dropLeadingStatusPhrase,
+  finalDeliveryId,
   outboundBubbles,
+  pickStatusPhrase,
   presentationIntentRef,
   providerKey,
+  raceWithStatusGate,
   resolvePublicOrigin,
   runInteractionTurn,
+  statusDeliveryId,
   toInteractionInbound,
   TURN_DEBOUNCE_MS,
+  TURN_STATUS_AFTER_MS,
   type ClaimResult,
   type ConversationKey,
   type DeliveryIntent,
@@ -25,6 +35,7 @@ import {
   type IdentityDirectory,
   type InboundInteraction,
   type PostgresTurnStoreClient,
+  type ScheduleFn,
   type TrustedInteractionContext,
   type TurnStore,
 } from "../../speaker/src/index.js";
@@ -109,6 +120,12 @@ export interface WhatsAppContactLoopOptions {
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  /** Tier 2 model override, mainly for tests. Production reads ZOEN_MODEL. */
+  readonly model?: LanguageModel;
+  /** Status gate threshold in ms. Default TURN_STATUS_AFTER_MS (2000). */
+  readonly statusAfterMs?: number;
+  /** Injectable timer for the status gate, mainly for tests. */
+  readonly schedule?: ScheduleFn;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -254,14 +271,14 @@ export function createWhatsAppContactLoop(
     },
   });
   const store = options.store ?? createMemoryTurnStore();
-  const outboundByAttempt = new Map<string, string[]>();
+  const outboundByAttempt = new Map<string, Map<string, string>>();
   const coordinator = createConversationTurnCoordinator({
     debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
     deliver: async (intent: DeliveryIntent) => {
       const attemptId = intent.turnAttemptId;
       const bubbles =
         attemptId === undefined ? undefined : outboundByAttempt.get(attemptId);
-      const text = bubbles?.[intent.sequenceIndex ?? 0];
+      const text = bubbles?.get(intent.stableProviderDeliveryId);
       if (text === undefined) {
         throw new Error("bound whatsapp turn missing outbound bubble");
       }
@@ -298,20 +315,60 @@ export function createWhatsAppContactLoop(
     const chatJid = String(record.inbound.channel.thread);
     await sendPresence(options.session, chatJid, "composing");
     try {
-      const reply = await runInteractionTurn({
-        attemptId: claimed.attempt.id,
-        channelAssurance: "whatsapp_phone",
-        coordinator,
-        debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
-        executeWork: options.executeWork,
-        inbound: toInteractionInbound(record.inbound),
-        membership,
-        now,
-        publicWebOrigin: options.publicWebOrigin,
-        store,
+      const inbound = toInteractionInbound(record.inbound);
+      const inboundText = inbound.kind === "text" ? inbound.text : "";
+      const locale = detectInboundLocale(inboundText);
+      const intent = classifyStatusIntent(inboundText);
+      const scratch = createInteractionScratch();
+      const statusId = statusDeliveryId(primaryId);
+      const raced = await raceWithStatusGate({
+        gateMs: options.statusAfterMs ?? TURN_STATUS_AFTER_MS,
+        onGate: async () => {
+          if (scratch.waited || !scratch.startedWork) {
+            return;
+          }
+          setOutboundBubble(
+            outboundByAttempt,
+            claimed.attempt.id,
+            statusId,
+            pickStatusPhrase(locale, intent),
+          );
+          const sent = await coordinator.deliverStatusLine({
+            attemptId: claimed.attempt.id,
+            presentation: `turn:${claimed.turn.id}:status`,
+          });
+          if (sent === undefined) {
+            throw new Error("status line not delivered");
+          }
+        },
+        schedule: options.schedule,
+        work: runInteractionTurn({
+          attemptId: claimed.attempt.id,
+          channelAssurance: "whatsapp_phone",
+          coordinator,
+          debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
+          executeWork: options.executeWork,
+          inbound,
+          membership,
+          model: options.model,
+          now,
+          publicWebOrigin: options.publicWebOrigin,
+          scratch,
+          store,
+        }),
       });
-      const bubbles = outboundBubbles(reply);
-      outboundByAttempt.set(claimed.attempt.id, bubbles);
+      let bubbles = outboundBubbles(raced.value);
+      if (raced.gated) {
+        bubbles = dropLeadingStatusPhrase(bubbles, locale);
+      }
+      bubbles.forEach((text, index) =>
+        setOutboundBubble(
+          outboundByAttempt,
+          claimed.attempt.id,
+          finalDeliveryId(primaryId, index),
+          text,
+        ),
+      );
       const delivered =
         bubbles.length === 0
           ? await coordinator.acknowledgeSilentClose(claimed.attempt.id)
@@ -321,6 +378,12 @@ export function createWhatsAppContactLoop(
               sequenceCount: bubbles.length,
             });
       return delivered[delivered.length - 1] ?? waitObservation(claimed.attempt.id);
+    } catch (error) {
+      const attempt = await coordinator.getAttempt(claimed.attempt.id);
+      if (attempt?.phase.kind === "superseded") {
+        return waitObservation(claimed.attempt.id);
+      }
+      throw error;
     } finally {
       await sendPresence(options.session, chatJid, "paused");
     }
@@ -552,6 +615,17 @@ function isDoorJid(jid: string, doorE164: string): boolean {
   const at = jid.indexOf("@");
   const user = at === -1 ? jid : jid.slice(0, at);
   return user.replace(/\D/g, "") === doorDigits;
+}
+
+function setOutboundBubble(
+  map: Map<string, Map<string, string>>,
+  attemptId: string,
+  stableProviderDeliveryId: string,
+  text: string,
+): void {
+  const existing = map.get(attemptId) ?? new Map<string, string>();
+  existing.set(stableProviderDeliveryId, text);
+  map.set(attemptId, existing);
 }
 
 function waitObservation(attemptId: string): DeliveryObservation {

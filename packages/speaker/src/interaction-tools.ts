@@ -61,16 +61,14 @@ export interface InteractionScratch {
   executionNotes: string[];
   href?: string;
   waited: boolean;
-  slowWork: boolean;
+  /** Set by speak_to_user / note / remind / spawn_execution. Not by wait. */
+  startedWork: boolean;
   writeFail?: PersonalWriteKind;
 }
 
 export interface InteractionToolOptions {
   readonly actions?: SpeakerActionClient;
   readonly executeWork?: (task: string) => Promise<string>;
-  /** Wall time that marks spawn_execution as slow. Production default is 2000. */
-  readonly statusAfterMs?: number;
-  readonly clock?: () => number;
   readonly channelAssurance?: ChannelAssurance;
   readonly publicWebOrigin?: string;
 }
@@ -79,7 +77,7 @@ export function createInteractionScratch(): InteractionScratch {
   return {
     bubbles: [],
     executionNotes: [],
-    slowWork: false,
+    startedWork: false,
     waited: false,
   };
 }
@@ -94,8 +92,6 @@ export function createInteractionTools(
   scratch: InteractionScratch,
   options: InteractionToolOptions = {},
 ): ToolSet {
-  const statusAfterMs = options.statusAfterMs ?? 2000;
-  const clock = options.clock ?? Date.now;
   const channelAssurance = options.channelAssurance ?? "whatsapp_phone";
   const origin = resolvePublicOrigin(options.publicWebOrigin);
   return {
@@ -132,14 +128,19 @@ export function createInteractionTools(
     note: tool({
       description:
         "Write a personal memory through Propose then Commit. Speak only after this returns ok. Never claim you wrote it if this fails.",
-      execute: async ({ body }) => commitPersonalWrite(scratch, options.actions, "note", body),
+      execute: async ({ body }) => {
+        scratch.startedWork = true;
+        return commitPersonalWrite(scratch, options.actions, "note", body);
+      },
       inputSchema: noteSchema,
     }),
     remind: tool({
       description:
         "Create a personal reminder through Propose then Commit. dueAt is text, not a datetime. Speak only after this returns ok. Never claim you scheduled it if this fails.",
-      execute: async ({ body, dueAt }) =>
-        commitPersonalWrite(scratch, options.actions, "remind", body, dueAt),
+      execute: async ({ body, dueAt }) => {
+        scratch.startedWork = true;
+        return commitPersonalWrite(scratch, options.actions, "remind", body, dueAt);
+      },
       inputSchema: remindSchema,
     }),
     mint_href: tool({
@@ -162,14 +163,11 @@ export function createInteractionTools(
       description:
         "Hand work off the conversation. Returns a short status string. Do not mention this hand-off in user text.",
       execute: async ({ task }) => {
-        const started = clock();
+        scratch.startedWork = true;
         const status =
           options.executeWork === undefined
             ? `status: accepted (${task.trim().slice(0, 80)})`
             : await options.executeWork(task);
-        if (clock() - started > statusAfterMs) {
-          scratch.slowWork = true;
-        }
         scratch.executionNotes.push(status);
         return { status };
       },
@@ -179,6 +177,7 @@ export function createInteractionTools(
       description:
         "Record one conversational reply for the person. Newlines become separate bubbles unless the text is wrapped in quotes or a fenced block. Never mention tools, agents, or this function.",
       execute: async ({ text }) => {
+        scratch.startedWork = true;
         for (const bubble of splitSpokenBubbles(text)) {
           scratch.bubbles.push(bubble);
         }

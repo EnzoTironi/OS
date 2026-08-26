@@ -18,7 +18,6 @@ import {
 import {
   createConversationTurnCoordinator,
   TURN_DEBOUNCE_MS,
-  TURN_STATUS_AFTER_MS,
   type ConversationTurnCoordinator,
 } from "./turn-coordinator.js";
 import { createMemoryTurnStore, type TurnStore } from "./turn-store.js";
@@ -89,10 +88,13 @@ export interface InteractionTurnInput {
   readonly executeWork?: (task: string) => Promise<string>;
   readonly channelAssurance?: ChannelAssurance;
   readonly publicWebOrigin?: string;
-  /** Status bubble after generate/spawn_execution exceeds this. Default 2000. */
-  readonly statusAfterMs?: number;
   readonly debounceMs?: number;
-  readonly clock?: () => number;
+  /**
+   * Shared scratch so a host can observe `startedWork` / `waited` while
+   * generate is still running. Transport uses this to decide whether a
+   * status line may go out. Speaker never sends that line.
+   */
+  readonly scratch?: InteractionScratch;
   readonly actions?: SpeakerActionClient;
 }
 
@@ -106,7 +108,6 @@ const WRITE_FAIL_EN = {
   note: "couldn't note that down now",
   remind: "couldn't schedule that now",
 } as const;
-const STATUS_AFTER_MS = TURN_STATUS_AFTER_MS;
 
 export interface ReasonTurnLog {
   readonly event: "reasonTurn";
@@ -154,23 +155,22 @@ export async function runInteractionTurn(
     input.inbound.kind === "text" ? inboundText : "",
   );
   const snapshot = await assembleWorld(ctx, input.world);
-  const hiddenIds = hiddenIdentityTokens(ctx, snapshot);
+  const scratch = input.scratch ?? createInteractionScratch();
 
   await coordinator.advanceStage(attemptId, "reasoning");
   const reasoned = await reasonTurn({
     actions: input.actions ?? createSpeakerActionClientFromEnv(),
     channelAssurance: input.channelAssurance,
     executeWork: input.executeWork,
-    publicWebOrigin: input.publicWebOrigin,
     inbound: input.inbound,
     inboundText,
     locale,
     model: input.model ?? resolveLanguageModel(),
+    publicWebOrigin: input.publicWebOrigin,
+    scratch,
     snapshot,
-    clock: input.clock,
-    statusAfterMs: input.statusAfterMs ?? STATUS_AFTER_MS,
   });
-  const scratch = reasoned.scratch;
+  const hiddenIds = hiddenIdentityTokens(ctx, snapshot);
 
   await coordinator.advanceStage(attemptId, "rendering");
   const rendered = renderTurn({
@@ -428,18 +428,17 @@ async function reasonTurn(input: {
   readonly inboundText: string;
   readonly locale: InteractionLocale;
   readonly model: LanguageModel | undefined;
+  readonly scratch: InteractionScratch;
   readonly snapshot: WorldQuerySnapshot | undefined;
-  readonly statusAfterMs: number;
-  readonly clock?: () => number;
 }): Promise<ReasonTurnResult> {
+  const scratch = input.scratch;
   if (input.model === undefined) {
     return {
       generate: "ok",
       path: "noModel",
-      scratch: failCopyScratch(input.locale),
+      scratch: applyFailCopy(scratch, input.locale),
     };
   }
-  const scratch = createInteractionScratch();
   const agent = new ToolLoopAgent({
     instructions: interactionInstructions(input.locale),
     maxRetries: 0,
@@ -448,14 +447,10 @@ async function reasonTurn(input: {
     tools: createInteractionTools(scratch, {
       actions: input.actions,
       channelAssurance: input.channelAssurance,
-      clock: input.clock,
       executeWork: input.executeWork,
       publicWebOrigin: input.publicWebOrigin,
-      statusAfterMs: input.statusAfterMs,
     }),
   });
-  const nowMs = input.clock ?? Date.now;
-  const started = nowMs();
   try {
     await agent.generate({
       prompt: reasoningPrompt(
@@ -469,14 +464,14 @@ async function reasonTurn(input: {
     return {
       generate: "throw",
       path: "threw",
-      scratch: failCopyScratch(input.locale),
+      scratch: applyFailCopy(scratch, input.locale),
     };
   }
   if (scratch.writeFail !== undefined) {
     return {
       generate: "ok",
       path: "spoke",
-      scratch: writeFailScratch(input.locale, scratch.writeFail),
+      scratch: applyWriteFail(scratch, input.locale, scratch.writeFail),
     };
   }
   if (scratch.waited) {
@@ -488,13 +483,8 @@ async function reasonTurn(input: {
     return {
       generate: "ok",
       path: "lookupFail",
-      scratch: failCopyScratch(input.locale),
+      scratch: applyFailCopy(scratch, input.locale),
     };
-  }
-  const slow =
-    nowMs() - started > input.statusAfterMs || scratch.slowWork;
-  if (slow && scratch.bubbles.length > 0) {
-    applySlowStatus(scratch, input.locale, input.inboundText);
   }
   return {
     generate: "ok",
@@ -513,61 +503,25 @@ function emitReasonTurnLog(reasonTurn: OutboundTurn["reasonTurn"]): void {
   process.stderr.write(`${JSON.stringify(line)}\n`);
 }
 
-function applySlowStatus(
+function applyFailCopy(
   scratch: InteractionScratch,
   locale: InteractionLocale,
-  seed: string,
-): void {
-  const first = scratch.bubbles[0];
-  if (first !== undefined && isStatusPhrase(first, locale)) {
-    return;
-  }
-  scratch.bubbles.unshift(pickStatusPhrase(locale, seed));
-}
-
-function pickStatusPhrase(locale: InteractionLocale, seed: string): string {
-  let sum = 0;
-  for (const char of seed) {
-    sum = (sum + char.charCodeAt(0)) | 0;
-  }
-  const even = Math.abs(sum) % 2 === 0;
-  switch (locale) {
-    case "en":
-      return even ? "looking" : "one sec";
-    case "pt":
-      return even ? "vendo aqui" : "um seg";
-    default: {
-      const exhaustive: never = locale;
-      return exhaustive;
-    }
-  }
-}
-
-function isStatusPhrase(text: string, locale: InteractionLocale): boolean {
-  const needle = text.trim();
-  switch (locale) {
-    case "en":
-      return needle === "looking" || needle === "one sec";
-    case "pt":
-      return needle === "vendo aqui" || needle === "um seg";
-    default: {
-      const exhaustive: never = locale;
-      return exhaustive;
-    }
-  }
-}
-
-function failCopyScratch(locale: InteractionLocale): InteractionScratch {
-  const scratch = createInteractionScratch();
+): InteractionScratch {
+  scratch.bubbles.length = 0;
+  scratch.href = undefined;
+  scratch.waited = false;
   scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
   return scratch;
 }
 
-function writeFailScratch(
+function applyWriteFail(
+  scratch: InteractionScratch,
   locale: InteractionLocale,
   kind: PersonalWriteKind,
 ): InteractionScratch {
-  const scratch = createInteractionScratch();
+  scratch.bubbles.length = 0;
+  scratch.href = undefined;
+  scratch.waited = false;
   switch (locale) {
     case "pt":
       scratch.bubbles.push(WRITE_FAIL_PT[kind]);
@@ -654,7 +608,7 @@ function sanitizeUserText(
   executionNotes: readonly string[] = [],
 ): string {
   let next = text.replace(
-    /\b(speak_to_user|spawn_execution|mint_href|note|remind|wait|ToolLoopAgent|LangGraph|Mastra)\b/gi,
+    /\b(speak_to_user|spawn_execution|mint_href|note|remind|wait|request_external|ToolLoopAgent|LangGraph|Mastra)\b/gi,
     "",
   );
   next = stripTokens(next, hiddenIds);
@@ -805,7 +759,6 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "casa língua e tamanho. inbound em pt sai em pt. um oi é um oi, não um parágrafo",
         "proibido: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
         "world é o assunto. rivais se falam como sujeito. duas leituras ficam de pé. não cumprimente no lugar de responder",
-        "status (vendo aqui / um seg) só se generate ou spawn_execution passar de 2s. turno rápido: sem essa bolha",
         "sem link falso. sem app.zoen.local. sem nome de tool no texto",
         "erro: não consegui [ação] / deu ruim ao [ação]. fiz merda só se a gente quebrou parse ou código",
         "xinga só se a pessoa já xinga muito nesta conversa. nunca comece",
@@ -822,7 +775,6 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "match language and length. english in, english out. a hi is a hi, not a paragraph",
         "forbidden: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
         "world is the subject. speak rivals as the subject. two readings stand. do not greet instead of answering",
-        "status (looking / one sec) only if generate or spawn_execution exceeds 2s. fast turn: no status bubble",
         "no fake link. no app.zoen.local. no tool names in user text",
         "errors: couldn't [action] / that broke while [action]. 'fiz merda' only for our parse or code bugs",
         "swear only if the person already swears a lot in this conversation. never go first",
