@@ -8,6 +8,7 @@ import type { ScheduleFn, ScheduleHandle } from "./turn-coordinator.js";
  * from `cancel` cannot fire after settle: the callback checks `settled`
  * first. After work settles, an in-flight `onGate` is awaited only up to
  * `settleMs` so a hung dispatch cannot stall a result already in hand.
+ * `dispatched` is true only when `onGate` finished without throwing.
  */
 export const STATUS_GATE_SETTLE_MS = 1000;
 
