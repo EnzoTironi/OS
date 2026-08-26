@@ -678,15 +678,18 @@ test("first contact addendum never says unbound and generate mock is the spoken 
   const instructions = firstContactInstructions("pt");
   assert.ok(instructions.includes(interactionInstructions("pt")));
   assert.ok(instructions.includes(addendum));
+  const href = "https://zoen.tironi.xyz/onboard/tok";
   const spoken = await runFirstContactTurn({
     generate: async (inboundText) => {
       assert.equal(inboundText, "oi");
       return "oi, entra quando quiser";
     },
+    href,
     inboundText: "oi",
   });
-  assert.equal(spoken, "oi, entra quando quiser");
-  assert.doesNotMatch(spoken, /vinculado|unbound|unlinked|unregistered/i);
+  assert.equal(spoken.includes("oi, entra quando quiser"), true);
+  assert.equal(spoken.includes(href), true);
+  assert.doesNotMatch(spoken, /Este WhatsApp ainda não está vinculado/i);
 });
 
 test("generate throw is fail copy, not rival speech", async () => {

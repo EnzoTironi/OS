@@ -702,6 +702,7 @@ export function firstContactAddendum(locale: InteractionLocale): string {
         "nunca diga que não está vinculado, desvinculado, sem cadastro, unbound, unlinked, unregistered",
         "nunca despeje checklist de setup",
         "sem uuid, sem helpdesk, sem nome de worker ou tool",
+        "o https já vem no turno; não invente outro URL",
       ].join("\n");
     case "en":
       return [
@@ -712,6 +713,7 @@ export function firstContactAddendum(locale: InteractionLocale): string {
         "never say they are unbound, unlinked, or unregistered",
         "never dump a setup checklist",
         "no uuid, no helpdesk, no worker or tool names",
+        "the https is already on the turn; do not invent another URL",
       ].join("\n");
     default: {
       const exhaustive: never = locale;
@@ -727,43 +729,64 @@ export function firstContactInstructions(locale: InteractionLocale): string {
 export async function runFirstContactTurn(input: {
   readonly inboundText: string;
   readonly generate?: (inboundText: string) => Promise<string>;
+  readonly href?: string;
   readonly model?: LanguageModel;
 }): Promise<string> {
-  if (input.generate !== undefined) {
-    return (await input.generate(input.inboundText)).trim();
-  }
   const locale = detectInboundLocale(input.inboundText);
-  const model = input.model ?? resolveLanguageModel();
-  if (model === undefined) {
-    return locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
+  const fallback = locale === "en" ? "hey" : "oi";
+  let spoken: string;
+  if (input.generate !== undefined) {
+    spoken = (await input.generate(input.inboundText)).trim();
+  } else {
+    const model = input.model ?? resolveLanguageModel();
+    if (model === undefined) {
+      spoken = fallback;
+    } else {
+      const scratch = createInteractionScratch();
+      const agent = new ToolLoopAgent({
+        instructions: firstContactInstructions(locale),
+        maxRetries: 0,
+        model,
+        stopWhen: isStepCount(8),
+        tools: createFirstContactTools(scratch),
+      });
+      try {
+        await agent.generate({
+          prompt: [
+            firstContactAddendum(locale),
+            "",
+            `inbound: ${input.inboundText}`,
+            input.href === undefined ? "" : `href: ${input.href}`,
+          ]
+            .filter((line) => line.length > 0)
+            .join("\n"),
+        });
+        spoken = scratch.bubbles
+          .map((bubble) => bubble.trim())
+          .filter((bubble) => bubble.length > 0)
+          .join("\n");
+        if (spoken.length === 0) {
+          spoken = fallback;
+        }
+      } catch {
+        spoken = fallback;
+      }
+    }
   }
-  const scratch = createInteractionScratch();
-  const agent = new ToolLoopAgent({
-    instructions: firstContactInstructions(locale),
-    maxRetries: 0,
-    model,
-    stopWhen: isStepCount(8),
-    tools: createFirstContactTools(scratch),
-  });
-  try {
-    await agent.generate({
-      prompt: [
-        firstContactAddendum(locale),
-        "",
-        `inbound: ${input.inboundText}`,
-      ].join("\n"),
-    });
-  } catch {
-    return locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
+  return injectHref(spoken, input.href);
+}
+
+function injectHref(spoken: string, href: string | undefined): string {
+  if (href === undefined || href.trim().length === 0) {
+    return spoken;
   }
-  const spoken = scratch.bubbles
-    .map((bubble) => bubble.trim())
-    .filter((bubble) => bubble.length > 0)
-    .join("\n");
-  if (spoken.length === 0) {
-    return locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
+  if (spoken.includes(href)) {
+    return spoken;
   }
-  return spoken;
+  if (spoken.trim().length === 0) {
+    return href;
+  }
+  return `${spoken.trim()}\n${href}`;
 }
 
 export function interactionInstructions(locale: InteractionLocale): string {

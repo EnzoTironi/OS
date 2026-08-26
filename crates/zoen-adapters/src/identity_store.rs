@@ -1,6 +1,10 @@
 use std::collections::BTreeSet;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::fs::File;
+use std::io::Read;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgRow;
@@ -752,6 +756,139 @@ impl PostgresIdentityStore {
             personal_tenant,
         })
     }
+
+    pub async fn mint_onboard_token(
+        &self,
+        subject: ExternalSubject,
+        ttl: Duration,
+    ) -> Result<MintedOnboardToken, IdentityError> {
+        let raw = random_onboard_token()?;
+        let token_hash = hash_onboard_token(&raw);
+        let token_id = new_id_value("onboard");
+        let now = now_micros();
+        let expires_at = TimestampMicros::new(
+            now.get()
+                .saturating_add(i64::try_from(ttl.as_micros()).unwrap_or(i64::MAX)),
+        );
+        sqlx::query(
+            "INSERT INTO onboard_tokens (
+                token_id, token_hash, provider, subject_key, expires_at
+             ) VALUES ($1, $2, $3, $4, to_timestamp($5::double precision / 1000000.0))",
+        )
+        .bind(&token_id)
+        .bind(token_hash.as_slice())
+        .bind(subject.provider.as_str())
+        .bind(&subject.subject_key)
+        .bind(expires_at.get())
+        .execute(&self.pool)
+        .await
+        .map_err(unavailable)?;
+        Ok(MintedOnboardToken {
+            expires_at,
+            subject,
+            token: raw,
+        })
+    }
+
+    pub async fn lookup_onboard_token(
+        &self,
+        token: &str,
+    ) -> Result<OnboardTokenRow, IdentityError> {
+        let token_hash = hash_onboard_token(token);
+        let row = sqlx::query(
+            "SELECT provider, subject_key,
+                    consumed_at IS NOT NULL AS consumed,
+                    expires_at <= clock_timestamp() AS expired
+             FROM onboard_tokens WHERE token_hash = $1",
+        )
+        .bind(token_hash.as_slice())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(unavailable)?
+        .ok_or(IdentityError::InviteNotFound)?;
+        let provider = ChannelProvider::parse(&row_text(&row, "provider")?)
+            .map_err(|_| IdentityError::InvalidProvider)?;
+        let subject_key = row_text(&row, "subject_key")?;
+        let subject = ExternalSubject::new(provider, subject_key)?;
+        Ok(OnboardTokenRow {
+            consumed: row.try_get("consumed").map_err(unavailable)?,
+            expired: row.try_get("expired").map_err(unavailable)?,
+            subject,
+        })
+    }
+
+    pub async fn consume_onboard_token(&self, token: &str) -> Result<(), IdentityError> {
+        let token_hash = hash_onboard_token(token);
+        let now = now_micros();
+        let result = sqlx::query(
+            "UPDATE onboard_tokens
+             SET consumed_at = to_timestamp($2::double precision / 1000000.0)
+             WHERE token_hash = $1 AND consumed_at IS NULL",
+        )
+        .bind(token_hash.as_slice())
+        .bind(now.get())
+        .execute(&self.pool)
+        .await
+        .map_err(unavailable)?;
+        if result.rows_affected() == 0 {
+            return Err(IdentityError::AlreadyConsumed);
+        }
+        Ok(())
+    }
+
+    pub async fn complete_onboard(
+        &self,
+        subject: ExternalSubject,
+    ) -> Result<CompleteOnboard, IdentityError> {
+        if self.subject_has_verified_personal(&subject).await? {
+            return Err(IdentityError::AlreadyConsumed);
+        }
+        let account = self.ensure_provisional(subject.clone()).await?;
+        let snapshot = self.snapshot_account(&account.id).await?;
+        let verified = snapshot.bindings.iter().any(|binding| {
+            binding.subject == subject && matches!(binding.status, BindingStatus::Verified)
+        });
+        if !verified {
+            self.verify_binding(account.id.clone(), BindingProof::HarnessVerified)
+                .await?;
+        }
+        let personal = snapshot.memberships.iter().any(|membership| {
+            matches!(membership.kind, MembershipKind::Personal)
+                && matches!(membership.status, MembershipStatus::Active)
+        });
+        let membership = if personal {
+            snapshot
+                .memberships
+                .into_iter()
+                .find(|membership| {
+                    matches!(membership.kind, MembershipKind::Personal)
+                        && matches!(membership.status, MembershipStatus::Active)
+                })
+                .ok_or(IdentityError::MembershipNotFound)?
+        } else {
+            self.ensure_personal_workspace(account.id.clone()).await?
+        };
+        Ok(CompleteOnboard {
+            account_id: membership.account_id.clone(),
+            membership_id: membership.id.clone(),
+            principal_id: membership.principal_id.clone(),
+            tenant_id: membership.tenant_id.clone(),
+        })
+    }
+
+    async fn subject_has_verified_personal(
+        &self,
+        subject: &ExternalSubject,
+    ) -> Result<bool, IdentityError> {
+        match self.snapshot_for_verified_subject(subject).await {
+            Ok((_, snapshot)) => Ok(snapshot.memberships.iter().any(|membership| {
+                matches!(membership.kind, MembershipKind::Personal)
+                    && matches!(membership.status, MembershipStatus::Active)
+            })),
+            Err(IdentityError::SubjectUnbound) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -760,6 +897,25 @@ pub struct AccountSnapshot {
     pub bindings: Vec<ExternalBinding>,
     pub memberships: Vec<Membership>,
     pub personal_tenant: Option<String>,
+}
+
+pub struct MintedOnboardToken {
+    pub expires_at: TimestampMicros,
+    pub subject: ExternalSubject,
+    pub token: String,
+}
+
+pub struct OnboardTokenRow {
+    pub consumed: bool,
+    pub expired: bool,
+    pub subject: ExternalSubject,
+}
+
+pub struct CompleteOnboard {
+    pub account_id: ZoenAccountId,
+    pub membership_id: MembershipId,
+    pub principal_id: PrincipalId,
+    pub tenant_id: TenantId,
 }
 
 pub struct CreateInvite<'a> {
@@ -1035,9 +1191,21 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
 }
 
 fn hash_token(token: &InviteToken) -> [u8; 32] {
+    hash_onboard_token(token.as_str())
+}
+
+fn hash_onboard_token(token: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(token.as_str().as_bytes());
+    hasher.update(token.as_bytes());
     hasher.finalize().into()
+}
+
+fn random_onboard_token() -> Result<String, IdentityError> {
+    let mut bytes = [0u8; 32];
+    File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn new_id_value(prefix: &str) -> String {

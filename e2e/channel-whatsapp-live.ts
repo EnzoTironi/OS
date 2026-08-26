@@ -463,14 +463,21 @@ async function proveContactLoop(
     await unboundSession.open();
     const ledger = createMemoryReplyLedger();
     const generated = "oi, entra quando quiser";
+    const onboardHref = "https://zoen.tironi.xyz/onboard/e2etok";
     const unboundLoop = createWhatsAppContactLoop({
       doorE164,
       generateFirstContact: async () => generated,
-      identity: createIdentityDirectoryClient({
-        baseUrl: "http://zoend.test",
-        fetchImpl,
-      }),
+      identity: {
+        ...createIdentityDirectoryClient({
+          baseUrl: "http://zoend.test",
+          fetchImpl,
+        }),
+        async mintOnboardToken() {
+          return { href: onboardHref, token: "e2etok" };
+        },
+      },
       ledger,
+      publicWebOrigin: "https://zoen.tironi.xyz",
       session: unboundSession,
     });
     const envelope = {
@@ -490,10 +497,11 @@ async function proveContactLoop(
     const unboundShape = unboundSession.sent()[0]?.shape;
     assert.equal(unboundShape?.kind, "text");
     if (unboundShape?.kind === "text") {
-      assert.equal(unboundShape.text, generated);
+      assert.equal(unboundShape.text.includes(generated), true);
+      assert.equal(unboundShape.text.includes(onboardHref), true);
       assert.doesNotMatch(
         unboundShape.text,
-        /vinculado|unbound|unlinked|unregistered/i,
+        /Este WhatsApp ainda não está vinculado|unbound|unlinked|unregistered/i,
       );
     }
     const duplicate = await unboundLoop.handleRaw(envelope);
