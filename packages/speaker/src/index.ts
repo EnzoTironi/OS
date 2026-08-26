@@ -8,6 +8,7 @@ export * from "./audience.js";
 export * from "./activate.js";
 export * from "./step-up.js";
 export * from "./identity-directory.js";
+export * from "./permission.js";
 export * from "./public-origin.js";
 export * from "./boundary.js";
 export * from "./turn-store.js";

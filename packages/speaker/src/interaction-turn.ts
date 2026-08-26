@@ -9,7 +9,6 @@ import {
   type TurnAttemptId,
 } from "./brands.js";
 import {
-  createFirstContactTools,
   createInteractionScratch,
   createInteractionTools,
   splitSpokenBubbles,
@@ -32,6 +31,7 @@ import {
   type PersonalWriteKind,
   type SpeakerActionClient,
 } from "./osdk-action-client.js";
+import type { ChannelAssurance } from "./permission.js";
 import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
 import type {
   WorldQueryClient,
@@ -86,6 +86,8 @@ export interface InteractionTurnInput {
   readonly store?: TurnStore;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  readonly channelAssurance?: ChannelAssurance;
+  readonly mintOnboardHref?: () => Promise<string>;
   /** Status bubble after generate/spawn_execution exceeds this. Default 2000. */
   readonly statusAfterMs?: number;
   readonly debounceMs?: number;
@@ -156,7 +158,9 @@ export async function runInteractionTurn(
   await coordinator.advanceStage(attemptId, "reasoning");
   const reasoned = await reasonTurn({
     actions: input.actions ?? createSpeakerActionClientFromEnv(),
+    channelAssurance: input.channelAssurance,
     executeWork: input.executeWork,
+    mintOnboardHref: input.mintOnboardHref,
     inbound: input.inbound,
     inboundText,
     locale,
@@ -416,6 +420,8 @@ interface ReasonTurnResult {
 
 async function reasonTurn(input: {
   readonly actions?: SpeakerActionClient;
+  readonly channelAssurance?: ChannelAssurance;
+  readonly mintOnboardHref?: () => Promise<string>;
   readonly executeWork?: (task: string) => Promise<string>;
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
@@ -440,8 +446,10 @@ async function reasonTurn(input: {
     stopWhen: isStepCount(8),
     tools: createInteractionTools(scratch, {
       actions: input.actions,
+      channelAssurance: input.channelAssurance,
       clock: input.clock,
       executeWork: input.executeWork,
+      mintOnboardHref: input.mintOnboardHref,
       statusAfterMs: input.statusAfterMs,
     }),
   });

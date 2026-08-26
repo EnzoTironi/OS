@@ -5,6 +5,10 @@ import type {
   PersonalWriteKind,
   SpeakerActionClient,
 } from "./osdk-action-client.js";
+import {
+  permissionForFeature,
+  type ChannelAssurance,
+} from "./permission.js";
 
 const speakToUserSchema = z
   .object({
@@ -39,6 +43,12 @@ const remindSchema = z
   })
   .strict();
 
+const requestExternalSchema = z
+  .object({
+    boundary: z.enum(["web_report", "bank_access", "fiscal_issuance"]),
+  })
+  .strict();
+
 /**
  * Mutable scratch for one reasoning stage. Tools record here.
  * User-visible text comes only from speak_to_user.
@@ -59,6 +69,8 @@ export interface InteractionToolOptions {
   /** Wall time that marks spawn_execution as slow. Production default is 2000. */
   readonly statusAfterMs?: number;
   readonly clock?: () => number;
+  readonly channelAssurance?: ChannelAssurance;
+  readonly mintOnboardHref?: () => Promise<string>;
 }
 
 export function createInteractionScratch(): InteractionScratch {
@@ -89,7 +101,45 @@ export function createInteractionTools(
 ): ToolSet {
   const statusAfterMs = options.statusAfterMs ?? 2000;
   const clock = options.clock ?? Date.now;
+  const channelAssurance = options.channelAssurance ?? "whatsapp_phone";
   return {
+    request_external: tool({
+      description:
+        "Ask for a web report, bank access, or fiscal issuance. Do not claim it ran. Speak after this returns.",
+      execute: async ({ boundary }) => {
+        const decision = permissionForFeature({
+          channelAssurance,
+          feature: { boundary, kind: "external" },
+        });
+        switch (decision.kind) {
+          case "allow":
+            return { allowed: true, ok: true };
+          case "escalate": {
+            if (
+              scratch.href !== undefined ||
+              options.mintOnboardHref === undefined
+            ) {
+              return { ok: false };
+            }
+            try {
+              const href = (await options.mintOnboardHref()).trim();
+              if (!/^https:\/\//i.test(href) || !href.includes("/onboard/")) {
+                return { ok: false };
+              }
+              scratch.href = href;
+              return { allowed: false, escalate: true, ok: true };
+            } catch {
+              return { ok: false };
+            }
+          }
+          default: {
+            const exhaustive: never = decision;
+            return exhaustive;
+          }
+        }
+      },
+      inputSchema: requestExternalSchema,
+    }),
     note: tool({
       description:
         "Write a personal memory through Propose then Commit. Speak only after this returns ok. Never claim you wrote it if this fails.",
@@ -157,22 +207,6 @@ export function createInteractionTools(
         return { ok: true };
       },
       inputSchema: waitSchema,
-    }),
-  };
-}
-
-export function createFirstContactTools(scratch: InteractionScratch): ToolSet {
-  return {
-    speak_to_user: tool({
-      description:
-        "Record one conversational reply for the person. Never mention tools, agents, or this function.",
-      execute: async ({ text }) => {
-        for (const bubble of splitSpokenBubbles(text)) {
-          scratch.bubbles.push(bubble);
-        }
-        return { ok: true };
-      },
-      inputSchema: speakToUserSchema,
     }),
   };
 }
