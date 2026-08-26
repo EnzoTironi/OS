@@ -59,6 +59,7 @@ test("work settling before the gate cancels the timer and never fires onGate", a
   });
   assert.equal(result.value, "done");
   assert.equal(result.gated, false);
+  assert.equal(result.dispatched, false);
   assert.equal(onGateCalls, 0);
   assert.equal(clock.pendingCount(), 0);
 });
@@ -85,6 +86,7 @@ test("work still pending at the gate fires onGate exactly once", async () => {
   const result = await race;
   assert.equal(result.value, "finally");
   assert.equal(result.gated, true);
+  assert.equal(result.dispatched, true);
 });
 
 test("onGate is awaited before the race settles, so it never leaks unhandled", async () => {
@@ -111,6 +113,7 @@ test("onGate is awaited before the race settles, so it never leaks unhandled", a
   assert.equal(onGateSettled, true);
   assert.equal(result.value, "ready");
   assert.equal(result.gated, true);
+  assert.equal(result.dispatched, true);
 });
 
 test("onGate rejection is swallowed, not surfaced as an unhandled rejection", async () => {
@@ -129,6 +132,7 @@ test("onGate rejection is swallowed, not surfaced as an unhandled rejection", as
   const result = await race;
   assert.equal(result.value, "still delivered");
   assert.equal(result.gated, true);
+  assert.equal(result.dispatched, false);
 });
 
 test("work rejection propagates after a fired onGate finishes running", async () => {
@@ -165,5 +169,46 @@ test("real setTimeout default schedule still gates a genuinely slow promise", as
   });
   assert.equal(fired, true);
   assert.equal(result.gated, true);
+  assert.equal(result.dispatched, true);
   assert.equal(result.value, "late");
+});
+
+test("cancel that invokes the callback after settle cannot fire onGate", async () => {
+  let onGateCalls = 0;
+  const result = await raceWithStatusGate({
+    gateMs: 2000,
+    onGate: () => {
+      onGateCalls += 1;
+    },
+    schedule: (fn) => ({
+      cancel() {
+        fn();
+      },
+    }),
+    work: Promise.resolve("done"),
+  });
+  assert.equal(result.gated, false);
+  assert.equal(result.dispatched, false);
+  assert.equal(onGateCalls, 0);
+});
+
+test("a hung onGate does not stall the race after settleMs", async () => {
+  const clock = createManualClock();
+  const work = deferred<string>();
+  const started = Date.now();
+  const race = raceWithStatusGate({
+    gateMs: 10,
+    onGate: () => new Promise<void>(() => undefined),
+    schedule: clock.schedule,
+    settleMs: 25,
+    work: work.promise,
+  });
+  await clock.advance(10);
+  work.resolve("ready");
+  const result = await race;
+  const elapsed = Date.now() - started;
+  assert.equal(result.value, "ready");
+  assert.equal(result.gated, true);
+  assert.equal(result.dispatched, false);
+  assert.ok(elapsed < 500, `hung onGate stalled the race for ${elapsed}ms`);
 });

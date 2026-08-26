@@ -629,6 +629,13 @@ async function waitUntilGateArmed(gate: { pendingCount(): number }): Promise<voi
   assert.equal(gate.pendingCount(), 1, "status gate never armed");
 }
 
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let i = 0; i < 50 && !predicate(); i++) {
+    await tick();
+  }
+  assert.equal(predicate(), true, "condition never became true");
+}
+
 const STATUS_PHRASE_PT = /^(vendo|anotando|agendando|um seg)$/;
 
 test("bound 1:1 fast model reply sends only the final bubble, no status", async () => {
@@ -677,8 +684,94 @@ test("bound 1:1 slow model sends exactly one status bubble, then the final answe
     doGenerate: async () => {
       step += 1;
       if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({ task: "consultar" }),
+              toolCallId: "call_spawn",
+              toolName: "spawn_execution",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        };
+      }
+      if (step === 2) {
         await held;
-        return speakCall("vendo, ficou 12 each");
+        return speakCall("vendo\nficou 12 each");
+      }
+      return stopCall();
+    },
+  });
+  const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
+    doorE164,
+    executeWork: async () => "status: ok",
+    identity: boundIdentity(speaker),
+    model,
+    schedule: clock.schedule,
+    session,
+    statusAfterMs: 2000,
+  });
+  const turn = loop.handleRaw(
+    inbound({ body: "quanto ficou o pedido", messageId: "wamid.slow-model" }),
+  );
+
+  await waitUntil(() => step >= 2);
+  await waitUntilGateArmed(clock);
+  await clock.advance(1999);
+  assert.equal(session.sent().length, 0, "no status before the gate elapses");
+
+  await clock.advance(1);
+  await tick();
+  assert.equal(session.sent().length, 1, "exactly one status bubble at the gate");
+  const status = session.sent()[0];
+  assert.ok(status);
+  if (status.shape.kind === "text") {
+    assert.equal(status.shape.text, "vendo");
+  }
+
+  releaseGenerate?.();
+  const result = await turn;
+  assert.equal(result.kind, "bound");
+  assert.equal(session.sent().length, 2, "status then final, never a duplicate status");
+  const final = session.sent()[1];
+  assert.ok(final);
+  if (final.shape.kind === "text") {
+    assert.equal(final.shape.text, "ficou 12 each");
+    assert.doesNotMatch(final.shape.text, STATUS_PHRASE_PT);
+  }
+  await session.close();
+});
+
+test("bound 1:1 slow wait sends zero WhatsApp messages", async () => {
+  const session = await readySession();
+  const clock = createManualClock();
+  let releaseGenerate: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    releaseGenerate = resolve;
+  });
+  let step = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        await held;
+        return {
+          content: [
+            {
+              input: JSON.stringify({}),
+              toolCallId: "call_wait",
+              toolName: "wait",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        };
       }
       return stopCall();
     },
@@ -693,31 +786,16 @@ test("bound 1:1 slow model sends exactly one status bubble, then the final answe
     statusAfterMs: 2000,
   });
   const turn = loop.handleRaw(
-    inbound({ body: "quanto ficou o pedido", messageId: "wamid.slow-model" }),
+    inbound({ body: "obrigado pela ajuda", messageId: "wamid.slow-wait" }),
   );
-
   await waitUntilGateArmed(clock);
-  await clock.advance(1999);
-  assert.equal(session.sent().length, 0, "no status before the gate elapses");
-
-  await clock.advance(1);
-  await tick(); // let the dispatched status bubble land on the session
-  assert.equal(session.sent().length, 1, "exactly one status bubble at the gate");
-  const status = session.sent()[0];
-  assert.ok(status);
-  if (status.shape.kind === "text") {
-    assert.match(status.shape.text, STATUS_PHRASE_PT);
-  }
-
+  await clock.advance(2000);
+  await tick();
+  assert.equal(session.sent().length, 0, "slow wait must not emit a status bubble");
   releaseGenerate?.();
   const result = await turn;
   assert.equal(result.kind, "bound");
-  assert.equal(session.sent().length, 2, "status then final, never a duplicate status");
-  const final = session.sent()[1];
-  assert.ok(final);
-  if (final.shape.kind === "text") {
-    assert.equal(final.shape.text, "vendo, ficou 12 each");
-  }
+  assert.equal(session.sent().length, 0);
   await session.close();
 });
 

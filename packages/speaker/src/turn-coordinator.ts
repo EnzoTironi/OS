@@ -35,12 +35,18 @@ export type ConversationalStage =
 export const TURN_DEBOUNCE_MS = 1750;
 export const TURN_STATUS_AFTER_MS = 2000;
 
-/**
- * Reserved `DeliveryIntent.sequenceIndex` for the one interim status bubble
- * a turn may send while Tier 2 is still working. Never collides with a
- * final answer's sequence, which always starts at 0.
- */
-export const STATUS_DELIVERY_SEQUENCE_INDEX = -1;
+/** Idempotency key for the one interim status send on an attempt. */
+export function statusDeliveryId(primaryId: InteractionId): string {
+  return `spd_${primaryId}_status`;
+}
+
+/** Idempotency key for final bubble `sequenceIndex` on an attempt. */
+export function finalDeliveryId(
+  primaryId: InteractionId,
+  sequenceIndex: number,
+): string {
+  return `spd_${primaryId}_${sequenceIndex}`;
+}
 
 export type ScheduleHandle = {
   cancel(): void;
@@ -141,6 +147,7 @@ export function createConversationTurnCoordinator(
   const timers = new Map<string, ScheduleHandle>();
   const claims = new Map<string, ArmedClaim>();
   const meta = new Map<string, ConversationMeta>();
+  const statusInFlight = new Set<string>();
 
   const coordinator: ConversationTurnCoordinator = {
     async signalInbound(input) {
@@ -386,7 +393,10 @@ export function createConversationTurnCoordinator(
         sequenceIndex++
       ) {
         await coordinator.assertNotSuperseded(input.attemptId);
-        const stableProviderDeliveryId = `spd_${primaryId}_${sequenceIndex}`;
+        const stableProviderDeliveryId = finalDeliveryId(
+          primaryId,
+          sequenceIndex,
+        );
         const intent: DeliveryIntent = {
           controlRefs: [],
           deliveryGroupId: groupId,
@@ -452,7 +462,7 @@ export function createConversationTurnCoordinator(
 
     async deliverStatusLine(input) {
       const attempt = await store.getAttempt(input.attemptId);
-      if (attempt === undefined || attempt.phase.kind === "superseded") {
+      if (!canSendInterimStatus(attempt)) {
         return undefined;
       }
       const primaryId =
@@ -461,42 +471,63 @@ export function createConversationTurnCoordinator(
       if (primaryId === undefined) {
         return undefined;
       }
-      const record = await store.getRecord(primaryId);
-      if (record === undefined) {
+      const stableProviderDeliveryId = statusDeliveryId(primaryId);
+      if (statusInFlight.has(stableProviderDeliveryId)) {
         return undefined;
       }
-      const stableProviderDeliveryId = `spd_${primaryId}_status`;
       const claim = await store.claimDelivery(stableProviderDeliveryId);
       if (claim === "duplicate") {
         return undefined;
       }
-      const intent: DeliveryIntent = {
-        controlRefs: [],
-        deliveryGroupId: deliveryGroupId(`dg_${randomBytes(8).toString("hex")}`),
-        id: deliveryIntentId(`di_${randomBytes(10).toString("hex")}`),
-        presentation: presentationIntentRef(input.presentation),
-        provider: record.ctx.channel.provider,
-        recordId: primaryId,
-        sequenceIndex: STATUS_DELIVERY_SEQUENCE_INDEX,
-        stableProviderDeliveryId,
-        target: {
-          kind: "same_thread",
-          thread: record.ctx.channel.thread,
-        },
-        turnAttemptId: input.attemptId,
-      };
-      await store.putDeliveryIntent(intent);
-      options.transportCache?.set(`intent:${intent.id}`, intent);
-      const outcome =
-        (await options.deliver?.(intent)) ?? defaultDeliver(intent);
-      const observation: DeliveryObservation = {
-        id: deliveryObservationId(`do_${randomBytes(10).toString("hex")}`),
-        intentId: intent.id,
-        observedAt: now().toISOString(),
-        outcome,
-      };
-      await store.putDeliveryObservation(observation);
-      return observation;
+      statusInFlight.add(stableProviderDeliveryId);
+      try {
+        const record = await store.getRecord(primaryId);
+        if (record === undefined) {
+          await store.releaseDelivery(stableProviderDeliveryId);
+          return undefined;
+        }
+        const latest = await store.getAttempt(input.attemptId);
+        if (!canSendInterimStatus(latest)) {
+          await store.releaseDelivery(stableProviderDeliveryId);
+          return undefined;
+        }
+        const intent: DeliveryIntent = {
+          controlRefs: [],
+          deliveryGroupId: deliveryGroupId(`dg_${randomBytes(8).toString("hex")}`),
+          id: deliveryIntentId(`di_${randomBytes(10).toString("hex")}`),
+          presentation: presentationIntentRef(input.presentation),
+          provider: record.ctx.channel.provider,
+          recordId: primaryId,
+          stableProviderDeliveryId,
+          target: {
+            kind: "same_thread",
+            thread: record.ctx.channel.thread,
+          },
+          turnAttemptId: input.attemptId,
+        };
+        await store.putDeliveryIntent(intent);
+        options.transportCache?.set(`intent:${intent.id}`, intent);
+        const beforeSend = await store.getAttempt(input.attemptId);
+        if (!canSendInterimStatus(beforeSend)) {
+          await store.releaseDelivery(stableProviderDeliveryId);
+          return undefined;
+        }
+        const outcome =
+          (await options.deliver?.(intent)) ?? defaultDeliver(intent);
+        const observation: DeliveryObservation = {
+          id: deliveryObservationId(`do_${randomBytes(10).toString("hex")}`),
+          intentId: intent.id,
+          observedAt: now().toISOString(),
+          outcome,
+        };
+        await store.putDeliveryObservation(observation);
+        return observation;
+      } catch (error) {
+        await store.releaseDelivery(stableProviderDeliveryId);
+        throw error;
+      } finally {
+        statusInFlight.delete(stableProviderDeliveryId);
+      }
     },
 
     async recoverDelivery(intentId) {
@@ -649,6 +680,32 @@ function ensureWaiter(
   const waiter = { promise, resolve };
   claims.set(conversationKey, waiter);
   return waiter;
+}
+
+function canSendInterimStatus(
+  attempt: TurnAttempt | undefined,
+): attempt is TurnAttempt {
+  if (attempt === undefined) {
+    return false;
+  }
+  switch (attempt.phase.kind) {
+    case "debouncing":
+    case "claiming":
+    case "assembling_context":
+    case "reasoning":
+    case "rendering":
+    case "planning_delivery":
+      return true;
+    case "delivering":
+    case "completed":
+    case "superseded":
+    case "failed":
+      return false;
+    default: {
+      const exhaustive: never = attempt.phase;
+      return exhaustive;
+    }
+  }
 }
 
 function isDeliveringPhase(phase: TurnAttemptPhase): boolean {

@@ -1,26 +1,14 @@
 /**
- * Tier 1: deterministic, no-model classification for one inbound text.
+ * Coarse inbound intent for the host-owned status phrase.
  *
- * Two jobs, both sub-millisecond and side-effect free. First, recognize a
- * closing acknowledgment (valeu, ok, thanks) so the turn can skip Tier 2
- * entirely, the same outcome the `wait` tool produces today but without
- * paying for a model round trip. Second, name the coarse intent behind a
- * message so the status gate (see status-gate.ts) can show a status line
- * that matches what Tier 2 is doing instead of a generic filler.
+ * This does not decide wait vs speak. The `wait` tool still owns that
+ * speech act. The regex only names which status line transport may send
+ * if the turn has already started non-wait work past the gate.
  */
 
-export type FastPathLocale = "pt" | "en";
+export type StatusLocale = "pt" | "en";
 
-export type FastPathIntent = "note" | "remind" | "lookup" | "generic";
-
-export type FastPathClassification =
-  | { readonly kind: "simple_ack" }
-  | { readonly kind: "continue"; readonly intent: FastPathIntent };
-
-// Mirrors the closing-ack list already named in interactionInstructions:
-// pt "valeu, ok, show, obrigado", en "thanks, ok, show".
-const ACK_PATTERN =
-  /^(valeu|vlw|obrigad[oa]s?|obg|de nada|ok(?:ay)?|show|thanks?(?: you)?|tks|ty)[.!]*$/i;
+export type StatusIntent = "note" | "remind" | "lookup" | "generic";
 
 const NOTE_PATTERN =
   /\b(anota|anote|anotar|guarda|guardar|escreve|escrever|note down|write down)\b/i;
@@ -30,34 +18,29 @@ const LOOKUP_PATTERN =
   /\b(quanto|cotação|cotacao|pedido|preço|preco|prazo|onde|status|how much|quote|order|price|when|where)\b/i;
 
 /**
- * Classify one inbound text without a model call.
+ * Name the status-phrase intent for one inbound text.
  *
- * @param text - Raw inbound text, untrimmed is fine
- * @returns `simple_ack` when the turn can end right away (empty send, no
- * Tier 2), otherwise `continue` with the coarse intent Tier 2 is about to
- * work on
+ * Empty or unmatched text is `generic`. Acknowledgments such as `ok` /
+ * `valeu` stay `generic` so Tier 2 still runs.
  */
-export function classifyFastPath(text: string): FastPathClassification {
+export function classifyStatusIntent(text: string): StatusIntent {
   const normalized = text.trim();
   if (normalized.length === 0) {
-    return { intent: "generic", kind: "continue" };
-  }
-  if (ACK_PATTERN.test(normalized)) {
-    return { kind: "simple_ack" };
+    return "generic";
   }
   if (NOTE_PATTERN.test(normalized)) {
-    return { intent: "note", kind: "continue" };
+    return "note";
   }
   if (REMIND_PATTERN.test(normalized)) {
-    return { intent: "remind", kind: "continue" };
+    return "remind";
   }
   if (LOOKUP_PATTERN.test(normalized)) {
-    return { intent: "lookup", kind: "continue" };
+    return "lookup";
   }
-  return { intent: "generic", kind: "continue" };
+  return "generic";
 }
 
-const STATUS_PHRASES: Record<FastPathLocale, Record<FastPathIntent, string>> = {
+const STATUS_PHRASES: Record<StatusLocale, Record<StatusIntent, string>> = {
   en: {
     generic: "one sec",
     lookup: "looking",
@@ -72,18 +55,31 @@ const STATUS_PHRASES: Record<FastPathLocale, Record<FastPathIntent, string>> = {
   },
 };
 
-/**
- * Immediate, context-aware status line for `intent`. No model call, no
- * randomness: same locale and intent always name the same phrase.
- */
+/** Same locale and intent always name the same phrase. */
 export function pickStatusPhrase(
-  locale: FastPathLocale,
-  intent: FastPathIntent,
+  locale: StatusLocale,
+  intent: StatusIntent,
 ): string {
   return STATUS_PHRASES[locale][intent];
 }
 
 /** True when `text` is exactly one of the status phrases for `locale`. */
-export function isStatusPhrase(text: string, locale: FastPathLocale): boolean {
+export function isStatusPhrase(text: string, locale: StatusLocale): boolean {
   return Object.values(STATUS_PHRASES[locale]).includes(text.trim());
+}
+
+/**
+ * Drop a leading host-owned status phrase from final bubbles.
+ * Leaves the rest of the list untouched, including a phrase that is only
+ * a prefix of a longer bubble.
+ */
+export function dropLeadingStatusPhrase(
+  bubbles: readonly string[],
+  locale: StatusLocale,
+): string[] {
+  const first = bubbles[0];
+  if (first !== undefined && isStatusPhrase(first, locale)) {
+    return bubbles.slice(1);
+  }
+  return [...bubbles];
 }

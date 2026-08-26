@@ -505,6 +505,143 @@ test("deliverStatusLine skips a superseded attempt instead of sending stale text
   assert.equal(sends.length, 0);
 });
 
+test("deliverStatusLine skips after the attempt is completed or failed", async () => {
+  const store = createMemoryTurnStore();
+  const sends: string[] = [];
+  const coordinator = createConversationTurnCoordinator({
+    debounceMs: 0,
+    deliver: async (intent) => {
+      sends.push(intent.stableProviderDeliveryId);
+      return {
+        kind: "accepted",
+        providerMessage: providerMessageRef(`pm_${sends.length}`),
+      };
+    },
+    store,
+  });
+  const conversationKey = conversationKeyFrom({
+    accountId: "account.wa.enzo",
+    conversationId: "wa:status-terminal",
+    tenantId: "tenant.wa.enzo",
+    workspaceId: "workload.personal",
+  });
+  await coordinator.signalInbound({
+    conversationKey,
+    record: record("quanto ficou", "status-term"),
+    workspaceId: "workload.personal",
+  });
+  const claimed = await coordinator.awaitClaim(conversationKey);
+  assert.ok(claimed);
+  await coordinator.acknowledgeSilentClose(claimed.attempt.id);
+  const status = await coordinator.deliverStatusLine({
+    attemptId: claimed.attempt.id,
+    presentation: "turn:status",
+  });
+  assert.equal(status, undefined);
+  assert.equal(sends.length, 0);
+});
+
+test("deliverStatusLine re-checks phase immediately before send", async () => {
+  const store = createMemoryTurnStore();
+  const sends: string[] = [];
+  const coordinator = createConversationTurnCoordinator({
+    debounceMs: 0,
+    deliver: async (intent) => {
+      sends.push(intent.stableProviderDeliveryId);
+      return {
+        kind: "accepted",
+        providerMessage: providerMessageRef(`pm_${sends.length}`),
+      };
+    },
+    store,
+  });
+  const conversationKey = conversationKeyFrom({
+    accountId: "account.wa.enzo",
+    conversationId: "wa:status-mid",
+    tenantId: "tenant.wa.enzo",
+    workspaceId: "workload.personal",
+  });
+  await coordinator.signalInbound({
+    conversationKey,
+    record: record("um", "status-mid1"),
+    workspaceId: "workload.personal",
+  });
+  const claimed = await coordinator.awaitClaim(conversationKey);
+  assert.ok(claimed);
+  await coordinator.advanceStage(claimed.attempt.id, "reasoning");
+
+  const originalGetRecord = store.getRecord.bind(store);
+  store.getRecord = async (id) => {
+    const open = await store.getAttempt(claimed.attempt.id);
+    if (open !== undefined) {
+      await store.putAttempt({
+        ...open,
+        phase: {
+          at: "2026-08-26T14:00:00.000Z",
+          byAttemptId: claimed.attempt.id,
+          kind: "superseded",
+        },
+      });
+    }
+    return originalGetRecord(id);
+  };
+
+  const status = await coordinator.deliverStatusLine({
+    attemptId: claimed.attempt.id,
+    presentation: "turn:status",
+  });
+  assert.equal(status, undefined);
+  assert.equal(sends.length, 0);
+});
+
+test("deliverStatusLine throw does not fail the attempt and can retry", async () => {
+  const store = createMemoryTurnStore();
+  let blows = 0;
+  const coordinator = createConversationTurnCoordinator({
+    debounceMs: 0,
+    deliver: async () => {
+      blows += 1;
+      if (blows === 1) {
+        throw new Error("companion hung");
+      }
+      return {
+        kind: "accepted",
+        providerMessage: providerMessageRef("pm_retry"),
+      };
+    },
+    store,
+  });
+  const conversationKey = conversationKeyFrom({
+    accountId: "account.wa.enzo",
+    conversationId: "wa:status-retry",
+    tenantId: "tenant.wa.enzo",
+    workspaceId: "workload.personal",
+  });
+  await coordinator.signalInbound({
+    conversationKey,
+    record: record("quanto ficou", "status-retry"),
+    workspaceId: "workload.personal",
+  });
+  const claimed = await coordinator.awaitClaim(conversationKey);
+  assert.ok(claimed);
+  await coordinator.advanceStage(claimed.attempt.id, "reasoning");
+  await assert.rejects(
+    coordinator.deliverStatusLine({
+      attemptId: claimed.attempt.id,
+      presentation: "turn:status",
+    }),
+    /companion hung/,
+  );
+  const afterFail = await store.getAttempt(claimed.attempt.id);
+  assert.equal(afterFail?.phase.kind, "reasoning");
+  const retry = await coordinator.deliverStatusLine({
+    attemptId: claimed.attempt.id,
+    presentation: "turn:status",
+  });
+  assert.ok(retry);
+  assert.equal(blows, 2);
+});
+
 test("silent close is durable and does not send", async () => {
   const store = createMemoryTurnStore();
   let sends = 0;

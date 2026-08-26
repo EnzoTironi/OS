@@ -3,23 +3,31 @@ import path from "node:path";
 import type { LanguageModel } from "ai";
 import {
   ChannelSubjectResolveError,
+  classifyStatusIntent,
   conversationKeyFrom,
   createConversationTurnCoordinator,
   createInteractionBoundary,
   createInteractionControlRegistry,
+  createInteractionScratch,
   createMemoryControlStore,
   createMemoryTurnStore,
   createPostgresTurnStore,
   deliveryIntentId,
   deliveryObservationId,
+  detectInboundLocale,
+  dropLeadingStatusPhrase,
+  finalDeliveryId,
   outboundBubbles,
+  pickStatusPhrase,
   presentationIntentRef,
   providerKey,
+  raceWithStatusGate,
   resolvePublicOrigin,
   runInteractionTurn,
-  STATUS_DELIVERY_SEQUENCE_INDEX,
+  statusDeliveryId,
   toInteractionInbound,
   TURN_DEBOUNCE_MS,
+  TURN_STATUS_AFTER_MS,
   type ClaimResult,
   type ConversationKey,
   type DeliveryIntent,
@@ -263,14 +271,14 @@ export function createWhatsAppContactLoop(
     },
   });
   const store = options.store ?? createMemoryTurnStore();
-  const outboundByAttempt = new Map<string, Map<number, string>>();
+  const outboundByAttempt = new Map<string, Map<string, string>>();
   const coordinator = createConversationTurnCoordinator({
     debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
     deliver: async (intent: DeliveryIntent) => {
       const attemptId = intent.turnAttemptId;
       const bubbles =
         attemptId === undefined ? undefined : outboundByAttempt.get(attemptId);
-      const text = bubbles?.get(intent.sequenceIndex ?? 0);
+      const text = bubbles?.get(intent.stableProviderDeliveryId);
       if (text === undefined) {
         throw new Error("bound whatsapp turn missing outbound bubble");
       }
@@ -307,36 +315,59 @@ export function createWhatsAppContactLoop(
     const chatJid = String(record.inbound.channel.thread);
     await sendPresence(options.session, chatJid, "composing");
     try {
-      const reply = await runInteractionTurn({
-        attemptId: claimed.attempt.id,
-        channelAssurance: "whatsapp_phone",
-        coordinator,
-        debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
-        executeWork: options.executeWork,
-        inbound: toInteractionInbound(record.inbound),
-        membership,
-        model: options.model,
-        now,
-        onStatusLine: async (text) => {
+      const inbound = toInteractionInbound(record.inbound);
+      const inboundText = inbound.kind === "text" ? inbound.text : "";
+      const locale = detectInboundLocale(inboundText);
+      const intent = classifyStatusIntent(inboundText);
+      const scratch = createInteractionScratch();
+      const statusId = statusDeliveryId(primaryId);
+      const raced = await raceWithStatusGate({
+        gateMs: options.statusAfterMs ?? TURN_STATUS_AFTER_MS,
+        onGate: async () => {
+          if (scratch.waited || !scratch.startedWork) {
+            return;
+          }
           setOutboundBubble(
             outboundByAttempt,
             claimed.attempt.id,
-            STATUS_DELIVERY_SEQUENCE_INDEX,
-            text,
+            statusId,
+            pickStatusPhrase(locale, intent),
           );
-          await coordinator.deliverStatusLine({
+          const sent = await coordinator.deliverStatusLine({
             attemptId: claimed.attempt.id,
             presentation: `turn:${claimed.turn.id}:status`,
           });
+          if (sent === undefined) {
+            throw new Error("status line not delivered");
+          }
         },
-        publicWebOrigin: options.publicWebOrigin,
         schedule: options.schedule,
-        statusAfterMs: options.statusAfterMs,
-        store,
+        work: runInteractionTurn({
+          attemptId: claimed.attempt.id,
+          channelAssurance: "whatsapp_phone",
+          coordinator,
+          debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
+          executeWork: options.executeWork,
+          inbound,
+          membership,
+          model: options.model,
+          now,
+          publicWebOrigin: options.publicWebOrigin,
+          scratch,
+          store,
+        }),
       });
-      const bubbles = outboundBubbles(reply);
+      let bubbles = outboundBubbles(raced.value);
+      if (raced.gated) {
+        bubbles = dropLeadingStatusPhrase(bubbles, locale);
+      }
       bubbles.forEach((text, index) =>
-        setOutboundBubble(outboundByAttempt, claimed.attempt.id, index, text),
+        setOutboundBubble(
+          outboundByAttempt,
+          claimed.attempt.id,
+          finalDeliveryId(primaryId, index),
+          text,
+        ),
       );
       const delivered =
         bubbles.length === 0
@@ -347,6 +378,12 @@ export function createWhatsAppContactLoop(
               sequenceCount: bubbles.length,
             });
       return delivered[delivered.length - 1] ?? waitObservation(claimed.attempt.id);
+    } catch (error) {
+      const attempt = await coordinator.getAttempt(claimed.attempt.id);
+      if (attempt?.phase.kind === "superseded") {
+        return waitObservation(claimed.attempt.id);
+      }
+      throw error;
     } finally {
       await sendPresence(options.session, chatJid, "paused");
     }
@@ -581,13 +618,13 @@ function isDoorJid(jid: string, doorE164: string): boolean {
 }
 
 function setOutboundBubble(
-  map: Map<string, Map<number, string>>,
+  map: Map<string, Map<string, string>>,
   attemptId: string,
-  sequenceIndex: number,
+  stableProviderDeliveryId: string,
   text: string,
 ): void {
-  const existing = map.get(attemptId) ?? new Map<number, string>();
-  existing.set(sequenceIndex, text);
+  const existing = map.get(attemptId) ?? new Map<string, string>();
+  existing.set(stableProviderDeliveryId, text);
   map.set(attemptId, existing);
 }
 

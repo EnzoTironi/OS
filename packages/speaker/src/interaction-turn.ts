@@ -9,25 +9,16 @@ import {
   type TurnAttemptId,
 } from "./brands.js";
 import {
-  classifyFastPath,
-  pickStatusPhrase,
-  isStatusPhrase,
-  type FastPathIntent,
-} from "./fast-path.js";
-import {
   createFirstContactTools,
   createInteractionScratch,
   createInteractionTools,
   splitSpokenBubbles,
   type InteractionScratch,
 } from "./interaction-tools.js";
-import { raceWithStatusGate } from "./status-gate.js";
 import {
   createConversationTurnCoordinator,
   TURN_DEBOUNCE_MS,
-  TURN_STATUS_AFTER_MS,
   type ConversationTurnCoordinator,
-  type ScheduleFn,
 } from "./turn-coordinator.js";
 import { createMemoryTurnStore, type TurnStore } from "./turn-store.js";
 import type {
@@ -52,8 +43,7 @@ export type ReasonTurnPath =
   | "threw"
   | "noModel"
   | "spoke"
-  | "wait"
-  | "fastAck";
+  | "wait";
 
 export type ReasonTurnGenerate = "ok" | "throw";
 
@@ -98,17 +88,13 @@ export interface InteractionTurnInput {
   readonly executeWork?: (task: string) => Promise<string>;
   readonly channelAssurance?: ChannelAssurance;
   readonly publicWebOrigin?: string;
-  /** Status gate after generate exceeds this. Default 2000 (TURN_STATUS_AFTER_MS). */
-  readonly statusAfterMs?: number;
   readonly debounceMs?: number;
   /**
-   * Dispatch one status line as soon as the gate fires, i.e. while Tier 2
-   * is still running. Omit to keep the legacy behavior of folding the
-   * phrase into the final bubbles once the turn settles.
+   * Shared scratch so a host can observe `startedWork` / `waited` while
+   * generate is still running. Transport uses this to decide whether a
+   * status line may go out. Speaker never sends that line.
    */
-  readonly onStatusLine?: (text: string) => void | Promise<void>;
-  /** Injectable timer for the status gate. Real `setTimeout` by default. */
-  readonly schedule?: ScheduleFn;
+  readonly scratch?: InteractionScratch;
   readonly actions?: SpeakerActionClient;
 }
 
@@ -122,7 +108,6 @@ const WRITE_FAIL_EN = {
   note: "couldn't note that down now",
   remind: "couldn't schedule that now",
 } as const;
-const STATUS_AFTER_MS = TURN_STATUS_AFTER_MS;
 
 export interface ReasonTurnLog {
   readonly event: "reasonTurn";
@@ -169,34 +154,22 @@ export async function runInteractionTurn(
   const locale = detectInboundLocale(
     input.inbound.kind === "text" ? inboundText : "",
   );
-  const fastPath =
-    input.inbound.kind === "text"
-      ? classifyFastPath(inboundText)
-      : ({ intent: "generic", kind: "continue" } as const);
-
   const snapshot = await assembleWorld(ctx, input.world);
-  let reasoned: ReasonTurnResult;
-  if (fastPath.kind === "simple_ack") {
-    reasoned = { generate: "ok", path: "fastAck", scratch: ackScratch() };
-  } else {
-    await coordinator.advanceStage(attemptId, "reasoning");
-    reasoned = await reasonTurn({
-      actions: input.actions ?? createSpeakerActionClientFromEnv(),
-      channelAssurance: input.channelAssurance,
-      executeWork: input.executeWork,
-      inbound: input.inbound,
-      inboundText,
-      intent: fastPath.intent,
-      locale,
-      model: input.model ?? resolveLanguageModel(),
-      onStatusLine: input.onStatusLine,
-      publicWebOrigin: input.publicWebOrigin,
-      schedule: input.schedule,
-      snapshot,
-      statusAfterMs: input.statusAfterMs ?? STATUS_AFTER_MS,
-    });
-  }
-  const scratch = reasoned.scratch;
+  const scratch = input.scratch ?? createInteractionScratch();
+
+  await coordinator.advanceStage(attemptId, "reasoning");
+  const reasoned = await reasonTurn({
+    actions: input.actions ?? createSpeakerActionClientFromEnv(),
+    channelAssurance: input.channelAssurance,
+    executeWork: input.executeWork,
+    inbound: input.inbound,
+    inboundText,
+    locale,
+    model: input.model ?? resolveLanguageModel(),
+    publicWebOrigin: input.publicWebOrigin,
+    scratch,
+    snapshot,
+  });
   const hiddenIds = hiddenIdentityTokens(ctx, snapshot);
 
   await coordinator.advanceStage(attemptId, "rendering");
@@ -446,20 +419,6 @@ interface ReasonTurnResult {
   readonly scratch: InteractionScratch;
 }
 
-/**
- * Run the Tier 2 model turn, racing it against the status gate.
- *
- * Tier 2 always runs to completion regardless of the gate: the gate only
- * decides whether one status line goes out before the answer does.
- * - `onStatusLine` set: dispatch fires for real through it the moment the
- *   gate wins, and the phrase is never folded into the final bubbles (it
- *   already went out as its own message).
- * - `onStatusLine` unset: preserves the pre-gate behavior of prepending the
- *   phrase to the final bubbles once the turn settles, still driven by the
- *   live gate rather than a post-hoc elapsed check.
- * Either way the gate can fire at most once, so at most one status line
- * ever exists for the turn.
- */
 async function reasonTurn(input: {
   readonly actions?: SpeakerActionClient;
   readonly channelAssurance?: ChannelAssurance;
@@ -467,22 +426,19 @@ async function reasonTurn(input: {
   readonly executeWork?: (task: string) => Promise<string>;
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
-  readonly intent: FastPathIntent;
   readonly locale: InteractionLocale;
   readonly model: LanguageModel | undefined;
-  readonly onStatusLine?: (text: string) => void | Promise<void>;
-  readonly schedule?: ScheduleFn;
+  readonly scratch: InteractionScratch;
   readonly snapshot: WorldQuerySnapshot | undefined;
-  readonly statusAfterMs: number;
 }): Promise<ReasonTurnResult> {
+  const scratch = input.scratch;
   if (input.model === undefined) {
     return {
       generate: "ok",
       path: "noModel",
-      scratch: failCopyScratch(input.locale),
+      scratch: applyFailCopy(scratch, input.locale),
     };
   }
-  const scratch = createInteractionScratch();
   const agent = new ToolLoopAgent({
     instructions: interactionInstructions(input.locale),
     maxRetries: 0,
@@ -495,36 +451,27 @@ async function reasonTurn(input: {
       publicWebOrigin: input.publicWebOrigin,
     }),
   });
-  const gate = await raceWithStatusGate({
-    gateMs: input.statusAfterMs,
-    onGate: () => input.onStatusLine?.(pickStatusPhrase(input.locale, input.intent)),
-    schedule: input.schedule,
-    work: agent
-      .generate({
-        prompt: reasoningPrompt(
-          input.inbound,
-          input.inboundText,
-          input.snapshot,
-          input.locale,
-        ),
-      })
-      .then(
-        () => "ok" as const,
-        () => "threw" as const,
+  try {
+    await agent.generate({
+      prompt: reasoningPrompt(
+        input.inbound,
+        input.inboundText,
+        input.snapshot,
+        input.locale,
       ),
-  });
-  if (gate.value === "threw") {
+    });
+  } catch {
     return {
       generate: "throw",
       path: "threw",
-      scratch: failCopyScratch(input.locale),
+      scratch: applyFailCopy(scratch, input.locale),
     };
   }
   if (scratch.writeFail !== undefined) {
     return {
       generate: "ok",
       path: "spoke",
-      scratch: writeFailScratch(input.locale, scratch.writeFail),
+      scratch: applyWriteFail(scratch, input.locale, scratch.writeFail),
     };
   }
   if (scratch.waited) {
@@ -536,11 +483,8 @@ async function reasonTurn(input: {
     return {
       generate: "ok",
       path: "lookupFail",
-      scratch: failCopyScratch(input.locale),
+      scratch: applyFailCopy(scratch, input.locale),
     };
-  }
-  if (gate.gated && input.onStatusLine === undefined && scratch.bubbles.length > 0) {
-    prependLegacyStatus(scratch, input.locale, input.intent);
   }
   return {
     generate: "ok",
@@ -559,35 +503,25 @@ function emitReasonTurnLog(reasonTurn: OutboundTurn["reasonTurn"]): void {
   process.stderr.write(`${JSON.stringify(line)}\n`);
 }
 
-function prependLegacyStatus(
+function applyFailCopy(
   scratch: InteractionScratch,
   locale: InteractionLocale,
-  intent: FastPathIntent,
-): void {
-  const first = scratch.bubbles[0];
-  if (first !== undefined && isStatusPhrase(first, locale)) {
-    return;
-  }
-  scratch.bubbles.unshift(pickStatusPhrase(locale, intent));
-}
-
-function ackScratch(): InteractionScratch {
-  const scratch = createInteractionScratch();
-  scratch.waited = true;
-  return scratch;
-}
-
-function failCopyScratch(locale: InteractionLocale): InteractionScratch {
-  const scratch = createInteractionScratch();
+): InteractionScratch {
+  scratch.bubbles.length = 0;
+  scratch.href = undefined;
+  scratch.waited = false;
   scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
   return scratch;
 }
 
-function writeFailScratch(
+function applyWriteFail(
+  scratch: InteractionScratch,
   locale: InteractionLocale,
   kind: PersonalWriteKind,
 ): InteractionScratch {
-  const scratch = createInteractionScratch();
+  scratch.bubbles.length = 0;
+  scratch.href = undefined;
+  scratch.waited = false;
   switch (locale) {
     case "pt":
       scratch.bubbles.push(WRITE_FAIL_PT[kind]);
@@ -674,7 +608,7 @@ function sanitizeUserText(
   executionNotes: readonly string[] = [],
 ): string {
   let next = text.replace(
-    /\b(speak_to_user|spawn_execution|mint_href|note|remind|wait|ToolLoopAgent|LangGraph|Mastra)\b/gi,
+    /\b(speak_to_user|spawn_execution|mint_href|note|remind|wait|request_external|ToolLoopAgent|LangGraph|Mastra)\b/gi,
     "",
   );
   next = stripTokens(next, hiddenIds);
@@ -825,7 +759,6 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "casa língua e tamanho. inbound em pt sai em pt. um oi é um oi, não um parágrafo",
         "proibido: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
         "world é o assunto. rivais se falam como sujeito. duas leituras ficam de pé. não cumprimente no lugar de responder",
-        "status (vendo, anotando, agendando, um seg) só se passar de 2s. turno rápido: sem essa bolha",
         "sem link falso. sem app.zoen.local. sem nome de tool no texto",
         "erro: não consegui [ação] / deu ruim ao [ação]. fiz merda só se a gente quebrou parse ou código",
         "xinga só se a pessoa já xinga muito nesta conversa. nunca comece",
@@ -842,7 +775,6 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "match language and length. english in, english out. a hi is a hi, not a paragraph",
         "forbidden: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
         "world is the subject. speak rivals as the subject. two readings stand. do not greet instead of answering",
-        "status (looking, noting, scheduling, one sec) only if it exceeds 2s. fast turn: no status bubble",
         "no fake link. no app.zoen.local. no tool names in user text",
         "errors: couldn't [action] / that broke while [action]. 'fiz merda' only for our parse or code bugs",
         "swear only if the person already swears a lot in this conversation. never go first",

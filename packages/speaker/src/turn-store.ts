@@ -73,6 +73,8 @@ export interface TurnStore {
   clearArm(conversationKey: ConversationKey): Promise<void>;
   listUnclaimedConversationKeys(): Promise<readonly ConversationKey[]>;
   claimDelivery(stableProviderDeliveryId: string): Promise<DeliveryClaimResult>;
+  /** Drop a claim so a failed interim send can retry. */
+  releaseDelivery(stableProviderDeliveryId: string): Promise<void>;
 }
 
 export type DeliveryClaimResult = "claimed" | "duplicate";
@@ -212,6 +214,9 @@ export function createMemoryTurnStore(): TurnStore {
       }
       deliveryClaims.add(stableProviderDeliveryId);
       return "claimed";
+    },
+    async releaseDelivery(stableProviderDeliveryId) {
+      deliveryClaims.delete(stableProviderDeliveryId);
     },
   };
 }
@@ -497,6 +502,12 @@ export function createPostgresTurnStore(
         [stableProviderDeliveryId],
       );
       return result.rows[0] === undefined ? "duplicate" : "claimed";
+    },
+    async releaseDelivery(stableProviderDeliveryId) {
+      await client.query(
+        `DELETE FROM delivery_send_claims WHERE stable_provider_delivery_id = $1`,
+        [stableProviderDeliveryId],
+      );
     },
   };
 }
