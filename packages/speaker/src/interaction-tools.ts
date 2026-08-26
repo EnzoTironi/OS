@@ -71,10 +71,17 @@ export function createInteractionScratch(): InteractionScratch {
 }
 
 /**
+ * `wait` is only for thanks / ok closers. Greetings must speak.
+ */
+export const WAIT_TOOL_DESCRIPTION =
+  "End the turn with no user-facing text (empty bubbles). Use only for thanks, ok, show, valeu, or obrigado. Never for greetings (oi, e aí, hi, hey, fala). Do not speak.";
+
+/**
  * Poke-style Interaction tools. Few, and never named in user text.
  *
- * Context: one ToolLoopAgent turn. Closing inbound (valeu, ok, thanks) must
- * call `wait`, not `speak_to_user`. `note` / `remind` Propose then Commit.
+ * Context: one ToolLoopAgent turn. Closing inbound (valeu, ok, show, thanks,
+ * obrigado) must call `wait`, not `speak_to_user`. Greetings never wait.
+ * `note` / `remind` Propose then Commit.
  * Inputs: turn-local scratch plus optional executeWork / actions / statusAfterMs.
  * Outputs: ToolSet. User-visible text is only what `speak_to_user` recorded.
  * Side effects: mutates scratch. Failed writes set `writeFail`. `wait` is silent.
@@ -148,8 +155,7 @@ export function createInteractionTools(
       inputSchema: speakToUserSchema,
     }),
     wait: tool({
-      description:
-        "End the turn with no user-facing text (empty bubbles). Use for thanks, ok, show, or other closing inbound. Do not speak.",
+      description: WAIT_TOOL_DESCRIPTION,
       execute: async () => {
         scratch.waited = true;
         scratch.bubbles.length = 0;
