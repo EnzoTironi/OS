@@ -9,6 +9,7 @@ import {
   type TurnAttemptId,
 } from "./brands.js";
 import {
+  createFirstContactTools,
   createInteractionScratch,
   createInteractionTools,
   splitSpokenBubbles,
@@ -87,7 +88,7 @@ export interface InteractionTurnInput {
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
   readonly channelAssurance?: ChannelAssurance;
-  readonly mintOnboardHref?: () => Promise<string>;
+  readonly publicWebOrigin?: string;
   /** Status bubble after generate/spawn_execution exceeds this. Default 2000. */
   readonly statusAfterMs?: number;
   readonly debounceMs?: number;
@@ -160,7 +161,7 @@ export async function runInteractionTurn(
     actions: input.actions ?? createSpeakerActionClientFromEnv(),
     channelAssurance: input.channelAssurance,
     executeWork: input.executeWork,
-    mintOnboardHref: input.mintOnboardHref,
+    publicWebOrigin: input.publicWebOrigin,
     inbound: input.inbound,
     inboundText,
     locale,
@@ -421,7 +422,7 @@ interface ReasonTurnResult {
 async function reasonTurn(input: {
   readonly actions?: SpeakerActionClient;
   readonly channelAssurance?: ChannelAssurance;
-  readonly mintOnboardHref?: () => Promise<string>;
+  readonly publicWebOrigin?: string;
   readonly executeWork?: (task: string) => Promise<string>;
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
@@ -449,7 +450,7 @@ async function reasonTurn(input: {
       channelAssurance: input.channelAssurance,
       clock: input.clock,
       executeWork: input.executeWork,
-      mintOnboardHref: input.mintOnboardHref,
+      publicWebOrigin: input.publicWebOrigin,
       statusAfterMs: input.statusAfterMs,
     }),
   });

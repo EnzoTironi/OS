@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  escalationHref,
   permissionForFeature,
   type ChannelAssurance,
   type ExternalBoundary,
@@ -46,4 +47,10 @@ test("external boundary with OIDC binding does not prompt login", () => {
     });
     assert.deepEqual(decision, { assurance: "channel_inline", kind: "allow" });
   }
+});
+
+test("escalation href is an approve URL, not an onboard token", () => {
+  const href = escalationHref("https://zoen.tironi.xyz/", "fiscal_issuance");
+  assert.equal(href, "https://zoen.tironi.xyz/approve/external.fiscal_issuance");
+  assert.doesNotMatch(href, /onboard/);
 });

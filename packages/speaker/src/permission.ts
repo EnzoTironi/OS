@@ -23,25 +23,33 @@ export function permissionForFeature(input: {
 }): PermissionDecision {
   switch (input.feature.kind) {
     case "in_lake":
-      return { kind: "allow", assurance: "channel_inline" };
+      return { assurance: "channel_inline", kind: "allow" };
     case "external":
-      switch (input.channelAssurance) {
-        case "whatsapp_phone":
-          return {
-            kind: "escalate",
-            assurance: "oidc_step_up",
-            boundary: input.feature.boundary,
-          };
-        case "oidc_bound":
-          return { kind: "allow", assurance: "channel_inline" };
-        default: {
-          const exhaustive: never = input.channelAssurance;
-          return exhaustive;
-        }
-      }
+      return permissionForExternal(input.feature.boundary, input.channelAssurance);
     default: {
       const exhaustive: never = input.feature;
       return exhaustive;
     }
   }
+}
+
+function permissionForExternal(
+  boundary: ExternalBoundary,
+  channelAssurance: ChannelAssurance,
+): PermissionDecision {
+  switch (channelAssurance) {
+    case "whatsapp_phone":
+      return { assurance: "oidc_step_up", boundary, kind: "escalate" };
+    case "oidc_bound":
+      return { assurance: "channel_inline", kind: "allow" };
+    default: {
+      const exhaustive: never = channelAssurance;
+      return exhaustive;
+    }
+  }
+}
+
+export function escalationHref(origin: string, boundary: ExternalBoundary): string {
+  const base = origin.replace(/\/$/, "");
+  return `${base}/approve/external.${boundary}`;
 }

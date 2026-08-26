@@ -6,9 +6,11 @@ import type {
   SpeakerActionClient,
 } from "./osdk-action-client.js";
 import {
+  escalationHref,
   permissionForFeature,
   type ChannelAssurance,
 } from "./permission.js";
+import { resolvePublicOrigin } from "./public-origin.js";
 
 const speakToUserSchema = z
   .object({
@@ -70,7 +72,7 @@ export interface InteractionToolOptions {
   readonly statusAfterMs?: number;
   readonly clock?: () => number;
   readonly channelAssurance?: ChannelAssurance;
-  readonly mintOnboardHref?: () => Promise<string>;
+  readonly publicWebOrigin?: string;
 }
 
 export function createInteractionScratch(): InteractionScratch {
@@ -102,6 +104,7 @@ export function createInteractionTools(
   const statusAfterMs = options.statusAfterMs ?? 2000;
   const clock = options.clock ?? Date.now;
   const channelAssurance = options.channelAssurance ?? "whatsapp_phone";
+  const origin = resolvePublicOrigin(options.publicWebOrigin);
   return {
     request_external: tool({
       description:
@@ -115,22 +118,15 @@ export function createInteractionTools(
           case "allow":
             return { allowed: true, ok: true };
           case "escalate": {
-            if (
-              scratch.href !== undefined ||
-              options.mintOnboardHref === undefined
-            ) {
-              return { ok: false };
+            const href = escalationHref(origin, decision.boundary);
+            if (!/^https:\/\//i.test(href) || !href.includes("/approve/")) {
+              return { ok: false, reason: "escalation href rejected" };
             }
-            try {
-              const href = (await options.mintOnboardHref()).trim();
-              if (!/^https:\/\//i.test(href) || !href.includes("/onboard/")) {
-                return { ok: false };
-              }
-              scratch.href = href;
-              return { allowed: false, escalate: true, ok: true };
-            } catch {
-              return { ok: false };
+            if (scratch.href !== undefined) {
+              return { ok: false, reason: "href already minted" };
             }
+            scratch.href = href;
+            return { allowed: false, escalate: true, ok: true };
           }
           default: {
             const exhaustive: never = decision;
@@ -207,6 +203,22 @@ export function createInteractionTools(
         return { ok: true };
       },
       inputSchema: waitSchema,
+    }),
+  };
+}
+
+export function createFirstContactTools(scratch: InteractionScratch): ToolSet {
+  return {
+    speak_to_user: tool({
+      description:
+        "Record one conversational reply for the person. Never mention tools, agents, or this function.",
+      execute: async ({ text }) => {
+        for (const bubble of splitSpokenBubbles(text)) {
+          scratch.bubbles.push(bubble);
+        }
+        return { ok: true };
+      },
+      inputSchema: speakToUserSchema,
     }),
   };
 }
