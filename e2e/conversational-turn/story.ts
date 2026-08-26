@@ -5,11 +5,13 @@ import path from "node:path";
 import { Client as PostgresClient } from "pg";
 import {
   conversationKeyFrom,
+  createConversationContextAssembler,
   createConversationTurnCoordinator,
   createInteractionBoundary,
   createInteractionControlRegistry,
   createMemoryControlStore,
   createPostgresTurnStore,
+  defaultConversationSources,
   interactionId,
   presentationIntentRef,
   principalIdString,
@@ -331,6 +333,32 @@ export async function main(): Promise<void> {
     record("stringify_carry_forward_rejected", stringifyRejected);
     killMutant("stringify carry-forward");
 
+    const assembled = await createConversationContextAssembler({
+      now: () => new Date("2026-08-26T15:00:00.000Z"),
+      sources: defaultConversationSources({ store: durableStore }),
+    }).assembleBound({
+      attemptId: String(next.attempt.id),
+      audienceKind: "dm",
+      carryForwardInteractionIds: next.attempt.carryForwardInteractionIds,
+      claimedInteractionIds: next.attempt.claimedInteractionIds,
+      conversationKey: keyA,
+      inbound: { kind: "text", text: "supersede" },
+      instructions: "test",
+      locale: "pt",
+      membership: ctxA,
+    });
+    record(
+      "context_hash_is_64_hex",
+      /^[0-9a-f]{64}$/.test(assembled.contextHash),
+    );
+    record(
+      "assembled_carry_forward_is_ids",
+      assembled.document.carryForwardInteractionIds.every(
+        (id) => typeof id === "string" && id.length > 0,
+      ),
+    );
+    killMutant("carried_messages blob on assembled context");
+
     const deliveryRec = makeRecord(
       ctxA,
       "deliver",
@@ -479,6 +507,7 @@ export async function main(): Promise<void> {
       turns: {
         burstInteractionIds: burst.turn.interactionIds,
         carryForward: next.attempt.carryForwardInteractionIds,
+        contextHash: assembled.contextHash,
         deliveryIntentId: intentId,
         stableProviderDeliveryId: firstSendId,
       },

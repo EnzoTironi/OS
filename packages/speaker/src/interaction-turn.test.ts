@@ -27,12 +27,15 @@ import {
   type ReasonTurnPath,
 } from "./interaction-turn.js";
 import {
+  conversationKeyFrom,
   principalIdString,
   providerKey,
   providerThreadRef,
   providerUserRef,
   tenantIdString,
 } from "./brands.js";
+import type { ConversationContextAssembler } from "./context-assembler.js";
+import { createMemoryTurnStore } from "./turn-store.js";
 import type { TrustedInteractionContext } from "./types.js";
 import {
   snapshotFromClaims,
@@ -54,6 +57,18 @@ function membership(suffix: string): TrustedInteractionContext {
     principalId: principalIdString("principal.wa.enzo"),
     tenantId: tenantIdString("tenant.wa.enzo"),
     workloadId: "workload.personal",
+  };
+}
+
+function groupMembership(suffix: string): TrustedInteractionContext {
+  const thread = providerThreadRef(`120363-group@g.us:${suffix}`);
+  return {
+    ...membership(suffix),
+    channel: {
+      ...membership(suffix).channel,
+      group: { thread },
+      thread,
+    },
   };
 }
 
@@ -183,43 +198,39 @@ test("PT instructions ban helpdesk greetings and keep speak_to_user as the only 
   assert.doesNotMatch(interactionInstructions("en"), /looking|noting|scheduling|one sec/);
 });
 
-test("reasoningPrompt frames World rivals as the subject, not optional JSON", () => {
-  const snapshot = snapshotFromClaims(supportingQuantityClaims());
-  const prompt = reasoningPrompt(
-    textInbound("Oi"),
-    "Oi",
-    snapshot,
-    "pt",
-  );
-  assert.match(prompt, /O World abaixo é o assunto/);
+test("reasoningPrompt is labeled projection data, not a World wrapper", () => {
+  const data = [
+    "trustClass: world",
+    "attribution: query",
+    "rivals:",
+    "- source.sheet",
+    "- source.erp",
+    "notes:",
+    "- 10 each",
+    "- 12 each",
+  ].join("\n");
+  const prompt = reasoningPrompt(data);
+  assert.equal(prompt, data);
+  assert.doesNotMatch(prompt, /O World abaixo é o assunto/);
   assert.doesNotMatch(prompt, /^\s*\{/u);
   assert.match(prompt, /source\.sheet/);
   assert.match(prompt, /source\.erp/);
   assert.match(prompt, /10 each/);
   assert.match(prompt, /12 each/);
-  assert.match(prompt, /Duas leituras ficam de pé/);
-  assert.match(prompt, /Não cumprimente no lugar de responder/);
 });
 
 test("empty-world prompt answers greetings; wait description forbids greetings", () => {
-  const emptyPt = reasoningPrompt(textInbound("oi"), "oi", undefined, "pt");
-  const emptyEn = reasoningPrompt(textInbound("hi"), "hi", undefined, "en");
-  const emptySnapshot = reasoningPrompt(
-    textInbound("oi"),
-    "oi",
-    { entityIds: [], notes: [], rivals: [] },
-    "pt",
-  );
-  assert.doesNotMatch(emptyPt, /Não cumprimente no lugar de responder/);
-  assert.doesNotMatch(emptyEn, /Do not greet instead of answering/);
-  assert.doesNotMatch(emptySnapshot, /Não cumprimente no lugar de responder/);
-  assert.match(emptyPt, /speak_to_user/);
-  assert.match(emptyPt, /Nunca wait/);
-  assert.match(emptyEn, /speak_to_user/);
-  assert.match(emptyEn, /Never wait/);
+  const data = "trustClass: interaction\nkind: text\ntext: oi";
+  assert.equal(reasoningPrompt(data), data);
+  assert.doesNotMatch(data, /Não cumprimente no lugar de responder/);
+  assert.doesNotMatch(data, /Nunca wait/);
 
   const pt = interactionInstructions("pt");
   const en = interactionInstructions("en");
+  assert.match(pt, /speak_to_user/);
+  assert.match(pt, /nunca wait/);
+  assert.match(en, /speak_to_user/);
+  assert.match(en, /never wait/);
   assert.match(pt, /oi, e aí, fala, hi, hey: speak_to_user\. nunca wait/);
   assert.match(en, /oi, e aí, fala, hi, hey: speak_to_user\. never wait/);
 
@@ -249,12 +260,10 @@ test("mocked turn with two World rivals speaks the readings, not a helpdesk gree
       step += 1;
       if (step === 1) {
         const blob = flattenPrompt(options.prompt);
-        assert.match(blob, /O World abaixo é o assunto|The World below is the subject/);
+        assert.match(blob, /trustClass: world/);
         assert.match(blob, /source\.sheet/);
         assert.match(blob, /source\.erp/);
-        const text = /O World abaixo é o assunto|The World below is the subject/i.test(
-          blob,
-        )
+        const text = /trustClass: world/i.test(blob)
           ? "Tem duas leituras: 10 each e 12 each. As duas ficam de pé."
           : "Olá! Estou por aqui e pronto para ajudar. Como posso te auxiliar hoje?";
         return {
@@ -632,16 +641,35 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
     },
   };
 
+  const store = createMemoryTurnStore();
+  const successCtx = membership("remind-ok");
   const success = await runInteractionTurn({
     debounceMs: 0,
     actions: committed,
     inbound: textInbound("me lembra do dentista amanhã"),
-    membership: membership("remind-ok"),
+    membership: successCtx,
     model: writeThenSpeakModel("remind", "agendei o dentista"),
+    store,
   });
   assert.deepEqual(success.bubbles, ["agendei o dentista"]);
   assert.doesNotMatch(success.bubbles.join("\n"), /não consegui/);
   assertReasonTurn(success, "spoke", 0, "ok");
+  const successKey = conversationKeyFrom({
+    accountId: successCtx.accountId,
+    conversationId: `${String(successCtx.channel.provider)}:${String(successCtx.channel.thread)}`,
+    tenantId: String(successCtx.tenantId),
+    workspaceId: successCtx.workloadId,
+  });
+  const attempts = await store.listAttempts(successKey);
+  const hashed = attempts.at(-1);
+  assert.ok(hashed?.contextHash);
+  assert.match(hashed.contextHash, /^[0-9a-f]{64}$/);
+  assert.ok(
+    hashed.observedCommitRefs.some(
+      (ref) =>
+        ref.kind === "action" && ref.actionId === "personal.createReminder",
+    ),
+  );
 
   const failedNote = await runInteractionTurn({
     debounceMs: 0,
@@ -687,6 +715,82 @@ test("first contact addendum never says unbound and generate mock is the spoken 
   assert.equal(spoken.includes("oi, entra quando quiser"), true);
   assert.equal(spoken.includes(href), true);
   assert.doesNotMatch(spoken, /Este WhatsApp ainda não está vinculado/i);
+});
+
+test("first contact uses unbound assemble and never calls the bound assembler", async () => {
+  let bound = 0;
+  let unbound = 0;
+  const assembler: ConversationContextAssembler = {
+    async assembleBound() {
+      bound += 1;
+      throw new Error("bound assembler must not run on first contact");
+    },
+    async assembleUnbound(input) {
+      unbound += 1;
+      assert.equal(input.inbound.kind, "text");
+      if (input.inbound.kind === "text") {
+        assert.equal(input.inbound.text, "oi");
+      }
+      return {
+        contextHash: "a".repeat(64),
+        document: {
+          audienceKind: "unknown",
+          attemptId: "unbound",
+          carryForwardInteractionIds: [],
+          claimedInteractionIds: [],
+          conversationKey: "unbound",
+          dropped: [],
+          failures: [],
+          records: [],
+          schema: "zoen.conversation.context.v1",
+          validAt: "2026-08-26T15:00:00.000Z",
+        },
+        projection: { data: "inbound: oi", instructions: "first" },
+      };
+    },
+  };
+  const spoken = await runFirstContactTurn({
+    assembler,
+    generate: async () => "oi",
+    inboundText: "oi",
+  });
+  assert.equal(spoken, "oi");
+  assert.equal(bound, 0);
+  assert.equal(unbound, 1);
+});
+
+test("group audience refuses note and does not write personal memory", async () => {
+  let writes = 0;
+  const actions: SpeakerActionClient = {
+    async commitCreateReminder() {
+      writes += 1;
+      return {
+        kind: "committed",
+        operationId: "operation.remind",
+        previewText: "Vou criar este lembrete para amanhã: dentista",
+        recordIds: ["record.1"],
+      };
+    },
+    async commitWriteMemory() {
+      writes += 1;
+      return {
+        kind: "committed",
+        operationId: "operation.note",
+        previewText: "Vou guardar esta nota: pão",
+        recordIds: ["record.1"],
+      };
+    },
+  };
+  const result = await runInteractionTurn({
+    actions,
+    debounceMs: 0,
+    inbound: textInbound("anota que o pão acabou"),
+    membership: groupMembership("group-note"),
+    model: writeThenSpeakModel("note", "anotei o pão"),
+  });
+  assert.equal(writes, 0);
+  assert.deepEqual(result.bubbles, ["não consegui anotar agora"]);
+  assert.doesNotMatch(result.bubbles.join("\n"), /anotei/);
 });
 
 test("request_external on WhatsApp phone mints an approve href, not onboard", async () => {
