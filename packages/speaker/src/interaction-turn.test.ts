@@ -482,30 +482,15 @@ test("mocked oi is a short greeting, not helpdesk", async () => {
   assert.equal(generated >= 1, true);
   assert.match(sent, /^oi$/im);
   assert.doesNotMatch(sent, /auxiliar|pronto para ajudar|How can I help|Recebi/i);
-  assert.doesNotMatch(sent, /vendo aqui|um seg/);
+  assert.doesNotMatch(sent, STATUS_PHRASE_PT);
   assertReasonTurn(result, "spoke", 0, "ok");
 });
 
-test("mocked valeu calls wait and sends empty bubbles", async () => {
+test("valeu is a fast ack: no Tier 2 model call, empty bubbles", async () => {
   let generated = 0;
   const model = new MockLanguageModelV3({
     doGenerate: async () => {
       generated += 1;
-      if (generated === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({}),
-              toolCallId: "call_wait",
-              toolName: "wait",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
       return stopCall();
     },
   });
@@ -515,11 +500,11 @@ test("mocked valeu calls wait and sends empty bubbles", async () => {
     membership: membership("mocked-valeu"),
     model,
   });
-  assert.equal(generated >= 1, true);
+  assert.equal(generated, 0);
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
-  assertReasonTurn(result, "wait", 0, "ok");
+  assertReasonTurn(result, "fastAck", 0, "ok");
 });
 
 test("wait tool produces no Recebi and no helpdesk", async () => {
@@ -534,10 +519,12 @@ test("wait tool produces no Recebi and no helpdesk", async () => {
   assert.equal(scratch.waited, true);
   assert.deepEqual(scratch.bubbles, []);
   assert.equal(scratch.href, undefined);
+});
 
+test("model-driven wait on a non-ack closing message stays empty, not a fast ack", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
-    inbound: textInbound("show"),
+    inbound: textInbound("pode fechar por aqui"),
     membership: membership("wait-tool"),
     model: waitThenStopModel(),
   });
@@ -590,7 +577,7 @@ test("reasonTurn writes one stderr JSON line from the turn result", async () => 
 test("slow wait stays silent", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
-    inbound: textInbound("valeu"),
+    inbound: textInbound("deixa que eu confirmo depois"),
     membership: membership("slow-wait"),
     model: delayedWaitModel(20),
     statusAfterMs: 5,
@@ -622,7 +609,7 @@ test("slow generate prepends one status bubble, fast path does not", async () =>
   });
   assert.equal(fast.bubbles.includes("oi"), true);
   assert.equal(
-    fast.bubbles.some((bubble) => /^(vendo aqui|um seg)$/.test(bubble)),
+    fast.bubbles.some((bubble) => STATUS_PHRASE_PT.test(bubble)),
     false,
   );
 
@@ -634,9 +621,9 @@ test("slow generate prepends one status bubble, fast path does not", async () =>
     statusAfterMs: 5,
   });
   const status = slow.bubbles[0] ?? "";
-  assert.match(status, /^(vendo aqui|um seg)$/);
+  assert.match(status, /^um seg$/);
   assert.equal(
-    slow.bubbles.filter((bubble) => /^(vendo aqui|um seg)$/.test(bubble)).length,
+    slow.bubbles.filter((bubble) => STATUS_PHRASE_PT.test(bubble)).length,
     1,
   );
   assert.equal(slow.bubbles.includes("ta aqui"), true);
@@ -877,7 +864,7 @@ test("slow spawn_execution prepends one status bubble", async () => {
     model,
     statusAfterMs: 5,
   });
-  assert.match(result.bubbles[0] ?? "", /^(vendo aqui|um seg)$/);
+  assert.match(result.bubbles[0] ?? "", /^vendo$/);
   assert.match(outboundBubbles(result).join("\n"), /leituras/);
   assertReasonTurn(result, "spoke", 0, "ok");
 });
@@ -1061,6 +1048,45 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+const STATUS_PHRASE_PT = /^(vendo|anotando|agendando|um seg)$/;
+
+function createManualClock() {
+  let now = 0;
+  const timers: Array<{ at: number; fn: () => void; cancelled: boolean }> = [];
+  return {
+    pendingCount(): number {
+      return timers.filter((timer) => !timer.cancelled).length;
+    },
+    schedule(fn: () => void, ms: number) {
+      const timer = { at: now + ms, cancelled: false, fn };
+      timers.push(timer);
+      return {
+        cancel() {
+          timer.cancelled = true;
+        },
+      };
+    },
+    async advance(ms: number) {
+      now += ms;
+      const due = timers.filter((timer) => !timer.cancelled && timer.at <= now);
+      for (const timer of due) {
+        timer.cancelled = true;
+        timer.fn();
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  };
+}
+
+/** Yield to real timers/microtasks until the fake gate has an armed timer. */
+async function waitUntilGateArmed(gate: { pendingCount(): number }): Promise<void> {
+  for (let i = 0; i < 50 && gate.pendingCount() === 0; i++) {
+    await delay(0);
+  }
+  assert.equal(gate.pendingCount(), 1, "status gate never armed");
+}
+
 function assertReasonTurn(
   result: OutboundTurn,
   path: ReasonTurnPath,
@@ -1122,10 +1148,8 @@ function supportingQuantityClaims(): readonly ClaimRead[] {
   ];
 }
 
-test("status stays silent at 2000ms and emits one line at 2001ms", async () => {
-  let clock = 0;
+test("status gate stays silent while pending under 2000ms and fires exactly once past it", async () => {
   const fast = await runInteractionTurn({
-    clock: () => clock,
     debounceMs: 0,
     inbound: textInbound("oi"),
     membership: membership("status-2000"),
@@ -1133,32 +1157,42 @@ test("status stays silent at 2000ms and emits one line at 2001ms", async () => {
     statusAfterMs: 2000,
   });
   assert.equal(
-    fast.bubbles.some((bubble) => /^(vendo aqui|um seg|looking|one sec)$/.test(bubble)),
+    fast.bubbles.some((bubble) => STATUS_PHRASE_PT.test(bubble)),
     false,
   );
 
-  clock = 0;
+  const gate = createManualClock();
+  let releaseGenerate: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    releaseGenerate = resolve;
+  });
   let step = 0;
-  const slow = await runInteractionTurn({
-    clock: () => clock,
+  const slowTurn = runInteractionTurn({
     debounceMs: 0,
     inbound: textInbound("oi"),
     membership: membership("status-2001"),
     model: new MockLanguageModelV3({
       doGenerate: async () => {
-        clock = 2001;
         step += 1;
         if (step === 1) {
+          await held;
           return speakCall("ta aqui");
         }
         return stopCall();
       },
     }),
+    schedule: gate.schedule,
     statusAfterMs: 2000,
   });
+  await waitUntilGateArmed(gate);
+  await gate.advance(1999);
+  await gate.advance(1);
+  releaseGenerate?.();
+  const slow = await slowTurn;
   assert.equal(
-    slow.bubbles.filter((bubble) => /^(vendo aqui|um seg)$/.test(bubble)).length,
+    slow.bubbles.filter((bubble) => STATUS_PHRASE_PT.test(bubble)).length,
     1,
   );
+  assert.equal(slow.bubbles[0], "um seg");
 });
 

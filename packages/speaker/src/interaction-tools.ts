@@ -61,16 +61,12 @@ export interface InteractionScratch {
   executionNotes: string[];
   href?: string;
   waited: boolean;
-  slowWork: boolean;
   writeFail?: PersonalWriteKind;
 }
 
 export interface InteractionToolOptions {
   readonly actions?: SpeakerActionClient;
   readonly executeWork?: (task: string) => Promise<string>;
-  /** Wall time that marks spawn_execution as slow. Production default is 2000. */
-  readonly statusAfterMs?: number;
-  readonly clock?: () => number;
   readonly channelAssurance?: ChannelAssurance;
   readonly publicWebOrigin?: string;
 }
@@ -79,7 +75,6 @@ export function createInteractionScratch(): InteractionScratch {
   return {
     bubbles: [],
     executionNotes: [],
-    slowWork: false,
     waited: false,
   };
 }
@@ -94,8 +89,6 @@ export function createInteractionTools(
   scratch: InteractionScratch,
   options: InteractionToolOptions = {},
 ): ToolSet {
-  const statusAfterMs = options.statusAfterMs ?? 2000;
-  const clock = options.clock ?? Date.now;
   const channelAssurance = options.channelAssurance ?? "whatsapp_phone";
   const origin = resolvePublicOrigin(options.publicWebOrigin);
   return {
@@ -162,14 +155,10 @@ export function createInteractionTools(
       description:
         "Hand work off the conversation. Returns a short status string. Do not mention this hand-off in user text.",
       execute: async ({ task }) => {
-        const started = clock();
         const status =
           options.executeWork === undefined
             ? `status: accepted (${task.trim().slice(0, 80)})`
             : await options.executeWork(task);
-        if (clock() - started > statusAfterMs) {
-          scratch.slowWork = true;
-        }
         scratch.executionNotes.push(status);
         return { status };
       },
