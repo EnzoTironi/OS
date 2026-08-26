@@ -18,8 +18,6 @@ import {
   type ConversationContextRecord,
 } from "./context-document.js";
 import type { TrustedInteractionContext } from "./types.js";
-import type { WorldQueryClient } from "./world-query.js";
-
 function membership(suffix: string): TrustedInteractionContext {
   return {
     accountId: "account.wa.enzo",
@@ -188,25 +186,9 @@ test("bound assemble keeps distinct trust classes and a stable hash for the same
 
 test("same world and different inbound produce a different contextHash", async () => {
   const now = () => new Date("2026-08-26T15:00:00.000Z");
-  const world: WorldQueryClient = {
-    async semanticQuery() {
-      return {
-        entityIds: [],
-        notes: ["10 each"],
-        rivals: [{ label: "source.sheet" }],
-      };
-    },
-  };
   const assembler = createConversationContextAssembler({
     now,
-    sources: [
-      {
-        id: "world",
-        async retrieve() {
-          return [recordOf("world")];
-        },
-      },
-    ],
+    sources: [staticSource("world", [recordOf("world")])],
   });
   const base = {
     attemptId: "att_1",
@@ -226,7 +208,45 @@ test("same world and different inbound produce a different contextHash", async (
     inbound: { kind: "text", text: "quanto ficou" },
   });
   assert.notEqual(left.contextHash, right.contextHash);
-  void world;
+});
+
+test("instruction copy is not hashed; a tighter budget is", async () => {
+  const now = () => new Date("2026-08-26T15:00:00.000Z");
+  const sources = [staticSource("knowledge", [recordOf("knowledge")])];
+  const wide = createConversationContextAssembler({
+    budget: 6000,
+    now,
+    sources,
+  });
+  const tight = createConversationContextAssembler({
+    budget: 0,
+    now,
+    sources,
+  });
+  const input = {
+    attemptId: "att_b",
+    audienceKind: "dm" as const,
+    claimedInteractionIds: ["ixn_src"],
+    conversationKey: "ck_src",
+    inbound: { kind: "text" as const, text: "oi" },
+    locale: "pt" as const,
+    membership: membership("budget-hash"),
+  };
+  const left = await wide.assembleBound({
+    ...input,
+    instructions: "you are zoen",
+  });
+  const sameCopy = await wide.assembleBound({
+    ...input,
+    instructions: "copy changed without data change",
+  });
+  const right = await tight.assembleBound({
+    ...input,
+    instructions: "you are zoen",
+  });
+  assert.equal(left.contextHash, sameCopy.contextHash);
+  assert.notEqual(left.contextHash, right.contextHash);
+  assert.ok(right.document.dropped.some((drop) => drop.reason === "budget"));
 });
 
 test("unbound assemble keeps inbound and href and never pulls world or memory", async () => {
