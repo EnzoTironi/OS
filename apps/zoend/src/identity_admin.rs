@@ -50,6 +50,7 @@ pub fn router(state: IdentityAdminState) -> Router {
         )
         .route("/identity/admin/resolve-subject", get(resolve_subject))
         .route("/identity/admin/onboard-tokens", post(mint_onboard_token))
+        .route("/identity/admin/admit-whatsapp", post(admit_whatsapp))
         .route("/identity/admin/bootstrap-bound", post(bootstrap_bound))
         .route("/identity/admin/resolve-context", get(resolve_context))
         .layer(middleware::from_fn_with_state(
@@ -593,6 +594,27 @@ async fn resolve_subject(
             }
             (StatusCode::OK, Json(snapshot_json(&snapshot))).into_response()
         }
+        Err(error) => identity_error(error),
+    }
+}
+
+async fn admit_whatsapp(
+    State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
+    Json(body): Json<SubjectBody>,
+) -> impl IntoResponse {
+    if let Some(error) = require_machine(&actor) {
+        return error;
+    }
+    let subject = match parse_subject(&body.provider, &body.subject_key) {
+        Ok(subject) => subject,
+        Err(error) => return identity_error(error),
+    };
+    if let Err(error) = reject_whatsapp_door(&subject) {
+        return identity_error(error);
+    }
+    match state.identity.admit_whatsapp(subject).await {
+        Ok(snapshot) => (StatusCode::OK, Json(snapshot_json(&snapshot))).into_response(),
         Err(error) => identity_error(error),
     }
 }
