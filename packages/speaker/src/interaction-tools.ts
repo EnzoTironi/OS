@@ -161,6 +161,22 @@ export function createInteractionTools(
   };
 }
 
+export function createFirstContactTools(scratch: InteractionScratch): ToolSet {
+  return {
+    speak_to_user: tool({
+      description:
+        "Record one conversational reply for the person. Never mention tools, agents, or this function.",
+      execute: async ({ text }) => {
+        for (const bubble of splitSpokenBubbles(text)) {
+          scratch.bubbles.push(bubble);
+        }
+        return { ok: true };
+      },
+      inputSchema: speakToUserSchema,
+    }),
+  };
+}
+
 async function commitPersonalWrite(
   scratch: InteractionScratch,
   actions: SpeakerActionClient | undefined,

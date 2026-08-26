@@ -25,7 +25,6 @@ import {
   createWhatsAppMessagingIngress,
   LiveWhatsAppConfigError,
   PERSONAL_WHATSAPP_DOOR_E164,
-  UNBOUND_WHATSAPP_POKE_TEXT,
 } from "../packages/transport/src/index.js";
 import {
   startServer,
@@ -463,8 +462,10 @@ async function proveContactLoop(
     });
     await unboundSession.open();
     const ledger = createMemoryReplyLedger();
+    const generated = "oi, entra quando quiser";
     const unboundLoop = createWhatsAppContactLoop({
       doorE164,
+      generateFirstContact: async () => generated,
       identity: createIdentityDirectoryClient({
         baseUrl: "http://zoend.test",
         fetchImpl,
@@ -489,7 +490,11 @@ async function proveContactLoop(
     const unboundShape = unboundSession.sent()[0]?.shape;
     assert.equal(unboundShape?.kind, "text");
     if (unboundShape?.kind === "text") {
-      assert.equal(unboundShape.text, UNBOUND_WHATSAPP_POKE_TEXT);
+      assert.equal(unboundShape.text, generated);
+      assert.doesNotMatch(
+        unboundShape.text,
+        /vinculado|unbound|unlinked|unregistered/i,
+      );
     }
     const duplicate = await unboundLoop.handleRaw(envelope);
     assert.equal(duplicate.kind, "duplicate");

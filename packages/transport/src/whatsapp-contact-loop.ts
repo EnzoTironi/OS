@@ -16,6 +16,7 @@ import {
   outboundBubbles,
   presentationIntentRef,
   providerKey,
+  runFirstContactTurn,
   runInteractionTurn,
   toInteractionInbound,
   TURN_DEBOUNCE_MS,
@@ -50,9 +51,6 @@ import {
   createMessagingGateway,
   type MessagingGateway,
 } from "./gateway.js";
-
-export const UNBOUND_WHATSAPP_POKE_TEXT =
-  "Este WhatsApp ainda não está vinculado a uma conta Zoen.";
 
 export type WhatsAppContactDropReason =
   | "from_me"
@@ -113,6 +111,7 @@ export interface WhatsAppContactLoopOptions {
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  readonly generateFirstContact?: (inboundText: string) => Promise<string>;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -469,8 +468,13 @@ export function createWhatsAppContactLoop(
   async function deliverPoke(
     inbound: InboundInteraction,
   ): Promise<DeliveryObservation> {
+    const inboundText = inbound.body.kind === "text" ? inbound.body.text : "";
+    const spoken = await runFirstContactTurn({
+      generate: options.generateFirstContact,
+      inboundText,
+    });
     const stableProviderDeliveryId = inbound.idempotencyKey;
-    bodies.set(stableProviderDeliveryId, UNBOUND_WHATSAPP_POKE_TEXT);
+    bodies.set(stableProviderDeliveryId, spoken);
     return gateway.deliver({
       controlRefs: [],
       id: deliveryIntentId(deliveryIdFrom(inbound.idempotencyKey)),

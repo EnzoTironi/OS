@@ -9,6 +9,7 @@ import {
   type TurnAttemptId,
 } from "./brands.js";
 import {
+  createFirstContactTools,
   createInteractionScratch,
   createInteractionTools,
   splitSpokenBubbles,
@@ -690,6 +691,81 @@ function hiddenIdentityTokens(
  * @param locale - Detected inbound locale (`pt` or `en`)
  * @returns Short Poke-density instructions. Never names harness internals.
  */
+export function firstContactAddendum(locale: InteractionLocale): string {
+  switch (locale) {
+    case "pt":
+      return [
+        "esta é a primeira mensagem de uma pessoa desconhecida",
+        "cumpra como um amigo afiado",
+        "se disseram oi, só cumprimente",
+        "convide numa linha curta",
+        "nunca diga que não está vinculado, desvinculado, sem cadastro, unbound, unlinked, unregistered",
+        "nunca despeje checklist de setup",
+        "sem uuid, sem helpdesk, sem nome de worker ou tool",
+      ].join("\n");
+    case "en":
+      return [
+        "this is the first message from an unknown person",
+        "greet like a sharp friend",
+        "if they said hi or oi, only greet",
+        "invite them in one short line",
+        "never say they are unbound, unlinked, or unregistered",
+        "never dump a setup checklist",
+        "no uuid, no helpdesk, no worker or tool names",
+      ].join("\n");
+    default: {
+      const exhaustive: never = locale;
+      return exhaustive;
+    }
+  }
+}
+
+export function firstContactInstructions(locale: InteractionLocale): string {
+  return `${interactionInstructions(locale)}\n${firstContactAddendum(locale)}`;
+}
+
+export async function runFirstContactTurn(input: {
+  readonly inboundText: string;
+  readonly generate?: (inboundText: string) => Promise<string>;
+  readonly model?: LanguageModel;
+}): Promise<string> {
+  if (input.generate !== undefined) {
+    return (await input.generate(input.inboundText)).trim();
+  }
+  const locale = detectInboundLocale(input.inboundText);
+  const model = input.model ?? resolveLanguageModel();
+  if (model === undefined) {
+    return locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
+  }
+  const scratch = createInteractionScratch();
+  const agent = new ToolLoopAgent({
+    instructions: firstContactInstructions(locale),
+    maxRetries: 0,
+    model,
+    stopWhen: isStepCount(8),
+    tools: createFirstContactTools(scratch),
+  });
+  try {
+    await agent.generate({
+      prompt: [
+        firstContactAddendum(locale),
+        "",
+        `inbound: ${input.inboundText}`,
+      ].join("\n"),
+    });
+  } catch {
+    return locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
+  }
+  const spoken = scratch.bubbles
+    .map((bubble) => bubble.trim())
+    .filter((bubble) => bubble.length > 0)
+    .join("\n");
+  if (spoken.length === 0) {
+    return locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
+  }
+  return spoken;
+}
+
 export function interactionInstructions(locale: InteractionLocale): string {
   switch (locale) {
     case "pt":

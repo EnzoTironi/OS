@@ -25,7 +25,6 @@ import {
   createFileReplyLedger,
   createMemoryReplyLedger,
   createWhatsAppContactLoop,
-  UNBOUND_WHATSAPP_POKE_TEXT,
 } from "./whatsapp-contact-loop.js";
 
 const doorE164 = "+553798136141";
@@ -124,6 +123,8 @@ test("fromMe, door, and group are dropped before IdentityDirectory", async () =>
 
 test("unbound 1:1 pokes the same thread and does not mint membership", async () => {
   const methods: string[] = [];
+  const generated = "oi, entra quando quiser";
+  const generateCalls: string[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     methods.push(`${(init?.method ?? "GET").toUpperCase()} ${String(input)}`);
     assert.doesNotMatch(String(input), /\/provisional|\/verify-binding|\/bind-verified/);
@@ -136,6 +137,10 @@ test("unbound 1:1 pokes the same thread and does not mint membership", async () 
   const loop = createWhatsAppContactLoop({
     debounceMs: 0,
     doorE164,
+    generateFirstContact: async (inboundText) => {
+      generateCalls.push(inboundText);
+      return generated;
+    },
     identity: createIdentityDirectoryClient({
       adminToken: "identity-admin",
       baseUrl: "http://zoend.test",
@@ -151,7 +156,12 @@ test("unbound 1:1 pokes the same thread and does not mint membership", async () 
   assert.equal(sent.chatJid, speaker);
   assert.equal(sent.shape.kind, "text");
   if (sent.shape.kind === "text") {
-    assert.equal(sent.shape.text, UNBOUND_WHATSAPP_POKE_TEXT);
+    assert.equal(sent.shape.text, generated);
+    assert.deepEqual(generateCalls, ["Oi"]);
+    assert.doesNotMatch(
+      sent.shape.text,
+      /vinculado|unbound|unlinked|unregistered|não está vinculado/i,
+    );
     assert.equal(sent.shape.text.includes("https://"), false);
   }
   assert.deepEqual(methods, [
