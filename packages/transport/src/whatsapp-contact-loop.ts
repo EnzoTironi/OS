@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -12,12 +11,10 @@ import {
   createPostgresTurnStore,
   deliveryIntentId,
   deliveryObservationId,
-  interactionId,
   outboundBubbles,
   presentationIntentRef,
   providerKey,
   resolvePublicOrigin,
-  runFirstContactTurn,
   runInteractionTurn,
   toInteractionInbound,
   TURN_DEBOUNCE_MS,
@@ -112,7 +109,6 @@ export interface WhatsAppContactLoopOptions {
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
-  readonly generateFirstContact?: (inboundText: string) => Promise<string>;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -304,12 +300,14 @@ export function createWhatsAppContactLoop(
     try {
       const reply = await runInteractionTurn({
         attemptId: claimed.attempt.id,
+        channelAssurance: "whatsapp_phone",
         coordinator,
         debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
         executeWork: options.executeWork,
         inbound: toInteractionInbound(record.inbound),
         membership,
         now,
+        publicWebOrigin: options.publicWebOrigin,
         store,
       });
       const bubbles = outboundBubbles(reply);
@@ -422,16 +420,7 @@ export function createWhatsAppContactLoop(
     }
     const work = (async (): Promise<WhatsAppContactDisposition> => {
       try {
-        const queued = await enqueueBound(inbound);
-        if (!wait) {
-          return queued;
-        }
-        await waitUntilIdle();
-        const stored = await ledger.get(inbound.idempotencyKey);
-        if (stored === undefined) {
-          throw new Error("bound whatsapp turn claimed no inbound");
-        }
-        return stored;
+        return await enqueueAndMaybeWait(inbound, wait);
       } catch (error) {
         if (
           !(error instanceof ChannelSubjectResolveError) ||
@@ -439,13 +428,14 @@ export function createWhatsAppContactLoop(
         ) {
           throw error;
         }
-        const stored: StoredReply = {
-          inbound,
-          kind: "unbound",
-          observation: await deliverPoke(inbound),
-        };
-        await ledger.put(inbound.idempotencyKey, stored);
-        return stored;
+        if (options.identity.admitWhatsAppSubject === undefined) {
+          throw error;
+        }
+        await options.identity.admitWhatsAppSubject({
+          provider: inbound.channel.provider,
+          subjectKey: String(inbound.channel.providerUser),
+        });
+        return enqueueAndMaybeWait(inbound, wait);
       }
     })();
     inflight.set(inbound.idempotencyKey, work);
@@ -466,48 +456,20 @@ export function createWhatsAppContactLoop(
     }
   }
 
-  async function deliverPoke(
+  async function enqueueAndMaybeWait(
     inbound: InboundInteraction,
-  ): Promise<DeliveryObservation> {
-    const inboundText = inbound.body.kind === "text" ? inbound.body.text : "";
-    const origin = resolvePublicOrigin(options.publicWebOrigin);
-    if (options.identity.mintOnboardToken === undefined) {
-      throw new Error("identity directory cannot mint onboard token");
+    wait: boolean,
+  ): Promise<WhatsAppContactDisposition> {
+    const queued = await enqueueBound(inbound);
+    if (!wait) {
+      return queued;
     }
-    const minted = await options.identity.mintOnboardToken({
-      provider: inbound.channel.provider,
-      subjectKey: String(inbound.channel.providerUser),
-    });
-    const href =
-      minted.href.startsWith("https://") && minted.href.includes("/onboard/")
-        ? minted.href
-        : `${origin}/onboard/${minted.token}`;
-    if (!href.includes("/onboard/")) {
-      throw new Error("onboard href missing /onboard/");
+    await waitUntilIdle();
+    const stored = await ledger.get(inbound.idempotencyKey);
+    if (stored === undefined) {
+      throw new Error("bound whatsapp turn claimed no inbound");
     }
-    if (origin !== "https://app.zoen.local" && href.includes("app.zoen.local")) {
-      throw new Error("onboard href must not use app.zoen.local");
-    }
-    const spoken = await runFirstContactTurn({
-      generate: options.generateFirstContact,
-      href,
-      inboundText,
-    });
-    const stableProviderDeliveryId = inbound.idempotencyKey;
-    bodies.set(stableProviderDeliveryId, spoken);
-    return gateway.deliver({
-      controlRefs: [],
-      id: deliveryIntentId(deliveryIdFrom(inbound.idempotencyKey)),
-      presentation: presentationIntentRef("whatsapp.unbound.poke"),
-      provider: inbound.channel.provider,
-      recordId: interactionId(recordIdFrom(inbound.idempotencyKey)),
-      sequenceIndex: 0,
-      stableProviderDeliveryId,
-      target: {
-        kind: "same_thread",
-        thread: inbound.channel.thread,
-      },
-    });
+    return stored;
   }
 
   void coordinator.recoverPending();
@@ -615,18 +577,6 @@ function textPresentation(
     surfaceDigest: "whatsapp.contact.text",
     surfaceId: "whatsapp.contact",
   };
-}
-
-function deliveryIdFrom(idempotencyKey: string): string {
-  return `di_${shortHash(idempotencyKey)}`;
-}
-
-function recordIdFrom(idempotencyKey: string): string {
-  return `ixn_${shortHash(idempotencyKey)}`;
-}
-
-function shortHash(value: string): string {
-  return createHash("sha256").update(value).digest("hex").slice(0, 24);
 }
 
 function stringField(value: unknown): string {

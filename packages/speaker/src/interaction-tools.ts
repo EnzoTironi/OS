@@ -5,6 +5,12 @@ import type {
   PersonalWriteKind,
   SpeakerActionClient,
 } from "./osdk-action-client.js";
+import {
+  escalationHref,
+  permissionForFeature,
+  type ChannelAssurance,
+} from "./permission.js";
+import { resolvePublicOrigin } from "./public-origin.js";
 
 const speakToUserSchema = z
   .object({
@@ -39,6 +45,12 @@ const remindSchema = z
   })
   .strict();
 
+const requestExternalSchema = z
+  .object({
+    boundary: z.enum(["web_report", "bank_access", "fiscal_issuance"]),
+  })
+  .strict();
+
 /**
  * Mutable scratch for one reasoning stage. Tools record here.
  * User-visible text comes only from speak_to_user.
@@ -59,6 +71,8 @@ export interface InteractionToolOptions {
   /** Wall time that marks spawn_execution as slow. Production default is 2000. */
   readonly statusAfterMs?: number;
   readonly clock?: () => number;
+  readonly channelAssurance?: ChannelAssurance;
+  readonly publicWebOrigin?: string;
 }
 
 export function createInteractionScratch(): InteractionScratch {
@@ -76,27 +90,45 @@ export function createInteractionScratch(): InteractionScratch {
 export const WAIT_TOOL_DESCRIPTION =
   "End the turn with no user-facing text (empty bubbles). Use only for thanks, ok, show, valeu, or obrigado. Never for greetings (oi, e aí, hi, hey, fala). Do not speak.";
 
-/**
- * Poke-style Interaction tools. Few, and never named in user text.
- *
- * Context: one ToolLoopAgent turn. Closing inbound (valeu, ok, show, thanks,
- * obrigado) must call `wait`, not `speak_to_user`. Greetings never wait.
- * `note` / `remind` Propose then Commit.
- * Inputs: turn-local scratch plus optional executeWork / actions / statusAfterMs.
- * Outputs: ToolSet. User-visible text is only what `speak_to_user` recorded.
- * Side effects: mutates scratch. Failed writes set `writeFail`. `wait` is silent.
- *
- * @param scratch - Turn-local recorder for bubbles, one href, and execution notes
- * @param options.executeWork - Optional harness hand-off; defaults to a status string
- * @param options.actions - Personal lake Action client. Missing client fails the write.
- */
 export function createInteractionTools(
   scratch: InteractionScratch,
   options: InteractionToolOptions = {},
 ): ToolSet {
   const statusAfterMs = options.statusAfterMs ?? 2000;
   const clock = options.clock ?? Date.now;
+  const channelAssurance = options.channelAssurance ?? "whatsapp_phone";
+  const origin = resolvePublicOrigin(options.publicWebOrigin);
   return {
+    request_external: tool({
+      description:
+        "Ask for a web report, bank access, or fiscal issuance. Do not claim it ran. Speak after this returns.",
+      execute: async ({ boundary }) => {
+        const decision = permissionForFeature({
+          channelAssurance,
+          feature: { boundary, kind: "external" },
+        });
+        switch (decision.kind) {
+          case "allow":
+            return { allowed: true, ok: true };
+          case "escalate": {
+            const href = escalationHref(origin, decision.boundary);
+            if (!/^https:\/\//i.test(href) || !href.includes("/approve/")) {
+              return { ok: false, reason: "escalation href rejected" };
+            }
+            if (scratch.href !== undefined) {
+              return { ok: false, reason: "href already minted" };
+            }
+            scratch.href = href;
+            return { allowed: false, escalate: true, ok: true };
+          }
+          default: {
+            const exhaustive: never = decision;
+            return exhaustive;
+          }
+        }
+      },
+      inputSchema: requestExternalSchema,
+    }),
     note: tool({
       description:
         "Write a personal memory through Propose then Commit. Speak only after this returns ok. Never claim you wrote it if this fails.",

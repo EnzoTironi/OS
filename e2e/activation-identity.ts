@@ -517,6 +517,67 @@ async function main(): Promise<void> {
       onboardBound.status === 200,
     );
 
+    const admitSubject = "+5511966665555";
+    const oidcAdmit = await admin(
+      "POST",
+      "/identity/admin/admit-whatsapp",
+      {
+        provider: "whatsapp",
+        subjectKey: admitSubject,
+      },
+      boundToken,
+    );
+    record(
+      "oidc_cannot_admit_whatsapp",
+      oidcAdmit.status === 403 &&
+        oidcAdmit.body.error === "identity_admin_forbidden",
+    );
+    const doorAdmit = await admin("POST", "/identity/admin/admit-whatsapp", {
+      provider: "whatsapp",
+      subjectKey: e2eWhatsAppDoorE164(),
+    });
+    record(
+      "admit_whatsapp_door_rejected",
+      doorAdmit.status === 400 &&
+        doorAdmit.body.error === "invalid external subject",
+    );
+    const admitted = await admin("POST", "/identity/admin/admit-whatsapp", {
+      provider: "whatsapp",
+      subjectKey: admitSubject,
+    });
+    assert.equal(admitted.status, 200, JSON.stringify(admitted.body));
+    const admittedMemberships = admitted.body.memberships as Array<
+      Record<string, unknown>
+    >;
+    const admittedBindings = admitted.body.bindings as Array<
+      Record<string, unknown>
+    >;
+    const personal = admittedMemberships.find(
+      (row) => row.kind === "personal" && row.status === "active",
+    );
+    record(
+      "admit_whatsapp_mints_personal_membership",
+      admitted.status === 200 &&
+        personal !== undefined &&
+        String(personal.principalId) !== admitSubject &&
+        admittedBindings.some(
+          (binding) =>
+            binding.provider === "whatsapp" &&
+            binding.subjectKey === admitSubject &&
+            binding.status === "verified",
+        ),
+    );
+    const admittedResolve = await admin(
+      "GET",
+      `/identity/admin/resolve-subject?provider=whatsapp&subjectKey=${encodeURIComponent(admitSubject)}`,
+    );
+    record("admit_whatsapp_resolves_without_onboard", admittedResolve.status === 200);
+    const admittedAgain = await admin("POST", "/identity/admin/admit-whatsapp", {
+      provider: "whatsapp",
+      subjectKey: admitSubject,
+    });
+    record("admit_whatsapp_idempotent", admittedAgain.status === 200);
+
     const boundExplainCode = await expectConnectCode(
       () =>
         historyClient(boundToken).explain({

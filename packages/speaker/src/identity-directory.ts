@@ -16,13 +16,16 @@ export interface IdentityDirectory {
   resolveChannelSubject(input: {
     provider: ProviderKey;
     subjectKey: string;
-    /** Product policy tenant — never a thread id. */
     tenantHint?: string;
   }): Promise<ResolvedChannelIdentity>;
   mintOnboardToken?(input: {
     provider: ProviderKey;
     subjectKey: string;
   }): Promise<{ href: string; token: string }>;
+  admitWhatsAppSubject?(input: {
+    provider: ProviderKey;
+    subjectKey: string;
+  }): Promise<ResolvedChannelIdentity>;
 }
 
 export type ChannelSubjectResolveFailure =
@@ -46,7 +49,6 @@ export class ChannelSubjectResolveError extends Error {
   }
 }
 
-/** ProviderKey is already a ChannelProvider.as_str() value. */
 export function toChannelProvider(provider: ProviderKey): string {
   return String(provider);
 }
@@ -82,10 +84,6 @@ export interface IdentityDirectoryClientOptions {
   readonly adminToken?: string;
 }
 
-/**
- * Tiny HTTP client over zoend identity admin.
- * Resolve is load-only (GET resolve-subject). POST /provisional is onboarding-only.
- */
 export function createIdentityDirectoryClient(
   options: IdentityDirectoryClientOptions,
 ): IdentityDirectory {
@@ -97,6 +95,31 @@ export function createIdentityDirectoryClient(
     "";
 
   return {
+    async admitWhatsAppSubject(input) {
+      if (adminToken.length === 0) {
+        throw new Error("ZOEN_IDENTITY_ADMIN_TOKEN required for identity directory");
+      }
+      const response = await fetchImpl(
+        `${baseUrl}/identity/admin/admit-whatsapp`,
+        {
+          body: JSON.stringify({
+            provider: toChannelProvider(input.provider),
+            subjectKey: input.subjectKey,
+          }),
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            "content-type": "application/json",
+          },
+          method: "POST",
+        },
+      );
+      const snapshot = await readSnapshot(response, "admit-whatsapp");
+      return identityFromSnapshot(
+        snapshot,
+        toChannelProvider(input.provider),
+        input.subjectKey,
+      );
+    },
     async mintOnboardToken(input) {
       if (adminToken.length === 0) {
         throw new Error("ZOEN_IDENTITY_ADMIN_TOKEN required for identity directory");
@@ -154,64 +177,75 @@ export function createIdentityDirectoryClient(
         `${baseUrl}/identity/admin/resolve-subject?${params.toString()}`,
         adminToken,
       );
-
-      if (snapshot.account.status === "merged_into") {
-        throw new ChannelSubjectResolveError({
-          kind: "merged",
-          message: "account merged away",
-        });
-      }
-
-      const binding = snapshot.bindings.find(
-        (candidate) =>
-          candidate.provider === channelProvider &&
-          candidate.subjectKey === input.subjectKey &&
-          candidate.status === "verified",
+      return identityFromSnapshot(
+        snapshot,
+        channelProvider,
+        input.subjectKey,
+        input.tenantHint,
       );
-      if (binding === undefined) {
-        throw new ChannelSubjectResolveError({
-          kind: "unbound",
-          message: "unresolved channel subject: no verified binding",
-        });
-      }
-
-      const active = snapshot.memberships.filter(
-        (membership) => membership.status === "active",
-      );
-      if (active.length === 0) {
-        throw new ChannelSubjectResolveError({
-          kind: "inactive_membership",
-          message: "inactive or missing membership",
-        });
-      }
-
-      const membership =
-        input.tenantHint === undefined
-          ? uniqueMembership(active)
-          : active.find((row) => row.tenantId === input.tenantHint);
-      if (membership === undefined) {
-        throw new ChannelSubjectResolveError({
-          kind: input.tenantHint === undefined
-            ? "ambiguous_membership"
-            : "tenant_hint_miss",
-          message:
-            input.tenantHint === undefined
-              ? "multiple active memberships require a tenant hint"
-              : "no active membership for tenant hint",
-        });
-      }
-
-      // Never take tenant/principal from provider thread/user — Membership only.
-      return {
-        accountId: membership.accountId,
-        actorId: membership.actorId ?? "actor.personal",
-        bindingId: binding.bindingId,
-        membershipId: membership.membershipId,
-        principalId: principalIdString(membership.principalId),
-        tenantId: tenantIdString(membership.tenantId),
-        workloadId: membership.workloadId ?? "workload.personal",
-      };
     },
+  };
+}
+
+function identityFromSnapshot(
+  snapshot: SnapshotJson,
+  channelProvider: string,
+  subjectKey: string,
+  tenantHint?: string,
+): ResolvedChannelIdentity {
+  if (snapshot.account.status === "merged_into") {
+    throw new ChannelSubjectResolveError({
+      kind: "merged",
+      message: "account merged away",
+    });
+  }
+
+  const binding = snapshot.bindings.find(
+    (candidate) =>
+      candidate.provider === channelProvider &&
+      candidate.subjectKey === subjectKey &&
+      candidate.status === "verified",
+  );
+  if (binding === undefined) {
+    throw new ChannelSubjectResolveError({
+      kind: "unbound",
+      message: "unresolved channel subject: no verified binding",
+    });
+  }
+
+  const active = snapshot.memberships.filter(
+    (membership) => membership.status === "active",
+  );
+  if (active.length === 0) {
+    throw new ChannelSubjectResolveError({
+      kind: "inactive_membership",
+      message: "inactive or missing membership",
+    });
+  }
+
+  const membership =
+    tenantHint === undefined
+      ? uniqueMembership(active)
+      : active.find((row) => row.tenantId === tenantHint);
+  if (membership === undefined) {
+    throw new ChannelSubjectResolveError({
+      kind:
+        tenantHint === undefined ? "ambiguous_membership" : "tenant_hint_miss",
+      message:
+        tenantHint === undefined
+          ? "multiple active memberships require a tenant hint"
+          : "no active membership for tenant hint",
+    });
+  }
+
+  return {
+    accountId: membership.accountId,
+    actorId: membership.actorId ?? "actor.personal",
+    bindingId: binding.bindingId,
+    membershipId: membership.membershipId,
+    principalId: principalIdString(membership.principalId),
+    tenantId: tenantIdString(membership.tenantId),
+    workloadId: membership.workloadId ?? "workload.personal",
   };
 }
 
@@ -226,6 +260,34 @@ function uniqueMembership(
     return personals[0];
   }
   return undefined;
+}
+
+async function readSnapshot(
+  response: Response,
+  label: string,
+): Promise<SnapshotJson> {
+  const text = await response.text();
+  const parsed = text.length === 0 ? {} : (JSON.parse(text) as unknown);
+  if (!response.ok) {
+    const message =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "error" in parsed &&
+      typeof (parsed as { error: unknown }).error === "string"
+        ? (parsed as { error: string }).error
+        : `${label} HTTP ${String(response.status)}`;
+    throw new Error(message);
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("account" in parsed) ||
+    !("bindings" in parsed) ||
+    !("memberships" in parsed)
+  ) {
+    throw new Error(`${label} missing snapshot`);
+  }
+  return parsed as SnapshotJson;
 }
 
 async function getJson<T>(

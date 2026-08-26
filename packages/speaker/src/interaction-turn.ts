@@ -32,6 +32,7 @@ import {
   type PersonalWriteKind,
   type SpeakerActionClient,
 } from "./osdk-action-client.js";
+import type { ChannelAssurance } from "./permission.js";
 import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
 import type {
   WorldQueryClient,
@@ -86,6 +87,8 @@ export interface InteractionTurnInput {
   readonly store?: TurnStore;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  readonly channelAssurance?: ChannelAssurance;
+  readonly publicWebOrigin?: string;
   /** Status bubble after generate/spawn_execution exceeds this. Default 2000. */
   readonly statusAfterMs?: number;
   readonly debounceMs?: number;
@@ -156,7 +159,9 @@ export async function runInteractionTurn(
   await coordinator.advanceStage(attemptId, "reasoning");
   const reasoned = await reasonTurn({
     actions: input.actions ?? createSpeakerActionClientFromEnv(),
+    channelAssurance: input.channelAssurance,
     executeWork: input.executeWork,
+    publicWebOrigin: input.publicWebOrigin,
     inbound: input.inbound,
     inboundText,
     locale,
@@ -416,6 +421,8 @@ interface ReasonTurnResult {
 
 async function reasonTurn(input: {
   readonly actions?: SpeakerActionClient;
+  readonly channelAssurance?: ChannelAssurance;
+  readonly publicWebOrigin?: string;
   readonly executeWork?: (task: string) => Promise<string>;
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
@@ -440,8 +447,10 @@ async function reasonTurn(input: {
     stopWhen: isStepCount(8),
     tools: createInteractionTools(scratch, {
       actions: input.actions,
+      channelAssurance: input.channelAssurance,
       clock: input.clock,
       executeWork: input.executeWork,
+      publicWebOrigin: input.publicWebOrigin,
       statusAfterMs: input.statusAfterMs,
     }),
   });
@@ -684,13 +693,6 @@ function hiddenIdentityTokens(
   ].filter((token) => token.length > 0);
 }
 
-/**
- * Locale-aware Interaction system prompt.
- * Interaction talks. Execution never talks to the person.
- *
- * @param locale - Detected inbound locale (`pt` or `en`)
- * @returns Short Poke-density instructions. Never names harness internals.
- */
 export function firstContactAddendum(locale: InteractionLocale): string {
   switch (locale) {
     case "pt":

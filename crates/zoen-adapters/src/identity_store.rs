@@ -836,6 +836,26 @@ impl PostgresIdentityStore {
         Ok(())
     }
 
+    pub async fn admit_whatsapp(
+        &self,
+        subject: ExternalSubject,
+    ) -> Result<AccountSnapshot, IdentityError> {
+        if subject.provider != ChannelProvider::WhatsApp {
+            return Err(IdentityError::InvalidProvider);
+        }
+        if self.subject_has_verified_personal(&subject).await? {
+            let (_, snapshot) = self.snapshot_for_verified_subject(&subject).await?;
+            return Ok(snapshot);
+        }
+        match self.complete_onboard(subject.clone()).await {
+            Ok(_) | Err(IdentityError::AlreadyConsumed) => {
+                let (_, snapshot) = self.snapshot_for_verified_subject(&subject).await?;
+                Ok(snapshot)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub async fn complete_onboard(
         &self,
         subject: ExternalSubject,

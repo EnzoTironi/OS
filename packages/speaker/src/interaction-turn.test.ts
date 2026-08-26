@@ -729,6 +729,97 @@ test("first contact addendum never says unbound and generate mock is the spoken 
   assert.doesNotMatch(spoken, /Este WhatsApp ainda não está vinculado/i);
 });
 
+test("request_external on WhatsApp phone mints an approve href, not onboard", async () => {
+  let step = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({ boundary: "fiscal_issuance" }),
+              toolCallId: "call_ext",
+              toolName: "request_external",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      if (step === 2) {
+        return speakCall("abre o link pra confirmar");
+      }
+      return stopCall();
+    },
+  });
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("emite a nota"),
+    membership: membership("fiscal"),
+    model,
+    publicWebOrigin: "https://zoen.tironi.xyz",
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.match(sent, /https:\/\/zoen\.tironi\.xyz\/approve\/external\.fiscal_issuance/);
+  assert.doesNotMatch(sent, /\/onboard\//);
+});
+
+test("request_external with OIDC binding does not mint a login URL", async () => {
+  let step = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({ boundary: "bank_access" }),
+              toolCallId: "call_ext",
+              toolName: "request_external",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      if (step === 2) {
+        return speakCall("vou olhar o banco");
+      }
+      return stopCall();
+    },
+  });
+  const result = await runInteractionTurn({
+    channelAssurance: "oidc_bound",
+    debounceMs: 0,
+    inbound: textInbound("abre o banco"),
+    membership: membership("bank"),
+    model,
+    publicWebOrigin: "https://zoen.tironi.xyz",
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.doesNotMatch(sent, /\/onboard\/|\/approve\/external\./);
+  assert.match(sent, /vou olhar o banco/);
+});
+
+test("note tool does not mint a login URL", async () => {
+  const scratch = createInteractionScratch();
+  const tools = createInteractionTools(scratch, {
+    publicWebOrigin: "https://zoen.tironi.xyz",
+  });
+  const note = tools.note;
+  assert.ok(note?.execute !== undefined);
+  await note.execute(
+    { body: "leite" },
+    { context: undefined, messages: [], toolCallId: "call_note" },
+  );
+  assert.equal(scratch.href, undefined);
+});
+
 test("generate throw is fail copy, not rival speech", async () => {
   const model = new MockLanguageModelV3({
     doGenerate: async () => {

@@ -7,7 +7,6 @@ import { createConnection } from "node:net";
 import path from "node:path";
 import {
   ChannelSubjectResolveError,
-  createIdentityDirectoryClient,
   principalIdString,
   providerKey,
   tenantIdString,
@@ -442,43 +441,46 @@ async function proveContactLoop(
   process.env.ZOEN_WHATSAPP_DOOR_E164 = doorE164;
 
   const identityCalls: string[] = [];
-  const fetchImpl: typeof fetch = async (input, init) => {
-    const method = (init?.method ?? "GET").toUpperCase();
-    identityCalls.push(`${method} ${String(input)}`);
-    assert.equal(method, "GET");
-    assert.doesNotMatch(
-      String(input),
-      /\/provisional|\/verify-binding|\/bind-verified/,
-    );
-    return new Response(
-      JSON.stringify({ error: "OIDC subject has no verified binding" }),
-      { headers: { "content-type": "application/json" }, status: 401 },
-    );
+  const membership = {
+    accountId: "account.wa.e2e",
+    actorId: "actor.personal",
+    bindingId: "binding.wa.e2e",
+    membershipId: "membership.wa.e2e",
+    principalId: principalIdString("principal.wa.e2e"),
+    tenantId: tenantIdString("tenant.wa.e2e"),
+    workloadId: "workload.personal",
+  };
+  let admitted = false;
+  const admitting = {
+    async admitWhatsAppSubject() {
+      identityCalls.push("POST admit-whatsapp");
+      admitted = true;
+      return membership;
+    },
+    async resolveChannelSubject(input: { subjectKey: string }) {
+      identityCalls.push("GET resolve-subject");
+      if (!admitted || input.subjectKey !== person) {
+        throw new ChannelSubjectResolveError({
+          kind: "unbound",
+          message: "unresolved channel subject: no verified binding",
+        });
+      }
+      return membership;
+    },
   };
 
   try {
-    const unboundSession = createRecordingCompanionSession({
+    const firstSession = createRecordingCompanionSession({
       ready: { connected: true, loggedIn: true, paired: true },
     });
-    await unboundSession.open();
+    await firstSession.open();
     const ledger = createMemoryReplyLedger();
-    const generated = "oi, entra quando quiser";
-    const onboardHref = "https://zoen.tironi.xyz/onboard/e2etok";
-    const unboundLoop = createWhatsAppContactLoop({
+    const firstLoop = createWhatsAppContactLoop({
       doorE164,
-      generateFirstContact: async () => generated,
-      identity: {
-        ...createIdentityDirectoryClient({
-          baseUrl: "http://zoend.test",
-          fetchImpl,
-        }),
-        async mintOnboardToken() {
-          return { href: onboardHref, token: "e2etok" };
-        },
-      },
+      identity: admitting,
       ledger,
       publicWebOrigin: "https://zoen.tironi.xyz",
-      session: unboundSession,
+      session: firstSession,
     });
     const envelope = {
       body: "Oi",
@@ -490,27 +492,26 @@ async function proveContactLoop(
       senderAltJid: person,
       senderJid: person,
     };
-    const unbound = await unboundLoop.handleRaw(envelope);
-    assert.equal(unbound.kind, "unbound");
-    assert.equal(unboundSession.sent().length, 1);
-    assert.equal(unboundSession.sent()[0]?.chatJid, person);
-    const unboundShape = unboundSession.sent()[0]?.shape;
-    assert.equal(unboundShape?.kind, "text");
-    if (unboundShape?.kind === "text") {
-      assert.equal(unboundShape.text.includes(generated), true);
-      assert.equal(unboundShape.text.includes(onboardHref), true);
+    const first = await firstLoop.handleRaw(envelope);
+    assert.equal(first.kind, "bound");
+    assert.equal(firstSession.sent().length, 1);
+    assert.equal(firstSession.sent()[0]?.chatJid, person);
+    const firstShape = firstSession.sent()[0]?.shape;
+    assert.equal(firstShape?.kind, "text");
+    if (firstShape?.kind === "text") {
+      assert.doesNotMatch(firstShape.text, /\/onboard\//);
       assert.doesNotMatch(
-        unboundShape.text,
+        firstShape.text,
         /Este WhatsApp ainda não está vinculado|unbound|unlinked|unregistered/i,
       );
     }
-    const duplicate = await unboundLoop.handleRaw(envelope);
+    const duplicate = await firstLoop.handleRaw(envelope);
     assert.equal(duplicate.kind, "duplicate");
-    assert.equal(unboundSession.sent().length, 1);
+    assert.equal(firstSession.sent().length, 1);
 
-    const fromMe = await unboundLoop.handleRaw({ ...envelope, fromMe: true });
+    const fromMe = await firstLoop.handleRaw({ ...envelope, fromMe: true });
     assert.equal(fromMe.kind, "dropped");
-    const door = await unboundLoop.handleRaw({
+    const door = await firstLoop.handleRaw({
       ...envelope,
       chatJid: doorJid,
       messageId: "wamid.e2e.door",
@@ -518,7 +519,7 @@ async function proveContactLoop(
       senderJid: doorJid,
     });
     assert.equal(door.kind, "dropped");
-    await unboundSession.close();
+    await firstSession.close();
 
     const restarted = createRecordingCompanionSession({
       ready: { connected: true, loggedIn: true, paired: true },
@@ -526,10 +527,7 @@ async function proveContactLoop(
     await restarted.open();
     const restartedLoop = createWhatsAppContactLoop({
       doorE164,
-      identity: createIdentityDirectoryClient({
-        baseUrl: "http://zoend.test",
-        fetchImpl,
-      }),
+      identity: admitting,
       ledger,
       session: restarted,
     });
@@ -579,18 +577,21 @@ async function proveContactLoop(
     }
     await boundSession.close();
 
-    record("unbound_poke_same_thread", true);
+    record("first_inbound_admits_without_login", true);
     record("bound_turn_same_thread", true);
     record("restart_does_not_duplicate_reply", true);
     record("door_jid_is_never_the_person", true);
     record(
-      "identity_resolve_is_get_only",
-      identityCalls.length > 0 &&
-        identityCalls.every((call) => call.startsWith("GET ")),
+      "identity_writes_only_admit_whatsapp",
+      identityCalls.some((call) => call.startsWith("GET ")) &&
+        identityCalls.every(
+          (call) =>
+            call.startsWith("GET ") || call === "POST admit-whatsapp",
+        ),
     );
     kill(
-      "invent_membership_on_unbound",
-      "IdentityDirectory GET resolve-subject; unbound poke; no Membership row",
+      "onboard_poke_on_first_inbound",
+      "first inbound admits then bound turn; no /onboard/",
     );
     kill(
       "harness_verified_on_inbound",

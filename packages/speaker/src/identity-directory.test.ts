@@ -258,6 +258,67 @@ test("resolveChannelSubject fails closed on ambiguous membership without tenant 
   assert.equal(String(resolved.tenantId), "tenant.b");
 });
 
+test("admitWhatsAppSubject POSTs admit-whatsapp and never GETs resolve-subject", async () => {
+  const calls: Array<{ method: string; url: string }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    calls.push({ method, url });
+    assert.equal(method, "POST");
+    assert.match(url, /\/identity\/admin\/admit-whatsapp$/);
+    assert.doesNotMatch(url, /\/resolve-subject|\/provisional|\/onboard-tokens/);
+    return new Response(
+      JSON.stringify({
+        account: { accountId: "account.wa", status: "verified" },
+        bindings: [
+          {
+            accountId: "account.wa",
+            bindingId: "binding.wa",
+            provider: "whatsapp",
+            status: "verified",
+            subjectKey: "553199941160@s.whatsapp.net",
+          },
+        ],
+        memberships: [
+          {
+            accountId: "account.wa",
+            actorId: "actor.personal",
+            kind: "personal",
+            membershipId: "membership.wa",
+            principalId: "principal.wa",
+            status: "active",
+            tenantId: "tenant.wa",
+            workloadId: "workload.personal",
+          },
+        ],
+      }),
+      { headers: { "content-type": "application/json" }, status: 200 },
+    );
+  };
+
+  const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
+    baseUrl: "http://zoend.test",
+    fetchImpl,
+  });
+  const admitted = await identity.admitWhatsAppSubject?.({
+    provider: providerKey("whatsapp"),
+    subjectKey: "553199941160@s.whatsapp.net",
+  });
+  assert.ok(admitted);
+  assert.equal(admitted.accountId, "account.wa");
+  assert.equal(String(admitted.tenantId), "tenant.wa");
+  assert.equal(String(admitted.principalId), "principal.wa");
+  assert.notEqual(String(admitted.principalId), "553199941160@s.whatsapp.net");
+  assert.notEqual(String(admitted.tenantId), "553199941160@s.whatsapp.net");
+  assert.deepEqual(calls, [
+    {
+      method: "POST",
+      url: "http://zoend.test/identity/admin/admit-whatsapp",
+    },
+  ]);
+});
+
 test("resolveChannelSubject prefers the single personal membership over invite", async () => {
   const fetchImpl: typeof fetch = async () =>
     new Response(
