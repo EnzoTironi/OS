@@ -66,6 +66,7 @@ interface MembershipJson {
   principalId: string;
   status: string;
   actorId?: string;
+  kind?: string;
   workloadId?: string;
 }
 
@@ -219,6 +220,10 @@ function uniqueMembership(
 ): MembershipJson | undefined {
   if (active.length === 1) {
     return active[0];
+  }
+  const personals = active.filter((row) => row.kind === "personal");
+  if (personals.length === 1) {
+    return personals[0];
   }
   return undefined;
 }

@@ -257,3 +257,61 @@ test("resolveChannelSubject fails closed on ambiguous membership without tenant 
   assert.equal(resolved.membershipId, "membership.b");
   assert.equal(String(resolved.tenantId), "tenant.b");
 });
+
+test("resolveChannelSubject prefers the single personal membership over invite", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        account: { accountId: "account.1", status: "verified" },
+        bindings: [
+          {
+            accountId: "account.1",
+            bindingId: "binding.1",
+            provider: "whatsapp",
+            status: "verified",
+            subjectKey: "+15551212",
+          },
+        ],
+        memberships: [
+          {
+            accountId: "account.1",
+            kind: "invite",
+            membershipId: "membership.invite",
+            principalId: "principal.invite",
+            status: "active",
+            tenantId: "tenant.a",
+          },
+          {
+            accountId: "account.1",
+            kind: "personal",
+            membershipId: "membership.personal",
+            principalId: "principal.personal",
+            status: "active",
+            tenantId: "tenant.personal",
+          },
+        ],
+      }),
+      { headers: { "content-type": "application/json" }, status: 200 },
+    );
+
+  const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
+    baseUrl: "http://zoend.test",
+    fetchImpl,
+  });
+
+  const personal = await identity.resolveChannelSubject({
+    provider: providerKey("whatsapp"),
+    subjectKey: "+15551212",
+  });
+  assert.equal(personal.membershipId, "membership.personal");
+  assert.equal(String(personal.tenantId), "tenant.personal");
+
+  const hinted = await identity.resolveChannelSubject({
+    provider: providerKey("whatsapp"),
+    subjectKey: "+15551212",
+    tenantHint: "tenant.a",
+  });
+  assert.equal(hinted.membershipId, "membership.invite");
+  assert.equal(String(hinted.tenantId), "tenant.a");
+});
