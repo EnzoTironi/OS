@@ -8,6 +8,7 @@ import { MockLanguageModelV3 } from "ai/test";
 import type { ClaimRead } from "../../osdk/src/index.js";
 import { LineageRole } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
+  WAIT_TOOL_DESCRIPTION,
   createInteractionScratch,
   createInteractionTools,
 } from "./interaction-tools.js";
@@ -195,6 +196,42 @@ test("reasoningPrompt frames World rivals as the subject, not optional JSON", ()
   assert.match(prompt, /10 each/);
   assert.match(prompt, /12 each/);
   assert.match(prompt, /Duas leituras ficam de pé/);
+  assert.match(prompt, /Não cumprimente no lugar de responder/);
+});
+
+test("empty-world prompt answers greetings; wait description forbids greetings", () => {
+  const emptyPt = reasoningPrompt(textInbound("oi"), "oi", undefined, "pt");
+  const emptyEn = reasoningPrompt(textInbound("hi"), "hi", undefined, "en");
+  const emptySnapshot = reasoningPrompt(
+    textInbound("oi"),
+    "oi",
+    { entityIds: [], notes: [], rivals: [] },
+    "pt",
+  );
+  assert.doesNotMatch(emptyPt, /Não cumprimente no lugar de responder/);
+  assert.doesNotMatch(emptyEn, /Do not greet instead of answering/);
+  assert.doesNotMatch(emptySnapshot, /Não cumprimente no lugar de responder/);
+  assert.match(emptyPt, /speak_to_user/);
+  assert.match(emptyPt, /Nunca wait/);
+  assert.match(emptyEn, /speak_to_user/);
+  assert.match(emptyEn, /Never wait/);
+
+  const pt = interactionInstructions("pt");
+  const en = interactionInstructions("en");
+  assert.match(pt, /oi, e aí, fala, hi, hey: speak_to_user\. nunca wait/);
+  assert.match(en, /oi, e aí, fala, hi, hey: speak_to_user\. never wait/);
+
+  assert.match(
+    WAIT_TOOL_DESCRIPTION,
+    /Use only for thanks, ok, show, valeu, or obrigado/,
+  );
+  assert.match(
+    WAIT_TOOL_DESCRIPTION,
+    /Never for greetings \(oi, e aí, hi, hey, fala\)/,
+  );
+  assert.doesNotMatch(WAIT_TOOL_DESCRIPTION, /other closing inbound/);
+  const tools = createInteractionTools(createInteractionScratch());
+  assert.equal(tools.wait?.description, WAIT_TOOL_DESCRIPTION);
 });
 
 test("mocked turn with two World rivals speaks the readings, not a helpdesk greeting", async () => {
