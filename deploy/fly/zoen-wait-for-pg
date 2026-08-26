@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+until pg_isready -h 127.0.0.1; do
+  sleep 1
+done
+exec "$@"

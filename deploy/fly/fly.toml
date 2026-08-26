@@ -23,7 +23,7 @@ primary_region = "gru"
 [[http_service.checks]]
   interval = "15s"
   timeout = "5s"
-  grace_period = "2m"
+  grace_period = "5m"
   method = "GET"
   path = "/ready"
 
@@ -60,3 +60,4 @@ primary_region = "gru"
   KC_HOSTNAME_STRICT = "false"
   KC_HTTP_ENABLED = "true"
   KC_HEALTH_ENABLED = "true"
+  KC_HTTP_MANAGEMENT_PORT = "9002"
