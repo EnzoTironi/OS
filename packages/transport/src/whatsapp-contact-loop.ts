@@ -29,6 +29,7 @@ import {
   TURN_DEBOUNCE_MS,
   TURN_STATUS_AFTER_MS,
   type ClaimResult,
+  type ConversationContextAssembler,
   type ConversationKey,
   type DeliveryIntent,
   type DeliveryObservation,
@@ -36,6 +37,7 @@ import {
   type InboundInteraction,
   type PostgresTurnStoreClient,
   type ScheduleFn,
+  type SpeakerActionClient,
   type TrustedInteractionContext,
   type TurnStore,
 } from "../../speaker/src/index.js";
@@ -129,6 +131,10 @@ export interface WhatsAppContactLoopOptions {
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  /** Bound assembler override so tests can witness the real kernel hop. */
+  readonly assembler?: ConversationContextAssembler;
+  /** Personal Action client override. Production reads zoend env. */
+  readonly actions?: SpeakerActionClient;
   /** Tier 2 model override, mainly for tests. Production reads ZOEN_MODEL. */
   readonly model?: LanguageModel;
   /** Status gate threshold in ms. Default TURN_STATUS_AFTER_MS (2000). */
@@ -374,6 +380,8 @@ export function createWhatsAppContactLoop(
         },
         schedule: options.schedule,
         work: runInteractionTurn({
+          actions: options.actions,
+          assembler: options.assembler,
           attemptId: claimed.attempt.id,
           channelAssurance: "whatsapp_phone",
           coordinator,
