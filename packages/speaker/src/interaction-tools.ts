@@ -42,7 +42,6 @@ const remindSchema = z
 export interface InteractionScratch {
   bubbles: string[];
   executionNotes: string[];
-  href?: string;
   waited: boolean;
   /** Set by speak_to_user / note / remind / spawn_execution. Not by wait. */
   startedWork: boolean;
@@ -132,7 +131,6 @@ export function createInteractionTools(
       execute: async () => {
         scratch.waited = true;
         scratch.bubbles.length = 0;
-        scratch.href = undefined;
         return { ok: true };
       },
       inputSchema: waitSchema,

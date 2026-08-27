@@ -188,8 +188,11 @@ test("PT instructions ban helpdesk greetings and keep speak_to_user as the only 
   assert.match(instructions, /Recebi/);
   assert.match(instructions, /\bwait\b/);
   assert.match(instructions, /nunca fale proposal/);
-  assert.doesNotMatch(instructions, /mint_href|request_external/);
-  assert.doesNotMatch(interactionInstructions("en"), /mint_href|request_external/);
+  assert.doesNotMatch(instructions, /mint_href|request_external|bash \+ zoen CLI/);
+  assert.doesNotMatch(
+    interactionInstructions("en"),
+    /mint_href|request_external|bash \+ zoen CLI/,
+  );
   assert.doesNotMatch(instructions, /Mastra|LangGraph/);
   assert.doesNotMatch(instructions, /ficar quieto|stay quiet/i);
   assert.doesNotMatch(instructions, /—/);
@@ -472,7 +475,6 @@ test("wait tool produces no Recebi and no helpdesk", async () => {
   assert.equal(scratch.waited, true);
   assert.equal(scratch.startedWork, false);
   assert.deepEqual(scratch.bubbles, []);
-  assert.equal(scratch.href, undefined);
 });
 
 test("model-driven wait on a non-ack closing message stays empty, not a fast ack", async () => {
@@ -745,18 +747,6 @@ test("group audience refuses note and does not write personal memory", async () 
   assert.equal(writes, 0);
   assert.deepEqual(result.bubbles, ["não consegui anotar agora"]);
   assert.doesNotMatch(result.bubbles.join("\n"), /anotei/);
-});
-
-test("note tool does not mint a login URL", async () => {
-  const scratch = createInteractionScratch();
-  const tools = createInteractionTools(scratch);
-  const note = tools.note;
-  assert.ok(note?.execute !== undefined);
-  await note.execute(
-    { body: "leite" },
-    { context: undefined, messages: [], toolCallId: "call_note" },
-  );
-  assert.equal(scratch.href, undefined);
 });
 
 test("generate throw is fail copy, not rival speech", async () => {

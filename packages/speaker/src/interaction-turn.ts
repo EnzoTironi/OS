@@ -253,7 +253,8 @@ export async function runInteractionTurn(
 }
 
 /**
- * Place href into the bubble list when the agent minted one but did not speak it.
+ * Place host href into the bubble list when the assembled turn already
+ * had one and speech did not include it.
  */
 export function outboundBubbles(result: OutboundTurn): string[] {
   const bubbles = result.bubbles
@@ -509,7 +510,6 @@ async function reasonTurn(input: {
   }
   if (scratch.waited) {
     scratch.bubbles.length = 0;
-    scratch.href = undefined;
     return { generate: "ok", path: "wait", scratch };
   }
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
@@ -541,7 +541,6 @@ function applyFailCopy(
   locale: InteractionLocale,
 ): InteractionScratch {
   scratch.bubbles.length = 0;
-  scratch.href = undefined;
   scratch.waited = false;
   scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
   return scratch;
@@ -553,7 +552,6 @@ function applyWriteFail(
   kind: PersonalWriteKind,
 ): InteractionScratch {
   scratch.bubbles.length = 0;
-  scratch.href = undefined;
   scratch.waited = false;
   switch (locale) {
     case "pt":
@@ -590,7 +588,7 @@ function renderTurn(input: {
       }
     }
   }
-  const href = pickHref(input.scratch.href, spoken, input.hrefFallback);
+  const href = pickHref(input.hrefFallback);
   const emptyInbound =
     input.inbound.kind === "text" && input.inboundText.trim().length === 0;
   const stripped = emptyInbound
@@ -599,31 +597,11 @@ function renderTurn(input: {
   return { bubbles: stripped, href };
 }
 
-function pickHref(
-  minted: string | undefined,
-  bubbles: readonly string[],
-  hrefFallback: string | undefined,
-): URL | null {
-  const candidates: string[] = [];
-  if (minted !== undefined) {
-    candidates.push(minted);
+function pickHref(hrefFallback: string | undefined): URL | null {
+  if (hrefFallback === undefined) {
+    return null;
   }
-  for (const bubble of bubbles) {
-    const found = bubble.match(/https:\/\/[^\s]+/gi) ?? [];
-    for (const url of found) {
-      candidates.push(url);
-    }
-  }
-  if (hrefFallback !== undefined && candidates.length === 0) {
-    candidates.push(hrefFallback);
-  }
-  for (const candidate of candidates) {
-    const parsed = parseHttpsUrl(candidate);
-    if (parsed !== null) {
-      return parsed;
-    }
-  }
-  return null;
+  return parseHttpsUrl(hrefFallback);
 }
 
 function parseHttpsUrl(value: string): URL | null {
@@ -847,7 +825,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
     case "pt":
       return [
         "você é a zoen. uma só entidade. você fala com a pessoa. execution nunca fala",
-        "texto visível só por speak_to_user. spawn_execution trabalha fora (bash + zoen CLI). nunca invente um URL. se o turno não tem https, não faça um",
+        "texto visível só por speak_to_user. spawn_execution trabalha fora. nunca invente um URL. se o turno não tem https, não faça um",
         "note grava memória. remind agenda. só speak_to_user depois que a tool voltar ok. se falhar, não diga que anotou ou agendou",
         "preview da tool é o texto canônico. nunca fale proposal, operation, claim, tenant, principal nem hash",
         "valeu, ok, show, obrigado: chame wait. sem bolha. não fale",
@@ -863,7 +841,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
     case "en":
       return [
         "you are zoen. one entity. you talk to the person. execution never talks",
-        "visible text only from speak_to_user. spawn_execution works off-chat (bash + zoen CLI). never invent a URL. if the turn has no https, do not make one",
+        "visible text only from speak_to_user. spawn_execution works off-chat. never invent a URL. if the turn has no https, do not make one",
         "note writes a memory. remind schedules. speak_to_user only after the tool returns ok. if it fails, do not claim you wrote or scheduled it",
         "tool preview is the canonical text. never speak proposal, operation, claim, tenant, principal, or hash",
         "thanks, ok, show: call wait. no bubble. do not speak",
