@@ -37,4 +37,4 @@ fly ssh console --app zoen -C "zoen-bind-inbox"
 
 Pair prints the QR. Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID (`5531999941160@s.whatsapp.net` by default). Never the door.
 
-`ZOEN_MODEL` / `OPENAI_API_KEY` are Fly secrets. Effects/connector stay unset on this VM.
+`ZOEN_MODEL` and `OPENAI_BASE_URL` are in fly.toml `[env]`; `OPENAI_API_KEY` stays a Fly/GitHub secret. Effects/connector stay unset on this VM.
