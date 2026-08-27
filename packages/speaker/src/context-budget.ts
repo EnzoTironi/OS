@@ -129,7 +129,11 @@ function stripOldestCarryForwardText(
     if ((record.payload.text ?? "").length === 0) {
       continue;
     }
-    record.payload = { kind: record.payload.kind, type: "interaction" };
+    record.payload = {
+      kind: record.payload.kind,
+      type: "interaction",
+      ...(record.payload.speaker === true ? { speaker: true } : {}),
+    };
     dropped.push({ reason: "budget", recordId: record.recordId });
   }
 }
@@ -250,6 +254,7 @@ function applyTextTruncate(
         ...(record.payload.mediaRef === undefined
           ? {}
           : { mediaRef: record.payload.mediaRef }),
+        ...(record.payload.speaker === true ? { speaker: true } : {}),
       };
       return;
     }

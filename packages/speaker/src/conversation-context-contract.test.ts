@@ -598,3 +598,57 @@ test("prior conversation messages appear when the store has older records for th
       RECENT_CONVERSATION_INTERACTION_LIMIT,
   );
 });
+
+test("prior speaker bubbles ride the next assemble so a parse cannot be invented", async () => {
+  const store = createMemoryTurnStore();
+  const now = () => new Date("2026-08-26T15:00:00.000Z");
+  const ctx = membership({
+    thread: "553199941160@s.whatsapp.net",
+  });
+  const quote = {
+    ...record(ctx, "quanto tá a cotação?", "spoken-in"),
+    acceptedAt: "2026-08-26T14:50:00.000Z",
+  };
+  const recall = {
+    ...record(ctx, "O que acabamos de tentar fazer?", "spoken-now"),
+    acceptedAt: "2026-08-26T14:51:00.000Z",
+  };
+  await store.putRecord(quote);
+  await store.putRecord(recall);
+  await store.putAttempt({
+    carryForwardInteractionIds: [],
+    claimedInteractionIds: [quote.id],
+    conversationKey: keyFor(ctx),
+    id: turnAttemptId("att_spoken_old"),
+    observedCommitRefs: [],
+    openedAt: "2026-08-26T14:50:00.000Z",
+    phase: { kind: "completed" },
+    spokenBubbles: ["tem 10 each e 12 each", "https://example.com/approve"],
+    turnId: conversationTurnId("turn_spoken_old"),
+  });
+  const envelope = await assembleTurnContext({
+    assembler: createLiveConversationAssembler({
+      env: {},
+      now,
+      store,
+    }),
+    attempt: {
+      carryForwardInteractionIds: [],
+      claimedInteractionIds: [recall.id],
+      conversationKey: keyFor(ctx),
+      id: turnAttemptId("att_spoken_now"),
+      observedCommitRefs: [],
+      openedAt: "2026-08-26T14:51:00.000Z",
+      phase: { kind: "assembling_context" },
+      turnId: conversationTurnId("turn_spoken_now"),
+    },
+    inbound: { kind: "text", text: "O que acabamos de tentar fazer?" },
+    membership: ctx,
+    store,
+  });
+  assert.match(envelope.projection.data, /speaker: yes/);
+  assert.match(envelope.projection.data, /tem 10 each e 12 each/);
+  assert.match(envelope.projection.data, /quanto tá a cotação\?/);
+  assert.doesNotMatch(envelope.projection.data, /anotar|agendar|parse/i);
+  assert.doesNotMatch(envelope.projection.data, /primeira mensagem/i);
+});

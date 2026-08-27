@@ -68,6 +68,11 @@ export function isStatusPhrase(text: string, locale: StatusLocale): boolean {
   return Object.values(STATUS_PHRASES[locale]).includes(text.trim());
 }
 
+/** True when `text` is a host-owned status phrase in any status locale. */
+export function isHostStatusPhrase(text: string): boolean {
+  return isStatusPhrase(text, "pt") || isStatusPhrase(text, "en");
+}
+
 /**
  * Drop a leading host-owned status phrase from final bubbles.
  * Leaves the rest of the list untouched, including a phrase that is only

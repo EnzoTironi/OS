@@ -389,6 +389,8 @@ export interface TurnAttempt {
   readonly contextRef?: string;
   readonly contextDigest?: string;
   readonly contextDroppedIds?: readonly string[];
+  /** User-visible bubbles this attempt already sent. Not carry-forward. */
+  readonly spokenBubbles?: readonly string[];
 }
 
 export type CancellableTurnPhaseKind =

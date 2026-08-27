@@ -234,6 +234,8 @@ test("empty-world prompt answers greetings; wait description forbids greetings",
   assert.match(en, /never wait/);
   assert.match(pt, /oi, e aí, fala, hi, hey: speak_to_user\. nunca wait/);
   assert.match(en, /oi, e aí, fala, hi, hey: speak_to_user\. never wait/);
+  assert.match(pt, /não invente note, remind, parse/);
+  assert.match(en, /do not invent note, remind, parse/);
 
   assert.match(
     WAIT_TOOL_DESCRIPTION,
@@ -605,6 +607,50 @@ test("greeting plus empty speak does not emit FAIL_CLOSED_PT", async () => {
   assert.doesNotMatch(sent, /não consegui consultar agora/);
   assert.doesNotMatch(sent, /couldn't look that up/);
   assertReasonTurn(result, "spoke", 0, "ok");
+});
+
+test("runInteractionTurn persists spoken bubbles on the attempt", async () => {
+  const store = createMemoryTurnStore();
+  const ctx = membership("spoken-persist");
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: ctx,
+    model: speakThenStopModel("e aí"),
+    store,
+  });
+  assert.deepEqual(result.bubbles, ["e aí"]);
+  const attempts = await store.listAttempts(
+    conversationKeyFrom({
+      accountId: ctx.accountId,
+      conversationId: `${String(ctx.channel.provider)}:${String(ctx.channel.thread)}`,
+      tenantId: String(ctx.tenantId),
+      workspaceId: ctx.workloadId,
+    }),
+  );
+  assert.deepEqual(attempts.at(-1)?.spokenBubbles, ["e aí"]);
+});
+
+test("runInteractionTurn does not persist a host status phrase as history", async () => {
+  const store = createMemoryTurnStore();
+  const ctx = membership("spoken-status");
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("quanto ficou a cotacao"),
+    membership: ctx,
+    model: speakThenStopModel("vendo"),
+    store,
+  });
+  assert.deepEqual(result.bubbles, ["vendo"]);
+  const attempts = await store.listAttempts(
+    conversationKeyFrom({
+      accountId: ctx.accountId,
+      conversationId: `${String(ctx.channel.provider)}:${String(ctx.channel.thread)}`,
+      tenantId: String(ctx.tenantId),
+      workspaceId: ctx.workloadId,
+    }),
+  );
+  assert.deepEqual(attempts.at(-1)?.spokenBubbles, []);
 });
 
 test("slow wait stays silent", async () => {

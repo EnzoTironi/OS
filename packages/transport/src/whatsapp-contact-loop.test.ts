@@ -1026,7 +1026,9 @@ test("bound 1:1 Jobs bar: greeting fail-open, prior chat and world ride the next
           return stopCall();
         case "history":
           assert.match(blob, /text: oi/);
+          assert.match(blob, /speaker: yes/);
           assert.match(blob, /O que a gente conversou aqui\?/);
+          assert.doesNotMatch(blob, /primeira mensagem/i);
           return speakCall("a gente falou oi");
         case "quote":
           assert.match(blob, /trustClass: world/);
@@ -1034,6 +1036,12 @@ test("bound 1:1 Jobs bar: greeting fail-open, prior chat and world ride the next
           assert.match(blob, /source\.erp/);
           assert.doesNotMatch(blob, /commercial\.order-line\.dirty-quote/);
           return speakCall("tem 10 each e 12 each");
+        case "recall":
+          assert.match(blob, /speaker: yes/);
+          assert.match(blob, /tem 10 each e 12 each/);
+          assert.match(blob, /quanto tá a cotação\?/);
+          assert.doesNotMatch(blob, /anotar|agendar|deu ruim no parse/i);
+          return speakCall("a gente olhou a cotação");
         case "consult":
           return stopCall();
         default: {
@@ -1069,6 +1077,7 @@ test("bound 1:1 Jobs bar: greeting fail-open, prior chat and world ride the next
   );
   assert.equal(history.kind, "bound");
   assert.match(prompts.history ?? "", /text: oi/);
+  assert.match(prompts.history ?? "", /speaker: yes/);
   assert.deepEqual(sentTexts(session), ["oi", "a gente falou oi"]);
   assert.doesNotMatch(sentTexts(session).join("\n"), /primeira mensagem/i);
 
@@ -1087,6 +1096,27 @@ test("bound 1:1 Jobs bar: greeting fail-open, prior chat and world ride the next
     "tem 10 each e 12 each",
   ]);
 
+  scene = "recall";
+  const recall = await loop.handleRaw(
+    inbound({
+      body: "O que acabamos de tentar fazer?",
+      messageId: "wamid.jobs-recall",
+    }),
+  );
+  assert.equal(recall.kind, "bound");
+  assert.match(prompts.recall ?? "", /speaker: yes/);
+  assert.match(prompts.recall ?? "", /tem 10 each e 12 each/);
+  assert.deepEqual(sentTexts(session), [
+    "oi",
+    "a gente falou oi",
+    "tem 10 each e 12 each",
+    "a gente olhou a cotação",
+  ]);
+  assert.doesNotMatch(
+    sentTexts(session).join("\n"),
+    /anotar|agendar|deu ruim no parse/i,
+  );
+
   scene = "consult";
   const consult = await loop.handleRaw(
     inbound({
@@ -1099,6 +1129,7 @@ test("bound 1:1 Jobs bar: greeting fail-open, prior chat and world ride the next
     "oi",
     "a gente falou oi",
     "tem 10 each e 12 each",
+    "a gente olhou a cotação",
     "não consegui consultar agora",
   ]);
   await session.close();
@@ -1108,7 +1139,7 @@ test("provider key stays unofficial whatsapp", () => {
   assert.equal(String(providerKey("whatsapp")), "whatsapp");
 });
 
-type JobsBarScene = "greet" | "history" | "quote" | "consult";
+type JobsBarScene = "greet" | "history" | "quote" | "recall" | "consult";
 
 function sentTexts(session: RecordingCompanionSession): string[] {
   return session.sent().flatMap((row) => {

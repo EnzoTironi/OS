@@ -45,6 +45,7 @@ import {
   type PersonalWriteKind,
   type SpeakerActionClient,
 } from "./osdk-action-client.js";
+import { isHostStatusPhrase } from "./fast-path.js";
 import type { ChannelAssurance } from "./permission.js";
 import {
   looksLikeEntityId,
@@ -263,6 +264,13 @@ export async function runInteractionTurn(
   emitReasonTurnLog(result.reasonTurn);
 
   await coordinator.advanceStage(attemptId, "planning_delivery");
+  const latest = await coordinator.getAttempt(attemptId);
+  if (latest !== undefined) {
+    await store.putAttempt({
+      ...latest,
+      spokenBubbles: persistableSpokenBubbles(result),
+    });
+  }
   return result;
 }
 
@@ -278,6 +286,11 @@ export function outboundBubbles(result: OutboundTurn): string[] {
     return [...bubbles, href.href];
   }
   return bubbles;
+}
+
+/** User-visible history for the next assemble. Host status phrases stay out. */
+export function persistableSpokenBubbles(result: OutboundTurn): string[] {
+  return outboundBubbles(result).filter((text) => !isHostStatusPhrase(text));
 }
 
 export function detectInboundLocale(text: string): InteractionLocale {
@@ -921,6 +934,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "casa língua e tamanho. inbound em pt sai em pt. um oi é um oi, não um parágrafo",
         "proibido: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
         "world é o assunto. rivais se falam como sujeito. duas leituras ficam de pé. não cumprimente no lugar de responder",
+        "não invente note, remind, parse nem um turno que não está na projeção",
         "sem link falso. sem app.zoen.local. sem nome de tool no texto",
         "erro: não consegui [ação] / deu ruim ao [ação]. fiz merda só se a gente quebrou parse ou código",
         "xinga só se a pessoa já xinga muito nesta conversa. nunca comece",
@@ -937,6 +951,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
         "match language and length. english in, english out. a hi is a hi, not a paragraph",
         "forbidden: How can I help you. Como posso te auxiliar. Let me know if you need anything. Estou por aqui e pronto para ajudar. Recebi",
         "world is the subject. speak rivals as the subject. two readings stand. do not greet instead of answering",
+        "do not invent note, remind, parse, or a prior turn that is not in the projection",
         "no fake link. no app.zoen.local. no tool names in user text",
         "errors: couldn't [action] / that broke while [action]. 'fiz merda' only for our parse or code bugs",
         "swear only if the person already swears a lot in this conversation. never go first",

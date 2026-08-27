@@ -123,6 +123,7 @@ export const conversationContextPayloadSchema = z.discriminatedUnion("type", [
       type: z.literal("interaction"),
       kind: z.enum(["text", "media"]),
       mediaRef: z.string().min(1).optional(),
+      speaker: z.literal(true).optional(),
       text: z.string().optional(),
     })
     .strict(),

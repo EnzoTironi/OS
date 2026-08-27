@@ -1,4 +1,5 @@
 import { decideAudienceDisclosure } from "./audience.js";
+import { isHostStatusPhrase } from "./fast-path.js";
 import {
   applyConversationBudget,
   DEFAULT_DATA_TOKEN_BUDGET,
@@ -261,6 +262,11 @@ export function createConversationContextAssembler(
   };
 }
 
+/**
+ * Recent 1:1 inbounds plus prior speaker bubbles for this conversationKey.
+ * Spoken lines are marked `speaker: true` so the model cannot invent a
+ * note/remind/parse that is not in the projection.
+ */
 export function createInteractionConversationSource(
   store: TurnStore,
 ): ConversationContextSource {
@@ -294,6 +300,9 @@ export function createInteractionConversationSource(
           }),
         );
       }
+      for (const spoken of await loadRecentSpokenBubbles(store, request)) {
+        records.push(spoken);
+      }
       return records;
     },
   };
@@ -324,6 +333,45 @@ async function loadRecentConversationRecords(
     }
   }
   return [...byId.values()];
+}
+
+async function loadRecentSpokenBubbles(
+  store: TurnStore,
+  request: ConversationContextRetrieveRequest,
+): Promise<readonly ConversationContextRecord[]> {
+  const claimed = new Set(request.claimedInteractionIds);
+  const attempts = [...(await store.listAttempts(
+    conversationKey(request.conversationKey),
+  ))].sort((left, right) => left.openedAt.localeCompare(right.openedAt));
+  const lines: ConversationContextRecord[] = [];
+  for (const attempt of attempts) {
+    if (attempt.claimedInteractionIds.some((id) => claimed.has(id))) {
+      continue;
+    }
+    const bubbles = attempt.spokenBubbles ?? [];
+    for (const [index, raw] of bubbles.entries()) {
+      const text = raw.trim();
+      if (text.length === 0 || isHostStatusPhrase(text)) {
+        continue;
+      }
+      lines.push(
+        createConversationContextRecord({
+          attribution: {
+            interactionId: `spoken:${String(attempt.id)}:${String(index)}`,
+            kind: "interaction",
+          },
+          payload: { kind: "text", speaker: true, text, type: "interaction" },
+          retention: "interaction",
+          scope: {
+            conversationKey: request.conversationKey,
+            kind: "conversation",
+          },
+          trustClass: "interaction",
+        }),
+      );
+    }
+  }
+  return lines.slice(-RECENT_CONVERSATION_INTERACTION_LIMIT);
 }
 
 export function createWorldConversationSource(

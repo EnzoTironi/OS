@@ -44,6 +44,9 @@ function formatRecordBlock(
       return "";
     case "interaction":
       lines.push(`kind: ${record.payload.kind}`);
+      if (record.payload.speaker === true) {
+        lines.push("speaker: yes");
+      }
       if (record.payload.text !== undefined) {
         lines.push(`text: ${sanitize(record.payload.text, hiddenTokens)}`);
       }

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   classifyStatusIntent,
   dropLeadingStatusPhrase,
+  isHostStatusPhrase,
   isStatusPhrase,
   pickStatusPhrase,
 } from "./fast-path.js";
@@ -54,6 +55,9 @@ test("isStatusPhrase recognizes only the four phrases for a locale", () => {
   assert.equal(isStatusPhrase("looking", "pt"), false);
   assert.equal(isStatusPhrase("vendo", "en"), false);
   assert.equal(isStatusPhrase("qualquer coisa", "pt"), false);
+  assert.equal(isHostStatusPhrase("vendo"), true);
+  assert.equal(isHostStatusPhrase("looking"), true);
+  assert.equal(isHostStatusPhrase("tem 10 each e 12 each"), false);
 });
 
 test("dropLeadingStatusPhrase removes only an exact leading phrase", () => {
