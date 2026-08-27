@@ -307,16 +307,25 @@ export function toInteractionInbound(
   }
 }
 
+/**
+ * Interaction / first-bubble model. Reads `ZOEN_MODEL` unless `specified`
+ * overrides the ref. Same provider stack as execution.
+ *
+ * Context: WhatsApp speaker and first-contact. Missing ref or key returns
+ * undefined (fail closed). Inputs: `env`, optional full ref
+ * (`provider/model`). Outputs: AI SDK `LanguageModel`. Side effects: none.
+ */
 export function resolveLanguageModel(
   env: NodeJS.ProcessEnv = process.env,
+  specified?: string,
 ): LanguageModel | undefined {
-  const specified = env.ZOEN_MODEL?.trim();
-  if (specified === undefined || specified.length === 0) {
+  const trimmed = (specified ?? env.ZOEN_MODEL)?.trim();
+  if (trimmed === undefined || trimmed.length === 0) {
     return undefined;
   }
   const openaiKey = env.OPENAI_API_KEY?.trim();
   const anthropicKey = env.ANTHROPIC_API_KEY?.trim();
-  const parsed = parseModelRef(specified);
+  const parsed = parseModelRef(trimmed);
   switch (parsed.provider) {
     case "anthropic":
       if (anthropicKey === undefined) {
@@ -346,7 +355,32 @@ export function resolveLanguageModel(
   }
 }
 
-function parseModelRef(specified: string): {
+/**
+ * Execution / workbench model. Uses `ZOEN_EXECUTION_MODEL` when set,
+ * otherwise `ZOEN_MODEL`. Reuses `resolveLanguageModel` / `parseModelRef`.
+ *
+ * Context: `createInteractionExecuteWork` / `spawn_execution`. Does not
+ * speak to the user. Inputs: `env`. Outputs: AI SDK `LanguageModel` or
+ * undefined. Side effects: none.
+ */
+export function resolveExecutionLanguageModel(
+  env: NodeJS.ProcessEnv = process.env,
+): LanguageModel | undefined {
+  const specified = env.ZOEN_EXECUTION_MODEL?.trim();
+  if (specified !== undefined && specified.length > 0) {
+    return resolveLanguageModel(env, specified);
+  }
+  return resolveLanguageModel(env);
+}
+
+/**
+ * Split `provider/model` or `provider:model`. Unknown provider keeps the
+ * full string as an OpenAI `modelId`.
+ *
+ * Context: shared by interaction and execution resolvers. Inputs: raw ref.
+ * Outputs: `{ provider, modelId }`. Side effects: none.
+ */
+export function parseModelRef(specified: string): {
   readonly modelId: string;
   readonly provider: "anthropic" | "openai" | "openai-compatible";
 } {

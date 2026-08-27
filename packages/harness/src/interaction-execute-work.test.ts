@@ -2,7 +2,12 @@ process.env.ZOEN_ALLOW_JS_SANDBOX = "1";
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { LanguageModel } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
+import {
+  resolveExecutionLanguageModel,
+  resolveLanguageModel,
+} from "../../speaker/src/interaction-turn.js";
 import {
   createInteractionExecuteWork,
   executionStatus,
@@ -35,6 +40,45 @@ type ResultHasBooleanOkFlag = ExecutionResult extends { ok: boolean }
 const resultHasBooleanOkFlag: ResultHasBooleanOkFlag = false;
 assert.equal(resultHasBooleanOkFlag, false);
 
+async function withModelEnv(
+  patch: Readonly<Record<string, string | undefined>>,
+  run: () => Promise<void>,
+): Promise<void> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(patch)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  try {
+    await run();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+function resolvedModelId(model: LanguageModel | undefined): string | undefined {
+  if (model === undefined) {
+    return undefined;
+  }
+  if (typeof model === "string") {
+    return model;
+  }
+  if ("modelId" in model && typeof model.modelId === "string") {
+    return model.modelId;
+  }
+  return undefined;
+}
+
 function assertExecutionKind(result: ExecutionResult): ExecutionKind {
   switch (result.kind) {
     case "ok":
@@ -56,18 +100,55 @@ function assertExecutionKind(result: ExecutionResult): ExecutionKind {
 }
 
 test("createInteractionExecuteWork without a LanguageModel fails closed", async () => {
-  const previous = process.env.ZOEN_MODEL;
-  delete process.env.ZOEN_MODEL;
-  try {
-    const work = await createInteractionExecuteWork();
-    assert.equal(work, undefined);
-  } finally {
-    if (previous === undefined) {
-      delete process.env.ZOEN_MODEL;
-    } else {
-      process.env.ZOEN_MODEL = previous;
-    }
-  }
+  await withModelEnv(
+    { ZOEN_EXECUTION_MODEL: undefined, ZOEN_MODEL: undefined },
+    async () => {
+      const work = await createInteractionExecuteWork();
+      assert.equal(work, undefined);
+    },
+  );
+});
+
+test("createInteractionExecuteWork uses ZOEN_EXECUTION_MODEL when both envs are set", async () => {
+  await withModelEnv(
+    {
+      OPENAI_API_KEY: "test-not-a-secret",
+      OPENAI_BASE_URL: "https://example.test/v1",
+      ZOEN_EXECUTION_MODEL: "openai-compatible/execution-test-model",
+      ZOEN_MODEL: "openai-compatible/interaction-test-model",
+    },
+    async () => {
+      assert.equal(
+        resolvedModelId(resolveLanguageModel()),
+        "interaction-test-model",
+      );
+      assert.equal(
+        resolvedModelId(resolveExecutionLanguageModel()),
+        "execution-test-model",
+      );
+      const work = await createInteractionExecuteWork();
+      assert.ok(work !== undefined);
+    },
+  );
+});
+
+test("createInteractionExecuteWork falls back to ZOEN_MODEL when execution env is unset", async () => {
+  await withModelEnv(
+    {
+      OPENAI_API_KEY: "test-not-a-secret",
+      OPENAI_BASE_URL: "https://example.test/v1",
+      ZOEN_EXECUTION_MODEL: undefined,
+      ZOEN_MODEL: "openai-compatible/interaction-test-model",
+    },
+    async () => {
+      assert.equal(
+        resolvedModelId(resolveExecutionLanguageModel()),
+        "interaction-test-model",
+      );
+      const work = await createInteractionExecuteWork();
+      assert.ok(work !== undefined);
+    },
+  );
 });
 
 test("createInteractionExecuteWork with MockLanguageModelV3 returns ExecutionResult.kind union", async () => {
