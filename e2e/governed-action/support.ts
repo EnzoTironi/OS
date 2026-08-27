@@ -295,21 +295,64 @@ export async function writePolicyManifest(
   );
 }
 
+/**
+ * Keycloak's TCP healthcheck can pass before realm import finishes.
+ * Discovery on the realm is the ready signal for token grants.
+ */
+export async function waitForOidc(timeoutMs = 90_000): Promise<void> {
+  const url = `${oidcIssuer}/.well-known/openid-configuration`;
+  const deadline = Date.now() + timeoutMs;
+  let last = "not attempted";
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return;
+      }
+      last = `HTTP ${String(response.status)}`;
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`keycloak OIDC discovery not ready: ${last}`);
+}
+
 export async function oidcToken(clientId: string): Promise<string> {
-  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: `${clientId}-secret`,
-      grant_type: "client_credentials",
-    }),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    method: "POST",
-  });
-  const body: unknown = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(body));
-  return tokenResponseSchema.parse(body).access_token;
+  await waitForOidc();
+  const deadline = Date.now() + 30_000;
+  let last = "not attempted";
+  while (Date.now() < deadline) {
+    const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: `${clientId}-secret`,
+        grant_type: "client_credentials",
+      }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      method: "POST",
+    });
+    const body: unknown = await response.json();
+    if (response.ok) {
+      return tokenResponseSchema.parse(body).access_token;
+    }
+    last = JSON.stringify(body);
+    if (!isTransientOidcError(body)) {
+      assert.equal(response.ok, true, last);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`oidc token not ready: ${last}`);
+}
+
+function isTransientOidcError(body: unknown): boolean {
+  if (body === null || typeof body !== "object") {
+    return false;
+  }
+  const error = "error" in body ? body.error : undefined;
+  return error === "unknown_error" || error === "temporarily_unavailable";
 }
 
 export function actionClient(token: string): ActionClient {
