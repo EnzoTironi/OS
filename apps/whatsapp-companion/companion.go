@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,6 +39,8 @@ var (
 	ErrDatabaseURL     = errors.New("companion: ZOEN_WHATSAPP_DATABASE_URL required")
 	ErrAuthorityStore  = errors.New("companion: ZOEN_WHATSAPP_DATABASE_URL must be distinct from ZOEN_DATABASE_URL")
 	ErrIngressSecret   = errors.New("companion: ZOEN_WHATSAPP_INGRESS_SECRET required when ZOEN_WHATSAPP_INGRESS_URL is set")
+	ErrLogSinkIngress  = errors.New("companion: ZOEN_WHATSAPP_INGRESS_URL is the Python log sink, not zoend /channels/whatsapp/inbound")
+	ErrIngressURL      = errors.New("companion: ZOEN_WHATSAPP_INGRESS_URL must be zoend /channels/whatsapp/inbound")
 )
 
 type Config struct {
@@ -84,10 +87,64 @@ func ValidateConfig(cfg Config) error {
 	if authority != "" && strings.TrimSpace(cfg.DatabaseURL) == authority {
 		return ErrAuthorityStore
 	}
+	if err := ValidateIngressURL(cfg.IngressURL); err != nil {
+		return err
+	}
 	if strings.TrimSpace(cfg.IngressURL) != "" && strings.TrimSpace(cfg.IngressSecret) == "" {
 		return ErrIngressSecret
 	}
 	return nil
+}
+
+// ValidateIngressURL fail-closes the Python log sink and any URL that is not
+// zoend POST /channels/whatsapp/inbound. Empty is allowed so pair can run
+// before zoend is up.
+func ValidateIngressURL(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil
+	}
+	if IsLogSinkIngressURL(value) {
+		return ErrLogSinkIngress
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ErrIngressURL
+	}
+	path := strings.TrimSuffix(parsed.Path, "/")
+	if path != "/channels/whatsapp/inbound" {
+		return ErrIngressURL
+	}
+	return nil
+}
+
+// IsLogSinkIngressURL reports the live Jobs sink: :18081/inbound or ingress.py.
+func IsLogSinkIngressURL(raw string) bool {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return false
+	}
+	if strings.Contains(value, "ingress.py") {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	port := parsed.Port()
+	if port == "" {
+		return false
+	}
+	if port != "18081" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	switch host {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func Open(ctx context.Context, cfg Config) (*Session, error) {

@@ -26,10 +26,11 @@ func (s *Session) Handler() http.Handler {
 
 func (s *Session) handleReady(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"paired":    s.IsPaired(),
-		"connected": s.IsConnected(),
-		"loggedIn":  s.IsLoggedIn(),
-		"ready":     s.Ready(),
+		"paired":     s.IsPaired(),
+		"connected":  s.IsConnected(),
+		"loggedIn":   s.IsLoggedIn(),
+		"ready":      s.Ready(),
+		"ingressUrl": s.ingress,
 	})
 }
 

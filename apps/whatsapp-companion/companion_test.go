@@ -43,6 +43,64 @@ func TestValidateConfigRejectsEmptyAndAuthorityCollision(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRejectsLogSinkAndNonZoendIngress(t *testing.T) {
+	t.Parallel()
+	if !IsLogSinkIngressURL("http://127.0.0.1:18081/inbound") {
+		t.Fatal("Jobs Python sink must be detected")
+	}
+	if !IsLogSinkIngressURL("http://127.0.0.1:18081/inbound?from=ingress.py") {
+		t.Fatal("ingress.py query must be detected")
+	}
+	if IsLogSinkIngressURL("http://127.0.0.1:58701/channels/whatsapp/inbound") {
+		t.Fatal("zoend inbound is not the log sink")
+	}
+	if IsLogSinkIngressURL("http://127.0.0.1:18082/inbound") {
+		t.Fatal("gateway :18082 is not the Python sink")
+	}
+	if err := ValidateConfig(Config{
+		DatabaseURL:   "postgres://whatsmeow",
+		IngressURL:    "http://127.0.0.1:18081/inbound",
+		IngressSecret: "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==",
+	}); err != ErrLogSinkIngress {
+		t.Fatalf("log sink: %v", err)
+	}
+	if err := ValidateIngressURL("http://127.0.0.1:18082/inbound"); err != ErrIngressURL {
+		t.Fatalf("direct gateway /inbound: %v", err)
+	}
+	if err := ValidateIngressURL("http://127.0.0.1:58701/channels/whatsapp/inbound"); err != nil {
+		t.Fatalf("zoend inbound: %v", err)
+	}
+	if err := ValidateConfig(Config{
+		DatabaseURL:   "postgres://whatsmeow",
+		IngressURL:    "http://127.0.0.1:58701/channels/whatsapp/inbound",
+		IngressSecret: "whsec_dGVzdC1zZWNyZXQtZml4dHVyZS0zMg==",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadyExposesIngressURL(t *testing.T) {
+	t.Parallel()
+	session := &Session{ingress: "http://127.0.0.1:58701/channels/whatsapp/inbound"}
+	server := httptest.NewServer(session.Handler())
+	t.Cleanup(server.Close)
+	resp, err := http.Get(server.URL + "/ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ingressUrl"] != "http://127.0.0.1:58701/channels/whatsapp/inbound" {
+		t.Fatalf("ingressUrl = %#v", body["ingressUrl"])
+	}
+}
+
 func TestConfigureCompanionDevicePropsUsesChromeQRClient(t *testing.T) {
 	configureCompanionDeviceProps()
 	if store.DeviceProps.GetOs() != "Linux" {
