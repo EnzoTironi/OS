@@ -149,30 +149,27 @@ test("verifyTelegramWebhookSecret fails closed without a secret", () => {
 });
 
 test("readTelegramWebhookSecretFromEnv honors both env names", () => {
-  const previousToken = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
-  const previousZoen = process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET;
-  try {
-    delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
-    delete process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET;
-    assert.equal(readTelegramWebhookSecretFromEnv(), undefined);
-    process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET = "  zoen-secret  ";
-    assert.equal(readTelegramWebhookSecretFromEnv(), "zoen-secret");
-    process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "";
-    assert.equal(readTelegramWebhookSecretFromEnv(), "zoen-secret");
-    process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "token-secret";
-    assert.equal(readTelegramWebhookSecretFromEnv(), "token-secret");
-  } finally {
-    if (previousToken === undefined) {
-      delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
-    } else {
-      process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = previousToken;
-    }
-    if (previousZoen === undefined) {
-      delete process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET;
-    } else {
-      process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET = previousZoen;
-    }
-  }
+  assert.equal(readTelegramWebhookSecretFromEnv({}), undefined);
+  assert.equal(
+    readTelegramWebhookSecretFromEnv({
+      ZOEN_TELEGRAM_WEBHOOK_SECRET: "  zoen-secret  ",
+    }),
+    "zoen-secret",
+  );
+  assert.equal(
+    readTelegramWebhookSecretFromEnv({
+      TELEGRAM_WEBHOOK_SECRET_TOKEN: "",
+      ZOEN_TELEGRAM_WEBHOOK_SECRET: "zoen-secret",
+    }),
+    "zoen-secret",
+  );
+  assert.equal(
+    readTelegramWebhookSecretFromEnv({
+      TELEGRAM_WEBHOOK_SECRET_TOKEN: "token-secret",
+      ZOEN_TELEGRAM_WEBHOOK_SECRET: "zoen-secret",
+    }),
+    "token-secret",
+  );
 });
 
 test("live send uses Bot API chat id and converges on clientDeliveryId", async () => {

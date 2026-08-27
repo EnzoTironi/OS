@@ -6,6 +6,7 @@ import {
   LiveTelegramConfigError,
   readTelegramBotTokenFromEnv,
   readTelegramIngressModeFromEnv,
+  readTelegramWebhookSecretFromEnv,
   requireTelegramBotToken,
   TelegramWebhookSecretError,
   verifyTelegramWebhookSecret,
@@ -42,10 +43,15 @@ export function createTelegramMessagingIngress(options: {
   readonly port: number;
   readonly mode?: TelegramIngressMode;
   readonly fetch?: typeof fetch;
+  readonly webhookSecret?: string;
 }): Promise<TelegramMessagingIngress> {
   const host = options.host ?? "127.0.0.1";
   const mode = options.mode ?? readTelegramIngressModeFromEnv();
   const http = options.fetch ?? fetch;
+  const webhookSecret =
+    "webhookSecret" in options
+      ? capturedWebhookSecret(options.webhookSecret)
+      : readTelegramWebhookSecretFromEnv();
   let lastInbound: InboundInteraction | undefined;
   const pollAbort = new AbortController();
 
@@ -69,6 +75,13 @@ export function createTelegramMessagingIngress(options: {
           });
           return;
         }
+        if (mode === "webhook" && webhookSecret === undefined) {
+          writeJson(response, 503, {
+            error: "telegram_not_advertised",
+            reason: "secret_missing",
+          });
+          return;
+        }
         writeJson(response, 204, {});
         return;
       }
@@ -82,9 +95,10 @@ export function createTelegramMessagingIngress(options: {
           return;
         }
         const header = headerValue(request, "x-telegram-bot-api-secret-token");
-        verifyTelegramWebhookSecret({
-          "x-telegram-bot-api-secret-token": header,
-        });
+        verifyTelegramWebhookSecret(
+          { "x-telegram-bot-api-secret-token": header },
+          webhookSecret,
+        );
         const raw = JSON.parse(await readBody(request)) as unknown;
         const inbound = await options.gateway.acceptProviderEvent(
           providerKey("telegram"),
@@ -195,6 +209,13 @@ async function pollUpdates(options: {
       await sleep(1000, options.signal);
     }
   }
+}
+
+function capturedWebhookSecret(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw.trim().length === 0) {
+    return undefined;
+  }
+  return raw.trim();
 }
 
 function headerValue(

@@ -97,7 +97,6 @@ export interface LiveTelegramProvider extends ChatSdkShapedAdapter {
 
 export interface LiveTelegramProviderOptions {
   readonly botToken: string;
-  readonly secretToken?: string;
   readonly apiUrl?: string;
   readonly fetch?: typeof fetch;
   readonly runtimeMode?: TelegramIngressMode;
@@ -155,12 +154,12 @@ export function readTelegramWebhookSecretFromEnv(
 }
 
 /**
- * Fail-closed webhook header check. Missing/empty secret is 503;
- * present secret that does not match the header is 401.
+ * Fail-closed webhook header check. Caller passes the captured secret.
+ * Missing/empty secret is 503; mismatch is 401. No process.env default.
  */
 export function verifyTelegramWebhookSecret(
   headers: Readonly<Record<string, string | string[] | undefined>>,
-  secret: string | undefined = readTelegramWebhookSecretFromEnv(),
+  secret: string | undefined,
 ): void {
   if (secret === undefined || secret.length === 0) {
     throw new TelegramWebhookSecretError("secret_missing");
@@ -211,17 +210,11 @@ export function createLiveTelegramProviderFromEnv(
   assertLiveTelegramAdvertisement();
   const botToken =
     overrides.botToken ?? requireTelegramBotToken(readTelegramBotTokenFromEnv());
-  const secretToken =
-    overrides.secretToken ?? readTelegramWebhookSecretFromEnv();
   return createLiveTelegramProvider({
     apiUrl: overrides.apiUrl ?? process.env.TELEGRAM_API_BASE_URL,
     botToken,
     fetch: overrides.fetch,
     runtimeMode: overrides.runtimeMode ?? readTelegramIngressModeFromEnv(),
-    secretToken:
-      secretToken !== undefined && secretToken.length > 0
-        ? secretToken
-        : undefined,
   });
 }
 
@@ -237,7 +230,6 @@ export function createLiveTelegramProvider(
     botToken,
     logger: quietLogger(),
     mode: "webhook",
-    secretToken: options.secretToken,
   });
   const probes: CapabilityProbes = createCapabilityProbes(
     "telegram",

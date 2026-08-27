@@ -21,15 +21,10 @@ const INBOUND_UPDATE = {
   update_id: 777,
 };
 
-const SECRET_ENV_KEYS = [
-  "TELEGRAM_BOT_TOKEN",
-  "ZOEN_TELEGRAM_BOT_TOKEN",
-  "TELEGRAM_WEBHOOK_SECRET_TOKEN",
-  "ZOEN_TELEGRAM_WEBHOOK_SECRET",
-] as const;
+const TOKEN_ENV_KEYS = ["TELEGRAM_BOT_TOKEN", "ZOEN_TELEGRAM_BOT_TOKEN"] as const;
 
 function snapshotEnv(
-  keys: readonly string[] = SECRET_ENV_KEYS,
+  keys: readonly string[] = TOKEN_ENV_KEYS,
 ): Record<string, string | undefined> {
   const snapshot: Record<string, string | undefined> = {};
   for (const key of keys) {
@@ -48,7 +43,7 @@ function restoreEnv(snapshot: Record<string, string | undefined>): void {
   }
 }
 
-async function startIngress() {
+async function startIngress(options: { webhookSecret?: string } = {}) {
   const provider = createLiveTelegramProvider({
     botToken: "123:test",
     fetch: async () =>
@@ -65,13 +60,14 @@ async function startIngress() {
     }),
     mode: "webhook",
     port: 0,
+    ...("webhookSecret" in options ? { webhookSecret: options.webhookSecret } : {}),
   });
 }
 
 function inboundUrl(ingress: Awaited<ReturnType<typeof startIngress>>): string {
   const address = ingress.server.address();
   assert.ok(address !== null && typeof address === "object");
-  return `http://127.0.0.1:${String(address.port)}/inbound`;
+  return `http://127.0.0.1:${String(address.port)}`;
 }
 
 test("evaluateTelegramAdvertisement fails closed without token", async () => {
@@ -114,6 +110,7 @@ test("telegram ingress advertise and inbound fail closed without token", async (
     }),
     mode: "webhook",
     port: 0,
+    webhookSecret: "expected-secret",
   });
   const address = ingress.server.address();
   assert.ok(address !== null && typeof address === "object");
@@ -138,34 +135,35 @@ test("telegram ingress advertise and inbound fail closed without token", async (
   }
 });
 
-test("telegram ingress inbound fails closed without webhook secret", async () => {
+test("telegram webhook advertise and inbound fail closed without webhook secret", async () => {
   const previous = snapshotEnv();
   process.env.TELEGRAM_BOT_TOKEN = "123:test";
-  const ingress = await startIngress();
   try {
-    for (const secretEnv of [undefined, ""]) {
-      if (secretEnv === undefined) {
-        delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
-      } else {
-        process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = secretEnv;
+    for (const webhookSecret of [undefined, ""]) {
+      const ingress = await startIngress({ webhookSecret });
+      try {
+        const advertise = await fetch(`${inboundUrl(ingress)}/advertise`);
+        assert.equal(advertise.status, 503);
+        const advertised = (await advertise.json()) as { reason?: unknown };
+        assert.equal(advertised.reason, "secret_missing");
+        const response = await fetch(`${inboundUrl(ingress)}/inbound`, {
+          body: JSON.stringify(INBOUND_UPDATE),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        });
+        assert.equal(response.status, 503);
+        const body = (await response.json()) as {
+          error?: unknown;
+          reason?: unknown;
+        };
+        assert.equal(body.error, "telegram_ingress_denied");
+        assert.equal(body.reason, "secret_missing");
+        assert.equal(ingress.lastInbound(), undefined);
+      } finally {
+        await ingress.close();
       }
-      delete process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET;
-      const response = await fetch(inboundUrl(ingress), {
-        body: JSON.stringify(INBOUND_UPDATE),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      });
-      assert.equal(response.status, 503);
-      const body = (await response.json()) as {
-        error?: unknown;
-        reason?: unknown;
-      };
-      assert.equal(body.error, "telegram_ingress_denied");
-      assert.equal(body.reason, "secret_missing");
-      assert.equal(ingress.lastInbound(), undefined);
     }
   } finally {
-    await ingress.close();
     restoreEnv(previous);
   }
 });
@@ -173,11 +171,9 @@ test("telegram ingress inbound fails closed without webhook secret", async () =>
 test("telegram ingress inbound rejects a forged webhook secret", async () => {
   const previous = snapshotEnv();
   process.env.TELEGRAM_BOT_TOKEN = "123:test";
-  process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "expected-secret";
-  delete process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET;
-  const ingress = await startIngress();
+  const ingress = await startIngress({ webhookSecret: "expected-secret" });
   try {
-    const response = await fetch(inboundUrl(ingress), {
+    const response = await fetch(`${inboundUrl(ingress)}/inbound`, {
       body: JSON.stringify(INBOUND_UPDATE),
       headers: {
         "content-type": "application/json",
@@ -202,11 +198,11 @@ test("telegram ingress inbound rejects a forged webhook secret", async () => {
 test("telegram ingress inbound accepts a signed Bot API update", async () => {
   const previous = snapshotEnv();
   process.env.TELEGRAM_BOT_TOKEN = "123:test";
-  process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "expected-secret";
-  delete process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET;
-  const ingress = await startIngress();
+  const ingress = await startIngress({ webhookSecret: "expected-secret" });
   try {
-    const response = await fetch(inboundUrl(ingress), {
+    const advertise = await fetch(`${inboundUrl(ingress)}/advertise`);
+    assert.equal(advertise.status, 204);
+    const response = await fetch(`${inboundUrl(ingress)}/inbound`, {
       body: JSON.stringify(INBOUND_UPDATE),
       headers: {
         "content-type": "application/json",
@@ -224,20 +220,19 @@ test("telegram ingress inbound accepts a signed Bot API update", async () => {
   }
 });
 
-test("telegram ingress inbound honors ZOEN_TELEGRAM_WEBHOOK_SECRET", async () => {
-  const previous = snapshotEnv();
+test("telegram ingress captures env webhook secret at create", async () => {
+  const previous = snapshotEnv([
+    ...TOKEN_ENV_KEYS,
+    "TELEGRAM_WEBHOOK_SECRET_TOKEN",
+    "ZOEN_TELEGRAM_WEBHOOK_SECRET",
+  ]);
   process.env.TELEGRAM_BOT_TOKEN = "123:test";
   delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
   process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET = "zoen-secret";
   const ingress = await startIngress();
+  delete process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET;
   try {
-    const rejected = await fetch(inboundUrl(ingress), {
-      body: JSON.stringify(INBOUND_UPDATE),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-    assert.equal(rejected.status, 401);
-    const accepted = await fetch(inboundUrl(ingress), {
+    const response = await fetch(`${inboundUrl(ingress)}/inbound`, {
       body: JSON.stringify(INBOUND_UPDATE),
       headers: {
         "content-type": "application/json",
@@ -245,8 +240,45 @@ test("telegram ingress inbound honors ZOEN_TELEGRAM_WEBHOOK_SECRET", async () =>
       },
       method: "POST",
     });
-    assert.equal(accepted.status, 200);
+    assert.equal(response.status, 200);
     assert.equal(String(ingress.lastInbound()?.channel.message), "1001");
+  } finally {
+    await ingress.close();
+    restoreEnv(previous);
+  }
+});
+
+test("telegram polling advertise stays token-only", async () => {
+  const previous = snapshotEnv();
+  process.env.TELEGRAM_BOT_TOKEN = "123:test";
+  const ingress = await createTelegramMessagingIngress({
+    gateway: createMessagingGateway({
+      providers: {
+        telegram: createLiveTelegramProvider({
+          botToken: "123:test",
+          fetch: async () =>
+            new Response(JSON.stringify({ ok: true, result: [] }), {
+              headers: { "content-type": "application/json" },
+            }),
+        }),
+      },
+      resolvePresentation: async () => {
+        throw new Error("deliver unused");
+      },
+    }),
+    mode: "polling",
+    port: 0,
+    webhookSecret: undefined,
+  });
+  try {
+    const advertise = await fetch(`${inboundUrl(ingress)}/advertise`);
+    assert.equal(advertise.status, 204);
+    const inbound = await fetch(`${inboundUrl(ingress)}/inbound`, {
+      body: JSON.stringify(INBOUND_UPDATE),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(inbound.status, 503);
   } finally {
     await ingress.close();
     restoreEnv(previous);
