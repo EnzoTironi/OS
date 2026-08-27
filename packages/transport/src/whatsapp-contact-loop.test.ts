@@ -360,6 +360,118 @@ test("unbound without admit fails closed and does not send", async () => {
   await session.close();
 });
 
+test("verified ExternalBinding resolves person JID without admit or invented membership", async () => {
+  const methods: string[] = [];
+  const snapshot = {
+    account: { accountId: "account.wa.enzo", status: "verified" },
+    bindings: [
+      {
+        accountId: "account.wa.enzo",
+        bindingId: "binding.wa.enzo",
+        provider: "whatsapp",
+        status: "verified",
+        subjectKey: speaker,
+      },
+    ],
+    memberships: [
+      {
+        accountId: "account.wa.enzo",
+        actorId: "actor.personal",
+        kind: "personal",
+        membershipId: "membership.wa.enzo",
+        principalId: "principal.wa.enzo",
+        status: "active",
+        tenantId: "tenant.wa.enzo",
+        workloadId: "workload.personal",
+      },
+    ],
+  };
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const method = (init?.method ?? "GET").toUpperCase();
+    methods.push(`${method} ${String(input)}`);
+    if (method === "GET" && String(input).includes("subjectKey=553199941160")) {
+      return new Response(JSON.stringify(snapshot), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      });
+    }
+    if (method === "GET" && String(input).includes("553798136141")) {
+      return new Response(JSON.stringify({ error: "OIDC subject has no verified binding" }), {
+        headers: { "content-type": "application/json" },
+        status: 404,
+      });
+    }
+    throw new Error(`unexpected ${method} ${String(input)}`);
+  };
+  const identity = createIdentityDirectoryClient({
+    adminToken: "identity-admin",
+    baseUrl: "http://zoend.test",
+    fetchImpl,
+  });
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
+    doorE164,
+    identity,
+    session,
+  });
+  const result = await loop.handleRaw(inbound({ messageId: "wamid.bind-verified" }));
+  assert.equal(result.kind, "bound");
+  assert.equal(session.sent().length, 1);
+  assert.equal(session.sent()[0]?.chatJid, speaker);
+  assert.deepEqual(methods, [
+    "GET http://zoend.test/identity/admin/resolve-subject?provider=whatsapp&subjectKey=553199941160%40s.whatsapp.net",
+  ]);
+  await assert.rejects(
+    () =>
+      identity.resolveChannelSubject({
+        provider: providerKey("whatsapp"),
+        subjectKey: doorJid,
+      }),
+    (error: unknown) =>
+      error instanceof ChannelSubjectResolveError && error.kind === "unbound",
+  );
+  await session.close();
+});
+
+test("acknowledge claim survives companion-shaped restart before the turn replies", async () => {
+  const ledger = createMemoryReplyLedger();
+  const first = await readySession();
+  const loop = createWhatsAppContactLoop({
+    debounceMs: 80,
+    doorE164,
+    identity: boundIdentity(speaker),
+    ledger,
+    session: first,
+  });
+  const firstResult = await loop.acknowledgeRaw(
+    inbound({ messageId: "wamid.restart-claim" }),
+  );
+  assert.equal(firstResult.kind, "queued");
+  assert.equal(first.sent().length, 0);
+
+  const second = await readySession();
+  const restarted = createWhatsAppContactLoop({
+    debounceMs: 0,
+    doorE164,
+    identity: unboundIdentity([]),
+    ledger,
+    session: second,
+  });
+  const afterRestart = await restarted.handleRaw(
+    inbound({ messageId: "wamid.restart-claim" }),
+  );
+  assert.equal(afterRestart.kind, "duplicate");
+  assert.equal(second.sent().length, 0);
+  await restarted.waitUntilIdle();
+  assert.equal(second.sent().length, 0);
+  await second.close();
+
+  await loop.waitUntilIdle();
+  assert.equal(first.sent().length, 1);
+  await first.close();
+});
+
 test("restart with the same ledger does not send a second reply", async () => {
   const ledger = createMemoryReplyLedger();
   const first = await readySession();
@@ -458,6 +570,62 @@ test("classify rejects Cloud API envelopes and personal inbox is not the door", 
   );
   const person = classifyWhatsAppContactInbound(inbound(), doorE164);
   assert.equal(person.drop, false);
+});
+
+test("HTTP inbound with a verified binding never calls admit-whatsapp", async () => {
+  const previousDoor = process.env.ZOEN_WHATSAPP_DOOR_E164;
+  process.env.ZOEN_WHATSAPP_DOOR_E164 = doorE164;
+  const session = await readySession();
+  const loop = createWhatsAppContactLoop({
+    debounceMs: 0,
+    doorE164,
+    identity: boundIdentity(speaker),
+    session,
+  });
+  resetWhatsAppIngressReplay();
+  const secret = generateWhsecSecret();
+  const ingress = await createWhatsAppMessagingIngress({
+    gateway: loop.gateway,
+    ingressSecret: secret,
+    port: 0,
+    processInbound: (raw) => loop.handleRaw(raw),
+    session,
+  });
+  const address = ingress.server.address();
+  assert.ok(address !== null && typeof address === "object");
+  try {
+    const rawBody = JSON.stringify(inbound({ messageId: "wamid.bound-http" }));
+    const signed = signStandardWebhook({
+      rawBody,
+      secret,
+      timestampSeconds: Math.floor(Date.now() / 1000),
+      webhookId: "msg_bound_http",
+    });
+    const response = await fetch(
+      `http://127.0.0.1:${String(address.port)}/inbound`,
+      {
+        body: rawBody,
+        headers: {
+          "content-type": "application/json",
+          ...signed,
+        },
+        method: "POST",
+      },
+    );
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { kind?: unknown };
+    assert.equal(body.kind, "bound");
+    assert.equal(session.sent().length, 1);
+    assert.equal(session.sent()[0]?.chatJid, speaker);
+  } finally {
+    await ingress.close();
+    await session.close();
+    if (previousDoor === undefined) {
+      delete process.env.ZOEN_WHATSAPP_DOOR_E164;
+    } else {
+      process.env.ZOEN_WHATSAPP_DOOR_E164 = previousDoor;
+    }
+  }
 });
 
 test("zoend inbound with processInbound replies through the recording session", async () => {

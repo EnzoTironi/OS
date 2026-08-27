@@ -110,7 +110,39 @@ cmd_stop() {
   pkill -f '/tmp/zoen-wa-pair/ingress.py' >/dev/null 2>&1 || true
 }
 
+refuse_log_sink_url() {
+  local url="${1:-}"
+  if [[ "$url" == *":18081"* ]] || [[ "$url" == *ingress.py* ]]; then
+    echo "refusing Python log-sink ZOEN_WHATSAPP_INGRESS_URL=${url}" >&2
+    return 1
+  fi
+  return 0
+}
+
+ensure_live_ingress_env() {
+  # Door.env may still name the Jobs sink. This script is the retarget.
+  export ZOEN_WHATSAPP_INGRESS_URL="${zoend_url}/channels/whatsapp/inbound"
+  refuse_log_sink_url "$ZOEN_WHATSAPP_INGRESS_URL"
+  local secret_file="$pair_dir/ingress.whsec"
+  if [[ -z "${ZOEN_WHATSAPP_INGRESS_SECRET:-}" ]]; then
+    if [[ -f "$secret_file" ]]; then
+      ZOEN_WHATSAPP_INGRESS_SECRET="$(tr -d '[:space:]' <"$secret_file")"
+    else
+      ZOEN_WHATSAPP_INGRESS_SECRET="$(python3 -c 'import base64,os; print("whsec_"+base64.b64encode(os.urandom(32)).decode())')"
+      umask 077
+      printf '%s\n' "$ZOEN_WHATSAPP_INGRESS_SECRET" >"$secret_file"
+    fi
+  fi
+  if [[ -z "${ZOEN_WHATSAPP_INGRESS_SECRET:-}" ]]; then
+    echo "ZOEN_WHATSAPP_INGRESS_SECRET required" >&2
+    exit 1
+  fi
+  export ZOEN_WHATSAPP_INGRESS_SECRET
+  export ZOEN_IDENTITY_ADMIN_TOKEN="${ZOEN_IDENTITY_ADMIN_TOKEN:-e2e-identity-admin}"
+}
+
 cmd_status() {
+  local sink_up=0
   echo "companion /ready:"
   curl -sS -m 2 "${ZOEN_WHATSAPP_COMPANION_URL}/ready" || echo "down"
   echo
@@ -120,10 +152,18 @@ cmd_status() {
   echo "advertise:"
   curl -sS -m 2 -D - -o /tmp/zoen-wa-advertise.body "${zoend_url}/channels/whatsapp/advertise" || true
   echo
+  echo "expected ingress: ${zoend_url}/channels/whatsapp/inbound"
+  if bash -c "echo >/dev/tcp/127.0.0.1/18081" >/dev/null 2>&1; then
+    echo "ERROR: 127.0.0.1:18081 is listening (Python log sink must stay down)" >&2
+    sink_up=1
+  else
+    echo "python log sink :18081: down"
+  fi
   if [[ -f "$pair_dir/ingress.log" ]]; then
     echo "python sink last line (must stay stale):"
     tail -n 1 "$pair_dir/ingress.log" || true
   fi
+  return "$sink_up"
 }
 
 cmd_advertise() {
@@ -155,6 +195,7 @@ cmd_start() {
   wait_http "http://127.0.0.1:${keycloak_port}/realms/zoen/.well-known/openid-configuration" 180
 
   cmd_stop
+  ensure_live_ingress_env
 
   export ZOEN_IDENTITY_BASE_URL="$zoend_url"
   export ZOEN_MESSAGING_INGRESS_HOST=127.0.0.1
@@ -192,7 +233,8 @@ cmd_start() {
     unset DATABASE_URL ZOEN_DATABASE_URL ZOEN_WHATSAPP_QR_FILE
     export ZOEN_WHATSAPP_DATABASE_URL
     export ZOEN_WHATSAPP_LISTEN_ADDR
-    export ZOEN_WHATSAPP_INGRESS_URL="${zoend_url}/channels/whatsapp/inbound"
+    export ZOEN_WHATSAPP_INGRESS_URL
+    export ZOEN_WHATSAPP_INGRESS_SECRET
     export GOTOOLCHAIN=auto
     export GOCACHE="${GOCACHE:-/tmp/zoen-wa-gocache}"
     export GOMODCACHE="${GOMODCACHE:-/tmp/zoen-wa-gomod}"

@@ -97,8 +97,17 @@ type StoredReply = Extract<
   { kind: "unbound" | "bound" }
 >;
 
+type LedgerRecord =
+  | { readonly kind: "accepted"; readonly inbound: InboundInteraction }
+  | StoredReply;
+
 export interface ReplyLedger {
-  get(idempotencyKey: string): Promise<StoredReply | undefined>;
+  get(idempotencyKey: string): Promise<LedgerRecord | undefined>;
+  /**
+   * Insert an accepted claim. Returns true when this process owns the inbound.
+   * Companion restart posts a new webhook-id; the claim is keyed by message id.
+   */
+  claim(idempotencyKey: string, inbound: InboundInteraction): Promise<boolean>;
   put(idempotencyKey: string, disposition: StoredReply): Promise<void>;
 }
 
@@ -129,15 +138,19 @@ export interface WhatsAppContactLoopOptions {
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
-  const rows = new Map<string, StoredReply>();
+  const rows = new Map<string, LedgerRecord>();
   return {
     async get(idempotencyKey) {
       return rows.get(idempotencyKey);
     },
-    async put(idempotencyKey, disposition) {
+    async claim(idempotencyKey, inbound) {
       if (rows.has(idempotencyKey)) {
-        return;
+        return false;
       }
+      rows.set(idempotencyKey, { inbound, kind: "accepted" });
+      return true;
+    },
+    async put(idempotencyKey, disposition) {
       rows.set(idempotencyKey, disposition);
     },
   };
@@ -159,13 +172,24 @@ export function createPostgresReplyLedger(
       const value = row.disposition;
       const parsed =
         typeof value === "string" ? (JSON.parse(value) as unknown) : value;
-      return isStoredReply(parsed) ? parsed : undefined;
+      return isLedgerRecord(parsed) ? parsed : undefined;
+    },
+    async claim(idempotencyKey, inbound) {
+      const result = await client.query(
+        `INSERT INTO reply_ledger (idempotency_key, disposition)
+         VALUES ($1, $2)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING idempotency_key`,
+        [idempotencyKey, JSON.stringify({ inbound, kind: "accepted" })],
+      );
+      return result.rows[0] !== undefined;
     },
     async put(idempotencyKey, disposition) {
       await client.query(
         `INSERT INTO reply_ledger (idempotency_key, disposition)
          VALUES ($1, $2)
-         ON CONFLICT (idempotency_key) DO NOTHING`,
+         ON CONFLICT (idempotency_key) DO UPDATE
+         SET disposition = EXCLUDED.disposition`,
         [idempotencyKey, JSON.stringify(disposition)],
       );
     },
@@ -173,7 +197,7 @@ export function createPostgresReplyLedger(
 }
 
 export function createFileReplyLedger(filePath: string): ReplyLedger {
-  const rows = new Map<string, StoredReply>();
+  const rows = new Map<string, LedgerRecord>();
   let loaded = false;
   let writeChain = Promise.resolve();
 
@@ -206,7 +230,7 @@ export function createFileReplyLedger(filePath: string): ReplyLedger {
       if (typeof record.idempotencyKey !== "string") {
         continue;
       }
-      if (isStoredReply(record.disposition)) {
+      if (isLedgerRecord(record.disposition)) {
         rows.set(record.idempotencyKey, record.disposition);
       }
     }
@@ -229,11 +253,18 @@ export function createFileReplyLedger(filePath: string): ReplyLedger {
       await load();
       return rows.get(idempotencyKey);
     },
-    async put(idempotencyKey, disposition) {
+    async claim(idempotencyKey, inbound) {
       await load();
       if (rows.has(idempotencyKey)) {
-        return;
+        return false;
       }
+      rows.set(idempotencyKey, { inbound, kind: "accepted" });
+      writeChain = writeChain.then(persist);
+      await writeChain;
+      return true;
+    },
+    async put(idempotencyKey, disposition) {
+      await load();
       rows.set(idempotencyKey, disposition);
       writeChain = writeChain.then(persist);
       await writeChain;
@@ -440,6 +471,15 @@ export function createWhatsAppContactLoop(
     inbound: InboundInteraction,
   ): Promise<WhatsAppContactDisposition> {
     const ctx = await boundary.resolveTrustedContext(inbound);
+    const claimed = await ledger.claim(inbound.idempotencyKey, inbound);
+    if (!claimed) {
+      const existing = await ledger.get(inbound.idempotencyKey);
+      return {
+        inbound,
+        kind: "duplicate",
+        observation: observationFromLedger(existing, inbound.idempotencyKey),
+      };
+    }
     const record = await boundary.accept(inbound, ctx);
     const conversationKey = conversationKeyFromChannel({
       accountId: ctx.accountId,
@@ -474,7 +514,7 @@ export function createWhatsAppContactLoop(
       return {
         inbound,
         kind: "duplicate",
-        observation: existing.observation,
+        observation: observationFromLedger(existing, inbound.idempotencyKey),
       };
     }
     const pending = inflight.get(inbound.idempotencyKey);
@@ -524,12 +564,12 @@ export function createWhatsAppContactLoop(
     wait: boolean,
   ): Promise<WhatsAppContactDisposition> {
     const queued = await enqueueBound(inbound);
-    if (!wait) {
+    if (!wait || queued.kind === "duplicate") {
       return queued;
     }
     await waitUntilIdle();
     const stored = await ledger.get(inbound.idempotencyKey);
-    if (stored === undefined) {
+    if (stored === undefined || stored.kind === "accepted") {
       throw new Error("bound whatsapp turn claimed no inbound");
     }
     return stored;
@@ -674,10 +714,20 @@ function isNotFound(error: unknown): boolean {
   );
 }
 
-function isStoredReply(value: unknown): value is StoredReply {
+function observationFromLedger(
+  record: LedgerRecord | undefined,
+  fallbackKey: string,
+): DeliveryObservation {
+  if (record !== undefined && (record.kind === "bound" || record.kind === "unbound")) {
+    return record.observation;
+  }
+  return waitObservation(fallbackKey);
+}
+
+function isLedgerRecord(value: unknown): value is LedgerRecord {
   if (value === null || typeof value !== "object") {
     return false;
   }
   const kind = (value as { kind?: unknown }).kind;
-  return kind === "unbound" || kind === "bound";
+  return kind === "accepted" || kind === "unbound" || kind === "bound";
 }
