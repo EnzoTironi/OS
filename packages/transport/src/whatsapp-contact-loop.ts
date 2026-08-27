@@ -16,6 +16,7 @@ import {
   deliveryObservationId,
   detectInboundLocale,
   dropLeadingStatusPhrase,
+  emitReasonTurnLog,
   finalDeliveryId,
   outboundBubbles,
   pickStatusPhrase,
@@ -389,6 +390,10 @@ export function createWhatsAppContactLoop(
           store,
           world: options.world,
         }),
+      });
+      emitReasonTurnLog({
+        ...raced.value.reasonTurn,
+        statusFired: raced.gated,
       });
       let bubbles = outboundBubbles(raced.value);
       if (raced.gated) {

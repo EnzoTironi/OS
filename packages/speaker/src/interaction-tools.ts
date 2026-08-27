@@ -19,6 +19,7 @@ const waitSchema = z.object({}).strict();
  * Mutable scratch for one reasoning stage. Tools record here.
  * User-visible text comes only from speak_to_user.
  * `wait` clears the turn: empty bubbles, no send.
+ * `tools` is telemetry; fail-copy must not wipe it.
  */
 export interface InteractionScratch {
   bubbles: string[];
@@ -26,6 +27,8 @@ export interface InteractionScratch {
   waited: boolean;
   /** Set by speak_to_user / spawn_execution. Not by wait. */
   startedWork: boolean;
+  /** Tool names in call order. Names only. */
+  tools: string[];
 }
 
 export interface InteractionToolOptions {
@@ -37,8 +40,13 @@ export function createInteractionScratch(): InteractionScratch {
     bubbles: [],
     executionNotes: [],
     startedWork: false,
+    tools: [],
     waited: false,
   };
+}
+
+function rememberTool(scratch: InteractionScratch, name: string): void {
+  scratch.tools.push(name);
 }
 
 /**
@@ -64,6 +72,7 @@ export function createInteractionTools(
       description:
         "Hand work off the conversation to the planted zoen CLI. Returns status: committed (...) only after Cedar commit on zoend. Do not tell the person a note or reminder worked unless this status is committed. Fail openly on denied or failed. Never mention this hand-off in user text.",
       execute: async ({ task }) => {
+        rememberTool(scratch, "spawn_execution");
         scratch.startedWork = true;
         const status =
           options.executeWork === undefined
@@ -78,6 +87,7 @@ export function createInteractionTools(
       description:
         "Record one conversational reply for the person. Newlines become separate bubbles unless the text is wrapped in quotes or a fenced block. Never mention tools, agents, or this function.",
       execute: async ({ text }) => {
+        rememberTool(scratch, "speak_to_user");
         scratch.startedWork = true;
         for (const bubble of splitSpokenBubbles(text)) {
           scratch.bubbles.push(bubble);
@@ -89,6 +99,7 @@ export function createInteractionTools(
     wait: tool({
       description: WAIT_TOOL_DESCRIPTION,
       execute: async () => {
+        rememberTool(scratch, "wait");
         scratch.waited = true;
         scratch.bubbles.length = 0;
         return { ok: true };

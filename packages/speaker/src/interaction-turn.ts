@@ -40,34 +40,36 @@ import type {
   InteractionRecord,
   TrustedInteractionContext,
 } from "./types.js";
+import type {
+  ReasonTurnFacts,
+  ReasonTurnGenerate,
+  ReasonTurnHrefSource,
+  ReasonTurnPath,
+} from "./reason-turn-log.js";
 import {
   looksLikeEntityId,
   type WorldQueryClient,
 } from "./world-query.js";
 
-export type ReasonTurnPath =
-  | "lookupFail"
-  | "threw"
-  | "noModel"
-  | "spoke"
-  | "wait";
-
-export type ReasonTurnGenerate = "ok" | "throw";
+export type {
+  ReasonTurnFacts,
+  ReasonTurnGenerate,
+  ReasonTurnHrefSource,
+  ReasonTurnLog,
+  ReasonTurnPath,
+} from "./reason-turn-log.js";
 
 /**
  * Live outbound for one Interaction turn.
  * `href` is always present: a URL or null.
  * Visible text is speak_to_user, or the single fail copy on noModel/lookupFail.
  * `wait` and `threw` are sealed empty sends: no bubbles, no world hrefFallback.
+ * `reasonTurn` is speaker facts only. The host adds `statusFired` when it emits.
  */
 export interface OutboundTurn {
   readonly bubbles: string[];
   readonly href: URL | null;
-  readonly reasonTurn: {
-    readonly path: ReasonTurnPath;
-    readonly rivals: number;
-    readonly generate: ReasonTurnGenerate;
-  };
+  readonly reasonTurn: ReasonTurnFacts;
 }
 
 /**
@@ -109,13 +111,6 @@ export interface InteractionTurnInput {
 
 const FAIL_CLOSED_PT = "não consegui consultar agora";
 const FAIL_CLOSED_EN = "couldn't look that up";
-
-export interface ReasonTurnLog {
-  readonly event: "reasonTurn";
-  readonly path: ReasonTurnPath;
-  readonly rivals: number;
-  readonly generate: ReasonTurnGenerate;
-}
 
 /**
  * Run one Interaction turn: coordinator stages plus a ToolLoopAgent reasoning step.
@@ -197,6 +192,7 @@ export async function runInteractionTurn(
     ...entityIdsFromDocument(envelope.document),
   ];
   const scratch = input.scratch ?? createInteractionScratch();
+  const model = input.model ?? resolveLanguageModel();
 
   await coordinator.advanceStage(attemptId, "reasoning");
   const reasoned = await reasonTurn({
@@ -204,7 +200,7 @@ export async function runInteractionTurn(
     inbound: input.inbound,
     inboundText,
     locale,
-    model: input.model ?? resolveLanguageModel(),
+    model,
     prompt: reasoningPrompt(envelope.projection.data),
     scratch,
   });
@@ -220,14 +216,31 @@ export async function runInteractionTurn(
     sealed,
   });
   const result: OutboundTurn = {
-    ...rendered,
+    bubbles: rendered.bubbles,
+    href: rendered.href,
     reasonTurn: {
+      attemptId: envelope.contextRef,
+      bubbleCount: rendered.bubbles.length,
+      errorClass: reasoned.errorClass,
       generate: reasoned.generate,
+      generateMs: reasoned.generateMs,
+      hasMemory: envelope.document.records.some(
+        (record) => record.trustClass === "personal_memory",
+      ),
+      hasWorld: envelope.document.records.some(
+        (record) => record.trustClass === "world",
+      ),
+      hrefHost: rendered.href?.hostname ?? null,
+      hrefPath: rendered.href?.pathname ?? null,
+      hrefPresent: rendered.href !== null,
+      hrefSource: rendered.hrefSource,
+      model: languageModelId(model),
       path: reasoned.path,
+      recordCount: envelope.document.records.length,
       rivals: rivalCount(envelope.document),
+      tools: [...scratch.tools],
     },
   };
-  emitReasonTurnLog(result.reasonTurn);
 
   await coordinator.advanceStage(attemptId, "planning_delivery");
   return result;
@@ -370,6 +383,36 @@ function parseModelRef(specified: string): {
   }
 }
 
+function languageModelId(model: LanguageModel | undefined): string | null {
+  if (model === undefined || typeof model !== "object" || model === null) {
+    return null;
+  }
+  if (!("modelId" in model)) {
+    return null;
+  }
+  const id = model.modelId;
+  if (typeof id !== "string") {
+    return null;
+  }
+  const trimmed = id.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function generateErrorClass(error: unknown): string {
+  if (error instanceof Error) {
+    const name = error.name.trim();
+    if (name.length > 0) {
+      return name;
+    }
+    const ctor = error.constructor.name.trim();
+    if (ctor.length > 0) {
+      return ctor;
+    }
+    return "Error";
+  }
+  return "Unknown";
+}
+
 async function claimAttempt(input: {
   readonly attemptId?: TurnAttemptId;
   readonly coordinator: ConversationTurnCoordinator;
@@ -430,7 +473,9 @@ function inboundIdempotencyKey(
 }
 
 interface ReasonTurnResult {
+  readonly errorClass: string | null;
   readonly generate: ReasonTurnGenerate;
+  readonly generateMs: number;
   readonly path: ReasonTurnPath;
   readonly scratch: InteractionScratch;
 }
@@ -447,7 +492,9 @@ async function reasonTurn(input: {
   const scratch = input.scratch;
   if (input.model === undefined) {
     return {
+      errorClass: null,
       generate: "ok",
+      generateMs: 0,
       path: "noModel",
       scratch: applyFailCopy(scratch, input.locale),
     };
@@ -461,29 +508,43 @@ async function reasonTurn(input: {
       executeWork: input.executeWork,
     }),
   });
+  const started = Date.now();
   try {
     await agent.generate({
       prompt: input.prompt,
     });
-  } catch {
+  } catch (error: unknown) {
     return {
+      errorClass: generateErrorClass(error),
       generate: "throw",
+      generateMs: Date.now() - started,
       path: "threw",
       scratch: silenceScratch(scratch),
     };
   }
+  const generateMs = Date.now() - started;
   if (scratch.waited) {
-    return { generate: "ok", path: "wait", scratch: silenceScratch(scratch) };
+    return {
+      errorClass: null,
+      generate: "ok",
+      generateMs,
+      path: "wait",
+      scratch: silenceScratch(scratch),
+    };
   }
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
     return {
+      errorClass: null,
       generate: "ok",
+      generateMs,
       path: "lookupFail",
       scratch: applyFailCopy(scratch, input.locale),
     };
   }
   return {
+    errorClass: null,
     generate: "ok",
+    generateMs,
     path: scratch.bubbles.length === 0 ? "wait" : "spoke",
     scratch,
   };
@@ -510,16 +571,6 @@ function isSealedSilencePath(path: ReasonTurnPath): boolean {
   }
 }
 
-function emitReasonTurnLog(reasonTurn: OutboundTurn["reasonTurn"]): void {
-  const line: ReasonTurnLog = {
-    event: "reasonTurn",
-    path: reasonTurn.path,
-    rivals: reasonTurn.rivals,
-    generate: reasonTurn.generate,
-  };
-  process.stderr.write(`${JSON.stringify(line)}\n`);
-}
-
 function applyFailCopy(
   scratch: InteractionScratch,
   locale: InteractionLocale,
@@ -537,9 +588,13 @@ function renderTurn(input: {
   readonly inboundText: string;
   readonly scratch: InteractionScratch;
   readonly sealed: boolean;
-}): { readonly bubbles: string[]; readonly href: URL | null } {
+}): {
+  readonly bubbles: string[];
+  readonly href: URL | null;
+  readonly hrefSource: ReasonTurnHrefSource;
+} {
   if (input.sealed) {
-    return { bubbles: [], href: null };
+    return { bubbles: [], href: null, hrefSource: "none" };
   }
   const spoken: string[] = [];
   for (const raw of input.scratch.bubbles) {
@@ -554,36 +609,35 @@ function renderTurn(input: {
       }
     }
   }
-  const href = pickHref(spoken, input.hrefFallback);
+  const picked = pickHref(spoken, input.hrefFallback);
   const emptyInbound =
     input.inbound.kind === "text" && input.inboundText.trim().length === 0;
   const stripped = emptyInbound
     ? spoken.filter((bubble) => !containsHiddenId(bubble, input.hiddenIds))
     : spoken;
-  return { bubbles: stripped, href };
+  return { bubbles: stripped, href: picked.href, hrefSource: picked.source };
 }
 
 function pickHref(
   bubbles: readonly string[],
   hrefFallback: string | undefined,
-): URL | null {
-  const candidates: string[] = [];
+): { readonly href: URL | null; readonly source: ReasonTurnHrefSource } {
   for (const bubble of bubbles) {
     const found = bubble.match(/https:\/\/[^\s]+/gi) ?? [];
     for (const url of found) {
-      candidates.push(url);
+      const href = parseHttpsUrl(url);
+      if (href !== null) {
+        return { href, source: "speech" };
+      }
     }
   }
-  if (hrefFallback !== undefined && candidates.length === 0) {
-    candidates.push(hrefFallback);
-  }
-  for (const candidate of candidates) {
-    const parsed = parseHttpsUrl(candidate);
-    if (parsed !== null) {
-      return parsed;
+  if (hrefFallback !== undefined) {
+    const href = parseHttpsUrl(hrefFallback);
+    if (href !== null) {
+      return { href, source: "fallback" };
     }
   }
-  return null;
+  return { href: null, source: "none" };
 }
 
 function parseHttpsUrl(value: string): URL | null {
