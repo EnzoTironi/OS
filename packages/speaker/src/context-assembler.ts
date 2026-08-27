@@ -311,7 +311,10 @@ async function loadRecentConversationRecords(
   for (const stored of recent) {
     byId.set(String(stored.id), stored);
   }
-  for (const id of request.claimedInteractionIds) {
+  for (const id of uniqueIds([
+    ...request.claimedInteractionIds,
+    ...request.carryForwardInteractionIds,
+  ])) {
     if (byId.has(id)) {
       continue;
     }
