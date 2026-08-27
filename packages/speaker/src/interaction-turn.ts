@@ -48,6 +48,11 @@ import {
 import type { ChannelAssurance } from "./permission.js";
 import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
 import {
+  isHostPublicHref,
+  parseHostPublicHref,
+  withOnboardHref,
+} from "./public-origin.js";
+import {
   looksLikeEntityId,
   type WorldQueryClient,
 } from "./world-query.js";
@@ -599,35 +604,33 @@ function renderTurn(input: {
       }
     }
   }
-  const href = pickHref(input.scratch.href, spoken, input.hrefFallback);
+  const href = pickHref(input.scratch.href, input.hrefFallback);
+  const withoutInvented = spoken
+    .map((bubble) => stripUnmintedHttps(bubble, href))
+    .filter((bubble) => bubble.length > 0);
   const emptyInbound =
     input.inbound.kind === "text" && input.inboundText.trim().length === 0;
   const stripped = emptyInbound
-    ? spoken.filter((bubble) => !containsHiddenId(bubble, input.hiddenIds))
-    : spoken;
+    ? withoutInvented.filter(
+        (bubble) => !containsHiddenId(bubble, input.hiddenIds),
+      )
+    : withoutInvented;
   return { bubbles: stripped, href };
 }
 
 function pickHref(
   minted: string | undefined,
-  bubbles: readonly string[],
   hrefFallback: string | undefined,
 ): URL | null {
   const candidates: string[] = [];
   if (minted !== undefined) {
     candidates.push(minted);
   }
-  for (const bubble of bubbles) {
-    const found = bubble.match(/https:\/\/[^\s]+/gi) ?? [];
-    for (const url of found) {
-      candidates.push(url);
-    }
-  }
   if (hrefFallback !== undefined && candidates.length === 0) {
     candidates.push(hrefFallback);
   }
   for (const candidate of candidates) {
-    const parsed = parseHttpsUrl(candidate);
+    const parsed = parseHostPublicHref(candidate);
     if (parsed !== null) {
       return parsed;
     }
@@ -635,13 +638,17 @@ function pickHref(
   return null;
 }
 
-function parseHttpsUrl(value: string): URL | null {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "https:" ? parsed : null;
-  } catch {
-    return null;
-  }
+function stripUnmintedHttps(text: string, minted: URL | null): string {
+  return text
+    .replace(/https:\/\/[^\s]+/gi, (url) => {
+      if (minted === null) {
+        return "";
+      }
+      const parsed = parseHostPublicHref(url);
+      return parsed !== null && parsed.href === minted.href ? url : "";
+    })
+    .replace(/\s{2,}/gu, " ")
+    .trim();
 }
 
 function sanitizeUserText(
@@ -721,7 +728,7 @@ function hrefFromDocument(
     }
     for (const note of record.payload.notes) {
       const found = note.match(/https:\/\/[^\s]+/i);
-      if (found?.[0] !== undefined) {
+      if (found?.[0] !== undefined && isHostPublicHref(found[0])) {
         return found[0];
       }
     }
@@ -842,13 +849,7 @@ function injectHref(spoken: string, href: string | undefined): string {
   if (href === undefined || href.trim().length === 0) {
     return spoken;
   }
-  if (spoken.includes(href)) {
-    return spoken;
-  }
-  if (spoken.trim().length === 0) {
-    return href;
-  }
-  return `${spoken.trim()}\n${href}`;
+  return withOnboardHref(spoken, href);
 }
 
 export function interactionInstructions(locale: InteractionLocale): string {

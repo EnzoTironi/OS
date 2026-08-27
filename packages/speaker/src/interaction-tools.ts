@@ -7,11 +7,9 @@ import type {
   SpeakerActionClient,
 } from "./osdk-action-client.js";
 import {
-  escalationHref,
   permissionForFeature,
   type ChannelAssurance,
 } from "./permission.js";
-import { resolvePublicOrigin } from "./public-origin.js";
 
 const speakToUserSchema = z
   .object({
@@ -25,11 +23,7 @@ const spawnExecutionSchema = z
   })
   .strict();
 
-const mintHrefSchema = z
-  .object({
-    url: z.string().min(1),
-  })
-  .strict();
+const mintHrefSchema = z.object({}).passthrough();
 
 const waitSchema = z.object({}).strict();
 
@@ -103,11 +97,10 @@ export function createInteractionTools(
   options: InteractionToolOptions = {},
 ): ToolSet {
   const channelAssurance = options.channelAssurance ?? "whatsapp_phone";
-  const origin = resolvePublicOrigin(options.publicWebOrigin);
   return {
     request_external: tool({
       description:
-        "Ask for a web report, bank access, or fiscal issuance. Do not claim it ran. Speak after this returns.",
+        "Ask for a web report, bank access, or fiscal issuance. Do not claim it ran. Do not invent a link. Speak after this returns.",
       execute: async ({ boundary }) => {
         const decision = permissionForFeature({
           channelAssurance,
@@ -116,17 +109,8 @@ export function createInteractionTools(
         switch (decision.kind) {
           case "allow":
             return { allowed: true, ok: true };
-          case "escalate": {
-            const href = escalationHref(origin, decision.boundary);
-            if (!/^https:\/\//i.test(href) || !href.includes("/approve/")) {
-              return { ok: false, reason: "escalation href rejected" };
-            }
-            if (scratch.href !== undefined) {
-              return { ok: false, reason: "href already minted" };
-            }
-            scratch.href = href;
-            return { allowed: false, escalate: true, ok: true };
-          }
+          case "escalate":
+            return { allowed: false, escalate: false, ok: true, reason: "no approve mint" };
           default: {
             const exhaustive: never = decision;
             return exhaustive;
@@ -155,17 +139,9 @@ export function createInteractionTools(
     }),
     mint_href: tool({
       description:
-        "Mint at most one https URL for this turn. The mini-app door is a plain https link in the body. Never invent a second URL.",
-      execute: async ({ url }) => {
-        const trimmed = url.trim();
-        if (!/^https:\/\//i.test(trimmed)) {
-          return { ok: false, reason: "url must be https" };
-        }
-        if (scratch.href !== undefined) {
-          return { ok: false, reason: "href already minted" };
-        }
-        scratch.href = trimmed;
-        return { ok: true };
+        "Ask the host for the turn href. The host mints onboard or approve. Do not invent a URL. A turn may have speech and no link.",
+      execute: async () => {
+        return { ok: false, reason: "host owns href" };
       },
       inputSchema: mintHrefSchema,
     }),

@@ -414,58 +414,146 @@ test("spawn_execution with injected executeWork records executionNotes and does 
   assert.equal(sent.split("https://").length - 1, 0);
 });
 
-test("at most one href survives a double mint", async () => {
-  let step = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({ url: "https://example.com/a" }),
-              toolCallId: "call_href_1",
-              toolName: "mint_href",
-              type: "tool-call",
-            },
-            {
-              input: JSON.stringify({ url: "https://example.com/b" }),
-              toolCallId: "call_href_2",
-              toolName: "mint_href",
-              type: "tool-call",
-            },
-            {
-              input: JSON.stringify({ text: "Segue o resumo." }),
-              toolCallId: "call_speak",
-              toolName: "speak_to_user",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      return {
-        content: [],
-        finishReason: { raw: "stop", unified: "stop" },
-        usage: usage(),
-        warnings: [],
-      } satisfies LanguageModelV3GenerateResult;
-    },
-  });
+const INVENTED_APPROVE_E = "https://zoen.tironi.xyz/approve/e";
+const LOCAL_APP_HREF = "https://app.zoen.local/onboard/tok";
+
+test("mint_href invented /approve/e is dropped; speech remains", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
-    inbound: textInbound("Oi"),
-    membership: membership("href"),
-    model,
+    inbound: textInbound("quanto tá a cotação?"),
+    membership: membership("invented-mint"),
+    model: mintThenSpeakModel(INVENTED_APPROVE_E, "a cotação ainda não chegou"),
+    publicWebOrigin: "https://zoen.tironi.xyz",
   });
   const sent = outboundBubbles(result).join("\n");
-  assert.equal(sent.split("https://").length - 1, 1);
-  assert.ok(result.href instanceof URL);
-  assert.equal(result.href.href, "https://example.com/a");
-  assert.match(sent, /Segue o resumo/);
-  assert.doesNotMatch(sent, /Recebi/i);
+  assert.equal(result.href, null);
+  assert.match(sent, /a cotação ainda não chegou/);
+  assert.doesNotMatch(sent, /https:\/\//i);
+  assert.doesNotMatch(sent, /\/approve\/e/);
+  assertReasonTurn(result, "spoke", 0, "ok");
+});
+
+test("speak_to_user invented /approve/e is stripped; href stays null", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("quanto tá a cotação?"),
+    membership: membership("invented-speak"),
+    model: speakThenStopModel(
+      `a cotação ainda não chegou ${INVENTED_APPROVE_E}`,
+    ),
+    publicWebOrigin: "https://zoen.tironi.xyz",
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(result.href, null);
+  assert.deepEqual(result.bubbles, ["a cotação ainda não chegou"]);
+  assert.doesNotMatch(sent, /https:\/\//i);
+  assert.doesNotMatch(sent, /\/approve\/e/);
+  assertReasonTurn(result, "spoke", 0, "ok");
+});
+
+test("app.zoen.local never outbound from mint_href or speech", async () => {
+  const minted = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("local-mint"),
+    model: mintThenSpeakModel(LOCAL_APP_HREF, "oi, entra quando quiser"),
+  });
+  const mintedSent = outboundBubbles(minted).join("\n");
+  assert.equal(minted.href, null);
+  assert.match(mintedSent, /oi, entra quando quiser/);
+  assert.doesNotMatch(mintedSent, /app\.zoen\.local/);
+  assert.doesNotMatch(mintedSent, /https:\/\//i);
+
+  const spoken = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("local-speak"),
+    model: speakThenStopModel(`oi ${LOCAL_APP_HREF}`),
+  });
+  const spokenSent = outboundBubbles(spoken).join("\n");
+  assert.equal(spoken.href, null);
+  assert.deepEqual(spoken.bubbles, ["oi"]);
+  assert.doesNotMatch(spokenSent, /app\.zoen\.local/);
+  assert.doesNotMatch(spokenSent, /https:\/\//i);
+});
+
+test("mint_href tool rejects a free-form url and does not store href", async () => {
+  const scratch = createInteractionScratch();
+  const tools = createInteractionTools(scratch, {
+    publicWebOrigin: "https://zoen.tironi.xyz",
+  });
+  const mint = tools.mint_href;
+  assert.ok(mint?.execute !== undefined);
+  const out = await mint.execute(
+    { url: INVENTED_APPROVE_E },
+    { context: undefined, messages: [], toolCallId: "call_href" },
+  );
+  assert.deepEqual(out, { ok: false, reason: "host owns href" });
+  assert.equal(scratch.href, undefined);
+});
+
+test("request_external on a consult does not attach host-built /approve/external.web_report", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("quanto tá a cotação?"),
+    membership: membership("consult-web-report"),
+    model: requestExternalThenSpeakModel(
+      "web_report",
+      "da qual moeda ou ativo?",
+    ),
+    publicWebOrigin: "https://zoen.tironi.xyz",
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(result.href, null);
+  assert.deepEqual(result.bubbles, ["da qual moeda ou ativo?"]);
+  assert.doesNotMatch(sent, /https:\/\//i);
+  assert.doesNotMatch(sent, /\/approve\//);
+  assert.doesNotMatch(sent, /app\.zoen\.local/);
+  assertReasonTurn(result, "spoke", 0, "ok");
+});
+
+test("request_external tool does not store a constructed approve href", async () => {
+  const scratch = createInteractionScratch();
+  const tools = createInteractionTools(scratch, {
+    publicWebOrigin: "https://zoen.tironi.xyz",
+  });
+  const ext = tools.request_external;
+  assert.ok(ext?.execute !== undefined);
+  const out = await ext.execute(
+    { boundary: "web_report" },
+    { context: undefined, messages: [], toolCallId: "call_ext" },
+  );
+  assert.deepEqual(out, {
+    allowed: false,
+    escalate: false,
+    ok: true,
+    reason: "no approve mint",
+  });
+  assert.equal(scratch.href, undefined);
+});
+
+test("world note https is kept as host fallback", async () => {
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return {
+        entityIds: [],
+        notes: ["https://workshop.example/quote"],
+        rivals: [],
+      };
+    },
+  };
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("quanto tá a cotação?"),
+    membership: membership("world-href"),
+    model: speakThenStopModel("a cotação está no link"),
+    world,
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(result.href?.href, "https://workshop.example/quote");
+  assert.match(sent, /https:\/\/workshop\.example\/quote/);
+  assert.match(sent, /a cotação está no link/);
+  assert.doesNotMatch(sent, /app\.zoen\.local/);
 });
 
 test("mocked oi is a short greeting, not helpdesk", async () => {
@@ -718,6 +806,18 @@ test("first contact addendum never says unbound and generate mock is the spoken 
   assert.equal(spoken.includes("oi, entra quando quiser"), true);
   assert.equal(spoken.includes(href), true);
   assert.doesNotMatch(spoken, /Este WhatsApp ainda não está vinculado/i);
+  assert.doesNotMatch(spoken, /app\.zoen\.local/);
+});
+
+test("first contact does not inject app.zoen.local placeholder", async () => {
+  const spoken = await runFirstContactTurn({
+    generate: async () => "oi, entra quando quiser",
+    href: LOCAL_APP_HREF,
+    inboundText: "oi",
+  });
+  assert.equal(spoken.includes("oi, entra quando quiser"), true);
+  assert.doesNotMatch(spoken, /app\.zoen\.local/);
+  assert.doesNotMatch(spoken, /https:\/\//i);
 });
 
 test("first contact uses unbound assemble and never calls the bound assembler", async () => {
@@ -797,7 +897,27 @@ test("group audience refuses note and does not write personal memory", async () 
   assert.doesNotMatch(result.bubbles.join("\n"), /anotei/);
 });
 
-test("request_external on WhatsApp phone mints an approve href, not onboard", async () => {
+test("request_external on WhatsApp phone does not attach a host-built approve URL", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("emite a nota"),
+    membership: membership("fiscal"),
+    model: requestExternalThenSpeakModel(
+      "fiscal_issuance",
+      "abre o link pra confirmar",
+    ),
+    publicWebOrigin: "https://zoen.tironi.xyz",
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.equal(result.href, null);
+  assert.match(sent, /abre o link pra confirmar/);
+  assert.doesNotMatch(sent, /\/approve\//);
+  assert.doesNotMatch(sent, /\/onboard\//);
+  assert.doesNotMatch(sent, /app\.zoen\.local/);
+  assert.doesNotMatch(sent, /https:\/\//i);
+});
+
+test("request_external with app.zoen.local origin never outbound", async () => {
   let step = 0;
   const model = new MockLanguageModelV3({
     doGenerate: async () => {
@@ -826,13 +946,15 @@ test("request_external on WhatsApp phone mints an approve href, not onboard", as
   const result = await runInteractionTurn({
     debounceMs: 0,
     inbound: textInbound("emite a nota"),
-    membership: membership("fiscal"),
+    membership: membership("fiscal-local"),
     model,
-    publicWebOrigin: "https://zoen.tironi.xyz",
+    publicWebOrigin: "https://app.zoen.local",
   });
   const sent = outboundBubbles(result).join("\n");
-  assert.match(sent, /https:\/\/zoen\.tironi\.xyz\/approve\/external\.fiscal_issuance/);
-  assert.doesNotMatch(sent, /\/onboard\//);
+  assert.equal(result.href, null);
+  assert.match(sent, /abre o link pra confirmar/);
+  assert.doesNotMatch(sent, /app\.zoen\.local/);
+  assert.doesNotMatch(sent, /https:\/\//i);
 });
 
 test("request_external with OIDC binding does not mint a login URL", async () => {
@@ -944,6 +1066,68 @@ function waitThenStopModel(): MockLanguageModelV3 {
               input: JSON.stringify({}),
               toolCallId: "call_wait",
               toolName: "wait",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      return stopCall();
+    },
+  });
+}
+
+function requestExternalThenSpeakModel(
+  boundary: "web_report" | "bank_access" | "fiscal_issuance",
+  spoken: string,
+): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({ boundary }),
+              toolCallId: "call_ext",
+              toolName: "request_external",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: "tool-calls", unified: "tool-calls" },
+          usage: usage(),
+          warnings: [],
+        } satisfies LanguageModelV3GenerateResult;
+      }
+      if (step === 2) {
+        return speakCall(spoken);
+      }
+      return stopCall();
+    },
+  });
+}
+
+function mintThenSpeakModel(url: string, spoken: string): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return {
+          content: [
+            {
+              input: JSON.stringify({ url }),
+              toolCallId: "call_href",
+              toolName: "mint_href",
+              type: "tool-call",
+            },
+            {
+              input: JSON.stringify({ text: spoken }),
+              toolCallId: "call_speak",
+              toolName: "speak_to_user",
               type: "tool-call",
             },
           ],
