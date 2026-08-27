@@ -375,7 +375,6 @@ export function createWhatsAppContactLoop(
         schedule: options.schedule,
         work: runInteractionTurn({
           attemptId: claimed.attempt.id,
-          channelAssurance: "whatsapp_phone",
           coordinator,
           debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
           executeWork: options.executeWork,
@@ -383,7 +382,6 @@ export function createWhatsAppContactLoop(
           membership,
           model: options.model,
           now,
-          publicWebOrigin: options.publicWebOrigin,
           scratch,
           store,
         }),

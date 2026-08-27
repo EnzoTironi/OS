@@ -188,6 +188,8 @@ test("PT instructions ban helpdesk greetings and keep speak_to_user as the only 
   assert.match(instructions, /Recebi/);
   assert.match(instructions, /\bwait\b/);
   assert.match(instructions, /nunca fale proposal/);
+  assert.doesNotMatch(instructions, /mint_href|request_external/);
+  assert.doesNotMatch(interactionInstructions("en"), /mint_href|request_external/);
   assert.doesNotMatch(instructions, /Mastra|LangGraph/);
   assert.doesNotMatch(instructions, /ficar quieto|stay quiet/i);
   assert.doesNotMatch(instructions, /—/);
@@ -245,6 +247,8 @@ test("empty-world prompt answers greetings; wait description forbids greetings",
   assert.doesNotMatch(WAIT_TOOL_DESCRIPTION, /other closing inbound/);
   const tools = createInteractionTools(createInteractionScratch());
   assert.equal(tools.wait?.description, WAIT_TOOL_DESCRIPTION);
+  assert.equal(tools.mint_href, undefined);
+  assert.equal(tools.request_external, undefined);
 });
 
 test("mocked turn with two World rivals speaks the readings, not a helpdesk greeting", async () => {
@@ -412,60 +416,6 @@ test("spawn_execution with injected executeWork records executionNotes and does 
   assert.doesNotMatch(sent, /spawn_execution/);
   assert.doesNotMatch(sent, /membership\.wa\.enzo/);
   assert.equal(sent.split("https://").length - 1, 0);
-});
-
-test("at most one href survives a double mint", async () => {
-  let step = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({ url: "https://example.com/a" }),
-              toolCallId: "call_href_1",
-              toolName: "mint_href",
-              type: "tool-call",
-            },
-            {
-              input: JSON.stringify({ url: "https://example.com/b" }),
-              toolCallId: "call_href_2",
-              toolName: "mint_href",
-              type: "tool-call",
-            },
-            {
-              input: JSON.stringify({ text: "Segue o resumo." }),
-              toolCallId: "call_speak",
-              toolName: "speak_to_user",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      return {
-        content: [],
-        finishReason: { raw: "stop", unified: "stop" },
-        usage: usage(),
-        warnings: [],
-      } satisfies LanguageModelV3GenerateResult;
-    },
-  });
-  const result = await runInteractionTurn({
-    debounceMs: 0,
-    inbound: textInbound("Oi"),
-    membership: membership("href"),
-    model,
-  });
-  const sent = outboundBubbles(result).join("\n");
-  assert.equal(sent.split("https://").length - 1, 1);
-  assert.ok(result.href instanceof URL);
-  assert.equal(result.href.href, "https://example.com/a");
-  assert.match(sent, /Segue o resumo/);
-  assert.doesNotMatch(sent, /Recebi/i);
 });
 
 test("mocked oi is a short greeting, not helpdesk", async () => {
@@ -797,88 +747,9 @@ test("group audience refuses note and does not write personal memory", async () 
   assert.doesNotMatch(result.bubbles.join("\n"), /anotei/);
 });
 
-test("request_external on WhatsApp phone mints an approve href, not onboard", async () => {
-  let step = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({ boundary: "fiscal_issuance" }),
-              toolCallId: "call_ext",
-              toolName: "request_external",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      if (step === 2) {
-        return speakCall("abre o link pra confirmar");
-      }
-      return stopCall();
-    },
-  });
-  const result = await runInteractionTurn({
-    debounceMs: 0,
-    inbound: textInbound("emite a nota"),
-    membership: membership("fiscal"),
-    model,
-    publicWebOrigin: "https://zoen.tironi.xyz",
-  });
-  const sent = outboundBubbles(result).join("\n");
-  assert.match(sent, /https:\/\/zoen\.tironi\.xyz\/approve\/external\.fiscal_issuance/);
-  assert.doesNotMatch(sent, /\/onboard\//);
-});
-
-test("request_external with OIDC binding does not mint a login URL", async () => {
-  let step = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({ boundary: "bank_access" }),
-              toolCallId: "call_ext",
-              toolName: "request_external",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      if (step === 2) {
-        return speakCall("vou olhar o banco");
-      }
-      return stopCall();
-    },
-  });
-  const result = await runInteractionTurn({
-    channelAssurance: "oidc_bound",
-    debounceMs: 0,
-    inbound: textInbound("abre o banco"),
-    membership: membership("bank"),
-    model,
-    publicWebOrigin: "https://zoen.tironi.xyz",
-  });
-  const sent = outboundBubbles(result).join("\n");
-  assert.doesNotMatch(sent, /\/onboard\/|\/approve\/external\./);
-  assert.match(sent, /vou olhar o banco/);
-});
-
 test("note tool does not mint a login URL", async () => {
   const scratch = createInteractionScratch();
-  const tools = createInteractionTools(scratch, {
-    publicWebOrigin: "https://zoen.tironi.xyz",
-  });
+  const tools = createInteractionTools(scratch);
   const note = tools.note;
   assert.ok(note?.execute !== undefined);
   await note.execute(

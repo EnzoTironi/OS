@@ -6,12 +6,6 @@ import type {
   PersonalWriteKind,
   SpeakerActionClient,
 } from "./osdk-action-client.js";
-import {
-  escalationHref,
-  permissionForFeature,
-  type ChannelAssurance,
-} from "./permission.js";
-import { resolvePublicOrigin } from "./public-origin.js";
 
 const speakToUserSchema = z
   .object({
@@ -22,12 +16,6 @@ const speakToUserSchema = z
 const spawnExecutionSchema = z
   .object({
     task: z.string().min(1),
-  })
-  .strict();
-
-const mintHrefSchema = z
-  .object({
-    url: z.string().min(1),
   })
   .strict();
 
@@ -43,12 +31,6 @@ const remindSchema = z
   .object({
     body: z.string().min(1),
     dueAt: z.string().min(1),
-  })
-  .strict();
-
-const requestExternalSchema = z
-  .object({
-    boundary: z.enum(["web_report", "bank_access", "fiscal_issuance"]),
   })
   .strict();
 
@@ -76,8 +58,6 @@ export interface InteractionToolOptions {
   readonly actions?: SpeakerActionClient;
   readonly audienceKind?: ConversationAudienceKind;
   readonly executeWork?: (task: string) => Promise<string>;
-  readonly channelAssurance?: ChannelAssurance;
-  readonly publicWebOrigin?: string;
   readonly onWriteCommitted?: (
     commit: InteractionWriteCommit,
   ) => Promise<void>;
@@ -102,39 +82,7 @@ export function createInteractionTools(
   scratch: InteractionScratch,
   options: InteractionToolOptions = {},
 ): ToolSet {
-  const channelAssurance = options.channelAssurance ?? "whatsapp_phone";
-  const origin = resolvePublicOrigin(options.publicWebOrigin);
   return {
-    request_external: tool({
-      description:
-        "Ask for a web report, bank access, or fiscal issuance. Do not claim it ran. Speak after this returns.",
-      execute: async ({ boundary }) => {
-        const decision = permissionForFeature({
-          channelAssurance,
-          feature: { boundary, kind: "external" },
-        });
-        switch (decision.kind) {
-          case "allow":
-            return { allowed: true, ok: true };
-          case "escalate": {
-            const href = escalationHref(origin, decision.boundary);
-            if (!/^https:\/\//i.test(href) || !href.includes("/approve/")) {
-              return { ok: false, reason: "escalation href rejected" };
-            }
-            if (scratch.href !== undefined) {
-              return { ok: false, reason: "href already minted" };
-            }
-            scratch.href = href;
-            return { allowed: false, escalate: true, ok: true };
-          }
-          default: {
-            const exhaustive: never = decision;
-            return exhaustive;
-          }
-        }
-      },
-      inputSchema: requestExternalSchema,
-    }),
     note: tool({
       description:
         "Write a personal memory through Propose then Commit. Speak only after this returns ok. Never claim you wrote it if this fails.",
@@ -152,22 +100,6 @@ export function createInteractionTools(
         return commitPersonalWrite(scratch, options, "remind", body, dueAt);
       },
       inputSchema: remindSchema,
-    }),
-    mint_href: tool({
-      description:
-        "Mint at most one https URL for this turn. The mini-app door is a plain https link in the body. Never invent a second URL.",
-      execute: async ({ url }) => {
-        const trimmed = url.trim();
-        if (!/^https:\/\//i.test(trimmed)) {
-          return { ok: false, reason: "url must be https" };
-        }
-        if (scratch.href !== undefined) {
-          return { ok: false, reason: "href already minted" };
-        }
-        scratch.href = trimmed;
-        return { ok: true };
-      },
-      inputSchema: mintHrefSchema,
     }),
     spawn_execution: tool({
       description:

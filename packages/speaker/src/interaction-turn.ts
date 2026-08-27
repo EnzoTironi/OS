@@ -45,7 +45,6 @@ import {
   type PersonalWriteKind,
   type SpeakerActionClient,
 } from "./osdk-action-client.js";
-import type { ChannelAssurance } from "./permission.js";
 import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
 import {
   looksLikeEntityId,
@@ -100,8 +99,6 @@ export interface InteractionTurnInput {
   readonly store?: TurnStore;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
-  readonly channelAssurance?: ChannelAssurance;
-  readonly publicWebOrigin?: string;
   readonly debounceMs?: number;
   /**
    * Shared scratch so a host can observe `startedWork` / `waited` while
@@ -218,7 +215,6 @@ export async function runInteractionTurn(
   const reasoned = await reasonTurn({
     actions: input.actions ?? createSpeakerActionClientFromEnv(),
     audienceKind,
-    channelAssurance: input.channelAssurance,
     executeWork: input.executeWork,
     inbound: input.inbound,
     inboundText,
@@ -231,7 +227,6 @@ export async function runInteractionTurn(
       });
     },
     prompt: reasoningPrompt(envelope.projection.data),
-    publicWebOrigin: input.publicWebOrigin,
     scratch,
   });
 
@@ -462,8 +457,6 @@ interface ReasonTurnResult {
 async function reasonTurn(input: {
   readonly actions?: SpeakerActionClient;
   readonly audienceKind: ConversationAudienceKind;
-  readonly channelAssurance?: ChannelAssurance;
-  readonly publicWebOrigin?: string;
   readonly executeWork?: (task: string) => Promise<string>;
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
@@ -492,10 +485,8 @@ async function reasonTurn(input: {
     tools: createInteractionTools(scratch, {
       actions: input.actions,
       audienceKind: input.audienceKind,
-      channelAssurance: input.channelAssurance,
       executeWork: input.executeWork,
       onWriteCommitted: input.onWriteCommitted,
-      publicWebOrigin: input.publicWebOrigin,
     }),
   });
   try {
@@ -650,7 +641,7 @@ function sanitizeUserText(
   executionNotes: readonly string[] = [],
 ): string {
   let next = text.replace(
-    /\b(speak_to_user|spawn_execution|mint_href|note|remind|wait|request_external|ToolLoopAgent|LangGraph|Mastra)\b/gi,
+    /\b(speak_to_user|spawn_execution|note|remind|wait|ToolLoopAgent|LangGraph|Mastra)\b/gi,
     "",
   );
   next = stripTokens(next, hiddenIds);
@@ -856,7 +847,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
     case "pt":
       return [
         "você é a zoen. uma só entidade. você fala com a pessoa. execution nunca fala",
-        "texto visível só por speak_to_user. spawn_execution trabalha fora. mint_href: no máximo um https de verdade",
+        "texto visível só por speak_to_user. spawn_execution trabalha fora (bash + zoen CLI). nunca invente um URL. se o turno não tem https, não faça um",
         "note grava memória. remind agenda. só speak_to_user depois que a tool voltar ok. se falhar, não diga que anotou ou agendou",
         "preview da tool é o texto canônico. nunca fale proposal, operation, claim, tenant, principal nem hash",
         "valeu, ok, show, obrigado: chame wait. sem bolha. não fale",
@@ -872,7 +863,7 @@ export function interactionInstructions(locale: InteractionLocale): string {
     case "en":
       return [
         "you are zoen. one entity. you talk to the person. execution never talks",
-        "visible text only from speak_to_user. spawn_execution works off-chat. mint_href: at most one real https",
+        "visible text only from speak_to_user. spawn_execution works off-chat (bash + zoen CLI). never invent a URL. if the turn has no https, do not make one",
         "note writes a memory. remind schedules. speak_to_user only after the tool returns ok. if it fails, do not claim you wrote or scheduled it",
         "tool preview is the canonical text. never speak proposal, operation, claim, tenant, principal, or hash",
         "thanks, ok, show: call wait. no bubble. do not speak",
