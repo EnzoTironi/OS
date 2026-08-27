@@ -2,9 +2,10 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { speakerPreviewLeaksInternalIds } from "./action-preview.js";
 import type { ConversationAudienceKind } from "./context-document.js";
-import type {
-  PersonalWriteKind,
-  SpeakerActionClient,
+import {
+  emitPersonalWriteLog,
+  type PersonalWriteKind,
+  type SpeakerActionClient,
 } from "./osdk-action-client.js";
 import {
   escalationHref,
@@ -237,22 +238,22 @@ async function commitPersonalWrite(
     options.audienceKind === "group" ||
     options.audienceKind === "channel"
   ) {
-    scratch.writeFail = kind;
-    return { ok: false, reason: "audience refuses personal write" };
+    return failPersonalWrite(scratch, kind, "audience refuses personal write");
   }
   if (options.actions === undefined) {
-    scratch.writeFail = kind;
-    return { ok: false, reason: "action client missing" };
+    return failPersonalWrite(scratch, kind, "action client missing");
   }
   try {
     const result = await commitByKind(options.actions, kind, body, dueAt);
     if (result.kind !== "committed") {
-      scratch.writeFail = kind;
-      return { ok: false, reason: result.message };
+      return failPersonalWrite(scratch, kind, result.message);
     }
     if (speakerPreviewLeaksInternalIds(result.previewText)) {
-      scratch.writeFail = kind;
-      return { ok: false, reason: "preview text leaked an internal identifier" };
+      return failPersonalWrite(
+        scratch,
+        kind,
+        "preview text leaked an internal identifier",
+      );
     }
     if (options.onWriteCommitted !== undefined) {
       await options.onWriteCommitted({
@@ -260,12 +261,22 @@ async function commitPersonalWrite(
         kind,
       });
     }
+    emitPersonalWriteLog(personalWriteActionId(kind), "committed");
     return { ok: true, previewText: result.previewText };
   } catch (error: unknown) {
-    scratch.writeFail = kind;
     const message = error instanceof Error ? error.message : "action commit failed";
-    return { ok: false, reason: message };
+    return failPersonalWrite(scratch, kind, message);
   }
+}
+
+function failPersonalWrite(
+  scratch: InteractionScratch,
+  kind: PersonalWriteKind,
+  reason: string,
+): { ok: false; reason: string } {
+  scratch.writeFail = kind;
+  emitPersonalWriteLog(personalWriteActionId(kind), "error", reason);
+  return { ok: false, reason };
 }
 
 function personalWriteActionId(kind: PersonalWriteKind): string {

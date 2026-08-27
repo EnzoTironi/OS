@@ -1,9 +1,4 @@
 import { readFileSync } from "node:fs";
-/**
- * Speaker Action client for the personal lake.
- * Must not import `@zoen/harness` (harness already depends on speaker).
- * Default World OSDK actions stay read-only. Writes go through this client.
- */
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { createClient, type Interceptor } from "@connectrpc/connect";
@@ -20,10 +15,21 @@ import {
   type OsdkDefinitionRef,
 } from "../../osdk/src/index.js";
 import { ActionService } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
+import { DefinitionService } from "../../sdk/src/gen/zoen/definition/v1/definition_pb.js";
+
+/**
+ * Speaker Action client for the personal lake.
+ * Must not import `@zoen/harness` (harness already depends on speaker).
+ * Default World OSDK actions stay read-only. Writes go through this client.
+ */
 
 const WRITE_MEMORY_ACTION_ID = "personal.writeMemory";
 const CREATE_REMINDER_ACTION_ID = "personal.createReminder";
 const compiledByPath = new Map<string, Promise<CompiledDefinition>>();
+const lakeEnsure = new Map<string, Promise<void>>();
+
+/** Fly admin-a JWT already grants this resource. Minted note/reminder ids cannot be pre-granted. */
+export const PERSONAL_MEMORY_RESOURCE_ID = "personal.memory";
 
 export type PersonalWriteKind = "note" | "remind";
 
@@ -34,6 +40,24 @@ export interface SpeakerActionIds {
   readonly proposalId: string;
   readonly resourceId: string;
   readonly validAt: Date;
+}
+
+export interface SpeakerDefinitionPort {
+  activateRevision(input: {
+    readonly currentDigest?: string;
+    readonly definitionId: string;
+    readonly digest: string;
+    readonly tenantId: string;
+  }): Promise<void>;
+  getActiveRevision(input: {
+    readonly definitionId: string;
+    readonly tenantId: string;
+  }): Promise<{ readonly digest: string } | undefined>;
+  publish(input: {
+    readonly canonicalJson: string;
+    readonly digest: string;
+    readonly tenantId: string;
+  }): Promise<void>;
 }
 
 export interface SpeakerActionClient {
@@ -51,8 +75,10 @@ export interface SpeakerActionClientOptions {
   readonly compiled?: CompiledDefinition;
   readonly definition?: OsdkDefinitionRef;
   readonly definitionPath?: string;
+  readonly definitions?: SpeakerDefinitionPort;
   readonly ids?: (kind: PersonalWriteKind) => SpeakerActionIds;
   readonly now?: () => Date;
+  readonly tenantId?: string;
   readonly timeoutMs?: number;
 }
 
@@ -78,16 +104,7 @@ export function createConnectOsdkActions(options: {
   readonly baseUrl: string;
   readonly bearerToken: string;
 }): OsdkActionsPort {
-  const authorization: Interceptor = (next) => async (request) => {
-    request.header.set("authorization", `Bearer ${options.bearerToken}`);
-    return next(request);
-  };
-  const transport = createConnectTransport({
-    baseUrl: options.baseUrl.replace(/\/$/u, ""),
-    httpVersion: "1.1",
-    interceptors: [authorization],
-  });
-  const actions = createClient(ActionService, transport);
+  const actions = createClient(ActionService, connectTransport(options));
   return {
     approve: (request) => actions.approve(request),
     commit: (request) => actions.commit(request),
@@ -97,10 +114,51 @@ export function createConnectOsdkActions(options: {
 }
 
 /**
+ * Connect DefinitionService. Publish is idempotent for the same digest.
+ */
+export function createConnectOsdkDefinitions(options: {
+  readonly baseUrl: string;
+  readonly bearerToken: string;
+}): SpeakerDefinitionPort {
+  const definitions = createClient(DefinitionService, connectTransport(options));
+  return {
+    async activateRevision(input) {
+      await definitions.activateRevision({
+        activeRevisionPrecondition:
+          input.currentDigest === undefined
+            ? { case: "expectNoActiveRevision", value: true }
+            : { case: "expectedActiveDigest", value: input.currentDigest },
+        definitionId: input.definitionId,
+        digest: input.digest,
+        tenantId: input.tenantId,
+      });
+    },
+    async getActiveRevision(input) {
+      const response = await definitions.getActiveRevision({
+        definitionId: input.definitionId,
+        tenantId: input.tenantId,
+      });
+      const digest = response.definitionRevision?.digest;
+      return digest === undefined || digest.length === 0
+        ? undefined
+        : { digest };
+    },
+    async publish(input) {
+      await definitions.publish({
+        canonicalJson: new TextEncoder().encode(input.canonicalJson),
+        digest: input.digest,
+        tenantId: input.tenantId,
+      });
+    },
+  };
+}
+
+/**
  * Context: speaker writes on personal.memory. Not commercial.sales.
  * Inputs: compiled personal definition plus a live or test Action port.
  * Outputs: Preview then Commit for writeMemory / createReminder.
  * Side effects: Action.propose twice (preview + commit) and Action.commit.
+ * Live also Publish+Activate once so zoend has the revision Cedar keys on.
  * Commit sends the kernel previewHash. Still one tool turn.
  */
 export function createSpeakerActionClient(
@@ -154,6 +212,8 @@ export function createSpeakerActionClientFromEnv(
     actions: createConnectOsdkActions(credentials),
     definition: personalDefinitionRefFromEnv(env),
     definitionPath,
+    definitions: createConnectOsdkDefinitions(credentials),
+    tenantId: personalTenantIdFromEnv(env),
   });
 }
 
@@ -170,6 +230,14 @@ function actionCredentialsFromEnv(env: NodeJS.ProcessEnv):
     return undefined;
   }
   return { baseUrl, bearerToken };
+}
+
+function personalTenantIdFromEnv(env: NodeJS.ProcessEnv): string {
+  return (
+    env.ZOEN_TENANT_ID?.trim() ??
+    env.ZOEN_WHATSAPP_TENANT?.trim() ??
+    "tenant.a"
+  );
 }
 
 function personalDefinitionRefFromEnv(
@@ -206,6 +274,7 @@ async function commitPersonalAction(input: {
     await loadCompiled(input.options),
     input.options.definition,
   );
+  await ensurePersonalLake(compiled, input.options);
   const handle = actionHandle(compiled, input.actionId, input.options.actions);
   const proposed = await handle.preview({
     expiresAt: input.ids.expiresAt,
@@ -231,6 +300,66 @@ async function commitPersonalAction(input: {
     resourceId: input.ids.resourceId,
     validAt: input.ids.validAt,
   });
+}
+
+/**
+ * One stderr line for a personal write. No preview text, no JWT, no inbound.
+ */
+export function emitPersonalWriteLog(
+  actionId: string,
+  result: string,
+  reason?: string,
+): void {
+  const line =
+    reason === undefined
+      ? { actionId, event: "personalWrite", result }
+      : { actionId, event: "personalWrite", reason, result };
+  process.stderr.write(`${JSON.stringify(line)}\n`);
+}
+
+async function ensurePersonalLake(
+  compiled: CompiledDefinition,
+  options: SpeakerActionClientOptions,
+): Promise<void> {
+  const definitions = options.definitions;
+  const tenantId = options.tenantId;
+  if (definitions === undefined || tenantId === undefined) {
+    return;
+  }
+  const definitionId = compiled.definition.definitionId;
+  const digest = compiled.digest;
+  const key = `${tenantId}:${definitionId}:${digest}`;
+  const existing = lakeEnsure.get(key);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const work = (async () => {
+    await definitions.publish({
+      canonicalJson: compiled.canonicalJson,
+      digest,
+      tenantId,
+    });
+    const active = await definitions.getActiveRevision({
+      definitionId,
+      tenantId,
+    });
+    if (active?.digest === digest) {
+      return;
+    }
+    await definitions.activateRevision({
+      currentDigest: active?.digest,
+      definitionId,
+      digest,
+      tenantId,
+    });
+  })();
+  lakeEnsure.set(key, work);
+  try {
+    await work;
+  } catch (error: unknown) {
+    lakeEnsure.delete(key);
+    throw error;
+  }
 }
 
 function actionHandle(
@@ -294,14 +423,13 @@ function applyDefinitionRef(
 
 function defaultActionIds(kind: PersonalWriteKind, now: Date): SpeakerActionIds {
   const suffix = randomBytes(8).toString("hex");
-  const resourcePrefix = kind === "remind" ? "personal.reminder" : "personal.note";
   const actionPrefix = kind === "remind" ? "createReminder" : "writeMemory";
   return {
     approvalId: `approval.${actionPrefix}.${suffix}`,
     expiresAt: new Date(now.getTime() + 300_000),
     operationId: `operation.${actionPrefix}.${suffix}`,
     proposalId: `proposal.${actionPrefix}.${suffix}`,
-    resourceId: `${resourcePrefix}.${suffix}`,
+    resourceId: PERSONAL_MEMORY_RESOURCE_ID,
     validAt: now,
   };
 }
@@ -322,6 +450,21 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
       clearTimeout(timer);
     }
   }
+}
+
+function connectTransport(options: {
+  readonly baseUrl: string;
+  readonly bearerToken: string;
+}) {
+  const authorization: Interceptor = (next) => async (request) => {
+    request.header.set("authorization", `Bearer ${options.bearerToken}`);
+    return next(request);
+  };
+  return createConnectTransport({
+    baseUrl: options.baseUrl.replace(/\/$/u, ""),
+    httpVersion: "1.1",
+    interceptors: [authorization],
+  });
 }
 
 function agentBearerToken(env: NodeJS.ProcessEnv): string | undefined {
