@@ -56,6 +56,13 @@ import {
   e2ePostgresUrl,
   e2eWhatsAppDoorE164,
 } from "../host-env.js";
+import {
+  fetchOidcJson,
+  isTransientOidcError,
+  pause,
+  TransientOidcError,
+  waitForOidc,
+} from "../oidc.js";
 
 export const repositoryRoot = process.cwd();
 export const scenarioDirectory = path.join(
@@ -295,64 +302,47 @@ export async function writePolicyManifest(
   );
 }
 
-/**
- * Keycloak's TCP healthcheck can pass before realm import finishes.
- * Discovery on the realm is the ready signal for token grants.
- */
-export async function waitForOidc(timeoutMs = 90_000): Promise<void> {
-  const url = `${oidcIssuer}/.well-known/openid-configuration`;
-  const deadline = Date.now() + timeoutMs;
-  let last = "not attempted";
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-      last = `HTTP ${String(response.status)}`;
-    } catch (error) {
-      last = error instanceof Error ? error.message : String(error);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`keycloak OIDC discovery not ready: ${last}`);
+export async function waitForRealmOidc(timeoutMs = 90_000): Promise<void> {
+  await waitForOidc(oidcIssuer, timeoutMs);
 }
 
 export async function oidcToken(clientId: string): Promise<string> {
-  await waitForOidc();
+  await waitForRealmOidc();
   const deadline = Date.now() + 30_000;
   let last = "not attempted";
   while (Date.now() < deadline) {
-    const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: `${clientId}-secret`,
-        grant_type: "client_credentials",
-      }),
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-      },
-      method: "POST",
-    });
-    const body: unknown = await response.json();
-    if (response.ok) {
-      return tokenResponseSchema.parse(body).access_token;
+    try {
+      const { body, ok } = await fetchOidcJson(
+        `${oidcIssuer}/protocol/openid-connect/token`,
+        {
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: `${clientId}-secret`,
+            grant_type: "client_credentials",
+          }),
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          method: "POST",
+        },
+        deadline,
+      );
+      if (ok) {
+        return tokenResponseSchema.parse(body).access_token;
+      }
+      last = JSON.stringify(body);
+      if (!isTransientOidcError(body)) {
+        assert.equal(ok, true, last);
+      }
+    } catch (error) {
+      if (!(error instanceof TransientOidcError)) {
+        throw error;
+      }
+      last = error.message;
     }
-    last = JSON.stringify(body);
-    if (!isTransientOidcError(body)) {
-      assert.equal(response.ok, true, last);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await pause(deadline);
   }
   throw new Error(`oidc token not ready: ${last}`);
-}
-
-function isTransientOidcError(body: unknown): boolean {
-  if (body === null || typeof body !== "object") {
-    return false;
-  }
-  const error = "error" in body ? body.error : undefined;
-  return error === "unknown_error" || error === "temporarily_unavailable";
 }
 
 export function actionClient(token: string): ActionClient {

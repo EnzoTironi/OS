@@ -54,6 +54,7 @@ import {
   e2ePort,
   e2ePostgresUrl,
 } from "../host-env.js";
+import { waitForOidc as waitForOidcDiscovery } from "../oidc.js";
 import {
   actionId,
   activationActionId,
@@ -230,22 +231,7 @@ export async function writePolicyManifest(
 }
 
 export async function waitForOidc(timeoutMs = 90_000): Promise<void> {
-  const url = `${oidcIssuer}/.well-known/openid-configuration`;
-  const deadline = Date.now() + timeoutMs;
-  let last = "not attempted";
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-      last = `HTTP ${String(response.status)}`;
-    } catch (error) {
-      last = error instanceof Error ? error.message : String(error);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`keycloak OIDC discovery not ready: ${last}`);
+  await waitForOidcDiscovery(oidcIssuer, timeoutMs);
 }
 
 export async function oidcToken(clientId: string): Promise<string> {

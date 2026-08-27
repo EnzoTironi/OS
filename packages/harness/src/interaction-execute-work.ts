@@ -1,6 +1,5 @@
 import type { LanguageModel } from "ai";
 import type { WorldQueryClient } from "../../speaker/src/world-query.js";
-import { resolveExecutionLanguageModel } from "../../speaker/src/interaction-turn.js";
 import {
   plantHostMediaOnWorkbench,
   type CompanionDocumentRef,
@@ -68,7 +67,7 @@ export function bindWhatsAppExecutionPlant(
  * Live path: zoend-backed kernel host, no `ZOEN_ALLOW_JS_SANDBOX`.
  * Test/dev: just-bash workbench only when that flag is set (ADR-0017 / ADR-0024).
  * Inputs: optional kernel `host`, or env token + zoend URL. Optional model for sandbox.
- * Sandbox without injected model reads `ZOEN_EXECUTION_MODEL`, then `ZOEN_MODEL`.
+ * Sandbox without injected `options.model` returns undefined.
  * Outputs: `executeWork` status string. `committed` only after host commit.
  * Side effects: kernel CLI Propose→Commit on zoend. Worker isolate still cannot speak.
  */
@@ -88,7 +87,7 @@ export async function createInteractionExecuteWork(
   if (!jsSandboxAllowed(env)) {
     return undefined;
   }
-  const model = options.model ?? resolveExecutionLanguageModel(env);
+  const model = options.model;
   if (model === undefined) {
     return undefined;
   }

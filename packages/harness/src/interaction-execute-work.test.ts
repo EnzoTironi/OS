@@ -2,12 +2,7 @@ process.env.ZOEN_ALLOW_JS_SANDBOX = "1";
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { LanguageModel } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
-import {
-  resolveExecutionLanguageModel,
-  resolveLanguageModel,
-} from "../../speaker/src/interaction-turn.js";
 import {
   createInteractionExecuteWork,
   executionStatus,
@@ -66,19 +61,6 @@ async function withModelEnv(
   }
 }
 
-function resolvedModelId(model: LanguageModel | undefined): string | undefined {
-  if (model === undefined) {
-    return undefined;
-  }
-  if (typeof model === "string") {
-    return model;
-  }
-  if ("modelId" in model && typeof model.modelId === "string") {
-    return model.modelId;
-  }
-  return undefined;
-}
-
 function assertExecutionKind(result: ExecutionResult): ExecutionKind {
   switch (result.kind) {
     case "ok":
@@ -100,16 +82,11 @@ function assertExecutionKind(result: ExecutionResult): ExecutionKind {
 }
 
 test("createInteractionExecuteWork without a LanguageModel fails closed", async () => {
-  await withModelEnv(
-    { ZOEN_EXECUTION_MODEL: undefined, ZOEN_MODEL: undefined },
-    async () => {
-      const work = await createInteractionExecuteWork();
-      assert.equal(work, undefined);
-    },
-  );
+  const work = await createInteractionExecuteWork();
+  assert.equal(work, undefined);
 });
 
-test("createInteractionExecuteWork uses ZOEN_EXECUTION_MODEL when both envs are set", async () => {
+test("createInteractionExecuteWork ignores model envs and requires injected model", async () => {
   await withModelEnv(
     {
       OPENAI_API_KEY: "test-not-a-secret",
@@ -118,35 +95,41 @@ test("createInteractionExecuteWork uses ZOEN_EXECUTION_MODEL when both envs are 
       ZOEN_MODEL: "openai-compatible/interaction-test-model",
     },
     async () => {
-      assert.equal(
-        resolvedModelId(resolveLanguageModel()),
-        "interaction-test-model",
-      );
-      assert.equal(
-        resolvedModelId(resolveExecutionLanguageModel()),
-        "execution-test-model",
-      );
-      const work = await createInteractionExecuteWork();
-      assert.ok(work !== undefined);
+      assert.equal(await createInteractionExecuteWork(), undefined);
     },
   );
 });
 
-test("createInteractionExecuteWork falls back to ZOEN_MODEL when execution env is unset", async () => {
+test("createInteractionExecuteWork runs the injected model, not env", async () => {
+  let generateCalls = 0;
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => {
+      generateCalls += 1;
+      return {
+        content: [{ text: "injected-model-marker", type: "text" }],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage,
+        warnings: [],
+      };
+    },
+  });
   await withModelEnv(
     {
       OPENAI_API_KEY: "test-not-a-secret",
       OPENAI_BASE_URL: "https://example.test/v1",
-      ZOEN_EXECUTION_MODEL: undefined,
+      ZOEN_EXECUTION_MODEL: "openai-compatible/execution-test-model",
       ZOEN_MODEL: "openai-compatible/interaction-test-model",
     },
     async () => {
-      assert.equal(
-        resolvedModelId(resolveExecutionLanguageModel()),
-        "interaction-test-model",
-      );
-      const work = await createInteractionExecuteWork();
+      const work = await createInteractionExecuteWork({ model });
       assert.ok(work !== undefined);
+      const result = await work.run("List the files in the workspace.");
+      assert.equal(assertExecutionKind(result), "ok");
+      if (result.kind !== "ok") {
+        assert.fail("injected model should run");
+      }
+      assert.equal(result.text, "injected-model-marker");
+      assert.equal(generateCalls, 1);
     },
   );
 });

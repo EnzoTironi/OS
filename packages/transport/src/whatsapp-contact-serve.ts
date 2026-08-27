@@ -6,8 +6,10 @@ import {
 import {
   createIdentityDirectoryClient,
   createPostgresTurnStore,
+  resolveLanguageModel,
   type IdentityDirectory,
 } from "../../speaker/src/index.js";
+import { executionModelEnv } from "./whatsapp-execution-model.js";
 import {
   companionSessionIsReady,
   createHttpCompanionSession,
@@ -42,8 +44,11 @@ async function main(): Promise<void> {
   await session.open();
   const ready = await session.ready();
   const tenantHint = process.env.ZOEN_WHATSAPP_TENANT_HINT?.trim();
-  const liveWork = await createInteractionExecuteWork();
+  const liveWork = await createInteractionExecuteWork({
+    model: resolveLanguageModel(executionModelEnv()),
+  });
   const { executeWork, plantInbound } = bindWhatsAppExecutionPlant(liveWork);
+  const loopModel = resolveLanguageModel();
   const pg = new Client({ connectionString: databaseUrl });
   await pg.connect();
   const store = createPostgresTurnStore({
@@ -65,6 +70,7 @@ async function main(): Promise<void> {
     ledger: createPostgresReplyLedger({
       query: (text, values) => pg.query(text, values as unknown[] | undefined),
     }),
+    model: loopModel,
     session,
     store,
   });

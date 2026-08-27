@@ -17,9 +17,7 @@ import {
   firstContactInstructions,
   interactionInstructions,
   outboundBubbles,
-  parseModelRef,
   reasoningPrompt,
-  resolveExecutionLanguageModel,
   resolveLanguageModel,
   runFirstContactTurn,
   runInteractionTurn,
@@ -690,45 +688,15 @@ test("first contact uses unbound assemble and never calls the bound assembler", 
   assert.equal(unbound, 1);
 });
 
-test("when both model envs are set, execution and interaction resolve different ids", () => {
+test("resolveLanguageModel reads ZOEN_MODEL and ignores ZOEN_EXECUTION_MODEL", () => {
   const env = {
     OPENAI_API_KEY: "test-not-a-secret",
     OPENAI_BASE_URL: "https://example.test/v1",
     ZOEN_EXECUTION_MODEL: "openai-compatible/execution-test-model",
     ZOEN_MODEL: "openai-compatible/interaction-test-model",
   };
-  const interaction = resolveLanguageModel(env);
-  const execution = resolveExecutionLanguageModel(env);
-  assert.equal(resolvedModelId(interaction), "interaction-test-model");
-  assert.equal(resolvedModelId(execution), "execution-test-model");
-  assert.equal(parseModelRef(env.ZOEN_MODEL).modelId, "interaction-test-model");
   assert.equal(
-    parseModelRef(env.ZOEN_EXECUTION_MODEL).modelId,
-    "execution-test-model",
-  );
-});
-
-test("execution falls back to ZOEN_MODEL when ZOEN_EXECUTION_MODEL is unset", () => {
-  const env = {
-    OPENAI_API_KEY: "test-not-a-secret",
-    OPENAI_BASE_URL: "https://example.test/v1",
-    ZOEN_MODEL: "openai-compatible/interaction-test-model",
-  };
-  const interaction = resolveLanguageModel(env);
-  const execution = resolveExecutionLanguageModel(env);
-  assert.equal(resolvedModelId(interaction), "interaction-test-model");
-  assert.equal(resolvedModelId(execution), "interaction-test-model");
-});
-
-test("empty ZOEN_EXECUTION_MODEL falls back to ZOEN_MODEL", () => {
-  const env = {
-    OPENAI_API_KEY: "test-not-a-secret",
-    OPENAI_BASE_URL: "https://example.test/v1",
-    ZOEN_EXECUTION_MODEL: "   ",
-    ZOEN_MODEL: "openai-compatible/interaction-test-model",
-  };
-  assert.equal(
-    resolvedModelId(resolveExecutionLanguageModel(env)),
+    resolvedModelId(resolveLanguageModel(env)),
     "interaction-test-model",
   );
 });
