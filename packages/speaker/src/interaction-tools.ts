@@ -3,7 +3,6 @@ import { z } from "zod";
 import { speakerPreviewLeaksInternalIds } from "./action-preview.js";
 import type { ConversationAudienceKind } from "./context-document.js";
 import {
-  emitPersonalWriteLog,
   type PersonalWriteKind,
   type SpeakerActionClient,
 } from "./osdk-action-client.js";
@@ -277,6 +276,18 @@ function failPersonalWrite(
   scratch.writeFail = kind;
   emitPersonalWriteLog(personalWriteActionId(kind), "error", reason);
   return { ok: false, reason };
+}
+
+function emitPersonalWriteLog(
+  actionId: string,
+  result: string,
+  reason?: string,
+): void {
+  const line =
+    reason === undefined
+      ? { actionId, event: "personalWrite", result }
+      : { actionId, event: "personalWrite", reason, result };
+  process.stderr.write(`${JSON.stringify(line)}\n`);
 }
 
 function personalWriteActionId(kind: PersonalWriteKind): string {

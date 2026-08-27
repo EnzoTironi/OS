@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
     CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, ComponentExecutionEvidence,
-    Consistency, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
+    Consistency, DefinitionId, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
     LineageRole, OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation,
     PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget, ResourceId,
@@ -301,10 +301,13 @@ where
             .map_err(|error| ActionError::Definition(error.to_string()))?;
         let mut discoveries = Vec::with_capacity(decoded.actions.len());
         for action in &decoded.actions {
-            if !context
-                .delegation()
-                .permits(&action.id, resource_id, context.workload_id(), at)
-            {
+            if !delegation_allows(
+                context,
+                &action.id,
+                resource_id,
+                &definition.definition_id,
+                at,
+            ) {
                 continue;
             }
             let projection = self
@@ -344,6 +347,7 @@ where
             context,
             &command.action_id,
             &command.resource_id,
+            &command.definition.definition_id,
             command.proposed_at,
         )?;
         let loaded = self
@@ -506,6 +510,7 @@ where
             context,
             &proposal.action_id,
             &proposal.resource_id,
+            &proposal.definition.definition_id,
             approved_at,
         )?;
         let loaded = self
@@ -616,6 +621,7 @@ where
             context,
             &proposal.action_id,
             &proposal.resource_id,
+            &proposal.definition.definition_id,
             committed_at,
         ) {
             transaction.rollback().await.map_err(ActionError::Store)?;
@@ -986,15 +992,33 @@ fn authorize_delegation(
     context: &TrustedExecutionContext,
     action_id: &ActionId,
     resource_id: &ResourceId,
+    lake: &DefinitionId,
     at: TimestampMicros,
 ) -> Result<(), ActionError> {
-    if context
-        .delegation()
-        .permits(action_id, resource_id, context.workload_id(), at)
-    {
+    if delegation_allows(context, action_id, resource_id, lake, at) {
         Ok(())
     } else {
         Err(ActionError::DelegationDenied)
+    }
+}
+
+/// Instance grant, dotted child of a granted type root, or the lake itself.
+/// `personal.memory` + `personal.createReminder` covers `personal.reminder.{hex}`.
+fn delegation_allows(
+    context: &TrustedExecutionContext,
+    action_id: &ActionId,
+    resource_id: &ResourceId,
+    lake: &DefinitionId,
+    at: TimestampMicros,
+) -> bool {
+    let workload = context.workload_id();
+    let chain = context.delegation();
+    if chain.permits(action_id, resource_id, workload, at) {
+        return true;
+    }
+    match ResourceId::parse(lake.as_str()) {
+        Ok(lake) if lake != *resource_id => chain.permits(action_id, &lake, workload, at),
+        _ => false,
     }
 }
 

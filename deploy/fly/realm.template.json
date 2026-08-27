@@ -79,7 +79,7 @@
           "config": {
             "access.token.claim": "true",
             "claim.name": "zoen_delegation",
-            "claim.value": "[{\"actionIds\":[\"zoen.definition.activate\",\"commercial.changeCommitment\",\"personal.writeMemory\",\"personal.createReminder\"],\"delegationId\":\"delegation.admin.a\",\"expiresAt\":4102444800,\"notBefore\":0,\"resourceIds\":[\"personal.memory\",\"commercial.sales\",\"commercial.order-line.dirty-quote\"],\"workloadIds\":[\"workload.admin.a\"]}]",
+            "claim.value": "[{\"actionIds\":[\"zoen.definition.activate\",\"commercial.changeCommitment\",\"personal.writeMemory\",\"personal.createReminder\"],\"delegationId\":\"delegation.admin.a\",\"expiresAt\":4102444800,\"notBefore\":0,\"resourceIds\":[\"personal.memory\",\"personal.note\",\"personal.reminder\",\"commercial.sales\",\"commercial.order-line.dirty-quote\"],\"workloadIds\":[\"workload.admin.a\"]}]",
             "id.token.claim": "false",
             "introspection.token.claim": "true",
             "jsonType.label": "String",

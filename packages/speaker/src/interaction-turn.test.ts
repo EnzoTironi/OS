@@ -4,34 +4,15 @@ import type {
   LanguageModelV3CallOptions,
   LanguageModelV3GenerateResult,
 } from "@ai-sdk/provider";
-import { create } from "@bufbuild/protobuf";
 import { MockLanguageModelV3 } from "ai/test";
-import { compileDefinition } from "../../ontology/src/index.js";
-import type { ClaimRead, OsdkActionsPort } from "../../osdk/src/index.js";
-import {
-  ApproveResponseSchema,
-  CommitIdentityKind,
-  CommitReceiptSchema,
-  CommitResponseSchema,
-  CommitStatus,
-  DiscoverResponseSchema,
-  PolicyDecision,
-  ProposalSchema,
-  ProposeResponseSchema,
-  ProposalStatus,
-} from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
+import type { ClaimRead } from "../../osdk/src/index.js";
 import { LineageRole } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
   WAIT_TOOL_DESCRIPTION,
   createInteractionScratch,
   createInteractionTools,
 } from "./interaction-tools.js";
-import {
-  PERSONAL_MEMORY_RESOURCE_ID,
-  createSpeakerActionClient,
-  defaultPersonalDefinitionPath,
-  type SpeakerActionClient,
-} from "./osdk-action-client.js";
+import { type SpeakerActionClient } from "./osdk-action-client.js";
 import {
   firstContactAddendum,
   firstContactInstructions,
@@ -716,30 +697,6 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
   assertReasonTurn(failedRemind, "spoke", 0, "ok");
 });
 
-test("live-shaped remind commits personal.memory then speaks", async () => {
-  const compiled = await compileDefinition(defaultPersonalDefinitionPath());
-  const resources: string[] = [];
-  const actions = createSpeakerActionClient({
-    actions: permitPersonalActions(resources),
-    compiled,
-  });
-  const result = await runInteractionTurn({
-    actions,
-    debounceMs: 0,
-    inbound: textInbound("me lembra de beber água amanhã"),
-    membership: membership("live-remind-commit"),
-    model: writeThenSpeakModel("remind", "te lembro de beber água amanhã"),
-  });
-  assert.ok(resources.length > 0);
-  assert.equal(
-    resources.every((id) => id === PERSONAL_MEMORY_RESOURCE_ID),
-    true,
-  );
-  assert.deepEqual(result.bubbles, ["te lembro de beber água amanhã"]);
-  assert.doesNotMatch(result.bubbles.join("\n"), /não consegui/);
-  assertReasonTurn(result, "spoke", 0, "ok");
-});
-
 test("first contact addendum never says unbound and generate mock is the spoken text", async () => {
   const addendum = firstContactAddendum("pt");
   assert.match(addendum, /pessoa desconhecida/);
@@ -998,46 +955,6 @@ function waitThenStopModel(): MockLanguageModelV3 {
       return stopCall();
     },
   });
-}
-
-function permitPersonalActions(resources: string[]): OsdkActionsPort {
-  return {
-    async approve() {
-      return create(ApproveResponseSchema, {
-        decision: PolicyDecision.PERMIT,
-        evaluationError: "",
-      });
-    },
-    async commit(request) {
-      return create(CommitResponseSchema, {
-        collisionKind: CommitIdentityKind.UNSPECIFIED,
-        error: "",
-        receipt: create(CommitReceiptSchema, {
-          operationId: request.operationId,
-          recordIds: ["record.createReminder"],
-        }),
-        status: CommitStatus.COMMITTED,
-      });
-    },
-    async discover() {
-      return create(DiscoverResponseSchema, { actions: [] });
-    },
-    async propose(request) {
-      resources.push(request.resourceId);
-      return create(ProposeResponseSchema, {
-        decision: PolicyDecision.PERMIT,
-        evaluationError: "",
-        proposal: create(ProposalSchema, {
-          canonicalPreviewText:
-            "Vou criar este lembrete para amanhã: beber água",
-          operationId: request.operationId,
-          previewHash: "a".repeat(64),
-          proposalId: request.proposalId,
-          status: ProposalStatus.READY,
-        }),
-      });
-    },
-  };
 }
 
 function writeThenSpeakModel(

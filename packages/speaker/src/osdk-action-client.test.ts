@@ -19,11 +19,9 @@ import {
   type ProposeRequest,
 } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
-  PERSONAL_MEMORY_RESOURCE_ID,
   createSpeakerActionClient,
   createSpeakerActionClientFromEnv,
   defaultPersonalDefinitionPath,
-  type SpeakerDefinitionPort,
 } from "./osdk-action-client.js";
 
 const fixtureDirectory = path.join(
@@ -127,7 +125,7 @@ test("compiled personal.memory digest is the Fly Cedar key", async () => {
   assert.equal(compiled.digest, note?.definitionDigest);
 });
 
-test("Fly admin-a JWT grants createReminder on personal.memory, not a minted reminder id", async () => {
+test("Fly admin-a JWT grants createReminder on the lake and type roots, not a hex id", async () => {
   const realm = JSON.parse(
     await readFile(path.join("deploy", "fly", "realm.template.json"), "utf8"),
   ) as {
@@ -150,116 +148,65 @@ test("Fly admin-a JWT grants createReminder on personal.memory, not a minted rem
   }[];
   assert.equal(grants.length, 1);
   assert.equal(grants[0]?.actionIds.includes("personal.createReminder"), true);
-  assert.equal(grants[0]?.resourceIds.includes(PERSONAL_MEMORY_RESOURCE_ID), true);
+  assert.equal(grants[0]?.resourceIds.includes("personal.memory"), true);
+  assert.equal(grants[0]?.resourceIds.includes("personal.note"), true);
+  assert.equal(grants[0]?.resourceIds.includes("personal.reminder"), true);
   assert.equal(
-    grants[0]?.resourceIds.some((id) => id.startsWith("personal.reminder.")),
+    grants[0]?.resourceIds.some((id) => /^personal\.(note|reminder)\.[0-9a-f]+$/u.test(id)),
     false,
   );
 });
 
-test("live-shaped remind Propose uses personal.memory and the compiled digest", async () => {
+test("two reminds mint two personal.reminder entity ids", async () => {
   const compiled = await compileDefinition(defaultPersonalDefinitionPath());
   const proposed: ProposeRequest[] = [];
   const client = createSpeakerActionClient({
     actions: readyActionsPort([], proposed),
     compiled,
   });
-  const reminded = await client.commitCreateReminder({
-    body: "beber água",
-    dueAt: "amanhã",
-  });
-  assert.equal(reminded.kind, "committed");
-  assert.equal(proposed[0]?.actionId, "personal.createReminder");
-  assert.equal(proposed[0]?.resourceId, PERSONAL_MEMORY_RESOURCE_ID);
-  assert.equal(proposed[0]?.definition?.definitionId, "personal.memory");
-  assert.equal(proposed[0]?.definition?.digest, compiled.digest);
-  assert.equal(proposed[0]?.resourceId.startsWith("personal.reminder."), false);
-});
-
-test("remind Publish+Activate once then Propose+Commit when the lake is empty", async () => {
-  const compiled = await compileDefinition(defaultPersonalDefinitionPath());
-  const calls: string[] = [];
-  const proposed: ProposeRequest[] = [];
-  let active: string | undefined;
-  const definitions: SpeakerDefinitionPort = {
-    async activateRevision(input) {
-      calls.push("definition.activate");
-      assert.equal(input.definitionId, "personal.memory");
-      assert.equal(input.digest, compiled.digest);
-      assert.equal(input.currentDigest, undefined);
-      active = input.digest;
-    },
-    async getActiveRevision() {
-      calls.push("definition.getActive");
-      return active === undefined ? undefined : { digest: active };
-    },
-    async publish(input) {
-      calls.push("definition.publish");
-      assert.equal(input.digest, compiled.digest);
-      assert.match(input.canonicalJson, /personal.createReminder/);
-    },
-  };
-  const client = createSpeakerActionClient({
-    actions: readyActionsPort(calls, proposed),
-    compiled,
-    definitions,
-    tenantId: "tenant.live-remind",
-  });
   const first = await client.commitCreateReminder({
     body: "beber água",
     dueAt: "amanhã",
   });
-  assert.equal(first.kind, "committed");
-  assert.deepEqual(calls, [
-    "definition.publish",
-    "definition.getActive",
-    "definition.activate",
-    "action.propose",
-    "action.propose",
-    "action.commit",
-  ]);
-  assert.equal(proposed[0]?.resourceId, PERSONAL_MEMORY_RESOURCE_ID);
-
-  calls.length = 0;
-  proposed.length = 0;
   const second = await client.commitCreateReminder({
-    body: "beber água",
-    dueAt: "amanhã",
+    body: "beber água de novo",
+    dueAt: "depois de amanhã",
   });
+  assert.equal(first.kind, "committed");
   assert.equal(second.kind, "committed");
-  assert.deepEqual(calls, [
-    "action.propose",
-    "action.propose",
-    "action.commit",
-  ]);
+  const reminderIds = [
+    ...new Set(
+      proposed
+        .filter((entry) => entry.actionId === "personal.createReminder")
+        .map((entry) => entry.resourceId),
+    ),
+  ];
+  assert.equal(reminderIds.length, 2);
+  assert.match(reminderIds[0] ?? "", /^personal\.reminder\.[0-9a-f]{16}$/u);
+  assert.match(reminderIds[1] ?? "", /^personal\.reminder\.[0-9a-f]{16}$/u);
+  assert.notEqual(reminderIds[0], reminderIds[1]);
+  assert.equal(
+    reminderIds.every((id) => id !== "personal.memory"),
+    true,
+  );
+  assert.equal(proposed[0]?.definition?.definitionId, "personal.memory");
+  assert.equal(proposed[0]?.definition?.digest, compiled.digest);
 });
 
-test("remind fails openly when personal.memory cannot be published", async () => {
-  const compiled = await compileDefinition(defaultPersonalDefinitionPath());
-  const client = createSpeakerActionClient({
-    actions: readyActionsPort([], []),
-    compiled,
-    definitions: {
-      async activateRevision() {
-        throw new Error("activate must not run after publish fails");
-      },
-      async getActiveRevision() {
-        throw new Error("getActive must not run after publish fails");
-      },
-      async publish() {
-        throw new Error("definition revision was not found");
-      },
-    },
-    tenantId: "tenant.publish-fail",
-  });
-  await assert.rejects(
-    () =>
-      client.commitCreateReminder({
-        body: "beber água",
-        dueAt: "amanhã",
-      }),
-    /definition revision was not found/,
+test("Fly personal lake prestart requires ZOEN_TENANT_ID; speaker does not Publish", async () => {
+  const prestart = await readFile(
+    path.join("deploy", "fly", "ensure-personal-lake.ts"),
+    "utf8",
   );
+  const speaker = await readFile(
+    path.join("packages", "speaker", "src", "osdk-action-client.ts"),
+    "utf8",
+  );
+  assert.match(prestart, /requiredEnv\("ZOEN_TENANT_ID"\)/);
+  assert.doesNotMatch(prestart, /tenant\.a/);
+  assert.doesNotMatch(speaker, /DefinitionService/);
+  assert.doesNotMatch(speaker, /ensurePersonalLake|lakeEnsure/);
+  assert.doesNotMatch(speaker, /tenant\.a/);
 });
 
 test("createSpeakerActionClientFromEnv stays unset without a personal definition path", () => {

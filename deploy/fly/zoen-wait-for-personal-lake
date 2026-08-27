@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+ready="${ZOEN_PERSONAL_LAKE_READY_FILE:-/data/zoen/personal.lake.ready}"
+until [ -s "$ready" ]; do
+  sleep 1
+done
+exec "$@"
