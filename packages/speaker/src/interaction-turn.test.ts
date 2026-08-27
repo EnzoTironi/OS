@@ -503,11 +503,13 @@ test("valeu via wait tool stays empty, not a host-classified ack", async () => {
     inbound: textInbound("valeu"),
     membership: membership("mocked-valeu"),
     model: waitThenStopModel(),
+    world: liveShapedHttpsWorld(),
   });
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   assert.deepEqual(outboundBubbles(result), []);
-  assertReasonTurn(result, "wait", 0, "ok");
+  assert.doesNotMatch(outboundBubbles(result).join("\n"), /workshop\.example/);
+  assertReasonTurn(result, "wait", 2, "ok");
 });
 
 test("valeu generate throw stays silent, not consult fail copy", async () => {
@@ -516,8 +518,9 @@ test("valeu generate throw stays silent, not consult fail copy", async () => {
     inbound: textInbound("valeu"),
     membership: membership("valeu-threw"),
     model: throwOnGenerateModel(),
+    world: liveShapedHttpsWorld(),
   });
-  assertSilentThrow(result, 0);
+  assertSilentThrow(result, 2);
 });
 
 test("valeu wait then generate throw stays silent, not consult fail copy", async () => {
@@ -526,8 +529,9 @@ test("valeu wait then generate throw stays silent, not consult fail copy", async
     inbound: textInbound("valeu"),
     membership: membership("valeu-wait-threw"),
     model: waitThenThrowModel(),
+    world: liveShapedHttpsWorld(),
   });
-  assertSilentThrow(result, 0);
+  assertSilentThrow(result, 2);
 });
 
 test("wait tool produces no Recebi and no helpdesk", async () => {
@@ -914,7 +918,7 @@ test("generate throw stays silent, not consult or rival speech", async () => {
     inbound: textInbound("quanto ficou a cotacao"),
     membership: membership("threw"),
     model: throwOnGenerateModel(),
-    world: twoRivalWorld(),
+    world: liveShapedHttpsWorld(),
   });
   const sent = outboundBubbles(result).join("\n");
   assertSilentThrow(result, 2);
@@ -934,12 +938,27 @@ function silentStopModel(): MockLanguageModelV3 {
   });
 }
 
+const LIVE_QUOTE_NOTE = "abrir https://workshop.example/quote";
+
 function twoRivalWorld(): WorldQueryClient {
   return {
     async semanticQuery() {
       return {
         entityIds: ["commercial.order-line.dirty-quote"],
         notes: ["10 each", "12 each"],
+        rivals: [{ label: "10 each" }, { label: "12 each" }],
+      };
+    },
+  };
+}
+
+function liveShapedHttpsWorld(): WorldQueryClient {
+  return {
+    async semanticQuery() {
+      return {
+        entityIds: ["commercial.order-line.dirty-quote"],
+        href: "https://workshop.example/quote",
+        notes: [LIVE_QUOTE_NOTE, "10 each", "12 each"],
         rivals: [{ label: "10 each" }, { label: "12 each" }],
       };
     },
@@ -1128,13 +1147,14 @@ function assertReasonTurn(
 }
 
 function assertSilentThrow(result: OutboundTurn, rivals: number): void {
-  const sent = outboundBubbles(result).join("\n");
+  const sent = outboundBubbles(result);
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
-  assert.deepEqual(outboundBubbles(result), []);
-  assert.doesNotMatch(sent, /não consegui consultar agora/);
-  assert.doesNotMatch(sent, /couldn't look that up/);
-  assert.doesNotMatch(sent, /\/approve\//);
+  assert.deepEqual(sent, []);
+  assert.doesNotMatch(sent.join("\n"), /não consegui consultar agora/);
+  assert.doesNotMatch(sent.join("\n"), /couldn't look that up/);
+  assert.doesNotMatch(sent.join("\n"), /workshop\.example/);
+  assert.doesNotMatch(sent.join("\n"), /\/approve\//);
   assertReasonTurn(result, "threw", rivals, "throw");
 }
 

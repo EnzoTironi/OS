@@ -63,9 +63,9 @@ export type ReasonTurnGenerate = "ok" | "throw";
 
 /**
  * Live outbound for one Interaction turn.
- * `href` is always present: a URL or null. Empty `bubbles` means wait (no send).
+ * `href` is always present: a URL or null.
  * Visible text is speak_to_user, or the single fail copy on noModel/lookupFail.
- * `threw` is an empty send: log the throw, do not invent consult or rival speech.
+ * `wait` and `threw` are sealed empty sends: no bubbles, no world hrefFallback.
  */
 export interface OutboundTurn {
   readonly bubbles: string[];
@@ -140,10 +140,10 @@ export interface ReasonTurnLog {
  *
  * Context: bound 1:1 WhatsApp (and other channels) after membership resolve.
  * Inputs: membership + inbound. Optional model/world/coordinator for tests.
- * Outputs: conversational bubbles and at most one https URL. Empty bubbles mean wait (no send).
+ * Outputs: conversational bubbles and at most one https URL.
  * A successful generate that never called speak_to_user on non-empty inbound is a lookup fail, not a wait.
- * Closing inbound should call the `wait` tool. That is an empty send, not a lookup fail.
- * Generate throw is also an empty send. The host does not invent consult copy.
+ * Closing inbound should call the `wait` tool. That is a sealed empty send, not a lookup fail.
+ * Generate throw is the same sealed empty send. No consult copy, no world hrefFallback.
  * Side effects: claims the burst on the coordinator and advances attempt phases.
  * Does not invent OrderLines. Does not echo inbound as "Recebi".
  */
@@ -238,12 +238,14 @@ export async function runInteractionTurn(
   });
 
   await coordinator.advanceStage(attemptId, "rendering");
+  const sealed = isSealedSilencePath(reasoned.path);
   const rendered = renderTurn({
     hiddenIds,
-    hrefFallback: hrefFromDocument(envelope.document),
+    hrefFallback: sealed ? undefined : hrefFromDocument(envelope.document),
     inbound: input.inbound,
     inboundText,
     scratch,
+    sealed,
   });
   const result: OutboundTurn = {
     ...rendered,
@@ -505,12 +507,10 @@ async function reasonTurn(input: {
       prompt: input.prompt,
     });
   } catch {
-    scratch.bubbles.length = 0;
-    scratch.href = undefined;
     return {
       generate: "throw",
       path: "threw",
-      scratch,
+      scratch: silenceScratch(scratch),
     };
   }
   if (scratch.writeFail !== undefined) {
@@ -521,9 +521,7 @@ async function reasonTurn(input: {
     };
   }
   if (scratch.waited) {
-    scratch.bubbles.length = 0;
-    scratch.href = undefined;
-    return { generate: "ok", path: "wait", scratch };
+    return { generate: "ok", path: "wait", scratch: silenceScratch(scratch) };
   }
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
     return {
@@ -537,6 +535,28 @@ async function reasonTurn(input: {
     path: scratch.bubbles.length === 0 ? "wait" : "spoke",
     scratch,
   };
+}
+
+function silenceScratch(scratch: InteractionScratch): InteractionScratch {
+  scratch.bubbles.length = 0;
+  scratch.href = undefined;
+  return scratch;
+}
+
+function isSealedSilencePath(path: ReasonTurnPath): boolean {
+  switch (path) {
+    case "threw":
+    case "wait":
+      return true;
+    case "lookupFail":
+    case "noModel":
+    case "spoke":
+      return false;
+    default: {
+      const exhaustive: never = path;
+      return exhaustive;
+    }
+  }
 }
 
 function emitReasonTurnLog(reasonTurn: OutboundTurn["reasonTurn"]): void {
@@ -553,8 +573,7 @@ function applyFailCopy(
   scratch: InteractionScratch,
   locale: InteractionLocale,
 ): InteractionScratch {
-  scratch.bubbles.length = 0;
-  scratch.href = undefined;
+  silenceScratch(scratch);
   scratch.waited = false;
   scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
   return scratch;
@@ -565,8 +584,7 @@ function applyWriteFail(
   locale: InteractionLocale,
   kind: PersonalWriteKind,
 ): InteractionScratch {
-  scratch.bubbles.length = 0;
-  scratch.href = undefined;
+  silenceScratch(scratch);
   scratch.waited = false;
   switch (locale) {
     case "pt":
@@ -589,7 +607,11 @@ function renderTurn(input: {
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
   readonly scratch: InteractionScratch;
+  readonly sealed: boolean;
 }): { readonly bubbles: string[]; readonly href: URL | null } {
+  if (input.sealed) {
+    return { bubbles: [], href: null };
+  }
   const spoken: string[] = [];
   for (const raw of input.scratch.bubbles) {
     for (const piece of splitSpokenBubbles(raw)) {
