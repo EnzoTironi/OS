@@ -4,17 +4,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type {
+  LanguageModelV3CallOptions,
   LanguageModelV3GenerateResult,
 } from "@ai-sdk/provider";
 import { MockLanguageModelV3 } from "ai/test";
 import {
   ChannelSubjectResolveError,
   createIdentityDirectoryClient,
+  createLiveConversationAssembler,
+  createMemoryTurnStore,
   principalIdString,
   providerKey,
   tenantIdString,
   type IdentityDirectory,
   type ScheduleHandle,
+  type WorldQueryClient,
 } from "../../speaker/src/index.js";
 import {
   createRecordingCompanionSession,
@@ -989,6 +993,144 @@ test("bound 1:1 slow wait sends zero WhatsApp messages", async () => {
   await session.close();
 });
 
+test("bound 1:1 Jobs bar: greeting fail-open, prior chat and world ride the next turn", async () => {
+  const session = await readySession();
+  const store = createMemoryTurnStore();
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return {
+        entityIds: ["commercial.order-line.dirty-quote"],
+        notes: ["10 each", "12 each"],
+        rivals: [{ label: "source.sheet" }, { label: "source.erp" }],
+      };
+    },
+  };
+  const assembler = createLiveConversationAssembler({
+    env: {},
+    store,
+    world,
+  });
+  const prompts: Partial<Record<JobsBarScene, string>> = {};
+  const firstCall = new Set<JobsBarScene>();
+  let scene: JobsBarScene = "greet";
+  const model = new MockLanguageModelV3({
+    doGenerate: async (options) => {
+      const blob = flattenPrompt(options.prompt);
+      if (firstCall.has(scene)) {
+        return stopCall();
+      }
+      firstCall.add(scene);
+      prompts[scene] = blob;
+      switch (scene) {
+        case "greet":
+          return stopCall();
+        case "history":
+          assert.match(blob, /text: oi/);
+          assert.match(blob, /O que a gente conversou aqui\?/);
+          return speakCall("a gente falou oi");
+        case "quote":
+          assert.match(blob, /trustClass: world/);
+          assert.match(blob, /source\.sheet/);
+          assert.match(blob, /source\.erp/);
+          assert.doesNotMatch(blob, /commercial\.order-line\.dirty-quote/);
+          return speakCall("tem 10 each e 12 each");
+        case "consult":
+          return stopCall();
+        default: {
+          const exhaustive: never = scene;
+          return exhaustive;
+        }
+      }
+    },
+  });
+  const loop = createWhatsAppContactLoop({
+    assembler,
+    debounceMs: 0,
+    doorE164,
+    identity: boundIdentity(speaker),
+    model,
+    session,
+    store,
+  });
+
+  const greet = await loop.handleRaw(
+    inbound({ body: "oi", messageId: "wamid.jobs-oi" }),
+  );
+  assert.equal(greet.kind, "bound");
+  assert.deepEqual(sentTexts(session), ["oi"]);
+  assert.equal(sentTexts(session).includes("não consegui consultar agora"), false);
+
+  scene = "history";
+  const history = await loop.handleRaw(
+    inbound({
+      body: "O que a gente conversou aqui?",
+      messageId: "wamid.jobs-history",
+    }),
+  );
+  assert.equal(history.kind, "bound");
+  assert.match(prompts.history ?? "", /text: oi/);
+  assert.deepEqual(sentTexts(session), ["oi", "a gente falou oi"]);
+  assert.doesNotMatch(sentTexts(session).join("\n"), /primeira mensagem/i);
+
+  scene = "quote";
+  const quote = await loop.handleRaw(
+    inbound({
+      body: "quanto tá a cotação?",
+      messageId: "wamid.jobs-quote",
+    }),
+  );
+  assert.equal(quote.kind, "bound");
+  assert.match(prompts.quote ?? "", /trustClass: world/);
+  assert.deepEqual(sentTexts(session), [
+    "oi",
+    "a gente falou oi",
+    "tem 10 each e 12 each",
+  ]);
+
+  scene = "consult";
+  const consult = await loop.handleRaw(
+    inbound({
+      body: "quanto ficou a cotacao",
+      messageId: "wamid.jobs-consult",
+    }),
+  );
+  assert.equal(consult.kind, "bound");
+  assert.deepEqual(sentTexts(session), [
+    "oi",
+    "a gente falou oi",
+    "tem 10 each e 12 each",
+    "não consegui consultar agora",
+  ]);
+  await session.close();
+});
+
 test("provider key stays unofficial whatsapp", () => {
   assert.equal(String(providerKey("whatsapp")), "whatsapp");
 });
+
+type JobsBarScene = "greet" | "history" | "quote" | "consult";
+
+function sentTexts(session: RecordingCompanionSession): string[] {
+  return session.sent().flatMap((row) => {
+    if (row.shape.kind !== "text") {
+      return [];
+    }
+    return [row.shape.text];
+  });
+}
+
+function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {
+  return prompt
+    .map((message) => {
+      if (message.role === "system") {
+        return message.content;
+      }
+      if (message.role === "user") {
+        return message.content
+          .map((part) => (part.type === "text" ? part.text : ""))
+          .join("\n");
+      }
+      return "";
+    })
+    .join("\n");
+}
