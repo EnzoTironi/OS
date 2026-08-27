@@ -67,17 +67,13 @@ export function createStepUpRegistry(
 
     async authenticate(input) {
       const session = await requireSession(store, input.sessionId, now());
-      if (String(session.controlRef) !== String(input.controlRef)) {
-        return reject(store, session);
-      }
-      if (String(session.tenantId) !== String(input.verified.tenantId)) {
-        return reject(store, session);
-      }
       if (
+        String(session.controlRef) !== String(input.controlRef) ||
+        String(session.tenantId) !== String(input.verified.tenantId) ||
         String(session.requiredPrincipalId) !==
-        String(input.verified.principalId)
+          String(input.verified.principalId)
       ) {
-        return reject(store, session);
+        throw new Error("wrong_account");
       }
       const authenticated: StepUpSession = {
         ...session,
@@ -109,15 +105,6 @@ export function createStepUpRegistry(
       return committed;
     },
   };
-}
-
-async function reject(
-  store: ControlStore,
-  session: StepUpSession,
-): Promise<StepUpSession> {
-  const rejected: StepUpSession = { ...session, status: "rejected" };
-  await store.putStepUp(rejected);
-  return rejected;
 }
 
 async function requireSession(
@@ -177,16 +164,11 @@ export async function openStepUpSession(input: {
     expiresAt: control.expiresAt,
   });
 
-  const authenticated = await input.stepUps.authenticate({
+  return input.stepUps.authenticate({
     controlRef: control.ref,
     sessionId: opened.id,
     verified: input.oidcBearerVerified,
   });
-
-  if (authenticated.status === "rejected") {
-    throw new Error("wrong_account");
-  }
-  return authenticated;
 }
 
 export async function completeStepUpCommit(input: {
@@ -201,8 +183,8 @@ export async function completeStepUpCommit(input: {
     throw new Error("StepUpSession not authenticated");
   }
 
-  await input.controls.consume(input.session.controlRef);
   const receipt = await input.commit(input.session.proposalRef);
+  await input.controls.consume(input.session.controlRef);
   await input.stepUps.markCommitted(input.session.id);
   return {
     operationId: receipt.operationId,
