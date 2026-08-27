@@ -1,0 +1,45 @@
+{
+  "icp": "foundry",
+  "now": "2026-08-27T15:00:00.000Z",
+  "doorE164": "+553798136141",
+  "personJid": "5531911111111@s.whatsapp.net",
+  "messageId": "wamid.foundry.nfe",
+  "expectedSpeech": "Tem duas leituras no arquivo. As duas ficam de pé.",
+  "expectedEffectKind": "spawn_execution",
+  "expectedEffectTask": "ingest nfe-entradas-2026-08.xlsx",
+  "hiddenTokens": [
+    "fiscal.document.nfe-312",
+    "commercial.order-line.dirty-quote",
+    "membership.wa.foundry",
+    "principal.wa.foundry",
+    "tenant.wa.foundry"
+  ],
+  "world": {
+    "entityIds": [
+      "fiscal.document.nfe-312",
+      "commercial.order-line.dirty-quote"
+    ],
+    "notes": [
+      "12,4 t sucata",
+      "12,1 t sucata"
+    ],
+    "rivals": [
+      { "label": "12,4 t sucata", "sourceId": "source.sheet" },
+      { "label": "12,1 t sucata", "sourceId": "source.erp" }
+    ]
+  },
+  "inbound": {
+    "body": "",
+    "chatJid": "5531911111111@s.whatsapp.net",
+    "filename": "nfe-entradas-2026-08.xlsx",
+    "fromMe": false,
+    "isGroup": false,
+    "mediaKind": "document",
+    "mediaRef": "companion://media/wamid.foundry.nfe",
+    "messageId": "wamid.foundry.nfe",
+    "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "observedAt": "2026-08-27T15:00:00.000Z",
+    "senderAltJid": "5531911111111@s.whatsapp.net",
+    "senderJid": "146454777753827@lid"
+  }
+}
