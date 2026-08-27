@@ -81,14 +81,10 @@ export function createTelegramMessagingIngress(options: {
           });
           return;
         }
-        const secret = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
-        if (secret !== undefined && secret.length > 0) {
-          const header = headerValue(request, "x-telegram-bot-api-secret-token");
-          verifyTelegramWebhookSecret(
-            { "x-telegram-bot-api-secret-token": header },
-            secret,
-          );
-        }
+        const header = headerValue(request, "x-telegram-bot-api-secret-token");
+        verifyTelegramWebhookSecret({
+          "x-telegram-bot-api-secret-token": header,
+        });
         const raw = JSON.parse(await readBody(request)) as unknown;
         const inbound = await options.gateway.acceptProviderEvent(
           providerKey("telegram"),
@@ -101,7 +97,10 @@ export function createTelegramMessagingIngress(options: {
       writeJson(response, 404, { error: "not_found" });
     } catch (error) {
       if (error instanceof TelegramWebhookSecretError) {
-        writeJson(response, 401, { error: "telegram_webhook_secret_rejected" });
+        writeJson(response, error.status(), {
+          error: "telegram_ingress_denied",
+          reason: error.code,
+        });
         return;
       }
       const message = error instanceof Error ? error.message : String(error);

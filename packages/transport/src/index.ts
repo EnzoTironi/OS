@@ -113,6 +113,7 @@ export {
   parseTelegramBotUpdate,
   readTelegramBotTokenFromEnv,
   readTelegramIngressModeFromEnv,
+  readTelegramWebhookSecretFromEnv,
   requireTelegramBotToken,
   verifyTelegramWebhookSecret,
   LiveTelegramConfigError,
@@ -121,6 +122,7 @@ export {
   type LiveTelegramProvider,
   type LiveTelegramProviderOptions,
   type TelegramIngressMode,
+  type TelegramWebhookSecretFailure,
 } from "./adapters/telegram-live.js";
 export {
   createTelegramMessagingIngress,

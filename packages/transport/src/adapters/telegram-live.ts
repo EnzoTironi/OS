@@ -48,10 +48,43 @@ export class TelegramEnvelopeError extends Error {
   }
 }
 
+export type TelegramWebhookSecretFailure = "secret_missing" | "secret_rejected";
+
 export class TelegramWebhookSecretError extends Error {
-  constructor() {
-    super("telegram webhook secret rejected");
+  readonly code: TelegramWebhookSecretFailure;
+
+  constructor(code: TelegramWebhookSecretFailure = "secret_rejected") {
+    super(telegramWebhookSecretMessage(code));
     this.name = "TelegramWebhookSecretError";
+    this.code = code;
+  }
+
+  status(): number {
+    switch (this.code) {
+      case "secret_missing":
+        return 503;
+      case "secret_rejected":
+        return 401;
+      default: {
+        const _never: never = this.code;
+        return _never;
+      }
+    }
+  }
+}
+
+function telegramWebhookSecretMessage(
+  code: TelegramWebhookSecretFailure,
+): string {
+  switch (code) {
+    case "secret_missing":
+      return "telegram webhook secret missing";
+    case "secret_rejected":
+      return "telegram webhook secret rejected";
+    default: {
+      const _never: never = code;
+      return _never;
+    }
   }
 }
 
@@ -103,17 +136,42 @@ export function readTelegramIngressModeFromEnv(): TelegramIngressMode {
   return process.env.TELEGRAM_INGRESS_MODE === "polling" ? "polling" : "webhook";
 }
 
+/**
+ * Shared Telegram webhook-secret env family.
+ * Empty or whitespace values are missing.
+ */
+export function readTelegramWebhookSecretFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  for (const token of [
+    env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
+    env.ZOEN_TELEGRAM_WEBHOOK_SECRET,
+  ]) {
+    if (token !== undefined && token.trim().length > 0) {
+      return token.trim();
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Fail-closed webhook header check. Missing/empty secret is 503;
+ * present secret that does not match the header is 401.
+ */
 export function verifyTelegramWebhookSecret(
   headers: Readonly<Record<string, string | string[] | undefined>>,
-  secret: string,
+  secret: string | undefined = readTelegramWebhookSecretFromEnv(),
 ): void {
+  if (secret === undefined || secret.length === 0) {
+    throw new TelegramWebhookSecretError("secret_missing");
+  }
   const raw = headers[SECRET_HEADER] ?? headers["X-Telegram-Bot-Api-Secret-Token"];
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (value === undefined || value.length !== secret.length) {
-    throw new TelegramWebhookSecretError();
+    throw new TelegramWebhookSecretError("secret_rejected");
   }
   if (!timingSafeEqual(Buffer.from(value), Buffer.from(secret))) {
-    throw new TelegramWebhookSecretError();
+    throw new TelegramWebhookSecretError("secret_rejected");
   }
 }
 
@@ -154,9 +212,7 @@ export function createLiveTelegramProviderFromEnv(
   const botToken =
     overrides.botToken ?? requireTelegramBotToken(readTelegramBotTokenFromEnv());
   const secretToken =
-    overrides.secretToken ??
-    process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN ??
-    process.env.ZOEN_TELEGRAM_WEBHOOK_SECRET;
+    overrides.secretToken ?? readTelegramWebhookSecretFromEnv();
   return createLiveTelegramProvider({
     apiUrl: overrides.apiUrl ?? process.env.TELEGRAM_API_BASE_URL,
     botToken,
