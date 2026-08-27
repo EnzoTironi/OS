@@ -198,6 +198,8 @@ struct MembershipJson {
     principal_id: String,
     status: String,
     kind: String,
+    actor_id: String,
+    workload_id: String,
 }
 
 #[derive(Serialize)]
@@ -862,6 +864,8 @@ fn membership_json(membership: &zoen_core::Membership) -> MembershipJson {
             zoen_core::MembershipKind::EnterpriseOidc { .. } => "enterprise_oidc",
         }
         .to_owned(),
+        actor_id: membership.actor_id.to_string(),
+        workload_id: membership.workload_id.to_string(),
     }
 }
 

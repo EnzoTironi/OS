@@ -324,17 +324,21 @@ test("resolveChannelSubject fails closed on ambiguous membership without tenant 
         memberships: [
           {
             accountId: "account.1",
+            actorId: "actor.a",
             membershipId: "membership.a",
             principalId: "principal.a",
             status: "active",
             tenantId: "tenant.a",
+            workloadId: "workload.a",
           },
           {
             accountId: "account.1",
+            actorId: "actor.b",
             membershipId: "membership.b",
             principalId: "principal.b",
             status: "active",
             tenantId: "tenant.b",
+            workloadId: "workload.b",
           },
         ],
       }),
@@ -367,6 +371,8 @@ test("resolveChannelSubject fails closed on ambiguous membership without tenant 
   });
   assert.equal(resolved.membershipId, "membership.b");
   assert.equal(String(resolved.tenantId), "tenant.b");
+  assert.equal(resolved.actorId, "actor.b");
+  assert.equal(resolved.workloadId, "workload.b");
 });
 
 test("admitWhatsAppSubject POSTs admit-whatsapp and never GETs resolve-subject", async () => {
@@ -447,19 +453,23 @@ test("resolveChannelSubject prefers the single personal membership over invite",
         memberships: [
           {
             accountId: "account.1",
+            actorId: "actor.invite",
             kind: "invite",
             membershipId: "membership.invite",
             principalId: "principal.invite",
             status: "active",
             tenantId: "tenant.a",
+            workloadId: "workload.invite",
           },
           {
             accountId: "account.1",
+            actorId: "actor.from.snapshot",
             kind: "personal",
             membershipId: "membership.personal",
             principalId: "principal.personal",
             status: "active",
             tenantId: "tenant.personal",
+            workloadId: "workload.from.snapshot",
           },
         ],
       }),
@@ -478,6 +488,8 @@ test("resolveChannelSubject prefers the single personal membership over invite",
   });
   assert.equal(personal.membershipId, "membership.personal");
   assert.equal(String(personal.tenantId), "tenant.personal");
+  assert.equal(personal.actorId, "actor.from.snapshot");
+  assert.equal(personal.workloadId, "workload.from.snapshot");
 
   const hinted = await identity.resolveChannelSubject({
     provider: providerKey("whatsapp"),
@@ -486,4 +498,96 @@ test("resolveChannelSubject prefers the single personal membership over invite",
   });
   assert.equal(hinted.membershipId, "membership.invite");
   assert.equal(String(hinted.tenantId), "tenant.a");
+  assert.equal(hinted.actorId, "actor.invite");
+  assert.equal(hinted.workloadId, "workload.invite");
+});
+
+test("resolveChannelSubject fails closed when membership omits actor or workload", async () => {
+  const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
+    baseUrl: "http://zoend.test",
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          account: { accountId: "account.1", status: "verified" },
+          bindings: [
+            {
+              accountId: "account.1",
+              bindingId: "binding.1",
+              provider: "whatsapp",
+              status: "verified",
+              subjectKey: "+15551212",
+            },
+          ],
+          memberships: [
+            {
+              accountId: "account.1",
+              kind: "personal",
+              membershipId: "membership.1",
+              principalId: "principal.1",
+              status: "active",
+              tenantId: "tenant.1",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      ),
+  });
+
+  await assert.rejects(
+    () =>
+      identity.resolveChannelSubject({
+        provider: providerKey("whatsapp"),
+        subjectKey: "+15551212",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof ChannelSubjectResolveError);
+      assert.equal(error.kind, "incomplete_membership");
+      return true;
+    },
+  );
+});
+
+test("resolveChannelSubject does not fabricate actor.personal or workload.personal", async () => {
+  const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
+    baseUrl: "http://zoend.test",
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          account: { accountId: "account.1", status: "verified" },
+          bindings: [
+            {
+              accountId: "account.1",
+              bindingId: "binding.1",
+              provider: "linq",
+              status: "verified",
+              subjectKey: "chat_guid_1",
+            },
+          ],
+          memberships: [
+            {
+              accountId: "account.1",
+              actorId: "actor.snap.9",
+              kind: "personal",
+              membershipId: "membership.1",
+              principalId: "principal.1",
+              status: "active",
+              tenantId: "tenant.1",
+              workloadId: "workload.snap.9",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      ),
+  });
+
+  const resolved = await identity.resolveChannelSubject({
+    provider: providerKey("linq"),
+    subjectKey: "chat_guid_1",
+  });
+  assert.equal(resolved.actorId, "actor.snap.9");
+  assert.equal(resolved.workloadId, "workload.snap.9");
+  assert.notEqual(resolved.actorId, "actor.personal");
+  assert.notEqual(resolved.workloadId, "workload.personal");
 });
