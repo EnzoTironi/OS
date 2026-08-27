@@ -109,6 +109,16 @@ pub struct ComputationLimits {
 }
 
 impl ComputationLimits {
+    pub const MAX_DEADLINE_MILLIS: u64 = 10_000;
+    pub const MAX_FUEL: u64 = 100_000_000;
+    pub const MAX_INSTANCES: usize = 16;
+    pub const MAX_MEMORIES: usize = 8;
+    pub const MAX_MEMORY_BYTES: usize = 32 * 1024 * 1024;
+    pub const MAX_TABLE_ELEMENTS: usize = 16_384;
+    pub const MAX_TABLES: usize = 8;
+
+    /// Builds limits from a client hint. Zero is rejected; values above the
+    /// host `MAX_*` ceilings are clamped.
     pub fn new(
         fuel: u64,
         memory_bytes: usize,
@@ -129,13 +139,13 @@ impl ComputationLimits {
             return Err(ComputationContractError::ZeroLimit);
         }
         Ok(Self {
-            deadline_millis,
-            fuel,
-            instances,
-            memories,
-            memory_bytes,
-            table_elements,
-            tables,
+            deadline_millis: deadline_millis.min(Self::MAX_DEADLINE_MILLIS),
+            fuel: fuel.min(Self::MAX_FUEL),
+            instances: instances.min(Self::MAX_INSTANCES),
+            memories: memories.min(Self::MAX_MEMORIES),
+            memory_bytes: memory_bytes.min(Self::MAX_MEMORY_BYTES),
+            table_elements: table_elements.min(Self::MAX_TABLE_ELEMENTS),
+            tables: tables.min(Self::MAX_TABLES),
         })
     }
 
@@ -670,5 +680,45 @@ mod tests {
     #[test]
     fn resource_limits_reject_zero() {
         assert!(ComputationLimits::new(1, 1, 1, 1, 1, 1, 0).is_err());
+    }
+
+    #[test]
+    fn resource_limits_clamp_over_max() {
+        let limits = ComputationLimits::new(
+            ComputationLimits::MAX_FUEL.saturating_add(1),
+            ComputationLimits::MAX_MEMORY_BYTES.saturating_add(1),
+            ComputationLimits::MAX_TABLE_ELEMENTS.saturating_add(1),
+            ComputationLimits::MAX_INSTANCES.saturating_add(1),
+            ComputationLimits::MAX_TABLES.saturating_add(1),
+            ComputationLimits::MAX_MEMORIES.saturating_add(1),
+            ComputationLimits::MAX_DEADLINE_MILLIS.saturating_add(1),
+        )
+        .expect("nonzero over-max limits");
+        assert_eq!(limits.fuel(), ComputationLimits::MAX_FUEL);
+        assert_eq!(limits.memory_bytes(), ComputationLimits::MAX_MEMORY_BYTES);
+        assert_eq!(
+            limits.table_elements(),
+            ComputationLimits::MAX_TABLE_ELEMENTS
+        );
+        assert_eq!(limits.instances(), ComputationLimits::MAX_INSTANCES);
+        assert_eq!(limits.tables(), ComputationLimits::MAX_TABLES);
+        assert_eq!(limits.memories(), ComputationLimits::MAX_MEMORIES);
+        assert_eq!(
+            limits.deadline_millis(),
+            ComputationLimits::MAX_DEADLINE_MILLIS
+        );
+    }
+
+    #[test]
+    fn resource_limits_keep_values_at_or_below_max() {
+        let limits = ComputationLimits::new(20_000, 2 * 1024 * 1024, 1_024, 4, 2, 2, 2_000)
+            .expect("in-range limits");
+        assert_eq!(limits.fuel(), 20_000);
+        assert_eq!(limits.memory_bytes(), 2 * 1024 * 1024);
+        assert_eq!(limits.table_elements(), 1_024);
+        assert_eq!(limits.instances(), 4);
+        assert_eq!(limits.tables(), 2);
+        assert_eq!(limits.memories(), 2);
+        assert_eq!(limits.deadline_millis(), 2_000);
     }
 }

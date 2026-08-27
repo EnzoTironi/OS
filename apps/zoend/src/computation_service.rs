@@ -509,6 +509,7 @@ fn parse_manifest(
 }
 
 fn parse_limits(limits: &ResourceLimits) -> Result<ComputationLimits, ConnectError> {
+    // Client ResourceLimits are a request hint; ComputationLimits clamps to the host max.
     ComputationLimits::new(
         limits.fuel,
         usize_limit(limits.memory_bytes, "memory_bytes")?,
@@ -759,4 +760,38 @@ fn explanation_digest(
 
 fn internal(message: impl Into<String>) -> ConnectError {
     ConnectError::new(ErrorCode::Internal, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ResourceLimits, parse_limits};
+    use zoen_engine::ComputationLimits;
+
+    #[test]
+    fn execute_clamps_over_max_resource_limits() {
+        let requested = ResourceLimits {
+            deadline_millis: u64::MAX,
+            fuel: u64::MAX,
+            instances: u64::MAX,
+            memories: u64::MAX,
+            memory_bytes: u64::MAX,
+            table_elements: u64::MAX,
+            tables: u64::MAX,
+            ..Default::default()
+        };
+        let limits = parse_limits(&requested).expect("over-max request remains a hint");
+        assert_eq!(limits.fuel(), ComputationLimits::MAX_FUEL);
+        assert_eq!(limits.memory_bytes(), ComputationLimits::MAX_MEMORY_BYTES);
+        assert_eq!(
+            limits.table_elements(),
+            ComputationLimits::MAX_TABLE_ELEMENTS
+        );
+        assert_eq!(limits.instances(), ComputationLimits::MAX_INSTANCES);
+        assert_eq!(limits.tables(), ComputationLimits::MAX_TABLES);
+        assert_eq!(limits.memories(), ComputationLimits::MAX_MEMORIES);
+        assert_eq!(
+            limits.deadline_millis(),
+            ComputationLimits::MAX_DEADLINE_MILLIS
+        );
+    }
 }
