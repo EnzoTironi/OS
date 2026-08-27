@@ -8,7 +8,9 @@ import {
 import {
   assembleTurnContext,
   createConversationContextAssembler,
+  createLiveConversationAssembler,
   defaultConversationSources,
+  RECENT_CONVERSATION_INTERACTION_LIMIT,
 } from "./context-assembler.js";
 import {
   conversationContextHash,
@@ -28,6 +30,7 @@ import {
 import { createConversationTurnCoordinator } from "./turn-coordinator.js";
 import { createMemoryTurnStore } from "./turn-store.js";
 import type { InteractionRecord, TrustedInteractionContext } from "./types.js";
+import type { WorldQueryClient } from "./world-query.js";
 
 function membership(input: {
   readonly group?: boolean;
@@ -451,4 +454,147 @@ test("conversationContext metric is structured JSON without inbound text", async
   assert.match(parsed.contextDigest, /^[0-9a-f]{64}$/);
   assert.equal(parsed.tokenBudget, 6000);
   assert.equal(JSON.stringify(parsed).includes("secret inbound text"), false);
+});
+
+test("assembler without world yields only inbound", async () => {
+  const store = createMemoryTurnStore();
+  const now = () => new Date("2026-08-26T15:00:00.000Z");
+  const ctx = membership({
+    thread: "553199941160@s.whatsapp.net",
+  });
+  const inbound = record(ctx, "oi", "only-inbound");
+  await store.putRecord(inbound);
+  const envelope = await assembleTurnContext({
+    assembler: createLiveConversationAssembler({
+      env: {},
+      now,
+      store,
+    }),
+    attempt: {
+      carryForwardInteractionIds: [],
+      claimedInteractionIds: [inbound.id],
+      conversationKey: keyFor(ctx),
+      id: turnAttemptId("att_no_world"),
+      observedCommitRefs: [],
+      openedAt: "2026-08-26T15:00:00.000Z",
+      phase: { kind: "assembling_context" },
+      turnId: conversationTurnId("turn_no_world"),
+    },
+    inbound: { kind: "text", text: "oi" },
+    membership: ctx,
+    store,
+  });
+  const classes = new Set(
+    envelope.document.records.map((row) => row.trustClass),
+  );
+  assert.deepEqual([...classes].sort(), ["instruction", "interaction"]);
+  assert.equal(envelope.document.records.length, 2);
+  assert.doesNotMatch(envelope.projection.data, /trustClass: world/);
+  assert.doesNotMatch(envelope.projection.data, /trustClass: personal_memory/);
+  assert.match(envelope.projection.data, /text: oi/);
+});
+
+test("assembler with world client projects a world block", async () => {
+  const store = createMemoryTurnStore();
+  const now = () => new Date("2026-08-26T15:00:00.000Z");
+  const ctx = membership({
+    thread: "553199941160@s.whatsapp.net",
+  });
+  const inbound = record(ctx, "quanto ficou", "world-block");
+  await store.putRecord(inbound);
+  const world: WorldQueryClient = {
+    async semanticQuery() {
+      return {
+        entityIds: ["commercial.order-line.dirty-quote"],
+        notes: ["10 each"],
+        rivals: [{ label: "source.sheet" }],
+      };
+    },
+  };
+  const envelope = await assembleTurnContext({
+    assembler: createConversationContextAssembler({
+      now,
+      sources: defaultConversationSources({ store, world }),
+    }),
+    attempt: {
+      carryForwardInteractionIds: [],
+      claimedInteractionIds: [inbound.id],
+      conversationKey: keyFor(ctx),
+      id: turnAttemptId("att_world"),
+      observedCommitRefs: [],
+      openedAt: "2026-08-26T15:00:00.000Z",
+      phase: { kind: "assembling_context" },
+      turnId: conversationTurnId("turn_world"),
+    },
+    inbound: { kind: "text", text: "quanto ficou" },
+    membership: ctx,
+    store,
+  });
+  assert.match(envelope.projection.data, /trustClass: world/);
+  assert.match(envelope.projection.data, /source\.sheet/);
+  assert.match(envelope.projection.data, /10 each/);
+  assert.doesNotMatch(envelope.projection.data, /commercial\.order-line\.dirty-quote/);
+});
+
+test("prior conversation messages appear when the store has older records for the same key", async () => {
+  const store = createMemoryTurnStore();
+  const now = () => new Date("2026-08-26T15:00:00.000Z");
+  const ctx = membership({
+    thread: "553199941160@s.whatsapp.net",
+  });
+  const other = membership({
+    thread: "553188888888@s.whatsapp.net",
+  });
+  const older = {
+    ...record(ctx, "quanto ficou", "prior-old"),
+    acceptedAt: "2026-08-26T14:00:00.000Z",
+  };
+  const current = {
+    ...record(ctx, "oi", "prior-now"),
+    acceptedAt: "2026-08-26T15:00:00.000Z",
+  };
+  const decoy = record(other, "segredo de outra conversa", "prior-decoy");
+  await store.putRecord(older);
+  await store.putRecord(current);
+  await store.putRecord(decoy);
+  for (let index = 0; index < RECENT_CONVERSATION_INTERACTION_LIMIT + 2; index += 1) {
+    await store.putRecord({
+      ...record(ctx, `antigo ${String(index)}`, `prior-extra-${String(index)}`),
+      acceptedAt: `2026-08-26T13:${String(index).padStart(2, "0")}:00.000Z`,
+    });
+  }
+  const envelope = await assembleTurnContext({
+    assembler: createLiveConversationAssembler({
+      env: {},
+      now,
+      store,
+    }),
+    attempt: {
+      carryForwardInteractionIds: [],
+      claimedInteractionIds: [current.id],
+      conversationKey: keyFor(ctx),
+      id: turnAttemptId("att_prior"),
+      observedCommitRefs: [],
+      openedAt: "2026-08-26T15:00:00.000Z",
+      phase: { kind: "assembling_context" },
+      turnId: conversationTurnId("turn_prior"),
+    },
+    inbound: { kind: "text", text: "oi" },
+    membership: ctx,
+    store,
+  });
+  const texts = envelope.document.records.flatMap((row) => {
+    if (row.payload.type !== "interaction" || row.payload.text === undefined) {
+      return [];
+    }
+    return [row.payload.text];
+  });
+  assert.equal(texts.includes("oi"), true);
+  assert.equal(texts.includes("quanto ficou"), true);
+  assert.equal(texts.includes("segredo de outra conversa"), false);
+  assert.equal(texts.includes("antigo 0"), false);
+  assert.ok(
+    texts.filter((text) => text.startsWith("antigo ")).length <=
+      RECENT_CONVERSATION_INTERACTION_LIMIT,
+  );
 });

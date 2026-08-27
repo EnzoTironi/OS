@@ -9,6 +9,7 @@ import {
   createInteractionBoundary,
   createInteractionControlRegistry,
   createInteractionScratch,
+  createLiveConversationAssembler,
   createMemoryControlStore,
   createMemoryTurnStore,
   createPostgresTurnStore,
@@ -29,6 +30,7 @@ import {
   TURN_DEBOUNCE_MS,
   TURN_STATUS_AFTER_MS,
   type ClaimResult,
+  type ConversationContextAssembler,
   type ConversationKey,
   type DeliveryIntent,
   type DeliveryObservation,
@@ -135,6 +137,11 @@ export interface WhatsAppContactLoopOptions {
   readonly statusAfterMs?: number;
   /** Injectable timer for the status gate, mainly for tests. */
   readonly schedule?: ScheduleFn;
+  /**
+   * Bound-turn assembler. Default is store + World/memory/History from env.
+   * Unset World env keeps the store-only path.
+   */
+  readonly assembler?: ConversationContextAssembler;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -302,8 +309,15 @@ export function createWhatsAppContactLoop(
     },
   });
   const store = options.store ?? createMemoryTurnStore();
+  const assembler =
+    options.assembler ??
+    createLiveConversationAssembler({
+      now,
+      store,
+    });
   const outboundByAttempt = new Map<string, Map<string, string>>();
   const coordinator = createConversationTurnCoordinator({
+    assembler,
     debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
     deliver: async (intent: DeliveryIntent) => {
       const attemptId = intent.turnAttemptId;
@@ -374,6 +388,7 @@ export function createWhatsAppContactLoop(
         },
         schedule: options.schedule,
         work: runInteractionTurn({
+          assembler,
           attemptId: claimed.attempt.id,
           channelAssurance: "whatsapp_phone",
           coordinator,

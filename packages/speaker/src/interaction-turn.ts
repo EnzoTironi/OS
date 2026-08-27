@@ -8,7 +8,7 @@ import {
   assembleTurnContext,
   audienceKindFromMembership,
   createConversationContextAssembler,
-  defaultConversationSources,
+  createLiveConversationAssembler,
   type ConversationContextAssembler,
   type ConversationWorkspaceKind,
 } from "./context-assembler.js";
@@ -46,7 +46,6 @@ import {
   type SpeakerActionClient,
 } from "./osdk-action-client.js";
 import type { ChannelAssurance } from "./permission.js";
-import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
 import {
   looksLikeEntityId,
   type WorldQueryClient,
@@ -73,6 +72,9 @@ export interface OutboundTurn {
     readonly path: ReasonTurnPath;
     readonly rivals: number;
     readonly generate: ReasonTurnGenerate;
+    readonly recordCount: number;
+    readonly hasWorld: boolean;
+    readonly hasMemory: boolean;
   };
 }
 
@@ -132,6 +134,9 @@ export interface ReasonTurnLog {
   readonly path: ReasonTurnPath;
   readonly rivals: number;
   readonly generate: ReasonTurnGenerate;
+  readonly recordCount: number;
+  readonly hasWorld: boolean;
+  readonly hasMemory: boolean;
 }
 
 /**
@@ -178,16 +183,13 @@ export async function runInteractionTurn(
   }
   const audienceKind =
     input.audienceKind ?? audienceKindFromMembership(ctx);
-  const world = input.world ?? createWorldQueryClientFromEnv();
   const assembler =
     input.assembler ??
-    createConversationContextAssembler({
+    createLiveConversationAssembler({
+      history: input.history,
       now,
-      sources: defaultConversationSources({
-        history: input.history,
-        store,
-        world,
-      }),
+      store,
+      world: input.world,
     });
   const envelope = await assembleTurnContext({
     assembler,
@@ -247,7 +249,14 @@ export async function runInteractionTurn(
     ...rendered,
     reasonTurn: {
       generate: reasoned.generate,
+      hasMemory: envelope.document.records.some(
+        (record) => record.trustClass === "personal_memory",
+      ),
+      hasWorld: envelope.document.records.some(
+        (record) => record.trustClass === "world",
+      ),
       path: reasoned.path,
+      recordCount: envelope.document.records.length,
       rivals: rivalCount(envelope.document),
     },
   };
@@ -516,10 +525,17 @@ async function reasonTurn(input: {
       scratch: applyWriteFail(scratch, input.locale, scratch.writeFail),
     };
   }
-  if (scratch.waited) {
+  if (scratch.waited && !isGreetingInbound(input.inboundText)) {
     scratch.bubbles.length = 0;
     scratch.href = undefined;
     return { generate: "ok", path: "wait", scratch };
+  }
+  if (scratch.bubbles.length === 0 && isGreetingInbound(input.inboundText)) {
+    return {
+      generate: "ok",
+      path: "spoke",
+      scratch: applyGreetingCopy(scratch, input.locale),
+    };
   }
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
     return {
@@ -538,11 +554,40 @@ async function reasonTurn(input: {
 function emitReasonTurnLog(reasonTurn: OutboundTurn["reasonTurn"]): void {
   const line: ReasonTurnLog = {
     event: "reasonTurn",
-    path: reasonTurn.path,
-    rivals: reasonTurn.rivals,
     generate: reasonTurn.generate,
+    hasMemory: reasonTurn.hasMemory,
+    hasWorld: reasonTurn.hasWorld,
+    path: reasonTurn.path,
+    recordCount: reasonTurn.recordCount,
+    rivals: reasonTurn.rivals,
   };
   process.stderr.write(`${JSON.stringify(line)}\n`);
+}
+
+/**
+ * Context: bound 1:1 inbound that is only a greeting token.
+ * Inputs: raw inbound text. Accents and trailing punctuation are ignored.
+ * Outputs: true for oi / e aí / fala / hi / hey. Consult text stays false.
+ */
+export function isGreetingInbound(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[.!?,:;…]+/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  switch (normalized) {
+    case "oi":
+    case "e aí":
+    case "e ai":
+    case "fala":
+    case "hi":
+    case "hey":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function applyFailCopy(
@@ -553,6 +598,17 @@ function applyFailCopy(
   scratch.href = undefined;
   scratch.waited = false;
   scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
+  return scratch;
+}
+
+function applyGreetingCopy(
+  scratch: InteractionScratch,
+  locale: InteractionLocale,
+): InteractionScratch {
+  scratch.bubbles.length = 0;
+  scratch.href = undefined;
+  scratch.waited = false;
+  scratch.bubbles.push(locale === "en" ? "hey" : "oi");
   return scratch;
 }
 

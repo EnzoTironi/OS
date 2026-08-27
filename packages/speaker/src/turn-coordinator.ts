@@ -15,8 +15,7 @@ import {
 } from "./brands.js";
 import {
   assembleTurnContext,
-  createConversationContextAssembler,
-  defaultConversationSources,
+  createLiveConversationAssembler,
   type ConversationContextAssembler,
 } from "./context-assembler.js";
 import type { ConversationArm, TurnStore } from "./turn-store.js";
@@ -809,10 +808,7 @@ async function runPipeline(
     if (stage === "assembling_context") {
       const envelope = await assembleTurnContext({
         assembler:
-          assembler ??
-          createConversationContextAssembler({
-            sources: defaultConversationSources({ store }),
-          }),
+          assembler ?? createLiveConversationAssembler({ store }),
         attempt: current,
         store,
       });

@@ -17,6 +17,7 @@ import {
   firstContactAddendum,
   firstContactInstructions,
   interactionInstructions,
+  isGreetingInbound,
   outboundBubbles,
   reasoningPrompt,
   runFirstContactTurn,
@@ -567,15 +568,43 @@ test("reasonTurn writes one stderr JSON line from the turn result", async () => 
     .map((line) => line.trim())
     .filter((line) => line.includes('"event":"reasonTurn"'));
   assert.equal(lines.length, 1);
-  assert.equal(
-    lines[0],
-    JSON.stringify({
-      event: "reasonTurn",
-      path: result.reasonTurn.path,
-      rivals: result.reasonTurn.rivals,
-      generate: result.reasonTurn.generate,
-    }),
-  );
+  const parsed = JSON.parse(lines[0] ?? "") as {
+    readonly event: string;
+    readonly generate: ReasonTurnGenerate;
+    readonly hasMemory: boolean;
+    readonly hasWorld: boolean;
+    readonly path: ReasonTurnPath;
+    readonly recordCount: number;
+    readonly rivals: number;
+  };
+  assert.deepEqual(parsed, {
+    event: "reasonTurn",
+    generate: result.reasonTurn.generate,
+    hasMemory: false,
+    hasWorld: false,
+    path: result.reasonTurn.path,
+    recordCount: result.reasonTurn.recordCount,
+    rivals: result.reasonTurn.rivals,
+  });
+  assert.equal(result.reasonTurn.recordCount >= 2, true);
+  assert.equal(JSON.stringify(parsed).includes("membership.wa.enzo"), false);
+});
+
+test("greeting plus empty speak does not emit FAIL_CLOSED_PT", async () => {
+  assert.equal(isGreetingInbound("oi"), true);
+  assert.equal(isGreetingInbound("e aí!"), true);
+  assert.equal(isGreetingInbound("quanto ficou"), false);
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("greeting-failopen"),
+    model: silentStopModel(),
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.deepEqual(result.bubbles, ["oi"]);
+  assert.doesNotMatch(sent, /não consegui consultar agora/);
+  assert.doesNotMatch(sent, /couldn't look that up/);
+  assertReasonTurn(result, "spoke", 0, "ok");
 });
 
 test("slow wait stays silent", async () => {
