@@ -254,8 +254,7 @@ export type StepUpSessionStatus =
   | "open"
   | "authenticated"
   | "committed"
-  | "expired"
-  | "rejected";
+  | "expired";
 
 export interface StepUpSession {
   readonly id: StepUpSessionId;
@@ -263,6 +262,7 @@ export interface StepUpSession {
   readonly proposalRef: ProposalRef;
   readonly tenantId: TenantIdString;
   readonly requiredPrincipalId: PrincipalIdString;
+  readonly operationId?: string;
   readonly oidcSubject?: string;
   readonly accountId?: string;
   readonly expiresAt: string;

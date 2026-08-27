@@ -18,7 +18,10 @@ export interface InteractionControlRegistry {
   issueApproval(input: IssueApprovalControlInput): Promise<InteractionControlRef>;
   resolve(ref: InteractionControlRef): Promise<InteractionControl>;
   resolveApproval(ref: InteractionControlRef): Promise<ApprovalControl>;
-  consume(ref: InteractionControlRef): Promise<InteractionControl>;
+  consume(
+    ref: InteractionControlRef,
+    options?: { readonly operationId?: string },
+  ): Promise<InteractionControl>;
   listLiveApprovals(input: {
     readonly tenantId: string;
     readonly principalId: string;
@@ -86,14 +89,18 @@ export function createInteractionControlRegistry(
       return asApprovalControl(live);
     },
 
-    async consume(ref) {
-      return store.consumeControl(ref, now().toISOString());
+    async consume(ref, options) {
+      return store.consumeControl(
+        ref,
+        now().toISOString(),
+        options?.operationId,
+      );
     },
 
     async listLiveApprovals(input) {
       const at = now();
       const out: ApprovalControl[] = [];
-      for (const entry of await store.listControls(input)) {
+      for (const entry of await store.listControls({ ...input, at })) {
         if (entry.consumedAt !== undefined) {
           continue;
         }

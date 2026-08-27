@@ -12,7 +12,11 @@ import {
   type InteractionControlRegistry,
 } from "./controls.js";
 import { type ControlStore } from "./store.js";
-import type { ApprovalControl, StepUpSession } from "./types.js";
+import type {
+  ApprovalControl,
+  StepUpSession,
+  StepUpSessionStatus,
+} from "./types.js";
 
 export interface StepUpRegistry {
   open(input: {
@@ -47,15 +51,18 @@ export function createStepUpRegistry(
   return {
     async open(input) {
       const existing = await store.findStepUpByControl(input.control.ref);
-      if (existing !== undefined && existing.status !== "rejected") {
-        if (Date.parse(existing.expiresAt) > now().getTime()) {
-          return existing;
-        }
+      if (
+        existing !== undefined &&
+        reusableSessionStatus(existing.status) &&
+        Date.parse(existing.expiresAt) > now().getTime()
+      ) {
+        return existing;
       }
       const session: StepUpSession = {
         controlRef: input.control.ref,
         expiresAt: input.expiresAt,
         id: stepUpSessionId(`sus_${randomBytes(12).toString("hex")}`),
+        operationId: input.control.operationId,
         proposalRef: input.control.proposalRef,
         requiredPrincipalId: input.control.principalId,
         status: "open",
@@ -92,7 +99,7 @@ export function createStepUpRegistry(
     async markCommitted(id) {
       const session = await requireSession(store, id, now());
       if (session.status === "committed") {
-        throw new Error("StepUpSession already committed");
+        return session;
       }
       if (session.status !== "authenticated") {
         throw new Error("StepUpSession not authenticated");
@@ -122,6 +129,22 @@ async function requireSession(
     throw new Error("StepUpSession expired");
   }
   return session;
+}
+
+function reusableSessionStatus(status: StepUpSessionStatus): boolean {
+  switch (status) {
+    case "open":
+    case "authenticated":
+    case "committed":
+      return true;
+    case "expired":
+      return false;
+    default: {
+      const exhaustive: never = status;
+      void exhaustive;
+      return false;
+    }
+  }
 }
 
 export function stepUpUrl(origin: string, ref: InteractionControlRef): string {
@@ -177,14 +200,22 @@ export async function completeStepUpCommit(input: {
   readonly session: StepUpSession;
   readonly commit: (
     proposalRef: ProposalRef,
+    operationId: string,
   ) => Promise<{ operationId: string }>;
 }): Promise<{ proposalRef: ProposalRef; operationId: string }> {
-  if (input.session.status !== "authenticated") {
+  if (
+    input.session.status !== "authenticated" &&
+    input.session.status !== "committed"
+  ) {
     throw new Error("StepUpSession not authenticated");
   }
+  const operationId = input.session.operationId;
+  if (operationId === undefined || operationId.length === 0) {
+    throw new Error("ApprovalControl missing sealed operationId");
+  }
 
-  const receipt = await input.commit(input.session.proposalRef);
-  await input.controls.consume(input.session.controlRef);
+  const receipt = await input.commit(input.session.proposalRef, operationId);
+  await input.controls.consume(input.session.controlRef, { operationId });
   await input.stepUps.markCommitted(input.session.id);
   return {
     operationId: receipt.operationId,

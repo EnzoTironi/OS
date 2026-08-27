@@ -8,7 +8,6 @@ import {
   principalIdString,
   proposalRef,
   tenantIdString,
-  type ControlStore,
   type IssueApprovalControlInput,
   type PostgresControlStoreClient,
 } from "./index.js";
@@ -34,6 +33,7 @@ function approvalInput(
     assurance: "channel_inline",
     disclosure: { kind: "deliver_full" },
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    operationId: "op.sealed.1",
     principalId: principalIdString("principal.a"),
     proposalRef: proposalRef("proposal.1"),
     sealedAudienceKind: "dm",
@@ -42,26 +42,18 @@ function approvalInput(
   };
 }
 
-function yieldingReads(inner: ControlStore): ControlStore {
-  const pause = async () =>
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, 20);
-    });
-  return {
-    consumeControl: (ref, consumedAt) => inner.consumeControl(ref, consumedAt),
-    findStepUpByControl: (ref) => inner.findStepUpByControl(ref),
-    async getControl(ref) {
-      const entry = await inner.getControl(ref);
-      await pause();
-      return entry;
-    },
-    getStepUp: (id) => inner.getStepUp(id),
-    listControls: (input) => inner.listControls(input),
-    async putControl(control) {
-      await pause();
-      await inner.putControl(control);
-    },
-    putStepUp: (session) => inner.putStepUp(session),
+function overlappingConsumeLatch() {
+  let entered = 0;
+  let releaseFirst: (() => void) | undefined;
+  return async () => {
+    entered += 1;
+    if (entered === 1) {
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      return;
+    }
+    releaseFirst?.();
   };
 }
 
@@ -86,9 +78,11 @@ test("createStepUpRegistry requires an explicit store", async () => {
   assert.equal(typeof stepUps.open, "function");
 });
 
-test("concurrent consume lets only one winner treat the approval as live", async () => {
+test("overlapping consume lets only one winner treat the approval as live", async () => {
   const controls = createInteractionControlRegistry({
-    store: yieldingReads(createMemoryControlStore()),
+    store: createMemoryControlStore({
+      beforeConsumeCommit: overlappingConsumeLatch(),
+    }),
   });
   const ref = await controls.issueApproval(approvalInput());
   const results = await Promise.allSettled([
@@ -96,10 +90,10 @@ test("concurrent consume lets only one winner treat the approval as live", async
     controls.consume(ref),
   ]);
   const fulfilled = results.filter((result) => result.status === "fulfilled");
-  const rejected = results.filter((result) => result.status === "rejected");
+  const failed = results.filter((result) => result.status === "rejected");
   assert.equal(fulfilled.length, 1);
-  assert.equal(rejected.length, 1);
-  const failure = rejected[0];
+  assert.equal(failed.length, 1);
+  const failure = failed[0];
   assert.ok(failure !== undefined && failure.status === "rejected");
   assert.match(String(failure.reason), /already consumed/);
   await assert.rejects(() => controls.resolve(ref), /already consumed/);
@@ -150,59 +144,96 @@ test("listLiveApprovals reads the durable store after a new registry is created"
   await assert.rejects(() => restarted.resolve(consumedRef), /already consumed/);
 });
 
-test("postgres consumeControl compare-and-set rejects the second winner", async () => {
+test("putControl cannot un-consume a live consume winner", async () => {
+  const store = createMemoryControlStore();
+  const controls = createInteractionControlRegistry({ store });
+  const ref = await controls.issueApproval(approvalInput());
+  const consumed = await controls.consume(ref);
+  await store.putControl({ ...consumed, consumedAt: undefined });
+  await assert.rejects(() => controls.resolve(ref), /already consumed/);
+});
+
+test("overlapping postgres consume UPDATEs leave one winner", async () => {
   const rows = new Map<
     string,
     {
-      consumedAt: string | null;
-      expiresAt: string;
       payload: Record<string, unknown>;
       principalId: string;
       tenantId: string;
     }
   >();
   const queries: string[] = [];
+  let consumeUpdates = 0;
+  let releaseFirst: (() => void) | undefined;
+  const applyConsume = (values: readonly unknown[]) => {
+    const ref = String(values[0]);
+    const consumedAt = String(values[1]);
+    const operationId =
+      values[2] === null || values[2] === undefined
+        ? undefined
+        : String(values[2]);
+    const row = rows.get(ref);
+    if (row === undefined) {
+      return { rows: [] };
+    }
+    const payloadConsumed =
+      typeof row.payload.consumedAt === "string"
+        ? row.payload.consumedAt
+        : undefined;
+    const expiresAt = String(row.payload.expiresAt ?? "");
+    const live =
+      payloadConsumed === undefined &&
+      Date.parse(expiresAt) > Date.parse(consumedAt);
+    const replay =
+      payloadConsumed !== undefined &&
+      operationId !== undefined &&
+      row.payload.operationId === operationId;
+    if (!live && !replay) {
+      return { rows: [] };
+    }
+    if (live) {
+      row.payload = { ...row.payload, consumedAt };
+    }
+    return { rows: [{ payload: row.payload }] };
+  };
   const client: PostgresControlStoreClient = {
     async query(text, values = []) {
       queries.push(text);
       if (text.includes("INSERT INTO interaction_controls")) {
-        const payload = JSON.parse(String(values[13])) as Record<string, unknown>;
+        const payload = JSON.parse(String(values[13])) as Record<
+          string,
+          unknown
+        >;
         rows.set(String(values[0]), {
-          consumedAt:
-            typeof payload.consumedAt === "string" ? payload.consumedAt : null,
-          expiresAt: String(values[9]),
           payload,
           principalId: String(values[2]),
           tenantId: String(values[1]),
         });
         return { rows: [] };
       }
-      if (text.includes("consumed_at IS NULL")) {
-        const ref = String(values[0]);
-        const consumedAt = String(values[1]);
-        const row = rows.get(ref);
-        if (
-          row === undefined ||
-          row.consumedAt !== null ||
-          Date.parse(row.expiresAt) <= Date.parse(consumedAt)
-        ) {
-          return { rows: [] };
+      if (text.includes("jsonb_set") && text.includes("consumedAt")) {
+        consumeUpdates += 1;
+        if (consumeUpdates === 1) {
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        } else {
+          releaseFirst?.();
         }
-        const payload = JSON.parse(String(values[2])) as Record<string, unknown>;
-        row.consumedAt = consumedAt;
-        row.payload = payload;
-        return { rows: [{ payload }] };
+        return applyConsume(values);
       }
       if (text.includes("WHERE ref = $1")) {
         const row = rows.get(String(values[0]));
         return { rows: row === undefined ? [] : [{ payload: row.payload }] };
       }
-      if (text.includes("tenant_id = $1 AND principal_id = $2")) {
+      if (text.includes("payload->>'consumedAt' IS NULL")) {
         return {
           rows: [...rows.values()]
             .filter(
               (row) =>
-                row.tenantId === values[0] && row.principalId === values[1],
+                row.tenantId === values[0] &&
+                row.principalId === values[1] &&
+                row.payload.consumedAt === undefined,
             )
             .map((row) => ({ payload: row.payload })),
         };
@@ -214,10 +245,21 @@ test("postgres consumeControl compare-and-set rejects the second winner", async 
   const store = createPostgresControlStore(client);
   const controls = createInteractionControlRegistry({ store });
   const ref = await controls.issueApproval(approvalInput());
-  await controls.consume(ref);
-  await assert.rejects(() => controls.consume(ref), /already consumed/);
+  const results = await Promise.allSettled([
+    controls.consume(ref),
+    controls.consume(ref),
+  ]);
+  const fulfilled = results.filter((result) => result.status === "fulfilled");
+  const failed = results.filter((result) => result.status === "rejected");
+  assert.equal(consumeUpdates, 2);
+  assert.equal(fulfilled.length, 1);
+  assert.equal(failed.length, 1);
   assert.equal(
-    queries.some((query) => query.includes("consumed_at IS NULL")),
+    queries.some(
+      (query) =>
+        query.includes("jsonb_set") &&
+        query.includes("payload->>'consumedAt' IS NULL"),
+    ),
     true,
   );
 
@@ -227,8 +269,4 @@ test("postgres consumeControl compare-and-set rejects the second winner", async 
     tenantId: tenantIdString("tenant.a"),
   });
   assert.deepEqual(listed, []);
-  assert.equal(
-    queries.some((query) => query.includes("tenant_id = $1 AND principal_id = $2")),
-    true,
-  );
 });
