@@ -492,6 +492,45 @@ async function proveContactLoop(
       senderAltJid: person,
       senderJid: person,
     };
+    const claimedSession = createRecordingCompanionSession({
+      ready: { connected: true, loggedIn: true, paired: true },
+    });
+    await claimedSession.open();
+    const claimLedger = createMemoryReplyLedger();
+    const claimLoop = createWhatsAppContactLoop({
+      debounceMs: 80,
+      doorE164,
+      identity: admitting,
+      ledger: claimLedger,
+      publicWebOrigin: "https://zoen.tironi.xyz",
+      session: claimedSession,
+    });
+    const queued = await claimLoop.acknowledgeRaw({
+      ...envelope,
+      messageId: "wamid.e2e.claim",
+    });
+    assert.equal(queued.kind, "queued");
+    const claimRestart = createRecordingCompanionSession({
+      ready: { connected: true, loggedIn: true, paired: true },
+    });
+    await claimRestart.open();
+    const claimRestarted = createWhatsAppContactLoop({
+      doorE164,
+      identity: admitting,
+      ledger: claimLedger,
+      session: claimRestart,
+    });
+    const claimedDuplicate = await claimRestarted.handleRaw({
+      ...envelope,
+      messageId: "wamid.e2e.claim",
+    });
+    assert.equal(claimedDuplicate.kind, "duplicate");
+    assert.equal(claimRestart.sent().length, 0);
+    await claimRestart.close();
+    await claimLoop.waitUntilIdle();
+    assert.equal(claimedSession.sent().length, 1);
+    await claimedSession.close();
+
     const first = await firstLoop.handleRaw(envelope);
     assert.equal(first.kind, "bound");
     assert.equal(firstSession.sent().length, 1);
@@ -580,6 +619,7 @@ async function proveContactLoop(
     record("first_inbound_admits_without_login", true);
     record("bound_turn_same_thread", true);
     record("restart_does_not_duplicate_reply", true);
+    record("restart_before_reply_does_not_duplicate", true);
     record("door_jid_is_never_the_person", true);
     record(
       "identity_writes_only_admit_whatsapp",

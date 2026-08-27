@@ -6,6 +6,117 @@ import {
   providerKey,
 } from "./index.js";
 
+test("person inbox JID resolves a verified binding; door JID stays unbound", async () => {
+  const person = "553199941160@s.whatsapp.net";
+  const door = "553798136141@s.whatsapp.net";
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    assert.match(url, /\/identity\/admin\/resolve-subject\?/);
+    assert.doesNotMatch(url, /\/admit-whatsapp|\/provisional|\/verify-binding/);
+    if (url.includes(encodeURIComponent(person))) {
+      return new Response(
+        JSON.stringify({
+          account: { accountId: "account.enzo", status: "verified" },
+          bindings: [
+            {
+              accountId: "account.enzo",
+              bindingId: "binding.enzo",
+              provider: "whatsapp",
+              status: "verified",
+              subjectKey: person,
+            },
+          ],
+          memberships: [
+            {
+              accountId: "account.enzo",
+              actorId: "actor.personal",
+              kind: "personal",
+              membershipId: "membership.enzo",
+              principalId: "principal.enzo",
+              status: "active",
+              tenantId: "tenant.wa.enzo",
+              workloadId: "workload.personal",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      );
+    }
+    if (url.includes(encodeURIComponent(door))) {
+      return new Response(
+        JSON.stringify({ error: "OIDC subject has no verified binding" }),
+        { headers: { "content-type": "application/json" }, status: 404 },
+      );
+    }
+    throw new Error(`unexpected ${url}`);
+  };
+
+  const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
+    baseUrl: "http://zoend.test",
+    fetchImpl,
+  });
+  const resolved = await identity.resolveChannelSubject({
+    provider: providerKey("whatsapp"),
+    subjectKey: person,
+  });
+  assert.equal(resolved.bindingId, "binding.enzo");
+  assert.equal(String(resolved.tenantId), "tenant.wa.enzo");
+  assert.equal(String(resolved.principalId), "principal.enzo");
+  assert.notEqual(String(resolved.principalId), person);
+  assert.notEqual(String(resolved.tenantId), person);
+  await assert.rejects(
+    () =>
+      identity.resolveChannelSubject({
+        provider: providerKey("whatsapp"),
+        subjectKey: door,
+      }),
+    (error: unknown) =>
+      error instanceof ChannelSubjectResolveError && error.kind === "unbound",
+  );
+});
+
+test("resolveChannelSubject ignores unverified bindings and does not invent membership", async () => {
+  const identity = createIdentityDirectoryClient({
+    adminToken: "admin-token",
+    baseUrl: "http://zoend.test",
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          account: { accountId: "account.1", status: "verified" },
+          bindings: [
+            {
+              accountId: "account.1",
+              bindingId: "binding.pending",
+              provider: "whatsapp",
+              status: "pending",
+              subjectKey: "553199941160@s.whatsapp.net",
+            },
+          ],
+          memberships: [
+            {
+              accountId: "account.1",
+              membershipId: "membership.1",
+              principalId: "principal.1",
+              status: "active",
+              tenantId: "tenant.1",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      ),
+  });
+  await assert.rejects(
+    () =>
+      identity.resolveChannelSubject({
+        provider: providerKey("whatsapp"),
+        subjectKey: "553199941160@s.whatsapp.net",
+      }),
+    (error: unknown) =>
+      error instanceof ChannelSubjectResolveError && error.kind === "unbound",
+  );
+});
+
 test("resolveChannelSubject GETs resolve-subject and never POSTs provisional", async () => {
   const calls: Array<{ method: string; url: string }> = [];
   const fetchImpl: typeof fetch = async (input, init) => {
