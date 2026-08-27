@@ -93,6 +93,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.runtimeSecret.name }}
                   key: {{ .Values.runtimeSecret.postgresAdminPasswordKey }}
+            - name: POSTGRES_APPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.postgresApplicationPasswordKey }}
+            - name: POSTGRES_OBSERVER_PASSWORD
+              value: observer
             - name: POSTGRES_PROJECTION_PASSWORD
               valueFrom:
                 secretKeyRef:

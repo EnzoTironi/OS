@@ -31,11 +31,9 @@ spec:
               fi
               until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE"; do sleep 1; done
               if [ -z "$(psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = '{{ .Values.postgres.projectionUser }}'")" ]; then
-                psql -v ON_ERROR_STOP=1 \
-                  --set=projection_password="${POSTGRES_PROJECTION_PASSWORD}" <<SQL
+                psql -v ON_ERROR_STOP=1 <<SQL
               CREATE ROLE {{ .Values.postgres.projectionUser }}
                 LOGIN
-                PASSWORD :'projection_password'
                 NOSUPERUSER
                 NOCREATEDB
                 NOCREATEROLE
@@ -43,7 +41,10 @@ spec:
                 NOBYPASSRLS;
               SQL
               fi
-              psql -v ON_ERROR_STOP=1 <<SQL
+              psql -v ON_ERROR_STOP=1 \
+                --set=projection_password="${POSTGRES_PROJECTION_PASSWORD}" <<SQL
+              ALTER ROLE {{ .Values.postgres.projectionUser }}
+                PASSWORD :'projection_password';
               GRANT CONNECT ON DATABASE {{ .Values.postgres.database }}
                 TO {{ .Values.postgres.projectionUser }};
               GRANT USAGE ON SCHEMA public TO {{ .Values.postgres.projectionUser }};

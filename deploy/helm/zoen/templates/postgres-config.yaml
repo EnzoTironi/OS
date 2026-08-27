@@ -7,17 +7,40 @@ metadata:
   labels:
     {{- include "zoen.labels" . | nindent 4 }}
 data:
-  001-projection-role.sh: |
+  001-roles.sh: |
     #!/bin/bash
     set -euo pipefail
+    if [ -z "${POSTGRES_APPLICATION_PASSWORD:-}" ]; then
+      echo "001-roles: POSTGRES_APPLICATION_PASSWORD is required" >&2
+      exit 1
+    fi
     if [ -z "${POSTGRES_PROJECTION_PASSWORD:-}" ]; then
-      echo "001-projection-role: POSTGRES_PROJECTION_PASSWORD is required" >&2
+      echo "001-roles: POSTGRES_PROJECTION_PASSWORD is required" >&2
+      exit 1
+    fi
+    if [ -z "${POSTGRES_OBSERVER_PASSWORD:-}" ]; then
+      echo "001-roles: POSTGRES_OBSERVER_PASSWORD is required" >&2
+      exit 1
+    fi
+    if [ -n "${POSTGRES_REPLICATION_PASSWORD+x}" ] && [ -z "${POSTGRES_REPLICATION_PASSWORD}" ]; then
+      echo "001-roles: POSTGRES_REPLICATION_PASSWORD is required" >&2
       exit 1
     fi
     psql -v ON_ERROR_STOP=1 \
       --username "$POSTGRES_USER" \
       --dbname "$POSTGRES_DB" \
-      --set=projection_password="${POSTGRES_PROJECTION_PASSWORD}" <<SQL
+      --set=application_password="${POSTGRES_APPLICATION_PASSWORD}" \
+      --set=projection_password="${POSTGRES_PROJECTION_PASSWORD}" \
+      --set=observer_password="${POSTGRES_OBSERVER_PASSWORD}" <<SQL
+    CREATE EXTENSION vector;
+    CREATE ROLE zoen_app
+      LOGIN
+      PASSWORD :'application_password'
+      NOSUPERUSER
+      NOCREATEDB
+      NOCREATEROLE
+      NOINHERIT
+      NOBYPASSRLS;
     CREATE ROLE {{ .Values.postgres.projectionUser }}
       LOGIN
       PASSWORD :'projection_password'
@@ -26,20 +49,9 @@ data:
       NOCREATEROLE
       NOINHERIT
       NOBYPASSRLS;
-    SQL
-  001-roles.sql: |
-    CREATE EXTENSION vector;
-    CREATE ROLE zoen_app
-      LOGIN
-      PASSWORD 'zoen_app'
-      NOSUPERUSER
-      NOCREATEDB
-      NOCREATEROLE
-      NOINHERIT
-      NOBYPASSRLS;
     CREATE ROLE zoen_platform_observer
       LOGIN
-      PASSWORD 'observer'
+      PASSWORD :'observer_password'
       NOSUPERUSER
       NOCREATEDB
       NOCREATEROLE
@@ -50,6 +62,18 @@ data:
     GRANT USAGE ON SCHEMA public TO {{ .Values.postgres.projectionUser }}, zoen_platform_observer;
     ALTER DEFAULT PRIVILEGES FOR ROLE zoen_app IN SCHEMA public
       GRANT SELECT ON TABLES TO zoen_platform_observer;
+    SQL
+    if [ -n "${POSTGRES_REPLICATION_PASSWORD+x}" ]; then
+      psql -v ON_ERROR_STOP=1 \
+        --username "$POSTGRES_USER" \
+        --dbname "$POSTGRES_DB" \
+        --set=replication_password="${POSTGRES_REPLICATION_PASSWORD}" <<SQL
+    CREATE ROLE replicator
+      REPLICATION
+      LOGIN
+      PASSWORD :'replication_password';
+    SQL
+    fi
   002-company-brain.sql: |
     BEGIN;
     SET LOCAL ROLE zoen_app;
@@ -156,22 +180,6 @@ data:
       USING (tenant_id = current_setting('zoen.tenant_id', true))
       WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
   {{- if $ha }}
-  004-replication.sh: |
-    #!/bin/bash
-    set -euo pipefail
-    if [ -z "${POSTGRES_REPLICATION_PASSWORD:-}" ]; then
-      echo "004-replication: POSTGRES_REPLICATION_PASSWORD is required" >&2
-      exit 1
-    fi
-    psql -v ON_ERROR_STOP=1 \
-      --username "$POSTGRES_USER" \
-      --dbname "$POSTGRES_DB" \
-      --set=replication_password="${POSTGRES_REPLICATION_PASSWORD}" <<SQL
-    CREATE ROLE replicator
-      REPLICATION
-      LOGIN
-      PASSWORD :'replication_password';
-    SQL
   005-replication-hba.sh: |
     #!/bin/bash
     set -euo pipefail

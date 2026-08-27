@@ -35,6 +35,12 @@ assertUniqueEnvNames(overlayReplica[0], "postgres");
 assertSecretEnv(
   overlayPostgres[0],
   "postgres",
+  "POSTGRES_APPLICATION_PASSWORD",
+  "postgresApplicationPassword",
+);
+assertSecretEnv(
+  overlayPostgres[0],
+  "postgres",
   "POSTGRES_PROJECTION_PASSWORD",
   "postgresProjectionPassword",
 );
@@ -72,6 +78,12 @@ assert.equal(referenceContainer?.args, undefined);
 assertSecretEnv(
   referencePostgres[0],
   "postgres",
+  "POSTGRES_APPLICATION_PASSWORD",
+  "postgresApplicationPassword",
+);
+assertSecretEnv(
+  referencePostgres[0],
+  "postgres",
   "POSTGRES_PROJECTION_PASSWORD",
   "postgresProjectionPassword",
 );
@@ -83,23 +95,30 @@ assert.equal(
 );
 const overlayInit = configMap(overlay, "zoen-postgres-init")?.data ?? {};
 const referenceInit = configMap(reference, "zoen-postgres-init")?.data ?? {};
-assert.ok(overlayInit["001-projection-role.sh"]);
-assert.match(
-  overlayInit["001-projection-role.sh"],
-  /POSTGRES_PROJECTION_PASSWORD is required/u,
-);
-assert.doesNotMatch(overlayInit["001-projection-role.sh"], /PASSWORD '/u);
-assert.doesNotMatch(overlayInit["001-roles.sql"] ?? "", /PASSWORD 'zoen_projection'/u);
-assert.ok(overlayInit["004-replication.sh"]);
+assert.ok(overlayInit["001-roles.sh"]);
+assert.equal(overlayInit["001-roles.sql"], undefined);
+assert.equal(overlayInit["001-projection-role.sh"], undefined);
+assert.equal(overlayInit["004-replication.sh"], undefined);
 assert.equal(overlayInit["004-replication.sql"], undefined);
 assert.match(
-  overlayInit["004-replication.sh"],
+  overlayInit["001-roles.sh"],
+  /POSTGRES_APPLICATION_PASSWORD is required/u,
+);
+assert.match(
+  overlayInit["001-roles.sh"],
+  /POSTGRES_PROJECTION_PASSWORD is required/u,
+);
+assert.match(
+  overlayInit["001-roles.sh"],
   /POSTGRES_REPLICATION_PASSWORD is required/u,
 );
-assert.doesNotMatch(overlayInit["004-replication.sh"], /PASSWORD 'replicator'/u);
-assert.ok(referenceInit["001-projection-role.sh"]);
+assert.match(overlayInit["001-roles.sh"], /CREATE ROLE replicator/u);
+assertNoLiteralPassword(overlayInit["001-roles.sh"], "overlay 001-roles.sh");
+assert.ok(referenceInit["001-roles.sh"]);
+assert.equal(referenceInit["001-projection-role.sh"], undefined);
 assert.equal(referenceInit["004-replication.sh"], undefined);
 assert.equal(referenceInit["004-replication.sql"], undefined);
+assertNoLiteralPassword(referenceInit["001-roles.sh"], "reference 001-roles.sh");
 assert.equal(configMap(reference, "zoen-postgres-start"), undefined);
 const projectionJob = job(application, "zoen-projection-role");
 assert.ok(projectionJob);
@@ -111,8 +130,8 @@ assertSecretEnv(
 );
 const projectionCommand = containerCommand(projectionJob, "create-role");
 assert.match(projectionCommand, /POSTGRES_PROJECTION_PASSWORD is required/u);
-assert.doesNotMatch(projectionCommand, /PASSWORD 'zoen_projection'/u);
-assert.doesNotMatch(projectionCommand, /PASSWORD '\{\{/u);
+assert.match(projectionCommand, /ALTER ROLE/u);
+assertNoLiteralPassword(projectionCommand, "projection-role Job");
 
 const zoend = deployments(application, "zoend");
 assert.equal(zoend.length, 1);
@@ -166,6 +185,14 @@ function containerEnv(resource, containerName) {
     (item) => item.name === containerName,
   );
   return container?.env ?? [];
+}
+
+function assertNoLiteralPassword(text, label) {
+  assert.doesNotMatch(
+    text ?? "",
+    /PASSWORD '/u,
+    `${label} must not contain PASSWORD 'literal'`,
+  );
 }
 
 function assertSecretEnv(resource, containerName, envName, secretKey) {
