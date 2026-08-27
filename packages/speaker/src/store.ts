@@ -6,11 +6,40 @@ import type { StepUpSessionId } from "./brands.js";
 export interface ControlStore {
   putControl(control: InteractionControl): Promise<void>;
   getControl(ref: InteractionControlRef): Promise<InteractionControl | undefined>;
+  /**
+   * Consume a live control in one store-level compare-and-set.
+   * A second concurrent consume must lose and throw.
+   */
+  consumeControl(
+    ref: InteractionControlRef,
+    consumedAt: string,
+  ): Promise<InteractionControl>;
+  /** Tenant+principal rows from durable storage. Caller applies live filters. */
+  listControls(input: {
+    readonly tenantId: string;
+    readonly principalId: string;
+  }): Promise<readonly InteractionControl[]>;
   putStepUp(session: StepUpSession): Promise<void>;
   getStepUp(id: StepUpSessionId): Promise<StepUpSession | undefined>;
   findStepUpByControl(
     controlRef: InteractionControlRef,
   ): Promise<StepUpSession | undefined>;
+}
+
+export function requireUnconsumedControl(
+  entry: InteractionControl | undefined,
+  at: Date,
+): InteractionControl {
+  if (entry === undefined) {
+    throw new Error("unknown InteractionControlRef");
+  }
+  if (entry.consumedAt !== undefined) {
+    throw new Error("InteractionControlRef already consumed");
+  }
+  if (Date.parse(entry.expiresAt) <= at.getTime()) {
+    throw new Error("InteractionControlRef expired");
+  }
+  return entry;
 }
 
 export function createMemoryControlStore(): ControlStore {
@@ -24,6 +53,19 @@ export function createMemoryControlStore(): ControlStore {
     },
     async getControl(ref) {
       return controls.get(ref);
+    },
+    async consumeControl(ref, consumedAt) {
+      const live = requireUnconsumedControl(controls.get(ref), new Date(consumedAt));
+      const consumed: InteractionControl = { ...live, consumedAt };
+      controls.set(ref, consumed);
+      return consumed;
+    },
+    async listControls(input) {
+      return [...controls.values()].filter(
+        (control) =>
+          control.tenantId === input.tenantId &&
+          control.principalId === input.principalId,
+      );
     },
     async putStepUp(session) {
       stepUps.set(session.id, session);
@@ -87,15 +129,36 @@ export function createPostgresControlStore(
     },
 
     async getControl(ref) {
+      return getStoredControl(client, ref);
+    },
+
+    async consumeControl(ref, consumedAt) {
+      const live = requireUnconsumedControl(await getStoredControl(client, ref), new Date(consumedAt));
+      const consumed: InteractionControl = { ...live, consumedAt };
       const result = await client.query(
-        `SELECT payload FROM interaction_controls WHERE ref = $1`,
-        [ref],
+        `UPDATE interaction_controls
+         SET consumed_at = $2,
+             payload = $3
+         WHERE ref = $1
+           AND consumed_at IS NULL
+           AND expires_at > $2::timestamptz
+         RETURNING payload`,
+        [ref, consumedAt, JSON.stringify(consumed)],
       );
-      const row = result.rows[0];
-      if (row === undefined) {
-        return undefined;
+      if (result.rows[0] === undefined) {
+        requireUnconsumedControl(await getStoredControl(client, ref), new Date(consumedAt));
+        throw new Error("InteractionControlRef already consumed");
       }
-      return parsePayload<InteractionControl>(row.payload);
+      return consumed;
+    },
+
+    async listControls(input) {
+      const result = await client.query(
+        `SELECT payload FROM interaction_controls
+         WHERE tenant_id = $1 AND principal_id = $2`,
+        [input.tenantId, input.principalId],
+      );
+      return result.rows.map((row) => parsePayload<InteractionControl>(row.payload));
     },
 
     async putStepUp(session) {
@@ -153,6 +216,21 @@ export function createPostgresControlStore(
       return parsePayload<StepUpSession>(row.payload);
     },
   };
+}
+
+async function getStoredControl(
+  client: PostgresControlStoreClient,
+  ref: InteractionControlRef,
+): Promise<InteractionControl | undefined> {
+  const result = await client.query(
+    `SELECT payload FROM interaction_controls WHERE ref = $1`,
+    [ref],
+  );
+  const row = result.rows[0];
+  if (row === undefined) {
+    return undefined;
+  }
+  return parsePayload<InteractionControl>(row.payload);
 }
 
 function parsePayload<T>(value: unknown): T {

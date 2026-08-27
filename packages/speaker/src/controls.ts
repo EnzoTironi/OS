@@ -5,7 +5,7 @@ import {
   type InteractionControlRef,
   type ProposalRef,
 } from "./brands.js";
-import { type ControlStore } from "./store.js";
+import { requireUnconsumedControl, type ControlStore } from "./store.js";
 import type {
   ApprovalControl,
   InteractionControl,
@@ -35,7 +35,6 @@ export function createInteractionControlRegistry(
 ): InteractionControlRegistry {
   const now = options.now ?? (() => new Date());
   const store = options.store;
-  const liveIndex = new Map<string, InteractionControlRef[]>();
 
   return {
     async issue(input) {
@@ -75,9 +74,6 @@ export function createInteractionControlRegistry(
         tenantId: input.tenantId,
       };
       await store.putControl(entry);
-      const key = indexKey(input.tenantId, input.principalId);
-      const existing = liveIndex.get(key) ?? [];
-      liveIndex.set(key, [...existing, ref]);
       return ref;
     },
 
@@ -91,26 +87,23 @@ export function createInteractionControlRegistry(
     },
 
     async consume(ref) {
-      const live = await requireLive(store, ref, now());
-      const consumed: InteractionControl = {
-        ...live,
-        consumedAt: now().toISOString(),
-      };
-      await store.putControl(consumed);
-      return consumed;
+      return store.consumeControl(ref, now().toISOString());
     },
 
     async listLiveApprovals(input) {
-      const refs = liveIndex.get(indexKey(input.tenantId, input.principalId)) ?? [];
+      const at = now();
       const out: ApprovalControl[] = [];
-      for (const ref of refs) {
+      for (const entry of await store.listControls(input)) {
+        if (entry.consumedAt !== undefined) {
+          continue;
+        }
+        if (Date.parse(entry.expiresAt) <= at.getTime()) {
+          continue;
+        }
         try {
-          const live = await requireLive(store, ref, now());
-          if (live.disclosure !== undefined && live.proposalRef !== undefined) {
-            out.push(asApprovalControl(live));
-          }
+          out.push(asApprovalControl(entry));
         } catch {
-          // expired / consumed drop out of the live set
+          // non-approval controls stay out of the live approval set
         }
       }
       return out;
@@ -125,26 +118,12 @@ export function issueApprovalControl(
   return registry.issueApproval(input);
 }
 
-function indexKey(tenantId: string, principalId: string): string {
-  return `${tenantId}|${principalId}`;
-}
-
 async function requireLive(
   store: ControlStore,
   ref: InteractionControlRef,
   at: Date,
 ): Promise<InteractionControl> {
-  const entry = await store.getControl(ref);
-  if (entry === undefined) {
-    throw new Error("unknown InteractionControlRef");
-  }
-  if (entry.consumedAt !== undefined) {
-    throw new Error("InteractionControlRef already consumed");
-  }
-  if (Date.parse(entry.expiresAt) <= at.getTime()) {
-    throw new Error("InteractionControlRef expired");
-  }
-  return entry;
+  return requireUnconsumedControl(await store.getControl(ref), at);
 }
 
 export function asApprovalControl(control: InteractionControl): ApprovalControl {
