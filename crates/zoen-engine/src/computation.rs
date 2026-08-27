@@ -180,15 +180,8 @@ impl ComputationLimits {
 
 impl Default for ComputationLimits {
     fn default() -> Self {
-        Self {
-            deadline_millis: 2_000,
-            fuel: 5_000_000,
-            instances: 4,
-            memories: 2,
-            memory_bytes: 8 * 1024 * 1024,
-            table_elements: 1_024,
-            tables: 2,
-        }
+        Self::new(5_000_000, 8 * 1024 * 1024, 1_024, 4, 2, 2, 2_000)
+            .expect("default limits are nonzero and at or below MAX_*")
     }
 }
 
@@ -720,5 +713,22 @@ mod tests {
         assert_eq!(limits.tables(), 2);
         assert_eq!(limits.memories(), 2);
         assert_eq!(limits.deadline_millis(), 2_000);
+    }
+
+    #[test]
+    fn default_resource_limits_are_the_intended_budget() {
+        let limits = ComputationLimits::default();
+        assert_eq!(limits.fuel(), 5_000_000);
+        assert_eq!(limits.memory_bytes(), 8 * 1024 * 1024);
+        assert_eq!(limits.table_elements(), 1_024);
+        assert_eq!(limits.instances(), 4);
+        assert_eq!(limits.tables(), 2);
+        assert_eq!(limits.memories(), 2);
+        assert_eq!(limits.deadline_millis(), 2_000);
+        assert_eq!(
+            limits,
+            ComputationLimits::new(5_000_000, 8 * 1024 * 1024, 1_024, 4, 2, 2, 2_000)
+                .expect("intended default")
+        );
     }
 }
