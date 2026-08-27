@@ -64,7 +64,8 @@ export type ReasonTurnGenerate = "ok" | "throw";
 /**
  * Live outbound for one Interaction turn.
  * `href` is always present: a URL or null. Empty `bubbles` means wait (no send).
- * Visible text is speak_to_user, or the single fail copy on noModel/threw/lookupFail.
+ * Visible text is speak_to_user, or the single fail copy on noModel/lookupFail.
+ * `threw` is an empty send: log the throw, do not invent consult or rival speech.
  */
 export interface OutboundTurn {
   readonly bubbles: string[];
@@ -142,6 +143,7 @@ export interface ReasonTurnLog {
  * Outputs: conversational bubbles and at most one https URL. Empty bubbles mean wait (no send).
  * A successful generate that never called speak_to_user on non-empty inbound is a lookup fail, not a wait.
  * Closing inbound should call the `wait` tool. That is an empty send, not a lookup fail.
+ * Generate throw is also an empty send. The host does not invent consult copy.
  * Side effects: claims the burst on the coordinator and advances attempt phases.
  * Does not invent OrderLines. Does not echo inbound as "Recebi".
  */
@@ -503,10 +505,12 @@ async function reasonTurn(input: {
       prompt: input.prompt,
     });
   } catch {
+    scratch.bubbles.length = 0;
+    scratch.href = undefined;
     return {
       generate: "throw",
       path: "threw",
-      scratch: applyFailCopy(scratch, input.locale),
+      scratch,
     };
   }
   if (scratch.writeFail !== undefined) {

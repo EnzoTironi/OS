@@ -510,6 +510,26 @@ test("valeu via wait tool stays empty, not a host-classified ack", async () => {
   assertReasonTurn(result, "wait", 0, "ok");
 });
 
+test("valeu generate throw stays silent, not consult fail copy", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("valeu"),
+    membership: membership("valeu-threw"),
+    model: throwOnGenerateModel(),
+  });
+  assertSilentThrow(result, 0);
+});
+
+test("valeu wait then generate throw stays silent, not consult fail copy", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("valeu"),
+    membership: membership("valeu-wait-threw"),
+    model: waitThenThrowModel(),
+  });
+  assertSilentThrow(result, 0);
+});
+
 test("wait tool produces no Recebi and no helpdesk", async () => {
   const scratch = createInteractionScratch();
   const tools = createInteractionTools(scratch);
@@ -888,24 +908,18 @@ test("note tool does not mint a login URL", async () => {
   assert.equal(scratch.href, undefined);
 });
 
-test("generate throw is fail copy, not rival speech", async () => {
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      throw new Error("generate failed");
-    },
-  });
+test("generate throw stays silent, not consult or rival speech", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
     inbound: textInbound("quanto ficou a cotacao"),
     membership: membership("threw"),
-    model,
+    model: throwOnGenerateModel(),
     world: twoRivalWorld(),
   });
   const sent = outboundBubbles(result).join("\n");
-  assert.deepEqual(result.bubbles, ["não consegui consultar agora"]);
+  assertSilentThrow(result, 2);
   assert.doesNotMatch(sent, /Tem mais de uma leitura/);
   assert.doesNotMatch(sent, /10 each|12 each/);
-  assertReasonTurn(result, "threw", 2, "throw");
 });
 
 function silentStopModel(): MockLanguageModelV3 {
@@ -932,25 +946,34 @@ function twoRivalWorld(): WorldQueryClient {
   };
 }
 
+function throwOnGenerateModel(): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      throw new Error("generate failed");
+    },
+  });
+}
+
+function waitThenThrowModel(): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return waitCall();
+      }
+      throw new Error("generate failed after wait");
+    },
+  });
+}
+
 function waitThenStopModel(): MockLanguageModelV3 {
   let step = 0;
   return new MockLanguageModelV3({
     doGenerate: async () => {
       step += 1;
       if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({}),
-              toolCallId: "call_wait",
-              toolName: "wait",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
+        return waitCall();
       }
       return stopCall();
     },
@@ -1014,19 +1037,7 @@ function delayedWaitModel(ms: number): MockLanguageModelV3 {
       step += 1;
       if (step === 1) {
         await delay(ms);
-        return {
-          content: [
-            {
-              input: JSON.stringify({}),
-              toolCallId: "call_wait",
-              toolName: "wait",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
+        return waitCall();
       }
       return stopCall();
     },
@@ -1054,6 +1065,22 @@ function delayedSpeakModel(text: string, ms: number): MockLanguageModelV3 {
       return stopCall();
     },
   });
+}
+
+function waitCall(): LanguageModelV3GenerateResult {
+  return {
+    content: [
+      {
+        input: JSON.stringify({}),
+        toolCallId: "call_wait",
+        toolName: "wait",
+        type: "tool-call",
+      },
+    ],
+    finishReason: { raw: "tool-calls", unified: "tool-calls" },
+    usage: usage(),
+    warnings: [],
+  };
 }
 
 function speakCall(text: string): LanguageModelV3GenerateResult {
@@ -1098,6 +1125,17 @@ function assertReasonTurn(
   assert.equal(result.reasonTurn.path, path);
   assert.equal(result.reasonTurn.rivals, rivals);
   assert.equal(result.reasonTurn.generate, generate);
+}
+
+function assertSilentThrow(result: OutboundTurn, rivals: number): void {
+  const sent = outboundBubbles(result).join("\n");
+  assert.deepEqual(result.bubbles, []);
+  assert.equal(result.href, null);
+  assert.deepEqual(outboundBubbles(result), []);
+  assert.doesNotMatch(sent, /não consegui consultar agora/);
+  assert.doesNotMatch(sent, /couldn't look that up/);
+  assert.doesNotMatch(sent, /\/approve\//);
+  assertReasonTurn(result, "threw", rivals, "throw");
 }
 
 function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {
