@@ -36,6 +36,8 @@ runtimeSecret:
   projectionDatabaseUrlKey: projectionDatabaseUrl
   postgresAdminPasswordKey: postgresAdminPassword
   postgresApplicationPasswordKey: postgresApplicationPassword
+  postgresProjectionPasswordKey: postgresProjectionPassword
+  postgresReplicationPasswordKey: postgresReplicationPassword
   s3AccessKeyIdKey: s3AccessKeyId
   s3SecretAccessKeyKey: s3SecretAccessKey
   harnessBindingKeyKey: harnessBindingKey

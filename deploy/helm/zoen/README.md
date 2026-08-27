@@ -19,7 +19,7 @@ Create `zoen-runtime` in each application namespace before installation. The cha
 - `databaseUrl`
 - `projectionDatabaseUrl` for the projection worker
 - `databaseUrlTenantA`, and `databaseUrlTenantB` for the shared profile
-- `postgresAdminPassword` and `postgresApplicationPassword` for reference PostgreSQL
+- `postgresAdminPassword`, `postgresApplicationPassword`, `postgresProjectionPassword`, and `postgresReplicationPassword` for reference PostgreSQL
 - `s3AccessKeyId` and `s3SecretAccessKey`
 - `harnessBindingKey`, `harnessClientSecretA`, and `harnessClientSecretB`
 - `connectorCallerToken`, `connectorCredentials`, and `workerCredentialRefs`

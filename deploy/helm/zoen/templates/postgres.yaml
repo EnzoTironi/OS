@@ -93,9 +93,19 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.runtimeSecret.name }}
                   key: {{ .Values.runtimeSecret.postgresAdminPasswordKey }}
+            - name: POSTGRES_PROJECTION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.postgresProjectionPasswordKey }}
             - name: POSTGRES_USER
               value: postgres
             {{- if $ha }}
+            - name: POSTGRES_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.postgresReplicationPasswordKey }}
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -215,7 +225,10 @@ spec:
             - name: POSTGRES_PRIMARY_HOST
               value: postgres
             - name: POSTGRES_REPLICATION_PASSWORD
-              value: replicator
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.postgresReplicationPasswordKey }}
             - name: POSTGRES_ROLE
               value: replica
             - name: POSTGRES_USER

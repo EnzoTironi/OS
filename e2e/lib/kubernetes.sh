@@ -309,6 +309,8 @@ zoen_create_runtime_secret() {
     --from-literal=harnessClientSecretB=harness-b-secret \
     --from-literal=postgresAdminPassword=postgres \
     --from-literal=postgresApplicationPassword=zoen_app \
+    --from-literal=postgresProjectionPassword=zoen_projection \
+    --from-literal=postgresReplicationPassword=replicator \
     --from-literal=s3AccessKeyId=zoen-access \
     --from-literal=s3SecretAccessKey=zoen-secret \
     --from-literal=workerCredentialRefs='{"tenant.a":"secret.provider.a","tenant.b":"secret.provider.b"}' \

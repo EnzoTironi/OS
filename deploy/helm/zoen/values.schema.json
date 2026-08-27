@@ -330,6 +330,8 @@
         "name",
         "postgresAdminPasswordKey",
         "postgresApplicationPasswordKey",
+        "postgresProjectionPasswordKey",
+        "postgresReplicationPasswordKey",
         "projectionDatabaseUrlKey",
         "s3AccessKeyIdKey",
         "s3SecretAccessKeyKey",
@@ -345,6 +347,8 @@
         "name": { "$ref": "#/definitions/kubernetesName" },
         "postgresAdminPasswordKey": { "$ref": "#/definitions/secretKey" },
         "postgresApplicationPasswordKey": { "$ref": "#/definitions/secretKey" },
+        "postgresProjectionPasswordKey": { "$ref": "#/definitions/secretKey" },
+        "postgresReplicationPasswordKey": { "$ref": "#/definitions/secretKey" },
         "s3AccessKeyIdKey": { "$ref": "#/definitions/secretKey" },
         "s3SecretAccessKeyKey": { "$ref": "#/definitions/secretKey" },
         "workerCredentialRefsKey": { "$ref": "#/definitions/secretKey" }

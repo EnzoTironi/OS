@@ -7,19 +7,31 @@ metadata:
   labels:
     {{- include "zoen.labels" . | nindent 4 }}
 data:
-  001-roles.sql: |
-    CREATE EXTENSION vector;
-    CREATE ROLE zoen_app
+  001-projection-role.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    if [ -z "${POSTGRES_PROJECTION_PASSWORD:-}" ]; then
+      echo "001-projection-role: POSTGRES_PROJECTION_PASSWORD is required" >&2
+      exit 1
+    fi
+    psql -v ON_ERROR_STOP=1 \
+      --username "$POSTGRES_USER" \
+      --dbname "$POSTGRES_DB" \
+      --set=projection_password="${POSTGRES_PROJECTION_PASSWORD}" <<SQL
+    CREATE ROLE {{ .Values.postgres.projectionUser }}
       LOGIN
-      PASSWORD 'zoen_app'
+      PASSWORD :'projection_password'
       NOSUPERUSER
       NOCREATEDB
       NOCREATEROLE
       NOINHERIT
       NOBYPASSRLS;
-    CREATE ROLE {{ .Values.postgres.projectionUser }}
+    SQL
+  001-roles.sql: |
+    CREATE EXTENSION vector;
+    CREATE ROLE zoen_app
       LOGIN
-      PASSWORD '{{ .Values.postgres.projectionUser }}'
+      PASSWORD 'zoen_app'
       NOSUPERUSER
       NOCREATEDB
       NOCREATEROLE
@@ -144,11 +156,22 @@ data:
       USING (tenant_id = current_setting('zoen.tenant_id', true))
       WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
   {{- if $ha }}
-  004-replication.sql: |
+  004-replication.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    if [ -z "${POSTGRES_REPLICATION_PASSWORD:-}" ]; then
+      echo "004-replication: POSTGRES_REPLICATION_PASSWORD is required" >&2
+      exit 1
+    fi
+    psql -v ON_ERROR_STOP=1 \
+      --username "$POSTGRES_USER" \
+      --dbname "$POSTGRES_DB" \
+      --set=replication_password="${POSTGRES_REPLICATION_PASSWORD}" <<SQL
     CREATE ROLE replicator
       REPLICATION
       LOGIN
-      PASSWORD 'replicator';
+      PASSWORD :'replication_password';
+    SQL
   005-replication-hba.sh: |
     #!/bin/bash
     set -euo pipefail

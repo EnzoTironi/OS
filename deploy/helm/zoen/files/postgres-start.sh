@@ -48,12 +48,16 @@ start_primary() {
 }
 
 start_replica() {
+  if [[ -z "${POSTGRES_REPLICATION_PASSWORD:-}" ]]; then
+    echo "postgres-start: POSTGRES_REPLICATION_PASSWORD is required" >&2
+    exit 1
+  fi
   mkdir -p "${PGDATA}"
   if [[ ! -s "${PGDATA}/PG_VERSION" ]]; then
     until pg_isready -h "${POSTGRES_PRIMARY_HOST}" -U postgres -d zoen; do
       sleep 1
     done
-    export PGPASSWORD="${POSTGRES_REPLICATION_PASSWORD:-replicator}"
+    export PGPASSWORD="${POSTGRES_REPLICATION_PASSWORD}"
     rm -rf "${PGDATA:?}/"*
     pg_basebackup \
       -h "${POSTGRES_PRIMARY_HOST}" \
