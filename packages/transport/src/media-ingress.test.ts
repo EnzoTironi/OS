@@ -21,6 +21,19 @@ test("companion media fields are rejected", () => {
       error instanceof MediaIngressError && error.code === "media_not_supported",
   );
   rejectWhatsAppMediaFields({ body: "oi" });
+  rejectWhatsAppMediaFields({
+    body: "",
+    filename: "quote.xlsx",
+    mediaKind: "document",
+    mediaRef: "/tmp/zoen-wa-pair/media/wamid.xlsx",
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  rejectWhatsAppMediaFields({
+    body: "",
+    mediaKind: "audio",
+    mediaRef: "/tmp/zoen-wa-pair/media/wamid.ogg",
+    mime: "audio/ogg; codecs=opus",
+  });
 });
 
 test("future media blobs fail closed on type, size, content, and provenance", () => {
