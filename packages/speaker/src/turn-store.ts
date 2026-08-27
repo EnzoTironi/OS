@@ -6,7 +6,6 @@ import type {
   TenantIdString,
   TurnAttemptId,
 } from "./brands.js";
-import { conversationKeyFromChannel } from "./conversation-kind.js";
 import type {
   ConversationTurn,
   DeliveryIntent,
@@ -29,14 +28,6 @@ export interface PendingInteraction {
 export interface TurnStore {
   putRecord(record: InteractionRecord): Promise<void>;
   getRecord(id: InteractionId): Promise<InteractionRecord | undefined>;
-  /**
-   * Newest inbounds for one conversation, newest last, hard-capped.
-   * Does not scan other conversations.
-   */
-  listRecentRecords(input: {
-    readonly conversationKey: ConversationKey;
-    readonly limit: number;
-  }): Promise<readonly InteractionRecord[]>;
 
   enqueuePending(input: {
     readonly conversationKey: ConversationKey;
@@ -121,16 +112,6 @@ export function createMemoryTurnStore(): TurnStore {
     },
     async getRecord(id) {
       return records.get(id);
-    },
-    async listRecentRecords(input) {
-      const matching: InteractionRecord[] = [];
-      for (const record of records.values()) {
-        const key = conversationKeyFromRecord(record);
-        if (key === input.conversationKey) {
-          matching.push(record);
-        }
-      }
-      return sortRecentRecords(matching, input.limit);
     },
     async enqueuePending(input) {
       const list = pending.get(input.conversationKey) ?? [];
@@ -258,33 +239,6 @@ export function createPostgresTurnStore(
         [id],
       );
       return parseRow<InteractionRecord>(result.rows[0]);
-    },
-    async listRecentRecords(input) {
-      const result = await client.query(
-        `WITH ids AS (
-           SELECT interaction_id AS id
-           FROM conversation_pending
-           WHERE conversation_key = $1
-           UNION
-           SELECT jsonb_array_elements_text(claimed_interaction_ids)
-           FROM turn_attempts
-           WHERE conversation_key = $1
-           UNION
-           SELECT jsonb_array_elements_text(carry_forward_interaction_ids)
-           FROM turn_attempts
-           WHERE conversation_key = $1
-         )
-         SELECT ir.payload
-         FROM interaction_records ir
-         INNER JOIN ids ON ids.id = ir.id
-         ORDER BY ir.accepted_at DESC, ir.id DESC
-         LIMIT $2`,
-        [input.conversationKey, recentRecordLimit(input.limit)],
-      );
-      return result.rows
-        .map((row) => parseRow<InteractionRecord>(row))
-        .filter((row): row is InteractionRecord => row !== undefined)
-        .reverse();
     },
     async enqueuePending(input) {
       await client.query(
@@ -590,43 +544,6 @@ function parseRow<T>(row: Record<string, unknown> | undefined): T | undefined {
     return JSON.parse(value) as T;
   }
   return value as T;
-}
-
-function conversationKeyFromRecord(
-  record: InteractionRecord,
-): ConversationKey | undefined {
-  try {
-    return conversationKeyFromChannel({
-      accountId: record.ctx.accountId,
-      channel: record.ctx.channel,
-      tenantId: String(record.ctx.tenantId),
-      workspaceId: record.ctx.workloadId,
-    });
-  } catch {
-    return undefined;
-  }
-}
-
-function recentRecordLimit(limit: number): number {
-  if (!Number.isFinite(limit)) {
-    return 0;
-  }
-  return Math.max(0, Math.floor(limit));
-}
-
-function sortRecentRecords(
-  records: readonly InteractionRecord[],
-  limit: number,
-): InteractionRecord[] {
-  return [...records]
-    .sort((left, right) => {
-      const byTime = left.acceptedAt.localeCompare(right.acceptedAt);
-      if (byTime !== 0) {
-        return byTime;
-      }
-      return String(left.id).localeCompare(String(right.id));
-    })
-    .slice(-recentRecordLimit(limit));
 }
 
 function assertNoCarriedMessagesBlob(attempt: TurnAttempt): void {

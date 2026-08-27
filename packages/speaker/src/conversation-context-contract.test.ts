@@ -28,7 +28,7 @@ import {
   turnAttemptId,
 } from "./brands.js";
 import { createConversationTurnCoordinator } from "./turn-coordinator.js";
-import { createMemoryTurnStore } from "./turn-store.js";
+import { createMemoryTurnStore, type TurnStore } from "./turn-store.js";
 import type { InteractionRecord, TrustedInteractionContext } from "./types.js";
 import type { WorldQueryClient } from "./world-query.js";
 
@@ -81,6 +81,25 @@ function keyFor(ctx: TrustedInteractionContext) {
     provider: String(ctx.channel.provider),
     tenantId: String(ctx.tenantId),
     workspaceId: ctx.workloadId,
+  });
+}
+
+async function putClaimed(
+  store: TurnStore,
+  ctx: TrustedInteractionContext,
+  stored: InteractionRecord,
+  nonce: string,
+): Promise<void> {
+  await store.putRecord(stored);
+  await store.putAttempt({
+    carryForwardInteractionIds: [],
+    claimedInteractionIds: [stored.id],
+    conversationKey: keyFor(ctx),
+    id: turnAttemptId(`att_${nonce}`),
+    observedCommitRefs: [],
+    openedAt: stored.acceptedAt,
+    phase: { kind: "completed" },
+    turnId: conversationTurnId(`turn_${nonce}`),
   });
 }
 
@@ -466,7 +485,6 @@ test("assembler without world yields only inbound", async () => {
   await store.putRecord(inbound);
   const envelope = await assembleTurnContext({
     assembler: createLiveConversationAssembler({
-      env: {},
       now,
       store,
     }),
@@ -534,6 +552,7 @@ test("assembler with world client projects a world block", async () => {
   assert.match(envelope.projection.data, /source\.sheet/);
   assert.match(envelope.projection.data, /10 each/);
   assert.doesNotMatch(envelope.projection.data, /commercial\.order-line\.dirty-quote/);
+  assert.doesNotMatch(envelope.projection.data, /trustClass: personal_memory/);
 });
 
 test("prior conversation messages appear when the store has older records for the same key", async () => {
@@ -554,18 +573,22 @@ test("prior conversation messages appear when the store has older records for th
     acceptedAt: "2026-08-26T15:00:00.000Z",
   };
   const decoy = record(other, "segredo de outra conversa", "prior-decoy");
-  await store.putRecord(older);
   await store.putRecord(current);
   await store.putRecord(decoy);
+  await putClaimed(store, ctx, older, "prior-old");
   for (let index = 0; index < RECENT_CONVERSATION_INTERACTION_LIMIT + 2; index += 1) {
-    await store.putRecord({
-      ...record(ctx, `antigo ${String(index)}`, `prior-extra-${String(index)}`),
-      acceptedAt: `2026-08-26T13:${String(index).padStart(2, "0")}:00.000Z`,
-    });
+    await putClaimed(
+      store,
+      ctx,
+      {
+        ...record(ctx, `antigo ${String(index)}`, `prior-extra-${String(index)}`),
+        acceptedAt: `2026-08-26T13:${String(index).padStart(2, "0")}:00.000Z`,
+      },
+      `prior-extra-${String(index)}`,
+    );
   }
   const envelope = await assembleTurnContext({
     assembler: createLiveConversationAssembler({
-      env: {},
       now,
       store,
     }),
@@ -628,7 +651,6 @@ test("prior speaker bubbles ride the next assemble so a parse cannot be invented
   });
   const envelope = await assembleTurnContext({
     assembler: createLiveConversationAssembler({
-      env: {},
       now,
       store,
     }),

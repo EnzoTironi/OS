@@ -14,6 +14,7 @@ import {
   type SemanticQueryRequest,
 } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
+  createLazyWorldQueryClientFromEnv,
   createOsdkWorldQueryClient,
   createWorldQueryClientFromEnv,
   defaultCommercialDefinitionPath,
@@ -52,6 +53,21 @@ test("createWorldQueryClientFromEnv skips without zoend World credentials", () =
     }),
     undefined,
   );
+});
+
+test("createLazyWorldQueryClientFromEnv re-reads env after construct", async () => {
+  const env: NodeJS.ProcessEnv = {};
+  const lazy = createLazyWorldQueryClientFromEnv(env);
+  const query = {
+    membershipId: "membership.wa.enzo",
+    tenantId: "tenant.a",
+  };
+  assert.equal(await lazy.semanticQuery(query), undefined);
+  assert.equal(createWorldQueryClientFromEnv(env), undefined);
+  env.ZOEN_AGENT_BEARER_TOKEN = "token";
+  env.ZOEN_WORLD_BASE_URL = "https://world.zoen.local";
+  env.ZOEN_WORLD_DEFINITION_PATH = defaultCommercialDefinitionPath();
+  assert.ok(createWorldQueryClientFromEnv(env));
 });
 
 test("fake OsdkWorld semanticQuery becomes snapshot rivals/notes/href without entity-id dumps", async () => {

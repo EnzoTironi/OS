@@ -9,6 +9,7 @@ import {
   createInteractionBoundary,
   createInteractionControlRegistry,
   createInteractionScratch,
+  createLazyWorldQueryClientFromEnv,
   createLiveConversationAssembler,
   createMemoryControlStore,
   createMemoryTurnStore,
@@ -314,10 +315,10 @@ export function createWhatsAppContactLoop(
     createLiveConversationAssembler({
       now,
       store,
+      world: createLazyWorldQueryClientFromEnv(),
     });
   const outboundByAttempt = new Map<string, Map<string, string>>();
   const coordinator = createConversationTurnCoordinator({
-    assembler,
     debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
     deliver: async (intent: DeliveryIntent) => {
       const attemptId = intent.turnAttemptId;

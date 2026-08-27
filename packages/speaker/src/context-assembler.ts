@@ -26,11 +26,7 @@ import {
   type ConversationKind,
 } from "./conversation-kind.js";
 import { projectConversationContext } from "./context-project.js";
-import {
-  createHistoryQueryClientFromEnv,
-  type HistoryQueryClient,
-} from "./history-query.js";
-import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
+import type { HistoryQueryClient } from "./history-query.js";
 import type { TurnStore } from "./turn-store.js";
 import type {
   AudienceObservation,
@@ -312,27 +308,30 @@ async function loadRecentConversationRecords(
   store: TurnStore,
   request: ConversationContextRetrieveRequest,
 ): Promise<readonly InteractionRecord[]> {
-  const recent = await store.listRecentRecords({
-    conversationKey: conversationKey(request.conversationKey),
-    limit: RECENT_CONVERSATION_INTERACTION_LIMIT,
-  });
-  const byId = new Map<string, InteractionRecord>();
-  for (const stored of recent) {
-    byId.set(String(stored.id), stored);
-  }
-  for (const id of uniqueIds([
+  const attempts = [...(await store.listAttempts(
+    conversationKey(request.conversationKey),
+  ))].sort((left, right) => left.openedAt.localeCompare(right.openedAt));
+  const ids = uniqueIds([
+    ...attempts.flatMap((attempt) =>
+      attempt.claimedInteractionIds.map((id) => String(id)),
+    ),
     ...request.claimedInteractionIds,
     ...request.carryForwardInteractionIds,
-  ])) {
-    if (byId.has(id)) {
-      continue;
-    }
+  ]).slice(-RECENT_CONVERSATION_INTERACTION_LIMIT);
+  const records: InteractionRecord[] = [];
+  for (const id of ids) {
     const stored = await store.getRecord(interactionId(id));
     if (stored !== undefined) {
-      byId.set(id, stored);
+      records.push(stored);
     }
   }
-  return [...byId.values()];
+  return records.sort((left, right) => {
+    const byTime = left.acceptedAt.localeCompare(right.acceptedAt);
+    if (byTime !== 0) {
+      return byTime;
+    }
+    return String(left.id).localeCompare(String(right.id));
+  });
 }
 
 async function loadRecentSpokenBubbles(
@@ -515,7 +514,6 @@ export function defaultConversationSources(input: {
   }
   if (input.world !== undefined) {
     sources.push(createWorldConversationSource(input.world));
-    sources.push(createPersonalMemoryConversationSource(input.world));
   }
   if (input.history !== undefined) {
     sources.push(createHistoryConversationSource(input.history));
@@ -524,26 +522,22 @@ export function defaultConversationSources(input: {
 }
 
 /**
- * Context: live bound turns after membership resolve (WhatsApp serve / contact loop).
- * Inputs: turn store plus optional World/History. Omitted clients are built from
- * the same zoend env as World (`ZOEN_WORLD_*` / `ZOEN_IDENTITY_*` / agent bearer).
- * No new secrets. Unset env keeps the store-only path.
- * Outputs: assembler with interaction, world, personal memory, and history sources.
- * Side effects: none at construction. Sources query when assemble runs.
+ * Context: serve/loop composition root for bound WhatsApp.
+ * Inputs: turn store plus an injected World client (loop passes a lazy
+ * fromEnv so remint is re-read on retrieve). No History. No personal.Note
+ * against the commercial World client.
+ * Outputs: assembler with interaction and optional world sources.
  */
 export function createLiveConversationAssembler(input: {
   readonly store: TurnStore;
-  readonly env?: NodeJS.ProcessEnv;
-  readonly history?: HistoryQueryClient;
   readonly now?: () => Date;
   readonly world?: WorldQueryClient;
 }): ConversationContextAssembler {
   return createConversationContextAssembler({
     now: input.now,
     sources: defaultConversationSources({
-      history: input.history ?? createHistoryQueryClientFromEnv(input.env),
       store: input.store,
-      world: input.world ?? createWorldQueryClientFromEnv(input.env),
+      world: input.world,
     }),
   });
 }
@@ -842,7 +836,10 @@ export async function assembleTurnContext(input: {
     input.inbound ?? inboundFromBody(records.at(-1)?.inbound.body);
   const conversationKind = conversationKindFromChannel(membership.channel);
   const assembler =
-    input.assembler ?? createLiveConversationAssembler({ store: input.store });
+    input.assembler ??
+    createConversationContextAssembler({
+      sources: defaultConversationSources({ store: input.store }),
+    });
   return assembler.assembleBound({
     attemptId: String(input.attempt.id),
     audienceKind:

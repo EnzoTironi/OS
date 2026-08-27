@@ -1006,7 +1006,6 @@ test("bound 1:1 Jobs bar: greeting fail-open, prior chat and world ride the next
     },
   };
   const assembler = createLiveConversationAssembler({
-    env: {},
     store,
     world,
   });

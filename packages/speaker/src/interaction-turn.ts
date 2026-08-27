@@ -8,7 +8,7 @@ import {
   assembleTurnContext,
   audienceKindFromMembership,
   createConversationContextAssembler,
-  createLiveConversationAssembler,
+  defaultConversationSources,
   type ConversationContextAssembler,
   type ConversationWorkspaceKind,
 } from "./context-assembler.js";
@@ -16,6 +16,10 @@ import {
   conversationKeyFromChannel,
   conversationKeyFromKind,
 } from "./conversation-kind.js";
+import {
+  applyGreetingCopy,
+  isGreetingInbound,
+} from "./greeting-policy.js";
 import type {
   ConversationAudienceKind,
   ConversationContextDocument,
@@ -51,6 +55,8 @@ import {
   looksLikeEntityId,
   type WorldQueryClient,
 } from "./world-query.js";
+
+export { isGreetingInbound };
 
 export type ReasonTurnPath =
   | "lookupFail"
@@ -186,11 +192,13 @@ export async function runInteractionTurn(
     input.audienceKind ?? audienceKindFromMembership(ctx);
   const assembler =
     input.assembler ??
-    createLiveConversationAssembler({
-      history: input.history,
+    createConversationContextAssembler({
       now,
-      store,
-      world: input.world,
+      sources: defaultConversationSources({
+        history: input.history,
+        store,
+        world: input.world,
+      }),
     });
   const envelope = await assembleTurnContext({
     assembler,
@@ -538,7 +546,7 @@ async function reasonTurn(input: {
       scratch: applyWriteFail(scratch, input.locale, scratch.writeFail),
     };
   }
-  if (scratch.waited && !isGreetingInbound(input.inboundText)) {
+  if (scratch.waited) {
     scratch.bubbles.length = 0;
     scratch.href = undefined;
     return { generate: "ok", path: "wait", scratch };
@@ -577,32 +585,6 @@ function emitReasonTurnLog(reasonTurn: OutboundTurn["reasonTurn"]): void {
   process.stderr.write(`${JSON.stringify(line)}\n`);
 }
 
-/**
- * Context: bound 1:1 inbound that is only a greeting token.
- * Inputs: raw inbound text. Accents and trailing punctuation are ignored.
- * Outputs: true for oi / e aí / fala / hi / hey. Consult text stays false.
- */
-export function isGreetingInbound(text: string): boolean {
-  const normalized = text
-    .trim()
-    .toLowerCase()
-    .normalize("NFC")
-    .replace(/[.!?,:;…]+/gu, "")
-    .replace(/\s+/gu, " ")
-    .trim();
-  switch (normalized) {
-    case "oi":
-    case "e aí":
-    case "e ai":
-    case "fala":
-    case "hi":
-    case "hey":
-      return true;
-    default:
-      return false;
-  }
-}
-
 function applyFailCopy(
   scratch: InteractionScratch,
   locale: InteractionLocale,
@@ -611,17 +593,6 @@ function applyFailCopy(
   scratch.href = undefined;
   scratch.waited = false;
   scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
-  return scratch;
-}
-
-function applyGreetingCopy(
-  scratch: InteractionScratch,
-  locale: InteractionLocale,
-): InteractionScratch {
-  scratch.bubbles.length = 0;
-  scratch.href = undefined;
-  scratch.waited = false;
-  scratch.bubbles.push(locale === "en" ? "hey" : "oi");
   return scratch;
 }
 

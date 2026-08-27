@@ -128,6 +128,25 @@ export function createWorldQueryClientFromEnv(
   });
 }
 
+/**
+ * Call `createWorldQueryClientFromEnv` on every retrieve so a remint
+ * after serve start can start succeeding. Does not capture the bearer
+ * at construct. Missing env stays store-only for that turn.
+ */
+export function createLazyWorldQueryClientFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): WorldQueryClient {
+  return {
+    async semanticQuery(input) {
+      const client = createWorldQueryClientFromEnv(env);
+      if (client === undefined) {
+        return undefined;
+      }
+      return client.semanticQuery(input);
+    },
+  };
+}
+
 export function createConnectOsdkWorld(options: {
   readonly baseUrl: string;
   readonly bearerToken: string;
