@@ -5,6 +5,7 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import path from "node:path";
 import { createClient, type Client, type Interceptor } from "@connectrpc/connect";
@@ -80,6 +81,17 @@ export const providerUrl = e2eHttpUrl(
 export const connectorCallerToken = "connector-worker-token";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
+export const restateIdentityKeys = JSON.stringify([
+  readFileSync(
+    path.join(
+      repositoryRoot,
+      "testdata",
+      "restate-request-identity",
+      "publickeyv1",
+    ),
+    "utf8",
+  ).trim(),
+]);
 
 const composeFile = path.join("e2e", "effects", "compose.yaml");
 const composeProject = "zoen-effects";
@@ -236,6 +248,7 @@ export async function startWorker(tokens: {
       ZOEN_EFFECT_SERVICE_BEARER_TOKENS: JSON.stringify(tokens),
       ZOEN_EFFECT_SERVICE_URL: zoenBaseUrl,
       ZOEN_EFFECT_WORKER_PORT: workerPort.toString(),
+      ZOEN_RESTATE_IDENTITY_KEYS: restateIdentityKeys,
     },
     name: "Restate effect worker",
     port: workerPort,

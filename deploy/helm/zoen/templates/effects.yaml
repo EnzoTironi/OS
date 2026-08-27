@@ -123,6 +123,11 @@ spec:
             {{- include "zoen.telemetryEnv" . | nindent 12 }}
             - name: ZOEN_EFFECT_WORKER_PORT
               value: "9081"
+            - name: ZOEN_RESTATE_IDENTITY_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runtimeSecret.name }}
+                  key: {{ .Values.runtimeSecret.restateRequestIdentityKeysKey }}
           ports:
             - name: restate
               containerPort: 9081

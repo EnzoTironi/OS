@@ -5,6 +5,7 @@ const required = [
   "ZOEN_EFFECT_SERVICE_URL",
   "ZOEN_EFFECT_TOKEN_ENDPOINT",
   "ZOEN_EFFECT_WORKER_PORT",
+  "ZOEN_RESTATE_IDENTITY_KEYS",
 ];
 for (const name of required) {
   if (process.env[name] === undefined || process.env[name] === "") {

@@ -116,6 +116,8 @@ spec:
             - name: RESTATE_NODE_NAME
               value: restate
             {{- end }}
+            - name: RESTATE_REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE
+              value: /var/run/restate-identity/private.pem
           ports:
             - name: node
               containerPort: 5122
@@ -132,6 +134,16 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /restate-data
+            - name: request-identity
+              mountPath: /var/run/restate-identity
+              readOnly: true
+      volumes:
+        - name: request-identity
+          secret:
+            secretName: {{ .Values.runtimeSecret.name }}
+            items:
+              - key: {{ .Values.runtimeSecret.restateRequestIdentityPrivateKeyKey }}
+                path: private.pem
   volumeClaimTemplates:
     - metadata:
         name: data

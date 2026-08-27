@@ -294,6 +294,11 @@ zoen_rollout_status() {
 zoen_create_runtime_secret() {
   local namespace="$1"
   local postgres_host="$2"
+  local repo_root
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  local identity_private_key="${repo_root}/testdata/restate-request-identity/private.pem"
+  local identity_public_key
+  identity_public_key="$(tr -d '\n' <"${repo_root}/testdata/restate-request-identity/publickeyv1")"
   local database_url="postgres://zoen_app:zoen_app@${postgres_host}:5432/zoen"
   local projection_database_url="postgres://zoen_projection:zoen_projection@${postgres_host}:5432/zoen"
   kubectl --namespace "${namespace}" create secret generic zoen-runtime \
@@ -305,6 +310,8 @@ zoen_create_runtime_secret() {
     --from-literal=databaseUrlTenantB="${database_url}?options=-c%20zoen.tenant_id%3Dtenant.b" \
     --from-literal=effectOidcClients='{"tenant.a":{"clientId":"effect-worker-a","clientSecret":"effect-worker-a-secret"},"tenant.b":{"clientId":"effect-worker-b","clientSecret":"effect-worker-b-secret"}}' \
     --from-literal=harnessBindingKey=shared-saas-harness-binding-key-v1 \
+    --from-file=restateRequestIdentityPrivateKey="${identity_private_key}" \
+    --from-literal=restateRequestIdentityKeys="[\"${identity_public_key}\"]" \
     --from-literal=harnessClientSecretA=harness-a-secret \
     --from-literal=harnessClientSecretB=harness-b-secret \
     --from-literal=postgresAdminPassword=postgres \

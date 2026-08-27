@@ -68,6 +68,7 @@ Create \`zoen-runtime\` in each application namespace before installation. The c
 - \`harnessBindingKey\`, \`harnessClientSecretA\`, and \`harnessClientSecretB\`
 - \`connectorCallerToken\`, \`connectorCredentials\`, and \`workerCredentialRefs\`
 - \`effectOidcClients\`
+- \`restateRequestIdentityKeys\` and \`restateRequestIdentityPrivateKey\` for Restate request identity
 
 Use customer-controlled secret management in production. Do not commit the values of these keys.
 

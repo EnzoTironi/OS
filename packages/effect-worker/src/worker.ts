@@ -15,6 +15,7 @@ import {
   EffectKnowledgeState,
   EffectService,
 } from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import { parseRestateIdentityKeys } from "./identity.js";
 
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
 const oidcClientSchema = z
@@ -31,6 +32,7 @@ const environmentSchema = z.intersection(
     ZOEN_EFFECT_CONNECTOR_URL: z.url(),
     ZOEN_EFFECT_SERVICE_URL: z.url(),
     ZOEN_EFFECT_WORKER_PORT: z.coerce.number().int().min(1).max(65_535),
+    ZOEN_RESTATE_IDENTITY_KEYS: z.string().min(1),
   }),
   z.union([
     z.object({
@@ -160,6 +162,9 @@ const environment = {
   ...rawEnvironment,
   ZOEN_CONNECTOR_CREDENTIAL_REFS: parseStringMap(
     rawEnvironment.ZOEN_CONNECTOR_CREDENTIAL_REFS,
+  ),
+  ZOEN_RESTATE_IDENTITY_KEYS: parseRestateIdentityKeys(
+    rawEnvironment.ZOEN_RESTATE_IDENTITY_KEYS,
   ),
 };
 
@@ -547,6 +552,7 @@ function parseOidcClientMap(
 }
 
 await restate.serve({
+  identityKeys: environment.ZOEN_RESTATE_IDENTITY_KEYS,
   port: environment.ZOEN_EFFECT_WORKER_PORT,
   services: [zoenEffect],
 });
