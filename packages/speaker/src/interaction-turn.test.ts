@@ -17,10 +17,12 @@ import {
   interactionInstructions,
   outboundBubbles,
   reasoningPrompt,
+  resolveLanguageModel,
   runFirstContactTurn,
   runInteractionTurn,
   type InteractionInbound,
   type OutboundTurn,
+  type ReasonTurnFacts,
   type ReasonTurnGenerate,
   type ReasonTurnPath,
 } from "./interaction-turn.js";
@@ -420,6 +422,7 @@ test("https spoken through speak_to_user becomes the turn href", async () => {
   assert.equal(sent.split("https://").length - 1, 1);
   assert.ok(result.href instanceof URL);
   assert.equal(result.href.href, "https://example.com/a");
+  assert.equal(result.reasonTurn.hrefSource, "speech");
   assert.match(sent, /Segue o resumo/);
   assert.doesNotMatch(sent, /Recebi/i);
 });
@@ -519,42 +522,147 @@ test("model-driven wait on a non-ack closing message stays empty, not a fast ack
   assertReasonTurn(result, "wait", 0, "ok");
 });
 
-test("reasonTurn writes one stderr JSON line from the turn result", async () => {
-  const chunks: string[] = [];
-  const original = process.stderr.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    chunks.push(
-      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
-    );
-    return true;
-  }) as typeof original;
-  let result: OutboundTurn;
-  try {
-    result = await runInteractionTurn({
+test("reasonTurn facts join conversationContext and speaker does not emit", async () => {
+  const captured = await captureStderr(() =>
+    runInteractionTurn({
       debounceMs: 0,
       inbound: textInbound("oi"),
       membership: membership("stderr-log"),
       model: speakThenStopModel("oi"),
-    });
-  } finally {
-    process.stderr.write = original;
-  }
-  assertReasonTurn(result, "spoke", 0, "ok");
-  const lines = chunks
-    .join("")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.includes('"event":"reasonTurn"'));
-  assert.equal(lines.length, 1);
-  assert.equal(
-    lines[0],
-    JSON.stringify({
-      event: "reasonTurn",
-      path: result.reasonTurn.path,
-      rivals: result.reasonTurn.rivals,
-      generate: result.reasonTurn.generate,
     }),
   );
+  assertReasonTurn(captured.result, "spoke", 0, "ok");
+  const facts = captured.result.reasonTurn;
+  const context = parseConversationContextLog(captured.lines);
+  assertReasonTurnFacts(facts);
+  assert.equal(facts.attemptId, context.contextRef);
+  assert.equal(facts.hrefSource, "none");
+  assert.equal(facts.hrefPresent, false);
+  assert.deepEqual(facts.tools, ["speak_to_user"]);
+  assert.equal(typeof facts.generateMs, "number");
+  assert.equal(facts.generateMs >= 0, true);
+  assert.equal("statusFired" in facts, false);
+  assert.equal(facts.recordCount >= 2, true);
+  assert.equal(facts.hasWorld, false);
+  assert.equal(facts.hasMemory, false);
+  assert.equal(facts.bubbleCount, 1);
+  assert.equal(
+    captured.lines.some((line) => line.includes('"event":"reasonTurn"')),
+    false,
+  );
+  assert.equal(JSON.stringify(facts).includes("membership.wa.enzo"), false);
+});
+
+test("speak_to_user-only https sets hrefSource speech from pickHref", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("manda o link"),
+    membership: membership("speech-href"),
+    model: speakThenStopModel("segue https://zoen.tironi.xyz/approve/e"),
+  });
+  const facts = result.reasonTurn;
+  assertReasonTurnFacts(facts);
+  assert.deepEqual(facts.tools, ["speak_to_user"]);
+  assert.equal(facts.hrefPresent, true);
+  assert.equal(facts.hrefHost, "zoen.tironi.xyz");
+  assert.equal(facts.hrefPath, "/approve/e");
+  assert.equal(facts.hrefSource, "speech");
+  assert.equal(JSON.stringify(facts).includes("https://zoen.tironi.xyz/approve/e"), false);
+});
+
+test("world fallback href sets hrefSource fallback from pickHref", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("quanto tá a cotação?"),
+    membership: membership("fallback-href"),
+    world: {
+      async semanticQuery() {
+        return {
+          entityIds: [],
+          notes: ["https://zoen.tironi.xyz/approve/e"],
+          rivals: [],
+        };
+      },
+    },
+  });
+  const facts = result.reasonTurn;
+  assertReasonTurnFacts(facts);
+  assert.equal(facts.path, "noModel");
+  assert.equal(facts.hrefPresent, true);
+  assert.equal(facts.hrefHost, "zoen.tironi.xyz");
+  assert.equal(facts.hrefPath, "/approve/e");
+  assert.equal(facts.hrefSource, "fallback");
+  assert.deepEqual(facts.tools, []);
+});
+
+test("no href sets hrefSource none", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("no-href"),
+    model: speakThenStopModel("oi"),
+  });
+  const facts = result.reasonTurn;
+  assertReasonTurnFacts(facts);
+  assert.equal(facts.hrefPresent, false);
+  assert.equal(facts.hrefHost, null);
+  assert.equal(facts.hrefPath, null);
+  assert.equal(facts.hrefSource, "none");
+  assert.deepEqual(facts.tools, ["speak_to_user"]);
+});
+
+test("reasonTurn model is the LanguageModel that ran, never the key", async () => {
+  let step = 0;
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("model-id"),
+    model: new MockLanguageModelV3({
+      doGenerate: async () => {
+        step += 1;
+        if (step === 1) {
+          return speakCall("oi");
+        }
+        return stopCall();
+      },
+      modelId: "hy3-free",
+    }),
+  });
+  assert.equal(result.reasonTurn.model, "hy3-free");
+  assert.equal(JSON.stringify(result.reasonTurn).includes("sk-"), false);
+});
+
+test("resolveLanguageModel modelId is the ZOEN_MODEL id, never the key", () => {
+  const model = resolveLanguageModel({
+    OPENAI_API_KEY: "sk-secret-test-key",
+    OPENAI_BASE_URL: "https://example.invalid/v1",
+    ZOEN_MODEL: "openai-compatible/hy3-free",
+  });
+  assert.ok(model);
+  assert.equal(typeof model === "object" && "modelId" in model && model.modelId, "hy3-free");
+});
+
+test("generate throw records error class, not body", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("quanto ficou a cotacao"),
+    membership: membership("throw-class"),
+    model: new MockLanguageModelV3({
+      doGenerate: async () => {
+        throw new TypeError("secret generate body");
+      },
+    }),
+    world: twoRivalWorld(),
+  });
+  assertReasonTurn(result, "threw", 2, "throw");
+  assert.equal(result.reasonTurn.generate, "throw");
+  assert.equal(result.reasonTurn.errorClass, "TypeError");
+  assert.equal(result.reasonTurn.hasWorld, true);
+  assert.deepEqual(result.bubbles, []);
+  assert.equal(result.href, null);
+  const blob = JSON.stringify(result.reasonTurn);
+  assert.equal(blob.includes("secret generate body"), false);
+  assert.equal(blob.includes("commercial.order-line"), false);
 });
 
 test("slow wait stays silent", async () => {
@@ -696,6 +804,7 @@ test("generate throw stays silent, not consult or rival speech", async () => {
   });
   const sent = outboundBubbles(result).join("\n");
   assertSilentThrow(result, 2);
+  assert.equal(result.reasonTurn.errorClass, "Error");
   assert.doesNotMatch(sent, /Tem mais de uma leitura/);
   assert.doesNotMatch(sent, /10 each|12 each/);
 });
@@ -875,6 +984,61 @@ function delay(ms: number): Promise<void> {
 }
 
 const STATUS_PHRASE_PT = /^(vendo|anotando|agendando|um seg)$/;
+
+async function captureStderr<T>(
+  run: () => Promise<T>,
+): Promise<{ readonly lines: string[]; readonly result: T }> {
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    chunks.push(
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+    );
+    return true;
+  }) as typeof original;
+  try {
+    const result = await run();
+    return {
+      lines: chunks.join("").split("\n").map((line) => line.trim()),
+      result,
+    };
+  } finally {
+    process.stderr.write = original;
+  }
+}
+
+function parseConversationContextLog(lines: readonly string[]): {
+  readonly contextRef: string;
+} {
+  const matches = lines.filter((line) =>
+    line.includes('"event":"conversationContext"'),
+  );
+  assert.equal(matches.length, 1);
+  return JSON.parse(matches[0] ?? "") as { readonly contextRef: string };
+}
+
+function assertReasonTurnFacts(facts: ReasonTurnFacts): void {
+  assert.deepEqual(Object.keys(facts).sort(), [
+    "attemptId",
+    "bubbleCount",
+    "errorClass",
+    "generate",
+    "generateMs",
+    "hasMemory",
+    "hasWorld",
+    "hrefHost",
+    "hrefPath",
+    "hrefPresent",
+    "hrefSource",
+    "model",
+    "path",
+    "recordCount",
+    "rivals",
+    "tools",
+  ]);
+  assert.equal("statusFired" in facts, false);
+  assert.equal("event" in facts, false);
+}
 
 function assertReasonTurn(
   result: OutboundTurn,

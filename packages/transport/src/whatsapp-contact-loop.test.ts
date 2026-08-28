@@ -12,8 +12,10 @@ import {
   createIdentityDirectoryClient,
   principalIdString,
   providerKey,
+  REASON_TURN_LOG_KEYS,
   tenantIdString,
   type IdentityDirectory,
+  type ReasonTurnLog,
   type ScheduleHandle,
 } from "../../speaker/src/index.js";
 import {
@@ -912,26 +914,37 @@ test("bound 1:1 slow model sends exactly one status bubble, then the final answe
     session,
     statusAfterMs: 2000,
   });
-  const turn = loop.handleRaw(
-    inbound({ body: "quanto ficou o pedido", messageId: "wamid.slow-model" }),
-  );
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+    return true;
+  }) as typeof original;
+  let result: Awaited<ReturnType<typeof loop.handleRaw>>;
+  try {
+    const turn = loop.handleRaw(
+      inbound({ body: "quanto ficou o pedido", messageId: "wamid.slow-model" }),
+    );
 
-  await waitUntil(() => step >= 2);
-  await waitUntilGateArmed(clock);
-  await clock.advance(1999);
-  assert.equal(session.sent().length, 0, "no status before the gate elapses");
+    await waitUntil(() => step >= 2);
+    await waitUntilGateArmed(clock);
+    await clock.advance(1999);
+    assert.equal(session.sent().length, 0, "no status before the gate elapses");
 
-  await clock.advance(1);
-  await tick();
-  assert.equal(session.sent().length, 1, "exactly one status bubble at the gate");
-  const status = session.sent()[0];
-  assert.ok(status);
-  if (status.shape.kind === "text") {
-    assert.equal(status.shape.text, "vendo");
+    await clock.advance(1);
+    await tick();
+    assert.equal(session.sent().length, 1, "exactly one status bubble at the gate");
+    const status = session.sent()[0];
+    assert.ok(status);
+    if (status.shape.kind === "text") {
+      assert.equal(status.shape.text, "vendo");
+    }
+
+    releaseGenerate?.();
+    result = await turn;
+  } finally {
+    process.stderr.write = original;
   }
-
-  releaseGenerate?.();
-  const result = await turn;
   assert.equal(result.kind, "bound");
   assert.equal(session.sent().length, 2, "status then final, never a duplicate status");
   const final = session.sent()[1];
@@ -940,6 +953,17 @@ test("bound 1:1 slow model sends exactly one status bubble, then the final answe
     assert.equal(final.shape.text, "ficou 12 each");
     assert.doesNotMatch(final.shape.text, STATUS_PHRASE_PT);
   }
+  const parsed = chunks
+    .join("")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.includes('"event":"reasonTurn"'))
+    .map((line) => JSON.parse(line) as ReasonTurnLog);
+  assert.equal(parsed.length, 1);
+  assert.deepEqual(Object.keys(parsed[0] ?? {}).sort(), [...REASON_TURN_LOG_KEYS].sort());
+  assert.equal(parsed[0]?.statusFired, true);
+  assert.ok(parsed[0]?.tools.includes("spawn_execution"));
+  assert.ok(parsed[0]?.tools.includes("speak_to_user"));
   await session.close();
 });
 
