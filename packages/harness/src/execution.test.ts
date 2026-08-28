@@ -134,6 +134,7 @@ test("execution isolate zoen query returns host query-result", async () => {
   });
 
   const planted = await workbench.sandbox.executeCommand("ls -1 bin");
+  assert.match(planted.stdout, /anydoc/);
   assert.match(planted.stdout, /zoen/);
 
   const queried = await workbench.sandbox.executeCommand(

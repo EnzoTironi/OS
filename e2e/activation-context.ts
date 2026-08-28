@@ -311,12 +311,12 @@ async function main(): Promise<void> {
         pdfIngestA.fragments.length > 0,
     );
     const anydocVersionDigest = sha256(
-      ["@firecrawl/anydoc", "0.2.0", "gfm-v1"].join("\0"),
+      ["@firecrawl/anydoc", "0.2.4", "gfm-v1"].join("\0"),
     );
     observe(
       "pdfFragmentsPinLocalAnydocParserProvenance",
       pdfIngestA.source.extractionVersion ===
-        "@firecrawl/anydoc@0.2.0:gfm-v1" &&
+        "@firecrawl/anydoc@0.2.4:gfm-v1" &&
         pdfIngestA.source.parserName === "@firecrawl/anydoc" &&
         pdfIngestA.source.parserVersionDigest === anydocVersionDigest &&
         pdfIngestA.fragments.every(

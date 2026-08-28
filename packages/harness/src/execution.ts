@@ -9,6 +9,10 @@ import {
   type HostToolBinding,
 } from "./code-mode.js";
 import {
+  anydocCliBashInstructions,
+  createAnydocCliCommand,
+} from "./anydoc-cli.js";
+import {
   createZoenCliCommand,
   plantExecutionIsolateFiles,
   zoenCliBashInstructions,
@@ -73,6 +77,7 @@ export type ExecutionResult =
     };
 
 export interface CreateExecutionAgentOptions {
+  readonly blobs?: Readonly<Record<string, Uint8Array>>;
   readonly destination?: string;
   readonly externals?: ExecutionExternals;
   readonly files?: Readonly<Record<string, string>>;
@@ -88,6 +93,10 @@ export interface ExecutionWorkbench {
   readonly destination: string;
   readonly gate: ExecutionIsolateGate;
   readonly host: WorkerCodeModeHost;
+  plantInbound(input: {
+    readonly blobs?: Readonly<Record<string, Uint8Array>>;
+    readonly files?: Readonly<Record<string, string>>;
+  }): Promise<void>;
   readonly sandbox: Sandbox;
   run(prompt: string): Promise<ExecutionResult>;
 }
@@ -124,7 +133,8 @@ export function executionIsolateDestination(options: {
  * Parallel execution workbench. The planner stays one required Action tool
  * call. The model-visible ToolSet is only `bash` against a just-bash VFS.
  * World query and propose go through the planted `zoen` CLI onto the same
- * host functions as `wit/zoen-code-mode`. Commit is denied.
+ * host functions as `wit/zoen-code-mode`. Office/PDF/CSV convert through
+ * the planted `anydoc` CLI. Commit is denied.
  */
 export async function createExecutionAgent(
   options: CreateExecutionAgentOptions,
@@ -138,14 +148,15 @@ export async function createExecutionAgent(
   const host = createWorkerCodeModeHost(options.host, gate);
   const bash = new Bash({
     cwd: destination,
-    customCommands: [createZoenCliCommand(host)],
+    customCommands: [createAnydocCliCommand(), createZoenCliCommand(host)],
   });
   const toolkit = await createBashTool({
     destination,
-    extraInstructions: zoenCliBashInstructions(),
+    extraInstructions: `${zoenCliBashInstructions()} ${anydocCliBashInstructions()}`,
     files,
     sandbox: bash,
   });
+  await plantIsolateEntries(bash.fs, destination, options.blobs);
   const bashTool = toolkit.tools.bash;
   const tools: ToolSet = {
     bash: {
@@ -219,6 +230,10 @@ export async function createExecutionAgent(
         return { kind: "failed", reason: "provider_call_failed" };
       }
     },
+    async plantInbound(input) {
+      await plantIsolateEntries(bash.fs, destination, input.files);
+      await plantIsolateEntries(bash.fs, destination, input.blobs);
+    },
     sandbox: toolkit.sandbox,
   };
 }
@@ -282,9 +297,34 @@ function executionInstructions(destination: string): string {
     "The only model-visible tool is bash.",
     `Use bash to list, read, and write files in the just-bash workspace at ${destination}.`,
     "Use the planted zoen CLI for world query and action propose: zoen query, zoen propose.",
+    "Use the planted anydoc CLI to convert inbound Word/Excel/PowerPoint/ODT/CSV/PDF to markdown.",
+    "Scanned PDF pages fail as NeedsOcr with named pages. Hosted OCR is out of Zoen.",
     "zoen commit is forbidden on this isolate. The kernel CLI host commits on zoend.",
     "Return a short factual summary for the interaction agent.",
   ].join(" ");
+}
+
+async function plantIsolateEntries(
+  fs: {
+    mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
+    writeFile(path: string, content: string | Uint8Array): Promise<void>;
+  },
+  destination: string,
+  entries:
+    | Readonly<Record<string, string | Uint8Array>>
+    | undefined,
+): Promise<void> {
+  if (entries === undefined) {
+    return;
+  }
+  for (const [relative, content] of Object.entries(entries)) {
+    const absolute = `${destination}/${relative}`;
+    const slash = absolute.lastIndexOf("/");
+    if (slash > 0) {
+      await fs.mkdir(absolute.slice(0, slash), { recursive: true });
+    }
+    await fs.writeFile(absolute, content);
+  }
 }
 
 export type { CodeModeDeniedReason, CodeModeFailedReason, ExecutionExternals };
