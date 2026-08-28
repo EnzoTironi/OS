@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -125,6 +126,34 @@ test("personal.zoen.ts compileDefinition succeeds with all four families", async
     ["personal.createReminder", "personal.writeMemory"],
   );
   assert.doesNotMatch(compiled.canonicalJson, /datetime/);
+});
+
+test("personal activateRevision Cedar matches the Fly lake policy", async () => {
+  const source = await readFile(
+    path.join(fixtureDirectory, "personal.activateRevision.cedar"),
+    "utf8",
+  );
+  const manifest = JSON.parse(
+    await readFile(
+      path.join(process.cwd(), "deploy", "fly", "policies.json"),
+      "utf8",
+    ),
+  ) as {
+    policies: Array<{
+      digest: string;
+      policyId: string;
+      source: string;
+    }>;
+  };
+  const policy = manifest.policies.find(
+    (entry) => entry.policyId === "policy.personal.activation.r1",
+  );
+  assert.ok(policy);
+  assert.equal(policy.source, source);
+  assert.equal(
+    createHash("sha256").update(source).digest("hex"),
+    policy.digest,
+  );
 });
 
 test("entity input rejects an unknown type id", async () => {

@@ -452,6 +452,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fly_personal_activation_permits_admin_and_bound_live_whatsapp() {
+        let evaluator =
+            CedarPolicyEvaluator::from_json(include_str!("../../../deploy/fly/policies.json"))
+                .expect("fly manifest");
+        let definition_digest = "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548";
+        let action = ActionId::parse("zoen.definition.activate").expect("action");
+        let definition = DefinitionReference {
+            definition_id: DefinitionId::parse("personal.memory").expect("definition"),
+            digest: DefinitionDigest::parse(definition_digest).expect("digest"),
+            revision: DefinitionRevisionNumber::new(1).expect("revision"),
+        };
+        let resource = ResourceId::parse("personal.memory").expect("resource");
+
+        let admin = fly_activation_context("principal.admin.a");
+        assert!(matches!(
+            evaluator
+                .evaluate(&PolicyRequest {
+                    action_id: &action,
+                    approved: false,
+                    classification: None,
+                    context: &admin,
+                    definition: &definition,
+                    inputs: &[],
+                    operation: PolicyOperation::ActivateRevision,
+                    projection: None,
+                    resource_id: &resource,
+                })
+                .await,
+            zoen_core::PolicyEvaluation::Permit(_)
+        ));
+
+        let live = fly_activation_context("principal.live.whatsapp");
+        assert!(matches!(
+            evaluator
+                .evaluate(&PolicyRequest {
+                    action_id: &action,
+                    approved: false,
+                    classification: None,
+                    context: &live,
+                    definition: &definition,
+                    inputs: &[],
+                    operation: PolicyOperation::ActivateRevision,
+                    projection: None,
+                    resource_id: &resource,
+                })
+                .await,
+            zoen_core::PolicyEvaluation::Permit(_)
+        ));
+
+        let stranger = fly_activation_context("principal.stranger.a");
+        assert!(matches!(
+            evaluator
+                .evaluate(&PolicyRequest {
+                    action_id: &action,
+                    approved: false,
+                    classification: None,
+                    context: &stranger,
+                    definition: &definition,
+                    inputs: &[],
+                    operation: PolicyOperation::ActivateRevision,
+                    projection: None,
+                    resource_id: &resource,
+                })
+                .await,
+            zoen_core::PolicyEvaluation::Deny(_)
+        ));
+    }
+
+    #[tokio::test]
     async fn reports_the_input_that_exceeds_cedars_integer_range() {
         let definition_digest = "a".repeat(64);
         let source = r#"permit(principal, action, resource);"#;
@@ -694,6 +763,28 @@ when {
                 object_type: Some(TypeId::parse("commercial.OrderLine").expect("type")),
             },
         }
+    }
+
+    fn fly_activation_context(principal: &str) -> TrustedExecutionContext {
+        let action_id = ActionId::parse("zoen.definition.activate").expect("action");
+        let resource_id = ResourceId::parse("personal.memory").expect("resource");
+        let workload_id = WorkloadId::parse("workload.admin.a").expect("workload");
+        let grant = DelegationGrant::new(
+            DelegationId::parse("delegation.admin.a").expect("delegation"),
+            BTreeSet::from([action_id]),
+            BTreeSet::from([resource_id]),
+            BTreeSet::from([workload_id.clone()]),
+            TimestampMicros::new(0),
+            TimestampMicros::new(i64::MAX),
+        )
+        .expect("grant");
+        TrustedExecutionContext::new(
+            TenantId::parse("tenant.a").expect("tenant"),
+            ActorId::parse("actor.admin.a").expect("actor"),
+            PrincipalId::parse(principal).expect("principal"),
+            workload_id,
+            DelegationChain::new(vec![grant]).expect("chain"),
+        )
     }
 
     fn trusted_context(action: &str) -> TrustedExecutionContext {
