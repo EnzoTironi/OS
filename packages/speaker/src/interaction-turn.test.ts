@@ -314,6 +314,61 @@ test("empty inbound with a silent model waits (empty bubbles)", async () => {
   assertReasonTurn(result, "wait", 2, "ok");
 });
 
+test("silent reminder after spawn_execution fail uses agendar copy, not consultar", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    executeWork: async () => "status: failed (denied)",
+    inbound: textInbound("me lembra de beber água amanhã"),
+    membership: membership("remind-fail"),
+    model: spawnThenStopModel("me lembra de beber água amanhã"),
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.deepEqual(result.bubbles, ["não consegui agendar agora"]);
+  assert.doesNotMatch(sent, /consultar/);
+  assert.deepEqual(result.reasonTurn.tools, ["spawn_execution"]);
+  assertReasonTurn(result, "scheduleFail", 0, "ok");
+});
+
+test("silent reminder after committed spawn_execution speaks only then", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    executeWork: async () => "status: committed (personal.createReminder)",
+    inbound: textInbound("me lembra de beber água amanhã"),
+    membership: membership("remind-committed"),
+    model: spawnThenStopModel("me lembra de beber água amanhã"),
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.deepEqual(result.bubbles, ["agendei"]);
+  assert.doesNotMatch(sent, /consultar/);
+  assert.doesNotMatch(sent, /não consegui/);
+  assert.deepEqual(result.reasonTurn.tools, ["spawn_execution"]);
+  assertReasonTurn(result, "spoke", 0, "ok");
+});
+
+test("silent reminder without spawn still uses agendar copy, not consultar", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("me lembra de beber água amanhã"),
+    membership: membership("remind-silent"),
+    model: silentStopModel(),
+  });
+  assert.deepEqual(result.bubbles, ["não consegui agendar agora"]);
+  assert.doesNotMatch(outboundBubbles(result).join("\n"), /consultar/);
+  assertReasonTurn(result, "scheduleFail", 0, "ok");
+});
+
+test("oi with a speaking model is still a short greeting", async () => {
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("oi-pass"),
+    model: speakThenStopModel("oi"),
+  });
+  assert.deepEqual(result.bubbles, ["oi"]);
+  assert.doesNotMatch(outboundBubbles(result).join("\n"), /agendar|consultar/);
+  assertReasonTurn(result, "spoke", 0, "ok");
+});
+
 test("silent model with two World rivals fail-closes lookup copy, not rival speech", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
@@ -331,6 +386,23 @@ test("silent model with two World rivals fail-closes lookup copy, not rival spee
   assert.doesNotMatch(sent, /commercial\.order-line\.dirty-quote/);
   assert.doesNotMatch(sent, /Tenta de novo/i);
   assertReasonTurn(result, "lookupFail", 2, "ok");
+});
+
+test("reminder speech after committed spawn keeps model text", async () => {
+  const inbound = "me lembra de beber água amanhã";
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    executeWork: async () => "status: committed (personal.createReminder)",
+    inbound: textInbound(inbound),
+    membership: membership("remind-committed-spoke"),
+    model: spawnThenSpeakThenStopModel(inbound, "te lembro amanhã de beber água"),
+  });
+  const sent = outboundBubbles(result).join("\n");
+  assert.deepEqual(result.bubbles, ["te lembro amanhã de beber água"]);
+  assert.doesNotMatch(sent, /consultar/);
+  assert.doesNotMatch(sent, /não consegui agendar/);
+  assert.doesNotMatch(sent, /status: committed/);
+  assertReasonTurn(result, "spoke", 0, "ok");
 });
 
 test("spawn_execution with injected executeWork records executionNotes and does not leak them into bubbles", async () => {
@@ -886,12 +958,44 @@ function waitThenStopModel(): MockLanguageModelV3 {
   });
 }
 
+function spawnThenStopModel(task: string): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return spawnCall(task);
+      }
+      return stopCall();
+    },
+  });
+}
+
 function speakThenStopModel(text: string): MockLanguageModelV3 {
   let step = 0;
   return new MockLanguageModelV3({
     doGenerate: async () => {
       step += 1;
       if (step === 1) {
+        return speakCall(text);
+      }
+      return stopCall();
+    },
+  });
+}
+
+function spawnThenSpeakThenStopModel(
+  task: string,
+  text: string,
+): MockLanguageModelV3 {
+  let step = 0;
+  return new MockLanguageModelV3({
+    doGenerate: async () => {
+      step += 1;
+      if (step === 1) {
+        return spawnCall(task);
+      }
+      if (step === 2) {
         return speakCall(text);
       }
       return stopCall();
@@ -959,6 +1063,22 @@ function speakCall(text: string): LanguageModelV3GenerateResult {
         input: JSON.stringify({ text }),
         toolCallId: "call_speak",
         toolName: "speak_to_user",
+        type: "tool-call",
+      },
+    ],
+    finishReason: { raw: "tool-calls", unified: "tool-calls" },
+    usage: usage(),
+    warnings: [],
+  };
+}
+
+function spawnCall(task: string): LanguageModelV3GenerateResult {
+  return {
+    content: [
+      {
+        input: JSON.stringify({ task }),
+        toolCallId: "call_spawn",
+        toolName: "spawn_execution",
         type: "tool-call",
       },
     ],
