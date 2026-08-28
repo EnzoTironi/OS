@@ -6,6 +6,8 @@ import { deflateRawSync } from "node:zlib";
 import { join } from "node:path";
 import test from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import {
   ANYDOC_NEEDS_OCR_EXIT,
   ANYDOC_USAGE_EXIT,
@@ -15,6 +17,14 @@ import {
   createExecutionAgent,
   EXECUTION_INVOKED_TOOLS,
 } from "./execution.js";
+import {
+  bindWhatsAppExecutionPlant,
+  createInteractionExecuteWork,
+} from "./interaction-execute-work.js";
+import {
+  isolateInboundFromMedia,
+  plantHostMediaOnWorkbench,
+} from "./inbound-plant.js";
 import { inspectBashInvocation } from "./vfs-guard.js";
 
 const usage = {
@@ -152,6 +162,79 @@ test("planted anydoc fails NeedsOcr with named pages and refuses hosted OCR", as
   assert.match(hosted.stderr, /hosted OCR is out of Zoen/);
   assert.doesNotMatch(hosted.stderr, /firecrawl\.dev|Parse/i);
   assert.equal(hosted.stdout, "");
+});
+
+test("mediaRef bytes appear as inbound/quote.xlsx and anydoc /tmp stays denied", async () => {
+  const xlsx = quoteXlsx();
+  const mediaRef = "/tmp/zoen-wa-pair/media/wamid.xlsx";
+  const mapped = isolateInboundFromMedia({
+    bytes: xlsx,
+    filename: "quote.xlsx",
+    mediaRef,
+  });
+  assert.deepEqual(Object.keys(mapped.blobs), ["inbound/quote.xlsx"]);
+  assert.equal(mapped.blobs["inbound/quote.xlsx"], xlsx);
+  assert.deepEqual(mapped.files, {});
+
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => ({
+      content: [{ text: "unused", type: "text" }],
+      finishReason: { raw: "stop", unified: "stop" },
+      usage,
+      warnings: [],
+    }),
+  });
+  const work = await createInteractionExecuteWork({
+    blobs: mapped.blobs,
+    files: mapped.files,
+    model,
+  });
+  assert.ok(work !== undefined);
+  assert.ok(work.workbench !== undefined);
+  const listed = await work.workbench.sandbox.executeCommand("ls -1 inbound");
+  assert.match(listed.stdout, /quote\.xlsx/);
+  const converted = await work.workbench.sandbox.executeCommand(
+    "anydoc inbound/quote.xlsx",
+  );
+  assert.equal(converted.exitCode, 0, converted.stderr);
+  assert.match(converted.stdout, /WIDGET/);
+  assert.equal(
+    inspectBashInvocation("anydoc inbound/quote.xlsx", work.workbench.destination)
+      .kind,
+    "allow",
+  );
+  assert.equal(
+    inspectBashInvocation(`anydoc ${mediaRef}`, work.workbench.destination).kind,
+    "deny",
+  );
+
+  const dir = await mkdtemp(`${tmpdir()}/zoen-anydoc-plant-`);
+  const hostPath = `${dir}/quote.xlsx`;
+  await writeFile(hostPath, xlsx);
+  const empty = await createInteractionExecuteWork({ model });
+  assert.ok(empty !== undefined);
+  assert.ok(empty.workbench !== undefined);
+  const { plantInbound } = bindWhatsAppExecutionPlant(empty);
+  assert.ok(plantInbound !== undefined);
+  await plantInbound({ filename: "quote.xlsx", mediaRef: hostPath });
+  const planted = await empty.workbench.sandbox.executeCommand("ls -1 inbound");
+  assert.match(planted.stdout, /quote\.xlsx/);
+  const afterPlant = await empty.workbench.sandbox.executeCommand(
+    "anydoc inbound/quote.xlsx",
+  );
+  assert.equal(afterPlant.exitCode, 0, afterPlant.stderr);
+  assert.match(afterPlant.stdout, /WIDGET/);
+  const hosted = await empty.workbench.sandbox.executeCommand(
+    "anydoc inbound/quote.xlsx --ocr hosted",
+  );
+  assert.equal(hosted.exitCode, ANYDOC_USAGE_EXIT);
+  assert.match(hosted.stderr, /hosted OCR is out of Zoen/);
+  await plantHostMediaOnWorkbench(empty.workbench, {
+    filename: "copy.xlsx",
+    mediaRef: hostPath,
+  });
+  const copies = await empty.workbench.sandbox.executeCommand("ls -1 inbound");
+  assert.match(copies.stdout, /copy\.xlsx/);
 });
 
 test("vfs-guard allows isolate anydoc and blocks host media paths", () => {

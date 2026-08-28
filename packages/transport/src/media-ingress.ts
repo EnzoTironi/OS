@@ -73,7 +73,44 @@ export function rejectWhatsAppMediaFields(raw: unknown): void {
   }
 }
 
-/** Spreadsheet and voice notes are admitted as inbound evidence. Not native. */
+const CONVERTIBLE_EXT = [
+  ".csv",
+  ".doc",
+  ".docm",
+  ".docx",
+  ".odp",
+  ".ods",
+  ".odt",
+  ".pdf",
+  ".ppt",
+  ".pptx",
+  ".xls",
+  ".xlsx",
+] as const;
+
+/**
+ * Companion document that may be planted onto isolate inbound/.
+ * Voice notes stay admitted as evidence but are not AnyDoc input.
+ */
+export function admittedCompanionDocumentRef(
+  raw: unknown,
+): { filename: string; mediaRef: string } | undefined {
+  if (raw === null || typeof raw !== "object") {
+    return undefined;
+  }
+  const record = raw as Record<string, unknown>;
+  if (!isConvertibleDocument(record)) {
+    return undefined;
+  }
+  const mediaRef =
+    typeof record.mediaRef === "string" ? record.mediaRef.trim() : "";
+  const named =
+    typeof record.filename === "string" ? record.filename.trim() : "";
+  const fallback = mediaRef.split("/").pop() ?? mediaRef;
+  return { filename: named.length > 0 ? named : fallback, mediaRef };
+}
+
+/** Spreadsheet, office, PDF, CSV, and voice notes are inbound evidence. Not native. */
 function admittedCompanionSpreadsheetOrVoice(
   record: Record<string, unknown>,
 ): boolean {
@@ -83,10 +120,14 @@ function admittedCompanionSpreadsheetOrVoice(
   if (ref.length === 0) {
     return false;
   }
-  if (kind === "audio") {
-    return true;
-  }
-  if (kind !== "document") {
+  return kind === "audio" || isConvertibleDocument(record);
+}
+
+function isConvertibleDocument(record: Record<string, unknown>): boolean {
+  const kind = typeof record.mediaKind === "string" ? record.mediaKind : "";
+  const ref =
+    typeof record.mediaRef === "string" ? record.mediaRef.trim() : "";
+  if (kind !== "document" || ref.length === 0) {
     return false;
   }
   const mime = typeof record.mime === "string" ? record.mime.toLowerCase() : "";
@@ -94,12 +135,10 @@ function admittedCompanionSpreadsheetOrVoice(
     typeof record.filename === "string" ? record.filename.toLowerCase() : "";
   const blob = `${filename} ${mime}`;
   return (
-    blob.includes("sheet") ||
-    blob.includes("excel") ||
-    blob.includes("csv") ||
-    filename.endsWith(".xlsx") ||
-    filename.endsWith(".csv") ||
-    filename.endsWith(".xls")
+    CONVERTIBLE_EXT.some((ext) => filename.endsWith(ext) || ref.toLowerCase().endsWith(ext)) ||
+    /sheet|excel|csv|pdf|word|presentation|opendocument|msword|ms-excel|ms-powerpoint/.test(
+      blob,
+    )
   );
 }
 

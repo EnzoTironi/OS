@@ -40,7 +40,10 @@ import {
   type TurnStore,
   type WorldQueryClient,
 } from "../../speaker/src/index.js";
-import { rejectWhatsAppMediaFields } from "./media-ingress.js";
+import {
+  admittedCompanionDocumentRef,
+  rejectWhatsAppMediaFields,
+} from "./media-ingress.js";
 import {
   presentationSchema,
   type PresentationIntent,
@@ -132,6 +135,14 @@ export interface WhatsAppContactLoopOptions {
   readonly executeWork?: (task: string) => Promise<string>;
   /** Speaker-local snapshot from planted `zoen query`. No Connect in speaker. */
   readonly world?: WorldQueryClient;
+  /**
+   * Copy admitted companion document bytes onto isolate inbound/.
+   * Host mediaRef stays denied by vfs-guard.
+   */
+  readonly plantInbound?: (input: {
+    readonly filename: string;
+    readonly mediaRef: string;
+  }) => Promise<void>;
   /** Tier 2 model override, mainly for tests. Production reads ZOEN_MODEL. */
   readonly model?: LanguageModel;
   /** Status gate threshold in ms. Default TURN_STATUS_AFTER_MS (2000). */
@@ -506,6 +517,10 @@ export function createWhatsAppContactLoop(
     const dropped = classifyWhatsAppContactInbound(raw, doorE164);
     if (dropped.drop) {
       return { kind: "dropped", reason: dropped.reason };
+    }
+    const document = admittedCompanionDocumentRef(raw);
+    if (document !== undefined && options.plantInbound !== undefined) {
+      await options.plantInbound(document);
     }
     const inbound = await gateway.acceptProviderEvent(
       providerKey("whatsapp"),

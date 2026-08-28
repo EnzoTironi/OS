@@ -1,6 +1,10 @@
 import type { LanguageModel } from "ai";
 import type { WorldQueryClient } from "../../speaker/src/world-query.js";
 import { resolveLanguageModel } from "../../speaker/src/interaction-turn.js";
+import {
+  plantHostMediaOnWorkbench,
+  type CompanionDocumentRef,
+} from "./inbound-plant.js";
 import { jsSandboxAllowed } from "./js-sandbox-gate.js";
 import {
   createExecutionAgent,
@@ -29,6 +33,32 @@ export interface InteractionExecuteWork {
   readonly world?: WorldQueryClient;
   executeWork(task: string): Promise<string>;
   run(task: string): Promise<ExecutionResult>;
+}
+
+/**
+ * Bind a created workbench to WhatsApp serve/loop.
+ * `plantInbound` copies companion mediaRef bytes onto isolate inbound/.
+ * Kernel host has no isolate VFS, so plantInbound is omitted.
+ */
+export function bindWhatsAppExecutionPlant(
+  work: InteractionExecuteWork | undefined,
+): {
+  readonly executeWork?: (task: string) => Promise<string>;
+  readonly plantInbound?: (input: CompanionDocumentRef) => Promise<void>;
+} {
+  if (work === undefined) {
+    return {};
+  }
+  const workbench = work.workbench;
+  if (workbench === undefined) {
+    return { executeWork: (task) => work.executeWork(task) };
+  }
+  return {
+    executeWork: (task) => work.executeWork(task),
+    plantInbound: async (input) => {
+      await plantHostMediaOnWorkbench(workbench, input);
+    },
+  };
 }
 
 /**

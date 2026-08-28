@@ -78,6 +78,7 @@ export {
   type WhatsAppMessagingIngress,
 } from "./whatsapp-ingress.js";
 export {
+  admittedCompanionDocumentRef,
   MediaIngressError,
   rejectWhatsAppMediaFields,
   validateMediaBlob,

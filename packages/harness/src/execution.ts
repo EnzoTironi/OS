@@ -93,6 +93,10 @@ export interface ExecutionWorkbench {
   readonly destination: string;
   readonly gate: ExecutionIsolateGate;
   readonly host: WorkerCodeModeHost;
+  plantInbound(input: {
+    readonly blobs?: Readonly<Record<string, Uint8Array>>;
+    readonly files?: Readonly<Record<string, string>>;
+  }): Promise<void>;
   readonly sandbox: Sandbox;
   run(prompt: string): Promise<ExecutionResult>;
 }
@@ -152,7 +156,7 @@ export async function createExecutionAgent(
     files,
     sandbox: bash,
   });
-  await plantIsolateBlobs(bash.fs, destination, options.blobs);
+  await plantIsolateEntries(bash.fs, destination, options.blobs);
   const bashTool = toolkit.tools.bash;
   const tools: ToolSet = {
     bash: {
@@ -226,6 +230,10 @@ export async function createExecutionAgent(
         return { kind: "failed", reason: "provider_call_failed" };
       }
     },
+    async plantInbound(input) {
+      await plantIsolateEntries(bash.fs, destination, input.files);
+      await plantIsolateEntries(bash.fs, destination, input.blobs);
+    },
     sandbox: toolkit.sandbox,
   };
 }
@@ -296,24 +304,26 @@ function executionInstructions(destination: string): string {
   ].join(" ");
 }
 
-async function plantIsolateBlobs(
+async function plantIsolateEntries(
   fs: {
     mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
-    writeFile(path: string, content: Uint8Array): Promise<void>;
+    writeFile(path: string, content: string | Uint8Array): Promise<void>;
   },
   destination: string,
-  blobs: Readonly<Record<string, Uint8Array>> | undefined,
+  entries:
+    | Readonly<Record<string, string | Uint8Array>>
+    | undefined,
 ): Promise<void> {
-  if (blobs === undefined) {
+  if (entries === undefined) {
     return;
   }
-  for (const [relative, bytes] of Object.entries(blobs)) {
+  for (const [relative, content] of Object.entries(entries)) {
     const absolute = `${destination}/${relative}`;
     const slash = absolute.lastIndexOf("/");
     if (slash > 0) {
       await fs.mkdir(absolute.slice(0, slash), { recursive: true });
     }
-    await fs.writeFile(absolute, bytes);
+    await fs.writeFile(absolute, content);
   }
 }
 

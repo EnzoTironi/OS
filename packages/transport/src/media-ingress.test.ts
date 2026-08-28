@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  admittedCompanionDocumentRef,
   MediaIngressError,
   MAX_MEDIA_BYTES,
   rejectWhatsAppMediaFields,
@@ -34,6 +35,31 @@ test("companion media fields are rejected", () => {
     mediaRef: "/tmp/zoen-wa-pair/media/wamid.ogg",
     mime: "audio/ogg; codecs=opus",
   });
+  rejectWhatsAppMediaFields({
+    body: "",
+    filename: "scan.pdf",
+    mediaKind: "document",
+    mediaRef: "/tmp/zoen-wa-pair/media/wamid.pdf",
+    mime: "application/pdf",
+  });
+});
+
+test("admitted companion documents resolve inbound basename from filename", () => {
+  assert.deepEqual(
+    admittedCompanionDocumentRef({
+      filename: "quote.xlsx",
+      mediaKind: "document",
+      mediaRef: "/tmp/zoen-wa-pair/media/wamid.xlsx",
+    }),
+    { filename: "quote.xlsx", mediaRef: "/tmp/zoen-wa-pair/media/wamid.xlsx" },
+  );
+  assert.equal(
+    admittedCompanionDocumentRef({
+      mediaKind: "audio",
+      mediaRef: "/tmp/zoen-wa-pair/media/wamid.ogg",
+    }),
+    undefined,
+  );
 });
 
 test("future media blobs fail closed on type, size, content, and provenance", () => {
