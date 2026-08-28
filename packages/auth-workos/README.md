@@ -29,6 +29,26 @@ Copy `.env.example`. Cookie password: `openssl rand -base64 32`.
 
 Register `WORKOS_REDIRECT_URI` and the initiate login URL (`/auth/workos/login`) on the application Redirects tab. Register a Sign-out URI there too. This repo does not invent CLI or dashboard click-paths.
 
+## Google and Apple (hosted AuthKit)
+
+`loginUrl()` always calls `getAuthorizationUrl({ provider: "authkit" })`. AuthKit's hosted UI then shows the methods enabled in the dashboard. Do not add a second Google/Apple OAuth stack and do not pass `GoogleOAuth` or `AppleOAuth` as `provider`.
+
+Email + password is AuthKit's default and may stay.
+
+Required social buttons: **Sign in with Google** and **Sign in with Apple**.
+
+Enable them in the WorkOS Dashboard *Authentication* section, *OAuth providers* sub-tab ([social login](https://workos.com/docs/authkit/social-login), [hosted UI methods](https://workos.com/docs/authkit/hosted-ui)):
+
+| Method | Dashboard | Staging (sandbox) | Production |
+| --- | --- | --- | --- |
+| Email + password | On by default | Nothing | Optional password-policy tweaks |
+| Google | *OAuth providers* → Google → Enable / Manage | WorkOS default Client ID / Secret. No `GOOGLE_*` in this repo. | Paste your Google Client ID and Client Secret into that dialog. |
+| Apple | *OAuth providers* → Sign in with Apple → Enable | WorkOS default Team ID / Service ID / key. No `APPLE_*` in this repo. | Paste Apple Team ID, Service ID, Private Key ID, and the private key into that dialog. |
+
+Staging default credentials are documented by WorkOS for Google and Apple. They brand the consent screen as WorkOS until you paste your own app credentials in the dashboard.
+
+This process env stays the four `WORKOS_*` values. Google and Apple secrets belong in the WorkOS dashboard, not `.env`.
+
 ## Routes
 
 | Method | Path | SDK call |

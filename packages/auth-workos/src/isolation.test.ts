@@ -43,6 +43,23 @@ async function walk(root: string, suffix: RegExp): Promise<string[]> {
   return nested.flat();
 }
 
+test("auth-workos does not invent Google or Apple OAuth URLs", async () => {
+  const sources = (await walk(path.join(packageRoot, "src"), /\.ts$/u)).filter(
+    (file) => !file.endsWith(".test.ts"),
+  );
+  const bannedOauth =
+    /accounts\.google\.com|appleid\.apple\.com|provider:\s*["']GoogleOAuth["']|provider:\s*["']AppleOAuth["']/u;
+  assert.ok(sources.length > 0);
+  for (const file of sources) {
+    const text = await readFile(file, "utf8");
+    assert.doesNotMatch(
+      text,
+      bannedOauth,
+      `${path.relative(repoRoot, file)} builds a second OAuth stack`,
+    );
+  }
+});
+
 test("auth-workos does not import Cedar, World, membership, or Zoen kernel", async () => {
   const manifest = JSON.parse(
     await readFile(path.join(packageRoot, "package.json"), "utf8"),

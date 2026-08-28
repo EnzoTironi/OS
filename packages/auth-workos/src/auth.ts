@@ -1,6 +1,13 @@
 import { WorkOS } from "@workos-inc/node";
 import { readAuthEnv, type AuthEnv } from "./env.js";
 
+/**
+ * Hosted AuthKit UI. Keep this provider so Google and Apple buttons come from
+ * dashboard Authentication → OAuth providers, not a second OAuth stack.
+ * Do not pass GoogleOAuth or AppleOAuth here.
+ */
+const AUTHKIT_PROVIDER = "authkit" as const;
+
 export type AuthUser = {
   readonly email: string;
   readonly emailVerified: boolean;
@@ -42,7 +49,7 @@ export type AuthKitPort = {
   }): Promise<{ sealedSession?: string; user: WorkOsUserLike }>;
   getAuthorizationUrl(input: {
     clientId: string;
-    provider: "authkit";
+    provider: typeof AUTHKIT_PROVIDER;
     redirectUri: string;
   }): string;
   loadSealedSession(input: {
@@ -127,7 +134,7 @@ export function createAuth(options: CreateAuthOptions = {}): Auth {
       const env = envOf();
       return kitOf(env).getAuthorizationUrl({
         clientId: env.clientId,
-        provider: "authkit",
+        provider: AUTHKIT_PROVIDER,
         redirectUri: env.redirectUri,
       });
     },

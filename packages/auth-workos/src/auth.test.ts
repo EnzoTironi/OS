@@ -79,11 +79,26 @@ test("authorization URL uses AuthKit provider via the SDK", async () => {
   const parsed = new URL(url);
   assert.equal(parsed.hostname, "api.workos.com");
   assert.equal(parsed.searchParams.get("provider"), "authkit");
+  assert.notEqual(parsed.searchParams.get("provider"), "GoogleOAuth");
+  assert.notEqual(parsed.searchParams.get("provider"), "AppleOAuth");
   assert.equal(parsed.searchParams.get("client_id"), "client_test");
   assert.equal(
     parsed.searchParams.get("redirect_uri"),
     "http://localhost:3000/auth/workos/callback",
   );
+});
+
+test("Google and Apple stay on hosted AuthKit, not process env", async () => {
+  const env = {
+    ...validEnv,
+    GOOGLE_CLIENT_ID: "should-be-ignored",
+    APPLE_SERVICE_ID: "should-be-ignored",
+  };
+  const parsed = readAuthEnv(env);
+  assert.equal("googleClientId" in parsed, false);
+  assert.doesNotMatch(JSON.stringify(parsed), /should-be-ignored/u);
+  const url = await withEnv(env, () => loginUrl());
+  assert.equal(new URL(url).searchParams.get("provider"), "authkit");
 });
 
 test("callback exchanges code via authenticateWithCode and seals the session", async () => {

@@ -30,6 +30,7 @@ function page(user: AuthUser | null): string {
 <body>
 <h1>Zoen AuthKit</h1>
 ${welcome}
+<p>AuthKit hospedado: Google, Apple e e-mail.</p>
 <p><a href="/auth/workos/login">Entrar</a></p>
 <form action="/auth/workos/logout" method="POST" id="logout-form">
 <input type="hidden" name="_csrf" id="csrf-token" />
