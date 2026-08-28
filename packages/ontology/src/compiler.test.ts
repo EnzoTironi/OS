@@ -128,6 +128,34 @@ test("personal.zoen.ts compileDefinition succeeds with all four families", async
   assert.doesNotMatch(compiled.canonicalJson, /datetime/);
 });
 
+test("commercial activateRevision Cedar matches the Fly lake policy", async () => {
+  const source = await readFile(
+    path.join(fixtureDirectory, "commercial.activateRevision.cedar"),
+    "utf8",
+  );
+  const manifest = JSON.parse(
+    await readFile(
+      path.join(process.cwd(), "deploy", "fly", "policies.json"),
+      "utf8",
+    ),
+  ) as {
+    policies: Array<{
+      digest: string;
+      policyId: string;
+      source: string;
+    }>;
+  };
+  const policy = manifest.policies.find(
+    (entry) => entry.policyId === "policy.activation.r1",
+  );
+  assert.ok(policy);
+  assert.equal(policy.source, source);
+  assert.equal(
+    createHash("sha256").update(source).digest("hex"),
+    policy.digest,
+  );
+});
+
 test("personal activateRevision Cedar matches the Fly lake policy", async () => {
   const source = await readFile(
     path.join(fixtureDirectory, "personal.activateRevision.cedar"),
