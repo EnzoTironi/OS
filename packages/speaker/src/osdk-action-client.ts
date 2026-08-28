@@ -1,4 +1,9 @@
 import { readFileSync } from "node:fs";
+/**
+ * Speaker Action client for the personal lake.
+ * Must not import `@zoen/harness` (harness already depends on speaker).
+ * Default World OSDK actions stay read-only. Writes go through this client.
+ */
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { createClient, type Interceptor } from "@connectrpc/connect";
@@ -15,12 +20,6 @@ import {
   type OsdkDefinitionRef,
 } from "../../osdk/src/index.js";
 import { ActionService } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
-
-/**
- * Speaker Action client for the personal lake.
- * Must not import `@zoen/harness` (harness already depends on speaker).
- * Default World OSDK actions stay read-only. Writes go through this client.
- */
 
 const WRITE_MEMORY_ACTION_ID = "personal.writeMemory";
 const CREATE_REMINDER_ACTION_ID = "personal.createReminder";
@@ -79,7 +78,16 @@ export function createConnectOsdkActions(options: {
   readonly baseUrl: string;
   readonly bearerToken: string;
 }): OsdkActionsPort {
-  const actions = createClient(ActionService, connectTransport(options));
+  const authorization: Interceptor = (next) => async (request) => {
+    request.header.set("authorization", `Bearer ${options.bearerToken}`);
+    return next(request);
+  };
+  const transport = createConnectTransport({
+    baseUrl: options.baseUrl.replace(/\/$/u, ""),
+    httpVersion: "1.1",
+    interceptors: [authorization],
+  });
+  const actions = createClient(ActionService, transport);
   return {
     approve: (request) => actions.approve(request),
     commit: (request) => actions.commit(request),
@@ -89,7 +97,7 @@ export function createConnectOsdkActions(options: {
 }
 
 /**
- * Context: speaker writes one Note per note/remind. Not commercial.sales.
+ * Context: speaker writes on personal.memory. Not commercial.sales.
  * Inputs: compiled personal definition plus a live or test Action port.
  * Outputs: Preview then Commit for writeMemory / createReminder.
  * Side effects: Action.propose twice (preview + commit) and Action.commit.
@@ -132,7 +140,7 @@ export function createSpeakerActionClient(
 
 /**
  * Live zoend Action credentials plus an explicit personal definition path.
- * Does not fall back to the commercial lake. Does not Publish or Activate.
+ * Does not fall back to the commercial lake.
  */
 export function createSpeakerActionClientFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -286,14 +294,14 @@ function applyDefinitionRef(
 
 function defaultActionIds(kind: PersonalWriteKind, now: Date): SpeakerActionIds {
   const suffix = randomBytes(8).toString("hex");
+  const resourcePrefix = kind === "remind" ? "personal.reminder" : "personal.note";
   const actionPrefix = kind === "remind" ? "createReminder" : "writeMemory";
-  const entityPrefix = kind === "remind" ? "reminder" : "note";
   return {
     approvalId: `approval.${actionPrefix}.${suffix}`,
     expiresAt: new Date(now.getTime() + 300_000),
     operationId: `operation.${actionPrefix}.${suffix}`,
     proposalId: `proposal.${actionPrefix}.${suffix}`,
-    resourceId: `personal.${entityPrefix}.${suffix}`,
+    resourceId: `${resourcePrefix}.${suffix}`,
     validAt: now,
   };
 }
@@ -314,21 +322,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
       clearTimeout(timer);
     }
   }
-}
-
-function connectTransport(options: {
-  readonly baseUrl: string;
-  readonly bearerToken: string;
-}) {
-  const authorization: Interceptor = (next) => async (request) => {
-    request.header.set("authorization", `Bearer ${options.bearerToken}`);
-    return next(request);
-  };
-  return createConnectTransport({
-    baseUrl: options.baseUrl.replace(/\/$/u, ""),
-    httpVersion: "1.1",
-    interceptors: [authorization],
-  });
 }
 
 function agentBearerToken(env: NodeJS.ProcessEnv): string | undefined {

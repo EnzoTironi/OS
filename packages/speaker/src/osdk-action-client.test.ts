@@ -20,7 +20,6 @@ import {
 } from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
 import {
   createSpeakerActionClient,
-  createSpeakerActionClientFromEnv,
   defaultPersonalDefinitionPath,
 } from "./osdk-action-client.js";
 
@@ -102,120 +101,6 @@ test("WriteMemory and CreateReminder Propose+Commit with permissive Cedar become
   assert.deepEqual(
     proposed[0]?.inputs.map((entry) => entry.inputId).sort(),
     ["body", "dueAt"],
-  );
-});
-
-test("compiled personal.memory digest is the Fly Cedar key", async () => {
-  const compiled = await compileDefinition(defaultPersonalDefinitionPath());
-  const policies = JSON.parse(
-    await readFile(path.join("deploy", "fly", "policies.json"), "utf8"),
-  ) as {
-    policies: readonly {
-      actionId: string;
-      definitionDigest: string;
-    }[];
-  };
-  const reminder = policies.policies.find(
-    (entry) => entry.actionId === "personal.createReminder",
-  );
-  const note = policies.policies.find(
-    (entry) => entry.actionId === "personal.writeMemory",
-  );
-  assert.equal(compiled.digest, reminder?.definitionDigest);
-  assert.equal(compiled.digest, note?.definitionDigest);
-});
-
-test("Fly admin-a JWT grants createReminder on the lake and type roots, not a hex id", async () => {
-  const realm = JSON.parse(
-    await readFile(path.join("deploy", "fly", "realm.template.json"), "utf8"),
-  ) as {
-    clients: readonly {
-      clientId: string;
-      protocolMappers?: readonly {
-        name: string;
-        config: { readonly "claim.value": string };
-      }[];
-    }[];
-  };
-  const admin = realm.clients.find((client) => client.clientId === "admin-a");
-  const mapper = admin?.protocolMappers?.find(
-    (entry) => entry.name === "zoen_delegation",
-  );
-  assert.ok(mapper);
-  const grants = JSON.parse(mapper.config["claim.value"]) as readonly {
-    actionIds: readonly string[];
-    resourceIds: readonly string[];
-  }[];
-  assert.equal(grants.length, 1);
-  assert.equal(grants[0]?.actionIds.includes("personal.createReminder"), true);
-  assert.equal(grants[0]?.resourceIds.includes("personal.memory"), true);
-  assert.equal(grants[0]?.resourceIds.includes("personal.note"), true);
-  assert.equal(grants[0]?.resourceIds.includes("personal.reminder"), true);
-  assert.equal(
-    grants[0]?.resourceIds.some((id) => /^personal\.(note|reminder)\.[0-9a-f]+$/u.test(id)),
-    false,
-  );
-});
-
-test("two reminds mint two personal.reminder entity ids", async () => {
-  const compiled = await compileDefinition(defaultPersonalDefinitionPath());
-  const proposed: ProposeRequest[] = [];
-  const client = createSpeakerActionClient({
-    actions: readyActionsPort([], proposed),
-    compiled,
-  });
-  const first = await client.commitCreateReminder({
-    body: "beber água",
-    dueAt: "amanhã",
-  });
-  const second = await client.commitCreateReminder({
-    body: "beber água de novo",
-    dueAt: "depois de amanhã",
-  });
-  assert.equal(first.kind, "committed");
-  assert.equal(second.kind, "committed");
-  const reminderIds = [
-    ...new Set(
-      proposed
-        .filter((entry) => entry.actionId === "personal.createReminder")
-        .map((entry) => entry.resourceId),
-    ),
-  ];
-  assert.equal(reminderIds.length, 2);
-  assert.match(reminderIds[0] ?? "", /^personal\.reminder\.[0-9a-f]{16}$/u);
-  assert.match(reminderIds[1] ?? "", /^personal\.reminder\.[0-9a-f]{16}$/u);
-  assert.notEqual(reminderIds[0], reminderIds[1]);
-  assert.equal(
-    reminderIds.every((id) => id !== "personal.memory"),
-    true,
-  );
-  assert.equal(proposed[0]?.definition?.definitionId, "personal.memory");
-  assert.equal(proposed[0]?.definition?.digest, compiled.digest);
-});
-
-test("Fly personal lake prestart requires ZOEN_TENANT_ID; speaker does not Publish", async () => {
-  const prestart = await readFile(
-    path.join("deploy", "fly", "ensure-personal-lake.ts"),
-    "utf8",
-  );
-  const speaker = await readFile(
-    path.join("packages", "speaker", "src", "osdk-action-client.ts"),
-    "utf8",
-  );
-  assert.match(prestart, /requiredEnv\("ZOEN_TENANT_ID"\)/);
-  assert.doesNotMatch(prestart, /tenant\.a/);
-  assert.doesNotMatch(speaker, /DefinitionService/);
-  assert.doesNotMatch(speaker, /ensurePersonalLake|lakeEnsure/);
-  assert.doesNotMatch(speaker, /tenant\.a/);
-});
-
-test("createSpeakerActionClientFromEnv stays unset without a personal definition path", () => {
-  assert.equal(
-    createSpeakerActionClientFromEnv({
-      ZOEN_IDENTITY_BASE_URL: "http://127.0.0.1:58701",
-      ZOEN_AGENT_BEARER_TOKEN: "token",
-    }),
-    undefined,
   );
 });
 

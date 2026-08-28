@@ -12,7 +12,7 @@ import {
   createInteractionScratch,
   createInteractionTools,
 } from "./interaction-tools.js";
-import { type SpeakerActionClient } from "./osdk-action-client.js";
+import type { SpeakerActionClient } from "./osdk-action-client.js";
 import {
   firstContactAddendum,
   firstContactInstructions,
