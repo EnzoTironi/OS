@@ -18,7 +18,7 @@ export const ZOEN_CLI_RELATIVE_PATH = "bin/zoen";
 export const ZOEN_CLI_SCRIPT = [
   "#!/usr/bin/env bash",
   "# Planted Zoen isolate CLI. query / propose use wit/zoen-code-mode host functions.",
-  "# commit is denied on the worker. Cedar commit stays on the speaker path.",
+  "# commit is denied on the worker. Cedar stays on zoend via this CLI.",
   "set -euo pipefail",
   'exec zoen "$@"',
   "",

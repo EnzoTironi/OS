@@ -5,14 +5,12 @@ import type {
   LanguageModelV3GenerateResult,
 } from "@ai-sdk/provider";
 import { MockLanguageModelV3 } from "ai/test";
-import type { ClaimRead } from "../../osdk/src/index.js";
-import { LineageRole } from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
 import {
+  INTERACTION_TOOL_NAMES,
   WAIT_TOOL_DESCRIPTION,
   createInteractionScratch,
   createInteractionTools,
 } from "./interaction-tools.js";
-import type { SpeakerActionClient } from "./osdk-action-client.js";
 import {
   firstContactAddendum,
   firstContactInstructions,
@@ -37,10 +35,7 @@ import {
 import type { ConversationContextAssembler } from "./context-assembler.js";
 import { createMemoryTurnStore } from "./turn-store.js";
 import type { TrustedInteractionContext } from "./types.js";
-import {
-  snapshotFromClaims,
-  type WorldQueryClient,
-} from "./world-query.js";
+import type { WorldQueryClient, WorldQuerySnapshot } from "./world-query.js";
 
 function membership(suffix: string): TrustedInteractionContext {
   return {
@@ -57,18 +52,6 @@ function membership(suffix: string): TrustedInteractionContext {
     principalId: principalIdString("principal.wa.enzo"),
     tenantId: tenantIdString("tenant.wa.enzo"),
     workloadId: "workload.personal",
-  };
-}
-
-function groupMembership(suffix: string): TrustedInteractionContext {
-  const thread = providerThreadRef(`120363-group@g.us:${suffix}`);
-  return {
-    ...membership(suffix),
-    channel: {
-      ...membership(suffix).channel,
-      group: { thread },
-      thread,
-    },
   };
 }
 
@@ -156,8 +139,17 @@ test("media inbound stays PT and does not dump entity ids", async () => {
   assertReasonTurn(result, "noModel", 0, "ok");
 });
 
+test("interaction menu is speak_to_user, wait, and spawn_execution only", () => {
+  const tools = createInteractionTools(createInteractionScratch());
+  assert.deepEqual(Object.keys(tools).sort(), [...INTERACTION_TOOL_NAMES].sort());
+  assert.equal(tools.note, undefined);
+  assert.equal(tools.remind, undefined);
+  assert.equal(tools.mint_href, undefined);
+  assert.equal(tools.request_external, undefined);
+});
+
 test("no model with two World rivals is fail copy, not host rival speech", async () => {
-  const snapshot = snapshotFromClaims(supportingQuantityClaims());
+  const snapshot = twoRivalSnapshot();
   assert.ok(snapshot.rivals.length >= 2);
   const world: WorldQueryClient = {
     async semanticQuery() {
@@ -248,7 +240,7 @@ test("empty-world prompt answers greetings; wait description forbids greetings",
 });
 
 test("mocked turn with two World rivals speaks the readings, not a helpdesk greeting", async () => {
-  const snapshot = snapshotFromClaims(supportingQuantityClaims());
+  const snapshot = twoRivalSnapshot();
   const world: WorldQueryClient = {
     async semanticQuery() {
       return snapshot;
@@ -414,51 +406,12 @@ test("spawn_execution with injected executeWork records executionNotes and does 
   assert.equal(sent.split("https://").length - 1, 0);
 });
 
-test("at most one href survives a double mint", async () => {
-  let step = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({ url: "https://example.com/a" }),
-              toolCallId: "call_href_1",
-              toolName: "mint_href",
-              type: "tool-call",
-            },
-            {
-              input: JSON.stringify({ url: "https://example.com/b" }),
-              toolCallId: "call_href_2",
-              toolName: "mint_href",
-              type: "tool-call",
-            },
-            {
-              input: JSON.stringify({ text: "Segue o resumo." }),
-              toolCallId: "call_speak",
-              toolName: "speak_to_user",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      return {
-        content: [],
-        finishReason: { raw: "stop", unified: "stop" },
-        usage: usage(),
-        warnings: [],
-      } satisfies LanguageModelV3GenerateResult;
-    },
-  });
+test("https spoken through speak_to_user becomes the turn href", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
     inbound: textInbound("Oi"),
     membership: membership("href"),
-    model,
+    model: speakThenStopModel("Segue o resumo.\nhttps://example.com/a"),
   });
   const sent = outboundBubbles(result).join("\n");
   assert.equal(sent.split("https://").length - 1, 1);
@@ -546,7 +499,6 @@ test("wait tool produces no Recebi and no helpdesk", async () => {
   assert.equal(scratch.waited, true);
   assert.equal(scratch.startedWork, false);
   assert.deepEqual(scratch.bubbles, []);
-  assert.equal(scratch.href, undefined);
 });
 
 test("model-driven wait on a non-ack closing message stays empty, not a fast ack", async () => {
@@ -637,46 +589,17 @@ test("speaker does not fold a status phrase into bubbles", async () => {
   assertReasonTurn(result, "spoke", 0, "ok");
 });
 
-test("Speaker speaks one bubble after a successful commit and fail-copies when commit fails", async () => {
-  const committed: SpeakerActionClient = {
-    async commitCreateReminder() {
-      return {
-        kind: "committed",
-        operationId: "operation.remind",
-        previewText: "Vou criar este lembrete para amanhã: dentista",
-        recordIds: ["record.1"],
-      };
-    },
-    async commitWriteMemory() {
-      return {
-        kind: "committed",
-        operationId: "operation.note",
-        previewText: "Vou guardar esta nota: pão",
-        recordIds: ["record.1"],
-      };
-    },
-  };
-  const denied: SpeakerActionClient = {
-    async commitCreateReminder() {
-      return { kind: "denied", message: "commit denied" };
-    },
-    async commitWriteMemory() {
-      return { kind: "denied", message: "commit denied" };
-    },
-  };
-
+test("bound turn still seals a context hash without an in-process Action commit", async () => {
   const store = createMemoryTurnStore();
-  const successCtx = membership("remind-ok");
+  const successCtx = membership("speak-ok");
   const success = await runInteractionTurn({
     debounceMs: 0,
-    actions: committed,
-    inbound: textInbound("me lembra do dentista amanhã"),
+    inbound: textInbound("oi"),
     membership: successCtx,
-    model: writeThenSpeakModel("remind", "agendei o dentista"),
+    model: speakThenStopModel("oi"),
     store,
   });
-  assert.deepEqual(success.bubbles, ["agendei o dentista"]);
-  assert.doesNotMatch(success.bubbles.join("\n"), /não consegui/);
+  assert.deepEqual(success.bubbles, ["oi"]);
   assertReasonTurn(success, "spoke", 0, "ok");
   const successKey = conversationKeyFrom({
     accountId: successCtx.accountId,
@@ -691,34 +614,7 @@ test("Speaker speaks one bubble after a successful commit and fail-copies when c
   assert.equal(hashed.contextDigest, hashed.contextHash);
   assert.ok(hashed.contextRef);
   assert.equal(hashed.contextRef, `${successKey}:${hashed.id}`);
-  assert.ok(
-    hashed.observedCommitRefs.some(
-      (ref) =>
-        ref.kind === "action" && ref.actionId === "personal.createReminder",
-    ),
-  );
-
-  const failedNote = await runInteractionTurn({
-    debounceMs: 0,
-    actions: denied,
-    inbound: textInbound("anota que o pão acabou"),
-    membership: membership("note-fail"),
-    model: writeThenSpeakModel("note", "anotei o pão"),
-  });
-  assert.deepEqual(failedNote.bubbles, ["não consegui anotar agora"]);
-  assert.doesNotMatch(failedNote.bubbles.join("\n"), /anotei/);
-  assertReasonTurn(failedNote, "spoke", 0, "ok");
-
-  const failedRemind = await runInteractionTurn({
-    debounceMs: 0,
-    actions: denied,
-    inbound: textInbound("me lembra do dentista amanhã"),
-    membership: membership("remind-fail"),
-    model: writeThenSpeakModel("remind", "agendei o dentista"),
-  });
-  assert.deepEqual(failedRemind.bubbles, ["não consegui agendar agora"]);
-  assert.doesNotMatch(failedRemind.bubbles.join("\n"), /agendei/);
-  assertReasonTurn(failedRemind, "spoke", 0, "ok");
+  assert.equal(hashed.observedCommitRefs.length, 0);
 });
 
 test("first contact addendum never says unbound and generate mock is the spoken text", async () => {
@@ -787,131 +683,6 @@ test("first contact uses unbound assemble and never calls the bound assembler", 
   assert.equal(unbound, 1);
 });
 
-test("group audience refuses note and does not write personal memory", async () => {
-  let writes = 0;
-  const actions: SpeakerActionClient = {
-    async commitCreateReminder() {
-      writes += 1;
-      return {
-        kind: "committed",
-        operationId: "operation.remind",
-        previewText: "Vou criar este lembrete para amanhã: dentista",
-        recordIds: ["record.1"],
-      };
-    },
-    async commitWriteMemory() {
-      writes += 1;
-      return {
-        kind: "committed",
-        operationId: "operation.note",
-        previewText: "Vou guardar esta nota: pão",
-        recordIds: ["record.1"],
-      };
-    },
-  };
-  const result = await runInteractionTurn({
-    actions,
-    debounceMs: 0,
-    inbound: textInbound("anota que o pão acabou"),
-    membership: groupMembership("group-note"),
-    model: writeThenSpeakModel("note", "anotei o pão"),
-  });
-  assert.equal(writes, 0);
-  assert.deepEqual(result.bubbles, ["não consegui anotar agora"]);
-  assert.doesNotMatch(result.bubbles.join("\n"), /anotei/);
-});
-
-test("request_external on WhatsApp phone mints an approve href, not onboard", async () => {
-  let step = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({ boundary: "fiscal_issuance" }),
-              toolCallId: "call_ext",
-              toolName: "request_external",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      if (step === 2) {
-        return speakCall("abre o link pra confirmar");
-      }
-      return stopCall();
-    },
-  });
-  const result = await runInteractionTurn({
-    debounceMs: 0,
-    inbound: textInbound("emite a nota"),
-    membership: membership("fiscal"),
-    model,
-    publicWebOrigin: "https://zoen.tironi.xyz",
-  });
-  const sent = outboundBubbles(result).join("\n");
-  assert.match(sent, /https:\/\/zoen\.tironi\.xyz\/approve\/external\.fiscal_issuance/);
-  assert.doesNotMatch(sent, /\/onboard\//);
-});
-
-test("request_external with OIDC binding does not mint a login URL", async () => {
-  let step = 0;
-  const model = new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input: JSON.stringify({ boundary: "bank_access" }),
-              toolCallId: "call_ext",
-              toolName: "request_external",
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      if (step === 2) {
-        return speakCall("vou olhar o banco");
-      }
-      return stopCall();
-    },
-  });
-  const result = await runInteractionTurn({
-    channelAssurance: "oidc_bound",
-    debounceMs: 0,
-    inbound: textInbound("abre o banco"),
-    membership: membership("bank"),
-    model,
-    publicWebOrigin: "https://zoen.tironi.xyz",
-  });
-  const sent = outboundBubbles(result).join("\n");
-  assert.doesNotMatch(sent, /\/onboard\/|\/approve\/external\./);
-  assert.match(sent, /vou olhar o banco/);
-});
-
-test("note tool does not mint a login URL", async () => {
-  const scratch = createInteractionScratch();
-  const tools = createInteractionTools(scratch, {
-    publicWebOrigin: "https://zoen.tironi.xyz",
-  });
-  const note = tools.note;
-  assert.ok(note?.execute !== undefined);
-  await note.execute(
-    { body: "leite" },
-    { context: undefined, messages: [], toolCallId: "call_note" },
-  );
-  assert.equal(scratch.href, undefined);
-});
-
 test("generate throw stays silent, not consult or rival speech", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
@@ -940,14 +711,18 @@ function silentStopModel(): MockLanguageModelV3 {
 
 const LIVE_QUOTE_NOTE = "abrir https://workshop.example/quote";
 
+function twoRivalSnapshot(): WorldQuerySnapshot {
+  return {
+    entityIds: ["commercial.order-line.dirty-quote"],
+    notes: ["10 each", "12 each"],
+    rivals: [{ label: "source.sheet" }, { label: "source.erp" }],
+  };
+}
+
 function twoRivalWorld(): WorldQueryClient {
   return {
     async semanticQuery() {
-      return {
-        entityIds: ["commercial.order-line.dirty-quote"],
-        notes: ["10 each", "12 each"],
-        rivals: [{ label: "10 each" }, { label: "12 each" }],
-      };
+      return twoRivalSnapshot();
     },
   };
 }
@@ -993,43 +768,6 @@ function waitThenStopModel(): MockLanguageModelV3 {
       step += 1;
       if (step === 1) {
         return waitCall();
-      }
-      return stopCall();
-    },
-  });
-}
-
-function writeThenSpeakModel(
-  kind: "note" | "remind",
-  spoken: string,
-): MockLanguageModelV3 {
-  let step = 0;
-  return new MockLanguageModelV3({
-    doGenerate: async () => {
-      step += 1;
-      if (step === 1) {
-        return {
-          content: [
-            {
-              input:
-                kind === "note"
-                  ? JSON.stringify({ body: "o pão acabou" })
-                  : JSON.stringify({
-                      body: "dentista",
-                      dueAt: "amanhã 15h",
-                    }),
-              toolCallId: `call_${kind}`,
-              toolName: kind,
-              type: "tool-call",
-            },
-          ],
-          finishReason: { raw: "tool-calls", unified: "tool-calls" },
-          usage: usage(),
-          warnings: [],
-        } satisfies LanguageModelV3GenerateResult;
-      }
-      if (step === 2) {
-        return speakCall(spoken);
       }
       return stopCall();
     },
@@ -1172,39 +910,5 @@ function flattenPrompt(prompt: LanguageModelV3CallOptions["prompt"]): string {
       return "";
     })
     .join("\n");
-}
-
-function supportingQuantityClaims(): readonly ClaimRead[] {
-  const entityId = "commercial.order-line.dirty-quote";
-  return [
-    {
-      entityId,
-      lineage: [
-        {
-          claimId: "claim.quotedQuantity.sheet",
-          commitSequence: 1n,
-          entityId,
-          relationId: "commercial.quotedQuantity",
-          role: LineageRole.SUPPORTING,
-          sourceId: "source.sheet",
-        },
-      ],
-      value: { amount: "10", kind: "quantity", unit: "each" },
-    },
-    {
-      entityId,
-      lineage: [
-        {
-          claimId: "claim.quotedQuantity.erp",
-          commitSequence: 2n,
-          entityId,
-          relationId: "commercial.quotedQuantity",
-          role: LineageRole.UNSPECIFIED,
-          sourceId: "source.erp",
-        },
-      ],
-      value: { amount: "12", kind: "quantity", unit: "each" },
-    },
-  ];
 }
 
