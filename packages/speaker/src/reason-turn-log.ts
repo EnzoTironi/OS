@@ -10,6 +10,7 @@ export const REASON_TURN_LOG_KEYS = [
   "attemptId",
   "bubbleCount",
   "errorClass",
+  "errorMessage",
   "event",
   "generate",
   "generateMs",
@@ -47,6 +48,7 @@ export interface ReasonTurnFacts {
   readonly attemptId: string;
   readonly bubbleCount: number;
   readonly errorClass: string | null;
+  readonly errorMessage: string | null;
   readonly generate: ReasonTurnGenerate;
   readonly generateMs: number;
   readonly hasMemory: boolean;

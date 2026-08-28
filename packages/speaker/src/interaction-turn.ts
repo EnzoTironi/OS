@@ -40,6 +40,7 @@ import type {
   InteractionRecord,
   TrustedInteractionContext,
 } from "./types.js";
+import { redactCredentialText } from "./model-credential.js";
 import type {
   ReasonTurnFacts,
   ReasonTurnGenerate,
@@ -222,6 +223,7 @@ export async function runInteractionTurn(
       attemptId: envelope.contextRef,
       bubbleCount: rendered.bubbles.length,
       errorClass: reasoned.errorClass,
+      errorMessage: reasoned.errorMessage,
       generate: reasoned.generate,
       generateMs: reasoned.generateMs,
       hasMemory: envelope.document.records.some(
@@ -413,6 +415,17 @@ function generateErrorClass(error: unknown): string {
   return "Unknown";
 }
 
+const MAX_THROW_MESSAGE = 240;
+
+function generateErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const redacted = redactCredentialText(raw);
+  if (redacted.length <= MAX_THROW_MESSAGE) {
+    return redacted;
+  }
+  return `${redacted.slice(0, MAX_THROW_MESSAGE)}...`;
+}
+
 async function claimAttempt(input: {
   readonly attemptId?: TurnAttemptId;
   readonly coordinator: ConversationTurnCoordinator;
@@ -474,6 +487,7 @@ function inboundIdempotencyKey(
 
 interface ReasonTurnResult {
   readonly errorClass: string | null;
+  readonly errorMessage: string | null;
   readonly generate: ReasonTurnGenerate;
   readonly generateMs: number;
   readonly path: ReasonTurnPath;
@@ -493,6 +507,7 @@ async function reasonTurn(input: {
   if (input.model === undefined) {
     return {
       errorClass: null,
+      errorMessage: null,
       generate: "ok",
       generateMs: 0,
       path: "noModel",
@@ -516,6 +531,7 @@ async function reasonTurn(input: {
   } catch (error: unknown) {
     return {
       errorClass: generateErrorClass(error),
+      errorMessage: generateErrorMessage(error),
       generate: "throw",
       generateMs: Date.now() - started,
       path: "threw",
@@ -526,6 +542,7 @@ async function reasonTurn(input: {
   if (scratch.waited) {
     return {
       errorClass: null,
+      errorMessage: null,
       generate: "ok",
       generateMs,
       path: "wait",
@@ -535,6 +552,7 @@ async function reasonTurn(input: {
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
     return {
       errorClass: null,
+      errorMessage: null,
       generate: "ok",
       generateMs,
       path: "lookupFail",
@@ -543,6 +561,7 @@ async function reasonTurn(input: {
   }
   return {
     errorClass: null,
+    errorMessage: null,
     generate: "ok",
     generateMs,
     path: scratch.bubbles.length === 0 ? "wait" : "spoke",

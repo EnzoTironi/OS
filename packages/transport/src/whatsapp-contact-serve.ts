@@ -4,6 +4,7 @@ import {
   createInteractionExecuteWork,
 } from "../../harness/src/interaction-execute-work.js";
 import {
+  assertConfiguredModelCredential,
   createIdentityDirectoryClient,
   createPostgresTurnStore,
   type IdentityDirectory,
@@ -24,6 +25,7 @@ import {
 } from "./whatsapp-ingress-auth.js";
 
 async function main(): Promise<void> {
+  assertConfiguredModelCredential();
   const doorE164 = parseWhatsAppDoorE164(process.env.ZOEN_WHATSAPP_DOOR_E164);
   const companionUrl = requiredEnv("ZOEN_WHATSAPP_COMPANION_URL");
   const identityBaseUrl = requiredEnv("ZOEN_IDENTITY_BASE_URL");

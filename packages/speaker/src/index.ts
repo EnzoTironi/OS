@@ -23,4 +23,5 @@ export * from "./context-project.js";
 export * from "./context-assembler.js";
 export * from "./interaction-tools.js";
 export { emitReasonTurnLog, REASON_TURN_LOG_KEYS } from "./reason-turn-log.js";
+export { assertConfiguredModelCredential } from "./model-credential.js";
 export * from "./interaction-turn.js";

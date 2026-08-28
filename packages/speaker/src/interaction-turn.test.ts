@@ -642,14 +642,14 @@ test("resolveLanguageModel modelId is the ZOEN_MODEL id, never the key", () => {
   assert.equal(typeof model === "object" && "modelId" in model && model.modelId, "hy3-free");
 });
 
-test("generate throw records error class, not body", async () => {
+test("generate throw records error class and redacted message", async () => {
   const result = await runInteractionTurn({
     debounceMs: 0,
     inbound: textInbound("quanto ficou a cotacao"),
     membership: membership("throw-class"),
     model: new MockLanguageModelV3({
       doGenerate: async () => {
-        throw new TypeError("secret generate body");
+        throw new TypeError("Unauthorized");
       },
     }),
     world: twoRivalWorld(),
@@ -657,12 +657,58 @@ test("generate throw records error class, not body", async () => {
   assertReasonTurn(result, "threw", 2, "throw");
   assert.equal(result.reasonTurn.generate, "throw");
   assert.equal(result.reasonTurn.errorClass, "TypeError");
+  assert.equal(result.reasonTurn.errorMessage, "Unauthorized");
   assert.equal(result.reasonTurn.hasWorld, true);
   assert.deepEqual(result.bubbles, []);
   assert.equal(result.href, null);
   const blob = JSON.stringify(result.reasonTurn);
-  assert.equal(blob.includes("secret generate body"), false);
   assert.equal(blob.includes("commercial.order-line"), false);
+});
+
+test("generate throw redacts JWT-shaped secrets from errorMessage", async () => {
+  const jwt = mintThrowJwt({
+    exp: 1,
+    iss: "https://auth.x.ai",
+    sub: "secret-sub",
+  });
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("throw-jwt"),
+    model: throwOnGenerateModel(
+      `401 Unauthorized Bearer ${jwt} sk-live-secret123`,
+    ),
+  });
+  assertSilentThrow(result, 0);
+  assert.equal(result.reasonTurn.errorClass, "Error");
+  const errorMessage = result.reasonTurn.errorMessage ?? "";
+  assert.equal(errorMessage.includes(jwt), false);
+  assert.equal(errorMessage.includes("secret-sub"), false);
+  assert.equal(errorMessage.includes("sk-live-secret123"), false);
+  assert.match(errorMessage, /401/);
+  const blob = JSON.stringify(result.reasonTurn);
+  assert.equal(blob.includes(jwt), false);
+  assert.doesNotMatch(blob, /"stack"/);
+});
+
+test("generate throw caps errorMessage after redacting secrets", async () => {
+  const jwt = mintThrowJwt({
+    exp: 1,
+    iss: "https://auth.x.ai",
+    sub: "secret-sub",
+  });
+  const result = await runInteractionTurn({
+    debounceMs: 0,
+    inbound: textInbound("oi"),
+    membership: membership("throw-cap"),
+    model: throwOnGenerateModel(`${"n".repeat(300)} Bearer ${jwt}`),
+  });
+  assertSilentThrow(result, 0);
+  const errorMessage = result.reasonTurn.errorMessage ?? "";
+  assert.equal(errorMessage.length <= 243, true);
+  assert.equal(errorMessage.endsWith("..."), true);
+  assert.equal(errorMessage.includes(jwt), false);
+  assert.equal(errorMessage.includes("secret-sub"), false);
 });
 
 test("slow wait stays silent", async () => {
@@ -805,6 +851,7 @@ test("generate throw stays silent, not consult or rival speech", async () => {
   const sent = outboundBubbles(result).join("\n");
   assertSilentThrow(result, 2);
   assert.equal(result.reasonTurn.errorClass, "Error");
+  assert.equal(result.reasonTurn.errorMessage, "generate failed");
   assert.doesNotMatch(sent, /Tem mais de uma leitura/);
   assert.doesNotMatch(sent, /10 each|12 each/);
 });
@@ -852,10 +899,21 @@ function liveShapedHttpsWorld(): WorldQueryClient {
   };
 }
 
-function throwOnGenerateModel(): MockLanguageModelV3 {
+function mintThrowJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256" })).toString(
+    "base64url",
+  );
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = Buffer.from("sig").toString("base64url");
+  return `${header}.${body}.${sig}`;
+}
+
+function throwOnGenerateModel(
+  message = "generate failed",
+): MockLanguageModelV3 {
   return new MockLanguageModelV3({
     doGenerate: async () => {
-      throw new Error("generate failed");
+      throw new Error(message);
     },
   });
 }
@@ -1022,6 +1080,7 @@ function assertReasonTurnFacts(facts: ReasonTurnFacts): void {
     "attemptId",
     "bubbleCount",
     "errorClass",
+    "errorMessage",
     "generate",
     "generateMs",
     "hasMemory",
