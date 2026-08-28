@@ -146,6 +146,21 @@ semantic_id!(TypeId);
 semantic_id!(UnitId);
 semantic_id!(WorkloadId);
 
+impl ResourceId {
+    /// A grant on `self` covers `self` and dotted children (`self.leaf`).
+    /// `personal.note` covers `personal.note.deadbeef`. It does not cover a
+    /// neighbor (`personal.note2`) or a sibling lake (`personal.reminder.1`).
+    pub fn covers(&self, other: &Self) -> bool {
+        if self == other {
+            return true;
+        }
+        other
+            .as_str()
+            .strip_prefix(self.as_str())
+            .is_some_and(|rest| rest.as_bytes().first() == Some(&b'.') && rest.len() > 1)
+    }
+}
+
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ComponentInterface(String);
 
@@ -763,7 +778,10 @@ impl DelegationGrant {
         at: TimestampMicros,
     ) -> bool {
         self.actions.contains(action_id)
-            && self.resources.contains(resource_id)
+            && self
+                .resources
+                .iter()
+                .any(|granted| granted.covers(resource_id))
             && self.workloads.contains(workload_id)
             && self.not_before <= at
             && at < self.expires_at
@@ -773,7 +791,12 @@ impl DelegationGrant {
         if !self.actions.is_subset(&parent.actions) {
             return Err(DelegationError::ExpandedAction(self.id.clone()));
         }
-        if !self.resources.is_subset(&parent.resources) {
+        if !self.resources.iter().all(|resource| {
+            parent
+                .resources
+                .iter()
+                .any(|granted| granted.covers(resource))
+        }) {
             return Err(DelegationError::ExpandedResource(self.id.clone()));
         }
         if !self.workloads.is_subset(&parent.workloads) {

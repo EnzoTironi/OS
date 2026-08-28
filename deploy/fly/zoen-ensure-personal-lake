@@ -1,0 +1,20 @@
+#!/bin/sh
+# Publish+Activate personal.memory after remint writes the agent token.
+# Speaker must not do this on the write path.
+set -eu
+ready="${ZOEN_PERSONAL_LAKE_READY_FILE:-/data/zoen/personal.lake.ready}"
+token="${ZOEN_AGENT_BEARER_TOKEN_FILE:-/data/zoen/agent.token}"
+zoend="${ZOEN_IDENTITY_BASE_URL:-http://127.0.0.1:58701}"
+script="/app/dist/deploy/fly/ensure-personal-lake.js"
+mkdir -p /data/zoen
+rm -f "$ready"
+while true; do
+  if [ -s "$token" ] \
+    && curl -sf "${zoend}/ready" >/dev/null \
+    && [ -f "$script" ]; then
+    if (cd /app && /usr/local/bin/node "$script"); then
+      exit 0
+    fi
+  fi
+  sleep 2
+done

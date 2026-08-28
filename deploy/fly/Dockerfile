@@ -32,6 +32,7 @@ COPY packages/ontology packages/ontology
 COPY packages/osdk packages/osdk
 COPY packages/sdk packages/sdk
 COPY deploy/fly/tsconfig.speaker.json deploy/fly/tsconfig.speaker.json
+COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
 RUN npm ci \
     && npx tsc -p deploy/fly/tsconfig.speaker.json --pretty false
 
@@ -62,6 +63,8 @@ COPY deploy/fly/zoen-start-restate /usr/local/bin/zoen-start-restate
 COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/realm.template.json /etc/zoen/realm.template.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
+COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake
+COPY deploy/fly/zoen-wait-for-personal-lake /usr/local/bin/zoen-wait-for-personal-lake
 COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
 COPY packages/ontology/fixtures/commercial.zoen.ts /etc/zoen/commercial.zoen.ts
 COPY packages/ontology/fixtures/personal.zoen.ts /etc/zoen/personal.zoen.ts

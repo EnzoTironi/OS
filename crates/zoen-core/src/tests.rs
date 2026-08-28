@@ -268,6 +268,104 @@ fn child_delegation_cannot_expand_any_scope_dimension() {
 }
 
 #[test]
+fn resource_grant_covers_dotted_children_not_siblings() {
+    let note = ResourceId::parse("personal.note").expect("type root");
+    let reminder = ResourceId::parse("personal.reminder").expect("type root");
+    let lake = ResourceId::parse("personal.memory").expect("lake");
+    let note_one = ResourceId::parse("personal.note.deadbeef").expect("note");
+    let reminder_one = ResourceId::parse("personal.reminder.cafe").expect("reminder");
+    assert!(note.covers(&note));
+    assert!(note.covers(&note_one));
+    assert!(!note.covers(&reminder_one));
+    assert!(!lake.covers(&note_one));
+    assert!(!lake.covers(&reminder_one));
+    assert!(reminder.covers(&reminder_one));
+    assert!(
+        !ResourceId::parse("personal.note")
+            .expect("root")
+            .covers(&ResourceId::parse("personal.note2.x").expect("neighbor"))
+    );
+}
+
+#[test]
+fn lake_type_root_grant_permits_child_note_instances() {
+    let grant = delegation(
+        "delegation.personal",
+        ["personal.writeMemory", "personal.createReminder"],
+        ["personal.memory", "personal.note", "personal.reminder"],
+        ["workload.admin.a"],
+        10,
+        100,
+    );
+    let at = TimestampMicros::new(50);
+    let workload = WorkloadId::parse("workload.admin.a").expect("workload");
+    assert!(grant.permits(
+        &ActionId::parse("personal.createReminder").expect("action"),
+        &ResourceId::parse("personal.reminder.cafe").expect("instance"),
+        &workload,
+        at,
+    ));
+    assert!(grant.permits(
+        &ActionId::parse("personal.writeMemory").expect("action"),
+        &ResourceId::parse("personal.note.deadbeef").expect("instance"),
+        &workload,
+        at,
+    ));
+    assert!(!grant.permits(
+        &ActionId::parse("personal.createReminder").expect("action"),
+        &ResourceId::parse("commercial.order-line.dirty-quote").expect("other"),
+        &workload,
+        at,
+    ));
+    let lake_only = delegation(
+        "delegation.lake-only",
+        ["personal.createReminder"],
+        ["personal.memory"],
+        ["workload.admin.a"],
+        10,
+        100,
+    );
+    assert!(
+        !lake_only.permits(
+            &ActionId::parse("personal.createReminder").expect("action"),
+            &ResourceId::parse("personal.reminder.cafe").expect("instance"),
+            &workload,
+            at,
+        ),
+        "lake id is not a dotted parent of personal.reminder.*"
+    );
+}
+
+#[test]
+fn child_delegation_may_narrow_to_a_dotted_instance() {
+    let chain = DelegationChain::new(vec![
+        delegation(
+            "delegation.parent",
+            ["personal.createReminder"],
+            ["personal.reminder"],
+            ["workload.admin.a"],
+            10,
+            100,
+        ),
+        delegation(
+            "delegation.child",
+            ["personal.createReminder"],
+            ["personal.reminder.cafe"],
+            ["workload.admin.a"],
+            20,
+            90,
+        ),
+    ])
+    .expect("instance is a child of the type root");
+    assert!(chain.permits(
+        &ActionId::parse("personal.createReminder").expect("action"),
+        &ResourceId::parse("personal.reminder.cafe").expect("instance"),
+        &WorkloadId::parse("workload.admin.a").expect("workload"),
+        TimestampMicros::new(50),
+    ));
+}
+
+#[test]
 fn narrowed_delegation_authorizes_only_the_leaf_scope() {
     let chain = DelegationChain::new(vec![
         delegation(

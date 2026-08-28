@@ -5,6 +5,7 @@
     "rootDir": "../.."
   },
   "include": [
+    "../../deploy/fly/ensure-personal-lake.ts",
     "../../packages/transport/src/**/*.ts",
     "../../packages/speaker/src/**/*.ts",
     "../../packages/ontology/src/**/*.ts",
