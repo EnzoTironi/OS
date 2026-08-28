@@ -33,7 +33,8 @@ export type ChannelSubjectResolveFailure =
   | { readonly kind: "merged"; readonly message: string }
   | { readonly kind: "inactive_membership"; readonly message: string }
   | { readonly kind: "ambiguous_membership"; readonly message: string }
-  | { readonly kind: "tenant_hint_miss"; readonly message: string };
+  | { readonly kind: "tenant_hint_miss"; readonly message: string }
+  | { readonly kind: "incomplete_membership"; readonly message: string };
 
 export class ChannelSubjectResolveError extends Error {
   readonly failure: ChannelSubjectResolveFailure;
@@ -238,14 +239,23 @@ function identityFromSnapshot(
     });
   }
 
+  const actorId = membership.actorId?.trim() ?? "";
+  const workloadId = membership.workloadId?.trim() ?? "";
+  if (actorId.length === 0 || workloadId.length === 0) {
+    throw new ChannelSubjectResolveError({
+      kind: "incomplete_membership",
+      message: "membership snapshot missing actor or workload",
+    });
+  }
+
   return {
     accountId: membership.accountId,
-    actorId: membership.actorId ?? "actor.personal",
+    actorId,
     bindingId: binding.bindingId,
     membershipId: membership.membershipId,
     principalId: principalIdString(membership.principalId),
     tenantId: tenantIdString(membership.tenantId),
-    workloadId: membership.workloadId ?? "workload.personal",
+    workloadId,
   };
 }
 
