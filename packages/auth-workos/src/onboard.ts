@@ -8,6 +8,8 @@ export type OnboardStatus =
 
 export type OnboardLookup = (token: string) => Promise<OnboardStatus>;
 
+export type OnboardConfirm = (token: string) => Promise<"bound" | "failed">;
+
 const TOKEN = /^[\w.-]+$/u;
 
 /**
@@ -43,8 +45,17 @@ export function httpsRedirect(url: string): string | undefined {
 }
 
 /**
- * Fail closed: unknown or unreachable invite is missing.
- * Fail open: local door without zoend treats a well-formed token as ready.
+ * Path on the private zoend origin. `suffix` is `/confirm` for the bind POST.
+ */
+export function zoendOnboardUrl(baseUrl: string, token: string, suffix = ""): URL {
+  return new URL(
+    `/onboard/${encodeURIComponent(token)}${suffix}`,
+    `${baseUrl}/`,
+  );
+}
+
+/**
+ * Fail closed unless this is a local redirect door without zoend.
  */
 export function stubOnboardLookup(mode: "open" | "closed"): OnboardLookup {
   return async (token) => {
@@ -55,6 +66,10 @@ export function stubOnboardLookup(mode: "open" | "closed"): OnboardLookup {
   };
 }
 
+/**
+ * HTTP GET to private zoend. Returns ready or missing only.
+ * Never invents `verification_uri_complete`.
+ */
 export function zoendOnboardLookup(baseUrl: string): OnboardLookup {
   return async (token) => {
     const parsed = parseOnboardToken(token);
@@ -62,11 +77,10 @@ export function zoendOnboardLookup(baseUrl: string): OnboardLookup {
       return { kind: "missing" };
     }
     try {
-      const url = new URL(
-        `/onboard/${encodeURIComponent(parsed)}`,
-        baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
-      );
-      const response = await fetch(url, { redirect: "manual" });
+      const response = await fetch(zoendOnboardUrl(baseUrl, parsed), {
+        redirect: "manual",
+        signal: AbortSignal.timeout(5_000),
+      });
       return response.ok ? { kind: "ready" } : { kind: "missing" };
     } catch {
       return { kind: "missing" };
@@ -74,13 +88,70 @@ export function zoendOnboardLookup(baseUrl: string): OnboardLookup {
   };
 }
 
+export function interpretConfirmResponse(
+  status: number,
+  body: string,
+): "bound" | "failed" {
+  if (status === 200) {
+    return "bound";
+  }
+  if (status === 409 && body.includes("already consumed")) {
+    return "bound";
+  }
+  return "failed";
+}
+
+/**
+ * HTTP POST to zoend `/onboard/{token}/confirm` so `complete_onboard` binds
+ * and consumes the WhatsApp JID. This package does not import zoend.
+ */
+export function zoendOnboardConfirm(baseUrl: string): OnboardConfirm {
+  return async (token) => {
+    const parsed = parseOnboardToken(token);
+    if (parsed === undefined) {
+      return "failed";
+    }
+    try {
+      const response = await fetch(
+        zoendOnboardUrl(baseUrl, parsed, "/confirm"),
+        {
+          method: "POST",
+          redirect: "manual",
+          signal: AbortSignal.timeout(5_000),
+        },
+      );
+      return interpretConfirmResponse(response.status, await response.text());
+    } catch {
+      return "failed";
+    }
+  };
+}
+
 export function resolveOnboardLookup(
   lookup: OnboardLookup | undefined,
   identityBaseUrl: string | undefined,
+  local: boolean,
 ): OnboardLookup {
-  return lookup ?? (identityBaseUrl === undefined
-    ? stubOnboardLookup("open")
-    : zoendOnboardLookup(identityBaseUrl));
+  if (lookup !== undefined) {
+    return lookup;
+  }
+  if (identityBaseUrl !== undefined) {
+    return zoendOnboardLookup(identityBaseUrl);
+  }
+  return stubOnboardLookup(local ? "open" : "closed");
+}
+
+export function resolveOnboardConfirm(
+  confirm: OnboardConfirm | undefined,
+  identityBaseUrl: string | undefined,
+): OnboardConfirm {
+  if (confirm !== undefined) {
+    return confirm;
+  }
+  if (identityBaseUrl !== undefined) {
+    return zoendOnboardConfirm(identityBaseUrl);
+  }
+  return async () => "failed";
 }
 
 export function missingOnboardPage(): string {
@@ -101,6 +172,10 @@ export function startOnboardPage(token: string): string {
 
 export function returnToWhatsAppPage(): string {
   return page("Volta pro Zap.");
+}
+
+export function confirmFailedPage(): string {
+  return page("Não deu para confirmar este WhatsApp.");
 }
 
 function page(body: string): string {

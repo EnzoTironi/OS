@@ -3,20 +3,24 @@ import { doubleCsrf } from "csrf-csrf";
 import express, { type Request } from "express";
 import {
   callbackPath,
-  identityBaseUrl,
+  isLocalRedirect,
+  privateIdentityBase,
   readAuthEnv,
   type AuthEnv,
 } from "./env.js";
 import { createAuth, type Auth, type AuthUser } from "./auth.js";
 import {
+  confirmFailedPage,
   httpsRedirect,
   missingOnboardPage,
   onboardState,
   parseOnboardToken,
+  resolveOnboardConfirm,
   resolveOnboardLookup,
   returnToWhatsAppPage,
   startOnboardPage,
   tokenFromState,
+  type OnboardConfirm,
   type OnboardLookup,
 } from "./onboard.js";
 
@@ -88,14 +92,18 @@ export function createAuthWorkosApp(input: {
   auth?: Auth;
   env?: AuthEnv;
   identityBaseUrl?: string;
+  onboardConfirm?: OnboardConfirm;
   onboardLookup?: OnboardLookup;
 } = {}) {
   const env = input.env ?? readAuthEnv();
   const auth = input.auth ?? createAuth();
-  const lookup = resolveOnboardLookup(
-    input.onboardLookup,
-    input.identityBaseUrl ?? identityBaseUrl(),
+  const local = isLocalRedirect(env.redirectUri);
+  const identity = privateIdentityBase(
+    input.identityBaseUrl ?? process.env.ZOEN_IDENTITY_BASE_URL,
+    env.redirectUri,
   );
+  const lookup = resolveOnboardLookup(input.onboardLookup, identity, local);
+  const confirm = resolveOnboardConfirm(input.onboardConfirm, identity);
   const app = express();
   app.use(cookieParser());
   app.use(express.urlencoded({ extended: false }));
@@ -169,6 +177,12 @@ export function createAuthWorkosApp(input: {
     const user = await auth.currentUser(sessionCookie(req));
     if (user === null) {
       res.type("html").send(startOnboardPage(token));
+      return;
+    }
+    // Bind/consume on private zoend. Do not skip this after AuthKit.
+    const bound = await confirm(token);
+    if (bound !== "bound") {
+      res.status(503).type("html").send(confirmFailedPage());
       return;
     }
     res.type("html").send(returnToWhatsAppPage());

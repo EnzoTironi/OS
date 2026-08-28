@@ -41,13 +41,54 @@ export function callbackPath(redirectUri: string): string {
 }
 
 /**
- * Private zoend origin for invite lookup. Never the public AuthKit door.
+ * Private zoend origin for invite lookup and confirm.
+ * Never the public door (`zoen.tironi.xyz`) — that would recurse into HTML.
  */
 export function identityBaseUrl(
   env: NodeJS.ProcessEnv = process.env,
+  redirectUri?: string,
 ): string | undefined {
-  const raw = env.ZOEN_IDENTITY_BASE_URL?.trim();
-  return raw === undefined || raw.length === 0
-    ? undefined
-    : raw.replace(/\/+$/, "");
+  return privateIdentityBase(env.ZOEN_IDENTITY_BASE_URL, redirectUri);
+}
+
+/** Local door only when the redirect host is localhost or 127.0.0.1. */
+export function isLocalRedirect(redirectUri: string): boolean {
+  try {
+    const host = new URL(redirectUri).hostname;
+    return host === "localhost" || host === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Accept only a private http(s) origin. Reject empty, public host, or the
+ * same origin as `WORKOS_REDIRECT_URI`.
+ */
+export function privateIdentityBase(
+  raw: string | undefined,
+  redirectUri?: string,
+): string | undefined {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed.length === 0) {
+    return undefined;
+  }
+  try {
+    const identity = new URL(trimmed);
+    if (identity.protocol !== "http:" && identity.protocol !== "https:") {
+      return undefined;
+    }
+    if (identity.hostname === "zoen.tironi.xyz") {
+      return undefined;
+    }
+    if (redirectUri !== undefined) {
+      const door = new URL(redirectUri);
+      if (identity.origin === door.origin) {
+        return undefined;
+      }
+    }
+    return identity.origin;
+  } catch {
+    return undefined;
+  }
 }
