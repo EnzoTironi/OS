@@ -871,7 +871,7 @@ function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-test("bound 1:1 slow model sends exactly one status bubble, then the final answer, in order", async () => {
+test("bound 1:1 slow model never sends vendo, then the final answer", async () => {
   const session = await readySession();
   const clock = createManualClock();
   let releaseGenerate: (() => void) | undefined;
@@ -933,12 +933,7 @@ test("bound 1:1 slow model sends exactly one status bubble, then the final answe
 
     await clock.advance(1);
     await tick();
-    assert.equal(session.sent().length, 1, "exactly one status bubble at the gate");
-    const status = session.sent()[0];
-    assert.ok(status);
-    if (status.shape.kind === "text") {
-      assert.equal(status.shape.text, "vendo");
-    }
+    assert.equal(session.sent().length, 0, "2s gate must never speak vendo");
 
     releaseGenerate?.();
     result = await turn;
@@ -946,12 +941,17 @@ test("bound 1:1 slow model sends exactly one status bubble, then the final answe
     process.stderr.write = original;
   }
   assert.equal(result.kind, "bound");
-  assert.equal(session.sent().length, 2, "status then final, never a duplicate status");
-  const final = session.sent()[1];
+  assert.equal(session.sent().length, 1, "final answer only");
+  const final = session.sent()[0];
   assert.ok(final);
   if (final.shape.kind === "text") {
     assert.equal(final.shape.text, "ficou 12 each");
     assert.doesNotMatch(final.shape.text, STATUS_PHRASE_PT);
+  }
+  for (const observation of session.sent()) {
+    if (observation.shape.kind === "text") {
+      assert.doesNotMatch(observation.shape.text, STATUS_PHRASE_PT);
+    }
   }
   const parsed = chunks
     .join("")
