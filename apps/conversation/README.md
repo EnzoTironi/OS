@@ -1,35 +1,60 @@
 # conversation
 
-This is an [eve](https://eve.dev) agent bootstrapped with [`eve init`](https://eve.dev/docs/reference/cli#eve-init).
+Zoen conversation is an [eve](https://eve.dev) agent. Callers talk to it on the HTTP eve channel.
 
-## Getting started
+## Run locally
 
-First, run the development server:
+You need Node 24. From this directory:
 
 ```bash
-eve dev
+npm install
+eve dev --no-ui
 ```
 
-The development TUI opens an interactive session where you can send messages to your agent.
+`eve dev` sets `EVE_DEV=1`, so `localDev()` accepts requests. The default port is 2000.
 
-Start by editing `agent/instructions.md` to define the agent's identity, purpose, tone, and response guidelines. Configure its model and runtime behavior in `agent/agent.ts`.
+Start a session:
 
-Add capabilities under `agent/`, including tools, connections, channels, skills, subagents, and schedules. eve reloads your changes as you work.
+```bash
+curl -X POST http://127.0.0.1:2000/eve/v1/session \
+  -H 'content-type: application/json' \
+  -d '{"message":"oi"}'
+```
+
+Stream events:
+
+```bash
+curl http://127.0.0.1:2000/eve/v1/session/<sessionId>/stream
+```
+
+Assistant text arrives on `message.appended` and `message.completed`. Health is public at `GET /eve/v1/health`. Session routes are not.
+
+Edit `agent/instructions.md` for voice. Edit `agent/agent.ts` for the model.
+
+The model is a direct OpenAI-compatible `LanguageModel`. Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `ZOEN_MODEL` in the process environment. Do not commit those values.
+
+## Self-host on Fly
+
+Build the Nitro server, then start it:
+
+```bash
+eve build
+eve start --host 0.0.0.0
+```
+
+`eve start` does not set `EVE_DEV`. `localDev()` skips. Session routes return 401 until you replace `placeholderAuth()` with a real `AuthFn`. Health stays public:
+
+```bash
+curl http://127.0.0.1:3000/eve/v1/health
+```
+
+Fly is the host. Workflow world stays the eve default in this app. Postgres world comes later. Do not set `experimental.workflow.world` here yet.
+
+Forward `/eve/` and `/.well-known/workflow/` through the proxy. Do not rewrite those paths.
+
+See [Self-host eve](https://eve.dev/docs/guides/deployment/self-hosting) for storage, sandbox, and proxy notes. The same page lives at `node_modules/eve/docs/guides/deployment/self-hosting.md` after `npm install`.
 
 ## Learn more
 
-To learn more about eve, explore these resources:
-
-- [eve documentation](https://eve.dev/docs) — learn about eve's features and authoring APIs.
-- [Build an Agent tutorial](https://eve.dev/docs/tutorial/first-agent) — build and deploy an agent step by step.
-- [eve on GitHub](https://github.com/vercel/eve) — view the source and contribute.
-
-## Deploy on Vercel
-
-Deploy your agent to [Vercel](https://vercel.com) from the project root:
-
-```bash
-eve deploy
-```
-
-`eve deploy` links a Vercel project if needed and deploys the agent to production. See the [eve deployment documentation](https://eve.dev/docs/guides/deployment/vercel) for authentication, environment variables, and deployment options.
+- [eve documentation](https://eve.dev/docs)
+- [eve on GitHub](https://github.com/vercel/eve)
