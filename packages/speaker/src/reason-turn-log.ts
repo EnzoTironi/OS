@@ -31,6 +31,7 @@ export type ReasonTurnLogKey = (typeof REASON_TURN_LOG_KEYS)[number];
 
 export type ReasonTurnPath =
   | "lookupFail"
+  | "scheduleFail"
   | "threw"
   | "noModel"
   | "spoke"

@@ -16,6 +16,7 @@ import {
   conversationKeyFromChannel,
   conversationKeyFromKind,
 } from "./conversation-kind.js";
+import { classifyStatusIntent } from "./fast-path.js";
 import type {
   ConversationAudienceKind,
   ConversationContextDocument,
@@ -62,7 +63,8 @@ export type {
 /**
  * Live outbound for one Interaction turn.
  * `href` is always present: a URL or null.
- * Visible text is speak_to_user, or the single fail copy on noModel/lookupFail.
+ * Visible text is speak_to_user, or the single fail copy on
+ * noModel/lookupFail/scheduleFail.
  * `wait` and `threw` are sealed empty sends: no bubbles, no world hrefFallback.
  * `reasonTurn` is speaker facts only. The host adds `statusFired` when it emits.
  */
@@ -111,6 +113,10 @@ export interface InteractionTurnInput {
 
 const FAIL_CLOSED_PT = "não consegui consultar agora";
 const FAIL_CLOSED_EN = "couldn't look that up";
+const FAIL_SCHEDULE_PT = "não consegui agendar agora";
+const FAIL_SCHEDULE_EN = "couldn't schedule that";
+const COMMITTED_REMIND_PT = "agendei";
+const COMMITTED_REMIND_EN = "scheduled";
 
 /**
  * Run one Interaction turn: coordinator stages plus a ToolLoopAgent reasoning step.
@@ -496,7 +502,10 @@ async function reasonTurn(input: {
       generate: "ok",
       generateMs: 0,
       path: "noModel",
-      scratch: applyFailCopy(scratch, input.locale),
+      scratch: applyFailCopy(
+        scratch,
+        failClosedCopy(input.locale, input.inboundText),
+      ),
     };
   }
   const agent = new ToolLoopAgent({
@@ -533,13 +542,7 @@ async function reasonTurn(input: {
     };
   }
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
-    return {
-      errorClass: null,
-      generate: "ok",
-      generateMs,
-      path: "lookupFail",
-      scratch: applyFailCopy(scratch, input.locale),
-    };
+    return emptySpeakResult(scratch, input.locale, input.inboundText, generateMs);
   }
   return {
     errorClass: null,
@@ -561,6 +564,7 @@ function isSealedSilencePath(path: ReasonTurnPath): boolean {
     case "wait":
       return true;
     case "lookupFail":
+    case "scheduleFail":
     case "noModel":
     case "spoke":
       return false;
@@ -571,13 +575,57 @@ function isSealedSilencePath(path: ReasonTurnPath): boolean {
   }
 }
 
-function applyFailCopy(
+function emptySpeakResult(
   scratch: InteractionScratch,
   locale: InteractionLocale,
+  inboundText: string,
+  generateMs: number,
+): ReasonTurnResult {
+  const remind = classifyStatusIntent(inboundText) === "remind";
+  if (remind && executionCommitted(scratch.executionNotes)) {
+    silenceScratch(scratch);
+    scratch.waited = false;
+    scratch.bubbles.push(
+      locale === "pt" ? COMMITTED_REMIND_PT : COMMITTED_REMIND_EN,
+    );
+    return {
+      errorClass: null,
+      generate: "ok",
+      generateMs,
+      path: "spoke",
+      scratch,
+    };
+  }
+  return {
+    errorClass: null,
+    generate: "ok",
+    generateMs,
+    path: remind ? "scheduleFail" : "lookupFail",
+    scratch: applyFailCopy(scratch, failClosedCopy(locale, inboundText)),
+  };
+}
+
+function executionCommitted(notes: readonly string[]): boolean {
+  return notes.some((note) => note.startsWith("status: committed"));
+}
+
+function failClosedCopy(
+  locale: InteractionLocale,
+  inboundText: string,
+): string {
+  if (classifyStatusIntent(inboundText) === "remind") {
+    return locale === "pt" ? FAIL_SCHEDULE_PT : FAIL_SCHEDULE_EN;
+  }
+  return locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN;
+}
+
+function applyFailCopy(
+  scratch: InteractionScratch,
+  copy: string,
 ): InteractionScratch {
   silenceScratch(scratch);
   scratch.waited = false;
-  scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
+  scratch.bubbles.push(copy);
   return scratch;
 }
 
