@@ -3,8 +3,7 @@ process.env.ZOEN_ALLOW_JS_SANDBOX = "1";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { deflateRawSync } from "node:zlib";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import test from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
 import {
@@ -28,7 +27,7 @@ const usage = {
   outputTokens: { reasoning: undefined, text: 1, total: 1 },
 };
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const repoRoot = process.cwd();
 
 test("speaker, zoend, Cedar, and World do not depend on AnyDoc", () => {
   for (const relative of [
