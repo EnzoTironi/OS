@@ -895,6 +895,7 @@ function extractionFailure(error: unknown): IngestFailure {
     );
   }
   switch (error.code) {
+    case "needsOcr":
     case "unsupported":
       return new IngestFailure("unsupported_source", error.message, {
         cause: error,
@@ -905,6 +906,7 @@ function extractionFailure(error: unknown): IngestFailure {
       return new IngestFailure("corrupt_source", error.message, {
         cause: error,
       });
+    case "hosted":
     case "io":
     case "resourceLimit":
       return new IngestFailure("extraction_failed", error.message, {

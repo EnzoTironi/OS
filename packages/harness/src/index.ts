@@ -1,6 +1,7 @@
 export * from "./adaptive-surface.js";
 export * from "./code-mode.js";
 export * from "./context.js";
+export * from "./anydoc-cli.js";
 export * from "./execution.js";
 export * from "./js-sandbox-gate.js";
 export * from "./vfs-guard.js";

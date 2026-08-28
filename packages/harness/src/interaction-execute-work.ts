@@ -62,6 +62,7 @@ export async function createInteractionExecuteWork(
     return undefined;
   }
   const workbench = await createExecutionAgent({
+    blobs: options.blobs,
     destination: options.destination,
     externals: options.externals,
     files: options.files,

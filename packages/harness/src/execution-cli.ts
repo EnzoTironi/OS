@@ -1,4 +1,5 @@
 import { defineCommand } from "just-bash";
+import { ANYDOC_CLI_RELATIVE_PATH, ANYDOC_CLI_SCRIPT } from "./anydoc-cli.js";
 import {
   codeModeCommitRequestSchema,
   codeModeExplainRequestSchema,
@@ -40,17 +41,18 @@ export interface ZoenCliProcessResult {
 }
 
 /**
- * Merge caller files with the planted Zoen CLI script.
+ * Merge caller files with the planted Zoen and AnyDoc CLI scripts.
  *
  * Context: just-bash destination is the isolate VFS.
  * Inputs: optional relative file map.
- * Outputs: relative paths including `bin/zoen`.
+ * Outputs: relative paths including `bin/zoen` and `bin/anydoc`.
  * Side effects: none.
  */
 export function plantExecutionIsolateFiles(
   files: Readonly<Record<string, string>> | undefined,
 ): Record<string, string> {
   return {
+    [ANYDOC_CLI_RELATIVE_PATH]: ANYDOC_CLI_SCRIPT,
     [ZOEN_CLI_RELATIVE_PATH]: ZOEN_CLI_SCRIPT,
     ...(files === undefined ? {} : { ...files }),
   };

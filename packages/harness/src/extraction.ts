@@ -55,7 +55,7 @@ export interface ParserProvenance {
 
 const anydocParser = parserProvenance(
   "@firecrawl/anydoc",
-  "0.2.0",
+  "0.2.4",
   "gfm-v1",
 );
 const messageParser = parserProvenance(
@@ -131,9 +131,11 @@ export function isConvertError(error: unknown): error is ConvertError {
     "code" in error &&
     [
       "encrypted",
+      "hosted",
       "io",
       "malformed",
       "missingPart",
+      "needsOcr",
       "resourceLimit",
       "unsupported",
     ].includes(String(error.code))

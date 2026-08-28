@@ -23,10 +23,15 @@ test("PDF extraction detects the format from bytes", async () => {
   );
 });
 
-test("image-only PDFs fail closed as unsupported", async () => {
+test("image-only PDFs fail closed as NeedsOcr with named pages", async () => {
   await assert.rejects(
     extractPdfMarkdown(imageOnlyPdf()),
-    (error: unknown) => isConvertError(error) && error.code === "unsupported",
+    (error: unknown) =>
+      isConvertError(error) &&
+      error.code === "needsOcr" &&
+      "pages" in error &&
+      Array.isArray(error.pages) &&
+      error.pages.includes(1),
   );
 });
 

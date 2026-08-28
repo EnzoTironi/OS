@@ -13,7 +13,7 @@
     "@bufbuild/protobuf": "2.14.0",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-node": "2.1.2",
-    "@firecrawl/anydoc": "0.2.0",
+    "@firecrawl/anydoc": "0.2.4",
     "@huggingface/transformers": "4.2.0",
     "@restatedev/restate-sdk": "1.16.7",
     "@zoen/sdk": "*",
