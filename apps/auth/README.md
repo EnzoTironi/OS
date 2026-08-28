@@ -49,6 +49,8 @@ npx tsx src/server.ts
 
 Or run the same steps with `scripts/prove.sh`. That script curls `GET http://127.0.0.1:58704/api/auth/ok` and prints command, URL, status, body, and a timestamp in `America/Sao_Paulo`.
 
+To prove the owned screens and the device-authorization start, run `scripts/prove-screens.sh` from `apps/auth`. The script runs compose, migrates, and restarts the pid in `.auth.pid` even when `/api/auth/ok` already answers. It writes `/workspace/ship/better-auth-screens-proof.md`. That file omits `device_code` and `user_code` values and records status and field names only.
+
 ## Google redirect URIs
 
 Register these later on the existing GCP project. Do not create the client from this README.
