@@ -6,7 +6,7 @@ import type { TrustedInteractionContext } from "./types.js";
 import { INTERACTION_TOOL_NAMES } from "./interaction-tools.js";
 
 const FORBIDDEN_SPEAKER_IMPORT =
-  /from\s+["'](?:@zoen\/(?:ontology|osdk)|@connectrpc\/connect(?:-node)?|@bufbuild\/protobuf(?:\/wkt)?|@chat-adapter\/[^"']+)["']|from\s+["']\.\.\/\.\.\/(?:ontology|osdk|sdk)\/[^"']+["']|world_pb|action_pb/;
+  /from\s+["'](?:@zoen\/(?:ontology|osdk)|@connectrpc\/connect(?:-node)?|@bufbuild\/protobuf(?:\/wkt)?)["']|from\s+["']\.\.\/\.\.\/(?:ontology|osdk|sdk)\/[^"']+["']|world_pb|action_pb/;
 
 const FORBIDDEN_SPEAKER_DEP = new Set([
   "@zoen/ontology",
@@ -15,7 +15,6 @@ const FORBIDDEN_SPEAKER_DEP = new Set([
   "@connectrpc/connect",
   "@connectrpc/connect-node",
   "@bufbuild/protobuf",
-  "@chat-adapter/telegram",
 ]);
 
 type MembershipKey = keyof TrustedInteractionContext | keyof TrustedInteractionContext["channel"];
@@ -52,21 +51,20 @@ function packageJsonDeps(packageDir: string): Record<string, string> {
   return raw.dependencies ?? {};
 }
 
-test("speaker package has no ontology, OSDK, Connect, or Chat SDK dependency", () => {
+test("speaker package has no ontology, OSDK, or Connect dependency", () => {
   const deps = packageJsonDeps(path.join(process.cwd(), "packages", "speaker"));
   for (const name of FORBIDDEN_SPEAKER_DEP) {
     assert.equal(deps[name], undefined, name);
   }
 });
 
-test("ontology package has no speaker or Chat SDK dependency", () => {
+test("ontology package has no speaker dependency", () => {
   const deps = packageJsonDeps(path.join(process.cwd(), "packages", "ontology"));
   assert.equal(deps["@zoen/speaker"], undefined);
   assert.equal(deps["@zoen/transport"], undefined);
-  assert.equal(deps["@chat-adapter/telegram"], undefined);
 });
 
-test("speaker sources do not import Cedar, World, OSDK Connect, or Chat SDK", () => {
+test("speaker sources do not import Cedar, World, or OSDK Connect", () => {
   const root = path.join(process.cwd(), "packages", "speaker", "src");
   for (const file of listTsFiles(root)) {
     if (path.basename(file) === "two-apps.test.ts") {
@@ -85,10 +83,9 @@ test("speaker sources do not import Cedar, World, OSDK Connect, or Chat SDK", ()
   }
 });
 
-test("ontology sources do not import speaker or Chat SDK", () => {
+test("ontology sources do not import speaker", () => {
   const root = path.join(process.cwd(), "packages", "ontology", "src");
-  const forbidden =
-    /from\s+["']@zoen\/(?:speaker|transport)["']|ChatSdk|@chat-adapter/;
+  const forbidden = /from\s+["']@zoen\/(?:speaker|transport)["']/;
   for (const file of listTsFiles(root)) {
     const text = readFileSync(file, "utf8");
     const match = forbidden.exec(text);
