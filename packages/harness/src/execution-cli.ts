@@ -17,8 +17,8 @@ export const ZOEN_CLI_RELATIVE_PATH = "bin/zoen";
 
 export const ZOEN_CLI_SCRIPT = [
   "#!/usr/bin/env bash",
-  "# Planted Zoen isolate CLI. query / propose use wit/zoen-code-mode host functions.",
-  "# commit is denied on the worker. Cedar commit stays on the speaker path.",
+  "# Planted Zoen isolate CLI. query / propose / commit use wit/zoen-code-mode host functions.",
+  "# Worker isolate denies commit. Kernel host finishes Propose→Approved→Committed on zoend.",
   "set -euo pipefail",
   'exec zoen "$@"',
   "",
@@ -29,7 +29,7 @@ export const ZOEN_CLI_USAGE = [
   "zoen query --capability-id ID --entity-id ID --selection relation:ID|computation:ID",
   "zoen propose <json>",
   "zoen explain --capability-id ID --claim-id ID",
-  "zoen commit  # denied: worker cannot commit belief",
+  "zoen commit <json>  # kernel host commits on zoend; worker isolate denies",
 ].join("\n");
 
 export interface ZoenCliProcessResult {
@@ -60,8 +60,8 @@ export function zoenCliBashInstructions(): string {
   return [
     "A Zoen CLI is planted at bin/zoen and registered as the zoen command.",
     "List, read, and write files with bash against this workspace.",
-    "Use zoen query and zoen propose for the capability plane.",
-    "zoen commit is forbidden. The worker cannot speak to the user or commit belief.",
+    "Use zoen query, zoen propose, and zoen commit for the capability plane.",
+    "The worker cannot speak. Kernel zoen commit finishes Cedar on zoend.",
   ].join(" ");
 }
 
@@ -84,8 +84,8 @@ export function createZoenCliCommand(host: WorkerCodeModeHost) {
  *
  * Context: same functions as `wit/zoen-code-mode` host. No second proto.
  * Inputs: argv after `zoen`.
- * Outputs: query-result JSON, proposal-outcome JSON, or denied commit.
- * Side effects: `host.commit` latches `commit_forbidden`.
+ * Outputs: query-result JSON, proposal-outcome JSON, or commit outcome.
+ * Side effects: worker host latches `commit_forbidden`; kernel host commits on zoend.
  */
 export async function runZoenCli(
   args: readonly string[],
@@ -94,9 +94,7 @@ export async function runZoenCli(
   const parsed = parseZoenArgs(args);
   switch (parsed.kind) {
     case "commit":
-      return deniedCommit(
-        await host.commit(parsed.request),
-      );
+      return hostResultToCli(await host.commit(parsed.request));
     case "explain":
       return hostResultToCli(await host.explain(parsed.request));
     case "help":

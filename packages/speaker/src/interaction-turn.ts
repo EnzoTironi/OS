@@ -41,13 +41,6 @@ import type {
   TrustedInteractionContext,
 } from "./types.js";
 import {
-  createSpeakerActionClientFromEnv,
-  type PersonalWriteKind,
-  type SpeakerActionClient,
-} from "./osdk-action-client.js";
-import type { ChannelAssurance } from "./permission.js";
-import { createWorldQueryClientFromEnv } from "./osdk-world-query.js";
-import {
   looksLikeEntityId,
   type WorldQueryClient,
 } from "./world-query.js";
@@ -63,8 +56,9 @@ export type ReasonTurnGenerate = "ok" | "throw";
 
 /**
  * Live outbound for one Interaction turn.
- * `href` is always present: a URL or null. Empty `bubbles` means wait (no send).
- * Visible text is speak_to_user, or the single fail copy on noModel/threw/lookupFail.
+ * `href` is always present: a URL or null.
+ * Visible text is speak_to_user, or the single fail copy on noModel/lookupFail.
+ * `wait` and `threw` are sealed empty sends: no bubbles, no world hrefFallback.
  */
 export interface OutboundTurn {
   readonly bubbles: string[];
@@ -100,8 +94,6 @@ export interface InteractionTurnInput {
   readonly store?: TurnStore;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
-  readonly channelAssurance?: ChannelAssurance;
-  readonly publicWebOrigin?: string;
   readonly debounceMs?: number;
   /**
    * Shared scratch so a host can observe `startedWork` / `waited` while
@@ -109,7 +101,6 @@ export interface InteractionTurnInput {
    * status line may go out. Speaker never sends that line.
    */
   readonly scratch?: InteractionScratch;
-  readonly actions?: SpeakerActionClient;
   readonly assembler?: ConversationContextAssembler;
   readonly audienceKind?: ConversationAudienceKind;
   readonly history?: HistoryQueryClient;
@@ -118,14 +109,6 @@ export interface InteractionTurnInput {
 
 const FAIL_CLOSED_PT = "não consegui consultar agora";
 const FAIL_CLOSED_EN = "couldn't look that up";
-const WRITE_FAIL_PT = {
-  note: "não consegui anotar agora",
-  remind: "não consegui agendar agora",
-} as const;
-const WRITE_FAIL_EN = {
-  note: "couldn't note that down now",
-  remind: "couldn't schedule that now",
-} as const;
 
 export interface ReasonTurnLog {
   readonly event: "reasonTurn";
@@ -139,9 +122,10 @@ export interface ReasonTurnLog {
  *
  * Context: bound 1:1 WhatsApp (and other channels) after membership resolve.
  * Inputs: membership + inbound. Optional model/world/coordinator for tests.
- * Outputs: conversational bubbles and at most one https URL. Empty bubbles mean wait (no send).
+ * Outputs: conversational bubbles and at most one https URL.
  * A successful generate that never called speak_to_user on non-empty inbound is a lookup fail, not a wait.
- * Closing inbound should call the `wait` tool. That is an empty send, not a lookup fail.
+ * Closing inbound should call the `wait` tool. That is a sealed empty send, not a lookup fail.
+ * Generate throw is the same sealed empty send. No consult copy, no world hrefFallback.
  * Side effects: claims the burst on the coordinator and advances attempt phases.
  * Does not invent OrderLines. Does not echo inbound as "Recebi".
  */
@@ -178,7 +162,7 @@ export async function runInteractionTurn(
   }
   const audienceKind =
     input.audienceKind ?? audienceKindFromMembership(ctx);
-  const world = input.world ?? createWorldQueryClientFromEnv();
+  const world = input.world;
   const assembler =
     input.assembler ??
     createConversationContextAssembler({
@@ -216,32 +200,24 @@ export async function runInteractionTurn(
 
   await coordinator.advanceStage(attemptId, "reasoning");
   const reasoned = await reasonTurn({
-    actions: input.actions ?? createSpeakerActionClientFromEnv(),
-    audienceKind,
-    channelAssurance: input.channelAssurance,
     executeWork: input.executeWork,
     inbound: input.inbound,
     inboundText,
     locale,
     model: input.model ?? resolveLanguageModel(),
-    onWriteCommitted: async (commit) => {
-      await coordinator.recordSemanticCommit(attemptId, {
-        actionId: commit.actionId,
-        kind: "action",
-      });
-    },
     prompt: reasoningPrompt(envelope.projection.data),
-    publicWebOrigin: input.publicWebOrigin,
     scratch,
   });
 
   await coordinator.advanceStage(attemptId, "rendering");
+  const sealed = isSealedSilencePath(reasoned.path);
   const rendered = renderTurn({
     hiddenIds,
-    hrefFallback: hrefFromDocument(envelope.document),
+    hrefFallback: sealed ? undefined : hrefFromDocument(envelope.document),
     inbound: input.inbound,
     inboundText,
     scratch,
+    sealed,
   });
   const result: OutboundTurn = {
     ...rendered,
@@ -460,19 +436,11 @@ interface ReasonTurnResult {
 }
 
 async function reasonTurn(input: {
-  readonly actions?: SpeakerActionClient;
-  readonly audienceKind: ConversationAudienceKind;
-  readonly channelAssurance?: ChannelAssurance;
-  readonly publicWebOrigin?: string;
   readonly executeWork?: (task: string) => Promise<string>;
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
   readonly locale: InteractionLocale;
   readonly model: LanguageModel | undefined;
-  readonly onWriteCommitted: (commit: {
-    readonly actionId: string;
-    readonly kind: PersonalWriteKind;
-  }) => Promise<void>;
   readonly prompt: string;
   readonly scratch: InteractionScratch;
 }): Promise<ReasonTurnResult> {
@@ -490,12 +458,7 @@ async function reasonTurn(input: {
     model: input.model,
     stopWhen: isStepCount(8),
     tools: createInteractionTools(scratch, {
-      actions: input.actions,
-      audienceKind: input.audienceKind,
-      channelAssurance: input.channelAssurance,
       executeWork: input.executeWork,
-      onWriteCommitted: input.onWriteCommitted,
-      publicWebOrigin: input.publicWebOrigin,
     }),
   });
   try {
@@ -506,20 +469,11 @@ async function reasonTurn(input: {
     return {
       generate: "throw",
       path: "threw",
-      scratch: applyFailCopy(scratch, input.locale),
-    };
-  }
-  if (scratch.writeFail !== undefined) {
-    return {
-      generate: "ok",
-      path: "spoke",
-      scratch: applyWriteFail(scratch, input.locale, scratch.writeFail),
+      scratch: silenceScratch(scratch),
     };
   }
   if (scratch.waited) {
-    scratch.bubbles.length = 0;
-    scratch.href = undefined;
-    return { generate: "ok", path: "wait", scratch };
+    return { generate: "ok", path: "wait", scratch: silenceScratch(scratch) };
   }
   if (scratch.bubbles.length === 0 && input.inboundText.trim().length > 0) {
     return {
@@ -533,6 +487,27 @@ async function reasonTurn(input: {
     path: scratch.bubbles.length === 0 ? "wait" : "spoke",
     scratch,
   };
+}
+
+function silenceScratch(scratch: InteractionScratch): InteractionScratch {
+  scratch.bubbles.length = 0;
+  return scratch;
+}
+
+function isSealedSilencePath(path: ReasonTurnPath): boolean {
+  switch (path) {
+    case "threw":
+    case "wait":
+      return true;
+    case "lookupFail":
+    case "noModel":
+    case "spoke":
+      return false;
+    default: {
+      const exhaustive: never = path;
+      return exhaustive;
+    }
+  }
 }
 
 function emitReasonTurnLog(reasonTurn: OutboundTurn["reasonTurn"]): void {
@@ -549,33 +524,9 @@ function applyFailCopy(
   scratch: InteractionScratch,
   locale: InteractionLocale,
 ): InteractionScratch {
-  scratch.bubbles.length = 0;
-  scratch.href = undefined;
+  silenceScratch(scratch);
   scratch.waited = false;
   scratch.bubbles.push(locale === "pt" ? FAIL_CLOSED_PT : FAIL_CLOSED_EN);
-  return scratch;
-}
-
-function applyWriteFail(
-  scratch: InteractionScratch,
-  locale: InteractionLocale,
-  kind: PersonalWriteKind,
-): InteractionScratch {
-  scratch.bubbles.length = 0;
-  scratch.href = undefined;
-  scratch.waited = false;
-  switch (locale) {
-    case "pt":
-      scratch.bubbles.push(WRITE_FAIL_PT[kind]);
-      break;
-    case "en":
-      scratch.bubbles.push(WRITE_FAIL_EN[kind]);
-      break;
-    default: {
-      const exhaustive: never = locale;
-      return exhaustive;
-    }
-  }
   return scratch;
 }
 
@@ -585,7 +536,11 @@ function renderTurn(input: {
   readonly inbound: InteractionInbound;
   readonly inboundText: string;
   readonly scratch: InteractionScratch;
+  readonly sealed: boolean;
 }): { readonly bubbles: string[]; readonly href: URL | null } {
+  if (input.sealed) {
+    return { bubbles: [], href: null };
+  }
   const spoken: string[] = [];
   for (const raw of input.scratch.bubbles) {
     for (const piece of splitSpokenBubbles(raw)) {
@@ -599,7 +554,7 @@ function renderTurn(input: {
       }
     }
   }
-  const href = pickHref(input.scratch.href, spoken, input.hrefFallback);
+  const href = pickHref(spoken, input.hrefFallback);
   const emptyInbound =
     input.inbound.kind === "text" && input.inboundText.trim().length === 0;
   const stripped = emptyInbound
@@ -609,14 +564,10 @@ function renderTurn(input: {
 }
 
 function pickHref(
-  minted: string | undefined,
   bubbles: readonly string[],
   hrefFallback: string | undefined,
 ): URL | null {
   const candidates: string[] = [];
-  if (minted !== undefined) {
-    candidates.push(minted);
-  }
   for (const bubble of bubbles) {
     const found = bubble.match(/https:\/\/[^\s]+/gi) ?? [];
     for (const url of found) {
@@ -856,9 +807,9 @@ export function interactionInstructions(locale: InteractionLocale): string {
     case "pt":
       return [
         "você é a zoen. uma só entidade. você fala com a pessoa. execution nunca fala",
-        "texto visível só por speak_to_user. spawn_execution trabalha fora. mint_href: no máximo um https de verdade",
-        "note grava memória. remind agenda. só speak_to_user depois que a tool voltar ok. se falhar, não diga que anotou ou agendou",
-        "preview da tool é o texto canônico. nunca fale proposal, operation, claim, tenant, principal nem hash",
+        "texto visível só por speak_to_user. spawn_execution trabalha fora. nunca invente um URL",
+        "lembrar ou anotar: spawn_execution. só diga que deu certo se o status for committed. senão fale que não conseguiu. nunca invente que guardou",
+        "nunca fale proposal, operation, claim, tenant, principal nem hash",
         "valeu, ok, show, obrigado: chame wait. sem bolha. não fale",
         "oi, e aí, fala, hi, hey: speak_to_user. nunca wait",
         "minúsculas por padrão. linha curta sem ponto final. sem travessão",
@@ -872,9 +823,9 @@ export function interactionInstructions(locale: InteractionLocale): string {
     case "en":
       return [
         "you are zoen. one entity. you talk to the person. execution never talks",
-        "visible text only from speak_to_user. spawn_execution works off-chat. mint_href: at most one real https",
-        "note writes a memory. remind schedules. speak_to_user only after the tool returns ok. if it fails, do not claim you wrote or scheduled it",
-        "tool preview is the canonical text. never speak proposal, operation, claim, tenant, principal, or hash",
+        "visible text only from speak_to_user. spawn_execution works off-chat. never invent a URL",
+        "note or remind: spawn_execution. say it worked only when status is committed. otherwise say you couldn't. never invent a save",
+        "never speak proposal, operation, claim, tenant, principal, or hash",
         "thanks, ok, show: call wait. no bubble. do not speak",
         "oi, e aí, fala, hi, hey: speak_to_user. never wait",
         "lowercase default. short line, no trailing period. no em dash",

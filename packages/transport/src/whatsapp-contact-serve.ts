@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   await session.open();
   const ready = await session.ready();
   const tenantHint = process.env.ZOEN_WHATSAPP_TENANT_HINT?.trim();
-  const executeWork = (await createInteractionExecuteWork())?.executeWork;
+  const liveWork = await createInteractionExecuteWork();
   const pg = new Client({ connectionString: databaseUrl });
   await pg.connect();
   const store = createPostgresTurnStore({
@@ -47,7 +47,8 @@ async function main(): Promise<void> {
   });
   const loop = createWhatsAppContactLoop({
     doorE164,
-    executeWork,
+    executeWork: liveWork?.executeWork,
+    world: liveWork?.world,
     identity: withTenantHint(
       createIdentityDirectoryClient({
         adminToken,

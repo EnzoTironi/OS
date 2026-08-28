@@ -247,7 +247,9 @@ export function createActionPreviewHostTool(
 }
 
 export {
+  createKernelCodeModeHost,
   createWorkerCodeModeHost,
+  type CodeModeCommitOutcome,
   type CodeModeQueryRequest,
   type CodeModeQueryResult,
   type ExecutionCodeModeHost,
@@ -280,7 +282,7 @@ function executionInstructions(destination: string): string {
     "The only model-visible tool is bash.",
     `Use bash to list, read, and write files in the just-bash workspace at ${destination}.`,
     "Use the planted zoen CLI for world query and action propose: zoen query, zoen propose.",
-    "zoen commit is forbidden. Cedar commit stays on the host speaker path.",
+    "zoen commit is forbidden on this isolate. The kernel CLI host commits on zoend.",
     "Return a short factual summary for the interaction agent.",
   ].join(" ");
 }

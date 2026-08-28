@@ -160,14 +160,42 @@ export const codeModeHostErrorSchema = z.discriminatedUnion("kind", [
 ]);
 export type CodeModeHostError = z.infer<typeof codeModeHostErrorSchema>;
 
+export const codeModeCommittedActionSchema = z
+  .object({
+    actionId: hostIdSchema,
+    commitSequence: commitSequenceSchema,
+    intentDigest: z.string().min(1),
+    operationId: hostIdSchema,
+    proposalId: hostIdSchema,
+    recovered: z.boolean(),
+  })
+  .strict();
+export type CodeModeCommittedAction = z.output<typeof codeModeCommittedActionSchema>;
+
+export const codeModeCommitOutcomeSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      action: codeModeCommittedActionSchema,
+      kind: z.literal("committed"),
+    })
+    .strict(),
+  z.object({ kind: z.literal("denied") }).strict(),
+  z.object({ kind: z.literal("evaluation_error") }).strict(),
+  z.object({ kind: z.literal("identity_collision") }).strict(),
+  z.object({ kind: z.literal("operation_mismatch") }).strict(),
+  z.object({ kind: z.literal("stale") }).strict(),
+]);
+export type CodeModeCommitOutcome = z.output<typeof codeModeCommitOutcomeSchema>;
+
 /**
  * Capability-plane host imported by `wit/zoen-code-mode`.
- * The worker adapter never forwards `commit`.
+ * The worker isolate never forwards `commit`. The kernel CLI host may.
  */
 export interface ExecutionCodeModeHost {
   query(request: CodeModeQueryRequest): Promise<CodeModeQueryResultInput>;
   explain?(request: CodeModeExplainRequest): Promise<CodeModeExplainResult>;
   propose?(request: CodeModeProposeRequest): Promise<CodeModeProposalOutcome>;
+  commit?(request: CodeModeCommitRequest): Promise<CodeModeCommitOutcome>;
 }
 
 export type WorkerHostOk<T> = {
@@ -198,7 +226,9 @@ export interface WorkerCodeModeHost {
   propose(
     request: CodeModeProposeRequest,
   ): Promise<WorkerHostResult<CodeModeProposalOutcome>>;
-  commit(request: CodeModeCommitRequest): Promise<WorkerHostDenied>;
+  commit(
+    request: CodeModeCommitRequest,
+  ): Promise<WorkerHostResult<CodeModeCommitOutcome>>;
 }
 
 /**
@@ -263,6 +293,56 @@ export function createWorkerCodeModeHost(
     async commit(_request) {
       gate.noteCommitDenied();
       return { kind: "denied", reason: "commit_forbidden" };
+    },
+  };
+}
+
+/**
+ * Bind WIT host functions for the planted CLI on the kernel path.
+ * `commit` reaches zoend. The worker isolate still uses `createWorkerCodeModeHost`.
+ *
+ * Context: `spawn_execution` → planted `zoen` → this host. No just-bash.
+ * Inputs: inner `query` / `propose` / `commit` against zoend or a test double.
+ * Outputs: `ok` result, `failed` host-error. Never latches `commit_forbidden`.
+ * Side effects: whatever the inner host does on zoend (Cedar stays there).
+ */
+export function createKernelCodeModeHost(
+  inner: ExecutionCodeModeHost,
+): WorkerCodeModeHost {
+  return {
+    async query(request) {
+      return callOptionalHost(
+        async (next) => codeModeQueryResultSchema.parse(await inner.query(next)),
+        request,
+        request.capabilityId,
+      );
+    },
+    async explain(request) {
+      const explain = inner.explain;
+      return callOptionalHost(
+        explain === undefined ? undefined : (next) => explain.call(inner, next),
+        request,
+        request.capabilityId,
+      );
+    },
+    async propose(request) {
+      const propose = inner.propose;
+      return callOptionalHost(
+        propose === undefined ? undefined : (next) => propose.call(inner, next),
+        request,
+        request.capabilityId,
+      );
+    },
+    async commit(request) {
+      const commit = inner.commit;
+      return callOptionalHost(
+        commit === undefined
+          ? undefined
+          : async (next) =>
+              codeModeCommitOutcomeSchema.parse(await commit.call(inner, next)),
+        request,
+        request.capabilityId,
+      );
     },
   };
 }
