@@ -65,11 +65,17 @@ export function createZoendCodeModeHostFromEnv(
   return createZoendCodeModeHost(parsed);
 }
 
+export function usesCommercialLake(request: CodeModeQueryRequest): boolean {
+  return [request.capabilityId, request.entityId, request.selection.id].some(
+    (id) => id.startsWith("commercial."),
+  );
+}
+
 /**
  * zoend Action/World host for the planted CLI. Cedar stays on zoend.
  *
  * Context: kernel path. Worker isolate still cannot commit.
- * Inputs: base URL, bearer, personal lake definition.
+ * Inputs: base URL, bearer, personal and world lake definitions.
  * Outputs: WIT-shaped query / propose / commit outcomes.
  * Side effects: Propose → Approve (if needed) → Commit on zoend.
  */
@@ -78,7 +84,8 @@ export function createZoendCodeModeHost(
 ): ExecutionCodeModeHost {
   const now = options.now ?? (() => new Date());
   const proposals = new Map<string, CachedProposal>();
-  let compiled: Promise<DefinitionReferenceConfig | undefined> | undefined;
+  let compiledPersonal: Promise<DefinitionReferenceConfig | undefined> | undefined;
+  let compiledWorld: Promise<DefinitionReferenceConfig | undefined> | undefined;
 
   function token(): string {
     const read = options.readBearerToken() ?? options.bearerToken?.trim();
@@ -96,21 +103,35 @@ export function createZoendCodeModeHost(
     };
   }
 
-  async function definitionRef(): Promise<DefinitionReferenceConfig> {
+  async function personalDefinitionRef(): Promise<DefinitionReferenceConfig> {
     if (options.definition !== undefined) {
       return options.definition;
     }
-    compiled ??= loadPersonalDefinition(options.definitionPath);
-    const loaded = await compiled;
+    compiledPersonal ??= loadCompiledDefinition(options.definitionPath);
+    const loaded = await compiledPersonal;
     if (loaded === undefined) {
       throw new Error("personal lake definition unavailable");
     }
     return loaded;
   }
 
+  async function queryDefinitionRef(
+    request: CodeModeQueryRequest,
+  ): Promise<DefinitionReferenceConfig> {
+    if (!usesCommercialLake(request)) {
+      return personalDefinitionRef();
+    }
+    compiledWorld ??= loadCompiledDefinition(options.worldDefinitionPath);
+    const loaded = await compiledWorld;
+    if (loaded === undefined) {
+      throw new Error("commercial lake definition unavailable");
+    }
+    return loaded;
+  }
+
   return {
     async query(request: CodeModeQueryRequest): Promise<CodeModeQueryResultInput> {
-      const definition = await definitionRef();
+      const definition = await queryDefinitionRef(request);
       const tenantId = options.tenantId;
       if (tenantId === undefined || tenantId.length === 0) {
         throw new Error("ZOEN_TENANT_ID required for zoen query");
@@ -137,7 +158,7 @@ export function createZoendCodeModeHost(
     async propose(
       request: CodeModeProposeRequest,
     ): Promise<CodeModeProposalOutcome> {
-      const definition = await definitionRef();
+      const definition = await personalDefinitionRef();
       const response = await clients().action.propose({
         actionId: request.actionId,
         definition: wireDefinition(definition),
@@ -230,7 +251,7 @@ export function createZoendCodeModeHost(
   };
 }
 
-async function loadPersonalDefinition(
+async function loadCompiledDefinition(
   definitionPath: string | undefined,
 ): Promise<DefinitionReferenceConfig | undefined> {
   if (definitionPath === undefined || definitionPath.length === 0) {

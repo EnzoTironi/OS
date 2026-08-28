@@ -8,6 +8,7 @@ import {
 import type {
   CodeModeCommitRequest,
   CodeModeProposeRequest,
+  CodeModeQueryRequest,
   ExecutionCodeModeHost,
 } from "./execution-host.js";
 import { createInteractionExecuteWork } from "./interaction-execute-work.js";
@@ -17,6 +18,7 @@ import {
   parseSpawnExecutionTask,
   PERSONAL_CREATE_REMINDER,
   createKernelExecuteWork,
+  snapshotFromQuery,
 } from "./kernel-execute-work.js";
 import { liveKernelHostConfigured } from "./zoend-host-env.js";
 
@@ -31,19 +33,27 @@ const REMIND_JSON = JSON.stringify({
 function recordingKernelHost(): ExecutionCodeModeHost & {
   readonly commits: CodeModeCommitRequest[];
   readonly proposes: CodeModeProposeRequest[];
+  readonly queries: CodeModeQueryRequest[];
 } {
   const proposes: CodeModeProposeRequest[] = [];
   const commits: CodeModeCommitRequest[] = [];
+  const queries: CodeModeQueryRequest[] = [];
   return {
     commits,
     proposes,
-    async query() {
+    queries,
+    async query(request) {
+      queries.push(request);
       return {
         actualCommitSequence: 1,
         values: [
           {
-            claimIds: ["claim.1"],
-            value: { kind: "text", value: "10 each" },
+            claimIds: ["claim.quote.sheet"],
+            value: { amount: "10", kind: "quantity", unit: "each" },
+          },
+          {
+            claimIds: ["claim.quote.erp"],
+            value: { amount: "12", kind: "quantity", unit: "each" },
           },
         ],
       };
@@ -146,7 +156,78 @@ test("createInteractionExecuteWork binds kernel host without JS sandbox", async 
     membershipId: "membership.wa.enzo",
     tenantId: "tenant.wa.enzo",
   });
-  assert.deepEqual(snapshot?.notes, ["10 each"]);
+  assert.deepEqual(inner.queries, [
+    {
+      capabilityId: "world",
+      entityId: "commercial.order-line.dirty-quote",
+      selection: { id: "commercial.quotedQuantity", kind: "relation" },
+    },
+  ]);
+  assert.deepEqual(snapshot?.rivals, [
+    { label: "10 each" },
+    { label: "12 each" },
+  ]);
+  assert.deepEqual(snapshot?.notes, []);
+  assert.deepEqual(snapshot?.entityIds, []);
+});
+
+test("world semanticQuery uses input.entityId when provided", async () => {
+  const inner = recordingKernelHost();
+  const work = createKernelExecuteWork(inner);
+  await work.world.semanticQuery({
+    entityId: "commercial.order-line.other",
+    membershipId: "membership.wa.enzo",
+    tenantId: "tenant.wa.enzo",
+  });
+  assert.deepEqual(inner.queries[0], {
+    capabilityId: "world",
+    entityId: "commercial.order-line.other",
+    selection: { id: "commercial.quotedQuantity", kind: "relation" },
+  });
+});
+
+test("personal.Note semanticQuery stays on personal.body", async () => {
+  const inner = recordingKernelHost();
+  const work = createKernelExecuteWork(inner);
+  await work.world.semanticQuery({
+    membershipId: "membership.wa.enzo",
+    tenantId: "tenant.wa.enzo",
+    typeApiName: "personal.Note",
+  });
+  assert.deepEqual(inner.queries[0], {
+    capabilityId: "personal.Note",
+    entityId: "membership.wa.enzo",
+    selection: { id: "personal.body", kind: "relation" },
+  });
+});
+
+test("snapshotFromQuery maps quantity to rivals and keeps entity ids off labels", () => {
+  const snapshot = snapshotFromQuery({
+    actualCommitSequence: 3,
+    values: [
+      {
+        claimIds: ["claim.quote.sheet"],
+        value: { amount: "10", kind: "quantity", unit: "each" },
+      },
+      {
+        claimIds: ["claim.quote.erp"],
+        value: { amount: "12", kind: "quantity", unit: "each" },
+      },
+      {
+        claimIds: ["claim.source"],
+        value: { kind: "entity", value: "source.erp" },
+      },
+      {
+        claimIds: ["claim.note"],
+        value: { kind: "text", value: "anota o preço" },
+      },
+    ],
+  });
+  assert.deepEqual(snapshot, {
+    entityIds: ["source.erp"],
+    notes: ["anota o preço"],
+    rivals: [{ label: "10 each" }, { label: "12 each" }],
+  });
 });
 
 test("serve would bind the kernel host when Fly token file and zoend URL are set", () => {

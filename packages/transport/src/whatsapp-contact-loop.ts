@@ -3,7 +3,6 @@ import path from "node:path";
 import type { LanguageModel } from "ai";
 import {
   ChannelSubjectResolveError,
-  classifyStatusIntent,
   conversationKeyFromChannel,
   createConversationTurnCoordinator,
   createInteractionBoundary,
@@ -19,13 +18,11 @@ import {
   emitReasonTurnLog,
   finalDeliveryId,
   outboundBubbles,
-  pickStatusPhrase,
   presentationIntentRef,
   providerKey,
   raceWithStatusGate,
   resolvePublicOrigin,
   runInteractionTurn,
-  statusDeliveryId,
   toInteractionInbound,
   TURN_DEBOUNCE_MS,
   TURN_STATUS_AFTER_MS,
@@ -364,29 +361,10 @@ export function createWhatsAppContactLoop(
       const inbound = toInteractionInbound(record.inbound);
       const inboundText = inbound.kind === "text" ? inbound.text : "";
       const locale = detectInboundLocale(inboundText);
-      const intent = classifyStatusIntent(inboundText);
       const scratch = createInteractionScratch();
-      const statusId = statusDeliveryId(primaryId);
       const raced = await raceWithStatusGate({
         gateMs: options.statusAfterMs ?? TURN_STATUS_AFTER_MS,
-        onGate: async () => {
-          if (scratch.waited || !scratch.startedWork) {
-            return;
-          }
-          setOutboundBubble(
-            outboundByAttempt,
-            claimed.attempt.id,
-            statusId,
-            pickStatusPhrase(locale, intent),
-          );
-          const sent = await coordinator.deliverStatusLine({
-            attemptId: claimed.attempt.id,
-            presentation: `turn:${claimed.turn.id}:status`,
-          });
-          if (sent === undefined) {
-            throw new Error("status line not delivered");
-          }
-        },
+        onGate: () => undefined,
         schedule: options.schedule,
         work: runInteractionTurn({
           attemptId: claimed.attempt.id,
@@ -406,10 +384,10 @@ export function createWhatsAppContactLoop(
         ...raced.value.reasonTurn,
         statusFired: raced.gated,
       });
-      let bubbles = outboundBubbles(raced.value);
-      if (raced.gated) {
-        bubbles = dropLeadingStatusPhrase(bubbles, locale);
-      }
+      const bubbles = dropLeadingStatusPhrase(
+        outboundBubbles(raced.value),
+        locale,
+      );
       bubbles.forEach((text, index) =>
         setOutboundBubble(
           outboundByAttempt,

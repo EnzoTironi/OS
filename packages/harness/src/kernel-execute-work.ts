@@ -1,5 +1,9 @@
 import { randomBytes } from "node:crypto";
-import type { WorldQueryClient, WorldQuerySnapshot } from "../../speaker/src/world-query.js";
+import type {
+  WorldQueryClient,
+  WorldQueryInput,
+  WorldQuerySnapshot,
+} from "../../speaker/src/world-query.js";
 import { runZoenCli } from "./execution-cli.js";
 import {
   createKernelCodeModeHost,
@@ -17,6 +21,9 @@ import type { ExactInput } from "./types.js";
 export const PERSONAL_CREATE_REMINDER = "personal.createReminder";
 export const PERSONAL_WRITE_MEMORY = "personal.writeMemory";
 export const PERSONAL_MEMORY_LAKE = "personal.memory";
+
+const COMMERCIAL_DIRTY_QUOTE_ENTITY = "commercial.order-line.dirty-quote";
+const COMMERCIAL_QUOTED_QUANTITY = "commercial.quotedQuantity";
 
 const REMIND_INTENT =
   /\b(lembr[ae]|lembrar|agenda|agendar|marca|marcar|remind|schedule)\b/i;
@@ -126,22 +133,27 @@ export function createHostWorldQueryClient(
 ): WorldQueryClient {
   return {
     async semanticQuery(input) {
-      const result = await host.query({
-        capabilityId: input.typeApiName ?? "world",
-        entityId: input.entityId ?? input.membershipId,
-        selection: {
-          id:
-            input.typeApiName === "personal.Note"
-              ? "personal.body"
-              : "world.notes",
-          kind: "relation",
-        },
-      });
+      const result = await host.query(worldQueryRequest(input));
       if (result.kind !== "ok") {
         return undefined;
       }
       return snapshotFromQuery(result.result);
     },
+  };
+}
+
+function worldQueryRequest(input: WorldQueryInput): CodeModeQueryRequest {
+  if (input.typeApiName === "personal.Note") {
+    return {
+      capabilityId: "personal.Note",
+      entityId: input.entityId ?? input.membershipId,
+      selection: { id: "personal.body", kind: "relation" },
+    };
+  }
+  return {
+    capabilityId: input.typeApiName ?? "world",
+    entityId: input.entityId ?? COMMERCIAL_DIRTY_QUOTE_ENTITY,
+    selection: { id: COMMERCIAL_QUOTED_QUANTITY, kind: "relation" },
   };
 }
 
@@ -156,9 +168,11 @@ export function snapshotFromQuery(
       case "text":
         notes.push(row.value.value);
         break;
+      case "quantity":
+        rivals.push({ label: `${row.value.amount} ${row.value.unit}` });
+        break;
       case "entity":
         entityIds.push(row.value.value);
-        rivals.push({ label: row.value.value });
         break;
       default:
         break;
