@@ -12,9 +12,10 @@ import { createAuth } from "./auth.js";
 /**
  * Authorization URL from the WorkOS SDK with provider `authkit`.
  * Hosted UI shows enabled social methods (Google and Apple required).
+ * Optional `state` restores `/onboard/:token` after callback.
  */
-export function loginUrl(): string {
-  return createAuth().loginUrl();
+export function loginUrl(state?: string): string {
+  return createAuth().loginUrl(state);
 }
 
 /**

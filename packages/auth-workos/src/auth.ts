@@ -51,6 +51,7 @@ export type AuthKitPort = {
     clientId: string;
     provider: typeof AUTHKIT_PROVIDER;
     redirectUri: string;
+    state?: string;
   }): string;
   loadSealedSession(input: {
     cookiePassword: string;
@@ -66,7 +67,7 @@ export type CreateAuthOptions = {
 export type Auth = {
   currentUser(sessionCookie?: string): Promise<AuthUser | null>;
   handleCallback(code: string): Promise<CallbackResult>;
-  loginUrl(): string;
+  loginUrl(state?: string): string;
   logout(sessionCookie?: string): Promise<LogoutResult>;
 };
 
@@ -130,12 +131,16 @@ export function createAuth(options: CreateAuthOptions = {}): Auth {
   const kitOf = (env: AuthEnv) => options.kit ?? workosPort(env);
 
   return {
-    loginUrl() {
+    loginUrl(state) {
       const env = envOf();
+      const trimmed = state?.trim();
       return kitOf(env).getAuthorizationUrl({
         clientId: env.clientId,
         provider: AUTHKIT_PROVIDER,
         redirectUri: env.redirectUri,
+        ...(trimmed === undefined || trimmed.length === 0
+          ? {}
+          : { state: trimmed }),
       });
     },
 

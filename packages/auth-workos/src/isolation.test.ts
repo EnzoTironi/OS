@@ -7,7 +7,7 @@ const repoRoot = process.cwd();
 const packageRoot = path.join(repoRoot, "packages/auth-workos");
 const importSpecifier = /(?:from|import)\s+["']([^"']+)["']/gu;
 const bannedFromThisPackage =
-  /cedar|@zoen\/|zoend|world|membership|firecrawl|speaker|chat-adapter|chat-sdk/iu;
+  /cedar|@zoen\/|zoend|world|membership|firecrawl|speaker|chat-adapter|chat-sdk|next\/|vite|stylex/iu;
 const lockedTrees = [
   "apps/zoend",
   "crates",

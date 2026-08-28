@@ -39,3 +39,15 @@ export function readAuthEnv(env: NodeJS.ProcessEnv = process.env): AuthEnv {
 export function callbackPath(redirectUri: string): string {
   return new URL(redirectUri).pathname;
 }
+
+/**
+ * Private zoend origin for invite lookup. Never the public AuthKit door.
+ */
+export function identityBaseUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const raw = env.ZOEN_IDENTITY_BASE_URL?.trim();
+  return raw === undefined || raw.length === 0
+    ? undefined
+    : raw.replace(/\/+$/, "");
+}

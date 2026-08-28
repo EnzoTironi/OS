@@ -1,20 +1,44 @@
 # `@zoen/auth-workos`
 
-App 0. Browser AuthKit door. Not the kernel.
+Zoen's only screens: hosted AuthKit + vanilla `/onboard/:token`. Same module. Not the kernel.
 
 Public API: `loginUrl`, `handleCallback`, `logout`, `currentUser`.
 
-Speaker, zoend, Cedar, World, and membership must not import this package. WhatsApp JID binding stays Zoen-owned.
+No Next, Vite, StyleX, or SPA. Express serves HTML. Login chrome is AuthKit (`provider: "authkit"`). Speaker, zoend, Cedar, World, and membership must not import this package.
 
-## Why this is standalone
+## Screens
 
-Live public HTTPS today is `https://zoen.tironi.xyz` → zoend `:58701` (`ZOEN_PUBLIC_ORIGIN`).
+| Method | Path | What it is |
+| --- | --- | --- |
+| GET | `/onboard/:token` | WhatsApp door. Product page. |
+| GET | `/auth/workos/login` | `getAuthorizationUrl({ provider: "authkit" })` |
+| GET | path of `WORKOS_REDIRECT_URI` | `authenticateWithCode` + sealed cookie |
+| POST | `/auth/workos/logout` | `getLogoutUrl`, clear cookies |
+| GET | `/auth/workos` | Session peek. Not the WhatsApp return. |
 
-`/onboard/{token}` is a real door, not a stub. zoend identity admin mints `{origin}/onboard/{token}` for WhatsApp JID confirmation. That path is Zoen membership/binding, not OIDC.
+Mint in chat is always `https://zoen.tironi.xyz/onboard/{token}`. Never `app.zoen.local`. Do not dump a bare device code.
 
-Mounting AuthKit on zoend would import WorkOS into the process that owns Cedar, World, and membership. This package stays out of that process.
+After Google/Apple on AuthKit, if the session started from `/onboard/:token`, callback returns there and the page says **Volta pro Zap.**
 
-A later edge can serve `/auth/workos/*` next to `/onboard/*` on the same host. The callback path is always `new URL(WORKOS_REDIRECT_URI).pathname`. Candidate public URI: `https://zoen.tironi.xyz/auth/workos/callback`. Do not point that URI at zoend in this PR.
+zoend still has `/onboard` until callers migrate. The product page is this package. Token check is HTTP to zoend (`ZOEN_IDENTITY_BASE_URL`) or a stub: missing → 404, ready → HTML. This package does not import Cedar or World.
+
+## CLI Auth is not WhatsApp login
+
+`zoen login` on laptop/VFS/herdr uses WorkOS CLI Auth (device grant) on the **same** WorkOS app. The binary prints a code, opens a browser, and polls. That grant does not replace AuthKit on the web.
+
+WhatsApp is not person-facing device-flow login. If a lookup says the token is a CLI Auth user-code completion, `/onboard/:token` may 302 to the **given** `verification_uri_complete` (one-click). We never build that URL. Agent polls. Person still does Google/Apple on AuthKit.
+
+## Google and Apple
+
+Dashboard toggles. No `GOOGLE_*` / `APPLE_*` env.
+
+| Method | Dashboard | Staging |
+| --- | --- | --- |
+| Email + password | On by default | Nothing |
+| Google | Authentication → OAuth providers → Enable | WorkOS demo credentials |
+| Apple | Authentication → OAuth providers → Enable | WorkOS demo credentials |
+
+Staging client id (public): `client_01M12W0Q80ECHW95FW3R9D5V5C`. Redirects already set to `https://zoen.tironi.xyz/auth/workos/callback` and `http://localhost:3000/auth/workos/callback`.
 
 ## Env
 
@@ -22,57 +46,19 @@ A later edge can serve `/auth/workos/*` next to `/onboard/*` on the same host. T
 | --- | --- |
 | `WORKOS_API_KEY` | Server SDK key |
 | `WORKOS_CLIENT_ID` | AuthKit client |
-| `WORKOS_REDIRECT_URI` | Exact callback URL |
+| `WORKOS_REDIRECT_URI` | Exact callback URL. Default public: `https://zoen.tironi.xyz/auth/workos/callback`. Localhost is local only. Path is always `new URL(...).pathname`. |
 | `WORKOS_COOKIE_PASSWORD` | Sealed session password, 32+ chars |
-
-Copy `.env.example`. Cookie password: `openssl rand -base64 32`.
-
-Register `WORKOS_REDIRECT_URI` and the initiate login URL (`/auth/workos/login`) on the application Redirects tab. Register a Sign-out URI there too. This repo does not invent CLI or dashboard click-paths.
-
-## Google and Apple (hosted AuthKit)
-
-`loginUrl()` always calls `getAuthorizationUrl({ provider: "authkit" })`. AuthKit's hosted UI then shows the methods enabled in the dashboard. Do not add a second Google/Apple OAuth stack and do not pass `GoogleOAuth` or `AppleOAuth` as `provider`.
-
-Email + password is AuthKit's default and may stay.
-
-Required social buttons: **Sign in with Google** and **Sign in with Apple**.
-
-Enable them in the WorkOS Dashboard *Authentication* section, *OAuth providers* sub-tab ([social login](https://workos.com/docs/authkit/social-login), [hosted UI methods](https://workos.com/docs/authkit/hosted-ui)):
-
-| Method | Dashboard | Staging (sandbox) | Production |
-| --- | --- | --- | --- |
-| Email + password | On by default | Nothing | Optional password-policy tweaks |
-| Google | *OAuth providers* → Google → Enable / Manage | WorkOS default Client ID / Secret. No `GOOGLE_*` in this repo. | Paste your Google Client ID and Client Secret into that dialog. |
-| Apple | *OAuth providers* → Sign in with Apple → Enable | WorkOS default Team ID / Service ID / key. No `APPLE_*` in this repo. | Paste Apple Team ID, Service ID, Private Key ID, and the private key into that dialog. |
-
-Staging default credentials are documented by WorkOS for Google and Apple. They brand the consent screen as WorkOS until you paste your own app credentials in the dashboard.
-
-This process env stays the four `WORKOS_*` values. Google and Apple secrets belong in the WorkOS dashboard, not `.env`.
-
-## Routes
-
-| Method | Path | SDK call |
-| --- | --- | --- |
-| GET | `/auth/workos/login` | `userManagement.getAuthorizationUrl({ provider: "authkit" })` |
-| GET | path of `WORKOS_REDIRECT_URI` | `authenticateWithCode` with `sealSession: true` |
-| POST | `/auth/workos/logout` | `loadSealedSession` → `getLogoutUrl`, then clear `wos-session` |
-| GET | `/auth/workos` | `loadSealedSession` → `authenticate` |
-
-Keycloak / existing OIDC stay. This door is additive.
+| `ZOEN_IDENTITY_BASE_URL` | Optional private zoend for invite lookup |
 
 ```bash
 npm run build
 node dist/packages/auth-workos/src/server.js
 ```
 
+Keycloak stays on live Fly. This PR does not replace it and does not merge.
+
 ## Later swap (not this PR)
 
 Today zoend `SessionRegistry` verifies a Keycloak JWT, then `binding_for_oidc_sub` → Active Membership.
 
-Later, without rewriting membership:
-
-1. Keep Keycloak on Fly until a WorkOS `currentUser()` id (or email) resumes the same binding row `oidc_sub` uses today.
-2. WorkOS sealed session → same identity store lookup → same Active Membership.
-3. Only then retire the Keycloak JWT at the zoend door.
-
-This PR does not deploy AuthKit to Fly and does not replace live Keycloak.
+Later: WorkOS `currentUser()` → same identity lookup → same membership. Only then retire Keycloak at the zoend door.

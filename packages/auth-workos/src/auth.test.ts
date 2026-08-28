@@ -39,7 +39,8 @@ function recordingKit(): AuthKitPort & {
       });
     },
     getAuthorizationUrl(input) {
-      return `https://api.workos.com/user_management/authorize?provider=${input.provider}`;
+      const state = input.state === undefined ? "" : `&state=${input.state}`;
+      return `https://api.workos.com/user_management/authorize?provider=${input.provider}${state}`;
     },
     loadSealedSession() {
       return {
@@ -86,6 +87,13 @@ test("authorization URL uses AuthKit provider via the SDK", async () => {
     parsed.searchParams.get("redirect_uri"),
     "http://localhost:3000/auth/workos/callback",
   );
+});
+
+test("loginUrl state is passed to the SDK and still uses AuthKit", async () => {
+  const url = await withEnv(validEnv, () => loginUrl("onboard.wa.token"));
+  const parsed = new URL(url);
+  assert.equal(parsed.searchParams.get("provider"), "authkit");
+  assert.equal(parsed.searchParams.get("state"), "onboard.wa.token");
 });
 
 test("Google and Apple stay on hosted AuthKit, not process env", async () => {
