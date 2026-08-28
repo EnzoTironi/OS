@@ -380,7 +380,7 @@ mod tests {
         TrustedExecutionContext, TypeId, WorkloadId,
     };
 
-    use super::{sha256, CedarPolicyEvaluator};
+    use super::{CedarPolicyEvaluator, sha256};
     use crate::cedar::PolicyEvaluator;
     use zoen_engine::{
         PolicyLinkProjection, PolicyMembershipProjection, PolicyObjectProjection, PolicyOperation,
