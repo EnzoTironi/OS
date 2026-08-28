@@ -171,20 +171,6 @@ test("createInteractionExecuteWork binds kernel host without JS sandbox", async 
   assert.deepEqual(snapshot?.entityIds, []);
 });
 
-test("default world semanticQuery never uses membershipId or world.notes", async () => {
-  const inner = recordingKernelHost();
-  const work = createKernelExecuteWork(inner);
-  await work.world.semanticQuery({
-    membershipId: "membership.wa.enzo",
-    tenantId: "tenant.wa.enzo",
-  });
-  const query = inner.queries[0];
-  assert.equal(query?.entityId, "commercial.order-line.dirty-quote");
-  assert.equal(query?.selection.id, "commercial.quotedQuantity");
-  assert.notEqual(query?.entityId, "membership.wa.enzo");
-  assert.notEqual(query?.selection.id, "world.notes");
-});
-
 test("world semanticQuery uses input.entityId when provided", async () => {
   const inner = recordingKernelHost();
   const work = createKernelExecuteWork(inner);

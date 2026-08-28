@@ -11,6 +11,7 @@ export interface ZoendHostEnv {
   readonly definition?: DefinitionReferenceConfig;
   readonly definitionPath?: string;
   readonly tenantId?: string;
+  readonly worldDefinitionPath?: string;
   readBearerToken(): string | undefined;
 }
 
@@ -37,6 +38,7 @@ export function readZoendHostEnv(
     definitionPath: env.ZOEN_PERSONAL_DEFINITION_PATH?.trim(),
     readBearerToken: () => agentBearerToken(env),
     tenantId: env.ZOEN_TENANT_ID?.trim(),
+    worldDefinitionPath: env.ZOEN_WORLD_DEFINITION_PATH?.trim(),
   };
 }
 
