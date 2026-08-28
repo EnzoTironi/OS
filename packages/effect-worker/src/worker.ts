@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   Code,
@@ -15,7 +17,7 @@ import {
   EffectKnowledgeState,
   EffectService,
 } from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
-import { parseRestateIdentityKeys } from "./identity.js";
+import { effectWorkerEndpoint } from "./identity.js";
 
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
 const oidcClientSchema = z
@@ -140,33 +142,16 @@ type ServiceAuthentication =
       readonly tokenEndpoint: string;
     };
 
-const rawEnvironment = environmentSchema.parse(process.env);
-const serviceAuthentication = (
-  "ZOEN_EFFECT_SERVICE_BEARER_TOKENS" in rawEnvironment
-    ? {
-        kind: "bearer",
-        tokens: parseStringMap(
-          rawEnvironment.ZOEN_EFFECT_SERVICE_BEARER_TOKENS,
-        ),
-      }
-    : {
-        clients: parseOidcClientMap(
-          rawEnvironment.ZOEN_EFFECT_SERVICE_OIDC_CLIENTS,
-        ),
-        kind: "oidc",
-        tokenEndpoint:
-          rawEnvironment.ZOEN_EFFECT_SERVICE_OIDC_TOKEN_ENDPOINT,
-      }
-) satisfies ServiceAuthentication;
-const environment = {
-  ...rawEnvironment,
-  ZOEN_CONNECTOR_CREDENTIAL_REFS: parseStringMap(
-    rawEnvironment.ZOEN_CONNECTOR_CREDENTIAL_REFS,
-  ),
-  ZOEN_RESTATE_IDENTITY_KEYS: parseRestateIdentityKeys(
-    rawEnvironment.ZOEN_RESTATE_IDENTITY_KEYS,
-  ),
-};
+interface WorkerEnvironment {
+  ZOEN_CONNECTOR_CALLER_TOKEN: string;
+  ZOEN_CONNECTOR_CREDENTIAL_REFS: Record<string, string>;
+  ZOEN_EFFECT_CONNECTOR_URL: string;
+  ZOEN_EFFECT_SERVICE_URL: string;
+  ZOEN_EFFECT_WORKER_PORT: number;
+}
+
+let serviceAuthentication!: ServiceAuthentication;
+let environment!: WorkerEnvironment;
 
 const zoenEffect = restate.object({
   name: "ZoenEffect",
@@ -551,8 +536,53 @@ function parseOidcClientMap(
   return oidcClientMapSchema.parse(parsed);
 }
 
-await restate.serve({
-  identityKeys: environment.ZOEN_RESTATE_IDENTITY_KEYS,
-  port: environment.ZOEN_EFFECT_WORKER_PORT,
-  services: [zoenEffect],
-});
+/**
+ * Bind ZoenEffect and listen. Production and e2e call this explicitly.
+ *
+ * Context: Helm/Docker execute this file as main. `e2e/effects/worker.ts`
+ * imports and awaits this so scenario runners still boot the worker.
+ * Importing the module must not parse env or call `restate.serve`.
+ *
+ * Side effects: reads `process.env`, then HTTP/2 `listen` via `restate.serve`.
+ */
+export async function startEffectWorker(): Promise<void> {
+  const rawEnvironment = environmentSchema.parse(process.env);
+  serviceAuthentication = (
+    "ZOEN_EFFECT_SERVICE_BEARER_TOKENS" in rawEnvironment
+      ? {
+          kind: "bearer",
+          tokens: parseStringMap(
+            rawEnvironment.ZOEN_EFFECT_SERVICE_BEARER_TOKENS,
+          ),
+        }
+      : {
+          clients: parseOidcClientMap(
+            rawEnvironment.ZOEN_EFFECT_SERVICE_OIDC_CLIENTS,
+          ),
+          kind: "oidc",
+          tokenEndpoint:
+            rawEnvironment.ZOEN_EFFECT_SERVICE_OIDC_TOKEN_ENDPOINT,
+        }
+  ) satisfies ServiceAuthentication;
+  environment = {
+    ZOEN_CONNECTOR_CALLER_TOKEN: rawEnvironment.ZOEN_CONNECTOR_CALLER_TOKEN,
+    ZOEN_CONNECTOR_CREDENTIAL_REFS: parseStringMap(
+      rawEnvironment.ZOEN_CONNECTOR_CREDENTIAL_REFS,
+    ),
+    ZOEN_EFFECT_CONNECTOR_URL: rawEnvironment.ZOEN_EFFECT_CONNECTOR_URL,
+    ZOEN_EFFECT_SERVICE_URL: rawEnvironment.ZOEN_EFFECT_SERVICE_URL,
+    ZOEN_EFFECT_WORKER_PORT: rawEnvironment.ZOEN_EFFECT_WORKER_PORT,
+  };
+  await restate.serve({
+    ...effectWorkerEndpoint(rawEnvironment, [zoenEffect]),
+    port: environment.ZOEN_EFFECT_WORKER_PORT,
+  });
+}
+
+const entry = process.argv[1];
+if (
+  entry !== undefined &&
+  import.meta.url === pathToFileURL(path.resolve(entry)).href
+) {
+  await startEffectWorker();
+}

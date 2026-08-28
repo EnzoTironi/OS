@@ -70,6 +70,8 @@ Create \`zoen-runtime\` in each application namespace before installation. The c
 - \`effectOidcClients\`
 - \`restateRequestIdentityKeys\` and \`restateRequestIdentityPrivateKey\` for Restate request identity
 
+The durable secret owns the PEM; the application secret owns the JSON public keys; the pair must match.
+
 Use customer-controlled secret management in production. Do not commit the values of these keys.
 
 ## Install reference dependencies

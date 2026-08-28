@@ -45,6 +45,7 @@ services:
       RESTATE_AUTO_PROVISION: "true"
       RESTATE_FORCE_NODE_ID: "1"
       RESTATE_NODE_NAME: restate
+      RESTATE_REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /restate-identity/private.pem
     extra_hosts:
       - host.docker.internal:host-gateway
     ports:
@@ -52,6 +53,7 @@ services:
       - "127.0.0.1:${ZOEN_E2E_RESTATE_INGRESS_PORT}:8080"
       - "127.0.0.1:${ZOEN_E2E_RESTATE_UI_PORT}:9070"
     volumes:
+      - ../../testdata/restate-request-identity/private.pem:/restate-identity/private.pem:ro
       - restate-data:/restate-data
 
 volumes:
