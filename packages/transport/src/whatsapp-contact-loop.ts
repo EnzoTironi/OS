@@ -38,6 +38,7 @@ import {
   type ScheduleFn,
   type TrustedInteractionContext,
   type TurnStore,
+  type WorldQueryClient,
 } from "../../speaker/src/index.js";
 import { rejectWhatsAppMediaFields } from "./media-ingress.js";
 import {
@@ -129,6 +130,8 @@ export interface WhatsAppContactLoopOptions {
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
   readonly executeWork?: (task: string) => Promise<string>;
+  /** Speaker-local snapshot from planted `zoen query`. No Connect in speaker. */
+  readonly world?: WorldQueryClient;
   /** Tier 2 model override, mainly for tests. Production reads ZOEN_MODEL. */
   readonly model?: LanguageModel;
   /** Status gate threshold in ms. Default TURN_STATUS_AFTER_MS (2000). */
@@ -384,6 +387,7 @@ export function createWhatsAppContactLoop(
           now,
           scratch,
           store,
+          world: options.world,
         }),
       });
       let bubbles = outboundBubbles(raced.value);

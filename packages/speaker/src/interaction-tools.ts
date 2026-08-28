@@ -62,7 +62,7 @@ export function createInteractionTools(
   return {
     spawn_execution: tool({
       description:
-        "Hand work off the conversation. Returns a short status string. Do not mention this hand-off in user text.",
+        "Hand work off the conversation to the planted zoen CLI. Returns status: committed (...) only after Cedar commit on zoend. Do not tell the person a note or reminder worked unless this status is committed. Fail openly on denied or failed. Never mention this hand-off in user text.",
       execute: async ({ task }) => {
         scratch.startedWork = true;
         const status =

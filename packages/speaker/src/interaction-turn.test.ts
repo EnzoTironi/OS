@@ -188,6 +188,9 @@ test("PT instructions ban helpdesk greetings and keep speak_to_user as the only 
   assert.doesNotMatch(interactionInstructions("en"), /Mastra|LangGraph/);
   assert.doesNotMatch(instructions, /vendo|anotando|agendando|um seg/);
   assert.doesNotMatch(interactionInstructions("en"), /looking|noting|scheduling|one sec/);
+  assert.match(instructions, /status for committed/);
+  assert.match(instructions, /nunca invente que guardou/);
+  assert.match(interactionInstructions("en"), /status is committed/);
 });
 
 test("reasoningPrompt is labeled projection data, not a World wrapper", () => {
