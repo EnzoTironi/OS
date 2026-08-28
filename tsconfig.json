@@ -11,6 +11,9 @@
     "noUncheckedIndexedAccess": true,
     "outDir": "dist",
     "paths": {
+      "@zoen/auth-workos": [
+        "./packages/auth-workos/src/index.ts"
+      ],
       "@zoen/ontology": [
         "./packages/ontology/src/index.ts"
       ],

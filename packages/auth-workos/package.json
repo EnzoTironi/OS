@@ -1,0 +1,23 @@
+{
+  "name": "@zoen/auth-workos",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "node ../../dist/packages/auth-workos/src/server.js"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6"
+  },
+  "dependencies": {
+    "@workos-inc/node": "^10.12.0",
+    "cookie-parser": "^1.4.7",
+    "csrf-csrf": "^4.0.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "zod": "4.4.3"
+  }
+}
