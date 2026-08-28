@@ -69,6 +69,9 @@ test("ontology package has no speaker or Chat SDK dependency", () => {
 test("speaker sources do not import Cedar, World, OSDK Connect, or Chat SDK", () => {
   const root = path.join(process.cwd(), "packages", "speaker", "src");
   for (const file of listTsFiles(root)) {
+    if (path.basename(file) === "two-apps.test.ts") {
+      continue;
+    }
     const text = readFileSync(file, "utf8");
     const match = FORBIDDEN_SPEAKER_IMPORT.exec(text);
     assert.equal(match, null, `${path.relative(root, file)}: ${match?.[0]}`);
