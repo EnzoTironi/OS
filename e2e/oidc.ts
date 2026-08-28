@@ -46,9 +46,6 @@ export async function fetchOidcJson(
 }
 
 export function isTransientOidcError(body: unknown): boolean {
-  if (body instanceof TransientOidcError) {
-    return true;
-  }
   if (body === null || typeof body !== "object") {
     return false;
   }
