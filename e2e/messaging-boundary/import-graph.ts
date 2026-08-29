@@ -29,12 +29,6 @@ const SOURCE_EXTENSIONS = new Set([
 export async function assertImportGraphLaw(
   repositoryRoot: string,
 ): Promise<void> {
-  const transportPackage = JSON.parse(
-    await readFile(
-      path.join(repositoryRoot, "packages/transport/package.json"),
-      "utf8",
-    ),
-  ) as { dependencies?: Record<string, string>; name?: string };
   for (const root of FORBIDDEN_ROOTS) {
     const absolute = path.join(repositoryRoot, root);
     const hits = await scanDirectory(absolute, repositoryRoot);
@@ -44,8 +38,6 @@ export async function assertImportGraphLaw(
       `forbidden Chat SDK import in ${root}: ${hits.join("; ")}`,
     );
   }
-
-  assert.equal(transportPackage.name, "@zoen/transport");
 }
 
 async function scanDirectory(
@@ -81,7 +73,7 @@ async function scanDirectory(
     if (!SOURCE_EXTENSIONS.has(ext)) {
       continue;
     }
-    if (entry.name === "package.json" && !full.includes(`${path.sep}transport${path.sep}`)) {
+    if (entry.name === "package.json") {
       const text = await readFile(full, "utf8");
       for (const pattern of FORBIDDEN_PATTERNS) {
         if (pattern.test(text)) {

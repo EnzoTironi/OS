@@ -14,9 +14,6 @@
       "@zoen/ontology": [
         "./packages/ontology/src/index.ts"
       ],
-      "@zoen/transport": [
-        "./packages/transport/src/index.ts"
-      ],
       "@zoen/mcp": [
         "./packages/mcp/src/index.ts"
       ]
@@ -38,7 +35,6 @@
     "e2e/activation-onboarding/**/*.ts",
     "e2e/company-bootstrap-shadow.ts",
     "e2e/company-bootstrap-shadow/**/*.ts",
-    "e2e/messaging-conformance-live.ts",
     "e2e/pack-install.ts",
     "e2e/pack-install/**/*.ts",
     "e2e/pack-kitchen.ts",
@@ -49,8 +45,7 @@
     "e2e/personal-family/**/*.ts",
     "e2e/public-surface-web.ts",
     "e2e/public-surface-web/**/*.ts",
-    "e2e/shared-tenancy.ts",
-    "e2e/whatsapp-dirty-quote.ts"
+    "e2e/shared-tenancy.ts"
   ],
   "include": [
     "e2e/**/*.ts",

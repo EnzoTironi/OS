@@ -21,10 +21,10 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 | order | issue | PR | title | note |
 | ---: | ---: | --- | --- | --- |
 | 1 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on OIDC | Done on main. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted. |
-| 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | In flight. Companion posts zoend /channels/whatsapp/inbound. Unbound 1:1 pokes in the same thread. Bound runs the turn coordinator. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Python log sink is not the live path. #375 then #376. |
+| 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | In flight. Companion posts zoend /channels/whatsapp/inbound. Destination WhatsApp is Kapso in Eve. Python log sink is not the live path. #375 then #376. |
 | 3 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | In flight. Live Bot API adapter behind MessagingGateway. Advertise fails closed without TELEGRAM_BOT_TOKEN. Webhook is production. Do not restore the fake. |
 | 4 | [#327](https://github.com/EnzoTironi/OS/issues/327) | — | Conformance and substitution against live adapters | In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify. |
-| 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | Surface and attention are archived. Live WhatsApp lowers PresentationIntent from packages/transport. Speaker debounce is local. Paired door still missing. |
+| 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | Surface and attention are archived. Live WhatsApp destination is Kapso in Eve. Paired door still missing. |
 
 ## Gates
 
@@ -63,19 +63,19 @@ On main. Real implementation. This is product.
 | `identity-oidc` | identity | OIDC identity (Keycloak) | just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
 | `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `web-tanstack` | experience | Web application | Not on default main. Lives on archive/pre-modeled-erp. Optional just e2e web-deterministic there. | — |
-| `surface-ir` | experience | Surface IR package | Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp uses PresentationIntent in packages/transport. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-| `attention` | experience | Proactive attention package | Not on default main. Transport does not import it. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `surface-ir` | experience | Surface IR package | Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp destination is Kapso in Eve. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `attention` | experience | Proactive attention package | Not on default main. Default tree does not import it. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `ontology-libs` | ontology | Archived pre-modeled ERP libraries | Not on default main. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* on archive/pre-modeled-erp. | — |
 | `pack-compiler` | packs | Pack compiler, registry, Kitchen | Not on default main. Kitchen/pack e2e is optional on archive/pre-modeled-erp. | — |
 | `sample-company` | activation | Sample Company five-minute path | Not on default main. just start / just e2e activation-sample on archive/pre-modeled-erp. | — |
 | `activation-onboarding` | activation | Conversational onboarding and messy data | Not on default main. just e2e activation-onboarding and company-bootstrap-shadow on archive/pre-modeled-erp. | — |
 | `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | Not on default main. just e2e fiscal-fault-matrix on archive/pre-modeled-erp. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
-| `linq-live` | channels | Live Linq iMessage adapter | just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host. | [#253](https://github.com/EnzoTironi/OS/issues/253) |
+| `linq-live` | channels | Live Linq iMessage adapter | Node Linq adapter deleted. ChannelProvider::Linq stays in zoend identity. Optional for self-host. | [#253](https://github.com/EnzoTironi/OS/issues/253) |
 | `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `deploy-helm` | deploy | Helm profiles (shared, dedicated, self-hosted) | Optional KIND. just e2e deploy-dedicated and deploy-self-hosted-isolated are class=kind and skipped by just verify. | — |
 | `public-surface` | public | Public narrative checker | npx tsx e2e/public-surface.ts. Live conversation study is #267. | [#267](https://github.com/EnzoTironi/OS/issues/267) |
 | `fail-closed-boot` | authority | Fail-closed zoend boot | On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
-| `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. ChannelProvider::Linq. toChannelProvider("linq") === "linq". | [#318](https://github.com/EnzoTironi/OS/issues/318) |
+| `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. zoend ChannelProvider::Linq. | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
 | `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | Archived. ./e2e/run.sh run adr-0007 still compilePackage(commercial). Timeout after possible delivery is UNKNOWN. | — |
 
@@ -95,9 +95,9 @@ Fail-closed work in an open PR. Do not duplicate.
 | --- | --- | --- | --- | ---: |
 | `authority-cedar-projection` | authority | Cedar object and link projection | just e2e cedar-object-projection. Membership, object type, and links are projected into Cedar Entities from semantic records. Empty-entity evaluation is gone for that path. | [#357](https://github.com/EnzoTironi/OS/issues/357) |
 | `workshop-miniapp` | experience | Workshop mini-app lists commercial objects and commits changeCommitment | Optional on archive/pre-modeled-erp. just e2e workshop-miniapp there. | [#356](https://github.com/EnzoTironi/OS/issues/356) |
-| `telegram-live` | channels | Telegram channel | just e2e channel-telegram-live. Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
-| `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Human 1:1 to the Vivo door must get a same-thread reply. Cloud API fake stays deleted. Python log sink is not the live path. | [#375](https://github.com/EnzoTironi/OS/issues/375) |
-| `messaging-conformance-live` | channels | Messaging conformance against live adapters | just e2e messaging-conformance-live. Live unofficial WhatsApp + live Telegram required. Linq optional. Fail closed without TELEGRAM_BOT_TOKEN / ZOEN_WHATSAPP_DOOR_E164 / companion. Fakes stay deleted. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
+| `telegram-live` | channels | Telegram channel | Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted. Node Telegram adapter deleted. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
+| `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | Companion posts zoend /channels/whatsapp/inbound. Destination WhatsApp is Kapso in Eve. Cloud API fake stays deleted. Python log sink is not the live path. | [#375](https://github.com/EnzoTironi/OS/issues/375) |
+| `messaging-conformance-live` | channels | Messaging conformance against live adapters | Node adapter conformance journey deleted. Live WhatsApp destination is Kapso in Eve. Fakes stay deleted. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `surface-ir-e2e-live` | channels | Surface IR and Attention e2e on live channels | CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 
 ## PARKED

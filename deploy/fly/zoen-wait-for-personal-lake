@@ -1,8 +1,0 @@
-#!/bin/sh
-set -eu
-personal="${ZOEN_PERSONAL_LAKE_READY_FILE:-/data/zoen/personal.lake.ready}"
-commercial="${ZOEN_COMMERCIAL_LAKE_READY_FILE:-/data/zoen/commercial.lake.ready}"
-until [ -s "$personal" ] && [ -s "$commercial" ]; do
-  sleep 1
-done
-exec "$@"

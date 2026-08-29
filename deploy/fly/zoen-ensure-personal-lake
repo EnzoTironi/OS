@@ -1,6 +1,4 @@
 #!/bin/sh
-# Publish+Activate personal.memory after remint writes the agent token.
-# Speaker must not do this on the write path.
 set -eu
 ready="${ZOEN_PERSONAL_LAKE_READY_FILE:-/data/zoen/personal.lake.ready}"
 token="${ZOEN_AGENT_BEARER_TOKEN_FILE:-/data/zoen/agent.token}"

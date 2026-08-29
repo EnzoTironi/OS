@@ -26,4 +26,4 @@ WhatsApp destination is Kapso `defineChannel`. whatsmeow is the current lab door
 
 ## Fly images
 
-A Fly image may still build zoend, companion, and speaker this week.
+A Fly image may still build zoend and companion this week.

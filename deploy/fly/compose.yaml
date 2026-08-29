@@ -1,6 +1,3 @@
-# Laptop twin of the Fly VM. Same processes, official images for infra.
-# zoend, companion, and transport contact-serve build from this repo.
-
 name: zoen
 
 services:
@@ -72,7 +69,6 @@ services:
       ZOEN_OIDC_ISSUER: http://127.0.0.1:8080/realms/zoen
       ZOEN_OIDC_AUDIENCE: zoend
       ZOEN_CEDAR_POLICY_MANIFEST: ${ZOEN_CEDAR_POLICY_MANIFEST:-/etc/zoen/policies.json}
-      ZOEN_MESSAGING_GATEWAY_URL: http://127.0.0.1:18082
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
       S3_BUCKET: ${S3_BUCKET:-zoen-projections}
@@ -98,21 +94,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
-  speaker:
-    build:
-      context: ../..
-      dockerfile: deploy/fly/Dockerfile.speaker
-    network_mode: host
-    environment:
-      ZOEN_WHATSAPP_DOOR_E164: ${ZOEN_WHATSAPP_DOOR_E164:-+553798136141}
-      ZOEN_WHATSAPP_COMPANION_URL: http://127.0.0.1:8081
-      ZOEN_IDENTITY_BASE_URL: http://127.0.0.1:58701
-      ZOEN_MESSAGING_INGRESS_HOST: 127.0.0.1
-      ZOEN_MESSAGING_INGRESS_PORT: "18082"
-    depends_on:
-      - companion
-      - zoend
 
   dispatcher:
     build:

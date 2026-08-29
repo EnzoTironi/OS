@@ -4,11 +4,6 @@ import { createConnectTransport } from "@connectrpc/connect-node";
 import { compileDefinition } from "../../packages/ontology/src/index.js";
 import { DefinitionService } from "../../gen/connect/zoen/definition/v1/definition_pb.js";
 
-/**
- * Fly prestart: Publish+Activate personal.memory and commercial.sales.
- * Speaker stays Propose→Commit.
- * Requires ZOEN_TENANT_ID (no default).
- */
 async function main(): Promise<void> {
   const tenantId = requiredEnv("ZOEN_TENANT_ID");
   const personalPath = requiredEnv("ZOEN_PERSONAL_DEFINITION_PATH");

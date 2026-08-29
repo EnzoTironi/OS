@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac, randomBytes } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -6,10 +7,6 @@ import {
   type ServerResponse,
 } from "node:http";
 import { Client as PostgresClient } from "pg";
-import {
-  generateWhsecSecret,
-  signStandardWebhook,
-} from "../../packages/transport/src/index.js";
 
 export const ZOEND_INGRESS_REPLAY_NAMESPACE = "zoend:";
 
@@ -99,17 +96,48 @@ export function signedWhatsAppInbound(input: {
   readonly secret: string;
   readonly timestampSeconds: number;
   readonly webhookId: string;
-}): Record<string, string> {
-  const headers = signStandardWebhook(input);
-  return {
-    "webhook-id": headers["webhook-id"],
-    "webhook-signature": headers["webhook-signature"],
-    "webhook-timestamp": headers["webhook-timestamp"],
-  };
+}): {
+  "webhook-id": string;
+  "webhook-signature": string;
+  "webhook-timestamp": string;
+} {
+  return signStandardWebhook(input);
 }
 
 export function freshWhatsAppIngressSecret(): string {
   return generateWhsecSecret();
+}
+
+function generateWhsecSecret(bytes = 32): string {
+  return `whsec_${randomBytes(bytes).toString("base64")}`;
+}
+
+function signStandardWebhook(input: {
+  readonly rawBody: string;
+  readonly secret: string;
+  readonly timestampSeconds: number;
+  readonly webhookId: string;
+}): {
+  "webhook-id": string;
+  "webhook-signature": string;
+  "webhook-timestamp": string;
+} {
+  const stripped = input.secret.startsWith("whsec_")
+    ? input.secret.slice(6)
+    : input.secret;
+  const keyBytes = Buffer.from(stripped, "base64");
+  if (keyBytes.length === 0) {
+    throw new Error("webhook secret is not whsec_ + base64");
+  }
+  const signedContent = `${input.webhookId}.${String(input.timestampSeconds)}.${input.rawBody}`;
+  const signature = createHmac("sha256", keyBytes)
+    .update(signedContent)
+    .digest("base64");
+  return {
+    "webhook-id": input.webhookId,
+    "webhook-signature": `v1,${signature}`,
+    "webhook-timestamp": String(input.timestampSeconds),
+  };
 }
 
 async function handleGateway(

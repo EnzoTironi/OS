@@ -87,8 +87,3 @@ verify-v1:
 # Does not rerun scenarios. Missing/stale/wrong-commit/fixture-as-production fails closed.
 verify-activation:
     ./e2e/run.sh verify-activation
-
-# Live unofficial WhatsApp contact loop against the paired Vivo door.
-# Companion already paired on 127.0.0.1:8081. Does not POST /send as the human.
-whatsapp-contact:
-    ./scripts/whatsapp-contact-loop.sh start
