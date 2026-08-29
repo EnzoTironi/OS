@@ -10,9 +10,8 @@ COPY crates crates
 COPY apps/zoend apps/zoend
 COPY proto proto
 COPY wit wit
-RUN cargo build --locked --release --package zoend \
-    && strip --strip-debug target/release/zoend target/release/zoen-effect-dispatcher \
-         target/release/zoen-http-connector target/release/zoen-projection
+RUN cargo build --locked --release --package zoend --bin zoend --bin zoen-effect-dispatcher \
+    && strip --strip-debug target/release/zoend target/release/zoen-effect-dispatcher
 
 FROM node:22.18.0-bookworm-slim AS personal-lake
 WORKDIR /app
