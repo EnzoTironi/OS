@@ -1,9 +1,5 @@
 import { Client } from "pg";
 import {
-  bindWhatsAppExecutionPlant,
-  createInteractionExecuteWork,
-} from "../../harness/src/interaction-execute-work.js";
-import {
   createIdentityDirectoryClient,
   createPostgresTurnStore,
   type IdentityDirectory,
@@ -42,8 +38,6 @@ async function main(): Promise<void> {
   await session.open();
   const ready = await session.ready();
   const tenantHint = process.env.ZOEN_WHATSAPP_TENANT_HINT?.trim();
-  const liveWork = await createInteractionExecuteWork();
-  const { executeWork, plantInbound } = bindWhatsAppExecutionPlant(liveWork);
   const pg = new Client({ connectionString: databaseUrl });
   await pg.connect();
   const store = createPostgresTurnStore({
@@ -51,9 +45,6 @@ async function main(): Promise<void> {
   });
   const loop = createWhatsAppContactLoop({
     doorE164,
-    executeWork,
-    world: liveWork?.world,
-    plantInbound,
     identity: withTenantHint(
       createIdentityDirectoryClient({
         adminToken,

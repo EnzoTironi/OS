@@ -14,7 +14,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | HAVE | DON'T HAVE | STUB ON MAIN | IN FLIGHT | PARKED | HARNESS |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 25 | 0 | 0 | 6 | 2 | 3 |
+| 24 | 1 | 0 | 6 | 2 | 3 |
 
 ## Do next
 
@@ -63,13 +63,12 @@ On main. Real implementation. This is product.
 | `identity-oidc` | identity | OIDC identity (Keycloak) | just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
 | `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `web-tanstack` | experience | Web application | Not on default main. Lives on archive/pre-modeled-erp. Optional just e2e web-deterministic there. | — |
-| `surface-ir` | experience | Surface IR package | Live subset is packages/harness/src/surface. Full @zoen/surface package lives on archive/pre-modeled-erp. Live WhatsApp uses PresentationIntent types in packages/transport. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `surface-ir` | experience | Surface IR package | Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp uses PresentationIntent in packages/transport. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `attention` | experience | Proactive attention package | Not on default main. Transport and speaker do not import it; debounce is local to the turn coordinator. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `ontology-libs` | ontology | Archived pre-modeled ERP libraries | Not on default main. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* on archive/pre-modeled-erp. | — |
 | `pack-compiler` | packs | Pack compiler, registry, Kitchen | Not on default main. Kitchen/pack e2e is optional on archive/pre-modeled-erp. | — |
 | `sample-company` | activation | Sample Company five-minute path | Not on default main. just start / just e2e activation-sample on archive/pre-modeled-erp. | — |
 | `activation-onboarding` | activation | Conversational onboarding and messy data | Not on default main. just e2e activation-onboarding and company-bootstrap-shadow on archive/pre-modeled-erp. | — |
-| `brain-live` | intelligence | Company Brain and agent live suites | just e2e company-brain-live and agent-capabilities-live. Need OPENCODE_API_KEY. In just verify. | — |
 | `fiscal-adapters` | fiscal | Brazil fiscal HTTP adapters (code) | Not on default main. just e2e fiscal-fault-matrix on archive/pre-modeled-erp. Live homologation is #214. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
 | `linq-live` | channels | Live Linq iMessage adapter | just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host. | [#253](https://github.com/EnzoTironi/OS/issues/253) |
 | `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
@@ -79,6 +78,14 @@ On main. Real implementation. This is product.
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. ChannelProvider::Linq. toChannelProvider("linq") === "linq". | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
 | `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | Archived. ./e2e/run.sh run adr-0007 still compilePackage(commercial). Timeout after possible delivery is UNKNOWN. | — |
+
+## DON'T HAVE
+
+Not product. Restore issue is the row. Code, if any, lives on the backup branch.
+
+| id | plane | name | proof | issue |
+| --- | --- | --- | --- | ---: |
+| `brain-live` | intelligence | Company Brain and agent live suites | Not product. The leftover agent-session package is gone. Conversation is Eve. | — |
 
 ## IN FLIGHT
 

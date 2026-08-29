@@ -7,12 +7,6 @@ import {
   type PublisherKeyPair,
 } from "../../archive/packages/pack/src/index.js";
 import {
-  compileDeterministicSurface,
-} from "../../packages/harness/src/surface/compiler.js";
-import {
-  type SurfaceDocument,
-} from "../../packages/harness/src/surface/model.js";
-import {
   compilePackage,
   writePolicyManifest,
   type DomainFixture,
@@ -125,22 +119,6 @@ export async function api(
     }
   }
   return { body: parsed, status: response.status };
-}
-
-export function buildSurfaceForFixture(
-  fixture: DomainFixture,
-  entityId: string,
-): SurfaceDocument {
-  return compileDeterministicSurface({
-    definition: {
-      definitionId: fixture.metadata.definitionId,
-      digest: fixture.digest,
-      revision: String(fixture.metadata.revision),
-    },
-    entityId,
-    metadata: fixture.metadata,
-    presentation: { title: "Kitchen surface", actionsVisible: true },
-  });
 }
 
 export async function writeMutantFixture(

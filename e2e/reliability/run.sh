@@ -255,14 +255,12 @@ resume_deployments() {
 
 pause_authority_writers() {
   pause_deployments \
-    harness-tenant-a \
     zoen-effect-dispatcher-tenant-a \
     zoen-effect-worker
 }
 
 resume_authority_writers() {
   resume_deployments \
-    harness-tenant-a \
     zoen-effect-dispatcher-tenant-a \
     zoen-effect-worker
 }
@@ -412,7 +410,6 @@ kill_stateless_application() {
   local name
   for name in \
     zoend \
-    harness-tenant-a \
     zoen-projection \
     zoen-effect-dispatcher-tenant-a \
     zoen-effect-worker \
@@ -981,7 +978,7 @@ effect_from_restate_only_mutant() {
     curl --fail --silent --show-error \
       "http://127.0.0.1:${ZOEN_E2E_RESTATE_UI_PORT}/deployments"
   )"
-  if ! printf '%s' "${deployments}" | grep -q 'harness-tenant-a'; then
+  if ! printf '%s' "${deployments}" | grep -q 'zoen-effect-worker'; then
     echo "Restate has no harness deployment; cannot prove Restate-as-authority mutant" >&2
     exit 1
   fi
@@ -1002,7 +999,7 @@ effect_from_restate_only_mutant() {
     curl --fail --silent --show-error \
       "http://127.0.0.1:${ZOEN_E2E_RESTATE_UI_PORT}/deployments"
   )"
-  if ! printf '%s' "${deployments}" | grep -q 'harness-tenant-a'; then
+  if ! printf '%s' "${deployments}" | grep -q 'zoen-effect-worker'; then
     echo "Restate lost deployments during the effect-authority mutant" >&2
     exit 1
   fi
@@ -1082,7 +1079,7 @@ install_dependencies
 install_application "${application_namespace}"
 wait_for_application "${application_namespace}"
 run_semantic seed
-zoen_rollout_status "${application_namespace}" deployment/harness-tenant-a
+zoen_rollout_status "${application_namespace}" deployment/zoend
 install -m 0644 "${artifacts_directory}/semantic-state.json" \
   "${artifacts_directory}/semantic-initial.json"
 pass initial-conformance \
@@ -1190,7 +1187,7 @@ case "${drill}" in
 
     kill_stateless_application
     wait_for_application "${application_namespace}"
-    zoen_rollout_status "${application_namespace}" deployment/harness-tenant-a
+    zoen_rollout_status "${application_namespace}" deployment/zoend
     run_semantic verify-rolling "${artifacts_directory}/semantic-initial.json"
     pass stateless-pod-kill \
       "killing zoend, harness, projection, effect, and connector pods recovered Ready state" \

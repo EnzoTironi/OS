@@ -17,7 +17,6 @@ import {
   adminClient,
   command,
   compilePackage,
-  compileSurface,
   definitionClient,
   dispatchOnce,
   effectClient,
@@ -1834,26 +1833,6 @@ async function main(): Promise<void> {
           semanticShape(projectedGenealogy) &&
         semanticShape(strongRemainingClaim) ===
           semanticShape(projectedRemainingClaim),
-    );
-
-    const manufacturingSurface = compileSurface(manufacturing, workId);
-    const accountingSurface = compileSurface(accounting, claimId);
-    observe(
-      "deterministicGeneratedUiUsesDefinitionsWithoutLiveLlm",
-      [manufacturingSurface, accountingSurface].every(
-        (surface) =>
-          surface.attribution.compiler === "deterministic" &&
-          surface.attribution.generatedWithoutLlm,
-      ) &&
-        manufacturingSurface.actionBindings.some(
-          (binding) =>
-            binding.ref.actionId ===
-            "manufacturing.recordPartialCompletion",
-        ) &&
-        accountingSurface.actionBindings.some(
-          (binding) =>
-            binding.ref.actionId === "accounting.applySettlement",
-        ),
     );
 
     const finalRestartPid = server.child.pid;

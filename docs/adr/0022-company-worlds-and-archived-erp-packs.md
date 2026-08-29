@@ -19,9 +19,9 @@ Zoen is not a prebuilt SAP. Each company brings its own published definition. Pr
 
 - `crates/*`, `apps/zoend`, `apps/whatsapp-companion`, `proto`, `wit`
 - `packages/ontology` (compiler + lake fixture)
-- `packages/harness`
 - `packages/speaker`, `packages/transport`
 - `packages/mcp` (deferred; CLI/API first)
+- `apps/conversation` (Eve)
 
 ### Archive (`archive/pre-modeled-erp`)
 
@@ -37,7 +37,7 @@ Compiler and lake tests that need an OrderLine-shaped definition compile `packag
 
 ### Surface IR
 
-ADR-0012’s law stands: presentation is not business truth; renderer replacement must not change ontology or Action semantics. The full `@zoen/surface` package lives on `archive/pre-modeled-erp`. The live subset harness needs lives in `packages/harness/src/surface`. Live WhatsApp lowers `PresentationIntent` from `packages/transport`. Do not treat archived Surface as a second compiler.
+ADR-0012’s law stands: presentation is not business truth; renderer replacement must not change ontology or Action semantics. The full `@zoen/surface` package lives on `archive/pre-modeled-erp`. Surface IR left the default tree. Live WhatsApp lowers `PresentationIntent` from `packages/transport`. Do not treat archived Surface as a second compiler.
 
 ### Fiscal adapters
 

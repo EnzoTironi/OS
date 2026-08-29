@@ -40,13 +40,6 @@ import {
   type ExactValue,
   type SemanticQueryResponse,
 } from "../../gen/connect/zoen/world/v1/world_pb.js";
-import { canonicalDefinitionFromJson } from "../../packages/ontology/src/index.js";
-import {
-  compileDeterministicSurface,
-} from "../../packages/harness/src/surface/compiler.js";
-import {
-  type SurfaceDocument,
-} from "../../packages/harness/src/surface/model.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
@@ -648,20 +641,6 @@ export async function rejectSqlBeliefWrite(
       /immutable|cannot|reject|trigger|protect/iu.test(cause.message)
     );
   }
-}
-
-export function compileSurface(definition: CompiledDefinition): SurfaceDocument {
-  const metadata = canonicalDefinitionFromJson(definition.canonicalJson);
-  return compileDeterministicSurface({
-    definition: {
-      definitionId: metadata.definitionId,
-      digest: definition.digest,
-      revision: metadata.revision.toString(),
-    },
-    entityId: resourceId,
-    metadata,
-    presentation: { title: "Dirty quote" },
-  });
 }
 
 export async function ingestInsertIsAppendOnly(): Promise<boolean> {

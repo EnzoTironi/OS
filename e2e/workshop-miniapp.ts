@@ -14,9 +14,6 @@ import {
   TypeQuerySchema,
 } from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
-  compileDeterministicSurface,
-} from "../packages/harness/src/surface/compiler.js";
-import {
   activateDefinition,
   publishDefinition,
   recordEvidence,
@@ -223,36 +220,6 @@ async function main(): Promise<void> {
       status.status === CommitStatus.COMMITTED && status.receipt !== undefined,
     );
 
-    const surface = compileDeterministicSurface({
-      actionIds: ["commercial.changeCommitment"],
-      definition: {
-        definitionId: commercial.metadata.definitionId,
-        digest: commercial.digest,
-        revision: commercial.metadata.revision.toString(),
-      },
-      entityId: orderLineOne,
-      metadata: commercial.metadata,
-      typeQuery: { limit: typeLimit, typeId },
-    });
-    const surfaceDirectory = e2eArtifactsDirectory(repositoryRoot, scenario);
-    await mkdir(surfaceDirectory, { recursive: true });
-    const surfacePath = path.join(surfaceDirectory, "surface.json");
-    await writeFile(surfacePath, `${JSON.stringify(surface, null, 2)}\n`);
-    observe(
-      "surfaceDocumentBindsTypeQueryAndSelectedObject",
-      surface.queryBindings.some(
-        (binding) =>
-          binding.ref.kind === "type" && binding.ref.typeId === typeId,
-      ) &&
-        surface.semanticContext.entityId === orderLineOne &&
-        surface.actionBindings.some(
-          (binding) =>
-            binding.ref.actionId === "commercial.changeCommitment" &&
-            binding.ref.resourceId === orderLineOne,
-        ) &&
-        (await jsonRenderer.getAttribute("data-surface-id")) === surface.id,
-    );
-
     const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
       completedAt: new Date().toISOString(),
       observations,
@@ -265,14 +232,12 @@ async function main(): Promise<void> {
         encoding: "utf8",
       }).trim(),
       startedAt,
-      surfacePath,
       typeQuery: {
         entityIds: listedIds,
         typeId,
       },
     });
     console.log(`artifact=${artifactPath}`);
-    console.log(`surface=${surfacePath}`);
   } finally {
     await browser?.close();
     if (web !== undefined) {

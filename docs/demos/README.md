@@ -15,13 +15,14 @@ Expected signals: `just status` reports Ready only when probes pass; `just docto
 
 ## Agent safely acts
 
-A real model harness uses semantic capabilities and commits only through governed Action.
+Eve conversation plus governed Action. Wasm code-mode lives on zoend.
 
 ```bash
-just e2e agent-capabilities-live
+just e2e governed-action
+just e2e wasm-code-mode
 ```
 
-This scenario needs OpenCode/zen credentials from the host environment (see activation preferences). It proves provider routing, illegal-path rejection, and commit recovery. Brazil fiscal vendors and Linq stay off the advertised surface.
+Brazil fiscal vendors and Linq stay off the advertised surface.
 
 ## Your messy data
 

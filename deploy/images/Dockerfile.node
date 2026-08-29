@@ -4,7 +4,6 @@ WORKDIR /app
 COPY . .
 RUN npm ci \
     && npm run build \
-    && node deploy/scripts/preload-embedding-model.mjs \
     && npm cache clean --force \
     && chown -R node:node /app
 

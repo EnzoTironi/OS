@@ -6,7 +6,6 @@ const roots = [
   "crates/zoen-core/src",
   "crates/zoen-query/src",
   "crates/zoen-adapters/src",
-  "packages/harness/src",
 ];
 
 // Semantic PersonalRuntime / Family-as-special-case branches — not MembershipKind

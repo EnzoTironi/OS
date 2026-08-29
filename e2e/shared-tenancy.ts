@@ -23,19 +23,6 @@ import { chromium } from "playwright";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import {
-  agentSessionCommandSchema,
-  agentSessionObjectKey,
-  agentSessionResultSchema,
-  agentSessionSignatureHeader,
-  companyBrainIngestCommandSchema,
-  companyBrainIngestObjectKey,
-  companyBrainIngestSignatureHeader,
-  signAgentSessionCommand,
-  signCompanyBrainIngestCommand,
-  type AgentSessionCommand,
-  type CompanyBrainIngestCommand,
-} from "../packages/harness/src/index.js";
-import {
   ActionInputSchema,
   ActionService,
   CommitStatus,
@@ -265,20 +252,6 @@ async function main(): Promise<void> {
 
     await publishAndActivate(definitionA, tenantA, canonicalJson, digest);
     await publishAndActivate(definitionB, tenantB, canonicalJson, digest);
-    await Promise.all([
-      kubectl([
-        "rollout",
-        "status",
-        "deployment/harness-tenant-a",
-        `--timeout=${kubernetesRolloutTimeout()}`,
-      ]),
-      kubectl([
-        "rollout",
-        "status",
-        "deployment/harness-tenant-b",
-        `--timeout=${kubernetesRolloutTimeout()}`,
-      ]),
-    ]);
     await registerRestateServices();
     await expectConnectCode(
       () =>
@@ -428,8 +401,6 @@ async function main(): Promise<void> {
       "isolated",
     );
 
-    const ingested = await ingestCollidingKnowledge(tokens.agentA, tokens.agentB);
-    await proveKnowledgeIsolation(tokens.agentA, tokens.agentB, ingested);
     await provePostgresDefenses(appA, appNoContext, observer);
     const projectionRows = await waitForProjection(
       worldA,
@@ -437,12 +408,7 @@ async function main(): Promise<void> {
       definition,
       observer,
     );
-    await proveObjectIsolation(tokens.agentA, ingested, projectionRows);
-    await proveRestateSessionIsolation(
-      tokens.agentA,
-      bOnlyEffect,
-      ingested.bSecret.source.sourceRevision,
-    );
+    await proveRestateSessionIsolation(tokens.agentA, bOnlyEffect);
     proveCacheKeyIsolation(definition);
     await proveBrowserIsolation(tokens.webA, tokens.webB);
     await proveDataFusionFilter(worldA, definition, admin, projectionRows);
@@ -946,73 +912,9 @@ async function proveObjectIsolation(
 }
 
 async function proveRestateSessionIsolation(
-  tokenA: string,
+  _tokenA: string,
   foreignOperationEffect: string,
-  foreignSourceRevision: string,
 ): Promise<void> {
-  const command = agentSessionCommandSchema.parse({
-    expiresAt: new Date(Date.now() + 300_000).toISOString(),
-    operationId: "operation.agent-isolation",
-    proposalId: "proposal.agent-isolation",
-    sessionId: "session.colliding",
-    task: {
-      instruction: "Request data from another tenant.",
-      modelCapability: "reasoning-fast",
-      taskId: "task.agent-isolation",
-    },
-  });
-  const normal = await invokeSession(
-    "ZoenAgentSessionA",
-    agentSessionObjectKey(tenantA, command.sessionId),
-    command,
-  );
-  assert.equal(normal.ok, true);
-  const normalBody: unknown = await normal.json();
-  assert.equal(agentSessionResultSchema.parse(normalBody).kind, "provider_unavailable");
-  const tenantless = await invokeSession(
-    "ZoenAgentSessionA",
-    command.sessionId,
-    command,
-  );
-  assert.equal(tenantless.ok, false);
-  const crossService = await invokeSession(
-    "ZoenAgentSessionB",
-    agentSessionObjectKey(tenantA, command.sessionId),
-    command,
-  );
-  assert.equal(crossService.ok, false);
-  recordMutant(
-    "restate-key-omission",
-    "tenantless and cross-service Restate session keys terminated",
-  );
-  recordAttack("restate-session-identity", "Restate virtual object", "fail_closed");
-
-  const contextual = agentSessionCommandSchema.parse({
-    ...command,
-    context: {
-      explainOperationId: "operation.only-b",
-      knowledgeQuery: `foreign source ${foreignSourceRevision}`,
-    },
-    sessionId: "session.foreign-context",
-    task: {
-      ...command.task,
-      taskId: "task.foreign-context",
-    },
-  });
-  const contextResponse = await invokeSession(
-    "ZoenAgentSessionA",
-    agentSessionObjectKey(tenantA, contextual.sessionId),
-    contextual,
-  );
-  assert.equal(contextResponse.ok, true);
-  const contextBody: unknown = await contextResponse.json();
-  assert.equal(agentSessionResultSchema.parse(contextBody).kind, "context_error");
-  recordAttack(
-    "agent-foreign-prompt-and-tool-arguments",
-    "tenant ActionService and Brain context",
-    "fail_closed",
-  );
-
   const wrongEffect = await fetch(
     `${restateIngress}/ZoenEffect/${encodeURIComponent(
       foreignOperationEffect,
@@ -1152,8 +1054,6 @@ async function restartAndRebuild(
 ): Promise<void> {
   for (const workload of [
     "deployment/zoend",
-    "deployment/harness-tenant-a",
-    "deployment/harness-tenant-b",
     "deployment/zoen-projection",
     "statefulset/restate",
     "deployment/web",
@@ -1190,33 +1090,12 @@ async function restartAndRebuild(
   const tokens = await mintRestartTokens();
   const worldA = worldClient(tokens.agentA);
   const worldB = worldClient(tokens.agentB);
-  try {
-    await Promise.all([
-      harnessPost(harnessA, "/rebuild-indexes", tokens.agentA, {}),
-      harnessPost(harnessB, "/rebuild-indexes", tokens.agentB, {}),
-    ]);
-  } catch (error: unknown) {
-    await dumpHarnessLogs();
-    throw error;
-  }
   const [a, b] = await Promise.all([
     queryAvailable(worldA, tenantA, definition, "eventual"),
     queryAvailable(worldB, tenantB, definition, "eventual"),
   ]);
   assert.deepEqual(integerValues(a), ["41"]);
   assert.deepEqual(integerValues(b), ["97"]);
-  const [knowledgeA, knowledgeB] = await Promise.all([
-    retrieve(harnessA, tokens.agentA, "acquisition code"),
-    retrieve(harnessB, tokens.agentB, "acquisition code"),
-  ]);
-  assert.equal(
-    knowledgeA.results.some((result) => result.text.includes("ORANGE-NEBULA")),
-    false,
-  );
-  assert.equal(
-    knowledgeB.results.some((result) => result.text.includes("BLUE-COMET")),
-    false,
-  );
   await proveBrowserIsolation(tokens.webA, tokens.webB);
   recordAttack(
     "restart-session-projection-index",
@@ -1262,26 +1141,8 @@ async function mintRestartTokens(): Promise<{
   }, "OIDC tokens after restart");
 }
 
-async function dumpHarnessLogs(): Promise<void> {
-  for (const deployment of [
-    "deployment/harness-tenant-a",
-    "deployment/harness-tenant-b",
-  ]) {
-    try {
-      const logs = await kubectl(["logs", deployment, "--tail=200"]);
-      process.stderr.write(`${deployment}\n${logs}\n`);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.stack ?? error.message : String(error);
-      process.stderr.write(`${deployment} log collection failed\n${message}\n`);
-    }
-  }
-}
-
 async function registerRestateServices(): Promise<void> {
   for (const uri of [
-    "http://harness-tenant-a:9080",
-    "http://harness-tenant-b:9080",
     "http://zoen-effect-worker:9081",
   ]) {
     await waitFor(async () => {

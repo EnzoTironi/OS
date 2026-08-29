@@ -27,7 +27,6 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 COPY packages/transport packages/transport
 COPY packages/speaker packages/speaker
-COPY packages/harness packages/harness
 COPY packages/ontology packages/ontology
 COPY gen/connect gen/connect
 COPY deploy/fly/tsconfig.speaker.json deploy/fly/tsconfig.speaker.json

@@ -28,12 +28,6 @@ import {
   type ValidTime,
 } from "../../gen/connect/zoen/world/v1/world_pb.js";
 import { canonicalDefinitionFromJson } from "../../packages/ontology/src/index.js";
-import {
-  compileDeterministicSurface,
-} from "../../packages/harness/src/surface/compiler.js";
-import {
-  type SurfaceDocument,
-} from "../../packages/harness/src/surface/model.js";
 import { waitForState } from "../effects/scenario.js";
 import {
   dispatchOnce,
@@ -454,22 +448,6 @@ export function semanticShape(response: SemanticQueryResponse): string {
 
 export function valueShapes(response: SemanticQueryResponse): SemanticValue[] {
   return response.values.map((result) => valueShape(result.value));
-}
-
-export function compileSurface(
-  fixture: DefinitionFixture,
-  entityId: string,
-): SurfaceDocument {
-  return compileDeterministicSurface({
-    definition: {
-      definitionId: fixture.metadata.definitionId,
-      digest: fixture.digest,
-      revision: fixture.metadata.revision.toString(),
-    },
-    entityId,
-    metadata: fixture.metadata,
-    presentation: { title: "Commercial commitment lifecycle" },
-  });
 }
 
 export async function expectConnectCode(

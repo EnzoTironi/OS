@@ -18,6 +18,7 @@ import {
 import {
   decideAudienceDisclosure,
   interactionControlRef,
+  presentationIntentRef,
 } from "../packages/speaker/src/index.js";
 import {
   companionSessionIsReady,
@@ -26,22 +27,17 @@ import {
   createMessagingGateway,
   parseWhatsAppDoorE164,
   PERSONAL_WHATSAPP_DOOR_E164,
+  presentationSchema,
   type CompanionReady,
   type CompanionSession,
+  type PresentationIntent,
   type WhatsAppWireShape,
 } from "../packages/transport/src/index.js";
-import { canonicalDefinitionFromJson } from "../packages/ontology/src/index.js";
 import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
 } from "../gen/connect/zoen/action/v1/action_pb.js";
-import {
-  compileDeterministicSurface,
-} from "../packages/harness/src/surface/compiler.js";
-import {
-  createPresentationIntent,
-} from "../archive/packages/surface/src/presentation-intent.js";
 import { writeScenarioArtifact } from "./host-env.js";
 import {
   changeCommitmentRequest,
@@ -57,7 +53,6 @@ import {
   agentSourceHasNoBypassWrite,
   command,
   compileCommercial,
-  compileSurface,
   composeOutput,
   definitionClient,
   definitionReference,
@@ -223,24 +218,6 @@ const skippedLive = {
   wireOk: false,
 } as const;
 
-function compileListedOrderLine(
-  commercial: CompiledDefinition,
-): ReturnType<typeof compileDeterministicSurface> {
-  const metadata = canonicalDefinitionFromJson(commercial.canonicalJson);
-  return compileDeterministicSurface({
-    definition: {
-      definitionId: metadata.definitionId,
-      digest: commercial.digest,
-      revision: metadata.revision.toString(),
-    },
-    entityId: resourceId,
-    metadata: {
-      ...metadata,
-      actions: metadata.actions.filter((action) => action.id === actionId),
-    },
-    presentation: { title: "Dirty quote" },
-  });
-}
 
 async function proveLiveWhatsApp(commercial: CompiledDefinition): Promise<LiveProof> {
   const companionUrl = (
@@ -292,21 +269,15 @@ async function proveLiveWhatsApp(commercial: CompiledDefinition): Promise<LivePr
     };
   }
 
-  const listed = compileListedOrderLine(commercial);
-  const binding = listed.actionBindings.find(
-    (entry) => entry.ref.actionId === actionId,
-  );
-  if (binding === undefined) {
-    return {
-      ...skippedLive,
-      doorE164,
-      liveMissing: "changeCommitment is not bound on the listed OrderLine",
-    };
-  }
-  const presentation = createPresentationIntent({
-    controlRefsByBindingId: { [binding.id]: controlRef },
-    surface: listed,
-  });
+  const presentation: PresentationIntent = {
+    blocks: [{ kind: "text", body: resourceId }],
+    createdAt: new Date().toISOString(),
+    fullBodyText: resourceId,
+    ref: presentationIntentRef("presentation.dirty-quote"),
+    schema: presentationSchema,
+    surfaceDigest: sha256(resourceId),
+    surfaceId: resourceId,
+  };
   const disclosure = decideAudienceDisclosure({
     actionRisk: "low",
     audience: { kind: "dm" },
@@ -563,25 +534,6 @@ async function main(): Promise<void> {
     observe(
       "semanticQueryListsTheOrderLine",
       entityIds(listed).includes(resourceId),
-    );
-
-    const surface = compileSurface(commercial);
-    const objectNode = surface.nodes["node.object"];
-    observe(
-      "surfaceListsTheOrderLine",
-      surface.attribution.compiler === "deterministic" &&
-        surface.attribution.generatedWithoutLlm &&
-        surface.semanticContext.entityId === resourceId &&
-        objectNode?.kind === "object-detail" &&
-        objectNode.entityId === resourceId &&
-        surface.queryBindings.some(
-          (binding) =>
-            binding.ref.kind === "relation" &&
-            binding.ref.relationId === quantityRelationId,
-        ) &&
-        surface.actionBindings.some(
-          (binding) => binding.ref.actionId === actionId,
-        ),
     );
 
     await ingestChangeCommitmentBasis(world, definition);
