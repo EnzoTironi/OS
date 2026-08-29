@@ -9,11 +9,12 @@ use cedar_policy::{Authorizer, Context, Decision, Entities, EntityUid, PolicySet
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    ExactValue, PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId, PolicyRevision,
-    PolicyRevisionNumber,
+    Clearance, ExactValue, PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId,
+    PolicyRevision, PolicyRevisionNumber, resource_label,
 };
 use zoen_engine::{
-    PolicyEvaluator, PolicyObjectProjection, PolicyOperation, PolicyRequest, PolicyWorldProjection,
+    MAC_DETERMINING_POLICY, PolicyEvaluator, PolicyObjectProjection, PolicyOperation,
+    PolicyRequest, PolicyWorldProjection,
 };
 
 const CEDAR_STACK_RED_ZONE: usize = 1024 * 1024;
@@ -111,6 +112,22 @@ impl CedarPolicyEvaluator {
 
 impl PolicyEvaluator for CedarPolicyEvaluator {
     async fn evaluate(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
+        let Some(projection) = request.projection else {
+            return PolicyEvaluation::EvaluationError {
+                message: "policy projection is required".to_owned(),
+                revision: None,
+            };
+        };
+        if projection.membership.principal_id != *request.context.principal_id()
+            || projection.membership.tenant_id != *request.context.tenant_id()
+            || projection.resource.entity_id.as_str() != request.resource_id.as_str()
+        {
+            return PolicyEvaluation::EvaluationError {
+                message: "policy projection must contain Tenant, Principal, and Resource"
+                    .to_owned(),
+                revision: None,
+            };
+        }
         let key = (
             request.definition.digest.as_str().to_owned(),
             request.action_id.as_str().to_owned(),
@@ -121,9 +138,16 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
                 revision: None,
             };
         };
+        let label = resource_label(projection.resource.classification.iter().cloned());
+        if !request.context.clearance().dominates(&label) {
+            return PolicyEvaluation::Deny(PolicyEvidence {
+                determining_policies: vec![MAC_DETERMINING_POLICY.to_owned()],
+                revision: policy.revision.clone(),
+            });
+        }
         let response = match stacker::maybe_grow(CEDAR_STACK_RED_ZONE, CEDAR_STACK_SIZE, || {
             let cedar_request = cedar_request(request)?;
-            let entities = cedar_entities(request)?;
+            let entities = cedar_entities(request, projection)?;
             Ok::<_, String>(Authorizer::new().is_authorized(
                 &cedar_request,
                 &policy.policies,
@@ -154,7 +178,9 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
             .reason()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
+        determining_policies.push(MAC_DETERMINING_POLICY.to_owned());
         determining_policies.sort();
+        determining_policies.dedup();
         let evidence = PolicyEvidence {
             determining_policies,
             revision: policy.revision.clone(),
@@ -166,19 +192,22 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
     }
 }
 
-fn cedar_entities(request: &PolicyRequest<'_>) -> Result<Entities, String> {
-    let Some(projection) = request.projection else {
-        return Ok(Entities::empty());
-    };
-    let entities = Entities::from_json_value(projection_json(projection), None)
-        .map_err(|error| error.to_string())?;
+fn cedar_entities(
+    request: &PolicyRequest<'_>,
+    projection: &PolicyWorldProjection,
+) -> Result<Entities, String> {
+    let entities = Entities::from_json_value(
+        projection_json(projection, request.context.clearance()),
+        None,
+    )
+    .map_err(|error| error.to_string())?;
     if entities.is_empty() {
         return Err("Cedar world projection produced no entities".to_owned());
     }
     Ok(entities)
 }
 
-fn projection_json(projection: &PolicyWorldProjection) -> serde_json::Value {
+fn projection_json(projection: &PolicyWorldProjection, clearance: &Clearance) -> serde_json::Value {
     let mut entities = Vec::new();
     let mut seen = BTreeSet::new();
     push_cedar_entity(
@@ -195,6 +224,11 @@ fn projection_json(projection: &PolicyWorldProjection) -> serde_json::Value {
         "Zoen::Principal",
         projection.membership.principal_id.as_str(),
         serde_json::json!({
+            "clearance": clearance
+                .tokens()
+                .iter()
+                .map(|token| serde_json::Value::String(token.as_str().to_owned()))
+                .collect::<Vec<_>>(),
             "tenantId": projection.membership.tenant_id.as_str()
         }),
         vec![serde_json::json!({
@@ -226,6 +260,15 @@ fn push_object_entity(
 
 fn object_attrs(object: &PolicyObjectProjection) -> serde_json::Value {
     let mut attrs = serde_json::Map::new();
+    attrs.insert(
+        "classifiedAs".to_owned(),
+        serde_json::Value::Array(
+            resource_label(object.classification.iter().cloned())
+                .into_iter()
+                .map(|token| serde_json::Value::String(token.as_str().to_owned()))
+                .collect(),
+        ),
+    );
     if let Some(object_type) = &object.object_type {
         attrs.insert(
             "objectType".to_owned(),
@@ -336,6 +379,7 @@ fn operation_name(operation: PolicyOperation) -> &'static str {
         PolicyOperation::Commit => "commit",
         PolicyOperation::Discover => "discover",
         PolicyOperation::PrepareMigration => "prepare_migration",
+        PolicyOperation::Read => "read",
         PolicyOperation::RequestApproval => "request_approval",
         PolicyOperation::RollbackRevision => "rollback_revision",
     }
@@ -374,10 +418,10 @@ mod tests {
     use std::collections::BTreeSet;
 
     use zoen_core::{
-        ActionId, ActorId, DefinitionDigest, DefinitionId, DefinitionReference,
-        DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EntityId,
-        ExactInteger, InputId, PrincipalId, RelationId, ResourceId, TenantId, TimestampMicros,
-        TrustedExecutionContext, TypeId, WorkloadId,
+        ActionId, ActorId, ClassificationToken, DefinitionDigest, DefinitionId,
+        DefinitionReference, DefinitionRevisionNumber, DelegationChain, DelegationGrant,
+        DelegationId, EntityId, ExactInteger, InputId, PrincipalId, RelationId, ResourceId,
+        TenantId, TimestampMicros, TrustedExecutionContext, TypeId, WorkloadId,
     };
 
     use super::{CedarPolicyEvaluator, sha256};
@@ -411,6 +455,7 @@ mod tests {
             revision: DefinitionRevisionNumber::new(1).expect("revision"),
         };
         let resource = ResourceId::parse("resource.item").expect("resource");
+        let projection = floor_world(&context, &resource);
         let input = zoen_core::ActionInput {
             id: InputId::parse("quantity").expect("input"),
             value: zoen_core::ExactValue::Integer(ExactInteger::parse("5").expect("integer")),
@@ -424,7 +469,7 @@ mod tests {
                 definition: &definition,
                 inputs: &[input],
                 operation: PolicyOperation::Commit,
-                projection: None,
+                projection: Some(&projection),
                 resource_id: &resource,
             })
             .await;
@@ -432,6 +477,7 @@ mod tests {
 
         let error_action = ActionId::parse("action.error").expect("action");
         let error_context = trusted_context("action.error");
+        let error_projection = floor_world(&error_context, &resource);
         let error = evaluator
             .evaluate(&PolicyRequest {
                 action_id: &error_action,
@@ -441,7 +487,7 @@ mod tests {
                 definition: &definition,
                 inputs: &[],
                 operation: PolicyOperation::Commit,
-                projection: None,
+                projection: Some(&error_projection),
                 resource_id: &resource,
             })
             .await;
@@ -466,6 +512,7 @@ mod tests {
         let resource = ResourceId::parse("personal.memory").expect("resource");
 
         let admin = fly_activation_context("principal.admin.a");
+        let admin_world = owner_world(&admin, &resource);
         assert!(matches!(
             evaluator
                 .evaluate(&PolicyRequest {
@@ -476,7 +523,7 @@ mod tests {
                     definition: &definition,
                     inputs: &[],
                     operation: PolicyOperation::ActivateRevision,
-                    projection: None,
+                    projection: Some(&admin_world),
                     resource_id: &resource,
                 })
                 .await,
@@ -484,6 +531,7 @@ mod tests {
         ));
 
         let live = fly_activation_context("principal.live.whatsapp");
+        let live_world = owner_world(&live, &resource);
         assert!(matches!(
             evaluator
                 .evaluate(&PolicyRequest {
@@ -494,7 +542,7 @@ mod tests {
                     definition: &definition,
                     inputs: &[],
                     operation: PolicyOperation::ActivateRevision,
-                    projection: None,
+                    projection: Some(&live_world),
                     resource_id: &resource,
                 })
                 .await,
@@ -502,6 +550,7 @@ mod tests {
         ));
 
         let stranger = fly_activation_context("principal.stranger.a");
+        let stranger_world = owner_world(&stranger, &resource);
         assert!(matches!(
             evaluator
                 .evaluate(&PolicyRequest {
@@ -512,7 +561,7 @@ mod tests {
                     definition: &definition,
                     inputs: &[],
                     operation: PolicyOperation::ActivateRevision,
-                    projection: None,
+                    projection: Some(&stranger_world),
                     resource_id: &resource,
                 })
                 .await,
@@ -538,6 +587,7 @@ mod tests {
             revision: DefinitionRevisionNumber::new(1).expect("revision"),
         };
         let resource = ResourceId::parse("resource.item").expect("resource");
+        let projection = floor_world(&context, &resource);
         let input = zoen_core::ActionInput {
             id: InputId::parse("quantity").expect("input"),
             value: zoen_core::ExactValue::Integer(
@@ -554,7 +604,7 @@ mod tests {
                 definition: &definition,
                 inputs: &[input],
                 operation: PolicyOperation::Commit,
-                projection: None,
+                projection: Some(&projection),
                 resource_id: &resource,
             })
             .await;
@@ -658,7 +708,11 @@ when {
             other => panic!("expected permit, got {other:?}"),
         }
         assert!(matches!(deny, zoen_core::PolicyEvaluation::Deny(_)));
-        assert!(!matches!(empty, zoen_core::PolicyEvaluation::Permit(_)));
+        assert!(matches!(
+            empty,
+            zoen_core::PolicyEvaluation::EvaluationError { message, .. }
+                if message.contains("policy projection is required")
+        ));
     }
 
     #[tokio::test]
@@ -702,6 +756,7 @@ when {
         ] {
             let context = trusted_context(action_id);
             let action = ActionId::parse(action_id).expect("action");
+            let projection = floor_world(&context, &resource);
             let commit = evaluator
                 .evaluate(&PolicyRequest {
                     action_id: &action,
@@ -711,7 +766,7 @@ when {
                     definition: &definition,
                     inputs: &inputs,
                     operation: PolicyOperation::Commit,
-                    projection: None,
+                    projection: Some(&projection),
                     resource_id: &resource,
                 })
                 .await;
@@ -728,7 +783,7 @@ when {
                     definition: &definition,
                     inputs: &[],
                     operation: PolicyOperation::Discover,
-                    projection: None,
+                    projection: Some(&projection),
                     resource_id: &resource,
                 })
                 .await;
@@ -750,11 +805,13 @@ when {
                 tenant_id: context.tenant_id().clone(),
             },
             neighbors: vec![PolicyObjectProjection {
+                classification: BTreeSet::from([ClassificationToken::world_floor()]),
                 entity_id: EntityId::parse(quote).expect("quote"),
                 links: Vec::new(),
                 object_type: Some(TypeId::parse("commercial.Quote").expect("type")),
             }],
             resource: PolicyObjectProjection {
+                classification: BTreeSet::from([ClassificationToken::world_floor()]),
                 entity_id: EntityId::parse(resource).expect("resource"),
                 links: vec![PolicyLinkProjection {
                     relation_id: RelationId::parse("commercial.quoteReference").expect("relation"),
@@ -784,8 +841,54 @@ when {
             PrincipalId::parse(principal).expect("principal"),
             workload_id,
             DelegationChain::new(vec![grant]).expect("chain"),
-            zoen_core::Clearance::world_floor(),
+            zoen_core::Clearance::personal_owner(),
         )
+    }
+
+    fn floor_world(
+        context: &TrustedExecutionContext,
+        resource: &ResourceId,
+    ) -> PolicyWorldProjection {
+        labeled_world(context, resource, ClassificationToken::world_floor())
+    }
+
+    fn owner_world(
+        context: &TrustedExecutionContext,
+        resource: &ResourceId,
+    ) -> PolicyWorldProjection {
+        PolicyWorldProjection {
+            membership: PolicyMembershipProjection {
+                principal_id: context.principal_id().clone(),
+                tenant_id: context.tenant_id().clone(),
+            },
+            neighbors: Vec::new(),
+            resource: PolicyObjectProjection {
+                classification: BTreeSet::new(),
+                entity_id: EntityId::parse(resource.as_str()).expect("entity"),
+                links: Vec::new(),
+                object_type: None,
+            },
+        }
+    }
+
+    fn labeled_world(
+        context: &TrustedExecutionContext,
+        resource: &ResourceId,
+        token: ClassificationToken,
+    ) -> PolicyWorldProjection {
+        PolicyWorldProjection {
+            membership: PolicyMembershipProjection {
+                principal_id: context.principal_id().clone(),
+                tenant_id: context.tenant_id().clone(),
+            },
+            neighbors: Vec::new(),
+            resource: PolicyObjectProjection {
+                classification: BTreeSet::from([token]),
+                entity_id: EntityId::parse(resource.as_str()).expect("entity"),
+                links: Vec::new(),
+                object_type: None,
+            },
+        }
     }
 
     fn trusted_context(action: &str) -> TrustedExecutionContext {

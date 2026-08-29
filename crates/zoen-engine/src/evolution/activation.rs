@@ -9,7 +9,8 @@ use super::{plan, reference};
 use crate::{
     ActivateRevisionError, AdmittedDefinitionActivation, AuthorityStore,
     DefinitionActivationAdmission, DefinitionEngine, PlanEvolutionError, PolicyEvaluator,
-    PolicyOperation, PolicyRequest, StoreError, decode_canonical_definition, verify_digest,
+    PolicyOperation, PolicyRequest, StoreError, decode_canonical_definition, directory_projection,
+    verify_digest,
 };
 
 const DEFINITION_ACTIVATION_ACTION_ID: &str = "zoen.definition.activate";
@@ -99,6 +100,8 @@ where
             return Err(ActivateRevisionError::DelegationDenied);
         }
         let target_reference = reference(&target);
+        let projection = directory_projection(context, &resource_id)
+            .map_err(ActivateRevisionError::Configuration)?;
         let policy = match self
             .policy
             .evaluate(&PolicyRequest {
@@ -109,7 +112,7 @@ where
                 definition: &target_reference,
                 inputs: &[],
                 operation: PolicyOperation::ActivateRevision,
-                projection: None,
+                projection: Some(&projection),
                 resource_id: &resource_id,
             })
             .await
@@ -199,6 +202,8 @@ where
             .as_ref()
             .map(reference)
             .ok_or(ActivateRevisionError::InvalidRollbackTarget)?;
+        let projection = directory_projection(context, &resource_id)
+            .map_err(ActivateRevisionError::Configuration)?;
         let policy = match self
             .policy
             .evaluate(&PolicyRequest {
@@ -209,7 +214,7 @@ where
                 definition: &current_reference,
                 inputs: &[],
                 operation: PolicyOperation::RollbackRevision,
-                projection: None,
+                projection: Some(&projection),
                 resource_id: &resource_id,
             })
             .await

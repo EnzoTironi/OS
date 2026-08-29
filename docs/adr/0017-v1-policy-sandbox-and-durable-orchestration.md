@@ -28,9 +28,12 @@ TrustedExecutionContext + ActionRef + ResourceRef + PolicyRevision
         -> AuthorityProof / Deny / EvaluationError
 ```
 
+**Dest amend (s2-read):** `PolicyOperation::Read` is Cedar ∩ MAC. Read does **not** call `DelegationChain::permits`. A personal member can still read their own note. Write paths still intersect delegation first, then Cedar. Missing resource label is top (`zoen.world.top`). `dominates` lives in `zoen-core` on a powerset of authored compartment tokens.
+
 Rules:
 
-- delegation is intersected before/with policy evaluation and can never be expanded by Cedar;
+- delegation is intersected before/with policy evaluation on write and can never be expanded by Cedar;
+- Read is Cedar ∩ MAC, not `DelegationChain::permits`;
 - `Deny` is distinct from evaluator/configuration error;
 - policy artifacts are immutable/versioned and linked to the semantic definition/revision that produced or referenced them;
 - commit-time authority is re-evaluated according to the Action contract; preview/approval does not permanently vest authority unless the definition explicitly models vested authority semantics;

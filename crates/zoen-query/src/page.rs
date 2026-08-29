@@ -1,5 +1,5 @@
 use sha2::{Digest, Sha256};
-use zoen_core::{CommitSequence, EntityId, SemanticQuery, TenantId};
+use zoen_core::{CommitSequence, EntityId, ExecutionContext, SemanticQuery};
 
 use crate::QueryError;
 
@@ -10,7 +10,7 @@ pub(crate) struct PageCursor {
 }
 
 pub(crate) fn bind_type_page(
-    tenant_id: &TenantId,
+    context: &ExecutionContext,
     query: &SemanticQuery,
 ) -> Result<Option<PageCursor>, QueryError> {
     let SemanticQuery::ByType { page_token, .. } = query else {
@@ -20,7 +20,7 @@ pub(crate) fn bind_type_page(
         return Ok(None);
     }
     let cursor = decode(page_token)?;
-    let expected = fingerprint(tenant_id, query)?;
+    let expected = fingerprint(context, query)?;
     let actual = decode_fingerprint(page_token)?;
     if actual != expected {
         return Err(QueryError::Invalid(
@@ -31,7 +31,7 @@ pub(crate) fn bind_type_page(
 }
 
 pub(crate) fn next_page_token(
-    tenant_id: &TenantId,
+    context: &ExecutionContext,
     query: &SemanticQuery,
     commit_sequence: CommitSequence,
     after_entity_id: Option<&EntityId>,
@@ -42,11 +42,11 @@ pub(crate) fn next_page_token(
     }
     let after = after_entity_id
         .ok_or_else(|| QueryError::Corrupt("type query page is incomplete".to_owned()))?;
-    encode(tenant_id, query, commit_sequence, after)
+    encode(context, query, commit_sequence, after)
 }
 
 fn encode(
-    tenant_id: &TenantId,
+    context: &ExecutionContext,
     query: &SemanticQuery,
     commit_sequence: CommitSequence,
     after_entity_id: &EntityId,
@@ -54,7 +54,7 @@ fn encode(
     Ok(format!(
         "v1/{:x}/{}/{}",
         commit_sequence.get(),
-        fingerprint(tenant_id, query)?,
+        fingerprint(context, query)?,
         hex_encode(after_entity_id.as_str().as_bytes())
     ))
 }
@@ -95,7 +95,7 @@ fn split_token(token: &str) -> Result<[&str; 4], QueryError> {
     Ok([*version, *cut, *fingerprint, *after])
 }
 
-fn fingerprint(tenant_id: &TenantId, query: &SemanticQuery) -> Result<String, QueryError> {
+fn fingerprint(context: &ExecutionContext, query: &SemanticQuery) -> Result<String, QueryError> {
     let SemanticQuery::ByType {
         definition,
         limit,
@@ -109,7 +109,13 @@ fn fingerprint(tenant_id: &TenantId, query: &SemanticQuery) -> Result<String, Qu
         ));
     };
     let mut hasher = Sha256::new();
-    hash_field(&mut hasher, tenant_id.as_str());
+    hash_field(&mut hasher, context.tenant_id().as_str());
+    hash_field(&mut hasher, context.principal_id().as_str());
+    hash_field(&mut hasher, context.actor_id().as_str());
+    hash_field(&mut hasher, context.workload_id().as_str());
+    for token in context.clearance().to_token_strings() {
+        hash_field(&mut hasher, &token);
+    }
     hash_field(&mut hasher, definition.definition_id.as_str());
     hash_field(&mut hasher, definition.digest.as_str());
     hash_field(&mut hasher, &definition.revision.get().to_string());
@@ -149,9 +155,13 @@ fn hex_decode(value: &str) -> Result<Vec<u8>, QueryError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use zoen_core::{
-        Consistency, DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevisionNumber,
-        EntityId, SemanticQuery, TenantId, TimestampMicros, TypeId,
+        ActionId, ActorId, Consistency, DefinitionDigest, DefinitionId, DefinitionReference,
+        DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EntityId,
+        PrincipalId, ResourceId, SemanticQuery, TenantId, TimestampMicros, TrustedExecutionContext,
+        TypeId, WorkloadId,
     };
 
     use super::{bind_type_page, next_page_token};
@@ -162,7 +172,7 @@ mod tests {
     fn type_query_next_page_token_is_empty_when_single_page_fits() {
         let query = type_query(10, "");
         let token = next_page_token(
-            &tenant(),
+            &context(),
             &query,
             zoen_core::CommitSequence::new(4).expect("cut"),
             Some(&EntityId::parse("entity.item.1").expect("entity")),
@@ -177,7 +187,7 @@ mod tests {
         let query = type_query(2, "");
         let cut = zoen_core::CommitSequence::new(9).expect("cut");
         let token = next_page_token(
-            &tenant(),
+            &context(),
             &query,
             cut,
             Some(&EntityId::parse("entity.item.2").expect("entity")),
@@ -192,7 +202,7 @@ mod tests {
             type_id: TypeId::parse("world.Item").expect("type"),
             valid_at: TimestampMicros::new(1),
         };
-        let bound = bind_type_page(&tenant(), &continued)
+        let bound = bind_type_page(&context(), &continued)
             .expect("bind")
             .expect("cursor");
         assert_eq!(bound.commit_sequence, cut);
@@ -202,8 +212,25 @@ mod tests {
         );
     }
 
-    fn tenant() -> TenantId {
-        TenantId::parse("tenant.test").expect("tenant")
+    fn context() -> TrustedExecutionContext {
+        let workload = WorkloadId::parse("workload.test").expect("workload");
+        let grant = DelegationGrant::new(
+            DelegationId::parse("delegation.test").expect("delegation"),
+            BTreeSet::from([ActionId::parse("zoen.world.read").expect("action")]),
+            BTreeSet::from([ResourceId::parse("world.s2read").expect("resource")]),
+            BTreeSet::from([workload.clone()]),
+            TimestampMicros::new(0),
+            TimestampMicros::new(i64::MAX),
+        )
+        .expect("grant");
+        TrustedExecutionContext::new(
+            TenantId::parse("tenant.test").expect("tenant"),
+            ActorId::parse("actor.test").expect("actor"),
+            PrincipalId::parse("principal.test").expect("principal"),
+            workload,
+            DelegationChain::new(vec![grant]).expect("chain"),
+            zoen_core::Clearance::world_floor(),
+        )
     }
 
     fn definition() -> DefinitionReference {

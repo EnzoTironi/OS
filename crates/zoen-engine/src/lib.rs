@@ -21,6 +21,7 @@ mod history;
 mod human;
 pub mod metrics;
 mod migration;
+mod read;
 
 pub use action::{
     ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
@@ -28,7 +29,7 @@ pub use action::{
     CommitPreparation, CommitStoreOutcome, PolicyEvaluator, PolicyLinkProjection,
     PolicyMembershipProjection, PolicyObjectProjection, PolicyOperation, PolicyRequest,
     PolicyWorldProjection, ProposeCommand, ProposeOutcome, QueryExecutor, QueryPortError,
-    SemanticClaim, calculate_state_basis_digest, evaluate_action_state_basis,
+    SemanticClaim, calculate_state_basis_digest, directory_projection, evaluate_action_state_basis,
     evaluate_semantic_claims, read_action_state_basis, state_basis_digest_matches,
 };
 pub use action_preview::{
@@ -65,6 +66,9 @@ pub use human::{
 pub use migration::{
     AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,
     MigrationBatchPreflight, MigrationError, decode_migration_plan,
+};
+pub use read::{
+    MAC_DETERMINING_POLICY, MAX_TYPE_PAGE, PolicySchema, ReadAbsence, ReadEngine, ReadError,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

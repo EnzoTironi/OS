@@ -15,36 +15,23 @@ use zoen_core::{
 
 use super::{
     ActionHistorySnapshot, ClaimHistorySnapshot, HistorySnapshot, PayloadAccess, causal_proposal,
-    explain_claim, explanation_complete, hex_digest, payload_access,
+    hex_digest, payload_access,
 };
 
 const ZERO_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[test]
-fn tenant_scoped_world_claim_has_complete_payload() {
+fn tenant_scoped_world_claim_is_not_full_without_read() {
     let revision = definition_revision();
     let claim = world_claim(definition_reference(&revision));
-    let claim_id = claim.draft.claim_id.clone();
     let snapshot = ClaimHistorySnapshot {
         claim,
         definition: Some(revision),
         migration: None,
     };
-    let history = HistorySnapshot::Claim(Box::new(snapshot.clone()));
+    let history = HistorySnapshot::Claim(Box::new(snapshot));
     let access = payload_access(&context("principal.request"), &history);
-    let mut gaps = Vec::new();
-    let subject = ExplanationSubject::Claim(Box::new(explain_claim(snapshot, access, &mut gaps)));
-
-    assert!(
-        explanation_complete(&ExplanationTarget::Claim(claim_id), &subject, &gaps),
-        "world claim explanation gaps: {gaps:?}"
-    );
-    assert!(gaps.is_empty());
-    assert!(matches!(
-        subject,
-        ExplanationSubject::Claim(claim)
-            if matches!(claim.claim.payload, ExplanationPayload::Value(_))
-    ));
+    assert!(matches!(access, PayloadAccess::Redacted));
 }
 
 #[test]
