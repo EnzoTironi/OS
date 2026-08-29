@@ -17,16 +17,16 @@ use zoen_core::{
     ZoenAccountId,
 };
 
-use crate::auth::SessionRegistry;
 use crate::identity_admin_auth::{
     IdentityAdminActor, authenticate_identity_admin, identity_error_response, require_account,
     require_machine,
 };
+use crate::session::SessionExchange;
 
 #[derive(Clone)]
 pub struct IdentityAdminState {
     pub identity: PostgresIdentityStore,
-    pub sessions: SessionRegistry,
+    pub sessions: SessionExchange,
     pub admin_token: Option<String>,
 }
 
@@ -71,6 +71,7 @@ async fn require_identity_admin_auth(
         .and_then(|value| value.to_str().ok());
     let Some(actor) =
         authenticate_identity_admin(&state.sessions, state.admin_token.as_deref(), authorization)
+            .await
     else {
         return (
             StatusCode::UNAUTHORIZED,
@@ -214,6 +215,8 @@ struct SnapshotJson {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ContextJson {
+    membership_id: String,
+    clearance: Vec<String>,
     tenant_id: String,
     principal_id: String,
     actor_id: String,
@@ -395,6 +398,7 @@ async fn create_invite(
         .identity
         .create_invite(CreateInvite {
             actor_id,
+            clearance: zoen_core::Clearance::world_floor(),
             delegation,
             expires_at: TimestampMicros::new(body.expires_at_micros),
             principal_id,
@@ -677,7 +681,7 @@ async fn bootstrap_bound(
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    let verified = match state.sessions.verify_bearer(authorization) {
+    let verified = match state.sessions.verify_door(authorization).await {
         Ok(verified) => verified,
         Err(error) => {
             return (
@@ -687,10 +691,11 @@ async fn bootstrap_bound(
                 .into_response();
         }
     };
-    let subject = match ExternalSubject::new(ChannelProvider::WebOidc, verified.subject.clone()) {
-        Ok(subject) => subject,
-        Err(error) => return identity_error(error),
-    };
+    let subject =
+        match ExternalSubject::new(ChannelProvider::AuthDoor, verified.door_user_key.clone()) {
+            Ok(subject) => subject,
+            Err(error) => return identity_error(error),
+        };
     let account = match state.identity.ensure_provisional(subject.clone()).await {
         Ok(account) => account,
         Err(error) => return identity_error(error),
@@ -726,7 +731,7 @@ async fn bootstrap_bound(
             "membershipId": membership.id.as_str(),
             "tenantId": membership.tenant_id.as_str(),
             "principalId": membership.principal_id.as_str(),
-            "oidcSubject": verified.subject,
+            "doorUserKey": verified.door_user_key,
         })),
     )
         .into_response()
@@ -740,32 +745,28 @@ async fn resolve_context(
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    // Build a synthetic request context via execution_context path.
-    match state.sessions.verify_bearer(authorization) {
-        Ok(verified) => {
-            let tenant = match TenantId::parse(query.tenant) {
-                Ok(tenant) => tenant,
-                Err(error) => return bad_request(error.to_string()),
-            };
-            match state.identity.resolve_for_tenant(&verified, &tenant).await {
-                Ok(context) => (
-                    StatusCode::OK,
-                    Json(ContextJson {
-                        tenant_id: context.tenant_id().to_string(),
-                        principal_id: context.principal_id().to_string(),
-                        actor_id: context.actor_id().to_string(),
-                        workload_id: context.workload_id().to_string(),
-                    }),
-                )
-                    .into_response(),
-                Err(error) => identity_error(error),
-            }
-        }
-        Err(error) => (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": error.to_string()})),
+    let tenant = match TenantId::parse(query.tenant) {
+        Ok(tenant) => tenant,
+        Err(error) => return bad_request(error.to_string()),
+    };
+    match state
+        .sessions
+        .resolve_membership(authorization, Some(&tenant))
+        .await
+    {
+        Ok((membership, context)) => (
+            StatusCode::OK,
+            Json(ContextJson {
+                membership_id: membership.id.to_string(),
+                clearance: context.clearance().to_token_strings(),
+                tenant_id: context.tenant_id().to_string(),
+                principal_id: context.principal_id().to_string(),
+                actor_id: context.actor_id().to_string(),
+                workload_id: context.workload_id().to_string(),
+            }),
         )
             .into_response(),
+        Err(error) => identity_error(error),
     }
 }
 

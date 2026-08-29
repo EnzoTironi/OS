@@ -855,6 +855,7 @@ fn trusted_context(
         PrincipalId::parse(principal_id).map_err(corrupt)?,
         WorkloadId::parse(workload_id).map_err(corrupt)?,
         DelegationChain::new(grants).map_err(corrupt)?,
+        zoen_core::Clearance::world_floor(),
     ))
 }
 

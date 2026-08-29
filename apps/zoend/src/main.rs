@@ -15,14 +15,14 @@ use connectrpc::Router;
 use zoen_adapters::{
     CedarPolicyEvaluator, PostgresAuthorityStore, PostgresExternalSignalStore,
     PostgresIdentityStore, PostgresIngressReplayStore, PostgresPackRegistryStore,
-    PostgresPackStore, PostgresWorkloadCredentialStore,
+    PostgresPackStore, PostgresWorkloadCredentialStore, SessionDoor,
 };
-use zoen_core::WorkloadId;
+use zoen_core::{MachineToken, WorkloadId};
 use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
 use zoen_query::QueryRuntime;
-use zoend::auth::SessionRegistry;
 use zoend::config::{self, ProcessAuth, object_store_config};
 use zoend::integrity::{self, StateClassification};
+use zoend::session::SessionExchange;
 
 use crate::action_service::ActionServiceImpl;
 use crate::computation_service::ComputationServiceImpl;
@@ -36,8 +36,8 @@ use crate::workload_ingress_service::WorkloadIngressState;
 use crate::world_service::WorldServiceImpl;
 
 mod action_service;
-mod auth {
-    pub use zoend::auth::*;
+mod session {
+    pub use zoend::session::*;
 }
 mod computation_service;
 mod door_proxy;
@@ -62,7 +62,7 @@ pub mod proto {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let database_url = env::var("DATABASE_URL")?;
-    let ProcessAuth::Oidc { audience, sources } = config::process_auth()?;
+    let ProcessAuth::SessionDoor { auth_database_url } = config::process_auth()?;
     let policy = Arc::new(CedarPolicyEvaluator::from_path(
         config::cedar_manifest_path()?,
     )?);
@@ -71,7 +71,18 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .parse::<SocketAddr>()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
     let identity = PostgresIdentityStore::new(store.pool());
-    let sessions = SessionRegistry::from_oidc(sources, audience, identity.clone()).await?;
+    let credentials = PostgresWorkloadCredentialStore::new(store.pool());
+    let machine = env::var("ZOEN_IDENTITY_ADMIN_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .and_then(|value| MachineToken::parse(value).ok());
+    let sessions = SessionExchange::from_door(
+        SessionDoor::connect(&auth_database_url).await?,
+        identity.clone(),
+        credentials.clone(),
+        machine,
+    )?;
     let classification = Arc::new(integrity::load_classification()?);
     let require_reference = integrity::require_reference_tables();
     store
@@ -141,7 +152,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         PostgresIngressReplayStore::new(store.pool()),
     ));
     let workload_routes = workload_ingress_service::router(WorkloadIngressState {
-        credentials: PostgresWorkloadCredentialStore::new(store.pool()),
+        credentials,
         signals: PostgresExternalSignalStore::new(store.pool()),
         sessions: sessions.clone(),
     });

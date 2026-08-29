@@ -29,7 +29,6 @@ use zoen_engine::{
 };
 
 use crate::action_service::to_policy_evidence;
-use crate::auth::SessionRegistry;
 use crate::proto::zoen::definition::v1::__buffa::view::oneof::activate_revision_request as activate_revision_request_view;
 use crate::proto::zoen::definition::v1::{
     ActivateRevisionRequest, ActivateRevisionResponse, ApplyMigrationBatchRequest,
@@ -44,17 +43,18 @@ use crate::proto::zoen::definition::v1::{
     PlanEvolutionRequest, PlanEvolutionResponse, PrepareMigrationRequest, PrepareMigrationResponse,
     PublishRequest, PublishResponse, RollbackRevisionRequest, RollbackRevisionResponse,
 };
+use crate::session::SessionExchange;
 use crate::world_service::{invalid, parse_evidence_claim, to_definition_reference, to_timestamp};
 
 pub struct DefinitionServiceImpl {
     engine: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,
-    sessions: SessionRegistry,
+    sessions: SessionExchange,
 }
 
 impl DefinitionServiceImpl {
     pub fn new(
         engine: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,
-        sessions: SessionRegistry,
+        sessions: SessionExchange,
     ) -> Self {
         Self { engine, sessions }
     }
@@ -69,7 +69,7 @@ impl DefinitionServiceImpl {
         let context = self
             .sessions
             .resolve(
-                SessionRegistry::bearer_from(request_context),
+                SessionExchange::bearer_from(request_context),
                 Some(&claimed),
             )
             .await?;

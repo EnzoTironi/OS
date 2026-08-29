@@ -176,5 +176,6 @@ fn context(principal: &str) -> TrustedExecutionContext {
         PrincipalId::parse(principal).expect("principal id"),
         workload,
         DelegationChain::new(vec![grant]).expect("delegation chain"),
+        zoen_core::Clearance::world_floor(),
     )
 }

@@ -17,7 +17,6 @@ use zoen_engine::{
     EffectReconcileCommand,
 };
 
-use crate::auth::SessionRegistry;
 use crate::proto::zoen::effect::v1::{
     ClaimAttemptRequest, ClaimAttemptResponse, EffectAttempt, EffectAttemptClaim,
     EffectAttemptInput, EffectAttemptOutcome, EffectAttemptReason, EffectEvidence,
@@ -25,15 +24,16 @@ use crate::proto::zoen::effect::v1::{
     EffectRequest, EffectService, EffectSnapshot, GetEffectRequest, GetEffectResponse,
     ReconcileRequest, ReconcileResponse, RecordAttemptRequest, RecordAttemptResponse,
 };
+use crate::session::SessionExchange;
 use crate::world_service::{invalid, parse_timestamp, to_timestamp};
 
 pub struct EffectServiceImpl {
     engine: EffectEngine<PostgresAuthorityStore>,
-    sessions: SessionRegistry,
+    sessions: SessionExchange,
 }
 
 impl EffectServiceImpl {
-    pub fn new(engine: EffectEngine<PostgresAuthorityStore>, sessions: SessionRegistry) -> Self {
+    pub fn new(engine: EffectEngine<PostgresAuthorityStore>, sessions: SessionExchange) -> Self {
         Self { engine, sessions }
     }
 }
@@ -45,9 +45,9 @@ impl EffectService for EffectServiceImpl {
         request: ServiceRequest<'_, GetEffectRequest>,
     ) -> ServiceResult<GetEffectResponse> {
         let execution_context = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)
@@ -69,9 +69,9 @@ impl EffectService for EffectServiceImpl {
         request: ServiceRequest<'_, ClaimAttemptRequest>,
     ) -> ServiceResult<ClaimAttemptResponse> {
         let execution_context = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)
@@ -104,9 +104,9 @@ impl EffectService for EffectServiceImpl {
         request: ServiceRequest<'_, RecordAttemptRequest>,
     ) -> ServiceResult<RecordAttemptResponse> {
         let execution_context = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)
@@ -138,9 +138,9 @@ impl EffectService for EffectServiceImpl {
         request: ServiceRequest<'_, ReconcileRequest>,
     ) -> ServiceResult<ReconcileResponse> {
         let execution_context = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)

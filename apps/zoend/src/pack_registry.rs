@@ -16,11 +16,11 @@ use zoen_core::{
     SignatureEvidence, TenantId, TimestampMicros,
 };
 
-use crate::auth::SessionRegistry;
+use crate::session::SessionExchange;
 
 pub struct PackRegistryState {
     pub registry: PostgresPackRegistryStore,
-    pub sessions: SessionRegistry,
+    pub sessions: SessionExchange,
 }
 
 pub fn router(state: PackRegistryState) -> Router {

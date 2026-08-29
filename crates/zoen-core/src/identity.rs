@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -34,6 +35,179 @@ identity_id!(ExternalBindingId);
 identity_id!(MembershipId);
 identity_id!(InviteId);
 identity_id!(DelegationTemplateId);
+
+pub const WORLD_FLOOR: &str = "zoen.world.floor";
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SessionId(String);
+
+impl SessionId {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > 200 {
+            return Err(IdentityError::InvalidSessionToken);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for SessionId {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ClassificationToken(String);
+
+impl ClassificationToken {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        crate::parse_identifier(value.into(), "ClassificationToken")
+            .map(Self)
+            .map_err(|_| IdentityError::InvalidClearance)
+    }
+
+    pub fn world_floor() -> Self {
+        Self(WORLD_FLOOR.to_owned())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Clearance {
+    tokens: BTreeSet<ClassificationToken>,
+}
+
+impl Clearance {
+    pub fn from_tokens(
+        tokens: impl IntoIterator<Item = ClassificationToken>,
+    ) -> Result<Self, IdentityError> {
+        let tokens: BTreeSet<_> = tokens.into_iter().collect();
+        if tokens.is_empty() {
+            return Err(IdentityError::MissingClearance);
+        }
+        Ok(Self { tokens })
+    }
+
+    pub fn from_token_strings(
+        values: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, IdentityError> {
+        let tokens = values
+            .into_iter()
+            .map(ClassificationToken::parse)
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::from_tokens(tokens)
+    }
+
+    pub fn world_floor() -> Self {
+        Self {
+            tokens: BTreeSet::from([ClassificationToken::world_floor()]),
+        }
+    }
+
+    pub fn tokens(&self) -> &BTreeSet<ClassificationToken> {
+        &self.tokens
+    }
+
+    pub fn to_token_strings(&self) -> Vec<String> {
+        self.tokens
+            .iter()
+            .map(|token| token.as_str().to_owned())
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OpaqueSessionToken(String);
+
+impl OpaqueSessionToken {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > 4096 {
+            return Err(IdentityError::InvalidSessionToken);
+        }
+        if value.split('.').count() == 3 {
+            return Err(IdentityError::InvalidSessionToken);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkloadExchangeToken(String);
+
+impl WorkloadExchangeToken {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        let value = value.into();
+        if !value.starts_with("wlx.") || value.len() > 200 {
+            return Err(IdentityError::Unauthenticated);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MachineToken(String);
+
+impl MachineToken {
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > 4096 {
+            return Err(IdentityError::Unauthenticated);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SessionCredential {
+    Door(OpaqueSessionToken),
+    Workload(WorkloadExchangeToken),
+    Channel {
+        machine: MachineToken,
+        subject: ExternalSubject,
+    },
+}
+
+impl SessionCredential {
+    pub fn from_authorization(header: Option<&str>) -> Result<Self, IdentityError> {
+        let token = header
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .filter(|value| !value.is_empty())
+            .ok_or(IdentityError::Unauthenticated)?;
+        if token.starts_with("wlx.") {
+            Ok(Self::Workload(WorkloadExchangeToken::parse(token)?))
+        } else {
+            Ok(Self::Door(OpaqueSessionToken::parse(token)?))
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedSessionEvidence {
+    pub door_user_key: String,
+    pub expires_at: TimestampMicros,
+    pub session_id: SessionId,
+}
 
 /// Cross-channel logical person. Never equal to phone/email/OIDC sub.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +273,7 @@ impl ExternalSubject {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ChannelProvider {
+    AuthDoor,
     WebOidc,
     WhatsApp,
     Telegram,
@@ -133,6 +308,7 @@ fn is_whatsapp_person_subject(subject_key: &str) -> bool {
 impl ChannelProvider {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::AuthDoor => "auth_door",
             Self::WebOidc => "web_oidc",
             Self::WhatsApp => "whatsapp",
             Self::Telegram => "telegram",
@@ -142,6 +318,7 @@ impl ChannelProvider {
 
     pub fn parse(value: &str) -> Result<Self, IdentityError> {
         match value {
+            "auth_door" => Ok(Self::AuthDoor),
             "web_oidc" => Ok(Self::WebOidc),
             "whatsapp" => Ok(Self::WhatsApp),
             "telegram" => Ok(Self::Telegram),
@@ -250,6 +427,7 @@ pub struct Membership {
     pub workload_id: WorkloadId,
     pub actor_id: ActorId,
     pub delegation: DelegationChain,
+    pub clearance: Clearance,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -272,39 +450,10 @@ pub struct VerifiedOidcSubject {
     pub subject: String,
     pub actor_id: Option<ActorId>,
     pub expires_at: TimestampMicros,
-    /// Hint only. Authoritative tenant comes from Membership + request.
     pub requested_tenant_hint: Option<TenantId>,
     pub principal_hint: Option<PrincipalId>,
     pub workload_hint: Option<WorkloadId>,
     pub delegation_hint: Option<DelegationChain>,
-}
-
-impl VerifiedOidcSubject {
-    /// Bound subjects must resolve through Membership. This constructor only
-    /// exists so callers cannot smuggle claims into a TrustedExecutionContext
-    /// without an Active membership on the directory path.
-    pub fn into_unbound_execution_context(self) -> Result<TrustedExecutionContext, IdentityError> {
-        let tenant_id = self
-            .requested_tenant_hint
-            .ok_or(IdentityError::MissingClaimTenant)?;
-        let principal_id = self
-            .principal_hint
-            .ok_or(IdentityError::MissingClaimPrincipal)?;
-        let workload_id = self
-            .workload_hint
-            .ok_or(IdentityError::MissingClaimWorkload)?;
-        let actor_id = self.actor_id.ok_or(IdentityError::MissingClaimActor)?;
-        let delegation = self
-            .delegation_hint
-            .ok_or(IdentityError::MissingClaimDelegation)?;
-        Ok(TrustedExecutionContext::new(
-            tenant_id,
-            actor_id,
-            principal_id,
-            workload_id,
-            delegation,
-        ))
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -318,6 +467,7 @@ pub struct Invite {
     pub workload_id: WorkloadId,
     pub actor_id: ActorId,
     pub delegation: DelegationChain,
+    pub clearance: Clearance,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -360,6 +510,7 @@ pub struct EnterpriseAssertion {
     pub workload_id: WorkloadId,
     pub actor_id: ActorId,
     pub delegation: DelegationChain,
+    pub clearance: Clearance,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -376,16 +527,14 @@ pub enum IdentityError {
     InvalidRevocationReason,
     InvalidSubject,
     InvalidUnbindReason,
+    InvalidClearance,
+    InvalidSessionToken,
     InviteExpired,
     InviteNotFound,
     InviteTenantMismatch,
     MembershipInactive,
     MembershipNotFound,
-    MissingClaimActor,
-    MissingClaimDelegation,
-    MissingClaimPrincipal,
-    MissingClaimTenant,
-    MissingClaimWorkload,
+    MissingClearance,
     PersonalExists,
     RateBudgetExceeded,
     SecretNotShownTwice,
@@ -414,6 +563,8 @@ impl Display for IdentityError {
             Self::InvalidRevocationReason => formatter.write_str("invalid revocation reason"),
             Self::InvalidSubject => formatter.write_str("invalid external subject"),
             Self::InvalidUnbindReason => formatter.write_str("invalid unbind reason"),
+            Self::InvalidClearance => formatter.write_str("invalid clearance token"),
+            Self::InvalidSessionToken => formatter.write_str("invalid session token"),
             Self::InviteExpired => formatter.write_str("invite expired"),
             Self::InviteNotFound => formatter.write_str("invite not found"),
             Self::InviteTenantMismatch => {
@@ -421,21 +572,11 @@ impl Display for IdentityError {
             }
             Self::MembershipInactive => formatter.write_str("membership is not active"),
             Self::MembershipNotFound => formatter.write_str("membership not found"),
-            Self::MissingClaimActor => formatter.write_str("OIDC token missing actor_id claim"),
-            Self::MissingClaimDelegation => {
-                formatter.write_str("OIDC token missing zoen_delegation claim")
-            }
-            Self::MissingClaimPrincipal => {
-                formatter.write_str("OIDC token missing principal_id claim")
-            }
-            Self::MissingClaimTenant => formatter.write_str("OIDC token missing tenant_id claim"),
-            Self::MissingClaimWorkload => {
-                formatter.write_str("OIDC token missing workload_id claim")
-            }
+            Self::MissingClearance => formatter.write_str("clearance is required"),
             Self::PersonalExists => formatter.write_str("personal workspace already exists"),
             Self::RateBudgetExceeded => formatter.write_str("workload rate budget exceeded"),
             Self::SecretNotShownTwice => formatter.write_str("workload secret shown only once"),
-            Self::SubjectUnbound => formatter.write_str("OIDC subject has no verified binding"),
+            Self::SubjectUnbound => formatter.write_str("subject has no verified binding"),
             Self::Unavailable(message) => {
                 write!(formatter, "identity store unavailable: {message}")
             }
@@ -464,6 +605,7 @@ pub fn trusted_context_from_membership(
             membership.principal_id.clone(),
             membership.workload_id.clone(),
             membership.delegation.clone(),
+            membership.clearance.clone(),
         )),
         MembershipStatus::Revoked { .. } | MembershipStatus::Left { .. } => {
             Err(IdentityError::MembershipInactive)
@@ -493,6 +635,7 @@ pub struct WorkloadCredential {
     pub secret_id: WorkloadSecretId,
     pub created_at: TimestampMicros,
     pub rotated_at: Option<TimestampMicros>,
+    pub clearance: Clearance,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -691,6 +834,7 @@ pub fn trusted_context_from_workload_credential(
             credential.principal_id.clone(),
             credential.workload_id.clone(),
             credential.delegation.clone(),
+            credential.clearance.clone(),
         )),
         WorkloadCredentialStatus::Revoked { .. } => Err(IdentityError::WorkloadCredentialInactive),
         WorkloadCredentialStatus::Expired { .. } => Err(IdentityError::WorkloadCredentialExpired),

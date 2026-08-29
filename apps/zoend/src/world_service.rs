@@ -17,7 +17,6 @@ use zoen_core::{
 use zoen_engine::{RecordEvidenceError, WorldEngine};
 use zoen_query::{QueryError, QueryRuntime};
 
-use crate::auth::SessionRegistry;
 use crate::proto::zoen::world::v1::__buffa::view::oneof::semantic_query_request as semantic_query_view;
 use crate::proto::zoen::world::v1::{
     DefinitionReference, EvidenceClaim, ExactValue, LineageDependency, LineageRole,
@@ -25,18 +24,19 @@ use crate::proto::zoen::world::v1::{
     RecordEvidenceRequest, RecordEvidenceResponse, SemanticQueryRequest, SemanticQueryResponse,
     SemanticValueResult, WorldService, exact_value, query_consistency, query_selection, valid_time,
 };
+use crate::session::SessionExchange;
 
 pub struct WorldServiceImpl {
     engine: WorldEngine<PostgresAuthorityStore>,
     query: QueryRuntime,
-    sessions: SessionRegistry,
+    sessions: SessionExchange,
 }
 
 impl WorldServiceImpl {
     pub fn new(
         engine: WorldEngine<PostgresAuthorityStore>,
         query: QueryRuntime,
-        sessions: SessionRegistry,
+        sessions: SessionExchange,
     ) -> Self {
         Self {
             engine,
@@ -55,7 +55,7 @@ impl WorldServiceImpl {
         let context = self
             .sessions
             .resolve(
-                SessionRegistry::bearer_from(request_context),
+                SessionExchange::bearer_from(request_context),
                 Some(&claimed),
             )
             .await?;

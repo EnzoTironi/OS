@@ -20,13 +20,13 @@ use zoen_core::{
     WorkloadId, WorkloadRevocationReason, offer_external_signal_as_evidence_candidate,
 };
 
-use crate::auth::SessionRegistry;
+use crate::session::SessionExchange;
 
 #[derive(Clone)]
 pub struct WorkloadIngressState {
     pub credentials: PostgresWorkloadCredentialStore,
     pub signals: PostgresExternalSignalStore,
-    pub sessions: SessionRegistry,
+    pub sessions: SessionExchange,
 }
 
 pub fn router(state: WorkloadIngressState) -> Router {
@@ -93,7 +93,6 @@ struct RateBudgetBody {
 #[serde(rename_all = "camelCase")]
 struct AuthenticateBody {
     api_key: Option<String>,
-    bearer_jwt: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -195,7 +194,7 @@ async fn issue_credential(
     headers: HeaderMap,
     Json(body): Json<IssueBody>,
 ) -> impl IntoResponse {
-    if let Err(response) = require_ops_bearer(&state, &headers) {
+    if let Err(response) = require_ops_bearer(&state, &headers).await {
         return *response;
     }
     let expires_at = TimestampMicros::new(body.expires_at_micros);
@@ -240,6 +239,7 @@ async fn issue_credential(
         },
         jwt_issuer: body.jwt_issuer,
         jwt_subject: body.jwt_subject,
+        clearance: zoen_core::Clearance::world_floor(),
     };
     match state.credentials.issue(cmd).await {
         Ok(issued) => (
@@ -263,7 +263,7 @@ async fn revoke_credential(
     axum::extract::Path(credential_id): axum::extract::Path<String>,
     Json(body): Json<RevokeBody>,
 ) -> impl IntoResponse {
-    if let Err(response) = require_ops_bearer(&state, &headers) {
+    if let Err(response) = require_ops_bearer(&state, &headers).await {
         return *response;
     }
     let id = match WorkloadCredentialId::parse(credential_id) {
@@ -301,41 +301,8 @@ async fn authenticate(
             Ok(value) => value,
             Err(error) => return identity_error(error),
         }
-    } else if let Some(bearer_jwt) = body.bearer_jwt.as_deref() {
-        let verified = match state
-            .sessions
-            .verify_bearer(Some(&format!("Bearer {bearer_jwt}")))
-        {
-            Ok(value) => value,
-            Err(error) => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": error.to_string() })),
-                )
-                    .into_response();
-            }
-        };
-        let evidence = zoen_core::VerifiedWorkloadEvidence {
-            credential_lookup_key: zoen_core::WorkloadCredentialLookupKey::JwtSubject {
-                issuer: verified.issuer.clone(),
-                subject: verified.subject.clone(),
-            },
-            evidence_kind: zoen_core::WorkloadEvidenceKind::WorkloadJwt {
-                issuer: verified.issuer,
-                audience: verified.audience,
-                subject: verified.subject,
-            },
-            expires_at: verified.expires_at,
-            requested_tenant_hint: verified.requested_tenant_hint,
-            principal_hint: verified.principal_hint,
-            workload_hint: verified.workload_hint,
-        };
-        match state.credentials.resolve_from_evidence(evidence).await {
-            Ok(value) => value,
-            Err(error) => return identity_error(error),
-        }
     } else {
-        return bad_request("apiKey or bearerJwt required".to_owned());
+        return bad_request("apiKey required".to_owned());
     };
 
     let exchange_token = state
@@ -377,7 +344,11 @@ async fn accept_signal(
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    let (credential_id, tec) = match state.sessions.resolve_workload_exchange(authorization) {
+    let (credential_id, tec) = match state
+        .sessions
+        .resolve_workload_exchange(authorization)
+        .await
+    {
         Ok(value) => value,
         Err(error) => return identity_error(error),
     };
@@ -470,7 +441,7 @@ async fn accept_signal(
     }
 }
 
-fn require_ops_bearer(
+async fn require_ops_bearer(
     state: &WorkloadIngressState,
     headers: &HeaderMap,
 ) -> Result<(), Box<axum::response::Response>> {
@@ -479,7 +450,8 @@ fn require_ops_bearer(
         .and_then(|value| value.to_str().ok());
     state
         .sessions
-        .verify_bearer(authorization)
+        .verify_door(authorization)
+        .await
         .map(|_| ())
         .map_err(|error| {
             Box::new(

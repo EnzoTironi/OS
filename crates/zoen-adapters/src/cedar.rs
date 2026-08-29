@@ -784,6 +784,7 @@ when {
             PrincipalId::parse(principal).expect("principal"),
             workload_id,
             DelegationChain::new(vec![grant]).expect("chain"),
+            zoen_core::Clearance::world_floor(),
         )
     }
 
@@ -806,6 +807,7 @@ when {
             PrincipalId::parse("principal.test").expect("principal"),
             workload_id,
             DelegationChain::new(vec![grant]).expect("chain"),
+            zoen_core::Clearance::world_floor(),
         )
     }
 }

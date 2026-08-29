@@ -26,7 +26,6 @@ use crate::action_service::{
     to_approval, to_commit_receipt, to_policy_evidence, to_proposal, to_state_basis,
     to_trusted_context,
 };
-use crate::auth::SessionRegistry;
 use crate::effect_service::{to_attempt, to_evidence, to_reconciliation, to_request};
 use crate::proto::zoen::action::v1::PolicyRevision;
 use crate::proto::zoen::history::v1::{
@@ -42,15 +41,16 @@ use crate::proto::zoen::world::v1::{
     EvidenceClaim as ProtocolEvidenceClaim, EvidenceProvenance, MigrationOrigin, TemporalInterval,
     ValidTime as ProtocolValidTime, valid_time,
 };
+use crate::session::SessionExchange;
 use crate::world_service::{invalid, to_definition_reference, to_exact_value, to_timestamp};
 
 pub struct HistoryServiceImpl {
     engine: HistoryEngine<PostgresAuthorityStore>,
-    sessions: SessionRegistry,
+    sessions: SessionExchange,
 }
 
 impl HistoryServiceImpl {
-    pub fn new(engine: HistoryEngine<PostgresAuthorityStore>, sessions: SessionRegistry) -> Self {
+    pub fn new(engine: HistoryEngine<PostgresAuthorityStore>, sessions: SessionExchange) -> Self {
         Self { engine, sessions }
     }
 }
@@ -62,9 +62,9 @@ impl HistoryService for HistoryServiceImpl {
         request: ServiceRequest<'_, ExplainRequest>,
     ) -> ServiceResult<ExplainResponse> {
         let trusted = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let target = request
