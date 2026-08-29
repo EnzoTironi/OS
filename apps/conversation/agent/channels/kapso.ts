@@ -100,6 +100,8 @@ const adapter = createKapsoAdapter({
   webhookSecret: process.env.KAPSO_WEBHOOK_SECRET,
 });
 
+async function skipDefaultErrorPost() {}
+
 export const { bot, channel, send } = chatSdkChannel({
   userName: "zoen",
   adapters: {
@@ -121,9 +123,8 @@ export const { bot, channel, send } = chatSdkChannel({
       if (body.length === 0) return;
       await ctx.thread.post(body);
     },
-    // Default handlers post eve error text as WhatsApp sendText. Everyday replies stay flattened assistant text.
-    async "turn.failed"() {},
-    async "session.failed"() {},
+    "turn.failed": skipDefaultErrorPost,
+    "session.failed": skipDefaultErrorPost,
   },
 });
 
