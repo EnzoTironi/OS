@@ -178,7 +178,14 @@ run_lint() {
   npm run buf:breaking
   npm run buf:generate
   npm exec -- buf build --as-file-descriptor-set -o proto/definition_descriptor.binpb
-  git diff --exit-code -- packages/sdk/src/gen proto/definition_descriptor.binpb
+  git diff --exit-code -- gen/connect proto/definition_descriptor.binpb
+  if rg -n '@zoen/sdk|@zoen/osdk|packages/sdk|packages/osdk' \
+    --glob '*.ts' --glob '*.tsx' --glob 'package.json' --glob '**/package.json' \
+    --glob 'buf.gen.yaml' --glob '**/Dockerfile*' --glob '**/tsconfig*.json' \
+    --glob '!package-lock.json'; then
+    echo "sdk/osdk references remain" >&2
+    exit 1
+  fi
   npm run build
   npm run deployment-docs:check
   npm run roadmap:check

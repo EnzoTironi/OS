@@ -9,7 +9,7 @@ import {
   DefinitionImpactArea,
   EvolutionClassification,
   type EvolutionPlan,
-} from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+} from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   actionClient,
   adminClient,

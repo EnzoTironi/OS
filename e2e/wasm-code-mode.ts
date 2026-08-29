@@ -10,18 +10,18 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
 import {
   ComponentAdmissionStatus,
   ExecutionStatus,
   ProgramActionStatus,
-} from "../packages/sdk/src/gen/zoen/computation/v1/computation_pb.js";
+} from "../gen/connect/zoen/computation/v1/computation_pb.js";
 import {
   ExactValueSchema,
   QueryConsistencySchema,
   QuerySelectionSchema,
   StrongConsistencySchema,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   actionClient,
   actionId,

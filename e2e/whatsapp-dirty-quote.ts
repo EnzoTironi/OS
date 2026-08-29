@@ -30,12 +30,12 @@ import {
   type CompanionSession,
   type WhatsAppWireShape,
 } from "../packages/transport/src/index.js";
-import { parseDefinitionMetadata } from "../packages/sdk/src/definition.js";
+import { canonicalDefinitionFromJson } from "../packages/ontology/src/index.js";
 import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
 import {
   compileDeterministicSurface,
 } from "../packages/harness/src/surface/compiler.js";
@@ -226,9 +226,7 @@ const skippedLive = {
 function compileListedOrderLine(
   commercial: CompiledDefinition,
 ): ReturnType<typeof compileDeterministicSurface> {
-  const metadata = parseDefinitionMetadata(
-    new TextEncoder().encode(commercial.canonicalJson),
-  );
+  const metadata = canonicalDefinitionFromJson(commercial.canonicalJson);
   return compileDeterministicSurface({
     definition: {
       definitionId: metadata.definitionId,

@@ -29,8 +29,7 @@ COPY packages/transport packages/transport
 COPY packages/speaker packages/speaker
 COPY packages/harness packages/harness
 COPY packages/ontology packages/ontology
-COPY packages/osdk packages/osdk
-COPY packages/sdk packages/sdk
+COPY gen/connect gen/connect
 COPY deploy/fly/tsconfig.speaker.json deploy/fly/tsconfig.speaker.json
 COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
 RUN npm ci \

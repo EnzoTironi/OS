@@ -1,7 +1,7 @@
 import type {
-  DefinitionMetadata,
-  DefinitionValueType,
-} from "@zoen/sdk";
+  CanonicalDefinitionBundle,
+  ValueType,
+} from "@zoen/ontology";
 
 export const surfaceSchema = "zoen.surface.v1";
 export const surfaceCatalog = "zoen.surface.catalog.v1";
@@ -95,7 +95,7 @@ export interface ActionBinding {
 export interface ActionInputControl {
   readonly inputId: string;
   readonly label: string;
-  readonly valueType: DefinitionValueType;
+  readonly valueType: ValueType;
 }
 
 export interface SurfacePresentation {
@@ -314,7 +314,7 @@ export interface CompileSurfaceInput {
   readonly actionIds?: readonly string[];
   readonly definition: SurfaceDefinitionRef;
   readonly entityId: string;
-  readonly metadata: DefinitionMetadata;
+  readonly metadata: CanonicalDefinitionBundle;
   readonly presentation?: Partial<SurfacePresentation>;
   readonly typeQuery?: TypeQueryRef;
 }

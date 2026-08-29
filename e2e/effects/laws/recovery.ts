@@ -1,5 +1,5 @@
-import { CommitStatus } from "../../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
-import { EffectKnowledgeState } from "../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import { CommitStatus } from "../../../gen/connect/zoen/action/v1/action_pb.js";
+import { EffectKnowledgeState } from "../../../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   dispatchOnce,
   providerOperation,

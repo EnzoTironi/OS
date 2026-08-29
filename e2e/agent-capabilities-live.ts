@@ -15,8 +15,8 @@ import {
   PolicyDecision,
   ProposalStatus,
   type PolicyEvidence as WirePolicyEvidence,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
-import type { CausalExplanation } from "../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
+import type { CausalExplanation } from "../gen/connect/zoen/history/v1/history_pb.js";
 import { exerciseIllegalPaths } from "./agent-capabilities-live/illegal-paths.js";
 import {
   actionClient,

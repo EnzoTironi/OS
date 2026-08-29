@@ -11,11 +11,11 @@ import { createClient, type Client, type Interceptor } from "@connectrpc/connect
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
-import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { ActionService } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
-import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
-import { EffectService } from "../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
-import { WorldService } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import { DefinitionService } from "../../gen/connect/zoen/definition/v1/definition_pb.js";
+import { EffectService } from "../../gen/connect/zoen/effect/v1/effect_pb.js";
+import { WorldService } from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   e2eHttpUrl,
   e2eListenAddr,

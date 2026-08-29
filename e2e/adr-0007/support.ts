@@ -10,7 +10,7 @@ import {
   TypeQuerySchema,
   type DefinitionReference,
   type SemanticQueryResponse,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import type { Client as PostgresClient } from "pg";
 import { e2eGeneratedDirectory } from "../host-env.js";
 import {

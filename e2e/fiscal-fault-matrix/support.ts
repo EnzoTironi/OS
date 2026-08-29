@@ -26,8 +26,8 @@ import {
   ExactValueSchema,
   QuantityValueSchema,
   ValidTimeSchema,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
+import { canonicalDefinitionFromJson } from "../../packages/ontology/src/index.js";
 import {
   compilePackage as compileDomainPackage,
   type DomainFixture,
@@ -140,7 +140,6 @@ export type ProxyMode =
 
 export async function compileFiscalPackage(): Promise<FiscalFixture> {
   const compiled = await compileDefinition(packageSourcePath);
-  const canonicalBytes = new TextEncoder().encode(compiled.canonicalJson);
   return {
     canonicalJson: compiled.canonicalJson,
     compiled,
@@ -150,7 +149,7 @@ export async function compileFiscalPackage(): Promise<FiscalFixture> {
       revision: BigInt(compiled.definition.revision),
     }),
     digest: compiled.digest,
-    metadata: parseDefinitionMetadata(canonicalBytes),
+    metadata: canonicalDefinitionFromJson(compiled.canonicalJson),
     packageName: "fiscal-brazil",
   };
 }

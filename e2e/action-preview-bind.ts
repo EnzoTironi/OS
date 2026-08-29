@@ -1,5 +1,5 @@
 import type { Client } from "@connectrpc/connect";
-import type { ActionService } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import type { ActionService } from "../gen/connect/zoen/action/v1/action_pb.js";
 
 export type BoundActionClient = Client<typeof ActionService>;
 

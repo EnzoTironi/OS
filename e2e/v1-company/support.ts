@@ -4,8 +4,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { z } from "zod";
-import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
-import { DefinitionReferenceSchema } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import { canonicalDefinitionFromJson } from "../../packages/ontology/src/index.js";
+import { DefinitionReferenceSchema } from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   compilePackage as compileManufacturingPackage,
   type DomainFixture as ManufacturingFixture,
@@ -179,8 +179,7 @@ async function loadCanonicalFixture(
 ): Promise<CompanyFixture> {
   const canonicalJson = (await readFile(sourcePath, "utf8")).trim();
   const digest = sha256(canonicalJson);
-  const canonicalBytes = new TextEncoder().encode(canonicalJson);
-  const metadata = parseDefinitionMetadata(canonicalBytes);
+  const metadata = canonicalDefinitionFromJson(canonicalJson);
   const compiled = {
     canonicalJson,
     definition: {
@@ -208,7 +207,6 @@ async function compileNamedDefinition(
   sourcePath: string,
 ): Promise<CompanyFixture> {
   const compiled = await compileDefinition(sourcePath);
-  const canonicalBytes = new TextEncoder().encode(compiled.canonicalJson);
   return {
     canonicalJson: compiled.canonicalJson,
     compiled,
@@ -218,7 +216,7 @@ async function compileNamedDefinition(
       revision: BigInt(compiled.definition.revision),
     }),
     digest: compiled.digest,
-    metadata: parseDefinitionMetadata(canonicalBytes),
+    metadata: canonicalDefinitionFromJson(compiled.canonicalJson),
     packageName,
   };
 }

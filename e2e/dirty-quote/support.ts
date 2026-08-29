@@ -21,9 +21,9 @@ import {
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
-import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { ActionService } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
-import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+import { DefinitionService } from "../../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   DefinitionReferenceSchema,
   EvidenceClaimSchema,
@@ -39,8 +39,8 @@ import {
   type DefinitionReference,
   type ExactValue,
   type SemanticQueryResponse,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
+import { canonicalDefinitionFromJson } from "../../packages/ontology/src/index.js";
 import {
   compileDeterministicSurface,
 } from "../../packages/harness/src/surface/compiler.js";
@@ -651,9 +651,7 @@ export async function rejectSqlBeliefWrite(
 }
 
 export function compileSurface(definition: CompiledDefinition): SurfaceDocument {
-  const metadata = parseDefinitionMetadata(
-    new TextEncoder().encode(definition.canonicalJson),
-  );
+  const metadata = canonicalDefinitionFromJson(definition.canonicalJson);
   return compileDeterministicSurface({
     definition: {
       definitionId: metadata.definitionId,

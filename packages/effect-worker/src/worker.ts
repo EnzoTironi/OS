@@ -14,7 +14,7 @@ import {
   EffectAttemptReason,
   EffectKnowledgeState,
   EffectService,
-} from "../../sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../../../gen/connect/zoen/effect/v1/effect_pb.js";
 
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
 const oidcClientSchema = z

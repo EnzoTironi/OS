@@ -6,7 +6,7 @@ import {
   EffectAttemptOutcome,
   EffectAttemptReason,
   EffectKnowledgeState,
-} from "../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../../../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   connectorCallerToken,
   connectorUrl,

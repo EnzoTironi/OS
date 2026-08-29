@@ -16,7 +16,6 @@
     "@firecrawl/anydoc": "0.2.4",
     "@huggingface/transformers": "4.2.0",
     "@restatedev/restate-sdk": "1.16.7",
-    "@zoen/sdk": "*",
     "@zoen/speaker": "*",
     "@zoen/ontology": "*",
     "ai": "7.0.69",

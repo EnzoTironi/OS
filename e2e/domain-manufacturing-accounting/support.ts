@@ -3,8 +3,8 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
-import { DefinitionReferenceSchema } from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
+import { DefinitionReferenceSchema } from "../../gen/connect/zoen/world/v1/world_pb.js";
+import { canonicalDefinitionFromJson } from "../../packages/ontology/src/index.js";
 import {
   compileDeterministicSurface,
 } from "../../packages/harness/src/surface/compiler.js";
@@ -176,7 +176,6 @@ export async function compilePackage(
     case "accounting-foundation":
     case "manufacturing": {
       const compiled = await compileDefinition(packageSources[packageName]);
-      const canonicalBytes = new TextEncoder().encode(compiled.canonicalJson);
       return {
         canonicalJson: compiled.canonicalJson,
         compiled,
@@ -186,7 +185,7 @@ export async function compilePackage(
           revision: BigInt(compiled.definition.revision),
         }),
         digest: compiled.digest,
-        metadata: parseDefinitionMetadata(canonicalBytes),
+        metadata: canonicalDefinitionFromJson(compiled.canonicalJson),
         packageName,
       };
     }

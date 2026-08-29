@@ -19,7 +19,7 @@ Zoen is not a prebuilt SAP. Each company brings its own published definition. Pr
 
 - `crates/*`, `apps/zoend`, `apps/whatsapp-companion`, `proto`, `wit`
 - `packages/ontology` (compiler + lake fixture)
-- `packages/sdk`, `packages/osdk`, `packages/harness`
+- `packages/harness`
 - `packages/speaker`, `packages/transport`
 - `packages/mcp` (deferred; CLI/API first)
 
@@ -33,7 +33,7 @@ Those trees are unpublished history. Checkout `archive/pre-modeled-erp` to read 
 
 ### Live lake
 
-World/OSDK/compiler tests that need an OrderLine-shaped definition compile `packages/ontology/fixtures/commercial.zoen.ts`. That file is the source of truth. `scripts/check-commercial-lake.mjs` checks the lake itself and does not require `archive/domain/commercial`. Speaker does not compile it from `process.cwd()`. `createWorldQueryClientFromEnv` requires `ZOEN_WORLD_DEFINITION_PATH` or an injected `CompiledDefinition`.
+Compiler and lake tests that need an OrderLine-shaped definition compile `packages/ontology/fixtures/commercial.zoen.ts`. That file is the source of truth. `scripts/check-commercial-lake.mjs` checks the lake itself and does not require `archive/domain/commercial`. Speaker does not compile it from `process.cwd()`. `createWorldQueryClientFromEnv` requires `ZOEN_WORLD_DEFINITION_PATH` or an injected `CompiledDefinition`.
 
 ### Surface IR
 

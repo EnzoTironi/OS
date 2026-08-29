@@ -9,7 +9,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   ActionInputSchema,
   type ActionInput,
-} from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   DefinitionReferenceSchema,
   EventualConsistencySchema,
@@ -26,8 +26,8 @@ import {
   type ExactValue,
   type SemanticQueryResponse,
   type ValidTime,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-import { parseDefinitionMetadata } from "../../packages/sdk/src/definition.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
+import { canonicalDefinitionFromJson } from "../../packages/ontology/src/index.js";
 import {
   compileDeterministicSurface,
 } from "../../packages/harness/src/surface/compiler.js";
@@ -111,7 +111,7 @@ export interface DefinitionFixture {
   readonly compiled: CompiledDefinition;
   readonly definition: DefinitionReference;
   readonly digest: string;
-  readonly metadata: ReturnType<typeof parseDefinitionMetadata>;
+  readonly metadata: ReturnType<typeof canonicalDefinitionFromJson>;
 }
 
 export interface DomainFixture extends DefinitionFixture {
@@ -185,7 +185,6 @@ export async function compilePackage(
   packageName: PackageName,
 ): Promise<DomainFixture> {
   const compiled = await compileDefinition(packageSources[packageName]);
-  const canonicalBytes = new TextEncoder().encode(compiled.canonicalJson);
   return {
     canonicalJson: compiled.canonicalJson,
     compiled,
@@ -195,7 +194,7 @@ export async function compilePackage(
       revision: BigInt(compiled.definition.revision),
     }),
     digest: compiled.digest,
-    metadata: parseDefinitionMetadata(canonicalBytes),
+    metadata: canonicalDefinitionFromJson(compiled.canonicalJson),
     packageName,
   };
 }

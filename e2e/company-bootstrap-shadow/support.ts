@@ -28,7 +28,7 @@ import {
   StrongConsistencySchema,
   ValidTimeSchema,
   type SemanticQueryResponse,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 
 export const scenario = "company-bootstrap-shadow";
 export const repositoryRoot = process.cwd();

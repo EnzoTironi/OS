@@ -15,7 +15,7 @@ import {
   SemanticQueryResponseSchema,
   StrongConsistencySchema,
   type SemanticQueryResponse,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,

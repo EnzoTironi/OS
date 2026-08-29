@@ -9,17 +9,17 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
 import {
   EffectKnowledgeState,
   type EffectSnapshot,
-} from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   QueryConsistencySchema,
   QuerySelectionSchema,
   StrongConsistencySchema,
   type SemanticQueryResponse,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   e2eGeneratedDirectory,
   writeScenarioArtifact,

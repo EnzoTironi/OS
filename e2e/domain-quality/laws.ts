@@ -3,7 +3,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   LineageRole,
   type SemanticQueryResponse,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   actionInput,
   adminClient,

@@ -1,7 +1,7 @@
 import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { z } from "zod";
-import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { ActionService } from "../../gen/connect/zoen/action/v1/action_pb.js";
 
 const environmentSchema = z.object({
   ZOEN_E2E_BASE_URL: z.url(),

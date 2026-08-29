@@ -21,11 +21,11 @@ import {
   type CapabilityManifest,
   type ExecuteResponse,
   type ResourceLimits,
-} from "../../packages/sdk/src/gen/zoen/computation/v1/computation_pb.js";
+} from "../../gen/connect/zoen/computation/v1/computation_pb.js";
 import {
   QuerySelectionSchema,
   type DefinitionReference,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import { e2eHttpUrl } from "../host-env.js";
 
 export const componentInterface = "zoen:code-mode/computation@1.0.0";

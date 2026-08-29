@@ -4,7 +4,7 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
 import { writeScenarioArtifact } from "./host-env.js";
 import {
   changeCommitmentRequest,

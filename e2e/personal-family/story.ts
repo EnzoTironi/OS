@@ -28,11 +28,11 @@ import { decideAudienceDisclosure } from "../../packages/speaker/src/index.js";
 import {
   ActionInputSchema,
   ProposalStatus,
-} from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   DefinitionReferenceSchema,
   ExactValueSchema,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   actionClient,
   definitionClient,

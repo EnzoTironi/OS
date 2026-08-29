@@ -7,12 +7,12 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
 import { chromium, type Browser, type Page } from "playwright";
 import { z } from "zod";
-import { CommitStatus } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { CommitStatus } from "../gen/connect/zoen/action/v1/action_pb.js";
 import {
   QueryConsistencySchema,
   StrongConsistencySchema,
   TypeQuerySchema,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   compileDeterministicSurface,
 } from "../packages/harness/src/surface/compiler.js";

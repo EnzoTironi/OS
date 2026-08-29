@@ -10,21 +10,21 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
 import {
   ComponentAdmissionStatus,
   ExecutionStatus,
-} from "../packages/sdk/src/gen/zoen/computation/v1/computation_pb.js";
-import { EvolutionClassification } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+} from "../gen/connect/zoen/computation/v1/computation_pb.js";
+import { EvolutionClassification } from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   EffectAttemptOutcome,
   EffectAttemptReason,
   EffectKnowledgeState,
-} from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   QueryConsistencySchema,
   QuerySelectionSchema,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/world/v1/world_pb.js";
 import { runLeakageGate, runLeakageMutant } from "./domain-inventory-procurement/support.js";
 import { writeScenarioArtifact } from "./host-env.js";
 import {

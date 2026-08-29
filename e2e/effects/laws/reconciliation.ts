@@ -4,7 +4,7 @@ import {
   EffectEvidenceOutcome,
   EffectKnowledgeState,
   type EffectSnapshot,
-} from "../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../../../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   dispatchOnce,
   setProviderMode,

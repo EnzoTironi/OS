@@ -5,11 +5,11 @@ import {
   MigrationDependencySchema,
   MigrationPostconditionSchema,
   type MigrationRecipe,
-} from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+} from "../../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   ExactValueSchema,
   QuantityValueSchema,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   adminClient,
   definitionId,

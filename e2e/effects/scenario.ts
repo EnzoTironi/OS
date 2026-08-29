@@ -6,12 +6,12 @@ import type { Client as PostgresClient } from "pg";
 import {
   CommitStatus,
   type CommitReceipt,
-} from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   EffectEvidenceOutcome,
   EffectKnowledgeState,
   type EffectSnapshot,
-} from "../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   loadFixture,
   propose,
