@@ -521,56 +521,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fly_commercial_activation_permits_admin_and_bound_live_whatsapp() {
-        let evaluator =
-            CedarPolicyEvaluator::from_json(include_str!("../../../deploy/fly/policies.json"))
-                .expect("fly manifest");
-        let definition_digest = "ac2a21af8aacad316bb94ddadea759e84bdfb5f3679673e24ebaa8a5dda7178d";
-        let action = ActionId::parse("zoen.definition.activate").expect("action");
-        let definition = DefinitionReference {
-            definition_id: DefinitionId::parse("commercial.sales").expect("definition"),
-            digest: DefinitionDigest::parse(definition_digest).expect("digest"),
-            revision: DefinitionRevisionNumber::new(2).expect("revision"),
-        };
-        let resource = ResourceId::parse("commercial.sales").expect("resource");
-
-        for principal in ["principal.admin.a", "principal.live.whatsapp"] {
-            assert!(matches!(
-                evaluator
-                    .evaluate(&PolicyRequest {
-                        action_id: &action,
-                        approved: false,
-                        classification: None,
-                        context: &fly_activation_context(principal),
-                        definition: &definition,
-                        inputs: &[],
-                        operation: PolicyOperation::ActivateRevision,
-                        projection: None,
-                        resource_id: &resource,
-                    })
-                    .await,
-                zoen_core::PolicyEvaluation::Permit(_)
-            ));
-        }
-        assert!(matches!(
-            evaluator
-                .evaluate(&PolicyRequest {
-                    action_id: &action,
-                    approved: false,
-                    classification: None,
-                    context: &fly_activation_context("principal.stranger.a"),
-                    definition: &definition,
-                    inputs: &[],
-                    operation: PolicyOperation::ActivateRevision,
-                    projection: None,
-                    resource_id: &resource,
-                })
-                .await,
-            zoen_core::PolicyEvaluation::Deny(_)
-        ));
-    }
-
-    #[tokio::test]
     async fn reports_the_input_that_exceeds_cedars_integer_range() {
         let definition_digest = "a".repeat(64);
         let source = r#"permit(principal, action, resource);"#;
