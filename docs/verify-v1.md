@@ -42,7 +42,7 @@ Required scenario directories match the live Compose BUILD tickets still listed 
 
 Live Brazil fiscal vendors (Systax, PlugNotas, Protheus) are **not** advertised V1 capabilities while #214 is parked. The default advertised live list is empty until #214 unparks real vendor evidence. Un-advertising parked vendors is Spec/Wayfinder-allowed; it is not a sandbox-pass invent.
 
-When an advertised live provider is present in the gate config, satisfaction is commit-bound. Unbound or foreign-commit `fiscal-fault-matrix.liveEvidence` strings do not clear live slots.
+When an advertised live provider is present in the gate config, satisfaction is commit-bound. Credential fiscal artifacts (`fiscal-systax-live`, `fiscal-plugnotas-live`, `fiscal-protheus-live`) clear a slot only when their source commit matches the candidate.
 
 ## Output
 
@@ -62,7 +62,7 @@ The gate fails closed on:
 
 - missing required scenario evidence
 - evidence from another candidate commit
-- missing source commit (including fiscal-fault-matrix)
+- missing source commit
 - scenario bodies without an explicit PASS `verdict`/`status`
 - fixture-marked scenario evidence outside `e2e/verify-v1/testdata/`
 - surviving semantic mutants

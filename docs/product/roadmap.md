@@ -28,7 +28,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 ## Gates
 
-- `just verify. Serial class=live runners. Skips credential channels, archived ERP/web/pack, effects, and adr-0007.`
+- `just verify. Serial class=live runners. Skips credential fiscal.`
 - `just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.`
 - `just verify-activation. Signed activation evidence. Same fixture rule.`
 
@@ -77,7 +77,7 @@ On main. Real implementation. This is product.
 | `fail-closed-boot` | authority | Fail-closed zoend boot | On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. zoend ChannelProvider::Linq. | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
-| `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | Archived. ./e2e/run.sh run adr-0007 still compilePackage(commercial). Timeout after possible delivery is UNKNOWN. | — |
+| `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | Not on default main. Optional just e2e adr-0007 on archive/pre-modeled-erp. Timeout after possible delivery is UNKNOWN. | — |
 
 ## DON'T HAVE
 
@@ -116,7 +116,7 @@ Named test double next to a real implementation. Not a product path. Allowed onl
 | id | plane | name | proof | issue |
 | --- | --- | --- | --- | ---: |
 | `fault-provider` | effects | Sample Company effect fault-provider | Named fault injection against the real dispatcher/connector/Restate. Not a stub of the company. Allowed by ADR-0021 as supplement. | — |
-| `fiscal-fault-proxy` | fiscal | Fiscal vendor-fault-proxy | just e2e fiscal-fault-matrix. Artifact liveEvidence: not-run-no-credentials. Not Systax/PlugNotas/Protheus live. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
+| `fiscal-fault-proxy` | fiscal | Fiscal vendor-fault-proxy | Not on default main. Optional just e2e fiscal-fault-matrix on archive/pre-modeled-erp. Not Systax/PlugNotas/Protheus live. | [#214](https://github.com/EnzoTironi/OS/issues/214) |
 | `verify-fixtures` | gate | verify-v1-fixtures labeled contract | just verify-v1-fixtures. fixtureContract: true. Never treat PASS as production. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
 
 Open the visual board at [docs/product/roadmap.html](./roadmap.html).

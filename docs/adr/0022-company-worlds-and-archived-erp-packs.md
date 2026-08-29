@@ -40,7 +40,7 @@ ADR-0012’s law stands: presentation is not business truth; renderer replacemen
 
 ### Fiscal adapters
 
-ADR-0020’s provider ports stand. Fiscal HTTP adapters are not live product. Optional `just e2e fiscal-fault-matrix` runs on `archive/pre-modeled-erp`. Live vendors stay parked on #214.
+ADR-0020’s provider ports stand. Fiscal HTTP adapters are not live product. The archived fiscal-fault-matrix runner lives on `archive/pre-modeled-erp`. Credential fiscal (`just e2e fiscal-systax-live` and siblings) stays optional on default main. Live vendors stay parked on #214.
 
 ### Kitchen
 
@@ -48,7 +48,7 @@ Kitchen is archived. It does not derive live Pack capabilities from arbitrary co
 
 ## Default gates
 
-`just verify` and GitHub `verify` run `scenario_table` class `live` only. Classes `archive` and `credential` are optional. `scripts/check-domain-leakage.mjs` is in `run_lint` so a `commercial.*` kernel branch still fails default CI.
+`just verify` and GitHub `verify` run `scenario_table` class `live` only. Class `credential` is optional. `scripts/check-domain-leakage.mjs` is in `run_lint` so a `commercial.*` kernel branch still fails default CI.
 
 `just verify-v1` aggregates live Compose evidence. `just verify-activation` keeps the live activation and public-surface slots.
 

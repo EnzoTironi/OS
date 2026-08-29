@@ -1,21 +1,25 @@
 # Recorded Sample Company demo
 
-The lever records a real 45–90s browser walkthrough of the Sample Company five-minute path on the production `just start` stack. Operation and effect IDs come from live zoend and Keycloak. There is no mocked backend and no fixture-only UI stand-in.
+The Sample Company recorder and `just start` stack live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). They are not on default `main`.
+
+The committed `sample-company-five-minute.webm` and `.json` are a prior capture. Re-recording needs that archive branch, Docker, and a Ready Sample Company stack. Operation and effect IDs come from live zoend and Keycloak. There is no mocked backend and no fixture-only UI stand-in.
 
 ## One command
 
-From the repository root, with Docker available and `target/debug/zoend` present (or symlinked from the main checkout):
+Checkout `archive/pre-modeled-erp`, then from that branch:
 
 ```bash
 ./docs/demo/record.sh
 ```
 
-The script compiles the TypeScript harness, ensures the Sample Company stack is Ready (`just start` when needed), probes live Keycloak OIDC discovery and web `/api/config`, then drives Playwright against `http://127.0.0.1:58359` as `web-user` / `web-password`.
+The archive-branch script compiles the TypeScript harness, ensures the Sample Company stack is Ready (`just start` when needed), probes live Keycloak OIDC discovery and web `/api/config`, then drives Playwright against `http://127.0.0.1:58359` as `web-user` / `web-password`.
 
-Outputs:
+On default `main`, `./docs/demo/record.sh` exits 2 and names the archive branch.
 
-- `docs/demo/sample-company-five-minute.webm` — the recorded video
-- `docs/demo/sample-company-five-minute.json` — live endpoints, path steps, and operation/proposal ids captured from the DOM
+Outputs on the archive branch:
+
+- `docs/demo/sample-company-five-minute.webm` is the recorded video
+- `docs/demo/sample-company-five-minute.json` is live endpoints, path steps, and operation/proposal ids captured from the DOM
 
 Override destinations with `ZOEN_DEMO_VIDEO_PATH` and `ZOEN_DEMO_MANIFEST_PATH`.
 

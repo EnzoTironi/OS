@@ -1,7 +1,7 @@
 import { createClient, type Client, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { HistoryService } from "../../gen/connect/zoen/history/v1/history_pb.js";
-import { zoenBaseUrl } from "../effects/support.js";
+import { zoenBaseUrl } from "../effect-support.js";
 
 export type HistoryClient = Client<typeof HistoryService>;
 

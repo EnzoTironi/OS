@@ -6,12 +6,14 @@ Runnable demos use landed e2e scenarios. Sample Company and archived web are opt
 
 Optional archived first governed Action on Sample Company.
 
-1. From the repository root, run `just build` then `just start`.
+Checkout [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). These commands are not on default `main`.
+
+1. From that branch, run `just build` then `just start`.
 2. If archived web is built, open the printed web URL and sign in with the sample OIDC user (`web-user` / `web-password`).
-3. Walk at-risk stock → propose → approve on the seeded Sample Company tenant.
+3. Walk at-risk stock, then propose, then approve on the seeded Sample Company tenant.
 4. Confirm the non-interactive path with `just e2e activation-sample`.
 
-Expected signals: `just status` reports Ready only when probes pass; `just doctor` fails closed when something is unhealthy.
+Expected signals: `just status` reports Ready only when probes pass. `just doctor` fails closed when something is unhealthy.
 
 ## Agent safely acts
 
@@ -32,7 +34,7 @@ Read-only enterprise source to mapping ambiguity to Shadow recommendation withou
 just e2e company-bootstrap-shadow
 ```
 
-This is the optional archived #258 bootstrap path. Shadow may recommend; it must not call `commitOrRecover` or write an `EffectRequest` on its own.
+This is the optional archived #258 bootstrap path on `archive/pre-modeled-erp`. Shadow may recommend. It must not call `commitOrRecover` or write an `EffectRequest` on its own.
 
 ## Killer path script (manual, production stack)
 
@@ -53,7 +55,7 @@ Outcome-first Pack pages live in [`docs/product/pack-directory.md`](../product/p
 
 ## Still open on #267
 
-- Human comprehension study (protocol exists under `e2e/public-surface-web`; capture remains).
+- Human comprehension study (protocol lived under `e2e/public-surface-web` on `archive/pre-modeled-erp`; capture remains).
 - Live conversation entry only when a real channel is available (#273) or a web chat that uses the AD-05/AD-03 contracts. Until then, do not ship a fake chat.
 - Cold-start comprehension evidence for people who have not read the ADRs.
 - Coordinator registration of `just e2e public-surface`.

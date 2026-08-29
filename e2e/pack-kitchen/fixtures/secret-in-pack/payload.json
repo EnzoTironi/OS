@@ -1,6 +1,0 @@
-{
-  "blocked": true,
-  "findings": [
-    "forbidden secret-shaped fields: apiKey"
-  ]
-}
