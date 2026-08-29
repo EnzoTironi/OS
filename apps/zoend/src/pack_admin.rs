@@ -16,12 +16,12 @@ use zoen_core::{
 };
 use zoen_engine::DefinitionEngine;
 
-use crate::auth::SessionRegistry;
+use crate::session::SessionExchange;
 
 pub struct PackAdminState {
     pub packs: PostgresPackStore,
     pub definitions: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,
-    pub sessions: SessionRegistry,
+    pub sessions: SessionExchange,
 }
 
 pub fn router(state: PackAdminState) -> Router {

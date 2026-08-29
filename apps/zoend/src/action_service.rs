@@ -19,7 +19,6 @@ use zoen_engine::{
 };
 use zoen_query::QueryRuntime;
 
-use crate::auth::SessionRegistry;
 use crate::proto::zoen::action::v1::{
     ActionCapability, ActionInput, ActionService, Approval, ApproveRequest, ApproveResponse,
     CommitIdentityKind, CommitReceipt as ProtocolCommitReceipt, CommitRequest, CommitResponse,
@@ -28,6 +27,7 @@ use crate::proto::zoen::action::v1::{
     PolicyRevision, Proposal, ProposalStatus, ProposeRequest, ProposeResponse, StateBasis,
     StateDependency, TrustedContext,
 };
+use crate::session::SessionExchange;
 use crate::world_service::{
     invalid, parse_definition_reference, parse_exact_value, parse_timestamp,
     to_definition_reference, to_exact_value, to_timestamp,
@@ -35,13 +35,13 @@ use crate::world_service::{
 
 pub struct ActionServiceImpl {
     engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
-    sessions: SessionRegistry,
+    sessions: SessionExchange,
 }
 
 impl ActionServiceImpl {
     pub fn new(
         engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
-        sessions: SessionRegistry,
+        sessions: SessionExchange,
     ) -> Self {
         Self { engine, sessions }
     }
@@ -54,9 +54,9 @@ impl ActionService for ActionServiceImpl {
         request: ServiceRequest<'_, DiscoverRequest>,
     ) -> ServiceResult<DiscoverResponse> {
         let trusted = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let definition = request
@@ -89,9 +89,9 @@ impl ActionService for ActionServiceImpl {
         request: ServiceRequest<'_, ProposeRequest>,
     ) -> ServiceResult<ProposeResponse> {
         let trusted = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let definition = request
@@ -191,9 +191,9 @@ impl ActionService for ActionServiceImpl {
         request: ServiceRequest<'_, ApproveRequest>,
     ) -> ServiceResult<ApproveResponse> {
         let trusted = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let expires_at = request
@@ -250,9 +250,9 @@ impl ActionService for ActionServiceImpl {
         request: ServiceRequest<'_, CommitRequest>,
     ) -> ServiceResult<CommitResponse> {
         let trusted = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let proposal_id =
@@ -323,9 +323,9 @@ impl ActionService for ActionServiceImpl {
         request: ServiceRequest<'_, GetOperationStatusRequest>,
     ) -> ServiceResult<GetOperationStatusResponse> {
         let trusted = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let operation_id =

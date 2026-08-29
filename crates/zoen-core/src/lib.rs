@@ -48,13 +48,15 @@ pub use human::{
 };
 pub use identity::{
     AccountMergePlan, AccountStatus, AudienceClass, BindingProof, BindingStatus, ChannelProvider,
-    DelegationTemplateId, DurableEventId, EnterpriseAssertion, ExternalBinding, ExternalBindingId,
-    ExternalSignalId, ExternalSubject, IdentityError, IngressAllowance, IngressScope, Invite,
-    InviteId, InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus,
-    ProjectedCapabilityKind, RateBudgetPolicy, RevocationReason, ServerAllowId, SourceClass,
-    UnbindReason, VerifiedOidcSubject, VerifiedWorkloadEvidence, WorkloadCredential,
-    WorkloadCredentialId, WorkloadCredentialLookupKey, WorkloadCredentialStatus,
-    WorkloadEvidenceKind, WorkloadRevocationReason, WorkloadSecretId, ZoenAccount, ZoenAccountId,
+    ClassificationToken, Clearance, DelegationTemplateId, DurableEventId, EnterpriseAssertion,
+    ExternalBinding, ExternalBindingId, ExternalSignalId, ExternalSubject, IdentityError,
+    IngressAllowance, IngressScope, Invite, InviteId, InviteToken, MachineToken, Membership,
+    MembershipId, MembershipKind, MembershipStatus, OpaqueSessionToken, ProjectedCapabilityKind,
+    RateBudgetPolicy, RevocationReason, ServerAllowId, SessionCredential, SessionId, SourceClass,
+    UnbindReason, VerifiedOidcSubject, VerifiedSessionEvidence, VerifiedWorkloadEvidence,
+    WORLD_FLOOR, WorkloadCredential, WorkloadCredentialId, WorkloadCredentialLookupKey,
+    WorkloadCredentialStatus, WorkloadEvidenceKind, WorkloadExchangeToken,
+    WorkloadRevocationReason, WorkloadSecretId, ZoenAccount, ZoenAccountId,
     trusted_context_from_membership, trusted_context_from_workload_credential,
 };
 pub use jcs::{JcsError, canonicalize_json, canonicalize_json_bytes, is_canonical_digest_hex};
@@ -613,6 +615,7 @@ pub struct TrustedExecutionContext {
     delegation: DelegationChain,
     principal_id: PrincipalId,
     workload_id: WorkloadId,
+    clearance: crate::Clearance,
 }
 
 impl TrustedExecutionContext {
@@ -622,6 +625,7 @@ impl TrustedExecutionContext {
         principal_id: PrincipalId,
         workload_id: WorkloadId,
         delegation: DelegationChain,
+        clearance: crate::Clearance,
     ) -> Self {
         Self {
             tenant_id,
@@ -629,11 +633,16 @@ impl TrustedExecutionContext {
             delegation,
             principal_id,
             workload_id,
+            clearance,
         }
     }
 
     pub fn actor_id(&self) -> &ActorId {
         &self.actor_id
+    }
+
+    pub fn clearance(&self) -> &crate::Clearance {
+        &self.clearance
     }
 
     pub fn delegation(&self) -> &DelegationChain {

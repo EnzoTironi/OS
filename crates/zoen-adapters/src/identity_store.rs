@@ -11,11 +11,12 @@ use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     AccountMergePlan, AccountStatus, ActionId, ActorId, BindingProof, BindingStatus,
-    ChannelProvider, DelegationChain, DelegationGrant, DelegationId, EnterpriseAssertion,
-    ExternalBinding, ExternalBindingId, ExternalSubject, IdentityError, Invite, InviteId,
-    InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus, PrincipalId,
-    ResourceId, RevocationReason, TenantId, TimestampMicros, TrustedExecutionContext, UnbindReason,
-    VerifiedOidcSubject, WorkloadId, ZoenAccount, ZoenAccountId, trusted_context_from_membership,
+    ChannelProvider, Clearance, DelegationChain, DelegationGrant, DelegationId,
+    EnterpriseAssertion, ExternalBinding, ExternalBindingId, ExternalSubject, IdentityError,
+    Invite, InviteId, InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus,
+    PrincipalId, ResourceId, RevocationReason, TenantId, TimestampMicros, TrustedExecutionContext,
+    UnbindReason, VerifiedOidcSubject, WorkloadId, ZoenAccount, ZoenAccountId,
+    trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -236,6 +237,7 @@ impl PostgresIdentityStore {
         let workload_id = WorkloadId::parse("workload.personal")
             .map_err(|_| IdentityError::Conflict("invalid workload".to_owned()))?;
         let delegation = personal_delegation(&workload_id)?;
+        let clearance = Clearance::world_floor();
         sqlx::query("INSERT INTO personal_tenants (account_id, tenant_id) VALUES ($1, $2)")
             .bind(account.as_str())
             .bind(tenant_id.as_str())
@@ -253,6 +255,7 @@ impl PostgresIdentityStore {
                 workload_id: &workload_id,
                 actor_id: &actor_id,
                 delegation: &delegation,
+                clearance: &clearance,
             },
         )
         .await?;
@@ -267,6 +270,7 @@ impl PostgresIdentityStore {
             workload_id,
             actor_id,
             delegation,
+            clearance,
         };
         transaction.commit().await.map_err(unavailable)?;
         Ok(membership)
@@ -279,10 +283,10 @@ impl PostgresIdentityStore {
         sqlx::query(
             "INSERT INTO invites (
                 invite_id, tenant_id, principal_id, token_hash, expires_at,
-                workload_id, actor_id, delegation_json
+                workload_id, actor_id, delegation_json, clearance_json
              ) VALUES (
                 $1, $2, $3, $4, to_timestamp($5::double precision / 1000000.0),
-                $6, $7, $8
+                $6, $7, $8, $9
              )",
         )
         .bind(invite_id.as_str())
@@ -296,6 +300,7 @@ impl PostgresIdentityStore {
             serde_json::to_value(DelegationWire::from(&input.delegation))
                 .map_err(|error| IdentityError::Conflict(format!("delegation encode: {error}")))?,
         )
+        .bind(clearance_json(&input.clearance)?)
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
@@ -309,6 +314,7 @@ impl PostgresIdentityStore {
             workload_id: input.workload_id,
             actor_id: input.actor_id,
             delegation: input.delegation,
+            clearance: input.clearance,
         };
         transaction.commit().await.map_err(unavailable)?;
         Ok(invite)
@@ -337,7 +343,7 @@ impl PostgresIdentityStore {
         // which only works for table owner / bypassrls. zoen_app owns tables after migrate.
         let invite_row = sqlx::query(
             "SELECT invite_id, tenant_id, principal_id, token_hash, expires_at, consumed_at,
-                    workload_id, actor_id, delegation_json
+                    workload_id, actor_id, delegation_json, clearance_json
              FROM invites
              WHERE token_hash = $1
              FOR UPDATE",
@@ -378,6 +384,8 @@ impl PostgresIdentityStore {
             .map_err(|_| IdentityError::Conflict("invalid invite actor".to_owned()))?;
         let delegation =
             decode_delegation(invite_row.try_get("delegation_json").map_err(unavailable)?)?;
+        let clearance =
+            clearance_from_json(invite_row.try_get("clearance_json").map_err(unavailable)?)?;
         let now = now_micros();
         sqlx::query(
             "UPDATE invites
@@ -403,6 +411,7 @@ impl PostgresIdentityStore {
                 workload_id: &workload_id,
                 actor_id: &actor_id,
                 delegation: &delegation,
+                clearance: &clearance,
             },
         )
         .await?;
@@ -417,6 +426,7 @@ impl PostgresIdentityStore {
             workload_id,
             actor_id,
             delegation,
+            clearance,
         };
         transaction.commit().await.map_err(unavailable)?;
         Ok(membership)
@@ -454,6 +464,7 @@ impl PostgresIdentityStore {
                 workload_id: &assertion.workload_id,
                 actor_id: &assertion.actor_id,
                 delegation: &assertion.delegation,
+                clearance: &assertion.clearance,
             },
         )
         .await?;
@@ -471,6 +482,7 @@ impl PostgresIdentityStore {
             workload_id: assertion.workload_id,
             actor_id: assertion.actor_id,
             delegation: assertion.delegation,
+            clearance: assertion.clearance,
         };
         transaction.commit().await.map_err(unavailable)?;
         Ok(membership)
@@ -653,9 +665,17 @@ impl PostgresIdentityStore {
         verified: &VerifiedOidcSubject,
         tenant: &TenantId,
     ) -> Result<TrustedExecutionContext, IdentityError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let subject = ExternalSubject::new(ChannelProvider::WebOidc, verified.subject.clone())?;
-        let binding = active_binding_for_subject(&mut transaction, &subject)
+        Ok(self.resolve_for_subject(&subject, tenant).await?.1)
+    }
+
+    pub async fn resolve_for_subject(
+        &self,
+        subject: &ExternalSubject,
+        tenant: &TenantId,
+    ) -> Result<(Membership, TrustedExecutionContext), IdentityError> {
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        let binding = active_binding_for_subject(&mut transaction, subject)
             .await?
             .ok_or(IdentityError::SubjectUnbound)?;
         if !matches!(binding.status, BindingStatus::Verified) {
@@ -669,7 +689,7 @@ impl PostgresIdentityStore {
             load_active_membership(&mut transaction, &binding.account_id, tenant).await?;
         let context = trusted_context_from_membership(&membership)?;
         transaction.commit().await.map_err(unavailable)?;
-        Ok(context)
+        Ok((membership, context))
     }
 
     pub async fn get_binding(
@@ -696,7 +716,8 @@ impl PostgresIdentityStore {
         let row = sqlx::query(
             "SELECT membership_id, account_id, tenant_id, principal_id, status, kind,
                     invite_id, idp_issuer, idp_subject, delegation_template_id,
-                    workload_id, actor_id, delegation_json, ended_at, ended_reason
+                    workload_id, actor_id, delegation_json, ended_at, ended_reason,
+                    clearance_json
              FROM memberships WHERE membership_id = $1",
         )
         .bind(id.as_str())
@@ -730,7 +751,8 @@ impl PostgresIdentityStore {
         let membership_rows = sqlx::query(
             "SELECT membership_id, account_id, tenant_id, principal_id, status, kind,
                     invite_id, idp_issuer, idp_subject, delegation_template_id,
-                    workload_id, actor_id, delegation_json, ended_at, ended_reason
+                    workload_id, actor_id, delegation_json, ended_at, ended_reason,
+                    clearance_json
              FROM memberships WHERE account_id = $1 ORDER BY membership_id",
         )
         .bind(account.as_str())
@@ -940,6 +962,7 @@ pub struct CompleteOnboard {
 
 pub struct CreateInvite<'a> {
     pub actor_id: ActorId,
+    pub clearance: Clearance,
     pub delegation: DelegationChain,
     pub expires_at: TimestampMicros,
     pub principal_id: PrincipalId,
@@ -957,6 +980,7 @@ struct InsertMembership<'a> {
     workload_id: &'a WorkloadId,
     actor_id: &'a ActorId,
     delegation: &'a DelegationChain,
+    clearance: &'a Clearance,
 }
 
 async fn insert_membership(
@@ -979,8 +1003,9 @@ async fn insert_membership(
     sqlx::query(
         "INSERT INTO memberships (
             membership_id, account_id, tenant_id, principal_id, status, kind,
-            invite_id, idp_issuer, idp_subject, workload_id, actor_id, delegation_json
-         ) VALUES ($1,$2,$3,$4,'active',$5,$6,$7,$8,$9,$10,$11)",
+            invite_id, idp_issuer, idp_subject, workload_id, actor_id, delegation_json,
+            clearance_json
+         ) VALUES ($1,$2,$3,$4,'active',$5,$6,$7,$8,$9,$10,$11,$12)",
     )
     .bind(input.id.as_str())
     .bind(input.account_id.as_str())
@@ -996,6 +1021,7 @@ async fn insert_membership(
         serde_json::to_value(DelegationWire::from(input.delegation))
             .map_err(|error| IdentityError::Conflict(format!("delegation encode: {error}")))?,
     )
+    .bind(clearance_json(input.clearance)?)
     .execute(&mut **transaction)
     .await
     .map_err(unavailable)?;
@@ -1081,7 +1107,8 @@ async fn load_active_membership(
     let row = sqlx::query(
         "SELECT membership_id, account_id, tenant_id, principal_id, status, kind,
                 invite_id, idp_issuer, idp_subject, delegation_template_id,
-                workload_id, actor_id, delegation_json, ended_at, ended_reason
+                workload_id, actor_id, delegation_json, ended_at, ended_reason,
+                clearance_json
          FROM memberships
          WHERE account_id = $1 AND tenant_id = $2 AND status = 'active'
          FOR SHARE",
@@ -1182,6 +1209,7 @@ fn row_to_membership(row: &PgRow) -> Result<Membership, IdentityError> {
         actor_id: ActorId::parse(row_text(row, "actor_id")?)
             .map_err(|_| IdentityError::Conflict("invalid actor".to_owned()))?,
         delegation: decode_delegation(row.try_get("delegation_json").map_err(unavailable)?)?,
+        clearance: clearance_from_json(row.try_get("clearance_json").map_err(unavailable)?)?,
     })
 }
 
@@ -1316,6 +1344,17 @@ impl From<&DelegationChain> for DelegationWire {
                 .collect(),
         }
     }
+}
+
+fn clearance_json(clearance: &Clearance) -> Result<serde_json::Value, IdentityError> {
+    serde_json::to_value(clearance.to_token_strings())
+        .map_err(|error| IdentityError::Conflict(format!("clearance encode: {error}")))
+}
+
+fn clearance_from_json(value: serde_json::Value) -> Result<Clearance, IdentityError> {
+    let tokens: Vec<String> = serde_json::from_value(value)
+        .map_err(|error| IdentityError::Conflict(format!("clearance decode: {error}")))?;
+    Clearance::from_token_strings(tokens)
 }
 
 fn decode_delegation(value: serde_json::Value) -> Result<DelegationChain, IdentityError> {

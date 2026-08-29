@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    ActionId, ActorId, AudienceClass, DelegationChain, DelegationGrant, DelegationId,
+    ActionId, ActorId, AudienceClass, Clearance, DelegationChain, DelegationGrant, DelegationId,
     IdentityError, IngressAllowance, PrincipalId, ProjectedCapabilityKind, RateBudgetPolicy,
     ResourceId, ServerAllowId, SourceClass, TenantId, TimestampMicros, TrustedExecutionContext,
     VerifiedWorkloadEvidence, WorkloadCredential, WorkloadCredentialId,
@@ -32,6 +32,7 @@ pub struct IssueWorkloadCredential {
     pub audience_class: Option<AudienceClass>,
     pub jwt_issuer: Option<String>,
     pub jwt_subject: Option<String>,
+    pub clearance: Clearance,
 }
 
 #[derive(Clone, Debug)]
@@ -43,7 +44,7 @@ pub struct IssuedWorkloadCredential {
 const CREDENTIAL_SELECT: &str = "credential_id, tenant_id, principal_id, workload_id, actor_id, status,
                 allowed_ingress_json, rate_budget_json,
                 (EXTRACT(EPOCH FROM expires_at) * 1000000)::bigint AS expires_at_micros,
-                audience_class, secret_id, delegation_json,
+                audience_class, secret_id, delegation_json, clearance_json,
                 (EXTRACT(EPOCH FROM created_at) * 1000000)::bigint AS created_at_micros,
                 CASE WHEN rotated_at IS NULL THEN NULL
                      ELSE (EXTRACT(EPOCH FROM rotated_at) * 1000000)::bigint END AS rotated_at_micros,
@@ -77,11 +78,12 @@ impl PostgresWorkloadCredentialStore {
             "INSERT INTO workload_credentials (
                 credential_id, tenant_id, principal_id, workload_id, actor_id,
                 status, allowed_ingress_json, rate_budget_json, expires_at,
-                audience_class, secret_id, jwt_issuer, jwt_subject, delegation_json, created_at
+                audience_class, secret_id, jwt_issuer, jwt_subject, delegation_json,
+                clearance_json, created_at
              ) VALUES (
                 $1, $2, $3, $4, $5,
                 'active', $6, $7, to_timestamp($8::double precision / 1000000.0),
-                $9, $10, $11, $12, $13, to_timestamp($14::double precision / 1000000.0)
+                $9, $10, $11, $12, $13, $14, to_timestamp($15::double precision / 1000000.0)
              )",
         )
         .bind(credential_id.as_str())
@@ -97,6 +99,10 @@ impl PostgresWorkloadCredentialStore {
         .bind(cmd.jwt_issuer.as_deref())
         .bind(cmd.jwt_subject.as_deref())
         .bind(delegation_json)
+        .bind(
+            serde_json::to_value(cmd.clearance.to_token_strings())
+                .map_err(|error| IdentityError::Conflict(format!("clearance encode: {error}")))?,
+        )
         .bind(now.get())
         .execute(&mut *transaction)
         .await
@@ -129,6 +135,7 @@ impl PostgresWorkloadCredentialStore {
             secret_id,
             created_at: now,
             rotated_at: None,
+            clearance: cmd.clearance,
         };
         transaction.commit().await.map_err(unavailable)?;
         Ok(IssuedWorkloadCredential {
@@ -432,6 +439,14 @@ fn row_to_credential(row: &PgRow) -> Result<WorkloadCredential, IdentityError> {
             .map_err(|_| IdentityError::Conflict("invalid secret id".to_owned()))?,
         created_at: TimestampMicros::new(row_i64(row, "created_at_micros")?),
         rotated_at,
+        clearance: {
+            let tokens: Vec<String> =
+                serde_json::from_value(row.try_get("clearance_json").map_err(unavailable)?)
+                    .map_err(|error| {
+                        IdentityError::Conflict(format!("clearance decode: {error}"))
+                    })?;
+            Clearance::from_token_strings(tokens)?
+        },
     })
 }
 

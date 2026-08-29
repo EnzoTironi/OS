@@ -27,13 +27,13 @@ use zoen_engine::{
 use zoen_query::QueryRuntime;
 
 use crate::action_service::to_component_execution;
-use crate::auth::SessionRegistry;
 use crate::proto::zoen::computation::v1::{
     ComponentAdmissionStatus, ComputationOutput, ComputationService, ExecuteRequest,
     ExecuteResponse, ExecutionStatus, ProgramActionOutcome as ProtocolProgramActionOutcome,
     ProgramActionStatus, PublishComponentRequest, PublishComponentResponse, ResourceLimits,
     capability,
 };
+use crate::session::SessionExchange;
 use crate::world_service::{invalid, parse_definition_reference, parse_selection, parse_timestamp};
 
 type DaemonActionEngine =
@@ -43,7 +43,7 @@ pub struct ComputationServiceImpl {
     executor: WasmtimeComputationExecutor,
     policy: Arc<CedarPolicyEvaluator>,
     query: QueryRuntime,
-    sessions: SessionRegistry,
+    sessions: SessionExchange,
     store: PostgresAuthorityStore,
 }
 
@@ -52,7 +52,7 @@ impl ComputationServiceImpl {
         store: PostgresAuthorityStore,
         query: QueryRuntime,
         policy: Arc<CedarPolicyEvaluator>,
-        sessions: SessionRegistry,
+        sessions: SessionExchange,
     ) -> Result<Self, WasmtimeConfigError> {
         let executor = WasmtimeComputationExecutor::new(store.pool())?;
         Ok(Self {
@@ -72,9 +72,9 @@ impl ComputationService for ComputationServiceImpl {
         request: ServiceRequest<'_, PublishComponentRequest>,
     ) -> ServiceResult<PublishComponentResponse> {
         let trusted = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let artifact = ComponentArtifact {
@@ -103,9 +103,9 @@ impl ComputationService for ComputationServiceImpl {
         request: ServiceRequest<'_, ExecuteRequest>,
     ) -> ServiceResult<ExecuteResponse> {
         let trusted = {
-            let tenant = SessionRegistry::tenant_from_header(&context)?;
+            let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionRegistry::bearer_from(&context), tenant.as_ref())
+                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
                 .await?
         };
         let manifest = request

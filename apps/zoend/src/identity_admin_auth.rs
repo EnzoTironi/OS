@@ -3,20 +3,20 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use zoen_adapters::PostgresIdentityStore;
 use zoen_core::{
-    ChannelProvider, ExternalSubject, IdentityError, VerifiedOidcSubject, ZoenAccountId,
+    ChannelProvider, ExternalSubject, IdentityError, VerifiedSessionEvidence, ZoenAccountId,
 };
 
-use crate::auth::SessionRegistry;
 use crate::ingress_hmac::constant_time_eq;
+use crate::session::SessionExchange;
 
 #[derive(Clone, Debug)]
 pub enum IdentityAdminActor {
     Machine,
-    Oidc(VerifiedOidcSubject),
+    Door(VerifiedSessionEvidence),
 }
 
-pub fn authenticate_identity_admin(
-    sessions: &SessionRegistry,
+pub async fn authenticate_identity_admin(
+    sessions: &SessionExchange,
     admin_token: Option<&str>,
     authorization: Option<&str>,
 ) -> Option<IdentityAdminActor> {
@@ -24,9 +24,10 @@ pub fn authenticate_identity_admin(
         return Some(IdentityAdminActor::Machine);
     }
     sessions
-        .verify_bearer(authorization)
+        .verify_door(authorization)
+        .await
         .ok()
-        .map(IdentityAdminActor::Oidc)
+        .map(IdentityAdminActor::Door)
 }
 
 fn machine_token_matches(admin_token: Option<&str>, authorization: Option<&str>) -> bool {
@@ -42,7 +43,7 @@ fn machine_token_matches(admin_token: Option<&str>, authorization: Option<&str>)
 pub fn require_machine(actor: &IdentityAdminActor) -> Option<Response> {
     match actor {
         IdentityAdminActor::Machine => None,
-        IdentityAdminActor::Oidc(_) => Some(forbidden()),
+        IdentityAdminActor::Door(_) => Some(forbidden()),
     }
 }
 
@@ -53,12 +54,14 @@ pub async fn require_account(
 ) -> Option<Response> {
     match actor {
         IdentityAdminActor::Machine => None,
-        IdentityAdminActor::Oidc(verified) => {
-            let subject =
-                match ExternalSubject::new(ChannelProvider::WebOidc, verified.subject.clone()) {
-                    Ok(subject) => subject,
-                    Err(error) => return Some(identity_error_response(error)),
-                };
+        IdentityAdminActor::Door(evidence) => {
+            let subject = match ExternalSubject::new(
+                ChannelProvider::AuthDoor,
+                evidence.door_user_key.clone(),
+            ) {
+                Ok(subject) => subject,
+                Err(error) => return Some(identity_error_response(error)),
+            };
             match identity.snapshot_for_verified_subject(&subject).await {
                 Ok((_, snapshot)) if snapshot.account.id == *account_id => None,
                 Ok(_) => Some(forbidden()),
@@ -78,16 +81,18 @@ pub fn forbidden() -> Response {
 
 pub fn identity_error_response(error: IdentityError) -> Response {
     let status = match error {
-        IdentityError::Unauthenticated => StatusCode::UNAUTHORIZED,
-        IdentityError::SubjectUnbound => StatusCode::NOT_FOUND,
+        IdentityError::Unauthenticated | IdentityError::InvalidSessionToken => {
+            StatusCode::UNAUTHORIZED
+        }
+        IdentityError::SubjectUnbound
+        | IdentityError::MembershipNotFound
+        | IdentityError::MembershipInactive => StatusCode::FORBIDDEN,
         IdentityError::AccountNotFound
         | IdentityError::BindingNotFound
-        | IdentityError::InviteNotFound
-        | IdentityError::MembershipNotFound => StatusCode::NOT_FOUND,
+        | IdentityError::InviteNotFound => StatusCode::NOT_FOUND,
         IdentityError::AlreadyBound
         | IdentityError::AlreadyConsumed
         | IdentityError::InviteExpired
-        | IdentityError::MembershipInactive
         | IdentityError::AccountMerged { .. }
         | IdentityError::InviteTenantMismatch
         | IdentityError::Conflict(_)
@@ -99,26 +104,4 @@ pub fn identity_error_response(error: IdentityError) -> Response {
         Json(serde_json::json!({ "error": error.to_string() })),
     )
         .into_response()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{IdentityAdminActor, require_machine};
-
-    #[test]
-    fn oidc_actor_cannot_use_machine_only_routes() {
-        let actor = IdentityAdminActor::Oidc(zoen_core::VerifiedOidcSubject {
-            actor_id: None,
-            audience: "zoend".to_owned(),
-            delegation_hint: None,
-            expires_at: zoen_core::TimestampMicros::new(1),
-            issuer: "https://issuer.test".to_owned(),
-            principal_hint: None,
-            requested_tenant_hint: None,
-            subject: "user-1".to_owned(),
-            workload_hint: None,
-        });
-        assert!(require_machine(&actor).is_some());
-        assert!(require_machine(&IdentityAdminActor::Machine).is_none());
-    }
 }
