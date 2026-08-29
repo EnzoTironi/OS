@@ -1,10 +1,10 @@
 #![allow(refining_impl_trait)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::Router as HttpRouter;
 use axum::extract::State;
@@ -38,6 +38,7 @@ use crate::workload_ingress_service::WorkloadIngressState;
 use crate::world_service::WorldServiceImpl;
 
 mod action_service;
+mod conversation_stage;
 mod session {
     pub use zoend::session::*;
 }
@@ -99,6 +100,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let action_service = ActionServiceImpl::new(
         ActionEngine::new(store.clone(), query.clone(), policy.clone()),
         sessions.clone(),
+        identity.clone(),
     );
     let computation_service = ComputationServiceImpl::new(
         store.clone(),
@@ -143,16 +145,28 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         read.clone(),
         sessions.clone(),
     );
-    let world_service =
-        WorldServiceImpl::new(WorldEngine::new(store.clone()), read, sessions.clone());
+    let world_service = WorldServiceImpl::new(
+        WorldEngine::new(store.clone()),
+        read.clone(),
+        sessions.clone(),
+    );
+    let identity_admin_token = env::var("ZOEN_IDENTITY_ADMIN_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
     let identity_routes = identity_admin::router(IdentityAdminState {
-        admin_token: env::var("ZOEN_IDENTITY_ADMIN_TOKEN")
-            .ok()
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty()),
+        admin_token: identity_admin_token.clone(),
         identity: identity.clone(),
         sessions: sessions.clone(),
     });
+    let conversation_routes =
+        conversation_stage::router(conversation_stage::ConversationStageState {
+            admin_token: identity_admin_token,
+            identity: identity.clone(),
+            read: read.clone(),
+            sessions: sessions.clone(),
+            stages: Arc::new(Mutex::new(BTreeMap::new())),
+        });
     let onboard_routes = onboard::router(identity);
     let messaging_routes = messaging_ingress::router(messaging_ingress::from_env(
         PostgresIngressReplayStore::new(store.pool()),
@@ -183,6 +197,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .merge(door_proxy::router())
         .merge(eve_proxy::router())
         .merge(identity_routes)
+        .merge(conversation_routes)
         .merge(onboard_routes)
         .merge(messaging_routes)
         .merge(workload_routes)

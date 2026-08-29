@@ -55,7 +55,7 @@ pub use effect_store::PostgresEffectUpdate;
 pub use external_signal_store::PostgresExternalSignalStore;
 pub use identity_store::{
     AccountSnapshot, CompleteOnboard, CreateInvite, MintedOnboardToken, OnboardTokenRow,
-    PostgresIdentityStore,
+    PostgresIdentityStore, WorldInvite, dest_invitee_delegation,
 };
 pub use ingress_replay_store::{PostgresIngressReplayStore, ZOEND_INGRESS_REPLAY_NAMESPACE};
 pub use integrity::IntegrityError;

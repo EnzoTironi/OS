@@ -13,8 +13,8 @@ use zoen_core::{
     PreconditionEvaluation, PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget,
     ResourceId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis,
     StateBasisDigest, StateDependency, TenantId, TimestampMicros, TrustedExecutionContext, TypeId,
-    ValidTime, ValueType, classified_as_relation, evaluate_expression, expression_relations,
-    join_labels,
+    ValidTime, ValueType, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION, classified_as_relation,
+    evaluate_expression, expression_relations, join_labels,
 };
 
 use crate::action_preview::{bind_proposal_preview, build_action_preview, preview_hash};
@@ -606,6 +606,11 @@ where
             .get_proposal(context, proposal_id)
             .await
             .map_err(ActionError::Store)?;
+        if proposal.action_id.as_str() == WORLD_WHO_CAN_ACTION {
+            return Err(ActionError::Evaluation(
+                "zoen.world.whoCan is Discover/Read, not a mutation".to_owned(),
+            ));
+        }
         if &proposal.operation_id != operation_id {
             return Ok(CommitOutcome::OperationMismatch);
         }
@@ -756,7 +761,7 @@ where
                 return Err(error);
             }
         };
-        let drafts = match stamp_join_label(
+        let drafts = match share_or_join_effects(
             build_effects(&proposal, &loaded.action, &relation_values)?,
             &proposal,
             join.as_ref(),
@@ -808,6 +813,17 @@ where
     ) -> Result<CommitReceipt, ActionError> {
         self.store
             .get_operation(context, operation_id)
+            .await
+            .map_err(ActionError::Store)
+    }
+
+    pub async fn get_proposal(
+        &self,
+        context: &TrustedExecutionContext,
+        proposal_id: &ProposalId,
+    ) -> Result<ActionProposal, ActionError> {
+        self.store
+            .get_proposal(context, proposal_id)
             .await
             .map_err(ActionError::Store)
     }
@@ -1244,6 +1260,26 @@ fn classification_from_values(
         );
     }
     Ok(tokens)
+}
+
+fn share_or_join_effects(
+    drafts: Vec<EvidenceDraft>,
+    proposal: &ActionProposal,
+    join: Option<&BTreeSet<ClassificationToken>>,
+) -> Result<Vec<EvidenceDraft>, ActionError> {
+    if proposal.action_id.as_str() == WORLD_SHARE_ACTION {
+        let classified_as = classified_as_relation();
+        if drafts
+            .iter()
+            .any(|draft| draft.relation_id == classified_as)
+        {
+            return Err(ActionError::Evaluation(
+                "share never rewrites classifiedAs".to_owned(),
+            ));
+        }
+        return Ok(drafts);
+    }
+    stamp_join_label(drafts, proposal, join)
 }
 
 fn stamp_join_label(

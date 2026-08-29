@@ -1,5 +1,5 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use zoen_core::{ActionProposal, CommitReceipt, ExecutionContext};
+use zoen_core::{ActionProposal, CommitReceipt, ExecutionContext, WORLD_INVITE_ACTION};
 use zoen_engine::{
     ActionCommitTransaction, CommitPlan, CommitPreparation, CommitStoreOutcome, StoreError,
     state_basis_digest_matches,
@@ -63,7 +63,7 @@ pub(crate) async fn begin_action_commit(
 
 impl ActionCommitTransaction for PostgresActionCommit {
     async fn commit(self, plan: &CommitPlan) -> Result<CommitStoreOutcome, StoreError> {
-        if plan.effects.is_empty() {
+        if plan.effects.is_empty() && plan.proposal.action_id.as_str() != WORLD_INVITE_ACTION {
             return Err(StoreError::Corrupt(
                 "admitted Action has no effects".to_owned(),
             ));

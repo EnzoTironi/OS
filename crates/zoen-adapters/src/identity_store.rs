@@ -15,8 +15,9 @@ use zoen_core::{
     EnterpriseAssertion, ExternalBinding, ExternalBindingId, ExternalSubject, IdentityError,
     Invite, InviteId, InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus,
     PrincipalId, ResourceId, RevocationReason, TenantId, TimestampMicros, TrustedExecutionContext,
-    UnbindReason, VerifiedOidcSubject, WorkloadId, ZoenAccount, ZoenAccountId,
-    trusted_context_from_membership,
+    UnbindReason, VerifiedOidcSubject, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
+    WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION, WorkloadId, ZoenAccount,
+    ZoenAccountId, trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -428,6 +429,56 @@ impl PostgresIdentityStore {
             delegation,
             clearance,
         };
+        transaction.commit().await.map_err(unavailable)?;
+        Ok(membership)
+    }
+
+    pub async fn stamp_world_invite(
+        &self,
+        input: WorldInvite,
+    ) -> Result<Membership, IdentityError> {
+        let token = input.token.clone();
+        match self
+            .accept_invite(input.account_id.clone(), token.clone())
+            .await
+        {
+            Ok(membership) => return Ok(membership),
+            Err(IdentityError::AlreadyConsumed) => {
+                return self
+                    .active_membership(&input.account_id, &input.tenant_id)
+                    .await;
+            }
+            Err(IdentityError::InviteNotFound) => {}
+            Err(error) => return Err(error),
+        }
+        self.create_invite(CreateInvite {
+            actor_id: input.actor_id,
+            clearance: Clearance::world_floor(),
+            delegation: input.delegation,
+            expires_at: input.expires_at,
+            principal_id: input.principal_id,
+            tenant_id: input.tenant_id.clone(),
+            token: &token,
+            workload_id: input.workload_id,
+        })
+        .await?;
+        match self.accept_invite(input.account_id.clone(), token).await {
+            Ok(membership) => Ok(membership),
+            Err(IdentityError::AlreadyConsumed) => {
+                self.active_membership(&input.account_id, &input.tenant_id)
+                    .await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub async fn active_membership(
+        &self,
+        account: &ZoenAccountId,
+        tenant: &TenantId,
+    ) -> Result<Membership, IdentityError> {
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        let membership = load_active_membership(&mut transaction, account, tenant).await?;
         transaction.commit().await.map_err(unavailable)?;
         Ok(membership)
     }
@@ -971,6 +1022,17 @@ pub struct CreateInvite<'a> {
     pub workload_id: WorkloadId,
 }
 
+pub struct WorldInvite {
+    pub account_id: ZoenAccountId,
+    pub actor_id: ActorId,
+    pub delegation: DelegationChain,
+    pub expires_at: TimestampMicros,
+    pub principal_id: PrincipalId,
+    pub tenant_id: TenantId,
+    pub token: InviteToken,
+    pub workload_id: WorkloadId,
+}
+
 struct InsertMembership<'a> {
     id: &'a MembershipId,
     account_id: &'a ZoenAccountId,
@@ -1226,13 +1288,41 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
     let grant = DelegationGrant::new(
         DelegationId::parse("delegation.personal")
             .map_err(|_| IdentityError::Conflict("invalid delegation".to_owned()))?,
-        BTreeSet::from([ActionId::parse("zoen.definition.activate")
-            .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?]),
+        BTreeSet::from([
+            ActionId::parse("zoen.definition.activate")
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_INVITE_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_SHARE_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RESERVE_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_WHO_CAN_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+        ]),
         BTreeSet::from([ResourceId::parse("zoen.personal.workspace")
             .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?]),
         BTreeSet::from([workload_id.clone()]),
-        TimestampMicros::new(i64::MIN / 2),
-        TimestampMicros::new(i64::MAX / 2),
+        TimestampMicros::new(0),
+        TimestampMicros::new(4_102_444_800_000_000),
+    )
+    .map_err(|error| IdentityError::Conflict(error.to_string()))?;
+    DelegationChain::new(vec![grant]).map_err(|error| IdentityError::Conflict(error.to_string()))
+}
+
+pub fn dest_invitee_delegation(
+    workload_id: &WorkloadId,
+    resource_id: &ResourceId,
+) -> Result<DelegationChain, IdentityError> {
+    let grant = DelegationGrant::new(
+        DelegationId::parse("delegation.invite")
+            .map_err(|_| IdentityError::Conflict("invalid delegation".to_owned()))?,
+        BTreeSet::from([ActionId::parse(WORLD_READ_ACTION)
+            .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?]),
+        BTreeSet::from([resource_id.clone()]),
+        BTreeSet::from([workload_id.clone()]),
+        TimestampMicros::new(0),
+        TimestampMicros::new(4_102_444_800_000_000),
     )
     .map_err(|error| IdentityError::Conflict(error.to_string()))?;
     DelegationChain::new(vec![grant]).map_err(|error| IdentityError::Conflict(error.to_string()))
