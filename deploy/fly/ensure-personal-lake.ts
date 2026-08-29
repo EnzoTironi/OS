@@ -1,31 +1,12 @@
-import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { create } from "@bufbuild/protobuf";
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { compileDefinition } from "../../packages/ontology/src/index.js";
 import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
-import {
-  DefinitionReferenceSchema,
-  EvidenceClaimSchema,
-  EvidenceProvenanceSchema,
-  ExactValueSchema,
-  QueryConsistencySchema,
-  QuerySelectionSchema,
-  QuantityValueSchema,
-  StrongConsistencySchema,
-  ValidTimeSchema,
-  WorldService,
-  type DefinitionReference,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
-
-const COMMERCIAL_ENTITY = "commercial.order-line.dirty-quote";
-const QUOTED_QUANTITY = "commercial.quotedQuantity";
 
 /**
- * Fly prestart: Publish+Activate personal.memory and commercial.sales,
- * then plant two quotedQuantity rivals. Speaker stays Propose→Commit.
+ * Fly prestart: Publish+Activate personal.memory and commercial.sales.
+ * Speaker stays Propose→Commit.
  * Requires ZOEN_TENANT_ID (no default).
  */
 async function main(): Promise<void> {
@@ -44,7 +25,6 @@ async function main(): Promise<void> {
   }
   const transport = connectTransport(baseUrl, token);
   const definitions = createClient(DefinitionService, transport);
-  const world = createClient(WorldService, transport);
 
   const personal = await compileDefinition(personalPath);
   await publishAndActivate(definitions, personal, tenantId);
@@ -56,16 +36,10 @@ async function main(): Promise<void> {
 
   const commercial = await compileDefinition(commercialPath);
   await publishAndActivate(definitions, commercial, tenantId);
-  const rivals = await ensureQuotedQuantityRivals(
-    world,
-    wireDefinition(commercial),
-    tenantId,
-  );
   writeReady(commercialReady, {
     definitionId: commercial.definition.definitionId,
     digest: commercial.digest,
     event: "commercialLakeReady",
-    rivals,
   });
 }
 
@@ -98,99 +72,9 @@ async function publishAndActivate(
   });
 }
 
-async function ensureQuotedQuantityRivals(
-  world: ReturnType<typeof createClient<typeof WorldService>>,
-  definition: DefinitionReference,
-  tenantId: string,
-): Promise<number> {
-  const existing = await quotedQuantityCount(world, definition, tenantId);
-  if (existing >= 2) {
-    return existing;
-  }
-  await recordQuantity(world, definition, tenantId, {
-    amount: "10",
-    claimId: "claim.quote.sheet",
-    sourceId: "source.sheet",
-  });
-  await recordQuantity(world, definition, tenantId, {
-    amount: "12",
-    claimId: "claim.quote.erp",
-    sourceId: "source.erp",
-  });
-  return quotedQuantityCount(world, definition, tenantId);
-}
-
-async function quotedQuantityCount(
-  world: ReturnType<typeof createClient<typeof WorldService>>,
-  definition: DefinitionReference,
-  tenantId: string,
-): Promise<number> {
-  const response = await world.semanticQuery({
-    consistency: create(QueryConsistencySchema, {
-      value: { case: "strong", value: create(StrongConsistencySchema) },
-    }),
-    definition,
-    entityId: COMMERCIAL_ENTITY,
-    selection: create(QuerySelectionSchema, {
-      value: { case: "relationId", value: QUOTED_QUANTITY },
-    }),
-    tenantId,
-    validAt: timestampFromDate(new Date()),
-  });
-  return response.values.filter(
-    (row) => row.value?.value.case === "quantityValue",
-  ).length;
-}
-
-async function recordQuantity(
-  world: ReturnType<typeof createClient<typeof WorldService>>,
-  definition: DefinitionReference,
-  tenantId: string,
-  input: { readonly amount: string; readonly claimId: string; readonly sourceId: string },
-): Promise<void> {
-  await world.recordEvidence({
-    claim: create(EvidenceClaimSchema, {
-      claimId: input.claimId,
-      definition,
-      entityId: COMMERCIAL_ENTITY,
-      provenance: create(EvidenceProvenanceSchema, {
-        sourceDigest: createHash("sha256")
-          .update(`${input.sourceId}:${input.claimId}`)
-          .digest("hex"),
-        sourceId: input.sourceId,
-        sourceRef: `urn:zoen:fly:${input.claimId}`,
-      }),
-      relationId: QUOTED_QUANTITY,
-      validTime: create(ValidTimeSchema, {
-        value: { case: "instant", value: timestampFromDate(new Date()) },
-      }),
-      value: create(ExactValueSchema, {
-        value: {
-          case: "quantityValue",
-          value: create(QuantityValueSchema, {
-            amount: input.amount,
-            unit: "each",
-          }),
-        },
-      }),
-    }),
-    tenantId,
-  });
-}
-
-function wireDefinition(
-  compiled: Awaited<ReturnType<typeof compileDefinition>>,
-): DefinitionReference {
-  return create(DefinitionReferenceSchema, {
-    definitionId: compiled.definition.definitionId,
-    digest: compiled.digest,
-    revision: BigInt(compiled.definition.revision),
-  });
-}
-
 function writeReady(
   path: string,
-  payload: Record<string, string | number>,
+  payload: Record<string, string>,
 ): void {
   writeFileSync(path, `${JSON.stringify(payload)}\n`);
 }
