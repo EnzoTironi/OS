@@ -64,7 +64,7 @@ On main. Real implementation. This is product.
 | `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `web-tanstack` | experience | Web application | Not on default main. Lives on archive/pre-modeled-erp. Optional just e2e web-deterministic there. | — |
 | `surface-ir` | experience | Surface IR package | Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp uses PresentationIntent in packages/transport. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-| `attention` | experience | Proactive attention package | Not on default main. Transport and speaker do not import it; debounce is local to the turn coordinator. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `attention` | experience | Proactive attention package | Not on default main. Transport does not import it. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `ontology-libs` | ontology | Archived pre-modeled ERP libraries | Not on default main. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* on archive/pre-modeled-erp. | — |
 | `pack-compiler` | packs | Pack compiler, registry, Kitchen | Not on default main. Kitchen/pack e2e is optional on archive/pre-modeled-erp. | — |
 | `sample-company` | activation | Sample Company five-minute path | Not on default main. just start / just e2e activation-sample on archive/pre-modeled-erp. | — |

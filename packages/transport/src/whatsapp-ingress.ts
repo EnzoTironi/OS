@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { InboundInteraction } from "../../speaker/src/index.js";
-import { providerKey } from "../../speaker/src/index.js";
+import { providerKey } from "./brands.js";
+import type { InboundInteraction } from "./channel.js";
 import {
   companionSessionIsReady,
   type CompanionSession,
@@ -12,7 +12,7 @@ import {
   WhatsAppEnvelopeError,
 } from "./adapters/whatsapp-live.js";
 import { rejectWhatsAppMediaFields } from "./media-ingress.js";
-import type { PostgresTurnStoreClient } from "../../speaker/src/turn-store.js";
+import type { PostgresQueryClient } from "./postgres-query.js";
 import {
   createMemoryIngressReplayStore,
   createPostgresIngressReplayStore,
@@ -59,7 +59,7 @@ export function createWhatsAppMessagingIngress(options: {
   readonly port: number;
   readonly ingressSecret?: string;
   readonly replay?: IngressReplayStore;
-  readonly replayClient?: PostgresTurnStoreClient;
+  readonly replayClient?: PostgresQueryClient;
   /** When set, companion retries unless this returns (HTTP 2xx). */
   readonly processInbound?: (raw: unknown) => Promise<unknown>;
 }): Promise<WhatsAppMessagingIngress> {

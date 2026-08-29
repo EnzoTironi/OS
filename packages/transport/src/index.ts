@@ -1,4 +1,56 @@
 export {
+  deliveryIntentId,
+  deliveryObservationId,
+  interactionControlRef,
+  interactionId,
+  presentationIntentRef,
+  principalIdString,
+  providerKey,
+  providerMessageRef,
+  providerThreadRef,
+  providerUserRef,
+  tenantIdString,
+  type Brand,
+  type DeliveryIntentId,
+  type DeliveryObservationId,
+  type InteractionControlRef,
+  type InteractionId,
+  type PresentationIntentRef,
+  type PrincipalIdString,
+  type ProviderKey,
+  type ProviderMessageRef,
+  type ProviderThreadRef,
+  type ProviderUserRef,
+  type TenantIdString,
+} from "./brands.js";
+export type {
+  AudienceDisclosure,
+  AudienceObservation,
+  ChannelObservation,
+  ChannelPresentationCapability,
+  DeliveryIntent,
+  DeliveryObservation,
+  DeliveryOutcome,
+  DeliveryTarget,
+  DisclosureDenyReason,
+  InboundInteraction,
+  InboundKind,
+  RedactionSpec,
+  ResolvedChannelIdentity,
+  TrustedInteractionContext,
+} from "./channel.js";
+export {
+  ChannelSubjectResolveError,
+  createIdentityDirectoryClient,
+  toChannelProvider,
+  type ChannelSubjectResolveFailure,
+  type IdentityDirectory,
+  type IdentityDirectoryClientOptions,
+} from "./identity-directory.js";
+export { resolvePublicOrigin } from "./public-origin.js";
+export { stepUpUrl } from "./step-up-url.js";
+export type { PostgresQueryClient } from "./postgres-query.js";
+export {
   presentationSchema,
   type ConversationalBlock,
   type PresentationIntent,

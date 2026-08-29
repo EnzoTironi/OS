@@ -8,7 +8,7 @@
 ADR-0017 selects Wasmtime for untrusted execution and Restate for durable effects. Three production substitutes leaked into live wiring:
 
 - Helm/Docker started `dist/e2e/effects/worker.js` instead of a production Restate worker.
-- The speaker workbench used `just-bash` + `node:vm` on the live WhatsApp `spawn_execution` path.
+- The speaker workbench used `just-bash` + `node:vm` on the live WhatsApp `spawn_execution` path. That leftover Node chat left with `packages/speaker`.
 - WhatsApp inbound and identity admin were unauthenticated; turn/reply ledgers were in-memory.
 
 ## Decision

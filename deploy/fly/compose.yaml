@@ -1,5 +1,5 @@
 # Laptop twin of the Fly VM. Same processes, official images for infra.
-# zoend / companion / speaker build from this repo.
+# zoend, companion, and transport contact-serve build from this repo.
 
 name: zoen
 
@@ -110,10 +110,6 @@ services:
       ZOEN_IDENTITY_BASE_URL: http://127.0.0.1:58701
       ZOEN_MESSAGING_INGRESS_HOST: 127.0.0.1
       ZOEN_MESSAGING_INGRESS_PORT: "18082"
-      ZOEN_AGENT_BEARER_TOKEN: ${ZOEN_AGENT_BEARER_TOKEN:-}
-      ZOEN_MODEL: ${ZOEN_MODEL:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       - companion
       - zoend

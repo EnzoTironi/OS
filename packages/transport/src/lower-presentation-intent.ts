@@ -1,10 +1,10 @@
-import {
-  stepUpUrl,
-  type AudienceDisclosure,
-  type ChannelPresentationCapability,
-  type DeliveryTarget,
-  type InteractionControlRef,
-} from "../../speaker/src/index.js";
+import type { InteractionControlRef } from "./brands.js";
+import type {
+  AudienceDisclosure,
+  ChannelPresentationCapability,
+  DeliveryTarget,
+} from "./channel.js";
+import { stepUpUrl } from "./step-up-url.js";
 import type {
   ConversationalBlock,
   PresentationIntent,

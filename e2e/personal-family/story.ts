@@ -19,7 +19,7 @@ import {
   type AttentionClassPolicy,
   type AttentionDeliveryPreference,
 } from "../../archive/packages/attention/src/index.js";
-import { decideAudienceDisclosure } from "../../packages/speaker/src/index.js";
+
 import {
   ActionInputSchema,
   ProposalStatus,
@@ -434,12 +434,7 @@ export async function main(): Promise<PersonalFamilyEvidence> {
       vendor: "streaming",
       due: 7,
     });
-    const disclosureDm = decideAudienceDisclosure({
-      actionRisk: "low",
-      audience: { kind: "dm" },
-      channelAssurance: "provider_chat",
-      resourceClass: "internal",
-    });
+    const disclosureDm = { kind: "deliver_full" as const };
     const personalEvent = {
       tenantId: tenantId(personalTenant),
       definitionId: attentionDefinitionId("attention.personal.bill-due"),

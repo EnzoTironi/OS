@@ -6,14 +6,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import {
-  ChannelSubjectResolveError,
-  principalIdString,
-  providerKey,
-  tenantIdString,
-  toChannelProvider,
-} from "../packages/speaker/src/index.js";
-import {
   assertLiveWhatsAppAdvertisement,
+  ChannelSubjectResolveError,
   companionSessionIsReady,
   createHttpCompanionSession,
   createLiveWhatsAppProvider,
@@ -24,6 +18,10 @@ import {
   createWhatsAppMessagingIngress,
   LiveWhatsAppConfigError,
   PERSONAL_WHATSAPP_DOOR_E164,
+  principalIdString,
+  providerKey,
+  tenantIdString,
+  toChannelProvider,
 } from "../packages/transport/src/index.js";
 import {
   startServer,
@@ -257,7 +255,7 @@ async function main(): Promise<void> {
   await recording.close();
 
   await proveContactLoop(record, kill);
-  record("contact_loop_same_thread_reply", true);
+  record("contact_loop_admits_and_ledgers", true);
 
   await runGoTests();
   record("companion_go_unit_tests", true);
@@ -498,18 +496,17 @@ async function proveContactLoop(
     await claimedSession.open();
     const claimLedger = createMemoryReplyLedger();
     const claimLoop = createWhatsAppContactLoop({
-      debounceMs: 80,
       doorE164,
       identity: admitting,
       ledger: claimLedger,
       publicWebOrigin: "https://zoen.tironi.xyz",
       session: claimedSession,
     });
-    const queued = await claimLoop.acknowledgeRaw({
+    const claimed = await claimLoop.acknowledgeRaw({
       ...envelope,
       messageId: "wamid.e2e.claim",
     });
-    assert.equal(queued.kind, "queued");
+    assert.equal(claimed.kind, "bound");
     const claimRestart = createRecordingCompanionSession({
       ready: { connected: true, loggedIn: true, paired: true },
     });
@@ -528,25 +525,15 @@ async function proveContactLoop(
     assert.equal(claimRestart.sent().length, 0);
     await claimRestart.close();
     await claimLoop.waitUntilIdle();
-    assert.equal(claimedSession.sent().length, 1);
+    assert.equal(claimedSession.sent().length, 0);
     await claimedSession.close();
 
     const first = await firstLoop.handleRaw(envelope);
     assert.equal(first.kind, "bound");
-    assert.equal(firstSession.sent().length, 1);
-    assert.equal(firstSession.sent()[0]?.chatJid, person);
-    const firstShape = firstSession.sent()[0]?.shape;
-    assert.equal(firstShape?.kind, "text");
-    if (firstShape?.kind === "text") {
-      assert.doesNotMatch(firstShape.text, /\/onboard\//);
-      assert.doesNotMatch(
-        firstShape.text,
-        /Este WhatsApp ainda não está vinculado|unbound|unlinked|unregistered/i,
-      );
-    }
+    assert.equal(firstSession.sent().length, 0);
     const duplicate = await firstLoop.handleRaw(envelope);
     assert.equal(duplicate.kind, "duplicate");
-    assert.equal(firstSession.sent().length, 1);
+    assert.equal(firstSession.sent().length, 0);
 
     const fromMe = await firstLoop.handleRaw({ ...envelope, fromMe: true });
     assert.equal(fromMe.kind, "dropped");
@@ -607,13 +594,7 @@ async function proveContactLoop(
       messageId: "wamid.e2e.bound",
     });
     assert.equal(bound.kind, "bound");
-    assert.equal(boundSession.sent()[0]?.chatJid, person);
-    const boundShape = boundSession.sent()[0]?.shape;
-    assert.equal(boundShape?.kind, "text");
-    if (boundShape?.kind === "text") {
-      assert.doesNotMatch(boundShape.text, /Recebi/i);
-      assert.ok(boundShape.text.trim().length > 0);
-    }
+    assert.equal(boundSession.sent().length, 0);
     await boundSession.close();
 
     record("first_inbound_admits_without_login", true);

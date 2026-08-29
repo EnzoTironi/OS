@@ -1,7 +1,7 @@
 import type {
   InteractionControlRef,
   PresentationIntentRef,
-} from "../../speaker/src/index.js";
+} from "./brands.js";
 
 export const presentationSchema = "zoen.presentation.v1" as const;
 

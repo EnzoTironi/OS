@@ -45,7 +45,6 @@ apps/
 
 packages/
   ontology/        # TypeScript authoring DSL/compiler
-  speaker/         # leftover speaker loop (later unit)
   transport/       # leftover messaging adapters (later unit)
   mcp/             # ontology MCP door
   effect-worker/   # leftover Restate effect worker (later unit)

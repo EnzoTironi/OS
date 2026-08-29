@@ -1,13 +1,12 @@
 import { Client } from "pg";
 import {
-  createIdentityDirectoryClient,
-  createPostgresTurnStore,
-  type IdentityDirectory,
-} from "../../speaker/src/index.js";
-import {
   companionSessionIsReady,
   createHttpCompanionSession,
 } from "./companion-session.js";
+import {
+  createIdentityDirectoryClient,
+  type IdentityDirectory,
+} from "./identity-directory.js";
 import {
   createPostgresReplyLedger,
   createWhatsAppContactLoop,
@@ -40,9 +39,6 @@ async function main(): Promise<void> {
   const tenantHint = process.env.ZOEN_WHATSAPP_TENANT_HINT?.trim();
   const pg = new Client({ connectionString: databaseUrl });
   await pg.connect();
-  const store = createPostgresTurnStore({
-    query: (text, values) => pg.query(text, values as unknown[] | undefined),
-  });
   const loop = createWhatsAppContactLoop({
     doorE164,
     identity: withTenantHint(
@@ -57,7 +53,6 @@ async function main(): Promise<void> {
       query: (text, values) => pg.query(text, values as unknown[] | undefined),
     }),
     session,
-    store,
   });
 
   const ingress = await createWhatsAppMessagingIngress({

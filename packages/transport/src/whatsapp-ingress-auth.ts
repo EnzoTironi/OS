@@ -1,4 +1,4 @@
-import type { PostgresTurnStoreClient } from "../../speaker/src/turn-store.js";
+import type { PostgresQueryClient } from "./postgres-query.js";
 import {
   verifyStandardWebhook,
   WebhookVerificationError,
@@ -70,7 +70,7 @@ export function createMemoryIngressReplayStore(): IngressReplayStore {
 }
 
 export function createPostgresIngressReplayStore(
-  client: PostgresTurnStoreClient,
+  client: PostgresQueryClient,
 ): IngressReplayStore {
   const inflight = new Set<string>();
   return {

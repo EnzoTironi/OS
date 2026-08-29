@@ -15,7 +15,7 @@ Migration `0015_state_basis_digest_rehash.sql` rehashes **state basis**, not def
 
 1. Zoen JCS is RFC 8785 as implemented by `serde_jcs` 0.2 / `canonicalize` 4.x. Shared vectors live under `testdata/jcs/`.
 2. `zoen-core::jcs` is the Rust source of truth (no crates). Engine admission may keep `serde_jcs` only as a differential check against `zoen-core` and the fixtures.
-3. TypeScript authoring (`packages/ontology`, `packages/speaker`) uses the in-repo JCS module. `canonicalize` remains a test oracle, not the production hasher.
+3. TypeScript authoring (`packages/ontology`) uses the in-repo JCS module. `canonicalize` remains a test oracle, not the production hasher.
 4. `zoen.definition.v1` identity is SHA-256 (lowercase hex) of **normalized, then JCS** UTF-8 bytes. Schema/version is part of the hashed document. A JCS or normalize rule change requires a **new `schema` value** and a new ADR. Stored digests are never rewritten in place.
 5. CI must reject fixture drift (`scripts/generate-jcs-fixtures.mjs --check`) and run Rust/TypeScript fixture tests.
 

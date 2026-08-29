@@ -2,8 +2,8 @@
 
 Sole Chat SDK / provider-adapter site for Zoen.
 
-Zoen contracts live in `@zoen/speaker`. This package maps provider events to
-those contracts and lowers `DeliveryIntent` back to provider sends.
+Channel contracts live in this package. It maps provider events to inbound
+and delivery types and lowers `DeliveryIntent` back to provider sends.
 
 `createLiveLinqProvider` talks to `api.linqapp.com` with Standard Webhooks
 verify, outbound allowlist, and env-gated fail-closed advertise.

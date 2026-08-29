@@ -1,11 +1,3 @@
-/**
- * Chat SDK-shaped adapter surface owned by packages/transport.
- *
- * Live Telegram may import `@chat-adapter/telegram` in this package only.
- * Zoen contracts stay in `@zoen/speaker`. crates, zoend, speaker,
- * surface, and sdk must not import chat.
- */
-
 import type { CapabilityProbes } from "./capability-probes.js";
 
 export interface ChatSdkThreadRef {
@@ -57,7 +49,6 @@ export interface ChatSdkDeliveryReceipt {
   readonly typingRecorded?: boolean;
 }
 
-/** In-process Chat SDK-shaped provider. Never exported from @zoen/speaker. */
 export interface ChatSdkShapedAdapter {
   readonly providerId: string;
   readonly threadKind: ChatSdkThreadRef["kind"];

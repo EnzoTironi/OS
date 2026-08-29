@@ -3,15 +3,8 @@ import {
   tenantIdString,
   type ProviderKey,
 } from "./brands.js";
-import type { ResolvedChannelIdentity } from "./types.js";
+import type { ResolvedChannelIdentity } from "./channel.js";
 
-/**
- * Map provider subject → ExternalBinding → ZoenAccount → Active Membership.
- * Must call existing identity store semantics (zoend / IdentityStore).
- * Returns error on unbound subject, inactive membership, or merged-away account.
- *
- * ChannelObservation is attached by InteractionBoundary, not here.
- */
 export interface IdentityDirectory {
   resolveChannelSubject(input: {
     provider: ProviderKey;

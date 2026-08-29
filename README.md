@@ -26,7 +26,7 @@ Record the Sample Company five-minute path on `just start` with `./docs/demo/rec
 
 Prerequisites: Docker, `just`, Node 22+, and a Rust toolchain (or a prebuilt `target/debug/zoend`).
 
-Default clone path is `just build` (zoend + speaker/transport). Sample Company and the TanStack web app live on `archive/pre-modeled-erp`.
+Default clone path is `just build` (zoend + transport contact-serve). Conversation is Eve in `apps/conversation`. Sample Company and the TanStack web app live on `archive/pre-modeled-erp`.
 
 ```bash
 git clone https://github.com/EnzoTironi/OS.git && cd OS
