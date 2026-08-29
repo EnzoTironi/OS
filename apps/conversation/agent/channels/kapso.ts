@@ -1,4 +1,4 @@
-import { createKapsoAdapter } from "@kapso/chat-adapter";
+import { createKapsoAdapter, type KapsoAdapter } from "@kapso/chat-adapter";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import type { Message, Thread } from "chat";
 import { chatSdkChannel } from "eve/channels/chat-sdk";
@@ -94,10 +94,23 @@ function flattenInputRequests(
   return keepOneHttps(structured ?? "");
 }
 
-const adapter = createKapsoAdapter({
-  kapsoApiKey: process.env.KAPSO_API_KEY,
-  phoneNumberId: process.env.KAPSO_PHONE_NUMBER_ID,
-  webhookSecret: process.env.KAPSO_WEBHOOK_SECRET,
+let loadedKapsoAdapter: KapsoAdapter | undefined;
+
+function loadKapsoAdapter(): KapsoAdapter {
+  loadedKapsoAdapter ??= createKapsoAdapter({
+    kapsoApiKey: process.env.KAPSO_API_KEY,
+    phoneNumberId: process.env.KAPSO_PHONE_NUMBER_ID,
+    webhookSecret: process.env.KAPSO_WEBHOOK_SECRET,
+  });
+  return loadedKapsoAdapter;
+}
+
+const adapter: KapsoAdapter = new Proxy({} as KapsoAdapter, {
+  get(_target, property) {
+    const real = loadKapsoAdapter();
+    const value = Reflect.get(real, property, real);
+    return typeof value === "function" ? value.bind(real) : value;
+  },
 });
 
 async function skipDefaultErrorPost() {}
