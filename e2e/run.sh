@@ -143,10 +143,12 @@ run_lint() {
   npm run buf:generate
   npm exec -- buf build --as-file-descriptor-set -o proto/definition_descriptor.binpb
   git diff --exit-code -- gen/connect proto/definition_descriptor.binpb
-  if rg -n '@zoen/sdk|@zoen/osdk|packages/sdk|packages/osdk' \
-    --glob '*.ts' --glob '*.tsx' --glob 'package.json' --glob '**/package.json' \
-    --glob 'buf.gen.yaml' --glob '**/Dockerfile*' --glob '**/tsconfig*.json' \
-    --glob '!package-lock.json'; then
+  if grep -REn '@zoen/sdk|@zoen/osdk|packages/sdk|packages/osdk' \
+    --include='*.ts' --include='*.tsx' --include='package.json' \
+    --include='buf.gen.yaml' --include='Dockerfile*' --include='tsconfig*.json' \
+    --exclude='package-lock.json' \
+    --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=target --exclude-dir=.git \
+    .; then
     echo "sdk/osdk references remain" >&2
     exit 1
   fi
