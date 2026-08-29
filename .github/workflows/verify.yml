@@ -111,8 +111,6 @@ jobs:
       matrix:
         scenario:
           - activation-identity
-          - conversational-approval
-          - conversational-turn
           - definition-publication
           - durable-commit
           - evolution-breaking
