@@ -1,5 +1,8 @@
 import { defineSandbox } from "eve/sandbox";
 
+import { parseSessionMembership } from "./workbench";
+import { workbenchBackend } from "./workbench";
+
 function attributeText(
   attributes: Readonly<Record<string, string | readonly string[]>> | undefined,
   key: string,
@@ -30,17 +33,18 @@ function membershipKey(session: {
   return (
     attributeText(current.attributes, "membershipId") ??
     attributeText(current.attributes, "membership") ??
-    current.principalId
+    "unbound"
   );
 }
 
 export default defineSandbox({
+  backend: () => workbenchBackend({}),
   async onSession({ use, ctx }) {
-    const sandbox = await use();
-    const key = membershipKey(ctx.session);
+    const membershipId = parseSessionMembership(membershipKey(ctx.session));
+    const sandbox = await use({ membershipId });
     await sandbox.writeTextFile({
       path: "membership",
-      content: `${key}\n`,
+      content: `${membershipId}\n`,
     });
   },
 });

@@ -15,5 +15,14 @@ export default defineAgent({
     baseURL: process.env.OPENAI_BASE_URL,
   }).chat(modelId),
   modelContextWindowTokens: 128_000,
-  // Fly will use postgres world later.
+  build: {
+    externalDependencies: [
+      "@rivet-dev/agentos-core",
+      "@rivet-dev/agentos-runtime-core",
+      "@rivet-dev/agentos-sidecar",
+      "@rivet-dev/agentos-runtime-sidecar",
+      "better-sqlite3",
+      "isolated-vm",
+    ],
+  },
 });
