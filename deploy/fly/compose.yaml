@@ -1,5 +1,5 @@
 # Laptop twin of the Fly VM. Same processes, official images for infra.
-# zoend / companion / speaker build from this repo.
+# zoend, companion, and transport contact-serve build from this repo.
 
 name: zoen
 

@@ -45,7 +45,6 @@ export async function assertImportGraphLaw(
     );
   }
 
-  // packages/transport is the sole allowed Chat SDK / shaped-adapter site.
   assert.equal(transportPackage.name, "@zoen/transport");
 }
 
@@ -82,7 +81,6 @@ async function scanDirectory(
     if (!SOURCE_EXTENSIONS.has(ext)) {
       continue;
     }
-    // Skip package.json dependency declarations outside transport — already checked.
     if (entry.name === "package.json" && !full.includes(`${path.sep}transport${path.sep}`)) {
       const text = await readFile(full, "utf8");
       for (const pattern of FORBIDDEN_PATTERNS) {
