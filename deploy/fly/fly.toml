@@ -1,5 +1,5 @@
 # Dedicated Zoen on one Fly machine. Volume holds pgdata + Restate + MinIO.
-# Postgres, Restate, and Keycloak cannot survive auto-stop.
+# Postgres and Restate cannot survive auto-stop.
 
 app = "zoen"
 primary_region = "gru"
@@ -48,7 +48,6 @@ primary_region = "gru"
   ZOEN_OIDC_AUDIENCE = "zoend"
   ZOEN_OIDC_ISSUER = "https://zoen.tironi.xyz"
   ZOEN_OIDC_DISCOVERY_URL = "http://127.0.0.1:58704"
-  ZOEN_OIDC_MACHINE_ISSUER = "http://127.0.0.1:8080/realms/zoen"
   ZOEN_IDENTITY_BASE_URL = "http://127.0.0.1:58701"
   BETTER_AUTH_URL = "https://zoen.tironi.xyz"
   S3_ALLOW_HTTP = "true"
@@ -56,10 +55,5 @@ primary_region = "gru"
   S3_ENDPOINT = "http://127.0.0.1:9000"
   S3_BUCKET = "zoen-projections"
   RESTATE_INGRESS = "http://127.0.0.1:9071"
-  KC_HOSTNAME = "127.0.0.1"
-  KC_HOSTNAME_STRICT = "false"
-  KC_HTTP_ENABLED = "true"
-  KC_HEALTH_ENABLED = "true"
-  KC_HTTP_MANAGEMENT_PORT = "9002"
   ZOEN_MODEL = "openai-compatible/hy3-free"
   OPENAI_BASE_URL = "https://opencode.ai/zen/v1"

@@ -92,30 +92,6 @@ get_url() {
   curl -sS -o "$body" -w '%{http_code}' "$url"
 }
 
-revert_remint_to_keycloak() {
-  cat > "${repo}/deploy/fly/zoen-remint-agent" <<'KEYCLOAK'
-#!/bin/sh
-set -eu
-mkdir -p /data/zoen
-issuer="${ZOEN_OIDC_MACHINE_ISSUER:-http://127.0.0.1:8080/realms/zoen}"
-secret="${ZOEN_OIDC_CLIENT_SECRET:?ZOEN_OIDC_CLIENT_SECRET required}"
-out="${ZOEN_AGENT_BEARER_TOKEN_FILE:-/data/zoen/agent.token}"
-while true; do
-  if json="$(curl -fsS -X POST "${issuer}/protocol/openid-connect/token" \
-    -H 'content-type: application/x-www-form-urlencoded' \
-    --data-urlencode 'grant_type=client_credentials' \
-    --data-urlencode 'client_id=admin-a' \
-    --data-urlencode "client_secret=${secret}")"
-  then
-    printf '%s' "$json" | python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["access_token"])' "$out"
-    chmod 600 "$out"
-  fi
-  sleep 200
-done
-KEYCLOAK
-  chmod +x "${repo}/deploy/fly/zoen-remint-agent"
-}
-
 write_proof() {
   mkdir -p "$(dirname "$proof")"
   cp "$draft" "$proof"
@@ -487,9 +463,13 @@ if [[ "$verdict" == "pass" ]]; then
 fi
 
 supervisord="${repo}/deploy/fly/supervisord.conf"
-grep -q '^\[program:keycloak\]' "$supervisord" || fail "keycloak program missing"
-excerpt="keycloak_program_present"
-record "Keycloak program stays" "grep program:keycloak deploy/fly/supervisord.conf" "$supervisord" "n/a" "$excerpt" "$(stamp)"
+if grep -q '^\[program:keycloak\]' "$supervisord"; then
+  fail "keycloak program still in supervisord"
+fi
+grep -q '^\[program:auth\]' "$supervisord" || fail "auth program missing"
+grep -q '^\[program:remint\]' "$supervisord" || fail "remint program missing"
+excerpt="keycloak_gone_auth_remint_present"
+record "Keycloak gone, auth and remint stay" "grep program:auth deploy/fly/supervisord.conf" "$supervisord" "n/a" "$excerpt" "$(stamp)"
 
 {
   printf '## 3. Lake publish\n\n'
@@ -499,7 +479,7 @@ record "Keycloak program stays" "grep program:keycloak deploy/fly/supervisord.co
     printf 'Lake publish/activate did not succeed with a BA session JWT and WebOidc bind. No fake claims were injected.\n\n'
   fi
   printf '## 4. Keycloak program\n\n'
-  printf '`[program:keycloak]` remains in `deploy/fly/supervisord.conf`.\n\n'
+  printf '`[program:keycloak]` is gone from `deploy/fly/supervisord.conf`. `[program:auth]` and `[program:remint]` stay.\n\n'
   printf '## 5. Inventory: no official client_credentials on the door\n\n'
   printf 'Discovery is issuer + jwks_uri only. `POST /api/auth/oauth2/token` with `grant_type=client_credentials` is not a machine mint. `GET /api/auth/token` without a session is not 200. Remint uses grant `session`.\n\n'
 } >> "$draft"
@@ -507,15 +487,14 @@ record "Keycloak program stays" "grep program:keycloak deploy/fly/supervisord.co
 if [[ "$verdict" != "pass" ]]; then
   {
     printf '## Verdict\n\n'
-    printf 'fail-open. %s. Remint reverted to Keycloak.\n' "$fail_open_reason"
+    printf 'fail-open. %s. Remint was not rewritten.\n' "$fail_open_reason"
   } >> "$draft"
-  revert_remint_to_keycloak
   write_proof
   fail "fail-open: ${fail_open_reason}"
 fi
 
 {
   printf '## Verdict\n\n'
-  printf 'pass. remint session-mints on loopback door. bind plus lake publish work without fake claims. Keycloak stays.\n'
+  printf 'pass. remint session-mints on loopback door. bind plus lake publish work without fake claims. Keycloak is off the Fly image.\n'
 } >> "$draft"
 write_proof

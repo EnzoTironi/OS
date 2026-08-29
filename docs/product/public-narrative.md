@@ -8,7 +8,7 @@ Visitor-facing copy follows this order. Architecture stays after first value.
 4. Sample Company: first governed Action without ADR reading.
 5. Packs: outcome-first examples. Live directory at `/packs`. Directory copy in `docs/product/pack-directory.md`. Install/share from #260; Kitchen from #264 has landed (`just e2e pack-kitchen` on `archive/pre-modeled-erp`).
 6. Why not LLM + tools: evidence vs truth, shared contracts, governed Actions, unknown effects, reproducible history.
-7. Deploy: one Fly app, optional paid providers, Keycloak + Active Membership.
+7. Deploy: one Fly app, optional paid providers, Better Auth + Active Membership.
 8. Architecture: `Type + Relation + Computation + Action`, ADRs, contributor depth.
 
 ## Progressive reveal after first success
