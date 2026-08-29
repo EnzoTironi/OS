@@ -80,9 +80,9 @@ else
   fail=1
 fi
 
-check "package.json dependencies has just-bash" "python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); sys.exit(0 if \"just-bash\" in (p.get(\"dependencies\") or {}) else 1)' apps/conversation/package.json" "dependencies.just-bash"
-check "package.json does not keep just-bash only in devDependencies" "python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); deps=p.get(\"dependencies\") or {}; dev=p.get(\"devDependencies\") or {}; sys.exit(1 if \"just-bash\" in dev and \"just-bash\" not in deps else 0)' apps/conversation/package.json" "not-dev-only"
-check "package-lock has node_modules/just-bash" "python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); sys.exit(0 if \"node_modules/just-bash\" in (p.get(\"packages\") or {}) else 1)' apps/conversation/package-lock.json" "packages[node_modules/just-bash]"
+check "package.json dependencies has just-bash" "node -e 'const p=require(\"./apps/conversation/package.json\"); process.exit(p.dependencies&&p.dependencies[\"just-bash\"]?0:1)'" "dependencies.just-bash"
+check "package.json does not keep just-bash only in devDependencies" "node -e 'const p=require(\"./apps/conversation/package.json\"); process.exit(p.devDependencies&&p.devDependencies[\"just-bash\"]&&!(p.dependencies&&p.dependencies[\"just-bash\"])?1:0)'" "not-dev-only"
+check "package-lock has node_modules/just-bash" "node -e 'const p=require(\"./apps/conversation/package-lock.json\"); process.exit(p.packages&&p.packages[\"node_modules/just-bash\"]?0:1)'" "packages[node_modules/just-bash]"
 check "kapso.ts uses createKapsoAdapter" "grep -q 'createKapsoAdapter' apps/conversation/agent/channels/kapso.ts" "createKapsoAdapter"
 check "kapso.ts uses chatSdkChannel" "grep -q 'chatSdkChannel' apps/conversation/agent/channels/kapso.ts" "chatSdkChannel"
 check "kapso.ts does not import defineChannel" "! grep -q 'defineChannel' apps/conversation/agent/channels/kapso.ts" "absent"
@@ -136,7 +136,7 @@ else
   record "eve build before start" "test -d apps/conversation/.output" "apps/conversation/.output" "pass" "present"
 fi
 
-port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+port="$(node -e 'const net=require("node:net"); const s=net.createServer(); s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port)); s.close()})')"
 start_cmd="node ./node_modules/eve/bin/eve.js start --host 127.0.0.1 --port ${port}"
 health_url="http://127.0.0.1:${port}/eve/v1/health"
 start_status="fail"
@@ -202,6 +202,9 @@ else
   health_excerpt="http ${health_code}"
   if [[ -s "$health_body" ]]; then
     health_excerpt="${health_excerpt} $(snippet "$health_body")"
+  fi
+  if [[ "$start_status" == "pass" && "$health_code" != "200" ]]; then
+    fail=1
   fi
   record "GET /eve/v1/health" "curl -sS -o body -w %{http_code} $health_url" "$health_url" "$health_code" "$health_excerpt"
 
