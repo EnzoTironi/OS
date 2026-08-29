@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+if [ -z "${ZOEN_APP_PASSWORD:-}" ]; then
+  echo "auth: ZOEN_APP_PASSWORD is required" >&2
+  exit 1
+fi
+if [ -z "${BETTER_AUTH_SECRET:-}" ]; then
+  echo "auth: BETTER_AUTH_SECRET is required" >&2
+  exit 1
+fi
+if [ -z "${BETTER_AUTH_URL:-}" ]; then
+  echo "auth: BETTER_AUTH_URL is required" >&2
+  exit 1
+fi
+psql -v ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL'
+SELECT 'CREATE DATABASE zoen_auth OWNER zoen_app'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'zoen_auth')\gexec
+ALTER DATABASE zoen_auth OWNER TO zoen_app;
+SQL
+psql -v ON_ERROR_STOP=1 -U postgres -d zoen_auth <<'SQL'
+ALTER SCHEMA public OWNER TO zoen_app;
+GRANT ALL ON SCHEMA public TO zoen_app;
+SQL
+DATABASE_URL="$(python3 -c 'import os, urllib.parse; print("postgres://zoen_app:" + urllib.parse.quote(os.environ["ZOEN_APP_PASSWORD"], safe="") + "@127.0.0.1:5432/zoen_auth")')"
+export DATABASE_URL
+cd /auth
+/usr/local/bin/node ./node_modules/auth/dist/index.mjs migrate --config src/auth.ts --yes
+exec /usr/local/bin/node ./node_modules/tsx/dist/cli.mjs src/server.ts

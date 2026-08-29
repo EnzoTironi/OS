@@ -13,6 +13,13 @@ COPY wit wit
 RUN cargo build --locked --release --package zoend --bin zoend --bin zoen-effect-dispatcher \
     && strip --strip-debug target/release/zoend target/release/zoen-effect-dispatcher
 
+FROM node:22.18.0-bookworm-slim AS auth
+WORKDIR /auth
+COPY apps/auth/package.json apps/auth/package-lock.json ./
+RUN npm ci
+COPY apps/auth/src ./src
+COPY apps/auth/tsconfig.json ./
+
 FROM node:22.18.0-bookworm-slim AS personal-lake
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
@@ -33,6 +40,7 @@ COPY --from=zoend /src/target/release/zoend /usr/local/bin/zoend
 COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
 COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
 COPY --from=personal-lake /app /app
+COPY --from=auth /auth /auth
 COPY --from=quay.io/keycloak/keycloak:26.0.7 /opt/keycloak /opt/keycloak
 
 # Restate release tarball name can move; install via their image instead.
@@ -50,6 +58,7 @@ COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/realm.template.json /etc/zoen/realm.template.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
 COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake
+COPY deploy/fly/zoen-start-auth /usr/local/bin/zoen-start-auth
 COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
 COPY packages/ontology/fixtures/commercial.zoen.ts /etc/zoen/commercial.zoen.ts
 COPY packages/ontology/fixtures/personal.zoen.ts /etc/zoen/personal.zoen.ts

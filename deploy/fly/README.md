@@ -1,7 +1,7 @@
 # Fly `zoen`
 
 One machine in `gru`. Volume `zoen_data` → `/data` (postgres, Restate, MinIO).
-Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Postgres, Restate, and Keycloak stay up (`auto_stop_machines = off`).
+Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Postgres, Restate, Keycloak, and the Better Auth door stay up (`auto_stop_machines = off`). The door listens on `127.0.0.1:58704`. zoend forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` there. WhatsApp `/onboard/{token}` stays on zoend. `ZOEN_OIDC_ISSUER` is still Keycloak.
 
 ## Ship a change
 
@@ -36,3 +36,5 @@ fly ssh console --app zoen -C "zoen-bind-inbox"
 Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID (`5531999941160@s.whatsapp.net` by default). Never the door.
 
 `ZOEN_MODEL` and `OPENAI_BASE_URL` are in fly.toml `[env]`; `OPENAI_API_KEY` stays a Fly/GitHub secret. Effects/connector stay unset on this VM.
+
+`BETTER_AUTH_URL` is in fly.toml `[env]`. `BETTER_AUTH_SECRET` is a Fly secret, not committed. Auth crashloops without it. zoend and Keycloak still boot.
