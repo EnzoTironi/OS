@@ -30,11 +30,6 @@ type ScenarioSpec = {
   readonly ticket: string;
 };
 
-/**
- * Remaining live activation slots after archive. Slot 2 is messaging-boundary.
- * Sample Company, Pack, Kitchen, onboarding, and metrics are archive-class.
- * Live Linq is optional `channel-linq-live`, not a verify-activation required slot.
- */
 const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
   {
     id: "activation-identity",
@@ -757,7 +752,7 @@ async function main(): Promise<void> {
     generatedAt: new Date().toISOString(),
     advertisedClaims,
     channelPolicy: {
-      liveLinq: "optional-channel-linq-live",
+      liveLinq: "not-required",
       liveFiscal: "parked-#214",
       requiredMessagingScenarios: ["messaging-boundary"],
     },

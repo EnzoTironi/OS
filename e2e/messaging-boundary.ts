@@ -2,12 +2,6 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  createIdentityDirectoryClient,
-  providerKey,
-  providerThreadRef,
-  toChannelProvider,
-} from "../packages/transport/src/index.js";
-import {
   applicationDatabaseUrl,
   oidcToken,
   startServer,
@@ -104,7 +98,7 @@ async function seedBoundAccount(): Promise<{
 
   const linqBind = await admin("POST", "/identity/admin/bind-verified", {
     accountId,
-    provider: toChannelProvider(providerKey("linq")),
+    provider: "linq",
     subjectKey: linqSubject,
   });
   assert.equal(linqBind.status, 200, JSON.stringify(linqBind.body));
@@ -131,12 +125,6 @@ async function main(): Promise<void> {
   killMutant("crates or zoend depend on vercel/chat");
   killMutant("Read Chat SDK adapter state as semantic memory / StateBasis");
 
-  const messagingModule = await import("../packages/transport/src/index.js");
-  record(
-    "no_project_interaction_records_api",
-    !("projectInteractionRecords" in messagingModule),
-  );
-
   let server: ServerProcess = await startServer(policyManifestPath, {
     extraEnv: {
       ZOEN_WHATSAPP_INGRESS_SECRET: "",
@@ -145,16 +133,11 @@ async function main(): Promise<void> {
   });
   try {
     const seed = await seedBoundAccount();
-    const identity = createIdentityDirectoryClient({
-      adminToken: await oidcToken("admin-a"),
-      baseUrl,
-    });
 
     record(
       "thread_is_not_tenant",
       seed.tenantId !== "9900001" &&
-        seed.tenantId !== "chat_guid_linq_demo" &&
-        seed.tenantId !== (providerThreadRef("9900001") as unknown as string),
+        seed.tenantId !== "chat_guid_linq_demo",
     );
     killMutant("Treat channel.thread as tenantId");
 
@@ -174,28 +157,19 @@ async function main(): Promise<void> {
         seed.tenantId !== seed.principalId,
     );
 
-    let unresolvedRejected = false;
-    try {
-      await identity.resolveChannelSubject({
-        provider: providerKey("telegram"),
-        subjectKey: "tg_user_never_bound",
-      });
-    } catch {
-      unresolvedRejected = true;
-    }
-    record("unresolved_membership_fails_closed", unresolvedRejected);
+    const unresolved = await admin(
+      "GET",
+      "/identity/admin/resolve-subject?provider=telegram&subjectKey=tg_user_never_bound",
+      undefined,
+      await oidcToken("admin-a"),
+    );
+    record("unresolved_membership_fails_closed", unresolved.status !== 200);
     killMutant("Deliver without Active Membership context");
 
     record(
       "self_host_needs_no_linq_photon_credentials",
       process.env.LINQ_API_KEY === undefined &&
         process.env.PHOTON_API_KEY === undefined,
-    );
-
-    assert.equal(toChannelProvider(providerKey("linq")), "linq");
-    record(
-      "linq_maps_to_channel_provider_linq",
-      toChannelProvider(providerKey("linq")) === "linq",
     );
 
     const unsigned = await postWhatsAppInbound(

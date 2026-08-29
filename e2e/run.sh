@@ -18,11 +18,6 @@ scenario_table=(
   "activation-onboarding:activation-onboarding::archive"
   "activation-metrics:activation-metrics::archive"
   "messaging-boundary:messaging-boundary::live"
-  "channel-linq-live:channel-linq-live::credential"
-  "channel-whatsapp-live:channel-whatsapp-live::credential"
-  "channel-telegram-live:channel-telegram-live::credential"
-  "messaging-conformance-live:messaging-conformance-live::credential"
-  "whatsapp-dirty-quote:whatsapp-dirty-quote::credential"
   "company-bootstrap-shadow:company-bootstrap-shadow::archive"
   "pack-kitchen:pack-kitchen::archive"
   "personal-family:personal-family::archive"
@@ -236,71 +231,8 @@ require_built() {
 }
 
 require_fiscal_live_environment() {
-  if [[ "$scenario" == "channel-linq-live" && -f "${HOME}/.config/zoen/linq-sandbox.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${HOME}/.config/zoen/linq-sandbox.env"
-    set +a
-  fi
-  if [[ "$scenario" == "channel-whatsapp-live" ]]; then
-    if [[ -f "${HOME}/.config/zoen/whatsapp-door.env" ]]; then
-      set -a
-      # shellcheck disable=SC1091
-      source "${HOME}/.config/zoen/whatsapp-door.env"
-      set +a
-    fi
-    if [[ -f /tmp/zoen-wa-pair/door.env ]]; then
-      set -a
-      # shellcheck disable=SC1091
-      source /tmp/zoen-wa-pair/door.env
-      set +a
-    fi
-    if [[ -z "${ZOEN_WHATSAPP_COMPANION_URL:-}" ]]; then
-      export ZOEN_WHATSAPP_COMPANION_URL="http://127.0.0.1:8081"
-    fi
-  fi
-  if [[ "$scenario" == "whatsapp-dirty-quote" ]]; then
-    if [[ -f /tmp/zoen-wa-pair/door.env ]]; then
-      set -a
-      # shellcheck disable=SC1091
-      source /tmp/zoen-wa-pair/door.env
-      set +a
-    fi
-    if [[ -z "${ZOEN_WHATSAPP_COMPANION_URL:-}" ]]; then
-      export ZOEN_WHATSAPP_COMPANION_URL="http://127.0.0.1:8081"
-    fi
-  fi
-  if [[ "$scenario" == "channel-telegram-live" && -f "${HOME}/.config/zoen/telegram-bot.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${HOME}/.config/zoen/telegram-bot.env"
-    set +a
-  fi
-  if [[ "$scenario" == "messaging-conformance-live" ]]; then
-    if [[ -f "${HOME}/.config/zoen/whatsapp-door.env" ]]; then
-      set -a
-      # shellcheck disable=SC1091
-      source "${HOME}/.config/zoen/whatsapp-door.env"
-      set +a
-    fi
-    if [[ -f "${HOME}/.config/zoen/telegram-bot.env" ]]; then
-      set -a
-      # shellcheck disable=SC1091
-      source "${HOME}/.config/zoen/telegram-bot.env"
-      set +a
-    fi
-    if [[ -f "${HOME}/.config/zoen/linq-sandbox.env" ]]; then
-      set -a
-      # shellcheck disable=SC1091
-      source "${HOME}/.config/zoen/linq-sandbox.env"
-      set +a
-    fi
-  fi
   local required=()
   case "$scenario" in
-    channel-linq-live)
-      required=(LINQ_API_KEY)
-      ;;
     fiscal-systax-live)
       required=(
         ZOEN_FISCAL_LIVE_CONTEXT_PATH

@@ -22,16 +22,15 @@ RUN go mod download
 COPY apps/whatsapp-companion/ ./
 RUN CGO_ENABLED=0 go build -o /zoen-whatsapp-companion ./cmd/zoen-whatsapp-companion
 
-FROM node:22.18.0-bookworm-slim AS speaker
+FROM node:22.18.0-bookworm-slim AS personal-lake
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
-COPY packages/transport packages/transport
 COPY packages/ontology packages/ontology
 COPY gen/connect gen/connect
-COPY deploy/fly/tsconfig.speaker.json deploy/fly/tsconfig.speaker.json
+COPY deploy/fly/tsconfig.personal-lake.json deploy/fly/tsconfig.personal-lake.json
 COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
 RUN npm ci \
-    && npx tsc -p deploy/fly/tsconfig.speaker.json --pretty false
+    && npx tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false
 
 FROM postgres:18
 RUN apt-get update \
@@ -42,8 +41,8 @@ RUN apt-get update \
 COPY --from=zoend /src/target/release/zoend /usr/local/bin/zoend
 COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
 COPY --from=companion /zoen-whatsapp-companion /usr/local/bin/zoen-whatsapp-companion
-COPY --from=speaker /usr/local/bin/node /usr/local/bin/node
-COPY --from=speaker /app /app
+COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
+COPY --from=personal-lake /app /app
 COPY --from=quay.io/keycloak/keycloak:26.0.7 /opt/keycloak /opt/keycloak
 
 # Restate release tarball name can move; install via their image instead.
@@ -61,7 +60,6 @@ COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/realm.template.json /etc/zoen/realm.template.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
 COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake
-COPY deploy/fly/zoen-wait-for-personal-lake /usr/local/bin/zoen-wait-for-personal-lake
 COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
 COPY packages/ontology/fixtures/commercial.zoen.ts /etc/zoen/commercial.zoen.ts
 COPY packages/ontology/fixtures/personal.zoen.ts /etc/zoen/personal.zoen.ts

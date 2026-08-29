@@ -39,7 +39,7 @@
       "issue": 326,
       "pr": null,
       "title": "Unofficial WhatsApp via whatsmeow sidecar",
-      "note": "In flight. Companion posts zoend /channels/whatsapp/inbound. Unbound 1:1 pokes in the same thread. Bound runs the turn coordinator. Advertise fails closed without ZOEN_WHATSAPP_DOOR_E164 and a ready session. Python log sink is not the live path. #375 then #376."
+      "note": "In flight. Companion posts zoend /channels/whatsapp/inbound. Destination WhatsApp is Kapso in Eve. Python log sink is not the live path. #375 then #376."
     },
     {
       "order": 3,
@@ -60,7 +60,7 @@
       "issue": 328,
       "pr": null,
       "title": "Surface IR and Attention on live channels",
-      "note": "Surface and attention are archived. Live WhatsApp lowers PresentationIntent from packages/transport. Speaker debounce is local. Paired door still missing."
+      "note": "Surface and attention are archived. Live WhatsApp destination is Kapso in Eve. Paired door still missing."
     }
   ],
   "rows": [
@@ -194,7 +194,7 @@
       "onMain": false,
       "product": false,
       "path": "archive/pre-modeled-erp:archive/packages/surface",
-      "proof": "Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp uses PresentationIntent in packages/transport.",
+      "proof": "Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp destination is Kapso in Eve.",
       "issue": 328
     },
     {
@@ -205,7 +205,7 @@
       "onMain": false,
       "product": false,
       "path": "archive/pre-modeled-erp:archive/packages/attention",
-      "proof": "Not on default main. Transport does not import it.",
+      "proof": "Not on default main. Default tree does not import it.",
       "issue": 328
     },
     {
@@ -292,8 +292,8 @@
       "name": "Live Linq iMessage adapter",
       "onMain": true,
       "product": true,
-      "path": "packages/transport/src/adapters/linq-live.ts",
-      "proof": "just e2e channel-linq-live. Needs LINQ_API_KEY. Skipped by just verify. Optional for self-host.",
+      "path": "crates/zoen-core/src/identity.rs",
+      "proof": "Node Linq adapter deleted. ChannelProvider::Linq stays in zoend identity. Optional for self-host.",
       "issue": 253
     },
     {
@@ -303,11 +303,11 @@
       "name": "Telegram channel",
       "onMain": false,
       "product": false,
-      "path": "packages/transport/src/adapters/telegram-live.ts, packages/transport/src/telegram-ingress.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-telegram-live.ts",
-      "proof": "just e2e channel-telegram-live. Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted.",
+      "path": "apps/zoend/src/messaging_ingress.rs",
+      "proof": "Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted. Node Telegram adapter deleted.",
       "issue": 329,
       "backup": [
-        "packages/transport/src/adapters/telegram-fake.ts"
+        "backup/stubs-channels"
       ],
       "blocker": "Telegram bot token"
     },
@@ -318,11 +318,11 @@
       "name": "Unofficial WhatsApp (whatsmeow) for Brazil",
       "onMain": false,
       "product": false,
-      "path": "apps/whatsapp-companion, packages/transport/src/adapters/whatsapp-live.ts, packages/transport/src/whatsapp-contact-loop.ts, apps/zoend/src/messaging_ingress.rs, e2e/channel-whatsapp-live.ts",
-      "proof": "just e2e channel-whatsapp-live. Fail closed without ZOEN_WHATSAPP_DOOR_E164 and a ready CompanionSession. Human 1:1 to the Vivo door must get a same-thread reply. Cloud API fake stays deleted. Python log sink is not the live path.",
+      "path": "apps/whatsapp-companion, apps/zoend/src/messaging_ingress.rs",
+      "proof": "Companion posts zoend /channels/whatsapp/inbound. Destination WhatsApp is Kapso in Eve. Cloud API fake stays deleted. Python log sink is not the live path.",
       "issue": 375,
       "backup": [
-        "packages/transport/src/adapters/whatsapp-business-fake.ts"
+        "backup/stubs-channels"
       ],
       "blocker": "Dedicated Zoen WhatsApp number"
     },
@@ -333,8 +333,8 @@
       "name": "Messaging conformance against live adapters",
       "onMain": false,
       "product": false,
-      "path": "e2e/messaging-conformance-live.ts, e2e/messaging-conformance-live, e2e/run.sh",
-      "proof": "just e2e messaging-conformance-live. Live unofficial WhatsApp + live Telegram required. Linq optional. Fail closed without TELEGRAM_BOT_TOKEN / ZOEN_WHATSAPP_DOOR_E164 / companion. Fakes stay deleted.",
+      "path": "apps/conversation/agent/channels/whatsapp.ts, apps/zoend/src/messaging_ingress.rs",
+      "proof": "Node adapter conformance journey deleted. Live WhatsApp destination is Kapso in Eve. Fakes stay deleted.",
       "issue": 327,
       "backup": [
         "e2e/messaging-conformance.ts",
@@ -422,8 +422,8 @@
       "name": "Distinct Linq ChannelProvider",
       "onMain": true,
       "product": true,
-      "path": "packages/transport/src/identity-directory.ts",
-      "proof": "On main via #331. ChannelProvider::Linq. toChannelProvider(\"linq\") === \"linq\".",
+      "path": "crates/zoen-core/src/identity.rs",
+      "proof": "On main via #331. zoend ChannelProvider::Linq.",
       "issue": 318,
       "pr": [
         331
