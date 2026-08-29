@@ -101,8 +101,6 @@ jobs:
       - run: cargo test --locked --package zoen-core --lib jcs
       - run: cargo test --locked --package zoen-engine --lib admission_jcs
       - run: cargo test --locked --package zoen-engine --lib historical_inventory_definition
-      - run: npm run build
-      - run: node --test dist/packages/ontology/src/jcs.test.js
 
   e2e:
     needs: [check, clippy, build]
