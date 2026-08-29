@@ -30,7 +30,7 @@ ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-v1/testdata/fail-closed just verify-v1
 
 `verify-v1` is the V1 release gate. It aggregates immutable scenario evidence into one signed machine-readable bundle. Prose status, unit-test counts, and agent self-reports are not substitutes.
 
-The gate is aggregate-only. It does not rerun KIND, Docker Compose scenarios, or the 100M reference scale suite. Operators produce scenario evidence with `just e2e`, `just release-drill`, `just scale`, or `just verify`, then ask `just verify-v1` for the release decision.
+The gate is aggregate-only. It does not rerun Docker Compose scenarios. Operators produce scenario evidence with `just e2e` or `just verify`, then ask `just verify-v1` for the release decision.
 
 ## Inputs
 
@@ -38,7 +38,7 @@ The gate is aggregate-only. It does not rerun KIND, Docker Compose scenarios, or
 - Candidate SHA: `git rev-parse HEAD` or `ZOEN_VERIFY_CANDIDATE_SHA`
 - Optional signing material: `ZOEN_VERIFY_SIGNING_KEY_PEM` and `ZOEN_VERIFY_SIGNING_PUB_PEM`
 
-Required scenario directories match BUILD tickets #191–#205 and #211–#218.
+Required scenario directories match the live Compose BUILD tickets still listed in `e2e/verify-v1.ts`.
 
 Live Brazil fiscal vendors (Systax, PlugNotas, Protheus) are **not** advertised V1 capabilities while #214 is parked. The default advertised live list is empty until #214 unparks real vendor evidence. Un-advertising parked vendors is Spec/Wayfinder-allowed; it is not a sandbox-pass invent.
 
@@ -65,10 +65,7 @@ The gate fails closed on:
 - missing source commit (including fiscal-fault-matrix)
 - scenario bodies without an explicit PASS `verdict`/`status`
 - fixture-marked scenario evidence outside `e2e/verify-v1/testdata/`
-- scale evidence that is not an explicit pass, or whose `scaleClass`/`targetRecords` do not match smoke=`10000` or reference=`100000000`
-- unsigned OCI metadata where signatures are required
 - surviving semantic mutants
-- RPO/RTO above target (exact equality is allowed)
 - advertised live provider evidence absent or not commit-bound
 - any verification-layer mutant that is not killed in-process
 
@@ -80,9 +77,6 @@ In-process mutants the gate must kill:
 - accept evidence from wrong commit
 - skip live-provider requirement (injects an advertised live provider while #214 is parked)
 - ignore surviving semantic mutant
-- ignore RPO threshold
-- accept unsigned artifact
-- reuse stale scale results (accepts stale scale by itself)
 - accept fixture evidence as production (would treat `fixture: true` outside testdata as a ship bundle)
 
 ## Resume

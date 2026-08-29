@@ -48,9 +48,9 @@ Kitchen is archived. It does not derive live Pack capabilities from arbitrary co
 
 ## Default gates
 
-`just verify` and GitHub `verify` run `scenario_table` class `live` only. Classes `archive`, `kind`, `scale`, and `credential` are optional. `scripts/check-domain-leakage.mjs` is in `run_lint` so a `commercial.*` kernel branch still fails default CI.
+`just verify` and GitHub `verify` run `scenario_table` class `live` only. Classes `archive` and `credential` are optional. `scripts/check-domain-leakage.mjs` is in `run_lint` so a `commercial.*` kernel branch still fails default CI.
 
-`just verify-v1` no longer requires archived ERP/web/pack/effects slots. KIND and scale evidence remain production-release slots; `just verify` does not produce them. `just verify-activation` keeps the live activation and public-surface slots.
+`just verify-v1` aggregates live Compose evidence. `just verify-activation` keeps the live activation and public-surface slots.
 
 ## Invariants
 

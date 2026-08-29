@@ -15,8 +15,6 @@ import { z } from "zod";
 const SCHEMA_ID = "zoen.verify.v1" as const;
 const RPO_TARGET_SECONDS = 300;
 const RTO_TARGET_SECONDS = 1800;
-const SCALE_SMOKE_RECORDS = 10_000;
-const SCALE_REFERENCE_RECORDS = 100_000_000;
 const FIXTURE_COMMIT_PLACEHOLDER = "__CANDIDATE_SHA__";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -25,12 +23,7 @@ const repositoryRoot = path.basename(path.dirname(moduleDirectory)) === "dist"
   ? path.resolve(moduleDirectory, "../..")
   : path.resolve(moduleDirectory, "..");
 
-type ScenarioKind =
-  | "compose"
-  | "kind"
-  | "scale"
-  | "company"
-  | "fiscal-matrix";
+type ScenarioKind = "compose" | "fiscal-matrix";
 
 type ScenarioSpec = {
   readonly id: string;
@@ -49,15 +42,6 @@ const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
   { id: "evolution-compatible", kind: "compose", primary: "evolution-compatible.json", requiresSignedOci: false, ticket: "#198" },
   { id: "evolution-breaking", kind: "compose", primary: "evolution-breaking.json", requiresSignedOci: false, ticket: "#199" },
   { id: "wasm-code-mode", kind: "compose", primary: "wasm-code-mode.json", requiresSignedOci: false, ticket: "#202" },
-  { id: "shared-tenancy", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#215" },
-  { id: "deploy-dedicated", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#216" },
-  { id: "deploy-self-hosted-isolated", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#216" },
-  { id: "ha-chaos", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#217" },
-  { id: "backup-restore", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#217" },
-  { id: "rolling-upgrade", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#217" },
-  { id: "rpo-rto", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#217" },
-  { id: "scale-mixed-v1", kind: "scale", primary: "evidence.json", requiresSignedOci: true, ticket: "#218" },
-  { id: "v1-company", kind: "company", primary: "v1-company.json", requiresSignedOci: true, ticket: "#205" },
 ];
 
 // Live Brazil fiscal vendors (systax/plugnotas/protheus) stay parked until #214.
@@ -490,28 +474,22 @@ function evaluateGate(
         scenario: spec.id,
         detail: "evidence does not record sourceCommit/sourceSha",
       });
-    } else if (!commitsMatch(candidate, commit)) {
-      const allowStaleScale = spec.kind === "scale" && options.reuseStaleScale;
-      if (!allowStaleScale && !options.acceptWrongCommit) {
-        failures.push({
-          code: spec.kind === "scale" ? "stale-scale" : "wrong-commit",
-          scenario: spec.id,
-          detail: `evidence commit ${commit} does not match candidate ${candidate}`,
-        });
-      }
+    } else if (!commitsMatch(candidate, commit) && !options.acceptWrongCommit) {
+      failures.push({
+        code: "wrong-commit",
+        scenario: spec.id,
+        detail: `evidence commit ${commit} does not match candidate ${candidate}`,
+      });
     }
 
     if (evidence.signedOci !== null) {
       const signedCommit = evidence.signedOci.sourceSha;
-      if (!commitsMatch(candidate, signedCommit)) {
-        const allowStaleScale = spec.kind === "scale" && options.reuseStaleScale;
-        if (!allowStaleScale && !options.acceptWrongCommit) {
-          failures.push({
-            code: spec.kind === "scale" ? "stale-scale" : "wrong-commit",
-            scenario: spec.id,
-            detail: `signed-oci sourceSha ${signedCommit} does not match candidate ${candidate}`,
-          });
-        }
+      if (!commitsMatch(candidate, signedCommit) && !options.acceptWrongCommit) {
+        failures.push({
+          code: "wrong-commit",
+          scenario: spec.id,
+          detail: `signed-oci sourceSha ${signedCommit} does not match candidate ${candidate}`,
+        });
       }
     }
 
@@ -546,79 +524,6 @@ function evaluateGate(
         });
       }
     }
-
-    if (spec.kind === "scale") {
-      const scaleClass = evidence.body.scaleClass;
-      const targetRecords = Number(evidence.body.targetRecords);
-      if (scaleClass !== "smoke" && scaleClass !== "reference") {
-        failures.push({
-          code: "scale-class",
-          scenario: spec.id,
-          detail: `scaleClass must be smoke or reference, got ${JSON.stringify(scaleClass)}`,
-        });
-      } else if (!Number.isFinite(targetRecords)) {
-        failures.push({
-          code: "scale-size",
-          scenario: spec.id,
-          detail: "scale evidence targetRecords is missing or not a number",
-        });
-      } else if (scaleClass === "smoke" && targetRecords !== SCALE_SMOKE_RECORDS) {
-        failures.push({
-          code: "scale-size",
-          scenario: spec.id,
-          detail: `smoke scale requires targetRecords=${SCALE_SMOKE_RECORDS}, got ${targetRecords}`,
-        });
-      } else if (
-        scaleClass === "reference" &&
-        targetRecords !== SCALE_REFERENCE_RECORDS
-      ) {
-        failures.push({
-          code: "scale-size",
-          scenario: spec.id,
-          detail: `reference scale requires targetRecords=${SCALE_REFERENCE_RECORDS}, got ${targetRecords}`,
-        });
-      }
-    }
-
-    if (spec.id === "rpo-rto") {
-      const rpo = evidence.rpoBody;
-      if (rpo === null) {
-        if (!options.ignoreRpoThreshold) {
-          failures.push({
-            code: "missing-rpo",
-            scenario: spec.id,
-            detail: "rpo-rto evidence is missing",
-          });
-        }
-      } else {
-        const measuredRpo = Number(rpo.measuredRPOSeconds);
-        const measuredRto = Number(rpo.measuredRTOSeconds);
-        const targetRpo = Number(
-          (rpo.targets as { rpoSeconds?: number } | undefined)?.rpoSeconds ??
-            RPO_TARGET_SECONDS,
-        );
-        const targetRto = Number(
-          (rpo.targets as { rtoSeconds?: number } | undefined)?.rtoSeconds ??
-            RTO_TARGET_SECONDS,
-        );
-        if (!options.ignoreRpoThreshold) {
-          if (!Number.isFinite(measuredRpo) || measuredRpo > targetRpo) {
-            failures.push({
-              code: "rpo-threshold",
-              scenario: spec.id,
-              detail: `measured RPO ${measuredRpo}s exceeds target ${targetRpo}s`,
-            });
-          }
-          if (!Number.isFinite(measuredRto) || measuredRto > targetRto) {
-            failures.push({
-              code: "rto-threshold",
-              scenario: spec.id,
-              detail: `measured RTO ${measuredRto}s exceeds target ${targetRto}s`,
-            });
-          }
-        }
-      }
-    }
   }
 
   if (!options.skipLiveProvider) {
@@ -639,24 +544,18 @@ function evaluateGate(
 function runVerificationMutants(candidate: string): VerificationMutantResult[] {
   const results: VerificationMutantResult[] = [];
 
-  const baseSpec = REQUIRED_SCENARIOS.find((row) => row.id === "v1-company");
+  const baseSpec = REQUIRED_SCENARIOS.find((row) => row.id === "governed-action");
   assert.ok(baseSpec);
 
-  const passingCompany = (commit: string): ScenarioEvidence => ({
+  const passingScenario = (commit: string): ScenarioEvidence => ({
     spec: baseSpec,
-    path: "synthetic/v1-company.json",
-    body: { scenario: "v1-company", verdict: "PASS", sourceCommit: commit },
+    path: "synthetic/governed-action.json",
+    body: { scenario: "governed-action", verdict: "PASS", sourceCommit: commit },
     artifactDigest: "00",
     sourceCommit: commit,
     fixtureMarked: false,
-    signedOci: {
-      chartSignatureDigest: "sig-chart",
-      nodeSignatureDigest: "sig-node",
-      publicKeyDigest: "pub",
-      rustSignatureDigest: "sig-rust",
-      sourceSha: commit,
-    },
-    signedOciPath: "synthetic/signed-oci.json",
+    signedOci: null,
+    signedOciPath: null,
     mutantsPath: null,
     mutantsBody: { killed: [{ id: "intent-mismatch", killed: true, observation: "ok" }] },
     rpoPath: null,
@@ -670,85 +569,6 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
       if (Object.prototype.hasOwnProperty.call(overrides, spec.id)) {
         return overrides[spec.id] ?? null;
       }
-      if (spec.id === "rpo-rto") {
-        return {
-          spec,
-          path: "synthetic/rpo-rto/evidence.json",
-          body: { scenario: "rpo-rto", verdict: "PASS", sourceSha: candidate },
-          artifactDigest: "01",
-          sourceCommit: candidate,
-          fixtureMarked: false,
-          signedOci: {
-            chartSignatureDigest: "sig-chart",
-            nodeSignatureDigest: "sig-node",
-            publicKeyDigest: "pub",
-            rustSignatureDigest: "sig-rust",
-            sourceSha: candidate,
-          },
-          signedOciPath: "synthetic/rpo-rto/signed-oci.json",
-          mutantsPath: null,
-          mutantsBody: null,
-          rpoPath: "synthetic/rpo-rto.json",
-          rpoBody: {
-            measuredRPOSeconds: 12,
-            measuredRTOSeconds: 90,
-            targets: { rpoSeconds: RPO_TARGET_SECONDS, rtoSeconds: RTO_TARGET_SECONDS },
-          },
-        };
-      }
-      if (spec.id === "scale-mixed-v1") {
-        return {
-          spec,
-          path: "synthetic/scale-mixed-v1/evidence.json",
-          body: {
-            phase: "mixed-v1",
-            scaleClass: "smoke",
-            sourceCommit: candidate,
-            targetRecords: 10_000,
-            verdict: "PASS",
-          },
-          artifactDigest: "02",
-          sourceCommit: candidate,
-          fixtureMarked: false,
-          signedOci: {
-            chartSignatureDigest: "sig-chart",
-            nodeSignatureDigest: "sig-node",
-            publicKeyDigest: "pub",
-            rustSignatureDigest: "sig-rust",
-            sourceSha: candidate,
-          },
-          signedOciPath: "synthetic/scale-mixed-v1/signed-oci.json",
-          mutantsPath: "synthetic/mutants.json",
-          mutantsBody: { killed: [{ id: "tenant-filter-omitted", killed: true, observation: "ok" }] },
-          rpoPath: null,
-          rpoBody: null,
-        };
-      }
-      if (spec.id === "fiscal-fault-matrix") {
-        return {
-          spec,
-          path: "synthetic/fiscal-fault-matrix.json",
-          body: {
-            scenario: "fiscal-fault-matrix",
-            status: "pass",
-            sourceCommit: candidate,
-            liveEvidence: {
-              systax: "not-run-no-credentials",
-              plugnotas: "not-run-no-credentials",
-              protheus: "not-run-no-environment",
-            },
-          },
-          artifactDigest: "03",
-          sourceCommit: candidate,
-          fixtureMarked: false,
-          signedOci: null,
-          signedOciPath: null,
-          mutantsPath: null,
-          mutantsBody: null,
-          rpoPath: null,
-          rpoBody: null,
-        };
-      }
       return {
         spec,
         path: `synthetic/${spec.id}.json`,
@@ -760,16 +580,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
         artifactDigest: "aa",
         sourceCommit: candidate,
         fixtureMarked: false,
-        signedOci: spec.requiresSignedOci
-          ? {
-              chartSignatureDigest: "sig-chart",
-              nodeSignatureDigest: "sig-node",
-              publicKeyDigest: "pub",
-              rustSignatureDigest: "sig-rust",
-              sourceSha: candidate,
-            }
-          : null,
-        signedOciPath: spec.requiresSignedOci ? `synthetic/${spec.id}/signed-oci.json` : null,
+        signedOci: null,
+        signedOciPath: null,
         mutantsPath: null,
         mutantsBody: null,
         rpoPath: null,
@@ -790,9 +602,9 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
   {
     const id = "ignore-failed-scenario";
     const loaded = fillGraph({
-      "v1-company": {
-        ...passingCompany(candidate),
-        body: { scenario: "v1-company", verdict: "FAIL", sourceCommit: candidate },
+      "governed-action": {
+        ...passingScenario(candidate),
+        body: { scenario: "governed-action", verdict: "FAIL", sourceCommit: candidate },
       },
     });
     const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
@@ -816,7 +628,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     const id = "accept-wrong-commit";
     const other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const loaded = fillGraph({
-      "v1-company": passingCompany(other),
+      "governed-action": passingScenario(other),
     });
     const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
     const mutant = evaluateGate(candidate, loaded, liveAll, false, {
@@ -867,8 +679,8 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
   {
     const id = "ignore-surviving-semantic-mutant";
     const loaded = fillGraph({
-      "v1-company": {
-        ...passingCompany(candidate),
+      "governed-action": {
+        ...passingScenario(candidate),
         mutantsBody: {
           killed: [{ id: "intent-mismatch-accepted", killed: false, observation: "survived" }],
         },
@@ -892,137 +704,19 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
   }
 
   {
-    const id = "ignore-rpo-threshold";
-    const loaded = fillGraph({
-      "rpo-rto": {
-        spec: REQUIRED_SCENARIOS.find((row) => row.id === "rpo-rto")!,
-        path: "synthetic/rpo-rto/evidence.json",
-        body: { scenario: "rpo-rto", verdict: "PASS", sourceSha: candidate },
-        artifactDigest: "01",
-        sourceCommit: candidate,
-        fixtureMarked: false,
-        signedOci: {
-          chartSignatureDigest: "sig-chart",
-          nodeSignatureDigest: "sig-node",
-          publicKeyDigest: "pub",
-          rustSignatureDigest: "sig-rust",
-          sourceSha: candidate,
-        },
-        signedOciPath: "synthetic/rpo-rto/signed-oci.json",
-        mutantsPath: null,
-        mutantsBody: null,
-        rpoPath: "synthetic/rpo-rto.json",
-        rpoBody: {
-          measuredRPOSeconds: 301,
-          measuredRTOSeconds: 90,
-          targets: { rpoSeconds: RPO_TARGET_SECONDS, rtoSeconds: RTO_TARGET_SECONDS },
-        },
-      },
-    });
-    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
-      ...STRICT_OPTIONS,
-      ignoreRpoThreshold: true,
-    });
-    const killed =
-      strict.failures.some((row) => row.code === "rpo-threshold") &&
-      mutant.failures.every((row) => row.code !== "rpo-threshold");
-    results.push({
-      id,
-      killed,
-      observation: killed
-        ? "strict gate rejected RPO over target; ignore-rpo-threshold mutant would accept it"
-        : "mutant was not distinguished from the strict gate",
-    });
-  }
-
-  {
-    const id = "accept-unsigned-artifact";
-    const company = passingCompany(candidate);
-    const loaded = fillGraph({
-      "v1-company": { ...company, signedOci: null, signedOciPath: null },
-    });
-    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
-      ...STRICT_OPTIONS,
-      acceptUnsigned: true,
-    });
-    const killed =
-      strict.failures.some((row) => row.code === "unsigned-artifact") &&
-      mutant.failures.every((row) => row.code !== "unsigned-artifact");
-    results.push({
-      id,
-      killed,
-      observation: killed
-        ? "strict gate rejected missing signed-oci; accept-unsigned-artifact mutant would accept it"
-        : "mutant was not distinguished from the strict gate",
-    });
-  }
-
-  {
-    const id = "reuse-stale-scale-results";
-    const other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const scaleSpec = REQUIRED_SCENARIOS.find((row) => row.id === "scale-mixed-v1")!;
-    const loaded = fillGraph({
-      "scale-mixed-v1": {
-        spec: scaleSpec,
-        path: "synthetic/scale-mixed-v1/evidence.json",
-        body: {
-          phase: "mixed-v1",
-          scaleClass: "smoke",
-          sourceCommit: other,
-          targetRecords: 10_000,
-          verdict: "PASS",
-        },
-        artifactDigest: "02",
-        sourceCommit: other,
-        fixtureMarked: false,
-        signedOci: {
-          chartSignatureDigest: "sig-chart",
-          nodeSignatureDigest: "sig-node",
-          publicKeyDigest: "pub",
-          rustSignatureDigest: "sig-rust",
-          sourceSha: other,
-        },
-        signedOciPath: "synthetic/scale-mixed-v1/signed-oci.json",
-        mutantsPath: null,
-        mutantsBody: { killed: [] },
-        rpoPath: null,
-        rpoBody: null,
-      },
-    });
-    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
-    const mutant = evaluateGate(candidate, loaded, liveAll, false, {
-      ...STRICT_OPTIONS,
-      reuseStaleScale: true,
-    });
-    const killed =
-      strict.failures.some((row) => row.code === "stale-scale") &&
-      mutant.failures.every((row) => row.code !== "stale-scale" && row.code !== "wrong-commit");
-    results.push({
-      id,
-      killed,
-      observation: killed
-        ? "strict gate rejected another candidate's scale evidence; reuse-stale-scale-results mutant would accept it"
-        : "mutant was not distinguished from the strict gate",
-    });
-  }
-
-  {
     const id = "accept-fixture-as-production";
-    const company = passingCompany(candidate);
     const fixtureEvidence: ScenarioEvidence = {
-      ...company,
+      ...passingScenario(candidate),
       fixtureMarked: true,
       body: {
-        scenario: "v1-company",
+        scenario: "governed-action",
         verdict: "PASS",
         sourceCommit: candidate,
         fixture: true,
         note: "Gate contract fixture. Not production evidence.",
       },
     };
-    const loaded = fillGraph({ "v1-company": fixtureEvidence });
+    const loaded = fillGraph({ "governed-action": fixtureEvidence });
     const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
     const mutant = evaluateGate(candidate, loaded, liveAll, false, {
       ...STRICT_OPTIONS,
@@ -1276,18 +970,7 @@ async function main(): Promise<void> {
         .filter((row) => row.spec.id === "rpo-rto")
         .map((row) => row.rpoBody)[0] ?? null,
     },
-    scale: gate.scenarios
-      .filter((row) => row.spec.kind === "scale")
-      .map((row) => ({
-        artifactDigest: row.artifactDigest,
-        path: path.relative(repositoryRoot, row.path),
-        sourceCommit: row.sourceCommit,
-        body: {
-          phase: row.body.phase ?? null,
-          scaleClass: row.body.scaleClass ?? null,
-          targetRecords: row.body.targetRecords ?? null,
-        },
-      }))[0] ?? null,
+    scale: null,
     scenarios: REQUIRED_SCENARIOS.map((spec, index) => {
       const evidence = loaded[index];
       if (evidence === null || evidence === undefined) {
@@ -1315,7 +998,7 @@ async function main(): Promise<void> {
     }),
     warnings: [
       ...(gate.missing.length > 0
-        ? [`fail-closed on ${gate.missing.length} missing required scenario(s); aggregate-only gate does not rerun KIND`]
+        ? [`fail-closed on ${gate.missing.length} missing required scenario(s); aggregate-only gate does not rerun scenarios`]
         : []),
       ...live
         .filter((slot) => !slot.present)

@@ -44,8 +44,7 @@
     "e2e/personal-family.ts",
     "e2e/personal-family/**/*.ts",
     "e2e/public-surface-web.ts",
-    "e2e/public-surface-web/**/*.ts",
-    "e2e/shared-tenancy.ts"
+    "e2e/public-surface-web/**/*.ts"
   ],
   "include": [
     "e2e/**/*.ts",

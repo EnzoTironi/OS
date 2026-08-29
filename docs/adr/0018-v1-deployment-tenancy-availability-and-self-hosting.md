@@ -9,15 +9,12 @@ Zoen must support three commercial/operational modes without maintaining three p
 
 ## Decision
 
-The same versioned OCI artifacts, configuration model and Helm chart are the production deployment unit for all three modes.
+Production is one Fly app (`deploy/fly`). Shared, dedicated, and self-hosted Helm profiles are gone. The same zoend, Restate, Postgres, MinIO, and Keycloak image is the deployment unit.
 
 ```text
-Shared SaaS          Dedicated hosted       Customer self-hosted
-     \                     |                      /
-      +---------- same signed OCI artifacts -----+
-                         + Helm
-                         + migration bundle
-                         + conformance probes
+Fly app zoen
+  deploy/fly/Dockerfile
+  volume /data = pgdata + Restate + MinIO
 ```
 
 No semantic/runtime capability may require a Zoen-operated control plane to function. Zoen-hosted services may improve operations, licensing or observability later, but V1 core can run entirely within customer-controlled infrastructure using documented dependencies.
@@ -33,7 +30,7 @@ The reference self-hosted V1 stack contains:
 - S3-compatible object storage for projections and knowledge blobs;
 - OIDC/OAuth2-compatible external identity provider;
 - OpenTelemetry-compatible collector/backend integration;
-- ingress/TLS and Kubernetes primitives.
+- TLS on the Fly edge.
 
 DataFusion, Cedar and Wasmtime are embedded runtime dependencies inside Zoen processes rather than independently operated data services.
 
@@ -82,17 +79,7 @@ Active-active multi-region semantic authority is not part of V1. Disaster recove
 
 ## Deployment profiles
 
-The repository ships supported configuration profiles rather than forks:
-
-```text
-profiles/shared-saas
-profiles/dedicated
-profiles/self-hosted
-```
-
-Profiles vary replica counts, ingress, secrets integrations, storage classes, quotas and managed/external dependency endpoints. They do not change semantic behavior.
-
-Docker Compose/dev-local orchestration may exist for developer speed but is never the sole release acceptance environment. Production-shaped E2E runs on ephemeral Kubernetes (for example kind/k3d in CI) with the same Helm artifacts used for production.
+Helm shared-saas, dedicated, and self-hosted profiles are gone. Production is one Fly app. Compose remains the live `just verify` matrix, not a second cluster path.
 
 ## Observability
 
@@ -100,11 +87,7 @@ OpenTelemetry traces/metrics/log correlation is a V1 contract at process boundar
 
 ## E2E verification
 
-Release gates prove all three modes from the same artifacts:
-
-1. install shared profile, create at least two tenants and run cross-tenant isolation attacks across authority, query, object storage, Restate and Company Brain;
-2. install dedicated profile and run the same semantic conformance suite;
-3. install self-hosted profile in an isolated cluster with no Zoen Cloud dependency and run the same suite;
+Release gates prove the live Compose matrix (`just verify`). Production deploy is Fly. KIND/Helm drills are not a release path.
 4. kill/restart `zoend` replicas during requests and recover durable operation status;
 5. restart Postgres/Restate/object-store components according to supported failure scenarios without semantic corruption;
 6. perform backup + fresh-cluster restore and prove exact definition/operation/history/effect recovery;

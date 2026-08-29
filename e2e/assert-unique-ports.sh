@@ -22,22 +22,12 @@ record() {
 }
 
 while IFS= read -r file; do
-  kind_node_ports=0
-  if [[ ! -f "$(dirname "$file")/compose.yaml" ]]; then
-    kind_node_ports=1
-  fi
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" == \#* ]] && continue
     key="${line%%=*}"
     value="${line#*=}"
     [[ "$key" == ZOEN_E2E_*_PORT ]] || continue
     record "$value" "${file#"${root}"/} ${key}"
-    if [[ "${kind_node_ports}" -eq 1 ]]; then
-      if [[ ! "$value" =~ ^[0-9]+$ ]] || ((value < 30000 || value > 32767)); then
-        echo "kind nodePort ${value} in ${file#"${root}"/} is outside 30000-32767" >&2
-        failed=1
-      fi
-    fi
   done < "$file"
 done < <(find "${root}/e2e" -name .env -print | sort)
 

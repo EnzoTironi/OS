@@ -49,7 +49,7 @@ packages/
   effect-worker/   # leftover Restate effect worker (later unit)
 
 proto/             # versioned public Protobuf contracts
-deploy/            # OCI/Helm/self-hosted deployment assets
+deploy/            # Fly production image
 e2e/               # production-shaped acceptance environments and scenarios
 ```
 

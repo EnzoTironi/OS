@@ -5,8 +5,7 @@ use std::io::ErrorKind;
 
 use serde::Deserialize;
 
-const EMBEDDED_CLASSIFICATION: &str =
-    include_str!("../../../deploy/helm/zoen/state-classification.yaml");
+const EMBEDDED_CLASSIFICATION: &str = include_str!("../state-classification.yaml");
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct StateClassification {

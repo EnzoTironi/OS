@@ -1,8 +1,0 @@
-scaleClass: smoke
-smokeRecords: 10000
-referenceRecords: 100000000
-p95PointQueryMs: 250
-p95ListQueryMs: 750
-p95NonContentiousCommitMs: 300
-minIndependentCommitsPerSecond: 200
-p95ProjectionLagMs: 10000

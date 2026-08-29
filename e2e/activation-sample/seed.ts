@@ -25,7 +25,7 @@ import {
   purchaseLineId,
   stockPositionId,
   supplierPartyId,
-} from "../v1-company/actions.js";
+} from "./actions.js";
 import {
   actionClient,
   activateDefinition,
