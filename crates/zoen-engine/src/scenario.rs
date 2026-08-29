@@ -2,9 +2,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use zoen_core::{
-    ActionProposal, CommitSequence, PolicyEvidence, ProposalAuthority, ProposalId,
-    ScenarioId, TimestampMicros, TrustedExecutionContext, WORLD_WHO_CAN_ACTION,
-    mac_write_permitted,
+    ActionProposal, CommitSequence, PolicyEvidence, ProposalAuthority, ProposalId, ScenarioId,
+    TimestampMicros, TrustedExecutionContext, WORLD_WHO_CAN_ACTION, mac_write_permitted,
 };
 
 use crate::action::{

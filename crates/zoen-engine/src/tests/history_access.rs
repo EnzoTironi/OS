@@ -137,6 +137,7 @@ fn action_proposal(proposed_by: TrustedExecutionContext) -> ActionProposal {
         proposed_at: TimestampMicros::new(1),
         proposed_by,
         resource_id: ResourceId::parse("inventory.item.1").expect("resource id"),
+        scenario_id: None,
         state_basis: StateBasis {
             dependencies: Vec::new(),
             digest: StateBasisDigest::parse(ZERO_DIGEST).expect("state basis digest"),
