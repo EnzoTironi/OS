@@ -6,7 +6,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@zoen/harness": "*",
     "zod": "4.4.3"
   }
 }

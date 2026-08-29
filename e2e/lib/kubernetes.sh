@@ -304,7 +304,6 @@ zoen_create_runtime_secret() {
     --from-literal=databaseUrlTenantA="${database_url}?options=-c%20zoen.tenant_id%3Dtenant.a" \
     --from-literal=databaseUrlTenantB="${database_url}?options=-c%20zoen.tenant_id%3Dtenant.b" \
     --from-literal=effectOidcClients='{"tenant.a":{"clientId":"effect-worker-a","clientSecret":"effect-worker-a-secret"},"tenant.b":{"clientId":"effect-worker-b","clientSecret":"effect-worker-b-secret"}}' \
-    --from-literal=harnessBindingKey=shared-saas-harness-binding-key-v1 \
     --from-literal=harnessClientSecretA=harness-a-secret \
     --from-literal=harnessClientSecretB=harness-b-secret \
     --from-literal=postgresAdminPassword=postgres \

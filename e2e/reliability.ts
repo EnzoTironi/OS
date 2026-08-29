@@ -117,7 +117,6 @@ const semanticStateSchema = z
   .object({
     authorityDigest: z.string().regex(/^[0-9a-f]{64}$/u),
     commitSequence: z.number().int().nonnegative(),
-    companySourceCount: z.number().int().nonnegative(),
     definitionDigest: z.string().regex(/^[0-9a-f]{64}$/u),
     definitionHistoryCount: z.number().int().positive(),
     effectRequestId: z.string().min(1),
@@ -244,7 +243,6 @@ if (mode === "seed") {
   const committed = await action.commit({ operationId, proposalId });
   assert.equal(committed.status, CommitStatus.COMMITTED);
   assert.ok(committed.receipt);
-  await insertCompanySource();
 }
 
 if (
@@ -279,7 +277,6 @@ async function assertRollingCompatible(
   assert.deepEqual(observed.queryValues, expected.queryValues);
   assert.equal(observed.tenantDerived, expected.tenantDerived);
   assert.equal(observed.explanationComplete, expected.explanationComplete);
-  assert.equal(observed.companySourceCount, expected.companySourceCount);
   assert.equal(observed.effectRequestId, expected.effectRequestId);
   const client = new PostgresClient({
     connectionString: `postgres://postgres:postgres@127.0.0.1:${environment.ZOEN_E2E_POSTGRES_PORT}/zoen`,
@@ -337,7 +334,6 @@ async function observeState(input: {
   const snapshot = await authoritySnapshot();
   const semanticResult = {
     commitSequence: snapshot.commitSequence,
-    companySourceCount: snapshot.companySourceCount,
     definitionDigest: fixture.digest,
     definitionHistoryCount: snapshot.definitionHistoryCount,
     effectRequestId,
@@ -435,7 +431,6 @@ async function explainOperation(
 async function authoritySnapshot(): Promise<{
   authorityDigest: string;
   commitSequence: number;
-  companySourceCount: number;
   definitionHistoryCount: number;
 }> {
   const client = new PostgresClient({
@@ -448,11 +443,6 @@ async function authoritySnapshot(): Promise<{
       { name: "action_proposals", volatileColumns: [] },
       { name: "authority_commits", volatileColumns: ["committed_at"] },
       { name: "authority_heads", volatileColumns: [] },
-      { name: "company_sources", volatileColumns: ["updated_at", "created_at"] },
-      {
-        name: "company_surface_sessions",
-        volatileColumns: ["created_at"],
-      },
       { name: "definition_activations", volatileColumns: [] },
       { name: "definition_revisions", volatileColumns: [] },
       {
@@ -480,10 +470,6 @@ async function authoritySnapshot(): Promise<{
         WHERE tenant_id = $1`,
       [tenantA],
     );
-    const sources = await client.query<{ count: string }>(
-      `SELECT count(*)::text AS count FROM company_sources WHERE tenant_id = $1`,
-      [tenantA],
-    );
     const history = await client.query<{ count: string }>(
       `SELECT count(*)::text AS count
          FROM definition_revisions
@@ -491,20 +477,16 @@ async function authoritySnapshot(): Promise<{
       [tenantA],
     );
     const commitSequence = Number(sequence.rows[0]?.commit_sequence ?? "0");
-    const companySourceCount = Number(sources.rows[0]?.count ?? "0");
     const definitionHistoryCount = Number(history.rows[0]?.count ?? "0");
     rows.push(
       "commitSequence",
       String(commitSequence),
-      "companySourceCount",
-      String(companySourceCount),
       "definitionHistoryCount",
       String(definitionHistoryCount),
     );
     return {
       authorityDigest: sha256(rows.join("\n")),
       commitSequence,
-      companySourceCount,
       definitionHistoryCount,
     };
   } finally {
@@ -512,33 +494,8 @@ async function authoritySnapshot(): Promise<{
   }
 }
 
-async function insertCompanySource(): Promise<void> {
-  const client = new PostgresClient({
-    connectionString: `postgres://postgres:postgres@127.0.0.1:${environment.ZOEN_E2E_POSTGRES_PORT}/zoen`,
-  });
-  await client.connect();
-  try {
-    await client.query(
-      `INSERT INTO company_sources (
-         tenant_id, source_id, source_revision, kind, filename, media_type,
-         content_digest, object_key, extraction_version, parser_name,
-         parser_version_digest, status
-       ) VALUES (
-         $1, 'source.reliability', '1', 'document', 'reliability.txt', 'text/plain',
-         $2, 'company-brain/reliability.txt', 'v1', 'reliability',
-         $2, 'stored'
-       )
-       ON CONFLICT (tenant_id, source_id, source_revision) DO NOTHING`,
-      [tenantA, "0".repeat(64)],
-    );
-  } finally {
-    await client.end();
-  }
-}
-
 async function registerRestateServices(namespace: string): Promise<void> {
   for (const uri of [
-    `http://harness-tenant-a.${namespace}.svc.cluster.local:9080`,
     `http://zoen-effect-worker.${namespace}.svc.cluster.local:9081`,
   ]) {
     let registered = false;

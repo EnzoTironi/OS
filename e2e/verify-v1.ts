@@ -48,8 +48,6 @@ const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
   { id: "explain", kind: "compose", primary: "explain.json", requiresSignedOci: false, ticket: "#196" },
   { id: "evolution-compatible", kind: "compose", primary: "evolution-compatible.json", requiresSignedOci: false, ticket: "#198" },
   { id: "evolution-breaking", kind: "compose", primary: "evolution-breaking.json", requiresSignedOci: false, ticket: "#199" },
-  { id: "agent-capabilities-live", kind: "compose", primary: "agent-capabilities-live.json", requiresSignedOci: false, ticket: "#200" },
-  { id: "company-brain-live", kind: "compose", primary: "company-brain-live.json", requiresSignedOci: false, ticket: "#201" },
   { id: "wasm-code-mode", kind: "compose", primary: "wasm-code-mode.json", requiresSignedOci: false, ticket: "#202" },
   { id: "shared-tenancy", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#215" },
   { id: "deploy-dedicated", kind: "kind", primary: "evidence.json", requiresSignedOci: true, ticket: "#216" },

@@ -13,7 +13,6 @@ on:
       - "crates/**"
       - "packages/transport/**"
       - "packages/speaker/**"
-      - "packages/harness/**"
       - "packages/ontology/**"
       - "proto/**"
       - "Cargo.lock"

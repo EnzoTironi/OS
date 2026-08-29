@@ -38,7 +38,6 @@ runtimeSecret:
   postgresApplicationPasswordKey: postgresApplicationPassword
   s3AccessKeyIdKey: s3AccessKeyId
   s3SecretAccessKeyKey: s3SecretAccessKey
-  harnessBindingKeyKey: harnessBindingKey
   connectorCallerTokenKey: connectorCallerToken
   connectorCredentialsKey: connectorCredentials
   workerCredentialRefsKey: workerCredentialRefs

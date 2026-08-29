@@ -22,9 +22,6 @@
       ],
       "@zoen/mcp": [
         "./packages/mcp/src/index.ts"
-      ],
-      "@zoen/harness": [
-        "./packages/harness/src/index.ts"
       ]
     },
     "rootDir": ".",
@@ -56,8 +53,7 @@
     "e2e/public-surface-web.ts",
     "e2e/public-surface-web/**/*.ts",
     "e2e/shared-tenancy.ts",
-    "e2e/whatsapp-dirty-quote.ts",
-    "e2e/workload-api-mcp.ts"
+    "e2e/whatsapp-dirty-quote.ts"
   ],
   "include": [
     "e2e/**/*.ts",

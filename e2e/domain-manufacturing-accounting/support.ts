@@ -6,12 +6,6 @@ import { create } from "@bufbuild/protobuf";
 import { DefinitionReferenceSchema } from "../../gen/connect/zoen/world/v1/world_pb.js";
 import { canonicalDefinitionFromJson } from "../../packages/ontology/src/index.js";
 import {
-  compileDeterministicSurface,
-} from "../../packages/harness/src/surface/compiler.js";
-import {
-  type SurfaceDocument,
-} from "../../packages/harness/src/surface/model.js";
-import {
   activeDigest,
   actionClient,
   activateDefinition,
@@ -259,22 +253,6 @@ export function recordEvidence(
   return recordDomainEvidence(client, {
     ...input,
     sourceNamespace: "domain-manufacturing-accounting",
-  });
-}
-
-export function compileSurface(
-  fixture: DomainFixture,
-  entityId: string,
-): SurfaceDocument {
-  return compileDeterministicSurface({
-    definition: {
-      definitionId: fixture.metadata.definitionId,
-      digest: fixture.digest,
-      revision: fixture.metadata.revision.toString(),
-    },
-    entityId,
-    metadata: fixture.metadata,
-    presentation: { title: "Manufacturing and accounting operations" },
   });
 }
 

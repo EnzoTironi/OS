@@ -18,7 +18,7 @@ The command builds two application images, signs their registry digests, creates
 
 The Helm chart owns the production topology. The `shared-saas` values file selects replicas, storage, OIDC, and public service settings without changing semantic behavior.
 
-Each harness process binds one verified OIDC principal to one tenant. The process derives Company Brain queries, object keys, ActionService calls, and Restate keys from that context. Request data cannot select another tenant.
+Each tenant binds one verified OIDC principal. zoend derives ActionService calls and Restate keys from that context. Request data cannot select another tenant.
 
 The runner models each attack as a case with a boundary, an expected typed outcome, and redacted evidence. It runs each deliberate mutant by itself and requires the normal attack assertion to reject the mutant.
 

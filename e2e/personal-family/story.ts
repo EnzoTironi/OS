@@ -19,11 +19,6 @@ import {
   type AttentionClassPolicy,
   type AttentionDeliveryPreference,
 } from "../../archive/packages/attention/src/index.js";
-import {
-  createTrustTaggedAssembler,
-  createRetrievedContextRecord,
-  projectAssembledForModel,
-} from "../../packages/harness/src/index.js";
 import { decideAudienceDisclosure } from "../../packages/speaker/src/index.js";
 import {
   ActionInputSchema,
@@ -400,82 +395,6 @@ export async function main(): Promise<PersonalFamilyEvidence> {
       value: "42",
     });
     record("same_named_entity_seeded_both_tenants", true);
-
-    const personalPrefRecord = createRetrievedContextRecord({
-      trustClass: "preference",
-      scope: { kind: "account", accountId },
-      attribution: {
-        kind: "preference",
-        preferenceId: "pref.personal.density",
-        key: "presentation.style",
-      },
-      retention: { kind: "preference" },
-      payload: {
-        trustClass: "preference",
-        key: "presentation.style",
-        value: {
-          type: "presentation",
-          density: "comfortable",
-          cardsPreferred: false,
-        },
-        preferenceScope: { kind: "account", accountId },
-      },
-    });
-    const orgKnowledge = createRetrievedContextRecord({
-      trustClass: "knowledge",
-      scope: { kind: "tenant", tenantId: orgTenantId },
-      attribution: {
-        kind: "fragment",
-        fragmentId: "a".repeat(64),
-        fragmentDigest: "b".repeat(64),
-        sourceId: "source.org.brain",
-        sourceRevision: "1",
-        contentDigest: "c".repeat(64),
-      },
-      retention: { kind: "knowledge-source" },
-      payload: {
-        trustClass: "knowledge",
-        text: "enterprise inventory note",
-        admission: { kind: "ingested" },
-      },
-    });
-
-    const assembler = createTrustTaggedAssembler({
-      sources: [
-        {
-          id: "mixed-leak-probe",
-          retrieve: async () => [personalPrefRecord, orgKnowledge],
-        },
-      ],
-    });
-    const enterpriseAssembled = await assembler.assemble({
-      trustedContext: {
-        actorId: "actor.org.member",
-        delegationIds: [],
-        principalId: orgMemberPrincipal,
-        tenantId: orgTenantId,
-        workloadId: "workload.org.member",
-      },
-      audience: { kind: "enterprise", tenantId: orgTenantId },
-      purpose: { kind: "continuity", sessionId: "session.org" },
-    });
-    const projected = projectAssembledForModel(enterpriseAssembled);
-    record(
-      "personal_memory_absent_from_company_prompt",
-      enterpriseAssembled.records.every(
-        (row) =>
-          !(
-            row.trustClass === "preference" &&
-            row.scope.kind === "account" &&
-            row.scope.accountId === accountId
-          ),
-      ) &&
-        enterpriseAssembled.failures.some(
-          (failure) => failure.code === "cross_workspace_denied",
-        ) &&
-        !JSON.stringify(projected).includes("pref.personal.density"),
-    );
-    killMutant("personal-memory-in-company-prompt");
 
     const store = createPostgresAttentionStore(appClient);
     const billClass: AttentionClassPolicy = {

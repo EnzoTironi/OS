@@ -58,13 +58,6 @@ const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
     ticket: "#254",
   },
   {
-    id: "activation-context",
-    kind: "activation",
-    primary: "activation-context.json",
-    slot: 6,
-    ticket: "#257",
-  },
-  {
     id: "public-surface",
     kind: "public",
     primary: "public-surface.json",

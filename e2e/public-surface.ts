@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   );
   record(
     "demo_guide_names_agent_capabilities_live",
-    /agent-capabilities-live/.test(demoGuide),
+    /governed-action/.test(demoGuide) && /wasm-code-mode/.test(demoGuide),
   );
   record(
     "demo_guide_names_company_bootstrap_shadow",

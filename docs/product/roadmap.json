@@ -191,10 +191,10 @@
       "status": "have",
       "plane": "experience",
       "name": "Surface IR package",
-      "onMain": true,
+      "onMain": false,
       "product": false,
-      "path": "packages/harness/src/surface",
-      "proof": "Live subset is packages/harness/src/surface. Full @zoen/surface package lives on archive/pre-modeled-erp. Live WhatsApp uses PresentationIntent types in packages/transport.",
+      "path": "archive/pre-modeled-erp:archive/packages/surface",
+      "proof": "Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp uses PresentationIntent in packages/transport.",
       "issue": 328
     },
     {
@@ -254,13 +254,13 @@
     },
     {
       "id": "brain-live",
-      "status": "have",
+      "status": "dont-have",
       "plane": "intelligence",
       "name": "Company Brain and agent live suites",
-      "onMain": true,
-      "product": true,
-      "path": "packages/harness, e2e/company-brain-live, e2e/agent-capabilities-live",
-      "proof": "just e2e company-brain-live and agent-capabilities-live. Need OPENCODE_API_KEY. In just verify.",
+      "onMain": false,
+      "product": false,
+      "path": "",
+      "proof": "Not product. The leftover agent-session package is gone. Conversation is Eve.",
       "issue": null
     },
     {

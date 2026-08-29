@@ -106,7 +106,7 @@ if (mode === "initial") {
     environment.ZOEN_DEPLOYMENT_NAMESPACE,
     "rollout",
     "status",
-    "deployment/harness-tenant-a",
+    "deployment/zoend",
     "--timeout=5m",
   ]);
   await registerRestateServices(environment.ZOEN_DEPLOYMENT_NAMESPACE);
@@ -393,7 +393,6 @@ async function authorityDigestForTenant(): Promise<string> {
 
 async function registerRestateServices(namespace: string): Promise<void> {
   for (const uri of [
-    `http://harness-tenant-a.${namespace}.svc.cluster.local:9080`,
     `http://zoen-effect-worker.${namespace}.svc.cluster.local:9081`,
   ]) {
     let registered = false;

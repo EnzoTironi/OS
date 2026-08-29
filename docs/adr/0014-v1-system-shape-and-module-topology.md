@@ -45,9 +45,10 @@ apps/
 
 packages/
   ontology/        # TypeScript authoring DSL/compiler
-  harness/         # Company Brain + agent runtime
-  surface/         # Zoen Surface IR + render adapters
-  web/             # React/TanStack application
+  speaker/         # leftover speaker loop (later unit)
+  transport/       # leftover messaging adapters (later unit)
+  mcp/             # ontology MCP door
+  effect-worker/   # leftover Restate effect worker (later unit)
 
 proto/             # versioned public Protobuf contracts
 deploy/            # OCI/Helm/self-hosted deployment assets

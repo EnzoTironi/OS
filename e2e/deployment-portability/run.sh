@@ -332,9 +332,9 @@ printf '%s\t%s\t%s\n' \
 
 kubectl --namespace "${application_namespace}" rollout restart \
   "${application_workloads[@]}" \
-  deployment/harness-tenant-a
+  deployment/zoend
 wait_for_application "${application_namespace}"
-zoen_rollout_status "${application_namespace}" deployment/harness-tenant-a
+zoen_rollout_status "${application_namespace}" deployment/zoend
 node dist/e2e/deployment-portability.js verify "${initial_state}"
 printf '%s\t%s\t%s\n' \
   stateless-restart \
@@ -468,7 +468,7 @@ run_preflight_failure \
 node dist/e2e/deployment-portability.js verify "${initial_state}"
 
 if [[ "${profile}" == "self-hosted" ]]; then
-  kubectl --namespace "${application_namespace}" exec deployment/harness-tenant-a -- \
+  kubectl --namespace "${application_namespace}" exec deployment/zoend -- \
     node --input-type=module -e '
       import { lookup } from "node:dns/promises";
       try {
@@ -478,7 +478,7 @@ if [[ "${profile}" == "self-hosted" ]]; then
         if (error.code !== "ENOTFOUND") throw error;
       }
     '
-  kubectl --namespace "${application_namespace}" exec deployment/harness-tenant-a -- \
+  kubectl --namespace "${application_namespace}" exec deployment/zoend -- \
     node --input-type=module -e '
       import { connect } from "node:net";
       const socket = connect({ host: "1.1.1.1", port: 443 });
@@ -508,7 +508,7 @@ helm uninstall zoen --namespace "${application_namespace}"
 kubectl delete namespace "${application_namespace}" --wait=true
 install_application "${restored_namespace}"
 wait_for_application "${restored_namespace}"
-zoen_rollout_status "${restored_namespace}" deployment/harness-tenant-a
+zoen_rollout_status "${restored_namespace}" deployment/zoend
 export ZOEN_DEPLOYMENT_NAMESPACE="${restored_namespace}"
 node dist/e2e/deployment-portability.js verify "${initial_state}"
 printf '%s\t%s\t%s\n' \

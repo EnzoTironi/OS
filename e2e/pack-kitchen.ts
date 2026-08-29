@@ -5,15 +5,12 @@ import path from "node:path";
 import { Client as PostgresClient } from "pg";
 import {
   applyCopy,
-  assertActionAuth,
   assertInspectSourcesAllowed,
   assertPublisherIdentity,
-  assertPublicQueryAllowed,
   authorityDigest,
   buildWorkingSetSnapshot,
   extractCandidate,
   proposeCopy,
-  publishSurface,
   runKitchenTests,
   validateCandidate,
 } from "../archive/packages/kitchen/src/index.js";
@@ -39,7 +36,6 @@ import {
   api,
   applicationDatabaseUrl,
   baseUrl,
-  buildSurfaceForFixture,
   generatedDirectory,
   preparePolicyManifest,
   publisherDisplayName,
@@ -272,75 +268,6 @@ async function main(): Promise<void> {
 
   const tests = runKitchenTests(withCopy);
   record("kitchen_tests_pass", tests.ok);
-
-  const inventoryFixture = fixtures.find(
-    (fixture) => fixture.metadata.definitionId === "inventory.operations",
-  );
-  assert.ok(inventoryFixture);
-  const fullSurface = buildSurfaceForFixture(
-    inventoryFixture,
-    "inventory.item.1",
-  );
-  const publicQueryId = fullSurface.queryBindings[0]?.id;
-  assert.ok(publicQueryId);
-  const privateQueryId = fullSurface.queryBindings[1]?.id ?? publicQueryId;
-
-  const authenticatedSurface = publishSurface({
-    packDigest: withCopy.compiled.digest,
-    surfaceDocument: fullSurface,
-    access: { kind: "authenticated" },
-    packOntologyDigests: new Set(
-      withCopy.authority.ontology.map((dependency) => dependency.digest),
-    ),
-  });
-  let actionUnauthBlocked = false;
-  try {
-    assertActionAuth({
-      access: authenticatedSurface.access,
-      authenticated: false,
-      hasActiveMembership: false,
-    });
-  } catch {
-    actionUnauthBlocked = true;
-  }
-  record("authenticated_action_requires_auth", actionUnauthBlocked);
-  killMutant("action_bypasses_auth");
-
-  const publicSurface = publishSurface({
-    packDigest: withCopy.compiled.digest,
-    surfaceDocument: fullSurface,
-    access: {
-      kind: "public_readonly",
-      allowedQueryBindingIds: [publicQueryId],
-    },
-    packOntologyDigests: new Set(
-      withCopy.authority.ontology.map((dependency) => dependency.digest),
-    ),
-  });
-  record(
-    "public_surface_strips_private_query",
-    !publicSurface.document.queryBindings.some(
-      (binding) => binding.id === privateQueryId && privateQueryId !== publicQueryId,
-    ) ||
-      publicSurface.document.queryBindings.every(
-        (binding) => binding.id === publicQueryId,
-      ),
-  );
-  record(
-    "public_surface_strips_actions",
-    publicSurface.document.actionBindings.length === 0,
-  );
-  let privateQueryDenied = false;
-  try {
-    assertPublicQueryAllowed({
-      access: publicSurface.access,
-      queryBindingId: privateQueryId === publicQueryId ? "query.forged.private" : privateQueryId,
-    });
-  } catch {
-    privateQueryDenied = true;
-  }
-  record("public_query_deny_private", privateQueryDenied);
-  killMutant("public_surface_leaks_query");
 
   const keys = publisherKeys();
   const foreignKeys = publisherKeys("key.pub.other.1");
@@ -590,23 +517,11 @@ async function main(): Promise<void> {
       status: firstSuccessStatus,
       outcomeRef: firstSuccessOutcomeRef || undefined,
     },
-    surface: {
-      authenticated: {
-        surfaceDigest: authenticatedSurface.surfaceDigest,
-        actionAuthEnforced: actionUnauthBlocked,
-      },
-      publicReadonly: {
-        surfaceDigest: publicSurface.surfaceDigest,
-        privateQueryAbsent: privateQueryDenied,
-      },
-    },
     assertions,
     mutantsKilled: [
       "secret_included_in_pack",
       "tenant_record_as_template_truth",
       "prompt_adds_undeclared_write",
-      "public_surface_leaks_query",
-      "action_bypasses_auth",
       "mutable_hidden_dependency",
     ],
   });

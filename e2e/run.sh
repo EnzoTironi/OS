@@ -15,7 +15,6 @@ set -euo pipefail
 
 scenario_table=(
   "activation-identity:activation-identity::live"
-  "activation-context:activation-context::live"
   "activation-onboarding:activation-onboarding::archive"
   "activation-metrics:activation-metrics::archive"
   "messaging-boundary:messaging-boundary::live"
@@ -29,11 +28,8 @@ scenario_table=(
   "conversational-turn:conversational-turn::live"
   "pack-kitchen:pack-kitchen::archive"
   "personal-family:personal-family::archive"
-  "workload-api-mcp:workload-api-mcp::archive"
   "activation-sample:::archive"
-  "agent-capabilities-live:agent-capabilities-live::live"
   "backup-restore:::kind"
-  "company-brain-live:company-brain-live::live"
   "definition-publication:governed-action::live"
   "deploy-dedicated:::kind"
   "deploy-self-hosted-isolated:::kind"
@@ -72,7 +68,6 @@ scenario_table=(
   "shared-tenancy:::kind"
   "v1-company:::kind"
   "wasm-code-mode:wasm-code-mode::live"
-  "web-adaptive-live:web-adaptive-live::archive"
   "web-deterministic:web-deterministic::archive"
   "workshop-miniapp:workshop-miniapp::archive"
 )
@@ -236,7 +231,7 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
-  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "web-adaptive-live" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f archive/apps/web/.output/server/index.mjs ]]; then
+  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f archive/apps/web/.output/server/index.mjs ]]; then
     echo "missing archived web; checkout archive/pre-modeled-erp to run this optional scenario" >&2
     exit 1
   fi

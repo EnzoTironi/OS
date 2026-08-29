@@ -20,7 +20,6 @@ import {
   agentSourceHasNoBypassWrite,
   command,
   compileCommercial,
-  compileSurface,
   composeOutput,
   definitionClient,
   definitionReference,
@@ -135,25 +134,6 @@ async function main(): Promise<void> {
     observe(
       "semanticQueryListsTheOrderLine",
       entityIds(listed).includes(resourceId),
-    );
-
-    const surface = compileSurface(commercial);
-    const objectNode = surface.nodes["node.object"];
-    observe(
-      "surfaceListsTheOrderLine",
-      surface.attribution.compiler === "deterministic" &&
-        surface.attribution.generatedWithoutLlm &&
-        surface.semanticContext.entityId === resourceId &&
-        objectNode?.kind === "object-detail" &&
-        objectNode.entityId === resourceId &&
-        surface.queryBindings.some(
-          (binding) =>
-            binding.ref.kind === "relation" &&
-            binding.ref.relationId === quantityRelationId,
-        ) &&
-        surface.actionBindings.some(
-          (binding) => binding.ref.actionId === actionId,
-        ),
     );
 
     await ingestChangeCommitmentBasis(world, definition);

@@ -18,7 +18,6 @@ import {
   adminClient,
   command,
   compilePackage,
-  compileSurface,
   definitionClient,
   dispatchOnce,
   effectClient,
@@ -1111,29 +1110,6 @@ async function main(): Promise<void> {
         tenantAPolicyIds[0] !== tenantBPolicyIds[0] &&
         created.receipt.definition?.digest ===
           partnerCreated.receipt.definition?.digest,
-    );
-
-    const surface = compileSurface(commercial, orderLineId);
-    const surfaceActions = surface.actionBindings.map(
-      (binding) => binding.ref.actionId,
-    );
-    observe(
-      "deterministicSurfaceUsesTheCommercialDefinitionWithoutLlm",
-      surface.attribution.compiler === "deterministic" &&
-        surface.attribution.generatedWithoutLlm &&
-        surface.attribution.definitionDigest === commercial.digest &&
-        [
-          "commercial.cancelCommitment",
-          "commercial.changeCommitment",
-          "commercial.correctCommitment",
-          "commercial.createCommitment",
-          "commercial.recordFulfillment",
-        ].every((actionId) => surfaceActions.includes(actionId)) &&
-        surface.queryBindings.some(
-          (binding) =>
-            binding.ref.kind === "relation" &&
-            binding.ref.relationId === "commercial.committedQuantity",
-        ),
     );
 
     const strongCorrection = await relationQuery(
