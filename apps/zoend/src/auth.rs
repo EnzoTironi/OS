@@ -322,34 +322,48 @@ impl OidcVerifier {
         let token_data = decode::<OidcClaims>(token, key, &validation)
             .map_err(|_| AuthenticationError::InvalidClaim)?;
         let claims = token_data.claims;
-        let delegation_claims = serde_json::from_str::<Vec<DelegationClaim>>(&claims.delegation)
-            .map_err(|_| AuthenticationError::InvalidClaim)?;
-        let grants = delegation_claims
-            .into_iter()
-            .map(parse_delegation_claim)
-            .collect::<Result<Vec<_>, _>>()?;
+        let actor_id = match claims.actor_id {
+            Some(raw) => Some(ActorId::parse(raw).map_err(|_| AuthenticationError::InvalidClaim)?),
+            None => None,
+        };
+        let requested_tenant_hint = match claims.tenant_id {
+            Some(raw) => Some(TenantId::parse(raw).map_err(|_| AuthenticationError::InvalidClaim)?),
+            None => None,
+        };
+        let principal_hint = match claims.principal_id {
+            Some(raw) => {
+                Some(PrincipalId::parse(raw).map_err(|_| AuthenticationError::InvalidClaim)?)
+            }
+            None => None,
+        };
+        let workload_hint = match claims.workload_id {
+            Some(raw) => {
+                Some(WorkloadId::parse(raw).map_err(|_| AuthenticationError::InvalidClaim)?)
+            }
+            None => None,
+        };
+        let delegation_hint = match claims.delegation {
+            Some(raw) => {
+                let delegation_claims = serde_json::from_str::<Vec<DelegationClaim>>(&raw)
+                    .map_err(|_| AuthenticationError::InvalidClaim)?;
+                let grants = delegation_claims
+                    .into_iter()
+                    .map(parse_delegation_claim)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Some(DelegationChain::new(grants).map_err(AuthenticationError::InvalidDelegation)?)
+            }
+            None => None,
+        };
         Ok(VerifiedOidcSubject {
             issuer: self.issuer.clone(),
             audience: self.audience.clone(),
             subject: claims.sub,
-            actor_id: Some(
-                ActorId::parse(claims.actor_id).map_err(|_| AuthenticationError::InvalidClaim)?,
-            ),
+            actor_id,
             expires_at: seconds_to_micros(claims.exp)?,
-            requested_tenant_hint: Some(
-                TenantId::parse(claims.tenant_id).map_err(|_| AuthenticationError::InvalidClaim)?,
-            ),
-            principal_hint: Some(
-                PrincipalId::parse(claims.principal_id)
-                    .map_err(|_| AuthenticationError::InvalidClaim)?,
-            ),
-            workload_hint: Some(
-                WorkloadId::parse(claims.workload_id)
-                    .map_err(|_| AuthenticationError::InvalidClaim)?,
-            ),
-            delegation_hint: Some(
-                DelegationChain::new(grants).map_err(AuthenticationError::InvalidDelegation)?,
-            ),
+            requested_tenant_hint,
+            principal_hint,
+            workload_hint,
+            delegation_hint,
         })
     }
 }
@@ -395,14 +409,14 @@ struct OidcDiscovery {
 
 #[derive(Deserialize)]
 struct OidcClaims {
-    actor_id: String,
+    actor_id: Option<String>,
     #[serde(rename = "zoen_delegation")]
-    delegation: String,
+    delegation: Option<String>,
     exp: i64,
-    principal_id: String,
+    principal_id: Option<String>,
     sub: String,
-    tenant_id: String,
-    workload_id: String,
+    tenant_id: Option<String>,
+    workload_id: Option<String>,
 }
 
 #[derive(Deserialize)]

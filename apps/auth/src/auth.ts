@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { deviceAuthorization } from "better-auth/plugins/device-authorization";
+import { jwt } from "better-auth/plugins/jwt";
 import { Pool } from "pg";
 import { loadConfig, type DoorConfig } from "./config.ts";
 
@@ -17,10 +18,12 @@ const googleScopes = [
 ] as const;
 
 export function createAuth(config: DoorConfig) {
+  const issuer = config.baseURL.replace(/\/+$/, "");
   return betterAuth({
     database: new Pool({ connectionString: config.databaseUrl }),
     baseURL: config.baseURL,
     secret: config.betterAuthSecret,
+    emailAndPassword: { enabled: true },
     ...(config.google.kind === "set"
       ? {
           socialProviders: {
@@ -35,7 +38,13 @@ export function createAuth(config: DoorConfig) {
           },
         }
       : {}),
-    plugins: [deviceAuthorization({ verificationUri: "/device" })],
+    plugins: [
+      deviceAuthorization({ verificationUri: "/device" }),
+      jwt({
+        jwks: { keyPairConfig: { alg: "RS256" } },
+        jwt: { issuer, audience: "zoend" },
+      }),
+    ],
   });
 }
 

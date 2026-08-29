@@ -26,6 +26,11 @@ function sendText(res: ServerResponse, status: number, body: string): void {
   res.end(body);
 }
 
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(body));
+}
+
 const server = createServer((req, res) => {
   const pathname = pathnameOf(req);
 
@@ -44,6 +49,15 @@ const server = createServer((req, res) => {
 
   if (req.method !== "GET") {
     sendText(res, 405, "method not allowed");
+    return;
+  }
+
+  if (pathname === "/.well-known/openid-configuration") {
+    const issuer = config.baseURL.replace(/\/+$/, "");
+    sendJson(res, 200, {
+      issuer,
+      jwks_uri: `${issuer}/api/auth/jwks`,
+    });
     return;
   }
 
