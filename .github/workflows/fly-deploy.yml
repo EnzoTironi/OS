@@ -9,6 +9,7 @@ on:
     paths:
       - "deploy/fly/**"
       - "apps/auth/**"
+      - "apps/conversation/**"
       - "apps/zoend/**"
       - "crates/**"
       - "packages/ontology/**"
