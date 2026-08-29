@@ -133,6 +133,7 @@ where
                 operation: PolicyOperation::Read,
                 projection: Some(&projection),
                 resource_id: &resource_id,
+                written_classification: None,
             })
             .await)
     }
@@ -213,6 +214,7 @@ where
                     consistency: Consistency::Strong,
                     definition: definition.clone(),
                     entity_id: entity_id.clone(),
+                    scenario_id: None,
                     selection: SemanticSelection::Relation(classified_as),
                     valid_at,
                 },

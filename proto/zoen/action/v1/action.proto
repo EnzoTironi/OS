@@ -130,6 +130,8 @@ message ProposeRequest {
   repeated ActionInput inputs = 6;
   google.protobuf.Timestamp valid_at = 7;
   google.protobuf.Timestamp expires_at = 8;
+  // Empty = ordinary park. Named open scenario attaches overlay preview.
+  string scenario_id = 9;
 }
 
 message ProposeResponse {

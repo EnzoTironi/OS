@@ -197,6 +197,7 @@ fn to_causal_proposal(proposal: CoreCausalActionProposal) -> CausalActionProposa
         proposed_at,
         proposed_by,
         resource_id,
+        scenario_id: None,
         state_basis,
         valid_at,
     });

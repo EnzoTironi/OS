@@ -11,10 +11,11 @@ use zoen_core::{
     EffectRequestId, EntityId, EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue,
     ExecutionContext, IntentDigest, LineageRole, OperationId, PolicyEvaluation, PolicyEvidence,
     PreconditionEvaluation, PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget,
-    ResourceId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis,
-    StateBasisDigest, StateDependency, TenantId, TimestampMicros, TrustedExecutionContext, TypeId,
-    ValidTime, ValueType, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION, classified_as_relation,
-    evaluate_expression, expression_relations, join_labels,
+    ResourceId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
+    StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
+    TrustedExecutionContext, TypeId, ValidTime, ValueType, WORLD_SHARE_ACTION,
+    WORLD_WHO_CAN_ACTION, classified_as_relation, evaluate_expression, expression_relations,
+    join_labels,
 };
 
 use crate::action_preview::{bind_proposal_preview, build_action_preview, preview_hash};
@@ -78,6 +79,7 @@ pub struct PolicyRequest<'a> {
     pub operation: PolicyOperation,
     pub projection: Option<&'a PolicyWorldProjection>,
     pub resource_id: &'a ResourceId,
+    pub written_classification: Option<&'a BTreeSet<ClassificationToken>>,
 }
 
 #[allow(async_fn_in_trait)]
@@ -287,6 +289,7 @@ pub struct ProposeCommand {
     pub proposal_id: ProposalId,
     pub proposed_at: TimestampMicros,
     pub resource_id: ResourceId,
+    pub scenario_id: Option<ScenarioId>,
     pub valid_at: TimestampMicros,
 }
 
@@ -302,6 +305,41 @@ where
             query,
             store,
         }
+    }
+
+    pub(crate) fn policy(&self) -> &P {
+        &self.policy
+    }
+
+    pub(crate) async fn preview_overlay_drafts(
+        &self,
+        context: &TrustedExecutionContext,
+        proposal: &ActionProposal,
+    ) -> Result<Vec<EvidenceDraft>, ActionError> {
+        let loaded = self
+            .load_action(context, &proposal.definition, &proposal.action_id)
+            .await?;
+        let relation_ids = effect_evaluation_relations(&loaded.action);
+        let snapshot = self
+            .load_relation_snapshot(
+                context,
+                &loaded.revision,
+                &proposal.resource_id,
+                relation_ids,
+                proposal.valid_at,
+                "Action effect relations used different authority cuts",
+            )
+            .await?;
+        let relation_values =
+            read_action_state_basis(&loaded.action, &loaded.definition, snapshot)?.values;
+        let join = self
+            .join_input_labels(context, proposal, &loaded.definition, &loaded.revision)
+            .await?;
+        share_or_join_effects(
+            build_effects(proposal, &loaded.action, &relation_values)?,
+            proposal,
+            join.as_ref(),
+        )
     }
 
     pub async fn discover(
@@ -348,6 +386,7 @@ where
                     operation: PolicyOperation::Discover,
                     projection: Some(&projection),
                     resource_id,
+                    written_classification: None,
                 })
                 .await;
             discoveries.push(ActionDiscovery {
@@ -414,6 +453,7 @@ where
                 operation: PolicyOperation::Commit,
                 projection: Some(&projection),
                 resource_id: &command.resource_id,
+                written_classification: None,
             })
             .await;
         let authority = match direct {
@@ -440,6 +480,7 @@ where
                         operation: PolicyOperation::RequestApproval,
                         projection: Some(&projection),
                         resource_id: &command.resource_id,
+                        written_classification: None,
                     })
                     .await
                 {
@@ -480,14 +521,22 @@ where
             proposed_at: command.proposed_at,
             proposed_by: context.clone(),
             resource_id: command.resource_id,
+            scenario_id: command.scenario_id,
             state_basis,
             valid_at: command.valid_at,
         };
-        let saved = self
-            .store
-            .save_proposal(context, &proposal)
-            .await
-            .map_err(ActionError::Store)?;
+        let saved = if proposal.scenario_id.is_some() {
+            let drafts = self.preview_overlay_drafts(context, &proposal).await?;
+            self.store
+                .save_proposal_in_scenario(context, &proposal, &drafts)
+                .await
+                .map_err(ActionError::Store)?
+        } else {
+            self.store
+                .save_proposal(context, &proposal)
+                .await
+                .map_err(ActionError::Store)?
+        };
         Ok(ProposeOutcome::Accepted(Box::new(saved)))
     }
 
@@ -561,6 +610,7 @@ where
                 operation: PolicyOperation::Approve,
                 projection: Some(&projection),
                 resource_id: &proposal.resource_id,
+                written_classification: None,
             })
             .await
         {
@@ -609,6 +659,11 @@ where
         if proposal.action_id.as_str() == WORLD_WHO_CAN_ACTION {
             return Err(ActionError::Evaluation(
                 "zoen.world.whoCan is Discover/Read, not a mutation".to_owned(),
+            ));
+        }
+        if proposal.scenario_id.is_some() {
+            return Err(ActionError::Evaluation(
+                "scenario-scoped proposals commit only via scenario apply".to_owned(),
             ));
         }
         if &proposal.operation_id != operation_id {
@@ -711,6 +766,7 @@ where
                 operation: PolicyOperation::Commit,
                 projection: Some(&projection),
                 resource_id: &proposal.resource_id,
+                written_classification: None,
             })
             .await
         {
@@ -772,6 +828,20 @@ where
                 return Err(error);
             }
         };
+        let written = match written_classified_as_tokens(&drafts) {
+            Ok(written) => written,
+            Err(error) => {
+                transaction.rollback().await.map_err(ActionError::Store)?;
+                return Err(error);
+            }
+        };
+        if !written.is_empty() && !zoen_core::mac_write_permitted(context.clearance(), &written) {
+            transaction.rollback().await.map_err(ActionError::Store)?;
+            return Ok(CommitOutcome::Denied(PolicyEvidence {
+                determining_policies: vec![crate::MAC_DETERMINING_POLICY.to_owned()],
+                revision: policy.revision,
+            }));
+        }
         let effects = drafts
             .into_iter()
             .enumerate()
@@ -828,7 +898,7 @@ where
             .map_err(ActionError::Store)
     }
 
-    async fn load_action(
+    pub(crate) async fn load_action(
         &self,
         context: &TrustedExecutionContext,
         definition: &DefinitionReference,
@@ -865,7 +935,7 @@ where
         })
     }
 
-    async fn evaluate_precondition(
+    pub(crate) async fn evaluate_precondition(
         &self,
         context: &TrustedExecutionContext,
         resource_id: &ResourceId,
@@ -886,7 +956,7 @@ where
         evaluate_action_state_basis(&loaded.action, &loaded.definition, inputs, snapshot)
     }
 
-    async fn load_relation_snapshot(
+    pub(crate) async fn load_relation_snapshot(
         &self,
         context: &TrustedExecutionContext,
         revision: &DefinitionRevision,
@@ -916,6 +986,7 @@ where
                             revision: revision.revision,
                         },
                         entity_id: entity_id.clone(),
+                        scenario_id: None,
                         selection: SemanticSelection::Relation(relation_id.clone()),
                         valid_at,
                     },
@@ -934,7 +1005,7 @@ where
         })
     }
 
-    async fn load_world_projection(
+    pub(crate) async fn load_world_projection(
         &self,
         context: &TrustedExecutionContext,
         definition: &CanonicalDefinition,
@@ -1030,7 +1101,7 @@ where
         })
     }
 
-    async fn join_input_labels(
+    pub(crate) async fn join_input_labels(
         &self,
         context: &TrustedExecutionContext,
         proposal: &ActionProposal,
@@ -1106,13 +1177,13 @@ fn action_resource_type(
     }
 }
 
-struct LoadedAction {
-    action: ActionDefinition,
-    definition: CanonicalDefinition,
-    revision: DefinitionRevision,
+pub(crate) struct LoadedAction {
+    pub(crate) action: ActionDefinition,
+    pub(crate) definition: CanonicalDefinition,
+    pub(crate) revision: DefinitionRevision,
 }
 
-fn authorize_delegation(
+pub(crate) fn authorize_delegation(
     context: &TrustedExecutionContext,
     action_id: &ActionId,
     resource_id: &ResourceId,
@@ -1262,7 +1333,29 @@ fn classification_from_values(
     Ok(tokens)
 }
 
-fn share_or_join_effects(
+pub(crate) fn written_classified_as_tokens(
+    drafts: &[EvidenceDraft],
+) -> Result<BTreeSet<ClassificationToken>, ActionError> {
+    let classified_as = classified_as_relation();
+    let mut tokens = BTreeSet::new();
+    for draft in drafts {
+        if draft.relation_id != classified_as {
+            continue;
+        }
+        let ExactValue::Text(token) = &draft.value else {
+            return Err(ActionError::Evaluation(
+                "classifiedAs effect must write a text token".to_owned(),
+            ));
+        };
+        tokens.insert(
+            ClassificationToken::parse(token.clone())
+                .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+        );
+    }
+    Ok(tokens)
+}
+
+pub(crate) fn share_or_join_effects(
     drafts: Vec<EvidenceDraft>,
     proposal: &ActionProposal,
     join: Option<&BTreeSet<ClassificationToken>>,
@@ -1343,7 +1436,7 @@ fn stamp_join_label(
     Ok(drafts)
 }
 
-fn build_effects(
+pub(crate) fn build_effects(
     proposal: &ActionProposal,
     action: &ActionDefinition,
     relations: &BTreeMap<RelationId, Vec<SemanticValue>>,
@@ -1393,7 +1486,7 @@ fn build_effects(
         .collect()
 }
 
-fn effect_evaluation_relations(action: &ActionDefinition) -> BTreeSet<RelationId> {
+pub(crate) fn effect_evaluation_relations(action: &ActionDefinition) -> BTreeSet<RelationId> {
     let mut relations = expression_relations(&action.precondition);
     relations.extend(
         action
@@ -1404,7 +1497,7 @@ fn effect_evaluation_relations(action: &ActionDefinition) -> BTreeSet<RelationId
     relations
 }
 
-fn effect_request_id(
+pub(crate) fn effect_request_id(
     operation_id: &OperationId,
     index: usize,
 ) -> Result<EffectRequestId, ActionError> {

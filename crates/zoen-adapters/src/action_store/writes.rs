@@ -10,14 +10,14 @@ use crate::{store_unavailable, u64_to_i64};
 
 use super::{GrantOwner, ensure_context_tenant, insert_grants, ordinal_i32};
 
-pub(super) enum OperationInsertError {
+pub(crate) enum OperationInsertError {
     CommitSequence,
     OperationId,
     ProposalId,
     Store(StoreError),
 }
 
-pub(super) async fn find_identity_collision(
+pub(crate) async fn find_identity_collision(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
     plan: &CommitPlan,
@@ -82,7 +82,7 @@ pub(super) async fn find_identity_collision(
     }
 }
 
-pub(super) async fn insert_semantic_record(
+pub(crate) async fn insert_semantic_record(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
     commit_sequence: i64,
@@ -98,7 +98,7 @@ pub(super) async fn insert_semantic_record(
     .await
 }
 
-pub(super) async fn insert_effect_request(
+pub(crate) async fn insert_effect_request(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
     commit_sequence: i64,
@@ -174,7 +174,7 @@ fn map_effect_request_insert(error: sqlx::Error) -> StoreError {
     }
 }
 
-pub(super) async fn insert_operation(
+pub(crate) async fn insert_operation(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
     receipt: &CommitReceipt,
@@ -304,7 +304,7 @@ async fn insert_operation_effect_requests(
     Ok(())
 }
 
-pub(super) async fn insert_operation_records(
+pub(crate) async fn insert_operation_records(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
     receipt: &CommitReceipt,

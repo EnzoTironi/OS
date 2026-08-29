@@ -153,6 +153,10 @@ pub fn resource_label(
     }
 }
 
+pub fn mac_write_permitted(clearance: &Clearance, written: &BTreeSet<ClassificationToken>) -> bool {
+    clearance.dominates(&resource_label(written.iter().cloned()))
+}
+
 pub fn join_labels(
     labels: impl IntoIterator<Item = BTreeSet<ClassificationToken>>,
 ) -> BTreeSet<ClassificationToken> {

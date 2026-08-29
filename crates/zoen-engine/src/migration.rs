@@ -332,6 +332,7 @@ where
                 operation,
                 projection: Some(&projection),
                 resource_id: &resource_id,
+                written_classification: None,
             })
             .await
         {

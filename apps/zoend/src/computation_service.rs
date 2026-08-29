@@ -219,6 +219,7 @@ impl ScopedComputationHost {
                         definition: definition.clone(),
                         entity_id: entity_id.clone(),
                         selection: selection.clone(),
+                        scenario_id: None,
                         valid_at: *valid_at,
                     },
                 )
@@ -278,6 +279,7 @@ impl ComputationHost for ScopedComputationHost {
                         consistency: Consistency::Strong,
                         definition,
                         entity_id,
+                        scenario_id: None,
                         selection,
                         valid_at,
                     },
@@ -387,6 +389,7 @@ impl ComputationHost for ScopedComputationHost {
                         proposal_id: request.proposal_id,
                         proposed_at,
                         resource_id,
+                        scenario_id: None,
                         valid_at,
                     },
                 )

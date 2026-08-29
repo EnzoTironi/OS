@@ -15,7 +15,7 @@ use crate::{PostgresClaimQuery, store_unavailable};
 
 use super::{commit_sequence, corrupt};
 
-pub(super) async fn load_current(
+pub(crate) async fn load_current(
     transaction: &mut Transaction<'_, Postgres>,
     context: &ExecutionContext,
     proposal: &ActionProposal,

@@ -11,8 +11,8 @@ use zoen_core::{
     DelegationId, EffectRequestId, EntityId, EvidenceDigest, ExecutionContext, ExecutionId,
     InputId, IntentDigest, LineageRole, OperationId, PolicyDigest, PolicyEvidence, PolicyId,
     PolicyRevision, PolicyRevisionNumber, PrincipalId, ProposalAuthority, ProposalId, RelationId,
-    ResourceId, SourceId, StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
-    TrustedExecutionContext, WorkloadId,
+    ResourceId, ScenarioId, SourceId, StateBasis, StateBasisDigest, StateDependency, TenantId,
+    TimestampMicros, TrustedExecutionContext, WorkloadId,
 };
 use zoen_engine::StoreError;
 
@@ -21,10 +21,10 @@ use crate::{
     value_columns,
 };
 
-mod commit;
+pub(crate) mod commit;
 mod failpoints;
-mod state_basis;
-mod writes;
+pub(crate) mod state_basis;
+pub(crate) mod writes;
 
 pub use commit::PostgresActionCommit;
 pub(crate) use commit::begin_action_commit;
@@ -91,7 +91,7 @@ pub(crate) async fn save_proposal(
             determining_policies, state_basis_digest, observed_commit_sequence,
             execution_id, component_digest, component_interface,
             capability_manifest_digest, capability_ids,
-            preview_hash, canonical_preview_text
+            preview_hash, canonical_preview_text, scenario_id
          ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
@@ -100,7 +100,7 @@ pub(crate) async fn save_proposal(
             $16, $17, $18, $19,
             $20, $21, $22,
             $23, $24, $25, $26, $27,
-            $28, $29
+            $28, $29, $30
          )",
     )
     .bind(context.tenant_id().as_str())
@@ -167,6 +167,7 @@ pub(crate) async fn save_proposal(
     }))
     .bind(proposal.preview_hash.as_str())
     .bind(&proposal.canonical_preview_text)
+    .bind(proposal.scenario_id.as_ref().map(|id| id.as_str()))
     .execute(&mut *transaction)
     .await
     .map_err(map_action_insert)?;
@@ -358,7 +359,7 @@ pub(crate) async fn load_proposal(
                 determining_policies, state_basis_digest, observed_commit_sequence,
                 execution_id, component_digest, component_interface,
                 capability_manifest_digest, capability_ids,
-                preview_hash, canonical_preview_text
+                preview_hash, canonical_preview_text, scenario_id
          FROM action_proposals
          WHERE tenant_id = $1 AND proposal_id = $2",
     )
@@ -404,6 +405,11 @@ pub(crate) async fn load_proposal(
         proposed_at: TimestampMicros::new(row_i64(&row, "proposed_at_micros")?),
         proposed_by,
         resource_id: ResourceId::parse(row_string(&row, "resource_id")?).map_err(corrupt)?,
+        scenario_id: row
+            .try_get::<Option<String>, _>("scenario_id")
+            .map_err(store_unavailable)?
+            .map(|value| ScenarioId::parse(value).map_err(corrupt))
+            .transpose()?,
         state_basis: StateBasis {
             dependencies: load_dependencies(transaction, tenant_id, proposal_id).await?,
             digest: StateBasisDigest::parse(row_string(&row, "state_basis_digest")?)
@@ -973,7 +979,7 @@ fn ensure_context_tenant(
     }
 }
 
-fn commit_sequence(value: i64, name: &str) -> Result<CommitSequence, StoreError> {
+pub(crate) fn commit_sequence(value: i64, name: &str) -> Result<CommitSequence, StoreError> {
     CommitSequence::new(i64_to_u64(value, name)?)
         .ok_or_else(|| StoreError::Corrupt(format!("{name} is zero")))
 }

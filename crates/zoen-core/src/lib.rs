@@ -61,7 +61,8 @@ pub use identity::{
     WORLD_FLOOR, WORLD_TOP, WorkloadCredential, WorkloadCredentialId, WorkloadCredentialLookupKey,
     WorkloadCredentialStatus, WorkloadEvidenceKind, WorkloadExchangeToken,
     WorkloadRevocationReason, WorkloadSecretId, ZoenAccount, ZoenAccountId, join_labels,
-    resource_label, trusted_context_from_membership, trusted_context_from_workload_credential,
+    mac_write_permitted, resource_label, trusted_context_from_membership,
+    trusted_context_from_workload_credential,
 };
 pub use jcs::{JcsError, canonicalize_json, canonicalize_json_bytes, is_canonical_digest_hex};
 pub use migration::{
@@ -146,6 +147,7 @@ semantic_id!(ProposalId);
 semantic_id!(ProviderOperationId);
 semantic_id!(RelationId);
 semantic_id!(ResourceId);
+semantic_id!(ScenarioId);
 semantic_id!(SourceId);
 semantic_id!(TenantId);
 semantic_id!(TypeId);
@@ -1021,6 +1023,7 @@ pub enum SemanticQuery {
         consistency: Consistency,
         definition: DefinitionReference,
         entity_id: EntityId,
+        scenario_id: Option<ScenarioId>,
         selection: SemanticSelection,
         valid_at: TimestampMicros,
     },
@@ -1029,6 +1032,7 @@ pub enum SemanticQuery {
         definition: DefinitionReference,
         limit: u32,
         page_token: String,
+        scenario_id: Option<ScenarioId>,
         type_id: TypeId,
         valid_at: TimestampMicros,
     },
@@ -1050,6 +1054,14 @@ impl SemanticQuery {
     pub fn valid_at(&self) -> TimestampMicros {
         match self {
             Self::ByEntity { valid_at, .. } | Self::ByType { valid_at, .. } => *valid_at,
+        }
+    }
+
+    pub fn scenario_id(&self) -> Option<&ScenarioId> {
+        match self {
+            Self::ByEntity { scenario_id, .. } | Self::ByType { scenario_id, .. } => {
+                scenario_id.as_ref()
+            }
         }
     }
 }
@@ -1258,6 +1270,7 @@ pub struct ActionProposal {
     pub proposed_at: TimestampMicros,
     pub proposed_by: TrustedExecutionContext,
     pub resource_id: ResourceId,
+    pub scenario_id: Option<ScenarioId>,
     pub state_basis: StateBasis,
     pub valid_at: TimestampMicros,
 }

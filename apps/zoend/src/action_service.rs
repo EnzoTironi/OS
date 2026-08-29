@@ -15,8 +15,8 @@ use zoen_core::{
     ComponentExecutionEvidence as CoreComponentExecutionEvidence, ExactValue, InviteToken,
     LineageRole as CoreLineageRole, OperationId, PolicyEvaluation,
     PolicyEvidence as CorePolicyEvidence, PrincipalId, ProposalAuthority, ProposalId, ResourceId,
-    StateBasis as CoreStateBasis, TimestampMicros, TrustedExecutionContext, WORLD_INVITE_ACTION,
-    WorkloadId, ZoenAccountId,
+    ScenarioId, StateBasis as CoreStateBasis, TimestampMicros, TrustedExecutionContext,
+    WORLD_INVITE_ACTION, WorkloadId, ZoenAccountId,
 };
 use zoen_engine::{
     ActionEngine, ActionError, ApproveOutcome, CommitOutcome, ProposeCommand, ProposeOutcome,
@@ -161,6 +161,14 @@ impl ActionService for ActionServiceImpl {
                     proposed_at,
                     resource_id: ResourceId::parse(request.resource_id)
                         .map_err(|error| invalid(error.to_string()))?,
+                    scenario_id: if request.scenario_id.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            ScenarioId::parse(request.scenario_id)
+                                .map_err(|error| invalid(error.to_string()))?,
+                        )
+                    },
                     valid_at: parse_timestamp(&valid_at)?,
                 },
             )
