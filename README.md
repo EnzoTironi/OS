@@ -66,7 +66,7 @@ LLM calls, MCP adapters, chat buttons, and transport providers stay replaceable 
 
 Production is one Fly app. Image is `deploy/fly/Dockerfile`. GitHub `fly-deploy` builds it and pushes `registry.fly.io/zoen:$GITHUB_SHA`.
 
-Paid chat or messaging providers stay optional. Phone, group, thread, and IdP groups are not membership. Humans authenticate at Keycloak; an Active Membership row is the source of tenant and principal for a bound account.
+Paid chat or messaging providers stay optional. Phone, group, thread, and IdP groups are not membership. Humans authenticate at the Better Auth door. An Active Membership row is the source of tenant and principal for a bound account.
 
 Release confidence still runs through `just verify-v1` with production-shaped evidence.
 

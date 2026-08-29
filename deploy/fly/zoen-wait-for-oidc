@@ -9,8 +9,4 @@ wait_oidc() {
 base="${ZOEN_OIDC_DISCOVERY_URL:-${ZOEN_OIDC_ISSUER:?ZOEN_OIDC_ISSUER required}}"
 base="${base%/}"
 wait_oidc "$base"
-if [ -n "${ZOEN_OIDC_MACHINE_ISSUER:-}" ]; then
-  machine="${ZOEN_OIDC_MACHINE_ISSUER%/}"
-  wait_oidc "$machine"
-fi
 exec "$@"

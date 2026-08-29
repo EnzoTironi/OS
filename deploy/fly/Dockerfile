@@ -33,7 +33,7 @@ RUN npm ci \
 FROM postgres:18
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
-      ca-certificates curl supervisor openjdk-21-jre-headless python3 \
+      ca-certificates curl supervisor python3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=zoend /src/target/release/zoend /usr/local/bin/zoend
@@ -41,7 +41,6 @@ COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen
 COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
 COPY --from=personal-lake /app /app
 COPY --from=auth /auth /auth
-COPY --from=quay.io/keycloak/keycloak:26.0.7 /opt/keycloak /opt/keycloak
 
 # Restate release tarball name can move; install via their image instead.
 COPY --from=docker.restate.dev/restatedev/restate:1.7.2 /usr/local/bin/restate-server /usr/local/bin/restate-server
@@ -50,12 +49,10 @@ COPY --from=minio/mc:RELEASE.2025-08-13T08-35-41Z /usr/bin/mc /usr/local/bin/mc
 
 COPY deploy/fly/supervisord.conf /etc/supervisor/conf.d/zoen.conf
 COPY deploy/fly/zoen-ensure-minio-bucket /usr/local/bin/zoen-ensure-minio-bucket
-COPY deploy/fly/zoen-start-keycloak /usr/local/bin/zoen-start-keycloak
 COPY deploy/fly/zoen-wait-for-pg /usr/local/bin/zoen-wait-for-pg
 COPY deploy/fly/zoen-wait-for-oidc /usr/local/bin/zoen-wait-for-oidc
 COPY deploy/fly/zoen-start-restate /usr/local/bin/zoen-start-restate
 COPY deploy/fly/policies.json /etc/zoen/policies.json
-COPY deploy/fly/realm.template.json /etc/zoen/realm.template.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
 COPY deploy/fly/zoen-ensure-agent-binding /usr/local/bin/zoen-ensure-agent-binding
 COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake

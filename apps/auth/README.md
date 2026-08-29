@@ -1,6 +1,6 @@
 # How to run the Auth door
 
-This process is the Better Auth 1.7.2 door. It listens on `127.0.0.1:58704` and stores sessions in the `zoen_auth` database. On Fly, supervisord starts it next to Keycloak. Public HTTPS still lands on zoend `:58701`, which forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` to this process. WhatsApp `/onboard/{token}` stays on zoend.
+This process is the Better Auth 1.7.2 door. It listens on `127.0.0.1:58704` and stores sessions in the `zoen_auth` database. On Fly, supervisord starts it as `[program:auth]`. Public HTTPS still lands on zoend `:58701`, which forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` to this process. WhatsApp `/onboard/{token}` stays on zoend.
 
 ## Start Postgres
 
@@ -76,6 +76,8 @@ To prove the full path locally, run `scripts/prove-zoend-ba.sh` from `apps/auth`
 To prove remint's session mint plus WebOidc bind and lake publish, run `scripts/prove-remint-ba.sh`. That writes `/workspace/ship/remint-ba-proof.md`.
 
 To prove boot against a public token `iss` while fetching discovery on loopback, run `scripts/prove-issuer-cutover.sh`. That writes `/workspace/ship/issuer-cutover-proof.md`.
+
+To prove Keycloak is off the Fly image, run `scripts/prove-drop-keycloak.sh`. That writes `/workspace/ship/drop-keycloak-proof.md`.
 
 ## Google redirect URIs
 

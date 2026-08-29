@@ -51,27 +51,10 @@ pub fn process_auth_from(
             "ZOEN_OIDC_DISCOVERY_URL must be a loopback URL when ZOEN_OIDC_ISSUER is not",
         ));
     }
-    let mut sources = vec![OidcSource {
+    let sources = vec![OidcSource {
         discovery_url,
-        issuer: issuer.clone(),
+        issuer,
     }];
-    if let Some(machine) = nonempty(lookup("ZOEN_OIDC_MACHINE_ISSUER")?) {
-        let machine = trim_slash(machine);
-        if machine == issuer {
-            return Err(config_error(
-                "ZOEN_OIDC_MACHINE_ISSUER must differ from ZOEN_OIDC_ISSUER",
-            ));
-        }
-        if !is_loopback_url(&machine) {
-            return Err(config_error(
-                "ZOEN_OIDC_MACHINE_ISSUER must be a loopback URL",
-            ));
-        }
-        sources.push(OidcSource {
-            discovery_url: machine.clone(),
-            issuer: machine,
-        });
-    }
     Ok(ProcessAuth::Oidc { audience, sources })
 }
 

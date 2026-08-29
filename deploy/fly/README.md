@@ -1,9 +1,9 @@
 # Fly `zoen`
 
 One machine in `gru`. Volume `zoen_data` → `/data` (postgres, Restate, MinIO).
-Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Postgres, Restate, Keycloak, and the Better Auth door stay up (`auto_stop_machines = off`). The door listens on `127.0.0.1:58704`. zoend forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` there. WhatsApp `/onboard/{token}` stays on zoend.
+Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Postgres, Restate, and the Better Auth door stay up (`auto_stop_machines = off`). The door listens on `127.0.0.1:58704`. zoend forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` there. WhatsApp `/onboard/{token}` stays on zoend.
 
-`ZOEN_OIDC_ISSUER` is `https://zoen.tironi.xyz`. Boot fetches discovery and JWKS from `ZOEN_OIDC_DISCOVERY_URL` (`http://127.0.0.1:58704`). The one Fly machine must not hairpin its public origin before zoend listens. `ZOEN_OIDC_MACHINE_ISSUER` is Keycloak on loopback (zoend dual JWKS this week). Remint session-mints on the loopback door (`http://127.0.0.1:58704`) and writes `/data/zoen/agent.token`. Keycloak stays in supervisord. `ZOEN_BA_AGENT_PASSWORD` is a Fly secret, not committed.
+`ZOEN_OIDC_ISSUER` is `https://zoen.tironi.xyz`. Boot fetches discovery and JWKS from `ZOEN_OIDC_DISCOVERY_URL` (`http://127.0.0.1:58704`). The one Fly machine must not hairpin its public origin before zoend listens. Remint session-mints on the loopback door (`http://127.0.0.1:58704`) and writes `/data/zoen/agent.token`. `ZOEN_BA_AGENT_PASSWORD` is a Fly secret, not committed.
 
 ## Ship a change
 
@@ -25,7 +25,6 @@ Manual: Actions → `fly-deploy` → Run workflow.
 
 App exists. Volume, IPs, cert, and secrets are staged.
 Cedar is `deploy/fly/policies.json` in `/etc/zoen/policies.json`.
-Realm is `deploy/fly/realm.template.json`; boot fills client `admin-a` from Fly secret `ZOEN_OIDC_CLIENT_SECRET`.
 
 ## After the first `/ready`
 
@@ -39,4 +38,4 @@ Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID (`5531999941160@s.whats
 
 `ZOEN_MODEL` and `OPENAI_BASE_URL` are in fly.toml `[env]`; `OPENAI_API_KEY` stays a Fly/GitHub secret. Effects/connector stay unset on this VM.
 
-`BETTER_AUTH_URL` is in fly.toml `[env]`. `BETTER_AUTH_SECRET` is a Fly secret, not committed. Auth crashloops without it. zoend and Keycloak still boot.
+`BETTER_AUTH_URL` is in fly.toml `[env]`. `BETTER_AUTH_SECRET` is a Fly secret, not committed. Auth crashloops without it. zoend still boots.

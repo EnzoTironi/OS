@@ -11,8 +11,6 @@ fi
 
 listen="http://127.0.0.1:58704"
 issuer="http://127.0.0.1:58799"
-machine_issuer="http://127.0.0.1:58798"
-machine_jwks_lie="http://127.0.0.1:1/jwks"
 ok_url="${listen}/api/auth/ok"
 zoend_base="http://127.0.0.1:58705"
 proof="/workspace/ship/issuer-cutover-proof.md"
@@ -23,7 +21,6 @@ cookie_jar="${work}/cookies.txt"
 zoend_pg_name="zoen-issuer-cutover-pg-$$"
 zoend_pid=""
 auth_started=0
-stub_pid=""
 
 stamp() {
   TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M:%S %Z'
@@ -54,9 +51,6 @@ cleanup() {
       fi
       sleep 0.1
     done
-  fi
-  if [[ -n "${stub_pid}" ]] && kill -0 "$stub_pid" 2>/dev/null; then
-    kill_tree "$stub_pid"
   fi
   docker rm -f "$zoend_pg_name" >/dev/null 2>&1 || true
   if [[ "$auth_started" -eq 1 && -f .auth.pid ]]; then
@@ -134,7 +128,6 @@ if [[ -f .auth.pid ]]; then
 fi
 
 fuser -k 58704/tcp >/dev/null 2>&1 || true
-fuser -k 58798/tcp >/dev/null 2>&1 || true
 fuser -k 58705/tcp >/dev/null 2>&1 || true
 
 for _ in $(seq 1 50); do
@@ -169,114 +162,18 @@ if [[ "$ready" -ne 1 ]]; then
   fail "auth door did not become ready"
 fi
 
-STUB_DIR="$work" STUB_ISSUER="$machine_issuer" STUB_JWKS_LIE="$machine_jwks_lie" STUB_PORT=58798 python3 - <<'PY' &
-import base64
-import json
-import os
-import subprocess
-import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
-
-def b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
-
-work = Path(os.environ["STUB_DIR"])
-key = work / "machine.pem"
-subprocess.check_call(
-    ["openssl", "genrsa", "-out", str(key), "2048"],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
-)
-mod = subprocess.check_output(
-    ["openssl", "rsa", "-in", str(key), "-noout", "-modulus"],
-    text=True,
-)
-n_hex = mod.strip().split("=", 1)[1]
-n = b64url(bytes.fromhex(n_hex))
-e = b64url((65537).to_bytes(3, "big"))
-kid = "cutover-machine"
-jwks = {
-    "keys": [
-        {"kty": "RSA", "alg": "RS256", "use": "sig", "kid": kid, "n": n, "e": e}
-    ]
-}
-issuer = os.environ["STUB_ISSUER"]
-jwks_lie = os.environ["STUB_JWKS_LIE"]
-now = int(time.time())
-header = {"alg": "RS256", "typ": "JWT", "kid": kid}
-payload = {
-    "iss": issuer,
-    "aud": "zoend",
-    "sub": "machine-cutover",
-    "exp": now + 3600,
-    "iat": now,
-}
-signing_input = (
-    b64url(json.dumps(header, separators=(",", ":")).encode())
-    + "."
-    + b64url(json.dumps(payload, separators=(",", ":")).encode())
-)
-sig = subprocess.check_output(
-    ["openssl", "dgst", "-sha256", "-sign", str(key)],
-    input=signing_input.encode(),
-)
-(work / "machine.token").write_text(f"{signing_input}.{b64url(sig)}")
-(work / "machine.token").chmod(0o600)
-
-
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        return
-
-    def do_GET(self):
-        path = self.path.split("?", 1)[0]
-        if path == "/.well-known/openid-configuration":
-            body = json.dumps({"issuer": issuer, "jwks_uri": jwks_lie}).encode()
-        elif path == "/jwks":
-            body = json.dumps(jwks).encode()
-        else:
-            self.send_response(404)
-            self.end_headers()
-            return
-        self.send_response(200)
-        self.send_header("content-type", "application/json")
-        self.send_header("content-length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-
-HTTPServer(("127.0.0.1", int(os.environ["STUB_PORT"])), Handler).serve_forever()
-PY
-stub_pid="$!"
-
-stub_ready=0
-for _ in $(seq 1 40); do
-  if curl -sf "${machine_issuer}/.well-known/openid-configuration" >/dev/null 2>&1; then
-    stub_ready=1
-    break
-  fi
-  sleep 0.1
-done
-if [[ "$stub_ready" -ne 1 ]]; then
-  fail "machine discovery stub did not become ready"
-fi
-[[ -s "${work}/machine.token" ]] || fail "machine token missing"
-
 {
   printf '# zoend issuer cutover proof\n\n'
   printf 'Source: `apps/auth/scripts/prove-issuer-cutover.sh`\n'
   printf 'Auth listen: `%s`\n' "$listen"
   printf 'Token issuer: `%s`\n' "$issuer"
-  printf 'Machine issuer: `%s`\n' "$machine_issuer"
   printf 'zoend host: `%s`\n\n' "$zoend_base"
   printf 'This run is local. Live Fly is recorded separately and is not this remount.\n\n'
   printf '## Boot discovery\n\n'
   printf 'zoend loads `ZOEN_OIDC_ISSUER` as the token `iss` and fetches `/.well-known/openid-configuration` from `ZOEN_OIDC_DISCOVERY_URL`. JWKS is fetched at the discovery origin plus the advertised `jwks_uri` path, so a public `jwks_uri` does not hairpin the Fly HTTPS listener. If the issuer host is not loopback, discovery must be loopback or boot refuses to start.\n\n'
   printf 'This script sets issuer `%s` (nothing listens) and discovery `%s`. zoend still reached `/ready`.\n\n' "$issuer" "$listen"
   printf '## remint and agent.token\n\n'
-  printf '`deploy/fly/zoen-remint-agent` session-mints on loopback door `http://127.0.0.1:58704`. It signs in with email, then `GET /api/auth/token`, and writes `ZOEN_AGENT_BEARER_TOKEN_FILE` (`/data/zoen/agent.token` on Fly). Origin is `BETTER_AUTH_URL`. Remint does not POST Keycloak and does not read `ZOEN_OIDC_MACHINE_ISSUER`. Keycloak stays in supervisord. zoend may still load `ZOEN_OIDC_MACHINE_ISSUER` JWKS this week.\n\n'
-  printf 'The machine Bearer below is a local JWKS stand-in, not a signer inside zoend.\n\n'
+  printf '`deploy/fly/zoen-remint-agent` session-mints on loopback door `http://127.0.0.1:58704`. It signs in with email, then `GET /api/auth/token`, and writes `ZOEN_AGENT_BEARER_TOKEN_FILE` (`/data/zoen/agent.token` on Fly). Origin is `BETTER_AUTH_URL`. Remint does not POST Keycloak and does not read `ZOEN_OIDC_MACHINE_ISSUER`. zoend trusts the Better Auth issuer only.\n\n'
   printf '## Local prove\n\n'
 } > "$draft"
 
@@ -364,36 +261,6 @@ token="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' < "$
 excerpt="token=minted"
 record "GET /api/auth/token" "$command" "$url" "$status" "$excerpt" "$ts"
 
-machine_token="$(cat "${work}/machine.token")"
-[[ -n "$machine_token" ]] || fail "machine token empty"
-
-url="${machine_issuer}/.well-known/openid-configuration"
-command="curl -sS -o body -w %{http_code} ${url}"
-body="${work}/machine-oidc"
-status="$(get_url "$url" "$body")"
-ts="$(stamp)"
-machine_jwks_uri="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["jwks_uri"])' < "$body")"
-excerpt="jwks_uri=${machine_jwks_uri}"
-record "GET machine discovery (jwks_uri is a dead origin)" "$command" "$url" "$status" "$excerpt" "$ts"
-[[ "$status" == "200" ]] || fail "machine discovery status ${status}"
-[[ "$machine_jwks_uri" == "$machine_jwks_lie" ]] || fail "unexpected machine jwks_uri ${machine_jwks_uri}"
-
-url="$machine_jwks_lie"
-command="curl -sS -o body -w %{http_code} --connect-timeout 1 ${url}"
-body="${work}/machine-jwks-lie"
-set +e
-status="$(curl -sS -o "$body" -w '%{http_code}' --connect-timeout 1 "$url" 2>"${work}/machine-jwks-lie.err")"
-lie_exit="$?"
-set -e
-ts="$(stamp)"
-if [[ "$lie_exit" -eq 0 ]]; then
-  excerpt="dead_jwks_status=${status}"
-  record "GET advertised machine jwks (must fail)" "$command" "$url" "$status" "$excerpt" "$ts"
-  fail "advertised machine jwks unexpectedly answered"
-fi
-excerpt="connect_failed"
-record "GET advertised machine jwks (must fail)" "$command" "$url" "000" "$excerpt" "$ts"
-
 docker rm -f "$zoend_pg_name" >/dev/null 2>&1 || true
 if ! docker run -d --name "$zoend_pg_name" \
   -e POSTGRES_DB=zoen \
@@ -447,7 +314,7 @@ zoend_log="${work}/zoend.log"
   export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55405/zoen'
   export ZOEN_OIDC_ISSUER="$issuer"
   export ZOEN_OIDC_DISCOVERY_URL="$listen"
-  export ZOEN_OIDC_MACHINE_ISSUER="$machine_issuer"
+  unset ZOEN_OIDC_MACHINE_ISSUER || true
   export ZOEN_OIDC_AUDIENCE='zoend'
   export ZOEN_LISTEN_ADDR='127.0.0.1:58705'
   export ZOEN_CEDAR_POLICY_MANIFEST="$policies"
@@ -505,28 +372,6 @@ fi
   fail "Better Auth Bearer status ${status}, want 200"
 }
 
-command="curl -sS -o body -w %{http_code} -X POST -H Authorization:Bearer <machine> ${url}"
-body="${work}/bootstrap-machine"
-status="$(
-  curl -sS -o "$body" -w '%{http_code}' \
-    -X POST \
-    -H "Authorization: Bearer ${machine_token}" \
-    "$url"
-)"
-ts="$(stamp)"
-excerpt="machine_bearer"
-record "POST /identity/admin/bootstrap-bound (machine issuer Bearer)" "$command" "$url" "$status" "$excerpt" "$ts"
-if [[ "$status" == "401" ]]; then
-  cat "$zoend_log" >&2 || true
-  cat "$body" >&2 || true
-  fail "machine Bearer returned 401"
-fi
-[[ "$status" == "200" ]] || {
-  cat "$zoend_log" >&2 || true
-  cat "$body" >&2 || true
-  fail "machine Bearer status ${status}, want 200"
-}
-
 command="curl -sS -o body -w %{http_code} -X POST -H Authorization:Bearer not-a-jwt ${url}"
 body="${work}/bootstrap-bad"
 status="$(
@@ -558,12 +403,17 @@ excerpt="remint_session_mint_loopback_door"
 record "remint session mint" "grep api/auth/token deploy/fly/zoen-remint-agent" "$remint" "n/a" "$excerpt" "$(stamp)"
 
 supervisord="${repo}/deploy/fly/supervisord.conf"
-grep -q '^\[program:keycloak\]' "$supervisord" || fail "keycloak program missing"
+if grep -q '^\[program:keycloak\]' "$supervisord"; then
+  fail "keycloak program still in supervisord"
+fi
+if grep -q 'zoen-start-keycloak' "$supervisord"; then
+  fail "zoen-start-keycloak still in supervisord"
+fi
+grep -q '^\[program:auth\]' "$supervisord" || fail "auth program missing"
 grep -q '^\[program:remint\]' "$supervisord" || fail "remint program missing"
 grep -q '^\[program:agent-binding\]' "$supervisord" || fail "agent-binding program missing"
-grep -q 'zoen-start-keycloak' "$supervisord" || fail "zoen-start-keycloak missing"
-excerpt="keycloak_and_remint_present"
-record "Keycloak program stays" "grep program:keycloak deploy/fly/supervisord.conf" "$supervisord" "n/a" "$excerpt" "$(stamp)"
+excerpt="keycloak_gone_auth_remint_present"
+record "Keycloak gone, auth and remint stay" "grep program:auth deploy/fly/supervisord.conf" "$supervisord" "n/a" "$excerpt" "$(stamp)"
 
 mkdir -p "$(dirname "$proof")"
 cp "$draft" "$proof"

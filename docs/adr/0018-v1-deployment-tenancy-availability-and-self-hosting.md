@@ -9,7 +9,7 @@ Zoen must support three commercial/operational modes without maintaining three p
 
 ## Decision
 
-Production is one Fly app (`deploy/fly`). Shared, dedicated, and self-hosted Helm profiles are gone. The same zoend, Restate, Postgres, MinIO, and Keycloak image is the deployment unit.
+Production is one Fly app (`deploy/fly`). Shared, dedicated, and self-hosted Helm profiles are gone. The same zoend, Restate, Postgres, MinIO, and Better Auth image is the deployment unit.
 
 ```text
 Fly app zoen
