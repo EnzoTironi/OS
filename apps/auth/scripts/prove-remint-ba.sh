@@ -419,8 +419,8 @@ if [[ "$verdict" == "pass" ]]; then
     cd "$repo"
     export ZOEN_TENANT_ID='tenant.a'
     export ZOEN_AGENT_BEARER_TOKEN_FILE="$token_file"
-    export ZOEN_PERSONAL_DEFINITION_PATH="${repo}/packages/ontology/fixtures/personal.zoen.ts"
-    export ZOEN_WORLD_DEFINITION_PATH="${repo}/packages/ontology/fixtures/commercial.zoen.ts"
+    export ZOEN_PERSONAL_DEFINITION_PATH="${repo}/testdata/lakes/personal.canonical.json"
+    export ZOEN_WORLD_DEFINITION_PATH="${repo}/testdata/lakes/commercial.canonical.json"
     export ZOEN_IDENTITY_BASE_URL="$zoend_base"
     export ZOEN_PERSONAL_LAKE_READY_FILE="${work}/personal.lake.ready"
     export ZOEN_COMMERCIAL_LAKE_READY_FILE="${work}/commercial.lake.ready"
@@ -446,7 +446,7 @@ if [[ "$verdict" == "pass" ]]; then
     cd "$repo"
     export ZOEN_TENANT_ID='tenant.a'
     export ZOEN_PUBLISH_BEARER='not-a-jwt'
-    export ZOEN_PERSONAL_DEFINITION_PATH="${repo}/packages/ontology/fixtures/personal.zoen.ts"
+    export ZOEN_PERSONAL_DEFINITION_PATH="${repo}/testdata/lakes/personal.canonical.json"
     export ZOEN_IDENTITY_BASE_URL="$zoend_base"
     npx --yes tsx apps/auth/scripts/publish-with-bearer.ts
   ) >"$garbage_log" 2>&1; then

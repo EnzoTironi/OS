@@ -4,20 +4,19 @@ import path from "node:path";
 const repositoryRoot = process.cwd();
 const lakePath = path.join(
   repositoryRoot,
-  "packages",
-  "ontology",
-  "fixtures",
-  "commercial.zoen.ts",
+  "testdata",
+  "lakes",
+  "commercial.canonical.json",
 );
 
 const lake = await readFile(lakePath, "utf8");
-if (!lake.includes("defineBundle") || !lake.includes("commercial.OrderLine")) {
+if (!lake.includes('"id":"commercial.OrderLine"') || !lake.includes("zoen.definition.v1")) {
   process.stderr.write(
     `${JSON.stringify(
       {
         rule: "commercial-lake",
         error:
-          "packages/ontology/fixtures/commercial.zoen.ts is the live lake and must keep defineBundle plus commercial.OrderLine",
+          "testdata/lakes/commercial.canonical.json is the live lake and must keep commercial.OrderLine",
       },
       null,
       2,
@@ -28,7 +27,7 @@ if (!lake.includes("defineBundle") || !lake.includes("commercial.OrderLine")) {
   process.stdout.write(
     `${JSON.stringify({
       rule: "commercial-lake",
-      lake: "packages/ontology/fixtures/commercial.zoen.ts",
+      lake: "testdata/lakes/commercial.canonical.json",
       sourceOfTruth: true,
     })}\n`,
   );

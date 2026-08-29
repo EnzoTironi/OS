@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
-import { compileDefinition } from "../../packages/ontology/src/index.js";
 import { DefinitionService } from "../../gen/connect/zoen/definition/v1/definition_pb.js";
 
 async function main(): Promise<void> {
@@ -21,26 +21,44 @@ async function main(): Promise<void> {
   const transport = connectTransport(baseUrl, token);
   const definitions = createClient(DefinitionService, transport);
 
-  const personal = await compileDefinition(personalPath);
+  const personal = loadCanonical(personalPath);
   await publishAndActivate(definitions, personal, tenantId);
   writeReady(personalReady, {
-    definitionId: personal.definition.definitionId,
+    definitionId: personal.definitionId,
     digest: personal.digest,
     event: "personalLakeReady",
   });
 
-  const commercial = await compileDefinition(commercialPath);
+  const commercial = loadCanonical(commercialPath);
   await publishAndActivate(definitions, commercial, tenantId);
   writeReady(commercialReady, {
-    definitionId: commercial.definition.definitionId,
+    definitionId: commercial.definitionId,
     digest: commercial.digest,
     event: "commercialLakeReady",
   });
 }
 
+function loadCanonical(path: string): {
+  readonly canonicalJson: string;
+  readonly digest: string;
+  readonly definitionId: string;
+} {
+  const canonicalJson = readFileSync(path, "utf8").trim();
+  const digest = createHash("sha256").update(canonicalJson).digest("hex");
+  const parsed = JSON.parse(canonicalJson) as { definitionId?: string };
+  if (typeof parsed.definitionId !== "string" || parsed.definitionId.length === 0) {
+    throw new Error(`${path} is not canonical definition JSON`);
+  }
+  return { canonicalJson, digest, definitionId: parsed.definitionId };
+}
+
 async function publishAndActivate(
   definitions: ReturnType<typeof createClient<typeof DefinitionService>>,
-  compiled: Awaited<ReturnType<typeof compileDefinition>>,
+  compiled: {
+    readonly canonicalJson: string;
+    readonly digest: string;
+    readonly definitionId: string;
+  },
   tenantId: string,
 ): Promise<void> {
   await definitions.publish({
@@ -49,7 +67,7 @@ async function publishAndActivate(
     tenantId,
   });
   const active = await definitions.getActiveRevision({
-    definitionId: compiled.definition.definitionId,
+    definitionId: compiled.definitionId,
     tenantId,
   });
   const currentDigest = active.definitionRevision?.digest;
@@ -61,7 +79,7 @@ async function publishAndActivate(
       currentDigest === undefined || currentDigest.length === 0
         ? { case: "expectNoActiveRevision", value: true }
         : { case: "expectedActiveDigest", value: currentDigest },
-    definitionId: compiled.definition.definitionId,
+    definitionId: compiled.definitionId,
     digest: compiled.digest,
     tenantId,
   });
