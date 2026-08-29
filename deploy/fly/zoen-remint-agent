@@ -1,18 +1,31 @@
 #!/bin/sh
 set -eu
 mkdir -p /data/zoen
-issuer="${ZOEN_OIDC_MACHINE_ISSUER:-http://127.0.0.1:8080/realms/zoen}"
-secret="${ZOEN_OIDC_CLIENT_SECRET:?ZOEN_OIDC_CLIENT_SECRET required}"
+door="${ZOEN_BA_DOOR_URL:-http://127.0.0.1:58704}"
+origin="${BETTER_AUTH_URL:?BETTER_AUTH_URL required}"
+origin="${origin%/}"
+email="${ZOEN_BA_AGENT_EMAIL:?ZOEN_BA_AGENT_EMAIL required}"
+password="${ZOEN_BA_AGENT_PASSWORD:?ZOEN_BA_AGENT_PASSWORD required}"
 out="${ZOEN_AGENT_BEARER_TOKEN_FILE:-/data/zoen/agent.token}"
+signup_json="$(ZOEN_BA_AGENT_EMAIL="$email" ZOEN_BA_AGENT_PASSWORD="$password" python3 -c 'import json,os; print(json.dumps({"email":os.environ["ZOEN_BA_AGENT_EMAIL"],"password":os.environ["ZOEN_BA_AGENT_PASSWORD"],"name":"zoen agent"}))')"
+signin_json="$(ZOEN_BA_AGENT_EMAIL="$email" ZOEN_BA_AGENT_PASSWORD="$password" python3 -c 'import json,os; print(json.dumps({"email":os.environ["ZOEN_BA_AGENT_EMAIL"],"password":os.environ["ZOEN_BA_AGENT_PASSWORD"]}))')"
 while true; do
-  if json="$(curl -fsS -X POST "${issuer}/protocol/openid-connect/token" \
-    -H 'content-type: application/x-www-form-urlencoded' \
-    --data-urlencode 'grant_type=client_credentials' \
-    --data-urlencode 'client_id=admin-a' \
-    --data-urlencode "client_secret=${secret}")"
+  jar="$(mktemp)"
+  curl -sS -o /dev/null -c "$jar" -b "$jar" \
+    -H 'content-type: application/json' \
+    -H "Origin: ${origin}" \
+    -d "$signup_json" \
+    "${door}/api/auth/sign-up/email" || true
+  if curl -fsS -o /dev/null -c "$jar" -b "$jar" \
+      -H 'content-type: application/json' \
+      -H "Origin: ${origin}" \
+      -d "$signin_json" \
+      "${door}/api/auth/sign-in/email" \
+    && json="$(curl -fsS -b "$jar" -H "Origin: ${origin}" "${door}/api/auth/token")"
   then
-    printf '%s' "$json" | python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["access_token"])' "$out"
+    printf '%s' "$json" | python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["token"])' "$out"
     chmod 600 "$out"
   fi
+  rm -f "$jar"
   sleep 200
 done

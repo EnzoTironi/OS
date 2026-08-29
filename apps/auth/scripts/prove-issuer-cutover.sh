@@ -275,7 +275,7 @@ fi
   printf 'zoend loads `ZOEN_OIDC_ISSUER` as the token `iss` and fetches `/.well-known/openid-configuration` from `ZOEN_OIDC_DISCOVERY_URL`. JWKS is fetched at the discovery origin plus the advertised `jwks_uri` path, so a public `jwks_uri` does not hairpin the Fly HTTPS listener. If the issuer host is not loopback, discovery must be loopback or boot refuses to start.\n\n'
   printf 'This script sets issuer `%s` (nothing listens) and discovery `%s`. zoend still reached `/ready`.\n\n' "$issuer" "$listen"
   printf '## remint and agent.token\n\n'
-  printf '`deploy/fly/zoen-remint-agent` POSTs `${ZOEN_OIDC_MACHINE_ISSUER}/protocol/openid-connect/token` as Keycloak client `admin-a` and writes `ZOEN_AGENT_BEARER_TOKEN_FILE` (`/data/zoen/agent.token` on Fly). The default machine issuer is `http://127.0.0.1:8080/realms/zoen`. Remint does not read `ZOEN_OIDC_ISSUER`. zoend also loads that machine issuer JWKS so the existing personal-lake token still verifies. A BA-only remint was rejected because Better Auth `GET /api/auth/token` has no `principal.admin.a` claims.\n\n'
+  printf '`deploy/fly/zoen-remint-agent` session-mints on loopback door `http://127.0.0.1:58704`. It signs in with email, then `GET /api/auth/token`, and writes `ZOEN_AGENT_BEARER_TOKEN_FILE` (`/data/zoen/agent.token` on Fly). Origin is `BETTER_AUTH_URL`. Remint does not POST Keycloak and does not read `ZOEN_OIDC_MACHINE_ISSUER`. Keycloak stays in supervisord. zoend may still load `ZOEN_OIDC_MACHINE_ISSUER` JWKS this week.\n\n'
   printf 'The machine Bearer below is a local JWKS stand-in, not a signer inside zoend.\n\n'
   printf '## Local prove\n\n'
 } > "$draft"
@@ -541,19 +541,26 @@ record "POST /identity/admin/bootstrap-bound (garbage Bearer)" "$command" "$url"
 [[ "$status" == "401" ]] || fail "garbage Bearer status ${status}, want 401"
 
 remint="${repo}/deploy/fly/zoen-remint-agent"
-remint_line="$(grep -E 'protocol/openid-connect/token' "$remint")"
-excerpt="remint_still_keycloak_token_endpoint"
-record "remint token URL" "grep protocol/openid-connect/token deploy/fly/zoen-remint-agent" "$remint" "n/a" "$excerpt" "$(stamp)"
-printf '%s\n' "$remint_line" | grep -q 'issuer' || fail "remint no longer posts issuer token endpoint"
-grep -q 'ZOEN_OIDC_MACHINE_ISSUER' "$remint" || fail "remint does not read ZOEN_OIDC_MACHINE_ISSUER"
-grep -q 'http://127.0.0.1:8080/realms/zoen' "$remint" || fail "remint default issuer is not Keycloak loopback"
+grep -q 'api/auth/sign-in/email' "$remint" || fail "remint missing BA sign-in"
+grep -q 'api/auth/token' "$remint" || fail "remint missing BA token mint"
+grep -q '127.0.0.1:58704' "$remint" || fail "remint default door is not loopback 58704"
+grep -q 'BETTER_AUTH_URL' "$remint" || fail "remint does not read BETTER_AUTH_URL"
+if grep -q 'ZOEN_OIDC_MACHINE_ISSUER' "$remint"; then
+  fail "remint still reads ZOEN_OIDC_MACHINE_ISSUER"
+fi
+if grep -q 'protocol/openid-connect/token' "$remint"; then
+  fail "remint still posts Keycloak token endpoint"
+fi
 if grep -F '${ZOEN_OIDC_ISSUER' "$remint"; then
   fail "remint still reads ZOEN_OIDC_ISSUER"
 fi
+excerpt="remint_session_mint_loopback_door"
+record "remint session mint" "grep api/auth/token deploy/fly/zoen-remint-agent" "$remint" "n/a" "$excerpt" "$(stamp)"
 
 supervisord="${repo}/deploy/fly/supervisord.conf"
 grep -q '^\[program:keycloak\]' "$supervisord" || fail "keycloak program missing"
 grep -q '^\[program:remint\]' "$supervisord" || fail "remint program missing"
+grep -q '^\[program:agent-binding\]' "$supervisord" || fail "agent-binding program missing"
 grep -q 'zoen-start-keycloak' "$supervisord" || fail "zoen-start-keycloak missing"
 excerpt="keycloak_and_remint_present"
 record "Keycloak program stays" "grep program:keycloak deploy/fly/supervisord.conf" "$supervisord" "n/a" "$excerpt" "$(stamp)"

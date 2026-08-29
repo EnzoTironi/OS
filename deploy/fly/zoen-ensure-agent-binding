@@ -1,0 +1,152 @@
+#!/bin/sh
+set -eu
+door="${ZOEN_BA_DOOR_URL:-http://127.0.0.1:58704}"
+origin="${BETTER_AUTH_URL:?BETTER_AUTH_URL required}"
+origin="${origin%/}"
+email="${ZOEN_BA_AGENT_EMAIL:?ZOEN_BA_AGENT_EMAIL required}"
+password="${ZOEN_BA_AGENT_PASSWORD:?ZOEN_BA_AGENT_PASSWORD required}"
+zoend="${ZOEN_IDENTITY_BASE_URL:-http://127.0.0.1:58701}"
+token="${ZOEN_IDENTITY_ADMIN_TOKEN:?ZOEN_IDENTITY_ADMIN_TOKEN required}"
+auth="authorization: Bearer ${token}"
+signup_json="$(ZOEN_BA_AGENT_EMAIL="$email" ZOEN_BA_AGENT_PASSWORD="$password" python3 -c 'import json,os; print(json.dumps({"email":os.environ["ZOEN_BA_AGENT_EMAIL"],"password":os.environ["ZOEN_BA_AGENT_PASSWORD"],"name":"zoen agent"}))')"
+signin_json="$(ZOEN_BA_AGENT_EMAIL="$email" ZOEN_BA_AGENT_PASSWORD="$password" python3 -c 'import json,os; print(json.dumps({"email":os.environ["ZOEN_BA_AGENT_EMAIL"],"password":os.environ["ZOEN_BA_AGENT_PASSWORD"]}))')"
+
+http_ok() {
+  case "$1" in
+    200|409) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+try_bind() {
+  tmp="$(mktemp -d)"
+  jar="${tmp}/jar"
+  curl -sS -o /dev/null -c "$jar" -b "$jar" \
+    -H 'content-type: application/json' \
+    -H "Origin: ${origin}" \
+    -d "$signup_json" \
+    "${door}/api/auth/sign-up/email" || true
+  curl -fsS -o "${tmp}/signin.json" -c "$jar" -b "$jar" \
+    -H 'content-type: application/json' \
+    -H "Origin: ${origin}" \
+    -d "$signin_json" \
+    "${door}/api/auth/sign-in/email"
+  curl -fsS -o "${tmp}/token.json" -b "$jar" -H "Origin: ${origin}" \
+    "${door}/api/auth/token"
+  sub="$(python3 -c '
+import base64, json, sys
+token = json.load(open(sys.argv[1]))["token"]
+part = token.split(".")[1]
+part += "=" * (-len(part) % 4)
+print(json.loads(base64.urlsafe_b64decode(part.encode())).get("sub", ""))
+' "${tmp}/token.json")"
+  if [ -z "$sub" ]; then
+    echo "agent binding: JWT sub missing" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  curl -sf "${zoend}/ready" >/dev/null
+  prov_code="$(curl -sS -o "${tmp}/provisional.json" -w '%{http_code}' \
+    -X POST "${zoend}/identity/admin/provisional" \
+    -H "$auth" \
+    -H 'content-type: application/json' \
+    -d "$(python3 -c 'import json,sys; print(json.dumps({"provider":"web_oidc","subjectKey":sys.argv[1]}))' "$sub")")"
+  if ! http_ok "$prov_code"; then
+    echo "provisional HTTP ${prov_code}" >&2
+    cat "${tmp}/provisional.json" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  account_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["accountId"])' <"${tmp}/provisional.json")"
+  account_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))' <"${tmp}/provisional.json")"
+  if [ "$account_status" != "verified" ]; then
+    verify_code="$(curl -sS -o "${tmp}/verify.json" -w '%{http_code}' \
+      -X POST "${zoend}/identity/admin/verify-binding" \
+      -H "$auth" \
+      -H 'content-type: application/json' \
+      -d "$(python3 -c 'import json,sys; print(json.dumps({"accountId":sys.argv[1]}))' "$account_id")")"
+    if ! http_ok "$verify_code"; then
+      echo "verify-binding HTTP ${verify_code}" >&2
+      cat "${tmp}/verify.json" >&2
+      rm -rf "$tmp"
+      return 1
+    fi
+  fi
+  snap_code="$(curl -sS -o "${tmp}/account.json" -w '%{http_code}' \
+    -H "$auth" \
+    "${zoend}/identity/admin/accounts/${account_id}")"
+  if [ "$snap_code" != "200" ]; then
+    echo "snapshot HTTP ${snap_code}" >&2
+    cat "${tmp}/account.json" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  if python3 -c '
+import json,sys
+snap=json.load(sys.stdin)
+for m in snap.get("memberships", []):
+    if m.get("tenantId")=="tenant.a" and m.get("principalId")=="principal.admin.a" and m.get("status")=="active":
+        sys.exit(0)
+sys.exit(1)
+' <"${tmp}/account.json"; then
+    rm -rf "$tmp"
+    echo "agent binding already active for ${account_id}"
+    return 0
+  fi
+  expires_at="$(python3 -c 'import time; print(int(time.time() * 1_000_000) + 3_600_000_000_000)')"
+  invite_token="invite.agent.ba.${account_id}"
+  invite_body="$(python3 -c '
+import json, sys
+print(json.dumps({
+    "tenantId": "tenant.a",
+    "principalId": "principal.admin.a",
+    "token": sys.argv[1],
+    "expiresAtMicros": int(sys.argv[2]),
+    "workloadId": "workload.admin.a",
+    "actorId": "actor.admin.a",
+    "actionIds": [
+        "commercial.changeCommitment",
+        "zoen.definition.activate",
+        "personal.writeMemory",
+        "personal.createReminder",
+    ],
+    "resourceIds": [
+        "personal.memory",
+        "personal.note",
+        "personal.reminder",
+        "commercial.sales",
+        "commercial.order-line.dirty-quote",
+    ],
+}))
+' "$invite_token" "$expires_at")"
+  invite_code="$(curl -sS -o "${tmp}/invite.json" -w '%{http_code}' \
+    -X POST "${zoend}/identity/admin/invites" \
+    -H 'content-type: application/json' -H "$auth" \
+    -d "$invite_body")"
+  if ! http_ok "$invite_code"; then
+    echo "create invite HTTP ${invite_code}" >&2
+    cat "${tmp}/invite.json" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  accept_code="$(curl -sS -o "${tmp}/accept.json" -w '%{http_code}' \
+    -X POST "${zoend}/identity/admin/accept-invite" \
+    -H 'content-type: application/json' -H "$auth" \
+    -d "$(python3 -c 'import json,sys; print(json.dumps({"accountId":sys.argv[1],"token":sys.argv[2]}))' "$account_id" "$invite_token")")"
+  if ! http_ok "$accept_code"; then
+    echo "accept-invite HTTP ${accept_code}" >&2
+    cat "${tmp}/accept.json" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$tmp"
+  echo "bound web_oidc agent on tenant.a as principal.admin.a"
+  return 0
+}
+
+while true; do
+  if (try_bind); then
+    exit 0
+  fi
+  sleep 2
+done
