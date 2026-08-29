@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "deploy/fly/**"
+      - "apps/auth/**"
       - "apps/zoend/**"
       - "crates/**"
       - "packages/ontology/**"

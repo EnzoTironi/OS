@@ -305,6 +305,29 @@ if [[ "$zoend_ready" -ne 1 ]]; then
   fail "zoend /ready did not answer"
 fi
 
+url="${zoend_base}/api/auth/ok"
+command="curl -sS -o body -w %{http_code} ${url}"
+body="${work}/door-ok"
+status="$(get_url "$url" "$body")"
+ts="$(stamp)"
+[[ "$status" == "200" ]] || {
+  cat "$zoend_log" >&2 || true
+  cat "$body" >&2 || true
+  fail "zoend /api/auth/ok status ${status}"
+}
+excerpt="$(python3 -c 'import json,sys; print("ok="+str(json.load(sys.stdin).get("ok", "")).lower())' < "$body")"
+record "GET /api/auth/ok via zoend" "$command" "$url" "$status" "$excerpt" "$ts"
+
+url="${zoend_base}/onboard/missing-token"
+command="curl -sS -o body -w %{http_code} ${url}"
+body="${work}/onboard-missing"
+status="$(get_url "$url" "$body")"
+ts="$(stamp)"
+excerpt="zoend_whatsapp_onboard"
+record "GET /onboard/{token} stays on zoend" "$command" "$url" "$status" "$excerpt" "$ts"
+[[ "$status" == "404" ]] || fail "zoend /onboard/missing-token status ${status}, want 404"
+grep -q 'Este convite não vale mais' "$body" || fail "zoend /onboard/{token} was stolen by the auth door"
+
 url="${zoend_base}/identity/admin/bootstrap-bound"
 command="curl -sS -o body -w %{http_code} -X POST -H Authorization:Bearer <minted> ${url}"
 body="${work}/bootstrap-ok"

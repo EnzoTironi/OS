@@ -1,6 +1,6 @@
 # How to run the Auth door
 
-This process is the Better Auth 1.7.2 door. It listens on `127.0.0.1:58704` and stores sessions in the `zoen_auth` database.
+This process is the Better Auth 1.7.2 door. It listens on `127.0.0.1:58704` and stores sessions in the `zoen_auth` database. On Fly, supervisord starts it next to Keycloak. Public HTTPS still lands on zoend `:58701`, which forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` to this process. WhatsApp `/onboard/{token}` stays on zoend.
 
 ## Start Postgres
 

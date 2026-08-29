@@ -40,6 +40,7 @@ mod auth {
     pub use zoend::auth::*;
 }
 mod computation_service;
+mod door_proxy;
 mod effect_service;
 mod history_service;
 mod identity_admin;
@@ -161,6 +162,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let application = HttpRouter::new()
         .route("/metrics", get(metrics))
         .merge(ready_routes)
+        .merge(door_proxy::router())
         .merge(identity_routes)
         .merge(onboard_routes)
         .merge(messaging_routes)

@@ -14,4 +14,6 @@ CREATE ROLE zoen_app
     NOINHERIT;
 GRANT CONNECT ON DATABASE ${POSTGRES_DB} TO zoen_app;
 GRANT ALL ON SCHEMA public TO zoen_app;
+SELECT 'CREATE DATABASE zoen_auth OWNER zoen_app'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'zoen_auth')\gexec
 SQL
