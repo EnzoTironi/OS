@@ -51,6 +51,26 @@ Or run the same steps with `scripts/prove.sh`. That script curls `GET http://127
 
 To prove the owned screens and the device-authorization start, run `scripts/prove-screens.sh` from `apps/auth`. The script runs compose, migrates, and restarts the pid in `.auth.pid` even when `/api/auth/ok` already answers. It writes `/workspace/ship/better-auth-screens-proof.md`. That file omits `device_code` and `user_code` values and records status and field names only.
 
+## Issue a JWT for zoend
+
+The door plants the official Better Auth `jwt` plugin with `RS256`. Issuer is `BETTER_AUTH_URL` with no trailing slash. Audience is `zoend`.
+
+Email and password sign-up is enabled so a local journey can mint a session without Google.
+
+Discovery and JWKS:
+
+1. `GET /.well-known/openid-configuration` returns `issuer` and `jwks_uri`.
+2. `jwks_uri` is `{issuer}/api/auth/jwks`.
+3. `GET /api/auth/jwks` returns the public key set. The first call mints an RS256 key when the set is empty.
+
+Mint path:
+
+1. `POST /api/auth/sign-up/email` with JSON `email`, `password`, and `name`. Send `Origin` matching `BETTER_AUTH_URL`. Keep the `Set-Cookie` jar.
+2. `GET /api/auth/token` with that cookie. The body is `{ "token": "..." }`.
+3. Call zoend with `Authorization: Bearer <token>`. Point `ZOEN_OIDC_ISSUER` at the door base URL and `ZOEN_OIDC_AUDIENCE` at `zoend`.
+
+To prove the full path locally, run `scripts/prove-zoend-ba.sh` from `apps/auth`. The script starts the door, mints a token, boots a throwaway zoend against that issuer, and writes `/workspace/ship/zoend-ba-proof.md` with commands and status codes. The proof file does not record the JWT, session cookie, or `BETTER_AUTH_SECRET`.
+
 ## Google redirect URIs
 
 Register these later on the existing GCP project. Do not create the client from this README.
