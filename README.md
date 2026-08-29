@@ -58,17 +58,17 @@ Zoen is not an agent bolted onto APIs, a knowledge graph, a workflow builder, or
 - Actions are governed and revalidated before commit. Cedar and publish/activate stay on the path.
 - Local commit is not remote success. External effects can stay `unknown` until reconciliation.
 - History and ontology revisions are reproducible.
-- Self-hosted deployment is first-class from the same signed artifacts.
+- Production deploy is one Fly app.
 
 LLM calls, MCP adapters, chat buttons, and transport providers stay replaceable surfaces. They must not become a second semantic authority.
 
-## Self-host
+## Deploy
 
-The same OCI/Helm release can run as shared multi-tenant SaaS, dedicated Zoen-hosted deployment, or customer-controlled self-hosted infrastructure. Core operation has no mandatory Zoen Cloud dependency.
+Production is one Fly app. Image is `deploy/fly/Dockerfile`. GitHub `fly-deploy` builds it and pushes `registry.fly.io/zoen:$GITHUB_SHA`.
 
-Paid chat or messaging providers stay optional for self-host. Phone, group, thread, and IdP groups are not membership. Humans authenticate at Keycloak; an Active Membership row is the source of tenant and principal for a bound account.
+Paid chat or messaging providers stay optional. Phone, group, thread, and IdP groups are not membership. Humans authenticate at Keycloak; an Active Membership row is the source of tenant and principal for a bound account.
 
-Deployment profiles and install reference live under `deploy/`. Release confidence still runs through `just verify-v1` with production-shaped evidence.
+Release confidence still runs through `just verify-v1` with production-shaped evidence.
 
 ## Architecture
 
@@ -88,7 +88,7 @@ The semantic center remains deliberately small:
 - Cedar evaluates policy, Wasmtime executes untrusted/custom components and Restate provides durable orchestration behind Zoen-owned semantic boundaries;
 - TypeScript owns ontology authoring, Company Brain/agent intelligence and experience surfaces without becoming semantic authority;
 - public machine protocol uses Protobuf + Buf + ConnectRPC; semantic definition identity uses canonical JSON/JCS + SHA-256 separately;
-- shared SaaS, dedicated and fully self-hosted deployment are first-class from the same signed artifacts;
+- production deploy is one Fly app;
 - every completed V1 capability requires a production-shaped E2E proof; mocks/stubs cannot satisfy release completion.
 
 Architecture decisions live in [`docs/adr`](docs/adr/README.md). The prescriptive V1 Wayfinder, Specs and E2E build tickets live in GitHub Issues.
@@ -123,7 +123,7 @@ ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-v1/testdata/complete just verify-v1
 
 or `just verify-v1-fixtures`.
 
-`verify-v1` is an aggregate-only gate. It consumes typed scenario evidence under `artifacts/` (or `ZOEN_VERIFY_EVIDENCE_DIR`), validates explicit scenario pass fields, source commits, scale class/size, signatures, semantic mutants, RPO/RTO targets, and any advertised live-provider slots, runs verification-layer mutants in-process, and writes a signed `zoen.verify.v1` bundle to `artifacts/verify-v1/`. It does not rerun KIND or wipe existing evidence. Missing, stale, unsigned, wrong-digest, surviving-mutant, or advertised-live-absent evidence fails closed.
+`verify-v1` is an aggregate-only gate. It consumes typed scenario evidence under `artifacts/` (or `ZOEN_VERIFY_EVIDENCE_DIR`), validates explicit scenario pass fields, source commits, semantic mutants, and any advertised live-provider slots, runs verification-layer mutants in-process, and writes a signed `zoen.verify.v1` bundle to `artifacts/verify-v1/`. It does not rerun scenarios or wipe existing evidence. Missing, stale, wrong-digest, surviving-mutant, or advertised-live-absent evidence fails closed.
 
 Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 

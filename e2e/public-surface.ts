@@ -13,7 +13,7 @@ const requiredHeadingOrder = [
   "Sample Company",
   "Packs",
   "Why not LLM + tools",
-  "Self-host",
+  "Deploy",
   "Architecture",
 ] as const;
 

@@ -21,8 +21,8 @@ import {
   recordRequirement,
   requestSupplier,
   stockPositionId,
-} from "../v1-company/actions.js";
-import { passwordToken } from "../v1-company/support.js";
+} from "./actions.js";
+import { passwordToken } from "./tokens.js";
 import {
   actionClient,
   compilePackage,

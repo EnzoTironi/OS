@@ -4,9 +4,8 @@ set -euo pipefail
 # Ticket command stays `just e2e <scenario>` (check + native build + run).
 # `just verify` runs check and native build once, then each scenario runner.
 # scenario_table fields: name:realm:variant:class
-# class is live | archive | kind | scale | credential.
-# just verify runs only class=live. Archive, KIND, scale, and credential
-# scenarios stay optional.
+# class is live | archive | credential.
+# just verify runs only class=live. Archive and credential scenarios stay optional.
 # `just verify-v1` aggregates typed artifacts into a signed zoen.verify.v1 bundle.
 # `just verify-activation` aggregates AD artifacts into a signed zoen.activation.v1 bundle.
 # `just e2e-run` executes a built workspace and does not lint.
@@ -22,11 +21,7 @@ scenario_table=(
   "pack-kitchen:pack-kitchen::archive"
   "personal-family:personal-family::archive"
   "activation-sample:::archive"
-  "backup-restore:::kind"
   "definition-publication:governed-action::live"
-  "deploy-dedicated:::kind"
-  "deploy-self-hosted-isolated:::kind"
-  "ha-chaos:::kind"
   "adr-0007:adr-0007::archive"
   "domain-commercial:domain-commercial::archive"
   "domain-inventory-procurement:domain-inventory-procurement::archive"
@@ -51,15 +46,7 @@ scenario_table=(
   "pack-registry:pack-registry::archive"
   "public-surface:::live"
   "public-surface-web:public-surface-web::archive"
-  "rolling-upgrade:::kind"
-  "rpo-rto:::kind"
-  "scale-actions-v1:::scale"
-  "scale-mixed-v1:::scale"
-  "scale-query-v1:::scale"
-  "scale-seed-v1:::scale"
   "semantic-query:semantic-query::live"
-  "shared-tenancy:::kind"
-  "v1-company:::kind"
   "wasm-code-mode:wasm-code-mode::live"
   "web-deterministic:web-deterministic::archive"
   "workshop-miniapp:workshop-miniapp::archive"
@@ -84,8 +71,6 @@ usage() {
   echo "       just build [scenario|all]" >&2
   echo "       just e2e-run <scenario>" >&2
   echo "       just e2e <scenario>" >&2
-  echo "       just release-drill rpo-rto" >&2
-  echo "       just scale seed-v1|query-v1|actions-v1|mixed-v1" >&2
   echo "       just verify" >&2
   echo "       just verify-v1" >&2
   echo "       just verify-activation" >&2
@@ -124,20 +109,11 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" || "$scenario" == "activation-sample" || "$scenario" == "public-surface" ]]; then
+      if [[ "$scenario" == "activation-sample" || "$scenario" == "public-surface" ]]; then
         compose_file=""
         project=""
       elif [[ -n "$realm" ]]; then
         prepare="e2e/${realm}/prepare-realm.mjs"
-      fi
-      if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" ]]; then
-        runner="dist/e2e/deployment-portability.js"
-      fi
-      if [[ "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" ]]; then
-        runner="dist/e2e/reliability.js"
-      fi
-      if [[ "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" ]]; then
-        runner="dist/e2e/scale.js"
       fi
       load_scenario_env
       return
@@ -167,15 +143,16 @@ run_lint() {
   npm run buf:generate
   npm exec -- buf build --as-file-descriptor-set -o proto/definition_descriptor.binpb
   git diff --exit-code -- gen/connect proto/definition_descriptor.binpb
-  if rg -n '@zoen/sdk|@zoen/osdk|packages/sdk|packages/osdk' \
-    --glob '*.ts' --glob '*.tsx' --glob 'package.json' --glob '**/package.json' \
-    --glob 'buf.gen.yaml' --glob '**/Dockerfile*' --glob '**/tsconfig*.json' \
-    --glob '!package-lock.json'; then
+  if grep -REn '@zoen/sdk|@zoen/osdk|packages/sdk|packages/osdk' \
+    --include='*.ts' --include='*.tsx' --include='package.json' \
+    --include='buf.gen.yaml' --include='Dockerfile*' --include='tsconfig*.json' \
+    --exclude='package-lock.json' \
+    --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=target --exclude-dir=.git \
+    .; then
     echo "sdk/osdk references remain" >&2
     exit 1
   fi
   npm run build
-  npm run deployment-docs:check
   npm run roadmap:check
   node scripts/check-no-fake-exports.mjs
   node scripts/check-domain-leakage.mjs
@@ -268,7 +245,7 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
-  if [[ "$scenario" == "shared-tenancy" || "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" || "$scenario" == "activation-sample" || "$scenario" == "public-surface" ]]; then
+  if [[ "$scenario" == "activation-sample" || "$scenario" == "public-surface" ]]; then
     return
   fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -287,12 +264,7 @@ run_scenario() {
   trap cleanup_scenario EXIT
   cleanup_scenario
   mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
-  if [[ "$scenario" == "shared-tenancy" ]]; then
-    e2e/shared-tenancy/run.sh
-    trap - EXIT
-    return
-  fi
-  if [[ "$scenario" == "deploy-dedicated" || "$scenario" == "deploy-self-hosted-isolated" || "$scenario" == "ha-chaos" || "$scenario" == "backup-restore" || "$scenario" == "rolling-upgrade" || "$scenario" == "rpo-rto" || "$scenario" == "scale-seed-v1" || "$scenario" == "scale-query-v1" || "$scenario" == "scale-actions-v1" || "$scenario" == "scale-mixed-v1" || "$scenario" == "v1-company" || "$scenario" == "activation-sample" ]]; then
+  if [[ "$scenario" == "activation-sample" ]]; then
     "e2e/${scenario}/run.sh"
     trap - EXIT
     return
@@ -341,7 +313,7 @@ run_verify() {
 }
 
 run_verify_v1() {
-  # Aggregate-only gate: consume artifacts/, never wipe them, never rerun KIND.
+  # Aggregate-only gate: consume artifacts/, never wipe them, never rerun scenarios.
   if [[ ! -f node_modules/typescript/package.json ]]; then
     npm ci
   fi
@@ -379,12 +351,6 @@ case "$command" in
     ;;
   e2e)
     run_e2e "${2:-}"
-    ;;
-  release-drill)
-    run_e2e "${2:-}"
-    ;;
-  scale)
-    run_e2e "scale-${2:-}"
     ;;
   verify)
     run_verify

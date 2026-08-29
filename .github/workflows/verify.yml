@@ -105,7 +105,7 @@ jobs:
   e2e:
     needs: [check, clippy, build]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (matrix.scenario == 'shared-tenancy' || startsWith(matrix.scenario, 'deploy-') || matrix.scenario == 'ha-chaos' || matrix.scenario == 'backup-restore' || matrix.scenario == 'rolling-upgrade' || matrix.scenario == 'rpo-rto') && 90 || 45 }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -131,19 +131,11 @@ jobs:
         with:
           toolchain: "1.88.0"
       - run: npm ci
-      - if: matrix.scenario == 'web-deterministic' || matrix.scenario == 'public-surface-web' || startsWith(matrix.scenario, 'deploy-')
-        run: npx playwright install --with-deps chromium
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries
       - run: chmod +x target/debug/zoend target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection target/failpoints/debug/zoend
       - run: ./e2e/run.sh run ${{ matrix.scenario }}
-      - if: always() && (matrix.scenario == 'shared-tenancy' || startsWith(matrix.scenario, 'deploy-') || matrix.scenario == 'ha-chaos' || matrix.scenario == 'backup-restore' || matrix.scenario == 'rolling-upgrade' || matrix.scenario == 'rpo-rto')
-        uses: actions/upload-artifact@v4
-        with:
-          if-no-files-found: warn
-          name: e2e-evidence-${{ matrix.scenario }}
-          path: artifacts/${{ matrix.scenario }}/
 
   required:
     if: always()

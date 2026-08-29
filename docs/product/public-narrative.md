@@ -7,8 +7,8 @@ Visitor-facing copy follows this order. Architecture stays after first value.
 3. Quickstart: `just build` on default main. `just start` and `just e2e activation-sample` stay on `archive/pre-modeled-erp`.
 4. Sample Company: first governed Action without ADR reading.
 5. Packs: outcome-first examples. Live directory at `/packs`. Directory copy in `docs/product/pack-directory.md`. Install/share from #260; Kitchen from #264 has landed (`just e2e pack-kitchen`).
-6. Why not LLM + tools: evidence vs truth, shared contracts, governed Actions, unknown effects, reproducible history, self-host.
-7. Self-host: same signed artifacts, optional paid providers, Keycloak + Active Membership.
+6. Why not LLM + tools: evidence vs truth, shared contracts, governed Actions, unknown effects, reproducible history.
+7. Deploy: one Fly app, optional paid providers, Keycloak + Active Membership.
 8. Architecture: `Type + Relation + Computation + Action`, ADRs, contributor depth.
 
 ## Progressive reveal after first success
@@ -18,14 +18,14 @@ After Sample Company works, deepen in this order:
 1. Inspect ontology `.zoen.ts` definitions.
 2. Create or modify a Pack (Kitchen #264 has landed; registry install/share already from #260).
 3. Connect your own data (messy-data path: `just e2e company-bootstrap-shadow`).
-4. Deploy self-hosted from `deploy/`.
+4. Deploy on Fly from `deploy/fly`.
 5. Build an integration or adapter behind a Zoen-owned boundary.
 6. Read architecture and ADRs.
 
 ## Do not advertise
 
 - Live Brazil fiscal vendors while #214 is parked.
-- Live Linq or other paid messaging as required for self-host.
+- Live Linq or other paid messaging as required for production.
 - Fake chat, fixture-only demos as product proof, or claims without release evidence.
 
 HAVE vs DON'T HAVE lives in [`docs/product/roadmap.md`](roadmap.md). Parent issue #324.

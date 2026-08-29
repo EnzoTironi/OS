@@ -605,7 +605,6 @@ mod tests {
 
     const INVENTORY: &str =
         include_str!("../../../packages/ontology/fixtures/inventory.canonical.json");
-    const SCALE: &str = include_str!("../../../e2e/scale/definition.canonical.json");
 
     #[test]
     fn admission_converts_entity_value_type_and_exact_value() {
@@ -652,16 +651,6 @@ mod tests {
         let canonical = with_integer("9223372036854775808");
         admit(canonical.as_bytes(), digest(canonical.as_bytes()))
             .expect("canonical integer must remain unbounded during admission");
-    }
-
-    #[test]
-    fn scale_e2e_definition_is_rfc8785_normalized() {
-        let raw = SCALE.trim();
-        let mut dto = serde_json::from_str::<CanonicalDefinitionDto>(raw).expect("scale fixture");
-        super::normalize(&mut dto);
-        let expected = serde_jcs::to_string(&dto).expect("canonical JSON");
-        assert_eq!(raw, expected, "expected RFC 8785:\n{expected}");
-        admit(raw.as_bytes(), digest(raw.as_bytes())).expect("scale fixture must admit");
     }
 
     #[test]

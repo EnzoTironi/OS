@@ -1,11 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-const roots = [
-  path.join(process.cwd(), "deploy", "helm"),
-  path.join(process.cwd(), "deploy", "images"),
-  path.join(process.cwd(), "deploy", "scripts"),
-];
+const roots = [path.join(process.cwd(), "deploy", "fly")];
 
 const forbidden = "dist/e2e";
 const offenders = [];

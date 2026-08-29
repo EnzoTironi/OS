@@ -1,5 +1,5 @@
 # Durable semantic authority versus rebuildable operational state.
-# Backup automation and zoend GET /ready both read this file.
+# zoend GET /ready reads this file.
 # ADR-0026: authority tables are drawer 1, rebuildable postgres +
 # objectStorage are drawer 2, orchestration (restate) is drawer 3.
 authority:

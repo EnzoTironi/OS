@@ -11,7 +11,6 @@
     "buf:generate": "buf generate",
     "buf:lint": "buf lint",
     "check": "tsc -p tsconfig.json --noEmit",
-    "deployment-docs:check": "node deploy/scripts/generate-deployment-docs.mjs --check",
     "roadmap:check": "node scripts/render-roadmap.mjs --check",
     "test": "node -e \"process.exit(0)\""
   },

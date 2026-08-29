@@ -7,9 +7,9 @@
 
 ADR-0023 already fail-closes definition admission on non-RFC 8785 bytes. CI already pins shared JCS fixtures. Operators still could not see a mismatch count from a running `zoend` without reading logs.
 
-e2e scale budgets and the Helm OTEL collector already exist. The process itself did not export a latency histogram. Adding an OpenTelemetry or Prometheus crate would grow the kernel for scrape text.
+The process itself did not export a latency histogram. Adding an OpenTelemetry or Prometheus crate would grow the kernel for scrape text.
 
-ADR-0021 names eleven semantic mutants. Named copies live in `e2e/v1-company.ts`. That scenario is not default CI. The eleven laws already have proofs on live default-CI scenarios plus one `cargo test` in `zoen-engine`. The gap was an inventory that would fail if those proofs moved out of the release suite.
+ADR-0021 names eleven semantic mutants. The eleven laws have proofs on live default-CI scenarios plus one `cargo test` in `zoen-engine`. The gap was an inventory that would fail if those proofs moved out of the release suite.
 
 ## Decision
 
@@ -17,7 +17,7 @@ ADR-0021 names eleven semantic mutants. Named copies live in `e2e/v1-company.ts`
 2. Histogram `zoen_admit_duration_seconds` uses cumulative Prometheus buckets 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, and +Inf.
 3. `zoend` serves `GET /metrics` as Prometheus 0.0.4 text without authentication, the same class as `/ready`. The body has no tenant, document, or digest bytes. `/ready` keeps its own router state. `/metrics` does not open the database.
 4. `definition-publication` proves the door: a digest mismatch and non-canonical integers leave the counter unchanged, spaced JSON increments it, and the histogram count moves.
-5. `testdata/semantic-mutants.json` maps the eleven ADR-0021 laws to named assertions on the executed `e2e/<scenario>.ts` runner, plus one `cargo test`. `scripts/check-semantic-mutants.mjs` runs from `e2e/run.sh lint`. Empty needles fail. An e2e proof whose entrypoint is not that runner fails. `v1-company` stays optional.
+5. `testdata/semantic-mutants.json` maps the eleven ADR-0021 laws to named assertions on the executed `e2e/<scenario>.ts` runner, plus one `cargo test`. `scripts/check-semantic-mutants.mjs` runs from `e2e/run.sh lint`. Empty needles fail. An e2e proof whose entrypoint is not that runner fails.
 
 This ADR does not add a scrape crate, a new CI matrix job, or a second evidence log.
 
