@@ -319,7 +319,7 @@ where
             return Err(MigrationError::DelegationDenied);
         }
         let projection = directory_projection(context, &resource_id)
-            .map_err(|error| MigrationError::Configuration(error))?;
+            .map_err(MigrationError::Configuration)?;
         match self
             .policy
             .evaluate(&PolicyRequest {

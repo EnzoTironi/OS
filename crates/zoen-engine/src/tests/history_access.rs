@@ -7,7 +7,7 @@ use zoen_core::{
     DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
     DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EntityId,
     EvidenceClaim, EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactInteger, ExactValue,
-    ExplanationPayload, ExplanationSubject, ExplanationTarget, GapReason, InputId, IntentDigest,
+    ExplanationPayload, GapReason, InputId, IntentDigest,
     OperationId, PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber,
     PrincipalId, ProposalAuthority, ProposalId, RelationId, ResourceId, SourceId, StateBasis,
     StateBasisDigest, TenantId, TimestampMicros, TrustedExecutionContext, ValidTime, WorkloadId,
