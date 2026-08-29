@@ -122,6 +122,10 @@ fn fingerprint(context: &ExecutionContext, query: &SemanticQuery) -> Result<Stri
     hash_field(&mut hasher, type_id.as_str());
     hash_field(&mut hasher, &limit.to_string());
     hash_field(&mut hasher, &valid_at.get().to_string());
+    hash_field(
+        &mut hasher,
+        query.scenario_id().map(|id| id.as_str()).unwrap_or(""),
+    );
     Ok(hex_encode(hasher.finalize()))
 }
 
@@ -200,6 +204,7 @@ mod tests {
             limit: 2,
             page_token: token,
             type_id: TypeId::parse("world.Item").expect("type"),
+            scenario_id: None,
             valid_at: TimestampMicros::new(1),
         };
         let bound = bind_type_page(&context(), &continued)
@@ -248,6 +253,7 @@ mod tests {
             limit,
             page_token: page_token.to_owned(),
             type_id: TypeId::parse("world.Item").expect("type"),
+            scenario_id: None,
             valid_at: TimestampMicros::new(1),
         }
     }

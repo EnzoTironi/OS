@@ -48,8 +48,11 @@ export type CommandResult = {
   readonly stderr: string;
 };
 
-const HELP = `zoen world query --type TYPE
+const HELP = `zoen world query --type TYPE [--scenario S]
 zoen world evidence --type TYPE
+zoen world scenario create --name S
+zoen world scenario apply --name S
+zoen world scenario discard --name S
 zoen definition publish --file FILE
 zoen definition activate --definition-id ID --digest DIGEST
 zoen source connect rest --id ID --base URL [--auth apikey]
@@ -58,7 +61,7 @@ zoen source connect google --profile drive|mail|calendar|contacts [--base URL]
 zoen source connect mcp --id ID --url URL
 zoen source introduce ID --folder NAME | --path PATH
 zoen source sync ID
-zoen action propose --proposal-id ID --action-id ID --resource-id ID
+zoen action propose --proposal-id ID --action-id ID --resource-id ID [--scenario S] [--input KEY=VALUE]...
 zoen action commit --proposal-id ID --operation-id ID --preview-hash HASH
 zoen history explain
 zoen auth login
@@ -109,7 +112,19 @@ export async function dispatchZoen(input: {
       return fail(1, "isolate cannot speak");
     }
     if (parsed.kind === "world-query" || parsed.kind === "world-evidence") {
-      return worldQuery(input.env, parsed.typeId, parsed.limit);
+      return worldQuery(input.env, parsed.typeId, parsed.limit, parsed.scenarioId);
+    }
+    if (parsed.kind === "world-scenario-create") {
+      return createScenario(input.env, parsed.name);
+    }
+    if (parsed.kind === "world-scenario-apply") {
+      if (input.env.isolate) {
+        return fail(1, "isolate cannot commit");
+      }
+      return applyScenario(input.env, parsed.name);
+    }
+    if (parsed.kind === "world-scenario-discard") {
+      return discardScenario(input.env, parsed.name);
     }
     if (parsed.kind === "definition-publish") {
       return publishDefinition(input.env, parsed.file);
@@ -155,8 +170,11 @@ type Parsed =
   | { readonly kind: "invalid"; readonly message: string }
   | { readonly kind: "denied-commit" }
   | { readonly kind: "denied-speak" }
-  | { readonly kind: "world-query"; readonly typeId: string; readonly limit: number }
-  | { readonly kind: "world-evidence"; readonly typeId: string; readonly limit: number }
+  | { readonly kind: "world-query"; readonly typeId: string; readonly limit: number; readonly scenarioId: string }
+  | { readonly kind: "world-evidence"; readonly typeId: string; readonly limit: number; readonly scenarioId: string }
+  | { readonly kind: "world-scenario-create"; readonly name: string }
+  | { readonly kind: "world-scenario-apply"; readonly name: string }
+  | { readonly kind: "world-scenario-discard"; readonly name: string }
   | { readonly kind: "definition-publish"; readonly file: string }
   | { readonly kind: "definition-activate"; readonly definitionId: string; readonly digest: string }
   | {
@@ -190,6 +208,8 @@ type Parsed =
       readonly resourceId: string;
       readonly quantity?: string;
       readonly unit: string;
+      readonly scenarioId: string;
+      readonly inputs: ReadonlyArray<{ readonly inputId: string; readonly value: string }>;
       readonly dryRun: boolean;
     }
   | {
@@ -206,9 +226,27 @@ function parseArgv(argv: readonly string[]): Parsed {
   if (rest.length === 0 || rest[0] === "help" || rest[0] === "--help") {
     return { kind: "help" };
   }
-  const flags = parseFlags(rest.slice(2));
   const noun = rest[0];
   const verb = rest[1];
+  if (noun === "world" && verb === "scenario") {
+    const action = rest[2];
+    const flags = parseFlags(rest.slice(3));
+    const name = flags.get("name") ?? "";
+    if (name.length === 0) {
+      return { kind: "invalid", message: "zoen world scenario requires --name" };
+    }
+    if (action === "create") {
+      return { kind: "world-scenario-create", name };
+    }
+    if (action === "apply") {
+      return { kind: "world-scenario-apply", name };
+    }
+    if (action === "discard") {
+      return { kind: "world-scenario-discard", name };
+    }
+    return { kind: "invalid", message: `unknown zoen world scenario verb: ${action ?? ""}` };
+  }
+  const flags = parseFlags(rest.slice(2));
   if (noun === "speak" || noun === "say" || verb === "speak") {
     return { kind: "denied-speak" };
   }
@@ -232,6 +270,7 @@ function parseArgv(argv: readonly string[]): Parsed {
       kind: verb === "evidence" ? "world-evidence" : "world-query",
       typeId,
       limit: Number(flags.get("limit") ?? "10"),
+      scenarioId: flags.get("scenario") ?? "",
     };
   }
   if (noun === "definition" && verb === "publish") {
@@ -282,6 +321,8 @@ function parseArgv(argv: readonly string[]): Parsed {
       resourceId: flags.get("resource-id") ?? "",
       quantity: flags.get("quantity"),
       unit: flags.get("unit") ?? "each",
+      scenarioId: flags.get("scenario") ?? "",
+      inputs: parseInputFlags(rest.slice(2)),
       dryRun: flags.has("dry-run"),
     };
   }
@@ -394,6 +435,29 @@ function parseFlags(args: readonly string[]): Map<string, string> {
     i += 1;
   }
   return flags;
+}
+
+function parseInputFlags(
+  args: readonly string[],
+): Array<{ readonly inputId: string; readonly value: string }> {
+  const inputs: Array<{ readonly inputId: string; readonly value: string }> = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg !== "--input") {
+      continue;
+    }
+    const next = args[i + 1];
+    if (next === undefined || next.startsWith("--")) {
+      continue;
+    }
+    const eq = next.indexOf("=");
+    if (eq <= 0) {
+      continue;
+    }
+    inputs.push({ inputId: next.slice(0, eq), value: next.slice(eq + 1) });
+    i += 1;
+  }
+  return inputs;
 }
 
 function ok(value: unknown): CommandResult {
@@ -985,6 +1049,8 @@ async function mapQuantity(
     resourceId: input.resourceId,
     quantity: input.quantity,
     unit: "each",
+    scenarioId: "",
+    inputs: [],
     dryRun: false,
   });
   if (proposed.exitCode !== 0) {
@@ -1044,7 +1110,45 @@ async function activateDefinition(
   return ok({ activated: true, digest, definitionId, activation: status.json });
 }
 
-async function worldQuery(env: RuntimeEnv, typeId: string, limit: number): Promise<CommandResult> {
+async function createScenario(env: RuntimeEnv, name: string): Promise<CommandResult> {
+  const status = await connectJson(env, "/zoen.world.v1.WorldService/CreateScenario", {
+    tenantId: env.tenant,
+    scenarioId: name,
+  }, true);
+  if (status.status !== 200) {
+    return fail(1, `CreateScenario ${status.status} ${status.text}`);
+  }
+  return { exitCode: 0, stdout: `${status.text}\n`, stderr: "" };
+}
+
+async function applyScenario(env: RuntimeEnv, name: string): Promise<CommandResult> {
+  const status = await connectJson(env, "/zoen.world.v1.WorldService/ApplyScenario", {
+    tenantId: env.tenant,
+    scenarioId: name,
+  }, true);
+  if (status.status !== 200) {
+    return fail(1, `ApplyScenario ${status.status} ${status.text}`);
+  }
+  return { exitCode: 0, stdout: `${status.text}\n`, stderr: "" };
+}
+
+async function discardScenario(env: RuntimeEnv, name: string): Promise<CommandResult> {
+  const status = await connectJson(env, "/zoen.world.v1.WorldService/DiscardScenario", {
+    tenantId: env.tenant,
+    scenarioId: name,
+  }, true);
+  if (status.status !== 200) {
+    return fail(1, `DiscardScenario ${status.status} ${status.text}`);
+  }
+  return { exitCode: 0, stdout: `${status.text}\n`, stderr: "" };
+}
+
+async function worldQuery(
+  env: RuntimeEnv,
+  typeId: string,
+  limit: number,
+  scenarioId = "",
+): Promise<CommandResult> {
   if (env.definitionDigest.length === 0) {
     return fail(2, "ZOEN_DEFINITION_DIGEST is required");
   }
@@ -1058,6 +1162,7 @@ async function worldQuery(env: RuntimeEnv, typeId: string, limit: number): Promi
     validAt: env.validAt,
     consistency: { strong: {} },
     byType: { typeId, limit },
+    scenarioId,
   });
   if (status.status !== 200) {
     return fail(1, `SemanticQuery ${status.status} ${status.text}`);
@@ -1076,14 +1181,19 @@ async function proposeAction(
     return fail(2, "ZOEN_DEFINITION_DIGEST is required");
   }
   const inputs =
-    parsed.quantity === undefined
-      ? []
-      : [
-          {
-            inputId: "quantity",
-            value: { quantityValue: { amount: parsed.quantity, unit: parsed.unit } },
-          },
-        ];
+    parsed.inputs.length > 0
+      ? parsed.inputs.map((input) => ({
+          inputId: input.inputId,
+          value: { textValue: input.value },
+        }))
+      : parsed.quantity === undefined
+        ? []
+        : [
+            {
+              inputId: "quantity",
+              value: { quantityValue: { amount: parsed.quantity, unit: parsed.unit } },
+            },
+          ];
   const body = {
     proposalId: parsed.proposalId,
     operationId: parsed.operationId,
@@ -1097,6 +1207,7 @@ async function proposeAction(
     inputs,
     validAt: env.validAt,
     expiresAt: "2030-01-01T00:00:00Z",
+    scenarioId: parsed.scenarioId,
   };
   if (parsed.dryRun) {
     return ok({ dryRun: true, propose: body });

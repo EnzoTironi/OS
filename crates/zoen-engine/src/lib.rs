@@ -4,10 +4,10 @@ use std::fmt::{Display, Formatter};
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionProposal, CanonicalJson, CommitIdentityKind, CommitReceipt,
-    DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
-    DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim, EvidenceDraft,
-    EvolutionClassification, ExecutionContext, ExplanationTarget, IntentDigest, OperationId,
-    PolicyEvidence, ProposalId, TenantId, TimestampMicros,
+    CommitSequence, DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference,
+    DefinitionRevision, DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim,
+    EvidenceDraft, EvolutionClassification, ExecutionContext, ExplanationTarget, IntentDigest,
+    OperationId, PolicyEvidence, ProposalId, TenantId, TimestampMicros,
 };
 
 mod action;
@@ -22,6 +22,7 @@ mod human;
 pub mod metrics;
 mod migration;
 mod read;
+mod scenario;
 
 pub use action::{
     ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
@@ -69,6 +70,9 @@ pub use migration::{
 };
 pub use read::{
     MAC_DETERMINING_POLICY, MAX_TYPE_PAGE, PolicySchema, ReadAbsence, ReadEngine, ReadError,
+};
+pub use scenario::{
+    ApplyOutcome, Scenario, ScenarioEngine, ScenarioError, ScenarioProposalPlan, ScenarioStatus,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -712,6 +716,41 @@ pub trait AuthorityStore: Send + Sync {
         context: &ExecutionContext,
         proposal: &ActionProposal,
     ) -> Result<ActionProposal, StoreError>;
+
+    async fn save_proposal_in_scenario(
+        &self,
+        context: &ExecutionContext,
+        proposal: &ActionProposal,
+        overlay_drafts: &[EvidenceDraft],
+    ) -> Result<ActionProposal, StoreError>;
+
+    async fn current_head(&self, context: &ExecutionContext) -> Result<CommitSequence, StoreError>;
+
+    async fn insert_open_scenario(
+        &self,
+        context: &ExecutionContext,
+        scenario_id: &zoen_core::ScenarioId,
+        base: CommitSequence,
+    ) -> Result<crate::scenario::Scenario, StoreError>;
+
+    async fn get_scenario(
+        &self,
+        context: &ExecutionContext,
+        scenario_id: &zoen_core::ScenarioId,
+    ) -> Result<crate::scenario::Scenario, StoreError>;
+
+    async fn mark_scenario_discarded(
+        &self,
+        context: &ExecutionContext,
+        scenario_id: &zoen_core::ScenarioId,
+    ) -> Result<(), StoreError>;
+
+    async fn commit_scenario_package(
+        &self,
+        context: &ExecutionContext,
+        scenario: &crate::scenario::Scenario,
+        plans: &[crate::scenario::ScenarioProposalPlan],
+    ) -> Result<CommitSequence, StoreError>;
 
     async fn revision_was_active(
         &self,

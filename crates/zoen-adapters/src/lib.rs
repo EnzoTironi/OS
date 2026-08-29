@@ -37,6 +37,7 @@ mod migration_store;
 mod pack_registry_store;
 mod pack_store;
 mod restate;
+mod scenario_store;
 mod semantic_claim_store;
 mod session_door;
 mod value_store;
@@ -46,7 +47,10 @@ mod workload_credential_store;
 
 pub use action_store::PostgresActionCommit;
 pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
-pub use claim_store::{PostgresClaimLoader, PostgresClaimQuery, PostgresTypeQuery};
+pub use claim_store::{
+    PostgresClaimLoader, PostgresClaimQuery, PostgresOverlayClaimQuery, PostgresOverlayTypeQuery,
+    PostgresTypeQuery,
+};
 pub use effect_dispatcher::{
     DispatchAcceptance, DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
     EffectDispatchOutcome, EffectDispatchResult, PostgresEffectDispatcher,
@@ -717,6 +721,54 @@ impl AuthorityStore for PostgresAuthorityStore {
         proposal: &ActionProposal,
     ) -> Result<ActionProposal, StoreError> {
         action_store::save_proposal(&self.pool, context, proposal).await
+    }
+
+    async fn save_proposal_in_scenario(
+        &self,
+        context: &ExecutionContext,
+        proposal: &ActionProposal,
+        overlay_drafts: &[EvidenceDraft],
+    ) -> Result<ActionProposal, StoreError> {
+        scenario_store::save_proposal_in_scenario(&self.pool, context, proposal, overlay_drafts)
+            .await
+    }
+
+    async fn current_head(&self, context: &ExecutionContext) -> Result<CommitSequence, StoreError> {
+        scenario_store::current_head(&self.pool, context).await
+    }
+
+    async fn insert_open_scenario(
+        &self,
+        context: &ExecutionContext,
+        scenario_id: &zoen_core::ScenarioId,
+        base: CommitSequence,
+    ) -> Result<zoen_engine::Scenario, StoreError> {
+        scenario_store::insert_open_scenario(&self.pool, context, scenario_id, base).await
+    }
+
+    async fn get_scenario(
+        &self,
+        context: &ExecutionContext,
+        scenario_id: &zoen_core::ScenarioId,
+    ) -> Result<zoen_engine::Scenario, StoreError> {
+        scenario_store::get_scenario(&self.pool, context, scenario_id).await
+    }
+
+    async fn mark_scenario_discarded(
+        &self,
+        context: &ExecutionContext,
+        scenario_id: &zoen_core::ScenarioId,
+    ) -> Result<(), StoreError> {
+        scenario_store::mark_scenario_discarded(&self.pool, context, scenario_id).await
+    }
+
+    async fn commit_scenario_package(
+        &self,
+        context: &ExecutionContext,
+        scenario: &zoen_engine::Scenario,
+        plans: &[zoen_engine::ScenarioProposalPlan],
+    ) -> Result<CommitSequence, StoreError> {
+        scenario_store::commit_scenario_package(&self.pool, context, scenario, plans).await
     }
 
     async fn revision_was_active(

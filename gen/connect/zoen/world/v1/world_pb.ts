@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file zoen/world/v1/world.proto.
  */
 export const file_zoen_world_v1_world: GenFile = /*@__PURE__*/
-  fileDesc("Chl6b2VuL3dvcmxkL3YxL3dvcmxkLnByb3RvEg16b2VuLndvcmxkLnYxIk4KE0RlZmluaXRpb25SZWZlcmVuY2USFQoNZGVmaW5pdGlvbl9pZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZkaWdlc3QYAyABKAkixwEKCkV4YWN0VmFsdWUSFAoKYm9vbF92YWx1ZRgBIAEoCEgAEhcKDWRlY2ltYWxfdmFsdWUYAiABKAlIABIXCg1pbnRlZ2VyX3ZhbHVlGAMgASgJSAASNgoOcXVhbnRpdHlfdmFsdWUYBCABKAsyHC56b2VuLndvcmxkLnYxLlF1YW50aXR5VmFsdWVIABIUCgp0ZXh0X3ZhbHVlGAUgASgJSAASGgoQZW50aXR5X3JlZl92YWx1ZRgGIAEoCUgAQgcKBXZhbHVlIi0KDVF1YW50aXR5VmFsdWUSDgoGYW1vdW50GAEgASgJEgwKBHVuaXQYAiABKAkiZgoQVGVtcG9yYWxJbnRlcnZhbBIpCgVzdGFydBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoDZW5kGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJ4CglWYWxpZFRpbWUSLQoHaW5zdGFudBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIABIzCghpbnRlcnZhbBgCIAEoCzIfLnpvZW4ud29ybGQudjEuVGVtcG9yYWxJbnRlcnZhbEgAQgcKBXZhbHVlIrQBChJFdmlkZW5jZVByb3ZlbmFuY2USEQoJc291cmNlX2lkGAEgASgJEhUKDXNvdXJjZV9kaWdlc3QYAiABKAkSEgoKc291cmNlX3JlZhgDIAEoCRIvCgtvYnNlcnZlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLaW5nZXN0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIpACCg1FdmlkZW5jZUNsYWltEhAKCGNsYWltX2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USEQoJZW50aXR5X2lkGAMgASgJEhMKC3JlbGF0aW9uX2lkGAQgASgJEigKBXZhbHVlGAUgASgLMhkuem9lbi53b3JsZC52MS5FeGFjdFZhbHVlEiwKCnZhbGlkX3RpbWUYBiABKAsyGC56b2VuLndvcmxkLnYxLlZhbGlkVGltZRI1Cgpwcm92ZW5hbmNlGAcgASgLMiEuem9lbi53b3JsZC52MS5FdmlkZW5jZVByb3ZlbmFuY2UibQoVUmVjb3JkRXZpZGVuY2VSZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRIrCgVjbGFpbRgCIAEoCzIcLnpvZW4ud29ybGQudjEuRXZpZGVuY2VDbGFpbRIUCgxvcGVyYXRpb25faWQYAyABKAkiQwoWUmVjb3JkRXZpZGVuY2VSZXNwb25zZRIQCghjbGFpbV9pZBgBIAEoCRIXCg9jb21taXRfc2VxdWVuY2UYAiABKAQicwoaUmVjb3JkRXZpZGVuY2VCYXRjaFJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEiwKBmNsYWltcxgCIAMoCzIcLnpvZW4ud29ybGQudjEuRXZpZGVuY2VDbGFpbRIUCgxvcGVyYXRpb25faWQYAyABKAkiTgobUmVjb3JkRXZpZGVuY2VCYXRjaFJlc3BvbnNlEhcKD2NvbW1pdF9zZXF1ZW5jZRgBIAEoBBIWCg5yZWNvcmRlZF9jb3VudBgCIAEoDSITChFTdHJvbmdDb25zaXN0ZW5jeSIVChNFdmVudHVhbENvbnNpc3RlbmN5Ir0BChBRdWVyeUNvbnNpc3RlbmN5EjIKBnN0cm9uZxgBIAEoCzIgLnpvZW4ud29ybGQudjEuU3Ryb25nQ29uc2lzdGVuY3lIABIZCg9hdF9sZWFzdF9jb21taXQYAiABKARIABIZCg9zbmFwc2hvdF9jb21taXQYAyABKARIABI2CghldmVudHVhbBgEIAEoCzIiLnpvZW4ud29ybGQudjEuRXZlbnR1YWxDb25zaXN0ZW5jeUgAQgcKBXZhbHVlIkoKDlF1ZXJ5U2VsZWN0aW9uEhUKC3JlbGF0aW9uX2lkGAEgASgJSAASGAoOY29tcHV0YXRpb25faWQYAiABKAlIAEIHCgV2YWx1ZSIrCglUeXBlUXVlcnkSDwoHdHlwZV9pZBgBIAEoCRINCgVsaW1pdBgCIAEoDSLUAgoUU2VtYW50aWNRdWVyeVJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USMAoJc2VsZWN0aW9uGAMgASgLMh0uem9lbi53b3JsZC52MS5RdWVyeVNlbGVjdGlvbhIsCgh2YWxpZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNAoLY29uc2lzdGVuY3kYBSABKAsyHy56b2VuLndvcmxkLnYxLlF1ZXJ5Q29uc2lzdGVuY3kSEQoJZW50aXR5X2lkGAYgASgJEisKB2J5X3R5cGUYByABKAsyGC56b2VuLndvcmxkLnYxLlR5cGVRdWVyeUgAEhIKCnBhZ2VfdG9rZW4YCCABKAlCBwoFcXVlcnkiZQoPTWlncmF0aW9uT3JpZ2luEhQKDG9wZXJhdGlvbl9pZBgBIAEoCRIPCgdydWxlX2lkGAIgASgJEhEKCXJ1bGVfa2luZBgDIAEoCRIYChBzb3VyY2VfY2xhaW1faWRzGAQgAygJIoECChFMaW5lYWdlRGVwZW5kZW5jeRIQCghjbGFpbV9pZBgBIAEoCRIRCgllbnRpdHlfaWQYAiABKAkSEwoLcmVsYXRpb25faWQYAyABKAkSFwoPY29tbWl0X3NlcXVlbmNlGAQgASgEEigKBHJvbGUYBSABKA4yGi56b2VuLndvcmxkLnYxLkxpbmVhZ2VSb2xlEhEKCXNvdXJjZV9pZBgGIAEoCRIVCg1zb3VyY2VfZGlnZXN0GAcgASgJEhIKCnNvdXJjZV9yZWYYCCABKAkSMQoJbWlncmF0aW9uGAkgASgLMh4uem9lbi53b3JsZC52MS5NaWdyYXRpb25PcmlnaW4idwoTU2VtYW50aWNWYWx1ZVJlc3VsdBIoCgV2YWx1ZRgBIAEoCzIZLnpvZW4ud29ybGQudjEuRXhhY3RWYWx1ZRI2CgxkZXBlbmRlbmNpZXMYAiADKAsyIC56b2VuLndvcmxkLnYxLkxpbmVhZ2VEZXBlbmRlbmN5IoECChVTZW1hbnRpY1F1ZXJ5UmVzcG9uc2USNgoKZGVmaW5pdGlvbhgBIAEoCzIiLnpvZW4ud29ybGQudjEuRGVmaW5pdGlvblJlZmVyZW5jZRIeChZhY3R1YWxfY29tbWl0X3NlcXVlbmNlGAIgASgEEhUKDWtub3dsZWRnZV9jdXQYAyABKAQSLAoIdmFsaWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjIKBnZhbHVlcxgFIAMoCzIiLnpvZW4ud29ybGQudjEuU2VtYW50aWNWYWx1ZVJlc3VsdBIXCg9uZXh0X3BhZ2VfdG9rZW4YBiABKAkqiQEKC0xpbmVhZ2VSb2xlEhwKGExJTkVBR0VfUk9MRV9VTlNQRUNJRklFRBAAEhsKF0xJTkVBR0VfUk9MRV9TVVBQT1JUSU5HEAESFgoSTElORUFHRV9ST0xFX1JJVkFMEAISJwojTElORUFHRV9ST0xFX0NPTVBVVEFUSU9OX0RFUEVOREVOQ1kQAzK3AgoMV29ybGRTZXJ2aWNlEl0KDlJlY29yZEV2aWRlbmNlEiQuem9lbi53b3JsZC52MS5SZWNvcmRFdmlkZW5jZVJlcXVlc3QaJS56b2VuLndvcmxkLnYxLlJlY29yZEV2aWRlbmNlUmVzcG9uc2USbAoTUmVjb3JkRXZpZGVuY2VCYXRjaBIpLnpvZW4ud29ybGQudjEuUmVjb3JkRXZpZGVuY2VCYXRjaFJlcXVlc3QaKi56b2VuLndvcmxkLnYxLlJlY29yZEV2aWRlbmNlQmF0Y2hSZXNwb25zZRJaCg1TZW1hbnRpY1F1ZXJ5EiMuem9lbi53b3JsZC52MS5TZW1hbnRpY1F1ZXJ5UmVxdWVzdBokLnpvZW4ud29ybGQudjEuU2VtYW50aWNRdWVyeVJlc3BvbnNlYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chl6b2VuL3dvcmxkL3YxL3dvcmxkLnByb3RvEg16b2VuLndvcmxkLnYxIk4KE0RlZmluaXRpb25SZWZlcmVuY2USFQoNZGVmaW5pdGlvbl9pZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZkaWdlc3QYAyABKAkixwEKCkV4YWN0VmFsdWUSFAoKYm9vbF92YWx1ZRgBIAEoCEgAEhcKDWRlY2ltYWxfdmFsdWUYAiABKAlIABIXCg1pbnRlZ2VyX3ZhbHVlGAMgASgJSAASNgoOcXVhbnRpdHlfdmFsdWUYBCABKAsyHC56b2VuLndvcmxkLnYxLlF1YW50aXR5VmFsdWVIABIUCgp0ZXh0X3ZhbHVlGAUgASgJSAASGgoQZW50aXR5X3JlZl92YWx1ZRgGIAEoCUgAQgcKBXZhbHVlIi0KDVF1YW50aXR5VmFsdWUSDgoGYW1vdW50GAEgASgJEgwKBHVuaXQYAiABKAkiZgoQVGVtcG9yYWxJbnRlcnZhbBIpCgVzdGFydBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoDZW5kGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJ4CglWYWxpZFRpbWUSLQoHaW5zdGFudBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIABIzCghpbnRlcnZhbBgCIAEoCzIfLnpvZW4ud29ybGQudjEuVGVtcG9yYWxJbnRlcnZhbEgAQgcKBXZhbHVlIrQBChJFdmlkZW5jZVByb3ZlbmFuY2USEQoJc291cmNlX2lkGAEgASgJEhUKDXNvdXJjZV9kaWdlc3QYAiABKAkSEgoKc291cmNlX3JlZhgDIAEoCRIvCgtvYnNlcnZlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLaW5nZXN0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIpACCg1FdmlkZW5jZUNsYWltEhAKCGNsYWltX2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USEQoJZW50aXR5X2lkGAMgASgJEhMKC3JlbGF0aW9uX2lkGAQgASgJEigKBXZhbHVlGAUgASgLMhkuem9lbi53b3JsZC52MS5FeGFjdFZhbHVlEiwKCnZhbGlkX3RpbWUYBiABKAsyGC56b2VuLndvcmxkLnYxLlZhbGlkVGltZRI1Cgpwcm92ZW5hbmNlGAcgASgLMiEuem9lbi53b3JsZC52MS5FdmlkZW5jZVByb3ZlbmFuY2UibQoVUmVjb3JkRXZpZGVuY2VSZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRIrCgVjbGFpbRgCIAEoCzIcLnpvZW4ud29ybGQudjEuRXZpZGVuY2VDbGFpbRIUCgxvcGVyYXRpb25faWQYAyABKAkiQwoWUmVjb3JkRXZpZGVuY2VSZXNwb25zZRIQCghjbGFpbV9pZBgBIAEoCRIXCg9jb21taXRfc2VxdWVuY2UYAiABKAQicwoaUmVjb3JkRXZpZGVuY2VCYXRjaFJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEiwKBmNsYWltcxgCIAMoCzIcLnpvZW4ud29ybGQudjEuRXZpZGVuY2VDbGFpbRIUCgxvcGVyYXRpb25faWQYAyABKAkiTgobUmVjb3JkRXZpZGVuY2VCYXRjaFJlc3BvbnNlEhcKD2NvbW1pdF9zZXF1ZW5jZRgBIAEoBBIWCg5yZWNvcmRlZF9jb3VudBgCIAEoDSITChFTdHJvbmdDb25zaXN0ZW5jeSIVChNFdmVudHVhbENvbnNpc3RlbmN5Ir0BChBRdWVyeUNvbnNpc3RlbmN5EjIKBnN0cm9uZxgBIAEoCzIgLnpvZW4ud29ybGQudjEuU3Ryb25nQ29uc2lzdGVuY3lIABIZCg9hdF9sZWFzdF9jb21taXQYAiABKARIABIZCg9zbmFwc2hvdF9jb21taXQYAyABKARIABI2CghldmVudHVhbBgEIAEoCzIiLnpvZW4ud29ybGQudjEuRXZlbnR1YWxDb25zaXN0ZW5jeUgAQgcKBXZhbHVlIkoKDlF1ZXJ5U2VsZWN0aW9uEhUKC3JlbGF0aW9uX2lkGAEgASgJSAASGAoOY29tcHV0YXRpb25faWQYAiABKAlIAEIHCgV2YWx1ZSIrCglUeXBlUXVlcnkSDwoHdHlwZV9pZBgBIAEoCRINCgVsaW1pdBgCIAEoDSLpAgoUU2VtYW50aWNRdWVyeVJlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USMAoJc2VsZWN0aW9uGAMgASgLMh0uem9lbi53b3JsZC52MS5RdWVyeVNlbGVjdGlvbhIsCgh2YWxpZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNAoLY29uc2lzdGVuY3kYBSABKAsyHy56b2VuLndvcmxkLnYxLlF1ZXJ5Q29uc2lzdGVuY3kSEQoJZW50aXR5X2lkGAYgASgJEisKB2J5X3R5cGUYByABKAsyGC56b2VuLndvcmxkLnYxLlR5cGVRdWVyeUgAEhIKCnBhZ2VfdG9rZW4YCCABKAkSEwoLc2NlbmFyaW9faWQYCSABKAlCBwoFcXVlcnkiPwoVQ3JlYXRlU2NlbmFyaW9SZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRITCgtzY2VuYXJpb19pZBgCIAEoCSJLChZDcmVhdGVTY2VuYXJpb1Jlc3BvbnNlEhMKC3NjZW5hcmlvX2lkGAEgASgJEhwKFGJhc2VfY29tbWl0X3NlcXVlbmNlGAIgASgEIj4KFEFwcGx5U2NlbmFyaW9SZXF1ZXN0EhEKCXRlbmFudF9pZBgBIAEoCRITCgtzY2VuYXJpb19pZBgCIAEoCSKPAQoVQXBwbHlTY2VuYXJpb1Jlc3BvbnNlEhMKC3NjZW5hcmlvX2lkGAEgASgJEhcKD2NvbW1pdF9zZXF1ZW5jZRgCIAEoBBIQCghkZWNpc2lvbhgDIAEoCRIcChRkZXRlcm1pbmluZ19wb2xpY2llcxgEIAMoCRIYChBldmFsdWF0aW9uX2Vycm9yGAUgASgJIkAKFkRpc2NhcmRTY2VuYXJpb1JlcXVlc3QSEQoJdGVuYW50X2lkGAEgASgJEhMKC3NjZW5hcmlvX2lkGAIgASgJIi4KF0Rpc2NhcmRTY2VuYXJpb1Jlc3BvbnNlEhMKC3NjZW5hcmlvX2lkGAEgASgJImUKD01pZ3JhdGlvbk9yaWdpbhIUCgxvcGVyYXRpb25faWQYASABKAkSDwoHcnVsZV9pZBgCIAEoCRIRCglydWxlX2tpbmQYAyABKAkSGAoQc291cmNlX2NsYWltX2lkcxgEIAMoCSKBAgoRTGluZWFnZURlcGVuZGVuY3kSEAoIY2xhaW1faWQYASABKAkSEQoJZW50aXR5X2lkGAIgASgJEhMKC3JlbGF0aW9uX2lkGAMgASgJEhcKD2NvbW1pdF9zZXF1ZW5jZRgEIAEoBBIoCgRyb2xlGAUgASgOMhouem9lbi53b3JsZC52MS5MaW5lYWdlUm9sZRIRCglzb3VyY2VfaWQYBiABKAkSFQoNc291cmNlX2RpZ2VzdBgHIAEoCRISCgpzb3VyY2VfcmVmGAggASgJEjEKCW1pZ3JhdGlvbhgJIAEoCzIeLnpvZW4ud29ybGQudjEuTWlncmF0aW9uT3JpZ2luIncKE1NlbWFudGljVmFsdWVSZXN1bHQSKAoFdmFsdWUYASABKAsyGS56b2VuLndvcmxkLnYxLkV4YWN0VmFsdWUSNgoMZGVwZW5kZW5jaWVzGAIgAygLMiAuem9lbi53b3JsZC52MS5MaW5lYWdlRGVwZW5kZW5jeSKBAgoVU2VtYW50aWNRdWVyeVJlc3BvbnNlEjYKCmRlZmluaXRpb24YASABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USHgoWYWN0dWFsX2NvbW1pdF9zZXF1ZW5jZRgCIAEoBBIVCg1rbm93bGVkZ2VfY3V0GAMgASgEEiwKCHZhbGlkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIyCgZ2YWx1ZXMYBSADKAsyIi56b2VuLndvcmxkLnYxLlNlbWFudGljVmFsdWVSZXN1bHQSFwoPbmV4dF9wYWdlX3Rva2VuGAYgASgJKokBCgtMaW5lYWdlUm9sZRIcChhMSU5FQUdFX1JPTEVfVU5TUEVDSUZJRUQQABIbChdMSU5FQUdFX1JPTEVfU1VQUE9SVElORxABEhYKEkxJTkVBR0VfUk9MRV9SSVZBTBACEicKI0xJTkVBR0VfUk9MRV9DT01QVVRBVElPTl9ERVBFTkRFTkNZEAMy1AQKDFdvcmxkU2VydmljZRJdCg5SZWNvcmRFdmlkZW5jZRIkLnpvZW4ud29ybGQudjEuUmVjb3JkRXZpZGVuY2VSZXF1ZXN0GiUuem9lbi53b3JsZC52MS5SZWNvcmRFdmlkZW5jZVJlc3BvbnNlEmwKE1JlY29yZEV2aWRlbmNlQmF0Y2gSKS56b2VuLndvcmxkLnYxLlJlY29yZEV2aWRlbmNlQmF0Y2hSZXF1ZXN0Giouem9lbi53b3JsZC52MS5SZWNvcmRFdmlkZW5jZUJhdGNoUmVzcG9uc2USWgoNU2VtYW50aWNRdWVyeRIjLnpvZW4ud29ybGQudjEuU2VtYW50aWNRdWVyeVJlcXVlc3QaJC56b2VuLndvcmxkLnYxLlNlbWFudGljUXVlcnlSZXNwb25zZRJdCg5DcmVhdGVTY2VuYXJpbxIkLnpvZW4ud29ybGQudjEuQ3JlYXRlU2NlbmFyaW9SZXF1ZXN0GiUuem9lbi53b3JsZC52MS5DcmVhdGVTY2VuYXJpb1Jlc3BvbnNlEloKDUFwcGx5U2NlbmFyaW8SIy56b2VuLndvcmxkLnYxLkFwcGx5U2NlbmFyaW9SZXF1ZXN0GiQuem9lbi53b3JsZC52MS5BcHBseVNjZW5hcmlvUmVzcG9uc2USYAoPRGlzY2FyZFNjZW5hcmlvEiUuem9lbi53b3JsZC52MS5EaXNjYXJkU2NlbmFyaW9SZXF1ZXN0GiYuem9lbi53b3JsZC52MS5EaXNjYXJkU2NlbmFyaW9SZXNwb25zZWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message zoen.world.v1.DefinitionReference
@@ -526,6 +526,13 @@ export type SemanticQueryRequest = Message<"zoen.world.v1.SemanticQueryRequest">
    * @generated from field: string page_token = 8;
    */
   pageToken: string;
+
+  /**
+   * Empty = head. Named open scenario unions Snapshot(pin) with overlay claims.
+   *
+   * @generated from field: string scenario_id = 9;
+   */
+  scenarioId: string;
 };
 
 /**
@@ -534,6 +541,148 @@ export type SemanticQueryRequest = Message<"zoen.world.v1.SemanticQueryRequest">
  */
 export const SemanticQueryRequestSchema: GenMessage<SemanticQueryRequest> = /*@__PURE__*/
   messageDesc(file_zoen_world_v1_world, 16);
+
+/**
+ * @generated from message zoen.world.v1.CreateScenarioRequest
+ */
+export type CreateScenarioRequest = Message<"zoen.world.v1.CreateScenarioRequest"> & {
+  /**
+   * @generated from field: string tenant_id = 1;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string scenario_id = 2;
+   */
+  scenarioId: string;
+};
+
+/**
+ * Describes the message zoen.world.v1.CreateScenarioRequest.
+ * Use `create(CreateScenarioRequestSchema)` to create a new message.
+ */
+export const CreateScenarioRequestSchema: GenMessage<CreateScenarioRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_world_v1_world, 17);
+
+/**
+ * @generated from message zoen.world.v1.CreateScenarioResponse
+ */
+export type CreateScenarioResponse = Message<"zoen.world.v1.CreateScenarioResponse"> & {
+  /**
+   * @generated from field: string scenario_id = 1;
+   */
+  scenarioId: string;
+
+  /**
+   * @generated from field: uint64 base_commit_sequence = 2;
+   */
+  baseCommitSequence: bigint;
+};
+
+/**
+ * Describes the message zoen.world.v1.CreateScenarioResponse.
+ * Use `create(CreateScenarioResponseSchema)` to create a new message.
+ */
+export const CreateScenarioResponseSchema: GenMessage<CreateScenarioResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_world_v1_world, 18);
+
+/**
+ * @generated from message zoen.world.v1.ApplyScenarioRequest
+ */
+export type ApplyScenarioRequest = Message<"zoen.world.v1.ApplyScenarioRequest"> & {
+  /**
+   * @generated from field: string tenant_id = 1;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string scenario_id = 2;
+   */
+  scenarioId: string;
+};
+
+/**
+ * Describes the message zoen.world.v1.ApplyScenarioRequest.
+ * Use `create(ApplyScenarioRequestSchema)` to create a new message.
+ */
+export const ApplyScenarioRequestSchema: GenMessage<ApplyScenarioRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_world_v1_world, 19);
+
+/**
+ * @generated from message zoen.world.v1.ApplyScenarioResponse
+ */
+export type ApplyScenarioResponse = Message<"zoen.world.v1.ApplyScenarioResponse"> & {
+  /**
+   * @generated from field: string scenario_id = 1;
+   */
+  scenarioId: string;
+
+  /**
+   * @generated from field: uint64 commit_sequence = 2;
+   */
+  commitSequence: bigint;
+
+  /**
+   * @generated from field: string decision = 3;
+   */
+  decision: string;
+
+  /**
+   * @generated from field: repeated string determining_policies = 4;
+   */
+  determiningPolicies: string[];
+
+  /**
+   * @generated from field: string evaluation_error = 5;
+   */
+  evaluationError: string;
+};
+
+/**
+ * Describes the message zoen.world.v1.ApplyScenarioResponse.
+ * Use `create(ApplyScenarioResponseSchema)` to create a new message.
+ */
+export const ApplyScenarioResponseSchema: GenMessage<ApplyScenarioResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_world_v1_world, 20);
+
+/**
+ * @generated from message zoen.world.v1.DiscardScenarioRequest
+ */
+export type DiscardScenarioRequest = Message<"zoen.world.v1.DiscardScenarioRequest"> & {
+  /**
+   * @generated from field: string tenant_id = 1;
+   */
+  tenantId: string;
+
+  /**
+   * @generated from field: string scenario_id = 2;
+   */
+  scenarioId: string;
+};
+
+/**
+ * Describes the message zoen.world.v1.DiscardScenarioRequest.
+ * Use `create(DiscardScenarioRequestSchema)` to create a new message.
+ */
+export const DiscardScenarioRequestSchema: GenMessage<DiscardScenarioRequest> = /*@__PURE__*/
+  messageDesc(file_zoen_world_v1_world, 21);
+
+/**
+ * @generated from message zoen.world.v1.DiscardScenarioResponse
+ */
+export type DiscardScenarioResponse = Message<"zoen.world.v1.DiscardScenarioResponse"> & {
+  /**
+   * @generated from field: string scenario_id = 1;
+   */
+  scenarioId: string;
+};
+
+/**
+ * Describes the message zoen.world.v1.DiscardScenarioResponse.
+ * Use `create(DiscardScenarioResponseSchema)` to create a new message.
+ */
+export const DiscardScenarioResponseSchema: GenMessage<DiscardScenarioResponse> = /*@__PURE__*/
+  messageDesc(file_zoen_world_v1_world, 22);
 
 /**
  * @generated from message zoen.world.v1.MigrationOrigin
@@ -565,7 +714,7 @@ export type MigrationOrigin = Message<"zoen.world.v1.MigrationOrigin"> & {
  * Use `create(MigrationOriginSchema)` to create a new message.
  */
 export const MigrationOriginSchema: GenMessage<MigrationOrigin> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 17);
+  messageDesc(file_zoen_world_v1_world, 23);
 
 /**
  * @generated from message zoen.world.v1.LineageDependency
@@ -622,7 +771,7 @@ export type LineageDependency = Message<"zoen.world.v1.LineageDependency"> & {
  * Use `create(LineageDependencySchema)` to create a new message.
  */
 export const LineageDependencySchema: GenMessage<LineageDependency> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 18);
+  messageDesc(file_zoen_world_v1_world, 24);
 
 /**
  * @generated from message zoen.world.v1.SemanticValueResult
@@ -644,7 +793,7 @@ export type SemanticValueResult = Message<"zoen.world.v1.SemanticValueResult"> &
  * Use `create(SemanticValueResultSchema)` to create a new message.
  */
 export const SemanticValueResultSchema: GenMessage<SemanticValueResult> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 19);
+  messageDesc(file_zoen_world_v1_world, 25);
 
 /**
  * @generated from message zoen.world.v1.SemanticQueryResponse
@@ -688,7 +837,7 @@ export type SemanticQueryResponse = Message<"zoen.world.v1.SemanticQueryResponse
  * Use `create(SemanticQueryResponseSchema)` to create a new message.
  */
 export const SemanticQueryResponseSchema: GenMessage<SemanticQueryResponse> = /*@__PURE__*/
-  messageDesc(file_zoen_world_v1_world, 20);
+  messageDesc(file_zoen_world_v1_world, 26);
 
 /**
  * @generated from enum zoen.world.v1.LineageRole
@@ -748,6 +897,30 @@ export const WorldService: GenService<{
     methodKind: "unary";
     input: typeof SemanticQueryRequestSchema;
     output: typeof SemanticQueryResponseSchema;
+  },
+  /**
+   * @generated from rpc zoen.world.v1.WorldService.CreateScenario
+   */
+  createScenario: {
+    methodKind: "unary";
+    input: typeof CreateScenarioRequestSchema;
+    output: typeof CreateScenarioResponseSchema;
+  },
+  /**
+   * @generated from rpc zoen.world.v1.WorldService.ApplyScenario
+   */
+  applyScenario: {
+    methodKind: "unary";
+    input: typeof ApplyScenarioRequestSchema;
+    output: typeof ApplyScenarioResponseSchema;
+  },
+  /**
+   * @generated from rpc zoen.world.v1.WorldService.DiscardScenario
+   */
+  discardScenario: {
+    methodKind: "unary";
+    input: typeof DiscardScenarioRequestSchema;
+    output: typeof DiscardScenarioResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_zoen_world_v1_world, 0);

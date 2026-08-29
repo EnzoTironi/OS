@@ -145,6 +145,14 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
                 revision: policy.revision.clone(),
             });
         }
+        if let Some(written) = request.written_classification {
+            if !zoen_core::mac_write_permitted(request.context.clearance(), written) {
+                return PolicyEvaluation::Deny(PolicyEvidence {
+                    determining_policies: vec![MAC_DETERMINING_POLICY.to_owned()],
+                    revision: policy.revision.clone(),
+                });
+            }
+        }
         let response = match stacker::maybe_grow(CEDAR_STACK_RED_ZONE, CEDAR_STACK_SIZE, || {
             let cedar_request = cedar_request(request)?;
             let entities = cedar_entities(request, projection)?;
@@ -471,6 +479,7 @@ mod tests {
                 operation: PolicyOperation::Commit,
                 projection: Some(&projection),
                 resource_id: &resource,
+                written_classification: None,
             })
             .await;
         assert!(matches!(permit, zoen_core::PolicyEvaluation::Permit(_)));
@@ -489,6 +498,7 @@ mod tests {
                 operation: PolicyOperation::Commit,
                 projection: Some(&error_projection),
                 resource_id: &resource,
+                written_classification: None,
             })
             .await;
         assert!(matches!(
@@ -525,6 +535,7 @@ mod tests {
                     operation: PolicyOperation::ActivateRevision,
                     projection: Some(&admin_world),
                     resource_id: &resource,
+                    written_classification: None,
                 })
                 .await,
             zoen_core::PolicyEvaluation::Permit(_)
@@ -544,6 +555,7 @@ mod tests {
                     operation: PolicyOperation::ActivateRevision,
                     projection: Some(&live_world),
                     resource_id: &resource,
+                    written_classification: None,
                 })
                 .await,
             zoen_core::PolicyEvaluation::Permit(_)
@@ -563,6 +575,7 @@ mod tests {
                     operation: PolicyOperation::ActivateRevision,
                     projection: Some(&stranger_world),
                     resource_id: &resource,
+                    written_classification: None,
                 })
                 .await,
             zoen_core::PolicyEvaluation::Deny(_)
@@ -606,6 +619,7 @@ mod tests {
                 operation: PolicyOperation::Commit,
                 projection: Some(&projection),
                 resource_id: &resource,
+                written_classification: None,
             })
             .await;
 
@@ -670,6 +684,7 @@ when {
                 operation: PolicyOperation::Commit,
                 projection: Some(&permitted_world),
                 resource_id: &permitted_id,
+                written_classification: None,
             })
             .await;
         let deny = evaluator
@@ -683,6 +698,7 @@ when {
                 operation: PolicyOperation::Commit,
                 projection: Some(&neighbor_world),
                 resource_id: &neighbor_id,
+                written_classification: None,
             })
             .await;
         let empty = evaluator
@@ -696,6 +712,7 @@ when {
                 operation: PolicyOperation::Commit,
                 projection: None,
                 resource_id: &permitted_id,
+                written_classification: None,
             })
             .await;
 
@@ -768,6 +785,7 @@ when {
                     operation: PolicyOperation::Commit,
                     projection: Some(&projection),
                     resource_id: &resource,
+                    written_classification: None,
                 })
                 .await;
             assert!(
@@ -785,6 +803,7 @@ when {
                     operation: PolicyOperation::Discover,
                     projection: Some(&projection),
                     resource_id: &resource,
+                    written_classification: None,
                 })
                 .await;
             assert!(

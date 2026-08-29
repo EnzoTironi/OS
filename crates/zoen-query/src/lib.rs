@@ -11,7 +11,10 @@ use object_store::path::Path;
 use object_store::{ObjectStore, ObjectStoreExt};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use zoen_adapters::{PostgresClaimLoader, PostgresClaimQuery, PostgresTypeQuery};
+use zoen_adapters::{
+    PostgresClaimLoader, PostgresClaimQuery, PostgresOverlayClaimQuery, PostgresOverlayTypeQuery,
+    PostgresTypeQuery,
+};
 use zoen_core::{
     CanonicalDefinition, CanonicalJson, ClaimId, CommitSequence, Consistency, DefinitionReference,
     EntityId, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, Expression,
@@ -94,10 +97,18 @@ impl QueryRuntime {
         query: &SemanticQuery,
     ) -> Result<SemanticResult, QueryError> {
         let page = page::bind_type_page(context, query)?;
-        let consistency = page
+        let mut consistency = page
             .as_ref()
             .map(|cursor| Consistency::Snapshot(cursor.commit_sequence))
             .unwrap_or_else(|| query.consistency().clone());
+        if let Some(scenario_id) = query.scenario_id() {
+            let base = self
+                .claim_loader
+                .require_open_scenario_base(context, scenario_id)
+                .await
+                .map_err(adapter_error)?;
+            consistency = Consistency::Snapshot(base);
+        }
         let source = self
             .select_source(context.tenant_id(), &consistency)
             .await?;
@@ -156,6 +167,12 @@ impl QueryRuntime {
             ));
         };
         let plan = QueryPlan::new(selection, definition)?;
+        let relation_id_set: BTreeSet<RelationId> = plan
+            .relation_ids
+            .iter()
+            .map(RelationId::parse)
+            .collect::<Result<_, _>>()
+            .map_err(|error| QueryError::Corrupt(error.to_string()))?;
         let mut claims = match source {
             SourcePlan::Postgres { cut } => {
                 let claims = self
@@ -166,12 +183,7 @@ impl QueryRuntime {
                             cut: commit_sequence(*cut, "query cut")?,
                             definition: definition_ref.clone(),
                             entity_id: entity_id.clone(),
-                            relation_ids: plan
-                                .relation_ids
-                                .iter()
-                                .map(RelationId::parse)
-                                .collect::<Result<_, _>>()
-                                .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+                            relation_ids: relation_id_set.clone(),
                             valid_at: *valid_at,
                         },
                     )
@@ -197,6 +209,26 @@ impl QueryRuntime {
                 .await?
             }
         };
+        if let Some(scenario_id) = query.scenario_id() {
+            let overlay = self
+                .claim_loader
+                .load_overlay(
+                    context,
+                    &PostgresOverlayClaimQuery {
+                        definition: definition_ref.clone(),
+                        entity_id: entity_id.clone(),
+                        relation_ids: relation_id_set,
+                        scenario_id: scenario_id.clone(),
+                        valid_at: *valid_at,
+                    },
+                )
+                .await
+                .map_err(adapter_error)?;
+            claims = union_overlay_claims(
+                claims,
+                overlay.into_iter().map(SemanticClaim::from).collect(),
+            );
+        }
         let mut migration_origins = self
             .load_migration_origins(context.tenant_id(), &claims, cut)
             .await?;
@@ -241,7 +273,7 @@ impl QueryRuntime {
                 .load_entity_ids(
                     context,
                     &PostgresTypeQuery {
-                        after_entity_id,
+                        after_entity_id: after_entity_id.clone(),
                         cut: commit_sequence(*cut, "query cut")?,
                         definition: definition_ref.clone(),
                         limit: fetch_limit,
@@ -274,6 +306,35 @@ impl QueryRuntime {
                 .await?
             }
         };
+        if let Some(scenario_id) = query.scenario_id() {
+            let overlay_ids = self
+                .claim_loader
+                .load_overlay_entity_ids(
+                    context,
+                    &PostgresOverlayTypeQuery {
+                        after_entity_id: after_entity_id.clone(),
+                        definition: definition_ref.clone(),
+                        limit: fetch_limit,
+                        relation_ids: relation_ids
+                            .iter()
+                            .map(RelationId::parse)
+                            .collect::<Result<_, _>>()
+                            .map_err(|error| QueryError::Corrupt(error.to_string()))?,
+                        scenario_id: scenario_id.clone(),
+                        valid_at: *valid_at,
+                    },
+                )
+                .await
+                .map_err(adapter_error)?;
+            let mut merged = BTreeSet::new();
+            for entity_id in entity_ids.into_iter().chain(overlay_ids) {
+                merged.insert(entity_id);
+            }
+            entity_ids = merged.into_iter().collect();
+            if let Some(after) = after_entity_id.as_ref() {
+                entity_ids.retain(|entity_id| entity_id.as_str() > after.as_str());
+            }
+        }
         let has_more = entity_ids.len()
             > usize::try_from(limit)
                 .map_err(|_| QueryError::Invalid("type query limit exceeds usize".to_owned()))?;
@@ -952,6 +1013,32 @@ fn sha256(bytes: &[u8]) -> String {
 
 fn unavailable(error: sqlx::Error) -> QueryError {
     QueryError::Unavailable(error.to_string())
+}
+
+fn union_overlay_claims(
+    mut base: Vec<SemanticClaim>,
+    overlay: Vec<SemanticClaim>,
+) -> Vec<SemanticClaim> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut merged = Vec::with_capacity(base.len() + overlay.len());
+    for claim in overlay {
+        seen.insert((
+            claim.dependency.entity_id.as_str().to_owned(),
+            claim.dependency.relation_id.as_str().to_owned(),
+        ));
+        merged.push(claim);
+    }
+    for claim in base.drain(..) {
+        let key = (
+            claim.dependency.entity_id.as_str().to_owned(),
+            claim.dependency.relation_id.as_str().to_owned(),
+        );
+        if seen.contains(&key) {
+            continue;
+        }
+        merged.push(claim);
+    }
+    merged
 }
 
 fn adapter_error(error: StoreError) -> QueryError {

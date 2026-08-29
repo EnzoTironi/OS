@@ -114,6 +114,7 @@ where
                 operation: PolicyOperation::ActivateRevision,
                 projection: Some(&projection),
                 resource_id: &resource_id,
+                written_classification: None,
             })
             .await
         {
@@ -216,6 +217,7 @@ where
                 operation: PolicyOperation::RollbackRevision,
                 projection: Some(&projection),
                 resource_id: &resource_id,
+                written_classification: None,
             })
             .await
         {

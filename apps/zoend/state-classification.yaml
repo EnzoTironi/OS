@@ -41,6 +41,9 @@ authority:
     - company_surface_sessions
 rebuildable:
   postgresTables:
+    - world_scenarios
+    - world_scenario_proposals
+    - overlay_claims
     - projection_manifests
     - projection_watermarks
     - company_fragments

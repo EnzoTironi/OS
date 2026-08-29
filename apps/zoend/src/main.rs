@@ -19,7 +19,8 @@ use zoen_adapters::{
 };
 use zoen_core::{MachineToken, WorkloadId};
 use zoen_engine::{
-    ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, ReadEngine, WorldEngine,
+    ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, ReadEngine, ScenarioEngine,
+    WorldEngine,
 };
 use zoen_query::QueryRuntime;
 use zoend::config::{self, ProcessAuth, object_store_config};
@@ -148,6 +149,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let world_service = WorldServiceImpl::new(
         WorldEngine::new(store.clone()),
         read.clone(),
+        ScenarioEngine::new(
+            store.clone(),
+            ActionEngine::new(store.clone(), query.clone(), policy.clone()),
+        ),
         sessions.clone(),
     );
     let identity_admin_token = env::var("ZOEN_IDENTITY_ADMIN_TOKEN")

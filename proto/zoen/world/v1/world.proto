@@ -8,6 +8,9 @@ service WorldService {
   rpc RecordEvidence(RecordEvidenceRequest) returns (RecordEvidenceResponse);
   rpc RecordEvidenceBatch(RecordEvidenceBatchRequest) returns (RecordEvidenceBatchResponse);
   rpc SemanticQuery(SemanticQueryRequest) returns (SemanticQueryResponse);
+  rpc CreateScenario(CreateScenarioRequest) returns (CreateScenarioResponse);
+  rpc ApplyScenario(ApplyScenarioRequest) returns (ApplyScenarioResponse);
+  rpc DiscardScenario(DiscardScenarioRequest) returns (DiscardScenarioResponse);
 }
 
 message DefinitionReference {
@@ -125,6 +128,40 @@ message SemanticQueryRequest {
   }
   // Opaque page cursor bound to the query's consistency cut.
   string page_token = 8;
+  // Empty = head. Named open scenario unions Snapshot(pin) with overlay claims.
+  string scenario_id = 9;
+}
+
+message CreateScenarioRequest {
+  string tenant_id = 1;
+  string scenario_id = 2;
+}
+
+message CreateScenarioResponse {
+  string scenario_id = 1;
+  uint64 base_commit_sequence = 2;
+}
+
+message ApplyScenarioRequest {
+  string tenant_id = 1;
+  string scenario_id = 2;
+}
+
+message ApplyScenarioResponse {
+  string scenario_id = 1;
+  uint64 commit_sequence = 2;
+  string decision = 3;
+  repeated string determining_policies = 4;
+  string evaluation_error = 5;
+}
+
+message DiscardScenarioRequest {
+  string tenant_id = 1;
+  string scenario_id = 2;
+}
+
+message DiscardScenarioResponse {
+  string scenario_id = 1;
 }
 
 enum LineageRole {
