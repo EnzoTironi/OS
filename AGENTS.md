@@ -8,6 +8,8 @@ Zoen OS is three products. Ontology is the CLI, the API, and MCP. Conversation i
 
 The conversation product is not named Poke. Poke is a voice and quality reference only. A fourth product is out of scope.
 
+Ontology CLI shape lives in `docs/product/cli-workbench.md`.
+
 ## Tests
 
 You do not add unit tests, mocks, fakes, stubs, or `vi.mock`. Remaining tests and new tests are journeys that drive a product as a user would.
