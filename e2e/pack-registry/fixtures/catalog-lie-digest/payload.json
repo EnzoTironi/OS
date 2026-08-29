@@ -1,8 +1,0 @@
-{
-  "claimedDigest": "578df2f03e5de03dc50d4bc56cc2f1b583936638cb85855a9585a0f661ab4e0f",
-  "openResult": {
-    "actual": "d75b30fc7e813f366cd860a70d9fd8fd75ce48838fde7529277aae5eb465a0d0",
-    "expected": "578df2f03e5de03dc50d4bc56cc2f1b583936638cb85855a9585a0f661ab4e0f",
-    "kind": "digestMismatch"
-  }
-}

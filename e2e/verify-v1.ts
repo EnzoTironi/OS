@@ -23,7 +23,7 @@ const repositoryRoot = path.basename(path.dirname(moduleDirectory)) === "dist"
   ? path.resolve(moduleDirectory, "../..")
   : path.resolve(moduleDirectory, "..");
 
-type ScenarioKind = "compose" | "fiscal-matrix";
+type ScenarioKind = "compose";
 
 type ScenarioSpec = {
   readonly id: string;
@@ -340,7 +340,6 @@ async function loadScenarioEvidence(
 
 async function resolveLiveSlots(
   evidenceRoot: string,
-  fiscalMatrix: ScenarioEvidence | null,
   candidate: string,
 ): Promise<LiveSlot[]> {
   const slots: LiveSlot[] = [];
@@ -376,43 +375,11 @@ async function resolveLiveSlots(
       });
       continue;
     }
-    const matrixValue =
-      fiscalMatrix === null
-        ? undefined
-        : (fiscalMatrix.body.liveEvidence as Record<string, unknown> | undefined)?.[
-            provider.matrixKey
-          ];
-    if (matrixValue !== undefined) {
-      const matrixCommit =
-        fiscalMatrix?.sourceCommit ?? fiscalMatrix?.signedOci?.sourceSha ?? null;
-      if (matrixCommit === null || !commitsMatch(candidate, matrixCommit)) {
-        slots.push({
-          id: provider.id,
-          present: false,
-          source: `fiscal-fault-matrix.liveEvidence.${provider.matrixKey}`,
-          detail:
-            matrixCommit === null
-              ? "fiscal-fault-matrix missing source commit; liveEvidence unbound"
-              : `fiscal-fault-matrix commit ${matrixCommit} does not match candidate; refusing unbound liveEvidence`,
-        });
-        continue;
-      }
-      const present = liveProviderPresent(matrixValue);
-      slots.push({
-        id: provider.id,
-        present,
-        source: `fiscal-fault-matrix.liveEvidence.${provider.matrixKey}`,
-        detail: present
-          ? `matrix liveEvidence=${JSON.stringify(matrixValue)}`
-          : `advertised live vendor absent: ${JSON.stringify(matrixValue)}`,
-      });
-      continue;
-    }
     slots.push({
       id: provider.id,
       present: false,
       source: "absent",
-      detail: "no live scenario artifact and no fiscal-fault-matrix liveEvidence slot",
+      detail: "no live scenario artifact",
     });
   }
   return slots;
@@ -924,9 +891,7 @@ async function main(): Promise<void> {
     }
     loaded.push(fixtureMode ? bindFixtureEvidence(evidence, candidate) : evidence);
   }
-  const fiscalIndex = REQUIRED_SCENARIOS.findIndex((row) => row.id === "fiscal-fault-matrix");
-  const fiscalMatrix = fiscalIndex >= 0 ? loaded[fiscalIndex] ?? null : null;
-  const live = await resolveLiveSlots(evidenceRoot, fiscalMatrix, candidate);
+  const live = await resolveLiveSlots(evidenceRoot, candidate);
   const gate = evaluateGate(candidate, loaded, live, fixtureMode, STRICT_OPTIONS);
 
   const mutantFailures = verificationMutants

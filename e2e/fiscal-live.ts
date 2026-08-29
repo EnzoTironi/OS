@@ -44,7 +44,7 @@ import {
   worldClient,
   writeFiscalPolicyManifest,
   type ManagedProcess,
-} from "./fiscal-fault-matrix/support.js";
+} from "./fiscal-live-support.js";
 
 const semanticValueSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("bool"), value: z.boolean() }),

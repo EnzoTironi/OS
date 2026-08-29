@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 
-const CLASSES = new Set(["live", "archive", "credential"]);
+const CLASSES = new Set(["live", "credential"]);
 const repositoryRoot = process.cwd();
 const workflowPath = path.join(repositoryRoot, ".github/workflows/verify.yml");
 const runShPath = path.join(repositoryRoot, "e2e/run.sh");

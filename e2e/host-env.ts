@@ -6,7 +6,7 @@ import path from "node:path";
  * Host TCP port for an e2e scenario.
  *
  * `just e2e-run` sources `e2e/<scenario>/.env` so shared support modules
- * (effects/governed-action imported by other runners) bind the caller’s
+ * (effect-support/governed-action imported by other runners) bind the caller’s
  * ports instead of the module’s defaults.
  */
 export function e2ePort(name: string, fallback: number): number {
@@ -116,7 +116,7 @@ export function e2eGeneratedDirectory(
 
 /**
  * Emit a TypeScript project through its own tsconfig.
- * Used by optional scenarios that still live on archive/pre-modeled-erp.
+ * Credential fiscal compiles `archive/domain/fiscal-brazil` when that tree is checked out.
  */
 export function compileArchivedTsconfig(
   repositoryRoot: string,
@@ -132,19 +132,6 @@ export function compileArchivedTsconfig(
       "false",
     ],
     { cwd: repositoryRoot, stdio: "inherit" },
-  );
-}
-
-/** Nitro server entry when archive/pre-modeled-erp web is checked out. */
-export function archivedWebServerEntry(repositoryRoot: string): string {
-  return path.join(
-    repositoryRoot,
-    "archive",
-    "apps",
-    "web",
-    ".output",
-    "server",
-    "index.mjs",
   );
 }
 

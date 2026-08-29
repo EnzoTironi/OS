@@ -4,8 +4,8 @@ set -euo pipefail
 # Ticket command stays `just e2e <scenario>` (check + native build + run).
 # `just verify` runs check and native build once, then each scenario runner.
 # scenario_table fields: name:realm:variant:class
-# class is live | archive | credential.
-# just verify runs only class=live. Archive and credential scenarios stay optional.
+# class is live | credential.
+# just verify runs only class=live. Credential fiscal stays optional.
 # `just verify-v1` aggregates typed artifacts into a signed zoen.verify.v1 bundle.
 # `just verify-activation` aggregates AD artifacts into a signed zoen.activation.v1 bundle.
 # `just e2e-run` executes a built workspace and does not lint.
@@ -14,42 +14,22 @@ set -euo pipefail
 
 scenario_table=(
   "activation-identity:activation-identity::live"
-  "activation-onboarding:activation-onboarding::archive"
-  "activation-metrics:activation-metrics::archive"
   "messaging-boundary:messaging-boundary::live"
-  "company-bootstrap-shadow:company-bootstrap-shadow::archive"
-  "pack-kitchen:pack-kitchen::archive"
-  "personal-family:personal-family::archive"
-  "activation-sample:::archive"
   "definition-publication:governed-action::live"
-  "adr-0007:adr-0007::archive"
-  "domain-commercial:domain-commercial::archive"
-  "domain-inventory-procurement:domain-inventory-procurement::archive"
-  "domain-manufacturing-accounting:domain-manufacturing-accounting::archive"
-  "domain-quality:domain-quality::archive"
-  "entity-location:entity-location::archive"
   "cedar-object-projection:cedar-object-projection::live"
   "commercial-identity:commercial-identity::live"
   "dirty-quote:dirty-quote::live"
   "durable-commit:governed-action:failpoints:live"
-  "effects:governed-action::archive"
   "evolution-breaking:evolution-breaking::live"
   "evolution-compatible:evolution-compatible::live"
   "explain:governed-action::live"
-  "fiscal-fault-matrix:fiscal-fault-matrix::archive"
   "fiscal-systax-live:fiscal-systax-live::credential"
   "fiscal-plugnotas-live:fiscal-plugnotas-live::credential"
   "fiscal-protheus-live:fiscal-protheus-live::credential"
   "governed-action:governed-action::live"
-  "human-executor:human-executor::archive"
-  "pack-install:pack-install::archive"
-  "pack-registry:pack-registry::archive"
   "public-surface:::live"
-  "public-surface-web:public-surface-web::archive"
   "semantic-query:semantic-query::live"
   "wasm-code-mode:wasm-code-mode::live"
-  "web-deterministic:web-deterministic::archive"
-  "workshop-miniapp:workshop-miniapp::archive"
 )
 
 scenario=""
@@ -109,7 +89,7 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ "$scenario" == "activation-sample" || "$scenario" == "public-surface" ]]; then
+      if [[ "$scenario" == "public-surface" ]]; then
         compose_file=""
         project=""
       elif [[ -n "$realm" ]]; then
@@ -201,10 +181,6 @@ require_built() {
     echo "missing ${runner}; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
-  if [[ ( "$scenario" == "web-deterministic" || "$scenario" == "activation-sample" || "$scenario" == "public-surface-web" || "$scenario" == "workshop-miniapp" ) && ! -f archive/apps/web/.output/server/index.mjs ]]; then
-    echo "missing archived web; checkout archive/pre-modeled-erp to run this optional scenario" >&2
-    exit 1
-  fi
 }
 
 require_fiscal_live_environment() {
@@ -245,7 +221,7 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
-  if [[ "$scenario" == "activation-sample" || "$scenario" == "public-surface" ]]; then
+  if [[ "$scenario" == "public-surface" ]]; then
     return
   fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -264,11 +240,6 @@ run_scenario() {
   trap cleanup_scenario EXIT
   cleanup_scenario
   mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
-  if [[ "$scenario" == "activation-sample" ]]; then
-    "e2e/${scenario}/run.sh"
-    trap - EXIT
-    return
-  fi
   if [[ "$scenario" == "public-surface" ]]; then
     node "$runner"
     trap - EXIT

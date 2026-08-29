@@ -28,23 +28,7 @@
   },
   "exclude": [
     "dist",
-    "node_modules",
-    "e2e/activation-metrics.ts",
-    "e2e/activation-metrics/**/*.ts",
-    "e2e/activation-onboarding.ts",
-    "e2e/activation-onboarding/**/*.ts",
-    "e2e/company-bootstrap-shadow.ts",
-    "e2e/company-bootstrap-shadow/**/*.ts",
-    "e2e/pack-install.ts",
-    "e2e/pack-install/**/*.ts",
-    "e2e/pack-kitchen.ts",
-    "e2e/pack-kitchen/**/*.ts",
-    "e2e/pack-registry.ts",
-    "e2e/pack-registry/**/*.ts",
-    "e2e/personal-family.ts",
-    "e2e/personal-family/**/*.ts",
-    "e2e/public-surface-web.ts",
-    "e2e/public-surface-web/**/*.ts"
+    "node_modules"
   ],
   "include": [
     "e2e/**/*.ts",

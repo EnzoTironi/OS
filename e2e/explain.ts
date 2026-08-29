@@ -42,7 +42,7 @@ import {
   sha256,
   waitForConnectorStatus,
   waitForState,
-} from "./effects/scenario.js";
+} from "./effect-scenario.js";
 import {
   actionClient,
   adminClient,
@@ -65,7 +65,7 @@ import {
   worldClient,
   type ManagedProcess,
   type WorldClient,
-} from "./effects/support.js";
+} from "./effect-support.js";
 import { historyClient, type HistoryClient } from "./explain/support.js";
 import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
 

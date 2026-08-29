@@ -47,7 +47,7 @@ Packs ship outcomes, not module names.
 
 Each Pack should answer what it does for the company, who published it, which integrations or data it needs, high-level permissions, how FirstSuccess looks, and how to install or share it.
 
-Outcome-first directory copy lives in `docs/product/pack-directory.md`. Pack registry and Kitchen e2e live on `archive/pre-modeled-erp`. Full marketplace commerce is out of scope.
+Outcome-first directory copy lives in `docs/product/pack-directory.md`. Pack registry and Kitchen e2e live on `archive/pre-modeled-erp` (`just e2e pack-registry`, `just e2e pack-kitchen` there). Full marketplace commerce is out of scope.
 
 ## Why not LLM + tools
 

@@ -8,7 +8,7 @@
     "url": "https://github.com/EnzoTironi/OS/tree/backup/stubs-channels"
   },
   "gates": {
-    "verify": "just verify. Serial class=live runners. Skips credential channels, archived ERP/web/pack, effects, and adr-0007.",
+    "verify": "just verify. Serial class=live runners. Skips credential fiscal.",
     "verifyV1": "just verify-v1. Signed production evidence only. Missing or fixture-as-production fails closed.",
     "verifyActivation": "just verify-activation. Signed activation evidence. Same fixture rule.",
     "note": "Green just verify is not a V1 release. Green just verify-v1-fixtures is a labeled contract, not production."
@@ -182,7 +182,7 @@
       "name": "Workshop mini-app lists commercial objects and commits changeCommitment",
       "onMain": false,
       "product": false,
-      "path": "archive/pre-modeled-erp, e2e/workshop-miniapp",
+      "path": "archive/pre-modeled-erp",
       "proof": "Optional on archive/pre-modeled-erp. just e2e workshop-miniapp there.",
       "issue": 356
     },
@@ -448,10 +448,10 @@
       "status": "have",
       "plane": "effects",
       "name": "ADR-0007 timeout on commercial.OrderLine",
-      "onMain": true,
+      "onMain": false,
       "product": false,
-      "path": "e2e/adr-0007.ts, docs/adr/0007-external-effects-reconciliation.md",
-      "proof": "Archived. ./e2e/run.sh run adr-0007 still compilePackage(commercial). Timeout after possible delivery is UNKNOWN.",
+      "path": "archive/pre-modeled-erp, docs/adr/0007-external-effects-reconciliation.md",
+      "proof": "Not on default main. Optional just e2e adr-0007 on archive/pre-modeled-erp. Timeout after possible delivery is UNKNOWN.",
       "issue": null
     },
     {
@@ -461,7 +461,7 @@
       "name": "Sample Company effect fault-provider",
       "onMain": true,
       "product": false,
-      "path": "e2e/effects/fault-provider.ts",
+      "path": "e2e/effect-fault-provider.ts",
       "proof": "Named fault injection against the real dispatcher/connector/Restate. Not a stub of the company. Allowed by ADR-0021 as supplement.",
       "issue": null
     },
@@ -470,10 +470,10 @@
       "status": "harness",
       "plane": "fiscal",
       "name": "Fiscal vendor-fault-proxy",
-      "onMain": true,
+      "onMain": false,
       "product": false,
-      "path": "e2e/fiscal-fault-matrix",
-      "proof": "just e2e fiscal-fault-matrix. Artifact liveEvidence: not-run-no-credentials. Not Systax/PlugNotas/Protheus live.",
+      "path": "archive/pre-modeled-erp",
+      "proof": "Not on default main. Optional just e2e fiscal-fault-matrix on archive/pre-modeled-erp. Not Systax/PlugNotas/Protheus live.",
       "issue": 214
     },
     {
