@@ -42,6 +42,7 @@ mod auth {
 mod computation_service;
 mod door_proxy;
 mod effect_service;
+mod eve_proxy;
 mod history_service;
 mod identity_admin;
 mod identity_admin_auth;
@@ -163,6 +164,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .route("/metrics", get(metrics))
         .merge(ready_routes)
         .merge(door_proxy::router())
+        .merge(eve_proxy::router())
         .merge(identity_routes)
         .merge(onboard_routes)
         .merge(messaging_routes)

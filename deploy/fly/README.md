@@ -3,6 +3,8 @@
 One machine in `gru`. Volume `zoen_data` → `/data` (postgres, Restate, MinIO).
 Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Postgres, Restate, and the Better Auth door stay up (`auto_stop_machines = off`). The door listens on `127.0.0.1:58704`. zoend forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` there. WhatsApp `/onboard/{token}` stays on zoend.
 
+Eve listens on `127.0.0.1:3000`. zoend forwards `/eve/v1` and `/.well-known/workflow` there without rewrite. Node 24 is `/usr/local/node24`. Auth stays Node 22.
+
 `ZOEN_OIDC_ISSUER` is `https://zoen.tironi.xyz`. Boot fetches discovery and JWKS from `ZOEN_OIDC_DISCOVERY_URL` (`http://127.0.0.1:58704`). The one Fly machine must not hairpin its public origin before zoend listens. Remint session-mints on the loopback door (`http://127.0.0.1:58704`) and writes `/data/zoen/agent.token`. `ZOEN_BA_AGENT_PASSWORD` is a Fly secret, not committed.
 
 ## Ship a change

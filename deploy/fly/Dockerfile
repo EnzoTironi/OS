@@ -30,6 +30,14 @@ COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
 RUN npm ci \
     && npx tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false
 
+FROM node:24.20.0-bookworm-slim AS conversation
+WORKDIR /conversation
+COPY apps/conversation/package.json apps/conversation/package-lock.json ./
+RUN npm ci
+COPY apps/conversation/ ./
+ENV ZOEN_MODEL=openai-compatible/hy3-free
+RUN node ./node_modules/eve/bin/eve.js build
+
 FROM postgres:18
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
@@ -41,6 +49,9 @@ COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen
 COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
 COPY --from=personal-lake /app /app
 COPY --from=auth /auth /auth
+COPY --from=conversation /usr/local/bin/node /usr/local/node24/bin/node
+COPY --from=conversation /conversation /conversation
+COPY deploy/fly/zoen-start-eve /usr/local/bin/zoen-start-eve
 
 # Restate release tarball name can move; install via their image instead.
 COPY --from=docker.restate.dev/restatedev/restate:1.7.2 /usr/local/bin/restate-server /usr/local/bin/restate-server

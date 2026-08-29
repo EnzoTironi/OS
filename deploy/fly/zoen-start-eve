@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+if [ -z "${ZOEN_AUTH_BASE_URL:-}" ]; then
+  echo "eve: ZOEN_AUTH_BASE_URL is required" >&2
+  exit 1
+fi
+if [ -z "${ZOEN_MODEL:-}" ]; then
+  echo "eve: ZOEN_MODEL is required" >&2
+  exit 1
+fi
+export PATH="/usr/local/node24/bin:${PATH}"
+major="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$major" -lt 24 ]; then
+  echo "eve: Node >= 24 required, got $(node -v)" >&2
+  exit 1
+fi
+mkdir -p /data/eve
+if [ -e /conversation/.eve ] && [ ! -L /conversation/.eve ]; then
+  rm -rf /conversation/.eve
+fi
+ln -sfn /data/eve /conversation/.eve
+cd /conversation
+exec node ./node_modules/eve/bin/eve.js start --host 127.0.0.1 --port 3000
