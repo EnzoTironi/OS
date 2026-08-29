@@ -189,6 +189,7 @@ async function runOnWorkbench(input: {
       argv,
       credential: input.credential,
       zoendBaseUrl: input.zoendBaseUrl,
+      workspace: input.disk.workspace,
     });
   }
   const result = await input.vm.process.exec(input.command, {

@@ -23,8 +23,8 @@ COPY apps/auth/tsconfig.json ./
 FROM node:22.18.0-bookworm-slim AS personal-lake
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
-COPY packages/ontology packages/ontology
 COPY gen/connect gen/connect
+COPY testdata/lakes testdata/lakes
 COPY deploy/fly/tsconfig.personal-lake.json deploy/fly/tsconfig.personal-lake.json
 COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
 RUN npm ci \
@@ -69,8 +69,8 @@ COPY deploy/fly/zoen-ensure-agent-binding /usr/local/bin/zoen-ensure-agent-bindi
 COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake
 COPY deploy/fly/zoen-start-auth /usr/local/bin/zoen-start-auth
 COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
-COPY packages/ontology/fixtures/commercial.zoen.ts /etc/zoen/commercial.zoen.ts
-COPY packages/ontology/fixtures/personal.zoen.ts /etc/zoen/personal.zoen.ts
+COPY testdata/lakes/commercial.canonical.json /etc/zoen/commercial.canonical.json
+COPY testdata/lakes/personal.canonical.json /etc/zoen/personal.canonical.json
 COPY deploy/fly/init /docker-entrypoint-initdb.d
 
 ENV PGDATA=/data/pg

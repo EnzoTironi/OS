@@ -21,6 +21,9 @@ zoen action discover
 zoen action propose
 zoen action commit
 zoen definition publish
+zoen source connect
+zoen source introduce
+zoen source sync
 zoen history explain
 zoen auth login
 ```
@@ -28,10 +31,16 @@ zoen auth login
 Example composition:
 
 ```
-zoen world query --type OrderLine > /tmp/q.json
+zoen definition publish --file definition.canonical.json
+zoen source connect google --profile drive
+zoen source introduce drive --folder Laudos
+zoen source sync drive
+zoen world query --type world.Pedido > /tmp/q.json
 jq '...' /tmp/q.json | zoen action propose --stdin
 zoen action commit --proposal-id ID --dry-run
 ```
+
+`source connect` writes instance config on the membership workbench. Google is a planted profile on the Zoen OAuth app. Introduce a folder, not the account. Door tokens are not ingest authority. Isolate `zoen action commit` stays denied.
 
 ## Authority
 
@@ -39,4 +48,4 @@ The binary does not govern. Every mutation is propose → Cedar → commit on zo
 
 ## Not the product
 
-`zoen query <json>` in the planted isolate is a stub. `@zoen/sdk` and `@zoen/osdk` are not this door. Do not generate a client to replace this CLI.
+`zoen query <json>` in the planted isolate is a stub. `@zoen/sdk` and `@zoen/osdk` are not this door. `@zoen/ontology` and `.zoen.ts` are not the compiler. Publish canonical JSON. Do not generate a client to replace this CLI.

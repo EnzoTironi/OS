@@ -1,0 +1,33 @@
+{
+  "formatVersion": "zoen.pack.v1",
+  "packId": "pack.source.hands",
+  "version": "1",
+  "publisher": { "publisherId": "publisher.zoen", "displayName": "Zoen" },
+  "description": {
+    "title": "Source hands",
+    "summary": "Drive folder, Bling REST, and Protheus MCP or REST as ReadSource."
+  },
+  "integrationRequirements": [
+    {
+      "requirementId": "req.drive.folder",
+      "kind": "read_source",
+      "sensitivity": "sensitive",
+      "necessity": "required",
+      "scope": "google.drive.folder"
+    },
+    {
+      "requirementId": "req.bling.pedidos",
+      "kind": "read_source",
+      "sensitivity": "non_sensitive",
+      "necessity": "required",
+      "scope": "rest.pedidos"
+    },
+    {
+      "requirementId": "req.protheus",
+      "kind": "read_source",
+      "sensitivity": "sensitive",
+      "necessity": "optional",
+      "scope": "mcp.or.rest"
+    }
+  ]
+}

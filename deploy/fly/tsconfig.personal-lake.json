@@ -6,7 +6,6 @@
   },
   "include": [
     "../../deploy/fly/ensure-personal-lake.ts",
-    "../../packages/ontology/src/**/*.ts",
     "../../gen/connect/**/*.ts"
   ],
   "exclude": [

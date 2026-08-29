@@ -32,7 +32,7 @@ Those trees are unpublished history. Checkout `archive/pre-modeled-erp` to read 
 
 ### Live lake
 
-Compiler and lake tests that need an OrderLine-shaped definition compile `packages/ontology/fixtures/commercial.zoen.ts`. That file is the source of truth. `scripts/check-commercial-lake.mjs` checks the lake itself and does not require `archive/domain/commercial`. Fly personal-lake publishes that fixture from `ZOEN_WORLD_DEFINITION_PATH`.
+The live commercial lake is committed canonical JSON at `testdata/lakes/commercial.canonical.json`. Fly personal-lake publishes that file from `ZOEN_WORLD_DEFINITION_PATH`. `scripts/check-commercial-lake.mjs` checks that JSON. `.zoen.ts` is not the dest compiler.
 
 ### Surface IR
 
@@ -63,7 +63,7 @@ Kitchen is archived. It does not derive live Pack capabilities from arbitrary co
 
 - PR #399 archived the trees on `main`. The follow-up moved them onto `archive/pre-modeled-erp` and removed `archive/` from default `main`.
 - Parent #324. Lock 2026-08-25.
-- `packages/ontology/fixtures/commercial.zoen.ts` remains the live lake.
+- `testdata/lakes/commercial.canonical.json` is the live commercial lake.
 
 ## Revisit if
 

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { Code, ConnectError, createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
-import { compileDefinition } from "../../../packages/ontology/src/index.js";
 import { DefinitionService } from "../../../gen/connect/zoen/definition/v1/definition_pb.js";
 
 const baseUrl = required("ZOEN_IDENTITY_BASE_URL");
@@ -23,11 +23,12 @@ const definitions = createClient(
   }),
 );
 
-const compiled = await compileDefinition(personalPath);
+const canonicalJson = readFileSync(personalPath, "utf8").trim();
+const digest = createHash("sha256").update(canonicalJson).digest("hex");
 try {
   await definitions.publish({
-    canonicalJson: new TextEncoder().encode(compiled.canonicalJson),
-    digest: compiled.digest,
+    canonicalJson: new TextEncoder().encode(canonicalJson),
+    digest,
     tenantId,
   });
   console.log("status=ok");
