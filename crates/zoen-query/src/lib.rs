@@ -93,7 +93,7 @@ impl QueryRuntime {
         context: &ExecutionContext,
         query: &SemanticQuery,
     ) -> Result<SemanticResult, QueryError> {
-        let page = page::bind_type_page(context.tenant_id(), query)?;
+        let page = page::bind_type_page(context, query)?;
         let consistency = page
             .as_ref()
             .map(|cursor| Consistency::Snapshot(cursor.commit_sequence))
@@ -285,7 +285,7 @@ impl QueryRuntime {
             );
         }
         let next_page_token = page::next_page_token(
-            context.tenant_id(),
+            context,
             query,
             commit_sequence(source.cut(), "query cut")?,
             entity_ids.last(),

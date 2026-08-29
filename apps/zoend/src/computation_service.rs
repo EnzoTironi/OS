@@ -22,7 +22,7 @@ use zoen_engine::{
     HistoryEngine, HostCallError, HostCallFuture, HostCommitOutcome, HostCommitRequest,
     HostExplainRequest, HostExplainResult, HostProposalOutcome, HostProposeRequest,
     HostQueryRequest, HostQueryResult, HostSemanticValue, ProgramActionOutcome, ProposeCommand,
-    ProposeOutcome, QueryExecutor, QueryPortError, StoreError,
+    ProposeOutcome, QueryPortError, ReadEngine, ReadError, StoreError,
 };
 use zoen_query::QueryRuntime;
 
@@ -43,6 +43,7 @@ pub struct ComputationServiceImpl {
     executor: WasmtimeComputationExecutor,
     policy: Arc<CedarPolicyEvaluator>,
     query: QueryRuntime,
+    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
     sessions: SessionExchange,
     store: PostgresAuthorityStore,
 }
@@ -57,8 +58,9 @@ impl ComputationServiceImpl {
         let executor = WasmtimeComputationExecutor::new(store.pool())?;
         Ok(Self {
             executor,
-            policy,
-            query,
+            policy: policy.clone(),
+            query: query.clone(),
+            read: ReadEngine::new(query, policy),
             sessions,
             store,
         })
@@ -122,6 +124,21 @@ impl ComputationService for ComputationServiceImpl {
             .map_err(|error| invalid(error.to_string()))?;
         let manifest = parse_manifest(manifest)?;
         let limits = parse_limits(&limits)?;
+        let host = ScopedComputationHost::new(
+            trusted.clone(),
+            manifest.clone(),
+            self.store.clone(),
+            self.query.clone(),
+            self.policy.clone(),
+            self.read.clone(),
+        );
+        if let Err(capability) = host.authorize_pinned().await {
+            return Response::ok(ExecuteResponse {
+                denied_capability: capability,
+                status: ExecutionStatus::CapabilityDenied.into(),
+                ..Default::default()
+            });
+        }
         let execution = self
             .executor
             .execute(
@@ -133,15 +150,9 @@ impl ComputationService for ComputationServiceImpl {
                         .map_err(|error| invalid(error.to_string()))?,
                     input: request.input.to_vec(),
                     limits,
-                    manifest: manifest.clone(),
-                },
-                ScopedComputationHost::new(
-                    trusted.clone(),
                     manifest,
-                    self.store.clone(),
-                    self.query.clone(),
-                    self.policy.clone(),
-                ),
+                },
+                host,
             )
             .await
             .map_err(map_computation_error)?;
@@ -155,7 +166,7 @@ struct ScopedComputationHost {
     history: HistoryEngine<PostgresAuthorityStore>,
     manifest: CapabilityManifest,
     proposals: BTreeMap<CapabilityId, AuthorizedProposal>,
-    query: QueryRuntime,
+    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
     query_claims: BTreeSet<ClaimId>,
 }
 
@@ -174,16 +185,52 @@ impl ScopedComputationHost {
         store: PostgresAuthorityStore,
         query: QueryRuntime,
         policy: Arc<CedarPolicyEvaluator>,
+        read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
     ) -> Self {
         Self {
-            action: ActionEngine::new(store.clone(), query.clone(), policy),
+            action: ActionEngine::new(store.clone(), query, policy),
             context,
             history: HistoryEngine::new(store),
             manifest,
             proposals: BTreeMap::new(),
-            query,
+            read,
             query_claims: BTreeSet::new(),
         }
+    }
+
+    async fn authorize_pinned(&self) -> Result<(), String> {
+        for capability in self.manifest.capabilities() {
+            let ComputationCapability::Query {
+                definition,
+                entity_id,
+                selection,
+                valid_at,
+                id,
+            } = capability
+            else {
+                continue;
+            };
+            if let Err(error) = self
+                .read
+                .execute_pinned(
+                    &self.context,
+                    &SemanticQuery::ByEntity {
+                        consistency: Consistency::Strong,
+                        definition: definition.clone(),
+                        entity_id: entity_id.clone(),
+                        selection: selection.clone(),
+                        valid_at: *valid_at,
+                    },
+                )
+                .await
+            {
+                return Err(match error {
+                    ReadError::Evaluation(_) => id.as_str().to_owned(),
+                    other => other.to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn capability(
@@ -223,19 +270,26 @@ impl ComputationHost for ScopedComputationHost {
                     request.capability_id.as_str().to_owned(),
                 ));
             }
-            let result = QueryExecutor::execute(
-                &self.query,
-                &self.context,
-                &SemanticQuery::ByEntity {
-                    consistency: Consistency::Strong,
-                    definition,
-                    entity_id,
-                    selection,
-                    valid_at,
-                },
-            )
-            .await
-            .map_err(map_query_error)?;
+            let result = self
+                .read
+                .execute_pinned(
+                    &self.context,
+                    &SemanticQuery::ByEntity {
+                        consistency: Consistency::Strong,
+                        definition,
+                        entity_id,
+                        selection,
+                        valid_at,
+                    },
+                )
+                .await
+                .map_err(|error| match error {
+                    ReadError::Evaluation(_) => {
+                        HostCallError::CapabilityDenied(request.capability_id.as_str().to_owned())
+                    }
+                    ReadError::Invalid(message) => HostCallError::InvalidRequest(message),
+                    ReadError::Query(error) => map_query_error(error),
+                })?;
             let values = result
                 .values
                 .into_iter()
@@ -278,6 +332,7 @@ impl ComputationHost for ScopedComputationHost {
                 .explain(
                     &self.context,
                     ExplanationTarget::Claim(request.claim_id.clone()),
+                    &self.read,
                 )
                 .await
                 .map_err(|error| HostCallError::ProviderUnavailable(error.to_string()))?;

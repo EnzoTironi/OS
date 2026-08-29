@@ -6,14 +6,15 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionDefinition, ActionId, ActionInput, ActionProposal, ApprovalId,
-    CanonicalDefinition, ClaimId, CommitIdentityKind, CommitReceipt, ComponentExecutionEvidence,
-    Consistency, DefinitionId, DefinitionReference, DefinitionRevision, EffectRequestId, EntityId,
-    EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue, ExecutionContext, IntentDigest,
-    LineageRole, OperationId, PolicyEvaluation, PolicyEvidence, PreconditionEvaluation,
-    PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget, ResourceId,
-    SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis, StateBasisDigest,
-    StateDependency, TenantId, TimestampMicros, TrustedExecutionContext, TypeId, ValidTime,
-    ValueType, evaluate_expression, expression_relations,
+    CanonicalDefinition, ClaimId, ClassificationToken, CommitIdentityKind, CommitReceipt,
+    ComponentExecutionEvidence, Consistency, DefinitionId, DefinitionReference, DefinitionRevision,
+    EffectRequestId, EntityId, EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactValue,
+    ExecutionContext, IntentDigest, LineageRole, OperationId, PolicyEvaluation, PolicyEvidence,
+    PreconditionEvaluation, PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget,
+    ResourceId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue, StateBasis,
+    StateBasisDigest, StateDependency, TenantId, TimestampMicros, TrustedExecutionContext, TypeId,
+    ValidTime, ValueType, classified_as_relation, evaluate_expression, expression_relations,
+    join_labels,
 };
 
 use crate::action_preview::{bind_proposal_preview, build_action_preview, preview_hash};
@@ -34,6 +35,7 @@ pub enum PolicyOperation {
     Commit,
     Discover,
     PrepareMigration,
+    Read,
     RequestApproval,
     RollbackRevision,
 }
@@ -52,6 +54,7 @@ pub struct PolicyLinkProjection {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicyObjectProjection {
+    pub classification: BTreeSet<ClassificationToken>,
     pub entity_id: EntityId,
     pub links: Vec<PolicyLinkProjection>,
     pub object_type: Option<TypeId>,
@@ -89,6 +92,26 @@ where
     async fn evaluate(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
         self.as_ref().evaluate(request).await
     }
+}
+
+pub fn directory_projection(
+    context: &TrustedExecutionContext,
+    resource_id: &ResourceId,
+) -> Result<PolicyWorldProjection, String> {
+    let entity_id = EntityId::parse(resource_id.as_str()).map_err(|error| error.to_string())?;
+    Ok(PolicyWorldProjection {
+        membership: PolicyMembershipProjection {
+            principal_id: context.principal_id().clone(),
+            tenant_id: context.tenant_id().clone(),
+        },
+        neighbors: Vec::new(),
+        resource: PolicyObjectProjection {
+            classification: BTreeSet::new(),
+            entity_id,
+            links: Vec::new(),
+            object_type: None,
+        },
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -723,7 +746,28 @@ where
         } else {
             None
         };
-        let effects = build_effects(&proposal, &loaded.action, &relation_values)?
+        let join = match self
+            .join_input_labels(context, &proposal, &loaded.definition, &loaded.revision)
+            .await
+        {
+            Ok(join) => join,
+            Err(error) => {
+                transaction.rollback().await.map_err(ActionError::Store)?;
+                return Err(error);
+            }
+        };
+        let drafts = match stamp_join_label(
+            build_effects(&proposal, &loaded.action, &relation_values)?,
+            &proposal,
+            join.as_ref(),
+        ) {
+            Ok(drafts) => drafts,
+            Err(error) => {
+                transaction.rollback().await.map_err(ActionError::Store)?;
+                return Err(error);
+            }
+        };
+        let effects = drafts
             .into_iter()
             .enumerate()
             .map(|(index, draft)| {
@@ -886,13 +930,21 @@ where
         let entity_id = EntityId::parse(resource_id.as_str())
             .map_err(|error| ActionError::Input(error.to_string()))?;
         let object_type = action_resource_type(action, definition);
-        let mut link_relations = BTreeSet::new();
+        let mut load_relations = BTreeSet::new();
+        let classified_as = classified_as_relation();
+        if definition
+            .relations
+            .iter()
+            .any(|relation| relation.id == classified_as)
+        {
+            load_relations.insert(classified_as.clone());
+        }
         if let Some(object_type) = &object_type {
             for relation in &definition.relations {
                 if relation.source_type == *object_type
                     && matches!(relation.target, RelationTarget::Type(_))
                 {
-                    link_relations.insert(relation.id.clone());
+                    load_relations.insert(relation.id.clone());
                 }
             }
         }
@@ -901,11 +953,18 @@ where
                 context,
                 revision,
                 resource_id,
-                link_relations,
+                load_relations,
                 valid_at,
                 "Action policy projection relations used different authority cuts",
             )
             .await?;
+        let classification = classification_from_values(
+            snapshot
+                .relations
+                .get(&classified_as)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        )?;
         let mut seen = BTreeSet::from([entity_id.clone()]);
         let mut neighbors = Vec::new();
         let mut links = Vec::new();
@@ -924,6 +983,7 @@ where
                     };
                     if seen.insert(target.clone()) {
                         neighbors.push(PolicyObjectProjection {
+                            classification: BTreeSet::new(),
                             entity_id: target.clone(),
                             links: Vec::new(),
                             object_type: Some(target_type.clone()),
@@ -946,11 +1006,59 @@ where
             },
             neighbors,
             resource: PolicyObjectProjection {
+                classification,
                 entity_id,
                 links,
                 object_type,
             },
         })
+    }
+
+    async fn join_input_labels(
+        &self,
+        context: &TrustedExecutionContext,
+        proposal: &ActionProposal,
+        definition: &CanonicalDefinition,
+        revision: &DefinitionRevision,
+    ) -> Result<Option<BTreeSet<ClassificationToken>>, ActionError> {
+        let classified_as = classified_as_relation();
+        if !definition
+            .relations
+            .iter()
+            .any(|relation| relation.id == classified_as)
+        {
+            return Ok(None);
+        }
+        let mut labels = Vec::new();
+        for input in &proposal.inputs {
+            let ExactValue::Entity(entity_id) = &input.value else {
+                continue;
+            };
+            let resource_id = ResourceId::parse(entity_id.as_str())
+                .map_err(|error| ActionError::Evaluation(error.to_string()))?;
+            let snapshot = self
+                .load_relation_snapshot(
+                    context,
+                    revision,
+                    &resource_id,
+                    BTreeSet::from([classified_as.clone()]),
+                    proposal.valid_at,
+                    "join classification relations used different authority cuts",
+                )
+                .await?;
+            labels.push(classification_from_values(
+                snapshot
+                    .relations
+                    .get(&classified_as)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]),
+            )?);
+        }
+        if labels.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(join_labels(labels)))
+        }
     }
 }
 
@@ -1118,6 +1226,85 @@ fn intent_digest(
     hash_field(&mut hasher, state_basis.digest.as_str());
     IntentDigest::parse(hex_digest(hasher.finalize()))
         .map_err(|error| ActionError::Evaluation(error.to_string()))
+}
+
+fn classification_from_values(
+    values: &[SemanticValue],
+) -> Result<BTreeSet<ClassificationToken>, ActionError> {
+    let mut tokens = BTreeSet::new();
+    for value in values {
+        let ExactValue::Text(token) = &value.value else {
+            return Err(ActionError::Evaluation(
+                "classifiedAs values must be text tokens".to_owned(),
+            ));
+        };
+        tokens.insert(
+            ClassificationToken::parse(token.clone())
+                .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+        );
+    }
+    Ok(tokens)
+}
+
+fn stamp_join_label(
+    mut drafts: Vec<EvidenceDraft>,
+    proposal: &ActionProposal,
+    join: Option<&BTreeSet<ClassificationToken>>,
+) -> Result<Vec<EvidenceDraft>, ActionError> {
+    let Some(join) = join else {
+        return Ok(drafts);
+    };
+    let classified_as = classified_as_relation();
+    let mut written = BTreeSet::new();
+    for draft in &drafts {
+        if draft.relation_id != classified_as {
+            continue;
+        }
+        let ExactValue::Text(token) = &draft.value else {
+            return Err(ActionError::Evaluation(
+                "classifiedAs effect must write a text token".to_owned(),
+            ));
+        };
+        written.insert(
+            ClassificationToken::parse(token.clone())
+                .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+        );
+    }
+    if written.is_empty() {
+        let start = drafts.len();
+        for (offset, token) in join.iter().enumerate() {
+            drafts.push(EvidenceDraft {
+                claim_id: ClaimId::parse(format!(
+                    "claim.action.{}.{}",
+                    proposal.operation_id.as_str(),
+                    start + offset
+                ))
+                .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+                definition: proposal.definition.clone(),
+                entity_id: EntityId::parse(proposal.resource_id.as_str())
+                    .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+                provenance: EvidenceProvenance {
+                    ingested_at: None,
+                    observed_at: None,
+                    source_digest: EvidenceDigest::parse(proposal.intent_digest.as_str())
+                        .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+                    source_id: zoen_core::SourceId::parse("zoen.action")
+                        .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+                    source_ref: format!("urn:zoen:proposal:{}", proposal.proposal_id.as_str()),
+                },
+                relation_id: classified_as.clone(),
+                valid_time: ValidTime::instant(proposal.valid_at),
+                value: ExactValue::Text(token.as_str().to_owned()),
+            });
+        }
+        return Ok(drafts);
+    }
+    if !join.iter().all(|token| written.contains(token)) {
+        return Err(ActionError::Evaluation(
+            "output classification does not dominate join of inputs".to_owned(),
+        ));
+    }
+    Ok(drafts)
 }
 
 fn build_effects(

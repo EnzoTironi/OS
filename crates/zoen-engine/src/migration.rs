@@ -10,7 +10,7 @@ use zoen_core::{
 
 use crate::{
     AuthorityStore, DefinitionEngine, PolicyEvaluator, PolicyOperation, PolicyRequest,
-    RecordEvidenceError, StoreError, admission, decode_canonical_definition,
+    RecordEvidenceError, StoreError, admission, decode_canonical_definition, directory_projection,
 };
 
 mod codec;
@@ -318,6 +318,8 @@ where
         {
             return Err(MigrationError::DelegationDenied);
         }
+        let projection =
+            directory_projection(context, &resource_id).map_err(MigrationError::Configuration)?;
         match self
             .policy
             .evaluate(&PolicyRequest {
@@ -328,7 +330,7 @@ where
                 definition: target,
                 inputs: &[],
                 operation,
-                projection: None,
+                projection: Some(&projection),
                 resource_id: &resource_id,
             })
             .await

@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
 use buffa::MessageView;
-use connectrpc::{ConnectError, RequestContext, Response, ServiceRequest, ServiceResult};
-use zoen_adapters::PostgresAuthorityStore;
+use connectrpc::{
+    ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
+};
+use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
     ActionProposal as CoreActionProposal, ActionProposalStructure,
     CausalActionExplanation as CoreCausalActionExplanation,
@@ -20,7 +24,8 @@ use zoen_core::{
     PolicyRevision as CorePolicyRevision, RedactionReason as CoreRedactionReason,
     StateBasisStage as CoreStateBasisStage, ValidTime as CoreValidTime,
 };
-use zoen_engine::{HistoryEngine, HistoryError};
+use zoen_engine::{HistoryEngine, HistoryError, ReadEngine};
+use zoen_query::QueryRuntime;
 
 use crate::action_service::{
     to_approval, to_commit_receipt, to_policy_evidence, to_proposal, to_state_basis,
@@ -46,12 +51,21 @@ use crate::world_service::{invalid, to_definition_reference, to_exact_value, to_
 
 pub struct HistoryServiceImpl {
     engine: HistoryEngine<PostgresAuthorityStore>,
+    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
     sessions: SessionExchange,
 }
 
 impl HistoryServiceImpl {
-    pub fn new(engine: HistoryEngine<PostgresAuthorityStore>, sessions: SessionExchange) -> Self {
-        Self { engine, sessions }
+    pub fn new(
+        engine: HistoryEngine<PostgresAuthorityStore>,
+        read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
+        sessions: SessionExchange,
+    ) -> Self {
+        Self {
+            engine,
+            read,
+            sessions,
+        }
     }
 }
 
@@ -76,7 +90,7 @@ impl HistoryService for HistoryServiceImpl {
         let target = parse_target(target)?;
         let explanation = self
             .engine
-            .explain(&trusted, target)
+            .explain(&trusted, target, &self.read)
             .await
             .map_err(map_history_error)?;
         Response::ok(ExplainResponse {
@@ -546,6 +560,9 @@ fn to_target(target: CoreTarget) -> ExplanationTarget {
 
 fn map_history_error(error: HistoryError) -> ConnectError {
     match error {
+        HistoryError::Evaluation(message) => {
+            ConnectError::new(ErrorCode::FailedPrecondition, message)
+        }
         HistoryError::Store(error) => crate::service::map_store_error(error),
     }
 }

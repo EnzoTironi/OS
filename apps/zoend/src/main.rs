@@ -18,7 +18,9 @@ use zoen_adapters::{
     PostgresPackStore, PostgresWorkloadCredentialStore, SessionDoor,
 };
 use zoen_core::{MachineToken, WorkloadId};
-use zoen_engine::{ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, WorldEngine};
+use zoen_engine::{
+    ActionEngine, DefinitionEngine, EffectEngine, HistoryEngine, ReadEngine, WorldEngine,
+};
 use zoen_query::QueryRuntime;
 use zoend::config::{self, ProcessAuth, object_store_config};
 use zoend::integrity::{self, StateClassification};
@@ -93,6 +95,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         )
         .await?;
     let query = QueryRuntime::new(store.pool(), object_store_config()?);
+    let read = ReadEngine::new(query.clone(), policy.clone());
     let action_service = ActionServiceImpl::new(
         ActionEngine::new(store.clone(), query.clone(), policy.clone()),
         sessions.clone(),
@@ -135,10 +138,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .with_allowed_executor_workloads(human_executor_workloads),
         sessions.clone(),
     );
-    let history_service =
-        HistoryServiceImpl::new(HistoryEngine::new(store.clone()), sessions.clone());
+    let history_service = HistoryServiceImpl::new(
+        HistoryEngine::new(store.clone()),
+        read.clone(),
+        sessions.clone(),
+    );
     let world_service =
-        WorldServiceImpl::new(WorldEngine::new(store.clone()), query, sessions.clone());
+        WorldServiceImpl::new(WorldEngine::new(store.clone()), read, sessions.clone());
     let identity_routes = identity_admin::router(IdentityAdminState {
         admin_token: env::var("ZOEN_IDENTITY_ADMIN_TOKEN")
             .ok()

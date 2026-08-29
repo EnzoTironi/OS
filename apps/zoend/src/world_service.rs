@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use buffa::MessageView;
@@ -5,7 +6,7 @@ use buffa_types::google::protobuf::Timestamp;
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
-use zoen_adapters::PostgresAuthorityStore;
+use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
     ClaimId, CommitSequence, ComputationId, Consistency, DefinitionDigest, DefinitionId,
     DefinitionReference as CoreDefinitionReference, DefinitionRevisionNumber, EntityId,
@@ -14,8 +15,8 @@ use zoen_core::{
     RelationId, SemanticQuery, SemanticResult, SemanticSelection, SourceId, TenantId,
     TimestampMicros, TypeId, UnitId, ValidTime,
 };
-use zoen_engine::{RecordEvidenceError, WorldEngine};
-use zoen_query::{QueryError, QueryRuntime};
+use zoen_engine::{QueryPortError, ReadEngine, ReadError, RecordEvidenceError, WorldEngine};
+use zoen_query::QueryRuntime;
 
 use crate::proto::zoen::world::v1::__buffa::view::oneof::semantic_query_request as semantic_query_view;
 use crate::proto::zoen::world::v1::{
@@ -28,19 +29,19 @@ use crate::session::SessionExchange;
 
 pub struct WorldServiceImpl {
     engine: WorldEngine<PostgresAuthorityStore>,
-    query: QueryRuntime,
+    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
     sessions: SessionExchange,
 }
 
 impl WorldServiceImpl {
     pub fn new(
         engine: WorldEngine<PostgresAuthorityStore>,
-        query: QueryRuntime,
+        read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
         sessions: SessionExchange,
     ) -> Self {
         Self {
             engine,
-            query,
+            read,
             sessions,
         }
     }
@@ -198,10 +199,10 @@ impl WorldService for WorldServiceImpl {
             }
         };
         let result = self
-            .query
+            .read
             .execute(&execution_context, &query)
             .await
-            .map_err(map_query_error)?;
+            .map_err(map_read_error)?;
         Response::ok(to_query_response(result))
     }
 }
@@ -493,14 +494,23 @@ fn map_record_error(error: RecordEvidenceError) -> ConnectError {
     }
 }
 
-fn map_query_error(error: QueryError) -> ConnectError {
-    let code = match &error {
-        QueryError::Corrupt(_) => ErrorCode::DataLoss,
-        QueryError::Evaluation(_) | QueryError::Freshness { .. } => ErrorCode::FailedPrecondition,
-        QueryError::Invalid(_) => ErrorCode::InvalidArgument,
-        QueryError::Unavailable(_) => ErrorCode::Unavailable,
-    };
-    ConnectError::new(code, error.to_string())
+fn map_read_error(error: ReadError) -> ConnectError {
+    match error {
+        ReadError::Evaluation(message) => ConnectError::new(ErrorCode::FailedPrecondition, message),
+        ReadError::Invalid(message) => ConnectError::new(ErrorCode::InvalidArgument, message),
+        ReadError::Query(QueryPortError::Corrupt(message)) => {
+            ConnectError::new(ErrorCode::DataLoss, message)
+        }
+        ReadError::Query(QueryPortError::Evaluation(message)) => {
+            ConnectError::new(ErrorCode::FailedPrecondition, message)
+        }
+        ReadError::Query(QueryPortError::Invalid(message)) => {
+            ConnectError::new(ErrorCode::InvalidArgument, message)
+        }
+        ReadError::Query(QueryPortError::Unavailable(message)) => {
+            ConnectError::new(ErrorCode::Unavailable, message)
+        }
+    }
 }
 
 pub(crate) fn invalid(message: impl Into<String>) -> ConnectError {

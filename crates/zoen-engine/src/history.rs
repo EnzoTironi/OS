@@ -12,12 +12,15 @@ use zoen_core::{
     DefinitionRevision, EffectDispatchEvidence, EffectKnowledgeState, EffectSnapshot,
     EvidenceClaim, EvidenceClass, ExactValue, ExplanationGap, ExplanationPayload,
     ExplanationSubject, ExplanationTarget, GapReason, LineageRole, MigrationOrigin, PayloadDigest,
-    PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage, ProposalAuthority,
-    RedactionReason, StateBasisStage, StateDependency, TrustedExecutionContext,
-    expression_relations,
+    PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage, PolicyEvaluation,
+    ProposalAuthority, RedactionReason, StateBasisStage, StateDependency, TimestampMicros,
+    TrustedExecutionContext, ValidTime, expression_relations,
 };
 
-use crate::{AuthorityStore, StoreError, decode_canonical_definition, state_basis_digest_matches};
+use crate::{
+    AuthorityStore, PolicyEvaluator, QueryExecutor, ReadEngine, ReadError, StoreError,
+    decode_canonical_definition, state_basis_digest_matches,
+};
 
 const DECISION_REQUIRED_CLASSES: &[EvidenceClass] = &[
     EvidenceClass::Action,
@@ -135,12 +138,14 @@ pub enum HistorySnapshot {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HistoryError {
+    Evaluation(String),
     Store(StoreError),
 }
 
 impl Display for HistoryError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Evaluation(message) => write!(formatter, "history evaluation failed: {message}"),
             Self::Store(error) => error.fmt(formatter),
         }
     }
@@ -150,6 +155,7 @@ impl Error for HistoryError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Store(error) => Some(error),
+            Self::Evaluation(_) => None,
         }
     }
 }
@@ -166,18 +172,26 @@ where
         Self { store }
     }
 
-    pub async fn explain(
+    pub async fn explain<Q, P>(
         &self,
         context: &TrustedExecutionContext,
         target: ExplanationTarget,
-    ) -> Result<CausalExplanation, HistoryError> {
+        read: &ReadEngine<Q, P>,
+    ) -> Result<CausalExplanation, HistoryError>
+    where
+        Q: QueryExecutor,
+        P: PolicyEvaluator,
+    {
         let snapshot = self
             .store
             .load_history(context, &target)
             .await
             .map_err(HistoryError::Store)?;
         ensure_snapshot_tenant(context, &snapshot).map_err(HistoryError::Store)?;
-        let access = payload_access(context, &snapshot);
+        let access = match &snapshot {
+            HistorySnapshot::Claim(claim) => claim_payload_access(context, claim, read).await?,
+            HistorySnapshot::Action(_) => payload_access(context, &snapshot),
+        };
         let mut gaps = Vec::new();
         let subject = match snapshot {
             HistorySnapshot::Action(snapshot) => ExplanationSubject::Action(Box::new(
@@ -797,8 +811,42 @@ fn payload_access(request: &TrustedExecutionContext, snapshot: &HistorySnapshot)
         {
             PayloadAccess::Full
         }
-        HistorySnapshot::Claim(_) => PayloadAccess::Full,
-        HistorySnapshot::Action(_) => PayloadAccess::Redacted,
+        HistorySnapshot::Claim(_) | HistorySnapshot::Action(_) => PayloadAccess::Redacted,
+    }
+}
+
+async fn claim_payload_access<Q, P>(
+    context: &TrustedExecutionContext,
+    snapshot: &ClaimHistorySnapshot,
+    read: &ReadEngine<Q, P>,
+) -> Result<PayloadAccess, HistoryError>
+where
+    Q: QueryExecutor,
+    P: PolicyEvaluator,
+{
+    match read
+        .authorize_entity(
+            context,
+            &snapshot.claim.draft.definition,
+            &snapshot.claim.draft.entity_id,
+            claim_valid_at(&snapshot.claim.draft.valid_time),
+        )
+        .await
+    {
+        Ok(PolicyEvaluation::Permit(_)) => Ok(PayloadAccess::Full),
+        Ok(PolicyEvaluation::Deny(_)) => Ok(PayloadAccess::Redacted),
+        Ok(PolicyEvaluation::EvaluationError { message, .. }) => {
+            Err(HistoryError::Evaluation(message))
+        }
+        Err(ReadError::Evaluation(message)) => Err(HistoryError::Evaluation(message)),
+        Err(error) => Err(HistoryError::Evaluation(error.to_string())),
+    }
+}
+
+fn claim_valid_at(valid_time: &ValidTime) -> TimestampMicros {
+    match valid_time {
+        ValidTime::Instant(at) => *at,
+        ValidTime::Interval { start, .. } => *start,
     }
 }
 

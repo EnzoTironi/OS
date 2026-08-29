@@ -237,7 +237,7 @@ impl PostgresIdentityStore {
         let workload_id = WorkloadId::parse("workload.personal")
             .map_err(|_| IdentityError::Conflict("invalid workload".to_owned()))?;
         let delegation = personal_delegation(&workload_id)?;
-        let clearance = Clearance::world_floor();
+        let clearance = Clearance::personal_owner();
         sqlx::query("INSERT INTO personal_tenants (account_id, tenant_id) VALUES ($1, $2)")
             .bind(account.as_str())
             .bind(tenant_id.as_str())

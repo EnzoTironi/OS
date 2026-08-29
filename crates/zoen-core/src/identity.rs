@@ -37,6 +37,7 @@ identity_id!(InviteId);
 identity_id!(DelegationTemplateId);
 
 pub const WORLD_FLOOR: &str = "zoen.world.floor";
+pub const WORLD_TOP: &str = "zoen.world.top";
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SessionId(String);
@@ -73,6 +74,10 @@ impl ClassificationToken {
 
     pub fn world_floor() -> Self {
         Self(WORLD_FLOOR.to_owned())
+    }
+
+    pub fn top() -> Self {
+        Self(WORLD_TOP.to_owned())
     }
 
     pub fn as_str(&self) -> &str {
@@ -112,6 +117,15 @@ impl Clearance {
         }
     }
 
+    pub fn personal_owner() -> Self {
+        Self {
+            tokens: BTreeSet::from([
+                ClassificationToken::world_floor(),
+                ClassificationToken::top(),
+            ]),
+        }
+    }
+
     pub fn tokens(&self) -> &BTreeSet<ClassificationToken> {
         &self.tokens
     }
@@ -121,6 +135,37 @@ impl Clearance {
             .iter()
             .map(|token| token.as_str().to_owned())
             .collect()
+    }
+
+    pub fn dominates(&self, label: &BTreeSet<ClassificationToken>) -> bool {
+        label.iter().all(|token| self.tokens.contains(token))
+    }
+}
+
+pub fn resource_label(
+    tokens: impl IntoIterator<Item = ClassificationToken>,
+) -> BTreeSet<ClassificationToken> {
+    let tokens: BTreeSet<_> = tokens.into_iter().collect();
+    if tokens.is_empty() {
+        BTreeSet::from([ClassificationToken::top()])
+    } else {
+        tokens
+    }
+}
+
+pub fn join_labels(
+    labels: impl IntoIterator<Item = BTreeSet<ClassificationToken>>,
+) -> BTreeSet<ClassificationToken> {
+    let mut joined = BTreeSet::new();
+    let mut saw_input = false;
+    for label in labels {
+        saw_input = true;
+        joined.extend(resource_label(label));
+    }
+    if saw_input {
+        joined
+    } else {
+        BTreeSet::from([ClassificationToken::top()])
     }
 }
 

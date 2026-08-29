@@ -54,10 +54,10 @@ pub use identity::{
     MembershipId, MembershipKind, MembershipStatus, OpaqueSessionToken, ProjectedCapabilityKind,
     RateBudgetPolicy, RevocationReason, ServerAllowId, SessionCredential, SessionId, SourceClass,
     UnbindReason, VerifiedOidcSubject, VerifiedSessionEvidence, VerifiedWorkloadEvidence,
-    WORLD_FLOOR, WorkloadCredential, WorkloadCredentialId, WorkloadCredentialLookupKey,
+    WORLD_FLOOR, WORLD_TOP, WorkloadCredential, WorkloadCredentialId, WorkloadCredentialLookupKey,
     WorkloadCredentialStatus, WorkloadEvidenceKind, WorkloadExchangeToken,
-    WorkloadRevocationReason, WorkloadSecretId, ZoenAccount, ZoenAccountId,
-    trusted_context_from_membership, trusted_context_from_workload_credential,
+    WorkloadRevocationReason, WorkloadSecretId, ZoenAccount, ZoenAccountId, join_labels,
+    resource_label, trusted_context_from_membership, trusted_context_from_workload_credential,
 };
 pub use jcs::{JcsError, canonicalize_json, canonicalize_json_bytes, is_canonical_digest_hex};
 pub use migration::{
@@ -147,6 +147,17 @@ semantic_id!(TenantId);
 semantic_id!(TypeId);
 semantic_id!(UnitId);
 semantic_id!(WorkloadId);
+
+pub const WORLD_READ_ACTION: &str = "zoen.world.read";
+pub const CLASSIFIED_AS_RELATION: &str = "zoen.classifiedAs";
+
+pub fn world_read_action() -> ActionId {
+    ActionId::parse(WORLD_READ_ACTION).expect("dest kernel Action id")
+}
+
+pub fn classified_as_relation() -> RelationId {
+    RelationId::parse(CLASSIFIED_AS_RELATION).expect("dest classification Relation id")
+}
 
 impl ResourceId {
     /// A grant on `self` covers `self` and dotted children (`self.leaf`).
