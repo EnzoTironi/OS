@@ -11,10 +11,10 @@
     {
       "actionId": "zoen.definition.activate",
       "definitionDigest": "ac2a21af8aacad316bb94ddadea759e84bdfb5f3679673e24ebaa8a5dda7178d",
-      "digest": "5acdc2a55ceb692bf2108e03427051fbdebf895900248356f4394d6432976727",
+      "digest": "3ee68ef22d4d9fa1c1853abf90eaefb0139d1e378cc65d56a098ff3d32c9dfe0",
       "policyId": "policy.activation.r1",
-      "revision": 2,
-      "source": "permit (\n    principal,\n    action == Action::\"activate_revision\",\n    resource\n)\nwhen {\n    principal == Zoen::Principal::\"principal.admin.a\"\n};\n"
+      "revision": 3,
+      "source": "permit (\n    principal,\n    action == Action::\"activate_revision\",\n    resource\n)\nwhen {\n    principal == Zoen::Principal::\"principal.admin.a\" ||\n    principal == Zoen::Principal::\"principal.live.whatsapp\"\n};\n"
     },
     {
       "actionId": "personal.writeMemory",
