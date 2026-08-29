@@ -15,6 +15,8 @@ use zoen_core::{
     TimestampMicros, VerifiedOidcSubject, WorkloadCredentialId, WorkloadId,
 };
 
+use crate::config::OidcSource;
+
 #[derive(Debug)]
 pub enum SessionConfigError {
     Http(reqwest::Error),
@@ -56,7 +58,7 @@ pub struct SessionRegistry {
 
 struct OidcVerifier {
     audience: String,
-    issuer: String,
+    issuers: Vec<String>,
     keys: HashMap<String, DecodingKey>,
 }
 
@@ -135,56 +137,39 @@ impl SessionRegistry {
     }
 
     pub async fn from_oidc(
-        issuer: impl Into<String>,
+        sources: impl IntoIterator<Item = OidcSource>,
         audience: impl Into<String>,
         identity: PostgresIdentityStore,
     ) -> Result<Self, SessionConfigError> {
-        let issuer = issuer.into().trim_end_matches('/').to_owned();
         let audience = audience.into();
-        if issuer.is_empty() || audience.is_empty() {
+        if audience.is_empty() {
             return Err(SessionConfigError::InvalidOidc(
-                "issuer and audience must be nonempty".to_owned(),
+                "audience must be nonempty".to_owned(),
             ));
         }
         let client = reqwest::Client::new();
-        let discovery = client
-            .get(format!("{issuer}/.well-known/openid-configuration"))
-            .send()
-            .await
-            .map_err(SessionConfigError::Http)?
-            .error_for_status()
-            .map_err(SessionConfigError::Http)?
-            .json::<OidcDiscovery>()
-            .await
-            .map_err(SessionConfigError::Http)?;
-        if discovery.issuer != issuer {
-            return Err(SessionConfigError::InvalidOidc(format!(
-                "discovery issuer {:?} does not match configured issuer {:?}",
-                discovery.issuer, issuer
-            )));
-        }
-        let jwks = client
-            .get(&discovery.jwks_uri)
-            .send()
-            .await
-            .map_err(SessionConfigError::Http)?
-            .error_for_status()
-            .map_err(SessionConfigError::Http)?
-            .json::<JwkSet>()
-            .await
-            .map_err(SessionConfigError::Http)?;
+        let mut issuers = Vec::new();
         let mut keys = HashMap::new();
-        for jwk in jwks.keys {
-            let Some(key_id) = jwk.common.key_id.clone() else {
-                continue;
-            };
-            let key = DecodingKey::from_jwk(&jwk)
-                .map_err(|error| SessionConfigError::InvalidOidc(error.to_string()))?;
-            if keys.insert(key_id.clone(), key).is_some() {
+        for source in sources {
+            let (issuer, source_keys) = load_oidc_keys(&client, source).await?;
+            if issuers.iter().any(|existing| existing == &issuer) {
                 return Err(SessionConfigError::InvalidOidc(format!(
-                    "duplicate JWK key id {key_id:?}"
+                    "duplicate OIDC issuer {issuer:?}"
                 )));
             }
+            for (key_id, key) in source_keys {
+                if keys.insert(key_id.clone(), key).is_some() {
+                    return Err(SessionConfigError::InvalidOidc(format!(
+                        "duplicate JWK key id {key_id:?}"
+                    )));
+                }
+            }
+            issuers.push(issuer);
+        }
+        if issuers.is_empty() {
+            return Err(SessionConfigError::InvalidOidc(
+                "at least one OIDC source is required".to_owned(),
+            ));
         }
         if keys.is_empty() {
             return Err(SessionConfigError::InvalidOidc(
@@ -195,7 +180,7 @@ impl SessionRegistry {
             identity,
             verifier: Arc::new(OidcVerifier {
                 audience,
-                issuer,
+                issuers,
                 keys,
             }),
             workload_exchanges: Arc::new(Mutex::new(HashMap::new())),
@@ -317,7 +302,7 @@ impl OidcVerifier {
         validation.leeway = 0;
         validation.validate_nbf = true;
         validation.set_audience(&[&self.audience]);
-        validation.set_issuer(&[&self.issuer]);
+        validation.set_issuer(&self.issuers);
         validation.set_required_spec_claims(&["aud", "exp", "iss", "sub"]);
         let token_data = decode::<OidcClaims>(token, key, &validation)
             .map_err(|_| AuthenticationError::InvalidClaim)?;
@@ -355,7 +340,7 @@ impl OidcVerifier {
             None => None,
         };
         Ok(VerifiedOidcSubject {
-            issuer: self.issuer.clone(),
+            issuer: claims.iss,
             audience: self.audience.clone(),
             subject: claims.sub,
             actor_id,
@@ -401,6 +386,79 @@ fn seconds_to_micros(value: i64) -> Result<TimestampMicros, AuthenticationError>
         .ok_or(AuthenticationError::InvalidClaim)
 }
 
+async fn load_oidc_keys(
+    client: &reqwest::Client,
+    source: OidcSource,
+) -> Result<(String, HashMap<String, DecodingKey>), SessionConfigError> {
+    let issuer = source.issuer.trim_end_matches('/').to_owned();
+    let discovery_url = source.discovery_url.trim_end_matches('/').to_owned();
+    if issuer.is_empty() || discovery_url.is_empty() {
+        return Err(SessionConfigError::InvalidOidc(
+            "issuer and discovery URL must be nonempty".to_owned(),
+        ));
+    }
+    let discovery = client
+        .get(format!("{discovery_url}/.well-known/openid-configuration"))
+        .send()
+        .await
+        .map_err(SessionConfigError::Http)?
+        .error_for_status()
+        .map_err(SessionConfigError::Http)?
+        .json::<OidcDiscovery>()
+        .await
+        .map_err(SessionConfigError::Http)?;
+    if discovery.issuer != issuer {
+        return Err(SessionConfigError::InvalidOidc(format!(
+            "discovery issuer {:?} does not match configured issuer {:?}",
+            discovery.issuer, issuer
+        )));
+    }
+    let jwks_url = jwks_fetch_url(&discovery.jwks_uri, &discovery_url)?;
+    let jwks = client
+        .get(&jwks_url)
+        .send()
+        .await
+        .map_err(SessionConfigError::Http)?
+        .error_for_status()
+        .map_err(SessionConfigError::Http)?
+        .json::<JwkSet>()
+        .await
+        .map_err(SessionConfigError::Http)?;
+    let mut keys = HashMap::new();
+    for jwk in jwks.keys {
+        let Some(key_id) = jwk.common.key_id.clone() else {
+            continue;
+        };
+        let key = DecodingKey::from_jwk(&jwk)
+            .map_err(|error| SessionConfigError::InvalidOidc(error.to_string()))?;
+        if keys.insert(key_id.clone(), key).is_some() {
+            return Err(SessionConfigError::InvalidOidc(format!(
+                "duplicate JWK key id {key_id:?}"
+            )));
+        }
+    }
+    Ok((issuer, keys))
+}
+
+fn jwks_fetch_url(jwks_uri: &str, discovery_url: &str) -> Result<String, SessionConfigError> {
+    let mut fetch = reqwest::Url::parse(jwks_uri).map_err(|error| {
+        SessionConfigError::InvalidOidc(format!("jwks_uri is not a URL: {error}"))
+    })?;
+    let discovery = reqwest::Url::parse(discovery_url).map_err(|error| {
+        SessionConfigError::InvalidOidc(format!("discovery URL is not a URL: {error}"))
+    })?;
+    fetch
+        .set_scheme(discovery.scheme())
+        .map_err(|()| SessionConfigError::InvalidOidc("jwks rewrite scheme failed".to_owned()))?;
+    fetch
+        .set_host(discovery.host_str())
+        .map_err(|error| SessionConfigError::InvalidOidc(format!("jwks rewrite host: {error}")))?;
+    fetch
+        .set_port(discovery.port())
+        .map_err(|()| SessionConfigError::InvalidOidc("jwks rewrite port failed".to_owned()))?;
+    Ok(fetch.to_string())
+}
+
 #[derive(Deserialize)]
 struct OidcDiscovery {
     issuer: String,
@@ -413,6 +471,7 @@ struct OidcClaims {
     #[serde(rename = "zoen_delegation")]
     delegation: Option<String>,
     exp: i64,
+    iss: String,
     principal_id: Option<String>,
     sub: String,
     tenant_id: Option<String>,
@@ -450,7 +509,7 @@ mod tests {
             identity: PostgresIdentityStore::new(pool),
             verifier: Arc::new(OidcVerifier {
                 audience: "zoend".to_owned(),
-                issuer: "https://issuer.test/realms/zoen".to_owned(),
+                issuers: vec!["https://issuer.test/realms/zoen".to_owned()],
                 keys: HashMap::new(),
             }),
             workload_exchanges: Arc::new(Mutex::new(HashMap::new())),

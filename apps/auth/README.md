@@ -67,9 +67,11 @@ Mint path:
 
 1. `POST /api/auth/sign-up/email` with JSON `email`, `password`, and `name`. Send `Origin` matching `BETTER_AUTH_URL`. Keep the `Set-Cookie` jar.
 2. `GET /api/auth/token` with that cookie. The body is `{ "token": "..." }`.
-3. Call zoend with `Authorization: Bearer <token>`. Point `ZOEN_OIDC_ISSUER` at the door base URL and `ZOEN_OIDC_AUDIENCE` at `zoend`.
+3. Call zoend with `Authorization: Bearer <token>`. Set `ZOEN_OIDC_AUDIENCE` to `zoend`. Set `ZOEN_OIDC_ISSUER` to the token `iss`, which is `BETTER_AUTH_URL` with no trailing slash. If that issuer is not loopback, set `ZOEN_OIDC_DISCOVERY_URL` to the loopback door. On Fly that value is `http://127.0.0.1:58704`.
 
 To prove the full path locally, run `scripts/prove-zoend-ba.sh` from `apps/auth`. The script starts the door, mints a token, boots a throwaway zoend against that issuer, and writes `/workspace/ship/zoend-ba-proof.md` with commands and status codes. The proof file does not record the JWT, session cookie, or `BETTER_AUTH_SECRET`.
+
+To prove boot against a public token `iss` while fetching discovery on loopback, run `scripts/prove-issuer-cutover.sh`. That writes `/workspace/ship/issuer-cutover-proof.md`.
 
 ## Google redirect URIs
 
