@@ -42,7 +42,7 @@ eve build
 eve start --host 0.0.0.0
 ```
 
-`eve start` does not set `EVE_DEV`. `localDev()` skips. Session routes return 401 until you replace `placeholderAuth()` with a real `AuthFn`. Health stays public:
+`eve start` does not set `EVE_DEV`. `localDev()` skips. Session routes ask the Better Auth door at `ZOEN_AUTH_BASE_URL` (`GET /api/auth/get-session`) with the inbound Cookie or Authorization header. No session is 401. Health stays public:
 
 ```bash
 curl http://127.0.0.1:3000/eve/v1/health
