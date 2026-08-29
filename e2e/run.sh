@@ -24,8 +24,6 @@ scenario_table=(
   "messaging-conformance-live:messaging-conformance-live::credential"
   "whatsapp-dirty-quote:whatsapp-dirty-quote::credential"
   "company-bootstrap-shadow:company-bootstrap-shadow::archive"
-  "conversational-approval:conversational-approval::live"
-  "conversational-turn:conversational-turn::live"
   "pack-kitchen:pack-kitchen::archive"
   "personal-family:personal-family::archive"
   "activation-sample:::archive"

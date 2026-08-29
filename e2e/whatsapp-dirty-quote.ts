@@ -16,10 +16,9 @@ import {
   type AttentionEvaluateDecision,
 } from "../archive/packages/attention/src/index.js";
 import {
-  decideAudienceDisclosure,
   interactionControlRef,
   presentationIntentRef,
-} from "../packages/speaker/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   companionSessionIsReady,
   createHttpCompanionSession,
@@ -278,12 +277,7 @@ async function proveLiveWhatsApp(commercial: CompiledDefinition): Promise<LivePr
     surfaceDigest: sha256(resourceId),
     surfaceId: resourceId,
   };
-  const disclosure = decideAudienceDisclosure({
-    actionRisk: "low",
-    audience: { kind: "dm" },
-    channelAssurance: "provider_chat",
-    resourceClass: "internal",
-  });
+  const disclosure = { kind: "deliver_full" as const };
   const disclosedBody = `${resourceId}\n${presentation.fullBodyText}`;
   const store = createMemoryAttentionStore();
   const provider = createLiveWhatsAppProvider({ session });

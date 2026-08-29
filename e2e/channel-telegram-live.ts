@@ -6,7 +6,7 @@ import path from "node:path";
 import {
   providerKey,
   toChannelProvider,
-} from "../packages/speaker/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   assertLiveTelegramAdvertisement,
   createLiveTelegramProvider,

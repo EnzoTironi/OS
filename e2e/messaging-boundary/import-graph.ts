@@ -5,7 +5,6 @@ import path from "node:path";
 const FORBIDDEN_ROOTS = [
   "crates",
   "apps/zoend",
-  "packages/speaker",
 ] as const;
 
 const FORBIDDEN_PATTERNS = [
@@ -36,25 +35,6 @@ export async function assertImportGraphLaw(
       "utf8",
     ),
   ) as { dependencies?: Record<string, string>; name?: string };
-  const speakerPackage = JSON.parse(
-    await readFile(
-      path.join(repositoryRoot, "packages/speaker/package.json"),
-      "utf8",
-    ),
-  ) as { dependencies?: Record<string, string> };
-
-  const speakerDeps = Object.keys(speakerPackage.dependencies ?? {});
-  assert.equal(
-    speakerDeps.some(
-      (name) =>
-        name === "vercel/chat" ||
-        name.startsWith("@chat-adapter/") ||
-        name.startsWith("@chat-sdk"),
-    ),
-    false,
-    "packages/speaker must not depend on Chat SDK packages",
-  );
-
   for (const root of FORBIDDEN_ROOTS) {
     const absolute = path.join(repositoryRoot, root);
     const hits = await scanDirectory(absolute, repositoryRoot);

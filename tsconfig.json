@@ -14,9 +14,6 @@
       "@zoen/ontology": [
         "./packages/ontology/src/index.ts"
       ],
-      "@zoen/speaker": [
-        "./packages/speaker/src/index.ts"
-      ],
       "@zoen/transport": [
         "./packages/transport/src/index.ts"
       ],

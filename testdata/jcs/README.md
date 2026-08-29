@@ -1,7 +1,7 @@
 # JCS RFC 8785 fixtures
 
 Shared bit-perfect vectors for Zoen canonical JSON. Rust (`zoen-core`,
-`zoen-engine` admission) and TypeScript (`@zoen/ontology`, `@zoen/speaker`)
+`zoen-engine` admission) and TypeScript (`@zoen/ontology`)
 must emit identical UTF-8 bytes and the same lowercase SHA-256 hex digest.
 
 ## Layout

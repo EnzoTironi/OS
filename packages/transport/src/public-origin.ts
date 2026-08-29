@@ -12,14 +12,3 @@ export function resolvePublicOrigin(
   }
   return "https://app.zoen.local";
 }
-
-export function withOnboardHref(spoken: string, href: string): string {
-  const text = spoken.trim();
-  if (text.includes(href)) {
-    return text;
-  }
-  if (text.length === 0) {
-    return href;
-  }
-  return `${text}\n${href}`;
-}

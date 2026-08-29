@@ -19,7 +19,7 @@ Zoen is not a prebuilt SAP. Each company brings its own published definition. Pr
 
 - `crates/*`, `apps/zoend`, `apps/whatsapp-companion`, `proto`, `wit`
 - `packages/ontology` (compiler + lake fixture)
-- `packages/speaker`, `packages/transport`
+- `packages/transport`
 - `packages/mcp` (deferred; CLI/API first)
 - `apps/conversation` (Eve)
 
@@ -56,7 +56,7 @@ Kitchen is archived. It does not derive live Pack capabilities from arbitrary co
 ## Invariants
 
 - No Rust kernel branch identifies an ERP package.
-- Shipping speaker does not default to an ERP module.
+- Shipping transport does not default to an ERP module.
 - `product: true` roadmap rows name a live producer, or they flip.
 - A listed ADR revisit still requires a new ADR.
 

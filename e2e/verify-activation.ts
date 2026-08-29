@@ -51,13 +51,6 @@ const REQUIRED_SCENARIOS: readonly ScenarioSpec[] = [
     ticket: "#271",
   },
   {
-    id: "conversational-approval",
-    kind: "activation",
-    primary: "conversational-approval.json",
-    slot: 3,
-    ticket: "#254",
-  },
-  {
     id: "public-surface",
     kind: "public",
     primary: "public-surface.json",

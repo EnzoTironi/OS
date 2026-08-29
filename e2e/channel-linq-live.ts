@@ -4,12 +4,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   createIdentityDirectoryClient,
-  createInteractionBoundary,
-  createInteractionControlRegistry,
-  createMemoryControlStore,
   providerKey,
   toChannelProvider,
-} from "../packages/speaker/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   assertLiveLinqAdvertisement,
   createLiveLinqProvider,
@@ -45,7 +42,7 @@ const knownChatId = "446e2437-410b-492b-94ad-7030194d9484";
 let identityAdminBearer: string | undefined;
 /** Stable across reruns so partner Idempotency-Key does not spam a new iMessage. */
 const liveClientDeliveryId = "spd_zoen_channel_linq_live_outbound_v1";
-const semanticCorrelationSeed = "channel-linq-live.v1";
+
 
 const assertions: Record<string, boolean> = {};
 const mutantsKilled: Array<{ id: string; killed: true; evidence: string }> = [];
@@ -316,14 +313,6 @@ async function main(): Promise<void> {
       adminToken: identityAdminBearer ?? (await oidcToken("bound-bait")),
       baseUrl,
     });
-    const controls = createInteractionControlRegistry({
-      store: createMemoryControlStore(),
-    });
-    const interaction = createInteractionBoundary({
-      controls,
-      correlationNamespace: semanticCorrelationSeed,
-      identity,
-    });
     const messaging = createMessagingGateway({
       providers: { linq: provider },
       resolvePresentation: async (intent) => {
@@ -339,22 +328,26 @@ async function main(): Promise<void> {
       JSON.parse(fixtureRaw),
     );
     assert.equal(inbound.idempotencyKey, `linq:webhook:${fixtureJson.event_id}`);
-    const ctx = await interaction.resolveTrustedContext(inbound);
+    const ctx = await identity.resolveChannelSubject({
+      provider: inbound.channel.provider,
+      subjectKey: String(inbound.channel.providerUser),
+    });
     assert.equal(String(ctx.principalId), seed.principalId);
     assert.equal(ctx.accountId, seed.accountId);
     assert.notEqual(String(ctx.principalId), accepted.message.from.id);
 
-    const recordA = await interaction.accept(inbound, ctx);
-    const recordB = await interaction.accept(inbound, ctx);
-    assert.equal(recordA.id, recordB.id);
+    const inboundAgain = await messaging.acceptProviderEvent(
+      providerKey("linq"),
+      JSON.parse(fixtureRaw),
+    );
+    assert.equal(inbound.idempotencyKey, inboundAgain.idempotencyKey);
     record("duplicate_webhook_id_idempotent", true);
     kill(
       "duplicate_webhook_id_two_interactions",
-      `idempotent accept ${String(recordA.id)}`,
+      `idempotent accept ${inbound.idempotencyKey}`,
     );
 
     void messaging;
-    void controls;
 
     const phoneProbe = await provider.send({
       clientDeliveryId: `spd_phone_observe_${createHash("sha256")

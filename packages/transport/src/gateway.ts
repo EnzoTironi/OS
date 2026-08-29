@@ -6,14 +6,16 @@ import {
   providerMessageRef,
   providerThreadRef,
   providerUserRef,
-  type AudienceDisclosure,
-  type ChannelPresentationCapability,
-  type DeliveryIntent,
-  type DeliveryObservation,
-  type DeliveryOutcome,
-  type InboundInteraction,
   type ProviderKey,
-} from "../../speaker/src/index.js";
+} from "./brands.js";
+import type {
+  AudienceDisclosure,
+  ChannelPresentationCapability,
+  DeliveryIntent,
+  DeliveryObservation,
+  DeliveryOutcome,
+  InboundInteraction,
+} from "./channel.js";
 import type { PresentationIntent } from "./presentation-intent.js";
 import {
   projectPresentationCaps,

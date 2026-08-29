@@ -3,14 +3,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   createIdentityDirectoryClient,
-  createInteractionControlRegistry,
-  createMemoryControlStore,
-  principalIdString,
   providerKey,
   providerThreadRef,
-  tenantIdString,
   toChannelProvider,
-} from "../packages/speaker/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   applicationDatabaseUrl,
   oidcToken,
@@ -132,7 +128,7 @@ async function main(): Promise<void> {
   await assertImportGraphLaw(repositoryRoot);
   record("import_graph_forbids_chat_sdk_outside_messaging", true);
   killMutant("business / surface code imports Chat SDK Card/action types");
-  killMutant("packages/speaker depends on vercel/chat");
+  killMutant("crates or zoend depend on vercel/chat");
   killMutant("Read Chat SDK adapter state as semantic memory / StateBasis");
 
   const messagingModule = await import("../packages/transport/src/index.js");
@@ -152,9 +148,6 @@ async function main(): Promise<void> {
     const identity = createIdentityDirectoryClient({
       adminToken: await oidcToken("admin-a"),
       baseUrl,
-    });
-    const controls = createInteractionControlRegistry({
-      store: createMemoryControlStore(),
     });
 
     record(
@@ -180,37 +173,6 @@ async function main(): Promise<void> {
         seed.linqBindingId !== seed.principalId &&
         seed.tenantId !== seed.principalId,
     );
-
-    const expired = await controls.issue({
-      expiresAt: new Date(Date.now() - 1_000).toISOString(),
-      kind: "propose_action",
-      principalId: principalIdString(seed.principalId),
-      tenantId: tenantIdString(seed.tenantId),
-    });
-    let expiredRejected = false;
-    try {
-      await controls.resolve(expired);
-    } catch {
-      expiredRejected = true;
-    }
-    const live = await controls.issue({
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      kind: "propose_action",
-      principalId: principalIdString(seed.principalId),
-      tenantId: tenantIdString(seed.tenantId),
-    });
-    await controls.consume(live);
-    let consumedRejected = false;
-    try {
-      await controls.resolve(live);
-    } catch {
-      consumedRejected = true;
-    }
-    record(
-      "expired_or_consumed_control_fails_closed",
-      expiredRejected && consumedRejected,
-    );
-    killMutant("Replay expired / consumed InteractionControlRef");
 
     let unresolvedRejected = false;
     try {

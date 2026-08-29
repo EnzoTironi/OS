@@ -205,7 +205,7 @@
       "onMain": false,
       "product": false,
       "path": "archive/pre-modeled-erp:archive/packages/attention",
-      "proof": "Not on default main. Transport and speaker do not import it; debounce is local to the turn coordinator.",
+      "proof": "Not on default main. Transport does not import it.",
       "issue": 328
     },
     {
@@ -422,7 +422,7 @@
       "name": "Distinct Linq ChannelProvider",
       "onMain": true,
       "product": true,
-      "path": "packages/speaker/src/identity-directory.ts",
+      "path": "packages/transport/src/identity-directory.ts",
       "proof": "On main via #331. ChannelProvider::Linq. toChannelProvider(\"linq\") === \"linq\".",
       "issue": 318,
       "pr": [

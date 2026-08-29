@@ -1,51 +1,21 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LanguageModel } from "ai";
 import {
-  ChannelSubjectResolveError,
-  conversationKeyFromChannel,
-  createConversationTurnCoordinator,
-  createInteractionBoundary,
-  createInteractionControlRegistry,
-  createInteractionScratch,
-  createMemoryControlStore,
-  createMemoryTurnStore,
-  createPostgresTurnStore,
   deliveryIntentId,
   deliveryObservationId,
-  detectInboundLocale,
-  dropLeadingStatusPhrase,
-  emitReasonTurnLog,
-  finalDeliveryId,
-  outboundBubbles,
-  presentationIntentRef,
   providerKey,
-  raceWithStatusGate,
-  resolvePublicOrigin,
-  runInteractionTurn,
-  toInteractionInbound,
-  TURN_DEBOUNCE_MS,
-  TURN_STATUS_AFTER_MS,
-  type ClaimResult,
-  type ConversationKey,
-  type DeliveryIntent,
-  type DeliveryObservation,
+} from "./brands.js";
+import type {
+  DeliveryObservation,
+  InboundInteraction,
+} from "./channel.js";
+import {
+  ChannelSubjectResolveError,
   type IdentityDirectory,
-  type InboundInteraction,
-  type PostgresTurnStoreClient,
-  type ScheduleFn,
-  type TrustedInteractionContext,
-  type TurnStore,
-  type WorldQueryClient,
-} from "../../speaker/src/index.js";
-import {
-  admittedCompanionDocumentRef,
-  rejectWhatsAppMediaFields,
-} from "./media-ingress.js";
-import {
-  presentationSchema,
-  type PresentationIntent,
-} from "./presentation-intent.js";
+} from "./identity-directory.js";
+import { resolvePublicOrigin } from "./public-origin.js";
+import type { PostgresQueryClient } from "./postgres-query.js";
+import { rejectWhatsAppMediaFields } from "./media-ingress.js";
 import {
   parseCompanionInboundEnvelope,
   parseWhatsAppDoorE164,
@@ -55,7 +25,6 @@ import {
 import {
   isGroupJid,
   isPersonPhoneJid,
-  type CompanionPresenceState,
   type CompanionSession,
 } from "./companion-session.js";
 import {
@@ -88,10 +57,6 @@ export type WhatsAppContactDisposition =
       readonly kind: "bound";
       readonly inbound: InboundInteraction;
       readonly observation: DeliveryObservation;
-    }
-  | {
-      readonly kind: "queued";
-      readonly inbound: InboundInteraction;
     };
 
 type StoredReply = Extract<
@@ -105,10 +70,6 @@ type LedgerRecord =
 
 export interface ReplyLedger {
   get(idempotencyKey: string): Promise<LedgerRecord | undefined>;
-  /**
-   * Insert an accepted claim. Returns true when this process owns the inbound.
-   * Companion restart posts a new webhook-id; the claim is keyed by message id.
-   */
   claim(idempotencyKey: string, inbound: InboundInteraction): Promise<boolean>;
   put(idempotencyKey: string, disposition: StoredReply): Promise<void>;
 }
@@ -116,7 +77,6 @@ export interface ReplyLedger {
 export interface WhatsAppContactLoop {
   readonly gateway: MessagingGateway;
   handleRaw(raw: unknown): Promise<WhatsAppContactDisposition>;
-  /** Enqueue and rearm debounce. HTTP hops should call this, not handleRaw. */
   acknowledgeRaw(raw: unknown): Promise<WhatsAppContactDisposition>;
   waitUntilIdle(): Promise<void>;
 }
@@ -125,28 +85,9 @@ export interface WhatsAppContactLoopOptions {
   readonly session: CompanionSession;
   readonly identity: IdentityDirectory;
   readonly ledger?: ReplyLedger;
-  readonly store?: TurnStore;
-  readonly debounceMs?: number;
   readonly doorE164?: string;
   readonly publicWebOrigin?: string;
   readonly now?: () => Date;
-  readonly executeWork?: (task: string) => Promise<string>;
-  /** Speaker-local snapshot from planted `zoen query`. No Connect in speaker. */
-  readonly world?: WorldQueryClient;
-  /**
-   * Copy admitted companion document bytes onto isolate inbound/.
-   * Host mediaRef stays denied by vfs-guard.
-   */
-  readonly plantInbound?: (input: {
-    readonly filename: string;
-    readonly mediaRef: string;
-  }) => Promise<void>;
-  /** Tier 2 model override, mainly for tests. Production reads ZOEN_MODEL. */
-  readonly model?: LanguageModel;
-  /** Status gate threshold in ms. Default TURN_STATUS_AFTER_MS (2000). */
-  readonly statusAfterMs?: number;
-  /** Injectable timer for the status gate, mainly for tests. */
-  readonly schedule?: ScheduleFn;
 }
 
 export function createMemoryReplyLedger(): ReplyLedger {
@@ -169,7 +110,7 @@ export function createMemoryReplyLedger(): ReplyLedger {
 }
 
 export function createPostgresReplyLedger(
-  client: PostgresTurnStoreClient,
+  client: PostgresQueryClient,
 ): ReplyLedger {
   return {
     async get(idempotencyKey) {
@@ -292,218 +233,23 @@ export function createWhatsAppContactLoop(
   );
   const ledger = options.ledger ?? createMemoryReplyLedger();
   const now = options.now ?? (() => new Date());
-  const bodies = new Map<string, string>();
-  const inflight = new Map<string, Promise<WhatsAppContactDisposition>>();
-  const pumps = new Map<string, Promise<void>>();
   const provider = createLiveWhatsAppProvider({ session: options.session });
   const gateway = createMessagingGateway({
     now,
     publicWebOrigin: resolvePublicOrigin(options.publicWebOrigin),
     providers: { whatsapp: provider },
-    resolvePresentation: async (intent) => {
-      const body = bodies.get(intent.stableProviderDeliveryId);
-      if (body === undefined) {
-        throw new Error("whatsapp contact loop missing presentation body");
-      }
-      return {
-        disclosedBody: body,
-        disclosure: { kind: "deliver_full" as const },
-        includesConfidentialBody: false,
-        intent: textPresentation(String(intent.presentation), body, now()),
-      };
+    resolvePresentation: async () => {
+      throw new Error("whatsapp contact loop does not deliver leftover chat");
     },
   });
-  const store = options.store ?? createMemoryTurnStore();
-  const outboundByAttempt = new Map<string, Map<string, string>>();
-  const coordinator = createConversationTurnCoordinator({
-    debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
-    deliver: async (intent: DeliveryIntent) => {
-      const attemptId = intent.turnAttemptId;
-      const bubbles =
-        attemptId === undefined ? undefined : outboundByAttempt.get(attemptId);
-      const text = bubbles?.get(intent.stableProviderDeliveryId);
-      if (text === undefined) {
-        throw new Error("bound whatsapp turn missing outbound bubble");
-      }
-      bodies.set(intent.stableProviderDeliveryId, text);
-      const observation = await gateway.deliver(intent);
-      return observation.outcome;
-    },
-    now,
-    store,
-  });
-  const boundary = createInteractionBoundary({
-    controls: createInteractionControlRegistry({
-      store: createMemoryControlStore(),
-    }),
-    correlationNamespace: "whatsapp.contact.v1",
-    identity: options.identity,
-    now,
-  });
-
-  async function finishBoundTurn(
-    claimed: ClaimResult,
-    membership: TrustedInteractionContext,
-  ): Promise<DeliveryObservation> {
-    const primaryId =
-      claimed.attempt.claimedInteractionIds[0] ??
-      claimed.attempt.carryForwardInteractionIds[0];
-    if (primaryId === undefined) {
-      throw new Error("bound whatsapp turn claimed no inbound");
-    }
-    const record = await store.getRecord(primaryId);
-    if (record === undefined) {
-      throw new Error("bound whatsapp turn missing InteractionRecord");
-    }
-    const chatJid = String(record.inbound.channel.thread);
-    await sendPresence(options.session, chatJid, "composing");
-    try {
-      const inbound = toInteractionInbound(record.inbound);
-      const inboundText = inbound.kind === "text" ? inbound.text : "";
-      const locale = detectInboundLocale(inboundText);
-      const scratch = createInteractionScratch();
-      const raced = await raceWithStatusGate({
-        gateMs: options.statusAfterMs ?? TURN_STATUS_AFTER_MS,
-        onGate: () => undefined,
-        schedule: options.schedule,
-        work: runInteractionTurn({
-          attemptId: claimed.attempt.id,
-          coordinator,
-          debounceMs: options.debounceMs ?? TURN_DEBOUNCE_MS,
-          executeWork: options.executeWork,
-          inbound,
-          membership,
-          model: options.model,
-          now,
-          scratch,
-          store,
-          world: options.world,
-        }),
-      });
-      emitReasonTurnLog({
-        ...raced.value.reasonTurn,
-        statusFired: raced.gated,
-      });
-      const bubbles = dropLeadingStatusPhrase(
-        outboundBubbles(raced.value),
-        locale,
-      );
-      bubbles.forEach((text, index) =>
-        setOutboundBubble(
-          outboundByAttempt,
-          claimed.attempt.id,
-          finalDeliveryId(primaryId, index),
-          text,
-        ),
-      );
-      const delivered =
-        bubbles.length === 0
-          ? await coordinator.acknowledgeSilentClose(claimed.attempt.id)
-          : await coordinator.planAndDeliver({
-              attemptId: claimed.attempt.id,
-              presentation: `turn:${claimed.turn.id}`,
-              sequenceCount: bubbles.length,
-            });
-      return delivered[delivered.length - 1] ?? waitObservation(claimed.attempt.id);
-    } catch (error) {
-      const attempt = await coordinator.getAttempt(claimed.attempt.id);
-      if (attempt?.phase.kind === "superseded") {
-        return waitObservation(claimed.attempt.id);
-      }
-      throw error;
-    } finally {
-      await sendPresence(options.session, chatJid, "paused");
-    }
-  }
-
-  function ensurePump(conversationKey: ConversationKey): Promise<void> {
-    const existing = pumps.get(conversationKey);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const run = (async () => {
-      try {
-        for (;;) {
-          const claimed = await coordinator.awaitClaim(conversationKey);
-          if (claimed === undefined) {
-            const leftover = await store.selectUnclaimed(conversationKey);
-            if (leftover.length === 0) {
-              return;
-            }
-            continue;
-          }
-          const primaryId =
-            claimed.attempt.claimedInteractionIds[0] ??
-            claimed.attempt.carryForwardInteractionIds[0];
-          if (primaryId === undefined) {
-            continue;
-          }
-          const record = await store.getRecord(primaryId);
-          if (record === undefined) {
-            continue;
-          }
-          const observation = await finishBoundTurn(claimed, record.ctx);
-          for (const interactionId of claimed.attempt.claimedInteractionIds) {
-            const claimedRecord = await store.getRecord(interactionId);
-            if (claimedRecord === undefined) {
-              continue;
-            }
-            await ledger.put(claimedRecord.inbound.idempotencyKey, {
-              inbound: claimedRecord.inbound,
-              kind: "bound",
-              observation,
-            });
-          }
-        }
-      } finally {
-        pumps.delete(conversationKey);
-      }
-    })();
-    pumps.set(conversationKey, run);
-    return run;
-  }
-
-  async function enqueueBound(
-    inbound: InboundInteraction,
-  ): Promise<WhatsAppContactDisposition> {
-    const ctx = await boundary.resolveTrustedContext(inbound);
-    const claimed = await ledger.claim(inbound.idempotencyKey, inbound);
-    if (!claimed) {
-      const existing = await ledger.get(inbound.idempotencyKey);
-      return {
-        inbound,
-        kind: "duplicate",
-        observation: observationFromLedger(existing, inbound.idempotencyKey),
-      };
-    }
-    const record = await boundary.accept(inbound, ctx);
-    const conversationKey = conversationKeyFromChannel({
-      accountId: ctx.accountId,
-      channel: inbound.channel,
-      tenantId: String(ctx.tenantId),
-      workspaceId: ctx.workloadId,
-    });
-    await coordinator.signalInbound({
-      conversationKey,
-      record,
-      workspaceId: ctx.workloadId,
-    });
-    ensurePump(conversationKey);
-    return { inbound, kind: "queued" };
-  }
 
   async function dispatchRaw(
     raw: unknown,
-    wait: boolean,
   ): Promise<WhatsAppContactDisposition> {
     rejectWhatsAppMediaFields(raw);
     const dropped = classifyWhatsAppContactInbound(raw, doorE164);
     if (dropped.drop) {
       return { kind: "dropped", reason: dropped.reason };
-    }
-    const document = admittedCompanionDocumentRef(raw);
-    if (document !== undefined && options.plantInbound !== undefined) {
-      await options.plantInbound(document);
     }
     const inbound = await gateway.acceptProviderEvent(
       providerKey("whatsapp"),
@@ -517,78 +263,55 @@ export function createWhatsAppContactLoop(
         observation: observationFromLedger(existing, inbound.idempotencyKey),
       };
     }
-    const pending = inflight.get(inbound.idempotencyKey);
-    if (pending !== undefined) {
-      return pending;
-    }
-    const work = (async (): Promise<WhatsAppContactDisposition> => {
-      try {
-        return await enqueueAndMaybeWait(inbound, wait);
-      } catch (error) {
-        if (
-          !(error instanceof ChannelSubjectResolveError) ||
-          error.kind !== "unbound"
-        ) {
-          throw error;
-        }
-        if (options.identity.admitWhatsAppSubject === undefined) {
-          throw error;
-        }
-        await options.identity.admitWhatsAppSubject({
-          provider: inbound.channel.provider,
-          subjectKey: String(inbound.channel.providerUser),
-        });
-        return enqueueAndMaybeWait(inbound, wait);
-      }
-    })();
-    inflight.set(inbound.idempotencyKey, work);
     try {
-      return await work;
-    } finally {
-      inflight.delete(inbound.idempotencyKey);
-    }
-  }
-
-  async function waitUntilIdle(): Promise<void> {
-    for (;;) {
-      const running = [...pumps.values()];
-      if (running.length === 0) {
-        return;
+      return await admitAndClaim(inbound);
+    } catch (error) {
+      if (
+        !(error instanceof ChannelSubjectResolveError) ||
+        error.kind !== "unbound"
+      ) {
+        throw error;
       }
-      await Promise.all(running);
+      if (options.identity.admitWhatsAppSubject === undefined) {
+        throw error;
+      }
+      await options.identity.admitWhatsAppSubject({
+        provider: inbound.channel.provider,
+        subjectKey: String(inbound.channel.providerUser),
+      });
+      return admitAndClaim(inbound);
     }
   }
 
-  async function enqueueAndMaybeWait(
+  async function admitAndClaim(
     inbound: InboundInteraction,
-    wait: boolean,
   ): Promise<WhatsAppContactDisposition> {
-    const queued = await enqueueBound(inbound);
-    if (!wait || queued.kind === "duplicate") {
-      return queued;
+    await options.identity.resolveChannelSubject({
+      provider: inbound.channel.provider,
+      subjectKey: String(inbound.channel.providerUser),
+    });
+    const claimed = await ledger.claim(inbound.idempotencyKey, inbound);
+    if (!claimed) {
+      const raced = await ledger.get(inbound.idempotencyKey);
+      return {
+        inbound,
+        kind: "duplicate",
+        observation: observationFromLedger(raced, inbound.idempotencyKey),
+      };
     }
-    await waitUntilIdle();
-    const stored = await ledger.get(inbound.idempotencyKey);
-    if (stored === undefined || stored.kind === "accepted") {
-      throw new Error("bound whatsapp turn claimed no inbound");
-    }
-    return stored;
+    const observation = idleObservation(inbound.idempotencyKey);
+    const bound: StoredReply = { inbound, kind: "bound", observation };
+    await ledger.put(inbound.idempotencyKey, bound);
+    return bound;
   }
-
-  void coordinator.recoverPending();
 
   return {
     gateway,
-
-    acknowledgeRaw(raw) {
-      return dispatchRaw(raw, false);
+    acknowledgeRaw: dispatchRaw,
+    handleRaw: dispatchRaw,
+    async waitUntilIdle() {
+      return;
     },
-
-    handleRaw(raw) {
-      return dispatchRaw(raw, true);
-    },
-
-    waitUntilIdle,
   };
 }
 
@@ -642,18 +365,6 @@ export function classifyWhatsAppContactInbound(
   return { drop: false };
 }
 
-async function sendPresence(
-  session: CompanionSession,
-  chatJid: string,
-  state: CompanionPresenceState,
-): Promise<void> {
-  try {
-    await session.presence(chatJid, state);
-  } catch {
-    return;
-  }
-}
-
 function isDoorJid(jid: string, doorE164: string): boolean {
   const doorDigits = doorE164.replace(/\D/g, "");
   if (doorDigits.length === 0 || jid.trim().length === 0) {
@@ -664,39 +375,13 @@ function isDoorJid(jid: string, doorE164: string): boolean {
   return user.replace(/\D/g, "") === doorDigits;
 }
 
-function setOutboundBubble(
-  map: Map<string, Map<string, string>>,
-  attemptId: string,
-  stableProviderDeliveryId: string,
-  text: string,
-): void {
-  const existing = map.get(attemptId) ?? new Map<string, string>();
-  existing.set(stableProviderDeliveryId, text);
-  map.set(attemptId, existing);
-}
-
-function waitObservation(attemptId: string): DeliveryObservation {
+function idleObservation(key: string): DeliveryObservation {
+  const clipped = key.slice(0, 180);
   return {
-    id: deliveryObservationId(`do_wait_${attemptId}`.slice(0, 200)),
-    intentId: deliveryIntentId(`di_wait_${attemptId}`.slice(0, 200)),
+    id: deliveryObservationId(`do_idle_${clipped}`),
+    intentId: deliveryIntentId(`di_idle_${clipped}`),
     observedAt: new Date().toISOString(),
     outcome: { kind: "unknown" },
-  };
-}
-
-function textPresentation(
-  ref: string,
-  body: string,
-  createdAt: Date,
-): PresentationIntent {
-  return {
-    blocks: [{ body, kind: "text" }],
-    createdAt: createdAt.toISOString(),
-    fullBodyText: body,
-    ref: presentationIntentRef(ref),
-    schema: presentationSchema,
-    surfaceDigest: "whatsapp.contact.text",
-    surfaceId: "whatsapp.contact",
   };
 }
 
@@ -721,7 +406,7 @@ function observationFromLedger(
   if (record !== undefined && (record.kind === "bound" || record.kind === "unbound")) {
     return record.observation;
   }
-  return waitObservation(fallbackKey);
+  return idleObservation(fallbackKey);
 }
 
 function isLedgerRecord(value: unknown): value is LedgerRecord {

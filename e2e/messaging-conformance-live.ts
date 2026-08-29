@@ -5,18 +5,17 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   createIdentityDirectoryClient,
-  createInteractionBoundary,
-  createInteractionControlRegistry,
-  createMemoryControlStore,
+  deliveryIntentId,
   interactionControlRef,
+  interactionId,
   presentationIntentRef,
   providerKey,
   toChannelProvider,
   type DeliveryIntent,
+  type IdentityDirectory,
   type InboundInteraction,
-  type InteractionRecord,
   type TrustedInteractionContext,
-} from "../packages/speaker/src/index.js";
+} from "../packages/transport/src/index.js";
 import {
   assertLiveTelegramAdvertisement,
   assertLiveWhatsAppAdvertisement,
@@ -65,7 +64,6 @@ const scenario = "messaging-conformance-live";
 const repositoryRoot = process.cwd();
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_721);
-const semanticCorrelationSeed = "messaging-conformance-live.v1";
 const telegramSubject = "990042";
 const whatsappSubject = "5531888888888@s.whatsapp.net";
 const whatsappGroup = "120363000000000000@g.us";
@@ -490,13 +488,39 @@ async function sha256File(contents: string): Promise<string> {
 
 type HandlerDeps = {
   readonly messaging: ReturnType<typeof createMessagingGateway>;
-  readonly interaction: ReturnType<typeof createInteractionBoundary>;
-  readonly controls: ReturnType<typeof createInteractionControlRegistry>;
+  readonly identity: IdentityDirectory;
+  readonly acceptedIds: Map<string, ReturnType<typeof interactionId>>;
   readonly presentations: Map<string, PresentationIntent>;
   readonly seed: Awaited<ReturnType<typeof seedBoundAccount>>;
   readonly substitutionKeys: SubstitutionKey[];
   readonly telegramCalls: TelegramCall[];
 };
+
+type AcceptedInbound = {
+  readonly id: ReturnType<typeof interactionId>;
+  readonly inbound: InboundInteraction;
+  readonly trusted: TrustedInteractionContext;
+  readonly semanticCorrelationKey: string;
+};
+
+function planDelivery(input: {
+  readonly trusted: TrustedInteractionContext;
+  readonly recordId: ReturnType<typeof interactionId>;
+  readonly presentation: ReturnType<typeof presentationIntentRef>;
+  readonly controlRefs: readonly ReturnType<typeof interactionControlRef>[];
+  readonly stableProviderDeliveryId: string;
+  readonly target: DeliveryIntent["target"];
+}): DeliveryIntent {
+  return {
+    controlRefs: input.controlRefs,
+    id: deliveryIntentId(`di_${input.stableProviderDeliveryId}`.slice(0, 200)),
+    presentation: input.presentation,
+    provider: input.trusted.channel.provider,
+    recordId: input.recordId,
+    stableProviderDeliveryId: input.stableProviderDeliveryId,
+    target: input.target,
+  };
+}
 
 function deliveryTarget(
   providerId: string,
@@ -518,7 +542,7 @@ async function deliverReply(
     readonly providerId: string;
     readonly inbound: InboundInteraction;
     readonly trusted: TrustedInteractionContext;
-    readonly accepted: InteractionRecord;
+    readonly accepted: AcceptedInbound;
     readonly nonce: string;
     readonly body: string;
     readonly card: boolean;
@@ -527,17 +551,10 @@ async function deliverReply(
 ): Promise<ReturnType<ReturnType<typeof createMessagingGateway>["deliver"]>> {
   const ref = `pres_${input.nonce}`;
   const whatsapp = input.providerId === "whatsapp";
-  let controlRefs: Awaited<
-    ReturnType<ReturnType<typeof createInteractionControlRegistry>["issue"]>
-  >[] = [];
+  let controlRefs: ReturnType<typeof interactionControlRef>[] = [];
   let intent = textIntent(ref, input.body);
   if (input.card && !whatsapp) {
-    const control = await deps.controls.issue({
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      kind: "propose_action",
-      principalId: input.trusted.principalId,
-      tenantId: input.trusted.tenantId,
-    });
+    const control = interactionControlRef(`icr_${input.nonce}`.slice(0, 200));
     controlRefs = [control];
     intent = {
       blocks: [
@@ -558,13 +575,13 @@ async function deliverReply(
     };
   }
   deps.presentations.set(ref, intent);
-  const planned = await deps.interaction.planDelivery({
-    controls: whatsapp ? [] : controlRefs,
-    ctx: input.trusted,
+  const planned = planDelivery({
+    controlRefs: whatsapp ? [] : controlRefs,
     presentation: presentationIntentRef(ref),
     recordId: input.accepted.id,
     stableProviderDeliveryId: `spd_${input.nonce}`,
     target: deliveryTarget(input.providerId, input.inbound, input.ephemeral),
+    trusted: input.trusted,
   });
   return deps.messaging.deliver(planned);
 }
@@ -576,19 +593,38 @@ async function acceptBound(
 ): Promise<{
   inbound: InboundInteraction;
   trusted: TrustedInteractionContext;
-  accepted: InteractionRecord;
+  accepted: AcceptedInbound;
 }> {
   const inbound = await deps.messaging.acceptProviderEvent(
     providerKey(providerId),
     raw,
   );
-  const trusted = await deps.interaction.resolveTrustedContext(inbound);
+  const resolved = await deps.identity.resolveChannelSubject({
+    provider: inbound.channel.provider,
+    subjectKey: String(inbound.channel.providerUser),
+  });
+  const trusted: TrustedInteractionContext = {
+    ...resolved,
+    channel: inbound.channel,
+  };
   assert.equal(trusted.accountId, deps.seed.accountId);
   assert.equal(String(trusted.principalId), deps.seed.principalId);
   assert.equal(String(trusted.tenantId), deps.seed.tenantId);
   assert.notEqual(String(trusted.principalId), String(inbound.channel.providerUser));
   assert.notEqual(String(trusted.tenantId), String(inbound.channel.thread));
-  const accepted = await deps.interaction.accept(inbound, trusted);
+  const existing = deps.acceptedIds.get(inbound.idempotencyKey);
+  const id =
+    existing ??
+    interactionId(
+      `ixn_${createHash("sha256").update(inbound.idempotencyKey).digest("hex").slice(0, 24)}`,
+    );
+  deps.acceptedIds.set(inbound.idempotencyKey, id);
+  const accepted: AcceptedInbound = {
+    id,
+    inbound,
+    semanticCorrelationKey: `${trusted.accountId}|${String(trusted.tenantId)}|${String(trusted.principalId)}`,
+    trusted,
+  };
   return { accepted, inbound, trusted };
 }
 
@@ -766,8 +802,8 @@ async function runProtocol(
   if (protocol === "inbound_dedupe") {
     const raw = textFixture(providerId, `dedupe_${nonce}`, "dedupe body");
     const bound = await acceptBound(deps, providerId, raw);
-    const second = await deps.interaction.accept(bound.inbound, bound.trusted);
-    assert.equal(bound.accepted.id, second.id);
+    const second = await acceptBound(deps, providerId, raw);
+    assert.equal(bound.accepted.id, second.accepted.id);
     return {
       interactionRecordId: String(bound.accepted.id),
       outcomeKind: "deduped",
@@ -780,8 +816,8 @@ async function runProtocol(
   if (protocol === "burst_debounce") {
     const shared = textFixture(providerId, `burst_same_${nonce}`, "burst");
     const first = await acceptBound(deps, providerId, shared);
-    const second = await deps.interaction.accept(first.inbound, first.trusted);
-    assert.equal(first.accepted.id, second.id);
+    const second = await acceptBound(deps, providerId, shared);
+    assert.equal(first.accepted.id, second.accepted.id);
     const distinct = textFixture(providerId, `burst_other_${nonce}`, "burst2");
     const third = await acceptBound(deps, providerId, distinct);
     assert.notEqual(third.accepted.id, first.accepted.id);
@@ -808,14 +844,18 @@ async function runProtocol(
       trusted: bound.trusted,
     });
     ctx.adapter.simulateRestart?.();
+    deps.presentations.set(
+      `pres_restart_${nonce}`,
+      textIntent(`pres_restart_${nonce}`, "restart proto"),
+    );
     const second = await deps.messaging.deliver(
-      await deps.interaction.planDelivery({
-        controls: [],
-        ctx: bound.trusted,
+      planDelivery({
+        controlRefs: [],
         presentation: presentationIntentRef(`pres_restart_${nonce}`),
         recordId: bound.accepted.id,
         stableProviderDeliveryId: `spd_restart_${nonce}`,
         target: deliveryTarget(providerId, bound.inbound, false),
+        trusted: bound.trusted,
       }),
     );
     assert.equal(String(second.id), String(first.id));
@@ -934,14 +974,6 @@ async function main(): Promise<void> {
     server = await startServer(policyManifestPath);
     const seed = await seedBoundAccount(columns.linqEnabled);
     const identity = createIdentityDirectoryClient({ baseUrl });
-    const controls = createInteractionControlRegistry({
-      store: createMemoryControlStore(),
-    });
-    const interaction = createInteractionBoundary({
-      controls,
-      correlationNamespace: semanticCorrelationSeed,
-      identity,
-    });
     const messaging = createMessagingGateway({
       providers: columns.byId,
       publicWebOrigin: "https://app.zoen.local",
@@ -968,8 +1000,8 @@ async function main(): Promise<void> {
 
     const substitutionKeys: SubstitutionKey[] = [];
     const deps: HandlerDeps = {
-      controls,
-      interaction,
+      acceptedIds: new Map(),
+      identity,
       messaging,
       presentations,
       seed,
