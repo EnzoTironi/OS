@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use zoen_core::{CanonicalDefinition, Expression, InputDefinition, RelationTarget};
+use zoen_core::{
+    CanonicalDefinition, Expression, InputDefinition, RelationTarget, allows_empty_action_effects,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DefinitionFamily {
@@ -158,7 +160,9 @@ pub(super) fn validate_definition(definition: &CanonicalDefinition) -> Result<()
     }
 
     for item in &definition.actions {
-        require_nonempty(DefinitionFamily::ActionEffect, item.effects.is_empty())?;
+        if !allows_empty_action_effects(&item.id) {
+            require_nonempty(DefinitionFamily::ActionEffect, item.effects.is_empty())?;
+        }
         validate_executable(
             item.id.as_str(),
             DefinitionFamily::ActionInput,

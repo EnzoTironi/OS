@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 mod action_preview;
+mod conversation;
 mod effect;
 mod expression;
 mod external_signal;
@@ -16,6 +17,9 @@ mod pack;
 pub use action_preview::{
     ACTION_PREVIEW_LOCALE, ACTION_PREVIEW_SCHEMA, ActionPreviewDocument, ActionPreviewInput,
     canonical_preview_text,
+};
+pub use conversation::{
+    CONVERSATION_STAGE_CAP, ConversationStage, ConversationStageError, ConversationStageId,
 };
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
@@ -149,14 +153,46 @@ semantic_id!(UnitId);
 semantic_id!(WorkloadId);
 
 pub const WORLD_READ_ACTION: &str = "zoen.world.read";
+pub const WORLD_INVITE_ACTION: &str = "zoen.world.invite";
+pub const WORLD_SHARE_ACTION: &str = "zoen.world.share";
+pub const WORLD_RESERVE_ACTION: &str = "zoen.world.reserve";
+pub const WORLD_WHO_CAN_ACTION: &str = "zoen.world.whoCan";
 pub const CLASSIFIED_AS_RELATION: &str = "zoen.classifiedAs";
+pub const SHARED_WITH_RELATION: &str = "zoen.sharedWith";
 
 pub fn world_read_action() -> ActionId {
     ActionId::parse(WORLD_READ_ACTION).expect("dest kernel Action id")
 }
 
+pub fn world_invite_action() -> ActionId {
+    ActionId::parse(WORLD_INVITE_ACTION).expect("dest kernel Action id")
+}
+
+pub fn world_share_action() -> ActionId {
+    ActionId::parse(WORLD_SHARE_ACTION).expect("dest kernel Action id")
+}
+
+pub fn world_reserve_action() -> ActionId {
+    ActionId::parse(WORLD_RESERVE_ACTION).expect("dest kernel Action id")
+}
+
+pub fn world_who_can_action() -> ActionId {
+    ActionId::parse(WORLD_WHO_CAN_ACTION).expect("dest kernel Action id")
+}
+
 pub fn classified_as_relation() -> RelationId {
     RelationId::parse(CLASSIFIED_AS_RELATION).expect("dest classification Relation id")
+}
+
+pub fn shared_with_relation() -> RelationId {
+    RelationId::parse(SHARED_WITH_RELATION).expect("dest share Relation id")
+}
+
+pub fn allows_empty_action_effects(action_id: &ActionId) -> bool {
+    matches!(
+        action_id.as_str(),
+        WORLD_INVITE_ACTION | WORLD_WHO_CAN_ACTION
+    )
 }
 
 impl ResourceId {

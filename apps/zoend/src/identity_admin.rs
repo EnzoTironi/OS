@@ -201,6 +201,7 @@ struct MembershipJson {
     kind: String,
     actor_id: String,
     workload_id: String,
+    clearance: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -867,6 +868,7 @@ fn membership_json(membership: &zoen_core::Membership) -> MembershipJson {
         .to_owned(),
         actor_id: membership.actor_id.to_string(),
         workload_id: membership.workload_id.to_string(),
+        clearance: membership.clearance.to_token_strings(),
     }
 }
 
