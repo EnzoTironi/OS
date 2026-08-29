@@ -1,7 +1,16 @@
 #!/bin/sh
 set -eu
-url="http://127.0.0.1:8080/realms/zoen/.well-known/openid-configuration"
-until python3 -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=2)' "$url" >/dev/null 2>&1; do
-  sleep 1
-done
+wait_oidc() {
+  url="$1/.well-known/openid-configuration"
+  until python3 -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=2)' "$url" >/dev/null 2>&1; do
+    sleep 1
+  done
+}
+base="${ZOEN_OIDC_DISCOVERY_URL:-${ZOEN_OIDC_ISSUER:?ZOEN_OIDC_ISSUER required}}"
+base="${base%/}"
+wait_oidc "$base"
+if [ -n "${ZOEN_OIDC_MACHINE_ISSUER:-}" ]; then
+  machine="${ZOEN_OIDC_MACHINE_ISSUER%/}"
+  wait_oidc "$machine"
+fi
 exec "$@"

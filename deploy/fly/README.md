@@ -1,7 +1,9 @@
 # Fly `zoen`
 
 One machine in `gru`. Volume `zoen_data` → `/data` (postgres, Restate, MinIO).
-Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Postgres, Restate, Keycloak, and the Better Auth door stay up (`auto_stop_machines = off`). The door listens on `127.0.0.1:58704`. zoend forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` there. WhatsApp `/onboard/{token}` stays on zoend. `ZOEN_OIDC_ISSUER` is still Keycloak.
+Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Postgres, Restate, Keycloak, and the Better Auth door stay up (`auto_stop_machines = off`). The door listens on `127.0.0.1:58704`. zoend forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` there. WhatsApp `/onboard/{token}` stays on zoend.
+
+`ZOEN_OIDC_ISSUER` is `https://zoen.tironi.xyz`. Boot fetches discovery and JWKS from `ZOEN_OIDC_DISCOVERY_URL` (`http://127.0.0.1:58704`). The one Fly machine must not hairpin its public origin before zoend listens. `ZOEN_OIDC_MACHINE_ISSUER` is Keycloak on loopback. Remint still POSTs client `admin-a` there and writes `/data/zoen/agent.token`.
 
 ## Ship a change
 

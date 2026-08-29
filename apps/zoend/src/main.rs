@@ -61,7 +61,7 @@ pub mod proto {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let database_url = env::var("DATABASE_URL")?;
-    let ProcessAuth::Oidc { issuer, audience } = config::process_auth()?;
+    let ProcessAuth::Oidc { audience, sources } = config::process_auth()?;
     let policy = Arc::new(CedarPolicyEvaluator::from_path(
         config::cedar_manifest_path()?,
     )?);
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .parse::<SocketAddr>()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
     let identity = PostgresIdentityStore::new(store.pool());
-    let sessions = SessionRegistry::from_oidc(issuer, audience, identity.clone()).await?;
+    let sessions = SessionRegistry::from_oidc(sources, audience, identity.clone()).await?;
     let classification = Arc::new(integrity::load_classification()?);
     let require_reference = integrity::require_reference_tables();
     store
