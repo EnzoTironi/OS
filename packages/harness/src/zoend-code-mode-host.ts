@@ -16,7 +16,7 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   DefinitionReferenceSchema,
   ExactValueSchema,
@@ -26,7 +26,7 @@ import {
   StrongConsistencySchema,
   WorldService,
   type ExactValue as WireExactValue,
-} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../../gen/connect/zoen/world/v1/world_pb.js";
 import type {
   CodeModeCommitOutcome,
   CodeModeCommitRequest,

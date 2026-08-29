@@ -1,4 +1,4 @@
-import { EffectAttemptReason, EffectKnowledgeState } from "../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import { EffectAttemptReason, EffectKnowledgeState } from "../../../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   dispatchOnce,
   providerOperation,

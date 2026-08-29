@@ -45,7 +45,6 @@ apps/
 
 packages/
   ontology/        # TypeScript authoring DSL/compiler
-  sdk/             # generated/typed client SDK
   harness/         # Company Brain + agent runtime
   surface/         # Zoen Surface IR + render adapters
   web/             # React/TanStack application

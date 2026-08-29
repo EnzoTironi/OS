@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { CommitStatus } from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { CommitStatus } from "../gen/connect/zoen/action/v1/action_pb.js";
 import {
   activateDefinition,
   loadFixture,

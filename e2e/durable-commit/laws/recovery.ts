@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { isDeepStrictEqual } from "node:util";
 import { Code } from "@connectrpc/connect";
 import { Client as PostgresClient } from "pg";
-import { CommitStatus } from "../../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { CommitStatus } from "../../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   adminDatabaseUrl,
   delay,

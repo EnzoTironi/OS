@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { Client as PostgresClient } from "pg";
-import type { CommitReceipt } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import type { CommitReceipt } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import type {
   ActionClient,
   DefinitionFixture,

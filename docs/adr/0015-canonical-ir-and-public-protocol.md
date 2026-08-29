@@ -106,7 +106,7 @@ V1 release tests must:
 
 1. compile the same ontology from independent processes and prove identical canonical bytes/digest;
 2. mutate every executable definition family and prove digest changes;
-3. publish through a generated TypeScript Connect client and retrieve through a generated Rust/CLI client after process restart;
+3. publish through zoend HTTP Connect (codecs from `proto/` via `gen/connect`, not a product TypeScript SDK) and retrieve through zoend or CLI after process restart;
 4. run Buf breaking-change checks against the previous released protocol image;
 5. prove semantically identical canonical definitions transported through Protobuf JSON/binary forms publish to the same definition digest;
 6. inject malformed/duplicate-key/non-canonical authoring input and prove no revision is partially published.

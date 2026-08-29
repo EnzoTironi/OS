@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { PolicyDecision } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { PolicyDecision } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   EventualConsistencySchema,
   EvidenceClaimSchema,
@@ -15,7 +15,7 @@ import {
   type DefinitionReference,
   type EvidenceClaim,
   type ExactValue,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   actionClient,
   adminClient,

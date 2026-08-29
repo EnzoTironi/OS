@@ -21,7 +21,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
-import { DefinitionService } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+import { DefinitionService } from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   DefinitionReferenceSchema,
   EvidenceClaimSchema,
@@ -40,7 +40,7 @@ import {
   type QueryConsistency,
   type QuerySelection,
   type ValidTime,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,

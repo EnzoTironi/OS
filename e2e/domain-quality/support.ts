@@ -25,11 +25,11 @@ import { z } from "zod";
 import {
   ActionInputSchema,
   type ActionInput,
-} from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   HistoryService,
   type CausalExplanation,
-} from "../../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
+} from "../../gen/connect/zoen/history/v1/history_pb.js";
 import {
   DefinitionReferenceSchema,
   EvidenceClaimSchema,
@@ -44,7 +44,7 @@ import {
   type DefinitionReference,
   type ExactValue,
   type ValidTime,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   actionClient,
   adminClient,

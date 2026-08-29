@@ -15,7 +15,7 @@ import {
 } from "../archive/packages/workload-ingress/src/index.js";
 import { connectZoenAgent } from "../packages/harness/src/index.js";
 import type { SemanticCapabilityScope } from "../packages/harness/src/index.js";
-import { DefinitionReferenceSchema } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import { DefinitionReferenceSchema } from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   definitionClient,
   oidcToken,

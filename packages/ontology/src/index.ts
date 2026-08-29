@@ -6,7 +6,10 @@ import type {
   TypeDefinition,
 } from "./model.js";
 
-export { compileDefinition } from "./compiler.js";
+export {
+  canonicalDefinitionFromJson,
+  compileDefinition,
+} from "./compiler.js";
 export {
   ACTION_PREVIEW_LOCALE,
   ACTION_PREVIEW_SCHEMA,

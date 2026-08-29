@@ -854,3 +854,43 @@ function isCanonicalDecimal(value: string): boolean {
     value,
   );
 }
+
+export function canonicalDefinitionFromJson(
+  canonicalJson: string,
+): CanonicalDefinitionBundle {
+  const value: unknown = JSON.parse(canonicalJson);
+  if (!isCanonicalDefinitionBundle(value)) {
+    throw new Error("canonical JSON is not zoen.definition.v1");
+  }
+  return value;
+}
+
+function isCanonicalDefinitionBundle(
+  value: unknown,
+): value is CanonicalDefinitionBundle {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (!("schema" in value) || value.schema !== "zoen.definition.v1") {
+    return false;
+  }
+  if (!("definitionId" in value) || typeof value.definitionId !== "string") {
+    return false;
+  }
+  if (!("revision" in value) || typeof value.revision !== "number") {
+    return false;
+  }
+  if (!("actions" in value) || !Array.isArray(value.actions)) {
+    return false;
+  }
+  if (!("types" in value) || !Array.isArray(value.types)) {
+    return false;
+  }
+  if (!("relations" in value) || !Array.isArray(value.relations)) {
+    return false;
+  }
+  if (!("computations" in value) || !Array.isArray(value.computations)) {
+    return false;
+  }
+  return true;
+}

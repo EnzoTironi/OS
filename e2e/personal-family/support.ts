@@ -8,7 +8,7 @@ import {
 } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
-import { ActionService } from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { ActionService } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
 import {
   e2eGeneratedDirectory,

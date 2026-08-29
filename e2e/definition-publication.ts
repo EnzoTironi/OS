@@ -16,7 +16,7 @@ import {
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
-import { DefinitionService } from "../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+import { DefinitionService } from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   e2eHttpUrl,
   e2eListenAddr,

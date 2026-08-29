@@ -6,9 +6,9 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
-import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
-import { LineageRole } from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
+import { EffectKnowledgeState } from "../gen/connect/zoen/effect/v1/effect_pb.js";
+import { LineageRole } from "../gen/connect/zoen/world/v1/world_pb.js";
 import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
 import {
   activeDigest,

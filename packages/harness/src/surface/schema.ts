@@ -1,4 +1,4 @@
-import type { DefinitionMetadata } from "@zoen/sdk";
+import type { CanonicalDefinitionBundle } from "@zoen/ontology";
 import { z } from "zod";
 import type {
   ActionBinding,
@@ -324,7 +324,7 @@ export const adaptiveSurfaceDocumentSchema = z
 
 export function parseSurfaceDocument(
   value: unknown,
-  metadata: DefinitionMetadata,
+  metadata: CanonicalDefinitionBundle,
   adaptiveContext?: AdaptiveSurfaceContext,
 ): SurfaceDocument {
   requireBoundedPayload(value);
@@ -336,7 +336,7 @@ export function parseSurfaceDocument(
 export function parseAdaptiveSurfaceDocument(
   value: unknown,
   context: AdaptiveSurfaceContext,
-  metadata?: DefinitionMetadata,
+  metadata?: CanonicalDefinitionBundle,
 ): SurfaceDocument {
   requireBoundedPayload(value);
   const document = adaptiveSurfaceDocumentSchema.parse(value);
@@ -358,7 +358,7 @@ function requireBoundedPayload(value: unknown): void {
 
 function validateDocumentBindings(
   document: SurfaceDocument,
-  metadata: DefinitionMetadata | undefined,
+  metadata: CanonicalDefinitionBundle | undefined,
   adaptiveContext: AdaptiveSurfaceContext | undefined,
 ): void {
   if (Object.keys(document.nodes).length > maxNodes) {
@@ -455,7 +455,7 @@ function validateDocumentBindings(
 
 function validateMetadataReference(
   document: SurfaceDocument,
-  metadata: DefinitionMetadata,
+  metadata: CanonicalDefinitionBundle,
 ): void {
   if (
     document.semanticContext.definition.definitionId !== metadata.definitionId ||
@@ -495,7 +495,7 @@ function validateQueryRef(
   reference: QueryRef,
   relationIds: ReadonlySet<string>,
   computationIds: ReadonlySet<string>,
-  metadata: DefinitionMetadata | undefined,
+  metadata: CanonicalDefinitionBundle | undefined,
 ): void {
   if (metadata === undefined) {
     return;

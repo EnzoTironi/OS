@@ -14,12 +14,12 @@ import { z } from "zod";
 import {
   CommitStatus,
   PolicyDecision,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
 import {
   QueryConsistencySchema,
   QuerySelectionSchema,
   StrongConsistencySchema,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   actionClient,
   activateDefinition,

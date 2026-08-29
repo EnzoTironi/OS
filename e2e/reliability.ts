@@ -11,18 +11,18 @@ import {
   CommitStatus,
   PolicyDecision,
   ProposalStatus,
-} from "../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
-import { EffectKnowledgeState } from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../gen/connect/zoen/action/v1/action_pb.js";
+import { EffectKnowledgeState } from "../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   type CausalExplanation,
   HistoryService,
-} from "../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
+} from "../gen/connect/zoen/history/v1/history_pb.js";
 import {
   QueryConsistencySchema,
   QuerySelectionSchema,
   StrongConsistencySchema,
   type DefinitionReference,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   actionClient,
   activateDefinition,

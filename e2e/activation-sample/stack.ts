@@ -712,7 +712,7 @@ async function probeSampleSeed(
       QueryConsistencySchema,
       QuerySelectionSchema,
       StrongConsistencySchema,
-    } = await import("../../packages/sdk/src/gen/zoen/world/v1/world_pb.js");
+    } = await import("../../gen/connect/zoen/world/v1/world_pb.js");
     const token = await oidcToken("inventory-agent-a");
     const world = worldClient(token);
     const response = await world.semanticQuery({

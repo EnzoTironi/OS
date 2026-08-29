@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { EffectKnowledgeState } from "../../../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+import { EffectKnowledgeState } from "../../../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   dispatchOnce,
   lookupInvocation,

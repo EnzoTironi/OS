@@ -14,12 +14,6 @@
       "@zoen/ontology": [
         "./packages/ontology/src/index.ts"
       ],
-      "@zoen/osdk": [
-        "./packages/osdk/src/index.ts"
-      ],
-      "@zoen/sdk": [
-        "./packages/sdk/src/index.ts"
-      ],
       "@zoen/speaker": [
         "./packages/speaker/src/index.ts"
       ],

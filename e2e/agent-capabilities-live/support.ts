@@ -34,10 +34,10 @@ import {
 import {
   ActionInputSchema,
   ActionService,
-} from "../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
-import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
-import { HistoryService } from "../../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
+import { DefinitionService } from "../../gen/connect/zoen/definition/v1/definition_pb.js";
+import { HistoryService } from "../../gen/connect/zoen/history/v1/history_pb.js";
 import {
   DefinitionReferenceSchema,
   EvidenceClaimSchema,
@@ -46,7 +46,7 @@ import {
   ValidTimeSchema,
   WorldService,
   type DefinitionReference,
-} from "../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
   e2eHttpUrl,
   e2eListenAddr,

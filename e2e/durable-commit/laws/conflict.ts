@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
-import { CommitStatus } from "../../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
+import { CommitStatus } from "../../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   minutesFromNow,
   propose,

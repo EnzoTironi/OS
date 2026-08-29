@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { compileDefinition } from "../../packages/ontology/src/index.js";
-import { DefinitionService } from "../../packages/sdk/src/gen/zoen/definition/v1/definition_pb.js";
+import { DefinitionService } from "../../gen/connect/zoen/definition/v1/definition_pb.js";
 
 /**
  * Fly prestart: Publish+Activate personal.memory and commercial.sales.

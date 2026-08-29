@@ -7,7 +7,6 @@ const FORBIDDEN_ROOTS = [
   "apps/zoend",
   "packages/speaker",
   "packages/harness/src/surface",
-  "packages/sdk",
 ] as const;
 
 const FORBIDDEN_PATTERNS = [

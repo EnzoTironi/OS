@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
-import { ActionInputSchema } from "../../../packages/sdk/src/gen/zoen/action/v1/action_pb.js";
-import { ExactValueSchema } from "../../../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+import { ActionInputSchema } from "../../../gen/connect/zoen/action/v1/action_pb.js";
+import { ExactValueSchema } from "../../../gen/connect/zoen/world/v1/world_pb.js";
 import { resourceId, textInput } from "../../governed-action/support.js";
 import {
   commitHumanEffect,

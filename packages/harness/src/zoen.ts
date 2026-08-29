@@ -17,7 +17,7 @@ import {
   type PolicyEvidence as WirePolicyEvidence,
   ProposalStatus,
   type TrustedContext as WireTrustedContext,
-} from "../../sdk/src/gen/zoen/action/v1/action_pb.js";
+} from "../../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   DefinitionReferenceSchema,
   ExactValueSchema,
@@ -28,12 +28,12 @@ import {
   SemanticQueryResponseSchema,
   StrongConsistencySchema,
   WorldService,
-} from "../../sdk/src/gen/zoen/world/v1/world_pb.js";
-import { DefinitionService } from "../../sdk/src/gen/zoen/definition/v1/definition_pb.js";
+} from "../../../gen/connect/zoen/world/v1/world_pb.js";
+import { DefinitionService } from "../../../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   CausalExplanationSchema,
   HistoryService,
-} from "../../sdk/src/gen/zoen/history/v1/history_pb.js";
+} from "../../../gen/connect/zoen/history/v1/history_pb.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {

@@ -8,7 +8,7 @@ import {
   EffectAttemptOutcome,
   EffectEvidenceOutcome,
   EffectKnowledgeState,
-} from "../packages/sdk/src/gen/zoen/effect/v1/effect_pb.js";
+} from "../gen/connect/zoen/effect/v1/effect_pb.js";
 import {
   EvidenceClass,
   GapReason,
@@ -17,7 +17,7 @@ import {
   type CausalActionExplanation,
   type CausalExplanation,
   type ExplanationTarget,
-} from "../packages/sdk/src/gen/zoen/history/v1/history_pb.js";
+} from "../gen/connect/zoen/history/v1/history_pb.js";
 import {
   DefinitionReferenceSchema,
   EvidenceClaimSchema,
@@ -25,7 +25,7 @@ import {
   ExactValueSchema,
   LineageRole,
   ValidTimeSchema,
-} from "../packages/sdk/src/gen/zoen/world/v1/world_pb.js";
+} from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   activateDefinition,
   type DefinitionFixture,

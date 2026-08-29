@@ -101,7 +101,7 @@ The reference production architecture targets single-region HA (>=99.9%), RPO <5
 
 V1 does not ship a prebuilt SAP. Each company brings its own world. Kitchen is archived and does not derive live Pack capabilities from activated definitions. See ADR-0022.
 
-Pre-modeled ERP libraries, TanStack web, Pack, Kitchen, onboarding, attention, activation-metrics, and workload-ingress live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). Default `main` does not contain `archive/`. Live World/OSDK compile stays on `packages/ontology/fixtures/commercial.zoen.ts`. The live Surface IR subset lives in `packages/harness/src/surface`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
+Pre-modeled ERP libraries, TanStack web, Pack, Kitchen, onboarding, attention, activation-metrics, and workload-ingress live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). Default `main` does not contain `archive/`. Live compiler and lake compile stays on `packages/ontology/fixtures/commercial.zoen.ts`. The live Surface IR subset lives in `packages/harness/src/surface`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
 ### Research phase
 
