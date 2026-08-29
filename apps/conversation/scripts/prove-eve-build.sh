@@ -119,6 +119,21 @@ fi
 
 cd "$repo"
 
+if docker info >/dev/null 2>&1; then
+  set +e
+  docker build --target conversation -f deploy/fly/Dockerfile "$repo" >"$work/docker-conversation.log" 2>&1
+  docker_exit="$?"
+  set -e
+  if [[ "$docker_exit" -eq 0 ]]; then
+    record "docker conversation stage eve build" "docker build --target conversation -f deploy/fly/Dockerfile ." "deploy/fly/Dockerfile" "pass" "exit 0"
+  else
+    record "docker conversation stage eve build" "docker build --target conversation -f deploy/fly/Dockerfile ." "deploy/fly/Dockerfile" "fail" "exit ${docker_exit}"
+    fail=1
+  fi
+else
+  record "docker conversation stage eve build" "docker build --target conversation -f deploy/fly/Dockerfile ." "deploy/fly/Dockerfile" "skipped" "daemon missing"
+fi
+
 {
   printf '## Kept\n\n'
   printf '%s\n' '- Official `chatSdkChannel` + `createKapsoAdapter`'
@@ -139,6 +154,6 @@ if [[ "$fail" -ne 0 ]]; then
   exit 1
 fi
 
-printf '## Verdict\n\npass. `eve build` exits 0 with KAPSO_* empty. The bundle still reads `process.env.KAPSO_API_KEY` at runtime. No Kapso secret is in the output tree.\n' >> "$draft"
+printf '## Verdict\n\npass. Host `eve build` exits 0 with KAPSO_* empty. The bundle still reads `process.env.KAPSO_API_KEY` at runtime. No Kapso secret is in the output tree.\n' >> "$draft"
 cp "$draft" "$proof"
 printf 'wrote %s\n' "$proof"
