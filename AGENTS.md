@@ -22,7 +22,7 @@ You do not add Redis. Restate is ontology ZoenEffect only. Conversation durabili
 
 ## WhatsApp
 
-WhatsApp destination is Kapso `defineChannel`. Do not use `@chat-adapter/whatsapp` Cloud API. Outbound is text plus one https URL.
+WhatsApp destination is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Do not use `@chat-adapter/whatsapp` Cloud API. Everyday replies are text plus one https URL.
 
 ## Fly images
 

@@ -318,8 +318,8 @@
       "name": "WhatsApp (Kapso) for Brazil",
       "onMain": false,
       "product": false,
-      "path": "apps/conversation/agent/channels/whatsapp.ts",
-      "proof": "Sidecar deleted. Destination WhatsApp is Kapso defineChannel in Eve. Cloud API fake stays deleted.",
+      "path": "apps/conversation/agent/channels/kapso.ts",
+      "proof": "Sidecar deleted. Destination WhatsApp is Chat SDK Kapso channel at /eve/v1/kapso. Cloud API fake stays deleted.",
       "issue": 375,
       "backup": [
         "backup/stubs-channels"
@@ -332,7 +332,7 @@
       "name": "Messaging conformance against live adapters",
       "onMain": false,
       "product": false,
-      "path": "apps/conversation/agent/channels/whatsapp.ts, apps/zoend/src/messaging_ingress.rs",
+      "path": "apps/conversation/agent/channels/kapso.ts, apps/zoend/src/messaging_ingress.rs",
       "proof": "Node adapter conformance journey deleted. Live WhatsApp destination is Kapso in Eve. Fakes stay deleted.",
       "issue": 327,
       "backup": [
