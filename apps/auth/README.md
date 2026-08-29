@@ -69,7 +69,11 @@ Mint path:
 2. `GET /api/auth/token` with that cookie. The body is `{ "token": "..." }`.
 3. Call zoend with `Authorization: Bearer <token>`. Set `ZOEN_OIDC_AUDIENCE` to `zoend`. Set `ZOEN_OIDC_ISSUER` to the token `iss`, which is `BETTER_AUTH_URL` with no trailing slash. If that issuer is not loopback, set `ZOEN_OIDC_DISCOVERY_URL` to the loopback door. On Fly that value is `http://127.0.0.1:58704`.
 
+Remint grant on Fly is the same session path against loopback `http://127.0.0.1:58704` (never the public origin). `deploy/fly/zoen-remint-agent` signs in as `ZOEN_BA_AGENT_EMAIL`, calls `GET /api/auth/token`, and writes the JWT to `ZOEN_AGENT_BEARER_TOKEN_FILE`. Origin is `BETTER_AUTH_URL`. Password is the Fly secret `ZOEN_BA_AGENT_PASSWORD`.
+
 To prove the full path locally, run `scripts/prove-zoend-ba.sh` from `apps/auth`. The script starts the door, mints a token, boots a throwaway zoend against that issuer, and writes `/workspace/ship/zoend-ba-proof.md` with commands and status codes. The proof file does not record the JWT, session cookie, or `BETTER_AUTH_SECRET`.
+
+To prove remint's session mint plus WebOidc bind and lake publish, run `scripts/prove-remint-ba.sh`. That writes `/workspace/ship/remint-ba-proof.md`.
 
 To prove boot against a public token `iss` while fetching discovery on loopback, run `scripts/prove-issuer-cutover.sh`. That writes `/workspace/ship/issuer-cutover-proof.md`.
 

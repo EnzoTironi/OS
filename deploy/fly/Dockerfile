@@ -57,6 +57,7 @@ COPY deploy/fly/zoen-start-restate /usr/local/bin/zoen-start-restate
 COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/realm.template.json /etc/zoen/realm.template.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
+COPY deploy/fly/zoen-ensure-agent-binding /usr/local/bin/zoen-ensure-agent-binding
 COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake
 COPY deploy/fly/zoen-start-auth /usr/local/bin/zoen-start-auth
 COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
