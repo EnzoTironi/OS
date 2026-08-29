@@ -15,13 +15,6 @@ RUN cargo build --locked --release --package zoend \
     && strip --strip-debug target/release/zoend target/release/zoen-effect-dispatcher \
          target/release/zoen-http-connector target/release/zoen-projection
 
-FROM golang:1.25-bookworm AS companion
-WORKDIR /src
-COPY apps/whatsapp-companion/go.mod apps/whatsapp-companion/go.sum ./
-RUN go mod download
-COPY apps/whatsapp-companion/ ./
-RUN CGO_ENABLED=0 go build -o /zoen-whatsapp-companion ./cmd/zoen-whatsapp-companion
-
 FROM node:22.18.0-bookworm-slim AS personal-lake
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
@@ -40,7 +33,6 @@ RUN apt-get update \
 
 COPY --from=zoend /src/target/release/zoend /usr/local/bin/zoend
 COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
-COPY --from=companion /zoen-whatsapp-companion /usr/local/bin/zoen-whatsapp-companion
 COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
 COPY --from=personal-lake /app /app
 COPY --from=quay.io/keycloak/keycloak:26.0.7 /opt/keycloak /opt/keycloak

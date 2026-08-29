@@ -9,7 +9,6 @@ on:
     paths:
       - "deploy/fly/**"
       - "apps/zoend/**"
-      - "apps/whatsapp-companion/**"
       - "crates/**"
       - "packages/ontology/**"
       - "proto/**"

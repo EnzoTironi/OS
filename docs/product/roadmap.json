@@ -38,8 +38,8 @@
       "order": 2,
       "issue": 326,
       "pr": null,
-      "title": "Unofficial WhatsApp via whatsmeow sidecar",
-      "note": "In flight. Companion posts zoend /channels/whatsapp/inbound. Destination WhatsApp is Kapso in Eve. Python log sink is not the live path. #375 then #376."
+      "title": "WhatsApp destination Kapso in Eve",
+      "note": "Sidecar deleted. Destination WhatsApp is Kapso in Eve."
     },
     {
       "order": 3,
@@ -315,16 +315,15 @@
       "id": "whatsapp-unofficial",
       "status": "in-flight",
       "plane": "channels",
-      "name": "Unofficial WhatsApp (whatsmeow) for Brazil",
+      "name": "WhatsApp (Kapso) for Brazil",
       "onMain": false,
       "product": false,
-      "path": "apps/whatsapp-companion, apps/zoend/src/messaging_ingress.rs",
-      "proof": "Companion posts zoend /channels/whatsapp/inbound. Destination WhatsApp is Kapso in Eve. Cloud API fake stays deleted. Python log sink is not the live path.",
+      "path": "apps/conversation/agent/channels/whatsapp.ts",
+      "proof": "Sidecar deleted. Destination WhatsApp is Kapso defineChannel in Eve. Cloud API fake stays deleted.",
       "issue": 375,
       "backup": [
         "backup/stubs-channels"
-      ],
-      "blocker": "Dedicated Zoen WhatsApp number"
+      ]
     },
     {
       "id": "messaging-conformance-live",
@@ -355,7 +354,7 @@
         "e2e/surface-ir-renderer",
         "e2e/proactive-attention"
       ],
-      "blocker": "Paired ZOEN_WHATSAPP_DOOR_E164 plus a ready CompanionSession"
+      "blocker": "Paired ZOEN_WHATSAPP_DOOR_E164"
     },
     {
       "id": "messaging-boundary-law",
