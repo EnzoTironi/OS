@@ -19,7 +19,7 @@ Durable state has three drawers. Each has one write role.
 
 2. **Evidence.** Immutable Arrow/Parquet objects plus DataFusion. PostgreSQL holds only rebuildable `projection_manifests` and `projection_watermarks`. Role `zoen_projection` may `SELECT` any public table and may `INSERT`/`UPDATE` only those two watermark tables. It has no `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` on authority tables. `PostgresAuthorityStore::connect` re-applies migration `0021` after every migrate so a role created after sqlx records that checksum still receives table grants.
 
-3. **Orchestration.** Restate plus `packages/effect-worker`. Fly runs `zoen-effect-dispatcher`. Journals are rebuildable. Restate retry must not become semantic truth.
+3. **Orchestration.** Restate. Fly runs `zoen-effect-dispatcher`. Journals are rebuildable. Restate retry must not become semantic truth.
 
 `zoen-projection` migrates with `DATABASE_URL` (`zoen_app`). That migrate credential stays in the process. The worker pool comes from `ZOEN_PROJECTION_DATABASE_URL` when that variable is present. A present empty value fails closed. A URL that can `INSERT` into `semantic_claims` fails closed. Compose scenarios that never create the role omit the variable and keep using `DATABASE_URL` as the worker pool.
 

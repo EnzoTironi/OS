@@ -23,6 +23,7 @@
     "@bufbuild/protoc-gen-es": "2.14.0",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-node": "2.1.2",
+    "@restatedev/restate-sdk": "1.16.7",
     "@types/node": "26.2.0",
     "@types/pg": "8.23.1",
     "@types/react": "^19.2.18",
