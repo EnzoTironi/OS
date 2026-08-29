@@ -49,7 +49,7 @@
       "returns": {"kind": "text"}
     }
   ],
-  "definitionId": "world.s5compartments",
+  "definitionId": "zoen.personal.workspace",
   "relations": [
     {
       "cardinality": "one",

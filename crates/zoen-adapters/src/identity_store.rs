@@ -1303,8 +1303,8 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
         BTreeSet::from([ResourceId::parse("zoen.personal.workspace")
             .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?]),
         BTreeSet::from([workload_id.clone()]),
-        TimestampMicros::new(i64::MIN / 2),
-        TimestampMicros::new(i64::MAX / 2),
+        TimestampMicros::new(0),
+        TimestampMicros::new(4_102_444_800_000_000),
     )
     .map_err(|error| IdentityError::Conflict(error.to_string()))?;
     DelegationChain::new(vec![grant]).map_err(|error| IdentityError::Conflict(error.to_string()))
@@ -1321,8 +1321,8 @@ pub fn dest_invitee_delegation(
             .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?]),
         BTreeSet::from([resource_id.clone()]),
         BTreeSet::from([workload_id.clone()]),
-        TimestampMicros::new(i64::MIN / 2),
-        TimestampMicros::new(i64::MAX / 2),
+        TimestampMicros::new(0),
+        TimestampMicros::new(4_102_444_800_000_000),
     )
     .map_err(|error| IdentityError::Conflict(error.to_string()))?;
     DelegationChain::new(vec![grant]).map_err(|error| IdentityError::Conflict(error.to_string()))

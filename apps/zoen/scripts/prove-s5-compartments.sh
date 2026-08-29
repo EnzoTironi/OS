@@ -27,7 +27,7 @@ valid_at="2026-01-15T00:00:00Z"
 valid_at_micros="1768435200000000"
 digest="$(tr -d ' \n' < "$repo/testdata/dest/s5-compartments/definition.sha256")"
 canon="$repo/testdata/dest/s5-compartments/definition.canonical.json"
-definition_id="world.s5compartments"
+definition_id="zoen.personal.workspace"
 
 stamp() {
   TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M:%S %Z'
@@ -343,12 +343,20 @@ record "POST /identity/admin/bootstrap-bound" "curl bootstrap-bound" "${zoend_ba
 
 updated="$(docker exec "$zoend_pg_name" psql -U postgres -d zoen -v ON_ERROR_STOP=1 -tAc \
   "UPDATE memberships
-   SET clearance_json = '[\"zoen.world.floor\",\"zoen.world.reserved\",\"zoen.world.top\"]'::jsonb,
-       delegation_json = '{\"grants\":[{\"actionIds\":[\"zoen.definition.activate\",\"zoen.world.invite\",\"zoen.world.share\",\"zoen.world.reserve\",\"zoen.world.whoCan\"],\"delegationId\":\"delegation.personal\",\"expiresAt\":253402300799,\"notBefore\":0,\"resourceIds\":[\"world.s5compartments\",\"entity.slot\",\"entity.prontuario\"],\"workloadIds\":[\"workload.personal\"]}]}'::jsonb
+   SET clearance_json = '[\"zoen.world.floor\",\"zoen.world.reserved\",\"zoen.world.top\"]'::jsonb
    WHERE membership_id = '${owner_membership}'
    RETURNING membership_id")"
 updated="$(printf '%s' "$updated" | tr -d '[:space:]')"
-[[ "$updated" == *"$owner_membership"* ]] || fail "owner membership update missed"
+[[ "$updated" == *"$owner_membership"* ]] || fail "owner clearance update missed"
+owner_actions="$(docker exec "$zoend_pg_name" psql -U postgres -d zoen -v ON_ERROR_STOP=1 -tAc \
+  "SELECT delegation_json::text FROM memberships WHERE membership_id = '${owner_membership}'")"
+printf '%s' "$owner_actions" | grep -q 'zoen.world.invite' || fail "F3 personal grant missing zoen.world.invite"
+printf '%s' "$owner_actions" | grep -q 'zoen.world.share' || fail "F3 personal grant missing zoen.world.share"
+printf '%s' "$owner_actions" | grep -q 'zoen.world.reserve' || fail "F3 personal grant missing zoen.world.reserve"
+printf '%s' "$owner_actions" | grep -q 'zoen.world.whoCan' || fail "F3 personal grant missing zoen.world.whoCan"
+record "owner Personal grant from bootstrap (no SQL SET of action ids)" \
+  "psql SELECT delegation_json after clearance-only UPDATE" \
+  "memberships.delegation_json" "0" "invite share reserve whoCan present"
 
 reception_email="s5-reception-$(date +%s)@example.invalid"
 signup_json="$(python3 -c 'import json,sys; print(json.dumps({"email":sys.argv[1],"password":"Prove-s5-compartments-1","name":"s5 reception"}))' "$reception_email")"
@@ -391,42 +399,6 @@ status="$(
 record "POST /identity/admin/verify-binding (reception)" "curl verify-binding reception" "${zoend_base}/identity/admin/verify-binding" "$status" "$(excerpt_file "$body")"
 [[ "$status" == "200" ]] || fail "verify-binding ${status}"
 
-invite_token="s5-reception-invite-token"
-body="${work}/invite"
-status="$(
-  curl -sS -o "$body" -w '%{http_code}' \
-    -X POST \
-    -H "Authorization: Bearer ${admin_token}" \
-    -H 'content-type: application/json' \
-    -d "$(python3 -c 'import json,sys; print(json.dumps({
-      "tenantId":sys.argv[1],
-      "principalId":"principal.reception",
-      "token":sys.argv[2],
-      "expiresAtMicros": 4102444800000000,
-      "workloadId":"workload.personal",
-      "actorId":"actor.reception",
-      "actionIds":["zoen.definition.activate"],
-      "resourceIds":["zoen.personal.workspace"],
-    }))' "$tenant_id" "$invite_token")" \
-    "${zoend_base}/identity/admin/invites"
-)"
-record "POST /identity/admin/invites (reception)" "curl create invite reception" "${zoend_base}/identity/admin/invites" "$status" "$(excerpt_file "$body")"
-[[ "$status" == "200" ]] || fail "create invite ${status}"
-
-body="${work}/accept"
-status="$(
-  curl -sS -o "$body" -w '%{http_code}' \
-    -X POST \
-    -H "Authorization: Bearer ${reception_token}" \
-    -H 'content-type: application/json' \
-    -d "$(python3 -c 'import json,sys; print(json.dumps({"accountId":sys.argv[1],"token":sys.argv[2]}))' "$reception_account" "$invite_token")" \
-    "${zoend_base}/identity/admin/accept-invite"
-)"
-reception_membership="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["membershipId"])' < "$body")"
-reception_principal="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["principalId"])' < "$body")"
-record "POST /identity/admin/accept-invite (reception)" "curl accept-invite reception" "${zoend_base}/identity/admin/accept-invite" "$status" "membership=${reception_membership}"
-[[ "$status" == "200" ]] || fail "accept-invite ${status}"
-
 canon_b64="$(python3 -c 'import base64,sys; print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$canon")"
 body="${work}/publish"
 status="$(
@@ -456,7 +428,7 @@ body="${work}/activate"
 status="$(
   connect "$owner_token" "/zoen.definition.v1.DefinitionService/ActivateRevision" "$(python3 -c 'import json,sys; print(json.dumps({
     "tenantId":sys.argv[1],
-    "definitionId":"world.s5compartments",
+    "definitionId":"zoen.personal.workspace",
     "digest":sys.argv[2],
     "expectNoActiveRevision": True,
   }))' "$tenant_id" "$digest")" "$body"
@@ -476,7 +448,7 @@ print(json.dumps({
   "operationId": "operation."+claim.replace(".","-"),
   "claim": {
     "claimId": claim,
-    "definition": {"definitionId":"world.s5compartments","revision":1,"digest":digest},
+    "definition": {"definitionId":"zoen.personal.workspace","revision":1,"digest":digest},
     "entityId": entity,
     "relationId": relation,
     "value": {"textValue": text},
@@ -511,7 +483,7 @@ digest, valid, action, resource, inputs, proposal, operation = sys.argv[1:]
 print(json.dumps({
   "proposalId": proposal,
   "operationId": operation,
-  "definition": {"definitionId":"world.s5compartments","revision":1,"digest":digest},
+  "definition": {"definitionId":"zoen.personal.workspace","revision":1,"digest":digest},
   "actionId": action,
   "resourceId": resource,
   "inputs": json.loads(inputs),
@@ -520,6 +492,39 @@ print(json.dumps({
 }))' "$digest" "$valid_at" "$action_id" "$resource_id" "$inputs_json" "$proposal_id" "$operation_id")"
   connect "$owner_token" "/zoen.action.v1.ActionService/Propose" "$payload" "$out"
 }
+
+commit_dest_invite() {
+  local account_id="$1" principal_id="$2" actor_id="$3" token="$4" proposal_id="$5" operation_id="$6" out_prefix="$7"
+  local inputs
+  inputs="$(python3 -c 'import json,sys; print(json.dumps([
+    {"inputId":"accountId","value":{"textValue":sys.argv[1]}},
+    {"inputId":"actorId","value":{"textValue":sys.argv[2]}},
+    {"inputId":"principalId","value":{"textValue":sys.argv[3]}},
+    {"inputId":"token","value":{"textValue":sys.argv[4]}},
+    {"inputId":"workloadId","value":{"textValue":"workload.personal"}},
+  ]))' "$account_id" "$actor_id" "$principal_id" "$token")"
+  local body="${work}/${out_prefix}-propose"
+  local status
+  status="$(propose_action "zoen.world.invite" "zoen.personal.workspace" "$inputs" "$proposal_id" "$operation_id" "$body")"
+  record "ActionService/Propose zoen.world.invite (${out_prefix})" "curl Propose invite ${out_prefix}" "${zoend_base}/zoen.action.v1.ActionService/Propose" "$status" "$(excerpt_file "$body")"
+  [[ "$status" == "200" ]] || fail "propose invite ${out_prefix} ${status}"
+  local preview
+  preview="$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1],encoding="utf-8")).get("proposal") or {}).get("previewHash") or "")' "$body")"
+  [[ -n "$preview" ]] || fail "invite ${out_prefix} missing preview_hash"
+  body="${work}/${out_prefix}-commit"
+  status="$(
+    connect "$owner_token" "/zoen.action.v1.ActionService/Commit" "$(python3 -c 'import json,sys; print(json.dumps({
+      "proposalId":sys.argv[1],
+      "operationId":sys.argv[2],
+      "previewHash":sys.argv[3],
+    }))' "$proposal_id" "$operation_id" "$preview")" "$body"
+  )"
+  record "ActionService/Commit zoen.world.invite (${out_prefix})" "curl Commit invite ${out_prefix}" "${zoend_base}/zoen.action.v1.ActionService/Commit" "$status" "$(excerpt_file "$body")"
+  [[ "$status" == "200" ]] || fail "commit invite ${out_prefix} ${status}"
+}
+
+reception_principal="principal.reception"
+commit_dest_invite "$reception_account" "$reception_principal" "actor.reception" "s5-dest-reception-token" "proposal.s5-invite-reception" "operation.s5-invite-reception" "reception-invite"
 
 reserve_inputs='[{"inputId":"token","value":{"textValue":"zoen.world.reserved"}}]'
 body="${work}/propose-reserve"
@@ -563,7 +568,7 @@ record "ActionService/Commit zoen.world.reserve" "curl Commit reserve previewHas
 
 classified_query="$(python3 -c 'import json,sys; print(json.dumps({
   "tenantId":sys.argv[1],
-  "definition":{"definitionId":"world.s5compartments","revision":1,"digest":sys.argv[2]},
+  "definition":{"definitionId":"zoen.personal.workspace","revision":1,"digest":sys.argv[2]},
   "validAt":sys.argv[3],
   "consistency":{"strong":{}},
   "entityId":"entity.prontuario",
@@ -605,7 +610,7 @@ printf 'classifiedAs_prontuario_unchanged=%s\n' "$classified_after"
 
 type_query="$(python3 -c 'import json,sys; print(json.dumps({
   "tenantId":sys.argv[1],
-  "definition":{"definitionId":"world.s5compartments","revision":1,"digest":sys.argv[2]},
+  "definition":{"definitionId":"zoen.personal.workspace","revision":1,"digest":sys.argv[2]},
   "validAt":sys.argv[3],
   "consistency":{"strong":{}},
   "byType":{"typeId":"world.Note","limit":10},
@@ -670,30 +675,7 @@ status="$(
 record "POST /identity/admin/verify-binding (invitee)" "curl verify-binding invitee" "${zoend_base}/identity/admin/verify-binding" "$status" "$(excerpt_file "$body")"
 [[ "$status" == "200" ]] || fail "invitee verify ${status}"
 
-invite_inputs="$(python3 -c 'import json,sys; print(json.dumps([
-  {"inputId":"accountId","value":{"textValue":sys.argv[1]}},
-  {"inputId":"actorId","value":{"textValue":"actor.invitee"}},
-  {"inputId":"principalId","value":{"textValue":"principal.invitee"}},
-  {"inputId":"token","value":{"textValue":"s5-dest-invite-token"}},
-  {"inputId":"workloadId","value":{"textValue":"workload.personal"}},
-]))' "$invitee_account")"
-body="${work}/propose-invite"
-status="$(propose_action "zoen.world.invite" "entity.slot" "$invite_inputs" "proposal.s5-invite" "operation.s5-invite" "$body")"
-record "ActionService/Propose zoen.world.invite" "curl Propose invite" "${zoend_base}/zoen.action.v1.ActionService/Propose" "$status" "$(excerpt_file "$body")"
-[[ "$status" == "200" ]] || fail "propose invite ${status}"
-invite_hash="$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1],encoding="utf-8")).get("proposal") or {}).get("previewHash") or "")' "$body")"
-[[ -n "$invite_hash" ]] || fail "invite propose missing preview_hash"
-
-body="${work}/commit-invite"
-status="$(
-  connect "$owner_token" "/zoen.action.v1.ActionService/Commit" "$(python3 -c 'import json,sys; print(json.dumps({
-    "proposalId":"proposal.s5-invite",
-    "operationId":"operation.s5-invite",
-    "previewHash":sys.argv[1],
-  }))' "$invite_hash")" "$body"
-)"
-record "ActionService/Commit zoen.world.invite" "curl Commit invite" "${zoend_base}/zoen.action.v1.ActionService/Commit" "$status" "$(excerpt_file "$body")"
-[[ "$status" == "200" ]] || fail "commit invite ${status}"
+commit_dest_invite "$invitee_account" "principal.invitee" "actor.invitee" "s5-dest-invite-token" "proposal.s5-invite" "operation.s5-invite" "invitee"
 
 body="${work}/invitee-context"
 status="$(
@@ -733,7 +715,7 @@ status="$(
     -d "$(python3 -c 'import json,sys; print(json.dumps({
       "tenantId":sys.argv[1],
       "stageId":"stage.overcap",
-      "definitionId":"world.s5compartments",
+      "definitionId":"zoen.personal.workspace",
       "digest":sys.argv[2],
       "revision":1,
       "entityId":"entity.slot",
