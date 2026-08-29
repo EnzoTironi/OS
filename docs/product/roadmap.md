@@ -21,7 +21,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 | order | issue | PR | title | note |
 | ---: | ---: | --- | --- | --- |
 | 1 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on OIDC | Done on main. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted. |
-| 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | Unofficial WhatsApp via whatsmeow sidecar | In flight. Companion posts zoend /channels/whatsapp/inbound. Destination WhatsApp is Kapso in Eve. Python log sink is not the live path. #375 then #376. |
+| 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | WhatsApp destination Kapso in Eve | Sidecar deleted. Destination WhatsApp is Kapso in Eve. |
 | 3 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | In flight. Live Bot API adapter behind MessagingGateway. Advertise fails closed without TELEGRAM_BOT_TOKEN. Webhook is production. Do not restore the fake. |
 | 4 | [#327](https://github.com/EnzoTironi/OS/issues/327) | — | Conformance and substitution against live adapters | In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify. |
 | 5 | [#328](https://github.com/EnzoTironi/OS/issues/328) | — | Surface IR and Attention on live channels | Surface and attention are archived. Live WhatsApp destination is Kapso in Eve. Paired door still missing. |
@@ -96,7 +96,7 @@ Fail-closed work in an open PR. Do not duplicate.
 | `authority-cedar-projection` | authority | Cedar object and link projection | just e2e cedar-object-projection. Membership, object type, and links are projected into Cedar Entities from semantic records. Empty-entity evaluation is gone for that path. | [#357](https://github.com/EnzoTironi/OS/issues/357) |
 | `workshop-miniapp` | experience | Workshop mini-app lists commercial objects and commits changeCommitment | Optional on archive/pre-modeled-erp. just e2e workshop-miniapp there. | [#356](https://github.com/EnzoTironi/OS/issues/356) |
 | `telegram-live` | channels | Telegram channel | Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted. Node Telegram adapter deleted. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
-| `whatsapp-unofficial` | channels | Unofficial WhatsApp (whatsmeow) for Brazil | Companion posts zoend /channels/whatsapp/inbound. Destination WhatsApp is Kapso in Eve. Cloud API fake stays deleted. Python log sink is not the live path. | [#375](https://github.com/EnzoTironi/OS/issues/375) |
+| `whatsapp-unofficial` | channels | WhatsApp (Kapso) for Brazil | Sidecar deleted. Destination WhatsApp is Kapso defineChannel in Eve. Cloud API fake stays deleted. | [#375](https://github.com/EnzoTironi/OS/issues/375) |
 | `messaging-conformance-live` | channels | Messaging conformance against live adapters | Node adapter conformance journey deleted. Live WhatsApp destination is Kapso in Eve. Fakes stay deleted. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `surface-ir-e2e-live` | channels | Surface IR and Attention e2e on live channels | CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 

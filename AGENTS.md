@@ -22,8 +22,8 @@ You do not add Redis. Restate is ontology ZoenEffect only. Conversation durabili
 
 ## WhatsApp
 
-WhatsApp destination is Kapso `defineChannel`. whatsmeow is the current lab door, not the destination. Do not use `@chat-adapter/whatsapp` Cloud API. Outbound is text plus one https URL.
+WhatsApp destination is Kapso `defineChannel`. Do not use `@chat-adapter/whatsapp` Cloud API. Outbound is text plus one https URL.
 
 ## Fly images
 
-A Fly image may still build zoend and companion this week.
+A Fly image may still build zoend this week.

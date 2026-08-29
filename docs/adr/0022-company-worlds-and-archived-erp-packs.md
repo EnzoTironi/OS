@@ -17,7 +17,7 @@ Zoen is not a prebuilt SAP. Each company brings its own published definition. Pr
 
 ### Still live
 
-- `crates/*`, `apps/zoend`, `apps/whatsapp-companion`, `proto`, `wit`
+- `crates/*`, `apps/zoend`, `proto`, `wit`
 - `packages/ontology` (compiler + lake fixture)
 - `packages/mcp` (deferred; CLI/API first)
 - `apps/conversation` (Eve)

@@ -1,5 +1,5 @@
 # Dedicated Zoen on one Fly machine. Volume holds pgdata + Restate + MinIO.
-# WhatsApp companion cannot survive auto-stop.
+# Postgres, Restate, and Keycloak cannot survive auto-stop.
 
 app = "zoen"
 primary_region = "gru"
@@ -46,9 +46,7 @@ primary_region = "gru"
   ZOEN_CEDAR_POLICY_MANIFEST = "/etc/zoen/policies.json"
   ZOEN_OIDC_AUDIENCE = "zoend"
   ZOEN_OIDC_ISSUER = "http://127.0.0.1:8080/realms/zoen"
-  ZOEN_WHATSAPP_INGRESS_URL = "http://127.0.0.1:58701/channels/whatsapp/inbound"
   ZOEN_IDENTITY_BASE_URL = "http://127.0.0.1:58701"
-  ZOEN_WHATSAPP_LISTEN_ADDR = "127.0.0.1:8081"
   S3_ALLOW_HTTP = "true"
   S3_REGION = "us-east-1"
   S3_ENDPOINT = "http://127.0.0.1:9000"

@@ -1,14 +1,14 @@
 # Fly `zoen`
 
 One machine in `gru`. Volume `zoen_data` → `/data` (postgres, Restate, MinIO).
-Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Companion stays up (`auto_stop_machines = off`).
+Public HTTPS is `zoen.tironi.xyz` → zoend `:58701`. Postgres, Restate, and Keycloak stay up (`auto_stop_machines = off`).
 
 ## Ship a change
 
 1. Land on `main` (PR, not from the laptop).
 2. GitHub Actions `fly-deploy` builds `deploy/fly/Dockerfile` on the runner.
 3. It pushes `registry.fly.io/zoen:$GITHUB_SHA` and runs `fly deploy --image` (no Fly remote builder).
-4. Volume data survives. WhatsApp session is in postgres on that volume.
+4. Volume data survives.
 
 Manual: Actions → `fly-deploy` → Run workflow.
 
@@ -17,12 +17,11 @@ Manual: Actions → `fly-deploy` → Run workflow.
 - `fly deploy` without `--image` (that bills a Fly builder).
 - Preview apps per PR.
 - GitHub Release on every push. A `v*` tag can make a Release later; rollback is the previous image SHA.
-- Companion `/send`. Pair from companion logs (QR) after the first boot.
 - Merge from the laptop.
 
-## First boot (not done yet)
+## First boot
 
-App exists. Volume, IPs, cert, and secrets are staged. Zero machines until the first `fly-deploy` succeeds.
+App exists. Volume, IPs, cert, and secrets are staged.
 Cedar is `deploy/fly/policies.json` in `/etc/zoen/policies.json`.
 Realm is `deploy/fly/realm.template.json`; boot fills client `admin-a` from Fly secret `ZOEN_OIDC_CLIENT_SECRET`.
 
@@ -31,10 +30,9 @@ Realm is `deploy/fly/realm.template.json`; boot fills client `admin-a` from Fly 
 Secrets stay on the Fly app, not in `fly.toml`. Door is `+553798136141`.
 
 ```
-fly ssh console --app zoen -C "zoen-whatsapp-companion pair"
 fly ssh console --app zoen -C "zoen-bind-inbox"
 ```
 
-Pair prints the QR. Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID (`5531999941160@s.whatsapp.net` by default). Never the door.
+Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID (`5531999941160@s.whatsapp.net` by default). Never the door.
 
 `ZOEN_MODEL` and `OPENAI_BASE_URL` are in fly.toml `[env]`; `OPENAI_API_KEY` stays a Fly/GitHub secret. Effects/connector stay unset on this VM.
