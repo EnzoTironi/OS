@@ -15,7 +15,10 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.51",
+    "@chat-adapter/state-memory": "^4.39.0",
+    "@kapso/chat-adapter": "^0.1.1",
     "ai": "^7.0.58",
+    "chat": "^4.39.0",
     "eve": "0.47.3",
     "zod": "4.4.3"
   },
@@ -26,5 +29,4 @@
   "engines": {
     "node": "24.x"
   }
-
 }

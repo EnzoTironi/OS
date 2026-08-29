@@ -42,7 +42,9 @@ function betterAuthSession(): AuthFn<Request> {
     if (authorization !== null && authorization.length > 0) {
       headers.set("authorization", authorization);
     }
-    if (headers.size === 0) return null;
+    if ((cookie === null || cookie.length === 0) && (authorization === null || authorization.length === 0)) {
+      return null;
+    }
 
     let response: Response;
     try {

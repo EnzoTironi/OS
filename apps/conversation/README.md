@@ -29,6 +29,16 @@ curl http://127.0.0.1:2000/eve/v1/session/<sessionId>/stream
 
 Assistant text arrives on `message.appended` and `message.completed`. Health is public at `GET /eve/v1/health`. Session routes are not.
 
+WhatsApp inbound is the Chat SDK Kapso channel at `POST /eve/v1/kapso`. Set `KAPSO_API_KEY`, `KAPSO_PHONE_NUMBER_ID`, and `KAPSO_WEBHOOK_SECRET`. Kapso signs the raw body with HMAC-SHA256 in `X-Webhook-Signature`. Everyday replies are text plus one https URL.
+
+Admit a signed sandbox-shaped POST against a local eve:
+
+```bash
+KAPSO_WEBHOOK_SECRET='kapso-local-proof-secret' node scripts/kapso-webhook-admit.mjs http://127.0.0.1:2000/eve/v1/kapso
+```
+
+Do not point Kapso project or phone webhooks from that helper.
+
 Edit `agent/instructions.md` for voice. Edit `agent/agent.ts` for the model.
 
 The model is a direct OpenAI-compatible `LanguageModel`. Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `ZOEN_MODEL` in the process environment. Do not commit those values.
