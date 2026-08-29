@@ -36,7 +36,7 @@ Compiler and lake tests that need an OrderLine-shaped definition compile `packag
 
 ### Surface IR
 
-ADR-0012’s law stands: presentation is not business truth; renderer replacement must not change ontology or Action semantics. The full `@zoen/surface` package lives on `archive/pre-modeled-erp`. Surface IR left the default tree. Live WhatsApp destination is Kapso `defineChannel` in Eve. Do not treat archived Surface as a second compiler.
+ADR-0012’s law stands: presentation is not business truth; renderer replacement must not change ontology or Action semantics. The full `@zoen/surface` package lives on `archive/pre-modeled-erp`. Surface IR left the default tree. Live WhatsApp destination is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Do not treat archived Surface as a second compiler.
 
 ### Fiscal adapters
 

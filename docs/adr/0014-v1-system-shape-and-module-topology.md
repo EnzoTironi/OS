@@ -46,7 +46,6 @@ apps/
 packages/
   ontology/        # TypeScript authoring DSL/compiler
   mcp/             # ontology MCP door
-  effect-worker/   # leftover Restate effect worker (later unit)
 
 proto/             # versioned public Protobuf contracts
 deploy/            # Fly production image
