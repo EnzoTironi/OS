@@ -141,6 +141,7 @@ run_lint() {
   node scripts/check-semantic-mutants.mjs
   node scripts/generate-jcs-fixtures.mjs --check
   node scripts/check-production-artifacts.mjs
+  node scripts/check-pre-launch-evolution.mjs
   npm test
   cargo fmt --all --check
   cargo test --locked --workspace
