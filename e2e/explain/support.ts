@@ -5,9 +5,15 @@ import { zoenBaseUrl } from "../effect-support.js";
 
 export type HistoryClient = Client<typeof HistoryService>;
 
-export function historyClient(token: string): HistoryClient {
+export function historyClient(
+  token: string,
+  tenantId?: string,
+): HistoryClient {
   const authorization: Interceptor = (next) => async (request) => {
     request.header.set("authorization", `Bearer ${token}`);
+    if (tenantId !== undefined) {
+      request.header.set("x-zoen-tenant", tenantId);
+    }
     return next(request);
   };
   return createClient(

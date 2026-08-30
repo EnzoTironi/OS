@@ -16,8 +16,10 @@ import { bindActionPreviewHash } from "./action-preview-bind.js";
 import { DefinitionService } from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import { EffectService } from "../gen/connect/zoen/effect/v1/effect_pb.js";
 import { WorldService } from "../gen/connect/zoen/world/v1/world_pb.js";
+import { e2eAuthDatabaseUrl } from "./ba-door.js";
 import {
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
@@ -26,7 +28,6 @@ import {
 export const repositoryRoot = process.cwd();
 const postgresPortFallback = 55_441;
 const zoendPortFallback = 58_111;
-const keycloakPortFallback = 58_110;
 const restateIngressFallback = 58_112;
 const restateUiFallback = 59_071;
 const connectorPortFallback = 58_113;
@@ -52,13 +53,10 @@ export const adminDatabaseUrl = e2ePostgresUrl(
   "postgres",
   postgresPortFallback,
 );
+export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 export const zoenBaseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const oidcIssuer = e2eHttpUrl(
-  "ZOEN_E2E_KEYCLOAK_PORT",
-  keycloakPortFallback,
-  "/realms/zoen",
-);
-export const oidcAudience = "zoend";
+export const oidcIssuer = "http://127.0.0.1/removed";
+export const oidcAudience = "removed";
 export const restateIngress = e2eHttpUrl(
   "ZOEN_E2E_RESTATE_INGRESS_PORT",
   restateIngressFallback,
@@ -125,35 +123,40 @@ export function adminClient(): PostgresClient {
   return new PostgresClient({ connectionString: adminDatabaseUrl });
 }
 
-export function actionClient(token: string): ActionClient {
-  return bindActionPreviewHash(createClient(ActionService, transport(token)));
+export function actionClient(
+  token: string,
+  tenantId: string = tenantA,
+): ActionClient {
+  return bindActionPreviewHash(
+    createClient(ActionService, transport(token, tenantId)),
+  );
 }
 
-export function definitionClient(token: string): DefinitionClient {
-  return createClient(DefinitionService, transport(token));
+export function definitionClient(
+  token: string,
+  tenantId: string = tenantA,
+): DefinitionClient {
+  return createClient(DefinitionService, transport(token, tenantId));
 }
 
-export function effectClient(token: string): EffectClient {
-  return createClient(EffectService, transport(token));
+export function effectClient(
+  token: string,
+  tenantId: string = tenantA,
+): EffectClient {
+  return createClient(EffectService, transport(token, tenantId));
 }
 
-export function worldClient(token: string): WorldClient {
-  return createClient(WorldService, transport(token));
+export function worldClient(
+  token: string,
+  tenantId: string = tenantA,
+): WorldClient {
+  return createClient(WorldService, transport(token, tenantId));
 }
 
 export async function oidcToken(clientId: string): Promise<string> {
-  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: `${clientId}-secret`,
-      grant_type: "client_credentials",
-    }),
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    method: "POST",
-  });
-  const body: unknown = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(body));
-  return tokenResponseSchema.parse(body).access_token;
+  throw new Error(
+    `oidcToken(${clientId}) is gone; plant a Better Auth session`,
+  );
 }
 
 export async function startZoend(policyManifestPath: string): Promise<ManagedProcess> {
@@ -161,10 +164,10 @@ export async function startZoend(policyManifestPath: string): Promise<ManagedPro
     command: path.join(targetDirectory, "zoend"),
     environment: {
       DATABASE_URL: applicationDatabaseUrl,
+      ZOEN_AUTH_DATABASE_URL: authDatabaseUrl,
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
+      ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
-      ZOEN_OIDC_AUDIENCE: oidcAudience,
-      ZOEN_OIDC_ISSUER: oidcIssuer,
     },
     name: "zoend",
     port: zoendPort,
@@ -466,9 +469,10 @@ function canConnect(port: number): Promise<boolean> {
   });
 }
 
-function transport(token: string) {
+function transport(token: string, tenantId: string) {
   const authorization: Interceptor = (next) => async (request) => {
     request.header.set("authorization", `Bearer ${token}`);
+    request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
   return createConnectTransport({

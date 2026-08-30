@@ -13,17 +13,17 @@ import {
 import {
   actionClient,
   adminClient,
+  adminDatabaseUrl,
+  authDatabaseUrl,
   command,
   commitReplenish,
   compileDefinition,
-  composeOutput,
   definitionClient,
   definitionId,
   definitionReference,
   fixtureDirectory,
   generatedDirectory,
   historyClient,
-  oidcToken,
   publish,
   queryProjectedQuantity,
   queryQuantity,
@@ -39,10 +39,19 @@ import {
   tenantB,
   worldClient,
   writePolicyManifest,
+  zoendBaseUrl,
   type CompiledDefinition,
   type ServerProcess,
 } from "./evolution-compatible/support.js";
-import { writeScenarioArtifact } from "./host-env.js";
+import {
+  adminPairPersonas,
+  plantPersonas,
+  sessionOf,
+  signupOnlyPersona,
+  startAuthDoor,
+  stopAuthDoor,
+} from "./ba-door.js";
+import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -80,14 +89,7 @@ async function main(): Promise<void> {
     "policies.json",
   );
   await writePolicyManifest(policyManifestPath, [v1, v2, addedActionMutant]);
-  const adminAToken = await oidcToken("admin-a");
-  const deniedAToken = await oidcToken("denied-a");
-  const adminBToken = await oidcToken("admin-b");
-  const definitionA = definitionClient(adminAToken);
-  const definitionDenied = definitionClient(deniedAToken);
-  const definitionB = definitionClient(adminBToken);
-  const actionA = actionClient(adminAToken);
-  const worldA = worldClient(adminAToken);
+  const door = await startAuthDoor(authDatabaseUrl);
   const admin = adminClient();
   await admin.connect();
   let server: ServerProcess | undefined;
@@ -97,6 +99,26 @@ async function main(): Promise<void> {
 
   try {
     server = await startServer(policyManifestPath);
+    const planted = await plantPersonas(door, {
+      adminToken: e2eIdentityAdminToken(),
+      applicationDatabaseUrl: adminDatabaseUrl,
+      personas: [
+        ...adminPairPersonas(
+          [definitionId, resourceId],
+          ["zoen.definition.activate", "inventory.replenish"],
+        ),
+        signupOnlyPersona("denied-a"),
+      ],
+      zoendBaseUrl,
+    });
+    const adminAToken = sessionOf(planted, "admin-a").token;
+    const deniedAToken = sessionOf(planted, "denied-a").token;
+    const adminBToken = sessionOf(planted, "admin-b").token;
+    const definitionA = definitionClient(adminAToken, tenantA);
+    const definitionDenied = definitionClient(deniedAToken, tenantA);
+    const definitionB = definitionClient(adminBToken, tenantB);
+    const actionA = actionClient(adminAToken, tenantA);
+    const worldA = worldClient(adminAToken, tenantA);
     const beforePublication = await definitionA.getActiveRevision({
       definitionId,
       tenantId: tenantA,
@@ -652,14 +674,6 @@ async function main(): Promise<void> {
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const keycloakVersion = await composeOutput(
-      "exec",
-      "-T",
-      "keycloak",
-      "/opt/keycloak/bin/kc.sh",
-      "--version",
-    );
-    assert.match(keycloakVersion, /Keycloak 26\.0\.7/);
     assert.ok(compatiblePlan);
     const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
     const protocol = await readFile(
@@ -682,8 +696,8 @@ async function main(): Promise<void> {
       },
       assertions,
       componentVersions: {
-        keycloak: keycloakVersion,
         postgres: postgresVersion,
+        sessionDoor: "better-auth",
       },
       definitionDigests: {
         addedActionMutant: addedActionMutant.digest,
@@ -727,6 +741,7 @@ async function main(): Promise<void> {
       await stopServer(server);
     }
     await admin.end();
+    await stopAuthDoor(door);
   }
 }
 

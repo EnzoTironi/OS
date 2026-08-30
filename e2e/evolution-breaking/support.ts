@@ -19,6 +19,8 @@ import {
 import {
   actionClient,
   adminClient,
+  adminDatabaseUrl,
+  authDatabaseUrl,
   command,
   compileDefinition,
   definitionClient,
@@ -37,6 +39,7 @@ import {
   tenantA,
   tenantB,
   worldClient,
+  zoendBaseUrl,
   type ActionClient,
   type CompiledDefinition,
   type DefinitionClient,
@@ -52,6 +55,8 @@ import {
 export {
   actionClient,
   adminClient,
+  adminDatabaseUrl,
+  authDatabaseUrl,
   command,
   compileDefinition,
   definitionClient,
@@ -70,6 +75,7 @@ export {
   tenantA,
   tenantB,
   worldClient,
+  zoendBaseUrl,
 };
 export type {
   ActionClient,

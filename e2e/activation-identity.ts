@@ -14,18 +14,27 @@ import { DefinitionReferenceSchema } from "../gen/connect/zoen/world/v1/world_pb
 import { historyClient } from "./activation-identity/support.js";
 import {
   actionClient,
+  adminDatabaseUrl,
   definitionClient,
   expectConnectCode,
+  authDatabaseUrl,
   minutesFromNow,
-  oidcToken,
+  plantPersonas,
   propose,
   recordAvailable,
+  sessionOf,
+  startAuthDoor,
   startServer,
+  stopAuthDoor,
   stopServer,
   worldClient,
   type DefinitionFixture,
   type ServerProcess,
 } from "./governed-action/support.js";
+import {
+  invitePersona,
+  signupOnlyPersona,
+} from "./ba-door.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
@@ -159,25 +168,64 @@ async function main(): Promise<void> {
   const policyManifestPath = path.join(generatedDirectory, "policies.json");
   const fixture = await writePolicyManifest(policyManifestPath);
 
-  const unboundToken = await oidcToken("unbound-a");
-  const adminToken = await oidcToken("admin-a");
   identityAdminBearer = e2eIdentityAdminToken();
-  const boundToken = await oidcToken("bound-bait");
-  const secondToken = await oidcToken("bound-second");
-
-  let server: ServerProcess = await startServer(policyManifestPath);
+  const door = await startAuthDoor(authDatabaseUrl);
+  let server: ServerProcess | undefined;
 
   try {
-    // Unbound subjects have no ExternalBinding. Claim path still builds TEC.
-    const unboundDefinition = definitionClient(unboundToken);
-    await unboundDefinition.publish({
+    server = await startServer(policyManifestPath);
+    const planted = await plantPersonas(door, {
+      adminToken: e2eIdentityAdminToken(),
+      applicationDatabaseUrl: adminDatabaseUrl,
+      personas: [
+        signupOnlyPersona("unbound-a"),
+        invitePersona({
+          actionIds: ["zoen.definition.activate", "inventory.requestStock"],
+          actorId: "actor.admin.a",
+          id: "admin-a",
+          principalId: "principal.admin.a",
+          resourceIds: [fixture.definitionId, "inventory.item.1"],
+          tenantId: "tenant.a",
+          workloadId: "workload.admin.a",
+        }),
+        signupOnlyPersona("bound-bait"),
+        signupOnlyPersona("bound-second"),
+        invitePersona({
+          actionIds: ["zoen.definition.activate", "inventory.requestStock"],
+          actorId: "actor.org.a.admin",
+          id: "org-a-admin",
+          principalId: "principal.admin.a",
+          resourceIds: [fixture.definitionId, "inventory.item.1"],
+          tenantId: "tenant.org.a",
+          workloadId: "workload.org.a.admin",
+        }),
+      ],
+      zoendBaseUrl: baseUrl,
+    });
+    const unboundToken = sessionOf(planted, "unbound-a").token;
+    const adminToken = sessionOf(planted, "admin-a").token;
+    const boundToken = sessionOf(planted, "bound-bait").token;
+    const secondToken = sessionOf(planted, "bound-second").token;
+    const orgAdminToken = sessionOf(planted, "org-a-admin").token;
+
+    const unboundDefinition = definitionClient(unboundToken, "tenant.a");
+    await expectConnectCode(
+      () =>
+        unboundDefinition.publish({
+          canonicalJson: new TextEncoder().encode(fixture.canonicalJson),
+          digest: fixture.digest,
+          tenantId: "tenant.a",
+        }),
+      Code.PermissionDenied,
+    );
+    record("unbound_session_cannot_publish", true);
+
+    const adminDefinition = definitionClient(adminToken, "tenant.a");
+    await adminDefinition.publish({
       canonicalJson: new TextEncoder().encode(fixture.canonicalJson),
       digest: fixture.digest,
       tenantId: "tenant.a",
     });
-    record("unbound_claim_path_still_publishes", true);
-
-    const adminDefinition = definitionClient(adminToken);
     await adminDefinition.activateRevision({
       activeRevisionPrecondition: {
         case: "expectNoActiveRevision",
@@ -188,7 +236,6 @@ async function main(): Promise<void> {
       tenantId: "tenant.a",
     });
 
-    // OIDC can authenticate, but minting a foreign subject is machine-only.
     const oidcProvisional = await admin(
       "POST",
       "/identity/admin/provisional",
@@ -214,13 +261,13 @@ async function main(): Promise<void> {
         doorProvisional.body.error === "invalid external subject",
     );
 
-    // Provisional account + restart before verify.
     const provisional = await admin("POST", "/identity/admin/provisional", {
       provider: "whatsapp",
       subjectKey: phoneSubject,
     });
     assert.equal(provisional.status, 200, JSON.stringify(provisional.body));
     const provisionalAccountId = String(provisional.body.accountId);
+    assert.ok(server);
     await stopServer(server);
     server = await startServer(policyManifestPath);
     const verifiedWhatsapp = await admin("POST", "/identity/admin/verify-binding", {
@@ -229,7 +276,6 @@ async function main(): Promise<void> {
     assert.equal(verifiedWhatsapp.status, 200, JSON.stringify(verifiedWhatsapp.body));
     record("restart_preserves_provisional_account", true);
 
-    // Bootstrap bound OIDC subject onto its own account + Personal workspace.
     const bootstrap = await admin(
       "POST",
       "/identity/admin/bootstrap-bound",
@@ -264,19 +310,16 @@ async function main(): Promise<void> {
         personalContext.body.principalId !== "principal.phone.plus5511999999999",
     );
 
-    // Link messaging subject onto the bound OIDC account.
     const linkPhone = await admin("POST", "/identity/admin/bind-verified", {
       accountId: boundAccountId,
       provider: "whatsapp",
       subjectKey: phoneSubject,
     });
-    // phone already bound to provisionalAccountId — expect conflict (mutant: reuse inherits)
     record(
       "subject_already_bound_rejected",
       linkPhone.status === 409,
     );
 
-    // Recycle: unbind from provisional account, bind onto bound account.
     const provisionalSnapshot = await admin(
       "GET",
       `/identity/admin/accounts/${provisionalAccountId}`,
@@ -296,7 +339,6 @@ async function main(): Promise<void> {
     });
     assert.equal(recycledBind.status, 200, JSON.stringify(recycledBind.body));
 
-    // New account from recycled subject path: create fresh account after unbind from bound.
     await admin("POST", "/identity/admin/unbind", {
       bindingId: String(recycledBind.body.bindingId),
       reason: "recycle",
@@ -320,7 +362,6 @@ async function main(): Promise<void> {
     );
     killMutant("recycled subject inherits account");
 
-    // Org invites with colliding principal names across tenants.
     const inviteTokenA = "invite-token-org-a-one-time";
     const inviteTokenB = "invite-token-org-b-one-time";
     const expiresAt = Date.now() * 1000 + 3_600_000_000;
@@ -392,8 +433,7 @@ async function main(): Promise<void> {
     );
     killMutant("tenant=invite payload override");
 
-    const orgAdminToken = await oidcToken("org-a-admin");
-    const orgAdminDefinition = definitionClient(orgAdminToken);
+    const orgAdminDefinition = definitionClient(orgAdminToken, "tenant.org.a");
     await orgAdminDefinition.publish({
       canonicalJson: new TextEncoder().encode(fixture.canonicalJson),
       digest: fixture.digest,
@@ -611,7 +651,6 @@ async function main(): Promise<void> {
     killMutant("empty principal");
     killMutant("404-as-history");
 
-    // Merge: second bound account absorbs nothing from first's memberships.
     const secondBootstrap = await admin(
       "POST",
       "/identity/admin/bootstrap-bound",
@@ -660,7 +699,10 @@ async function main(): Promise<void> {
       startedAt,
     });
   } finally {
-    await stopServer(server);
+    if (server !== undefined && server.child.exitCode === null) {
+      await stopServer(server);
+    }
+    await stopAuthDoor(door);
   }
 }
 
