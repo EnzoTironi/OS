@@ -31,8 +31,8 @@
       "order": 1,
       "issue": 325,
       "pr": null,
-      "title": "definition-publication and semantic-query on OIDC",
-      "note": "Done on main. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted."
+      "title": "definition-publication and semantic-query on dest door",
+      "note": "Done on main. Dest door is Better Auth SessionDoor. Leftover e2e still compose Keycloak. That leftover is not dest. Legacy session boot stays deleted."
     },
     {
       "order": 2,
@@ -145,22 +145,22 @@
       "id": "identity-oidc",
       "status": "have",
       "plane": "identity",
-      "name": "OIDC identity (Keycloak)",
+      "name": "Better Auth session door",
       "onMain": true,
       "product": true,
-      "path": "e2e/activation-identity",
-      "proof": "just e2e activation-identity. JWT claims are evidence. Membership is authority.",
+      "path": "apps/auth, apps/zoend/src/config.rs",
+      "proof": "ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Keycloak is leftover e2e, not dest IdP.",
       "issue": null
     },
     {
       "id": "identity-legacy-sessions",
       "status": "have",
       "plane": "identity",
-      "name": "OIDC on definition-publication and semantic-query",
+      "name": "definition-publication and semantic-query on dest door",
       "onMain": true,
       "product": true,
       "path": "e2e/definition-publication, e2e/semantic-query",
-      "proof": "just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted.",
+      "proof": "just e2e definition-publication. just e2e semantic-query. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. Dest boot is SessionDoor, not OIDC.",
       "issue": 325,
       "backup": []
     },
@@ -216,7 +216,7 @@
       "onMain": false,
       "product": false,
       "path": "archive/pre-modeled-erp:archive/domain",
-      "proof": "Not on default main. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* on archive/pre-modeled-erp.",
+      "proof": "Not on default main. Live lake is testdata/lakes/commercial.canonical.json. Optional just e2e domain-* on archive/pre-modeled-erp.",
       "issue": null
     },
     {
@@ -408,7 +408,7 @@
       "onMain": true,
       "product": true,
       "path": "apps/zoend/src/config.rs",
-      "proof": "On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.",
+      "proof": "On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required. ZOEN_OIDC_ISSUER is unused by zoend.",
       "issue": 317,
       "pr": [
         321

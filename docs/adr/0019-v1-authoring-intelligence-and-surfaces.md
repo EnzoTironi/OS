@@ -9,39 +9,15 @@ Zoen needs a strong human/agent authoring experience, Company Brain, multi-provi
 
 ## Decision
 
-TypeScript is the V1 product/intelligence/experience language. It is a client/authoring compiler for the Rust semantic authority.
+TypeScript is the V1 product/intelligence/experience language. It is a client of the Rust semantic authority, not dest authoring compiler.
 
 ## Ontology authoring
 
-The primary authoring surface is a typed package, `@zoen/ontology`, using `.zoen.ts` sources.
+**Dest amend (p-docs):** Dest authoring is canonical JSON plus `DefinitionService.Publish`. `@zoen/ontology` and `.zoen.ts` are leftover compiler, not dest product. `docs/product/cli-workbench.md` is dest law. Do not restore a generated client.
 
-Conceptual author usage:
+Dest pipeline is committed canonical JSON into `DefinitionService.Publish`. Ontology compilation has no ambient network, unrestricted filesystem, wall-clock or randomness.
 
-```ts
-const Product = defineType(...)
-const suppliedBy = defineRelation(...)
-const requiredPurchase = defineComputation(...)
-const purchaseMaterial = defineAction(...)
-```
-
-Authoring syntax may expose ergonomic concepts such as properties, links, interfaces, policies, views or modules. The compiler normalizes them into the canonical semantic IR before publication.
-
-Pipeline:
-
-```text
-.zoen.ts
- -> TypeScript typecheck
- -> restricted deterministic authoring evaluation
- -> RawDefinitionBundle
- -> semantic validation
- -> CanonicalDefinitionBundle
- -> canonical JSON/JCS/digest
- -> Connect DefinitionService.Publish
-```
-
-Ontology compilation has no ambient network, unrestricted filesystem, wall-clock or randomness. CI compiles the same source independently and compares canonical digest to detect nondeterminism.
-
-Canonical JSON remains a supported machine input/output; TypeScript authoring is not semantic identity.
+Canonical JSON is dest identity. TypeScript authoring is leftover, not dest.
 
 ## Model/provider layer
 
@@ -115,8 +91,8 @@ Three UI classes are first-class:
 
 Release gates use real production paths:
 
-- compile real `.zoen.ts` definitions twice and prove deterministic canonical digest;
-- publish from the TypeScript generated client into `zoend` and consume them from another client;
+- publish committed canonical JSON through `DefinitionService.Publish` into `zoend` twice and prove deterministic digest;
+- consume that published definition from another client;
 - ingest a real PDF/document/message-shaped corpus into object storage/Postgres/pgvector and run lexical+dense hybrid retrieval;
 - call a real configured external LLM and reconstruct material model context from immutable refs;
 - prove a conflicting document remains evidence and cannot overwrite semantic world state;

@@ -23,7 +23,7 @@ Manufacturing
 Accounting Foundation
 ```
 
-They are ordinary definitions authored through `@zoen/ontology`, compiled to canonical IR and executed by the same generic runtime. No Rust kernel branch may identify these packages.
+They are ordinary definitions published as canonical JSON through `DefinitionService.Publish` and executed by the same generic runtime. `@zoen/ontology` is leftover, not dest authoring. No Rust kernel branch may identify these packages.
 
 Dependency direction is semantic and explicit:
 

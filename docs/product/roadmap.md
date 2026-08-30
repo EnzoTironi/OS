@@ -20,7 +20,7 @@ If a capability exists on main only as a stub or fake path, it does not exist as
 
 | order | issue | PR | title | note |
 | ---: | ---: | --- | --- | --- |
-| 1 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on OIDC | Done on main. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted. |
+| 1 | [#325](https://github.com/EnzoTironi/OS/issues/325) | — | definition-publication and semantic-query on dest door | Done on main. Dest door is Better Auth SessionDoor. Leftover e2e still compose Keycloak. That leftover is not dest. Legacy session boot stays deleted. |
 | 2 | [#326](https://github.com/EnzoTironi/OS/issues/326) | — | WhatsApp destination Kapso in Eve | Sidecar deleted. Destination WhatsApp is Kapso in Eve. |
 | 3 | [#329](https://github.com/EnzoTironi/OS/issues/329) | — | Live Telegram adapter | In flight. Live Bot API adapter behind MessagingGateway. Advertise fails closed without TELEGRAM_BOT_TOKEN. Webhook is production. Do not restore the fake. |
 | 4 | [#327](https://github.com/EnzoTironi/OS/issues/327) | — | Conformance and substitution against live adapters | In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify. |
@@ -60,12 +60,12 @@ On main. Real implementation. This is product.
 | `authority-wasm` | authority | Wasmtime sandbox | Committed .wasm fixtures with pinned sha256. Not JS mocks. | — |
 | `authority-query` | authority | DataFusion semantic query | just e2e semantic-query | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `authority-restate` | authority | Restate durable orchestration | just e2e durable-commit. Remote Restate e2e is a named harness, not the product claim. | — |
-| `identity-oidc` | identity | OIDC identity (Keycloak) | just e2e activation-identity. JWT claims are evidence. Membership is authority. | — |
-| `identity-legacy-sessions` | identity | OIDC on definition-publication and semantic-query | just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
+| `identity-oidc` | identity | Better Auth session door | ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Keycloak is leftover e2e, not dest IdP. | — |
+| `identity-legacy-sessions` | identity | definition-publication and semantic-query on dest door | just e2e definition-publication. just e2e semantic-query. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. Dest boot is SessionDoor, not OIDC. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `web-tanstack` | experience | Web application | Not on default main. Lives on archive/pre-modeled-erp. Optional just e2e web-deterministic there. | — |
 | `surface-ir` | experience | Surface IR package | Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp destination is Kapso in Eve. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `attention` | experience | Proactive attention package | Not on default main. Default tree does not import it. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
-| `ontology-libs` | ontology | Archived pre-modeled ERP libraries | Not on default main. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* on archive/pre-modeled-erp. | — |
+| `ontology-libs` | ontology | Archived pre-modeled ERP libraries | Not on default main. Live lake is testdata/lakes/commercial.canonical.json. Optional just e2e domain-* on archive/pre-modeled-erp. | — |
 | `pack-compiler` | packs | Pack compiler, registry, Kitchen | Not on default main. Kitchen/pack e2e is optional on archive/pre-modeled-erp. | — |
 | `sample-company` | activation | Sample Company five-minute path | Not on default main. just start / just e2e activation-sample on archive/pre-modeled-erp. | — |
 | `activation-onboarding` | activation | Conversational onboarding and messy data | Not on default main. just e2e activation-onboarding and company-bootstrap-shadow on archive/pre-modeled-erp. | — |
@@ -74,7 +74,7 @@ On main. Real implementation. This is product.
 | `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `deploy-fly` | deploy | Fly production app | Production is one Fly app. GitHub fly-deploy builds deploy/fly/Dockerfile. | — |
 | `public-surface` | public | Public narrative checker | npx tsx e2e/public-surface.ts. Live conversation study is #267. | [#267](https://github.com/EnzoTironi/OS/issues/267) |
-| `fail-closed-boot` | authority | Fail-closed zoend boot | On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
+| `fail-closed-boot` | authority | Fail-closed zoend boot | On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required. ZOEN_OIDC_ISSUER is unused by zoend. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. zoend ChannelProvider::Linq. | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
 | `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | Not on default main. Optional just e2e adr-0007 on archive/pre-modeled-erp. Timeout after possible delivery is UNKNOWN. | — |

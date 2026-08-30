@@ -15,7 +15,7 @@ ADR-0017 selects Wasmtime for untrusted execution and Restate for durable effect
 
 ### Restate worker
 
-Fly and Compose must not execute `dist/e2e` workers. Live `explain` starts `e2e/effect-worker.ts`. CI rejects `dist/e2e` in `deploy/fly`.
+Fly and Compose must not execute `dist/e2e` workers. Live `explain` starts `zoen-effect-dispatcher`. `e2e/effect-worker.ts` is leftover Node e2e, not dest. CI rejects `dist/e2e` in `deploy/fly`.
 
 ### Workbench
 

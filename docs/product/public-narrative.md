@@ -15,7 +15,7 @@ Visitor-facing copy follows this order. Architecture stays after first value.
 
 After Sample Company works, deepen in this order:
 
-1. Inspect ontology `.zoen.ts` definitions.
+1. Inspect published canonical JSON definitions.
 2. Create or modify a Pack (Kitchen #264 has landed; registry install/share already from #260).
 3. Connect your own data (messy-data path: `just e2e company-bootstrap-shadow` on `archive/pre-modeled-erp`).
 4. Deploy on Fly from `deploy/fly`.

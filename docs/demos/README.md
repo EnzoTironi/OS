@@ -9,7 +9,7 @@ Optional archived first governed Action on Sample Company.
 Checkout [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). These commands are not on default `main`.
 
 1. From that branch, run `just build` then `just start`.
-2. If archived web is built, open the printed web URL and sign in with the sample OIDC user (`web-user` / `web-password`).
+2. If archived web is built, open the printed web URL and sign in with the sample archive web user (`web-user` / `web-password`). That user is leftover archive web, not dest IdP.
 3. Walk at-risk stock, then propose, then approve on the seeded Sample Company tenant.
 4. Confirm the non-interactive path with `just e2e activation-sample`.
 
@@ -47,7 +47,7 @@ Use this checklist when recording or walking the Sample Company risk path. Captu
 5. Confirm the effect stays `UNKNOWN` with no blind retry.
 6. Reconcile from later evidence.
 
-Record that walkthrough with `./docs/demo/record.sh`. The command probes live Keycloak and zoend, drives the web-user path in Playwright, and writes `docs/demo/sample-company-five-minute.webm` plus a manifest of live operation ids. See [`docs/demo/README.md`](../demo/README.md).
+Record that walkthrough with `./docs/demo/record.sh` on `archive/pre-modeled-erp`. Default `main` has no Playwright and no Keycloak. See [`docs/demo/README.md`](../demo/README.md).
 
 ## Pack directory
 
