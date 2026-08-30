@@ -1182,6 +1182,10 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
         BTreeSet::from([
             ActionId::parse("zoen.definition.activate")
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse("personal.writeMemory")
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse("personal.createReminder")
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORLD_INVITE_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORLD_SHARE_ACTION)
@@ -1191,8 +1195,16 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
             ActionId::parse(WORLD_WHO_CAN_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
         ]),
-        BTreeSet::from([ResourceId::parse("zoen.personal.workspace")
-            .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?]),
+        BTreeSet::from([
+            ResourceId::parse("zoen.personal.workspace")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse("personal.memory")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse("personal.note")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse("personal.reminder")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+        ]),
         BTreeSet::from([workload_id.clone()]),
         TimestampMicros::new(0),
         TimestampMicros::new(4_102_444_800_000_000),

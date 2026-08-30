@@ -394,7 +394,7 @@ async fn create_invite(
         .identity
         .create_invite(CreateInvite {
             actor_id,
-            clearance: zoen_core::Clearance::world_floor(),
+            clearance: zoen_core::Clearance::personal_owner(),
             delegation,
             expires_at: TimestampMicros::new(body.expires_at_micros),
             principal_id,
