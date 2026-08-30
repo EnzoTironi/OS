@@ -29,12 +29,6 @@ export interface ActionPreviewDocument {
   readonly schema: string;
 }
 
-/**
- * Context: kernel and Speaker share one preview document.
- * Inputs: action id, resource id, and ExactValue-shaped inputs.
- * Outputs: versioned document plus PT-BR preview text.
- * Side effects: none.
- */
 export function buildActionPreviewDocument(input: {
   readonly actionId: string;
   readonly resourceId: string;

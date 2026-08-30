@@ -15,7 +15,6 @@
     "test": "node -e \"process.exit(0)\""
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
     "@babel/parser": "7.29.8",
     "@babel/types": "7.29.8",
     "@bufbuild/buf": "1.72.0",
@@ -30,7 +29,6 @@
     "@types/react-dom": "^19.2.4",
     "canonicalize": "4.0.0",
     "pg": "8.23.0",
-    "playwright": "^1.62.1",
     "typescript": "7.0.2",
     "yaml": "^2.9.0",
     "zod": "4.4.3"

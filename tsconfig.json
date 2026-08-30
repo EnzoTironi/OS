@@ -13,9 +13,6 @@
     "paths": {
       "@zoen/ontology": [
         "./packages/ontology/src/index.ts"
-      ],
-      "@zoen/mcp": [
-        "./packages/mcp/src/index.ts"
       ]
     },
     "rootDir": ".",

@@ -20,8 +20,7 @@ pub struct ActionPreviewInput {
 /// User-safe Action preview. Kernel hashes RFC 8785 JCS of this document.
 ///
 /// Internal IDs (proposal, operation, claim, tenant, principal) stay out of
-/// `canonical_preview_text`. `action` and `resource` bind the hash without
-/// being spoken by Speaker.
+/// `canonical_preview_text`. `action` and `resource` bind the hash.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActionPreviewDocument {
     pub action: String,
