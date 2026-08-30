@@ -144,7 +144,7 @@ mkdir -p "$(dirname "$proof")"
 node "$conv/scripts/check-isolate-no-commit.mjs" || fail "isolate cannot commit lock"
 record "isolate cannot commit import-graph lock" \
   "node apps/conversation/scripts/check-isolate-no-commit.mjs" \
-  "n/a" "pass" "planted zoen does not call ActionService/Commit"
+  "n/a" "pass" "isolate host runner does not call ActionService/Commit"
 
 if [[ ! -d node_modules ]]; then
   npm ci
@@ -600,7 +600,7 @@ record "eve start workbench backend" "eve start --port 58706" "http://127.0.0.1:
 
 {
   printf '## Verdict\n\n'
-  printf 'pass. Membership A sandbox planted zoen, read verb, isolate commit deny, zoend Cedar still decides, isolate network deny, membership B cannot read A VFS.\n'
+  printf 'pass. Membership A sandbox runs real zoen under isolate, read verb, isolate commit deny, zoend Cedar still decides, isolate network deny, membership B cannot read A VFS.\n'
 } >> "$draft"
 cp "$draft" "$proof"
 printf 'wrote %s\n' "$proof"
