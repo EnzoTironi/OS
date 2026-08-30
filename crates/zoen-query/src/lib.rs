@@ -82,6 +82,17 @@ pub struct QueryRuntime {
     pool: PgPool,
 }
 
+struct ProjectedScan<'a> {
+    context: &'a ExecutionContext,
+    definition: &'a DefinitionReference,
+    entity_id: Option<&'a EntityId>,
+    valid_at: TimestampMicros,
+    relation_ids: &'a BTreeSet<String>,
+    cut: i64,
+    parquet_digest: &'a str,
+    parquet_object_key: &'a str,
+}
+
 impl QueryRuntime {
     pub fn new(pool: PgPool, object_store_config: Option<ObjectStoreConfig>) -> Self {
         Self {
@@ -196,16 +207,16 @@ impl QueryRuntime {
                 parquet_digest,
                 parquet_object_key,
             } => {
-                self.load_projected_claims(
+                self.load_projected_claims(ProjectedScan {
                     context,
-                    definition_ref,
-                    entity_id,
-                    *valid_at,
-                    &plan.relation_ids,
-                    *cut,
+                    definition: definition_ref,
+                    entity_id: Some(entity_id),
+                    valid_at: *valid_at,
+                    relation_ids: &plan.relation_ids,
+                    cut: *cut,
                     parquet_digest,
                     parquet_object_key,
-                )
+                })
                 .await?
             }
         };
@@ -293,15 +304,18 @@ impl QueryRuntime {
                 parquet_object_key,
             } => {
                 self.load_projected_entity_ids(
-                    context,
-                    definition_ref,
-                    *valid_at,
-                    &relation_ids,
+                    ProjectedScan {
+                        context,
+                        definition: definition_ref,
+                        entity_id: None,
+                        valid_at: *valid_at,
+                        relation_ids: &relation_ids,
+                        cut: *cut,
+                        parquet_digest,
+                        parquet_object_key,
+                    },
                     fetch_limit,
                     after_entity_id.as_ref(),
-                    *cut,
-                    parquet_digest,
-                    parquet_object_key,
                 )
                 .await?
             }
@@ -542,29 +556,18 @@ impl QueryRuntime {
             .ok_or_else(|| QueryError::Corrupt("stored canonical definition is empty".to_owned()))
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn load_projected_claims(
         &self,
-        context: &ExecutionContext,
-        definition: &DefinitionReference,
-        entity_id: &EntityId,
-        valid_at: TimestampMicros,
-        relation_ids: &BTreeSet<String>,
-        cut: i64,
-        parquet_digest: &str,
-        parquet_object_key: &str,
+        scan: ProjectedScan<'_>,
     ) -> Result<Vec<SemanticClaim>, QueryError> {
+        let entity_id = scan.entity_id.ok_or_else(|| {
+            QueryError::Corrupt("projected claim load requires an entity id".to_owned())
+        })?;
+        let context = scan.context;
+        let definition = scan.definition;
+        let valid_at = scan.valid_at;
         let data = self
-            .scan_projected_claims(
-                context,
-                definition,
-                Some(entity_id),
-                valid_at,
-                relation_ids,
-                cut,
-                parquet_digest,
-                parquet_object_key,
-            )
+            .scan_projected_claims(scan)
             .await?
             .sort(vec![col("claim_id").sort(true, true)])
             .map_err(projected_corrupt)?
@@ -577,30 +580,14 @@ impl QueryRuntime {
             .collect()
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn load_projected_entity_ids(
         &self,
-        context: &ExecutionContext,
-        definition: &DefinitionReference,
-        valid_at: TimestampMicros,
-        relation_ids: &BTreeSet<String>,
+        scan: ProjectedScan<'_>,
         limit: u32,
         after_entity_id: Option<&EntityId>,
-        cut: i64,
-        parquet_digest: &str,
-        parquet_object_key: &str,
     ) -> Result<Vec<EntityId>, QueryError> {
         let mut frame = self
-            .scan_projected_claims(
-                context,
-                definition,
-                None,
-                valid_at,
-                relation_ids,
-                cut,
-                parquet_digest,
-                parquet_object_key,
-            )
+            .scan_projected_claims(scan)
             .await?
             .select(vec![col("entity_id")])
             .map_err(projected_corrupt)?
@@ -632,30 +619,23 @@ impl QueryRuntime {
             .collect()
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn scan_projected_claims(
         &self,
-        context: &ExecutionContext,
-        definition: &DefinitionReference,
-        entity_id: Option<&EntityId>,
-        valid_at: TimestampMicros,
-        relation_ids: &BTreeSet<String>,
-        cut: i64,
-        parquet_digest: &str,
-        parquet_object_key: &str,
+        scan: ProjectedScan<'_>,
     ) -> Result<datafusion::dataframe::DataFrame, QueryError> {
         let object_store_config = self.object_store_config.as_ref().ok_or_else(|| {
             QueryError::Unavailable("object storage is not configured".to_owned())
         })?;
         let source_store = object_store_config.build()?;
         let verified_store =
-            verified_projection_store(&*source_store, parquet_object_key, parquet_digest).await?;
+            verified_projection_store(&*source_store, scan.parquet_object_key, scan.parquet_digest)
+                .await?;
         let session = SessionContext::new();
         let store_url = ObjectStoreUrl::parse(object_store_config.registration_url())
             .map_err(|error| QueryError::Unavailable(error.to_string()))?;
         session.register_object_store(store_url.as_ref(), verified_store);
-        let relation_filter = relation_or_filter(relation_ids)?;
-        let valid_at = valid_at.get();
+        let relation_filter = relation_or_filter(scan.relation_ids)?;
+        let valid_at = scan.valid_at.get();
         let valid_filter = col("valid_time_kind")
             .eq(lit("instant"))
             .and(col("valid_from_micros").eq(lit(valid_at)))
@@ -665,22 +645,22 @@ impl QueryRuntime {
                     .and(col("valid_to_micros").gt(lit(valid_at))),
             ));
         let mut filter = col("tenant_id")
-            .eq(lit(context.tenant_id().as_str()))
-            .and(col("definition_id").eq(lit(definition.definition_id.as_str())))
-            .and(col("definition_digest").eq(lit(definition.digest.as_str())))
+            .eq(lit(scan.context.tenant_id().as_str()))
+            .and(col("definition_id").eq(lit(scan.definition.definition_id.as_str())))
+            .and(col("definition_digest").eq(lit(scan.definition.digest.as_str())))
             .and(col("definition_revision").eq(lit(u64_to_i64(
-                definition.revision.get(),
+                scan.definition.revision.get(),
                 "definition revision",
             )?)))
             .and(relation_filter)
-            .and(col("commit_sequence").lt_eq(lit(cut)))
+            .and(col("commit_sequence").lt_eq(lit(scan.cut)))
             .and(valid_filter);
-        if let Some(entity_id) = entity_id {
+        if let Some(entity_id) = scan.entity_id {
             filter = filter.and(col("entity_id").eq(lit(entity_id.as_str())));
         }
         session
             .read_parquet(
-                object_store_config.object_url(parquet_object_key),
+                object_store_config.object_url(scan.parquet_object_key),
                 ParquetReadOptions::default(),
             )
             .await

@@ -101,9 +101,11 @@ pub(crate) struct LoadWorldProjectionRequest<'a> {
     pub valid_at: TimestampMicros,
 }
 
-#[allow(async_fn_in_trait)]
 pub trait PolicyEvaluator: Send + Sync {
-    async fn evaluate(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation;
+    fn evaluate(
+        &self,
+        request: &PolicyRequest<'_>,
+    ) -> impl std::future::Future<Output = PolicyEvaluation> + Send;
 }
 
 impl<T> PolicyEvaluator for Arc<T>
@@ -156,13 +158,12 @@ impl Display for QueryPortError {
 
 impl Error for QueryPortError {}
 
-#[allow(async_fn_in_trait)]
 pub trait QueryExecutor: Send + Sync {
-    async fn execute(
+    fn execute(
         &self,
         context: &ExecutionContext,
         query: &SemanticQuery,
-    ) -> Result<SemanticResult, QueryPortError>;
+    ) -> impl std::future::Future<Output = Result<SemanticResult, QueryPortError>> + Send;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -221,10 +222,12 @@ pub enum CommitPreparation<T> {
     Replayed(Box<CommitReceipt>),
 }
 
-#[allow(async_fn_in_trait)]
 pub trait ActionCommitTransaction: Send {
-    async fn commit(self, plan: &CommitPlan) -> Result<CommitStoreOutcome, StoreError>;
-    async fn rollback(self) -> Result<(), StoreError>;
+    fn commit(
+        self,
+        plan: &CommitPlan,
+    ) -> impl std::future::Future<Output = Result<CommitStoreOutcome, StoreError>> + Send;
+    fn rollback(self) -> impl std::future::Future<Output = Result<(), StoreError>> + Send;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

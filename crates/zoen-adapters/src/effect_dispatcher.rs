@@ -43,12 +43,11 @@ impl Display for DispatchScheduleError {
 
 impl Error for DispatchScheduleError {}
 
-#[allow(async_fn_in_trait)]
 pub trait DispatchScheduler: Send + Sync {
-    async fn schedule(
+    fn schedule(
         &self,
         command: &DispatchScheduleCommand,
-    ) -> Result<DispatchAcceptance, DispatchScheduleError>;
+    ) -> impl std::future::Future<Output = Result<DispatchAcceptance, DispatchScheduleError>> + Send;
 }
 
 struct PendingEffect {

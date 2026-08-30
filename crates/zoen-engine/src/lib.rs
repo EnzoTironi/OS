@@ -583,180 +583,183 @@ impl AdmittedEvidence {
     }
 }
 
-#[allow(async_fn_in_trait)]
 pub trait AuthorityStore: Send + Sync {
     type ActionCommit: ActionCommitTransaction;
     type EffectUpdate: EffectUpdateTransaction;
 
-    async fn activate_revision(
+    fn activate_revision(
         &self,
         activation: &AdmittedDefinitionActivation,
-    ) -> Result<DefinitionActivation, StoreError>;
+    ) -> impl std::future::Future<Output = Result<DefinitionActivation, StoreError>> + Send;
 
-    async fn apply_migration_batch(
+    fn apply_migration_batch(
         &self,
         batch: &AdmittedMigrationBatch,
-    ) -> Result<zoen_core::MigrationProgress, StoreError>;
+    ) -> impl std::future::Future<Output = Result<zoen_core::MigrationProgress, StoreError>> + Send;
 
-    async fn begin_action_commit(
+    fn begin_action_commit(
         &self,
         context: &ExecutionContext,
         proposal: &ActionProposal,
-    ) -> Result<CommitPreparation<Self::ActionCommit>, StoreError>;
+    ) -> impl std::future::Future<Output = Result<CommitPreparation<Self::ActionCommit>, StoreError>>
+    + Send;
 
-    async fn get_approval(
+    fn get_approval(
         &self,
         context: &ExecutionContext,
         proposal_id: &ProposalId,
-    ) -> Result<Option<ActionApproval>, StoreError>;
+    ) -> impl std::future::Future<Output = Result<Option<ActionApproval>, StoreError>> + Send;
 
-    async fn get_active_revision(
+    fn get_active_revision(
         &self,
         tenant_id: &TenantId,
         definition_id: &DefinitionId,
-    ) -> Result<Option<DefinitionRevision>, StoreError>;
+    ) -> impl std::future::Future<Output = Result<Option<DefinitionRevision>, StoreError>> + Send;
 
-    async fn get_migration(
+    fn get_migration(
         &self,
         tenant_id: &TenantId,
         operation_id: &OperationId,
-    ) -> Result<zoen_core::MigrationProgress, StoreError>;
+    ) -> impl std::future::Future<Output = Result<zoen_core::MigrationProgress, StoreError>> + Send;
 
-    async fn get_completed_migration(
+    fn get_completed_migration(
         &self,
         tenant_id: &TenantId,
         from: &DefinitionReference,
         to: &DefinitionReference,
-    ) -> Result<Option<zoen_core::MigrationProgress>, StoreError>;
+    ) -> impl std::future::Future<Output = Result<Option<zoen_core::MigrationProgress>, StoreError>> + Send;
 
-    async fn begin_effect_update(
+    fn begin_effect_update(
         &self,
         context: &ExecutionContext,
         effect_request_id: &EffectRequestId,
-    ) -> Result<Self::EffectUpdate, StoreError>;
+    ) -> impl std::future::Future<Output = Result<Self::EffectUpdate, StoreError>> + Send;
 
-    async fn get_effect(
+    fn get_effect(
         &self,
         context: &ExecutionContext,
         effect_request_id: &EffectRequestId,
-    ) -> Result<EffectSnapshot, StoreError>;
+    ) -> impl std::future::Future<Output = Result<EffectSnapshot, StoreError>> + Send;
 
-    async fn get_operation(
+    fn get_operation(
         &self,
         context: &ExecutionContext,
         operation_id: &OperationId,
-    ) -> Result<CommitReceipt, StoreError>;
+    ) -> impl std::future::Future<Output = Result<CommitReceipt, StoreError>> + Send;
 
-    async fn load_history(
+    fn load_history(
         &self,
         context: &ExecutionContext,
         target: &ExplanationTarget,
-    ) -> Result<HistorySnapshot, StoreError>;
+    ) -> impl std::future::Future<Output = Result<HistorySnapshot, StoreError>> + Send;
 
-    async fn get_proposal(
+    fn get_proposal(
         &self,
         context: &ExecutionContext,
         proposal_id: &ProposalId,
-    ) -> Result<ActionProposal, StoreError>;
+    ) -> impl std::future::Future<Output = Result<ActionProposal, StoreError>> + Send;
 
-    async fn publish(
+    fn publish(
         &self,
         context: &ExecutionContext,
         publication: &AdmittedDefinitionPublication,
-    ) -> Result<DefinitionRevision, StoreError>;
+    ) -> impl std::future::Future<Output = Result<DefinitionRevision, StoreError>> + Send;
 
-    async fn prepare_migration(
+    fn prepare_migration(
         &self,
         migration: &AdmittedMigrationPlan,
-    ) -> Result<zoen_core::MigrationProgress, StoreError>;
+    ) -> impl std::future::Future<Output = Result<zoen_core::MigrationProgress, StoreError>> + Send;
 
-    async fn preflight_migration_batch(
+    fn preflight_migration_batch(
         &self,
         tenant_id: &TenantId,
         operation_id: &OperationId,
         batch_index: u32,
         intent_digest: &IntentDigest,
-    ) -> Result<MigrationBatchPreflight, StoreError>;
+    ) -> impl std::future::Future<Output = Result<MigrationBatchPreflight, StoreError>> + Send;
 
-    async fn get_revision(
+    fn get_revision(
         &self,
         tenant_id: &TenantId,
         definition_id: &DefinitionId,
         digest: &DefinitionDigest,
-    ) -> Result<DefinitionRevision, StoreError>;
+    ) -> impl std::future::Future<Output = Result<DefinitionRevision, StoreError>> + Send;
 
-    async fn get_evidence_operation(
+    fn get_evidence_operation(
         &self,
         context: &ExecutionContext,
         operation_id: &OperationId,
-    ) -> Result<Option<crate::EvidenceOperation>, StoreError>;
+    ) -> impl std::future::Future<Output = Result<Option<crate::EvidenceOperation>, StoreError>> + Send;
 
-    async fn record_evidence(
+    fn record_evidence(
         &self,
         context: &ExecutionContext,
         evidence: &AdmittedEvidence,
         operation: Option<(&OperationId, &IntentDigest)>,
-    ) -> Result<EvidenceClaim, StoreError>;
+    ) -> impl std::future::Future<Output = Result<EvidenceClaim, StoreError>> + Send;
 
-    async fn record_evidence_batch(
+    fn record_evidence_batch(
         &self,
         context: &ExecutionContext,
         evidence: &[AdmittedEvidence],
         operation: Option<(&OperationId, &IntentDigest)>,
-    ) -> Result<Vec<EvidenceClaim>, StoreError>;
+    ) -> impl std::future::Future<Output = Result<Vec<EvidenceClaim>, StoreError>> + Send;
 
-    async fn save_approval(
+    fn save_approval(
         &self,
         context: &ExecutionContext,
         approval: &ActionApproval,
-    ) -> Result<ActionApproval, StoreError>;
+    ) -> impl std::future::Future<Output = Result<ActionApproval, StoreError>> + Send;
 
-    async fn save_proposal(
+    fn save_proposal(
         &self,
         context: &ExecutionContext,
         proposal: &ActionProposal,
-    ) -> Result<ActionProposal, StoreError>;
+    ) -> impl std::future::Future<Output = Result<ActionProposal, StoreError>> + Send;
 
-    async fn save_proposal_in_scenario(
+    fn save_proposal_in_scenario(
         &self,
         context: &ExecutionContext,
         proposal: &ActionProposal,
         overlay_drafts: &[EvidenceDraft],
-    ) -> Result<ActionProposal, StoreError>;
+    ) -> impl std::future::Future<Output = Result<ActionProposal, StoreError>> + Send;
 
-    async fn current_head(&self, context: &ExecutionContext) -> Result<CommitSequence, StoreError>;
+    fn current_head(
+        &self,
+        context: &ExecutionContext,
+    ) -> impl std::future::Future<Output = Result<CommitSequence, StoreError>> + Send;
 
-    async fn insert_open_scenario(
+    fn insert_open_scenario(
         &self,
         context: &ExecutionContext,
         scenario_id: &zoen_core::ScenarioId,
         base: CommitSequence,
-    ) -> Result<crate::scenario::Scenario, StoreError>;
+    ) -> impl std::future::Future<Output = Result<crate::scenario::Scenario, StoreError>> + Send;
 
-    async fn get_scenario(
+    fn get_scenario(
         &self,
         context: &ExecutionContext,
         scenario_id: &zoen_core::ScenarioId,
-    ) -> Result<crate::scenario::Scenario, StoreError>;
+    ) -> impl std::future::Future<Output = Result<crate::scenario::Scenario, StoreError>> + Send;
 
-    async fn mark_scenario_discarded(
+    fn mark_scenario_discarded(
         &self,
         context: &ExecutionContext,
         scenario_id: &zoen_core::ScenarioId,
-    ) -> Result<(), StoreError>;
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send;
 
-    async fn commit_scenario_package(
+    fn commit_scenario_package(
         &self,
         context: &ExecutionContext,
         scenario: &crate::scenario::Scenario,
         plans: &[crate::scenario::ScenarioProposalPlan],
-    ) -> Result<CommitSequence, StoreError>;
+    ) -> impl std::future::Future<Output = Result<CommitSequence, StoreError>> + Send;
 
-    async fn revision_was_active(
+    fn revision_was_active(
         &self,
         tenant_id: &TenantId,
         revision: &DefinitionReference,
-    ) -> Result<bool, StoreError>;
+    ) -> impl std::future::Future<Output = Result<bool, StoreError>> + Send;
 }
 
 pub struct DefinitionEngine<S, P> {

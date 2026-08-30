@@ -91,38 +91,42 @@ impl Error for EffectError {
     }
 }
 
-#[allow(async_fn_in_trait)]
 pub trait EffectUpdateTransaction: Send {
     fn snapshot(&self) -> &EffectSnapshot;
 
-    async fn claimed_attempt(
+    fn claimed_attempt(
         &mut self,
         adapter_execution_id: &str,
-    ) -> Result<Option<EffectAttemptId>, StoreError>;
+    ) -> impl std::future::Future<Output = Result<Option<EffectAttemptId>, StoreError>> + Send;
 
-    async fn open_claim(&mut self) -> Result<Option<(String, EffectAttemptId)>, StoreError>;
+    fn open_claim(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<Option<(String, EffectAttemptId)>, StoreError>> + Send;
 
-    async fn commit_claim(
+    fn commit_claim(
         self,
         adapter_execution_id: &str,
         attempt_id: &EffectAttemptId,
-    ) -> Result<(), StoreError>;
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send;
 
-    async fn has_claim(&mut self, attempt_id: &EffectAttemptId) -> Result<bool, StoreError>;
+    fn has_claim(
+        &mut self,
+        attempt_id: &EffectAttemptId,
+    ) -> impl std::future::Future<Output = Result<bool, StoreError>> + Send;
 
-    async fn commit_attempt(
+    fn commit_attempt(
         self,
         command: &EffectAttemptCommand,
         resulting_state: EffectKnowledgeState,
-    ) -> Result<EffectSnapshot, StoreError>;
+    ) -> impl std::future::Future<Output = Result<EffectSnapshot, StoreError>> + Send;
 
-    async fn commit_reconciliation(
+    fn commit_reconciliation(
         self,
         command: &EffectReconcileCommand,
         resulting_state: EffectKnowledgeState,
-    ) -> Result<EffectSnapshot, StoreError>;
+    ) -> impl std::future::Future<Output = Result<EffectSnapshot, StoreError>> + Send;
 
-    async fn rollback(self) -> Result<(), StoreError>;
+    fn rollback(self) -> impl std::future::Future<Output = Result<(), StoreError>> + Send;
 }
 
 pub struct EffectEngine<S> {
