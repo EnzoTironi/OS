@@ -13,9 +13,8 @@ use zoen_core::{
     PreconditionEvaluation, PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget,
     ResourceId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
     StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
-    TrustedExecutionContext, TypeId, ValidTime, ValueType, WORLD_SHARE_ACTION,
-    WORLD_WHO_CAN_ACTION, classified_as_relation, evaluate_expression, expression_relations,
-    join_labels,
+    TrustedExecutionContext, TypeId, ValidTime, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION,
+    classified_as_relation, evaluate_expression, expression_relations, join_labels,
 };
 
 use crate::action_preview::{bind_proposal_preview, build_action_preview, preview_hash};
@@ -326,6 +325,7 @@ where
                 &loaded.revision,
                 &proposal.resource_id,
                 relation_ids,
+                proposal.scenario_id.clone(),
                 proposal.valid_at,
                 "Action effect relations used different authority cuts",
             )
@@ -372,7 +372,7 @@ where
                 continue;
             }
             let projection = self
-                .load_world_projection(context, &decoded, &canonical, action, resource_id, at)
+                .load_world_projection(context, &decoded, &canonical, action, resource_id, None, at)
                 .await?;
             let evaluation = self
                 .policy
@@ -422,6 +422,7 @@ where
                 &command.resource_id,
                 &loaded,
                 &command.inputs,
+                command.scenario_id.clone(),
                 command.valid_at,
             )
             .await?;
@@ -438,6 +439,7 @@ where
                 &loaded.revision,
                 &loaded.action,
                 &command.resource_id,
+                command.scenario_id.clone(),
                 command.valid_at,
             )
             .await?;
@@ -595,6 +597,7 @@ where
                 &loaded.revision,
                 &loaded.action,
                 &proposal.resource_id,
+                proposal.scenario_id.clone(),
                 proposal.valid_at,
             )
             .await?;
@@ -744,6 +747,7 @@ where
                 &loaded.revision,
                 &loaded.action,
                 &proposal.resource_id,
+                proposal.scenario_id.clone(),
                 proposal.valid_at,
             )
             .await
@@ -793,6 +797,7 @@ where
                 &loaded.revision,
                 &proposal.resource_id,
                 relation_ids,
+                proposal.scenario_id.clone(),
                 proposal.valid_at,
                 "Action effect relations used different authority cuts",
             )
@@ -941,6 +946,7 @@ where
         resource_id: &ResourceId,
         loaded: &LoadedAction,
         inputs: &[ActionInput],
+        scenario_id: Option<ScenarioId>,
         valid_at: TimestampMicros,
     ) -> Result<PreconditionEvaluation, ActionError> {
         let snapshot = self
@@ -949,6 +955,7 @@ where
                 &loaded.revision,
                 resource_id,
                 expression_relations(&loaded.action.precondition),
+                scenario_id,
                 valid_at,
                 "Action precondition relations used different authority cuts",
             )
@@ -962,6 +969,7 @@ where
         revision: &DefinitionRevision,
         resource_id: &ResourceId,
         relations: BTreeSet<RelationId>,
+        scenario_id: Option<ScenarioId>,
         valid_at: TimestampMicros,
         authority_cut_error: &'static str,
     ) -> Result<ActionStateSnapshot, ActionError> {
@@ -986,7 +994,7 @@ where
                             revision: revision.revision,
                         },
                         entity_id: entity_id.clone(),
-                        scenario_id: None,
+                        scenario_id: scenario_id.clone(),
                         selection: SemanticSelection::Relation(relation_id.clone()),
                         valid_at,
                     },
@@ -1012,6 +1020,7 @@ where
         revision: &DefinitionRevision,
         action: &ActionDefinition,
         resource_id: &ResourceId,
+        scenario_id: Option<ScenarioId>,
         valid_at: TimestampMicros,
     ) -> Result<PolicyWorldProjection, ActionError> {
         let entity_id = EntityId::parse(resource_id.as_str())
@@ -1041,6 +1050,7 @@ where
                 revision,
                 resource_id,
                 load_relations,
+                scenario_id,
                 valid_at,
                 "Action policy projection relations used different authority cuts",
             )
@@ -1129,6 +1139,7 @@ where
                     revision,
                     &resource_id,
                     BTreeSet::from([classified_as.clone()]),
+                    proposal.scenario_id.clone(),
                     proposal.valid_at,
                     "join classification relations used different authority cuts",
                 )
@@ -1228,7 +1239,7 @@ fn validate_inputs(action: &ActionDefinition, inputs: &[ActionInput]) -> Result<
         let value = supplied
             .get(&expected.id)
             .ok_or_else(|| ActionError::Input(format!("missing input {}", expected.id.as_str())))?;
-        if !value_matches(&expected.value_type, value) {
+        if !admission::value_matches(&expected.value_type, value) {
             return Err(ActionError::Input(format!(
                 "input {} has the wrong value type",
                 expected.id.as_str()
@@ -1241,20 +1252,6 @@ fn validate_inputs(action: &ActionDefinition, inputs: &[ActionInput]) -> Result<
         ));
     }
     Ok(())
-}
-
-fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
-    match (value_type, value) {
-        (ValueType::Bool, ExactValue::Bool(_))
-        | (ValueType::Decimal, ExactValue::Decimal(_))
-        | (ValueType::Entity { .. }, ExactValue::Entity(_))
-        | (ValueType::Integer, ExactValue::Integer(_))
-        | (ValueType::Text, ExactValue::Text(_)) => true,
-        (ValueType::Quantity { unit: expected }, ExactValue::Quantity { unit: actual, .. }) => {
-            expected == actual
-        }
-        _ => false,
-    }
 }
 
 pub fn calculate_state_basis_digest(
@@ -1543,7 +1540,7 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
 mod tests {
     use zoen_core::{
         ActionEffect, ActionInput, BinaryOperator, CommitSequence, ExactDecimal, Expression,
-        InputDefinition, InputId, SourceId, TypeId, UnitId,
+        InputDefinition, InputId, SourceId, TypeId, UnitId, ValueType,
     };
 
     use super::*;

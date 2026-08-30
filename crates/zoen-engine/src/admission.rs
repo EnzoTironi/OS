@@ -125,7 +125,7 @@ fn admit_evidence_draft(
             ))
         })?;
     let value_matches_target = match &relation.target {
-        RelationTarget::Type(_) => matches!(&draft.value, ExactValue::Entity(_)),
+        RelationTarget::Type(_type_id) => matches!(&draft.value, ExactValue::Entity(_)),
         RelationTarget::Value(value_type) => value_matches(value_type, &draft.value),
     };
     if !value_matches_target {
@@ -152,11 +152,11 @@ fn decode(canonical_json: &CanonicalJson) -> Result<CanonicalDefinition, Publish
     Ok(definition)
 }
 
-fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
+pub(crate) fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
     match (value_type, value) {
         (ValueType::Bool, ExactValue::Bool(_))
         | (ValueType::Decimal, ExactValue::Decimal(_))
-        | (ValueType::Entity { .. }, ExactValue::Entity(_))
+        | (ValueType::Entity { type_id: _ }, ExactValue::Entity(_))
         | (ValueType::Integer, ExactValue::Integer(_))
         | (ValueType::Text, ExactValue::Text(_)) => true,
         (ValueType::Quantity { unit: expected }, ExactValue::Quantity { unit: actual, .. }) => {

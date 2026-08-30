@@ -278,6 +278,7 @@ where
                 &loaded.revision,
                 &loaded.action,
                 &proposal.resource_id,
+                proposal.scenario_id.clone(),
                 proposal.valid_at,
             )
             .await
@@ -325,6 +326,7 @@ where
                 &loaded.revision,
                 &proposal.resource_id,
                 relation_ids,
+                proposal.scenario_id.clone(),
                 proposal.valid_at,
                 "Action effect relations used different authority cuts",
             )
