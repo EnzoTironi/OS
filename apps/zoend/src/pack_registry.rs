@@ -103,8 +103,6 @@ struct OpenBody {
 enum OpenSourceBody {
     #[serde(rename = "registry", rename_all = "camelCase")]
     Registry { endpoint: String },
-    #[serde(rename = "file", rename_all = "camelCase")]
-    File { root: String },
     #[serde(rename = "inline", rename_all = "camelCase")]
     Inline {
         manifest_jcs: String,
@@ -275,7 +273,6 @@ async fn open_object(
         endpoint: "public".to_owned(),
     }) {
         OpenSourceBody::Registry { endpoint } => ObjectSource::Registry { endpoint },
-        OpenSourceBody::File { root } => ObjectSource::File { root },
         OpenSourceBody::Inline {
             manifest_jcs,
             signature,

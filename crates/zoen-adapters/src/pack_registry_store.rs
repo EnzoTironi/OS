@@ -331,8 +331,10 @@ impl PostgresPackRegistryStore {
                 Err(error) => return Err(error),
             },
             ObjectSource::Inline { object } => object.clone(),
-            ObjectSource::File { root } => {
-                return open_from_file(pack_digest, root);
+            _ => {
+                return Err(PackError::InvalidFormat(
+                    "filesystem pack sources are not supported".to_owned(),
+                ));
             }
         };
 
@@ -812,82 +814,6 @@ async fn open_object(
         ontology_artifacts: object.ontology,
         signature_verified: true,
         source: Box::new(source),
-    })
-}
-
-fn open_from_file(expected: &PackDigest, root: &str) -> Result<OpenResult, PackError> {
-    let manifest_path = std::path::Path::new(root)
-        .join(expected.as_str())
-        .join("manifest.jcs.json");
-    let signature_path = std::path::Path::new(root)
-        .join(expected.as_str())
-        .join("signature.json");
-    let manifest_jcs = std::fs::read_to_string(&manifest_path)
-        .map_err(|_| PackError::PackNotFound)?
-        .trim()
-        .to_owned();
-    let signature_raw =
-        std::fs::read_to_string(&signature_path).map_err(|_| PackError::PackNotFound)?;
-    let signature_json: Value = serde_json::from_str(signature_raw.trim())
-        .map_err(|error| PackError::InvalidFormat(error.to_string()))?;
-    let signature = parse_signature(&signature_json)?;
-    let (actual, manifest) = admit_pack(manifest_jcs.as_bytes(), None)?;
-    if actual.as_str() != expected.as_str() {
-        return Ok(OpenResult::DigestMismatch {
-            expected: expected.clone(),
-            actual,
-        });
-    }
-    let ontology_dir = std::path::Path::new(root)
-        .join(expected.as_str())
-        .join("ontology");
-    let mut ontology = Vec::new();
-    if ontology_dir.is_dir() {
-        for entry in
-            std::fs::read_dir(&ontology_dir).map_err(|error| PackError::Store(error.to_string()))?
-        {
-            let entry = entry.map_err(|error| PackError::Store(error.to_string()))?;
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-                continue;
-            }
-            let stem = path
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default();
-            let Some((definition_id, definition_digest)) = stem.rsplit_once('.') else {
-                continue;
-            };
-            let canonical_json = std::fs::read_to_string(&path)
-                .map_err(|error| PackError::Store(error.to_string()))?
-                .trim()
-                .to_owned();
-            ontology.push(PackObjectOntology {
-                definition_id: DefinitionId::parse(definition_id)?,
-                definition_digest: DefinitionDigest::parse(definition_digest)?,
-                canonical_json,
-            });
-        }
-    }
-    let public_key_path = std::path::Path::new(root)
-        .join(expected.as_str())
-        .join("public_key.pem");
-    let public_key_pem =
-        std::fs::read_to_string(public_key_path).map_err(|_| PackError::PublisherKeyUnknown)?;
-    match verify_ed25519_signature(&public_key_pem, actual.as_str(), &signature.signature_b64) {
-        Ok(()) => {}
-        Err(PackError::SignatureInvalid) => return Ok(OpenResult::SignatureInvalid),
-        Err(error) => return Err(error),
-    }
-    Ok(OpenResult::Opened {
-        pack_digest: actual.clone(),
-        manifest: Box::new(manifest),
-        manifest_jcs,
-        ontology_artifacts: ontology.clone(),
-        signature_verified: true,
-        source: Box::new(ObjectSource::File {
-            root: root.to_owned(),
-        }),
     })
 }
 
