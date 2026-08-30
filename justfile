@@ -11,7 +11,6 @@ check:
     ./e2e/run.sh check
 
 # Produce the binaries e2e-run executes.
-# Pass `durable-commit` or `all` to also build the failpoints zoend.
 build scenario="":
     ./e2e/run.sh build {{scenario}}
 
