@@ -11,10 +11,9 @@ use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
 use zoen_adapters::{CreateInvite, PostgresIdentityStore};
 use zoen_core::{
-    ActionId, ActorId, BindingProof, ChannelProvider, DelegationChain, DelegationGrant,
-    DelegationId, ExternalSubject, IdentityError, InviteToken, MembershipId, PrincipalId,
-    ResourceId, RevocationReason, TenantId, TimestampMicros, UnbindReason, WorkloadId,
-    ZoenAccountId,
+    ActionId, ActorId, ChannelProvider, DelegationChain, DelegationGrant, DelegationId,
+    ExternalSubject, IdentityError, InviteToken, MembershipId, PrincipalId, ResourceId,
+    RevocationReason, TenantId, TimestampMicros, UnbindReason, WorkloadId, ZoenAccountId,
 };
 
 use crate::identity_admin_auth::{
@@ -280,11 +279,7 @@ async fn verify_binding(
     if let Some(error) = require_account(&state.identity, &actor, &account_id).await {
         return error;
     }
-    match state
-        .identity
-        .verify_binding(account_id, BindingProof::HarnessVerified)
-        .await
-    {
+    match state.identity.verify_binding(account_id).await {
         Ok(binding) => (StatusCode::OK, Json(binding_json(&binding))).into_response(),
         Err(error) => identity_error(error),
     }
@@ -399,7 +394,7 @@ async fn create_invite(
         .identity
         .create_invite(CreateInvite {
             actor_id,
-            clearance: zoen_core::Clearance::world_floor(),
+            clearance: zoen_core::Clearance::personal_owner(),
             delegation,
             expires_at: TimestampMicros::new(body.expires_at_micros),
             principal_id,
@@ -709,11 +704,7 @@ async fn bootstrap_bound(
         binding.subject == subject && matches!(binding.status, zoen_core::BindingStatus::Verified)
     });
     if !already_verified {
-        if let Err(error) = state
-            .identity
-            .verify_binding(account.id.clone(), BindingProof::HarnessVerified)
-            .await
-        {
+        if let Err(error) = state.identity.verify_binding(account.id.clone()).await {
             return identity_error(error);
         }
     }
@@ -863,7 +854,6 @@ fn membership_json(membership: &zoen_core::Membership) -> MembershipJson {
         kind: match membership.kind {
             zoen_core::MembershipKind::Personal => "personal",
             zoen_core::MembershipKind::Invite { .. } => "invite",
-            zoen_core::MembershipKind::EnterpriseOidc { .. } => "enterprise_oidc",
         }
         .to_owned(),
         actor_id: membership.actor_id.to_string(),

@@ -10,13 +10,13 @@ use sha2::{Digest, Sha256};
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    AccountMergePlan, AccountStatus, ActionId, ActorId, BindingProof, BindingStatus,
-    ChannelProvider, Clearance, DelegationChain, DelegationGrant, DelegationId,
-    EnterpriseAssertion, ExternalBinding, ExternalBindingId, ExternalSubject, IdentityError,
-    Invite, InviteId, InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus,
-    PrincipalId, ResourceId, RevocationReason, TenantId, TimestampMicros, TrustedExecutionContext,
-    UnbindReason, WORLD_INVITE_ACTION, WORLD_READ_ACTION, WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION,
-    WORLD_WHO_CAN_ACTION, WorkloadId, ZoenAccount, ZoenAccountId, trusted_context_from_membership,
+    AccountMergePlan, AccountStatus, ActionId, ActorId, BindingStatus, ChannelProvider, Clearance,
+    DelegationChain, DelegationGrant, DelegationId, ExternalBinding, ExternalBindingId,
+    ExternalSubject, IdentityError, Invite, InviteId, InviteToken, Membership, MembershipId,
+    MembershipKind, MembershipStatus, PrincipalId, ResourceId, RevocationReason, TenantId,
+    TimestampMicros, TrustedExecutionContext, UnbindReason, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
+    WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION, WorkloadId, ZoenAccount,
+    ZoenAccountId, trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -75,19 +75,10 @@ impl PostgresIdentityStore {
     pub async fn verify_binding(
         &self,
         account: ZoenAccountId,
-        proof: BindingProof,
     ) -> Result<ExternalBinding, IdentityError> {
-        let BindingProof::HarnessVerified = proof;
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let account_row = load_account(&mut transaction, &account).await?;
-        if matches!(account_row.status, AccountStatus::MergedInto { .. }) {
-            return Err(IdentityError::AccountMerged {
-                survivor: match account_row.status {
-                    AccountStatus::MergedInto { survivor } => survivor,
-                    _ => unreachable!(),
-                },
-            });
-        }
+        reject_merged(&account_row)?;
         let binding = sqlx::query(
             "SELECT binding_id, account_id, provider, subject_key, status, verified_at,
                     unbound_at, unbind_reason
@@ -329,18 +320,6 @@ impl PostgresIdentityStore {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let account_row = load_account(&mut transaction, &account).await?;
         reject_merged(&account_row)?;
-        // Invites are tenant-scoped under RLS; scan requires bypassing by looking up hash
-        // without tenant set is impossible under FORCE RLS. Use a security definer pattern:
-        // temporarily disable RLS via set_config is not available. Instead store invites
-        // lookup through a transaction that sets each candidate — for harness we look up
-        // by joining with set_config disabled for table owner... FORCE applies to owner.
-        // Workaround: query invites using a session that sets zoen.tenant_id from a
-        // side channel. Harness create_invite returns invite_id+tenant; accept uses token
-        // hash with an explicit tenant from the invite payload is forbidden by ticket.
-        // Solution: add a non-RLS invite_token_index table OR use postgres role that
-        // bypasses. Simplest in-scope fix: store token_hash globally in invites without
-        // relying on RLS for the token lookup by using SET LOCAL row_security = off
-        // which only works for table owner / bypassrls. zoen_app owns tables after migrate.
         let invite_row = sqlx::query(
             "SELECT invite_id, tenant_id, principal_id, token_hash, expires_at, consumed_at,
                     workload_id, actor_id, delegation_json, clearance_json
@@ -478,62 +457,6 @@ impl PostgresIdentityStore {
     ) -> Result<Membership, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let membership = load_active_membership(&mut transaction, account, tenant).await?;
-        transaction.commit().await.map_err(unavailable)?;
-        Ok(membership)
-    }
-
-    pub async fn link_enterprise_oidc(
-        &self,
-        account: ZoenAccountId,
-        assertion: EnterpriseAssertion,
-    ) -> Result<Membership, IdentityError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let account_row = load_account(&mut transaction, &account).await?;
-        reject_merged(&account_row)?;
-        if load_active_membership(&mut transaction, &account, &assertion.tenant_id)
-            .await
-            .is_ok()
-        {
-            let existing =
-                load_active_membership(&mut transaction, &account, &assertion.tenant_id).await?;
-            transaction.commit().await.map_err(unavailable)?;
-            return Ok(existing);
-        }
-        let membership_id = new_membership_id();
-        insert_membership(
-            &mut transaction,
-            InsertMembership {
-                id: &membership_id,
-                account_id: &account,
-                tenant_id: &assertion.tenant_id,
-                principal_id: &assertion.principal_id,
-                kind: MembershipKind::EnterpriseOidc {
-                    idp_issuer: assertion.idp_issuer.clone(),
-                    idp_subject: assertion.idp_subject.clone(),
-                },
-                workload_id: &assertion.workload_id,
-                actor_id: &assertion.actor_id,
-                delegation: &assertion.delegation,
-                clearance: &assertion.clearance,
-            },
-        )
-        .await?;
-        let membership = Membership {
-            id: membership_id,
-            account_id: account,
-            tenant_id: assertion.tenant_id,
-            principal_id: assertion.principal_id,
-            status: MembershipStatus::Active,
-            kind: MembershipKind::EnterpriseOidc {
-                idp_issuer: assertion.idp_issuer,
-                idp_subject: assertion.idp_subject,
-            },
-            delegation_template_id: None,
-            workload_id: assertion.workload_id,
-            actor_id: assertion.actor_id,
-            delegation: assertion.delegation,
-            clearance: assertion.clearance,
-        };
         transaction.commit().await.map_err(unavailable)?;
         Ok(membership)
     }
@@ -924,8 +847,7 @@ impl PostgresIdentityStore {
             binding.subject == subject && matches!(binding.status, BindingStatus::Verified)
         });
         if !verified {
-            self.verify_binding(account.id.clone(), BindingProof::HarnessVerified)
-                .await?;
+            self.verify_binding(account.id.clone()).await?;
         }
         let personal = snapshot.memberships.iter().any(|membership| {
             matches!(membership.kind, MembershipKind::Personal)
@@ -1031,18 +953,9 @@ async fn insert_membership(
     transaction: &mut Transaction<'_, Postgres>,
     input: InsertMembership<'_>,
 ) -> Result<(), IdentityError> {
-    let (kind, invite_id, idp_issuer, idp_subject) = match &input.kind {
-        MembershipKind::Personal => ("personal", None, None, None),
-        MembershipKind::Invite { invite_id } => ("invite", Some(invite_id.as_str()), None, None),
-        MembershipKind::EnterpriseOidc {
-            idp_issuer,
-            idp_subject,
-        } => (
-            "enterprise_oidc",
-            None,
-            Some(idp_issuer.as_str()),
-            Some(idp_subject.as_str()),
-        ),
+    let (kind, invite_id) = match &input.kind {
+        MembershipKind::Personal => ("personal", None),
+        MembershipKind::Invite { invite_id } => ("invite", Some(invite_id.as_str())),
     };
     sqlx::query(
         "INSERT INTO memberships (
@@ -1057,8 +970,8 @@ async fn insert_membership(
     .bind(input.principal_id.as_str())
     .bind(kind)
     .bind(invite_id)
-    .bind(idp_issuer)
-    .bind(idp_subject)
+    .bind(None::<&str>)
+    .bind(None::<&str>)
     .bind(input.workload_id.as_str())
     .bind(input.actor_id.as_str())
     .bind(
@@ -1226,10 +1139,6 @@ fn row_to_membership(row: &PgRow) -> Result<Membership, IdentityError> {
             invite_id: InviteId::parse(row_text(row, "invite_id")?)
                 .map_err(|_| IdentityError::Conflict("invalid invite id".to_owned()))?,
         },
-        "enterprise_oidc" => MembershipKind::EnterpriseOidc {
-            idp_issuer: row_text(row, "idp_issuer")?,
-            idp_subject: row_text(row, "idp_subject")?,
-        },
         other => {
             return Err(IdentityError::Conflict(format!(
                 "unknown membership kind {other}"
@@ -1273,6 +1182,10 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
         BTreeSet::from([
             ActionId::parse("zoen.definition.activate")
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse("personal.writeMemory")
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse("personal.createReminder")
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORLD_INVITE_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORLD_SHARE_ACTION)
@@ -1282,8 +1195,16 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
             ActionId::parse(WORLD_WHO_CAN_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
         ]),
-        BTreeSet::from([ResourceId::parse("zoen.personal.workspace")
-            .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?]),
+        BTreeSet::from([
+            ResourceId::parse("zoen.personal.workspace")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse("personal.memory")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse("personal.note")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse("personal.reminder")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+        ]),
         BTreeSet::from([workload_id.clone()]),
         TimestampMicros::new(0),
         TimestampMicros::new(4_102_444_800_000_000),

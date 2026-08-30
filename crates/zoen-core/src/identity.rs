@@ -258,7 +258,7 @@ pub struct VerifiedSessionEvidence {
     pub session_id: SessionId,
 }
 
-/// Cross-channel logical person. Never equal to phone/email/OIDC sub.
+/// Cross-channel logical person. Never equal to a channel subject.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ZoenAccount {
     pub id: ZoenAccountId,
@@ -323,7 +323,6 @@ impl ExternalSubject {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ChannelProvider {
     AuthDoor,
-    WebOidc,
     WhatsApp,
     Telegram,
     Linq,
@@ -358,7 +357,6 @@ impl ChannelProvider {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AuthDoor => "auth_door",
-            Self::WebOidc => "web_oidc",
             Self::WhatsApp => "whatsapp",
             Self::Telegram => "telegram",
             Self::Linq => "linq",
@@ -368,7 +366,6 @@ impl ChannelProvider {
     pub fn parse(value: &str) -> Result<Self, IdentityError> {
         match value {
             "auth_door" => Ok(Self::AuthDoor),
-            "web_oidc" => Ok(Self::WebOidc),
             "whatsapp" => Ok(Self::WhatsApp),
             "telegram" => Ok(Self::Telegram),
             "linq" => Ok(Self::Linq),
@@ -482,13 +479,7 @@ pub struct Membership {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MembershipKind {
     Personal,
-    Invite {
-        invite_id: InviteId,
-    },
-    EnterpriseOidc {
-        idp_issuer: String,
-        idp_subject: String,
-    },
+    Invite { invite_id: InviteId },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -528,24 +519,6 @@ pub struct AccountMergePlan {
     pub absorbed: ZoenAccountId,
     /// Bindings may move; memberships and Personal tenants do NOT copy.
     pub move_bindings: Vec<ExternalBindingId>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BindingProof {
-    /// Harness / ops verified the channel subject out of band.
-    HarnessVerified,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EnterpriseAssertion {
-    pub idp_issuer: String,
-    pub idp_subject: String,
-    pub tenant_id: TenantId,
-    pub principal_id: PrincipalId,
-    pub workload_id: WorkloadId,
-    pub actor_id: ActorId,
-    pub delegation: DelegationChain,
-    pub clearance: Clearance,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -727,8 +700,6 @@ pub enum IngressAllowance {
         server_allowlist: Vec<ServerAllowId>,
     },
 }
-
-pub type IngressScope = IngressAllowance;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProjectedCapabilityKind {
@@ -944,7 +915,7 @@ mod tests {
             person.reject_if_whatsapp_door(Some("+553798136141")),
             Ok(())
         );
-        let oidc = ExternalSubject::new(ChannelProvider::WebOidc, "user-1").expect("oidc");
-        assert_eq!(oidc.reject_if_whatsapp_door(None), Ok(()));
+        let telegram = ExternalSubject::new(ChannelProvider::Telegram, "user-1").expect("telegram");
+        assert_eq!(telegram.reject_if_whatsapp_door(None), Ok(()));
     }
 }
