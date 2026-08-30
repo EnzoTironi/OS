@@ -1,9 +1,10 @@
+use std::net::IpAddr;
 use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
-use axum::http::{HeaderName, StatusCode, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use reqwest::Client;
@@ -17,7 +18,14 @@ pub fn router() -> Router {
         .route("/api/auth/{*path}", any(proxy_door))
         .route("/device", any(proxy_door))
         .route("/onboard/done", any(proxy_door))
-        .with_state(Client::new())
+        .with_state(door_client())
+}
+
+fn door_client() -> Client {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("TLS backend cannot be initialized")
 }
 
 async fn proxy_door(State(client): State<Client>, request: Request) -> Response {
@@ -43,9 +51,10 @@ async fn forward(
     client: &Client,
     method: reqwest::Method,
     url: String,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let origin = inbound_origin(&headers);
     let mut upstream = client.request(method, url).timeout(Duration::from_secs(15));
     for (name, value) in headers.iter() {
         if hop_by_hop(name) {
@@ -64,6 +73,15 @@ async fn forward(
                 if hop_by_hop(name) {
                     continue;
                 }
+                if name == header::LOCATION {
+                    if let Some(rewritten) = origin
+                        .as_deref()
+                        .and_then(|origin| rewrite_loopback_location(value, origin))
+                    {
+                        builder = builder.header(name, rewritten);
+                        continue;
+                    }
+                }
                 builder = builder.header(name, value);
             }
             builder
@@ -72,6 +90,44 @@ async fn forward(
         }
         Err(_) => (StatusCode::BAD_GATEWAY, "auth_door_unreachable\n").into_response(),
     }
+}
+
+fn inbound_origin(headers: &HeaderMap) -> Option<String> {
+    let host = header_csv_first(headers, "x-forwarded-host")
+        .or_else(|| header_csv_first(headers, header::HOST.as_str()))?;
+    let proto = header_csv_first(headers, "x-forwarded-proto").unwrap_or_else(|| "http".to_owned());
+    Some(format!("{proto}://{host}"))
+}
+
+fn header_csv_first(headers: &HeaderMap, name: &str) -> Option<String> {
+    let raw = headers.get(name)?.to_str().ok()?;
+    let first = raw.split(',').next()?.trim();
+    if first.is_empty() {
+        None
+    } else {
+        Some(first.to_owned())
+    }
+}
+
+fn rewrite_loopback_location(location: &HeaderValue, origin: &str) -> Option<HeaderValue> {
+    let raw = location.to_str().ok()?;
+    let url = reqwest::Url::parse(raw).ok()?;
+    let host = url.host_str()?;
+    if !host_is_loopback(host) {
+        return None;
+    }
+    let mut next = reqwest::Url::parse(origin).ok()?;
+    next.set_path(url.path());
+    next.set_query(url.query());
+    HeaderValue::from_str(next.as_str()).ok()
+}
+
+fn host_is_loopback(host: &str) -> bool {
+    let host = host.trim_matches(|c| c == '[' || c == ']');
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 fn hop_by_hop(name: &HeaderName) -> bool {
