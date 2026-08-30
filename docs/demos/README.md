@@ -56,7 +56,7 @@ Outcome-first Pack pages live in [`docs/product/pack-directory.md`](../product/p
 ## Still open on #267
 
 - Human comprehension study (protocol lived under `e2e/public-surface-web` on `archive/pre-modeled-erp`; capture remains).
-- Live conversation entry only when a real channel is available (#273) or a web chat that uses the AD-05/AD-03 contracts. Until then, do not ship a fake chat.
+- Live conversation entry only when a real channel is available (#273). Until then, do not ship a fake chat.
 - Cold-start comprehension evidence for people who have not read the ADRs.
 - Coordinator registration of `just e2e public-surface`.
 

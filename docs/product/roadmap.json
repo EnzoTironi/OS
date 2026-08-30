@@ -59,8 +59,8 @@
       "order": 5,
       "issue": 328,
       "pr": null,
-      "title": "Surface IR and Attention on live channels",
-      "note": "Surface and attention are archived. Live WhatsApp destination is Kapso in Eve. Paired door still missing."
+      "title": "Surface IR and Attention archived",
+      "note": "Surface and attention live on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve."
     }
   ],
   "rows": [
@@ -341,14 +341,14 @@
       ]
     },
     {
-      "id": "surface-ir-e2e-live",
-      "status": "in-flight",
+      "id": "archived-surface-attention-e2e",
+      "status": "have",
       "plane": "channels",
-      "name": "Surface IR and Attention e2e on live channels",
+      "name": "Archived Surface IR and Attention e2e",
       "onMain": false,
       "product": false,
       "path": "archive/pre-modeled-erp:archive/packages/attention, e2e/live-attention.ts",
-      "proof": "Surface IR and Attention e2e live on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve. Skipped by just verify. Does not close #328 as dest product on default main.",
+      "proof": "Lives on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve. Skipped by just verify.",
       "issue": 328,
       "backup": [
         "e2e/surface-ir-renderer",

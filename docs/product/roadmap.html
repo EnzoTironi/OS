@@ -113,7 +113,7 @@
   </header>
   <div class="stats">
 <button class="stat" data-filter="have" type="button">
-  <span class="stat-count">24</span>
+  <span class="stat-count">25</span>
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
@@ -125,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">6</span>
+  <span class="stat-count">5</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -182,8 +182,8 @@
   <div>
     <a href="https://github.com/EnzoTironi/OS/issues/328">#328</a>
     
-    <strong>Surface IR and Attention on live channels</strong>
-    <p>Surface and attention are archived. Live WhatsApp destination is Kapso in Eve. Paired door still missing.</p>
+    <strong>Surface IR and Attention archived</strong>
+    <p>Surface and attention live on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve.</p>
   </div>
 </li>
       </ol>
@@ -415,6 +415,17 @@
   <td><a href="https://github.com/EnzoTironi/OS/issues/253">#253</a></td>
 </tr>
 <tr data-status="have">
+  <td><code>archived-surface-attention-e2e</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Archived Surface IR and Attention e2e</div>
+    <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
+    <div class="blocker">Blocked on Paired ZOEN_WHATSAPP_DOOR_E164</div>
+  </td>
+  <td>Lives on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve. Skipped by just verify.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
+</tr>
+<tr data-status="have">
   <td><code>messaging-boundary-law</code></td>
   <td>channels</td>
   <td>
@@ -591,17 +602,6 @@
   </td>
   <td>Node adapter conformance journey deleted. Live WhatsApp destination is Kapso in Eve. Fakes stay deleted.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
-</tr>
-<tr data-status="in-flight">
-  <td><code>surface-ir-e2e-live</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Surface IR and Attention e2e on live channels</div>
-    <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
-    <div class="blocker">Blocked on Paired ZOEN_WHATSAPP_DOOR_E164</div>
-  </td>
-  <td>Surface IR and Attention e2e live on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve. Skipped by just verify. Does not close #328 as dest product on default main.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
     </tbody>
   </table>
