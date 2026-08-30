@@ -399,16 +399,7 @@ impl QueryRuntime {
                         state.authority_head,
                     )));
                 }
-                match state.projection {
-                    Some(projection) if projection.through_commit >= requested_i64 => {
-                        Ok(SourcePlan::Projection {
-                            cut: requested_i64,
-                            parquet_digest: projection.parquet_digest,
-                            parquet_object_key: projection.parquet_object_key,
-                        })
-                    }
-                    _ => Ok(SourcePlan::Postgres { cut: requested_i64 }),
-                }
+                Ok(SourcePlan::Postgres { cut: requested_i64 })
             }
             Consistency::Eventual => match state.projection {
                 Some(projection) => Ok(SourcePlan::Projection {
