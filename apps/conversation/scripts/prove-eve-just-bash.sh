@@ -64,11 +64,11 @@ snippet() {
 mkdir -p "$(dirname "$proof")"
 
 {
-  printf '# Eve start keeps just-bash in production\n\n'
+  printf '# Eve start without just-bash in production\n\n'
   printf 'Source: `apps/conversation/scripts/prove-eve-just-bash.sh`\n'
   printf 'Worktree: `%s`\n' "$repo"
   printf 'Node: `%s`\n' "$(node -v 2>/dev/null || printf missing)"
-  printf 'Tree-only is fail. Production `npm ci --omit=dev` must keep `just-bash`. `eve start` must initialize the root sandbox without `Cannot find package '"'"'just-bash'"'"'`.\n\n'
+  printf 'Production `npm ci --omit=dev` must not install `just-bash`. `eve start` must listen on the authored `zoen-membership-workbench` backend without `Cannot find package '"'"'just-bash'"'"'`.\n\n'
 } > "$draft"
 
 node_ver="$(node -v 2>/dev/null || printf missing)"
@@ -80,16 +80,11 @@ else
   fail=1
 fi
 
-check "package.json dependencies has just-bash" "node -e 'const p=require(\"./apps/conversation/package.json\"); process.exit(p.dependencies&&p.dependencies[\"just-bash\"]?0:1)'" "dependencies.just-bash"
-check "package.json does not keep just-bash only in devDependencies" "node -e 'const p=require(\"./apps/conversation/package.json\"); process.exit(p.devDependencies&&p.devDependencies[\"just-bash\"]&&!(p.dependencies&&p.dependencies[\"just-bash\"])?1:0)'" "not-dev-only"
-check "package-lock has node_modules/just-bash" "node -e 'const p=require(\"./apps/conversation/package-lock.json\"); process.exit(p.packages&&p.packages[\"node_modules/just-bash\"]?0:1)'" "packages[node_modules/just-bash]"
-check "kapso.ts uses createKapsoAdapter" "grep -q 'createKapsoAdapter' apps/conversation/agent/channels/kapso.ts" "createKapsoAdapter"
-check "kapso.ts uses chatSdkChannel" "grep -q 'chatSdkChannel' apps/conversation/agent/channels/kapso.ts" "chatSdkChannel"
-check "kapso.ts does not import defineChannel" "! grep -q 'defineChannel' apps/conversation/agent/channels/kapso.ts" "absent"
-check "Dockerfile has no KAPSO assignment" "! grep -E 'KAPSO_[A-Z0-9_]*[[:space:]]*=' deploy/fly/Dockerfile" "absent"
-check "fly.toml has no KAPSO assignment" "! grep -E 'KAPSO_[A-Z0-9_]*[[:space:]]*=' deploy/fly/fly.toml" "absent"
-check "zoen-start-eve has no KAPSO assignment" "! grep -E 'KAPSO_[A-Z0-9_]*[[:space:]]*=' deploy/fly/zoen-start-eve" "absent"
-check "Dockerfile does not set WHATSAPP_ACCESS_TOKEN" "! grep -q 'WHATSAPP_ACCESS_TOKEN' deploy/fly/Dockerfile" "absent"
+check "package.json dependencies does not list just-bash" "node -e 'const p=require(\"./apps/conversation/package.json\"); process.exit(p.dependencies&&p.dependencies[\"just-bash\"]?1:0)'" "absent"
+check "package.json devDependencies does not list just-bash" "node -e 'const p=require(\"./apps/conversation/package.json\"); process.exit(p.devDependencies&&p.devDependencies[\"just-bash\"]?1:0)'" "absent"
+check "package-lock has no node_modules/just-bash" "node -e 'const p=require(\"./apps/conversation/package-lock.json\"); process.exit(p.packages&&p.packages[\"node_modules/just-bash\"]?1:0)'" "packages[node_modules/just-bash] absent"
+check "sandbox.ts uses workbenchBackend" "grep -q 'workbenchBackend' apps/conversation/agent/sandbox/sandbox.ts" "workbenchBackend"
+check "agent sources do not import just-bash" "! grep -R --include='*.ts' -F 'just-bash' apps/conversation/agent" "absent"
 
 ci_dir="${work}/prod-ci"
 mkdir -p "$ci_dir"
@@ -98,15 +93,17 @@ set +e
 (cd "$ci_dir" && npm ci --omit=dev) >"$ci_log" 2>&1
 ci_exit="$?"
 set -e
-if [[ "$ci_exit" -eq 0 && -d "$ci_dir/node_modules/just-bash" ]]; then
-  record "production npm ci --omit=dev keeps just-bash" "npm ci --omit=dev" "$ci_dir" "pass" "node_modules/just-bash present"
+if [[ "$ci_exit" -eq 0 && ! -d "$ci_dir/node_modules/just-bash" && -d "$ci_dir/node_modules/eve" ]]; then
+  record "production npm ci --omit=dev omits just-bash" "npm ci --omit=dev" "$ci_dir" "pass" "node_modules/just-bash absent, eve present"
 else
   if [[ "$ci_exit" -ne 0 ]]; then
     ci_excerpt="exit ${ci_exit} $(snippet "$ci_log")"
+  elif [[ -d "$ci_dir/node_modules/just-bash" ]]; then
+    ci_excerpt="node_modules/just-bash present"
   else
-    ci_excerpt="node_modules/just-bash missing"
+    ci_excerpt="node_modules/eve missing"
   fi
-  record "production npm ci --omit=dev keeps just-bash" "npm ci --omit=dev" "$ci_dir" "fail" "$ci_excerpt"
+  record "production npm ci --omit=dev omits just-bash" "npm ci --omit=dev" "$ci_dir" "fail" "$ci_excerpt"
   fail=1
 fi
 
@@ -119,6 +116,24 @@ if [[ -n "${KAPSO_API_KEY:-}" || -n "${WHATSAPP_ACCESS_TOKEN:-}" || -n "${EVE_DE
   fail=1
 else
   record "KAPSO_* WHATSAPP_ACCESS_TOKEN EVE_DEV unset" "unset KAPSO_* WHATSAPP_ACCESS_TOKEN EVE_DEV" "n/a" "pass" "empty"
+fi
+
+if [[ -d "$root/node_modules/just-bash" ]]; then
+  record "conversation node_modules has no just-bash" "test ! -d apps/conversation/node_modules/just-bash" "apps/conversation/node_modules" "fail" "present"
+  fail=1
+else
+  record "conversation node_modules has no just-bash" "test ! -d apps/conversation/node_modules/just-bash" "apps/conversation/node_modules" "pass" "absent"
+fi
+
+set +e
+(cd "$root" && node --input-type=module -e 'try { await import("just-bash"); process.exit(2) } catch (error) { process.exit(error && error.code === "ERR_MODULE_NOT_FOUND" ? 0 : 1) }')
+resolve_exit="$?"
+set -e
+if [[ "$resolve_exit" -eq 0 ]]; then
+  record "just-bash is not resolvable from conversation" "node -e import('just-bash')" "apps/conversation" "pass" "ERR_MODULE_NOT_FOUND"
+else
+  record "just-bash is not resolvable from conversation" "node -e import('just-bash')" "apps/conversation" "fail" "exit ${resolve_exit}"
+  fail=1
 fi
 
 if [[ ! -d "$root/.output" ]]; then
@@ -156,6 +171,7 @@ else
   while [[ "$SECONDS" -lt "$deadline" ]]; do
     if grep -q "Cannot find package 'just-bash'" "$start_log" 2>/dev/null \
       || grep -q "failed to initialize sandbox template" "$start_log" 2>/dev/null \
+      || grep -q 'on backend "just-bash"' "$start_log" 2>/dev/null \
       || grep -qE 'eve: initialized [0-9]+ sandbox' "$start_log" 2>/dev/null; then
       break
     fi
@@ -174,7 +190,8 @@ else
   fi
 
   if grep -q "Cannot find package 'just-bash'" "$start_log" \
-    || grep -q "failed to initialize sandbox template" "$start_log"; then
+    || grep -q "failed to initialize sandbox template" "$start_log" \
+    || grep -q 'on backend "just-bash"' "$start_log"; then
     start_status="fail"
     fail=1
   elif grep -qE 'eve: initialized [0-9]+ sandbox' "$start_log"; then
@@ -219,14 +236,12 @@ cd "$repo"
 
 {
   printf '## Kept\n\n'
-  printf '%s\n' '- Official `chatSdkChannel` + `createKapsoAdapter`'
-  printf '%s\n' '- WhatsApp path `POST /eve/v1/kapso`'
-  printf '%s\n' '- No Kapso webhook pointed'
-  printf '%s\n' '- No KAPSO baked into the image'
+  printf '%s\n' '- Authored sandbox backend `zoen-membership-workbench` (`@rivet-dev/agentos-core`)'
+  printf '%s\n' '- Eve 0.47.3 optional peer `just-bash` in Eve metadata (not installed)'
   printf '\n## Out of this PR\n\n'
-  printf '%s\n' '- Pointing Kapso webhooks'
-  printf '%s\n' '- Switching the sandbox backend'
-  printf '%s\n' '- Wasmtime adapter'
+  printf '%s\n' '- Vendoring Eve'
+  printf '%s\n' '- `apps/conversation/scripts/prove-eve-on-fly.sh`'
+  printf '%s\n' '- Switching the sandbox backend away from agentos-core'
   printf '\n'
 } >> "$draft"
 
@@ -237,6 +252,6 @@ if [[ "$fail" -ne 0 ]]; then
   exit 1
 fi
 
-printf '## Verdict\n\npass. Production `npm ci --omit=dev` keeps `just-bash`. `eve start` initializes the root sandbox without `Cannot find package '"'"'just-bash'"'"'`. Channel stays official Chat SDK Kapso. No webhook pointed. No KAPSO baked into the image.\n' >> "$draft"
+printf '## Verdict\n\npass. Production `npm ci --omit=dev` omits `just-bash`. `eve start` initializes the root sandbox without loading `just-bash`. `GET /eve/v1/health` is 200.\n' >> "$draft"
 cp "$draft" "$proof"
 printf 'wrote %s\n' "$proof"
