@@ -10,9 +10,7 @@
     "buf:breaking": "buf breaking --against .buf-baseline",
     "buf:generate": "buf generate",
     "buf:lint": "buf lint",
-    "check": "tsc -p tsconfig.json --noEmit",
-    "roadmap:check": "node scripts/render-roadmap.mjs --check",
-    "test": "node -e \"process.exit(0)\""
+    "check": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@babel/parser": "7.29.8",
@@ -30,7 +28,6 @@
     "canonicalize": "4.0.0",
     "pg": "8.23.0",
     "typescript": "7.0.2",
-    "yaml": "^2.9.0",
     "zod": "4.4.3"
   }
 }
