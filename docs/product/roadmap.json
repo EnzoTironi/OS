@@ -32,7 +32,7 @@
       "issue": 325,
       "pr": null,
       "title": "definition-publication and semantic-query on dest door",
-      "note": "Done on main. Dest door is Better Auth SessionDoor. Leftover e2e still compose Keycloak. That leftover is not dest. Legacy session boot stays deleted."
+      "note": "Done on main. Dest door is Better Auth SessionDoor. Leftover e2e still compose Keycloak. Legacy session boot stays deleted."
     },
     {
       "order": 2,
@@ -53,7 +53,7 @@
       "issue": 327,
       "pr": null,
       "title": "Conformance and substitution against live adapters",
-      "note": "In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify."
+      "note": "In flight. Live WhatsApp dest is Kapso in Eve. Telegram stays in flight. Linq optional. Fakes stay out of just verify."
     },
     {
       "order": 5,
@@ -149,18 +149,18 @@
       "onMain": true,
       "product": true,
       "path": "apps/auth, apps/zoend/src/config.rs",
-      "proof": "ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Leftover e2e still compose Keycloak. That compose is leftover, not dest.",
+      "proof": "ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Leftover e2e still compose Keycloak.",
       "issue": null
     },
     {
-      "id": "identity-legacy-sessions",
+      "id": "definition-publication-query",
       "status": "have",
       "plane": "identity",
       "name": "definition-publication and semantic-query on dest door",
       "onMain": true,
       "product": true,
       "path": "e2e/definition-publication, e2e/semantic-query",
-      "proof": "just e2e definition-publication. just e2e semantic-query. ProcessAuth is SessionDoor. Leftover e2e still compose Keycloak. That compose is leftover, not dest. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS stay deleted.",
+      "proof": "just e2e definition-publication. just e2e semantic-query. ProcessAuth is SessionDoor. Leftover e2e still compose Keycloak. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS stay deleted.",
       "issue": 325,
       "backup": []
     },
@@ -260,7 +260,7 @@
       "onMain": false,
       "product": false,
       "path": "",
-      "proof": "Not product. The leftover agent-session package is gone. Conversation is Eve.",
+      "proof": "Not product. Conversation is Eve.",
       "issue": null
     },
     {
@@ -312,7 +312,7 @@
       "blocker": "Telegram bot token"
     },
     {
-      "id": "whatsapp-unofficial",
+      "id": "whatsapp-kapso",
       "status": "in-flight",
       "plane": "channels",
       "name": "WhatsApp (Kapso) for Brazil",
@@ -408,7 +408,7 @@
       "onMain": true,
       "product": true,
       "path": "apps/zoend/src/config.rs",
-      "proof": "On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required. zoend does not read ZOEN_OIDC_*.",
+      "proof": "On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required.",
       "issue": 317,
       "pr": [
         321

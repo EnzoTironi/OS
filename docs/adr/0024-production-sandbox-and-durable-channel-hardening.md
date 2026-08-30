@@ -23,9 +23,9 @@ Wasmtime remains no-WASI, fuel, epoch, and memory limited, and audited.
 
 Destination WhatsApp is the Chat SDK Kapso channel at `/eve/v1/kapso`. Everyday replies are text plus one https URL. Do not use `@chat-adapter/whatsapp` Cloud API.
 
-Humans authenticate at the Better Auth door. zoend `ProcessAuth` is `SessionDoor`. Missing `ZOEN_AUTH_DATABASE_URL` fails closed. The URL must be loopback. zoend does not read `ZOEN_OIDC_*`. Identity `/identity/admin/*` requires a Bearer. Missing secret or invalid auth fail closed.
+Humans authenticate at the Better Auth door. zoend `ProcessAuth` is `SessionDoor`. Missing `ZOEN_AUTH_DATABASE_URL` fails closed. The URL must be loopback. Identity `/identity/admin/*` requires a Bearer. Missing secret or invalid auth fail closed.
 
-WhatsApp subjects are person E.164. Door JID and groups are rejected. Inbound person subjects are admitted to a personal membership without a login click. Multiple active memberships without a tenant hint prefer the single personal membership, otherwise fail closed. Media is not ingested and must not be advertised as native.
+WhatsApp subjects are person E.164. Inbound person subjects are admitted to a personal membership without a login click. Multiple active memberships without a tenant hint prefer the single personal membership, otherwise fail closed. Media is not ingested and must not be advertised as native.
 
 ### Durable turns
 

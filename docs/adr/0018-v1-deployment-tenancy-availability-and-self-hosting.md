@@ -9,7 +9,7 @@ Zoen must support three commercial/operational modes without maintaining three p
 
 ## Decision
 
-Production is one Fly app (`deploy/fly`). Shared, dedicated, and self-hosted Helm profiles are gone. The same zoend, Restate, Postgres, MinIO, and Better Auth image is the deployment unit.
+Production is one Fly app (`deploy/fly`). The same zoend, Restate, Postgres, MinIO, and Better Auth image is the deployment unit.
 
 ```text
 Fly app zoen
@@ -34,7 +34,7 @@ The reference self-hosted V1 stack contains:
 
 DataFusion, Cedar and Wasmtime are embedded runtime dependencies inside Zoen processes rather than independently operated data services.
 
-A reference self-host uses the same Fly image. Better Auth is in that image. Keycloak is leftover e2e, not dest. Object storage stays S3-compatible.
+A reference self-host uses the same Fly image. Better Auth is in that image. Object storage stays S3-compatible. Leftover e2e still compose Keycloak.
 
 ## Tenancy
 
@@ -54,9 +54,9 @@ Dedicated/self-hosted deployments may operate a single tenant, but use the same 
 
 ## Identity
 
-Humans authenticate at the Better Auth door (`apps/auth`). zoend `ProcessAuth` is `SessionDoor` only. Missing `ZOEN_AUTH_DATABASE_URL` fails closed. The URL must be loopback. zoend does not read `ZOEN_OIDC_*`. An Active Membership row is the source of tenant and principal. Delegation and Action authority stay semantic.
+Humans authenticate at the Better Auth door (`apps/auth`). zoend `ProcessAuth` is `SessionDoor` only. Missing `ZOEN_AUTH_DATABASE_URL` fails closed. The URL must be loopback. An Active Membership row is the source of tenant and principal. Delegation and Action authority stay semantic.
 
-Keycloak is leftover e2e compose. It is not dest IdP. Helm is not a tree on this repo.
+Leftover e2e still compose Keycloak.
 
 ## Availability and recovery target
 
@@ -81,7 +81,7 @@ Active-active multi-region semantic authority is not part of V1. Disaster recove
 
 ## Deployment profiles
 
-Helm shared-saas, dedicated, and self-hosted profiles are gone. Production is one Fly app. Compose remains the live `just verify` matrix, not a second cluster path.
+Production is one Fly app. Compose remains the live `just verify` matrix.
 
 ## Observability
 
@@ -89,7 +89,7 @@ OpenTelemetry traces/metrics/log correlation is a V1 contract at process boundar
 
 ## E2E verification
 
-Release gates prove the live Compose matrix (`just verify`). Production deploy is Fly. KIND/Helm drills are not a release path.
+Release gates prove the live Compose matrix (`just verify`). Production deploy is Fly.
 
 1. kill/restart `zoend` replicas during requests and recover durable operation status;
 2. restart Postgres/Restate/object-store components according to supported failure scenarios without semantic corruption;

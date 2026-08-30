@@ -47,7 +47,7 @@ Use this checklist when recording or walking the Sample Company risk path. Captu
 5. Confirm the effect stays `UNKNOWN` with no blind retry.
 6. Reconcile from later evidence.
 
-Record that walkthrough with `./docs/demo/record.sh` on `archive/pre-modeled-erp`. Default `main` has no Playwright and no Keycloak. See [`docs/demo/README.md`](../demo/README.md).
+Record that walkthrough with `./docs/demo/record.sh` on `archive/pre-modeled-erp`. Default `main` has no Playwright demo. See [`docs/demo/README.md`](../demo/README.md).
 
 ## Pack directory
 

@@ -1,6 +1,6 @@
 # Recorded Sample Company demo
 
-The Sample Company recorder and `just start` stack live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). They are not on default `main`. Default `main` has no web app, no Keycloak, and no Playwright demo.
+The Sample Company recorder and `just start` stack live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). They are not on default `main`. Default `main` has no web app and no Playwright demo.
 
 The committed `sample-company-five-minute.webm` and `.json` are a prior capture on that archive branch. Re-recording needs the archive branch, Docker, and a Ready Sample Company stack. Operation and effect IDs come from live zoend on that archive stack. There is no mocked backend and no fixture-only UI stand-in.
 

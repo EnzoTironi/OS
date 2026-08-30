@@ -39,7 +39,7 @@ Sample Company is an optional five-minute first Action path. Its pre-modeled ont
 
 Checkout `archive/pre-modeled-erp` and run `just start` or `just e2e activation-sample` there.
 
-Inspect published canonical JSON and Pack creation only after this first success. Progressive depth lives in `docs/product/public-narrative.md`.
+Inspect published canonical JSON only after this first success. Progressive depth lives in `docs/product/public-narrative.md`.
 
 ## Packs
 
@@ -102,7 +102,7 @@ The reference production architecture targets single-region HA (>=99.9%), RPO <5
 
 V1 does not ship a prebuilt SAP. Each company brings its own world. Kitchen is archived and does not derive live Pack capabilities from activated definitions. See ADR-0022.
 
-Pre-modeled ERP libraries, TanStack web, Pack, Kitchen, onboarding, attention, activation-metrics, and workload-ingress live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). Default `main` does not contain `archive/`. The live lake is committed canonical JSON at `testdata/lakes/`. Publish is `DefinitionService.Publish`. PresentationIntent is not a live package. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
+Pre-modeled ERP libraries, TanStack web, Pack, Kitchen, onboarding, attention, activation-metrics, and workload-ingress live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). Default `main` does not contain `archive/`. The live lake is committed canonical JSON at `testdata/lakes/`. Publish is `DefinitionService.Publish`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
 ### Research phase
 
