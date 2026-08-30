@@ -27,6 +27,10 @@ You do not add Redis. Restate is ontology ZoenEffect only. Conversation durabili
 
 WhatsApp destination is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Do not use `@chat-adapter/whatsapp` Cloud API. Everyday replies are text plus one https URL.
 
+## Cleanup
+
+Cleanup is profound. You do not leave dest-wrong teaching beside dest-true teaching. You do not dest-amend, add a leftover banner, or keep a catalog id, ADR sentence, or demo path because it was historical V1. When a file is in your hand, you finish every leftover dest-wrong sentence in that file. You migrate then delete. A leftover sentence is a bug, not a follow-up.
+
 ## Fly images
 
 A Fly image may still build zoend this week.
