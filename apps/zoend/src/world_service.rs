@@ -605,6 +605,13 @@ fn map_read_error(error: ReadError) -> ConnectError {
         ReadError::Query(QueryPortError::Evaluation(message)) => {
             ConnectError::new(ErrorCode::FailedPrecondition, message)
         }
+        ReadError::Query(QueryPortError::Freshness {
+            available,
+            requested,
+        }) => ConnectError::new(
+            ErrorCode::FailedPrecondition,
+            format!("projection watermark {available:?} is below requested commit {requested}"),
+        ),
         ReadError::Query(QueryPortError::Invalid(message)) => {
             ConnectError::new(ErrorCode::InvalidArgument, message)
         }

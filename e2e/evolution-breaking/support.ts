@@ -28,7 +28,6 @@ import {
   definitionReference,
   fixtureDirectory,
   historyClient,
-  oidcToken,
   publish,
   rebuildProjection,
   repositoryRoot,
@@ -64,7 +63,6 @@ export {
   definitionReference,
   fixtureDirectory,
   historyClient,
-  oidcToken,
   publish,
   rebuildProjection,
   repositoryRoot,
@@ -108,6 +106,8 @@ export async function writePolicyManifest(
     path.join(scenarioDirectory, "action.cedar"),
     "utf8",
   );
+  const readSource =
+    'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n';
   const policies = definitions.flatMap((definition) => {
     const revision = definition.definition.revision;
     return [
@@ -118,6 +118,14 @@ export async function writePolicyManifest(
         policyId: `policy.replenish.v${revision}`,
         revision,
         source: actionSource,
+      },
+      {
+        actionId: "zoen.world.read",
+        definitionDigest: definition.digest,
+        digest: sha256(readSource),
+        policyId: `policy.read.v${revision}`,
+        revision,
+        source: readSource,
       },
       ...[
         "zoen.definition.activate",

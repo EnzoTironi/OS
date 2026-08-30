@@ -37,7 +37,6 @@ import {
   actionClient,
   compileDefinition,
   definitionClient,
-  oidcToken,
   publish,
   repositoryRoot,
   startServer,
@@ -58,7 +57,6 @@ export {
   definitionClient,
   dispatchOnce,
   effectClient,
-  oidcToken,
   registerWorker,
   repositoryRoot,
   startConnector,
@@ -125,6 +123,29 @@ const commercialPackageSourcePath = path.join(
 const distDirectory = path.join(repositoryRoot, "dist");
 const zoenUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_271);
 const oidcTokenUrl = `${e2eHttpUrl("ZOEN_E2E_KEYCLOAK_PORT", 58_270)}/realms/zoen/protocol/openid-connect/token`;
+
+export async function oidcToken(clientId: string): Promise<string> {
+  const response = await fetch(oidcTokenUrl, {
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: `${clientId}-secret`,
+      grant_type: "client_credentials",
+    }),
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    method: "POST",
+  });
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("access_token" in body) ||
+    typeof body.access_token !== "string"
+  ) {
+    throw new Error(`fiscal oidc token ${JSON.stringify(body)}`);
+  }
+  return body.access_token;
+}
 
 function definitionReference(compiled: CompiledDefinition) {
   return create(DefinitionReferenceSchema, {

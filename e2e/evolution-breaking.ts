@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
@@ -22,6 +21,7 @@ import {
   sourceLineCountsUnderLimit,
   usesSingleAuthorityLedger,
 } from "./evolution-breaking/acceptance.js";
+import { writeEvolutionBreakingArtifact } from "./evolution-breaking/artifact.js";
 import {
   actionContractOnlyRevision,
   parseActionContracts,
@@ -50,7 +50,6 @@ import {
   adminClient,
   adminDatabaseUrl,
   authDatabaseUrl,
-  command,
   commitAction,
   compileDefinition,
   definitionClient,
@@ -66,8 +65,6 @@ import {
   queryValues,
   rebuildProjection,
   recordEvidence,
-  repositoryRoot,
-  sha256,
   startServer,
   stopServer,
   tenantA,
@@ -84,7 +81,7 @@ import {
   startAuthDoor,
   stopAuthDoor,
 } from "./ba-door.js";
-import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
+import { e2eIdentityAdminToken } from "./host-env.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -173,7 +170,12 @@ async function main(): Promise<void> {
       applicationDatabaseUrl: adminDatabaseUrl,
       personas: adminPairPersonas(
         [definitionId, "inventory.item.1"],
-        ["zoen.definition.activate", "inventory.replenish"],
+        [
+          "zoen.definition.activate",
+          "zoen.definition.migrate",
+          "zoen.definition.rollback",
+          "inventory.replenish",
+        ],
       ),
       zoendBaseUrl,
     });
@@ -718,7 +720,7 @@ async function main(): Promise<void> {
       (lineage) =>
         lineage.targetClaimId === "claim.inventory.primaryWarehouse.v3",
     );
-    const migratedClaimExplanation = await historyClient(adminAToken).explain({
+    const migratedClaimExplanation = await historyClient(adminAToken, tenantA).explain({
       target: {
         target: {
           case: "claimId",
@@ -802,7 +804,7 @@ async function main(): Promise<void> {
         ? [value.value.value.value.amount]
         : [],
     );
-    const v1Explanation = await historyClient(adminAToken).explain({
+    const v1Explanation = await historyClient(adminAToken, tenantA).explain({
       target: {
         target: {
           case: "operationId",
@@ -934,58 +936,27 @@ async function main(): Promise<void> {
     assert.match(postgresVersion ?? "", /^18\./);
     assert.ok(v1ToV2Assessment);
     assert.ok(v2ToV3Assessment);
-    const protocol = await readFile(
-      path.join(
-        repositoryRoot,
-        "proto",
-        "zoen",
-        "definition",
-        "v1",
-        "definition.proto",
-      ),
-    );
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
-    const manifest = {
-      architecture: {
-        authorityCommitLedger: "authority_commits",
-        restate: "NotApplicable: operation and batch identities recover progress",
-        wasm: "NotApplicable: canonical v1 has no Wasm artifact or reference",
-      },
+    await writeEvolutionBreakingArtifact({
+      actionContractOnly,
       assertions,
-      classifications: {
-        forbidden: reversePlan.plan?.classification,
-        v1ToV2: v1ToV2Assessment.classification,
-        v2ToV3: v2ToV3Assessment.classification,
-      },
-      componentVersions: {
-        postgres: postgresVersion,
-        sessionDoor: "better-auth",
-      },
-      definitionDigests: {
-        actionContractOnly: actionContractOnly.digest,
-        v1: v1.digest,
-        v2: v2.digest,
-        v3: v3.digest,
-      },
       failureInjections,
-      finishedAt: new Date().toISOString(),
       foreignTenantRejections,
       mutants,
-      observedOperations: {
-        migrationV1ToV2: realRecipe.operationId,
-        migrationV2ToV3: v2ToV3Recipe.operationId,
-        v1Action: v1ReceiptOperationId,
-        v2Action: v2ReceiptOperationId,
-        v3Action: v3ReceiptOperationId,
-      },
-      protocolDigest: sha256(protocol),
-      scenario: "evolution-breaking",
+      postgresVersion,
+      reverseClassification: reversePlan.plan?.classification,
       sourceLineCounts,
-      sourceCommit,
       startedAt,
-    };
-    await writeScenarioArtifact(repositoryRoot, "evolution-breaking", manifest);
-    process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
+      v1,
+      v1ReceiptOperationId,
+      v1ToV2Assessment,
+      v1ToV2RecipeOperationId: realRecipe.operationId,
+      v2,
+      v2ReceiptOperationId,
+      v2ToV3Assessment,
+      v2ToV3RecipeOperationId: v2ToV3Recipe.operationId,
+      v3,
+      v3ReceiptOperationId,
+    });
   } finally {
     if (server !== undefined) {
       await stopServer(server);

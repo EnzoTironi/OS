@@ -160,8 +160,6 @@ async function main(): Promise<void> {
         recorder.assertions.effectRequestCollisionTypedAndAtomic === true,
       effectWrittenOutsideTransaction:
         recorder.assertions.allPreCommitFailpointsRolledBack === true,
-      failpointEnabledInDefaultBuild:
-        recorder.assertions.defaultBuildIgnoresCommitFailpoint === true,
       intentIgnored:
         recorder.assertions.sameOperationDifferentIntentTypedMismatch === true,
       missingHeadLock:

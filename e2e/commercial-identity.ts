@@ -6,22 +6,27 @@ import {
   PolicyDecision,
   ProposalStatus,
 } from "../gen/connect/zoen/action/v1/action_pb.js";
-import { writeScenarioArtifact } from "./host-env.js";
+import {
+  adminPairPersonas,
+  plantPersonas,
+  sessionOf,
+  startAuthDoor,
+  stopAuthDoor,
+} from "./ba-door.js";
+import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
 import {
   actionClient,
   actionId,
   activationActionId,
   adminClient,
+  applicationDatabaseUrl,
+  authDatabaseUrl,
   command,
   compileCommercial,
-  composeOutput,
   definitionClient,
   definitionReference,
   expectConnectCode,
   generatedDirectory,
-  oidcAudience,
-  oidcIssuer,
-  oidcToken,
   publish,
   queryQuoteReference,
   quoteEntityId,
@@ -36,6 +41,7 @@ import {
   textInput,
   worldClient,
   writePolicyManifest,
+  zoendBaseUrl,
   type ServerProcess,
 } from "./commercial-identity/support.js";
 
@@ -88,16 +94,26 @@ async function main(): Promise<void> {
 
   const policyManifestPath = path.join(generatedDirectory, "policies.json");
   await writePolicyManifest(policyManifestPath, commercial);
-  const token = await oidcToken("admin-a");
-  const definitions = definitionClient(token);
-  const actions = actionClient(token);
-  const world = worldClient(token);
+  const door = await startAuthDoor(authDatabaseUrl);
   const admin = adminClient();
   let server: ServerProcess | undefined;
   await admin.connect();
 
   try {
     server = await startServer(policyManifestPath);
+    const planted = await plantPersonas(door, {
+      adminToken: e2eIdentityAdminToken(),
+      applicationDatabaseUrl,
+      personas: adminPairPersonas(
+        [commercial.definition.definitionId, resourceId, quoteEntityId],
+        [activationActionId, actionId],
+      ),
+      zoendBaseUrl,
+    });
+    const token = sessionOf(planted, "admin-a").token;
+    const definitions = definitionClient(token, tenantA);
+    const actions = actionClient(token, tenantA);
+    const world = worldClient(token, tenantA);
     const published = await publish(definitions, commercial);
     observe(
       "commercialPublished",
@@ -171,20 +187,12 @@ async function main(): Promise<void> {
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const keycloakVersion = await composeOutput(
-      "exec",
-      "-T",
-      "keycloak",
-      "/opt/keycloak/bin/kc.sh",
-      "--version",
-    );
-    assert.match(keycloakVersion, /Keycloak 26\.0\.7/);
     const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
     const manifest = {
       assertions,
       componentVersions: {
-        keycloak: keycloakVersion.split("\n")[0],
         postgres: postgresVersion,
+        sessionDoor: "better-auth",
       },
       definition: {
         digest: commercial.digest,
@@ -193,10 +201,6 @@ async function main(): Promise<void> {
       },
       failureInjections,
       finishedAt: new Date().toISOString(),
-      oidc: {
-        audience: oidcAudience,
-        issuer: oidcIssuer,
-      },
       operationId: committed.receipt.operationId,
       policies: [actionId, activationActionId],
       protocolDigest: sha256(commercial.canonicalJson),
@@ -213,6 +217,7 @@ async function main(): Promise<void> {
     if (server !== undefined) {
       await stopServer(server);
     }
+    await stopAuthDoor(door);
     await admin.end();
   }
 }

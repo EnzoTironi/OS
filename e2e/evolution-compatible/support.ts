@@ -127,9 +127,6 @@ const compiledDefinitionSchema = z
     digest: z.string().regex(/^[0-9a-f]{64}$/),
   })
   .strict();
-const tokenResponseSchema = z
-  .object({ access_token: z.string().min(1) })
-  .passthrough();
 const projectionOutcomeSchema = z
   .object({
     manifestDigest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -218,12 +215,6 @@ export async function writePolicyManifest(
   await writeFile(
     outputPath,
     `${JSON.stringify({ policies }, null, 2)}\n`,
-  );
-}
-
-export async function oidcToken(clientId: string): Promise<string> {
-  throw new Error(
-    `oidcToken(${clientId}) is gone; plant a Better Auth session`,
   );
 }
 

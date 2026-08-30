@@ -775,6 +775,12 @@ fn map_action_error(error: ActionError) -> HostCallError {
 fn map_query_error(error: QueryPortError) -> HostCallError {
     match error {
         QueryPortError::Invalid(message) => HostCallError::InvalidRequest(message),
+        QueryPortError::Freshness {
+            available,
+            requested,
+        } => HostCallError::ProviderUnavailable(format!(
+            "projection watermark {available:?} is below requested commit {requested}"
+        )),
         QueryPortError::Corrupt(message)
         | QueryPortError::Evaluation(message)
         | QueryPortError::Unavailable(message) => HostCallError::ProviderUnavailable(message),

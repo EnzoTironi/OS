@@ -468,7 +468,7 @@ async function main(): Promise<void> {
       policyRevision: fixture.revision,
       policySource: "",
     } satisfies DefinitionFixture;
-    await recordAvailable(worldClient(orgAdminToken), {
+    await recordAvailable(worldClient(orgAdminToken, "tenant.org.a"), {
       claimId: "claim.available.activation-identity.org-a",
       fixture: orgFixture,
       resource: "inventory.item.1",
@@ -477,7 +477,7 @@ async function main(): Promise<void> {
     });
     const historicalOperationId = "operation.activation-identity.historical";
     const historicalProposalId = "proposal.activation-identity.historical";
-    const boundAction = actionClient(boundToken);
+    const boundAction = actionClient(boundToken, "tenant.org.a");
     const historicalPropose = await propose(boundAction, {
       expiresAt: minutesFromNow(5),
       fixture: orgFixture,
@@ -620,12 +620,12 @@ async function main(): Promise<void> {
 
     const boundExplainCode = await expectConnectCode(
       () =>
-        historyClient(boundToken).explain({
+        historyClient(boundToken, "tenant.org.a").explain({
           target: { target: { case: "operationId", value: historicalOperationId } },
         }),
       Code.PermissionDenied,
     );
-    const explanation = await historyClient(orgAdminToken).explain({
+    const explanation = await historyClient(orgAdminToken, "tenant.org.a").explain({
       target: { target: { case: "operationId", value: historicalOperationId } },
     });
     const causal = explanation.explanation;

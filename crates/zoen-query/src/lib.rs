@@ -684,9 +684,10 @@ impl QueryExecutor for QueryRuntime {
                 QueryError::Freshness {
                     available,
                     requested,
-                } => QueryPortError::Invalid(format!(
-                    "projection watermark {available:?} is below requested commit {requested}"
-                )),
+                } => QueryPortError::Freshness {
+                    available,
+                    requested,
+                },
                 QueryError::Invalid(message) => QueryPortError::Invalid(message),
                 QueryError::Unavailable(message) => QueryPortError::Unavailable(message),
             })

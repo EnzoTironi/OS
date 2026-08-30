@@ -55,8 +55,7 @@ export const adminDatabaseUrl = e2ePostgresUrl(
 );
 export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 export const zoenBaseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const oidcIssuer = "http://127.0.0.1/removed";
-export const oidcAudience = "removed";
+
 export const restateIngress = e2eHttpUrl(
   "ZOEN_E2E_RESTATE_INGRESS_PORT",
   restateIngressFallback,
@@ -86,9 +85,6 @@ const composeFile = path.join(composeDirectory, "compose.yaml");
 const composeProject = `zoen-${path.basename(composeDirectory)}`;
 const targetDirectory = path.join(repositoryRoot, "target", "debug");
 const distDirectory = path.join(repositoryRoot, "dist");
-const tokenResponseSchema = z
-  .object({ access_token: z.string().min(1) })
-  .passthrough();
 const providerOperationSchema = z
   .object({
     evidenceDigest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -151,12 +147,6 @@ export function worldClient(
   tenantId: string = tenantA,
 ): WorldClient {
   return createClient(WorldService, transport(token, tenantId));
-}
-
-export async function oidcToken(clientId: string): Promise<string> {
-  throw new Error(
-    `oidcToken(${clientId}) is gone; plant a Better Auth session`,
-  );
 }
 
 export async function startZoend(policyManifestPath: string): Promise<ManagedProcess> {

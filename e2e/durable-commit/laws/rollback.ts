@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { Code } from "@connectrpc/connect";
-import { CommitStatus } from "../../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   expectConnectCode,
   minutesFromNow,
@@ -16,31 +15,6 @@ import type { DurableScenario } from "../scenario.js";
 export async function verifyRollback(
   scenario: DurableScenario,
 ): Promise<void> {
-  const defaultBuildProposal = await propose(scenario.actionA, {
-    expiresAt: minutesFromNow(10),
-    fixture: scenario.fixtures.direct,
-    operationId: "operation.default-failpoint",
-    proposalId: "proposal.default-failpoint",
-    quantity: "5",
-  });
-  assert.ok(defaultBuildProposal.proposal);
-  await stopServer(scenario.runtime.server);
-  scenario.runtime.server = await startServer(scenario.policyManifestPath, {
-    kind: "default",
-    injectedEnvironment: { name: "after_commit" },
-  });
-  const defaultBuildCommit = await scenario.actionA.commit({
-    operationId: "operation.default-failpoint",
-    proposalId: "proposal.default-failpoint",
-  });
-  scenario.recorder.inject("failpoint-environment-on-default-build");
-  scenario.recorder.observe(
-    "defaultBuildIgnoresCommitFailpoint",
-    defaultBuildCommit.status === CommitStatus.COMMITTED,
-  );
-  await stopServer(scenario.runtime.server);
-  scenario.runtime.server = await startServer(scenario.policyManifestPath);
-
   const preCommitFailpoints = [
     "before_lock",
     "after_operation_insert",

@@ -32,9 +32,9 @@ import {
   expectConnectCode,
   authDatabaseUrl,
   generatedDirectory,
+  governedActionPersonas,
   loadFixture,
   minutesFromNow,
-  plantGovernedActionDoor,
   publishDefinition,
   recordAvailable,
   repositoryRoot,
@@ -50,8 +50,13 @@ import {
   writePolicyManifest,
   type ServerProcess,
 } from "./governed-action/support.js";
+import { invitePersona, plantPersonas } from "./ba-door.js";
 import { historyClient } from "./explain/support.js";
-import { writeScenarioArtifact } from "./host-env.js";
+import {
+  e2eHttpUrl,
+  e2eIdentityAdminToken,
+  writeScenarioArtifact,
+} from "./host-env.js";
 import {
   componentInterface,
   computationClient,
@@ -95,7 +100,24 @@ async function main(): Promise<void> {
   try {
     server = await startServer(policyManifestPath);
     await admin.connect();
-    const planted = await plantGovernedActionDoor(door);
+    const planted = await plantPersonas(door, {
+      adminToken: e2eIdentityAdminToken(),
+      applicationDatabaseUrl: adminDatabaseUrl,
+      personas: governedActionPersonas.map((persona) =>
+        persona.kind === "invite" && persona.id === "agent-b"
+          ? invitePersona({
+              actionIds: ["zoen.definition.activate"],
+              actorId: persona.actorId,
+              id: persona.id,
+              principalId: persona.principalId,
+              resourceIds: persona.resourceIds,
+              tenantId: persona.tenantId,
+              workloadId: persona.workloadId,
+            })
+          : persona,
+      ),
+      zoendBaseUrl: e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
+    });
     const agentAToken = sessionOf(planted, "agent-a").token;
     const agentBToken = sessionOf(planted, "agent-b").token;
     const adminAToken = sessionOf(planted, "admin-a").token;

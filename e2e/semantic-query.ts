@@ -20,7 +20,6 @@ import { createConnectTransport } from "@connectrpc/connect-node";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Client as PostgresClient } from "pg";
-import { z } from "zod";
 import { DefinitionService } from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   DefinitionReferenceSchema,
@@ -103,11 +102,6 @@ const tenantA = "tenant.a";
 const tenantB = "tenant.b";
 const entityId = "entity.item";
 const definitionId = "world.definition";
-const tokenResponseSchema = z
-  .object({
-    access_token: z.string().min(1),
-  })
-  .passthrough();
 const onHand = "world.onHand";
 const reserved = "world.reserved";
 const available = "world.available";
@@ -641,7 +635,7 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         query(worldA, {
-          consistency: snapshot(9n),
+          consistency: eventual(),
           definition,
           entityId,
           selection: relation(onHand),
@@ -656,7 +650,7 @@ async function main(): Promise<void> {
     await expectConnectCode(
       () =>
         query(worldA, {
-          consistency: snapshot(9n),
+          consistency: eventual(),
           definition,
           entityId,
           selection: relation(onHand),
@@ -825,11 +819,12 @@ async function main(): Promise<void> {
     assert.ok(activeAfterRebuild);
     const manifest = {
       assertions,
-      authMode: "oidc",
+      authMode: "session-door",
       componentVersions: {
         dataFusion: dataFusionVersion,
         minio: minioVersion.split("\n")[0],
         postgres: postgresVersion,
+        sessionDoor: "better-auth",
       },
       definitionDigest,
       failureInjections,

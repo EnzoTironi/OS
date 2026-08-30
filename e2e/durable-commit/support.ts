@@ -44,6 +44,7 @@ export interface CommitProcessInput {
   operationId: string;
   previewHash: string;
   proposalId: string;
+  tenantId: string;
   token: string;
 }
 
@@ -75,6 +76,7 @@ export function startCommitProcess(input: CommitProcessInput): CommitProcess {
       ZOEN_E2E_OPERATION_ID: input.operationId,
       ZOEN_E2E_PREVIEW_HASH: input.previewHash,
       ZOEN_E2E_PROPOSAL_ID: input.proposalId,
+      ZOEN_E2E_TENANT: input.tenantId,
       ZOEN_E2E_TOKEN: input.token,
     },
     stdio: ["pipe", "pipe", "pipe"],

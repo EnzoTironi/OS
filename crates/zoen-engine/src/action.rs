@@ -141,6 +141,10 @@ pub fn directory_projection(
 pub enum QueryPortError {
     Corrupt(String),
     Evaluation(String),
+    Freshness {
+        available: Option<u64>,
+        requested: u64,
+    },
     Invalid(String),
     Unavailable(String),
 }
@@ -150,6 +154,13 @@ impl Display for QueryPortError {
         match self {
             Self::Corrupt(message) => write!(formatter, "query data is corrupt: {message}"),
             Self::Evaluation(message) => write!(formatter, "query evaluation failed: {message}"),
+            Self::Freshness {
+                available,
+                requested,
+            } => write!(
+                formatter,
+                "projection watermark {available:?} is below requested commit {requested}"
+            ),
             Self::Invalid(message) => write!(formatter, "invalid semantic query: {message}"),
             Self::Unavailable(message) => write!(formatter, "query source unavailable: {message}"),
         }

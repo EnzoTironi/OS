@@ -260,7 +260,6 @@ export type ServerOptions =
   | {
       kind: "default";
       extraEnv?: Record<string, string>;
-      injectedEnvironment?: ActionCommitFailpoint;
     }
   | {
       kind: "failpoints";
@@ -455,15 +454,6 @@ export function worldClient(
   return createClient(WorldService, transport(token, tenantId));
 }
 
-export async function oidcToken(clientId: string): Promise<string> {
-  throw new Error(
-    `oidcToken(${clientId}) is gone; plant a Better Auth session`,
-  );
-}
-
-export const oidcIssuer = "http://127.0.0.1/removed";
-export const oidcAudience = "removed";
-
 function transport(token: string, tenantId: string) {
   const authorization: Interceptor = (next) => async (request) => {
     request.header.set("authorization", `Bearer ${token}`);
@@ -654,10 +644,7 @@ export async function startServer(
   policyManifestPath: string,
   options: ServerOptions = { kind: "default" },
 ): Promise<ServerProcess> {
-  const failpoint =
-    options.kind === "failpoints"
-      ? options.failpoint
-      : options.injectedEnvironment;
+  const failpoint = options.kind === "failpoints" ? options.failpoint : undefined;
   const output: string[] = [];
   const env: NodeJS.ProcessEnv = {
     ...process.env,

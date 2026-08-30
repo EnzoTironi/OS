@@ -41,12 +41,14 @@ export async function verifyConflictingCas(
       operationId: "operation.conflict.a",
       previewHash: conflictingProposalA.proposal.previewHash,
       proposalId: "proposal.conflict.a",
+      tenantId: tenantA,
       token: scenario.agentAToken,
     }),
     runCommitProcess({
       operationId: "operation.conflict.b",
       previewHash: conflictingProposalB.proposal.previewHash,
       proposalId: "proposal.conflict.b",
+      tenantId: tenantA,
       token: scenario.agentAToken,
     }),
   ]);

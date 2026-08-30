@@ -509,7 +509,7 @@ async function main(): Promise<void> {
       definitionReference(v1),
       { id: "inventory.level", kind: "relation" },
     );
-    const history = await historyClient(adminAToken).explain({
+    const history = await historyClient(adminAToken, tenantA).explain({
       target: {
         target: {
           case: "operationId",
@@ -634,8 +634,7 @@ async function main(): Promise<void> {
     observe(
       "activationDelegationGrantIsDurable",
       activationGrant.rows.length === 1 &&
-        activationGrant.rows[0]?.delegation_id ===
-          "delegation.workload.admin.a" &&
+        activationGrant.rows[0]?.delegation_id === "delegation.invite" &&
         activationGrant.rows[0]?.action_ids.includes(
           "zoen.definition.activate",
         ) === true &&

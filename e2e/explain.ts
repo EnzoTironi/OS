@@ -280,9 +280,9 @@ async function main(): Promise<void> {
         firstZoend.child.pid !== freshZoend.child.pid,
     );
 
-    const historyA = historyClient(agentAToken);
-    const historyB = historyClient(agentBToken);
-    const historyForbidden = historyClient(reconcilerAToken);
+    const historyA = historyClient(agentAToken, tenantA);
+    const historyB = historyClient(agentBToken, tenantB);
+    const historyForbidden = historyClient(reconcilerAToken, tenantA);
     const operation = await explain(historyA, {
       case: "operationId",
       value: contradicted.operationId,
