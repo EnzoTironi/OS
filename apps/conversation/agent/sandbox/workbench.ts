@@ -32,10 +32,12 @@ import {
   type MembershipId as MembershipIdBrand,
 } from "./membership";
 import {
+  isolatePlantScript,
   isZoenArgv,
-  runPlantedZoen,
+  runIsolateZoen,
   splitCommand,
-} from "./planted-zoen";
+  zoenBinPath,
+} from "./run-zoen";
 
 export const WORKBENCH_BACKEND_NAME = "zoen-membership-workbench";
 
@@ -185,7 +187,7 @@ async function runOnWorkbench(input: {
 }): Promise<SandboxCommandResult> {
   const argv = splitCommand(input.command);
   if (isZoenArgv(argv)) {
-    return runPlantedZoen({
+    return runIsolateZoen({
       argv,
       credential: input.credential,
       zoendBaseUrl: input.zoendBaseUrl,
@@ -293,6 +295,7 @@ export function workbenchBackend(options: {
         if (input.templateKey !== null) {
           await copyTemplateWorkspace(templatePath(disksRoot, input.templateKey), disk);
         }
+        await plantZoenMarker(disk);
         const vm = await retainVm(disk);
         if (bound !== undefined && boundMembership !== membershipId) {
           await bound.dispose();
@@ -459,11 +462,7 @@ async function copyTemplateWorkspace(templateRoot: string, disk: MembershipDisk)
 async function plantZoenMarker(disk: MembershipDisk): Promise<void> {
   const planted = join(disk.workspace, "bin", "zoen");
   await mkdir(dirname(planted), { recursive: true });
-  await writeFile(
-    planted,
-    "#!/bin/sh\nprintf '%s\\n' 'zoen: planted host command' >&2\nexit 126\n",
-    { mode: 0o755 },
-  );
+  await writeFile(planted, isolatePlantScript(zoenBinPath()), { mode: 0o755 });
 }
 
 function isNotFound(error: unknown): boolean {

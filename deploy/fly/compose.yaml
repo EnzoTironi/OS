@@ -7,11 +7,12 @@ services:
       POSTGRES_DB: zoen
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      ZOEN_APP_PASSWORD: ${ZOEN_APP_PASSWORD:?set ZOEN_APP_PASSWORD}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - ${ZOEN_DATA:-/data}/pg:/var/lib/postgresql/data
-      - ./init/001-roles.sql:/docker-entrypoint-initdb.d/001-roles.sql:ro
+      - ./init/001-roles.sh:/docker-entrypoint-initdb.d/001-roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d zoen"]
       interval: 2s
@@ -71,6 +72,7 @@ services:
     environment:
       DATABASE_URL: postgres://zoen_app:${ZOEN_APP_PASSWORD}@127.0.0.1:5432/zoen
       RESTATE_INGRESS: http://127.0.0.1:9071
+      ZOEN_TENANT_ID: ${ZOEN_TENANT_ID:-tenant.a}
     depends_on:
       - restate
       - postgres

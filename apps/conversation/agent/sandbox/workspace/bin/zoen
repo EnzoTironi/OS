@@ -1,3 +1,5 @@
-#!/bin/sh
-printf '%s\n' 'zoen: planted host command' >&2
-exit 126
+#!/usr/bin/env bash
+set -euo pipefail
+export ZOEN_ISOLATE=1
+root="$(cd "$(dirname "$0")/../../../../../.." && pwd)"
+exec "$root/apps/zoen/zoen" "$@"

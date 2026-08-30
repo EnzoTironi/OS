@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const files = [
-  "agent/sandbox/planted-zoen.ts",
+  "agent/sandbox/run-zoen.ts",
   "agent/sandbox/workbench.ts",
   "agent/sandbox/credentials.ts",
   "agent/sandbox/sandbox.ts",
