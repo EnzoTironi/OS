@@ -24,7 +24,7 @@ No semantic/runtime capability may require a Zoen-operated control plane to func
 The reference self-hosted V1 stack contains:
 
 - `zoend` Rust service replicas;
-- TypeScript web/intelligence service(s);
+- Eve conversation (`apps/conversation`);
 - PostgreSQL 18 transactional authority cluster;
 - Restate self-hosted cluster;
 - S3-compatible object storage for projections and knowledge blobs;
