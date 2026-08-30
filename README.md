@@ -1,143 +1,112 @@
-# Zoen OS
+# Zoen
 
-Zoen is an executable semantic operating system for organizations.
+Zoen is the operating system for a company that humans, agents, and software share.
 
-Humans, agents, and software operate the same organization through the same governed capabilities: meaning, evidence, authority, actions, history, and external effects.
+A person signs in at the Better Auth door. Membership is an Active row. From there the same verbs run in the CLI, the API, MCP, and Eve. Meaning lives in published canonical JSON. Mutation is a governed Action. Evidence, commit, and external effects stay distinct.
 
-## What exists
+This repository is the product. See [architecture.md](architecture.md) for the module map.
 
-The ownership map is [`docs/product/roadmap.md`](docs/product/roadmap.md). Open [`docs/product/roadmap.html`](docs/product/roadmap.html) for the HAVE table.
+## Products
 
-The work board is [github.com/users/EnzoTironi/projects/1](https://github.com/users/EnzoTironi/projects/1). Parent issue [#324](https://github.com/EnzoTironi/OS/issues/324).
+| Product | What you run |
+| --- | --- |
+| Ontology | `apps/zoen` CLI, zoend Connect API, MCP |
+| Conversation | Eve in `apps/conversation` |
+| Auth door | Better Auth in `apps/auth` |
 
-If a capability is only a stub, it is not product. Stubs leave `main` for [`backup/stubs-channels`](https://github.com/EnzoTironi/OS/tree/backup/stubs-channels). Each restore issue is a roadmap row.
+Conversation is not named Poke. Poke is a voice reference only.
 
-## Demo
+## Install
 
-Three production-shaped entry demos are documented in `docs/demos/README.md`:
-
-1. **Five-minute company.** Optional Sample Company on `archive/pre-modeled-erp` (`just e2e activation-sample`).
-2. **Agent safely acts.** Eve conversation plus governed Action (`just e2e governed-action` and `just e2e wasm-code-mode`).
-3. **Your messy data.** Read-only source to mapping ambiguity to Shadow recommendation (`just e2e company-bootstrap-shadow` on `archive/pre-modeled-erp`).
-
-The Sample Company recorder lives on `archive/pre-modeled-erp`. Default `main` has no Playwright demo. Details live in [`docs/demo/README.md`](docs/demo/README.md). Live conversation entry and the human comprehension study remain open on #267. Do not expect a fake chat widget or a marketing-only backend.
-
-## Quickstart
-
-Prerequisites: Docker, `just`, Node 22+, and a Rust toolchain (or a prebuilt `target/debug/zoend`).
-
-Default clone path is `just build` (zoend). Conversation is Eve in `apps/conversation`. Sample Company and the TanStack web app live on `archive/pre-modeled-erp`.
+You need Docker, `just`, Node 22, and Rust 1.88 (`rust-toolchain.toml`).
 
 ```bash
-git clone https://github.com/EnzoTironi/OS.git && cd OS
+git clone https://github.com/EnzoTironi/OS.git
+cd OS
 just build
 ```
 
-## Sample Company
+That builds zoend and the workspace TypeScript. Binaries land in `target/debug/`.
 
-Sample Company is an optional five-minute first Action path. Its pre-modeled ontology, pack, and web app live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). They are not on default `main`.
+## CLI
 
-Checkout `archive/pre-modeled-erp` and run `just start` or `just e2e activation-sample` there.
+Planted `zoen` is `zoen <noun> <verb>`. JSON on stdout. Flags over prompts. `--dry-run` on mutations.
 
-Inspect published canonical JSON only after this first success. Progressive depth lives in `docs/product/public-narrative.md`.
+```
+zoen auth login
+zoen definition publish --file definition.canonical.json
+zoen world query
+zoen world evidence
+zoen action discover
+zoen action propose
+zoen action commit
+zoen source connect
+zoen source introduce
+zoen source sync
+zoen history explain
+```
 
-## Packs
+The binary does not govern. Propose, Cedar, and commit run on zoend. Bearer is a Better Auth session. Isolate (`ZOEN_ISOLATE=1`) denies `action commit`.
 
-Packs ship outcomes, not module names.
+Publish canonical JSON. Do not author `.zoen.ts` as the compiler. `@zoen/sdk` and `@zoen/osdk` are not this door.
 
-Each Pack should answer what it does for the company, who published it, which integrations or data it needs, high-level permissions, how FirstSuccess looks, and how to install or share it.
+## Auth door
 
-Outcome-first directory copy lives in `docs/product/pack-directory.md`. Pack registry and Kitchen e2e live on `archive/pre-modeled-erp` (`just e2e pack-registry`, `just e2e pack-kitchen` there). Full marketplace commerce is out of scope.
+Better Auth listens on `127.0.0.1:58704` and stores sessions in `zoen_auth`. zoend forwards `/api/auth`, `/device`, and `/onboard/done`. The `session_token` cookie is the zoend Bearer.
 
-## Why not LLM + tools
+```bash
+cd apps/auth
+docker compose up -d --wait
+cp .env.example .env
+# set DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL
+set -a && . ./.env && set +a
+npx auth@1.7.2 migrate --config src/auth.ts --yes
+npx tsx src/server.ts
+```
 
-Zoen is not an agent bolted onto APIs, a knowledge graph, a workflow builder, or a drop-in ERP replacement.
+Local database URL is `postgres://postgres:postgres@127.0.0.1:55404/zoen_auth`. `BETTER_AUTH_URL` is `http://127.0.0.1:58704`. Generate `BETTER_AUTH_SECRET` with `openssl rand -base64 32`. Empty Google client id is valid at boot.
 
-- Evidence is not automatically truth. Belief stays explicit and attributable.
-- Humans and agents use the same semantic Query and Action contracts.
-- Actions are governed and revalidated before commit. Cedar and publish/activate stay on the path.
-- Local commit is not remote success. External effects can stay `unknown` until reconciliation.
-- History and ontology revisions are reproducible.
-- Production deploy is one Fly app.
+Google callback later:
 
-LLM calls, MCP adapters, chat buttons, and transport providers stay replaceable surfaces. They must not become a second semantic authority.
+- Production `https://zoen.tironi.xyz/api/auth/callback/google`
+- Local `http://127.0.0.1:58704/api/auth/callback/google`
+
+## Conversation
+
+Eve is `apps/conversation`. It binds loopback `:3000`. zoend forwards `/eve/v1` and `/.well-known/workflow` without rewrite. Isolate runs planted `zoen`. The worker cannot commit and cannot speak.
+
+## WhatsApp
+
+Inbound dest is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Everyday replies are text plus one https URL. Do not use `@chat-adapter/whatsapp` Cloud API.
 
 ## Deploy
 
-Production is one Fly app. Image is `deploy/fly/Dockerfile`. GitHub `fly-deploy` builds it and pushes `registry.fly.io/zoen:$GITHUB_SHA`.
+Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS is `zoen.tironi.xyz` on zoend `:58701`.
 
-Paid chat or messaging providers stay optional. Phone, group, thread, and IdP groups are not membership. Humans authenticate at the Better Auth door. An Active Membership row is the source of tenant and principal for a bound account.
+1. Land on `main`.
+2. GitHub Actions `fly-deploy` builds `deploy/fly/Dockerfile` on the runner.
+3. It pushes `registry.fly.io/zoen:$GITHUB_SHA` and runs `fly deploy --image`.
 
-Release confidence still runs through `just verify-v1` with production-shaped evidence.
+Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET` and `ZOEN_BA_AGENT_PASSWORD` are Fly secrets. After `/ready`:
 
-## Architecture
-
-V1 is planned as the production architecture, not as a disposable MVP. Implementation is decomposed into independently verifiable vertical slices, but every slice uses the real architectural path it claims to deliver.
-
-The semantic center remains deliberately small:
-
-- canonical semantic model: `Type + Relation + Computation + Action`;
-- business-specific meaning lives in immutable/versioned definitions, not runtime branches;
-- meaningful business mutation goes through governed Actions;
-- evidence, organizational belief, approval, local commit and external outcome remain distinct;
-- valid time, knowledge time, provenance, authority, causal history and uncertainty are explicit;
-- human, API, automation and AI agents use the same semantic Query/Action contracts;
-- Rust owns semantic authority;
-- PostgreSQL 18 is the transactional authority/commit backend;
-- DataFusion is the V1 semantic read/compute engine over authoritative and Arrow/Parquet materialized sources;
-- Cedar evaluates policy, Wasmtime executes untrusted/custom components and Restate provides durable orchestration behind Zoen-owned semantic boundaries;
-- TypeScript owns Eve conversation without becoming semantic authority;
-- ontology authoring is canonical JSON via DefinitionService.Publish;
-- public machine protocol uses Protobuf + Buf + ConnectRPC; semantic definition identity uses canonical JSON/JCS + SHA-256 separately;
-- production deploy is one Fly app;
-- every completed V1 capability requires a production-shaped E2E proof; mocks/stubs cannot satisfy release completion.
-
-Architecture decisions live in [`docs/adr`](docs/adr/README.md). The prescriptive V1 Wayfinder, Specs and E2E build tickets live in GitHub Issues.
-
-### V1 deployment and scale target
-
-The reference production architecture targets single-region HA (>=99.9%), RPO <5 minutes and RTO <30 minutes, with a validation envelope around 100M semantic records per company, millions of knowledge fragments, roughly 1,000 users per tenant and peak hundreds of Action commits per second where the domain workload permits.
-
-### V1 enterprise scope
-
-V1 does not ship a prebuilt SAP. Each company brings its own world. Kitchen is archived and does not derive live Pack capabilities from activated definitions. See ADR-0022.
-
-Pre-modeled ERP libraries, TanStack web, Pack, Kitchen, onboarding, attention, activation-metrics, and workload-ingress live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). Default `main` does not contain `archive/`. The live lake is committed canonical JSON at `testdata/lakes/`. Publish is `DefinitionService.Publish`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
-
-### Research phase
-
-The architecture was preceded by a two-day, agent-intensive research/falsification phase using disposable Python and PostgreSQL prototypes. That code is intentionally not the production foundation. Git history and closed GitHub issues/PRs preserve the experiments and counterexamples; surviving laws are condensed into ADRs and V1 conformance properties.
-
-## V1 release gate
-
-The official V1 release decision against production evidence is:
-
-```text
-just verify-v1
+```
+fly ssh console --app zoen -C "zoen-bind-inbox"
 ```
 
-Named gate-contract PASS (fixtures under `e2e/verify-v1/testdata/complete`, not production evidence):
+Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID. Never the door.
 
-```text
-ZOEN_VERIFY_EVIDENCE_DIR=e2e/verify-v1/testdata/complete just verify-v1
-```
+zoend boots `ProcessAuth::SessionDoor` and `ZOEN_AUTH_DATABASE_URL`. Remint writes the opaque session to `/data/zoen/agent.token`.
 
-or `just verify-v1-fixtures`.
-
-`verify-v1` is an aggregate-only gate. It consumes typed scenario evidence under `artifacts/` (or `ZOEN_VERIFY_EVIDENCE_DIR`), validates explicit scenario pass fields, source commits, semantic mutants, and any advertised live-provider slots, runs verification-layer mutants in-process, and writes a signed `zoen.verify.v1` bundle to `artifacts/verify-v1/`. It does not rerun scenarios or wipe existing evidence. Missing, stale, wrong-digest, surviving-mutant, or advertised-live-absent evidence fails closed.
-
-Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
-
-`just verify` remains the serial scenario runner (check + build + scenarios). It is not a substitute for `just verify-v1`.
-
-Public-surface heading and Quickstart checks (until the coordinator registers `just e2e public-surface`):
+## Develop
 
 ```bash
-npx tsx e2e/public-surface.ts
+just lint      # buf, tsc, JCS fixtures, rustfmt, cargo test
+just clippy    # cargo clippy -D warnings
+just build
+just e2e <scenario>
+just verify    # lint, clippy, build, every live journey
 ```
 
-## Development rules
+CI is the same gates. Journeys live in `e2e/`. Do not add mocks or `vi.mock`.
 
-> Meaning in definitions. Universal laws in the kernel. Infrastructure behind replaceable boundaries. Everything else is a surface.
-
-> Small ticket does not mean partial architecture: each V1 ticket must prove a real vertical production path E2E.
+Live lake JSON is `testdata/lakes/`. JCS fixtures are `testdata/jcs/`.

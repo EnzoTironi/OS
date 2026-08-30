@@ -6,15 +6,15 @@ import { writeScenarioArtifact } from "./host-env.js";
 const scenario = "public-surface";
 const repositoryRoot = process.cwd();
 
-/** Public narrative H2 order required by #267 / AD-16. */
 const requiredHeadingOrder = [
-  "Demo",
-  "Quickstart",
-  "Sample Company",
-  "Packs",
-  "Why not LLM + tools",
+  "Products",
+  "Install",
+  "CLI",
+  "Auth door",
+  "Conversation",
+  "WhatsApp",
   "Deploy",
-  "Architecture",
+  "Develop",
 ] as const;
 
 const assertions: Record<string, boolean> = {};
@@ -72,11 +72,12 @@ async function main(): Promise<void> {
   const readme = await readFile(readmePath, "utf8");
   const headings = extractH2Headings(readme);
 
-  record("readme_has_h1_promise", /^#\s+Zoen OS\s*$/m.test(readme));
+  record("readme_has_h1_zoen", /^#\s+Zoen\s*$/m.test(readme));
   record(
-    "readme_opens_with_outcome_sentence",
-    /executable semantic operating system/i.test(readme.split("\n").slice(0, 8).join("\n")),
+    "readme_opens_with_company_sentence",
+    /operating system for a company/i.test(readme.split("\n").slice(0, 8).join("\n")),
   );
+  record("readme_points_at_architecture", /architecture\.md/.test(readme));
 
   let lastIndex = -1;
   for (const expected of requiredHeadingOrder) {
@@ -86,101 +87,45 @@ async function main(): Promise<void> {
     lastIndex = index;
   }
 
-  const architectureIndex = headings.indexOf("Architecture");
-  const quickstartIndex = headings.indexOf("Quickstart");
-  record(
-    "architecture_after_quickstart",
-    architectureIndex > quickstartIndex && quickstartIndex >= 0,
-  );
-  killMutant("architecture wall before Quickstart");
+  const install = sectionBody(readme, "Install");
+  record("install_has_just_build", /`?just build`?/.test(install));
+  killMutant("README Install command that no longer works");
 
-  const quickstart = sectionBody(readme, "Quickstart");
-  record("quickstart_has_just_build", /`?just build`?/.test(quickstart));
-  killMutant("README Quickstart command that no longer works");
+  const cli = sectionBody(readme, "CLI");
+  record("cli_has_noun_verb", /zoen <noun> <verb>/.test(cli));
+  record("cli_lists_definition_publish", /definition publish/.test(cli));
+  record("cli_lists_action_commit", /action commit/.test(cli));
 
-  const sampleCompany = sectionBody(readme, "Sample Company");
-  record("sample_company_has_just_start", /`?just start`?/.test(sampleCompany));
-  record(
-    "sample_company_has_activation_sample",
-    /`?just e2e activation-sample`?/.test(sampleCompany),
-  );
+  const auth = sectionBody(readme, "Auth door");
+  record("auth_names_better_auth", /Better Auth/.test(auth));
+  record("auth_session_is_bearer", /Bearer/.test(auth));
 
-  const packs = sectionBody(readme, "Packs");
-  record(
-    "packs_outcome_first",
-    /outcome/i.test(packs) && /pack-directory/i.test(packs),
-  );
+  const whatsapp = sectionBody(readme, "WhatsApp");
+  record("whatsapp_kapso_path", /\/eve\/v1\/kapso/.test(whatsapp));
+  record("whatsapp_rejects_cloud_api", /@chat-adapter\/whatsapp/.test(whatsapp));
 
-  const demo = sectionBody(readme, "Demo");
-  record("demo_links_demo_guide", /docs\/demos/i.test(demo));
-  record(
-    "demo_rejects_fake_chat",
-    /do not expect a fake chat/i.test(demo) || /no fake chat/i.test(demo),
-  );
+  const deploy = sectionBody(readme, "Deploy");
+  record("deploy_one_fly_app", /one Fly app/.test(deploy));
+  record("deploy_uses_image_flag", /fly deploy --image/.test(deploy));
+
+  const develop = sectionBody(readme, "Develop");
+  record("develop_has_just_e2e", /just e2e/.test(develop));
+  record("develop_forbids_mocks", /mock/i.test(develop));
 
   record("readme_forbids_live_fiscal_ads", forbidsLiveFiscal(readme));
   record("readme_forbids_live_linq_ads", forbidsLiveLinq(readme));
   killMutant("advertised capability absent from release evidence");
 
-  const demoGuide = await readFile(
-    path.join(repositoryRoot, "docs/demos/README.md"),
+  const architecture = await readFile(
+    path.join(repositoryRoot, "architecture.md"),
     "utf8",
   );
-  const demoHeadings = extractH2Headings(demoGuide);
-  const requiredDemoHeadings = [
-    "Five-minute company",
-    "Agent safely acts",
-    "Your messy data",
-  ] as const;
-  for (const heading of requiredDemoHeadings) {
-    record(`demo_heading_${heading}`, demoHeadings.includes(heading));
-  }
-  record(
-    "demo_guide_points_at_sample_company",
-    /just start/.test(demoGuide) && /activation-sample/.test(demoGuide),
-  );
-  record(
-    "demo_guide_names_agent_capabilities_live",
-    /governed-action/.test(demoGuide) && /wasm-code-mode/.test(demoGuide),
-  );
-  record(
-    "demo_guide_names_company_bootstrap_shadow",
-    /company-bootstrap-shadow/.test(demoGuide),
-  );
-  record(
-    "demo_guide_names_remaining_gaps",
-    /#273/.test(demoGuide) || /recorded/i.test(demoGuide),
-  );
-
-  const packsDirectory = await readFile(
-    path.join(repositoryRoot, "docs/product/pack-directory.md"),
-    "utf8",
-  );
-  record(
-    "pack_directory_outcome_first",
-    /outcome/i.test(packsDirectory) && /#260/.test(packsDirectory),
-  );
-  record(
-    "pack_directory_names_kitchen_landed",
-    /#264/.test(packsDirectory) &&
-      /has landed/i.test(packsDirectory) &&
-      /pack-kitchen/i.test(packsDirectory) &&
-      !/in flight/i.test(packsDirectory),
-  );
-  record(
-    "pack_directory_rejects_marketplace_commerce",
-    /marketplace commerce/i.test(packsDirectory) &&
-      /out of scope/i.test(packsDirectory),
-  );
-
-  const productGuide = await readFile(
-    path.join(repositoryRoot, "docs/product/public-narrative.md"),
-    "utf8",
-  );
-  record(
-    "product_narrative_lists_hierarchy",
-    requiredHeadingOrder.every((heading) => productGuide.includes(heading)),
-  );
+  record("architecture_has_h1", /^#\s+Architecture\s*$/m.test(architecture));
+  record("architecture_names_three_products", /Ontology/.test(architecture) && /Conversation/.test(architecture) && /Auth door/.test(architecture));
+  record("architecture_names_session_door", /SessionDoor/.test(architecture));
+  record("architecture_names_crates", /zoen-core/.test(architecture) && /zoen-engine/.test(architecture));
+  record("architecture_forbids_live_fiscal_ads", forbidsLiveFiscal(architecture));
+  record("architecture_forbids_live_linq_ads", forbidsLiveLinq(architecture));
 
   const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
     assertions,
