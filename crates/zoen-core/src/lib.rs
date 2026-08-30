@@ -51,18 +51,17 @@ pub use human::{
     project_human_task_packet_from_contract, validate_human_task_contract,
 };
 pub use identity::{
-    AccountMergePlan, AccountStatus, AudienceClass, BindingProof, BindingStatus, ChannelProvider,
-    ClassificationToken, Clearance, DelegationTemplateId, DurableEventId, EnterpriseAssertion,
-    ExternalBinding, ExternalBindingId, ExternalSignalId, ExternalSubject, IdentityError,
-    IngressAllowance, IngressScope, Invite, InviteId, InviteToken, MachineToken, Membership,
-    MembershipId, MembershipKind, MembershipStatus, OpaqueSessionToken, ProjectedCapabilityKind,
-    RateBudgetPolicy, RevocationReason, ServerAllowId, SessionCredential, SessionId, SourceClass,
-    UnbindReason, VerifiedSessionEvidence, VerifiedWorkloadEvidence, WORLD_FLOOR, WORLD_TOP,
-    WorkloadCredential, WorkloadCredentialId, WorkloadCredentialLookupKey,
-    WorkloadCredentialStatus, WorkloadEvidenceKind, WorkloadExchangeToken,
-    WorkloadRevocationReason, WorkloadSecretId, ZoenAccount, ZoenAccountId, join_labels,
-    mac_write_permitted, resource_label, trusted_context_from_membership,
-    trusted_context_from_workload_credential,
+    AccountMergePlan, AccountStatus, AudienceClass, BindingStatus, ChannelProvider,
+    ClassificationToken, Clearance, DelegationTemplateId, DurableEventId, ExternalBinding,
+    ExternalBindingId, ExternalSignalId, ExternalSubject, IdentityError, IngressAllowance, Invite,
+    InviteId, InviteToken, MachineToken, Membership, MembershipId, MembershipKind,
+    MembershipStatus, OpaqueSessionToken, ProjectedCapabilityKind, RateBudgetPolicy,
+    RevocationReason, ServerAllowId, SessionCredential, SessionId, SourceClass, UnbindReason,
+    VerifiedSessionEvidence, VerifiedWorkloadEvidence, WORLD_FLOOR, WORLD_TOP, WorkloadCredential,
+    WorkloadCredentialId, WorkloadCredentialLookupKey, WorkloadCredentialStatus,
+    WorkloadEvidenceKind, WorkloadExchangeToken, WorkloadRevocationReason, WorkloadSecretId,
+    ZoenAccount, ZoenAccountId, join_labels, mac_write_permitted, resource_label,
+    trusted_context_from_membership, trusted_context_from_workload_credential,
 };
 pub use jcs::{JcsError, canonicalize_json, canonicalize_json_bytes, is_canonical_digest_hex};
 pub use migration::{
