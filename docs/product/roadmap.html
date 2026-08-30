@@ -113,7 +113,7 @@
   </header>
   <div class="stats">
 <button class="stat" data-filter="have" type="button">
-  <span class="stat-count">24</span>
+  <span class="stat-count">25</span>
   <span class="stat-label">HAVE</span>
 </button>
 <button class="stat" data-filter="dont-have" type="button">
@@ -125,7 +125,7 @@
   <span class="stat-label">STUB ON MAIN</span>
 </button>
 <button class="stat" data-filter="in-flight" type="button">
-  <span class="stat-count">6</span>
+  <span class="stat-count">5</span>
   <span class="stat-label">IN FLIGHT</span>
 </button>
 <button class="stat" data-filter="parked" type="button">
@@ -146,8 +146,8 @@
   <div>
     <a href="https://github.com/EnzoTironi/OS/issues/325">#325</a>
     
-    <strong>definition-publication and semantic-query on OIDC</strong>
-    <p>Done on main. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted.</p>
+    <strong>definition-publication and semantic-query on dest door</strong>
+    <p>Done on main. Dest door is Better Auth SessionDoor. Leftover e2e still compose Keycloak. Legacy session boot stays deleted.</p>
   </div>
 </li>
 <li>
@@ -174,7 +174,7 @@
     <a href="https://github.com/EnzoTironi/OS/issues/327">#327</a>
     
     <strong>Conformance and substitution against live adapters</strong>
-    <p>In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify.</p>
+    <p>In flight. Live WhatsApp dest is Kapso in Eve. Telegram stays in flight. Linq optional. Fakes stay out of just verify.</p>
   </div>
 </li>
 <li>
@@ -182,8 +182,8 @@
   <div>
     <a href="https://github.com/EnzoTironi/OS/issues/328">#328</a>
     
-    <strong>Surface IR and Attention on live channels</strong>
-    <p>Surface and attention are archived. Live WhatsApp destination is Kapso in Eve. Paired door still missing.</p>
+    <strong>Surface IR and Attention archived</strong>
+    <p>Surface and attention live on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve.</p>
   </div>
 </li>
       </ol>
@@ -294,25 +294,25 @@
   <td>—</td>
 </tr>
 <tr data-status="have">
-  <td><code>identity-oidc</code></td>
+  <td><code>identity-session-door</code></td>
   <td>identity</td>
   <td>
-    <div class="name">OIDC identity (Keycloak)</div>
-    <div class="path">e2e/activation-identity</div>
+    <div class="name">Better Auth session door</div>
+    <div class="path">apps/auth, apps/zoend/src/config.rs</div>
     
   </td>
-  <td>just e2e activation-identity. JWT claims are evidence. Membership is authority.</td>
+  <td>ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Leftover e2e still compose Keycloak.</td>
   <td>—</td>
 </tr>
 <tr data-status="have">
-  <td><code>identity-legacy-sessions</code></td>
+  <td><code>definition-publication-query</code></td>
   <td>identity</td>
   <td>
-    <div class="name">OIDC on definition-publication and semantic-query</div>
+    <div class="name">definition-publication and semantic-query on dest door</div>
     <div class="path">e2e/definition-publication, e2e/semantic-query</div>
     
   </td>
-  <td>just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted.</td>
+  <td>just e2e definition-publication. just e2e semantic-query. ProcessAuth is SessionDoor. Leftover e2e still compose Keycloak. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS stay deleted.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/325">#325</a></td>
 </tr>
 <tr data-status="have">
@@ -356,7 +356,7 @@
     <div class="path">archive/pre-modeled-erp:archive/domain</div>
     
   </td>
-  <td>Not on default main. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* on archive/pre-modeled-erp.</td>
+  <td>Not on default main. Live lake is testdata/lakes/commercial.canonical.json. Optional just e2e domain-* on archive/pre-modeled-erp.</td>
   <td>—</td>
 </tr>
 <tr data-status="have">
@@ -415,6 +415,17 @@
   <td><a href="https://github.com/EnzoTironi/OS/issues/253">#253</a></td>
 </tr>
 <tr data-status="have">
+  <td><code>archived-surface-attention-e2e</code></td>
+  <td>channels</td>
+  <td>
+    <div class="name">Archived Surface IR and Attention e2e</div>
+    <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
+    <div class="blocker">Blocked on Paired ZOEN_WHATSAPP_DOOR_E164</div>
+  </td>
+  <td>Lives on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve. Skipped by just verify.</td>
+  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
+</tr>
+<tr data-status="have">
   <td><code>messaging-boundary-law</code></td>
   <td>channels</td>
   <td>
@@ -455,7 +466,7 @@
     <div class="path">apps/zoend/src/config.rs</div>
     
   </td>
-  <td>On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.</td>
+  <td>On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/317">#317</a></td>
 </tr>
 <tr data-status="have">
@@ -516,7 +527,7 @@
     
     
   </td>
-  <td>Not product. The leftover agent-session package is gone. Conversation is Eve.</td>
+  <td>Not product. Conversation is Eve.</td>
   <td>—</td>
 </tr>
     </tbody>
@@ -571,7 +582,7 @@
   <td><a href="https://github.com/EnzoTironi/OS/issues/329">#329</a></td>
 </tr>
 <tr data-status="in-flight">
-  <td><code>whatsapp-unofficial</code></td>
+  <td><code>whatsapp-kapso</code></td>
   <td>channels</td>
   <td>
     <div class="name">WhatsApp (Kapso) for Brazil</div>
@@ -591,17 +602,6 @@
   </td>
   <td>Node adapter conformance journey deleted. Live WhatsApp destination is Kapso in Eve. Fakes stay deleted.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/327">#327</a></td>
-</tr>
-<tr data-status="in-flight">
-  <td><code>surface-ir-e2e-live</code></td>
-  <td>channels</td>
-  <td>
-    <div class="name">Surface IR and Attention e2e on live channels</div>
-    <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
-    <div class="blocker">Blocked on Paired ZOEN_WHATSAPP_DOOR_E164</div>
-  </td>
-  <td>CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM.</td>
-  <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
     </tbody>
   </table>

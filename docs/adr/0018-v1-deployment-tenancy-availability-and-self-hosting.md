@@ -9,7 +9,7 @@ Zoen must support three commercial/operational modes without maintaining three p
 
 ## Decision
 
-Production is one Fly app (`deploy/fly`). Shared, dedicated, and self-hosted Helm profiles are gone. The same zoend, Restate, Postgres, MinIO, and Better Auth image is the deployment unit.
+Production is one Fly app (`deploy/fly`). The same zoend, Restate, Postgres, MinIO, and Better Auth image is the deployment unit.
 
 ```text
 Fly app zoen
@@ -24,17 +24,17 @@ No semantic/runtime capability may require a Zoen-operated control plane to func
 The reference self-hosted V1 stack contains:
 
 - `zoend` Rust service replicas;
-- TypeScript web/intelligence service(s);
+- Eve conversation (`apps/conversation`);
 - PostgreSQL 18 transactional authority cluster;
 - Restate self-hosted cluster;
 - S3-compatible object storage for projections and knowledge blobs;
-- OIDC/OAuth2-compatible external identity provider;
+- Better Auth door (`apps/auth`);
 - OpenTelemetry-compatible collector/backend integration;
 - TLS on the Fly edge.
 
 DataFusion, Cedar and Wasmtime are embedded runtime dependencies inside Zoen processes rather than independently operated data services.
 
-A reference self-host test environment uses self-hostable implementations (for example Keycloak-compatible OIDC and S3-compatible object storage) but production customers may supply conformant equivalents.
+A reference self-host uses the same Fly image. Better Auth is in that image. Object storage stays S3-compatible. Leftover e2e still compose Keycloak.
 
 ## Tenancy
 
@@ -54,7 +54,9 @@ Dedicated/self-hosted deployments may operate a single tenant, but use the same 
 
 ## Identity
 
-Zoen is not an identity provider. V1 trusts OIDC/OAuth2 identity from configured providers, validates issuer/audience/signature/session policy at the edge and derives internal Actor/Principal/Workload context. Identity-provider claims are evidence for authentication; Zoen-owned delegation and Action authority remain semantic concerns.
+Humans authenticate at the Better Auth door (`apps/auth`). zoend `ProcessAuth` is `SessionDoor` only. Missing `ZOEN_AUTH_DATABASE_URL` fails closed. The URL must be loopback. An Active Membership row is the source of tenant and principal. Delegation and Action authority stay semantic.
+
+Leftover e2e still compose Keycloak.
 
 ## Availability and recovery target
 
@@ -79,7 +81,7 @@ Active-active multi-region semantic authority is not part of V1. Disaster recove
 
 ## Deployment profiles
 
-Helm shared-saas, dedicated, and self-hosted profiles are gone. Production is one Fly app. Compose remains the live `just verify` matrix, not a second cluster path.
+Production is one Fly app. Compose remains the live `just verify` matrix.
 
 ## Observability
 
@@ -87,13 +89,14 @@ OpenTelemetry traces/metrics/log correlation is a V1 contract at process boundar
 
 ## E2E verification
 
-Release gates prove the live Compose matrix (`just verify`). Production deploy is Fly. KIND/Helm drills are not a release path.
-4. kill/restart `zoend` replicas during requests and recover durable operation status;
-5. restart Postgres/Restate/object-store components according to supported failure scenarios without semantic corruption;
-6. perform backup + fresh-cluster restore and prove exact definition/operation/history/effect recovery;
-7. measure and enforce RPO/RTO drills against the V1 target;
-8. prove rolling upgrade compatibility for protocol and database migrations;
-9. prove tenant data cannot be retrieved by substituting wire-level tenant identifiers.
+Release gates prove the live Compose matrix (`just verify`). Production deploy is Fly.
+
+1. kill/restart `zoend` replicas during requests and recover durable operation status;
+2. restart Postgres/Restate/object-store components according to supported failure scenarios without semantic corruption;
+3. perform backup + fresh-cluster restore and prove exact definition/operation/history/effect recovery;
+4. measure and enforce RPO/RTO drills against the V1 target;
+5. prove rolling upgrade compatibility for protocol and database migrations;
+6. prove tenant data cannot be retrieved by substituting wire-level tenant identifiers.
 
 ## Invariants
 

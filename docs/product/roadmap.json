@@ -31,8 +31,8 @@
       "order": 1,
       "issue": 325,
       "pr": null,
-      "title": "definition-publication and semantic-query on OIDC",
-      "note": "Done on main. Suites compose Keycloak and stamp authMode oidc. Legacy session boot deleted."
+      "title": "definition-publication and semantic-query on dest door",
+      "note": "Done on main. Dest door is Better Auth SessionDoor. Leftover e2e still compose Keycloak. Legacy session boot stays deleted."
     },
     {
       "order": 2,
@@ -53,14 +53,14 @@
       "issue": 327,
       "pr": null,
       "title": "Conformance and substitution against live adapters",
-      "note": "In flight. Live unofficial WhatsApp + live Telegram matrix through MessagingGateway. Linq optional. Fakes stay out of just verify."
+      "note": "In flight. Live WhatsApp dest is Kapso in Eve. Telegram stays in flight. Linq optional. Fakes stay out of just verify."
     },
     {
       "order": 5,
       "issue": 328,
       "pr": null,
-      "title": "Surface IR and Attention on live channels",
-      "note": "Surface and attention are archived. Live WhatsApp destination is Kapso in Eve. Paired door still missing."
+      "title": "Surface IR and Attention archived",
+      "note": "Surface and attention live on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve."
     }
   ],
   "rows": [
@@ -142,25 +142,25 @@
       "issue": null
     },
     {
-      "id": "identity-oidc",
+      "id": "identity-session-door",
       "status": "have",
       "plane": "identity",
-      "name": "OIDC identity (Keycloak)",
+      "name": "Better Auth session door",
       "onMain": true,
       "product": true,
-      "path": "e2e/activation-identity",
-      "proof": "just e2e activation-identity. JWT claims are evidence. Membership is authority.",
+      "path": "apps/auth, apps/zoend/src/config.rs",
+      "proof": "ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Leftover e2e still compose Keycloak.",
       "issue": null
     },
     {
-      "id": "identity-legacy-sessions",
+      "id": "definition-publication-query",
       "status": "have",
       "plane": "identity",
-      "name": "OIDC on definition-publication and semantic-query",
+      "name": "definition-publication and semantic-query on dest door",
       "onMain": true,
       "product": true,
       "path": "e2e/definition-publication, e2e/semantic-query",
-      "proof": "just e2e definition-publication. just e2e semantic-query. authMode stamp oidc. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted.",
+      "proof": "just e2e definition-publication. just e2e semantic-query. ProcessAuth is SessionDoor. Leftover e2e still compose Keycloak. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS stay deleted.",
       "issue": 325,
       "backup": []
     },
@@ -216,7 +216,7 @@
       "onMain": false,
       "product": false,
       "path": "archive/pre-modeled-erp:archive/domain",
-      "proof": "Not on default main. Live compile is packages/ontology/fixtures/commercial.zoen.ts. Optional just e2e domain-* on archive/pre-modeled-erp.",
+      "proof": "Not on default main. Live lake is testdata/lakes/commercial.canonical.json. Optional just e2e domain-* on archive/pre-modeled-erp.",
       "issue": null
     },
     {
@@ -260,7 +260,7 @@
       "onMain": false,
       "product": false,
       "path": "",
-      "proof": "Not product. The leftover agent-session package is gone. Conversation is Eve.",
+      "proof": "Not product. Conversation is Eve.",
       "issue": null
     },
     {
@@ -312,7 +312,7 @@
       "blocker": "Telegram bot token"
     },
     {
-      "id": "whatsapp-unofficial",
+      "id": "whatsapp-kapso",
       "status": "in-flight",
       "plane": "channels",
       "name": "WhatsApp (Kapso) for Brazil",
@@ -341,14 +341,14 @@
       ]
     },
     {
-      "id": "surface-ir-e2e-live",
-      "status": "in-flight",
+      "id": "archived-surface-attention-e2e",
+      "status": "have",
       "plane": "channels",
-      "name": "Surface IR and Attention e2e on live channels",
+      "name": "Archived Surface IR and Attention e2e",
       "onMain": false,
       "product": false,
       "path": "archive/pre-modeled-erp:archive/packages/attention, e2e/live-attention.ts",
-      "proof": "CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM.",
+      "proof": "Lives on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve. Skipped by just verify.",
       "issue": 328,
       "backup": [
         "e2e/surface-ir-renderer",
@@ -408,7 +408,7 @@
       "onMain": true,
       "product": true,
       "path": "apps/zoend/src/config.rs",
-      "proof": "On main via #321+#325. ProcessAuth is Oidc only. Missing ZOEN_OIDC_ISSUER fails closed. Cedar manifest required. ZOEN_ONBOARDING_STORE_PATH required.",
+      "proof": "On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required.",
       "issue": 317,
       "pr": [
         321

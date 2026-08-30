@@ -1,4 +1,4 @@
-# ADR-0020: Enterprise domains are versioned ontology libraries; Brazilian tax determination and fiscal issuance stay behind external provider boundaries
+# ADR-0020: Company worlds are published definitions; Brazilian tax determination and fiscal issuance stay behind external provider boundaries
 
 **Status:** Accepted for V1  
 **Date:** 2026-08-18
@@ -9,51 +9,15 @@ Zoen V1 needs enough enterprise semantics to operate a real manufacturer/commerc
 
 ## Decision
 
-### V1 enterprise ontology libraries
+### Company worlds
 
-V1 ships production-grade, versioned ontology packages for:
+V1 does not ship Party, Product, Commercial, Inventory, Procurement, Manufacturing, or Accounting Foundation as dest product on default main. ADR-0022. Each company publishes canonical JSON through `DefinitionService.Publish`. The same generic runtime executes those definitions. No Rust kernel branch may identify an ERP package.
 
-```text
-Party
-Product
-Commercial
-Inventory
-Procurement
-Manufacturing
-Accounting Foundation
-```
+Organizations extend or override through explicit ontology revision and evolution. They do not fork kernel code.
 
-They are ordinary definitions authored through `@zoen/ontology`, compiled to canonical IR and executed by the same generic runtime. No Rust kernel branch may identify these packages.
+### Company-world acceptance
 
-Dependency direction is semantic and explicit:
-
-```text
-Party -----------+
-                 +--> Commercial
-Product ---------+        |
-    |                     v
-    +--> Inventory --> Procurement
-    |          |
-    +----------+--> Manufacturing
-
-Party + economic/claim concepts --> Accounting Foundation
-other packages emit/relate accounting consequences through definitions
-```
-
-Package composition/versioning does not create isolated runtimes. Organizations can extend/override through explicit ontology revision/evolution mechanisms rather than forking kernel code.
-
-### Domain-library acceptance
-
-Each package must be proved through real cross-domain scenarios, not schema completeness checklists. V1 scenarios include at minimum:
-
-- party roles changing over time without identity collapse;
-- product/reference identity and units;
-- commercial intent -> order/commitment -> partial fulfillment/correction;
-- physical inventory, reservations and disagreeing evidence;
-- procurement requirement -> governed purchase Action -> receipt;
-- BOM/routing/work requirement -> material consumption/output with traceable genealogy;
-- economic claim/receivable/payable/settlement foundation and balanced accounting consequence where double-entry is used;
-- cancellation/reversal/correction as new history rather than destructive rewrite.
+Each company world is proved through real scenarios on that published definition, not schema completeness checklists. Pre-modeled ERP libraries live on `archive/pre-modeled-erp`. They are not dest.
 
 ### Brazilian fiscal architecture
 
@@ -86,9 +50,9 @@ Brazil-specific fiscal definitions live in a versioned domain extension, not in 
 
 ## E2E verification
 
-Domain release gates use the same production runtime and prove at least two distinct domains require no kernel code changes.
+Domain release gates use the same production runtime and prove a published company world requires no kernel code changes.
 
-Fiscal release gates require live sandbox/homologation credentials where available:
+Live fiscal homologation is parked on #214. When it reopens, fiscal release gates require live sandbox or homologation credentials:
 
 1. build a real taxable commercial scenario through Zoen domain definitions;
 2. call the Systax reference adapter against its supported test/homologation interface and persist attributable determination evidence;
@@ -103,7 +67,7 @@ CI without commercial secrets may run contract/schema and fault-injection suites
 
 ## Invariants
 
-- Enterprise libraries are data/definitions, never kernel branches.
+- Company worlds are data and definitions, never kernel branches.
 - Brazilian tax rules are not hard-coded into Rust runtime logic.
 - Provider calculation/authorization output is attributable external evidence.
 - Commercial invoice/order, accounting claim and fiscal document are distinct semantic concepts even when an ERP UI historically conflates them.

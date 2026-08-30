@@ -20,7 +20,7 @@ Three production-shaped entry demos are documented in `docs/demos/README.md`:
 2. **Agent safely acts.** Eve conversation plus governed Action (`just e2e governed-action` and `just e2e wasm-code-mode`).
 3. **Your messy data.** Read-only source to mapping ambiguity to Shadow recommendation (`just e2e company-bootstrap-shadow` on `archive/pre-modeled-erp`).
 
-Record the Sample Company five-minute path on `just start` with `./docs/demo/record.sh` (writes `docs/demo/sample-company-five-minute.webm` from the live stack). Details live in [`docs/demo/README.md`](docs/demo/README.md). Live conversation entry and the human comprehension study remain open on #267. Do not expect a fake chat widget or a marketing-only backend.
+The Sample Company recorder lives on `archive/pre-modeled-erp`. Default `main` has no Playwright demo. Details live in [`docs/demo/README.md`](docs/demo/README.md). Live conversation entry and the human comprehension study remain open on #267. Do not expect a fake chat widget or a marketing-only backend.
 
 ## Quickstart
 
@@ -39,7 +39,7 @@ Sample Company is an optional five-minute first Action path. Its pre-modeled ont
 
 Checkout `archive/pre-modeled-erp` and run `just start` or `just e2e activation-sample` there.
 
-Inspect ontology authoring and Pack creation only after this first success. Progressive depth lives in `docs/product/public-narrative.md`.
+Inspect published canonical JSON only after this first success. Progressive depth lives in `docs/product/public-narrative.md`.
 
 ## Packs
 
@@ -86,7 +86,8 @@ The semantic center remains deliberately small:
 - PostgreSQL 18 is the transactional authority/commit backend;
 - DataFusion is the V1 semantic read/compute engine over authoritative and Arrow/Parquet materialized sources;
 - Cedar evaluates policy, Wasmtime executes untrusted/custom components and Restate provides durable orchestration behind Zoen-owned semantic boundaries;
-- TypeScript owns ontology authoring, Company Brain/agent intelligence and experience surfaces without becoming semantic authority;
+- TypeScript owns Eve conversation without becoming semantic authority;
+- ontology authoring is canonical JSON via DefinitionService.Publish;
 - public machine protocol uses Protobuf + Buf + ConnectRPC; semantic definition identity uses canonical JSON/JCS + SHA-256 separately;
 - production deploy is one Fly app;
 - every completed V1 capability requires a production-shaped E2E proof; mocks/stubs cannot satisfy release completion.
@@ -101,7 +102,7 @@ The reference production architecture targets single-region HA (>=99.9%), RPO <5
 
 V1 does not ship a prebuilt SAP. Each company brings its own world. Kitchen is archived and does not derive live Pack capabilities from activated definitions. See ADR-0022.
 
-Pre-modeled ERP libraries, TanStack web, Pack, Kitchen, onboarding, attention, activation-metrics, and workload-ingress live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). Default `main` does not contain `archive/`. The live lake is committed canonical JSON at `testdata/lakes/`. Publish is `DefinitionService.Publish`. PresentationIntent is not a live package. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
+Pre-modeled ERP libraries, TanStack web, Pack, Kitchen, onboarding, attention, activation-metrics, and workload-ingress live on [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). Default `main` does not contain `archive/`. The live lake is committed canonical JSON at `testdata/lakes/`. Publish is `DefinitionService.Publish`. Live Brazil fiscal vendors stay parked until #214 and are not advertised by default.
 
 ### Research phase
 
