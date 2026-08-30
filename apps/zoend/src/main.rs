@@ -101,7 +101,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let action_service = ActionServiceImpl::new(
         ActionEngine::new(store.clone(), query.clone(), policy.clone()),
         sessions.clone(),
-        identity.clone(),
     );
     let computation_service = ComputationServiceImpl::new(
         store.clone(),
