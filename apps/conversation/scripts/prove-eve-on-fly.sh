@@ -72,7 +72,9 @@ check "main.rs mods eve_proxy" "grep -q '^mod eve_proxy;' apps/zoend/src/main.rs
 check "main.rs merges eve_proxy" "grep -q 'eve_proxy::router()' apps/zoend/src/main.rs" "eve_proxy::router()"
 check "fly.toml internal_port 58701" "grep -q 'internal_port = 58701' deploy/fly/fly.toml" "58701"
 check "fly.toml ZOEN_AUTH_BASE_URL loopback 58704" "grep -q 'ZOEN_AUTH_BASE_URL = \"http://127.0.0.1:58704\"' deploy/fly/fly.toml" "http://127.0.0.1:58704"
-check "fly.toml issuer https://zoen.tironi.xyz" "grep -q 'ZOEN_OIDC_ISSUER = \"https://zoen.tironi.xyz\"' deploy/fly/fly.toml" "https://zoen.tironi.xyz"
+check "fly.toml has no ZOEN_OIDC_ISSUER" "! grep -q 'ZOEN_OIDC_ISSUER' deploy/fly/fly.toml" "absent"
+check "fly.toml has no ZOEN_OIDC_AUDIENCE" "! grep -q 'ZOEN_OIDC_AUDIENCE' deploy/fly/fly.toml" "absent"
+check "fly.toml has no ZOEN_OIDC_DISCOVERY_URL" "! grep -q 'ZOEN_OIDC_DISCOVERY_URL' deploy/fly/fly.toml" "absent"
 check "fly-deploy.yml watches apps/conversation" "grep -q 'apps/conversation/\\*\\*' .github/workflows/fly-deploy.yml" "apps/conversation/**"
 check "Dockerfile has no keycloak" "! grep -qi keycloak deploy/fly/Dockerfile" "absent"
 check "sandbox.ts does not write JWT/token" "! grep -Ei 'jwt|agent\\.token|bearer' apps/conversation/agent/sandbox/sandbox.ts && grep -q 'path: \"membership\"' apps/conversation/agent/sandbox/sandbox.ts" "membership only"
@@ -133,8 +135,8 @@ record "live POST https://zoen.tironi.xyz/eve/v1/kapso unsigned" "curl -sS -o bo
   printf '%s\n' '- Public HTTPS on zoend `:58701`'
   printf '%s\n' '- Better Auth `[program:auth]` and remint'
   printf '%s\n' '- Auth Node 22 at `/usr/local/bin/node`'
-  printf '%s\n' '- `ZOEN_OIDC_ISSUER=https://zoen.tironi.xyz`'
-  printf '%s\n' '- door_proxy unchanged'
+  printf '%s\n' '- `ZOEN_AUTH_BASE_URL=http://127.0.0.1:58704`'
+  printf '%s\n' '- door_proxy forwards `/api/auth`, `/device`, `/onboard/done`'
   printf '\n## Out of this PR\n\n'
   printf '%s\n' '- Live Fly remount. Missing remount is not a fail.'
   printf '%s\n' '- Pointing Kapso webhooks'

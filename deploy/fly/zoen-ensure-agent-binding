@@ -18,10 +18,34 @@ http_ok() {
   esac
 }
 
+user_id_from_json() {
+  python3 -c '
+import json, sys
+
+def user_id(path):
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        return ""
+    user = data.get("user") if isinstance(data, dict) else None
+    if not isinstance(user, dict):
+        return ""
+    value = user.get("id")
+    return value if isinstance(value, str) else ""
+
+for path in sys.argv[1:]:
+    value = user_id(path)
+    if value:
+        print(value)
+        raise SystemExit(0)
+raise SystemExit(0)
+' "$@"
+}
+
 try_bind() {
   tmp="$(mktemp -d)"
   jar="${tmp}/jar"
-  curl -sS -o /dev/null -c "$jar" -b "$jar" \
+  curl -sS -o "${tmp}/signup.json" -c "$jar" -b "$jar" \
     -H 'content-type: application/json' \
     -H "Origin: ${origin}" \
     -d "$signup_json" \
@@ -31,17 +55,14 @@ try_bind() {
     -H "Origin: ${origin}" \
     -d "$signin_json" \
     "${door}/api/auth/sign-in/email"
-  curl -fsS -o "${tmp}/token.json" -b "$jar" -H "Origin: ${origin}" \
-    "${door}/api/auth/token"
-  sub="$(python3 -c '
-import base64, json, sys
-token = json.load(open(sys.argv[1]))["token"]
-part = token.split(".")[1]
-part += "=" * (-len(part) % 4)
-print(json.loads(base64.urlsafe_b64decode(part.encode())).get("sub", ""))
-' "${tmp}/token.json")"
-  if [ -z "$sub" ]; then
-    echo "agent binding: JWT sub missing" >&2
+  user_id="$(user_id_from_json "${tmp}/signin.json" "${tmp}/signup.json")"
+  if [ -z "$user_id" ]; then
+    curl -fsS -o "${tmp}/session.json" -b "$jar" -H "Origin: ${origin}" \
+      "${door}/api/auth/get-session"
+    user_id="$(user_id_from_json "${tmp}/session.json")"
+  fi
+  if [ -z "$user_id" ]; then
+    echo "agent binding: user id missing" >&2
     rm -rf "$tmp"
     return 1
   fi
@@ -50,7 +71,7 @@ print(json.loads(base64.urlsafe_b64decode(part.encode())).get("sub", ""))
     -X POST "${zoend}/identity/admin/provisional" \
     -H "$auth" \
     -H 'content-type: application/json' \
-    -d "$(python3 -c 'import json,sys; print(json.dumps({"provider":"web_oidc","subjectKey":sys.argv[1]}))' "$sub")")"
+    -d "$(python3 -c 'import json,sys; print(json.dumps({"provider":"auth_door","subjectKey":sys.argv[1]}))' "$user_id")")"
   if ! http_ok "$prov_code"; then
     echo "provisional HTTP ${prov_code}" >&2
     cat "${tmp}/provisional.json" >&2
@@ -140,7 +161,7 @@ print(json.dumps({
     return 1
   fi
   rm -rf "$tmp"
-  echo "bound web_oidc agent on tenant.a as principal.admin.a"
+  echo "bound auth_door agent on tenant.a as principal.admin.a"
   return 0
 }
 
