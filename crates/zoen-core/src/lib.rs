@@ -409,10 +409,6 @@ impl ActionPreviewHash {
         Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
     }
 
-    pub fn is_uncomputed_placeholder(&self) -> bool {
-        self.0.bytes().all(|byte| byte == b'0')
-    }
-
     /// Compare two parsed digests without an early exit on the first mismatch.
     pub fn constant_time_eq(&self, other: &Self) -> bool {
         let left = self.0.as_bytes();
