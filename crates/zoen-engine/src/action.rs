@@ -13,9 +13,8 @@ use zoen_core::{
     PreconditionEvaluation, PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget,
     ResourceId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
     StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
-    TrustedExecutionContext, TypeId, ValidTime, ValueType, WORLD_SHARE_ACTION,
-    WORLD_WHO_CAN_ACTION, classified_as_relation, evaluate_expression, expression_relations,
-    join_labels,
+    TrustedExecutionContext, TypeId, ValidTime, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION,
+    classified_as_relation, evaluate_expression, expression_relations, join_labels,
 };
 
 use crate::action_preview::{bind_proposal_preview, build_action_preview, preview_hash};
@@ -80,6 +79,26 @@ pub struct PolicyRequest<'a> {
     pub projection: Option<&'a PolicyWorldProjection>,
     pub resource_id: &'a ResourceId,
     pub written_classification: Option<&'a BTreeSet<ClassificationToken>>,
+}
+
+pub(crate) struct LoadRelationSnapshotRequest<'a> {
+    pub context: &'a TrustedExecutionContext,
+    pub revision: &'a DefinitionRevision,
+    pub resource_id: &'a ResourceId,
+    pub relations: BTreeSet<RelationId>,
+    pub scenario_id: Option<ScenarioId>,
+    pub valid_at: TimestampMicros,
+    pub authority_cut_error: &'static str,
+}
+
+pub(crate) struct LoadWorldProjectionRequest<'a> {
+    pub context: &'a TrustedExecutionContext,
+    pub definition: &'a CanonicalDefinition,
+    pub revision: &'a DefinitionRevision,
+    pub action: &'a ActionDefinition,
+    pub resource_id: &'a ResourceId,
+    pub scenario_id: Option<ScenarioId>,
+    pub valid_at: TimestampMicros,
 }
 
 #[allow(async_fn_in_trait)]
@@ -321,14 +340,15 @@ where
             .await?;
         let relation_ids = effect_evaluation_relations(&loaded.action);
         let snapshot = self
-            .load_relation_snapshot(
+            .load_relation_snapshot(LoadRelationSnapshotRequest {
                 context,
-                &loaded.revision,
-                &proposal.resource_id,
-                relation_ids,
-                proposal.valid_at,
-                "Action effect relations used different authority cuts",
-            )
+                revision: &loaded.revision,
+                resource_id: &proposal.resource_id,
+                relations: relation_ids,
+                scenario_id: proposal.scenario_id.clone(),
+                valid_at: proposal.valid_at,
+                authority_cut_error: "Action effect relations used different authority cuts",
+            })
             .await?;
         let relation_values =
             read_action_state_basis(&loaded.action, &loaded.definition, snapshot)?.values;
@@ -372,7 +392,15 @@ where
                 continue;
             }
             let projection = self
-                .load_world_projection(context, &decoded, &canonical, action, resource_id, at)
+                .load_world_projection(LoadWorldProjectionRequest {
+                    context,
+                    definition: &decoded,
+                    revision: &canonical,
+                    action,
+                    resource_id,
+                    scenario_id: None,
+                    valid_at: at,
+                })
                 .await?;
             let evaluation = self
                 .policy
@@ -422,6 +450,7 @@ where
                 &command.resource_id,
                 &loaded,
                 &command.inputs,
+                command.scenario_id.clone(),
                 command.valid_at,
             )
             .await?;
@@ -432,14 +461,15 @@ where
             }
         };
         let projection = self
-            .load_world_projection(
+            .load_world_projection(LoadWorldProjectionRequest {
                 context,
-                &loaded.definition,
-                &loaded.revision,
-                &loaded.action,
-                &command.resource_id,
-                command.valid_at,
-            )
+                definition: &loaded.definition,
+                revision: &loaded.revision,
+                action: &loaded.action,
+                resource_id: &command.resource_id,
+                scenario_id: command.scenario_id.clone(),
+                valid_at: command.valid_at,
+            })
             .await?;
         let direct = self
             .policy
@@ -589,14 +619,15 @@ where
             .load_action(context, &proposal.definition, &proposal.action_id)
             .await?;
         let projection = self
-            .load_world_projection(
+            .load_world_projection(LoadWorldProjectionRequest {
                 context,
-                &loaded.definition,
-                &loaded.revision,
-                &loaded.action,
-                &proposal.resource_id,
-                proposal.valid_at,
-            )
+                definition: &loaded.definition,
+                revision: &loaded.revision,
+                action: &loaded.action,
+                resource_id: &proposal.resource_id,
+                scenario_id: proposal.scenario_id.clone(),
+                valid_at: proposal.valid_at,
+            })
             .await?;
         match self
             .policy
@@ -738,14 +769,15 @@ where
             }
         };
         let projection = match self
-            .load_world_projection(
+            .load_world_projection(LoadWorldProjectionRequest {
                 context,
-                &loaded.definition,
-                &loaded.revision,
-                &loaded.action,
-                &proposal.resource_id,
-                proposal.valid_at,
-            )
+                definition: &loaded.definition,
+                revision: &loaded.revision,
+                action: &loaded.action,
+                resource_id: &proposal.resource_id,
+                scenario_id: proposal.scenario_id.clone(),
+                valid_at: proposal.valid_at,
+            })
             .await
         {
             Ok(projection) => projection,
@@ -788,14 +820,15 @@ where
         };
         let relation_ids = effect_evaluation_relations(&loaded.action);
         let snapshot = self
-            .load_relation_snapshot(
+            .load_relation_snapshot(LoadRelationSnapshotRequest {
                 context,
-                &loaded.revision,
-                &proposal.resource_id,
-                relation_ids,
-                proposal.valid_at,
-                "Action effect relations used different authority cuts",
-            )
+                revision: &loaded.revision,
+                resource_id: &proposal.resource_id,
+                relations: relation_ids,
+                scenario_id: proposal.scenario_id.clone(),
+                valid_at: proposal.valid_at,
+                authority_cut_error: "Action effect relations used different authority cuts",
+            })
             .await?;
         let relation_values =
             read_action_state_basis(&loaded.action, &loaded.definition, snapshot)?.values;
@@ -941,35 +974,32 @@ where
         resource_id: &ResourceId,
         loaded: &LoadedAction,
         inputs: &[ActionInput],
+        scenario_id: Option<ScenarioId>,
         valid_at: TimestampMicros,
     ) -> Result<PreconditionEvaluation, ActionError> {
         let snapshot = self
-            .load_relation_snapshot(
+            .load_relation_snapshot(LoadRelationSnapshotRequest {
                 context,
-                &loaded.revision,
+                revision: &loaded.revision,
                 resource_id,
-                expression_relations(&loaded.action.precondition),
+                relations: expression_relations(&loaded.action.precondition),
+                scenario_id,
                 valid_at,
-                "Action precondition relations used different authority cuts",
-            )
+                authority_cut_error: "Action precondition relations used different authority cuts",
+            })
             .await?;
         evaluate_action_state_basis(&loaded.action, &loaded.definition, inputs, snapshot)
     }
 
     pub(crate) async fn load_relation_snapshot(
         &self,
-        context: &TrustedExecutionContext,
-        revision: &DefinitionRevision,
-        resource_id: &ResourceId,
-        relations: BTreeSet<RelationId>,
-        valid_at: TimestampMicros,
-        authority_cut_error: &'static str,
+        request: LoadRelationSnapshotRequest<'_>,
     ) -> Result<ActionStateSnapshot, ActionError> {
-        let entity_id = EntityId::parse(resource_id.as_str())
+        let entity_id = EntityId::parse(request.resource_id.as_str())
             .map_err(|error| ActionError::Input(error.to_string()))?;
         let mut values = BTreeMap::<RelationId, Vec<SemanticValue>>::new();
         let mut observed = None;
-        for relation_id in relations {
+        for relation_id in request.relations {
             let consistency = match observed {
                 Some(cut) => Consistency::Snapshot(cut),
                 None => Consistency::Strong,
@@ -977,49 +1007,47 @@ where
             let result = self
                 .query
                 .execute(
-                    context,
+                    request.context,
                     &SemanticQuery::ByEntity {
                         consistency,
                         definition: DefinitionReference {
-                            definition_id: revision.definition_id.clone(),
-                            digest: revision.digest.clone(),
-                            revision: revision.revision,
+                            definition_id: request.revision.definition_id.clone(),
+                            digest: request.revision.digest.clone(),
+                            revision: request.revision.revision,
                         },
                         entity_id: entity_id.clone(),
-                        scenario_id: None,
+                        scenario_id: request.scenario_id.clone(),
                         selection: SemanticSelection::Relation(relation_id.clone()),
-                        valid_at,
+                        valid_at: request.valid_at,
                     },
                 )
                 .await
                 .map_err(|error| ActionError::Evaluation(error.to_string()))?;
             if observed.is_some_and(|cut| cut != result.actual_commit_sequence) {
-                return Err(ActionError::Evaluation(authority_cut_error.to_owned()));
+                return Err(ActionError::Evaluation(
+                    request.authority_cut_error.to_owned(),
+                ));
             }
             observed = Some(result.actual_commit_sequence);
             values.insert(relation_id, result.values);
         }
         Ok(ActionStateSnapshot {
-            observed_commit_sequence: observed.unwrap_or(revision.commit_sequence),
+            observed_commit_sequence: observed.unwrap_or(request.revision.commit_sequence),
             relations: values,
         })
     }
 
     pub(crate) async fn load_world_projection(
         &self,
-        context: &TrustedExecutionContext,
-        definition: &CanonicalDefinition,
-        revision: &DefinitionRevision,
-        action: &ActionDefinition,
-        resource_id: &ResourceId,
-        valid_at: TimestampMicros,
+        request: LoadWorldProjectionRequest<'_>,
     ) -> Result<PolicyWorldProjection, ActionError> {
-        let entity_id = EntityId::parse(resource_id.as_str())
+        let entity_id = EntityId::parse(request.resource_id.as_str())
             .map_err(|error| ActionError::Input(error.to_string()))?;
-        let object_type = action_resource_type(action, definition);
+        let object_type = action_resource_type(request.action, request.definition);
         let mut load_relations = BTreeSet::new();
         let classified_as = classified_as_relation();
-        if definition
+        if request
+            .definition
             .relations
             .iter()
             .any(|relation| relation.id == classified_as)
@@ -1027,7 +1055,7 @@ where
             load_relations.insert(classified_as.clone());
         }
         if let Some(object_type) = &object_type {
-            for relation in &definition.relations {
+            for relation in &request.definition.relations {
                 if relation.source_type == *object_type
                     && matches!(relation.target, RelationTarget::Type(_))
                 {
@@ -1036,14 +1064,15 @@ where
             }
         }
         let snapshot = self
-            .load_relation_snapshot(
-                context,
-                revision,
-                resource_id,
-                load_relations,
-                valid_at,
-                "Action policy projection relations used different authority cuts",
-            )
+            .load_relation_snapshot(LoadRelationSnapshotRequest {
+                context: request.context,
+                revision: request.revision,
+                resource_id: request.resource_id,
+                relations: load_relations,
+                scenario_id: request.scenario_id,
+                valid_at: request.valid_at,
+                authority_cut_error: "Action policy projection relations used different authority cuts",
+            })
             .await?;
         let classification = classification_from_values(
             snapshot
@@ -1056,7 +1085,7 @@ where
         let mut neighbors = Vec::new();
         let mut links = Vec::new();
         if let Some(object_type) = &object_type {
-            for relation in &definition.relations {
+            for relation in &request.definition.relations {
                 if relation.source_type != *object_type {
                     continue;
                 }
@@ -1088,8 +1117,8 @@ where
         }
         Ok(PolicyWorldProjection {
             membership: PolicyMembershipProjection {
-                principal_id: context.principal_id().clone(),
-                tenant_id: context.tenant_id().clone(),
+                principal_id: request.context.principal_id().clone(),
+                tenant_id: request.context.tenant_id().clone(),
             },
             neighbors,
             resource: PolicyObjectProjection {
@@ -1124,14 +1153,15 @@ where
             let resource_id = ResourceId::parse(entity_id.as_str())
                 .map_err(|error| ActionError::Evaluation(error.to_string()))?;
             let snapshot = self
-                .load_relation_snapshot(
+                .load_relation_snapshot(LoadRelationSnapshotRequest {
                     context,
                     revision,
-                    &resource_id,
-                    BTreeSet::from([classified_as.clone()]),
-                    proposal.valid_at,
-                    "join classification relations used different authority cuts",
-                )
+                    resource_id: &resource_id,
+                    relations: BTreeSet::from([classified_as.clone()]),
+                    scenario_id: proposal.scenario_id.clone(),
+                    valid_at: proposal.valid_at,
+                    authority_cut_error: "join classification relations used different authority cuts",
+                })
                 .await?;
             labels.push(classification_from_values(
                 snapshot
@@ -1228,7 +1258,7 @@ fn validate_inputs(action: &ActionDefinition, inputs: &[ActionInput]) -> Result<
         let value = supplied
             .get(&expected.id)
             .ok_or_else(|| ActionError::Input(format!("missing input {}", expected.id.as_str())))?;
-        if !value_matches(&expected.value_type, value) {
+        if !admission::value_matches(&expected.value_type, value) {
             return Err(ActionError::Input(format!(
                 "input {} has the wrong value type",
                 expected.id.as_str()
@@ -1241,20 +1271,6 @@ fn validate_inputs(action: &ActionDefinition, inputs: &[ActionInput]) -> Result<
         ));
     }
     Ok(())
-}
-
-fn value_matches(value_type: &ValueType, value: &ExactValue) -> bool {
-    match (value_type, value) {
-        (ValueType::Bool, ExactValue::Bool(_))
-        | (ValueType::Decimal, ExactValue::Decimal(_))
-        | (ValueType::Entity { .. }, ExactValue::Entity(_))
-        | (ValueType::Integer, ExactValue::Integer(_))
-        | (ValueType::Text, ExactValue::Text(_)) => true,
-        (ValueType::Quantity { unit: expected }, ExactValue::Quantity { unit: actual, .. }) => {
-            expected == actual
-        }
-        _ => false,
-    }
 }
 
 pub fn calculate_state_basis_digest(
@@ -1543,7 +1559,7 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
 mod tests {
     use zoen_core::{
         ActionEffect, ActionInput, BinaryOperator, CommitSequence, ExactDecimal, Expression,
-        InputDefinition, InputId, SourceId, TypeId, UnitId,
+        InputDefinition, InputId, SourceId, TypeId, UnitId, ValueType,
     };
 
     use super::*;

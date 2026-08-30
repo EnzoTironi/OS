@@ -98,8 +98,11 @@ function decodeUtf8(input: Uint8Array): string {
 
 class Parser {
   index = 0;
+  private readonly input: string;
 
-  constructor(private readonly input: string) {}
+  constructor(input: string) {
+    this.input = input;
+  }
 
   skipWs(): void {
     while (this.index < this.input.length) {
