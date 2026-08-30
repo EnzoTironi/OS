@@ -7,9 +7,10 @@ use zoen_core::{
 };
 
 use crate::action::{
-    ActionCommitEffect, ActionEngine, ActionError, PolicyEvaluator, PolicyOperation, PolicyRequest,
-    QueryExecutor, authorize_delegation, build_effects, effect_evaluation_relations,
-    effect_request_id, share_or_join_effects, written_classified_as_tokens,
+    ActionCommitEffect, ActionEngine, ActionError, LoadRelationSnapshotRequest,
+    LoadWorldProjectionRequest, PolicyEvaluator, PolicyOperation, PolicyRequest, QueryExecutor,
+    authorize_delegation, build_effects, effect_evaluation_relations, effect_request_id,
+    share_or_join_effects, written_classified_as_tokens,
 };
 use crate::action_preview::bind_proposal_preview;
 use crate::{
@@ -272,15 +273,15 @@ where
             .map_err(ScenarioError::Action)?;
         let projection = self
             .action
-            .load_world_projection(
+            .load_world_projection(LoadWorldProjectionRequest {
                 context,
-                &loaded.definition,
-                &loaded.revision,
-                &loaded.action,
-                &proposal.resource_id,
-                proposal.scenario_id.clone(),
-                proposal.valid_at,
-            )
+                definition: &loaded.definition,
+                revision: &loaded.revision,
+                action: &loaded.action,
+                resource_id: &proposal.resource_id,
+                scenario_id: proposal.scenario_id.clone(),
+                valid_at: proposal.valid_at,
+            })
             .await
             .map_err(ScenarioError::Action)?;
         let policy = match self
@@ -321,15 +322,15 @@ where
         let relation_ids = effect_evaluation_relations(&loaded.action);
         let snapshot = self
             .action
-            .load_relation_snapshot(
+            .load_relation_snapshot(LoadRelationSnapshotRequest {
                 context,
-                &loaded.revision,
-                &proposal.resource_id,
-                relation_ids,
-                proposal.scenario_id.clone(),
-                proposal.valid_at,
-                "Action effect relations used different authority cuts",
-            )
+                revision: &loaded.revision,
+                resource_id: &proposal.resource_id,
+                relations: relation_ids,
+                scenario_id: proposal.scenario_id.clone(),
+                valid_at: proposal.valid_at,
+                authority_cut_error: "Action effect relations used different authority cuts",
+            })
             .await
             .map_err(ScenarioError::Action)?;
         let relation_values = read_action_state_basis(&loaded.action, &loaded.definition, snapshot)
