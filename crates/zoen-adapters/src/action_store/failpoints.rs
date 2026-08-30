@@ -1,9 +1,9 @@
-#[cfg(feature = "failpoints")]
+#[cfg(debug_assertions)]
 use std::env;
-#[cfg(feature = "failpoints")]
+#[cfg(debug_assertions)]
 use std::time::Duration;
 
-#[cfg(feature = "failpoints")]
+#[cfg(debug_assertions)]
 use tokio::time::sleep;
 use zoen_engine::StoreError;
 
@@ -19,7 +19,7 @@ pub(super) enum CommitStage {
     BeforeLock,
 }
 
-#[cfg(feature = "failpoints")]
+#[cfg(debug_assertions)]
 impl CommitStage {
     fn name(self) -> &'static str {
         match self {
@@ -35,7 +35,7 @@ impl CommitStage {
     }
 }
 
-#[cfg(feature = "failpoints")]
+#[cfg(debug_assertions)]
 pub(super) async fn reach(stage: CommitStage) -> Result<(), StoreError> {
     if env::var("ZOEN_ACTION_COMMIT_FAILPOINT").as_deref() != Ok(stage.name()) {
         return Ok(());
@@ -54,7 +54,7 @@ pub(super) async fn reach(stage: CommitStage) -> Result<(), StoreError> {
     }
 }
 
-#[cfg(not(feature = "failpoints"))]
+#[cfg(not(debug_assertions))]
 pub(super) async fn reach(_: CommitStage) -> Result<(), StoreError> {
     Ok(())
 }

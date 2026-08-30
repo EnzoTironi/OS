@@ -21,7 +21,7 @@ Durable state has three drawers. Each has one write role.
 
 3. **Orchestration.** Restate. Fly runs `zoen-effect-dispatcher`. Journals are rebuildable. Restate retry must not become semantic truth.
 
-`zoen-projection` migrates with `DATABASE_URL` (`zoen_app`). That migrate credential stays in the process. The worker pool comes from `ZOEN_PROJECTION_DATABASE_URL` when that variable is present. A present empty value fails closed. A URL that can `INSERT` into `semantic_claims` fails closed. Compose scenarios that never create the role omit the variable and keep using `DATABASE_URL` as the worker pool.
+`zoen-projection` migrates with `DATABASE_URL` (`zoen_app`). That migrate credential stays in the process. The worker pool requires `ZOEN_PROJECTION_DATABASE_URL`. An unset or empty value fails closed. A URL that can `INSERT` into `semantic_claims` fails closed.
 
 ## Consequences
 

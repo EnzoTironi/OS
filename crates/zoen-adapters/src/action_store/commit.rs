@@ -1,10 +1,14 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use zoen_core::{ActionProposal, CommitReceipt, ExecutionContext, WORLD_INVITE_ACTION};
+use zoen_core::{
+    ActionProposal, ActorId, CommitReceipt, ExactValue, ExecutionContext, IdentityError,
+    InviteToken, PrincipalId, ResourceId, WORLD_INVITE_ACTION, WorkloadId, ZoenAccountId,
+};
 use zoen_engine::{
     ActionCommitTransaction, CommitPlan, CommitPreparation, CommitStoreOutcome, StoreError,
     state_basis_digest_matches,
 };
 
+use crate::identity_store::{PostgresIdentityStore, WorldInvite, dest_invitee_delegation};
 use crate::{set_tenant, store_unavailable};
 
 use super::failpoints::{CommitStage, reach};
@@ -192,6 +196,10 @@ impl ActionCommitTransaction for PostgresActionCommit {
                 "authority head update affected an unexpected row count".to_owned(),
             ));
         }
+        if plan.proposal.action_id.as_str() == WORLD_INVITE_ACTION {
+            // Stamp before authority commit so invite failure rolls the action back.
+            apply_world_invite(&pool, &plan.proposal).await?;
+        }
         reach(CommitStage::BeforeCommit).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         reach(CommitStage::AfterCommit).await?;
@@ -267,5 +275,60 @@ fn commit_insert_outcome(error: StoreError) -> Result<CommitStoreOutcome, StoreE
         StoreError::IdentityCollision(kind) => Ok(CommitStoreOutcome::IdentityCollision(kind)),
         StoreError::OperationMismatch => Ok(CommitStoreOutcome::OperationMismatch),
         error => Err(error),
+    }
+}
+
+async fn apply_world_invite(pool: &PgPool, proposal: &ActionProposal) -> Result<(), StoreError> {
+    let invite = world_invite_from_proposal(proposal)?;
+    PostgresIdentityStore::new(pool.clone())
+        .stamp_world_invite(invite)
+        .await
+        .map_err(map_invite_error)?;
+    Ok(())
+}
+
+fn world_invite_from_proposal(proposal: &ActionProposal) -> Result<WorldInvite, StoreError> {
+    let account_id = ZoenAccountId::parse(text_input(proposal, "accountId")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let actor_id = ActorId::parse(text_input(proposal, "actorId")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let principal_id = PrincipalId::parse(text_input(proposal, "principalId")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let token = InviteToken::parse(text_input(proposal, "token")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let workload_id = WorkloadId::parse(text_input(proposal, "workloadId")?)
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let resource_id = ResourceId::parse(proposal.definition.definition_id.as_str())
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    let delegation =
+        dest_invitee_delegation(&workload_id, &resource_id).map_err(map_invite_error)?;
+    Ok(WorldInvite {
+        account_id,
+        actor_id,
+        delegation,
+        expires_at: proposal.expires_at,
+        principal_id,
+        tenant_id: proposal.proposed_by.tenant_id().clone(),
+        token,
+        workload_id,
+    })
+}
+
+fn text_input(proposal: &ActionProposal, input_id: &str) -> Result<String, StoreError> {
+    proposal
+        .inputs
+        .iter()
+        .find(|input| input.id.as_str() == input_id)
+        .and_then(|input| match &input.value {
+            ExactValue::Text(value) => Some(value.clone()),
+            _ => None,
+        })
+        .ok_or_else(|| StoreError::Corrupt(format!("invite input {input_id} is required")))
+}
+
+fn map_invite_error(error: IdentityError) -> StoreError {
+    match error {
+        IdentityError::Unavailable(message) => StoreError::Unavailable(message),
+        other => StoreError::Conflict(other.to_string()),
     }
 }

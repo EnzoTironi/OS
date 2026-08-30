@@ -19,7 +19,7 @@ scenario_table=(
   "cedar-object-projection:cedar-object-projection::live"
   "commercial-identity:commercial-identity::live"
   "dirty-quote:dirty-quote::live"
-  "durable-commit:governed-action:failpoints:live"
+  "durable-commit:governed-action::live"
   "evolution-breaking:evolution-breaking::live"
   "evolution-compatible:evolution-compatible::live"
   "explain:governed-action::live"
@@ -102,20 +102,6 @@ resolve_scenario() {
   usage
 }
 
-build_needs_failpoints() {
-  local target="$1"
-  local row
-  local name
-  local variant
-  for row in "${scenario_table[@]}"; do
-    IFS=: read -r name _ variant _ <<< "$row"
-    if [[ "$variant" == "failpoints" && ( "$target" == "all" || "$target" == "$name" ) ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
 run_lint() {
   npm ci
   npm run buf:lint
@@ -159,18 +145,13 @@ run_check() {
 }
 
 run_native_build() {
-  local target="${1:-}"
   cargo build --locked --workspace
-  if build_needs_failpoints "$target"; then
-    CARGO_TARGET_DIR=target/failpoints cargo build --locked --package zoend --features failpoints
-  fi
 }
 
 run_build() {
-  local target="${1:-}"
   npm run buf:generate
   npm run build
-  run_native_build "$target"
+  run_native_build
 }
 
 require_built() {
@@ -248,10 +229,6 @@ run_scenario() {
   fi
   if [[ -n "$prepare" ]]; then
     node "$prepare"
-  fi
-  if build_needs_failpoints "$scenario" && [[ ! -x target/failpoints/debug/zoend ]]; then
-    echo "missing failpoints zoend; run \`just build ${scenario}\`" >&2
-    exit 1
   fi
   docker compose --project-name "$project" --file "$compose_file" up --detach --wait
   node "$runner"

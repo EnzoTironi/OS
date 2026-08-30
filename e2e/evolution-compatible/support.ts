@@ -86,6 +86,11 @@ const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
   postgresPortFallback,
 );
+const projectionDatabaseUrl = e2ePostgresUrl(
+  "zoen_projection",
+  "zoen_projection",
+  postgresPortFallback,
+);
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 const oidcIssuer = e2eHttpUrl(
   "ZOEN_E2E_KEYCLOAK_PORT",
@@ -554,6 +559,7 @@ function projectionEnvironment(): NodeJS.ProcessEnv {
     S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT", minioPortFallback),
     S3_REGION: "us-east-1",
     S3_SECRET_ACCESS_KEY: "zoen-secret",
+    ZOEN_PROJECTION_DATABASE_URL: projectionDatabaseUrl,
   };
 }
 

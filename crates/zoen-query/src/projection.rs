@@ -98,7 +98,6 @@ impl ProjectionWorker {
 
         let manifest = ProjectionManifest {
             build_id: &build_id,
-            from_commit: 1,
             object_refs: vec![ProjectionObjectRef {
                 digest: &parquet_digest,
                 key: &parquet_object_key,
@@ -234,6 +233,8 @@ impl ProjectionWorker {
             });
         }
 
+        // V1 rebuilds are always full (claims through through_commit). The column
+        // stays NOT NULL in schema; 1 is a placeholder, not an incremental range.
         sqlx::query(
             "INSERT INTO projection_manifests (
                 tenant_id, projection_id, manifest_digest, build_id,
@@ -353,7 +354,6 @@ fn required_projection_column(
 #[serde(rename_all = "camelCase")]
 struct ProjectionManifest<'a> {
     build_id: &'a str,
-    from_commit: i64,
     object_refs: Vec<ProjectionObjectRef<'a>>,
     projection_id: &'a str,
     semantic_schema_revision: u32,

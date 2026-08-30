@@ -5,18 +5,14 @@ use buffa::MessageView;
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
-use zoen_adapters::{
-    CedarPolicyEvaluator, PostgresAuthorityStore, PostgresIdentityStore, WorldInvite,
-    dest_invitee_delegation,
-};
+use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
 use zoen_core::{
-    ActionApproval, ActionInput as CoreActionInput, ActionProposal, ActorId, ApprovalId,
+    ActionApproval, ActionInput as CoreActionInput, ActionProposal, ApprovalId,
     CommitIdentityKind as CoreCommitIdentityKind, CommitReceipt,
-    ComponentExecutionEvidence as CoreComponentExecutionEvidence, ExactValue, InviteToken,
-    LineageRole as CoreLineageRole, OperationId, PolicyEvaluation,
-    PolicyEvidence as CorePolicyEvidence, PrincipalId, ProposalAuthority, ProposalId, ResourceId,
-    ScenarioId, StateBasis as CoreStateBasis, TimestampMicros, TrustedExecutionContext,
-    WORLD_INVITE_ACTION, WorkloadId, ZoenAccountId,
+    ComponentExecutionEvidence as CoreComponentExecutionEvidence, LineageRole as CoreLineageRole,
+    OperationId, PolicyEvaluation, PolicyEvidence as CorePolicyEvidence, ProposalAuthority,
+    ProposalId, ResourceId, ScenarioId, StateBasis as CoreStateBasis, TimestampMicros,
+    TrustedExecutionContext,
 };
 use zoen_engine::{
     ActionEngine, ActionError, ApproveOutcome, CommitOutcome, ProposeCommand, ProposeOutcome,
@@ -32,7 +28,7 @@ use crate::proto::zoen::action::v1::{
     PolicyRevision, Proposal, ProposalStatus, ProposeRequest, ProposeResponse, StateBasis,
     StateDependency, TrustedContext,
 };
-use crate::session::{SessionExchange, map_identity_error};
+use crate::session::SessionExchange;
 use crate::world_service::{
     invalid, parse_definition_reference, parse_exact_value, parse_timestamp,
     to_definition_reference, to_exact_value, to_timestamp,
@@ -40,7 +36,6 @@ use crate::world_service::{
 
 pub struct ActionServiceImpl {
     engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
-    identity: PostgresIdentityStore,
     sessions: SessionExchange,
 }
 
@@ -48,13 +43,8 @@ impl ActionServiceImpl {
     pub fn new(
         engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
         sessions: SessionExchange,
-        identity: PostgresIdentityStore,
     ) -> Self {
-        Self {
-            engine,
-            identity,
-            sessions,
-        }
+        Self { engine, sessions }
     }
 }
 
@@ -288,21 +278,11 @@ impl ActionService for ActionServiceImpl {
             .commit(&trusted, &proposal_id, &operation_id, preview_hash, now()?)
             .await;
         match outcome {
-            Ok(CommitOutcome::Committed(receipt)) => {
-                if receipt.action_id.as_str() == WORLD_INVITE_ACTION {
-                    let proposal = self
-                        .engine
-                        .get_proposal(&trusted, &proposal_id)
-                        .await
-                        .map_err(map_action_error)?;
-                    apply_world_invite(&self.identity, &proposal).await?;
-                }
-                Response::ok(CommitResponse {
-                    receipt: Some(to_commit_receipt(*receipt)).into(),
-                    status: CommitStatus::Committed.into(),
-                    ..Default::default()
-                })
-            }
+            Ok(CommitOutcome::Committed(receipt)) => Response::ok(CommitResponse {
+                receipt: Some(to_commit_receipt(*receipt)).into(),
+                status: CommitStatus::Committed.into(),
+                ..Default::default()
+            }),
             Ok(CommitOutcome::PreviewMismatch) => Response::ok(CommitResponse {
                 error: "preview hash does not match the stored proposal".to_owned(),
                 status: CommitStatus::PreviewMismatch.into(),
@@ -589,51 +569,6 @@ fn now() -> Result<TimestampMicros, ConnectError> {
     let micros = i64::try_from(duration.as_micros())
         .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?;
     Ok(TimestampMicros::new(micros))
-}
-
-async fn apply_world_invite(
-    identity: &PostgresIdentityStore,
-    proposal: &ActionProposal,
-) -> Result<(), ConnectError> {
-    let account_id = ZoenAccountId::parse(text_input(proposal, "accountId")?)
-        .map_err(|error| invalid(error.to_string()))?;
-    let actor_id = ActorId::parse(text_input(proposal, "actorId")?)
-        .map_err(|error| invalid(error.to_string()))?;
-    let principal_id = PrincipalId::parse(text_input(proposal, "principalId")?)
-        .map_err(|error| invalid(error.to_string()))?;
-    let token = InviteToken::parse(text_input(proposal, "token")?).map_err(map_identity_error)?;
-    let workload_id = WorkloadId::parse(text_input(proposal, "workloadId")?)
-        .map_err(|error| invalid(error.to_string()))?;
-    let resource_id = ResourceId::parse(proposal.definition.definition_id.as_str())
-        .map_err(|error| invalid(error.to_string()))?;
-    let delegation =
-        dest_invitee_delegation(&workload_id, &resource_id).map_err(map_identity_error)?;
-    identity
-        .stamp_world_invite(WorldInvite {
-            account_id,
-            actor_id,
-            delegation,
-            expires_at: proposal.expires_at,
-            principal_id,
-            tenant_id: proposal.proposed_by.tenant_id().clone(),
-            token,
-            workload_id,
-        })
-        .await
-        .map_err(map_identity_error)?;
-    Ok(())
-}
-
-fn text_input(proposal: &ActionProposal, input_id: &str) -> Result<String, ConnectError> {
-    proposal
-        .inputs
-        .iter()
-        .find(|input| input.id.as_str() == input_id)
-        .and_then(|input| match &input.value {
-            ExactValue::Text(value) => Some(value.clone()),
-            _ => None,
-        })
-        .ok_or_else(|| invalid(format!("invite input {input_id} is required")))
 }
 
 fn map_action_error(error: ActionError) -> ConnectError {

@@ -68,13 +68,6 @@ export const generatedDirectory = e2eGeneratedDirectory(
   "governed-action",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
-const failpointServerPath = path.join(
-  repositoryRoot,
-  "target",
-  "failpoints",
-  "debug",
-  "zoend",
-);
 const composeFile = path.join("e2e", "governed-action", "compose.yaml");
 const composeProject = "zoen-governed-action";
 const postgresPortFallback = 55_434;
@@ -522,10 +515,8 @@ export async function startServer(
     options.kind === "failpoints"
       ? options.failpoint
       : options.injectedEnvironment;
-  const executable =
-    options.kind === "failpoints" ? failpointServerPath : serverPath;
   const output: string[] = [];
-  const child = spawn(executable, [], {
+  const child = spawn(serverPath, [], {
     cwd: repositoryRoot,
     env: {
       ...process.env,

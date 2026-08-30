@@ -280,6 +280,11 @@ export async function expectProjectionFailure(tenantId: string): Promise<void> {
       S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT", 59_006),
       S3_REGION: "us-east-1",
       S3_SECRET_ACCESS_KEY: "zoen-secret",
+      ZOEN_PROJECTION_DATABASE_URL: e2ePostgresUrl(
+        "zoen_projection",
+        "zoen_projection",
+        55_444,
+      ),
     }),
   );
 }
