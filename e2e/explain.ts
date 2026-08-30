@@ -28,11 +28,16 @@ import {
 } from "../gen/connect/zoen/world/v1/world_pb.js";
 import {
   activateDefinition,
+  authDatabaseUrl,
   type DefinitionFixture,
   loadFixture,
+  plantGovernedActionDoor,
   publishDefinition,
   recordAvailable,
   resourceId,
+  sessionOf,
+  startAuthDoor,
+  stopAuthDoor,
   writePolicyManifest,
 } from "./governed-action/support.js";
 import {
@@ -49,9 +54,6 @@ import {
   definitionClient,
   dispatchOnce,
   effectClient,
-  oidcAudience,
-  oidcIssuer,
-  oidcToken,
   registerWorker,
   repositoryRoot,
   setProviderMode,
@@ -143,22 +145,7 @@ async function main(): Promise<void> {
   );
   await writePolicyManifest(policyManifestPath, [fixture, laterFixture]);
 
-  const agentAToken = await oidcToken("agent-a");
-  const agentBToken = await oidcToken("agent-b");
-  const adminAToken = await oidcToken("admin-a");
-  const adminBToken = await oidcToken("admin-b");
-  const workerAToken = await oidcToken("effect-worker-a");
-  const workerBToken = await oidcToken("effect-worker-b");
-  const reconcilerAToken = await oidcToken("effect-reconciler-a");
-  const actionA = actionClient(agentAToken);
-  const definitionA = definitionClient(agentAToken);
-  const definitionB = definitionClient(agentBToken);
-  const definitionAdminA = definitionClient(adminAToken);
-  const definitionAdminB = definitionClient(adminBToken);
-  const effectA = effectClient(agentAToken);
-  const reconcilerA = effectClient(reconcilerAToken);
-  const worldA = worldClient(agentAToken);
-  const worldB = worldClient(agentBToken);
+  const door = await startAuthDoor(authDatabaseUrl);
   const admin = adminClient();
   const processes: ManagedProcess[] = [];
   const assertions: Record<string, boolean> = {};
@@ -169,6 +156,23 @@ async function main(): Promise<void> {
 
   const firstZoend = await startZoend(policyManifestPath);
   processes.push(firstZoend);
+  const planted = await plantGovernedActionDoor(door);
+  const agentAToken = sessionOf(planted, "agent-a").token;
+  const agentBToken = sessionOf(planted, "agent-b").token;
+  const adminAToken = sessionOf(planted, "admin-a").token;
+  const adminBToken = sessionOf(planted, "admin-b").token;
+  const workerAToken = sessionOf(planted, "effect-worker-a").token;
+  const workerBToken = sessionOf(planted, "effect-worker-b").token;
+  const reconcilerAToken = sessionOf(planted, "effect-reconciler-a").token;
+  const actionA = actionClient(agentAToken, tenantA);
+  const definitionA = definitionClient(agentAToken, tenantA);
+  const definitionB = definitionClient(agentBToken, tenantB);
+  const definitionAdminA = definitionClient(adminAToken, tenantA);
+  const definitionAdminB = definitionClient(adminBToken, tenantB);
+  const effectA = effectClient(agentAToken, tenantA);
+  const reconcilerA = effectClient(reconcilerAToken, tenantA);
+  const worldA = worldClient(agentAToken, tenantA);
+  const worldB = worldClient(agentBToken, tenantB);
   processes.push(await startFaultProvider());
   processes.push(await startConnector());
   processes.push(
@@ -539,15 +543,14 @@ async function main(): Promise<void> {
     const manifest = {
       assertions,
       componentVersions: {
-        keycloak: "26.0.7",
         postgres: postgresVersion,
         restate: "1.7.2",
+        sessionDoor: "better-auth",
       },
       finishedAt: new Date().toISOString(),
       mutants,
-      oidc: {
-        audience: oidcAudience,
-        issuer: oidcIssuer,
+      sessionDoor: {
+        authDatabase: "zoen_auth",
       },
       scenario: "explain",
       sourceCommit,
@@ -570,6 +573,7 @@ async function main(): Promise<void> {
         await stopProcess(process);
       }
     }
+    await stopAuthDoor(door);
   }
 }
 

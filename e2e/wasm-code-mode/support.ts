@@ -67,9 +67,13 @@ export interface LimitsOverrides {
   tables?: bigint;
 }
 
-export function computationClient(token: string): ComputationClient {
+export function computationClient(
+  token: string,
+  tenantId: string,
+): ComputationClient {
   const authorization: Interceptor = (next) => async (request) => {
     request.header.set("authorization", `Bearer ${token}`);
+    request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
   return createClient(

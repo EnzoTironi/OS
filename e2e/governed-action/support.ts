@@ -48,6 +48,21 @@ export {
   leaksInternalId,
 } from "../action-preview-bind.js";
 import {
+  e2eAuthDatabaseUrl,
+  expiredPersona,
+  invitePersona,
+  jwtGarbagePersona,
+  plantPersonas,
+  sessionOf,
+  signUpSession,
+  signupOnlyPersona,
+  startAuthDoor,
+  stopAuthDoor,
+  type AuthDoor,
+  type BoundSession,
+  type DoorPersona,
+} from "../ba-door.js";
+import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2eIdentityAdminToken,
@@ -56,6 +71,16 @@ import {
   e2ePostgresUrl,
   e2eWhatsAppDoorE164,
 } from "../host-env.js";
+
+export {
+  plantPersonas,
+  sessionOf,
+  signUpSession,
+  startAuthDoor,
+  stopAuthDoor,
+  type AuthDoor,
+  type BoundSession,
+};
 
 export const repositoryRoot = process.cwd();
 export const scenarioDirectory = path.join(
@@ -79,7 +104,6 @@ const composeFile = path.join("e2e", "governed-action", "compose.yaml");
 const composeProject = "zoen-governed-action";
 const postgresPortFallback = 55_434;
 const zoendPortFallback = 58_083;
-const keycloakPortFallback = 58_082;
 const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 export const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
@@ -91,13 +115,8 @@ export const adminDatabaseUrl = e2ePostgresUrl(
   "postgres",
   postgresPortFallback,
 );
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const oidcIssuer = e2eHttpUrl(
-  "ZOEN_E2E_KEYCLOAK_PORT",
-  keycloakPortFallback,
-  "/realms/zoen",
-);
-export const oidcAudience = "zoend";
+export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
+export const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 export const actionId = "inventory.requestStock";
 export const activationActionId = "zoen.definition.activate";
 export const definitionId = "inventory.governed";
@@ -107,6 +126,118 @@ const availableRelation = "inventory.available";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 const validAt = new Date("2026-08-19T00:00:00.000Z");
+const stockActions = ["inventory.requestStock"] as const;
+const stockResources = ["inventory.item.1"] as const;
+const adminDefinitionIds = [
+  "inventory.governed",
+  "inventory.governed.deny",
+  "inventory.governed.error",
+  "inventory.governed.human",
+  "inventory.governed.multi",
+  "inventory.governed.self",
+] as const;
+const adminActions = [
+  "zoen.definition.activate",
+  "inventory.requestStock",
+] as const;
+const adminResources = [...adminDefinitionIds, ...stockResources];
+
+export async function plantGovernedActionDoor(
+  door: AuthDoor,
+): Promise<Map<string, BoundSession>> {
+  return plantPersonas(door, {
+    adminToken: e2eIdentityAdminToken(),
+    applicationDatabaseUrl: adminDatabaseUrl,
+    personas: governedActionPersonas,
+    zoendBaseUrl: baseUrl,
+  });
+}
+
+export const governedActionPersonas: readonly DoorPersona[] = [
+  invitePersona({
+    actionIds: stockActions,
+    actorId: "actor.agent.a",
+    id: "agent-a",
+    principalId: "principal.agent.a",
+    resourceIds: stockResources,
+    tenantId: tenantA,
+    workloadId: "workload.agent.a",
+  }),
+  invitePersona({
+    actionIds: stockActions,
+    actorId: "actor.approver.a",
+    id: "approver-a",
+    principalId: "principal.approver.a",
+    resourceIds: stockResources,
+    tenantId: tenantA,
+    workloadId: "workload.human.a",
+  }),
+  invitePersona({
+    actionIds: stockActions,
+    actorId: "actor.agent.b",
+    id: "agent-b",
+    principalId: "principal.agent.b",
+    resourceIds: stockResources,
+    tenantId: tenantB,
+    workloadId: "workload.agent.b",
+  }),
+  invitePersona({
+    actionIds: adminActions,
+    actorId: "actor.admin.a",
+    id: "admin-a",
+    principalId: "principal.admin.a",
+    resourceIds: adminResources,
+    tenantId: tenantA,
+    workloadId: "workload.admin.a",
+  }),
+  invitePersona({
+    actionIds: adminActions,
+    actorId: "actor.admin.b",
+    id: "admin-b",
+    principalId: "principal.admin.b",
+    resourceIds: adminResources,
+    tenantId: tenantB,
+    workloadId: "workload.admin.b",
+  }),
+  signupOnlyPersona("expanded-a"),
+  jwtGarbagePersona("wrong-audience-a"),
+  expiredPersona({
+    actionIds: stockActions,
+    actorId: "actor.expired.a",
+    id: "expired-a",
+    principalId: "principal.expired.a",
+    resourceIds: stockResources,
+    tenantId: tenantA,
+    workloadId: "workload.expired.a",
+  }),
+  invitePersona({
+    actionIds: stockActions,
+    actorId: "actor.effect-worker.a",
+    id: "effect-worker-a",
+    principalId: "principal.effect-worker.a",
+    resourceIds: stockResources,
+    tenantId: tenantA,
+    workloadId: "workload.effect-worker",
+  }),
+  invitePersona({
+    actionIds: stockActions,
+    actorId: "actor.effect-worker.b",
+    id: "effect-worker-b",
+    principalId: "principal.effect-worker.b",
+    resourceIds: stockResources,
+    tenantId: tenantB,
+    workloadId: "workload.effect-worker",
+  }),
+  invitePersona({
+    actionIds: stockActions,
+    actorId: "actor.effect-reconciler.a",
+    id: "effect-reconciler-a",
+    principalId: "principal.effect-reconciler.a",
+    resourceIds: stockResources,
+    tenantId: tenantA,
+    workloadId: "workload.effect-reconciler",
+  }),
+];
 
 export type ActionClient = Client<typeof ActionService>;
 export type DefinitionClient = Client<typeof DefinitionService>;
@@ -152,11 +283,6 @@ export interface DatabaseSnapshot {
   semanticClaims: number;
 }
 
-const tokenResponseSchema = z
-  .object({
-    access_token: z.string().min(1),
-  })
-  .passthrough();
 const definitionDocumentSchema = z
   .object({
     actions: z.array(z.unknown()),
@@ -265,6 +391,9 @@ export async function writePolicyManifest(
     "utf8",
   );
   const activationDigest = sha256(activationSource);
+  const readSource =
+    'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n';
+  const readDigest = sha256(readSource);
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(
     outputPath,
@@ -287,6 +416,14 @@ export async function writePolicyManifest(
             revision: fixture.policyRevision,
             source: activationSource,
           },
+          {
+            actionId: "zoen.world.read",
+            definitionDigest: fixture.digest,
+            digest: readDigest,
+            policyId: `policy.read.${fixture.definition.definitionId}`,
+            revision: fixture.policyRevision,
+            source: readSource,
+          },
         ]),
       },
       null,
@@ -295,43 +432,49 @@ export async function writePolicyManifest(
   );
 }
 
+export function actionClient(
+  token: string,
+  tenantId: string = tenantA,
+): ActionClient {
+  return bindActionPreviewHash(
+    createClient(ActionService, transport(token, tenantId)),
+  );
+}
+
+export function unboundActionClient(
+  token: string,
+  tenantId: string = tenantA,
+): ActionClient {
+  return createClient(ActionService, transport(token, tenantId));
+}
+
+export function definitionClient(
+  token: string,
+  tenantId: string = tenantA,
+): DefinitionClient {
+  return createClient(DefinitionService, transport(token, tenantId));
+}
+
+export function worldClient(
+  token: string,
+  tenantId: string = tenantA,
+): WorldClient {
+  return createClient(WorldService, transport(token, tenantId));
+}
+
 export async function oidcToken(clientId: string): Promise<string> {
-  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: `${clientId}-secret`,
-      grant_type: "client_credentials",
-    }),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    method: "POST",
-  });
-  const body: unknown = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(body));
-  return tokenResponseSchema.parse(body).access_token;
+  throw new Error(
+    `oidcToken(${clientId}) is gone; plant a Better Auth session`,
+  );
 }
 
-export function actionClient(token: string): ActionClient {
-  return bindActionPreviewHash(createClient(ActionService, transport(token)));
-}
+export const oidcIssuer = "http://127.0.0.1/removed";
+export const oidcAudience = "removed";
 
-/** Raw Action client. Does not fill preview_hash. Used by negative tests. */
-export function unboundActionClient(token: string): ActionClient {
-  return createClient(ActionService, transport(token));
-}
-
-export function definitionClient(token: string): DefinitionClient {
-  return createClient(DefinitionService, transport(token));
-}
-
-export function worldClient(token: string): WorldClient {
-  return createClient(WorldService, transport(token));
-}
-
-function transport(token: string) {
+function transport(token: string, tenantId: string) {
   const authorization: Interceptor = (next) => async (request) => {
     request.header.set("authorization", `Bearer ${token}`);
+    request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
   return createConnectTransport({
@@ -525,32 +668,35 @@ export async function startServer(
   const executable =
     options.kind === "failpoints" ? failpointServerPath : serverPath;
   const output: string[] = [];
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    DATABASE_URL: applicationDatabaseUrl,
+    ZOEN_AUTH_DATABASE_URL: authDatabaseUrl,
+    ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
+    ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
+    ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
+    ZOEN_WHATSAPP_DOOR_E164: e2eWhatsAppDoorE164(),
+    ...(failpoint === undefined
+      ? {}
+      : {
+          ZOEN_ACTION_COMMIT_FAILPOINT: failpoint.name,
+          ...(failpoint.pauseMs === undefined
+            ? {}
+            : {
+                ZOEN_ACTION_COMMIT_FAILPOINT_PAUSE_MS:
+                  failpoint.pauseMs.toString(),
+              }),
+        }),
+    ...(options.kind === "default" && options.extraEnv !== undefined
+      ? options.extraEnv
+      : {}),
+  };
+  delete env.ZOEN_OIDC_AUDIENCE;
+  delete env.ZOEN_OIDC_DISCOVERY_URL;
+  delete env.ZOEN_OIDC_ISSUER;
   const child = spawn(executable, [], {
     cwd: repositoryRoot,
-    env: {
-      ...process.env,
-      DATABASE_URL: applicationDatabaseUrl,
-      ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
-      ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
-      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
-      ZOEN_WHATSAPP_DOOR_E164: e2eWhatsAppDoorE164(),
-      ZOEN_OIDC_AUDIENCE: oidcAudience,
-      ZOEN_OIDC_ISSUER: oidcIssuer,
-      ...(failpoint === undefined
-        ? {}
-        : {
-            ZOEN_ACTION_COMMIT_FAILPOINT: failpoint.name,
-            ...(failpoint.pauseMs === undefined
-              ? {}
-              : {
-                  ZOEN_ACTION_COMMIT_FAILPOINT_PAUSE_MS:
-                    failpoint.pauseMs.toString(),
-                }),
-          }),
-      ...(options.kind === "default" && options.extraEnv !== undefined
-        ? options.extraEnv
-        : {}),
-    },
+    env,
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.end();
@@ -577,7 +723,7 @@ async function waitForPort(
   child: ChildProcessWithoutNullStreams,
   output: readonly string[],
 ): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     if (child.exitCode !== null) {
       throw new Error(`zoend exited during startup:\n${output.join("")}`);
     }
@@ -623,12 +769,7 @@ export async function expectConnectCode(
 }
 
 export function corruptToken(token: string): string {
-  const parts = token.split(".");
-  assert.equal(parts.length, 3);
-  const signature = parts[2];
-  assert.ok(signature);
-  const replacement = signature[0] === "A" ? "B" : "A";
-  return `${parts[0]}.${parts[1]}.${replacement}${signature.slice(1)}`;
+  return `x${token}`;
 }
 
 export function minutesFromNow(minutes: number): Date {

@@ -18,7 +18,17 @@ import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import { DefinitionService } from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
+  adminPairPersonas,
+  e2eAuthDatabaseUrl,
+  plantPersonas,
+  sessionDoorProcessEnv,
+  sessionOf,
+  startAuthDoor,
+  stopAuthDoor,
+} from "./ba-door.js";
+import {
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
@@ -55,20 +65,9 @@ const adminDatabaseUrl = e2ePostgresUrl(
   postgresPortFallback,
 );
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-const keycloakPortFallback = 58_084;
-const oidcIssuer = e2eHttpUrl(
-  "ZOEN_E2E_KEYCLOAK_PORT",
-  keycloakPortFallback,
-  "/realms/zoen",
-);
-const oidcAudience = "zoend";
+const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 const tenantA = "tenant.a";
 const tenantB = "tenant.b";
-const tokenResponseSchema = z
-  .object({
-    access_token: z.string().min(1),
-  })
-  .passthrough();
 
 const compiledDefinitionSchema = z
   .object({
@@ -158,15 +157,22 @@ async function main(): Promise<void> {
   );
   recordAssertion("computationMutationChangedDigest");
 
-  const tokenA = await oidcToken("admin-a");
-  const tokenB = await oidcToken("admin-b");
-  let server = await startServer();
-  const clientA = definitionClient(tokenA);
-  const clientB = definitionClient(tokenB);
+  const door = await startAuthDoor(authDatabaseUrl);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
-  await admin.connect();
-
+  let server: ServerProcess | undefined;
   try {
+    server = await startServer();
+    await admin.connect();
+    const planted = await plantPersonas(door, {
+      adminToken: e2eIdentityAdminToken(),
+      applicationDatabaseUrl: adminDatabaseUrl,
+      personas: adminPairPersonas([first.definition.definitionId]),
+      zoendBaseUrl: baseUrl,
+    });
+    const tokenA = sessionOf(planted, "admin-a").token;
+    const tokenB = sessionOf(planted, "admin-b").token;
+    const clientA = definitionClient(tokenA, tenantA);
+    const clientB = definitionClient(tokenB, tenantB);
     const publishedA = await publish(clientA, tenantA, first);
     assert.equal(publishedA.commitSequence, 1n);
     assert.equal(publishedA.digest, expectedDigest);
@@ -383,7 +389,7 @@ async function main(): Promise<void> {
     );
     const manifest = {
       assertions,
-      authMode: "oidc",
+      authMode: "session-door",
       componentVersions: {
         postgres: version,
       },
@@ -397,16 +403,18 @@ async function main(): Promise<void> {
     await writeScenarioArtifact(repositoryRoot, "definition-publication", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
-    await admin.end();
-    if (server.child.exitCode === null) {
+    await admin.end().catch(() => undefined);
+    if (server !== undefined && server.child.exitCode === null) {
       await stopServer(server);
     }
+    await stopAuthDoor(door);
   }
 }
 
-function definitionClient(token: string): DefinitionClient {
+function definitionClient(token: string, tenantId: string): DefinitionClient {
   const authorization: Interceptor = (next) => async (request) => {
     request.header.set("authorization", `Bearer ${token}`);
+    request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
   return createClient(
@@ -481,23 +489,6 @@ function command(executable: string, arguments_: readonly string[]): Promise<str
   });
 }
 
-async function oidcToken(clientId: string): Promise<string> {
-  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: `${clientId}-secret`,
-      grant_type: "client_credentials",
-    }),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    method: "POST",
-  });
-  const body: unknown = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(body));
-  return tokenResponseSchema.parse(body).access_token;
-}
-
 async function startServer(): Promise<ServerProcess> {
   const policyManifestPath = path.join(
     repositoryRoot,
@@ -508,14 +499,18 @@ async function startServer(): Promise<ServerProcess> {
   const output: string[] = [];
   const child = spawn(serverPath, [], {
     cwd: repositoryRoot,
-    env: {
-      ...process.env,
-      DATABASE_URL: applicationDatabaseUrl,
-      ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
-      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
-      ZOEN_OIDC_AUDIENCE: oidcAudience,
-      ZOEN_OIDC_ISSUER: oidcIssuer,
-    },
+    env: sessionDoorProcessEnv({
+      applicationDatabaseUrl,
+      authDatabaseUrl,
+      extra: {
+        ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
+        ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
+        ZOEN_LISTEN_ADDR: e2eListenAddr(
+          "ZOEN_E2E_ZOEND_PORT",
+          zoendPortFallback,
+        ),
+      },
+    }),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.end();

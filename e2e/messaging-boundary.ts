@@ -3,14 +3,18 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   applicationDatabaseUrl,
-  oidcToken,
+  authDatabaseUrl,
+  signUpSession,
+  startAuthDoor,
   startServer,
+  stopAuthDoor,
   stopServer,
   type ServerProcess,
 } from "./governed-action/support.js";
 import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   writeScenarioArtifact,
 } from "./host-env.js";
 import { assertImportGraphLaw } from "./messaging-boundary/import-graph.js";
@@ -75,7 +79,7 @@ async function seedBoundAccount(): Promise<{
   telegramBindingId: string;
   linqBindingId: string;
 }> {
-  const boundToken = await oidcToken("bound-bait");
+  const boundToken = (await signUpSession("bound-bait")).token;
   identityAdminBearer = boundToken;
   const bootstrap = await admin(
     "POST",
@@ -125,13 +129,15 @@ async function main(): Promise<void> {
   killMutant("crates or zoend depend on vercel/chat");
   killMutant("Read Chat SDK adapter state as semantic memory / StateBasis");
 
-  let server: ServerProcess = await startServer(policyManifestPath, {
+  const door = await startAuthDoor(authDatabaseUrl);
+  let server: ServerProcess | undefined;
+  try {
+    server = await startServer(policyManifestPath, {
     extraEnv: {
       ZOEN_WHATSAPP_INGRESS_SECRET: "",
     },
     kind: "default",
   });
-  try {
     const seed = await seedBoundAccount();
 
     record(
@@ -161,7 +167,7 @@ async function main(): Promise<void> {
       "GET",
       "/identity/admin/resolve-subject?provider=telegram&subjectKey=tg_user_never_bound",
       undefined,
-      await oidcToken("admin-a"),
+      e2eIdentityAdminToken(),
     );
     record("unresolved_membership_fails_closed", unresolved.status !== 200);
     killMutant("Deliver without Active Membership context");
@@ -184,6 +190,7 @@ async function main(): Promise<void> {
     );
     killMutant("Accept WhatsApp inbound when ZOEN_WHATSAPP_INGRESS_SECRET is unset");
 
+    assert.ok(server);
     await stopServer(server);
     const gateway = await startMockWhatsAppGateway();
     const secret = freshWhatsAppIngressSecret();
@@ -272,7 +279,10 @@ async function main(): Promise<void> {
     });
     console.log(`messaging-boundary PASS → ${artifactPath}`);
   } finally {
-    await stopServer(server);
+    if (server !== undefined && server.child.exitCode === null) {
+      await stopServer(server);
+    }
+    await stopAuthDoor(door);
   }
 }
 

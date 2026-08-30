@@ -132,6 +132,11 @@ run_lint() {
     echo "sdk/osdk references remain" >&2
     exit 1
   fi
+  if grep -R --include='compose.yaml' 'quay.io/keycloak' e2e \
+    | grep -v 'fiscal-'; then
+    echo "dest e2e compose still plants Keycloak" >&2
+    exit 1
+  fi
   npm run build
   npm run roadmap:check
   node scripts/check-no-fake-exports.mjs

@@ -17,8 +17,8 @@ import {
   adminDatabaseUrl,
   approveProposal,
   assertPolicy,
+  authDatabaseUrl,
   command,
-  composeOutput,
   commitProposal,
   corruptToken,
   databaseSnapshot,
@@ -33,9 +33,7 @@ import {
   loadFixture,
   millisecondsFromNow,
   minutesFromNow,
-  oidcAudience,
-  oidcIssuer,
-  oidcToken,
+  plantGovernedActionDoor,
   propose,
   publishDefinition,
   recordAvailable,
@@ -43,7 +41,10 @@ import {
   resourceId,
   rowCount,
   sha256,
+  sessionOf,
+  startAuthDoor,
   startServer,
+  stopAuthDoor,
   stopServer,
   tenantA,
   tenantB,
@@ -79,29 +80,32 @@ async function main(): Promise<void> {
   const policyManifestPath = path.join(generatedDirectory, "policies.json");
   await writePolicyManifest(policyManifestPath, Object.values(fixtures));
 
-  const agentAToken = await oidcToken("agent-a");
-  const approverAToken = await oidcToken("approver-a");
-  const agentBToken = await oidcToken("agent-b");
-  const adminAToken = await oidcToken("admin-a");
-  const adminBToken = await oidcToken("admin-b");
-  const expandedToken = await oidcToken("expanded-a");
-  const wrongAudienceToken = await oidcToken("wrong-audience-a");
-  const expiredToken = await oidcToken("expired-a");
-
-  const definitionA = definitionClient(agentAToken);
-  const definitionB = definitionClient(agentBToken);
-  const definitionAdminA = definitionClient(adminAToken);
-  const definitionAdminB = definitionClient(adminBToken);
-  const worldA = worldClient(agentAToken);
-  const worldB = worldClient(agentBToken);
-  const actionA = actionClient(agentAToken);
-  const approverA = actionClient(approverAToken);
-  const actionB = actionClient(agentBToken);
+  const door = await startAuthDoor(authDatabaseUrl);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
-  let server = await startServer(policyManifestPath);
-  await admin.connect();
-
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
+    server = await startServer(policyManifestPath);
+    await admin.connect();
+    const planted = await plantGovernedActionDoor(door);
+    const agentAToken = sessionOf(planted, "agent-a").token;
+    const approverAToken = sessionOf(planted, "approver-a").token;
+    const agentBToken = sessionOf(planted, "agent-b").token;
+    const adminAToken = sessionOf(planted, "admin-a").token;
+    const adminBToken = sessionOf(planted, "admin-b").token;
+    const expandedToken = sessionOf(planted, "expanded-a").token;
+    const wrongAudienceToken = sessionOf(planted, "wrong-audience-a").token;
+    const expiredToken = sessionOf(planted, "expired-a").token;
+
+    const definitionA = definitionClient(agentAToken, tenantA);
+    const definitionB = definitionClient(agentBToken, tenantB);
+    const definitionAdminA = definitionClient(adminAToken, tenantA);
+    const definitionAdminB = definitionClient(adminBToken, tenantB);
+    const worldA = worldClient(agentAToken, tenantA);
+    const worldB = worldClient(agentBToken, tenantB);
+    const actionA = actionClient(agentAToken, tenantA);
+    const approverA = actionClient(approverAToken, tenantA);
+    const actionB = actionClient(agentBToken, tenantB);
+
     for (const fixture of Object.values(fixtures)) {
       await publishDefinition(definitionA, tenantA, fixture);
       await activateDefinition(definitionAdminA, tenantA, fixture);
@@ -179,7 +183,7 @@ async function main(): Promise<void> {
     assert.equal(directCapability.decision, PolicyDecision.PERMIT);
     assertPolicy(directCapability.policy, fixtures.direct);
     recordAssertion(
-      "oidcTrustedContextDerived",
+      "sessionTrustedContextDerived",
       trusted.tenantId === tenantA &&
         trusted.actorId === "actor.agent.a" &&
         trusted.principalId === "principal.agent.a" &&
@@ -257,7 +261,7 @@ async function main(): Promise<void> {
         "Vou executar requestStock com quantidade 2." &&
         !leaksInternalId(directProposal.canonicalPreviewText),
     );
-    const rawActionA = unboundActionClient(agentAToken);
+    const rawActionA = unboundActionClient(agentAToken, tenantA);
     const missingPreview = await rawActionA.commit({
       operationId: "operation.direct",
       proposalId: "proposal.direct",
@@ -481,6 +485,7 @@ async function main(): Promise<void> {
       tenantId: tenantA,
       value: "99",
     });
+    assert.ok(server);
     await stopServer(server);
     server = await startServer(policyManifestPath);
     const humanRetry = await propose(actionA, {
@@ -800,7 +805,7 @@ async function main(): Promise<void> {
     const beforeTokenFailures = await databaseSnapshot(admin, tenantA);
     const invalidSignatureCode = await expectConnectCode(
       () =>
-        actionClient(corruptToken(agentAToken)).discover({
+        actionClient(corruptToken(agentAToken), tenantA).discover({
           definition: fixtures.direct.definition,
           resourceId,
         }),
@@ -808,16 +813,15 @@ async function main(): Promise<void> {
     );
     const wrongAudienceCode = await expectConnectCode(
       () =>
-        actionClient(wrongAudienceToken).discover({
+        actionClient(wrongAudienceToken, tenantA).discover({
           definition: fixtures.direct.definition,
           resourceId,
         }),
       Code.Unauthenticated,
     );
-    await delay(1_100);
     const expiredTokenCode = await expectConnectCode(
       () =>
-        actionClient(expiredToken).discover({
+        actionClient(expiredToken, tenantA).discover({
           definition: fixtures.direct.definition,
           resourceId,
         }),
@@ -825,7 +829,7 @@ async function main(): Promise<void> {
     );
     const expandedDelegationCode = await expectConnectCode(
       () =>
-        actionClient(expandedToken).discover({
+        actionClient(expandedToken, tenantA).discover({
           definition: fixtures.direct.definition,
           resourceId,
         }),
@@ -838,7 +842,7 @@ async function main(): Promise<void> {
     recordFailureInjection("expired-token");
     recordFailureInjection("child-delegation-expansion");
     recordAssertion(
-      "oidcFailuresRejectedWithoutWrites",
+      "sessionFailuresRejectedWithoutWrites",
       [invalidSignatureCode, wrongAudienceCode, expiredTokenCode].every(
         (code) => code === Code.Unauthenticated,
       ) &&
@@ -942,6 +946,7 @@ async function main(): Promise<void> {
         tenantACommit.status === CommitStatus.COMMITTED,
     );
 
+    assert.ok(server);
     await stopServer(server);
     server = await startServer(policyManifestPath);
     const recoveredStatus = await actionA.getOperationStatus({
@@ -963,14 +968,16 @@ async function main(): Promise<void> {
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const keycloakVersion = await composeOutput(
-      "exec",
-      "-T",
-      "keycloak",
-      "/opt/keycloak/bin/kc.sh",
-      "--version",
-    );
-    assert.match(keycloakVersion, /Keycloak 26\.0\.7/);
+    const composeServices = await command("docker", [
+      "compose",
+      "--project-name",
+      "zoen-governed-action",
+      "--file",
+      "e2e/governed-action/compose.yaml",
+      "config",
+      "--images",
+    ]);
+    assert.doesNotMatch(composeServices, /keycloak/i);
     const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
     const manifest = {
       actors: {
@@ -979,8 +986,8 @@ async function main(): Promise<void> {
       },
       assertions,
       componentVersions: {
-        keycloak: keycloakVersion.split("\n")[0],
         postgres: postgresVersion,
+        sessionDoor: "better-auth",
       },
       definitions: Object.fromEntries(
         Object.entries(fixtures).map(([name, fixture]) => [
@@ -993,9 +1000,8 @@ async function main(): Promise<void> {
       ),
       failureInjections,
       finishedAt: new Date().toISOString(),
-      oidc: {
-        audience: oidcAudience,
-        issuer: oidcIssuer,
+      sessionDoor: {
+        authDatabase: "zoen_auth",
       },
       operations: {
         changed: changedCommit.receipt?.operationId,
@@ -1021,10 +1027,11 @@ async function main(): Promise<void> {
     await writeScenarioArtifact(repositoryRoot, "governed-action", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   } finally {
-    await admin.end();
-    if (server.child.exitCode === null) {
+    await admin.end().catch(() => undefined);
+    if (server !== undefined && server.child.exitCode === null) {
       await stopServer(server);
     }
+    await stopAuthDoor(door);
   }
 }
 
