@@ -1,12 +1,12 @@
 #!/bin/sh
 set -eu
-mkdir -p /data/zoen
 door="${ZOEN_BA_DOOR_URL:-http://127.0.0.1:58704}"
 origin="${BETTER_AUTH_URL:?BETTER_AUTH_URL required}"
 origin="${origin%/}"
 email="${ZOEN_BA_AGENT_EMAIL:?ZOEN_BA_AGENT_EMAIL required}"
 password="${ZOEN_BA_AGENT_PASSWORD:?ZOEN_BA_AGENT_PASSWORD required}"
 out="${ZOEN_AGENT_BEARER_TOKEN_FILE:-/data/zoen/agent.token}"
+mkdir -p "$(dirname "$out")"
 signup_json="$(ZOEN_BA_AGENT_EMAIL="$email" ZOEN_BA_AGENT_PASSWORD="$password" python3 -c 'import json,os; print(json.dumps({"email":os.environ["ZOEN_BA_AGENT_EMAIL"],"password":os.environ["ZOEN_BA_AGENT_PASSWORD"],"name":"zoen agent"}))')"
 signin_json="$(ZOEN_BA_AGENT_EMAIL="$email" ZOEN_BA_AGENT_PASSWORD="$password" python3 -c 'import json,os; print(json.dumps({"email":os.environ["ZOEN_BA_AGENT_EMAIL"],"password":os.environ["ZOEN_BA_AGENT_PASSWORD"]}))')"
 while true; do
@@ -21,9 +21,27 @@ while true; do
       -H "Origin: ${origin}" \
       -d "$signin_json" \
       "${door}/api/auth/sign-in/email" \
-    && json="$(curl -fsS -b "$jar" -H "Origin: ${origin}" "${door}/api/auth/token")"
+    && python3 - "$jar" "$out" <<'PY'
+import sys
+path, out = sys.argv[1], sys.argv[2]
+token = None
+for raw in open(path, encoding="utf-8"):
+    line = raw.rstrip("\n")
+    if not line.strip():
+        continue
+    if line.startswith("#") and not line.startswith("#HttpOnly_"):
+        continue
+    if line.startswith("#HttpOnly_"):
+        line = line[len("#HttpOnly_"):]
+    parts = line.split("\t")
+    if len(parts) >= 7 and parts[5].endswith("session_token"):
+        token = parts[6]
+        break
+if not token:
+    raise SystemExit("session_token cookie missing")
+open(out, "w").write(token)
+PY
   then
-    printf '%s' "$json" | python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["token"])' "$out"
     chmod 600 "$out"
   fi
   rm -f "$jar"

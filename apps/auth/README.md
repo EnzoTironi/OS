@@ -1,6 +1,6 @@
 # How to run the Auth door
 
-This process is the Better Auth 1.7.2 door. It listens on `127.0.0.1:58704` and stores sessions in the `zoen_auth` database. On Fly, supervisord starts it as `[program:auth]`. Public HTTPS still lands on zoend `:58701`, which forwards `/api/auth`, `/.well-known/openid-configuration`, `/device`, and `/onboard/done` to this process. WhatsApp `/onboard/{token}` stays on zoend.
+This process is the Better Auth 1.7.2 door. It listens on `127.0.0.1:58704` and stores sessions in the `zoen_auth` database. On Fly, supervisord starts it as `[program:auth]`. Public HTTPS still lands on zoend `:58701`, which forwards `/api/auth`, `/device`, and `/onboard/done` to this process. WhatsApp `/onboard/{token}` stays on zoend.
 
 ## Start Postgres
 
@@ -51,33 +51,15 @@ Or run the same steps with `scripts/prove.sh`. That script curls `GET http://127
 
 To prove the owned screens and the device-authorization start, run `scripts/prove-screens.sh` from `apps/auth`. The script runs compose, migrates, and restarts the pid in `.auth.pid` even when `/api/auth/ok` already answers. It writes `/workspace/ship/better-auth-screens-proof.md`. That file omits `device_code` and `user_code` values and records status and field names only.
 
-## Issue a JWT for zoend
+## Use a session cookie as the zoend Bearer
 
-The door plants the official Better Auth `jwt` plugin with `RS256`. Issuer is `BETTER_AUTH_URL` with no trailing slash. Audience is `zoend`.
+The `session_token` cookie from email and password, or from device, is the zoend Bearer. SessionDoor looks it up in `zoen_auth`. `GET /api/auth/token` is not required.
 
 Email and password sign-up is enabled so a local journey can mint a session without Google.
 
-Discovery and JWKS:
+On Fly, `deploy/fly/zoen-remint-agent` signs in as `ZOEN_BA_AGENT_EMAIL` on loopback `http://127.0.0.1:58704` and writes the cookie value to `ZOEN_AGENT_BEARER_TOKEN_FILE`. Origin is `BETTER_AUTH_URL`. Password is the Fly secret `ZOEN_BA_AGENT_PASSWORD`.
 
-1. `GET /.well-known/openid-configuration` returns `issuer` and `jwks_uri`.
-2. `jwks_uri` is `{issuer}/api/auth/jwks`.
-3. `GET /api/auth/jwks` returns the public key set. The first call mints an RS256 key when the set is empty.
-
-Mint path:
-
-1. `POST /api/auth/sign-up/email` with JSON `email`, `password`, and `name`. Send `Origin` matching `BETTER_AUTH_URL`. Keep the `Set-Cookie` jar.
-2. `GET /api/auth/token` with that cookie. The body is `{ "token": "..." }`.
-3. Call zoend with `Authorization: Bearer <token>`. Set `ZOEN_OIDC_AUDIENCE` to `zoend`. Set `ZOEN_OIDC_ISSUER` to the token `iss`, which is `BETTER_AUTH_URL` with no trailing slash. If that issuer is not loopback, set `ZOEN_OIDC_DISCOVERY_URL` to the loopback door. On Fly that value is `http://127.0.0.1:58704`.
-
-Remint grant on Fly is the same session path against loopback `http://127.0.0.1:58704` (never the public origin). `deploy/fly/zoen-remint-agent` signs in as `ZOEN_BA_AGENT_EMAIL`, calls `GET /api/auth/token`, and writes the JWT to `ZOEN_AGENT_BEARER_TOKEN_FILE`. Origin is `BETTER_AUTH_URL`. Password is the Fly secret `ZOEN_BA_AGENT_PASSWORD`.
-
-To prove the full path locally, run `scripts/prove-zoend-ba.sh` from `apps/auth`. The script starts the door, mints a token, boots a throwaway zoend against that issuer, and writes `/workspace/ship/zoend-ba-proof.md` with commands and status codes. The proof file does not record the JWT, session cookie, or `BETTER_AUTH_SECRET`.
-
-To prove remint's session mint plus WebOidc bind and lake publish, run `scripts/prove-remint-ba.sh`. That writes `/workspace/ship/remint-ba-proof.md`.
-
-To prove boot against a public token `iss` while fetching discovery on loopback, run `scripts/prove-issuer-cutover.sh`. That writes `/workspace/ship/issuer-cutover-proof.md`.
-
-To prove Keycloak is off the Fly image, run `scripts/prove-drop-keycloak.sh`. That writes `/workspace/ship/drop-keycloak-proof.md`.
+Prove dest with `scripts/prove-s1-door.sh`. Prove remint with `scripts/prove-remint-ba.sh` (opaque session Bearer, auth_door bind, resolve-context TEC). Prove Keycloak off Fly with `scripts/prove-drop-keycloak.sh`. Those proof files do not record the session cookie, password, or `BETTER_AUTH_SECRET`.
 
 ## Google redirect URIs
 

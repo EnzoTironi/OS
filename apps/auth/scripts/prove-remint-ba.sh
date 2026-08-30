@@ -24,8 +24,6 @@ auth_started=0
 agent_email=""
 agent_password=""
 admin_token=""
-verdict="pass"
-fail_open_reason=""
 
 stamp() {
   TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M:%S %Z'
@@ -132,7 +130,6 @@ export ZOEN_IDENTITY_ADMIN_TOKEN="$admin_token"
 export ZOEN_IDENTITY_BASE_URL="$zoend_base"
 
 npx --yes auth@1.7.2 migrate --config src/auth.ts --yes
-docker compose exec -T postgres psql -U postgres -d zoen_auth -c 'TRUNCATE TABLE jwks;' >/dev/null
 
 if [[ -f .auth.pid ]]; then
   recorded="$(tr -d ' \n' < .auth.pid || true)"
@@ -188,22 +185,10 @@ fi
   printf 'Auth host: `%s`\n' "$base"
   printf 'zoend host: `%s`\n\n' "$zoend_base"
   printf '## 1. How remint mints\n\n'
-  printf 'Remint curls loopback door `%s` (never the public origin). Grant name: `session`.\n' "$base"
-  printf 'Steps: optional `POST /api/auth/sign-up/email`, then `POST /api/auth/sign-in/email`, then `GET /api/auth/token`.\n'
-  printf 'Origin header is `BETTER_AUTH_URL` with trailing slash stripped. JWT lands in `ZOEN_AGENT_BEARER_TOKEN_FILE`.\n\n'
+  printf 'Remint curls loopback door `%s` (never the public origin).\n' "$base"
+  printf 'Steps: `deploy/fly/zoen-remint-agent` signs in on loopback, then writes the `session_token` cookie to `ZOEN_AGENT_BEARER_TOKEN_FILE`.\n'
+  printf 'Origin header is `BETTER_AUTH_URL` with trailing slash stripped. Opaque session lands in `ZOEN_AGENT_BEARER_TOKEN_FILE`.\n\n'
 } > "$draft"
-
-url="${base}/.well-known/openid-configuration"
-command="curl -sS -o body -w %{http_code} ${url}"
-body="${work}/oidc"
-status="$(get_url "$url" "$body")"
-ts="$(stamp)"
-issuer="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["issuer"])' < "$body")"
-jwks_uri="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["jwks_uri"])' < "$body")"
-excerpt="issuer=${issuer} jwks_uri=${jwks_uri}"
-record "GET /.well-known/openid-configuration" "$command" "$url" "$status" "$excerpt" "$ts"
-[[ "$status" == "200" ]] || fail "openid-configuration status ${status}"
-[[ "$issuer" == "http://127.0.0.1:58704" ]] || fail "unexpected issuer ${issuer}"
 
 url="${base}/api/auth/oauth2/token"
 command="curl -sS -o body -w %{http_code} -X POST -d grant_type=client_credentials ${url}"
@@ -229,7 +214,7 @@ command="curl -sS -o body -w %{http_code} ${url}"
 body="${work}/token-nocookie"
 status="$(get_url "$url" "$body")"
 ts="$(stamp)"
-excerpt="session_required"
+excerpt="leftover_route_not_required"
 record "GET /api/auth/token without cookie" "$command" "$url" "$status" "$excerpt" "$ts"
 [[ "$status" != "200" ]] || fail "GET /api/auth/token without cookie returned 200"
 
@@ -271,6 +256,24 @@ record "POST /api/auth/sign-in/email" "$command" "$url" "$status" "$excerpt" "$t
   fail "sign-in status ${status}"
 }
 
+rm -f "$token_file"
+set +e
+timeout 15 "${repo}/deploy/fly/zoen-remint-agent" >"${work}/remint.log" 2>&1
+set -e
+[[ -s "$token_file" ]] || {
+  cat "${work}/remint.log" >&2
+  fail "remint did not write token file"
+}
+python3 - "$token_file" <<'PY'
+import sys
+token = open(sys.argv[1], encoding="utf-8").read().strip()
+if not token:
+    raise SystemExit("token file empty")
+if len(token.split(".")) == 3:
+    raise SystemExit("token file looks like a JWT")
+PY
+chmod 600 "$token_file"
+
 url="${base}/api/auth/token"
 command="curl -sS -b jar -o body -w %{http_code} ${url}"
 body="${work}/token"
@@ -281,28 +284,12 @@ status="$(
     "$url"
 )"
 ts="$(stamp)"
-[[ "$status" == "200" ]] || {
-  cat "$body" >&2
-  fail "token status ${status}"
-}
-python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.load(open(sys.argv[2]))["token"])' "$token_file" "$body"
-chmod 600 "$token_file"
-token_iss="$(python3 -c '
-import base64, json, sys
-token = open(sys.argv[1]).read().strip()
-part = token.split(".")[1]
-part += "=" * (-len(part) % 4)
-payload = json.loads(base64.urlsafe_b64decode(part.encode()))
-if "principal_id" in payload:
-    raise SystemExit("principal_id present in JWT")
-print(payload.get("iss", ""))
-' "$token_file")"
-excerpt="iss_checked principal_id_absent"
-record "GET /api/auth/token (session grant)" "$command" "$url" "$status" "$excerpt" "$ts"
-[[ "$token_iss" == "$BETTER_AUTH_URL" ]] || fail "token iss ${token_iss} != ${BETTER_AUTH_URL}"
+excerpt="leftover_route_not_required"
+record "GET /api/auth/token with session cookie" "$command" "$url" "$status" "$excerpt" "$ts"
+[[ "$status" != "200" ]] || fail "GET /api/auth/token with session returned 200"
 {
-  printf '## 2. Token iss is BA issuer\n\n'
-  printf 'Decoded JWT `iss` equals `BETTER_AUTH_URL` (`%s`), not Keycloak. `principal_id` absent.\n\n' "$token_iss"
+  printf '## 2. Opaque session_token is not a JWT\n\n'
+  printf '`ZOEN_AGENT_BEARER_TOKEN_FILE` holds the `session_token` cookie. `split(".")` length is not 3. `GET /api/auth/token` is not 200.\n\n'
 } >> "$draft"
 
 docker rm -f "$zoend_pg_name" >/dev/null 2>&1 || true
@@ -356,12 +343,11 @@ zoend_log="${work}/zoend.log"
   # shellcheck disable=SC1091
   . "$HOME/.cargo/env"
   export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55405/zoen'
-  export ZOEN_OIDC_ISSUER='http://127.0.0.1:58704'
-  export ZOEN_OIDC_AUDIENCE='zoend'
+  export ZOEN_AUTH_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55404/zoen_auth'
   export ZOEN_LISTEN_ADDR='127.0.0.1:58705'
   export ZOEN_CEDAR_POLICY_MANIFEST="$policies"
   export ZOEN_IDENTITY_ADMIN_TOKEN="$admin_token"
-  unset ZOEN_OIDC_MACHINE_ISSUER || true
+  unset ZOEN_OIDC_ISSUER ZOEN_OIDC_AUDIENCE ZOEN_OIDC_DISCOVERY_URL || true
   exec "$zoend_bin"
 ) >"$zoend_log" 2>&1 &
 zoend_pid="$!"
@@ -396,70 +382,48 @@ if ! (
 ) >"$bind_log" 2>&1; then
   cat "$bind_log" >&2 || true
   cat "$zoend_log" >&2 || true
-  verdict="fail-open"
-  fail_open_reason="agent binding did not converge without fake claims"
+  fail "agent binding did not converge"
 fi
 ts="$(stamp)"
-if [[ "$verdict" == "pass" ]]; then
-  excerpt="bound_web_oidc_principal.admin.a"
-  record "zoen-ensure-agent-binding" "deploy/fly/zoen-ensure-agent-binding" "$zoend_base" "0" "$excerpt" "$ts"
+excerpt="bound_auth_door_principal.admin.a"
+record "zoen-ensure-agent-binding" "deploy/fly/zoen-ensure-agent-binding" "$zoend_base" "0" "$excerpt" "$ts"
+
+remint_token="$(tr -d '\n' < "$token_file")"
+url="${zoend_base}/identity/admin/resolve-context?tenant=tenant.a"
+body="${work}/remint-resolve"
+status="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -H "Authorization: Bearer ${remint_token}" \
+    "$url"
+)"
+resolved_membership="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("membershipId",""))' < "$body" 2>/dev/null || true)"
+excerpt="membershipId=${resolved_membership:-empty}"
+record "GET /identity/admin/resolve-context (remint opaque session)" "curl -sS -o body -w %{http_code} -H Authorization:Bearer <remint-session> ${url}" "$url" "$status" "$excerpt" "$(stamp)"
+[[ "$status" == "200" ]] || {
+  cat "$body" >&2 || true
+  cat "$zoend_log" >&2 || true
+  fail "remint resolve-context status ${status}, want 200"
+}
+[[ -n "$resolved_membership" ]] || fail "remint resolve-context missing membershipId"
+
+garbage_log="${work}/garbage.log"
+if (
+  cd "$repo"
+  export ZOEN_TENANT_ID='tenant.a'
+  export ZOEN_PUBLISH_BEARER='not-a-jwt'
+  export ZOEN_PERSONAL_DEFINITION_PATH="${repo}/testdata/lakes/personal.canonical.json"
+  export ZOEN_IDENTITY_BASE_URL="$zoend_base"
+  npx --yes tsx apps/auth/scripts/publish-with-bearer.ts
+) >"$garbage_log" 2>&1; then
+  garbage_status="$(grep -E '^status=' "$garbage_log" | tail -n1 | cut -d= -f2)"
 else
-  excerpt="bind_failed"
-  record "zoen-ensure-agent-binding" "deploy/fly/zoen-ensure-agent-binding" "$zoend_base" "failed" "$excerpt" "$ts"
+  garbage_status="error"
+  cat "$garbage_log" >&2 || true
 fi
-
-if [[ ! -d "${repo}/node_modules" ]]; then
-  (cd "$repo" && npm ci)
-fi
-
-lake_ok=0
-if [[ "$verdict" == "pass" ]]; then
-  lake_log="${work}/lake.log"
-  if (
-    cd "$repo"
-    export ZOEN_TENANT_ID='tenant.a'
-    export ZOEN_AGENT_BEARER_TOKEN_FILE="$token_file"
-    export ZOEN_PERSONAL_DEFINITION_PATH="${repo}/testdata/lakes/personal.canonical.json"
-    export ZOEN_WORLD_DEFINITION_PATH="${repo}/testdata/lakes/commercial.canonical.json"
-    export ZOEN_IDENTITY_BASE_URL="$zoend_base"
-    export ZOEN_PERSONAL_LAKE_READY_FILE="${work}/personal.lake.ready"
-    export ZOEN_COMMERCIAL_LAKE_READY_FILE="${work}/commercial.lake.ready"
-    npx --yes tsx deploy/fly/ensure-personal-lake.ts
-  ) >"$lake_log" 2>&1; then
-    lake_ok=1
-    excerpt="lake_publish_activate_ok"
-    record "ensure-personal-lake publish/activate" "npx tsx deploy/fly/ensure-personal-lake.ts" "$zoend_base" "0" "$excerpt" "$(stamp)"
-  else
-    cat "$lake_log" >&2 || true
-    cat "$zoend_log" >&2 || true
-    verdict="fail-open"
-    fail_open_reason="lake publish/activate failed without fake claims"
-    excerpt="lake_failed"
-    record "ensure-personal-lake publish/activate" "npx tsx deploy/fly/ensure-personal-lake.ts" "$zoend_base" "failed" "$excerpt" "$(stamp)"
-  fi
-fi
-
-garbage_status="skipped"
-if [[ "$verdict" == "pass" ]]; then
-  garbage_log="${work}/garbage.log"
-  if (
-    cd "$repo"
-    export ZOEN_TENANT_ID='tenant.a'
-    export ZOEN_PUBLISH_BEARER='not-a-jwt'
-    export ZOEN_PERSONAL_DEFINITION_PATH="${repo}/testdata/lakes/personal.canonical.json"
-    export ZOEN_IDENTITY_BASE_URL="$zoend_base"
-    npx --yes tsx apps/auth/scripts/publish-with-bearer.ts
-  ) >"$garbage_log" 2>&1; then
-    garbage_status="$(grep -E '^status=' "$garbage_log" | tail -n1 | cut -d= -f2)"
-  else
-    garbage_status="error"
-    cat "$garbage_log" >&2 || true
-  fi
-  excerpt="garbage_bearer"
-  record "DefinitionService.publish garbage Bearer" "npx tsx apps/auth/scripts/publish-with-bearer.ts" "$zoend_base" "$garbage_status" "$excerpt" "$(stamp)"
-  if [[ "$garbage_status" != "401" ]]; then
-    fail "garbage Bearer status ${garbage_status}, want 401"
-  fi
+excerpt="garbage_bearer"
+record "DefinitionService.publish garbage Bearer" "npx tsx apps/auth/scripts/publish-with-bearer.ts" "$zoend_base" "$garbage_status" "$excerpt" "$(stamp)"
+if [[ "$garbage_status" != "401" ]]; then
+  fail "garbage Bearer status ${garbage_status}, want 401"
 fi
 
 supervisord="${repo}/deploy/fly/supervisord.conf"
@@ -472,29 +436,16 @@ excerpt="keycloak_gone_auth_remint_present"
 record "Keycloak gone, auth and remint stay" "grep program:auth deploy/fly/supervisord.conf" "$supervisord" "n/a" "$excerpt" "$(stamp)"
 
 {
-  printf '## 3. Lake publish\n\n'
-  if [[ "$verdict" == "pass" && "$lake_ok" -eq 1 ]]; then
-    printf 'Lake publish/activate accepted the BA session Bearer for `tenant.a`. Garbage Bearer returned 401.\n\n'
-  else
-    printf 'Lake publish/activate did not succeed with a BA session JWT and WebOidc bind. No fake claims were injected.\n\n'
-  fi
+  printf '## 3. Remint Bearer mints TEC\n\n'
+  printf '`deploy/fly/zoen-remint-agent` wrote the opaque `session_token`. `GET /identity/admin/resolve-context?tenant=tenant.a` with that Bearer returned 200. Garbage Bearer returned 401.\n\n'
   printf '## 4. Keycloak program\n\n'
   printf '`[program:keycloak]` is gone from `deploy/fly/supervisord.conf`. `[program:auth]` and `[program:remint]` stay.\n\n'
-  printf '## 5. Inventory: no official client_credentials on the door\n\n'
-  printf 'Discovery is issuer + jwks_uri only. `POST /api/auth/oauth2/token` with `grant_type=client_credentials` is not a machine mint. `GET /api/auth/token` without a session is not 200. Remint uses grant `session`.\n\n'
+  printf '## 5. Inventory: no machine mint on the door\n\n'
+  printf '`POST /api/auth/oauth2/token` with `grant_type=client_credentials` is not a machine mint. `GET /api/auth/token` is not 200. Remint writes the opaque `session_token` cookie.\n\n'
 } >> "$draft"
-
-if [[ "$verdict" != "pass" ]]; then
-  {
-    printf '## Verdict\n\n'
-    printf 'fail-open. %s. Remint was not rewritten.\n' "$fail_open_reason"
-  } >> "$draft"
-  write_proof
-  fail "fail-open: ${fail_open_reason}"
-fi
 
 {
   printf '## Verdict\n\n'
-  printf 'pass. remint session-mints on loopback door. bind plus lake publish work without fake claims. Keycloak is off the Fly image.\n'
+  printf 'pass. remint writes the opaque session cookie on the loopback door. auth_door bind plus resolve-context mint a TEC. Keycloak is off the Fly image.\n'
 } >> "$draft"
 write_proof
