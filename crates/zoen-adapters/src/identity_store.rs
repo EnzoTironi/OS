@@ -15,9 +15,8 @@ use zoen_core::{
     EnterpriseAssertion, ExternalBinding, ExternalBindingId, ExternalSubject, IdentityError,
     Invite, InviteId, InviteToken, Membership, MembershipId, MembershipKind, MembershipStatus,
     PrincipalId, ResourceId, RevocationReason, TenantId, TimestampMicros, TrustedExecutionContext,
-    UnbindReason, VerifiedOidcSubject, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
-    WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION, WorkloadId, ZoenAccount,
-    ZoenAccountId, trusted_context_from_membership,
+    UnbindReason, WORLD_INVITE_ACTION, WORLD_READ_ACTION, WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION,
+    WORLD_WHO_CAN_ACTION, WorkloadId, ZoenAccount, ZoenAccountId, trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -683,14 +682,6 @@ impl PostgresIdentityStore {
         Ok(binding)
     }
 
-    pub async fn binding_for_oidc_sub(
-        &self,
-        subject: &str,
-    ) -> Result<Option<ExternalBinding>, IdentityError> {
-        let subject = ExternalSubject::new(ChannelProvider::WebOidc, subject.to_owned())?;
-        self.binding_for_subject(&subject).await
-    }
-
     pub async fn snapshot_for_verified_subject(
         &self,
         subject: &ExternalSubject,
@@ -709,15 +700,6 @@ impl PostgresIdentityStore {
             });
         }
         Ok((binding, snapshot))
-    }
-
-    pub async fn resolve_for_tenant(
-        &self,
-        verified: &VerifiedOidcSubject,
-        tenant: &TenantId,
-    ) -> Result<TrustedExecutionContext, IdentityError> {
-        let subject = ExternalSubject::new(ChannelProvider::WebOidc, verified.subject.clone())?;
-        Ok(self.resolve_for_subject(&subject, tenant).await?.1)
     }
 
     pub async fn resolve_for_subject(

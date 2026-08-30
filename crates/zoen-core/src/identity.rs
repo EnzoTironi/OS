@@ -491,20 +491,6 @@ pub enum MembershipKind {
     },
 }
 
-/// Authentication evidence after JWT validation. Not a TrustedExecutionContext.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct VerifiedOidcSubject {
-    pub issuer: String,
-    pub audience: String,
-    pub subject: String,
-    pub actor_id: Option<ActorId>,
-    pub expires_at: TimestampMicros,
-    pub requested_tenant_hint: Option<TenantId>,
-    pub principal_hint: Option<PrincipalId>,
-    pub workload_hint: Option<WorkloadId>,
-    pub delegation_hint: Option<DelegationChain>,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Invite {
     pub id: InviteId,
@@ -838,7 +824,7 @@ impl ServerAllowId {
 }
 
 /// Authentication evidence after API-key or workload-JWT verification.
-/// Parallel to VerifiedOidcSubject. Never a TrustedExecutionContext.
+/// Never a TrustedExecutionContext.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedWorkloadEvidence {
     pub credential_lookup_key: WorkloadCredentialLookupKey,

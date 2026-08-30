@@ -102,7 +102,6 @@ struct AcceptSignalBody {
     source: SignalSourceBody,
     payload_digest_ref: String,
     source_digest_ref: String,
-    body: Option<SignalBodyHint>,
     trust_disposition: Option<String>,
 }
 
@@ -112,16 +111,6 @@ struct SignalSourceBody {
     class: String,
     external_id: String,
     audience_class: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-struct SignalBodyHint {
-    kind: String,
-    text_hint: Option<String>,
-    claimed_tenant_id: Option<String>,
-    claimed_principal_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -368,9 +357,6 @@ async fn accept_signal(
     if let Err(error) = state.credentials.consume_accept_budget(&credential).await {
         return identity_error(error);
     }
-
-    // Body tenant/text are deliberately ignored for trust.
-    let _ignored_body = body.body;
 
     let draft = ExternalSignalDraft {
         durable_event_id: match DurableEventId::parse(body.durable_event_id) {
