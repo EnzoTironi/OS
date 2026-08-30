@@ -1,4 +1,4 @@
-# Buf, tsc, unit tests, fmt, zoen-core isolation. No Clippy, no Docker.
+# Buf, tsc, fmt, zoen-core isolation. No Clippy, no Docker.
 lint:
     ./e2e/run.sh lint
 
