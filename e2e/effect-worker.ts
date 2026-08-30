@@ -318,6 +318,7 @@ function effectClient(tenantId: string) {
       "authorization",
       `Bearer ${await serviceBearerToken(tenantId)}`,
     );
+    request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
   return createClient(

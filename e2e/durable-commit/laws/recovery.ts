@@ -93,6 +93,7 @@ export async function verifyRecovery(
     operationId: "operation.client-death",
     previewHash: clientDeathProposal.proposal.previewHash,
     proposalId: "proposal.client-death",
+    tenantId: tenantA,
     token: scenario.agentAToken,
   });
   await waitForOperation(
@@ -141,6 +142,7 @@ export async function verifyRecovery(
     operationId: "operation.server-death",
     previewHash: serverDeathProposal.proposal.previewHash,
     proposalId: "proposal.server-death",
+    tenantId: tenantA,
     token: scenario.agentAToken,
   });
   await waitForOperation(

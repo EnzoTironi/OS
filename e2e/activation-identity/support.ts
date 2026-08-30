@@ -7,9 +7,10 @@ const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_401);
 
 export type HistoryClient = Client<typeof HistoryService>;
 
-export function historyClient(token: string): HistoryClient {
+export function historyClient(token: string, tenantId: string): HistoryClient {
   const authorization: Interceptor = (next) => async (request) => {
     request.header.set("authorization", `Bearer ${token}`);
+    request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
   return createClient(

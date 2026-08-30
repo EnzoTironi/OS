@@ -8,6 +8,8 @@ import {
   propose,
   startServer,
   stopServer,
+  tenantA,
+  tenantB,
 } from "../../governed-action/support.js";
 import { runCommitProcess } from "../support.js";
 import type { DurableScenario } from "../scenario.js";
@@ -45,12 +47,14 @@ export async function verifyTenantIsolation(
       operationId: "operation.independent",
       previewHash: independentProposalA.proposal.previewHash,
       proposalId: "proposal.independent",
+      tenantId: tenantA,
       token: scenario.agentAToken,
     }),
     runCommitProcess({
       operationId: "operation.independent",
       previewHash: independentProposalB.proposal.previewHash,
       proposalId: "proposal.independent",
+      tenantId: tenantB,
       token: scenario.agentBToken,
     }),
   ]);

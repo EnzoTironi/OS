@@ -30,15 +30,19 @@ import {
   command,
   definitionClient,
   expectConnectCode,
+  authDatabaseUrl,
   generatedDirectory,
+  governedActionPersonas,
   loadFixture,
   minutesFromNow,
-  oidcToken,
   publishDefinition,
   recordAvailable,
   repositoryRoot,
   resourceId,
+  sessionOf,
+  startAuthDoor,
   startServer,
+  stopAuthDoor,
   stopServer,
   tenantA,
   tenantB,
@@ -46,8 +50,13 @@ import {
   writePolicyManifest,
   type ServerProcess,
 } from "./governed-action/support.js";
+import { invitePersona, plantPersonas } from "./ba-door.js";
 import { historyClient } from "./explain/support.js";
-import { writeScenarioArtifact } from "./host-env.js";
+import {
+  e2eHttpUrl,
+  e2eIdentityAdminToken,
+  writeScenarioArtifact,
+} from "./host-env.js";
 import {
   componentInterface,
   computationClient,
@@ -85,28 +94,44 @@ async function main(): Promise<void> {
   const policyManifestPath = path.join(generatedDirectory, "policies.json");
   await writePolicyManifest(policyManifestPath, Object.values(fixtures));
 
-  const [agentAToken, agentBToken, adminAToken, adminBToken] =
-    await Promise.all([
-      oidcToken("agent-a"),
-      oidcToken("agent-b"),
-      oidcToken("admin-a"),
-      oidcToken("admin-b"),
-    ]);
-  const actionA = actionClient(agentAToken);
-  const computationA = computationClient(agentAToken);
-  const computationB = computationClient(agentBToken);
-  const definitionA = definitionClient(agentAToken);
-  const definitionB = definitionClient(agentBToken);
-  const definitionAdminA = definitionClient(adminAToken);
-  const definitionAdminB = definitionClient(adminBToken);
-  const historyA = historyClient(agentAToken);
-  const worldA = worldClient(agentAToken);
-  const worldB = worldClient(agentBToken);
+  const door = await startAuthDoor(authDatabaseUrl);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
-  let server: ServerProcess = await startServer(policyManifestPath);
-  await admin.connect();
-
+  let server: ServerProcess | undefined;
   try {
+    server = await startServer(policyManifestPath);
+    await admin.connect();
+    const planted = await plantPersonas(door, {
+      adminToken: e2eIdentityAdminToken(),
+      applicationDatabaseUrl: adminDatabaseUrl,
+      personas: governedActionPersonas.map((persona) =>
+        persona.kind === "invite" && persona.id === "agent-b"
+          ? invitePersona({
+              actionIds: ["zoen.definition.activate"],
+              actorId: persona.actorId,
+              id: persona.id,
+              principalId: persona.principalId,
+              resourceIds: persona.resourceIds,
+              tenantId: persona.tenantId,
+              workloadId: persona.workloadId,
+            })
+          : persona,
+      ),
+      zoendBaseUrl: e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
+    });
+    const agentAToken = sessionOf(planted, "agent-a").token;
+    const agentBToken = sessionOf(planted, "agent-b").token;
+    const adminAToken = sessionOf(planted, "admin-a").token;
+    const adminBToken = sessionOf(planted, "admin-b").token;
+    const actionA = actionClient(agentAToken, tenantA);
+    const computationA = computationClient(agentAToken, tenantA);
+    const computationB = computationClient(agentBToken, tenantB);
+    const definitionA = definitionClient(agentAToken, tenantA);
+    const definitionB = definitionClient(agentBToken, tenantB);
+    const definitionAdminA = definitionClient(adminAToken, tenantA);
+    const definitionAdminB = definitionClient(adminBToken, tenantB);
+    const historyA = historyClient(agentAToken, tenantA);
+    const worldA = worldClient(agentAToken, tenantA);
+    const worldB = worldClient(agentBToken, tenantB);
     for (const fixture of Object.values(fixtures)) {
       await publishDefinition(definitionA, tenantA, fixture);
       await activateDefinition(definitionAdminA, tenantA, fixture);
@@ -346,6 +371,7 @@ async function main(): Promise<void> {
 
     const committedSequence = wasmAllowed.output?.action?.commitSequence;
     assert.ok(committedSequence);
+    assert.ok(server);
     await stopServer(server);
     server = await startServer(policyManifestPath);
     const recoveredStatus = await actionA.getOperationStatus({
@@ -417,10 +443,11 @@ async function main(): Promise<void> {
     await writeScenarioArtifact(repositoryRoot, "wasm-code-mode", artifact);
     process.stdout.write(`${JSON.stringify(artifact, null, 2)}\n`);
   } finally {
-    await admin.end();
-    if (server.child.exitCode === null) {
+    await admin.end().catch(() => undefined);
+    if (server !== undefined && server.child.exitCode === null) {
       await stopServer(server);
     }
+    await stopAuthDoor(door);
   }
 }
 

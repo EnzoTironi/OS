@@ -8,6 +8,7 @@ const environmentSchema = z.object({
   ZOEN_E2E_OPERATION_ID: z.string().min(1),
   ZOEN_E2E_PREVIEW_HASH: z.string().min(1),
   ZOEN_E2E_PROPOSAL_ID: z.string().min(1),
+  ZOEN_E2E_TENANT: z.string().min(1),
   ZOEN_E2E_TOKEN: z.string().min(1),
 });
 
@@ -22,6 +23,7 @@ async function main(): Promise<void> {
           "authorization",
           `Bearer ${environment.ZOEN_E2E_TOKEN}`,
         );
+        request.header.set("x-zoen-tenant", environment.ZOEN_E2E_TENANT);
         return next(request);
       },
     ],

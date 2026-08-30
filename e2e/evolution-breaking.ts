@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
@@ -22,6 +21,7 @@ import {
   sourceLineCountsUnderLimit,
   usesSingleAuthorityLedger,
 } from "./evolution-breaking/acceptance.js";
+import { writeEvolutionBreakingArtifact } from "./evolution-breaking/artifact.js";
 import {
   actionContractOnlyRevision,
   parseActionContracts,
@@ -48,10 +48,10 @@ import {
   actionClient,
   actionProposal,
   adminClient,
-  command,
+  adminDatabaseUrl,
+  authDatabaseUrl,
   commitAction,
   compileDefinition,
-  composeOutput,
   definitionClient,
   definitionId,
   definitionReference,
@@ -60,23 +60,28 @@ import {
   fixtureDirectory,
   generatedDirectory,
   historyClient,
-  oidcToken,
   publish,
   queryValue,
   queryValues,
   rebuildProjection,
   recordEvidence,
-  repositoryRoot,
-  sha256,
   startServer,
   stopServer,
   tenantA,
   tenantB,
   worldClient,
   writePolicyManifest,
+  zoendBaseUrl,
   type ServerProcess,
 } from "./evolution-breaking/support.js";
-import { writeScenarioArtifact } from "./host-env.js";
+import {
+  adminPairPersonas,
+  plantPersonas,
+  sessionOf,
+  startAuthDoor,
+  stopAuthDoor,
+} from "./ba-door.js";
+import { e2eIdentityAdminToken } from "./host-env.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -148,12 +153,7 @@ async function main(): Promise<void> {
     v3,
     actionContractOnly,
   ]);
-  const adminAToken = await oidcToken("admin-a");
-  const adminBToken = await oidcToken("admin-b");
-  const definitionA = definitionClient(adminAToken);
-  const definitionB = definitionClient(adminBToken);
-  const actionA = actionClient(adminAToken);
-  const worldA = worldClient(adminAToken);
+  const door = await startAuthDoor(authDatabaseUrl);
   const admin = adminClient();
   await admin.connect();
   let server: ServerProcess | undefined;
@@ -165,6 +165,26 @@ async function main(): Promise<void> {
 
   try {
     server = await startServer(policyManifestPath);
+    const planted = await plantPersonas(door, {
+      adminToken: e2eIdentityAdminToken(),
+      applicationDatabaseUrl: adminDatabaseUrl,
+      personas: adminPairPersonas(
+        [definitionId, "inventory.item.1"],
+        [
+          "zoen.definition.activate",
+          "zoen.definition.migrate",
+          "zoen.definition.rollback",
+          "inventory.replenish",
+        ],
+      ),
+      zoendBaseUrl,
+    });
+    const adminAToken = sessionOf(planted, "admin-a").token;
+    const adminBToken = sessionOf(planted, "admin-b").token;
+    const definitionA = definitionClient(adminAToken, tenantA);
+    const definitionB = definitionClient(adminBToken, tenantB);
+    const actionA = actionClient(adminAToken, tenantA);
+    const worldA = worldClient(adminAToken, tenantA);
     await publish(definitionA, tenantA, v1);
     await publish(definitionB, tenantB, v1);
     await activateInitial(definitionA, tenantA, v1);
@@ -700,7 +720,7 @@ async function main(): Promise<void> {
       (lineage) =>
         lineage.targetClaimId === "claim.inventory.primaryWarehouse.v3",
     );
-    const migratedClaimExplanation = await historyClient(adminAToken).explain({
+    const migratedClaimExplanation = await historyClient(adminAToken, tenantA).explain({
       target: {
         target: {
           case: "claimId",
@@ -784,7 +804,7 @@ async function main(): Promise<void> {
         ? [value.value.value.value.amount]
         : [],
     );
-    const v1Explanation = await historyClient(adminAToken).explain({
+    const v1Explanation = await historyClient(adminAToken, tenantA).explain({
       target: {
         target: {
           case: "operationId",
@@ -914,73 +934,35 @@ async function main(): Promise<void> {
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const keycloakVersion = await composeOutput(
-      "exec",
-      "-T",
-      "keycloak",
-      "/opt/keycloak/bin/kc.sh",
-      "--version",
-    );
-    assert.match(keycloakVersion, /Keycloak 26\.0\.7/);
     assert.ok(v1ToV2Assessment);
     assert.ok(v2ToV3Assessment);
-    const protocol = await readFile(
-      path.join(
-        repositoryRoot,
-        "proto",
-        "zoen",
-        "definition",
-        "v1",
-        "definition.proto",
-      ),
-    );
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
-    const manifest = {
-      architecture: {
-        authorityCommitLedger: "authority_commits",
-        restate: "NotApplicable: operation and batch identities recover progress",
-        wasm: "NotApplicable: canonical v1 has no Wasm artifact or reference",
-      },
+    await writeEvolutionBreakingArtifact({
+      actionContractOnly,
       assertions,
-      classifications: {
-        forbidden: reversePlan.plan?.classification,
-        v1ToV2: v1ToV2Assessment.classification,
-        v2ToV3: v2ToV3Assessment.classification,
-      },
-      componentVersions: {
-        keycloak: keycloakVersion,
-        postgres: postgresVersion,
-      },
-      definitionDigests: {
-        actionContractOnly: actionContractOnly.digest,
-        v1: v1.digest,
-        v2: v2.digest,
-        v3: v3.digest,
-      },
       failureInjections,
-      finishedAt: new Date().toISOString(),
       foreignTenantRejections,
       mutants,
-      observedOperations: {
-        migrationV1ToV2: realRecipe.operationId,
-        migrationV2ToV3: v2ToV3Recipe.operationId,
-        v1Action: v1ReceiptOperationId,
-        v2Action: v2ReceiptOperationId,
-        v3Action: v3ReceiptOperationId,
-      },
-      protocolDigest: sha256(protocol),
-      scenario: "evolution-breaking",
+      postgresVersion,
+      reverseClassification: reversePlan.plan?.classification,
       sourceLineCounts,
-      sourceCommit,
       startedAt,
-    };
-    await writeScenarioArtifact(repositoryRoot, "evolution-breaking", manifest);
-    process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
+      v1,
+      v1ReceiptOperationId,
+      v1ToV2Assessment,
+      v1ToV2RecipeOperationId: realRecipe.operationId,
+      v2,
+      v2ReceiptOperationId,
+      v2ToV3Assessment,
+      v2ToV3RecipeOperationId: v2ToV3Recipe.operationId,
+      v3,
+      v3ReceiptOperationId,
+    });
   } finally {
     if (server !== undefined) {
       await stopServer(server);
     }
     await admin.end();
+    await stopAuthDoor(door);
   }
 }
 

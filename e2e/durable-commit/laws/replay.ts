@@ -54,12 +54,14 @@ export async function verifyReplayAndMismatch(
       operationId: "operation.same-race",
       previewHash: sameOperationProposal.proposal.previewHash,
       proposalId: "proposal.same-race",
+      tenantId: tenantA,
       token: scenario.agentAToken,
     }),
     runCommitProcess({
       operationId: "operation.same-race",
       previewHash: sameOperationProposal.proposal.previewHash,
       proposalId: "proposal.same-race",
+      tenantId: tenantA,
       token: scenario.agentAToken,
     }),
   ]);
@@ -205,6 +207,7 @@ export async function verifyReplayAndMismatch(
     operationId: "operation.expiring-race",
     previewHash: expiringProposal.proposal.previewHash,
     proposalId: "proposal.expiring-race",
+    tenantId: tenantA,
     token: scenario.agentAToken,
   });
   await delay(6_000);

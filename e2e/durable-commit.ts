@@ -9,19 +9,21 @@ import {
   actionClient,
   activateDefinition,
   adminDatabaseUrl,
+  authDatabaseUrl,
   definitionClient,
   definitionId,
   generatedDirectory,
   loadFixture,
-  oidcAudience,
-  oidcIssuer,
-  oidcToken,
+  plantGovernedActionDoor,
   publishDefinition,
   recordAvailable,
   repositoryRoot,
   resourceId,
+  sessionOf,
   sha256,
+  startAuthDoor,
   startServer,
+  stopAuthDoor,
   stopServer,
   tenantA,
   tenantB,
@@ -29,7 +31,6 @@ import {
   writePolicyManifest,
   type DefinitionFixture,
 } from "./governed-action/support.js";
-import { composeOutput } from "./durable-commit/support.js";
 import { verifyConflictingCas } from "./durable-commit/laws/conflict.js";
 import { verifyIdentity } from "./durable-commit/laws/identity.js";
 import { verifyRecovery } from "./durable-commit/laws/recovery.js";
@@ -58,25 +59,26 @@ async function main(): Promise<void> {
   );
   await writePolicyManifest(policyManifestPath, Object.values(fixtures));
 
-  const agentAToken = await oidcToken("agent-a");
-  const agentBToken = await oidcToken("agent-b");
-  const adminAToken = await oidcToken("admin-a");
-  const adminBToken = await oidcToken("admin-b");
-  const actionA = actionClient(agentAToken);
-  const actionB = actionClient(agentBToken);
-  const definitionA = definitionClient(agentAToken);
-  const definitionB = definitionClient(agentBToken);
-  const definitionAdminA = definitionClient(adminAToken);
-  const definitionAdminB = definitionClient(adminBToken);
-  const worldA = worldClient(agentAToken);
-  const worldB = worldClient(agentBToken);
+  const door = await startAuthDoor(authDatabaseUrl);
   const runtime = {
     admin: new PostgresClient({ connectionString: adminDatabaseUrl }),
     server: await startServer(policyManifestPath),
   };
   await runtime.admin.connect();
-
   try {
+    const planted = await plantGovernedActionDoor(door);
+    const agentAToken = sessionOf(planted, "agent-a").token;
+    const agentBToken = sessionOf(planted, "agent-b").token;
+    const adminAToken = sessionOf(planted, "admin-a").token;
+    const adminBToken = sessionOf(planted, "admin-b").token;
+    const actionA = actionClient(agentAToken, tenantA);
+    const actionB = actionClient(agentBToken, tenantB);
+    const definitionA = definitionClient(agentAToken, tenantA);
+    const definitionB = definitionClient(agentBToken, tenantB);
+    const definitionAdminA = definitionClient(adminAToken, tenantA);
+    const definitionAdminB = definitionClient(adminBToken, tenantB);
+    const worldA = worldClient(agentAToken, tenantA);
+    const worldB = worldClient(agentBToken, tenantB);
     for (const fixture of Object.values(fixtures)) {
       await publishDefinition(definitionA, tenantA, fixture);
       await publishDefinition(definitionB, tenantB, fixture);
@@ -123,14 +125,20 @@ async function main(): Promise<void> {
       )
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const keycloakVersion = await composeOutput(
-      "exec",
-      "-T",
-      "keycloak",
-      "/opt/keycloak/bin/kc.sh",
-      "--version",
+    const composeImages = execFileSync(
+      "docker",
+      [
+        "compose",
+        "--project-name",
+        "zoen-durable-commit",
+        "--file",
+        "e2e/durable-commit/compose.yaml",
+        "config",
+        "--images",
+      ],
+      { encoding: "utf8" },
     );
-    assert.match(keycloakVersion, /Keycloak 26\.0\.7/);
+    assert.doesNotMatch(composeImages, /keycloak/i);
     const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: repositoryRoot,
       encoding: "utf8",
@@ -152,8 +160,6 @@ async function main(): Promise<void> {
         recorder.assertions.effectRequestCollisionTypedAndAtomic === true,
       effectWrittenOutsideTransaction:
         recorder.assertions.allPreCommitFailpointsRolledBack === true,
-      failpointEnabledInDefaultBuild:
-        recorder.assertions.defaultBuildIgnoresCommitFailpoint === true,
       intentIgnored:
         recorder.assertions.sameOperationDifferentIntentTypedMismatch === true,
       missingHeadLock:
@@ -176,8 +182,8 @@ async function main(): Promise<void> {
     const manifest = {
       assertions: recorder.assertions,
       componentVersions: {
-        keycloak: keycloakVersion.split("\n")[0],
         postgres: postgresVersion,
+        sessionDoor: "better-auth",
       },
       failureInjections: recorder.failureInjections,
       finishedAt: new Date().toISOString(),
@@ -188,9 +194,8 @@ async function main(): Promise<void> {
         lostResponse: recovery.lostResponse,
         serverDeath: recovery.serverDeath,
       },
-      oidc: {
-        audience: oidcAudience,
-        issuer: oidcIssuer,
+      sessionDoor: {
+        authDatabase: "zoen_auth",
       },
       protocolDigest: sha256(actionProtocol),
       scenario: "durable-commit",
@@ -208,6 +213,7 @@ async function main(): Promise<void> {
     if (runtime.server.child.exitCode === null) {
       await stopServer(runtime.server);
     }
+    await stopAuthDoor(door);
   }
 }
 

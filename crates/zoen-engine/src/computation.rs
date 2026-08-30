@@ -481,20 +481,19 @@ impl Display for ComputationError {
 
 impl Error for ComputationError {}
 
-#[allow(async_fn_in_trait)]
 pub trait ComputationExecutor: Send + Sync {
-    async fn publish(
+    fn publish(
         &self,
         context: &ExecutionContext,
         artifact: ComponentArtifact,
-    ) -> Result<PublishedComponent, ComponentAdmissionError>;
+    ) -> impl std::future::Future<Output = Result<PublishedComponent, ComponentAdmissionError>> + Send;
 
-    async fn execute<H>(
+    fn execute<H>(
         &self,
         context: &ExecutionContext,
         request: ComputationRequest,
         host: H,
-    ) -> Result<ComputationExecution, ComputationError>
+    ) -> impl std::future::Future<Output = Result<ComputationExecution, ComputationError>> + Send
     where
         H: ComputationHost + 'static;
 }

@@ -38,8 +38,13 @@ import {
   type ExactValue,
 } from "../../gen/connect/zoen/world/v1/world_pb.js";
 import {
+  e2eAuthDatabaseUrl,
+  sessionDoorProcessEnv,
+} from "../ba-door.js";
+import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
+  e2eIdentityAdminToken,
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
@@ -67,25 +72,20 @@ export const tenantA = "tenant.a";
 export const validAt = new Date("2026-08-21T12:00:00.000Z");
 const postgresPortFallback = 55_524;
 const zoendPortFallback = 58_721;
-const keycloakPortFallback = 58_720;
 const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 export const adminDatabaseUrl = e2ePostgresUrl(
   "postgres",
   "postgres",
   postgresPortFallback,
 );
-const applicationDatabaseUrl = e2ePostgresUrl(
+export const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
   "zoen_app",
   postgresPortFallback,
 );
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const oidcIssuer = e2eHttpUrl(
-  "ZOEN_E2E_KEYCLOAK_PORT",
-  keycloakPortFallback,
-  "/realms/zoen",
-);
-export const oidcAudience = "zoend";
+export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
+export const zoendBaseUrl = baseUrl;
 const compilerPath = path.join(
   repositoryRoot,
   "dist",
@@ -120,9 +120,6 @@ const compiledDefinitionSchema = z
     digest: z.string().regex(/^[0-9a-f]{64}$/),
   })
   .strict();
-const tokenResponseSchema = z
-  .object({ access_token: z.string().min(1) })
-  .passthrough();
 
 export type CompiledDefinition = z.infer<typeof compiledDefinitionSchema>;
 export type ActionClient = Client<typeof ActionService>;
@@ -193,40 +190,40 @@ export async function writePolicyManifest(
   return sha256(actionSource);
 }
 
-export async function oidcToken(clientId: string): Promise<string> {
-  const response = await fetch(`${oidcIssuer}/protocol/openid-connect/token`, {
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: `${clientId}-secret`,
-      grant_type: "client_credentials",
-    }),
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    method: "POST",
-  });
-  const body: unknown = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(body));
-  return tokenResponseSchema.parse(body).access_token;
+export function definitionClient(
+  token: string,
+  tenantId: string,
+): DefinitionClient {
+  return createClient(DefinitionService, transport(token, tenantId));
 }
 
-export function definitionClient(token: string): DefinitionClient {
-  return createClient(DefinitionService, transport(token));
+export function actionClient(
+  token: string,
+  tenantId: string,
+): ActionClient {
+  return bindActionPreviewHash(
+    createClient(ActionService, transport(token, tenantId)),
+  );
 }
 
-export function actionClient(token: string): ActionClient {
-  return bindActionPreviewHash(createClient(ActionService, transport(token)));
+export function worldClient(
+  token: string,
+  tenantId: string,
+): WorldClient {
+  return createClient(WorldService, transport(token, tenantId));
 }
 
-export function worldClient(token: string): WorldClient {
-  return createClient(WorldService, transport(token));
+export function historyClient(
+  token: string,
+  tenantId: string,
+): HistoryClient {
+  return createClient(HistoryService, transport(token, tenantId));
 }
 
-export function historyClient(token: string): HistoryClient {
-  return createClient(HistoryService, transport(token));
-}
-
-function transport(token: string) {
+function transport(token: string, tenantId: string) {
   const authorization: Interceptor = (next) => async (request) => {
     request.header.set("authorization", `Bearer ${token}`);
+    request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
   return createConnectTransport({
@@ -325,14 +322,15 @@ export async function startServer(
   const output: string[] = [];
   const child = spawn(serverPath, [], {
     cwd: repositoryRoot,
-    env: {
-      ...process.env,
-      DATABASE_URL: applicationDatabaseUrl,
-      ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
-      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
-      ZOEN_OIDC_AUDIENCE: oidcAudience,
-      ZOEN_OIDC_ISSUER: oidcIssuer,
-    },
+    env: sessionDoorProcessEnv({
+      applicationDatabaseUrl,
+      authDatabaseUrl,
+      extra: {
+        ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
+        ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
+        ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
+      },
+    }),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.end();
@@ -392,17 +390,6 @@ function canConnect(): Promise<boolean> {
 
 export function adminClient(): PostgresClient {
   return new PostgresClient({ connectionString: adminDatabaseUrl });
-}
-
-export function composeOutput(...arguments_: string[]): Promise<string> {
-  return command("docker", [
-    "compose",
-    "--project-name",
-    "zoen-cedar-object-projection",
-    "--file",
-    path.join("e2e", "cedar-object-projection", "compose.yaml"),
-    ...arguments_,
-  ]);
 }
 
 export function command(
