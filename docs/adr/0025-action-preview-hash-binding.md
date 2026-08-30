@@ -7,7 +7,7 @@
 
 ADR-0002 requires proposal, approval, revalidation, then commit. ADR-0023 froze RFC 8785 JCS for definition identity. Issue #403 requires a confirmation to bind `proposal_id` plus an exact `preview_hash` so a stale or tampered preview cannot authorize a different mutation.
 
-`intent_digest` already pins tenant, definition, inputs, and state basis. It is an authority pin, not a user-facing preview. Conversation and planted `zoen` must show a canonical preview without leaking proposal, operation, claim, tenant, or principal identifiers. Speaker and OSDK are not dest product.
+`intent_digest` already pins tenant, definition, inputs, and state basis. It is an authority pin, not a user-facing preview. Conversation and planted `zoen` must show a canonical preview without leaking proposal, operation, claim, tenant, or principal identifiers.
 
 ## Decision
 
@@ -25,4 +25,4 @@ ADR-0002 requires proposal, approval, revalidation, then commit. ADR-0023 froze 
 
 Clients that call Commit or Approve without the hash from Propose fail closed. Isolates never invent a hash. The host reuses the kernel-stored value from the same proposal.
 
-Spoken `requestStock` / `recordQuote` text still omits the resource id. Putting raw entity ids in speech trips the leak filter, and this branch has no presentation catalog. `valid_at` stays on `intent_digest` and the stale-state check, not on the preview document. Personal `note` / `remind` still Propose then Commit in one tool turn; the typed body is the confirm, and the tool now sends the kernel hash from Preview. e2e auto-fill of omitted hashes stays outside `governed-action`. That scenario uses unbound clients and passes the hash itself.
+Putting raw entity ids in speech trips the leak filter. `valid_at` stays on `intent_digest` and the stale-state check, not on the preview document. Personal `note` / `remind` still Propose then Commit in one tool turn. The typed body is the confirm, and the tool sends the kernel hash from Preview. e2e auto-fill of omitted hashes stays outside `governed-action`. That scenario uses unbound clients and passes the hash itself.

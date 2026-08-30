@@ -87,7 +87,7 @@ The semantic center remains deliberately small:
 - DataFusion is the V1 semantic read/compute engine over authoritative and Arrow/Parquet materialized sources;
 - Cedar evaluates policy, Wasmtime executes untrusted/custom components and Restate provides durable orchestration behind Zoen-owned semantic boundaries;
 - TypeScript owns Eve conversation and experience surfaces without becoming semantic authority;
-- ontology authoring is canonical JSON via DefinitionService.Publish, not `@zoen/ontology` or `.zoen.ts`;
+- ontology authoring is canonical JSON via DefinitionService.Publish;
 - public machine protocol uses Protobuf + Buf + ConnectRPC; semantic definition identity uses canonical JSON/JCS + SHA-256 separately;
 - production deploy is one Fly app;
 - every completed V1 capability requires a production-shaped E2E proof; mocks/stubs cannot satisfy release completion.

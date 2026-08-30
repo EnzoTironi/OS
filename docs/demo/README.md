@@ -12,7 +12,7 @@ Checkout `archive/pre-modeled-erp`, then from that branch:
 ./docs/demo/record.sh
 ```
 
-The archive-branch script compiles the TypeScript harness, ensures the Sample Company stack is Ready (`just start` when needed), then drives the archived web as `web-user` / `web-password`. That archive path is leftover Sample Company web, not dest. Dest identity is Better Auth SessionDoor.
+The archive-branch script compiles the TypeScript harness, ensures the Sample Company stack is Ready (`just start` when needed), then drives the archived web as `web-user` / `web-password`. Default `main` identity is Better Auth SessionDoor. Default `main` has no web app.
 
 On default `main`, `./docs/demo/record.sh` exits 2 and names the archive branch.
 

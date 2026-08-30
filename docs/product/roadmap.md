@@ -60,8 +60,8 @@ On main. Real implementation. This is product.
 | `authority-wasm` | authority | Wasmtime sandbox | Committed .wasm fixtures with pinned sha256. Not JS mocks. | — |
 | `authority-query` | authority | DataFusion semantic query | just e2e semantic-query | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `authority-restate` | authority | Restate durable orchestration | just e2e durable-commit. Remote Restate e2e is a named harness, not the product claim. | — |
-| `identity-oidc` | identity | Better Auth session door | ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Keycloak is leftover e2e, not dest IdP. | — |
-| `identity-legacy-sessions` | identity | definition-publication and semantic-query on dest door | just e2e definition-publication. just e2e semantic-query. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. Dest boot is SessionDoor, not OIDC. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
+| `identity-session-door` | identity | Better Auth session door | ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Leftover e2e still compose Keycloak. That compose is leftover, not dest. | — |
+| `identity-legacy-sessions` | identity | definition-publication and semantic-query on dest door | just e2e definition-publication. just e2e semantic-query. ProcessAuth is SessionDoor. Leftover e2e still compose Keycloak. That compose is leftover, not dest. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS stay deleted. | [#325](https://github.com/EnzoTironi/OS/issues/325) |
 | `web-tanstack` | experience | Web application | Not on default main. Lives on archive/pre-modeled-erp. Optional just e2e web-deterministic there. | — |
 | `surface-ir` | experience | Surface IR package | Surface IR left the default tree. Full @zoen/surface lives on archive/pre-modeled-erp. Live WhatsApp destination is Kapso in Eve. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 | `attention` | experience | Proactive attention package | Not on default main. Default tree does not import it. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
@@ -74,7 +74,7 @@ On main. Real implementation. This is product.
 | `messaging-boundary-law` | channels | Chat SDK import-graph law | just e2e messaging-boundary without createFake*. Core/crates must not import vercel/chat. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
 | `deploy-fly` | deploy | Fly production app | Production is one Fly app. GitHub fly-deploy builds deploy/fly/Dockerfile. | — |
 | `public-surface` | public | Public narrative checker | npx tsx e2e/public-surface.ts. Live conversation study is #267. | [#267](https://github.com/EnzoTironi/OS/issues/267) |
-| `fail-closed-boot` | authority | Fail-closed zoend boot | On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required. ZOEN_OIDC_ISSUER is unused by zoend. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
+| `fail-closed-boot` | authority | Fail-closed zoend boot | On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required. zoend does not read ZOEN_OIDC_*. | [#317](https://github.com/EnzoTironi/OS/issues/317) |
 | `channel-provider-linq` | identity | Distinct Linq ChannelProvider | On main via #331. zoend ChannelProvider::Linq. | [#318](https://github.com/EnzoTironi/OS/issues/318) |
 | `fixture-as-production` | gate | Production verify-v1 rejects fixtureContract | On main via #320. Copied fixture JSON outside e2e/verify-v1/testdata fails with fixture-as-production. authMode stamp is #322. | [#319](https://github.com/EnzoTironi/OS/issues/319) |
 | `adr-0007-order-line` | effects | ADR-0007 timeout on commercial.OrderLine | Not on default main. Optional just e2e adr-0007 on archive/pre-modeled-erp. Timeout after possible delivery is UNKNOWN. | — |
@@ -98,7 +98,7 @@ Fail-closed work in an open PR. Do not duplicate.
 | `telegram-live` | channels | Telegram channel | Fail closed without TELEGRAM_BOT_TOKEN. Fake stays deleted. Node Telegram adapter deleted. | [#329](https://github.com/EnzoTironi/OS/issues/329) |
 | `whatsapp-unofficial` | channels | WhatsApp (Kapso) for Brazil | Sidecar deleted. Destination WhatsApp is Chat SDK Kapso channel at /eve/v1/kapso. Cloud API fake stays deleted. | [#375](https://github.com/EnzoTironi/OS/issues/375) |
 | `messaging-conformance-live` | channels | Messaging conformance against live adapters | Node adapter conformance journey deleted. Live WhatsApp destination is Kapso in Eve. Fakes stay deleted. | [#327](https://github.com/EnzoTironi/OS/issues/327) |
-| `surface-ir-e2e-live` | channels | Surface IR and Attention e2e on live channels | CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
+| `surface-ir-e2e-live` | channels | Surface IR and Attention e2e on live channels | Surface IR and Attention e2e live on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve. Skipped by just verify. Does not close #328 as dest product on default main. | [#328](https://github.com/EnzoTironi/OS/issues/328) |
 
 ## PARKED
 

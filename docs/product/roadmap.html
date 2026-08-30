@@ -294,14 +294,14 @@
   <td>—</td>
 </tr>
 <tr data-status="have">
-  <td><code>identity-oidc</code></td>
+  <td><code>identity-session-door</code></td>
   <td>identity</td>
   <td>
     <div class="name">Better Auth session door</div>
     <div class="path">apps/auth, apps/zoend/src/config.rs</div>
     
   </td>
-  <td>ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Keycloak is leftover e2e, not dest IdP.</td>
+  <td>ProcessAuth is SessionDoor. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. Leftover e2e still compose Keycloak. That compose is leftover, not dest.</td>
   <td>—</td>
 </tr>
 <tr data-status="have">
@@ -312,7 +312,7 @@
     <div class="path">e2e/definition-publication, e2e/semantic-query</div>
     
   </td>
-  <td>just e2e definition-publication. just e2e semantic-query. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS deleted. Dest boot is SessionDoor, not OIDC.</td>
+  <td>just e2e definition-publication. just e2e semantic-query. ProcessAuth is SessionDoor. Leftover e2e still compose Keycloak. That compose is leftover, not dest. ProcessAuth::LegacySessions and ZOEN_SESSION_TOKENS stay deleted.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/325">#325</a></td>
 </tr>
 <tr data-status="have">
@@ -455,7 +455,7 @@
     <div class="path">apps/zoend/src/config.rs</div>
     
   </td>
-  <td>On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required. ZOEN_OIDC_ISSUER is unused by zoend.</td>
+  <td>On main. ProcessAuth is SessionDoor only. Missing ZOEN_AUTH_DATABASE_URL fails closed. URL must be loopback. ZOEN_CEDAR_POLICY_MANIFEST required. zoend does not read ZOEN_OIDC_*.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/317">#317</a></td>
 </tr>
 <tr data-status="have">
@@ -600,7 +600,7 @@
     <div class="path">e2e/surface-ir-renderer<br>e2e/proactive-attention</div>
     <div class="blocker">Blocked on Paired ZOEN_WHATSAPP_DOOR_E164</div>
   </td>
-  <td>CARGO_TARGET_DIR=/tmp/zoen-n328-target ./e2e/run.sh run live-attention. Recording companion proves Surface IR lowering, one AttentionItem, and no-duplicate restart through createLiveWhatsAppProvider. Skipped by just verify. Does not close #328 until a paired unofficial WhatsApp door sends the DM.</td>
+  <td>Surface IR and Attention e2e live on archive/pre-modeled-erp. Dest WhatsApp is Kapso in Eve. Skipped by just verify. Does not close #328 as dest product on default main.</td>
   <td><a href="https://github.com/EnzoTironi/OS/issues/328">#328</a></td>
 </tr>
     </tbody>

@@ -54,9 +54,9 @@ Dedicated/self-hosted deployments may operate a single tenant, but use the same 
 
 ## Identity
 
-**Dest amend (p-docs):** Dest door is Better Auth (`apps/auth`). zoend `ProcessAuth` is `SessionDoor` only. Missing `ZOEN_AUTH_DATABASE_URL` fails closed. The URL must be loopback. zoend does not read `ZOEN_OIDC_*`. Keycloak is leftover e2e compose, not dest IdP. Helm is not a tree on this repo.
+Humans authenticate at the Better Auth door (`apps/auth`). zoend `ProcessAuth` is `SessionDoor` only. Missing `ZOEN_AUTH_DATABASE_URL` fails closed. The URL must be loopback. zoend does not read `ZOEN_OIDC_*`. An Active Membership row is the source of tenant and principal. Delegation and Action authority stay semantic.
 
-Humans authenticate at the Better Auth door. An Active Membership row is the source of tenant and principal. Delegation and Action authority stay semantic.
+Keycloak is leftover e2e compose. It is not dest IdP. Helm is not a tree on this repo.
 
 ## Availability and recovery target
 

@@ -9,7 +9,7 @@ Optional archived first governed Action on Sample Company.
 Checkout [`archive/pre-modeled-erp`](https://github.com/EnzoTironi/OS/tree/archive/pre-modeled-erp). These commands are not on default `main`.
 
 1. From that branch, run `just build` then `just start`.
-2. If archived web is built, open the printed web URL and sign in with the sample archive web user (`web-user` / `web-password`). That user is leftover archive web, not dest IdP.
+2. If archived web is built, open the printed web URL and sign in with the sample archive web user (`web-user` / `web-password`). Default `main` identity is Better Auth SessionDoor. Default `main` has no web app.
 3. Walk at-risk stock, then propose, then approve on the seeded Sample Company tenant.
 4. Confirm the non-interactive path with `just e2e activation-sample`.
 
@@ -51,7 +51,7 @@ Record that walkthrough with `./docs/demo/record.sh` on `archive/pre-modeled-erp
 
 ## Pack directory
 
-Outcome-first Pack pages live in [`docs/product/pack-directory.md`](../product/pack-directory.md). Install and share resolve through the signed registry from #260. Kitchen (#264) authoring stays in flight. Full marketplace commerce is out of scope.
+Outcome-first Pack pages live in [`docs/product/pack-directory.md`](../product/pack-directory.md). Install and share resolve through the signed registry from #260. Kitchen (#264) has landed on `archive/pre-modeled-erp` (`just e2e pack-kitchen` there). Full marketplace commerce is out of scope.
 
 ## Still open on #267
 

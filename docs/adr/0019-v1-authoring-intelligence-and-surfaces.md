@@ -1,29 +1,38 @@
-# ADR-0019: TypeScript owns V1 authoring, intelligence and experience without becoming semantic authority
+# ADR-0019: TypeScript owns Eve conversation without becoming semantic authority
 
 **Status:** Accepted for V1  
 **Date:** 2026-08-18
 
 ## Context
 
-Zoen needs a strong human/agent authoring experience, Company Brain, multi-provider LLM access, code mode and rich generated/custom applications. Putting these concerns in Rust would slow product iteration and make model/UI libraries part of the semantic kernel. Letting TypeScript independently interpret ontology or mutate storage would create a second semantic authority.
+Zoen needs a conversation product and an ontology door. Putting model and UI libraries in Rust would slow product iteration and make them part of the semantic kernel. Letting TypeScript interpret ontology or mutate storage would create a second semantic authority.
 
 ## Decision
 
-TypeScript is the V1 product/intelligence/experience language. It is a client of the Rust semantic authority, not dest authoring compiler.
+TypeScript is the conversation language. Conversation is Eve in `apps/conversation`. Dest authoring is committed canonical JSON plus `DefinitionService.Publish`. Planted `zoen` is the ontology CLI. `docs/product/cli-workbench.md` is dest law.
+
+Rust owns semantic authority. TypeScript never writes authority tables.
 
 ## Ontology authoring
 
-**Dest amend (p-docs):** Dest authoring is canonical JSON plus `DefinitionService.Publish`. `@zoen/ontology` and `.zoen.ts` are leftover compiler, not dest product. `docs/product/cli-workbench.md` is dest law. Do not restore a generated client.
+Authors publish committed canonical JSON.
 
-Dest pipeline is committed canonical JSON into `DefinitionService.Publish`. Ontology compilation has no ambient network, unrestricted filesystem, wall-clock or randomness.
+```text
+committed canonical JSON
+ -> CanonicalDefinitionBundle
+ -> canonical JSON/JCS/digest
+ -> Connect DefinitionService.Publish
+```
 
-Canonical JSON is dest identity. TypeScript authoring is leftover, not dest.
+Publish has no ambient network, unrestricted filesystem, wall-clock, or randomness. Canonical JSON is dest identity.
+
+`@zoen/ontology` and `.zoen.ts` are not dest. `@zoen/sdk` and `@zoen/osdk` are not dest. Do not restore a generated client.
 
 ## Model/provider layer
 
-V1 supports multiple external LLM providers from the first release. Model choice is deployment policy, not application architecture.
+Eve uses configured external LLM providers. Model choice is deployment policy, not application architecture.
 
-The intelligence package uses a provider abstraction/registry (the Vercel AI SDK is the preferred V1 substrate for model/provider calls) and exposes Zoen-owned capability categories such as:
+The conversation runtime uses a provider abstraction. Preferred V1 seam for model calls is the Vercel AI SDK. Zoen-owned capability categories such as:
 
 ```text
 reasoning-high
@@ -33,34 +42,17 @@ rerank-default
 vision-default
 ```
 
-Deployment configuration maps categories to concrete provider/model IDs. OpenAI and Anthropic are first-class real provider integrations; additional compatible providers may be registered without changing Company Brain/Action semantics. No V1 requirement exists for local/self-hosted LLM inference, but the provider seam must not prohibit it later.
+Deployment configuration maps categories to concrete provider and model IDs. OpenAI and Anthropic are first-class real provider integrations. Additional compatible providers may be registered without changing Action semantics. No V1 requirement exists for local or self-hosted LLM inference. The provider seam must not prohibit it later.
 
-The AI SDK/provider library never owns agent authority, memory truth, Action lifecycle or ontology semantics.
+The AI SDK never owns agent authority, memory truth, Action lifecycle, or ontology semantics.
 
-## Company Brain
-
-Company Brain unifies access while preserving authority distinctions:
-
-```text
-raw evidence -> knowledge fragments -> semantic world -> causal history
-```
-
-V1 storage:
-
-- original/raw binary content in S3-compatible object storage by content digest;
-- source/fragment/extraction metadata in PostgreSQL;
-- PostgreSQL full-text search for lexical retrieval;
-- pgvector for dense embedding retrieval;
-- hybrid ranking (including reciprocal-rank fusion or reranking as configured);
-- immutable source/fragment digests and retrieval traces for attributable model context.
-
-Retrieved text or model inference does not become accepted semantic state automatically. Promotion into evidence/claims/definitions uses explicit Zoen admission/Action/evolution paths.
-
-Every materially model-visible company datum in an auditable proposal/session carries enough immutable source/query/revision references to reconstruct the supplied context.
+Company Brain is not dest. Roadmap `brain-live` is DON'T HAVE. Conversation is Eve.
 
 ## Agent runtime
 
-The Zoen harness owns agent loop, session log, capability discovery, skills, model calls and code-mode orchestration. Agent-visible capability is always:
+Eve owns the conversation loop, session log, model calls, and workbench isolation. Live untrusted execution is Wasmtime (ADR-0017). Planted `zoen` is the ontology verb surface.
+
+Agent-visible capability is always:
 
 ```text
 semantic capability
@@ -69,50 +61,38 @@ INTERSECT delegation
 INTERSECT task/session scope
 ```
 
-Whether an agent may automatically commit an Action is configurable by policy/delegation. Human approval is neither universally required nor bypassable: the Action/authority contract determines the path.
+Whether an agent may automatically commit an Action is configurable by policy and delegation. Human approval is neither universally required nor bypassable. The Action and authority contract determines the path.
 
 Agent session events are distinct from semantic business history. Scratch artifacts are ephemeral unless explicitly admitted.
 
-## Web and Surface IR
+## Experience
 
-The V1 web application uses React + TanStack Start and TanStack libraries where appropriate for query/form/table/virtualization concerns.
+Dest face is conversation plus one HTTPS. The TanStack web app and Surface IR live on `archive/pre-modeled-erp`. They are not dest. ADR-0022.
 
-Zoen owns a presentation-neutral `Surface IR`. It contains typed semantic data bindings, `QueryRef`, `ActionRef`, evidence/explanation references, layout/component metadata and presentation state. It cannot contain raw SQL or privileged arbitrary business-write callbacks.
-
-`json-render` is the first generated/adaptive web renderer adapter, not the Surface IR schema and not a semantic dependency. A minimal reference renderer is maintained to prove the renderer seam.
-
-Three UI classes are first-class:
-
-1. deterministic surfaces generated from definitions/query/action contracts;
-2. agent-generated adaptive Surface IR validated against a safe catalog/schema;
-3. purpose-built high-frequency React applications using the same Query/Action protocol.
+Presentation is not business truth. Renderer replacement must not change ontology or Action semantics. Live WhatsApp destination is the Chat SDK Kapso channel at `/eve/v1/kapso`.
 
 ## E2E verification
 
 Release gates use real production paths:
 
 - publish committed canonical JSON through `DefinitionService.Publish` into `zoend` twice and prove deterministic digest;
-- consume that published definition from another client;
-- ingest a real PDF/document/message-shaped corpus into object storage/Postgres/pgvector and run lexical+dense hybrid retrieval;
-- call a real configured external LLM and reconstruct material model context from immutable refs;
+- consume that published definition through planted `zoen` or another client;
+- run Eve conversation plus a governed Action (`just e2e governed-action`);
+- run Wasmtime code-mode (`just e2e wasm-code-mode`);
 - prove a conflicting document remains evidence and cannot overwrite semantic world state;
-- run an agent under two different delegations and prove different capability visibility;
-- allow an agent to auto-commit an Action when policy permits and require/deny it when policy changes, using the same Action implementation;
-- render deterministic Surface IR in a real browser and commit a real Action through it;
-- generate adaptive Surface IR with a real LLM, validate it, render it, and prove invented/unauthorized ActionRefs cannot bypass the runtime;
-- swap renderer/provider configuration without semantic-result changes.
+- allow an agent to auto-commit an Action when policy permits and require or deny it when policy changes, using the same Action implementation.
 
-Mocks may test error cases but are not the release proof for LLM, retrieval, browser or Action integration.
+Mocks may test error cases but are not the release proof for LLM, retrieval, or Action integration.
 
 ## Invariants
 
 - TypeScript never writes authority tables directly.
-- LLM output is proposal/content until explicitly admitted through semantic contracts.
-- Model/provider identity is configuration and recorded execution evidence, not business meaning.
-- Surface visibility never grants server-side authority.
+- LLM output is proposal or content until explicitly admitted through semantic contracts.
+- Model and provider identity is configuration and recorded execution evidence, not business meaning.
+- Conversation surfaces never grant server-side authority.
 - Authoring sugar never creates a hidden fifth canonical semantic primitive without an ADR.
 - Knowledge indexes are rebuildable and never accepted world state.
 
 ## Revisit if
 
-TypeScript ceases to provide the best product/tooling ecosystem, a retrieval workload exceeds PostgreSQL/pgvector materially, or a renderer/model abstraction fails production needs. Replacements remain outside the Rust-owned semantic authority.
+TypeScript ceases to provide the best product tooling ecosystem, or a model abstraction fails production needs. Replacements remain outside the Rust-owned semantic authority.
