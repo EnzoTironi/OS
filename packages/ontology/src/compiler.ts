@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -14,7 +13,7 @@ import type {
   VariableDeclaration,
 } from "@babel/types";
 import { z } from "zod";
-import canonicalize from "canonicalize";
+import { canonicalizeJson, sha256Hex } from "./jcs.js";
 import type {
   ActionDefinition,
   ActionEffect,
@@ -245,11 +244,8 @@ export async function compileDefinition(
   const raw = rawBundleSchema.parse(authorValue);
   validateBundle(raw);
   const definition = normalize(raw);
-  const canonicalJson = canonicalize(definition);
-  if (typeof canonicalJson !== "string") {
-    throw new Error("definition is not JSON-canonicalizable");
-  }
-  const digest = createHash("sha256").update(canonicalJson).digest("hex");
+  const canonicalJson = canonicalizeJson(JSON.stringify(definition));
+  const digest = sha256Hex(canonicalJson);
 
   return { canonicalJson, definition, digest };
 }
