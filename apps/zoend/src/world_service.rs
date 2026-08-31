@@ -579,15 +579,11 @@ pub(crate) fn to_exact_value(value: CoreExactValue) -> ExactValue {
 }
 
 pub(crate) fn to_timestamp(value: TimestampMicros) -> Timestamp {
-    const PROTOJSON_MIN_SECONDS: i64 = -62_135_596_800;
-    const PROTOJSON_MAX_SECONDS: i64 = 253_402_300_799;
-    Timestamp::from_unix(
-        value
-            .get()
-            .div_euclid(1_000_000)
-            .clamp(PROTOJSON_MIN_SECONDS, PROTOJSON_MAX_SECONDS),
-        i32::try_from(value.get().rem_euclid(1_000_000).saturating_mul(1_000)).unwrap_or(0),
-    )
+    Timestamp {
+        nanos: i32::try_from(value.get().rem_euclid(1_000_000).saturating_mul(1_000)).unwrap_or(0),
+        seconds: value.get().div_euclid(1_000_000),
+        ..Default::default()
+    }
 }
 
 fn map_record_error(error: RecordEvidenceError) -> ConnectError {
