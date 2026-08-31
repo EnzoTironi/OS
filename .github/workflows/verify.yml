@@ -97,6 +97,7 @@ jobs:
           - governed-action
           - messaging-boundary
           - public-surface
+          - cli-dest
           - semantic-query
           - wasm-code-mode
     steps:
