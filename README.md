@@ -33,7 +33,7 @@ That builds the `zoen` binary (API daemon and CLI) plus workspace TypeScript. Th
 
 ## CLI
 
-`zoen` is one Rust binary. No args, or `zoen serve`, is the Connect API. `zoen <noun> <verb>` is the CLI. JSON on stdout. Flags over prompts. `--dry-run` on mutations. One static executable. No Node runtime for the CLI.
+`zoen serve` is the Connect API. No args prints help. `zoen <noun> <verb>` is the CLI. JSON on stdout. Flags over prompts. `--dry-run` on mutations. One static executable. No Node runtime for the CLI.
 
 ```
 zoen auth login --email you@example.com --password secret

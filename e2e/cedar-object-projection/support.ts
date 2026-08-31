@@ -290,7 +290,7 @@ export async function startServer(
   policyManifestPath: string,
 ): Promise<ServerProcess> {
   const output: string[] = [];
-  const child = spawn(serverPath, [], {
+  const child = spawn(serverPath, ["serve"], {
     cwd: repositoryRoot,
     env: sessionDoorProcessEnv({
       applicationDatabaseUrl,

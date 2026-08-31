@@ -245,7 +245,7 @@ zoend_log="${work}/zoend.log"
   export ZOEN_LISTEN_ADDR='127.0.0.1:58705'
   export ZOEN_CEDAR_POLICY_MANIFEST="$policies"
   unset ZOEN_OIDC_ISSUER ZOEN_OIDC_AUDIENCE ZOEN_OIDC_DISCOVERY_URL || true
-  exec "$zoend_bin"
+  exec "$zoend_bin" serve
 ) >"$zoend_log" 2>&1 &
 zoend_pid="$!"
 
