@@ -31,6 +31,9 @@ Environment:
   ZOEN_DEFINITION_DIGEST  active definition digest
   ZOEN_DEFINITION_ID      active definition id
   ZOEN_VALID_AT           as-of timestamp for query and propose
+  ZOEN_SOURCE_API_KEY     REST --auth apikey secret (prefer over --api-key)
+  ZOEN_SOURCE_CLIENT_SECRET  oauth2 client secret (prefer over --client-secret)
+  ZOEN_SOURCE_TOKEN       google stand-in bearer (prefer over --token)
 
 Examples:
   zoen serve
@@ -241,7 +244,7 @@ pub enum ConnectCommand {
     },
     /// Connect an `OAuth2` client-credentials source
     #[command(
-        after_help = "Examples:\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client"
+        after_help = "Secret resolution: --client-secret, else ZOEN_SOURCE_CLIENT_SECRET, else stdin with --client-secret-stdin.\nPrefer ZOEN_SOURCE_CLIENT_SECRET or --client-secret-stdin so the secret is not on argv.\n\nExamples:\n  ZOEN_SOURCE_CLIENT_SECRET=... zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client --client-secret-stdin"
     )]
     Oauth2 {
         #[arg(long, default_value = "oauth2")]
@@ -254,6 +257,8 @@ pub enum ConnectCommand {
         client_id: String,
         #[arg(long = "client-secret")]
         client_secret: Option<String>,
+        #[arg(long = "client-secret-stdin")]
+        client_secret_stdin: bool,
         #[arg(long = "base")]
         base_url: Option<String>,
         #[arg(long)]
@@ -261,7 +266,7 @@ pub enum ConnectCommand {
     },
     /// Connect a Google Drive stand-in. Door tokens are not ingest authority
     #[command(
-        after_help = "Examples:\n  zoen source connect google --idempotency-key work --profile work --base https://www.googleapis.com"
+        after_help = "Token resolution: --token, else ZOEN_SOURCE_TOKEN, else stdin with --token-stdin.\nPrefer ZOEN_SOURCE_TOKEN or --token-stdin so the secret is not on argv. --use-door is not ingest authority.\n\nExamples:\n  zoen source connect google --idempotency-key work --profile work --base https://www.googleapis.com\n  ZOEN_SOURCE_TOKEN=... zoen source connect google --idempotency-key work --profile work --base https://stand-in.example"
     )]
     Google {
         #[arg(long)]
@@ -276,6 +281,8 @@ pub enum ConnectCommand {
         use_door: bool,
         #[arg(long)]
         token: Option<String>,
+        #[arg(long = "token-stdin")]
+        token_stdin: bool,
         #[arg(long)]
         dry_run: bool,
     },
@@ -1272,13 +1279,14 @@ async fn connect_source(
             token_url,
             client_id,
             client_secret,
+            client_secret_stdin,
             base_url,
             dry_run,
         } => {
             let Some(id) = dest_create_key(&idempotency_key, &id) else {
                 return Ok(fail(
                     2,
-                    "zoen source connect oauth2 requires --idempotency-key or --id\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client",
+                    "zoen source connect oauth2 requires --idempotency-key or --id\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client --client-secret-stdin",
                 ));
             };
             connect_oauth2(
@@ -1287,6 +1295,7 @@ async fn connect_source(
                 token_url,
                 client_id,
                 client_secret,
+                client_secret_stdin,
                 base_url,
                 dry_run,
             )
@@ -1299,6 +1308,7 @@ async fn connect_source(
             base_url,
             use_door,
             token,
+            token_stdin,
             dry_run,
         } => {
             let fallback = if id.is_empty() { profile.clone() } else { id };
@@ -1314,7 +1324,8 @@ async fn connect_source(
                 &id,
                 base_url,
                 use_door,
-                token.as_deref(),
+                token,
+                token_stdin,
                 dry_run,
             )
         }
@@ -1391,6 +1402,7 @@ async fn connect_oauth2(
     token_url: String,
     client_id: String,
     client_secret: Option<String>,
+    client_secret_stdin: bool,
     base_url: Option<String>,
     dry_run: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
@@ -1400,12 +1412,24 @@ async fn connect_oauth2(
     if let Some(existing) = existing_source(env, &id)? {
         return Ok(ok(&connect_receipt(&existing)));
     }
-    let auth = fetch_oauth2_token(
-        &token_url,
-        &client_id,
-        client_secret.as_deref().unwrap_or(""),
-    )
-    .await?;
+    let client_secret = match resolve_source_secret(
+        client_secret,
+        client_secret_stdin,
+        "ZOEN_SOURCE_CLIENT_SECRET",
+        "--client-secret",
+        "--client-secret-stdin",
+        "zoen source connect oauth2",
+    ) {
+        Ok(secret) => secret,
+        Err(message) => return Ok(fail(2, &message)),
+    };
+    let Some(client_secret) = client_secret else {
+        return Ok(fail(
+            2,
+            "zoen source connect oauth2 requires --client-secret or ZOEN_SOURCE_CLIENT_SECRET",
+        ));
+    };
+    let auth = fetch_oauth2_token(&token_url, &client_id, &client_secret).await?;
     let instance = SourceInstance {
         auth,
         base_url,
@@ -1427,20 +1451,39 @@ fn connect_google(
     id: &str,
     base_url: Option<String>,
     use_door: bool,
-    token: Option<&str>,
+    token: Option<String>,
+    token_stdin: bool,
     dry_run: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    if use_door || token.is_some() {
+    if use_door {
         return Ok(fail(2, "door tokens are not ingest authority"));
     }
+    let token = match resolve_source_secret(
+        token,
+        token_stdin,
+        "ZOEN_SOURCE_TOKEN",
+        "--token",
+        "--token-stdin",
+        "zoen source connect google",
+    ) {
+        Ok(token) => token,
+        Err(message) => return Ok(fail(2, &message)),
+    };
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "google" })));
     }
     if let Some(existing) = existing_source(env, id)? {
         return Ok(ok(&connect_receipt(&existing)));
     }
+    let auth = match token {
+        Some(value) => SourceAuth::ApiKey(SourceAuthApiKey {
+            header: "Authorization".to_owned(),
+            value: format!("Bearer {value}"),
+        }),
+        None => SourceAuth::None,
+    };
     let instance = SourceInstance {
-        auth: SourceAuth::None,
+        auth,
         base_url,
         cursor: None,
         id: id.to_owned(),
@@ -2426,6 +2469,44 @@ fn resolve_login_password(
         return Ok(Some(value));
     }
     if let Ok(value) = env::var("ZOEN_PASSWORD") {
+        let trimmed = value.trim_end_matches(['\r', '\n']);
+        if !trimmed.is_empty() {
+            return Ok(Some(trimmed.to_owned()));
+        }
+    }
+    Ok(None)
+}
+
+fn resolve_source_secret(
+    flag: Option<String>,
+    stdin_flag: bool,
+    env_name: &str,
+    argv_flag: &str,
+    stdin_flag_name: &str,
+    command: &str,
+) -> Result<Option<String>, String> {
+    if stdin_flag {
+        if flag.is_some() {
+            return Err(format!(
+                "{command} {stdin_flag_name} does not take {argv_flag}\n  {command} {stdin_flag_name}"
+            ));
+        }
+        let mut raw = String::new();
+        io::stdin()
+            .read_to_string(&mut raw)
+            .map_err(|error| error.to_string())?;
+        let value = raw.trim_end_matches(['\r', '\n']).to_owned();
+        if value.is_empty() {
+            return Err(format!(
+                "{command} {stdin_flag_name} needs a secret on stdin"
+            ));
+        }
+        return Ok(Some(value));
+    }
+    if let Some(value) = flag.filter(|value| !value.is_empty()) {
+        return Ok(Some(value));
+    }
+    if let Ok(value) = env::var(env_name) {
         let trimmed = value.trim_end_matches(['\r', '\n']);
         if !trimmed.is_empty() {
             return Ok(Some(trimmed.to_owned()));
