@@ -38,21 +38,14 @@ services:
       timeout: 3s
       retries: 90
 
-  restate:
-    image: docker.restate.dev/restatedev/restate:1.7.2
+  rivet:
+    image: rivetdev/engine:2.3.11
     environment:
-      RESTATE_ADVERTISED_ADDRESS: http://restate:5122
-      RESTATE_AUTO_PROVISION: "true"
-      RESTATE_FORCE_NODE_ID: "1"
-      RESTATE_NODE_NAME: restate
-    extra_hosts:
-      - host.docker.internal:host-gateway
+      RIVET__FILE_SYSTEM__PATH: /data
     ports:
-      - "127.0.0.1:${ZOEN_E2E_RESTATE_NODE_PORT}:5122"
-      - "127.0.0.1:${ZOEN_E2E_RESTATE_INGRESS_PORT}:8080"
-      - "127.0.0.1:${ZOEN_E2E_RESTATE_UI_PORT}:9070"
+      - "127.0.0.1:${ZOEN_E2E_RIVET_PORT}:6420"
     volumes:
-      - restate-data:/restate-data
+      - rivet-data:/data
 
 volumes:
-  restate-data:
+  rivet-data:

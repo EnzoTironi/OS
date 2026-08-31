@@ -1,4 +1,4 @@
-# One Fly VM. Volume /data = pgdata + Restate + MinIO.
+# One Fly VM. Volume /data = pgdata + Rivet + MinIO.
 FROM rust:1.89-bookworm AS zoend
 WORKDIR /src
 RUN apt-get update \
@@ -38,6 +38,12 @@ COPY apps/conversation/ ./
 ENV ZOEN_MODEL=openai-compatible/hy3-free
 RUN node ./node_modules/eve/bin/eve.js build
 
+FROM node:22.18.0-bookworm-slim AS effect-worker
+WORKDIR /effect-worker
+COPY apps/effect-worker/package.json apps/effect-worker/package-lock.json ./
+RUN npm ci
+COPY apps/effect-worker/ ./
+
 FROM postgres:18
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
@@ -51,17 +57,19 @@ COPY --from=personal-lake /app /app
 COPY --from=auth /auth /auth
 COPY --from=conversation /usr/local/bin/node /usr/local/node24/bin/node
 COPY --from=conversation /conversation /conversation
+COPY --from=effect-worker /effect-worker /effect-worker
+COPY gen/connect /gen/connect
 COPY deploy/fly/zoen-start-eve /usr/local/bin/zoen-start-eve
+COPY deploy/fly/zoen-start-effect-worker /usr/local/bin/zoen-start-effect-worker
 
-# Restate release tarball name can move; install via their image instead.
-COPY --from=docker.restate.dev/restatedev/restate:1.7.2 /usr/local/bin/restate-server /usr/local/bin/restate-server
+COPY --from=rivetdev/engine:2.3.11 /usr/bin/rivet-engine /usr/local/bin/rivet-engine
 COPY --from=minio/minio:RELEASE.2025-09-07T16-13-09Z /usr/bin/minio /usr/local/bin/minio
 COPY --from=minio/mc:RELEASE.2025-08-13T08-35-41Z /usr/bin/mc /usr/local/bin/mc
 
 COPY deploy/fly/supervisord.conf /etc/supervisor/conf.d/zoen.conf
 COPY deploy/fly/zoen-ensure-minio-bucket /usr/local/bin/zoen-ensure-minio-bucket
 COPY deploy/fly/zoen-wait-for-pg /usr/local/bin/zoen-wait-for-pg
-COPY deploy/fly/zoen-start-restate /usr/local/bin/zoen-start-restate
+COPY deploy/fly/zoen-start-rivet /usr/local/bin/zoen-start-rivet
 COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
 COPY deploy/fly/zoen-ensure-agent-binding /usr/local/bin/zoen-ensure-agent-binding
@@ -73,7 +81,7 @@ COPY testdata/lakes/personal.canonical.json /etc/zoen/personal.canonical.json
 COPY deploy/fly/init /docker-entrypoint-initdb.d
 
 ENV PGDATA=/data/pg
-ENV RESTATE_BASE_DIR=/data/restate
+ENV RIVET__FILE_SYSTEM__PATH=/data/rivet
 ENV MINIO_ROOT_USER=zoenminio
 ENV POSTGRES_DB=zoen
 ENV POSTGRES_USER=postgres

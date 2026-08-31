@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+for _ in $(seq 1 120); do
+  if curl -sf -o /dev/null "http://127.0.0.1:6420/" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+while [ ! -s /data/zoen/agent.token ]; do
+  sleep 1
+done
+export RIVET_ENDPOINT="http://default:admin@127.0.0.1:6420"
+export ZOEN_EFFECT_SERVICE_URL="http://127.0.0.1:58701"
+export ZOEN_EFFECT_WORKER_PORT="58706"
+export ZOEN_EFFECT_SERVICE_BEARER_TOKENS="{\"${ZOEN_TENANT_ID:-tenant.a}\":\"$(cat /data/zoen/agent.token)\"}"
+exec /usr/local/bin/node /effect-worker/node_modules/tsx/dist/cli.mjs /effect-worker/src/main.ts

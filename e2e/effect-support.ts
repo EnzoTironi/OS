@@ -28,8 +28,7 @@ import {
 export const repositoryRoot = process.cwd();
 const postgresPortFallback = 55_441;
 const zoendPortFallback = 58_111;
-const restateIngressFallback = 58_112;
-const restateUiFallback = 59_071;
+const rivetPortFallback = 58_112;
 const connectorPortFallback = 58_113;
 const providerPortFallback = 58_114;
 const workerPortFallback = 58_115;
@@ -56,14 +55,16 @@ export const adminDatabaseUrl = e2ePostgresUrl(
 export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 export const zoenBaseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 
-export const restateIngress = e2eHttpUrl(
-  "ZOEN_E2E_RESTATE_INGRESS_PORT",
-  restateIngressFallback,
+export const rivetEndpoint = e2eHttpUrl(
+  "ZOEN_E2E_RIVET_PORT",
+  rivetPortFallback,
 );
-export const restateAdmin = e2eHttpUrl(
-  "ZOEN_E2E_RESTATE_UI_PORT",
-  restateUiFallback,
+/** URL-auth form (namespace + admin token) for the worker's RIVET_ENDPOINT. */
+export const rivetEndpointAuthed = rivetEndpoint.replace(
+  "http://",
+  "http://default:admin@",
 );
+const workerBaseUrl = `http://127.0.0.1:${workerPort}`;
 export const connectorUrl = e2eHttpUrl(
   "ZOEN_E2E_CONNECTOR_PORT",
   connectorPortFallback,
@@ -97,9 +98,6 @@ const providerOperationSchema = z
   })
   .strict();
 const connectorStatusSchema = providerOperationSchema.omit({ requests: true });
-const invocationLookupSchema = z
-  .object({ invocationId: z.string().min(1) })
-  .passthrough();
 
 export type ActionClient = Client<typeof ActionService>;
 export type DefinitionClient = Client<typeof DefinitionService>;
@@ -216,25 +214,43 @@ export async function startConnector(options?: {
   });
 }
 
-export async function startWorker(tokens: {
-  readonly [tenantA]: string;
-  readonly [tenantB]: string;
-}): Promise<ManagedProcess> {
+export async function startWorker(
+  tokens: Readonly<Record<string, string>>,
+  options?: { readonly connectorUrl?: string | null },
+): Promise<ManagedProcess> {
   return startProcess({
-    command: process.execPath,
-    arguments: [path.join(distDirectory, "e2e", "effect-worker.js")],
+    command: path.join(
+      repositoryRoot,
+      "apps/effect-worker/node_modules/.bin/tsx",
+    ),
+    arguments: [path.join(repositoryRoot, "apps/effect-worker/src/main.ts")],
     environment: {
+      RIVET_ENDPOINT: rivetEndpointAuthed,
       ZOEN_CONNECTOR_CALLER_TOKEN: connectorCallerToken,
       ZOEN_CONNECTOR_CREDENTIAL_REFS: JSON.stringify({
         [tenantA]: "secret.provider.a",
         [tenantB]: "secret.provider.b",
       }),
-      ZOEN_EFFECT_CONNECTOR_URL: connectorUrl,
+      ...(options?.connectorUrl === null
+        ? {}
+        : {
+            ZOEN_EFFECT_CONNECTOR_URL:
+              options?.connectorUrl ?? connectorUrl,
+          }),
       ZOEN_EFFECT_SERVICE_BEARER_TOKENS: JSON.stringify(tokens),
       ZOEN_EFFECT_SERVICE_URL: zoenBaseUrl,
       ZOEN_EFFECT_WORKER_PORT: workerPort.toString(),
+      ZOEN_KAPSO_API_KEY:
+        process.env.ZOEN_E2E_KAPSO_API_KEY ?? "e2e-kapso-api-key",
+      ZOEN_KAPSO_PHONE_NUMBER_ID: "e2e-kapso-phone-number-id",
+      ...(process.env.ZOEN_E2E_REMINDER_CHANNEL_URL === undefined
+        ? {}
+        : {
+            ZOEN_REMINDER_CHANNEL_URL:
+              process.env.ZOEN_E2E_REMINDER_CHANNEL_URL,
+          }),
     },
-    name: "Restate effect worker",
+    name: "Rivet effect worker",
     port: workerPort,
   });
 }
@@ -257,7 +273,7 @@ export async function dispatchOnce(tenantId = tenantA): Promise<void> {
     [],
     {
       DATABASE_URL: applicationDatabaseUrl,
-      RESTATE_INGRESS: restateIngress,
+      ZOEN_EFFECT_SCHEDULER_URL: workerBaseUrl,
       ZOEN_EFFECT_DISPATCH_ONCE: "true",
       ZOEN_TENANT_ID: tenantId,
     },
@@ -265,38 +281,20 @@ export async function dispatchOnce(tenantId = tenantA): Promise<void> {
 }
 
 export async function registerWorker(): Promise<string> {
-  const response = await fetch(`${restateAdmin}/deployments`, {
-    body: JSON.stringify({
-      uri: `http://host.docker.internal:${workerPort}`,
-    }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
+  const response = await fetch(
+    `${rivetEndpoint}/runner-configs/default?namespace=default`,
+    {
+      body: JSON.stringify({ datacenters: { default: { normal: {} } } }),
+      headers: {
+        authorization: "Bearer admin",
+        "content-type": "application/json",
+      },
+      method: "PUT",
+    },
+  );
   const body = await response.text();
-  assert.ok(response.ok, `Restate deployment registration failed: ${body}`);
-  return body;
-}
-
-export async function lookupInvocation(
-  effectRequestId: string,
-  dispatchVersion: string,
-  tenantId = tenantA,
-): Promise<string> {
-  const key = `${tenantId}:${effectRequestId}:${dispatchVersion}`;
-  const response = await fetch(`${restateIngress}/restate/lookup`, {
-    body: JSON.stringify({
-      handler: "execute",
-      idempotencyKey: key,
-      key,
-      service: "ZoenEffect",
-      target: "idempotentInvocation",
-    }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
-  const body: unknown = await response.json();
-  assert.equal(response.ok, true, JSON.stringify(body));
-  return invocationLookupSchema.parse(body).invocationId;
+  assert.ok(response.ok, `Rivet runner config registration failed: ${body}`);
+  return `rivet runner pool default (normal): ${body}`;
 }
 
 export async function setProviderMode(
@@ -359,24 +357,18 @@ export async function connectorStatus(
   return connectorStatusSchema.parse(body);
 }
 
-export async function stopRestate(): Promise<void> {
-  await compose("stop", "restate");
+export async function stopRivet(): Promise<void> {
+  await compose("stop", "rivet");
 }
 
-export async function startRestate(): Promise<void> {
-  await compose("start", "restate");
-  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
-  await waitForPort(
-    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
-  );
+export async function startRivet(): Promise<void> {
+  await compose("start", "rivet");
+  await waitForPort(e2ePort("ZOEN_E2E_RIVET_PORT", rivetPortFallback));
 }
 
-export async function restartRestate(): Promise<void> {
-  await compose("restart", "restate");
-  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
-  await waitForPort(
-    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
-  );
+export async function restartRivet(): Promise<void> {
+  await compose("restart", "rivet");
+  await waitForPort(e2ePort("ZOEN_E2E_RIVET_PORT", rivetPortFallback));
 }
 
 export async function waitFor<T>(

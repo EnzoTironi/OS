@@ -97,6 +97,7 @@ jobs:
           - governed-action
           - messaging-boundary
           - public-surface
+          - reminder-loop
           - cli-dest
           - semantic-query
           - wasm-code-mode
@@ -110,6 +111,7 @@ jobs:
         with:
           toolchain: "1.88.0"
       - run: npm ci
+      - run: npm --prefix apps/effect-worker ci
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries

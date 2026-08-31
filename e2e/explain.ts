@@ -185,7 +185,7 @@ async function main(): Promise<void> {
 
   try {
     const registration = await registerWorker();
-    assert.match(registration, /ZoenEffect|deployment/i);
+    assert.match(registration, /runner|normal/i);
     await publishDefinition(definitionA, tenantA, fixture);
     await publishDefinition(definitionB, tenantB, fixture);
     await activateDefinition(definitionAdminA, tenantA, fixture);
@@ -544,7 +544,7 @@ async function main(): Promise<void> {
       assertions,
       componentVersions: {
         postgres: postgresVersion,
-        restate: "1.7.2",
+        rivet: "2.3.11",
         sessionDoor: "better-auth",
       },
       finishedAt: new Date().toISOString(),

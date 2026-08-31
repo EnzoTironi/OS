@@ -48,7 +48,7 @@ export async function writeEvolutionBreakingArtifact(input: {
   const manifest = {
     architecture: {
       authorityCommitLedger: "authority_commits",
-      restate: "NotApplicable: operation and batch identities recover progress",
+      rivet: "NotApplicable: operation and batch identities recover progress",
       wasm: "NotApplicable: canonical v1 has no Wasm artifact or reference",
     },
     assertions: input.assertions,

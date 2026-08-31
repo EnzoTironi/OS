@@ -29,6 +29,7 @@ scenario_table=(
   "fiscal-protheus-live:fiscal-protheus-live::credential"
   "governed-action:::live"
   "public-surface:::live"
+  "reminder-loop:::live"
   "cli-dest:::live"
   "semantic-query:::live"
   "wasm-code-mode:::live"
@@ -115,6 +116,7 @@ run_lint() {
     exit 1
   fi
   npm ci
+  npm --prefix apps/effect-worker ci
   npm run buf:lint
   npm run buf:breaking
   npm run buf:generate
