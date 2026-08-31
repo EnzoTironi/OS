@@ -1,5 +1,8 @@
 # Zoen
 
+[![verify](https://github.com/EnzoTironi/OS/actions/workflows/verify.yml/badge.svg)](https://github.com/EnzoTironi/OS/actions/workflows/verify.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Zoen is the operating system for a company that humans, agents, and software share.
 
 A person signs in at the Better Auth door. Membership is an Active row. From there the same verbs run in the CLI, the API, MCP, and Eve. Meaning lives in published canonical JSON. Mutation is a governed Action. Evidence, commit, and external effects stay distinct.
@@ -83,7 +86,7 @@ Inbound dest is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Everyday
 
 Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS is `zoen.tironi.xyz` on zoend `:58701`.
 
-1. Land on `main`.
+1. Merge a pull request to `main`.
 2. GitHub Actions `fly-deploy` builds `deploy/fly/Dockerfile` on the runner.
 3. It pushes `registry.fly.io/zoen:$GITHUB_SHA` and runs `fly deploy --image`.
 
@@ -110,3 +113,10 @@ just verify    # lint, clippy, build, every live journey
 CI is the same gates. Journeys live in `e2e/`. Do not add mocks or `vi.mock`.
 
 Live lake JSON is `testdata/lakes/`. JCS fixtures are `testdata/jcs/`.
+
+## Community
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SECURITY.md](SECURITY.md)
+- [Discussions](https://github.com/EnzoTironi/OS/discussions)
