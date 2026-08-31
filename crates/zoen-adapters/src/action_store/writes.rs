@@ -5,8 +5,10 @@ use zoen_core::{
 };
 use zoen_engine::{ActionCommitEffect, AdmittedEvidence, CommitPlan, StoreError};
 
-use crate::semantic_claim_store::{self, RevisionRequirement};
-use crate::{store_unavailable, u64_to_i64};
+use crate::{
+    semantic_claim_store::{self, RevisionRequirement},
+    store_unavailable, u64_to_i64,
+};
 
 use super::{GrantOwner, ensure_context_tenant, insert_grants, ordinal_i32};
 
@@ -108,10 +110,7 @@ pub(crate) async fn insert_effect_request(
     effect: &ActionCommitEffect,
 ) -> Result<(), StoreError> {
     let event = effect.evidence.projection_event();
-    let request_digest = Sha256::digest(&effect.request_payload)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let request_digest = zoen_core::encode_hex(&Sha256::digest(&effect.request_payload));
     let idempotency_key = format!(
         "idempotency.{}.{}",
         tenant_id.as_str(),

@@ -1,12 +1,13 @@
-use std::net::IpAddr;
-use std::time::Duration;
+use std::{net::IpAddr, time::Duration};
 
-use axum::Router;
-use axum::body::{Body, Bytes};
-use axum::extract::{Request, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
-use axum::response::{IntoResponse, Response};
-use axum::routing::any;
+use axum::{
+    Router,
+    body::{Body, Bytes},
+    extract::{Request, State},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::any,
+};
 use reqwest::Client;
 
 const DOOR: &str = "http://127.0.0.1:58704";
@@ -32,17 +33,14 @@ async fn proxy_door(State(client): State<Client>, request: Request) -> Response 
     let path_and_query = request
         .uri()
         .path_and_query()
-        .map(|value| value.as_str())
-        .unwrap_or("/");
+        .map_or("/", axum::http::uri::PathAndQuery::as_str);
     let url = format!("{DOOR}{path_and_query}");
-    let method = match reqwest::Method::from_bytes(request.method().as_str().as_bytes()) {
-        Ok(method) => method,
-        Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
+    let Ok(method) = reqwest::Method::from_bytes(request.method().as_str().as_bytes()) else {
+        return StatusCode::BAD_GATEWAY.into_response();
     };
     let headers = request.headers().clone();
-    let body = match axum::body::to_bytes(request.into_body(), BODY_LIMIT).await {
-        Ok(body) => body,
-        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    let Ok(body) = axum::body::to_bytes(request.into_body(), BODY_LIMIT).await else {
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     };
     forward(&client, method, url, headers, body).await
 }
@@ -56,7 +54,7 @@ async fn forward(
 ) -> Response {
     let origin = inbound_origin(&headers);
     let mut upstream = client.request(method, url).timeout(Duration::from_secs(15));
-    for (name, value) in headers.iter() {
+    for (name, value) in &headers {
         if hop_by_hop(name) {
             continue;
         }
@@ -69,7 +67,7 @@ async fn forward(
             let response_headers = response.headers().clone();
             let bytes = response.bytes().await.unwrap_or_default();
             let mut builder = Response::builder().status(status);
-            for (name, value) in response_headers.iter() {
+            for (name, value) in &response_headers {
                 if hop_by_hop(name) {
                     continue;
                 }

@@ -1,5 +1,7 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use crate::{
     ActionId, DefinitionDigest, DefinitionId, DigestError, IdentifierError, RelationId, TenantId,
@@ -12,10 +14,14 @@ macro_rules! pack_id {
         pub struct $name(String);
 
         impl $name {
+            /// # Errors
+            ///
+            /// Returns [`IdentifierError`] when `value` is not a valid identifier.
             pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
                 parse_identifier(value.into(), stringify!($name)).map(Self)
             }
 
+            #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0
             }
@@ -45,6 +51,9 @@ pack_id!(AttributionEventId);
 pub struct PackDigest(String);
 
 impl PackDigest {
+    /// # Errors
+    ///
+    /// Returns [`DigestError`] when `value` is not 64 lowercase hex characters.
     pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
         let value = value.into();
         if value.len() == 64
@@ -58,6 +67,7 @@ impl PackDigest {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -75,6 +85,9 @@ macro_rules! sha256_digest_local {
         pub struct $name(String);
 
         impl $name {
+            /// # Errors
+            ///
+            /// Returns [`DigestError`] when `value` is not 64 lowercase hex characters.
             pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
                 let value = value.into();
                 if value.len() == 64
@@ -88,6 +101,7 @@ macro_rules! sha256_digest_local {
                 }
             }
 
+            #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0
             }
@@ -109,6 +123,10 @@ sha256_digest_local!(EvolutionAckDigest);
 pub struct PackVersion(String);
 
 impl PackVersion {
+    /// # Errors
+    ///
+    /// Returns [`PackError::InvalidVersion`] when `value` is empty or the literal
+    /// `latest`.
     pub fn parse(value: impl Into<String>) -> Result<Self, PackError> {
         let value = value.into();
         if value.is_empty() || value == "latest" {
@@ -117,6 +135,7 @@ impl PackVersion {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -140,6 +159,7 @@ pub enum IntegrationKind {
 }
 
 impl IntegrationKind {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ReadSource => "read_source",
@@ -150,6 +170,10 @@ impl IntegrationKind {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError::InvalidIntegrationKind`] when `value` is not a known
+    /// integration kind.
     pub fn parse(value: &str) -> Result<Self, PackError> {
         match value {
             "read_source" => Ok(Self::ReadSource),
@@ -169,6 +193,7 @@ pub enum Sensitivity {
 }
 
 impl Sensitivity {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Sensitive => "sensitive",
@@ -176,6 +201,10 @@ impl Sensitivity {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError::InvalidSensitivity`] when `value` is not a known
+    /// sensitivity.
     pub fn parse(value: &str) -> Result<Self, PackError> {
         match value {
             "sensitive" => Ok(Self::Sensitive),
@@ -192,6 +221,7 @@ pub enum Necessity {
 }
 
 impl Necessity {
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Required => "required",
@@ -277,6 +307,7 @@ pub enum InstallPhaseKind {
 }
 
 impl InstallPhaseKind {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Installed => "installed",
@@ -288,6 +319,9 @@ impl InstallPhaseKind {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError::InvalidPhase`] when `value` is not a known install phase.
     pub fn parse(value: &str) -> Result<Self, PackError> {
         match value {
             "installed" => Ok(Self::Installed),
@@ -325,6 +359,7 @@ pub enum InstallPhase {
 }
 
 impl InstallPhase {
+    #[must_use]
     pub fn kind(&self) -> InstallPhaseKind {
         match self {
             Self::Installed => InstallPhaseKind::Installed,
@@ -345,6 +380,7 @@ pub enum GrantStatus {
 }
 
 impl GrantStatus {
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "pending",
@@ -436,6 +472,7 @@ pub enum PackVisibility {
 }
 
 impl PackVisibility {
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Public => "public",
@@ -478,6 +515,7 @@ pub enum ObjectStoreConflictReason {
 }
 
 impl ObjectStoreConflictReason {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::VersionBytesMismatch => "versionBytesMismatch",
@@ -494,6 +532,7 @@ pub enum PublisherKeyStatus {
 }
 
 impl PublisherKeyStatus {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Active => "active",
@@ -502,6 +541,10 @@ impl PublisherKeyStatus {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError::InvalidFormat`] when `value` is not a known publisher key
+    /// status.
     pub fn parse(value: &str) -> Result<Self, PackError> {
         match value {
             "active" => Ok(Self::Active),
@@ -624,6 +667,7 @@ pub enum AttributionEventKind {
 }
 
 impl AttributionEventKind {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ShareVisit => "share_visit",
@@ -633,6 +677,10 @@ impl AttributionEventKind {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError::InvalidFormat`] when `value` is not a known attribution
+    /// event kind.
     pub fn parse(value: &str) -> Result<Self, PackError> {
         match value {
             "share_visit" => Ok(Self::ShareVisit),
@@ -774,6 +822,7 @@ impl From<DigestError> for PackError {
     }
 }
 
+#[must_use]
 pub fn required_grants_accepted(grants: &[CapabilityGrant]) -> bool {
     grants.iter().all(|grant| match &grant.necessity {
         Necessity::Required => matches!(grant.status, GrantStatus::Accepted { .. }),

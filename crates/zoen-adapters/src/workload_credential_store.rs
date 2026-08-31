@@ -1,10 +1,11 @@
-use std::collections::BTreeSet;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeSet,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::postgres::PgRow;
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     ActionId, ActorId, AudienceClass, Clearance, DelegationChain, DelegationGrant, DelegationId,
     IdentityError, IngressAllowance, PrincipalId, ProjectedCapabilityKind, RateBudgetPolicy,
@@ -53,10 +54,14 @@ const CREDENTIAL_SELECT: &str = "credential_id, tenant_id, principal_id, workloa
                 revocation_reason";
 
 impl PostgresWorkloadCredentialStore {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn issue(
         &self,
         cmd: IssueWorkloadCredential,
@@ -144,6 +149,9 @@ impl PostgresWorkloadCredentialStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn rotate_secret(
         &self,
         id: &WorkloadCredentialId,
@@ -202,6 +210,9 @@ impl PostgresWorkloadCredentialStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn revoke(
         &self,
         id: &WorkloadCredentialId,
@@ -238,6 +249,9 @@ impl PostgresWorkloadCredentialStore {
         Ok(credential)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn resolve_from_evidence(
         &self,
         evidence: VerifiedWorkloadEvidence,
@@ -258,6 +272,9 @@ impl PostgresWorkloadCredentialStore {
         Ok((credential, tec))
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn resolve_api_key(
         &self,
         api_key: &str,
@@ -284,6 +301,9 @@ impl PostgresWorkloadCredentialStore {
         Ok((credential, tec))
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn get(
         &self,
         id: &WorkloadCredentialId,
@@ -294,6 +314,9 @@ impl PostgresWorkloadCredentialStore {
         Ok(credential)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn consume_accept_budget(
         &self,
         credential: &WorkloadCredential,
@@ -315,7 +338,8 @@ impl PostgresWorkloadCredentialStore {
         .await
         .map_err(unavailable)?;
         let count: i32 = row.try_get("accept_count").map_err(unavailable)?;
-        if count as u32 > credential.rate_budget.max_accepts_per_minute {
+        if u32::try_from(count).unwrap_or(u32::MAX) > credential.rate_budget.max_accepts_per_minute
+        {
             return Err(IdentityError::RateBudgetExceeded);
         }
         transaction.commit().await.map_err(unavailable)?;
@@ -473,11 +497,7 @@ fn new_secret_id() -> WorkloadSecretId {
 }
 
 fn now_micros() -> TimestampMicros {
-    let micros = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_micros() as i64)
-        .unwrap_or(0);
-    TimestampMicros::new(micros)
+    TimestampMicros::new(crate::clock_micros())
 }
 
 fn unavailable(error: impl std::fmt::Display) -> IdentityError {
@@ -614,12 +634,24 @@ impl From<&DelegationChain> for DelegationWire {
                 .grants()
                 .iter()
                 .map(|grant| DelegationGrantWire {
-                    action_ids: grant.actions().iter().map(|id| id.to_string()).collect(),
+                    action_ids: grant
+                        .actions()
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
                     delegation_id: grant.id().to_string(),
                     expires_at: grant.expires_at().get() / 1_000_000,
                     not_before: grant.not_before().get() / 1_000_000,
-                    resource_ids: grant.resources().iter().map(|id| id.to_string()).collect(),
-                    workload_ids: grant.workloads().iter().map(|id| id.to_string()).collect(),
+                    resource_ids: grant
+                        .resources()
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
+                    workload_ids: grant
+                        .workloads()
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
                 })
                 .collect(),
         }

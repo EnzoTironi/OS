@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use zoen_core::{
     ClassificationToken, Consistency, DefinitionReference, EntityId, ExactValue, PolicyEvaluation,
@@ -22,6 +24,7 @@ pub struct PolicySchema {
 }
 
 impl PolicySchema {
+    #[must_use]
     pub fn one_hop() -> Self {
         Self {
             hop_paths: Vec::new(),
@@ -77,6 +80,7 @@ impl<Q, P> ReadEngine<Q, P> {
         }
     }
 
+    #[must_use]
     pub fn with_schema(mut self, schema: PolicySchema) -> Self {
         self.schema = schema;
         self
@@ -92,6 +96,11 @@ where
     Q: QueryExecutor,
     P: PolicyEvaluator,
 {
+    /// Execute a world read, applying MAC and policy absence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError`] when the query is invalid, the query port fails, or policy evaluation fails.
     pub async fn execute(
         &self,
         context: &TrustedExecutionContext,
@@ -100,6 +109,11 @@ where
         self.run(context, query, ReadAbsence::World).await
     }
 
+    /// Execute a pinned-host read, applying MAC and policy absence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError`] when the query is invalid, the query port fails, or policy evaluation fails.
     pub async fn execute_pinned(
         &self,
         context: &TrustedExecutionContext,
@@ -108,6 +122,11 @@ where
         self.run(context, query, ReadAbsence::PinnedHost).await
     }
 
+    /// Evaluate read policy for one entity without returning its values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError`] when the entity id is invalid, projection load fails, or the query port fails.
     pub async fn authorize_entity(
         &self,
         context: &TrustedExecutionContext,

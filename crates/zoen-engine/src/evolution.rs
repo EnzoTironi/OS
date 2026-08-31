@@ -55,6 +55,8 @@ pub(crate) fn plan(
     let unaffected_computations = without(&computations.unaffected, &affected_computations);
     let unaffected_actions = without(&actions.unaffected, &affected_actions);
 
+    let relation_affected = relations.affected;
+    let relation_unaffected = relations.unaffected;
     let mut changes = Vec::new();
     changes.extend(types.changes);
     changes.extend(relations.changes);
@@ -68,108 +70,137 @@ pub(crate) fn plan(
 
     classify_changes(from, to, &mut changes);
     let classification = classify(from, to, &changes, !action_dependencies.is_empty());
-    let changed_query_elements = union(&relations.affected, &affected_computations);
-    let unchanged_query_elements = union(&relations.unaffected, &unaffected_computations);
-    let changed_generated_elements = union(
-        &union(&affected_types, &relations.affected),
-        &union(&affected_computations, &affected_actions),
-    );
-    let unchanged_generated_elements = union(
-        &union(&unaffected_types, &relations.unaffected),
-        &union(&unaffected_computations, &unaffected_actions),
-    );
-    let changed_existing_elements = changes
-        .iter()
-        .filter(|change| change.change != DefinitionChangeKind::Added)
-        .map(|change| change.id.clone())
-        .collect::<BTreeSet<_>>();
-    let unchanged_record_elements = unchanged_record_elements(from, &changes);
+    let impacts = definition_impacts(ImpactSets {
+        classification,
+        relation_affected,
+        relation_unaffected,
+        affected_types,
+        unaffected_types,
+        affected_computations,
+        unaffected_computations,
+        affected_actions,
+        unaffected_actions,
+        unchanged_record_elements: unchanged_record_elements(from, &changes),
+        changed_existing_elements: changes
+            .iter()
+            .filter(|change| change.change != DefinitionChangeKind::Added)
+            .map(|change| change.id.clone())
+            .collect(),
+    });
 
     EvolutionPlan {
         changes,
         classification,
         from: reference(from_revision),
-        impacts: vec![
-            DefinitionImpact {
-                affected: affected_types.into_iter().collect(),
-                applicability: DefinitionImpactApplicability::Applicable,
-                area: DefinitionImpactArea::Types,
-                rationale: "Type declarations are affected when they change or when a changed Relation changes their semantic neighborhood.".to_owned(),
-                unaffected: unaffected_types.into_iter().collect(),
-            },
-            DefinitionImpact {
-                affected: relations.affected.into_iter().collect(),
-                applicability: DefinitionImpactApplicability::Applicable,
-                area: DefinitionImpactArea::Relations,
-                rationale: "The affected set contains every added, removed, or modified Relation after exact semantic comparison.".to_owned(),
-                unaffected: relations.unaffected.into_iter().collect(),
-            },
-            DefinitionImpact {
-                affected: affected_computations.into_iter().collect(),
-                applicability: DefinitionImpactApplicability::Applicable,
-                area: DefinitionImpactArea::Computations,
-                rationale: "Computations are affected by their own semantic diff and by changed Relations referenced by their expressions.".to_owned(),
-                unaffected: unaffected_computations.into_iter().collect(),
-            },
-            DefinitionImpact {
-                affected: affected_actions.iter().cloned().collect(),
-                applicability: DefinitionImpactApplicability::Applicable,
-                area: DefinitionImpactArea::Actions,
-                rationale: "Actions are affected by contract changes and by changed Relations referenced by preconditions or effects; unchanged contracts remain explicit.".to_owned(),
-                unaffected: unaffected_actions.iter().cloned().collect(),
-            },
-            DefinitionImpact {
-                affected: Vec::new(),
-                applicability: DefinitionImpactApplicability::NotApplicable,
-                area: DefinitionImpactArea::DomainPackageDependencies,
-                rationale: "Canonical v1 has no package dependency field, so these revisions cannot report package dependency impact.".to_owned(),
-                unaffected: Vec::new(),
-            },
-            DefinitionImpact {
-                affected: changed_existing_elements.into_iter().collect(),
-                applicability: DefinitionImpactApplicability::Applicable,
-                area: DefinitionImpactArea::StoredSemanticRecords,
-                rationale: stored_record_rationale(classification),
-                unaffected: unchanged_record_elements,
-            },
-            DefinitionImpact {
-                affected: changed_query_elements.into_iter().collect(),
-                applicability: DefinitionImpactApplicability::Applicable,
-                area: DefinitionImpactArea::QueryAndMaterializationArtifacts,
-                rationale: "Query and materialization artifacts must add plans or metadata for affected Relations and Computations; artifacts over unchanged elements keep their prior meaning.".to_owned(),
-                unaffected: unchanged_query_elements.into_iter().collect(),
-            },
-            DefinitionImpact {
-                affected: changed_generated_elements.into_iter().collect(),
-                applicability: DefinitionImpactApplicability::Applicable,
-                area: DefinitionImpactArea::GeneratedSdkAndSurfaceArtifacts,
-                rationale: "Definition-derived catalogs and surfaces must expose affected elements under the target revision; the Protobuf SDK contract itself is unchanged.".to_owned(),
-                unaffected: unchanged_generated_elements.into_iter().collect(),
-            },
-            DefinitionImpact {
-                affected: Vec::new(),
-                applicability: DefinitionImpactApplicability::NotApplicable,
-                area: DefinitionImpactArea::PolicyAndWasmReferences,
-                rationale: "Canonical v1 has no policy or Wasm reference fields, so these revisions cannot report policy or Wasm impact.".to_owned(),
-                unaffected: Vec::new(),
-            },
-            DefinitionImpact {
-                affected: affected_actions.iter().cloned().collect(),
-                applicability: DefinitionImpactApplicability::Applicable,
-                area: DefinitionImpactArea::PolicyAndAuthorityContracts,
-                rationale: "Every affected Action requires policy and delegated-authority review under the target revision.".to_owned(),
-                unaffected: unaffected_actions.iter().cloned().collect(),
-            },
-            DefinitionImpact {
-                affected: Vec::new(),
-                applicability: DefinitionImpactApplicability::NotApplicable,
-                area: DefinitionImpactArea::WasmComponents,
-                rationale: "Canonical v1 has no Wasm component or capability reference, so no component revision can be assessed.".to_owned(),
-                unaffected: Vec::new(),
-            },
-        ],
+        impacts,
         to: reference(to_revision),
     }
+}
+
+struct ImpactSets {
+    classification: EvolutionClassification,
+    relation_affected: BTreeSet<String>,
+    relation_unaffected: BTreeSet<String>,
+    affected_types: BTreeSet<String>,
+    unaffected_types: BTreeSet<String>,
+    affected_computations: BTreeSet<String>,
+    unaffected_computations: BTreeSet<String>,
+    affected_actions: BTreeSet<String>,
+    unaffected_actions: BTreeSet<String>,
+    changed_existing_elements: BTreeSet<String>,
+    unchanged_record_elements: Vec<String>,
+}
+
+fn definition_impacts(sets: ImpactSets) -> Vec<DefinitionImpact> {
+    let changed_query_elements = union(&sets.relation_affected, &sets.affected_computations);
+    let unchanged_query_elements = union(&sets.relation_unaffected, &sets.unaffected_computations);
+    let changed_generated_elements = union(
+        &union(&sets.affected_types, &sets.relation_affected),
+        &union(&sets.affected_computations, &sets.affected_actions),
+    );
+    let unchanged_generated_elements = union(
+        &union(&sets.unaffected_types, &sets.relation_unaffected),
+        &union(&sets.unaffected_computations, &sets.unaffected_actions),
+    );
+    vec![
+        DefinitionImpact {
+            affected: sets.affected_types.into_iter().collect(),
+            applicability: DefinitionImpactApplicability::Applicable,
+            area: DefinitionImpactArea::Types,
+            rationale: "Type declarations are affected when they change or when a changed Relation changes their semantic neighborhood.".to_owned(),
+            unaffected: sets.unaffected_types.into_iter().collect(),
+        },
+        DefinitionImpact {
+            affected: sets.relation_affected.into_iter().collect(),
+            applicability: DefinitionImpactApplicability::Applicable,
+            area: DefinitionImpactArea::Relations,
+            rationale: "The affected set contains every added, removed, or modified Relation after exact semantic comparison.".to_owned(),
+            unaffected: sets.relation_unaffected.into_iter().collect(),
+        },
+        DefinitionImpact {
+            affected: sets.affected_computations.into_iter().collect(),
+            applicability: DefinitionImpactApplicability::Applicable,
+            area: DefinitionImpactArea::Computations,
+            rationale: "Computations are affected by their own semantic diff and by changed Relations referenced by their expressions.".to_owned(),
+            unaffected: sets.unaffected_computations.into_iter().collect(),
+        },
+        DefinitionImpact {
+            affected: sets.affected_actions.iter().cloned().collect(),
+            applicability: DefinitionImpactApplicability::Applicable,
+            area: DefinitionImpactArea::Actions,
+            rationale: "Actions are affected by contract changes and by changed Relations referenced by preconditions or effects; unchanged contracts remain explicit.".to_owned(),
+            unaffected: sets.unaffected_actions.iter().cloned().collect(),
+        },
+        DefinitionImpact {
+            affected: Vec::new(),
+            applicability: DefinitionImpactApplicability::NotApplicable,
+            area: DefinitionImpactArea::DomainPackageDependencies,
+            rationale: "Canonical v1 has no package dependency field, so these revisions cannot report package dependency impact.".to_owned(),
+            unaffected: Vec::new(),
+        },
+        DefinitionImpact {
+            affected: sets.changed_existing_elements.into_iter().collect(),
+            applicability: DefinitionImpactApplicability::Applicable,
+            area: DefinitionImpactArea::StoredSemanticRecords,
+            rationale: stored_record_rationale(sets.classification),
+            unaffected: sets.unchanged_record_elements,
+        },
+        DefinitionImpact {
+            affected: changed_query_elements.into_iter().collect(),
+            applicability: DefinitionImpactApplicability::Applicable,
+            area: DefinitionImpactArea::QueryAndMaterializationArtifacts,
+            rationale: "Query and materialization artifacts must add plans or metadata for affected Relations and Computations; artifacts over unchanged elements keep their prior meaning.".to_owned(),
+            unaffected: unchanged_query_elements.into_iter().collect(),
+        },
+        DefinitionImpact {
+            affected: changed_generated_elements.into_iter().collect(),
+            applicability: DefinitionImpactApplicability::Applicable,
+            area: DefinitionImpactArea::GeneratedSdkAndSurfaceArtifacts,
+            rationale: "Definition-derived catalogs and surfaces must expose affected elements under the target revision; the Protobuf SDK contract itself is unchanged.".to_owned(),
+            unaffected: unchanged_generated_elements.into_iter().collect(),
+        },
+        DefinitionImpact {
+            affected: Vec::new(),
+            applicability: DefinitionImpactApplicability::NotApplicable,
+            area: DefinitionImpactArea::PolicyAndWasmReferences,
+            rationale: "Canonical v1 has no policy or Wasm reference fields, so these revisions cannot report policy or Wasm impact.".to_owned(),
+            unaffected: Vec::new(),
+        },
+        DefinitionImpact {
+            affected: sets.affected_actions.iter().cloned().collect(),
+            applicability: DefinitionImpactApplicability::Applicable,
+            area: DefinitionImpactArea::PolicyAndAuthorityContracts,
+            rationale: "Every affected Action requires policy and delegated-authority review under the target revision.".to_owned(),
+            unaffected: sets.unaffected_actions.iter().cloned().collect(),
+        },
+        DefinitionImpact {
+            affected: Vec::new(),
+            applicability: DefinitionImpactApplicability::NotApplicable,
+            area: DefinitionImpactArea::WasmComponents,
+            rationale: "Canonical v1 has no Wasm component or capability reference, so no component revision can be assessed.".to_owned(),
+            unaffected: Vec::new(),
+        },
+    ]
 }
 
 struct FamilyAnalysis {
@@ -206,8 +237,7 @@ fn analyze_family<T: Eq>(
             (None, Some(_)) => Some(DefinitionChangeKind::Added),
             (Some(_), None) => Some(DefinitionChangeKind::Removed),
             (Some(from), Some(to)) if from != to => Some(DefinitionChangeKind::Modified),
-            (Some(_), Some(_)) => None,
-            (None, None) => None,
+            (Some(_), Some(_)) | (None, None) => None,
         };
         if let Some(change) = change {
             affected.insert(element_id.clone());
@@ -239,9 +269,8 @@ fn classify_changes(
     for change in changes {
         if forbidden {
             change.classification = EvolutionClassification::Forbidden;
-            change.rationale =
-                "The revision pair changes definition identity or does not advance its revision."
-                    .to_owned();
+            "The revision pair changes definition identity or does not advance its revision."
+                .clone_into(&mut change.rationale);
             continue;
         }
         let (classification, rationale) = classify_change(from, to, change);
@@ -440,7 +469,7 @@ fn unchanged_record_elements(
     definition: &CanonicalDefinition,
     changes: &[DefinitionChange],
 ) -> Vec<String> {
-    let changed = changes
+    let changed_ids = changes
         .iter()
         .filter(|change| change.change != DefinitionChangeKind::Added)
         .map(|change| change.id.as_str())
@@ -455,7 +484,7 @@ fn unchanged_record_elements(
                 .iter()
                 .map(|definition| definition.id.as_str()),
         )
-        .filter(|id| !changed.contains(id))
+        .filter(|id| !changed_ids.contains(id))
         .map(str::to_owned)
         .collect()
 }

@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    error::Error,
+    fmt::{Display, Formatter, Write as _},
+};
 
 mod action_preview;
 mod conversation;
@@ -24,7 +26,7 @@ pub use conversation::{
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
     EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation, EffectRequest,
-    EffectSnapshot, UnknownEffectReason,
+    EffectRequestIdentity, EffectSnapshot, UnknownEffectReason,
 };
 pub use expression::{
     BinaryOperator, ExactDecimal, ExactDecimalError, ExactInteger, ExactIntegerError, ExactValue,
@@ -105,10 +107,14 @@ macro_rules! semantic_id {
         pub struct $name(String);
 
         impl $name {
+            /// # Errors
+            ///
+            /// Returns [`IdentifierError`] when `value` is not a valid identifier.
             pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
                 parse_identifier(value.into(), stringify!($name)).map(Self)
             }
 
+            #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0
             }
@@ -161,34 +167,63 @@ pub const WORLD_WHO_CAN_ACTION: &str = "zoen.world.whoCan";
 pub const CLASSIFIED_AS_RELATION: &str = "zoen.classifiedAs";
 pub const SHARED_WITH_RELATION: &str = "zoen.sharedWith";
 
+/// # Panics
+///
+/// Panics when [`WORLD_READ_ACTION`] is not a valid identifier.
+#[must_use]
 pub fn world_read_action() -> ActionId {
     ActionId::parse(WORLD_READ_ACTION).expect("dest kernel Action id")
 }
 
+/// # Panics
+///
+/// Panics when [`WORLD_INVITE_ACTION`] is not a valid identifier.
+#[must_use]
 pub fn world_invite_action() -> ActionId {
     ActionId::parse(WORLD_INVITE_ACTION).expect("dest kernel Action id")
 }
 
+/// # Panics
+///
+/// Panics when [`WORLD_SHARE_ACTION`] is not a valid identifier.
+#[must_use]
 pub fn world_share_action() -> ActionId {
     ActionId::parse(WORLD_SHARE_ACTION).expect("dest kernel Action id")
 }
 
+/// # Panics
+///
+/// Panics when [`WORLD_RESERVE_ACTION`] is not a valid identifier.
+#[must_use]
 pub fn world_reserve_action() -> ActionId {
     ActionId::parse(WORLD_RESERVE_ACTION).expect("dest kernel Action id")
 }
 
+/// # Panics
+///
+/// Panics when [`WORLD_WHO_CAN_ACTION`] is not a valid identifier.
+#[must_use]
 pub fn world_who_can_action() -> ActionId {
     ActionId::parse(WORLD_WHO_CAN_ACTION).expect("dest kernel Action id")
 }
 
+/// # Panics
+///
+/// Panics when [`CLASSIFIED_AS_RELATION`] is not a valid identifier.
+#[must_use]
 pub fn classified_as_relation() -> RelationId {
     RelationId::parse(CLASSIFIED_AS_RELATION).expect("dest classification Relation id")
 }
 
+/// # Panics
+///
+/// Panics when [`SHARED_WITH_RELATION`] is not a valid identifier.
+#[must_use]
 pub fn shared_with_relation() -> RelationId {
     RelationId::parse(SHARED_WITH_RELATION).expect("dest share Relation id")
 }
 
+#[must_use]
 pub fn allows_empty_action_effects(action_id: &ActionId) -> bool {
     matches!(
         action_id.as_str(),
@@ -200,6 +235,7 @@ impl ResourceId {
     /// A grant on `self` covers `self` and dotted children (`self.leaf`).
     /// `personal.note` covers `personal.note.deadbeef`. It does not cover a
     /// neighbor (`personal.note2`) or a sibling lake (`personal.reminder.1`).
+    #[must_use]
     pub fn covers(&self, other: &Self) -> bool {
         if self == other {
             return true;
@@ -215,6 +251,10 @@ impl ResourceId {
 pub struct ComponentInterface(String);
 
 impl ComponentInterface {
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError`] when `value` is empty, longer than 200 bytes, or
+    /// contains a character outside the component-interface alphabet.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
         let value = value.into();
         let valid = !value.is_empty()
@@ -233,6 +273,7 @@ impl ComponentInterface {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -276,6 +317,9 @@ impl Error for DigestError {}
 pub struct DefinitionDigest(String);
 
 impl DefinitionDigest {
+    /// # Errors
+    ///
+    /// Returns [`DigestError`] when `value` is not 64 lowercase hex characters.
     pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
         let value = value.into();
         if value.len() == 64
@@ -289,6 +333,7 @@ impl DefinitionDigest {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -304,6 +349,9 @@ impl Display for DefinitionDigest {
 pub struct EvidenceDigest(String);
 
 impl EvidenceDigest {
+    /// # Errors
+    ///
+    /// Returns [`DigestError`] when `value` is not 64 lowercase hex characters.
     pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
         let value = value.into();
         if value.len() == 64
@@ -317,6 +365,7 @@ impl EvidenceDigest {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -334,6 +383,9 @@ macro_rules! sha256_digest {
         pub struct $name(String);
 
         impl $name {
+            /// # Errors
+            ///
+            /// Returns [`DigestError`] when `value` is not 64 lowercase hex characters.
             pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
                 let value = value.into();
                 if value.len() == 64
@@ -347,6 +399,7 @@ macro_rules! sha256_digest {
                 }
             }
 
+            #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0
             }
@@ -373,42 +426,58 @@ sha256_digest!(ExecutionResultDigest);
 sha256_digest!(StateBasisDigest);
 sha256_digest!(ActionPreviewHash);
 
+#[must_use]
+pub fn encode_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
 impl CapabilityManifestDigest {
+    #[must_use]
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
-        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+        Self(encode_hex(&bytes))
     }
 }
 
 impl ComponentDigest {
+    #[must_use]
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
-        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+        Self(encode_hex(&bytes))
     }
 }
 
 impl ExecutionRequestDigest {
+    #[must_use]
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
-        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+        Self(encode_hex(&bytes))
     }
 }
 
 impl ExecutionResultDigest {
+    #[must_use]
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
-        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+        Self(encode_hex(&bytes))
     }
 }
 
 impl PayloadDigest {
+    #[must_use]
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
-        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+        Self(encode_hex(&bytes))
     }
 }
 
 impl ActionPreviewHash {
+    #[must_use]
     pub fn from_sha256(bytes: [u8; 32]) -> Self {
-        Self(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+        Self(encode_hex(&bytes))
     }
 
     /// Compare two parsed digests without an early exit on the first mismatch.
+    #[must_use]
     pub fn constant_time_eq(&self, other: &Self) -> bool {
         let left = self.0.as_bytes();
         let right = other.0.as_bytes();
@@ -427,10 +496,12 @@ impl ActionPreviewHash {
 pub struct DefinitionRevisionNumber(u64);
 
 impl DefinitionRevisionNumber {
+    #[must_use]
     pub fn new(value: u64) -> Option<Self> {
         (value > 0).then_some(Self(value))
     }
 
+    #[must_use]
     pub fn get(self) -> u64 {
         self.0
     }
@@ -440,10 +511,12 @@ impl DefinitionRevisionNumber {
 pub struct CommitSequence(u64);
 
 impl CommitSequence {
+    #[must_use]
     pub fn new(value: u64) -> Option<Self> {
         (value > 0).then_some(Self(value))
     }
 
+    #[must_use]
     pub fn get(self) -> u64 {
         self.0
     }
@@ -458,10 +531,12 @@ impl CanonicalJson {
         (!value.is_empty()).then_some(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
     }
@@ -562,6 +637,7 @@ pub enum EvolutionClassification {
 }
 
 impl EvolutionClassification {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Compatible => "compatible",
@@ -642,6 +718,7 @@ pub struct EvolutionPlan {
 }
 
 impl EvolutionPlan {
+    #[must_use]
     pub fn migration_required(&self) -> bool {
         matches!(
             self.classification,
@@ -663,6 +740,7 @@ pub struct TrustedExecutionContext {
 }
 
 impl TrustedExecutionContext {
+    #[must_use]
     pub fn new(
         tenant_id: TenantId,
         actor_id: ActorId,
@@ -681,26 +759,32 @@ impl TrustedExecutionContext {
         }
     }
 
+    #[must_use]
     pub fn actor_id(&self) -> &ActorId {
         &self.actor_id
     }
 
+    #[must_use]
     pub fn clearance(&self) -> &crate::Clearance {
         &self.clearance
     }
 
+    #[must_use]
     pub fn delegation(&self) -> &DelegationChain {
         &self.delegation
     }
 
+    #[must_use]
     pub fn principal_id(&self) -> &PrincipalId {
         &self.principal_id
     }
 
+    #[must_use]
     pub fn tenant_id(&self) -> &TenantId {
         &self.tenant_id
     }
 
+    #[must_use]
     pub fn workload_id(&self) -> &WorkloadId {
         &self.workload_id
     }
@@ -712,10 +796,12 @@ pub type ExecutionContext = TrustedExecutionContext;
 pub struct TimestampMicros(i64);
 
 impl TimestampMicros {
+    #[must_use]
     pub fn new(value: i64) -> Self {
         Self(value)
     }
 
+    #[must_use]
     pub fn get(self) -> i64 {
         self.0
     }
@@ -775,6 +861,10 @@ pub struct DelegationGrant {
 }
 
 impl DelegationGrant {
+    /// # Errors
+    ///
+    /// Returns [`DelegationError::EmptyScope`] when any scope set is empty, or
+    /// [`DelegationError::InvalidTime`] when `not_before` is not before `expires_at`.
     pub fn new(
         id: DelegationId,
         actions: BTreeSet<ActionId>,
@@ -799,30 +889,37 @@ impl DelegationGrant {
         })
     }
 
+    #[must_use]
     pub fn expires_at(&self) -> TimestampMicros {
         self.expires_at
     }
 
+    #[must_use]
     pub fn actions(&self) -> &BTreeSet<ActionId> {
         &self.actions
     }
 
+    #[must_use]
     pub fn id(&self) -> &DelegationId {
         &self.id
     }
 
+    #[must_use]
     pub fn not_before(&self) -> TimestampMicros {
         self.not_before
     }
 
+    #[must_use]
     pub fn resources(&self) -> &BTreeSet<ResourceId> {
         &self.resources
     }
 
+    #[must_use]
     pub fn workloads(&self) -> &BTreeSet<WorkloadId> {
         &self.workloads
     }
 
+    #[must_use]
     pub fn permits(
         &self,
         action_id: &ActionId,
@@ -868,6 +965,10 @@ pub struct DelegationChain {
 }
 
 impl DelegationChain {
+    /// # Errors
+    ///
+    /// Returns [`DelegationError::EmptyChain`] when `grants` is empty, or an expansion
+    /// error when a child grant is not a subset of its parent.
     pub fn new(grants: Vec<DelegationGrant>) -> Result<Self, DelegationError> {
         if grants.is_empty() {
             return Err(DelegationError::EmptyChain);
@@ -878,10 +979,12 @@ impl DelegationChain {
         Ok(Self { grants })
     }
 
+    #[must_use]
     pub fn grants(&self) -> &[DelegationGrant] {
         &self.grants
     }
 
+    #[must_use]
     pub fn permits(
         &self,
         action_id: &ActionId,
@@ -924,10 +1027,14 @@ pub enum ValidTime {
 }
 
 impl ValidTime {
+    #[must_use]
     pub fn instant(at: TimestampMicros) -> Self {
         Self::Instant(at)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ValidTimeError`] when `end` is not after `start`.
     pub fn interval(start: TimestampMicros, end: TimestampMicros) -> Result<Self, ValidTimeError> {
         if start < end {
             Ok(Self::Interval { start, end })
@@ -936,6 +1043,7 @@ impl ValidTime {
         }
     }
 
+    #[must_use]
     pub fn contains(&self, at: TimestampMicros) -> bool {
         match self {
             Self::Instant(instant) => *instant == at,
@@ -961,6 +1069,7 @@ pub struct EvidenceProvenance {
 }
 
 impl EvidenceProvenance {
+    #[must_use]
     pub fn same_intent(&self, other: &Self) -> bool {
         self.observed_at == other.observed_at
             && self.source_digest == other.source_digest
@@ -981,6 +1090,7 @@ pub struct EvidenceDraft {
 }
 
 impl EvidenceDraft {
+    #[must_use]
     pub fn same_intent(&self, other: &Self) -> bool {
         self.claim_id == other.claim_id
             && self.definition == other.definition
@@ -1034,24 +1144,28 @@ pub enum SemanticQuery {
 }
 
 impl SemanticQuery {
+    #[must_use]
     pub fn consistency(&self) -> &Consistency {
         match self {
             Self::ByEntity { consistency, .. } | Self::ByType { consistency, .. } => consistency,
         }
     }
 
+    #[must_use]
     pub fn definition(&self) -> &DefinitionReference {
         match self {
             Self::ByEntity { definition, .. } | Self::ByType { definition, .. } => definition,
         }
     }
 
+    #[must_use]
     pub fn valid_at(&self) -> TimestampMicros {
         match self {
             Self::ByEntity { valid_at, .. } | Self::ByType { valid_at, .. } => *valid_at,
         }
     }
 
+    #[must_use]
     pub fn scenario_id(&self) -> Option<&ScenarioId> {
         match self {
             Self::ByEntity { scenario_id, .. } | Self::ByType { scenario_id, .. } => {
@@ -1101,10 +1215,12 @@ pub struct SemanticResult {
 pub struct PolicyRevisionNumber(u64);
 
 impl PolicyRevisionNumber {
+    #[must_use]
     pub fn new(value: u64) -> Option<Self> {
         (value > 0).then_some(Self(value))
     }
 
+    #[must_use]
     pub fn get(self) -> u64 {
         self.0
     }
@@ -1130,6 +1246,7 @@ pub enum DefinitionActivationKind {
 }
 
 impl DefinitionActivationKind {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Activation => "activation",
@@ -1210,6 +1327,7 @@ pub struct ComponentExecutionEvidence {
 }
 
 impl ComponentExecutionEvidence {
+    #[must_use]
     pub fn new(
         mut capability_ids: Vec<CapabilityId>,
         capability_manifest_digest: CapabilityManifestDigest,
@@ -1228,22 +1346,27 @@ impl ComponentExecutionEvidence {
         }
     }
 
+    #[must_use]
     pub fn capability_ids(&self) -> &[CapabilityId] {
         &self.capability_ids
     }
 
+    #[must_use]
     pub fn capability_manifest_digest(&self) -> &CapabilityManifestDigest {
         &self.capability_manifest_digest
     }
 
+    #[must_use]
     pub fn component_digest(&self) -> &ComponentDigest {
         &self.component_digest
     }
 
+    #[must_use]
     pub fn execution_id(&self) -> &ExecutionId {
         &self.execution_id
     }
 
+    #[must_use]
     pub fn interface(&self) -> &ComponentInterface {
         &self.interface
     }

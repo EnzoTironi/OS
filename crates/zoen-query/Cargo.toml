@@ -1,8 +1,14 @@
 [package]
 name = "zoen-query"
 version = "0.1.0"
+categories.workspace = true
+description = "Snapshot, Strong, and Eventual world query"
 edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]

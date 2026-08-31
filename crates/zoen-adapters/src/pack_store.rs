@@ -1,5 +1,7 @@
-use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,10 +27,14 @@ pub struct PostgresPackStore {
 }
 
 impl PostgresPackStore {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn verify_and_stage(
         &self,
         tenant_id: &TenantId,
@@ -38,35 +44,7 @@ impl PostgresPackStore {
         ontology_artifacts: &[(DefinitionId, DefinitionDigest, String)],
     ) -> Result<(PackDigest, PackManifest), PackError> {
         let (digest, mut manifest) = admit_pack(manifest_bytes, expected_digest)?;
-        let mut artifacts = BTreeMap::new();
-        for (definition_id, definition_digest, canonical_json) in ontology_artifacts {
-            artifacts.insert(
-                definition_id.as_str().to_owned(),
-                (definition_digest.clone(), canonical_json.clone()),
-            );
-        }
-        for dependency in &mut manifest.ontology_dependencies {
-            let Some((artifact_digest, canonical_json)) =
-                artifacts.remove(dependency.definition_id.as_str())
-            else {
-                return Err(PackError::MissingDependency(
-                    dependency.definition_id.as_str().to_owned(),
-                ));
-            };
-            if artifact_digest.as_str() != dependency.digest.as_str() {
-                return Err(PackError::DigestMismatch);
-            }
-            let actual = hex_sha256(canonical_json.as_bytes());
-            if actual != dependency.digest.as_str() {
-                return Err(PackError::DigestMismatch);
-            }
-            dependency.canonical_json = canonical_json;
-        }
-        if !artifacts.is_empty() {
-            return Err(PackError::InvalidFormat(
-                "unexpected ontology artifacts".to_owned(),
-            ));
-        }
+        bind_pack_ontology(&mut manifest, ontology_artifacts)?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
         set_tenant(&mut transaction, tenant_id)
             .await
@@ -95,14 +73,13 @@ impl PostgresPackStore {
         let signature_json = manifest
             .signature
             .as_ref()
-            .map(|signature| {
+            .map_or(Value::Null, |signature| {
                 serde_json::json!({
                     "algorithm": signature.algorithm,
                     "publicKeyId": signature.public_key_id.as_str(),
                     "signatureB64": signature.signature_b64,
                 })
-            })
-            .unwrap_or(Value::Null);
+            });
         let lock_document = LockDocument {
             artifacts: manifest
                 .ontology_dependencies
@@ -158,6 +135,9 @@ impl PostgresPackStore {
         Ok((digest, manifest))
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn load_manifest(
         &self,
         tenant_id: &TenantId,
@@ -222,6 +202,9 @@ impl PostgresPackStore {
         Ok(manifest)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn derive_preview(
         &self,
         tenant_id: &TenantId,
@@ -300,6 +283,9 @@ impl PostgresPackStore {
         Ok((preview, digest))
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn install(
         &self,
         tenant_id: &TenantId,
@@ -398,6 +384,9 @@ impl PostgresPackStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn get_install(
         &self,
         tenant_id: &TenantId,
@@ -412,6 +401,9 @@ impl PostgresPackStore {
         Ok(receipt)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn decide_grants(
         &self,
         tenant_id: &TenantId,
@@ -484,6 +476,9 @@ impl PostgresPackStore {
         Ok(receipt)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn mark_activating(
         &self,
         tenant_id: &TenantId,
@@ -525,6 +520,9 @@ impl PostgresPackStore {
         self.get_install(tenant_id, install_id).await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn mark_active(
         &self,
         tenant_id: &TenantId,
@@ -585,6 +583,9 @@ impl PostgresPackStore {
         self.get_install(tenant_id, install_id).await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn permission_diff(
         &self,
         tenant_id: &TenantId,
@@ -616,6 +617,9 @@ impl PostgresPackStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn evaluate_first_success(
         &self,
         tenant_id: &TenantId,
@@ -724,6 +728,52 @@ fn requirement_impact_line(requirement: &IntegrationRequirement) -> RequirementI
     }
 }
 
+/// # Errors
+///
+/// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
+pub(crate) fn bind_pack_ontology(
+    manifest: &mut PackManifest,
+    ontology_artifacts: &[(DefinitionId, DefinitionDigest, String)],
+) -> Result<(), PackError> {
+    let mut artifacts = BTreeMap::new();
+    for (definition_id, definition_digest, canonical_json) in ontology_artifacts {
+        artifacts.insert(
+            definition_id.as_str().to_owned(),
+            (definition_digest.clone(), canonical_json.clone()),
+        );
+    }
+    for dependency in &mut manifest.ontology_dependencies {
+        let Some((artifact_digest, canonical_json)) =
+            artifacts.remove(dependency.definition_id.as_str())
+        else {
+            return Err(PackError::MissingDependency(
+                dependency.definition_id.as_str().to_owned(),
+            ));
+        };
+        if artifact_digest.as_str() != dependency.digest.as_str() {
+            return Err(PackError::DigestMismatch);
+        }
+        let actual = hex_sha256(canonical_json.as_bytes());
+        if actual != dependency.digest.as_str() {
+            return Err(PackError::DigestMismatch);
+        }
+        dependency.canonical_json = canonical_json;
+    }
+    if artifacts.is_empty() {
+        Ok(())
+    } else {
+        Err(PackError::InvalidFormat(
+            "unexpected ontology artifacts".to_owned(),
+        ))
+    }
+}
+
+/// Admit a pack manifest byte string.
+///
+/// # Errors
+///
+/// Returns [`PackError`] when the bytes are not canonical pack JSON or the
+/// digest does not match.
 pub fn admit_pack(
     bytes: &[u8],
     expected_digest: Option<&PackDigest>,
@@ -775,7 +825,7 @@ fn reject_secret_fields(value: &Value, path: &str) -> Result<(), PackError> {
         }
         Value::String(text) => {
             if text.contains("://")
-                && (text.contains("@") && (text.contains("password") || text.contains("token=")))
+                && (text.contains('@') && (text.contains("password") || text.contains("token=")))
             {
                 return Err(PackError::SecretEmbedded(path.to_owned()));
             }
@@ -793,8 +843,7 @@ fn preview_digest(preview: &PermissionImpactPreview) -> Result<PreviewDigest, Pa
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    zoen_core::encode_hex(Sha256::digest(bytes).as_ref())
 }
 
 fn hex_id() -> String {
@@ -806,38 +855,16 @@ fn hex_id() -> String {
 }
 
 fn now_micros() -> TimestampMicros {
-    let micros = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_micros() as i64)
-        .unwrap_or(0);
-    TimestampMicros::new(micros)
+    TimestampMicros::new(crate::clock_micros())
 }
 
-fn store(error: impl ToString) -> PackError {
+fn store(error: impl std::fmt::Display) -> PackError {
     PackError::Store(error.to_string())
 }
 
-async fn load_receipt(
-    transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
-    install_id: &InstallId,
-) -> Result<InstallReceipt, PackError> {
-    let row = sqlx::query(
-        "SELECT pack_digest, pack_id, pack_version, preview_digest, phase,
-                prior_install_id, activated_definition_refs, failure_reason, superseded_by,
-                (extract(epoch from updated_at) * 1000000)::bigint AS updated_at
-         FROM pack_install_receipts
-         WHERE tenant_id = $1 AND install_id = $2",
-    )
-    .bind(tenant_id.as_str())
-    .bind(install_id.as_str())
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(store)?
-    .ok_or(PackError::InstallNotFound)?;
-
+fn install_phase_from_row(row: &sqlx::postgres::PgRow) -> Result<InstallPhase, PackError> {
     let phase_text: String = row.try_get("phase").map_err(store)?;
-    let phase = match InstallPhaseKind::parse(&phase_text)? {
+    Ok(match InstallPhaseKind::parse(&phase_text)? {
         InstallPhaseKind::Installed => InstallPhase::Installed,
         InstallPhaseKind::GrantsResolved => InstallPhase::GrantsResolved,
         InstallPhaseKind::Activating => InstallPhase::Activating,
@@ -885,8 +912,14 @@ async fn load_receipt(
                     .unwrap_or_else(|| "install.unknown".to_owned()),
             )?,
         },
-    };
+    })
+}
 
+async fn load_capability_grants(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    install_id: &InstallId,
+) -> Result<Vec<CapabilityGrant>, PackError> {
     let grant_rows = sqlx::query(
         "SELECT grant_id, requirement_id, necessity, sensitivity, capability_kind,
                 scope_json, degrade_json, status, decided_by,
@@ -900,88 +933,111 @@ async fn load_receipt(
     .fetch_all(&mut **transaction)
     .await
     .map_err(store)?;
-
     let mut grants = Vec::new();
     for grant_row in grant_rows {
-        let necessity_text: String = grant_row.try_get("necessity").map_err(store)?;
-        let necessity = if necessity_text == "required" {
-            Necessity::Required
-        } else {
-            let degrade: Value = grant_row.try_get("degrade_json").map_err(store)?;
-            let mode = degrade
-                .get("mode")
-                .and_then(Value::as_str)
-                .unwrap_or("hide_actions")
-                .to_owned();
-            let action_ids = degrade
-                .get("actionIds")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|value| value.as_str().map(str::to_owned))
-                .map(ActionId::parse)
-                .collect::<Result<Vec<_>, _>>()?;
-            Necessity::Optional {
-                degrade: DegradationDecl { mode, action_ids },
-            }
-        };
-        let status_text: String = grant_row.try_get("status").map_err(store)?;
-        let status = match status_text.as_str() {
-            "pending" => GrantStatus::Pending,
-            "accepted" => GrantStatus::Accepted {
-                at: TimestampMicros::new(
-                    grant_row
-                        .try_get::<Option<i64>, _>("decided_at")
-                        .map_err(store)?
-                        .unwrap_or(0),
-                ),
-                by: grant_row
-                    .try_get::<Option<String>, _>("decided_by")
-                    .map_err(store)?
-                    .unwrap_or_default(),
-            },
-            "declined" => GrantStatus::Declined {
-                at: TimestampMicros::new(
-                    grant_row
-                        .try_get::<Option<i64>, _>("decided_at")
-                        .map_err(store)?
-                        .unwrap_or(0),
-                ),
-                by: grant_row
-                    .try_get::<Option<String>, _>("decided_by")
-                    .map_err(store)?
-                    .unwrap_or_default(),
-            },
-            other => return Err(PackError::Store(format!("invalid grant status {other}"))),
-        };
-        let scope_json: Value = grant_row.try_get("scope_json").map_err(store)?;
-        grants.push(CapabilityGrant {
-            grant_id: GrantId::parse(grant_row.try_get::<String, _>("grant_id").map_err(store)?)?,
-            requirement_id: RequirementId::parse(
-                grant_row
-                    .try_get::<String, _>("requirement_id")
-                    .map_err(store)?,
-            )?,
-            necessity,
-            sensitivity: Sensitivity::parse(
-                &grant_row
-                    .try_get::<String, _>("sensitivity")
-                    .map_err(store)?,
-            )?,
-            kind: IntegrationKind::parse(
-                &grant_row
-                    .try_get::<String, _>("capability_kind")
-                    .map_err(store)?,
-            )?,
-            scope: scope_json
-                .get("scope")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
-            status,
-        });
+        grants.push(capability_grant_from_row(&grant_row)?);
     }
+    Ok(grants)
+}
+
+fn capability_grant_from_row(
+    grant_row: &sqlx::postgres::PgRow,
+) -> Result<CapabilityGrant, PackError> {
+    let necessity_text: String = grant_row.try_get("necessity").map_err(store)?;
+    let necessity = if necessity_text == "required" {
+        Necessity::Required
+    } else {
+        let degrade: Value = grant_row.try_get("degrade_json").map_err(store)?;
+        let mode = degrade
+            .get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("hide_actions")
+            .to_owned();
+        let action_ids = degrade
+            .get("actionIds")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .map(ActionId::parse)
+            .collect::<Result<Vec<_>, _>>()?;
+        Necessity::Optional {
+            degrade: DegradationDecl { mode, action_ids },
+        }
+    };
+    let status_text: String = grant_row.try_get("status").map_err(store)?;
+    let decided_at = TimestampMicros::new(
+        grant_row
+            .try_get::<Option<i64>, _>("decided_at")
+            .map_err(store)?
+            .unwrap_or(0),
+    );
+    let decided_by = grant_row
+        .try_get::<Option<String>, _>("decided_by")
+        .map_err(store)?
+        .unwrap_or_default();
+    let status = match status_text.as_str() {
+        "pending" => GrantStatus::Pending,
+        "accepted" => GrantStatus::Accepted {
+            at: decided_at,
+            by: decided_by,
+        },
+        "declined" => GrantStatus::Declined {
+            at: decided_at,
+            by: decided_by,
+        },
+        other => return Err(PackError::Store(format!("invalid grant status {other}"))),
+    };
+    let scope_json: Value = grant_row.try_get("scope_json").map_err(store)?;
+    Ok(CapabilityGrant {
+        grant_id: GrantId::parse(grant_row.try_get::<String, _>("grant_id").map_err(store)?)?,
+        requirement_id: RequirementId::parse(
+            grant_row
+                .try_get::<String, _>("requirement_id")
+                .map_err(store)?,
+        )?,
+        necessity,
+        sensitivity: Sensitivity::parse(
+            &grant_row
+                .try_get::<String, _>("sensitivity")
+                .map_err(store)?,
+        )?,
+        kind: IntegrationKind::parse(
+            &grant_row
+                .try_get::<String, _>("capability_kind")
+                .map_err(store)?,
+        )?,
+        scope: scope_json
+            .get("scope")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        status,
+    })
+}
+
+async fn load_receipt(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    install_id: &InstallId,
+) -> Result<InstallReceipt, PackError> {
+    let row = sqlx::query(
+        "SELECT pack_digest, pack_id, pack_version, preview_digest, phase,
+                prior_install_id, activated_definition_refs, failure_reason, superseded_by,
+                (extract(epoch from updated_at) * 1000000)::bigint AS updated_at
+         FROM pack_install_receipts
+         WHERE tenant_id = $1 AND install_id = $2",
+    )
+    .bind(tenant_id.as_str())
+    .bind(install_id.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?
+    .ok_or(PackError::InstallNotFound)?;
+
+    let phase = install_phase_from_row(&row)?;
+    let grants = load_capability_grants(transaction, tenant_id, install_id).await?;
 
     Ok(InstallReceipt {
         install_id: install_id.clone(),

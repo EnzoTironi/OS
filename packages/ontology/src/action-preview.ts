@@ -35,7 +35,7 @@ export function buildActionPreviewDocument(input: {
   readonly inputs: readonly ActionPreviewInput[];
 }): ActionPreviewDocument {
   const inputs = [...input.inputs].sort((left, right) =>
-    left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+    compareIds(left.id, right.id)
   );
   return {
     action: input.actionId,
@@ -49,7 +49,7 @@ export function buildActionPreviewDocument(input: {
 
 export function canonicalPreviewText(
   actionId: string,
-  inputs: readonly ActionPreviewInput[],
+  inputs: readonly ActionPreviewInput[]
 ): string {
   switch (actionId) {
     case "personal.writeMemory":
@@ -115,14 +115,24 @@ function wireInput(input: ActionPreviewInput): unknown {
   }
 }
 
+function compareIds(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+}
+
 function actionLabel(actionId: string): string {
   const parts = actionId.split(".");
-  return parts[parts.length - 1] ?? actionId;
+  return parts.at(-1) ?? actionId;
 }
 
 function textInput(
   inputs: readonly ActionPreviewInput[],
-  id: string,
+  id: string
 ): string | undefined {
   const found = inputs.find((input) => input.id === id);
   return found?.value.kind === "text" ? found.value.value : undefined;
@@ -130,7 +140,7 @@ function textInput(
 
 function displayInput(
   inputs: readonly ActionPreviewInput[],
-  id: string,
+  id: string
 ): string | undefined {
   const found = inputs.find((input) => input.id === id);
   if (found === undefined) {

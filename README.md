@@ -10,7 +10,7 @@ This repository is the product. See [architecture.md](architecture.md) for the m
 
 | Product | What you run |
 | --- | --- |
-| Ontology | `apps/zoen` CLI, zoend Connect API, MCP |
+| Ontology | `zoen` CLI and Connect API, MCP |
 | Conversation | Eve in `apps/conversation` |
 | Auth door | Better Auth in `apps/auth` |
 
@@ -26,11 +26,11 @@ cd OS
 just build
 ```
 
-That builds zoend and the workspace TypeScript. Binaries land in `target/debug/`.
+That builds the `zoen` binary (API daemon and CLI) plus workspace TypeScript. The binary lands in `target/debug/zoen`.
 
 ## CLI
 
-Planted `zoen` is `zoen <noun> <verb>`. JSON on stdout. Flags over prompts. `--dry-run` on mutations.
+`zoen` is one Rust binary. No args, or `zoen serve`, is the Connect API. `zoen <noun> <verb>` is the CLI. JSON on stdout. Flags over prompts. `--dry-run` on mutations. One static executable. No Node runtime for the CLI.
 
 ```
 zoen auth login

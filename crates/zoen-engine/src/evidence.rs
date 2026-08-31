@@ -31,7 +31,8 @@ pub(crate) fn evidence_intent_digest(
     for draft in drafts {
         hash_draft(&mut hasher, draft);
     }
-    IntentDigest::parse(hex_digest(hasher.finalize())).map_err(|error| error.to_string())
+    IntentDigest::parse(zoen_core::encode_hex(hasher.finalize().as_ref()))
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn evidence_write_plan(
@@ -99,14 +100,6 @@ fn value_key(value: &ExactValue) -> String {
 fn hash_field(hasher: &mut Sha256, value: &str) {
     hasher.update(value.len().to_be_bytes());
     hasher.update(value.as_bytes());
-}
-
-fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 #[cfg(test)]

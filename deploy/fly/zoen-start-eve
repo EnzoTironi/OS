@@ -9,6 +9,7 @@ if [ -z "${ZOEN_MODEL:-}" ]; then
   exit 1
 fi
 export PATH="/usr/local/node24/bin:${PATH}"
+export ZOEN_BIN="${ZOEN_BIN:-/usr/local/bin/zoen}"
 major="$(node -p 'process.versions.node.split(".")[0]')"
 if [ "$major" -lt 24 ]; then
   echo "eve: Node >= 24 required, got $(node -v)" >&2

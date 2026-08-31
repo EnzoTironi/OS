@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use buffa::MessageView;
 use buffa_types::google::protobuf::Timestamp;
@@ -21,16 +23,18 @@ use zoen_engine::{
 };
 use zoen_query::QueryRuntime;
 
-use crate::proto::zoen::world::v1::__buffa::view::oneof::semantic_query_request as semantic_query_view;
-use crate::proto::zoen::world::v1::{
-    ApplyScenarioRequest, ApplyScenarioResponse, CreateScenarioRequest, CreateScenarioResponse,
-    DefinitionReference, DiscardScenarioRequest, DiscardScenarioResponse, EvidenceClaim,
-    ExactValue, LineageDependency, LineageRole, MigrationOrigin, QuantityValue,
-    RecordEvidenceBatchRequest, RecordEvidenceBatchResponse, RecordEvidenceRequest,
-    RecordEvidenceResponse, SemanticQueryRequest, SemanticQueryResponse, SemanticValueResult,
-    WorldService, exact_value, query_consistency, query_selection, valid_time,
+use crate::{
+    proto::zoen::world::v1::{
+        __buffa::view::oneof::semantic_query_request as semantic_query_view, ApplyScenarioRequest,
+        ApplyScenarioResponse, CreateScenarioRequest, CreateScenarioResponse, DefinitionReference,
+        DiscardScenarioRequest, DiscardScenarioResponse, EvidenceClaim, ExactValue,
+        LineageDependency, LineageRole, MigrationOrigin, QuantityValue, RecordEvidenceBatchRequest,
+        RecordEvidenceBatchResponse, RecordEvidenceRequest, RecordEvidenceResponse,
+        SemanticQueryRequest, SemanticQueryResponse, SemanticValueResult, WorldService,
+        exact_value, query_consistency, query_selection, valid_time,
+    },
+    session::SessionExchange,
 };
-use crate::session::SessionExchange;
 
 pub struct WorldServiceImpl {
     engine: WorldEngine<PostgresAuthorityStore>,
@@ -136,8 +140,7 @@ impl WorldService for WorldServiceImpl {
             .map_err(map_record_error)?;
         let commit_sequence = recorded
             .last()
-            .map(|claim| claim.commit_sequence.get())
-            .unwrap_or(0);
+            .map_or(0, |claim| claim.commit_sequence.get());
         Response::ok(RecordEvidenceBatchResponse {
             commit_sequence,
             recorded_count: u32::try_from(recorded.len()).unwrap_or(u32::MAX),
@@ -232,7 +235,7 @@ impl WorldService for WorldServiceImpl {
             .await
             .map_err(map_scenario_error)?;
         Response::ok(CreateScenarioResponse {
-            scenario_id: scenario.scenario_id.as_str().to_owned(),
+            scenario_id: scenario.id.as_str().to_owned(),
             base_commit_sequence: scenario.base_commit_sequence.get(),
             ..Default::default()
         })
@@ -302,7 +305,7 @@ impl WorldService for WorldServiceImpl {
             .await
             .map_err(map_scenario_error)?;
         Response::ok(DiscardScenarioResponse {
-            scenario_id: scenario.scenario_id.as_str().to_owned(),
+            scenario_id: scenario.id.as_str().to_owned(),
             ..Default::default()
         })
     }
@@ -487,7 +490,7 @@ pub(crate) fn parse_timestamp(value: &Timestamp) -> Result<TimestampMicros, Conn
 fn to_query_response(result: SemanticResult) -> SemanticQueryResponse {
     SemanticQueryResponse {
         actual_commit_sequence: result.actual_commit_sequence.get(),
-        definition: Some(to_definition_reference(result.definition)).into(),
+        definition: Some(to_definition_reference(&result.definition)).into(),
         knowledge_cut: result.knowledge_cut.get(),
         next_page_token: result.next_page_token,
         valid_at: Some(to_timestamp(result.valid_at)).into(),
@@ -539,7 +542,7 @@ fn to_query_response(result: SemanticResult) -> SemanticQueryResponse {
     }
 }
 
-pub(crate) fn to_definition_reference(reference: CoreDefinitionReference) -> DefinitionReference {
+pub(crate) fn to_definition_reference(reference: &CoreDefinitionReference) -> DefinitionReference {
     DefinitionReference {
         definition_id: reference.definition_id.as_str().to_owned(),
         digest: reference.digest.as_str().to_owned(),
@@ -577,7 +580,7 @@ pub(crate) fn to_exact_value(value: CoreExactValue) -> ExactValue {
 
 pub(crate) fn to_timestamp(value: TimestampMicros) -> Timestamp {
     Timestamp {
-        nanos: (value.get().rem_euclid(1_000_000) * 1_000) as i32,
+        nanos: i32::try_from(value.get().rem_euclid(1_000_000).saturating_mul(1_000)).unwrap_or(0),
         seconds: value.get().div_euclid(1_000_000),
         ..Default::default()
     }
@@ -591,7 +594,7 @@ fn map_record_error(error: RecordEvidenceError) -> ConnectError {
         RecordEvidenceError::InvalidEvidence(_) => {
             ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
         }
-        RecordEvidenceError::Store(error) => crate::service::map_store_error(error),
+        RecordEvidenceError::Store(error) => crate::service::map_store_error(&error),
     }
 }
 

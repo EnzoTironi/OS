@@ -1,6 +1,8 @@
-use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeMap,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -85,6 +87,7 @@ impl Error for HumanPacketError {
     }
 }
 
+#[must_use]
 pub fn effect_payload_kind(payload: &[u8]) -> EffectPayloadKind {
     match parse_human_task_contract(payload) {
         Ok(_) => EffectPayloadKind::HumanTask,
@@ -92,10 +95,17 @@ pub fn effect_payload_kind(payload: &[u8]) -> EffectPayloadKind {
     }
 }
 
+#[must_use]
 pub fn is_human_task_payload(payload: &[u8]) -> bool {
     matches!(effect_payload_kind(payload), EffectPayloadKind::HumanTask)
 }
 
+/// Parse and validate a human-task contract from effect payload bytes.
+///
+/// # Errors
+///
+/// Returns [`HumanPacketError`] when the payload is not JSON, the schema is unsupported,
+/// or the contract fails validation.
 pub fn parse_human_task_contract(payload: &[u8]) -> Result<HumanTaskContract, HumanPacketError> {
     let wire: HumanTaskContractWire = serde_json::from_slice(payload)
         .map_err(|error| HumanPacketError::Encoding(error.to_string()))?;
@@ -149,6 +159,11 @@ pub fn parse_human_task_contract(payload: &[u8]) -> Result<HumanTaskContract, Hu
     Ok(contract)
 }
 
+/// Encode a validated human-task contract as JSON payload bytes.
+///
+/// # Errors
+///
+/// Returns [`HumanPacketError`] when the contract fails validation or JSON encoding fails.
 pub fn encode_human_task_contract(
     contract: &HumanTaskContract,
 ) -> Result<Vec<u8>, HumanPacketError> {
@@ -190,21 +205,39 @@ pub fn encode_human_task_contract(
     serde_json::to_vec(&body).map_err(|error| HumanPacketError::Encoding(error.to_string()))
 }
 
+/// SHA-256 digest of effect request payload bytes.
+///
+/// # Panics
+///
+/// Panics if hex encoding of a SHA-256 digest is not a valid digest string.
+#[must_use]
 pub fn request_digest_for_payload(payload: &[u8]) -> EffectRequestDigest {
     let digest = Sha256::digest(payload);
-    EffectRequestDigest::parse(hex_digest(&digest)).expect("sha256 hex is a valid digest")
+    EffectRequestDigest::parse(zoen_core::encode_hex(digest.as_ref()))
+        .expect("sha256 hex is a valid digest")
 }
 
+#[must_use]
 pub fn is_human_executor_action(action_id: &ActionId) -> bool {
     action_id.as_str().ends_with(".humanExecutor")
 }
 
+/// Mint and encode the human-task contract for a proposal.
+///
+/// # Errors
+///
+/// Returns [`HumanPacketError`] when proposal inputs are invalid or encoding fails.
 pub fn mint_human_task_contract_payload(
     proposal: &ActionProposal,
 ) -> Result<Vec<u8>, HumanPacketError> {
     encode_human_task_contract(&mint_human_task_contract(proposal)?)
 }
 
+/// Mint a human-task contract from Action proposal inputs.
+///
+/// # Errors
+///
+/// Returns [`HumanPacketError`] when an input has the wrong type or the contract fails validation.
 pub fn mint_human_task_contract(
     proposal: &ActionProposal,
 ) -> Result<HumanTaskContract, HumanPacketError> {
@@ -213,7 +246,7 @@ pub fn mint_human_task_contract(
         .unwrap_or_else(|| "Collect wet signature for order".to_owned());
     let contact_name = text_input(&inputs, "contact_name_ref");
     let contact_phone = text_input(&inputs, "contact_phone_ref");
-    let contact = match (contact_name, contact_phone) {
+    let contact_ref = match (contact_name, contact_phone) {
         (None, None) => Some(HumanContactRef {
             name_ref: Some("contact.name.1".to_owned()),
             phone_ref: None,
@@ -276,7 +309,7 @@ pub fn mint_human_task_contract(
         executor_class: HumanExecutorClass::HumanExecutor,
         instruction,
         structured_inputs,
-        contact,
+        contact: contact_ref,
         bounds: HumanTaskBounds {
             max_expense_minor,
             allowed_actions,
@@ -348,6 +381,11 @@ fn human_input_value(value: &ExactValue) -> Result<Option<HumanInputValue>, Huma
     }
 }
 
+/// Project a human-task packet from a stored effect request.
+///
+/// # Errors
+///
+/// Returns [`HumanPacketError`] when the payload digest mismatches or the contract is invalid.
 pub fn project_human_task_packet(
     request: &EffectRequest,
     attempt_id: &EffectAttemptId,
@@ -359,17 +397,13 @@ pub fn project_human_task_packet(
     }
     let contract = parse_human_task_contract(&request.payload)?;
     project_human_task_packet_from_contract(
-        request.effect_request_id.clone(),
+        request.identity.effect_request_id.clone(),
         attempt_id.clone(),
         request.request_digest.clone(),
         &contract,
         now,
     )
     .map_err(HumanPacketError::Core)
-}
-
-fn hex_digest(digest: &[u8]) -> String {
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

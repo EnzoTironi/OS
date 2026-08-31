@@ -47,11 +47,17 @@ pub struct ActionStateRead {
     pub values: BTreeMap<RelationId, Vec<SemanticValue>>,
 }
 
+/// Evaluate an Action precondition against a relation snapshot.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] when the snapshot is missing a required relation, the
+/// state-basis digest cannot be encoded, or the precondition does not produce one boolean.
 pub fn evaluate_action_state_basis(
     action: &ActionDefinition,
     definition: &CanonicalDefinition,
     inputs: &[ActionInput],
-    snapshot: ActionStateSnapshot,
+    snapshot: &ActionStateSnapshot,
 ) -> Result<PreconditionEvaluation, ActionError> {
     let read = read_action_state_basis(action, definition, snapshot)?;
     let input_values = inputs
@@ -79,10 +85,16 @@ pub fn evaluate_action_state_basis(
     }
 }
 
+/// Read the state basis and relation values an Action precondition depends on.
+///
+/// # Errors
+///
+/// Returns [`ActionError`] when the definition has no matching relation or the
+/// state-basis digest cannot be encoded.
 pub fn read_action_state_basis(
     action: &ActionDefinition,
     definition: &CanonicalDefinition,
-    snapshot: ActionStateSnapshot,
+    snapshot: &ActionStateSnapshot,
 ) -> Result<ActionStateRead, ActionError> {
     let mut values = BTreeMap::<RelationId, Vec<SemanticValue>>::new();
     let mut dependencies = Vec::new();
@@ -130,6 +142,11 @@ pub fn read_action_state_basis(
     })
 }
 
+/// Evaluate a semantic expression against claims, attaching rival lineage for unused claims.
+///
+/// # Errors
+///
+/// Returns [`ExpressionEvaluationError`] when the expression cannot be evaluated against the claims.
 pub fn evaluate_semantic_claims(
     expression: &Expression,
     claims: &[SemanticClaim],

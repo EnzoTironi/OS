@@ -5,9 +5,11 @@ declare const membershipIdBrand: unique symbol;
 declare const tenantIdBrand: unique symbol;
 declare const doorTokenBrand: unique symbol;
 
-export type MembershipId = string & { readonly [membershipIdBrand]: void };
-export type TenantId = string & { readonly [tenantIdBrand]: void };
-export type DoorToken = string & { readonly [doorTokenBrand]: void };
+export type MembershipId = string & {
+  readonly [membershipIdBrand]: undefined;
+};
+export type TenantId = string & { readonly [tenantIdBrand]: undefined };
+export type DoorToken = string & { readonly [doorTokenBrand]: undefined };
 
 const UNBOUND_RAW = "unbound";
 
@@ -16,7 +18,11 @@ export function MembershipId(raw: string): MembershipId {
   if (trimmed.length === 0) {
     throw new Error("MembershipId empty");
   }
-  if (trimmed.includes("..") || trimmed.includes(sep) || trimmed.includes("/")) {
+  if (
+    trimmed.includes("..") ||
+    trimmed.includes(sep) ||
+    trimmed.includes("/")
+  ) {
     throw new Error("MembershipId path characters");
   }
   return trimmed as MembershipId;
@@ -43,13 +49,16 @@ export function DoorToken(raw: string): DoorToken {
 
 export const unboundMembership: MembershipId = MembershipId(UNBOUND_RAW);
 
-export type MembershipDisk = {
+export interface MembershipDisk {
   readonly membershipId: MembershipId;
   readonly root: string;
   readonly workspace: string;
-};
+}
 
-export function membershipDisk(disksRoot: string, membershipId: MembershipId): MembershipDisk {
+export function membershipDisk(
+  disksRoot: string,
+  membershipId: MembershipId
+): MembershipDisk {
   const root = resolve(join(disksRoot, encodeURIComponent(membershipId)));
   const workspace = join(root, "workspace");
   const disks = resolve(disksRoot);
@@ -59,12 +68,16 @@ export function membershipDisk(disksRoot: string, membershipId: MembershipId): M
   return { membershipId, root, workspace };
 }
 
-export async function ensureMembershipDisk(disk: MembershipDisk): Promise<void> {
+export async function ensureMembershipDisk(
+  disk: MembershipDisk
+): Promise<void> {
   await mkdir(disk.workspace, { recursive: true });
 }
 
 export function guestToHost(disk: MembershipDisk, guestPath: string): string {
-  const resolved = guestPath.startsWith("/") ? guestPath : `/workspace/${guestPath}`;
+  const resolved = guestPath.startsWith("/")
+    ? guestPath
+    : `/workspace/${guestPath}`;
   if (resolved === "/workspace") {
     return disk.workspace;
   }

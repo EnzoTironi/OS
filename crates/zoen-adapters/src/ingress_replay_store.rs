@@ -13,11 +13,16 @@ pub struct PostgresIngressReplayStore {
 }
 
 impl PostgresIngressReplayStore {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
     /// `true` when this id is already committed at the zoend hop.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`sqlx::Error`] when `PostgreSQL` is unavailable.
     pub async fn contains(&self, webhook_id: &str) -> Result<bool, sqlx::Error> {
         let key = namespaced_webhook_id(webhook_id);
         let found: Option<String> =
@@ -29,6 +34,10 @@ impl PostgresIngressReplayStore {
     }
 
     /// Returns `true` when this id was recorded, `false` on replay.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`sqlx::Error`] when `PostgreSQL` is unavailable.
     pub async fn claim(&self, webhook_id: &str) -> Result<bool, sqlx::Error> {
         let key = namespaced_webhook_id(webhook_id);
         let inserted: Option<String> = sqlx::query_scalar(

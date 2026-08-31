@@ -1,5 +1,7 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
@@ -375,14 +377,17 @@ pub struct ProjectionEvent {
 }
 
 impl ProjectionEvent {
+    #[must_use]
     pub fn event_type(&self) -> &'static str {
         self.event_type
     }
 
+    #[must_use]
     pub fn event_version(&self) -> u16 {
         self.event_version
     }
 
+    #[must_use]
     pub fn payload(&self) -> &str {
         &self.payload
     }
@@ -414,22 +419,27 @@ impl AdmittedDefinitionPublication {
         }
     }
 
+    #[must_use]
     pub fn canonical_json(&self) -> &CanonicalJson {
         &self.canonical_json
     }
 
+    #[must_use]
     pub fn definition_id(&self) -> &DefinitionId {
         &self.definition_id
     }
 
+    #[must_use]
     pub fn digest(&self) -> &DefinitionDigest {
         &self.digest
     }
 
+    #[must_use]
     pub fn revision(&self) -> DefinitionRevisionNumber {
         self.revision
     }
 
+    #[must_use]
     pub fn projection_event(&self) -> &ProjectionEvent {
         &self.projection_event
     }
@@ -504,38 +514,47 @@ impl AdmittedDefinitionActivation {
         })
     }
 
+    #[must_use]
     pub fn activated_at(&self) -> TimestampMicros {
         self.activated_at
     }
 
+    #[must_use]
     pub fn context(&self) -> &ExecutionContext {
         &self.context
     }
 
+    #[must_use]
     pub fn kind(&self) -> zoen_core::DefinitionActivationKind {
         self.kind
     }
 
+    #[must_use]
     pub fn migration_operation_id(&self) -> Option<&OperationId> {
         self.migration_operation_id.as_ref()
     }
 
+    #[must_use]
     pub fn classification(&self) -> Option<EvolutionClassification> {
         self.classification
     }
 
+    #[must_use]
     pub fn policy(&self) -> &PolicyEvidence {
         &self.policy
     }
 
+    #[must_use]
     pub fn previous(&self) -> Option<&DefinitionReference> {
         self.previous.as_ref()
     }
 
+    #[must_use]
     pub fn projection_event(&self) -> &ProjectionEvent {
         &self.projection_event
     }
 
+    #[must_use]
     pub fn target(&self) -> &DefinitionRevision {
         &self.target
     }
@@ -574,10 +593,12 @@ impl AdmittedEvidence {
         }
     }
 
+    #[must_use]
     pub fn draft(&self) -> &EvidenceDraft {
         &self.draft
     }
 
+    #[must_use]
     pub fn projection_event(&self) -> &ProjectionEvent {
         &self.projection_event
     }
@@ -779,6 +800,11 @@ where
         Self { store }
     }
 
+    /// Record one evidence draft.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RecordEvidenceError`] when validation, encoding, or the store fails.
     pub async fn record_evidence(
         &self,
         context: &ExecutionContext,
@@ -794,6 +820,12 @@ where
         })
     }
 
+    /// Record a batch of evidence drafts under an optional operation identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RecordEvidenceError`] when the batch is empty, a draft fails validation,
+    /// encoding fails, or the store fails.
     pub async fn record_evidence_batch(
         &self,
         context: &ExecutionContext,
@@ -858,6 +890,11 @@ where
         Self { policy, store }
     }
 
+    /// Admit and publish a canonical definition document.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PublishError`] when admission fails or the store cannot persist the revision.
     pub async fn publish(
         &self,
         context: &ExecutionContext,
@@ -871,6 +908,11 @@ where
             .map_err(PublishError::Store)
     }
 
+    /// Load the active definition revision and verify its digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GetRevisionError`] when the store fails or the stored digest does not match.
     pub async fn get_active_revision(
         &self,
         context: &ExecutionContext,
@@ -890,6 +932,11 @@ where
             .transpose()
     }
 
+    /// Load a definition revision by digest and verify its content.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GetRevisionError`] when the store fails or the stored digest does not match.
     pub async fn get_revision(
         &self,
         context: &ExecutionContext,

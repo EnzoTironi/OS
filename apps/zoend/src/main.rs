@@ -1,16 +1,21 @@
 #![allow(refining_impl_trait)]
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::env;
-use std::error::Error;
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env,
+    error::Error,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
-use axum::Router as HttpRouter;
-use axum::extract::State;
-use axum::http::{StatusCode, header};
-use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::{
+    Router as HttpRouter,
+    extract::State,
+    http::{StatusCode, header},
+    response::IntoResponse,
+    routing::get,
+};
+use clap::Parser;
 use connectrpc::Router;
 use zoen_adapters::{
     CedarPolicyEvaluator, PostgresAuthorityStore, PostgresExternalSignalStore,
@@ -23,22 +28,22 @@ use zoen_engine::{
     WorldEngine,
 };
 use zoen_query::QueryRuntime;
-use zoend::config::{self, ProcessAuth, object_store_config};
-use zoend::integrity::{self, StateClassification};
-use zoend::session::SessionExchange;
+use zoend::{
+    config::{self, ProcessAuth, object_store_config},
+    integrity::{self, StateClassification},
+    session::SessionExchange,
+};
 
-use crate::action_service::ActionServiceImpl;
-use crate::computation_service::ComputationServiceImpl;
-use crate::effect_service::EffectServiceImpl;
-use crate::history_service::HistoryServiceImpl;
-use crate::identity_admin::IdentityAdminState;
-use crate::pack_admin::PackAdminState;
-use crate::pack_registry::PackRegistryState;
-use crate::service::DefinitionServiceImpl;
-use crate::workload_ingress_service::WorkloadIngressState;
-use crate::world_service::WorldServiceImpl;
+use crate::{
+    action_service::ActionServiceImpl, computation_service::ComputationServiceImpl,
+    effect_service::EffectServiceImpl, history_service::HistoryServiceImpl,
+    identity_admin::IdentityAdminState, pack_admin::PackAdminState,
+    pack_registry::PackRegistryState, service::DefinitionServiceImpl,
+    workload_ingress_service::WorkloadIngressState, world_service::WorldServiceImpl,
+};
 
 mod action_service;
+mod cli;
 mod conversation_stage;
 mod session {
     pub use zoend::session::*;
@@ -59,20 +64,62 @@ mod service;
 mod workload_ingress_service;
 mod world_service;
 
-pub mod proto {
-    connectrpc::include_generated!();
+mod proto {
+    pub use zoen_proto::*;
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    match cli::Cli::parse().command {
+        None | Some(cli::Command::Serve) => serve().await,
+        Some(command) => cli::run(command).await,
+    }
+}
+
+async fn serve() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let boot = boot_runtime().await?;
+    let application = build_application(boot)?;
+    let listener = tokio::net::TcpListener::bind(application.listen_address).await?;
+    axum::serve(listener, application.router)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    Ok(())
+}
+
+struct BootRuntime {
+    classification: Arc<StateClassification>,
+    credentials: PostgresWorkloadCredentialStore,
+    identity: PostgresIdentityStore,
+    listen_address: SocketAddr,
+    policy: Arc<CedarPolicyEvaluator>,
+    query: QueryRuntime,
+    require_reference: bool,
+    sessions: SessionExchange,
+    store: PostgresAuthorityStore,
+}
+
+struct Application {
+    listen_address: SocketAddr,
+    router: HttpRouter,
+}
+
+struct OntologyServices {
+    action: ActionServiceImpl,
+    computation: ComputationServiceImpl,
+    definition: DefinitionServiceImpl,
+    effect: EffectServiceImpl,
+    history: HistoryServiceImpl,
+    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
+    world: WorldServiceImpl,
+}
+
+async fn boot_runtime() -> Result<BootRuntime, Box<dyn Error + Send + Sync>> {
     let database_url = env::var("DATABASE_URL")?;
     let ProcessAuth::SessionDoor { auth_database_url } = config::process_auth()?;
     let policy = Arc::new(CedarPolicyEvaluator::from_path(
         config::cedar_manifest_path()?,
     )?);
-    let listen_address = env::var("ZOEN_LISTEN_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
-        .parse::<SocketAddr>()?;
+    let listen_address = listen_address()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
     let identity = PostgresIdentityStore::new(store.pool());
     let credentials = PostgresWorkloadCredentialStore::new(store.pool());
@@ -86,7 +133,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         identity.clone(),
         credentials.clone(),
         machine,
-    )?;
+    );
     let classification = Arc::new(integrity::load_classification()?);
     let require_reference = integrity::require_reference_tables();
     store
@@ -97,30 +144,45 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         )
         .await?;
     let query = QueryRuntime::new(store.pool(), object_store_config()?);
-    let read = ReadEngine::new(query.clone(), policy.clone());
-    let action_service = ActionServiceImpl::new(
-        ActionEngine::new(store.clone(), query.clone(), policy.clone()),
-        sessions.clone(),
+    Ok(BootRuntime {
+        classification,
+        credentials,
+        identity,
+        listen_address,
+        policy,
+        query,
+        require_reference,
+        sessions,
+        store,
+    })
+}
+
+fn build_application(boot: BootRuntime) -> Result<Application, Box<dyn Error + Send + Sync>> {
+    let listen_address = boot.listen_address;
+    let services = build_engines(&boot)?;
+    let router = build_routers(boot, services);
+    Ok(Application {
+        listen_address,
+        router,
+    })
+}
+
+fn build_engines(boot: &BootRuntime) -> Result<OntologyServices, Box<dyn Error + Send + Sync>> {
+    let read = ReadEngine::new(boot.query.clone(), boot.policy.clone());
+    let action = ActionServiceImpl::new(
+        ActionEngine::new(boot.store.clone(), boot.query.clone(), boot.policy.clone()),
+        boot.sessions.clone(),
     );
-    let computation_service = ComputationServiceImpl::new(
-        store.clone(),
-        query.clone(),
-        policy.clone(),
-        sessions.clone(),
+    let computation = ComputationServiceImpl::new(
+        boot.store.clone(),
+        boot.query.clone(),
+        boot.policy.clone(),
+        boot.sessions.clone(),
     )?;
-    let definition_service = DefinitionServiceImpl::new(
-        DefinitionEngine::new(store.clone(), policy.clone()),
-        sessions.clone(),
+    let definition = DefinitionServiceImpl::new(
+        DefinitionEngine::new(boot.store.clone(), boot.policy.clone()),
+        boot.sessions.clone(),
     );
-    let pack_routes = pack_admin::router(PackAdminState {
-        packs: PostgresPackStore::new(store.pool()),
-        definitions: DefinitionEngine::new(store.clone(), policy.clone()),
-        sessions: sessions.clone(),
-    });
-    let pack_registry_routes = pack_registry::router(PackRegistryState {
-        registry: PostgresPackRegistryStore::new(store.pool()),
-        sessions: sessions.clone(),
-    });
     let effect_worker_workload = WorkloadId::parse(
         env::var("ZOEN_EFFECT_WORKER_WORKLOAD_ID")
             .unwrap_or_else(|_| "workload.effect-worker".to_owned()),
@@ -130,72 +192,93 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             .unwrap_or_else(|_| "workload.effect-reconciler".to_owned()),
     )?;
     let human_executor_workloads =
-        parse_workload_set(env::var("ZOEN_HUMAN_EXECUTOR_WORKLOAD_IDS").unwrap_or_default())?;
-    let effect_service = EffectServiceImpl::new(
+        parse_workload_set(&env::var("ZOEN_HUMAN_EXECUTOR_WORKLOAD_IDS").unwrap_or_default())?;
+    let effect = EffectServiceImpl::new(
         EffectEngine::new(
-            store.clone(),
+            boot.store.clone(),
             effect_worker_workload,
             effect_reconciler_workload,
         )
         .with_allowed_executor_workloads(human_executor_workloads),
-        sessions.clone(),
+        boot.sessions.clone(),
     );
-    let history_service = HistoryServiceImpl::new(
-        HistoryEngine::new(store.clone()),
+    let history = HistoryServiceImpl::new(
+        HistoryEngine::new(boot.store.clone()),
         read.clone(),
-        sessions.clone(),
+        boot.sessions.clone(),
     );
-    let world_service = WorldServiceImpl::new(
-        WorldEngine::new(store.clone()),
+    let world = WorldServiceImpl::new(
+        WorldEngine::new(boot.store.clone()),
         read.clone(),
         ScenarioEngine::new(
-            store.clone(),
-            ActionEngine::new(store.clone(), query.clone(), policy.clone()),
+            boot.store.clone(),
+            ActionEngine::new(boot.store.clone(), boot.query.clone(), boot.policy.clone()),
         ),
-        sessions.clone(),
+        boot.sessions.clone(),
     );
+    Ok(OntologyServices {
+        action,
+        computation,
+        definition,
+        effect,
+        history,
+        read,
+        world,
+    })
+}
+
+fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
     let identity_admin_token = env::var("ZOEN_IDENTITY_ADMIN_TOKEN")
         .ok()
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty());
+    let pack_routes = pack_admin::router(PackAdminState {
+        packs: PostgresPackStore::new(boot.store.pool()),
+        definitions: DefinitionEngine::new(boot.store.clone(), boot.policy.clone()),
+        sessions: boot.sessions.clone(),
+    });
+    let pack_registry_routes = pack_registry::router(PackRegistryState {
+        registry: PostgresPackRegistryStore::new(boot.store.pool()),
+        sessions: boot.sessions.clone(),
+    });
     let identity_routes = identity_admin::router(IdentityAdminState {
         admin_token: identity_admin_token.clone(),
-        identity: identity.clone(),
-        sessions: sessions.clone(),
+        identity: boot.identity.clone(),
+        sessions: boot.sessions.clone(),
     });
     let conversation_routes =
         conversation_stage::router(conversation_stage::ConversationStageState {
             admin_token: identity_admin_token,
-            identity: identity.clone(),
-            read: read.clone(),
-            sessions: sessions.clone(),
+            identity: boot.identity.clone(),
+            read: services.read,
+            sessions: boot.sessions.clone(),
             stages: Arc::new(Mutex::new(BTreeMap::new())),
         });
-    let onboard_routes = onboard::router(identity);
+    let onboard_routes = onboard::router(boot.identity);
     let messaging_routes = messaging_ingress::router(messaging_ingress::from_env(
-        PostgresIngressReplayStore::new(store.pool()),
+        PostgresIngressReplayStore::new(boot.store.pool()),
     ));
     let workload_routes = workload_ingress_service::router(WorkloadIngressState {
-        credentials,
-        signals: PostgresExternalSignalStore::new(store.pool()),
-        sessions: sessions.clone(),
+        credentials: boot.credentials,
+        signals: PostgresExternalSignalStore::new(boot.store.pool()),
+        sessions: boot.sessions.clone(),
     });
     let rpc = Router::new()
-        .add_service(Arc::new(action_service))
-        .add_service(Arc::new(computation_service))
-        .add_service(Arc::new(definition_service))
-        .add_service(Arc::new(effect_service))
-        .add_service(Arc::new(history_service))
-        .add_service(Arc::new(world_service))
+        .add_service(Arc::new(services.action))
+        .add_service(Arc::new(services.computation))
+        .add_service(Arc::new(services.definition))
+        .add_service(Arc::new(services.effect))
+        .add_service(Arc::new(services.history))
+        .add_service(Arc::new(services.world))
         .into_axum_router();
     let ready_routes = HttpRouter::new()
         .route("/ready", get(ready))
         .with_state(ReadyState {
-            classification,
-            require_reference,
-            store,
+            classification: boot.classification,
+            require_reference: boot.require_reference,
+            store: boot.store,
         });
-    let application = HttpRouter::new()
+    HttpRouter::new()
         .route("/metrics", get(metrics))
         .merge(ready_routes)
         .merge(door_proxy::router())
@@ -207,13 +290,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .merge(workload_routes)
         .merge(pack_routes)
         .merge(pack_registry_routes)
-        .merge(rpc);
-    let listener = tokio::net::TcpListener::bind(listen_address).await?;
+        .merge(rpc)
+}
 
-    axum::serve(listener, application)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
-    Ok(())
+fn listen_address() -> Result<SocketAddr, Box<dyn Error + Send + Sync>> {
+    Ok(env::var("ZOEN_LISTEN_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
+        .parse()?)
 }
 
 #[derive(Clone)]
@@ -266,7 +349,7 @@ async fn shutdown_signal() {
     }
 }
 
-fn parse_workload_set(value: String) -> Result<BTreeSet<WorkloadId>, Box<dyn Error + Send + Sync>> {
+fn parse_workload_set(value: &str) -> Result<BTreeSet<WorkloadId>, Box<dyn Error + Send + Sync>> {
     let mut workloads = BTreeSet::new();
     for part in value.split(',') {
         let trimmed = part.trim();

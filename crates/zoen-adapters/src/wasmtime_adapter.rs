@@ -1,14 +1,18 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+    sync::mpsc::{self, RecvTimeoutError, Sender},
+    thread::{self, JoinHandle},
+    time::Duration,
+};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use wasmtime::component::{Component, HasSelf, Linker};
-use wasmtime::{Config, Engine, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder, Trap};
+use wasmtime::{
+    Config, Engine, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder, Trap,
+    component::{Component, HasSelf, Linker},
+};
 use zoen_core::{
     ActionId, ActionInput, CapabilityId, ClaimId, CommitSequence, ComponentDigest,
     ComponentExecutionEvidence, EntityId, ExactDecimal, ExactInteger, ExactValue, InputId,
@@ -38,9 +42,10 @@ mod bindings {
     });
 }
 
-use bindings::Computation;
-use bindings::exports::zoen::code_mode::program as wit_program;
-use bindings::zoen::code_mode::host as wit_host;
+use bindings::{
+    Computation, exports::zoen::code_mode::program as wit_program,
+    zoen::code_mode::host as wit_host,
+};
 
 #[derive(Debug)]
 pub struct WasmtimeConfigError(String);
@@ -60,6 +65,12 @@ pub struct WasmtimeComputationExecutor {
 }
 
 impl WasmtimeComputationExecutor {
+    /// Build a Wasmtime engine with fuel and epoch interruption.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WasmtimeConfigError`] when the engine or epoch clock cannot
+    /// be configured.
     pub fn new(pool: PgPool) -> Result<Self, WasmtimeConfigError> {
         let mut config = Config::new();
         config.async_support(true);
@@ -138,13 +149,10 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
                 .finish(context, &request, ComputationOutcome::InterfaceMismatch)
                 .await;
         }
-        let component = match Component::new(&self.engine, &bytes) {
-            Ok(component) => component,
-            Err(_) => {
-                return self
-                    .finish(context, &request, ComputationOutcome::MalformedComponent)
-                    .await;
-            }
+        let Ok(component) = Component::new(&self.engine, &bytes) else {
+            return self
+                .finish(context, &request, ComputationOutcome::MalformedComponent)
+                .await;
         };
         if validate_component_shape(&self.engine, &component).is_err() {
             return self
@@ -749,7 +757,10 @@ fn output_digest(
         action,
         aggregate: output.aggregate.as_str(),
         explanation_complete: output.explanation_complete,
-        selected_claim_id: output.selected_claim_id.as_ref().map(|id| id.as_str()),
+        selected_claim_id: output
+            .selected_claim_id
+            .as_ref()
+            .map(zoen_core::ClaimId::as_str),
         selected_values: output.selected_values,
         values_scanned: output.values_scanned,
     })?;
@@ -760,12 +771,12 @@ fn output_digest(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-    use std::thread;
-    use std::time::Duration;
+    use std::{sync::mpsc, thread, time::Duration};
 
-    use wasmtime::component::{Component, Linker as ComponentLinker};
-    use wasmtime::{Config, Engine, Instance, Module, Store, StoreLimitsBuilder, Trap};
+    use wasmtime::{
+        Config, Engine, Instance, Module, Store, StoreLimitsBuilder, Trap,
+        component::{Component, Linker as ComponentLinker},
+    };
     use zoen_engine::ComputationOutcome;
 
     use super::{EpochClock, ExecutionLimiter, classify_runtime_error};

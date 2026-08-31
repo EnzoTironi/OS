@@ -6,6 +6,7 @@ use zoen_core::{
 use crate::ActionError;
 
 /// Build the kernel preview document for an Action proposal.
+#[must_use]
 pub fn build_action_preview(
     action_id: &ActionId,
     resource_id: &ResourceId,
@@ -15,6 +16,10 @@ pub fn build_action_preview(
 }
 
 /// SHA-256 of RFC 8785 JCS bytes of the preview document.
+///
+/// # Errors
+///
+/// Returns [`ActionError::Evaluation`] when the preview document cannot be canonicalized.
 pub fn preview_hash(document: &ActionPreviewDocument) -> Result<ActionPreviewHash, ActionError> {
     let canonical = canonicalize_json(&document.to_json())
         .map_err(|error| ActionError::Evaluation(format!("preview JCS failed: {error}")))?;
@@ -24,6 +29,10 @@ pub fn preview_hash(document: &ActionPreviewDocument) -> Result<ActionPreviewHas
 }
 
 /// Exact hash binding. Missing, invalid, or unequal hashes fail closed.
+///
+/// # Errors
+///
+/// Returns [`PreviewBindingError`] when the presented hash is missing, malformed, or unequal.
 pub fn bind_preview_hash(
     stored: &ActionPreviewHash,
     presented: Option<&str>,
@@ -43,6 +52,10 @@ pub fn bind_preview_hash(
 ///
 /// A row whose stored hash or spoken text drifted from action/resource/inputs
 /// fails closed even when the client repeats the stored digest.
+///
+/// # Errors
+///
+/// Returns [`PreviewBindingError`] when stored preview fields drifted or the presented hash does not bind.
 pub fn bind_proposal_preview(
     action_id: &ActionId,
     resource_id: &ResourceId,
@@ -70,6 +83,7 @@ pub enum PreviewBindingError {
 }
 
 impl PreviewBindingError {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Invalid => "preview hash is not a SHA-256 hex digest",

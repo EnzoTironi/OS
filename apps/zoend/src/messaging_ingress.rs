@@ -1,13 +1,16 @@
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
-use axum::Json;
-use axum::Router;
-use axum::body::Bytes;
-use axum::extract::State;
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::{
+    Json, Router,
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
+    routing::{get, post},
+};
 use reqwest::Client;
 use serde_json::json;
 use zoen_adapters::PostgresIngressReplayStore;
@@ -249,19 +252,18 @@ fn unavailable(error: &'static str, reason: &'static str) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::sync::{Arc, Mutex};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        collections::HashSet,
+        sync::{Arc, Mutex},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
-    use axum::Json;
-    use axum::Router;
-    use axum::routing::post;
-    use base64::Engine as _;
-    use base64::engine::general_purpose::STANDARD;
-    use hmac::{Hmac, Mac};
+    use axum::{Json, Router, routing::post};
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use hmac::{Hmac, KeyInit, Mac};
     use reqwest::Client;
     use serde_json::{Value, json};
-    use sha2_hmac::Sha256 as HmacSha256Hash;
+    use sha2::Sha256;
     use tokio::net::TcpListener;
     use zoen_adapters::ZOEND_INGRESS_REPLAY_NAMESPACE;
 
@@ -312,7 +314,7 @@ mod tests {
         let stripped = secret.strip_prefix("whsec_").unwrap_or(secret);
         let key = STANDARD.decode(stripped).expect("secret");
         let timestamp = timestamp_secs.to_string();
-        let mut mac = Hmac::<HmacSha256Hash>::new_from_slice(&key).expect("hmac");
+        let mut mac = Hmac::<Sha256>::new_from_slice(&key).expect("hmac");
         mac.update(webhook_id.as_bytes());
         mac.update(b".");
         mac.update(timestamp.as_bytes());

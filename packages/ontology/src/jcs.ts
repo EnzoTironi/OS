@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 export type JcsErrorKind =
@@ -22,6 +22,9 @@ export class JcsError extends Error {
     this.kind = kind;
   }
 }
+
+const CANONICAL_DIGEST_HEX = /^[0-9a-f]{64}$/;
+const HEX4 = /^[0-9a-fA-F]{4}$/;
 
 type JsonValue =
   | null
@@ -58,18 +61,16 @@ export function sha256Hex(bytes: string | Uint8Array): string {
 }
 
 export function isCanonicalDigestHex(value: string): boolean {
-  return /^[0-9a-f]{64}$/.test(value);
+  return CANONICAL_DIGEST_HEX.test(value);
 }
 
-export function jcsTestdataRoot(
-  cwd: string = process.cwd(),
-): string {
+export function jcsTestdataRoot(cwd: string = process.cwd()): string {
   return path.join(cwd, "testdata", "jcs");
 }
 
 export function listJcsSuccessCases(
   group: "rfc8785" | "zoen",
-  cwd: string = process.cwd(),
+  cwd: string = process.cwd()
 ): readonly string[] {
   const dir = path.join(jcsTestdataRoot(cwd), group);
   return readdirSync(dir)
@@ -82,18 +83,21 @@ export function readJcsFixture(
   group: "rfc8785" | "zoen" | "errors",
   name: string,
   ext: "json" | "jcs" | "sha256" | "error",
-  cwd: string = process.cwd(),
+  cwd: string = process.cwd()
 ): Buffer {
   return readFileSync(path.join(jcsTestdataRoot(cwd), group, `${name}.${ext}`));
 }
 
 function decodeUtf8(input: Uint8Array): string {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  try {
-    return decoder.decode(input);
-  } catch {
+  const decoded = new TextDecoder("utf-8").decode(input);
+  const encoded = new TextEncoder().encode(decoded);
+  if (
+    encoded.length !== input.length ||
+    encoded.some((byte, index) => byte !== input[index])
+  ) {
     throw new JcsError("invalid_utf8", "JSON is not valid UTF-8");
   }
+  return decoded;
 }
 
 class Parser {
@@ -188,7 +192,7 @@ class Parser {
   parseObject(): { readonly [key: string]: JsonValue } {
     this.bump();
     this.skipWs();
-    const members: Array<[string, JsonValue]> = [];
+    const members: [string, JsonValue][] = [];
     if (this.peek() === "}") {
       this.bump();
       return {};
@@ -270,40 +274,30 @@ class Parser {
 
   parseUnicodeEscape(): string {
     const unit = this.parseHex4();
-    if (unit >= 0xd800 && unit <= 0xdbff) {
+    if (unit >= 0xd8_00 && unit <= 0xdb_ff) {
       if (this.input.slice(this.index, this.index + 2) !== "\\u") {
         throw new JcsError("invalid_escape", "lone surrogate");
       }
       this.index += 2;
       const low = this.parseHex4();
-      if (low < 0xdc00 || low > 0xdfff) {
+      if (low < 0xdc_00 || low > 0xdf_ff) {
         throw new JcsError("invalid_escape", "invalid surrogate pair");
       }
-      const code = 0x10000 + ((unit - 0xd800) << 10) + (low - 0xdc00);
+      const code = 0x1_00_00 + (unit - 0xd8_00) * 1024 + (low - 0xdc_00);
       return String.fromCodePoint(code);
     }
-    if (unit >= 0xdc00 && unit <= 0xdfff) {
+    if (unit >= 0xdc_00 && unit <= 0xdf_ff) {
       throw new JcsError("invalid_escape", "lone surrogate");
     }
     return String.fromCharCode(unit);
   }
 
   parseHex4(): number {
-    let value = 0;
-    for (let i = 0; i < 4; i += 1) {
-      const ch = this.bump();
-      const code = ch.charCodeAt(0);
-      if (code >= 48 && code <= 57) {
-        value = (value << 4) | (code - 48);
-      } else if (code >= 97 && code <= 102) {
-        value = (value << 4) | (code - 87);
-      } else if (code >= 65 && code <= 70) {
-        value = (value << 4) | (code - 55);
-      } else {
-        throw new JcsError("invalid_escape", "invalid hex");
-      }
+    const hex = `${this.bump()}${this.bump()}${this.bump()}${this.bump()}`;
+    if (!HEX4.test(hex)) {
+      throw new JcsError("invalid_escape", "invalid hex");
     }
-    return value;
+    return Number.parseInt(hex, 16);
   }
 
   parseNumber(): number {
@@ -311,59 +305,66 @@ class Parser {
     if (this.peek() === "-") {
       this.index += 1;
     }
-    const first = this.peek();
-    if (first === "0") {
-      this.index += 1;
-    } else if (first >= "1" && first <= "9") {
-      while (this.index < this.input.length) {
-        const digit = this.input[this.index];
-        if (digit === undefined || digit < "0" || digit > "9") {
-          break;
-        }
-        this.index += 1;
-      }
-    } else {
-      throw new JcsError("invalid_number", "invalid JSON number");
-    }
-    if (this.input[this.index] === ".") {
-      this.index += 1;
-      const frac = this.input[this.index];
-      if (frac === undefined || frac < "0" || frac > "9") {
-        throw new JcsError("invalid_number", "invalid JSON number");
-      }
-      while (this.index < this.input.length) {
-        const digit = this.input[this.index];
-        if (digit === undefined || digit < "0" || digit > "9") {
-          break;
-        }
-        this.index += 1;
-      }
-    }
-    const expMark = this.input[this.index];
-    if (expMark === "e" || expMark === "E") {
-      this.index += 1;
-      const sign = this.input[this.index];
-      if (sign === "+" || sign === "-") {
-        this.index += 1;
-      }
-      const expDigit = this.input[this.index];
-      if (expDigit === undefined || expDigit < "0" || expDigit > "9") {
-        throw new JcsError("invalid_number", "invalid JSON number");
-      }
-      while (this.index < this.input.length) {
-        const digit = this.input[this.index];
-        if (digit === undefined || digit < "0" || digit > "9") {
-          break;
-        }
-        this.index += 1;
-      }
-    }
-    const raw = this.input.slice(start, this.index);
-    const number = Number(raw);
+    this.consumeIntegerPart();
+    this.consumeOptionalFraction();
+    this.consumeOptionalExponent();
+    const number = Number(this.input.slice(start, this.index));
     if (!Number.isFinite(number)) {
       throw new JcsError("non_finite_number", "non-finite JSON number");
     }
     return number;
+  }
+
+  consumeDigits(): number {
+    const start = this.index;
+    while (this.index < this.input.length) {
+      const digit = this.input[this.index];
+      if (digit === undefined || digit < "0" || digit > "9") {
+        break;
+      }
+      this.index += 1;
+    }
+    return this.index - start;
+  }
+
+  requireDigits(): void {
+    if (this.consumeDigits() === 0) {
+      throw new JcsError("invalid_number", "invalid JSON number");
+    }
+  }
+
+  consumeIntegerPart(): void {
+    const first = this.peek();
+    if (first === "0") {
+      this.index += 1;
+      return;
+    }
+    if (first >= "1" && first <= "9") {
+      this.requireDigits();
+      return;
+    }
+    throw new JcsError("invalid_number", "invalid JSON number");
+  }
+
+  consumeOptionalFraction(): void {
+    if (this.input[this.index] !== ".") {
+      return;
+    }
+    this.index += 1;
+    this.requireDigits();
+  }
+
+  consumeOptionalExponent(): void {
+    const expMark = this.input[this.index];
+    if (expMark !== "e" && expMark !== "E") {
+      return;
+    }
+    this.index += 1;
+    const sign = this.input[this.index];
+    if (sign === "+" || sign === "-") {
+      this.index += 1;
+    }
+    this.requireDigits();
   }
 }
 

@@ -1,13 +1,13 @@
 use std::fmt::Display;
 
-use sqlx::postgres::PgRow;
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     CommitSequence, DefinitelyNotSentReason, EffectAttempt, EffectAttemptId, EffectAttemptResult,
     EffectEvidence, EffectEvidenceDigest, EffectEvidenceId, EffectEvidenceOutcome,
     EffectIdempotencyKey, EffectKnowledgeState, EffectReconciliation, EffectRequest,
-    EffectRequestDigest, EffectRequestId, EffectResponseDigest, EffectSnapshot, ExecutionContext,
-    IntentDigest, OperationId, ProviderOperationId, SourceId, TimestampMicros,
+    EffectRequestDigest, EffectRequestId, EffectRequestIdentity, EffectResponseDigest,
+    EffectSnapshot, ExecutionContext, IntentDigest, OperationId, ProviderOperationId, SourceId,
+    TimestampMicros,
 };
 use zoen_engine::{
     EffectAttemptCommand, EffectReconcileCommand, EffectUpdateTransaction, StoreError,
@@ -343,7 +343,7 @@ pub(crate) async fn load_snapshot(
     .await
     .map_err(store_unavailable)?
     .ok_or(StoreError::NotFound)
-    .and_then(row_to_request)?;
+    .and_then(|row| row_to_request(&row))?;
     let attempts = sqlx::query(
         "SELECT attempt_id, commit_sequence, observed_at_micros, request_digest,
                 provider_operation_id, result_kind, reason_kind, response_digest
@@ -492,21 +492,23 @@ async fn advance_head(
     }
 }
 
-fn row_to_request(row: PgRow) -> Result<EffectRequest, StoreError> {
+fn row_to_request(row: &PgRow) -> Result<EffectRequest, StoreError> {
     Ok(EffectRequest {
-        commit_sequence: row_commit_sequence(&row)?,
-        effect_request_id: EffectRequestId::parse(row_string(&row, "effect_request_id")?)
+        commit_sequence: row_commit_sequence(row)?,
+        identity: EffectRequestIdentity {
+            effect_request_id: EffectRequestId::parse(row_string(row, "effect_request_id")?)
+                .map_err(corrupt)?,
+        },
+        idempotency_key: EffectIdempotencyKey::parse(row_string(row, "idempotency_key")?)
             .map_err(corrupt)?,
-        idempotency_key: EffectIdempotencyKey::parse(row_string(&row, "idempotency_key")?)
-            .map_err(corrupt)?,
-        intent_digest: IntentDigest::parse(row_string(&row, "intent_digest")?).map_err(corrupt)?,
-        operation_id: OperationId::parse(row_string(&row, "operation_id")?).map_err(corrupt)?,
+        intent_digest: IntentDigest::parse(row_string(row, "intent_digest")?).map_err(corrupt)?,
+        operation_id: OperationId::parse(row_string(row, "operation_id")?).map_err(corrupt)?,
         payload: row
             .try_get::<Vec<u8>, _>("payload")
             .map_err(store_unavailable)?,
-        request_digest: EffectRequestDigest::parse(row_string(&row, "request_digest")?)
+        request_digest: EffectRequestDigest::parse(row_string(row, "request_digest")?)
             .map_err(corrupt)?,
-        state: parse_state(&row_string(&row, "knowledge_state")?)?,
+        state: parse_state(&row_string(row, "knowledge_state")?)?,
     })
 }
 

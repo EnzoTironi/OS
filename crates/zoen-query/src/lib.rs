@@ -1,14 +1,16 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt::{Display, Formatter},
+    sync::Arc,
+};
 
-use datafusion::execution::object_store::ObjectStoreUrl;
-use datafusion::logical_expr::Expr;
-use datafusion::prelude::{ParquetReadOptions, SessionContext, col, lit};
-use object_store::memory::InMemory;
-use object_store::path::Path;
-use object_store::{ObjectStore, ObjectStoreExt};
+use datafusion::{
+    execution::object_store::ObjectStoreUrl,
+    logical_expr::Expr,
+    prelude::{ParquetReadOptions, SessionContext, col, lit},
+};
+use object_store::{ObjectStore, ObjectStoreExt, memory::InMemory, path::Path};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_adapters::{
@@ -19,8 +21,9 @@ use zoen_core::{
     CanonicalDefinition, CanonicalJson, ClaimId, CommitSequence, Consistency, DefinitionReference,
     EntityId, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, Expression,
     LineageDependency, LineageRole, MigrationOrigin, MigrationRuleId, MigrationRuleKind,
-    OperationId, RelationId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
-    SourceId, TenantId, TimestampMicros, TypeId, UnitId, expression_relations,
+    OperationId, RelationId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection,
+    SemanticValue, SourceId, TenantId, TimestampMicros, TypeId, UnitId, encode_hex,
+    expression_relations,
 };
 use zoen_engine::{
     QueryExecutor, QueryPortError, SemanticClaim, StoreError, decode_canonical_definition,
@@ -93,7 +96,18 @@ struct ProjectedScan<'a> {
     parquet_object_key: &'a str,
 }
 
+#[derive(Clone, Copy)]
+struct TypeEntityScan<'a> {
+    after_entity_id: Option<&'a EntityId>,
+    context: &'a ExecutionContext,
+    definition: &'a DefinitionReference,
+    fetch_limit: u32,
+    relation_ids: &'a BTreeSet<String>,
+    valid_at: TimestampMicros,
+}
+
 impl QueryRuntime {
+    #[must_use]
     pub fn new(pool: PgPool, object_store_config: Option<ObjectStoreConfig>) -> Self {
         Self {
             claim_loader: PostgresClaimLoader::new(pool.clone()),
@@ -102,16 +116,23 @@ impl QueryRuntime {
         }
     }
 
+    /// Evaluate a semantic query against Postgres authority or a Parquet projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QueryError`] when the query is invalid, the requested snapshot is
+    /// not fresh, stored rows are corrupt, evaluation fails, or a backing store is
+    /// unavailable.
     pub async fn execute(
         &self,
         context: &ExecutionContext,
         query: &SemanticQuery,
     ) -> Result<SemanticResult, QueryError> {
         let page = page::bind_type_page(context, query)?;
-        let mut consistency = page
-            .as_ref()
-            .map(|cursor| Consistency::Snapshot(cursor.commit_sequence))
-            .unwrap_or_else(|| query.consistency().clone());
+        let mut consistency = page.as_ref().map_or_else(
+            || query.consistency().clone(),
+            |cursor| Consistency::Snapshot(cursor.commit_sequence),
+        );
         if let Some(scenario_id) = query.scenario_id() {
             let base = self
                 .claim_loader
@@ -178,12 +199,7 @@ impl QueryRuntime {
             ));
         };
         let plan = QueryPlan::new(selection, definition)?;
-        let relation_id_set: BTreeSet<RelationId> = plan
-            .relation_ids
-            .iter()
-            .map(RelationId::parse)
-            .collect::<Result<_, _>>()
-            .map_err(|error| QueryError::Corrupt(error.to_string()))?;
+        let relation_id_set = parse_relation_ids(&plan.relation_ids)?;
         let mut claims = match source {
             SourcePlan::Postgres { cut } => {
                 let claims = self
@@ -278,87 +294,21 @@ impl QueryRuntime {
         if relation_ids.is_empty() {
             return Ok((Vec::new(), String::new()));
         }
-        let mut entity_ids = match source {
-            SourcePlan::Postgres { cut } => self
-                .claim_loader
-                .load_entity_ids(
-                    context,
-                    &PostgresTypeQuery {
-                        after_entity_id: after_entity_id.clone(),
-                        cut: commit_sequence(*cut, "query cut")?,
-                        definition: definition_ref.clone(),
-                        limit: fetch_limit,
-                        relation_ids: relation_ids
-                            .iter()
-                            .map(RelationId::parse)
-                            .collect::<Result<_, _>>()
-                            .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-                        valid_at: *valid_at,
-                    },
-                )
-                .await
-                .map_err(adapter_error)?,
-            SourcePlan::Projection {
-                cut,
-                parquet_digest,
-                parquet_object_key,
-            } => {
-                self.load_projected_entity_ids(
-                    ProjectedScan {
-                        context,
-                        definition: definition_ref,
-                        entity_id: None,
-                        valid_at: *valid_at,
-                        relation_ids: &relation_ids,
-                        cut: *cut,
-                        parquet_digest,
-                        parquet_object_key,
-                    },
-                    fetch_limit,
-                    after_entity_id.as_ref(),
-                )
-                .await?
-            }
+        let scan = TypeEntityScan {
+            after_entity_id: after_entity_id.as_ref(),
+            context,
+            definition: definition_ref,
+            fetch_limit,
+            relation_ids: &relation_ids,
+            valid_at: *valid_at,
         };
+        let mut entity_ids = self.load_type_entity_ids(scan, source).await?;
         if let Some(scenario_id) = query.scenario_id() {
-            let overlay_ids = self
-                .claim_loader
-                .load_overlay_entity_ids(
-                    context,
-                    &PostgresOverlayTypeQuery {
-                        after_entity_id: after_entity_id.clone(),
-                        definition: definition_ref.clone(),
-                        limit: fetch_limit,
-                        relation_ids: relation_ids
-                            .iter()
-                            .map(RelationId::parse)
-                            .collect::<Result<_, _>>()
-                            .map_err(|error| QueryError::Corrupt(error.to_string()))?,
-                        scenario_id: scenario_id.clone(),
-                        valid_at: *valid_at,
-                    },
-                )
-                .await
-                .map_err(adapter_error)?;
-            let mut merged = BTreeSet::new();
-            for entity_id in entity_ids.into_iter().chain(overlay_ids) {
-                merged.insert(entity_id);
-            }
-            entity_ids = merged.into_iter().collect();
-            if let Some(after) = after_entity_id.as_ref() {
-                entity_ids.retain(|entity_id| entity_id.as_str() > after.as_str());
-            }
+            entity_ids = self
+                .merge_overlay_type_entity_ids(scan, scenario_id, entity_ids)
+                .await?;
         }
-        let has_more = entity_ids.len()
-            > usize::try_from(limit)
-                .map_err(|_| QueryError::Invalid("type query limit exceeds usize".to_owned()))?;
-        if has_more {
-            entity_ids.truncate(
-                usize::try_from(limit).map_err(|_| {
-                    QueryError::Invalid("type query limit exceeds usize".to_owned())
-                })?,
-            );
-        }
+        let has_more = apply_type_page_limit(&mut entity_ids, limit)?;
         let next_page_token = page::next_page_token(
             context,
             query,
@@ -367,6 +317,79 @@ impl QueryRuntime {
             has_more,
         )?;
         Ok((entity_values(entity_ids), next_page_token))
+    }
+
+    async fn load_type_entity_ids(
+        &self,
+        scan: TypeEntityScan<'_>,
+        source: &SourcePlan,
+    ) -> Result<Vec<EntityId>, QueryError> {
+        match source {
+            SourcePlan::Postgres { cut } => self
+                .claim_loader
+                .load_entity_ids(
+                    scan.context,
+                    &PostgresTypeQuery {
+                        after_entity_id: scan.after_entity_id.cloned(),
+                        cut: commit_sequence(*cut, "query cut")?,
+                        definition: scan.definition.clone(),
+                        limit: scan.fetch_limit,
+                        relation_ids: parse_relation_ids(scan.relation_ids)?,
+                        valid_at: scan.valid_at,
+                    },
+                )
+                .await
+                .map_err(adapter_error),
+            SourcePlan::Projection {
+                cut,
+                parquet_digest,
+                parquet_object_key,
+            } => {
+                self.load_projected_entity_ids(
+                    ProjectedScan {
+                        context: scan.context,
+                        definition: scan.definition,
+                        entity_id: None,
+                        valid_at: scan.valid_at,
+                        relation_ids: scan.relation_ids,
+                        cut: *cut,
+                        parquet_digest,
+                        parquet_object_key,
+                    },
+                    scan.fetch_limit,
+                    scan.after_entity_id,
+                )
+                .await
+            }
+        }
+    }
+
+    async fn merge_overlay_type_entity_ids(
+        &self,
+        scan: TypeEntityScan<'_>,
+        scenario_id: &ScenarioId,
+        entity_ids: Vec<EntityId>,
+    ) -> Result<Vec<EntityId>, QueryError> {
+        let overlay_ids = self
+            .claim_loader
+            .load_overlay_entity_ids(
+                scan.context,
+                &PostgresOverlayTypeQuery {
+                    after_entity_id: scan.after_entity_id.cloned(),
+                    definition: scan.definition.clone(),
+                    limit: scan.fetch_limit,
+                    relation_ids: parse_relation_ids(scan.relation_ids)?,
+                    scenario_id: scenario_id.clone(),
+                    valid_at: scan.valid_at,
+                },
+            )
+            .await
+            .map_err(adapter_error)?;
+        let mut merged: BTreeSet<EntityId> = entity_ids.into_iter().chain(overlay_ids).collect();
+        if let Some(after) = scan.after_entity_id {
+            merged.retain(|entity_id| entity_id.as_str() > after.as_str());
+        }
+        Ok(merged.into_iter().collect())
     }
 
     async fn select_source(
@@ -601,12 +624,7 @@ impl QueryRuntime {
                 .map_err(projected_corrupt)?;
         }
         let data = frame
-            .limit(
-                0,
-                Some(usize::try_from(limit).map_err(|_| {
-                    QueryError::Invalid("type query limit exceeds usize".to_owned())
-                })?),
-            )
+            .limit(0, Some(limit_as_usize(limit)?))
             .map_err(projected_corrupt)?
             .collect()
             .await
@@ -873,6 +891,28 @@ fn require_positive_limit(limit: u32) -> Result<u32, QueryError> {
     }
 }
 
+fn parse_relation_ids(relation_ids: &BTreeSet<String>) -> Result<BTreeSet<RelationId>, QueryError> {
+    relation_ids
+        .iter()
+        .map(RelationId::parse)
+        .collect::<Result<_, _>>()
+        .map_err(|error| QueryError::Corrupt(error.to_string()))
+}
+
+fn limit_as_usize(limit: u32) -> Result<usize, QueryError> {
+    usize::try_from(limit)
+        .map_err(|_| QueryError::Invalid("type query limit exceeds usize".to_owned()))
+}
+
+fn apply_type_page_limit(entity_ids: &mut Vec<EntityId>, limit: u32) -> Result<bool, QueryError> {
+    let limit = limit_as_usize(limit)?;
+    let has_more = entity_ids.len() > limit;
+    if has_more {
+        entity_ids.truncate(limit);
+    }
+    Ok(has_more)
+}
+
 fn relation_ids_for_type(
     definition: &CanonicalDefinition,
     type_id: &TypeId,
@@ -977,13 +1017,10 @@ fn u64_to_i64(value: u64, name: &str) -> Result<i64, QueryError> {
 }
 
 fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    encode_hex(Sha256::digest(bytes).as_slice())
 }
 
-fn unavailable(error: sqlx::Error) -> QueryError {
+fn unavailable(error: impl Display) -> QueryError {
     QueryError::Unavailable(error.to_string())
 }
 
@@ -1035,7 +1072,7 @@ fn adapter_error(error: StoreError) -> QueryError {
     }
 }
 
-fn projected_corrupt(error: datafusion::error::DataFusionError) -> QueryError {
+fn projected_corrupt(error: impl Display) -> QueryError {
     QueryError::Corrupt(error.to_string())
 }
 

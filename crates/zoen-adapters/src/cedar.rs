@@ -1,9 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::fs;
-use std::path::Path;
-use std::str::FromStr;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt::{Display, Formatter},
+    fs,
+    path::Path,
+    str::FromStr,
+};
 
 use cedar_policy::{Authorizer, Context, Decision, Entities, EntityUid, PolicySet, Request};
 use serde::Deserialize;
@@ -59,11 +61,23 @@ struct CompiledPolicy {
 }
 
 impl CedarPolicyEvaluator {
+    /// Load Cedar policies from a JSON manifest file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CedarConfigError`] when the file cannot be read or the manifest
+    /// is invalid.
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, CedarConfigError> {
         let source = fs::read_to_string(path).map_err(CedarConfigError::Read)?;
         Self::from_json(&source)
     }
 
+    /// Compile Cedar policies from a JSON manifest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CedarConfigError::Invalid`] when the manifest, digest, or
+    /// policy source cannot be compiled.
     pub fn from_json(source: &str) -> Result<Self, CedarConfigError> {
         let manifest = serde_json::from_str::<PolicyManifest>(source)
             .map_err(|error| CedarConfigError::Invalid(error.to_string()))?;
@@ -223,26 +237,28 @@ fn projection_json(projection: &PolicyWorldProjection, clearance: &Clearance) ->
         &mut seen,
         "Zoen::Tenant",
         projection.membership.tenant_id.as_str(),
-        serde_json::json!({}),
-        Vec::new(),
+        &serde_json::json!({}),
+        &[],
     );
+    let principal_attrs = serde_json::json!({
+        "clearance": clearance
+            .tokens()
+            .iter()
+            .map(|token| serde_json::Value::String(token.as_str().to_owned()))
+            .collect::<Vec<_>>(),
+        "tenantId": projection.membership.tenant_id.as_str()
+    });
+    let principal_parents = [serde_json::json!({
+        "type": "Zoen::Tenant",
+        "id": projection.membership.tenant_id.as_str()
+    })];
     push_cedar_entity(
         &mut entities,
         &mut seen,
         "Zoen::Principal",
         projection.membership.principal_id.as_str(),
-        serde_json::json!({
-            "clearance": clearance
-                .tokens()
-                .iter()
-                .map(|token| serde_json::Value::String(token.as_str().to_owned()))
-                .collect::<Vec<_>>(),
-            "tenantId": projection.membership.tenant_id.as_str()
-        }),
-        vec![serde_json::json!({
-            "type": "Zoen::Tenant",
-            "id": projection.membership.tenant_id.as_str()
-        })],
+        &principal_attrs,
+        &principal_parents,
     );
     push_object_entity(&mut entities, &mut seen, &projection.resource);
     for neighbor in &projection.neighbors {
@@ -256,13 +272,14 @@ fn push_object_entity(
     seen: &mut BTreeSet<(String, String)>,
     object: &PolicyObjectProjection,
 ) {
+    let attrs = object_attrs(object);
     push_cedar_entity(
         entities,
         seen,
         "Zoen::Resource",
         object.entity_id.as_str(),
-        object_attrs(object),
-        Vec::new(),
+        &attrs,
+        &[],
     );
 }
 
@@ -318,8 +335,8 @@ fn push_cedar_entity(
     seen: &mut BTreeSet<(String, String)>,
     entity_type: &str,
     id: &str,
-    attrs: serde_json::Value,
-    parents: Vec<serde_json::Value>,
+    attrs: &serde_json::Value,
+    parents: &[serde_json::Value],
 ) {
     if !seen.insert((entity_type.to_owned(), id.to_owned())) {
         return;
@@ -349,8 +366,7 @@ fn cedar_request(request: &PolicyRequest<'_>) -> Result<Request, String> {
             "actorId": request.context.actor_id().as_str(),
             "approved": request.approved,
             "classification": request.classification
-                .map(zoen_core::EvolutionClassification::as_str)
-                .unwrap_or("none"),
+                .map_or("none", zoen_core::EvolutionClassification::as_str),
             "inputs": inputs,
             "tenantId": request.context.tenant_id().as_str(),
             "workloadId": request.context.workload_id().as_str()
@@ -398,10 +414,7 @@ fn entity_uid(entity_type: &str, id: &str) -> Result<EntityUid, String> {
 }
 
 fn sha256(value: &[u8]) -> String {
-    Sha256::digest(value)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    zoen_core::encode_hex(&Sha256::digest(value))
 }
 
 #[derive(Deserialize)]
@@ -585,7 +598,7 @@ mod tests {
     #[tokio::test]
     async fn reports_the_input_that_exceeds_cedars_integer_range() {
         let definition_digest = "a".repeat(64);
-        let source = r#"permit(principal, action, resource);"#;
+        let source = r"permit(principal, action, resource);";
         let evaluator = CedarPolicyEvaluator::from_json(&format!(
             r#"{{"policies":[{{"actionId":"action.purchase","definitionDigest":"{definition_digest}","digest":"{}","policyId":"policy.permit","revision":1,"source":{}}}]}}"#,
             sha256(source.as_bytes()),

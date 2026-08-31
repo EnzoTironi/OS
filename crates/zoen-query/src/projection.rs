@@ -1,15 +1,17 @@
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
-use object_store::path::Path;
-use object_store::{ObjectStore, PutMode, PutOptions};
+use object_store::{ObjectStore, PutMode, PutOptions, path::Path};
 use parquet::arrow::ArrowWriter;
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 use zoen_core::TenantId;
 
-use crate::physical::{PhysicalClaim, claims_to_batch};
-use crate::{ObjectStoreConfig, QueryError, sha256};
+use crate::{
+    ObjectStoreConfig, QueryError,
+    physical::{PhysicalClaim, claims_to_batch},
+    sha256,
+};
 
 const PROJECTION_ID: &str = "semantic_claims_v1";
 const SEMANTIC_SCHEMA_REVISION: u32 = 1;
@@ -51,6 +53,12 @@ pub struct ProjectionWorker {
 }
 
 impl ProjectionWorker {
+    /// Open a projection worker against Postgres and the configured object store.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QueryError::Unavailable`] when the object store client cannot be
+    /// constructed from `object_store`.
     pub fn new(pool: PgPool, object_store: &ObjectStoreConfig) -> Result<Self, QueryError> {
         Ok(Self {
             pool,
@@ -58,6 +66,13 @@ impl ProjectionWorker {
         })
     }
 
+    /// Project semantic claims through the tenant authority head.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QueryError`] when the tenant has no authority commits, projection
+    /// outbox coverage is incomplete, stored rows are corrupt, object storage is
+    /// unavailable, or a newer watermark already exists.
     pub async fn run_once(
         &self,
         tenant_id: &TenantId,
@@ -428,7 +443,7 @@ fn i64_to_u64(value: i64, name: &str) -> Result<u64, QueryError> {
         .map_err(|_| QueryError::Corrupt(format!("{name} is negative or out of range")))
 }
 
-fn unavailable(error: sqlx::Error) -> QueryError {
+fn unavailable(error: impl Display) -> QueryError {
     QueryError::Unavailable(error.to_string())
 }
 

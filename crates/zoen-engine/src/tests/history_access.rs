@@ -15,7 +15,7 @@ use zoen_core::{
 
 use super::{
     ActionHistorySnapshot, ClaimHistorySnapshot, HistorySnapshot, PayloadAccess, causal_proposal,
-    hex_digest, payload_access,
+    payload_access,
 };
 
 const ZERO_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -93,7 +93,9 @@ fn definition_revision() -> DefinitionRevision {
     )
     .expect("canonical definition");
     DefinitionRevision {
-        digest: DefinitionDigest::parse(hex_digest(Sha256::digest(canonical_json.as_bytes())))
+        digest: DefinitionDigest::parse(zoen_core::encode_hex(
+            Sha256::digest(canonical_json.as_bytes()).as_ref(),
+        ))
             .expect("definition digest"),
         canonical_json,
         commit_sequence: CommitSequence::new(1).expect("commit sequence"),

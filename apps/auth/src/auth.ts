@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { deviceAuthorization } from "better-auth/plugins/device-authorization";
 import { Pool } from "pg";
-import { loadConfig, type DoorConfig } from "./config.ts";
+import { type DoorConfig, loadConfig } from "./config.ts";
 
 const googleScopes = [
   "openid",
@@ -16,22 +16,22 @@ const googleScopes = [
   "https://www.googleapis.com/auth/documents",
 ] as const;
 
-export function createAuth(config: DoorConfig) {
+export function createAuth(door: DoorConfig) {
   return betterAuth({
-    database: new Pool({ connectionString: config.databaseUrl }),
-    baseURL: config.baseURL,
-    secret: config.betterAuthSecret,
+    baseURL: door.baseURL,
+    database: new Pool({ connectionString: door.databaseUrl }),
     emailAndPassword: { enabled: true },
-    ...(config.google.kind === "set"
+    secret: door.betterAuthSecret,
+    ...(door.google.kind === "set"
       ? {
           socialProviders: {
             google: {
-              clientId: config.google.clientId,
-              clientSecret: config.google.clientSecret,
-              scope: [...googleScopes],
-              disableDefaultScope: true,
               accessType: "offline",
+              clientId: door.google.clientId,
+              clientSecret: door.google.clientSecret,
+              disableDefaultScope: true,
               prompt: "select_account",
+              scope: [...googleScopes],
             },
           },
         }

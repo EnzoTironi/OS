@@ -326,7 +326,7 @@ fi
 sleep 1
 
 policies="${repo}/deploy/fly/policies.json"
-zoend_bin="${repo}/target/debug/zoend"
+zoend_bin="${repo}/target/debug/zoen"
 if [[ ! -x "$zoend_bin" ]]; then
   (
     cd "$repo"

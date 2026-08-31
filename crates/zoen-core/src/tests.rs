@@ -1,11 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::expression::apply_expression_operator;
 use crate::{
     ActionId, ActionPreviewHash, BinaryOperator, DefinitionDigest, DelegationChain,
     DelegationError, DelegationGrant, DelegationId, ExactDecimal, ExactInteger, ExactValue,
     Expression, InputId, RelationId, ResourceId, SemanticValue, TimestampMicros, UnitId, ValidTime,
-    WorkloadId, evaluate_expression,
+    WorkloadId, evaluate_expression, expression::apply_expression_operator,
 };
 
 #[test]

@@ -18,9 +18,7 @@ const InventoryItem = defineType({
 });
 
 const Warehouse = defineType({
-  attributes: [
-    { id: "code", valueType: { kind: "text" } },
-  ],
+  attributes: [{ id: "code", valueType: { kind: "text" } }],
   id: "inventory.Warehouse",
 });
 

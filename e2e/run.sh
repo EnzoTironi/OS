@@ -5,6 +5,7 @@ set -euo pipefail
 # `just verify` runs check and native build once, then each scenario runner.
 # scenario_table fields: name:realm:variant:class
 # class is live | credential.
+# dest live leaves realm empty. Credential fiscal realm still runs prepare-realm.mjs.
 # just verify runs only class=live. Credential fiscal stays optional.
 # `just verify-v1` aggregates typed artifacts into a signed zoen.verify.v1 bundle.
 # `just verify-activation` aggregates AD artifacts into a signed zoen.activation.v1 bundle.
@@ -13,23 +14,23 @@ set -euo pipefail
 # never share host ports or generated files with another scenario.
 
 scenario_table=(
-  "activation-identity:activation-identity::live"
-  "messaging-boundary:messaging-boundary::live"
-  "definition-publication:governed-action::live"
-  "cedar-object-projection:cedar-object-projection::live"
-  "commercial-identity:commercial-identity::live"
-  "dirty-quote:dirty-quote::live"
-  "durable-commit:governed-action::live"
-  "evolution-breaking:evolution-breaking::live"
-  "evolution-compatible:evolution-compatible::live"
-  "explain:governed-action::live"
+  "activation-identity:::live"
+  "messaging-boundary:::live"
+  "definition-publication:::live"
+  "cedar-object-projection:::live"
+  "commercial-identity:::live"
+  "dirty-quote:::live"
+  "durable-commit:::live"
+  "evolution-breaking:::live"
+  "evolution-compatible:::live"
+  "explain:::live"
   "fiscal-systax-live:fiscal-systax-live::credential"
   "fiscal-plugnotas-live:fiscal-plugnotas-live::credential"
   "fiscal-protheus-live:fiscal-protheus-live::credential"
-  "governed-action:governed-action::live"
+  "governed-action:::live"
   "public-surface:::live"
-  "semantic-query:semantic-query::live"
-  "wasm-code-mode:wasm-code-mode::live"
+  "semantic-query:::live"
+  "wasm-code-mode:::live"
 )
 
 scenario=""
@@ -81,8 +82,9 @@ resolve_scenario() {
   local row
   local name
   local realm
+  local klass
   for row in "${scenario_table[@]}"; do
-    IFS=: read -r name realm _ <<< "$row"
+    IFS=: read -r name realm _ klass <<< "$row"
     if [[ "$name" == "$candidate" ]]; then
       scenario="$name"
       compose_file="e2e/${scenario}/compose.yaml"
@@ -92,7 +94,7 @@ resolve_scenario() {
       if [[ "$scenario" == "public-surface" ]]; then
         compose_file=""
         project=""
-      elif [[ -n "$realm" ]]; then
+      elif [[ "$klass" == "credential" && -n "$realm" ]]; then
         prepare="e2e/${realm}/prepare-realm.mjs"
       fi
       load_scenario_env
@@ -124,6 +126,7 @@ run_lint() {
     exit 1
   fi
   npm run build
+  npm run lint:ts
   node scripts/generate-jcs-fixtures.mjs --check
   cargo fmt --all --check
   cargo test --locked --workspace
@@ -132,7 +135,7 @@ run_lint() {
 }
 
 run_clippy() {
-  cargo clippy --locked --workspace --all-targets -- -D warnings
+  cargo clippy --locked --workspace --all-targets --exclude zoen-proto --no-deps -- -D warnings
 }
 
 run_check() {
@@ -151,8 +154,8 @@ run_build() {
 }
 
 require_built() {
-  if [[ "$scenario" != "public-surface" && ! -x target/debug/zoend ]]; then
-    echo "missing target/debug/zoend; run \`just build\` or \`just e2e ${scenario}\`" >&2
+  if [[ "$scenario" != "public-surface" && ! -x target/debug/zoen ]]; then
+    echo "missing target/debug/zoen; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
   if [[ ! -f "$runner" ]]; then
@@ -223,6 +226,7 @@ run_scenario() {
     trap - EXIT
     return
   fi
+  mkdir -p "$generated_directory"
   if [[ -n "$prepare" ]]; then
     node "$prepare"
   fi

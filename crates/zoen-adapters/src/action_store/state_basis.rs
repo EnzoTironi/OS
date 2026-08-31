@@ -10,8 +10,7 @@ use zoen_engine::{
     evaluate_semantic_claims, read_action_state_basis,
 };
 
-use crate::claim_store::load_in_transaction;
-use crate::{PostgresClaimQuery, store_unavailable};
+use crate::{PostgresClaimQuery, claim_store::load_in_transaction, store_unavailable};
 
 use super::{commit_sequence, corrupt};
 
@@ -80,7 +79,7 @@ pub(crate) async fn load_current(
     read_action_state_basis(
         action,
         &definition,
-        ActionStateSnapshot {
+        &ActionStateSnapshot {
             observed_commit_sequence: cut,
             relations,
         },

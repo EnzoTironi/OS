@@ -22,11 +22,7 @@ export type Expression =
   | {
       readonly kind: "binary";
       readonly left: Expression;
-      readonly operator:
-        | "add"
-        | "greater_than"
-        | "multiply"
-        | "subtract";
+      readonly operator: "add" | "greater_than" | "multiply" | "subtract";
       readonly right: Expression;
     }
   | { readonly kind: "input"; readonly inputId: string }

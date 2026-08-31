@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use crate::{
     ActorId, DelegationChain, IdentifierError, PrincipalId, TenantId, TimestampMicros,
@@ -13,10 +15,14 @@ macro_rules! identity_id {
         pub struct $name(String);
 
         impl $name {
+            /// # Errors
+            ///
+            /// Returns [`IdentifierError`] when `value` is not a valid identifier.
             pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
                 crate::parse_identifier(value.into(), stringify!($name)).map(Self)
             }
 
+            #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0
             }
@@ -43,6 +49,10 @@ pub const WORLD_TOP: &str = "zoen.world.top";
 pub struct SessionId(String);
 
 impl SessionId {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidSessionToken`] when `value` is empty or longer
+    /// than 200 bytes.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.is_empty() || value.len() > 200 {
@@ -51,6 +61,7 @@ impl SessionId {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -66,20 +77,27 @@ impl Display for SessionId {
 pub struct ClassificationToken(String);
 
 impl ClassificationToken {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidClearance`] when `value` is not a valid
+    /// identifier.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         crate::parse_identifier(value.into(), "ClassificationToken")
             .map(Self)
             .map_err(|_| IdentityError::InvalidClearance)
     }
 
+    #[must_use]
     pub fn world_floor() -> Self {
         Self(WORLD_FLOOR.to_owned())
     }
 
+    #[must_use]
     pub fn top() -> Self {
         Self(WORLD_TOP.to_owned())
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -91,6 +109,9 @@ pub struct Clearance {
 }
 
 impl Clearance {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::MissingClearance`] when `tokens` is empty.
     pub fn from_tokens(
         tokens: impl IntoIterator<Item = ClassificationToken>,
     ) -> Result<Self, IdentityError> {
@@ -101,6 +122,10 @@ impl Clearance {
         Ok(Self { tokens })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidClearance`] when a token is not a valid
+    /// identifier, or [`IdentityError::MissingClearance`] when no tokens remain.
     pub fn from_token_strings(
         values: impl IntoIterator<Item = impl Into<String>>,
     ) -> Result<Self, IdentityError> {
@@ -111,12 +136,14 @@ impl Clearance {
         Self::from_tokens(tokens)
     }
 
+    #[must_use]
     pub fn world_floor() -> Self {
         Self {
             tokens: BTreeSet::from([ClassificationToken::world_floor()]),
         }
     }
 
+    #[must_use]
     pub fn personal_owner() -> Self {
         Self {
             tokens: BTreeSet::from([
@@ -126,10 +153,12 @@ impl Clearance {
         }
     }
 
+    #[must_use]
     pub fn tokens(&self) -> &BTreeSet<ClassificationToken> {
         &self.tokens
     }
 
+    #[must_use]
     pub fn to_token_strings(&self) -> Vec<String> {
         self.tokens
             .iter()
@@ -137,6 +166,7 @@ impl Clearance {
             .collect()
     }
 
+    #[must_use]
     pub fn dominates(&self, label: &BTreeSet<ClassificationToken>) -> bool {
         label.iter().all(|token| self.tokens.contains(token))
     }
@@ -153,6 +183,7 @@ pub fn resource_label(
     }
 }
 
+#[must_use]
 pub fn mac_write_permitted(clearance: &Clearance, written: &BTreeSet<ClassificationToken>) -> bool {
     clearance.dominates(&resource_label(written.iter().cloned()))
 }
@@ -177,6 +208,10 @@ pub fn join_labels(
 pub struct OpaqueSessionToken(String);
 
 impl OpaqueSessionToken {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidSessionToken`] when `value` is empty, too
+    /// long, or a three-part `JWT`.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.is_empty() || value.len() > 4096 {
@@ -188,6 +223,7 @@ impl OpaqueSessionToken {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -197,6 +233,10 @@ impl OpaqueSessionToken {
 pub struct WorkloadExchangeToken(String);
 
 impl WorkloadExchangeToken {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unauthenticated`] when `value` is missing the `wlx.`
+    /// prefix or is too long.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if !value.starts_with("wlx.") || value.len() > 200 {
@@ -205,6 +245,7 @@ impl WorkloadExchangeToken {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -214,6 +255,9 @@ impl WorkloadExchangeToken {
 pub struct MachineToken(String);
 
 impl MachineToken {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unauthenticated`] when `value` is empty or too long.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.is_empty() || value.len() > 4096 {
@@ -222,6 +266,7 @@ impl MachineToken {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -238,6 +283,10 @@ pub enum SessionCredential {
 }
 
 impl SessionCredential {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unauthenticated`] when the header is missing, not a
+    /// Bearer token, or not a recognized session credential.
     pub fn from_authorization(header: Option<&str>) -> Result<Self, IdentityError> {
         let token = header
             .and_then(|value| value.strip_prefix("Bearer "))
@@ -276,7 +325,7 @@ pub enum AccountStatus {
     },
 }
 
-/// Provider-native sender. Never used as TenantPrincipal / PrincipalId.
+/// Provider-native sender. Never used as `TenantPrincipal` / `PrincipalId`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExternalSubject {
     pub provider: ChannelProvider,
@@ -284,6 +333,10 @@ pub struct ExternalSubject {
 }
 
 impl ExternalSubject {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidSubject`] when `subject_key` is empty, too
+    /// long, or not a person subject for `WhatsApp`.
     pub fn new(
         provider: ChannelProvider,
         subject_key: impl Into<String>,
@@ -301,9 +354,14 @@ impl ExternalSubject {
         })
     }
 
-    /// Fail closed when the WhatsApp door cannot be distinguished from a person.
+    /// Fail closed when the `WhatsApp` door cannot be distinguished from a person.
     /// Missing or empty door is `InvalidSubject`. A configured door that matches
     /// this subject is also `InvalidSubject`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidSubject`] when the door is missing, empty, or
+    /// matches this `WhatsApp` subject.
     pub fn reject_if_whatsapp_door(&self, door_e164: Option<&str>) -> Result<(), IdentityError> {
         if self.provider != ChannelProvider::WhatsApp {
             return Ok(());
@@ -329,7 +387,7 @@ pub enum ChannelProvider {
 }
 
 fn whatsapp_digits(value: &str) -> String {
-    value.chars().filter(|ch| ch.is_ascii_digit()).collect()
+    value.chars().filter(char::is_ascii_digit).collect()
 }
 
 fn is_whatsapp_person_subject(subject_key: &str) -> bool {
@@ -354,6 +412,7 @@ fn is_whatsapp_person_subject(subject_key: &str) -> bool {
 }
 
 impl ChannelProvider {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AuthDoor => "auth_door",
@@ -363,6 +422,10 @@ impl ChannelProvider {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidProvider`] when `value` is not a known channel
+    /// provider.
     pub fn parse(value: &str) -> Result<Self, IdentityError> {
         match value {
             "auth_door" => Ok(Self::AuthDoor),
@@ -393,6 +456,7 @@ pub enum UnbindReason {
 }
 
 impl UnbindReason {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Recycle => "recycle",
@@ -402,6 +466,10 @@ impl UnbindReason {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidUnbindReason`] when `value` is not a known
+    /// unbind reason.
     pub fn parse(value: &str) -> Result<Self, IdentityError> {
         match value {
             "recycle" => Ok(Self::Recycle),
@@ -442,6 +510,7 @@ pub enum RevocationReason {
 }
 
 impl RevocationReason {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Admin => "admin",
@@ -450,6 +519,10 @@ impl RevocationReason {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidRevocationReason`] when `value` is not a known
+    /// revocation reason.
     pub fn parse(value: &str) -> Result<Self, IdentityError> {
         match value {
             "admin" => Ok(Self::Admin),
@@ -500,6 +573,10 @@ pub struct Invite {
 pub struct InviteToken(String);
 
 impl InviteToken {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidInviteToken`] when `value` is empty or longer
+    /// than 200 bytes.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.is_empty() || value.len() > 200 {
@@ -508,6 +585,7 @@ impl InviteToken {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -603,6 +681,11 @@ impl Display for IdentityError {
 impl Error for IdentityError {}
 
 /// Build TEC from an Active membership only. Claim hints never enter here.
+///
+/// # Errors
+///
+/// Returns [`IdentityError::MembershipInactive`] when the membership is revoked or
+/// has left.
 pub fn trusted_context_from_membership(
     membership: &Membership,
 ) -> Result<TrustedExecutionContext, IdentityError> {
@@ -667,6 +750,7 @@ pub enum WorkloadRevocationReason {
 }
 
 impl WorkloadRevocationReason {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Admin => "admin",
@@ -676,6 +760,10 @@ impl WorkloadRevocationReason {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidRevocationReason`] when `value` is not a known
+    /// workload revocation reason.
     pub fn parse(value: &str) -> Result<Self, IdentityError> {
         match value {
             "admin" => Ok(Self::Admin),
@@ -711,6 +799,7 @@ pub enum ProjectedCapabilityKind {
 }
 
 impl ProjectedCapabilityKind {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Discover => "discover",
@@ -721,6 +810,10 @@ impl ProjectedCapabilityKind {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Conflict`] when `value` is not a known projected
+    /// capability kind.
     pub fn parse(value: &str) -> Result<Self, IdentityError> {
         match value {
             "discover" => Ok(Self::Discover),
@@ -745,6 +838,10 @@ pub struct RateBudgetPolicy {
 pub struct AudienceClass(String);
 
 impl AudienceClass {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Conflict`] when `value` is empty or longer than 200
+    /// bytes.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.is_empty() || value.len() > 200 {
@@ -753,6 +850,7 @@ impl AudienceClass {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -762,6 +860,10 @@ impl AudienceClass {
 pub struct SourceClass(String);
 
 impl SourceClass {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Conflict`] when `value` is empty or longer than 200
+    /// bytes.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.is_empty() || value.len() > 200 {
@@ -770,6 +872,7 @@ impl SourceClass {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -779,6 +882,10 @@ impl SourceClass {
 pub struct ServerAllowId(String);
 
 impl ServerAllowId {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Conflict`] when `value` is empty or longer than 200
+    /// bytes.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.is_empty() || value.len() > 200 {
@@ -789,13 +896,14 @@ impl ServerAllowId {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
 /// Authentication evidence after API-key or workload-JWT verification.
-/// Never a TrustedExecutionContext.
+/// Never a `TrustedExecutionContext`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedWorkloadEvidence {
     pub credential_lookup_key: WorkloadCredentialLookupKey,
@@ -824,8 +932,13 @@ pub enum WorkloadCredentialLookupKey {
     JwtSubject { issuer: String, subject: String },
 }
 
-/// Build TEC from an Active, non-expired WorkloadCredential only.
+/// Build TEC from an Active, non-expired `WorkloadCredential` only.
 /// Claim / body hints never enter here.
+///
+/// # Errors
+///
+/// Returns [`IdentityError::WorkloadCredentialExpired`] when the credential is
+/// expired, or [`IdentityError::WorkloadCredentialInactive`] when it is revoked.
 pub fn trusted_context_from_workload_credential(
     credential: &WorkloadCredential,
     now: TimestampMicros,

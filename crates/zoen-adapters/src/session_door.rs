@@ -1,5 +1,4 @@
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 use zoen_core::{
     IdentityError, OpaqueSessionToken, SessionId, TimestampMicros, VerifiedSessionEvidence,
 };
@@ -10,6 +9,11 @@ pub struct SessionDoor {
 }
 
 impl SessionDoor {
+    /// Open the Better Auth session store.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unavailable`] when `PostgreSQL` is unreachable.
     pub async fn connect(database_url: &str) -> Result<Self, IdentityError> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
@@ -19,6 +23,12 @@ impl SessionDoor {
         Ok(Self { pool })
     }
 
+    /// Resolve an opaque Better Auth session token.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unauthenticated`] when the session is missing
+    /// or expired, or [`IdentityError::Unavailable`] when `PostgreSQL` fails.
     pub async fn verify(
         &self,
         token: &OpaqueSessionToken,

@@ -18,15 +18,16 @@ const forbidden = [
   /createKapsoAdapter/,
 ];
 
-const hits = [];
-for (const relative of files) {
-  const text = await readFile(path.join(root, relative), "utf8");
-  for (const pattern of forbidden) {
-    if (pattern.test(text)) {
-      hits.push(`${relative} matches ${pattern}`);
-    }
-  }
-}
+const hits = (
+  await Promise.all(
+    files.map(async (relative) => {
+      const text = await readFile(path.join(root, relative), "utf8");
+      return forbidden
+        .filter((pattern) => pattern.test(text))
+        .map((pattern) => `${relative} matches ${pattern}`);
+    })
+  )
+).flat();
 
 if (hits.length > 0) {
   console.error(hits.join("\n"));

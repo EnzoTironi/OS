@@ -99,7 +99,7 @@ const cargoTargetDir =
   process.env.CARGO_TARGET_DIR === ""
     ? path.join(repositoryRoot, "target")
     : process.env.CARGO_TARGET_DIR;
-const serverPath = path.join(cargoTargetDir, "debug", "zoend");
+const serverPath = path.join(cargoTargetDir, "debug", "zoen");
 const commercialSource = path.join(
   repositoryRoot,
   "packages",

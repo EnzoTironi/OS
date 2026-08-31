@@ -1,6 +1,4 @@
-use std::cmp::Ordering;
-use std::fmt::Display;
-use std::time::Instant;
+use std::{cmp::Ordering, fmt::Display, time::Instant};
 
 use serde::{Deserialize, Serialize};
 use zoen_core::{
@@ -12,10 +10,11 @@ use zoen_core::{
     UnitId, ValueType,
 };
 
-use crate::metrics::{record_admit_latency, record_jcs_mismatch};
 use crate::{
     AdmittedDefinitionPublication, AdmittedEvidence, EvidenceValidationError, ProjectionEvent,
-    PublishError, RecordEvidenceError, verify_digest,
+    PublishError, RecordEvidenceError,
+    metrics::{record_admit_latency, record_jcs_mismatch},
+    verify_digest,
 };
 
 mod validation;
@@ -138,6 +137,11 @@ fn admit_evidence_draft(
     Ok(AdmittedEvidence::new(draft, event))
 }
 
+/// Decode and validate a stored canonical definition document.
+///
+/// # Errors
+///
+/// Returns [`PublishError`] when the JSON is malformed or the definition fails validation.
 pub fn decode_canonical_definition(
     canonical_json: &CanonicalJson,
 ) -> Result<CanonicalDefinition, PublishError> {
@@ -723,10 +727,7 @@ mod tests {
     }
 
     fn digest(bytes: &[u8]) -> DefinitionDigest {
-        let encoded = Sha256::digest(bytes)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        DefinitionDigest::parse(encoded).expect("SHA-256 digest")
+        DefinitionDigest::parse(zoen_core::encode_hex(Sha256::digest(bytes).as_ref()))
+            .expect("SHA-256 digest")
     }
 }

@@ -1,7 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use sqlx::postgres::PgRow;
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Row, postgres::PgRow};
 use zoen_core::{
     AudienceClass, DigestRef, DurableEventId, ExternalSignal, ExternalSignalDraft,
     ExternalSignalId, IdentityError, IngressAllowance, PrincipalId, SignalSourceIdentity,
@@ -15,11 +14,17 @@ pub struct PostgresExternalSignalStore {
 }
 
 impl PostgresExternalSignalStore {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
-    /// Idempotent on (tenant_id, durable_event_id). Replay returns prior row.
+    /// Idempotent on (`tenant_id`, `durable_event_id`). Replay returns prior row.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when the TEC does not match the credential,
+    /// ingress is denied, or `PostgreSQL` is unavailable.
     pub async fn accept(
         &self,
         tec: &TrustedExecutionContext,
@@ -163,11 +168,7 @@ fn new_signal_id() -> ExternalSignalId {
 }
 
 fn now_micros() -> TimestampMicros {
-    let micros = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_micros() as i64)
-        .unwrap_or(0);
-    TimestampMicros::new(micros)
+    TimestampMicros::new(crate::clock_micros())
 }
 
 fn unavailable(error: impl std::fmt::Display) -> IdentityError {

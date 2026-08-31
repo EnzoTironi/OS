@@ -1,13 +1,14 @@
-use axum::Json;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::{
+    Json,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use zoen_adapters::PostgresIdentityStore;
 use zoen_core::{
     ChannelProvider, ExternalSubject, IdentityError, VerifiedSessionEvidence, ZoenAccountId,
 };
 
-use crate::ingress_hmac::constant_time_eq;
-use crate::session::SessionExchange;
+use crate::{ingress_hmac::constant_time_eq, session::SessionExchange};
 
 #[derive(Clone, Debug)]
 pub enum IdentityAdminActor {
@@ -60,12 +61,12 @@ pub async fn require_account(
                 evidence.door_user_key.clone(),
             ) {
                 Ok(subject) => subject,
-                Err(error) => return Some(identity_error_response(error)),
+                Err(error) => return Some(identity_error_response(&error)),
             };
             match identity.snapshot_for_verified_subject(&subject).await {
                 Ok((_, snapshot)) if snapshot.account.id == *account_id => None,
                 Ok(_) => Some(forbidden()),
-                Err(error) => Some(identity_error_response(error)),
+                Err(error) => Some(identity_error_response(&error)),
             }
         }
     }
@@ -79,7 +80,7 @@ pub fn forbidden() -> Response {
         .into_response()
 }
 
-pub fn identity_error_response(error: IdentityError) -> Response {
+pub fn identity_error_response(error: &IdentityError) -> Response {
     let status = match error {
         IdentityError::Unauthenticated | IdentityError::InvalidSessionToken => {
             StatusCode::UNAUTHORIZED

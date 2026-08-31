@@ -26,12 +26,57 @@ import {
   QuerySelectionSchema,
   type DefinitionReference,
 } from "../../gen/connect/zoen/world/v1/world_pb.js";
+import { invitePersona, type DoorPersona } from "../ba-door.js";
 import { e2eHttpUrl } from "../host-env.js";
 
 export const componentInterface = "zoen:code-mode/computation@1.0.0";
 export const entityId = "inventory.item.1";
 export const relationId = "inventory.available";
 export const validAt = new Date("2026-08-19T00:00:00.000Z");
+
+const wasmDefinitionIds = [
+  "inventory.governed",
+  "inventory.governed.human",
+] as const;
+
+export const wasmCodeModePersonas: readonly DoorPersona[] = [
+  invitePersona({
+    actionIds: ["inventory.requestStock"],
+    actorId: "actor.agent.a",
+    id: "agent-a",
+    principalId: "principal.agent.a",
+    resourceIds: [entityId],
+    tenantId: "tenant.a",
+    workloadId: "workload.agent.a",
+  }),
+  invitePersona({
+    actionIds: ["zoen.definition.activate"],
+    actorId: "actor.agent.b",
+    id: "agent-b",
+    principalId: "principal.agent.b",
+    resourceIds: [entityId],
+    tenantId: "tenant.b",
+    workloadId: "workload.agent.b",
+  }),
+  invitePersona({
+    actionIds: ["zoen.definition.activate"],
+    actorId: "actor.admin.a",
+    id: "admin-a",
+    principalId: "principal.admin.a",
+    resourceIds: wasmDefinitionIds,
+    tenantId: "tenant.a",
+    workloadId: "workload.admin.a",
+  }),
+  invitePersona({
+    actionIds: ["zoen.definition.activate"],
+    actorId: "actor.admin.b",
+    id: "admin-b",
+    principalId: "principal.admin.b",
+    resourceIds: wasmDefinitionIds,
+    tenantId: "tenant.b",
+    workloadId: "workload.admin.b",
+  }),
+];
 
 const repositoryRoot = process.cwd();
 const fixtureDirectory = path.join(

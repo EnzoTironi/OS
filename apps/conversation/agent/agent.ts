@@ -10,11 +10,6 @@ const modelId = specified.includes("/")
   : specified;
 
 export default defineAgent({
-  model: createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL,
-  }).chat(modelId),
-  modelContextWindowTokens: 128_000,
   build: {
     externalDependencies: [
       "@rivet-dev/agentos-core",
@@ -25,4 +20,9 @@ export default defineAgent({
       "isolated-vm",
     ],
   },
+  model: createOpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_BASE_URL,
+  }).chat(modelId),
+  modelContextWindowTokens: 128_000,
 });

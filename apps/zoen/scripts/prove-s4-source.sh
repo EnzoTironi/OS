@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/../../.." && pwd)"
 auth="$repo/apps/auth"
-zoen="$repo/apps/zoen/zoen"
+zoen="$repo/target/debug/zoen"
 cd "$auth"
 
 if [[ -z "${DOCKER_HOST:-}" && ! -S /var/run/docker.sock ]]; then
@@ -233,7 +233,7 @@ sleep 1
 docker exec "$zoend_pg_name" psql -U postgres -d zoen -c 'SELECT 1' >/dev/null \
   || fail "zoend postgres select 1 failed"
 
-zoend_bin="${repo}/target/debug/zoend"
+zoend_bin="${repo}/target/debug/zoen"
 if [[ ! -x "$zoend_bin" ]]; then
   (
     cd "$repo"
@@ -344,7 +344,7 @@ export ZOEN_WORKLOAD="$workload_id"
 mkdir -p "$ZOEN_SOURCE_HOME"
 
 help_out="$(run_zoen help)"
-record "zoen help" "apps/zoen/zoen help" "n/a" "0" "$(printf '%s' "$help_out" | excerpt_text)"
+record "zoen help" "zoen help" "n/a" "0" "$(printf '%s' "$help_out" | excerpt_text)"
 printf '%s\n' "$help_out" | grep -q "zoen source connect" || fail "help missing source connect"
 
 out="$(run_zoen definition publish --file "$canon")"

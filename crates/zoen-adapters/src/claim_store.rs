@@ -34,10 +34,14 @@ pub struct PostgresTypeQuery {
 }
 
 impl PostgresClaimLoader {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
     pub async fn load(
         &self,
         context: &ExecutionContext,
@@ -50,6 +54,9 @@ impl PostgresClaimLoader {
         Ok(claims)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
     pub async fn load_entity_ids(
         &self,
         context: &ExecutionContext,
@@ -63,6 +70,9 @@ impl PostgresClaimLoader {
     }
 }
 
+/// # Errors
+///
+/// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
 pub(crate) async fn load_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     context: &ExecutionContext,
@@ -110,6 +120,9 @@ pub(crate) async fn load_in_transaction(
     rows.iter().map(row_to_claim).collect()
 }
 
+/// # Errors
+///
+/// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
 pub(crate) async fn load_entity_ids_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     context: &ExecutionContext,
@@ -187,6 +200,9 @@ pub struct PostgresOverlayTypeQuery {
 }
 
 impl PostgresClaimLoader {
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
     pub async fn load_overlay(
         &self,
         context: &ExecutionContext,
@@ -199,6 +215,9 @@ impl PostgresClaimLoader {
         Ok(claims)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
     pub async fn load_overlay_entity_ids(
         &self,
         context: &ExecutionContext,
@@ -212,6 +231,9 @@ impl PostgresClaimLoader {
         Ok(entity_ids)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
     pub async fn require_open_scenario_base(
         &self,
         context: &ExecutionContext,
@@ -246,6 +268,9 @@ impl PostgresClaimLoader {
     }
 }
 
+/// # Errors
+///
+/// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
 pub(crate) async fn load_overlay_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     context: &ExecutionContext,
@@ -297,6 +322,9 @@ pub(crate) async fn load_overlay_in_transaction(
     rows.iter().map(row_to_claim).collect()
 }
 
+/// # Errors
+///
+/// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is corrupt.
 pub(crate) async fn load_overlay_entity_ids_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     context: &ExecutionContext,

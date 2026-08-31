@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use datafusion::arrow::array::{Array, ArrayRef, Int64Array, StringArray, StringViewArray};
-use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use datafusion::arrow::record_batch::RecordBatch;
-use sqlx::Row;
-use sqlx::postgres::PgRow;
+use datafusion::arrow::{
+    array::{Array, ArrayRef, Int64Array, StringArray, StringViewArray},
+    datatypes::{DataType, Field, Schema, SchemaRef},
+    record_batch::RecordBatch,
+};
+use sqlx::{Row, postgres::PgRow};
 
 use crate::QueryError;
 

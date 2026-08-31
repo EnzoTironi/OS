@@ -1,4 +1,8 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { toNodeHandler } from "better-auth/node";
 import { auth, config } from "./auth.ts";
 import { devicePage, onboardDone, onboardStart } from "./html.ts";
@@ -31,11 +35,7 @@ const server = createServer((req, res) => {
 
   if (pathname.startsWith("/api/auth")) {
     if (config.google.kind === "unset" && isGooglePath(pathname)) {
-      sendText(
-        res,
-        503,
-        "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set",
-      );
+      sendText(res, 503, "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set");
       return;
     }
     handleAuth(req, res);
@@ -71,6 +71,6 @@ const server = createServer((req, res) => {
 
 server.listen(config.listenPort, config.listenHost, () => {
   process.stdout.write(
-    `http://${config.listenHost}:${String(config.listenPort)}\n`,
+    `http://${config.listenHost}:${String(config.listenPort)}\n`
   );
 });

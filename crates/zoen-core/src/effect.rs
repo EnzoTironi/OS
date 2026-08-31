@@ -54,9 +54,14 @@ pub enum EffectAttemptResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffectRequestIdentity {
+    pub effect_request_id: EffectRequestId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectRequest {
     pub commit_sequence: CommitSequence,
-    pub effect_request_id: EffectRequestId,
+    pub identity: EffectRequestIdentity,
     pub idempotency_key: EffectIdempotencyKey,
     pub intent_digest: IntentDigest,
     pub operation_id: OperationId,

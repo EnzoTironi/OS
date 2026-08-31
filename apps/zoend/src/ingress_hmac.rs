@@ -1,17 +1,17 @@
-use std::collections::HashSet;
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashSet,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use axum::http::{HeaderMap, HeaderName, StatusCode};
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
-use hmac::{Hmac, Mac};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
-use sha2_hmac::Sha256 as HmacSha256Hash;
 
 const MAX_SKEW_SECS: i64 = 5 * 60;
 
-type HmacSha256 = Hmac<HmacSha256Hash>;
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IngressAuthError {
@@ -172,8 +172,7 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use axum::http::{HeaderMap, HeaderValue};
-    use base64::Engine as _;
-    use base64::engine::general_purpose::STANDARD;
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
 
     use super::{
         IngressAuthError, ReplayGate, decode_whsec, hmac_sha256, signed_content,

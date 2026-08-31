@@ -19,4 +19,6 @@ Zoen has not launched. There are no production users or production data. Dest to
 
 Do not add `#[allow(clippy::...)]` or other linter bypasses. Generated `gen/connect` protobuf is the exception.
 
+Do not `.unwrap()`. Return `Result` or handle the case. Clippy `unwrap_used` is deny.
+
 A Fly image may still build zoend this week.

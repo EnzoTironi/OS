@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use object_store::ObjectStore;
-use object_store::aws::AmazonS3Builder;
+use object_store::{ObjectStore, aws::AmazonS3Builder};
 
 use crate::QueryError;
 

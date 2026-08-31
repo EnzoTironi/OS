@@ -4,14 +4,19 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { parse } from "@babel/parser";
-import { isExpression } from "@babel/types";
 import type {
+  ArrayExpression,
   Expression as BabelExpression,
+  CallExpression,
   Identifier,
   ImportDeclaration,
+  ObjectExpression,
   PrivateName,
+  TemplateLiteral,
+  UnaryExpression,
   VariableDeclaration,
 } from "@babel/types";
+import { isExpression } from "@babel/types";
 import { z } from "zod";
 import { canonicalizeJson, sha256Hex } from "./jcs.js";
 import type {
@@ -48,11 +53,18 @@ const authorFunctions = new Set([
   "defineType",
 ]);
 
-const identifierSchema = z.string().min(1).regex(/^[a-zA-Z][a-zA-Z0-9._-]*$/);
+const identifierSchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-zA-Z][a-zA-Z0-9._-]*$/);
+const CANONICAL_DECIMAL =
+  /^(0|-[1-9][0-9]*|[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$/;
 const canonicalDecimalSchema = z.string().refine(isCanonicalDecimal, {
   message: "exact decimal is not canonical",
 });
-const canonicalIntegerSchema = z.string().regex(/^(0|-[1-9][0-9]*|[1-9][0-9]*)$/);
+const canonicalIntegerSchema = z
+  .string()
+  .regex(/^(0|-[1-9][0-9]*|[1-9][0-9]*)$/);
 
 const valueTypeSchema: z.ZodType<ValueType> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("bool") }).strict(),
@@ -119,12 +131,7 @@ const expressionSchema: z.ZodType<Expression> = z.lazy(() =>
       .object({
         kind: z.literal("binary"),
         left: expressionSchema,
-        operator: z.enum([
-          "add",
-          "greater_than",
-          "multiply",
-          "subtract",
-        ]),
+        operator: z.enum(["add", "greater_than", "multiply", "subtract"]),
         right: expressionSchema,
       })
       .strict(),
@@ -146,7 +153,7 @@ const expressionSchema: z.ZodType<Expression> = z.lazy(() =>
         relationId: identifierSchema,
       })
       .strict(),
-  ]),
+  ])
 );
 
 const inputSchema: z.ZodType<InputDefinition> = z
@@ -178,7 +185,7 @@ const relationTargetSchema: z.ZodType<RelationTarget> = z.discriminatedUnion(
         valueType: valueTypeSchema,
       })
       .strict(),
-  ],
+  ]
 );
 
 const relationSchema: z.ZodType<RelationDefinition> = z
@@ -235,7 +242,7 @@ const rawBundleSchema: z.ZodType<RawDefinitionBundle> = z
   .strict();
 
 export async function compileDefinition(
-  sourcePath: string,
+  sourcePath: string
 ): Promise<CompiledDefinition> {
   const absoluteSourcePath = path.resolve(sourcePath);
   await typecheck(absoluteSourcePath);
@@ -254,7 +261,7 @@ async function typecheck(sourcePath: string): Promise<void> {
   const repositoryRoot = process.cwd();
   const configPath = path.join(repositoryRoot, "tsconfig.json");
   const temporaryDirectory = await mkdtemp(
-    path.join(os.tmpdir(), "zoen-typecheck-"),
+    path.join(os.tmpdir(), "zoen-typecheck-")
   );
   const temporaryConfig = path.join(temporaryDirectory, "tsconfig.json");
   await writeFile(
@@ -268,7 +275,7 @@ async function typecheck(sourcePath: string): Promise<void> {
       extends: configPath,
       files: [sourcePath],
       include: [],
-    }),
+    })
   );
 
   try {
@@ -279,7 +286,7 @@ async function typecheck(sourcePath: string): Promise<void> {
         "--project",
         temporaryConfig,
       ],
-      { cwd: repositoryRoot },
+      { cwd: repositoryRoot }
     );
   } catch (error: unknown) {
     throw new Error(`TypeScript typecheck failed:\n${commandOutput(error)}`, {
@@ -304,10 +311,7 @@ function commandOutput(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function parseAuthorModule(
-  fileName: string,
-  source: string,
-): AuthorValue {
+function parseAuthorModule(fileName: string, source: string): AuthorValue {
   const sourceFile = parse(source, {
     plugins: ["typescript"],
     sourceFilename: fileName,
@@ -353,7 +357,7 @@ function parseAuthorModule(
 
 function parseImport(
   declaration: ImportDeclaration,
-  imports: Set<string>,
+  imports: Set<string>
 ): void {
   if (declaration.source.value !== "@zoen/ontology") {
     throw new Error(".zoen.ts may only import @zoen/ontology");
@@ -367,7 +371,9 @@ function parseImport(
         ? specifier.imported.name
         : specifier.imported.value;
     if (!authorFunctions.has(importedName)) {
-      throw new Error(`unsupported ontology authoring function: ${importedName}`);
+      throw new Error(
+        `unsupported ontology authoring function: ${importedName}`
+      );
     }
     imports.add(specifier.local.name);
   }
@@ -375,7 +381,7 @@ function parseImport(
 
 function parseBindings(
   declaration: VariableDeclaration,
-  bindings: Map<string, BabelExpression>,
+  bindings: Map<string, BabelExpression>
 ): void {
   if (declaration.kind !== "const") {
     throw new Error(".zoen.ts bindings must be const");
@@ -399,105 +405,135 @@ function evaluate(
   expression: BabelExpression,
   bindings: ReadonlyMap<string, BabelExpression>,
   imports: ReadonlySet<string>,
-  visiting: Set<string>,
+  visiting: Set<string>
 ): AuthorValue {
-  if (expression.type === "ParenthesizedExpression") {
-    return evaluate(expression.expression, bindings, imports, visiting);
-  }
-  if (expression.type === "StringLiteral") {
-    return expression.value;
-  }
-  if (expression.type === "TemplateLiteral") {
-    if (expression.expressions.length !== 0) {
-      throw new Error("template interpolation is not supported");
-    }
-    const quasi = expression.quasis[0];
-    if (quasi === undefined) {
-      throw new Error("template literal has no content");
-    }
-    return quasi.value.cooked ?? quasi.value.raw;
-  }
-  if (expression.type === "NumericLiteral") {
-    return expression.value;
-  }
-  if (expression.type === "BooleanLiteral") {
-    return expression.value;
-  }
-  if (expression.type === "NullLiteral") {
-    return null;
-  }
-  if (expression.type === "UnaryExpression") {
-    if (
-      expression.operator !== "-" ||
-      expression.argument.type !== "NumericLiteral"
-    ) {
-      throw new Error("only negative numeric literals are supported");
-    }
-    return -expression.argument.value;
-  }
-  if (expression.type === "ArrayExpression") {
-    return expression.elements.map((element) => {
-      if (element === null || !isExpression(element)) {
-        throw new Error("array holes and spreads are not supported");
-      }
-      return evaluate(element, bindings, imports, visiting);
-    });
-  }
-  if (expression.type === "ObjectExpression") {
-    const result: Record<string, AuthorValue> = {};
-    for (const property of expression.properties) {
-      if (
-        property.type !== "ObjectProperty" ||
-        property.computed ||
-        !isExpression(property.value)
-      ) {
-        throw new Error("spreads and shorthand properties are not supported");
-      }
-      const name = propertyName(property.key);
-      if (Object.hasOwn(result, name)) {
-        throw new Error(`duplicate object key: ${name}`);
-      }
-      result[name] = evaluate(
-        property.value,
-        bindings,
-        imports,
-        visiting,
+  switch (expression.type) {
+    case "ParenthesizedExpression":
+      return evaluate(expression.expression, bindings, imports, visiting);
+    case "StringLiteral":
+    case "NumericLiteral":
+    case "BooleanLiteral":
+      return expression.value;
+    case "TemplateLiteral":
+      return evaluateTemplateLiteral(expression);
+    case "NullLiteral":
+      return null;
+    case "UnaryExpression":
+      return evaluateUnary(expression);
+    case "ArrayExpression":
+      return evaluateArray(expression, bindings, imports, visiting);
+    case "ObjectExpression":
+      return evaluateObject(expression, bindings, imports, visiting);
+    case "Identifier":
+      return evaluateIdentifier(expression, bindings, imports, visiting);
+    case "CallExpression":
+      return evaluateCall(expression, bindings, imports, visiting);
+    default:
+      throw new Error(
+        `nondeterministic or unsupported syntax: ${expression.type}`
       );
-    }
-    return result;
   }
-  if (expression.type === "Identifier") {
-    const initializer = bindings.get(expression.name);
-    if (initializer === undefined) {
-      throw new Error(`unknown binding: ${expression.name}`);
-    }
-    if (visiting.has(expression.name)) {
-      throw new Error(`cyclic binding: ${expression.name}`);
-    }
-    const nextVisiting = new Set(visiting);
-    nextVisiting.add(expression.name);
-    return evaluate(initializer, bindings, imports, nextVisiting);
-  }
-  if (expression.type === "CallExpression") {
-    if (
-      expression.callee.type !== "Identifier" ||
-      !imports.has(expression.callee.name) ||
-      expression.arguments.length !== 1
-    ) {
-      throw new Error("nondeterministic or unsupported syntax: CallExpression");
-    }
-    const argument = expression.arguments[0];
-    if (argument === undefined || !isExpression(argument)) {
-      throw new Error("ontology call argument is required");
-    }
-    return evaluate(argument, bindings, imports, visiting);
-  }
+}
 
-  throw new Error(`nondeterministic or unsupported syntax: ${expression.type}`);
+function evaluateTemplateLiteral(expression: TemplateLiteral): string {
+  if (expression.expressions.length !== 0) {
+    throw new Error("template interpolation is not supported");
+  }
+  const [quasi] = expression.quasis;
+  if (quasi === undefined) {
+    throw new Error("template literal has no content");
+  }
+  return quasi.value.cooked ?? quasi.value.raw;
+}
+
+function evaluateUnary(expression: UnaryExpression): number {
+  if (
+    expression.operator !== "-" ||
+    expression.argument.type !== "NumericLiteral"
+  ) {
+    throw new Error("only negative numeric literals are supported");
+  }
+  return -expression.argument.value;
+}
+
+function evaluateArray(
+  expression: ArrayExpression,
+  bindings: ReadonlyMap<string, BabelExpression>,
+  imports: ReadonlySet<string>,
+  visiting: Set<string>
+): AuthorValue[] {
+  return expression.elements.map((element) => {
+    if (element === null || !isExpression(element)) {
+      throw new Error("array holes and spreads are not supported");
+    }
+    return evaluate(element, bindings, imports, visiting);
+  });
+}
+
+function evaluateObject(
+  expression: ObjectExpression,
+  bindings: ReadonlyMap<string, BabelExpression>,
+  imports: ReadonlySet<string>,
+  visiting: Set<string>
+): { readonly [key: string]: AuthorValue } {
+  const result: Record<string, AuthorValue> = {};
+  for (const property of expression.properties) {
+    if (
+      property.type !== "ObjectProperty" ||
+      property.computed ||
+      !isExpression(property.value)
+    ) {
+      throw new Error("spreads and shorthand properties are not supported");
+    }
+    const name = propertyName(property.key);
+    if (Object.hasOwn(result, name)) {
+      throw new Error(`duplicate object key: ${name}`);
+    }
+    result[name] = evaluate(property.value, bindings, imports, visiting);
+  }
+  return result;
+}
+
+function evaluateIdentifier(
+  expression: Identifier,
+  bindings: ReadonlyMap<string, BabelExpression>,
+  imports: ReadonlySet<string>,
+  visiting: Set<string>
+): AuthorValue {
+  const initializer = bindings.get(expression.name);
+  if (initializer === undefined) {
+    throw new Error(`unknown binding: ${expression.name}`);
+  }
+  if (visiting.has(expression.name)) {
+    throw new Error(`cyclic binding: ${expression.name}`);
+  }
+  const nextVisiting = new Set(visiting);
+  nextVisiting.add(expression.name);
+  return evaluate(initializer, bindings, imports, nextVisiting);
+}
+
+function evaluateCall(
+  expression: CallExpression,
+  bindings: ReadonlyMap<string, BabelExpression>,
+  imports: ReadonlySet<string>,
+  visiting: Set<string>
+): AuthorValue {
+  if (
+    expression.callee.type !== "Identifier" ||
+    !imports.has(expression.callee.name) ||
+    expression.arguments.length !== 1
+  ) {
+    throw new Error("nondeterministic or unsupported syntax: CallExpression");
+  }
+  const [argument] = expression.arguments;
+  if (argument === undefined || !isExpression(argument)) {
+    throw new Error("ontology call argument is required");
+  }
+  return evaluate(argument, bindings, imports, visiting);
 }
 
 function propertyName(
-  name: BabelExpression | Identifier | PrivateName,
+  name: BabelExpression | Identifier | PrivateName
 ): string {
   switch (name.type) {
     case "Identifier":
@@ -518,7 +554,9 @@ function validateBundle(bundle: RawDefinitionBundle): void {
     bundle.computations.length === 0 ||
     bundle.actions.length === 0
   ) {
-    throw new Error("a definition bundle must contain all four canonical families");
+    throw new Error(
+      "a definition bundle must contain all four canonical families"
+    );
   }
 
   assertUniqueIds(bundle.types, "type");
@@ -528,23 +566,39 @@ function validateBundle(bundle: RawDefinitionBundle): void {
 
   const typeIds = new Set(bundle.types.map((definition) => definition.id));
   const relationIds = new Set(
-    bundle.relations.map((definition) => definition.id),
+    bundle.relations.map((definition) => definition.id)
   );
 
-  for (const definition of bundle.types) {
+  validateTypes(bundle.types, typeIds);
+  validateRelations(bundle.relations, typeIds);
+  validateComputations(bundle.computations, typeIds, relationIds);
+  validateActions(bundle.actions, typeIds, relationIds);
+}
+
+function validateTypes(
+  types: readonly TypeDefinition[],
+  typeIds: ReadonlySet<string>
+): void {
+  for (const definition of types) {
     assertUniqueIds(definition.attributes, `attribute in ${definition.id}`);
     for (const attribute of definition.attributes) {
       assertKnownEntityType(
         attribute.valueType,
         `${definition.id} attribute ${attribute.id}`,
-        typeIds,
+        typeIds
       );
     }
   }
-  for (const definition of bundle.relations) {
+}
+
+function validateRelations(
+  relations: readonly RelationDefinition[],
+  typeIds: ReadonlySet<string>
+): void {
+  for (const definition of relations) {
     if (!typeIds.has(definition.sourceType)) {
       throw new Error(
-        `relation ${definition.id} references unknown source type ${definition.sourceType}`,
+        `relation ${definition.id} references unknown source type ${definition.sourceType}`
       );
     }
     if (
@@ -552,65 +606,89 @@ function validateBundle(bundle: RawDefinitionBundle): void {
       !typeIds.has(definition.target.typeId)
     ) {
       throw new Error(
-        `relation ${definition.id} references unknown target type ${definition.target.typeId}`,
+        `relation ${definition.id} references unknown target type ${definition.target.typeId}`
       );
     }
     if (definition.target.kind === "value") {
       assertKnownEntityType(
         definition.target.valueType,
         `relation ${definition.id}`,
-        typeIds,
+        typeIds
       );
     }
   }
-  for (const definition of bundle.computations) {
+}
+
+function validateComputations(
+  computations: readonly ComputationDefinition[],
+  typeIds: ReadonlySet<string>,
+  relationIds: ReadonlySet<string>
+): void {
+  for (const definition of computations) {
     for (const input of definition.inputs) {
       assertKnownEntityType(
         input.valueType,
         `${definition.id} input ${input.id}`,
-        typeIds,
+        typeIds
       );
     }
     assertKnownEntityType(
       definition.returns,
       `${definition.id} return`,
-      typeIds,
+      typeIds
     );
-    validateExecutable(definition.id, definition.inputs, definition.expression, relationIds);
+    validateExecutable(
+      definition.id,
+      definition.inputs,
+      definition.expression,
+      relationIds
+    );
   }
-  for (const definition of bundle.actions) {
+}
+
+function validateActions(
+  actions: readonly ActionDefinition[],
+  typeIds: ReadonlySet<string>,
+  relationIds: ReadonlySet<string>
+): void {
+  for (const definition of actions) {
     for (const input of definition.inputs) {
       assertKnownEntityType(
         input.valueType,
         `${definition.id} input ${input.id}`,
-        typeIds,
+        typeIds
       );
     }
     for (const output of definition.outputs ?? []) {
       assertKnownEntityType(
         output.valueType,
         `${definition.id} output ${output.id}`,
-        typeIds,
+        typeIds
       );
     }
     assertUniqueIds(definition.outputs ?? [], `output in ${definition.id}`);
     assertUniqueBy(
       definition.effects,
       `effect in ${definition.id}`,
-      (effect) => effect.relationId,
+      (effect) => effect.relationId
     );
-    validateExecutable(definition.id, definition.inputs, definition.precondition, relationIds);
+    validateExecutable(
+      definition.id,
+      definition.inputs,
+      definition.precondition,
+      relationIds
+    );
     for (const effect of definition.effects) {
       if (!relationIds.has(effect.relationId)) {
         throw new Error(
-          `action ${definition.id} references unknown relation ${effect.relationId}`,
+          `action ${definition.id} references unknown relation ${effect.relationId}`
         );
       }
       validateExpression(
         effect.value,
         new Set(definition.inputs.map((input) => input.id)),
         relationIds,
-        definition.id,
+        definition.id
       );
     }
   }
@@ -620,14 +698,14 @@ function validateExecutable(
   id: string,
   inputs: readonly InputDefinition[],
   expression: Expression,
-  relationIds: ReadonlySet<string>,
+  relationIds: ReadonlySet<string>
 ): void {
   assertUniqueIds(inputs, `input in ${id}`);
   validateExpression(
     expression,
     new Set(inputs.map((input) => input.id)),
     relationIds,
-    id,
+    id
   );
 }
 
@@ -635,7 +713,7 @@ function validateExpression(
   expression: Expression,
   inputIds: ReadonlySet<string>,
   relationIds: ReadonlySet<string>,
-  ownerId: string,
+  ownerId: string
 ): void {
   switch (expression.kind) {
     case "binary":
@@ -645,7 +723,7 @@ function validateExpression(
     case "input":
       if (!inputIds.has(expression.inputId)) {
         throw new Error(
-          `${ownerId} references unknown input ${expression.inputId}`,
+          `${ownerId} references unknown input ${expression.inputId}`
         );
       }
       return;
@@ -654,20 +732,20 @@ function validateExpression(
     case "relation":
       if (!relationIds.has(expression.relationId)) {
         throw new Error(
-          `${ownerId} references unknown relation ${expression.relationId}`,
+          `${ownerId} references unknown relation ${expression.relationId}`
         );
       }
       return;
     default: {
       const exhaustive: never = expression;
-      return exhaustive;
+      throw new Error(`unsupported expression: ${String(exhaustive)}`);
     }
   }
 }
 
 function assertUniqueIds<T extends { readonly id: string }>(
   values: readonly T[],
-  label: string,
+  label: string
 ): void {
   assertUniqueBy(values, label, (value) => value.id);
 }
@@ -675,7 +753,7 @@ function assertUniqueIds<T extends { readonly id: string }>(
 function assertUniqueBy<T>(
   values: readonly T[],
   label: string,
-  getId: (value: T) => string,
+  getId: (value: T) => string
 ): void {
   const ids = new Set<string>();
   for (const value of values) {
@@ -694,7 +772,7 @@ function normalize(bundle: RawDefinitionBundle): CanonicalDefinitionBundle {
       return {
         effects: [...definition.effects]
           .sort((left, right) =>
-            compareCodePoints(left.relationId, right.relationId),
+            compareCodePoints(left.relationId, right.relationId)
           )
           .map((effect) => ({
             relationId: effect.relationId,
@@ -729,19 +807,25 @@ function normalize(bundle: RawDefinitionBundle): CanonicalDefinitionBundle {
 }
 
 function sortById<T extends { readonly id: string }>(
-  values: readonly T[],
+  values: readonly T[]
 ): T[] {
   return [...values].sort((left, right) =>
-    compareCodePoints(left.id, right.id),
+    compareCodePoints(left.id, right.id)
   );
 }
 
 function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
 }
 
 function normalizeInputs(
-  inputs: readonly InputDefinition[],
+  inputs: readonly InputDefinition[]
 ): InputDefinition[] {
   return sortById(inputs).map((input) => ({
     id: input.id,
@@ -750,7 +834,7 @@ function normalizeInputs(
 }
 
 function normalizeOutputs(
-  outputs: readonly ActionOutputDefinition[],
+  outputs: readonly ActionOutputDefinition[]
 ): ActionOutputDefinition[] {
   return sortById(outputs).map((output) => ({
     id: output.id,
@@ -838,7 +922,7 @@ function copyExactValue(value: ExactValue): ExactValue {
 function assertKnownEntityType(
   valueType: ValueType,
   owner: string,
-  typeIds: ReadonlySet<string>,
+  typeIds: ReadonlySet<string>
 ): void {
   if (valueType.kind === "entity" && !typeIds.has(valueType.typeId)) {
     throw new Error(`${owner} references unknown type ${valueType.typeId}`);
@@ -846,13 +930,11 @@ function assertKnownEntityType(
 }
 
 function isCanonicalDecimal(value: string): boolean {
-  return /^(0|-[1-9][0-9]*|[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$/.test(
-    value,
-  );
+  return CANONICAL_DECIMAL.test(value);
 }
 
 export function canonicalDefinitionFromJson(
-  canonicalJson: string,
+  canonicalJson: string
 ): CanonicalDefinitionBundle {
   const value: unknown = JSON.parse(canonicalJson);
   if (!isCanonicalDefinitionBundle(value)) {
@@ -862,7 +944,7 @@ export function canonicalDefinitionFromJson(
 }
 
 function isCanonicalDefinitionBundle(
-  value: unknown,
+  value: unknown
 ): value is CanonicalDefinitionBundle {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -876,16 +958,16 @@ function isCanonicalDefinitionBundle(
   if (!("revision" in value) || typeof value.revision !== "number") {
     return false;
   }
-  if (!("actions" in value) || !Array.isArray(value.actions)) {
+  if (!("actions" in value && Array.isArray(value.actions))) {
     return false;
   }
-  if (!("types" in value) || !Array.isArray(value.types)) {
+  if (!("types" in value && Array.isArray(value.types))) {
     return false;
   }
-  if (!("relations" in value) || !Array.isArray(value.relations)) {
+  if (!("relations" in value && Array.isArray(value.relations))) {
     return false;
   }
-  if (!("computations" in value) || !Array.isArray(value.computations)) {
+  if (!("computations" in value && Array.isArray(value.computations))) {
     return false;
   }
   return true;

@@ -8,7 +8,16 @@ function required(name: string): string {
   return value;
 }
 
-function printSection(heading: string, command: string, result: { exitCode?: number; stdout?: string; stderr?: string; extra?: string }) {
+function printSection(
+  heading: string,
+  command: string,
+  result: {
+    exitCode?: number;
+    stdout?: string;
+    stderr?: string;
+    extra?: string;
+  }
+) {
   process.stdout.write(`## ${heading}\n\n`);
   process.stdout.write(`command: ${command}\n`);
   if (result.exitCode !== undefined) {
@@ -34,56 +43,82 @@ const validAt = required("S3_VALID_AT");
 const tenantId = required("S3_TENANT");
 
 const sandboxA = await openBoundSandbox({
+  definitionDigest,
+  definitionId,
   disksRoot,
-  zoendBaseUrl,
+  doorToken: required("S3_TOKEN_A"),
   membershipId: required("S3_MEMBERSHIP_A"),
   tenantId,
-  doorToken: required("S3_TOKEN_A"),
-  definitionId,
-  definitionDigest,
   validAt,
+  zoendBaseUrl,
 });
 
 const sandboxB = await openBoundSandbox({
+  definitionDigest,
+  definitionId,
   disksRoot,
-  zoendBaseUrl,
+  doorToken: required("S3_TOKEN_B"),
   membershipId: required("S3_MEMBERSHIP_B"),
   tenantId,
-  doorToken: required("S3_TOKEN_B"),
-  definitionId,
-  definitionDigest,
   validAt,
+  zoendBaseUrl,
 });
 
 try {
   await sandboxA.writeTextFile("secret-a.txt", "membership-a-only\n");
   const planted = await sandboxA.run("ls /workspace/bin/zoen");
-  printSection("1. planted zoen on membership A", "ls /workspace/bin/zoen", planted);
+  printSection(
+    "1. planted zoen on membership A",
+    "ls /workspace/bin/zoen",
+    planted
+  );
   const help = await sandboxA.run("zoen help");
   printSection("1b. zoen help", "zoen help", help);
   const query = await sandboxA.run("zoen world query --type world.Note");
-  printSection("1c. zoen world query", "zoen world query --type world.Note", query);
+  printSection(
+    "1c. zoen world query",
+    "zoen world query --type world.Note",
+    query
+  );
   if (query.exitCode !== 0) {
     throw new Error("world query failed");
   }
 
-  const commit = await sandboxA.run("zoen action commit --proposal-id proposal.stamp-low");
-  printSection("2. isolate commit", "zoen action commit --proposal-id proposal.stamp-low", commit);
+  const commit = await sandboxA.run(
+    "zoen action commit --proposal-id proposal.stamp-low"
+  );
+  printSection(
+    "2. isolate commit",
+    "zoen action commit --proposal-id proposal.stamp-low",
+    commit
+  );
   if (!commit.stderr.includes("isolate cannot commit")) {
     throw new Error("isolate commit did not deny");
   }
 
   const network = await sandboxA.run(
-    "node -e 'fetch(\"http://example.com\").then(r=>console.log(\"status \"+r.status)).catch(e=>console.error(String(e)))'",
+    'node -e \'fetch("http://example.com").then(r=>console.log("status "+r.status)).catch(e=>console.error(String(e)))\''
   );
-  printSection("4. isolate network", "node -e fetch(http://example.com)", network);
+  printSection(
+    "4. isolate network",
+    "node -e fetch(http://example.com)",
+    network
+  );
   const networkText = `${network.stdout}\n${network.stderr}`;
-  if (!/fetch failed|network default deny|ECONN|ENOTFOUND|denied/i.test(networkText)) {
+  if (
+    !/fetch failed|network default deny|ECONN|ENOTFOUND|denied/i.test(
+      networkText
+    )
+  ) {
     throw new Error(`network was not denied: ${networkText}`);
   }
 
   const leak = await sandboxB.run("cat /workspace/secret-a.txt");
-  printSection("5. membership B reads membership A file", "cat /workspace/secret-a.txt", leak);
+  printSection(
+    "5. membership B reads membership A file",
+    "cat /workspace/secret-a.txt",
+    leak
+  );
   if (leak.stdout.includes("membership-a-only")) {
     throw new Error("membership B read membership A VFS");
   }

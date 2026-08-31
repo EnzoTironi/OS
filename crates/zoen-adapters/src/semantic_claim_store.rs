@@ -29,8 +29,7 @@ pub(crate) async fn insert(
     let ingested_at = draft
         .provenance
         .ingested_at
-        .map(|value| value.get())
-        .unwrap_or_else(clock_micros);
+        .map_or_else(clock_micros, zoen_core::TimestampMicros::get);
     sqlx::query(
         "INSERT INTO semantic_claims (
             tenant_id, claim_id, definition_id, definition_digest, definition_revision,
@@ -66,7 +65,12 @@ pub(crate) async fn insert(
     .bind(draft.provenance.source_digest.as_str())
     .bind(&draft.provenance.source_ref)
     .bind(commit_sequence)
-    .bind(draft.provenance.observed_at.map(|value| value.get()))
+    .bind(
+        draft
+            .provenance
+            .observed_at
+            .map(zoen_core::TimestampMicros::get),
+    )
     .bind(ingested_at)
     .execute(&mut **transaction)
     .await
@@ -75,13 +79,7 @@ pub(crate) async fn insert(
 }
 
 fn clock_micros() -> i64 {
-    i64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_micros())
-            .unwrap_or(0),
-    )
-    .unwrap_or(i64::MAX)
+    crate::clock_micros()
 }
 
 fn map_insert(error: sqlx::Error) -> StoreError {

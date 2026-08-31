@@ -11,9 +11,10 @@ use zoen_engine::{
     MigrationBatchPreflight, StoreError, decode_migration_plan,
 };
 
-use crate::semantic_claim_store::{self, RevisionRequirement};
 use crate::{
-    PostgresAuthorityStore, i64_to_u64, row_to_claim, set_tenant, store_unavailable, u64_to_i64,
+    PostgresAuthorityStore, i64_to_u64, row_to_claim,
+    semantic_claim_store::{self, RevisionRequirement},
+    set_tenant, store_unavailable, u64_to_i64,
 };
 
 pub(crate) async fn prepare(
@@ -54,54 +55,7 @@ pub(crate) async fn prepare(
         "definition_migration_plan",
     )
     .await?;
-    let policy = migration.policy();
-    sqlx::query(
-        "INSERT INTO definition_migrations (
-            tenant_id, operation_id, intent_digest, canonical_plan,
-            definition_id, from_revision, from_digest, to_revision, to_digest,
-            assessment_digest, classification, commit_sequence, prepared_at_micros,
-            actor_id, principal_id, workload_id,
-            policy_id, policy_revision, policy_digest, determining_policies
-         ) VALUES (
-            $1, $2, $3, $4,
-            $5, $6, $7, $8, $9,
-            $10, $11, $12, $13,
-            $14, $15, $16,
-            $17, $18, $19, $20
-         )",
-    )
-    .bind(context.tenant_id().as_str())
-    .bind(plan.operation_id.as_str())
-    .bind(migration.intent_digest().as_str())
-    .bind(migration.canonical_plan())
-    .bind(plan.from.definition_id.as_str())
-    .bind(u64_to_i64(
-        plan.from.revision.get(),
-        "source definition revision",
-    )?)
-    .bind(plan.from.digest.as_str())
-    .bind(u64_to_i64(
-        plan.to.revision.get(),
-        "target definition revision",
-    )?)
-    .bind(plan.to.digest.as_str())
-    .bind(plan.assessment_digest.as_str())
-    .bind(plan.classification.as_str())
-    .bind(next_sequence)
-    .bind(migration.prepared_at().get())
-    .bind(context.actor_id().as_str())
-    .bind(context.principal_id().as_str())
-    .bind(context.workload_id().as_str())
-    .bind(policy.revision.id.as_str())
-    .bind(u64_to_i64(
-        policy.revision.revision.get(),
-        "policy revision",
-    )?)
-    .bind(policy.revision.digest.as_str())
-    .bind(&policy.determining_policies)
-    .execute(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
+    insert_migration_plan_row(&mut transaction, migration, next_sequence).await?;
     insert_event(
         &mut transaction,
         context.tenant_id(),
@@ -217,46 +171,7 @@ pub(crate) async fn apply(
         "definition_migration_batch",
     )
     .await?;
-    let policy = batch.policy();
-    sqlx::query(
-        "INSERT INTO definition_migration_batches (
-            tenant_id, operation_id, batch_index, intent_digest,
-            commit_sequence, record_count,
-            actor_id, principal_id, workload_id,
-            policy_id, policy_revision, policy_digest, determining_policies
-         ) VALUES (
-            $1, $2, $3, $4,
-            $5, $6,
-            $7, $8, $9,
-            $10, $11, $12, $13
-         )",
-    )
-    .bind(context.tenant_id().as_str())
-    .bind(plan.operation_id.as_str())
-    .bind(
-        i32::try_from(batch.batch_index())
-            .map_err(|_| StoreError::Conflict("migration batch index exceeds i32".to_owned()))?,
-    )
-    .bind(batch.intent_digest().as_str())
-    .bind(next_sequence)
-    .bind(
-        i32::try_from(batch.records().len()).map_err(|_| {
-            StoreError::Conflict("migration batch record count exceeds i32".to_owned())
-        })?,
-    )
-    .bind(context.actor_id().as_str())
-    .bind(context.principal_id().as_str())
-    .bind(context.workload_id().as_str())
-    .bind(policy.revision.id.as_str())
-    .bind(u64_to_i64(
-        policy.revision.revision.get(),
-        "policy revision",
-    )?)
-    .bind(policy.revision.digest.as_str())
-    .bind(&policy.determining_policies)
-    .execute(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
+    insert_migration_batch_row(&mut transaction, batch, next_sequence).await?;
     for (ordinal, record) in batch.records().iter().enumerate() {
         insert_record(
             &mut transaction,
@@ -334,82 +249,9 @@ pub(crate) async fn get(
     let plan_commit = row
         .try_get::<i64, _>("commit_sequence")
         .map_err(store_unavailable)?;
-    let batch_rows = sqlx::query(
-        "SELECT batch_index, commit_sequence
-         FROM definition_migration_batches
-         WHERE tenant_id = $1 AND operation_id = $2
-         ORDER BY batch_index",
-    )
-    .bind(tenant_id.as_str())
-    .bind(operation_id.as_str())
-    .fetch_all(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
-    let mut completed_batches = Vec::with_capacity(batch_rows.len());
-    let mut latest_commit = plan_commit;
-    for batch in batch_rows {
-        let batch_index = batch
-            .try_get::<i32, _>("batch_index")
-            .map_err(store_unavailable)?;
-        completed_batches.push(
-            u32::try_from(batch_index)
-                .map_err(|_| StoreError::Corrupt("negative migration batch index".to_owned()))?,
-        );
-        latest_commit = latest_commit.max(
-            batch
-                .try_get::<i64, _>("commit_sequence")
-                .map_err(store_unavailable)?,
-        );
-    }
-    let record_rows = sqlx::query(
-        "SELECT target_claim_id, rule_id, rule_kind
-         FROM definition_migration_records
-         WHERE tenant_id = $1 AND operation_id = $2
-         ORDER BY target_claim_id",
-    )
-    .bind(tenant_id.as_str())
-    .bind(operation_id.as_str())
-    .fetch_all(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
-    let mut lineage = Vec::with_capacity(record_rows.len());
-    for record in record_rows {
-        let target_claim_id = record
-            .try_get::<String, _>("target_claim_id")
-            .map_err(store_unavailable)?;
-        let source_rows = sqlx::query_scalar::<_, String>(
-            "SELECT source_claim_id
-             FROM definition_migration_lineage
-             WHERE tenant_id = $1 AND operation_id = $2 AND target_claim_id = $3
-             ORDER BY source_claim_id",
-        )
-        .bind(tenant_id.as_str())
-        .bind(operation_id.as_str())
-        .bind(&target_claim_id)
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(store_unavailable)?;
-        lineage.push(MigrationLineage {
-            kind: parse_rule_kind(
-                &record
-                    .try_get::<String, _>("rule_kind")
-                    .map_err(store_unavailable)?,
-            )?,
-            rule_id: zoen_core::MigrationRuleId::parse(
-                record
-                    .try_get::<String, _>("rule_id")
-                    .map_err(store_unavailable)?,
-            )
-            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
-            source_claim_ids: source_rows
-                .into_iter()
-                .map(ClaimId::parse)
-                .collect::<Result<_, _>>()
-                .map_err(|error| StoreError::Corrupt(error.to_string()))?,
-            target_claim_id: ClaimId::parse(target_claim_id)
-                .map_err(|error| StoreError::Corrupt(error.to_string()))?,
-        });
-    }
+    let (completed_batches, latest_commit) =
+        load_completed_batches(&mut transaction, tenant_id, operation_id, plan_commit).await?;
+    let lineage = load_lineage(&mut transaction, tenant_id, operation_id).await?;
     let (total_obligations, remaining_obligations) =
         obligations(&mut transaction, tenant_id, &plan).await?;
     let status = if remaining_obligations.is_empty() {
@@ -593,6 +435,207 @@ pub(crate) async fn validate_activation(
         }
     }
     Ok(())
+}
+
+async fn insert_migration_plan_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    migration: &AdmittedMigrationPlan,
+    next_sequence: i64,
+) -> Result<(), StoreError> {
+    let context = migration.context();
+    let plan = migration.plan();
+    let policy = migration.policy();
+    sqlx::query(
+        "INSERT INTO definition_migrations (
+            tenant_id, operation_id, intent_digest, canonical_plan,
+            definition_id, from_revision, from_digest, to_revision, to_digest,
+            assessment_digest, classification, commit_sequence, prepared_at_micros,
+            actor_id, principal_id, workload_id,
+            policy_id, policy_revision, policy_digest, determining_policies
+         ) VALUES (
+            $1, $2, $3, $4,
+            $5, $6, $7, $8, $9,
+            $10, $11, $12, $13,
+            $14, $15, $16,
+            $17, $18, $19, $20
+         )",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(plan.operation_id.as_str())
+    .bind(migration.intent_digest().as_str())
+    .bind(migration.canonical_plan())
+    .bind(plan.from.definition_id.as_str())
+    .bind(u64_to_i64(
+        plan.from.revision.get(),
+        "source definition revision",
+    )?)
+    .bind(plan.from.digest.as_str())
+    .bind(u64_to_i64(
+        plan.to.revision.get(),
+        "target definition revision",
+    )?)
+    .bind(plan.to.digest.as_str())
+    .bind(plan.assessment_digest.as_str())
+    .bind(plan.classification.as_str())
+    .bind(next_sequence)
+    .bind(migration.prepared_at().get())
+    .bind(context.actor_id().as_str())
+    .bind(context.principal_id().as_str())
+    .bind(context.workload_id().as_str())
+    .bind(policy.revision.id.as_str())
+    .bind(u64_to_i64(
+        policy.revision.revision.get(),
+        "policy revision",
+    )?)
+    .bind(policy.revision.digest.as_str())
+    .bind(&policy.determining_policies)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    Ok(())
+}
+
+async fn insert_migration_batch_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    batch: &AdmittedMigrationBatch,
+    next_sequence: i64,
+) -> Result<(), StoreError> {
+    let context = batch.context();
+    let plan = &batch.migration().plan;
+    let policy = batch.policy();
+    sqlx::query(
+        "INSERT INTO definition_migration_batches (
+            tenant_id, operation_id, batch_index, intent_digest,
+            commit_sequence, record_count,
+            actor_id, principal_id, workload_id,
+            policy_id, policy_revision, policy_digest, determining_policies
+         ) VALUES (
+            $1, $2, $3, $4,
+            $5, $6,
+            $7, $8, $9,
+            $10, $11, $12, $13
+         )",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(plan.operation_id.as_str())
+    .bind(
+        i32::try_from(batch.batch_index())
+            .map_err(|_| StoreError::Conflict("migration batch index exceeds i32".to_owned()))?,
+    )
+    .bind(batch.intent_digest().as_str())
+    .bind(next_sequence)
+    .bind(
+        i32::try_from(batch.records().len()).map_err(|_| {
+            StoreError::Conflict("migration batch record count exceeds i32".to_owned())
+        })?,
+    )
+    .bind(context.actor_id().as_str())
+    .bind(context.principal_id().as_str())
+    .bind(context.workload_id().as_str())
+    .bind(policy.revision.id.as_str())
+    .bind(u64_to_i64(
+        policy.revision.revision.get(),
+        "policy revision",
+    )?)
+    .bind(policy.revision.digest.as_str())
+    .bind(&policy.determining_policies)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    Ok(())
+}
+
+async fn load_completed_batches(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    operation_id: &OperationId,
+    plan_commit: i64,
+) -> Result<(Vec<u32>, i64), StoreError> {
+    let batch_rows = sqlx::query(
+        "SELECT batch_index, commit_sequence
+         FROM definition_migration_batches
+         WHERE tenant_id = $1 AND operation_id = $2
+         ORDER BY batch_index",
+    )
+    .bind(tenant_id.as_str())
+    .bind(operation_id.as_str())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    let mut completed_batches = Vec::with_capacity(batch_rows.len());
+    let mut latest_commit = plan_commit;
+    for batch in batch_rows {
+        let batch_index = batch
+            .try_get::<i32, _>("batch_index")
+            .map_err(store_unavailable)?;
+        completed_batches.push(
+            u32::try_from(batch_index)
+                .map_err(|_| StoreError::Corrupt("negative migration batch index".to_owned()))?,
+        );
+        latest_commit = latest_commit.max(
+            batch
+                .try_get::<i64, _>("commit_sequence")
+                .map_err(store_unavailable)?,
+        );
+    }
+    Ok((completed_batches, latest_commit))
+}
+
+async fn load_lineage(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    operation_id: &OperationId,
+) -> Result<Vec<MigrationLineage>, StoreError> {
+    let record_rows = sqlx::query(
+        "SELECT target_claim_id, rule_id, rule_kind
+         FROM definition_migration_records
+         WHERE tenant_id = $1 AND operation_id = $2
+         ORDER BY target_claim_id",
+    )
+    .bind(tenant_id.as_str())
+    .bind(operation_id.as_str())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    let mut lineage = Vec::with_capacity(record_rows.len());
+    for record in record_rows {
+        let target_claim_id = record
+            .try_get::<String, _>("target_claim_id")
+            .map_err(store_unavailable)?;
+        let source_rows = sqlx::query_scalar::<_, String>(
+            "SELECT source_claim_id
+             FROM definition_migration_lineage
+             WHERE tenant_id = $1 AND operation_id = $2 AND target_claim_id = $3
+             ORDER BY source_claim_id",
+        )
+        .bind(tenant_id.as_str())
+        .bind(operation_id.as_str())
+        .bind(&target_claim_id)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(store_unavailable)?;
+        lineage.push(MigrationLineage {
+            kind: parse_rule_kind(
+                &record
+                    .try_get::<String, _>("rule_kind")
+                    .map_err(store_unavailable)?,
+            )?,
+            rule_id: zoen_core::MigrationRuleId::parse(
+                record
+                    .try_get::<String, _>("rule_id")
+                    .map_err(store_unavailable)?,
+            )
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+            source_claim_ids: source_rows
+                .into_iter()
+                .map(ClaimId::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+            target_claim_id: ClaimId::parse(target_claim_id)
+                .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        });
+    }
+    Ok(lineage)
 }
 
 async fn check_dependencies(

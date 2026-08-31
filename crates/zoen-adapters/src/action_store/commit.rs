@@ -1,23 +1,29 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     ActionProposal, ActorId, CommitReceipt, ExactValue, ExecutionContext, IdentityError,
-    InviteToken, PrincipalId, ResourceId, WORLD_INVITE_ACTION, WorkloadId, ZoenAccountId,
+    InviteToken, PrincipalId, ResourceId, StateBasis, WORLD_INVITE_ACTION, WorkloadId,
+    ZoenAccountId,
 };
 use zoen_engine::{
     ActionCommitTransaction, CommitPlan, CommitPreparation, CommitStoreOutcome, StoreError,
     state_basis_digest_matches,
 };
 
-use crate::identity_store::{PostgresIdentityStore, WorldInvite, dest_invitee_delegation};
-use crate::{set_tenant, store_unavailable};
-
-use super::failpoints::{CommitStage, reach};
-use super::state_basis::load_current;
-use super::writes::{
-    OperationInsertError, find_identity_collision, insert_effect_request, insert_operation,
-    insert_operation_records, insert_semantic_record,
+use crate::{
+    identity_store::{PostgresIdentityStore, WorldInvite, dest_invitee_delegation},
+    set_tenant, store_unavailable,
 };
-use super::{commit_sequence, get_operation, load_operation};
+
+use super::{
+    commit_sequence,
+    failpoints::{CommitStage, reach},
+    get_operation, load_operation,
+    state_basis::load_current,
+    writes::{
+        OperationInsertError, find_identity_collision, insert_effect_request, insert_operation,
+        insert_operation_records, insert_semantic_record,
+    },
+};
 
 pub struct PostgresActionCommit {
     context: ExecutionContext,
@@ -97,89 +103,22 @@ impl ActionCommitTransaction for PostgresActionCommit {
         let next_sequence = head
             .checked_add(1)
             .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
-        sqlx::query(
-            "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
-             VALUES ($1, $2, 'action')",
+        match persist_committed_action(
+            &mut transaction,
+            &context,
+            plan,
+            next_sequence,
+            current_basis,
         )
-        .bind(context.tenant_id().as_str())
-        .bind(next_sequence)
-        .execute(&mut *transaction)
-        .await
-        .map_err(store_unavailable)?;
-
-        let commit_sequence = commit_sequence(next_sequence, "commit sequence")?;
-        let receipt = CommitReceipt {
-            action_id: plan.proposal.action_id.clone(),
-            commit_sequence,
-            commit_state_basis: Some(current_basis),
-            committed_by: context.clone(),
-            definition: plan.proposal.definition.clone(),
-            effect_request_ids: plan
-                .effects
-                .iter()
-                .map(|effect| effect.effect_request_id.clone())
-                .collect(),
-            intent_digest: plan.proposal.intent_digest.clone(),
-            operation_id: plan.proposal.operation_id.clone(),
-            policy: plan.policy.clone(),
-            proposal_id: plan.proposal.proposal_id.clone(),
-            record_ids: plan
-                .effects
-                .iter()
-                .map(|effect| effect.evidence.draft().claim_id.clone())
-                .collect(),
-        };
-        if let Err(error) = insert_operation(&mut transaction, context.tenant_id(), &receipt).await
+        .await?
         {
-            return match error {
-                OperationInsertError::OperationId => {
-                    transaction.rollback().await.map_err(store_unavailable)?;
-                    replay_after_operation_conflict(&pool, &context, plan).await
-                }
-                OperationInsertError::ProposalId => Ok(CommitStoreOutcome::OperationMismatch),
-                OperationInsertError::CommitSequence => Err(StoreError::Conflict(
-                    "Action commit sequence already identifies another operation".to_owned(),
-                )),
-                OperationInsertError::Store(error) => commit_insert_outcome(error),
-            };
-        }
-        reach(CommitStage::AfterOperationInsert).await?;
-
-        for effect in &plan.effects {
-            if let Err(error) = insert_semantic_record(
-                &mut transaction,
-                context.tenant_id(),
-                next_sequence,
-                &effect.evidence,
-            )
-            .await
-            {
-                return commit_insert_outcome(error);
+            PersistAction::Replay(outcome) => return Ok(outcome),
+            PersistAction::RollbackAndReplay => {
+                transaction.rollback().await.map_err(store_unavailable)?;
+                return replay_after_operation_conflict(&pool, &context, plan).await;
             }
+            PersistAction::Continue => {}
         }
-        if let Err(error) =
-            insert_operation_records(&mut transaction, context.tenant_id(), &receipt).await
-        {
-            return commit_insert_outcome(error);
-        }
-        reach(CommitStage::AfterSemanticRecords).await?;
-
-        for (ordinal, effect) in plan.effects.iter().enumerate() {
-            if let Err(error) = insert_effect_request(
-                &mut transaction,
-                context.tenant_id(),
-                next_sequence,
-                ordinal,
-                &plan.proposal.operation_id,
-                &plan.proposal.intent_digest,
-                effect,
-            )
-            .await
-            {
-                return commit_insert_outcome(error);
-            }
-        }
-        reach(CommitStage::AfterEffectRequests).await?;
         reach(CommitStage::BeforeHeadAdvance).await?;
         let updated = sqlx::query(
             "UPDATE authority_heads
@@ -211,6 +150,107 @@ impl ActionCommitTransaction for PostgresActionCommit {
     async fn rollback(self) -> Result<(), StoreError> {
         self.transaction.rollback().await.map_err(store_unavailable)
     }
+}
+
+enum PersistAction {
+    Continue,
+    Replay(CommitStoreOutcome),
+    RollbackAndReplay,
+}
+
+async fn persist_committed_action(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: &ExecutionContext,
+    plan: &CommitPlan,
+    next_sequence: i64,
+    current_basis: StateBasis,
+) -> Result<PersistAction, StoreError> {
+    sqlx::query(
+        "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
+         VALUES ($1, $2, 'action')",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(next_sequence)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    let commit_sequence = commit_sequence(next_sequence, "commit sequence")?;
+    let receipt = CommitReceipt {
+        action_id: plan.proposal.action_id.clone(),
+        commit_sequence,
+        commit_state_basis: Some(current_basis),
+        committed_by: context.clone(),
+        definition: plan.proposal.definition.clone(),
+        effect_request_ids: plan
+            .effects
+            .iter()
+            .map(|effect| effect.effect_request_id.clone())
+            .collect(),
+        intent_digest: plan.proposal.intent_digest.clone(),
+        operation_id: plan.proposal.operation_id.clone(),
+        policy: plan.policy.clone(),
+        proposal_id: plan.proposal.proposal_id.clone(),
+        record_ids: plan
+            .effects
+            .iter()
+            .map(|effect| effect.evidence.draft().claim_id.clone())
+            .collect(),
+    };
+    if let Err(error) = insert_operation(transaction, context.tenant_id(), &receipt).await {
+        return match error {
+            OperationInsertError::OperationId => Ok(PersistAction::RollbackAndReplay),
+            OperationInsertError::ProposalId => {
+                Ok(PersistAction::Replay(CommitStoreOutcome::OperationMismatch))
+            }
+            OperationInsertError::CommitSequence => Err(StoreError::Conflict(
+                "Action commit sequence already identifies another operation".to_owned(),
+            )),
+            OperationInsertError::Store(error) => {
+                commit_insert_outcome(error).map(PersistAction::Replay)
+            }
+        };
+    }
+    reach(CommitStage::AfterOperationInsert).await?;
+    if let Err(error) =
+        insert_action_records(transaction, context, plan, next_sequence, &receipt).await
+    {
+        return commit_insert_outcome(error).map(PersistAction::Replay);
+    }
+    Ok(PersistAction::Continue)
+}
+
+async fn insert_action_records(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: &ExecutionContext,
+    plan: &CommitPlan,
+    next_sequence: i64,
+    receipt: &CommitReceipt,
+) -> Result<(), StoreError> {
+    for effect in &plan.effects {
+        insert_semantic_record(
+            transaction,
+            context.tenant_id(),
+            next_sequence,
+            &effect.evidence,
+        )
+        .await?;
+    }
+    insert_operation_records(transaction, context.tenant_id(), receipt).await?;
+    reach(CommitStage::AfterSemanticRecords).await?;
+    for (ordinal, effect) in plan.effects.iter().enumerate() {
+        insert_effect_request(
+            transaction,
+            context.tenant_id(),
+            next_sequence,
+            ordinal,
+            &plan.proposal.operation_id,
+            &plan.proposal.intent_digest,
+            effect,
+        )
+        .await?;
+    }
+    reach(CommitStage::AfterEffectRequests).await?;
+    Ok(())
 }
 
 async fn initialize_and_lock_head(

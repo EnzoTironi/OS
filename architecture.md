@@ -2,7 +2,7 @@
 
 Zoen is three products on one Fly app.
 
-**Ontology.** The `zoen` CLI, Connect API on zoend, and MCP. Meaning lives in committed canonical JSON. Publish is `DefinitionService.Publish`. The kernel is Rust. `zoen-core` holds types and laws with no IO. `zoen-engine` runs publish, propose, Cedar, and commit. `zoen-query` reads through DataFusion. `zoen-adapters` talks to Postgres 18, Restate, and object storage. zoend is the composition root.
+**Ontology.** One Rust binary `zoen`: Connect API (`zoen serve`) and CLI (`zoen <noun> <verb>`). Meaning lives in committed canonical JSON. Publish is `DefinitionService.Publish`. The kernel is Rust. `zoen-core` holds types and laws with no IO. `zoen-engine` runs publish, propose, Cedar, and commit. `zoen-query` reads through DataFusion. `zoen-adapters` talks to Postgres 18, Restate, and object storage. `zoen serve` is the composition root.
 
 **Conversation.** Eve in `apps/conversation`. TypeScript. Durability is Eve, not Restate. Isolate runs planted `zoen` and cannot commit.
 

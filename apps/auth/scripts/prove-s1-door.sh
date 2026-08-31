@@ -226,7 +226,7 @@ sleep 1
 policies="${work}/policies.json"
 printf '%s\n' '{"policies":[]}' > "$policies"
 
-zoend_bin="${repo}/target/debug/zoend"
+zoend_bin="${repo}/target/debug/zoen"
 (
   cd "$repo"
   # shellcheck disable=SC1091

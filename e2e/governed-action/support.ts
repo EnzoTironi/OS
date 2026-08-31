@@ -92,7 +92,7 @@ export const generatedDirectory = e2eGeneratedDirectory(
   repositoryRoot,
   "governed-action",
 );
-const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
+const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
 const composeFile = path.join("e2e", "governed-action", "compose.yaml");
 const composeProject = "zoen-governed-action";
 const postgresPortFallback = 55_434;

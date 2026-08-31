@@ -1,5 +1,7 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use crate::{IdentifierError, MembershipId, TenantId, parse_identifier};
 
@@ -9,10 +11,14 @@ pub const CONVERSATION_STAGE_CAP: usize = 32;
 pub struct ConversationStageId(String);
 
 impl ConversationStageId {
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError`] when `value` is not a valid identifier.
     pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
         parse_identifier(value.into(), "ConversationStageId").map(Self)
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -54,6 +60,7 @@ impl Display for ConversationStageError {
 impl Error for ConversationStageError {}
 
 impl ConversationStage {
+    #[must_use]
     pub fn plant(id: ConversationStageId, tenant_id: TenantId, members: Vec<MembershipId>) -> Self {
         Self {
             id,
@@ -62,6 +69,10 @@ impl ConversationStage {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ConversationStageError::Incomplete`] when the member set is empty, or
+    /// [`ConversationStageError::OverCap`] when it exceeds [`CONVERSATION_STAGE_CAP`].
     pub fn who_can(&self) -> Result<&[MembershipId], ConversationStageError> {
         if self.members.is_empty() {
             return Err(ConversationStageError::Incomplete);

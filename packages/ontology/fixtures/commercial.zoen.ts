@@ -359,9 +359,7 @@ const recordFulfillment = defineAction({
     },
   ],
   id: "commercial.recordFulfillment",
-  inputs: [
-    { id: "quantity", valueType: { kind: "quantity", unit: "each" } },
-  ],
+  inputs: [{ id: "quantity", valueType: { kind: "quantity", unit: "each" } }],
   precondition: {
     kind: "binary",
     left: {

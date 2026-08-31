@@ -6,15 +6,17 @@ import { promisify } from "node:util";
 import type { HostCredential } from "./credentials";
 
 const execFileAsync = promisify(execFile);
+const ARGV_WHITESPACE = /\s+/u;
+const TRAILING_SLASHES = /\/+$/u;
 
-export type ZoenCommandResult = {
+export interface ZoenCommandResult {
   readonly exitCode: number;
-  readonly stdout: string;
   readonly stderr: string;
-};
+  readonly stdout: string;
+}
 
 export function isZoenArgv(argv: readonly string[]): boolean {
-  const first = argv[0];
+  const [first] = argv;
   if (first === undefined) {
     return false;
   }
@@ -25,11 +27,20 @@ export function isZoenArgv(argv: readonly string[]): boolean {
 }
 
 export function splitCommand(command: string): string[] {
-  return command.trim().split(/\s+/u).filter((part) => part.length > 0);
+  return command
+    .trim()
+    .split(ARGV_WHITESPACE)
+    .filter((part) => part.length > 0);
 }
 
 export function zoenBinPath(): string {
-  return join(fileURLToPath(new URL("../../../zoen/zoen", import.meta.url)));
+  const fromEnv = process.env.ZOEN_BIN?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  return join(
+    fileURLToPath(new URL("../../../../target/debug/zoen", import.meta.url))
+  );
 }
 
 export function isolatePlantScript(zoenBin: string): string {
@@ -41,32 +52,36 @@ exec ${quoted} "$@"
 `;
 }
 
-export async function runIsolateZoen(input: {
+export function runIsolateZoen(input: {
   readonly argv: readonly string[];
   readonly zoendBaseUrl: string;
   readonly credential: HostCredential | undefined;
   readonly workspace: string;
 }): Promise<ZoenCommandResult> {
   if (input.credential === undefined) {
-    return { exitCode: 1, stdout: "", stderr: "precisa de membership\n" };
+    return Promise.resolve({
+      exitCode: 1,
+      stderr: "precisa de membership\n",
+      stdout: "",
+    });
   }
   return execZoen({
     argv: stripZoenBin(input.argv),
     cwd: input.workspace,
     env: {
-      ZOEN_ISOLATE: "1",
-      ZOEN_ZOEND: input.zoendBaseUrl.replace(/\/+$/u, ""),
       ZOEN_BEARER: input.credential.doorToken,
-      ZOEN_TENANT: input.credential.tenantId,
-      ZOEN_SOURCE_HOME: join(input.workspace, ".zoen"),
-      ZOEN_DEFINITION_ID: input.credential.definitionId,
       ZOEN_DEFINITION_DIGEST: input.credential.definitionDigest,
+      ZOEN_DEFINITION_ID: input.credential.definitionId,
+      ZOEN_ISOLATE: "1",
+      ZOEN_SOURCE_HOME: join(input.workspace, ".zoen"),
+      ZOEN_TENANT: input.credential.tenantId,
       ZOEN_VALID_AT: input.credential.validAt,
+      ZOEN_ZOEND: input.zoendBaseUrl.replace(TRAILING_SLASHES, ""),
     },
   });
 }
 
-export async function runZoenArgv(input: {
+export function runZoenArgv(input: {
   readonly argv: readonly string[];
   readonly env?: NodeJS.ProcessEnv;
   readonly cwd?: string;
@@ -86,17 +101,17 @@ async function execZoen(input: {
   try {
     const result = await execFileAsync(zoenBinPath(), [...input.argv], {
       cwd: input.cwd,
-      env: { ...process.env, ...input.env },
       encoding: "utf8",
+      env: { ...process.env, ...input.env },
       maxBuffer: 16 * 1024 * 1024,
     });
-    return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
+    return { exitCode: 0, stderr: result.stderr, stdout: result.stdout };
   } catch (error) {
     if (isExecFailure(error)) {
       return {
         exitCode: typeof error.code === "number" ? error.code : 1,
-        stdout: error.stdout ?? "",
         stderr: error.stderr ?? "",
+        stdout: error.stdout ?? "",
       };
     }
     throw error;
@@ -111,7 +126,7 @@ function stripZoenBin(argv: readonly string[]): string[] {
 }
 
 function isExecFailure(
-  error: unknown,
+  error: unknown
 ): error is { code?: number | string; stdout?: string; stderr?: string } {
   return typeof error === "object" && error !== null && "stdout" in error;
 }
