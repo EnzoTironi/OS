@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEVICE_WAIT_SECS: u64 = 120;
 const AUTH_CLIENT_ID: &str = "zoen";
 const ROOT_AFTER_HELP: &str = "\
 Environment:
@@ -25,6 +26,7 @@ Environment:
   ZOEN_TENANT             tenant id
   ZOEN_ZOEND              zoend origin
   ZOEN_DEFINITION_DIGEST  active definition digest
+  ZOEN_DEFINITION_ID      active definition id
 
 Examples:
   zoen serve
@@ -86,7 +88,7 @@ pub enum Command {
     },
     /// Sign in at the Better Auth door
     #[command(
-        after_help = "Examples:\n  zoen auth login --email you@example.com --password secret"
+        after_help = "Examples:\n  zoen auth login --email you@example.com --password secret\n  zoen auth login --device"
     )]
     Auth {
         #[command(subcommand)]
@@ -150,7 +152,7 @@ pub enum DefinitionCommand {
     },
     /// Activate a published definition digest
     #[command(
-        after_help = "Examples:\n  zoen definition activate --definition-id world.source --digest <digest>"
+        after_help = "Examples:\n  zoen definition activate --definition-id inventory.definition --digest <digest>"
     )]
     Activate {
         #[arg(long = "definition-id")]
@@ -330,7 +332,7 @@ pub enum HistoryCommand {
 pub enum AuthCommand {
     /// Sign in at Better Auth. Writes the session for `ZOEN_BEARER`
     #[command(
-        after_help = "Examples:\n  zoen auth login --email you@example.com --password secret\n  zoen auth login --device"
+        after_help = "Examples:\n  zoen auth login --email you@example.com --password secret\n  zoen auth login --device\n  zoen auth login --device --wait"
     )]
     Login {
         #[arg(long)]
@@ -339,6 +341,8 @@ pub enum AuthCommand {
         password: Option<String>,
         #[arg(long)]
         device: bool,
+        #[arg(long)]
+        wait: bool,
     },
 }
 
@@ -460,8 +464,9 @@ async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Sen
                     email,
                     password,
                     device,
+                    wait,
                 },
-        } => run_auth_login(email, password, device).await,
+        } => run_auth_login(email, password, device, wait).await,
         Command::World { command } => run_world(&parse_env()?, command).await,
         Command::Definition { command } => run_definition(&parse_env()?, command).await,
         Command::Source { command } => run_source(&parse_env()?, command).await,
@@ -601,7 +606,7 @@ fn parse_env() -> Result<RuntimeEnv, Box<dyn Error + Send + Sync>> {
         actor_id: env_or("ZOEN_ACTOR", "actor.personal"),
         bearer: required_env("ZOEN_BEARER")?,
         definition_digest: env_or("ZOEN_DEFINITION_DIGEST", ""),
-        definition_id: env_or("ZOEN_DEFINITION_ID", "world.source"),
+        definition_id: env_or("ZOEN_DEFINITION_ID", ""),
         isolate: env::var("ZOEN_ISOLATE").ok().as_deref() == Some("1"),
         principal_id: env_or("ZOEN_PRINCIPAL", "principal.personal"),
         source_home: PathBuf::from(env_or("ZOEN_SOURCE_HOME", ".zoen")),
@@ -639,6 +644,19 @@ fn required_env_message(name: &str) -> String {
         "ZOEN_TENANT" => format!("{name} is required\n  export ZOEN_TENANT=tenant.a"),
         _ => format!("{name} is required"),
     }
+}
+
+fn missing_definition(env: &RuntimeEnv) -> Option<CommandResult> {
+    if env.definition_digest.is_empty() {
+        return Some(fail(2, "ZOEN_DEFINITION_DIGEST is required"));
+    }
+    if env.definition_id.is_empty() {
+        return Some(fail(
+            2,
+            "ZOEN_DEFINITION_ID is required\n  export ZOEN_DEFINITION_ID=inventory.definition",
+        ));
+    }
+    None
 }
 
 fn parse_inputs(values: &[String]) -> Vec<(String, String)> {
@@ -768,8 +786,8 @@ async fn world_query(
     limit: u32,
     scenario_id: &str,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    if env.definition_digest.is_empty() {
-        return Ok(fail(2, "ZOEN_DEFINITION_DIGEST is required"));
+    if let Some(result) = missing_definition(env) {
+        return Ok(result);
     }
     let status = connect_json(
         env,
@@ -789,6 +807,15 @@ async fn world_query(
     )
     .await?;
     if status.status != 200 {
+        if status.status == 403 && status.text.contains("subject has no verified binding") {
+            return Ok(fail(
+                1,
+                &format!(
+                    "SemanticQuery 403 {}\nsubject has no verified binding. Dest membership is an Active row. An invite is required.\n  zoen action propose --proposal-id p --action-id zoen.world.invite --resource-id world --input accountId=<account>",
+                    status.text
+                ),
+            ));
+        }
         return Ok(fail(
             1,
             &format!("SemanticQuery {} {}", status.status, status.text),
@@ -829,8 +856,8 @@ async fn propose_action(
             "zoen action propose requires --proposal-id --action-id --resource-id\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1",
         ));
     }
-    if env.definition_digest.is_empty() {
-        return Ok(fail(2, "ZOEN_DEFINITION_DIGEST is required"));
+    if let Some(result) = missing_definition(env) {
+        return Ok(result);
     }
     let inputs = match propose_inputs(&parsed) {
         Ok(inputs) => inputs,
@@ -897,8 +924,11 @@ fn propose_inputs(parsed: &ProposeInput) -> Result<Value, String> {
                 .collect::<Vec<_>>()
         ));
     }
-    let Some(quantity) = parsed.quantity.as_ref() else {
-        return Ok(json!([]));
+    let Some(quantity) = parsed.quantity.as_ref().filter(|value| !value.is_empty()) else {
+        return Err(
+            "zoen action propose needs --quantity or --input:\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1"
+                .to_owned(),
+        );
     };
     Ok(json!([{
         "inputId": "quantity",
@@ -1180,7 +1210,10 @@ fn introduce_source(
     query: Option<&str>,
     dry_run: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    let instance = read_source(env, id)?;
+    let instance = match connected_source(env, id) {
+        Ok(instance) => instance,
+        Err(result) => return Ok(result),
+    };
     if instance.kind == "google" {
         let Some(folder_name) = folder.filter(|value| !value.is_empty()) else {
             return Ok(fail(2, "introduce a folder, not the account"));
@@ -1223,7 +1256,10 @@ async fn sync_source(
     id: &str,
     dry_run: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    let instance = read_source(env, id)?;
+    let instance = match connected_source(env, id) {
+        Ok(instance) => instance,
+        Err(result) => return Ok(result),
+    };
     if instance.introduced.is_none() {
         return Ok(fail(2, &format!("source {id} has no introduced resource")));
     }
@@ -1236,6 +1272,9 @@ async fn sync_source(
     {
         return Ok(fail(2, "introduce a folder, not the account"));
     }
+    if env.isolate && !dry_run {
+        return Ok(fail(1, "isolate cannot commit"));
+    }
     let fetched = fetch_source(&instance).await?;
     let cas = put_cas(env, &fetched.bytes)?;
     if dry_run {
@@ -1247,22 +1286,6 @@ async fn sync_source(
         })));
     }
     let signal = emit_signal(env, &instance, &cas.digest, &fetched.durable_event_id).await?;
-    if env.isolate {
-        return Ok(CommandResult {
-            exit_code: 1,
-            stderr: "isolate cannot commit\n".to_owned(),
-            stdout: format!(
-                "{}\n",
-                json!({
-                    "claimIds": [],
-                    "digest": cas.digest,
-                    "id": id,
-                    "quantity": fetched.quantity,
-                    "signalId": signal,
-                })
-            ),
-        });
-    }
     let Some(quantity) = fetched.quantity.clone() else {
         return Ok(ok(&json!({
             "claimIds": [],
@@ -1775,6 +1798,12 @@ async fn map_quantity(
     if env.definition_digest.is_empty() {
         return Err("ZOEN_DEFINITION_DIGEST is required to map".into());
     }
+    if env.definition_id.is_empty() {
+        return Err(
+            "ZOEN_DEFINITION_ID is required\n  export ZOEN_DEFINITION_ID=inventory.definition"
+                .into(),
+        );
+    }
     let proposal_id = format!(
         "proposal.{}-{}",
         sanitize(source_id),
@@ -1823,9 +1852,17 @@ fn source_path(env: &RuntimeEnv, id: &str) -> PathBuf {
     env.source_home.join("sources").join(format!("{id}.json"))
 }
 
-fn read_source(env: &RuntimeEnv, id: &str) -> Result<SourceInstance, Box<dyn Error + Send + Sync>> {
-    let raw = fs::read_to_string(source_path(env, id))?;
-    Ok(serde_json::from_str(&raw)?)
+fn connected_source(env: &RuntimeEnv, id: &str) -> Result<SourceInstance, CommandResult> {
+    match fs::read_to_string(source_path(env, id)) {
+        Ok(raw) => serde_json::from_str(&raw).map_err(|error| fail(1, &error.to_string())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Err(fail(
+            2,
+            &format!(
+                "source {id} is not connected\n  zoen source connect rest --id {id} --base <url>"
+            ),
+        )),
+        Err(error) => Err(fail(1, &error.to_string())),
+    }
 }
 
 fn write_source(
@@ -1929,8 +1966,8 @@ async fn discover_actions(
             "zoen action discover requires --resource-id\n  zoen action discover --resource-id inventory.item.1",
         ));
     }
-    if env.definition_digest.is_empty() {
-        return Ok(fail(2, "ZOEN_DEFINITION_DIGEST is required"));
+    if let Some(result) = missing_definition(env) {
+        return Ok(result);
     }
     let status = connect_json(
         env,
@@ -2021,7 +2058,14 @@ async fn run_auth_login(
     email: Option<String>,
     password: Option<String>,
     device: bool,
+    wait: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    if wait && !device {
+        return Ok(fail(
+            2,
+            "zoen auth login --wait needs --device\n  zoen auth login --device --wait",
+        ));
+    }
     if device {
         if email.is_some() || password.is_some() {
             return Ok(fail(
@@ -2030,7 +2074,7 @@ async fn run_auth_login(
             ));
         }
         let zoend = required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned();
-        return login_device(&zoend).await;
+        return login_device(&zoend, wait).await;
     }
     match (email, password) {
         (Some(email), Some(password)) if !email.trim().is_empty() && !password.is_empty() => {
@@ -2076,7 +2120,10 @@ async fn login_email(
     Ok(ok(&json!({ "bearer": bearer })))
 }
 
-async fn login_device(zoend: &str) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+async fn login_device(
+    zoend: &str,
+    wait: bool,
+) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
     let started = Instant::now();
     let response = match http_client()?
         .post(format!("{zoend}/api/auth/device/code"))
@@ -2099,37 +2146,68 @@ async fn login_device(zoend: &str) -> Result<CommandResult, Box<dyn Error + Send
     let device_code = doc
         .get("device_code")
         .and_then(Value::as_str)
-        .ok_or("device/code missing device_code")?;
+        .ok_or("device/code missing device_code")?
+        .to_owned();
     let user_code = doc
         .get("user_code")
         .and_then(Value::as_str)
-        .ok_or("device/code missing user_code")?;
+        .ok_or("device/code missing user_code")?
+        .to_owned();
     let verification_uri = doc
         .get("verification_uri")
         .and_then(Value::as_str)
         .unwrap_or("/device");
     let verification_uri = rewrite_loopback_uri(verification_uri, zoend);
+    let open_line = format!("Open {verification_uri} and enter {user_code}\n");
+    if !wait {
+        return Ok(CommandResult {
+            exit_code: 0,
+            stdout: format!(
+                "{}\n",
+                json!({
+                    "deviceCode": device_code,
+                    "userCode": user_code,
+                    "verificationUri": verification_uri,
+                })
+            ),
+            stderr: open_line,
+        });
+    }
+    io::stderr().write_all(open_line.as_bytes())?;
     let interval = doc.get("interval").and_then(Value::as_u64).unwrap_or(5);
     let expires_in = doc
         .get("expires_in")
         .and_then(Value::as_u64)
         .unwrap_or(1800);
-    io::stderr()
-        .write_all(format!("Open {verification_uri} and enter {user_code}\n").as_bytes())?;
-    poll_device_token(zoend, device_code, interval, expires_in).await
+    poll_device_token(
+        zoend,
+        &device_code,
+        &user_code,
+        &verification_uri,
+        interval,
+        expires_in.clamp(1, DEVICE_WAIT_SECS),
+    )
+    .await
 }
 
 async fn poll_device_token(
     zoend: &str,
     device_code: &str,
+    user_code: &str,
+    verification_uri: &str,
     interval: u64,
-    expires_in: u64,
+    wait_secs: u64,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    let deadline = Instant::now() + Duration::from_secs(expires_in.max(1));
+    let deadline = Instant::now() + Duration::from_secs(wait_secs);
     let sleep_for = Duration::from_secs(interval.max(1));
     loop {
         if Instant::now() >= deadline {
-            return Ok(fail(1, "device authorization timed out"));
+            return Ok(fail(
+                1,
+                &format!(
+                    "device authorization timed out. Open {verification_uri} and enter {user_code}"
+                ),
+            ));
         }
         tokio::time::sleep(sleep_for).await;
         let started = Instant::now();
