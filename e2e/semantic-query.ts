@@ -1669,6 +1669,7 @@ function destZoenEnv(token: string, digest: string): NodeJS.ProcessEnv {
     ZOEN_DEFINITION_ID: definitionId,
     ZOEN_PRINCIPAL: "principal.admin.a",
     ZOEN_TENANT: tenantA,
+    ZOEN_VALID_AT: "2025-01-15T00:00:00Z",
     ZOEN_WORKLOAD: "workload.admin.a",
     ZOEN_ZOEND: baseUrl,
   };
