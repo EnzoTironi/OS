@@ -70,7 +70,11 @@ mod proto {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    match cli::Cli::parse().command {
+    let cli = cli::Cli::parse();
+    if cli.skill {
+        return cli::print_skill();
+    }
+    match cli.command {
         None => cli::print_root_help(),
         Some(cli::Command::Serve) => match serve().await {
             Ok(()) => Ok(()),
