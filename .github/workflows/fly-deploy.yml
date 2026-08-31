@@ -12,7 +12,6 @@ on:
       - "apps/conversation/**"
       - "apps/zoend/**"
       - "crates/**"
-      - "packages/ontology/**"
       - "proto/**"
       - "Cargo.lock"
       - "Cargo.toml"
