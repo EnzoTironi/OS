@@ -1,0 +1,26 @@
+name: Bug
+description: Something is broken
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Observed vs expected.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Commands, SHAs, logs. No secrets.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: sha
+    attributes:
+      label: Commit
+      placeholder: main or a SHA
+    validations:
+      required: true
