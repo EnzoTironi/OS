@@ -1,18 +1,21 @@
-import { runZoenArgv } from "./sandbox/run-zoen";
-
 export interface KernelInput {
   readonly inputId: string;
   readonly value: { readonly textValue: string };
 }
 
-export async function commitKernelAction(command: {
-  readonly actionId: string;
-  readonly resourceId: string;
-  readonly inputs: readonly KernelInput[];
-}): Promise<unknown> {
-  if (process.env.ZOEN_ISOLATE === "1") {
-    throw new Error("isolate cannot commit");
-  }
+interface ZoendEnv {
+  readonly bearer: string;
+  readonly definitionId: string;
+  readonly digest: string;
+  readonly expiresAt: string;
+  readonly tenant: string;
+  readonly validAt: string;
+  readonly zoend: string;
+}
+
+const TRAILING_SLASHES = /\/+$/u;
+
+function readZoendEnv(): ZoendEnv {
   const zoend = process.env.ZOEN_ZOEND?.trim();
   const bearer = process.env.ZOEN_BEARER?.trim();
   const tenant = process.env.ZOEN_TENANT?.trim();
@@ -33,74 +36,117 @@ export async function commitKernelAction(command: {
   ) {
     throw new Error("zoend session env is required");
   }
-  const env = {
-    ZOEN_BEARER: bearer,
-    ZOEN_DEFINITION_DIGEST: digest,
-    ZOEN_DEFINITION_ID: definitionId,
-    ZOEN_ISOLATE: "0",
-    ZOEN_TENANT: tenant,
-    ZOEN_VALID_AT: validAt,
-    ZOEN_ZOEND: zoend,
-  };
+  return { bearer, definitionId, digest, expiresAt, tenant, validAt, zoend };
+}
+
+async function connectJson(
+  env: ZoendEnv,
+  path: string,
+  body: unknown
+): Promise<Record<string, unknown>> {
+  const response = await fetch(
+    `${env.zoend.replace(TRAILING_SLASHES, "")}${path}`,
+    {
+      body: JSON.stringify(body),
+      headers: {
+        authorization: `Bearer ${env.bearer}`,
+        "connect-protocol-version": "1",
+        "content-type": "application/json",
+        "x-zoen-tenant": env.tenant,
+      },
+      method: "POST",
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
+  const json = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  if (!response.ok) {
+    throw new Error(
+      `${path} failed: HTTP ${response.status}: ${JSON.stringify(json)}`
+    );
+  }
+  return json;
+}
+
+async function resolveRevision(env: ZoendEnv): Promise<string> {
+  const pinned = process.env.ZOEN_DEFINITION_REVISION?.trim();
+  if (pinned) {
+    return pinned;
+  }
+  const json = await connectJson(
+    env,
+    "/zoen.definition.v1.DefinitionService/GetRevision",
+    {
+      definitionId: env.definitionId,
+      digest: env.digest,
+      tenantId: env.tenant,
+    }
+  );
+  const revision =
+    (json.definitionRevision as { revision?: unknown } | undefined)?.revision ??
+    (json.definition_revision as { revision?: unknown } | undefined)?.revision;
+  if (typeof revision === "string" && revision.length > 0) {
+    return revision;
+  }
+  if (typeof revision === "number") {
+    return String(revision);
+  }
+  throw new Error("GetRevision returned no revision");
+}
+
+export async function commitKernelAction(command: {
+  readonly actionId: string;
+  readonly resourceId: string;
+  readonly inputs: readonly KernelInput[];
+}): Promise<unknown> {
+  if (process.env.ZOEN_ISOLATE === "1") {
+    throw new Error("isolate cannot commit");
+  }
+  const env = readZoendEnv();
   const slug = command.actionId.replaceAll(".", "-");
   const proposalId = `proposal.${slug}`;
   const operationId = `operation.${slug}`;
-  const proposeArgv = [
-    "action",
-    "propose",
-    "--proposal-id",
-    proposalId,
-    "--operation-id",
-    operationId,
-    "--action-id",
-    command.actionId,
-    "--resource-id",
-    command.resourceId,
-    "--expires-at",
-    expiresAt,
-  ];
-  for (const input of command.inputs) {
-    proposeArgv.push("--input", `${input.inputId}=${input.value.textValue}`);
-  }
-  const proposed = await runZoenArgv({ argv: proposeArgv, env });
-  if (proposed.exitCode !== 0) {
-    throw new Error(
-      proposed.stderr.trim() ||
-        proposed.stdout.trim() ||
-        "zoen action propose failed"
-    );
-  }
-  const doc = JSON.parse(proposed.stdout) as {
-    previewHash?: string | null;
-    proposal?: { previewHash?: string };
-  };
-  const previewHash = doc.previewHash ?? doc.proposal?.previewHash;
-  if (
-    previewHash === undefined ||
-    previewHash === null ||
-    previewHash.length === 0
-  ) {
+  const proposed = await connectJson(
+    env,
+    "/zoen.action.v1.ActionService/Propose",
+    {
+      actionId: command.actionId,
+      definition: {
+        definitionId: env.definitionId,
+        digest: env.digest,
+        revision: await resolveRevision(env),
+      },
+      expiresAt: env.expiresAt,
+      inputs: command.inputs.map((input) => ({
+        inputId: input.inputId,
+        value: { textValue: input.value.textValue },
+      })),
+      operationId,
+      proposalId,
+      resourceId: command.resourceId,
+      validAt: env.validAt,
+    }
+  );
+  const previewHash =
+    (proposed.proposal as { previewHash?: string } | undefined)?.previewHash ??
+    (proposed.previewHash as string | undefined);
+  if (previewHash === undefined || previewHash.length === 0) {
     throw new Error("propose missing preview_hash");
   }
-  const committed = await runZoenArgv({
-    argv: [
-      "action",
-      "commit",
-      "--proposal-id",
-      proposalId,
-      "--operation-id",
-      operationId,
-      "--preview-hash",
-      previewHash,
-    ],
+  const committed = await connectJson(
     env,
-  });
-  if (committed.exitCode !== 0) {
-    throw new Error(
-      committed.stderr.trim() ||
-        committed.stdout.trim() ||
-        "zoen action commit failed"
-    );
-  }
-  return JSON.parse(committed.stdout) as unknown;
+    "/zoen.action.v1.ActionService/Commit",
+    { operationId, previewHash, proposalId }
+  );
+  const receipt = (committed.receipt ?? committed) as {
+    recordIds?: string[];
+  };
+  const claimIds = receipt.recordIds ?? (committed.recordIds as string[]) ?? [];
+  return {
+    claimIds,
+    receipt: committed.receipt ?? committed,
+    status: committed.status ?? null,
+  };
 }
