@@ -637,6 +637,12 @@ pub trait AuthorityStore: Send + Sync {
         definition_id: &DefinitionId,
     ) -> impl std::future::Future<Output = Result<Option<DefinitionRevision>, StoreError>> + Send;
 
+    fn get_active_activation(
+        &self,
+        tenant_id: &TenantId,
+        definition_id: &DefinitionId,
+    ) -> impl std::future::Future<Output = Result<Option<DefinitionActivation>, StoreError>> + Send;
+
     fn get_migration(
         &self,
         tenant_id: &TenantId,

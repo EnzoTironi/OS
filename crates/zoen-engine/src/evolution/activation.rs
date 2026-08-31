@@ -2,7 +2,7 @@ use zoen_core::{
     ActionId, ActivationPrecondition, CanonicalDefinition, DefinitionActivation,
     DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevision, EvolutionClassification, EvolutionPlan, ExecutionContext, OperationId,
-    PolicyEvaluation, PolicyEvidence, ResourceId, TimestampMicros,
+    PolicyEvaluation, PolicyEvidence, ResourceId, TenantId, TimestampMicros,
 };
 
 use super::{plan, reference};
@@ -27,6 +27,7 @@ where
     ///
     /// Returns [`ActivateRevisionError`] when the precondition is stale, the plan is
     /// incompatible, required migration is missing, policy denies the action, or the store fails.
+    /// Activating the digest that is already active returns that activation.
     pub async fn activate_revision(
         &self,
         context: &ExecutionContext,
@@ -47,6 +48,18 @@ where
             .get_active_revision(context.tenant_id(), definition_id)
             .await
             .map_err(ActivateRevisionError::Store)?;
+        if previous
+            .as_ref()
+            .is_some_and(|revision| revision.digest == *digest)
+        {
+            return already_active_activation(
+                &self.store,
+                context.tenant_id(),
+                definition_id,
+                digest,
+            )
+            .await;
+        }
         if !precondition_matches(precondition, previous.as_ref()) {
             return Err(ActivateRevisionError::StalePrecondition);
         }
@@ -294,6 +307,27 @@ fn decode_revision(revision: &DefinitionRevision) -> Result<CanonicalDefinition,
         return Err("stored digest does not match canonical content".to_owned());
     }
     decode_canonical_definition(&revision.canonical_json).map_err(|error| error.to_string())
+}
+
+async fn already_active_activation<S: AuthorityStore>(
+    store: &S,
+    tenant_id: &TenantId,
+    definition_id: &DefinitionId,
+    digest: &DefinitionDigest,
+) -> Result<DefinitionActivation, ActivateRevisionError> {
+    let activation = store
+        .get_active_activation(tenant_id, definition_id)
+        .await
+        .map_err(ActivateRevisionError::Store)?
+        .ok_or_else(|| {
+            ActivateRevisionError::Store(StoreError::Corrupt(
+                "active definition revision is missing its activation".to_owned(),
+            ))
+        })?;
+    if activation.active.digest != *digest {
+        return Err(ActivateRevisionError::StalePrecondition);
+    }
+    Ok(activation)
 }
 
 fn precondition_matches(

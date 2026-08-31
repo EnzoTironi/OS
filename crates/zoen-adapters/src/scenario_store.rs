@@ -65,6 +65,11 @@ pub(crate) async fn insert_open_scenario(
     .await
     .map_err(store_unavailable)?;
     if result.rows_affected() != 1 {
+        transaction.commit().await.map_err(store_unavailable)?;
+        let existing = get_scenario(pool, context, scenario_id).await?;
+        if existing.status == ScenarioStatus::Open {
+            return Ok(existing);
+        }
         return Err(StoreError::Conflict(
             "scenario id already exists".to_owned(),
         ));

@@ -19,7 +19,7 @@ use zoen_core::{
 };
 use zoen_engine::{
     ApplyOutcome, QueryPortError, ReadEngine, ReadError, RecordEvidenceError, ScenarioEngine,
-    ScenarioError, WorldEngine,
+    ScenarioError, StoreError, WorldEngine,
 };
 use zoen_query::QueryRuntime;
 
@@ -654,6 +654,9 @@ fn map_scenario_error(error: ScenarioError) -> ConnectError {
             ConnectError::new(ErrorCode::NotFound, error.to_string())
         }
         ScenarioError::Invalid(message) => invalid(message),
+        ScenarioError::Store(StoreError::Conflict(_)) => {
+            ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
+        }
         ScenarioError::Store(error) => ConnectError::new(ErrorCode::Unavailable, error.to_string()),
         ScenarioError::Action(error) => {
             ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
