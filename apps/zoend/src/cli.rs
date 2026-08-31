@@ -25,6 +25,7 @@ No args is help. Start the daemon with zoen serve.
 
 Environment:
   ZOEN_BEARER             Better Auth session cookie (session_token)
+  ZOEN_PASSWORD           email login password (prefer over --password)
   ZOEN_TENANT             tenant id
   ZOEN_ZOEND              zoend origin
   ZOEN_DEFINITION_DIGEST  active definition digest
@@ -33,7 +34,8 @@ Environment:
 
 Examples:
   zoen serve
-  zoen auth login --email you@example.com --password secret
+  zoen auth login --device
+  zoen auth login --email you@example.com --password-stdin
   zoen world query --type inventory.Item
   zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --dry-run
 ";
@@ -103,7 +105,7 @@ pub enum Command {
     },
     /// Sign in at the Better Auth door
     #[command(
-        after_help = "Examples:\n  zoen auth login --email you@example.com --password secret\n  zoen auth login --device"
+        after_help = "Examples:\n  zoen auth login --device\n  zoen auth login --email you@example.com --password-stdin"
     )]
     Auth {
         #[command(subcommand)]
@@ -347,15 +349,17 @@ pub enum HistoryCommand {
 
 #[derive(Subcommand)]
 pub enum AuthCommand {
-    /// Sign in at Better Auth. Writes the session for `ZOEN_BEARER`
+    /// Sign in at Better Auth
     #[command(
-        after_help = "Examples:\n  zoen auth login --email you@example.com --password secret\n  zoen auth login --device\n  zoen auth login --device --wait"
+        after_help = "Password resolution: --password, else ZOEN_PASSWORD, else stdin with --password-stdin.\nPrefer ZOEN_PASSWORD or --password-stdin so the secret is not on argv.\n\nExamples:\n  zoen auth login --device\n  zoen auth login --device --wait\n  zoen auth login --email you@example.com --password-stdin\n  ZOEN_PASSWORD=... zoen auth login --email you@example.com"
     )]
     Login {
         #[arg(long)]
         email: Option<String>,
         #[arg(long)]
         password: Option<String>,
+        #[arg(long = "password-stdin")]
+        password_stdin: bool,
         #[arg(long)]
         device: bool,
         #[arg(long)]
@@ -480,10 +484,11 @@ async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Sen
                 AuthCommand::Login {
                     email,
                     password,
+                    password_stdin,
                     device,
                     wait,
                 },
-        } => run_auth_login(email, password, device, wait).await,
+        } => run_auth_login(email, password, password_stdin, device, wait).await,
         Command::World { command } => run_world(&parse_env()?, command).await,
         Command::Definition { command } => run_definition(&parse_env()?, command).await,
         Command::Source { command } => run_source(&parse_env()?, command).await,
@@ -657,7 +662,7 @@ fn required_env(name: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
 fn required_env_message(name: &str) -> String {
     match name {
         "ZOEN_BEARER" => format!(
-            "{name} is required\n  zoen auth login --email you@example.com --password secret"
+            "{name} is required\n  zoen auth login --device\n  zoen auth login --email you@example.com --password-stdin"
         ),
         "ZOEN_ZOEND" => format!("{name} is required\n  export ZOEN_ZOEND=http://127.0.0.1:58080"),
         "ZOEN_TENANT" => format!("{name} is required\n  export ZOEN_TENANT=tenant.a"),
@@ -2099,6 +2104,7 @@ fn explain_example() -> String {
 async fn run_auth_login(
     email: Option<String>,
     password: Option<String>,
+    password_stdin: bool,
     device: bool,
     wait: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
@@ -2109,7 +2115,7 @@ async fn run_auth_login(
         ));
     }
     if device {
-        if email.is_some() || password.is_some() {
+        if email.is_some() || password.is_some() || password_stdin {
             return Ok(fail(
                 2,
                 "zoen auth login --device does not take --email or --password\n  zoen auth login --device",
@@ -2118,6 +2124,10 @@ async fn run_auth_login(
         let zoend = required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned();
         return login_device(&zoend, wait).await;
     }
+    let password = match resolve_login_password(password, password_stdin) {
+        Ok(password) => password,
+        Err(message) => return Ok(fail(2, &message)),
+    };
     match (email, password) {
         (Some(email), Some(password)) if !email.trim().is_empty() && !password.is_empty() => {
             let zoend = required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned();
@@ -2125,9 +2135,42 @@ async fn run_auth_login(
         }
         _ => Ok(fail(
             2,
-            "zoen auth login needs --email and --password, or --device:\n  zoen auth login --email you@example.com --password secret\n  zoen auth login --device",
+            "zoen auth login needs --email and a password (--password, ZOEN_PASSWORD, or --password-stdin), or --device:\n  zoen auth login --device\n  zoen auth login --email you@example.com --password-stdin",
         )),
     }
+}
+
+fn resolve_login_password(
+    password: Option<String>,
+    password_stdin: bool,
+) -> Result<Option<String>, String> {
+    if password_stdin {
+        if password.is_some() {
+            return Err(
+                "zoen auth login --password-stdin does not take --password\n  zoen auth login --email you@example.com --password-stdin"
+                    .to_owned(),
+            );
+        }
+        let mut raw = String::new();
+        io::stdin()
+            .read_to_string(&mut raw)
+            .map_err(|error| error.to_string())?;
+        let value = raw.trim_end_matches(['\r', '\n']).to_owned();
+        if value.is_empty() {
+            return Err("zoen auth login --password-stdin needs a password on stdin".to_owned());
+        }
+        return Ok(Some(value));
+    }
+    if let Some(value) = password.filter(|value| !value.is_empty()) {
+        return Ok(Some(value));
+    }
+    if let Ok(value) = env::var("ZOEN_PASSWORD") {
+        let trimmed = value.trim_end_matches(['\r', '\n']);
+        if !trimmed.is_empty() {
+            return Ok(Some(trimmed.to_owned()));
+        }
+    }
+    Ok(None)
 }
 
 async fn login_email(
@@ -2154,12 +2197,13 @@ async fn login_email(
     if !(200..300).contains(&status) {
         return Ok(fail(1, &format!("sign-in {status} {text}")));
     }
-    let Some(bearer) =
-        session_token_from_headers(&headers).or_else(|| session_token_from_body(&text))
-    else {
+    if session_token_from_headers(&headers)
+        .or_else(|| session_token_from_body(&text))
+        .is_none()
+    {
         return Ok(fail(1, &format!("sign-in {status} missing session_token")));
-    };
-    Ok(ok(&json!({ "bearer": bearer })))
+    }
+    Ok(ok(&json!({ "loggedIn": true })))
 }
 
 async fn login_device(
@@ -2273,7 +2317,7 @@ async fn poll_device_token(
         let headers = response.headers().clone();
         let text = response.text().await?;
         if status == 200 {
-            let Some(bearer) = session_token_from_headers(&headers)
+            let has_session = session_token_from_headers(&headers)
                 .or_else(|| session_token_from_body(&text))
                 .or_else(|| {
                     serde_json::from_str::<Value>(&text).ok().and_then(|doc| {
@@ -2282,10 +2326,11 @@ async fn poll_device_token(
                             .map(str::to_owned)
                     })
                 })
-            else {
+                .is_some();
+            if !has_session {
                 return Ok(fail(1, "device/token missing session"));
-            };
-            return Ok(ok(&json!({ "bearer": bearer })));
+            }
+            return Ok(ok(&json!({ "loggedIn": true })));
         }
         let error = serde_json::from_str::<Value>(&text)
             .ok()
