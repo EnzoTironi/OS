@@ -105,6 +105,10 @@ resolve_scenario() {
 }
 
 run_lint() {
+  if [[ ! -s apps/conversation/agent/instructions.md ]]; then
+    echo "apps/conversation/agent/instructions.md is required for eve build" >&2
+    exit 1
+  fi
   npm ci
   npm run buf:lint
   npm run buf:breaking
