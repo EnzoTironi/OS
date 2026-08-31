@@ -707,7 +707,7 @@ async function main(): Promise<void> {
     record(
       "oauth2_missing_secret_not_network",
       !oauth2Missing.stderr.includes("error sending request") &&
-        !oauth2Missing.stderr.includes("auth.example.com"),
+        !oauth2Missing.stderr.includes('"code":"not_connected"'),
     );
     killMutant("oauth2 connect proceeds with empty client secret");
 
