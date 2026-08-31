@@ -208,10 +208,21 @@ async function main(): Promise<void> {
     "activate_help_inventory_definition",
     helpActivate.stdout.includes("--definition-id inventory.definition"),
   );
+  record("activate_help_has_dry_run", helpActivate.stdout.includes("--dry-run"));
   record(
     "activate_help_no_world_source",
     !helpActivate.stdout.includes("world.source"),
   );
+
+  const helpApply = runZoen(["world", "scenario", "apply", "--help"]);
+  record("apply_help_ok", helpApply.status === 0);
+  record("apply_help_has_dry_run", helpApply.stdout.includes("--dry-run"));
+  record("apply_help_has_examples", helpApply.stdout.includes("Examples:"));
+
+  const helpDiscard = runZoen(["world", "scenario", "discard", "--help"]);
+  record("discard_help_ok", helpDiscard.status === 0);
+  record("discard_help_has_dry_run", helpDiscard.stdout.includes("--dry-run"));
+  record("discard_help_has_examples", helpDiscard.stdout.includes("Examples:"));
 
   const helpPropose = runZoen(["action", "propose", "--help"]);
   record("propose_help_ok", helpPropose.status === 0);
@@ -410,6 +421,99 @@ async function main(): Promise<void> {
   );
   record("isolate_commit_dry_run_ok", commitDryRun.status === 0);
   record("isolate_commit_dry_run_json", commitDryRun.stdout.includes('"dryRun":true'));
+
+  const isolateActivate = runZoen(
+    [
+      "definition",
+      "activate",
+      "--definition-id",
+      "inventory.definition",
+      "--digest",
+      "deadbeef",
+    ],
+    { env: cliEnv({ ZOEN_ISOLATE: "1" }) },
+  );
+  record("isolate_activate_denied", isolateActivate.status === 1);
+  record(
+    "isolate_activate_names_activate",
+    isolateActivate.stderr.includes("isolate cannot activate"),
+  );
+  record(
+    "isolate_activate_no_zoend",
+    !isolateActivate.stderr.includes("ActivateRevision"),
+  );
+
+  const activateDryRun = runZoen(
+    [
+      "definition",
+      "activate",
+      "--definition-id",
+      "inventory.definition",
+      "--digest",
+      "deadbeef",
+      "--dry-run",
+    ],
+    { env: cliEnv({ ZOEN_ISOLATE: "1" }) },
+  );
+  record("isolate_activate_dry_run_ok", activateDryRun.status === 0);
+  record(
+    "isolate_activate_dry_run_json",
+    activateDryRun.stdout.includes('"dryRun":true'),
+  );
+  record(
+    "isolate_activate_dry_run_body",
+    activateDryRun.stdout.includes('"definitionId":"inventory.definition"') &&
+      activateDryRun.stdout.includes('"digest":"deadbeef"'),
+  );
+
+  const isolateApply = runZoen(["world", "scenario", "apply", "--name", "draft"], {
+    env: cliEnv({ ZOEN_ISOLATE: "1" }),
+  });
+  record("isolate_apply_denied", isolateApply.status === 1);
+  record(
+    "isolate_apply_names_apply",
+    isolateApply.stderr.includes("isolate cannot apply"),
+  );
+
+  const applyDryRun = runZoen(
+    ["world", "scenario", "apply", "--name", "draft", "--dry-run"],
+    { env: cliEnv({ ZOEN_ISOLATE: "1" }) },
+  );
+  record("isolate_apply_dry_run_ok", applyDryRun.status === 0);
+  record("isolate_apply_dry_run_json", applyDryRun.stdout.includes('"dryRun":true'));
+  record(
+    "isolate_apply_dry_run_body",
+    applyDryRun.stdout.includes('"scenarioId":"draft"'),
+  );
+
+  const isolateDiscard = runZoen(
+    ["world", "scenario", "discard", "--name", "draft"],
+    { env: cliEnv({ ZOEN_ISOLATE: "1" }) },
+  );
+  record("isolate_discard_denied", isolateDiscard.status === 1);
+  record(
+    "isolate_discard_names_discard",
+    isolateDiscard.stderr.includes("isolate cannot discard"),
+  );
+  record(
+    "isolate_discard_no_zoend",
+    !isolateDiscard.stderr.includes("DiscardScenario"),
+  );
+
+  const discardDryRun = runZoen(
+    ["world", "scenario", "discard", "--name", "draft", "--dry-run"],
+    { env: cliEnv({ ZOEN_ISOLATE: "1" }) },
+  );
+  record("isolate_discard_dry_run_ok", discardDryRun.status === 0);
+  record(
+    "isolate_discard_dry_run_json",
+    discardDryRun.stdout.includes('"dryRun":true'),
+  );
+  record(
+    "isolate_discard_dry_run_body",
+    discardDryRun.stdout.includes('"scenarioId":"draft"'),
+  );
+  killMutant("isolate activates or discards without --dry-run");
 
   const missingActionId = runZoen(
     [

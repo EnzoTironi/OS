@@ -155,16 +155,24 @@ pub enum ScenarioCommand {
         idempotency_key: String,
     },
     /// Apply a named scenario
-    #[command(after_help = "Examples:\n  zoen world scenario apply --name draft")]
+    #[command(
+        after_help = "Examples:\n  zoen world scenario apply --name draft --dry-run\n  zoen world scenario apply --name draft"
+    )]
     Apply {
         #[arg(long)]
         name: String,
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Discard a named scenario
-    #[command(after_help = "Examples:\n  zoen world scenario discard --name draft")]
+    #[command(
+        after_help = "Examples:\n  zoen world scenario discard --name draft --dry-run\n  zoen world scenario discard --name draft"
+    )]
     Discard {
         #[arg(long)]
         name: String,
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -180,13 +188,15 @@ pub enum DefinitionCommand {
     },
     /// Activate a published definition digest
     #[command(
-        after_help = "Examples:\n  zoen definition activate --definition-id inventory.definition --digest <digest>"
+        after_help = "Examples:\n  zoen definition activate --definition-id inventory.definition --digest <digest> --dry-run\n  zoen definition activate --definition-id inventory.definition --digest <digest>"
     )]
     Activate {
         #[arg(long = "definition-id")]
         definition_id: String,
         #[arg(long)]
         digest: String,
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -553,13 +563,34 @@ async fn run_world(
                 };
                 scenario_rpc(env, "/zoen.world.v1.WorldService/CreateScenario", &name).await
             }
-            ScenarioCommand::Apply { name } => {
-                if env.isolate {
+            ScenarioCommand::Apply { name, dry_run } => {
+                if env.isolate && !dry_run {
                     return Ok(fail(1, "isolate cannot apply"));
+                }
+                if dry_run {
+                    return Ok(ok(&json!({
+                        "apply": {
+                            "scenarioId": name,
+                            "tenantId": env.tenant,
+                        },
+                        "dryRun": true,
+                    })));
                 }
                 scenario_rpc(env, "/zoen.world.v1.WorldService/ApplyScenario", &name).await
             }
-            ScenarioCommand::Discard { name } => {
+            ScenarioCommand::Discard { name, dry_run } => {
+                if env.isolate && !dry_run {
+                    return Ok(fail(1, "isolate cannot discard"));
+                }
+                if dry_run {
+                    return Ok(ok(&json!({
+                        "discard": {
+                            "scenarioId": name,
+                            "tenantId": env.tenant,
+                        },
+                        "dryRun": true,
+                    })));
+                }
                 scenario_rpc(env, "/zoen.world.v1.WorldService/DiscardScenario", &name).await
             }
         },
@@ -575,7 +606,8 @@ async fn run_definition(
         DefinitionCommand::Activate {
             definition_id,
             digest,
-        } => activate_definition(env, &definition_id, &digest).await,
+            dry_run,
+        } => activate_definition(env, &definition_id, &digest, dry_run).await,
     }
 }
 
@@ -923,16 +955,24 @@ async fn activate_definition(
     env: &RuntimeEnv,
     definition_id: &str,
     digest: &str,
+    dry_run: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    if env.isolate && !dry_run {
+        return Ok(fail(1, "isolate cannot activate"));
+    }
+    let body = json!({
+        "definitionId": definition_id,
+        "digest": digest,
+        "expectNoActiveRevision": true,
+        "tenantId": env.tenant,
+    });
+    if dry_run {
+        return Ok(ok(&json!({ "activate": body, "dryRun": true })));
+    }
     let status = connect_json(
         env,
         "/zoen.definition.v1.DefinitionService/ActivateRevision",
-        json!({
-            "definitionId": definition_id,
-            "digest": digest,
-            "expectNoActiveRevision": true,
-            "tenantId": env.tenant,
-        }),
+        body,
     )
     .await?;
     if status.status != 200 {
