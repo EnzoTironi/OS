@@ -4,6 +4,7 @@ use std::{
 };
 
 use buffa::MessageView;
+use buffa_types::google::protobuf::Timestamp;
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
@@ -405,8 +406,8 @@ pub(crate) fn to_trusted_context(context: &TrustedExecutionContext) -> TrustedCo
                     .map(|id| id.as_str().to_owned())
                     .collect(),
                 delegation_id: grant.id().as_str().to_owned(),
-                expires_at: Some(to_timestamp(grant.expires_at())).into(),
-                not_before: Some(to_timestamp(grant.not_before())).into(),
+                expires_at: grant_timestamp(grant.expires_at()).into(),
+                not_before: grant_timestamp(grant.not_before()).into(),
                 resource_ids: grant
                     .resources()
                     .iter()
@@ -425,6 +426,21 @@ pub(crate) fn to_trusted_context(context: &TrustedExecutionContext) -> TrustedCo
         workload_id: context.workload_id().as_str().to_owned(),
         ..Default::default()
     }
+}
+
+fn grant_timestamp(value: TimestampMicros) -> Option<Timestamp> {
+    if unbounded_grant_time(value) {
+        None
+    } else {
+        Some(to_timestamp(value))
+    }
+}
+
+fn unbounded_grant_time(value: TimestampMicros) -> bool {
+    let micros = value.get();
+    [i64::MIN / 2, i64::MAX / 2]
+        .into_iter()
+        .any(|sentinel| micros == sentinel || micros == sentinel / 1_000_000 * 1_000_000)
 }
 
 pub(crate) fn to_policy_evidence(evidence: CorePolicyEvidence) -> PolicyEvidence {
