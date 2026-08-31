@@ -22,7 +22,7 @@
     "@types/node": "26.2.0",
     "@types/pg": "8.23.1",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react-dom": "^19.2.5",
     "canonicalize": "4.0.0",
     "pg": "8.23.0",
     "typescript": "7.0.2",
