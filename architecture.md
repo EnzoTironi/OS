@@ -10,7 +10,7 @@ Zoen is three products on one Fly app.
 
 Public protocol is Protobuf, Buf, and ConnectRPC. Definition identity is JCS plus SHA-256. Policy is Cedar. Untrusted code is Wasmtime. Ontology effects are Restate behind `zoen-effect-dispatcher`. Conversation does not own Restate.
 
-Production is one machine. Image `deploy/fly/Dockerfile`. Postgres, Restate, MinIO, the door, Eve, and zoend share the VM. Public HTTPS is zoend. The door and Eve bind loopback. WhatsApp inbound dest is Kapso at `/eve/v1/kapso`. Everyday replies are text plus one https URL.
+Production is one machine. Image `deploy/fly/Dockerfile`. Postgres, Restate, MinIO, the door, Eve, and zoend share the VM. Public HTTPS is zoend. The door and Eve bind loopback. WhatsApp inbound dest is Kapso at `/eve/v1/kapso`. Telegram inbound dest is Eve's first-class channel at `/eve/v1/telegram`. The product bar is Poke plus Palantir: Eve talks like a sharp friend; ontology verbs carry company-grade depth for every audience.
 
 CLI shape is `zoen <noun> <verb>`. JSON on stdout. Mutations are propose then Cedar then commit on zoend. Isolate denies `action commit`.
 
