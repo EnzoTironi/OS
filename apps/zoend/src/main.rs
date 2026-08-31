@@ -71,7 +71,8 @@ mod proto {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     match cli::Cli::parse().command {
-        None | Some(cli::Command::Serve) => match serve().await {
+        None => cli::print_root_help(),
+        Some(cli::Command::Serve) => match serve().await {
             Ok(()) => Ok(()),
             Err(error) => {
                 eprintln!("Error: {error}");

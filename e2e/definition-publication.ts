@@ -419,7 +419,7 @@ async function startServer(): Promise<ServerProcess> {
     "policies.json",
   );
   const output: string[] = [];
-  const child = spawn(serverPath, [], {
+  const child = spawn(serverPath, ["serve"], {
     cwd: repositoryRoot,
     env: sessionDoorProcessEnv({
       applicationDatabaseUrl,

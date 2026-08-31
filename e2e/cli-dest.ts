@@ -145,6 +145,10 @@ async function main(): Promise<void> {
 
   const helpRoot = runZoen(["--help"]);
   record("root_help_ok", helpRoot.status === 0);
+  record(
+    "root_help_no_args_is_help",
+    helpRoot.stdout.includes("No args is help"),
+  );
   record("root_help_has_examples", helpRoot.stdout.includes("Examples:"));
   record("root_help_names_ZOEN_BEARER", helpRoot.stdout.includes("ZOEN_BEARER"));
   record("root_help_names_ZOEN_TENANT", helpRoot.stdout.includes("ZOEN_TENANT"));
@@ -203,9 +207,14 @@ async function main(): Promise<void> {
   const helpExplain = runZoen(["history", "explain", "--help"]);
   record("explain_help_has_examples", helpExplain.stdout.includes("Examples:"));
 
+  const bareZoen = runZoen([]);
+  record("bare_zoen_is_help", bareZoen.status === 0);
+  record("bare_zoen_has_examples", bareZoen.stdout.includes("Examples:"));
+  killMutant("bare zoen starts serve");
+
   const missingDbEnv = { ...process.env };
   delete missingDbEnv.DATABASE_URL;
-  const missingDb = runZoen([], { env: missingDbEnv });
+  const missingDb = runZoen(["serve"], { env: missingDbEnv });
   record("serve_missing_db_names_DATABASE_URL", missingDb.stderr.includes("DATABASE_URL"));
   record("serve_missing_db_not_NotPresent", !missingDb.stderr.includes("NotPresent"));
   killMutant("Error: NotPresent for missing DATABASE_URL");

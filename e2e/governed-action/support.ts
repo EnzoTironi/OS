@@ -672,7 +672,7 @@ export async function startServer(
   delete env.ZOEN_OIDC_AUDIENCE;
   delete env.ZOEN_OIDC_DISCOVERY_URL;
   delete env.ZOEN_OIDC_ISSUER;
-  const child = spawn(serverPath, [], {
+  const child = spawn(serverPath, ["serve"], {
     cwd: repositoryRoot,
     env,
     stdio: ["pipe", "pipe", "pipe"],

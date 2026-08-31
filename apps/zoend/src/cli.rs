@@ -10,7 +10,7 @@ use std::{
 };
 
 use base64::Engine;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use reqwest::header::{
     AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, SET_COOKIE,
 };
@@ -21,6 +21,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEVICE_WAIT_SECS: u64 = 120;
 const AUTH_CLIENT_ID: &str = "zoen";
 const ROOT_AFTER_HELP: &str = "\
+No args is help. Start the daemon with zoen serve.
+
 Environment:
   ZOEN_BEARER             Better Auth session cookie (session_token)
   ZOEN_TENANT             tenant id
@@ -35,7 +37,7 @@ Examples:
   zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --dry-run
 ";
 
-/// Ontology CLI parser. Empty args and `serve` start the daemon.
+/// Ontology CLI parser. No args prints help; `serve` starts the daemon.
 #[derive(Parser)]
 #[command(
     name = "zoen",
@@ -48,11 +50,23 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+/// Print root `--help` when the binary is invoked with no args.
+///
+/// # Errors
+///
+/// Returns an error when help text cannot be written.
+pub fn print_root_help() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut cmd = Cli::command();
+    cmd.print_help()?;
+    println!();
+    Ok(())
+}
+
 /// Ontology commands the `zoen` binary accepts.
 #[derive(Subcommand)]
 pub enum Command {
     /// Start the Connect API daemon
-    #[command(after_help = "Examples:\n  zoen serve\n  zoen")]
+    #[command(after_help = "Examples:\n  zoen serve")]
     Serve,
     /// Query the world and manage scenarios
     #[command(after_help = "Examples:\n  zoen world query --type inventory.Item")]
