@@ -37,7 +37,7 @@ Examples:
   zoen auth login --device
   zoen auth login --email you@example.com --password-stdin
   zoen world query --type inventory.Item
-  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --dry-run
+  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --dry-run
 ";
 
 /// Ontology CLI parser. No args prints help; `serve` starts the daemon.
@@ -85,7 +85,7 @@ pub enum Command {
     },
     /// Connect, introduce, and sync external sources
     #[command(
-        after_help = "Examples:\n  zoen source connect rest --id rest --base https://api.example.com"
+        after_help = "Examples:\n  zoen source connect rest --idempotency-key rest --base https://api.example.com"
     )]
     Source {
         #[command(subcommand)]
@@ -132,7 +132,7 @@ pub enum WorldCommand {
         scenario: String,
     },
     /// Create, apply, or discard a named scenario
-    #[command(after_help = "Examples:\n  zoen world scenario create --name draft")]
+    #[command(after_help = "Examples:\n  zoen world scenario create --idempotency-key draft")]
     Scenario {
         #[command(subcommand)]
         command: ScenarioCommand,
@@ -142,10 +142,14 @@ pub enum WorldCommand {
 #[derive(Subcommand)]
 pub enum ScenarioCommand {
     /// Create a named scenario
-    #[command(after_help = "Examples:\n  zoen world scenario create --name draft")]
+    #[command(
+        after_help = "Examples:\n  zoen world scenario create --idempotency-key draft\n  zoen world scenario create --name draft"
+    )]
     Create {
-        #[arg(long)]
+        #[arg(long, default_value = "")]
         name: String,
+        #[arg(long = "idempotency-key", default_value = "")]
+        idempotency_key: String,
     },
     /// Apply a named scenario
     #[command(after_help = "Examples:\n  zoen world scenario apply --name draft")]
@@ -187,7 +191,7 @@ pub enum DefinitionCommand {
 pub enum SourceCommand {
     /// Store a source connection
     #[command(
-        after_help = "Examples:\n  zoen source connect rest --id rest --base https://api.example.com"
+        after_help = "Examples:\n  zoen source connect rest --idempotency-key rest --base https://api.example.com"
     )]
     Connect {
         #[command(subcommand)]
@@ -219,11 +223,13 @@ pub enum SourceCommand {
 pub enum ConnectCommand {
     /// Connect a REST source
     #[command(
-        after_help = "Examples:\n  zoen source connect rest --id rest --base https://api.example.com"
+        after_help = "Examples:\n  zoen source connect rest --idempotency-key rest --base https://api.example.com\n  zoen source connect rest --id rest --base https://api.example.com"
     )]
     Rest {
         #[arg(long, default_value = "rest")]
         id: String,
+        #[arg(long = "idempotency-key", default_value = "")]
+        idempotency_key: String,
         #[arg(long = "base")]
         base_url: String,
         #[arg(long)]
@@ -235,11 +241,13 @@ pub enum ConnectCommand {
     },
     /// Connect an `OAuth2` client-credentials source
     #[command(
-        after_help = "Examples:\n  zoen source connect oauth2 --id oauth2 --token-url https://auth.example.com/token --client-id client"
+        after_help = "Examples:\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client"
     )]
     Oauth2 {
         #[arg(long, default_value = "oauth2")]
         id: String,
+        #[arg(long = "idempotency-key", default_value = "")]
+        idempotency_key: String,
         #[arg(long = "token-url")]
         token_url: String,
         #[arg(long = "client-id")]
@@ -253,13 +261,15 @@ pub enum ConnectCommand {
     },
     /// Connect a Google Drive stand-in. Door tokens are not ingest authority
     #[command(
-        after_help = "Examples:\n  zoen source connect google --profile work --base https://www.googleapis.com"
+        after_help = "Examples:\n  zoen source connect google --idempotency-key work --profile work --base https://www.googleapis.com"
     )]
     Google {
         #[arg(long)]
         profile: String,
         #[arg(long, default_value = "")]
         id: String,
+        #[arg(long = "idempotency-key", default_value = "")]
+        idempotency_key: String,
         #[arg(long = "base")]
         base_url: Option<String>,
         #[arg(long = "use-door")]
@@ -271,13 +281,15 @@ pub enum ConnectCommand {
     },
     /// Connect an MCP source
     #[command(
-        after_help = "Examples:\n  zoen source connect mcp --id mcp --url https://mcp.example.com"
+        after_help = "Examples:\n  zoen source connect mcp --idempotency-key mcp --url https://mcp.example.com"
     )]
     Mcp {
         #[arg(long)]
         url: String,
         #[arg(long, default_value = "mcp")]
         id: String,
+        #[arg(long = "idempotency-key", default_value = "")]
+        idempotency_key: String,
         #[arg(long)]
         dry_run: bool,
     },
@@ -287,11 +299,13 @@ pub enum ConnectCommand {
 pub enum ActionCommand {
     /// Propose an Action. `--quantity` is dest quantity. `--input` is text
     #[command(
-        after_help = "Examples:\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --unit each --dry-run\n  zoen action propose --proposal-id p --action-id world.stamp --resource-id world.note.1 --input text=hello --expires-at 2030-01-01T00:00:00Z"
+        after_help = "Examples:\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --unit each --dry-run\n  zoen action propose --idempotency-key p --action-id world.stamp --resource-id world.note.1 --input text=hello --expires-at 2030-01-01T00:00:00Z"
     )]
     Propose {
-        #[arg(long = "proposal-id")]
+        #[arg(long = "proposal-id", default_value = "")]
         proposal_id: String,
+        #[arg(long = "idempotency-key", default_value = "")]
+        idempotency_key: String,
         #[arg(long = "action-id")]
         action_id: String,
         #[arg(long = "resource-id")]
@@ -520,7 +534,16 @@ async fn run_world(
             .await
         }
         WorldCommand::Scenario { command } => match command {
-            ScenarioCommand::Create { name } => {
+            ScenarioCommand::Create {
+                name,
+                idempotency_key,
+            } => {
+                let Some(name) = dest_create_key(&idempotency_key, &name) else {
+                    return Ok(fail(
+                        2,
+                        "zoen world scenario create requires --idempotency-key or --name\n  zoen world scenario create --idempotency-key draft",
+                    ));
+                };
                 scenario_rpc(env, "/zoen.world.v1.WorldService/CreateScenario", &name).await
             }
             ScenarioCommand::Apply { name } => {
@@ -580,6 +603,7 @@ async fn run_action(
     match command {
         ActionCommand::Propose {
             proposal_id,
+            idempotency_key,
             action_id,
             resource_id,
             operation_id,
@@ -590,6 +614,12 @@ async fn run_action(
             expires_at,
             dry_run,
         } => {
+            let Some(proposal_id) = dest_create_key(&idempotency_key, &proposal_id) else {
+                return Ok(fail(
+                    2,
+                    "zoen action propose requires --idempotency-key or --proposal-id --action-id --resource-id\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z",
+                ));
+            };
             propose_action(
                 env,
                 ProposeInput {
@@ -1082,7 +1112,7 @@ async fn propose_action(
     {
         return Ok(fail(
             2,
-            "zoen action propose requires --proposal-id --action-id --resource-id\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z",
+            "zoen action propose requires --idempotency-key or --proposal-id --action-id --resource-id\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z",
         ));
     }
     let Some(expires_at) = parsed
@@ -1094,7 +1124,7 @@ async fn propose_action(
     else {
         return Ok(fail(
             2,
-            "zoen action propose requires --expires-at\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z",
+            "zoen action propose requires --expires-at\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z",
         ));
     };
     if let Some(result) = missing_definition(env) {
@@ -1146,7 +1176,7 @@ fn propose_inputs(parsed: &ProposeInput) -> Result<Value, String> {
         .any(|(input_id, _)| input_id == "quantity")
     {
         return Err(
-            "quantity is not a textValue. Use --quantity:\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1"
+            "quantity is not a textValue. Use --quantity:\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1"
                 .to_owned(),
         );
     }
@@ -1164,7 +1194,7 @@ fn propose_inputs(parsed: &ProposeInput) -> Result<Value, String> {
     }
     let Some(quantity) = parsed.quantity.as_ref().filter(|value| !value.is_empty()) else {
         return Err(
-            "zoen action propose needs --quantity or --input:\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1"
+            "zoen action propose needs --quantity or --input:\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1"
                 .to_owned(),
         );
     };
@@ -1222,19 +1252,35 @@ async fn connect_source(
     match command {
         ConnectCommand::Rest {
             id,
+            idempotency_key,
             base_url,
             auth,
             api_key,
             dry_run,
-        } => connect_rest(env, &id, base_url, auth.as_deref(), api_key, dry_run),
+        } => {
+            let Some(id) = dest_create_key(&idempotency_key, &id) else {
+                return Ok(fail(
+                    2,
+                    "zoen source connect rest requires --idempotency-key or --id\n  zoen source connect rest --idempotency-key rest --base https://api.example.com",
+                ));
+            };
+            connect_rest(env, &id, base_url, auth.as_deref(), api_key, dry_run)
+        }
         ConnectCommand::Oauth2 {
             id,
+            idempotency_key,
             token_url,
             client_id,
             client_secret,
             base_url,
             dry_run,
         } => {
+            let Some(id) = dest_create_key(&idempotency_key, &id) else {
+                return Ok(fail(
+                    2,
+                    "zoen source connect oauth2 requires --idempotency-key or --id\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client",
+                ));
+            };
             connect_oauth2(
                 env,
                 id,
@@ -1249,20 +1295,43 @@ async fn connect_source(
         ConnectCommand::Google {
             profile,
             id,
+            idempotency_key,
             base_url,
             use_door,
             token,
             dry_run,
-        } => connect_google(
-            env,
-            &profile,
+        } => {
+            let fallback = if id.is_empty() { profile.clone() } else { id };
+            let Some(id) = dest_create_key(&idempotency_key, &fallback) else {
+                return Ok(fail(
+                    2,
+                    "zoen source connect google requires --idempotency-key, --id, or --profile\n  zoen source connect google --idempotency-key work --profile work --base https://www.googleapis.com",
+                ));
+            };
+            connect_google(
+                env,
+                &profile,
+                &id,
+                base_url,
+                use_door,
+                token.as_deref(),
+                dry_run,
+            )
+        }
+        ConnectCommand::Mcp {
+            url,
             id,
-            base_url,
-            use_door,
-            token.as_deref(),
+            idempotency_key,
             dry_run,
-        ),
-        ConnectCommand::Mcp { url, id, dry_run } => connect_mcp(env, url, &id, dry_run),
+        } => {
+            let Some(id) = dest_create_key(&idempotency_key, &id) else {
+                return Ok(fail(
+                    2,
+                    "zoen source connect mcp requires --idempotency-key or --id\n  zoen source connect mcp --idempotency-key mcp --url https://mcp.example.com",
+                ));
+            };
+            connect_mcp(env, url, &id, dry_run)
+        }
     }
 }
 
@@ -1276,6 +1345,9 @@ fn connect_rest(
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "rest" })));
+    }
+    if let Some(existing) = existing_source(env, id)? {
+        return Ok(ok(&connect_receipt(&existing)));
     }
     let source_auth = if auth == Some("apikey") {
         let value = api_key
@@ -1298,27 +1370,19 @@ fn connect_rest(
     } else {
         SourceAuth::None
     };
-    write_source(
-        env,
-        &SourceInstance {
-            auth: source_auth,
-            base_url: Some(base_url),
-            cursor: None,
-            id: id.to_owned(),
-            introduced: None,
-            kind: "rest".to_owned(),
-            oauth_app: None,
-            profile: None,
-            url: None,
-        },
-    )?;
-    Ok(ok(&json!({
-        "connected": id,
-        "doorTokenStored": false,
-        "kind": "rest",
-        "oauthApp": null,
-        "profile": null,
-    })))
+    let instance = SourceInstance {
+        auth: source_auth,
+        base_url: Some(base_url),
+        cursor: None,
+        id: id.to_owned(),
+        introduced: None,
+        kind: "rest".to_owned(),
+        oauth_app: None,
+        profile: None,
+        url: None,
+    };
+    write_source(env, &instance)?;
+    Ok(ok(&connect_receipt(&instance)))
 }
 
 async fn connect_oauth2(
@@ -1333,39 +1397,34 @@ async fn connect_oauth2(
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "oauth2" })));
     }
+    if let Some(existing) = existing_source(env, &id)? {
+        return Ok(ok(&connect_receipt(&existing)));
+    }
     let auth = fetch_oauth2_token(
         &token_url,
         &client_id,
         client_secret.as_deref().unwrap_or(""),
     )
     .await?;
-    write_source(
-        env,
-        &SourceInstance {
-            auth,
-            base_url,
-            cursor: None,
-            id: id.clone(),
-            introduced: None,
-            kind: "oauth2".to_owned(),
-            oauth_app: None,
-            profile: None,
-            url: None,
-        },
-    )?;
-    Ok(ok(&json!({
-        "connected": id,
-        "doorTokenStored": false,
-        "kind": "oauth2",
-        "oauthApp": null,
-        "profile": null,
-    })))
+    let instance = SourceInstance {
+        auth,
+        base_url,
+        cursor: None,
+        id: id.clone(),
+        introduced: None,
+        kind: "oauth2".to_owned(),
+        oauth_app: None,
+        profile: None,
+        url: None,
+    };
+    write_source(env, &instance)?;
+    Ok(ok(&connect_receipt(&instance)))
 }
 
 fn connect_google(
     env: &RuntimeEnv,
     profile: &str,
-    id: String,
+    id: &str,
     base_url: Option<String>,
     use_door: bool,
     token: Option<&str>,
@@ -1374,35 +1433,25 @@ fn connect_google(
     if use_door || token.is_some() {
         return Ok(fail(2, "door tokens are not ingest authority"));
     }
-    let id = if id.is_empty() {
-        profile.to_owned()
-    } else {
-        id
-    };
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "google" })));
     }
-    write_source(
-        env,
-        &SourceInstance {
-            auth: SourceAuth::None,
-            base_url,
-            cursor: None,
-            id: id.clone(),
-            introduced: None,
-            kind: "google".to_owned(),
-            oauth_app: Some("zoen".to_owned()),
-            profile: Some(profile.to_owned()),
-            url: None,
-        },
-    )?;
-    Ok(ok(&json!({
-        "connected": id,
-        "doorTokenStored": false,
-        "kind": "google",
-        "oauthApp": "zoen",
-        "profile": profile,
-    })))
+    if let Some(existing) = existing_source(env, id)? {
+        return Ok(ok(&connect_receipt(&existing)));
+    }
+    let instance = SourceInstance {
+        auth: SourceAuth::None,
+        base_url,
+        cursor: None,
+        id: id.to_owned(),
+        introduced: None,
+        kind: "google".to_owned(),
+        oauth_app: Some("zoen".to_owned()),
+        profile: Some(profile.to_owned()),
+        url: None,
+    };
+    write_source(env, &instance)?;
+    Ok(ok(&connect_receipt(&instance)))
 }
 
 fn connect_mcp(
@@ -1414,27 +1463,22 @@ fn connect_mcp(
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "mcp" })));
     }
-    write_source(
-        env,
-        &SourceInstance {
-            auth: SourceAuth::None,
-            base_url: None,
-            cursor: None,
-            id: id.to_owned(),
-            introduced: None,
-            kind: "mcp".to_owned(),
-            oauth_app: None,
-            profile: None,
-            url: Some(url),
-        },
-    )?;
-    Ok(ok(&json!({
-        "connected": id,
-        "doorTokenStored": false,
-        "kind": "mcp",
-        "oauthApp": null,
-        "profile": null,
-    })))
+    if let Some(existing) = existing_source(env, id)? {
+        return Ok(ok(&connect_receipt(&existing)));
+    }
+    let instance = SourceInstance {
+        auth: SourceAuth::None,
+        base_url: None,
+        cursor: None,
+        id: id.to_owned(),
+        introduced: None,
+        kind: "mcp".to_owned(),
+        oauth_app: None,
+        profile: None,
+        url: Some(url),
+    };
+    write_source(env, &instance)?;
+    Ok(ok(&connect_receipt(&instance)))
 }
 
 fn introduce_source(
@@ -2089,15 +2133,49 @@ fn source_path(env: &RuntimeEnv, id: &str) -> PathBuf {
 }
 
 fn connected_source(env: &RuntimeEnv, id: &str) -> Result<SourceInstance, CommandResult> {
-    match fs::read_to_string(source_path(env, id)) {
-        Ok(raw) => serde_json::from_str(&raw).map_err(|error| fail(1, &error.to_string())),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Err(fail(
+    match existing_source(env, id) {
+        Ok(Some(instance)) => Ok(instance),
+        Ok(None) => Err(fail(
             2,
             &format!(
                 "source {id} is not connected\n  zoen source connect rest --id {id} --base <url>"
             ),
         )),
         Err(error) => Err(fail(1, &error.to_string())),
+    }
+}
+
+fn existing_source(
+    env: &RuntimeEnv,
+    id: &str,
+) -> Result<Option<SourceInstance>, Box<dyn Error + Send + Sync>> {
+    match fs::read_to_string(source_path(env, id)) {
+        Ok(raw) => Ok(Some(serde_json::from_str(&raw)?)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn connect_receipt(instance: &SourceInstance) -> Value {
+    json!({
+        "connected": instance.id,
+        "doorTokenStored": false,
+        "kind": instance.kind,
+        "oauthApp": instance.oauth_app,
+        "profile": instance.profile,
+    })
+}
+
+fn dest_create_key(idempotency_key: &str, fallback: &str) -> Option<String> {
+    let key = idempotency_key.trim();
+    if !key.is_empty() {
+        return Some(key.to_owned());
+    }
+    let fallback = fallback.trim();
+    if fallback.is_empty() {
+        None
+    } else {
+        Some(fallback.to_owned())
     }
 }
 

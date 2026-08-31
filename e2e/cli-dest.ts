@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -218,6 +219,14 @@ async function main(): Promise<void> {
   record("propose_help_shows_quantity", helpPropose.stdout.includes("--quantity"));
   record("propose_help_shows_expires_at", helpPropose.stdout.includes("--expires-at"));
   record(
+    "propose_help_shows_idempotency_key",
+    helpPropose.stdout.includes("--idempotency-key"),
+  );
+  record(
+    "propose_help_example_has_idempotency_key",
+    helpPropose.stdout.includes("zoen action propose --idempotency-key"),
+  );
+  record(
     "propose_help_no_map_quantity_default",
     !helpPropose.stdout.includes("source.mapQuantity"),
   );
@@ -279,7 +288,7 @@ async function main(): Promise<void> {
     [
       "action",
       "propose",
-      "--proposal-id",
+      "--idempotency-key",
       "p",
       "--action-id",
       "inventory.replenish",
@@ -299,7 +308,42 @@ async function main(): Promise<void> {
     "isolate_propose_dry_run_no_hardcoded_2030_without_flag",
     isolateDryRun.stdout.includes('"expiresAt":"2030-01-01T00:00:00Z"'),
   );
+  record(
+    "isolate_propose_idempotency_key_is_proposal_id",
+    isolateDryRun.stdout.includes('"proposalId":"p"'),
+  );
   killMutant("ZOEN_ISOLATE=1 denies propose --dry-run");
+
+  const emptyKeyUsesProposalId = runZoen(
+    [
+      "action",
+      "propose",
+      "--proposal-id",
+      "proposal.from.flag",
+      "--action-id",
+      "inventory.replenish",
+      "--resource-id",
+      "inventory.item.1",
+      "--quantity",
+      "1",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
+      "--dry-run",
+    ],
+    { env: cliEnv({ ZOEN_ISOLATE: "1" }) },
+  );
+  record("empty_key_uses_proposal_id", emptyKeyUsesProposalId.status === 0);
+  record(
+    "empty_key_proposal_id_body",
+    emptyKeyUsesProposalId.stdout.includes('"proposalId":"proposal.from.flag"'),
+  );
+  record(
+    "empty_key_no_random_uuid",
+    !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(
+      emptyKeyUsesProposalId.stdout,
+    ),
+  );
+  killMutant("empty --idempotency-key invents a UUID");
 
   const isolateCommit = runZoen(
     [
@@ -561,6 +605,53 @@ async function main(): Promise<void> {
       "missing_sync_connect_example",
       missingSync.stderr.includes("zoen source connect rest --id nosuch --base"),
     );
+
+    const connectOnce = runZoen(
+      [
+        "source",
+        "connect",
+        "rest",
+        "--idempotency-key",
+        "rest.qa",
+        "--base",
+        "https://api.example.com",
+      ],
+      { env: cliEnv({ ZOEN_SOURCE_HOME: sourceHome }) },
+    );
+    record("connect_idempotency_key_ok", connectOnce.status === 0);
+    record("connect_idempotency_key_json", connectOnce.stdout.includes('"connected":"rest.qa"'));
+    const sourcePath = path.join(sourceHome, "sources", "rest.qa.json");
+    const firstRaw = readFileSync(sourcePath, "utf8");
+    const firstDoc = JSON.parse(firstRaw) as {
+      introduced?: { path?: string };
+      cursor?: string;
+    };
+    firstDoc.introduced = { path: "/x" };
+    firstDoc.cursor = "c1";
+    writeFileSync(sourcePath, `${JSON.stringify(firstDoc, null, 2)}\n`);
+    const connectRetry = runZoen(
+      [
+        "source",
+        "connect",
+        "rest",
+        "--idempotency-key",
+        "rest.qa",
+        "--base",
+        "https://api.example.com",
+      ],
+      { env: cliEnv({ ZOEN_SOURCE_HOME: sourceHome }) },
+    );
+    record("connect_retry_ok", connectRetry.status === 0);
+    record("connect_retry_same_receipt", connectRetry.stdout.includes('"connected":"rest.qa"'));
+    const afterRetry = JSON.parse(readFileSync(sourcePath, "utf8")) as {
+      introduced?: { path?: string };
+      cursor?: string;
+    };
+    record(
+      "connect_retry_preserves_introduced",
+      afterRetry.introduced?.path === "/x" && afterRetry.cursor === "c1",
+    );
+    killMutant("source connect retry truncates introduced state");
 
     const fetchable = await listenHttp(200, JSON.stringify({ quantity: "1" }));
     try {
