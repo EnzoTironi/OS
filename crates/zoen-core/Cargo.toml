@@ -1,8 +1,14 @@
 [package]
 name = "zoen-core"
 version = "0.1.0"
+categories.workspace = true
+description = "Kernel types for Zoen ontology"
 edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 
 [lints]

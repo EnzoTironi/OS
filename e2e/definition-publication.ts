@@ -50,7 +50,7 @@ const compilerPath = path.join(
   "src",
   "cli.js",
 );
-const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
+const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
 const postgresPortFallback = 55_432;
 const zoendPortFallback = 58_080;
 const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);

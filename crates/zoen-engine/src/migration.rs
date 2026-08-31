@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use zoen_core::{
     ActionId, DefinitionElementKind, DefinitionReference, EvolutionClassification,
@@ -9,8 +11,8 @@ use zoen_core::{
 };
 
 use crate::{
-    AuthorityStore, DefinitionEngine, PolicyEvaluator, PolicyOperation, PolicyRequest,
-    RecordEvidenceError, StoreError, admission, decode_canonical_definition, directory_projection,
+    AuthorityStore, DefinitionEngine, PolicyEvaluator, PolicyOperation, PolicyRequest, StoreError,
+    admission, decode_canonical_definition, directory_projection,
 };
 
 mod codec;
@@ -81,6 +83,11 @@ where
     S: AuthorityStore,
     P: PolicyEvaluator,
 {
+    /// Prepare a migration plan from a recipe and evolution assessment.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MigrationError`] when the plan is invalid, policy denies the action, or the store fails.
     pub async fn prepare_migration(
         &self,
         context: &zoen_core::ExecutionContext,
@@ -150,6 +157,12 @@ where
             .map_err(MigrationError::Store)
     }
 
+    /// Apply one batch of migration records to a prepared plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MigrationError`] when the batch does not match the plan, policy denies the
+    /// action, evidence is invalid, or the store fails.
     pub async fn apply_migration_batch(
         &self,
         context: &zoen_core::ExecutionContext,
@@ -199,83 +212,7 @@ where
             )
             .await
             .map_err(MigrationError::Store)?;
-        let mut admitted = Vec::with_capacity(records.len());
-        let mut source_claim_ids = BTreeSet::new();
-        let mut target_claim_ids = BTreeSet::new();
-        for record in &records {
-            let rule = migration
-                .plan
-                .rules
-                .iter()
-                .find(|rule| rule.id == record.rule_id)
-                .ok_or_else(|| {
-                    MigrationError::InvalidPlan(format!(
-                        "batch record names unknown rule {}",
-                        record.rule_id
-                    ))
-                })?;
-            let target_element = MigrationElement {
-                element: DefinitionElementKind::Relation,
-                id: record.target.relation_id.as_str().to_owned(),
-            };
-            if !rule.targets.contains(&target_element) {
-                return Err(MigrationError::InvalidPlan(format!(
-                    "rule {} does not target Relation {}",
-                    rule.id, record.target.relation_id
-                )));
-            }
-            match rule.kind {
-                MigrationRuleKind::PreserveMeaning if record.source_claim_ids.len() != 1 => {
-                    return Err(MigrationError::InvalidPlan(format!(
-                        "preserve_meaning rule {} requires one source claim",
-                        rule.id
-                    )));
-                }
-                MigrationRuleKind::Transform if record.source_claim_ids.is_empty() => {
-                    return Err(MigrationError::InvalidPlan(format!(
-                        "transform rule {} requires source claims",
-                        rule.id
-                    )));
-                }
-                MigrationRuleKind::Recompute if !record.source_claim_ids.is_empty() => {
-                    return Err(MigrationError::InvalidPlan(format!(
-                        "recompute rule {} does not accept source claims",
-                        rule.id
-                    )));
-                }
-                MigrationRuleKind::Supersede => {
-                    return Err(MigrationError::InvalidPlan(format!(
-                        "supersede rule {} has no successor record",
-                        rule.id
-                    )));
-                }
-                MigrationRuleKind::PreserveMeaning
-                | MigrationRuleKind::Transform
-                | MigrationRuleKind::Recompute => {}
-            }
-            if !record
-                .source_claim_ids
-                .iter()
-                .all(|claim_id| source_claim_ids.insert(claim_id.clone()))
-            {
-                return Err(MigrationError::InvalidPlan(
-                    "a source claim may be resolved only once per batch".to_owned(),
-                ));
-            }
-            if !target_claim_ids.insert(record.target.claim_id.clone()) {
-                return Err(MigrationError::InvalidPlan(
-                    "a target claim may appear only once per batch".to_owned(),
-                ));
-            }
-            let evidence = admission::admit_evidence(&target, record.target.clone())
-                .map_err(migration_evidence_error)?;
-            admitted.push(AdmittedMigrationRecord {
-                evidence,
-                kind: rule.kind,
-                rule_id: record.rule_id.clone(),
-                source_claim_ids: record.source_claim_ids.clone(),
-            });
-        }
+        let admitted = admit_migration_records(&target, &migration.plan.rules, &records)?;
         self.store
             .apply_migration_batch(&AdmittedMigrationBatch {
                 batch_index,
@@ -289,6 +226,11 @@ where
             .map_err(MigrationError::Store)
     }
 
+    /// Load a stored migration by operation id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MigrationError::Store`] when the authority store cannot load the migration.
     pub async fn get_migration(
         &self,
         context: &zoen_core::ExecutionContext,
@@ -351,6 +293,85 @@ where
     }
 }
 
-fn migration_evidence_error(error: RecordEvidenceError) -> MigrationError {
-    MigrationError::InvalidEvidence(error.to_string())
+fn admit_migration_records(
+    target: &zoen_core::DefinitionRevision,
+    rules: &[zoen_core::MigrationRule],
+    records: &[MigrationRecord],
+) -> Result<Vec<AdmittedMigrationRecord>, MigrationError> {
+    let mut admitted = Vec::with_capacity(records.len());
+    let mut source_claim_ids = BTreeSet::new();
+    let mut target_claim_ids = BTreeSet::new();
+    for record in records {
+        let rule = rules
+            .iter()
+            .find(|rule| rule.id == record.rule_id)
+            .ok_or_else(|| {
+                MigrationError::InvalidPlan(format!(
+                    "batch record names unknown rule {}",
+                    record.rule_id
+                ))
+            })?;
+        let target_element = MigrationElement {
+            element: DefinitionElementKind::Relation,
+            id: record.target.relation_id.as_str().to_owned(),
+        };
+        if !rule.targets.contains(&target_element) {
+            return Err(MigrationError::InvalidPlan(format!(
+                "rule {} does not target Relation {}",
+                rule.id, record.target.relation_id
+            )));
+        }
+        match rule.kind {
+            MigrationRuleKind::PreserveMeaning if record.source_claim_ids.len() != 1 => {
+                return Err(MigrationError::InvalidPlan(format!(
+                    "preserve_meaning rule {} requires one source claim",
+                    rule.id
+                )));
+            }
+            MigrationRuleKind::Transform if record.source_claim_ids.is_empty() => {
+                return Err(MigrationError::InvalidPlan(format!(
+                    "transform rule {} requires source claims",
+                    rule.id
+                )));
+            }
+            MigrationRuleKind::Recompute if !record.source_claim_ids.is_empty() => {
+                return Err(MigrationError::InvalidPlan(format!(
+                    "recompute rule {} does not accept source claims",
+                    rule.id
+                )));
+            }
+            MigrationRuleKind::Supersede => {
+                return Err(MigrationError::InvalidPlan(format!(
+                    "supersede rule {} has no successor record",
+                    rule.id
+                )));
+            }
+            MigrationRuleKind::PreserveMeaning
+            | MigrationRuleKind::Transform
+            | MigrationRuleKind::Recompute => {}
+        }
+        if !record
+            .source_claim_ids
+            .iter()
+            .all(|claim_id| source_claim_ids.insert(claim_id.clone()))
+        {
+            return Err(MigrationError::InvalidPlan(
+                "a source claim may be resolved only once per batch".to_owned(),
+            ));
+        }
+        if !target_claim_ids.insert(record.target.claim_id.clone()) {
+            return Err(MigrationError::InvalidPlan(
+                "a target claim may appear only once per batch".to_owned(),
+            ));
+        }
+        let evidence = admission::admit_evidence(target, record.target.clone())
+            .map_err(|error| MigrationError::InvalidEvidence(error.to_string()))?;
+        admitted.push(AdmittedMigrationRecord {
+            evidence,
+            kind: rule.kind,
+            rule_id: record.rule_id.clone(),
+            source_claim_ids: record.source_claim_ids.clone(),
+        });
+    }
+    Ok(admitted)
 }

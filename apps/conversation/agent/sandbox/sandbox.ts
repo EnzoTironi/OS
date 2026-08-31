@@ -1,18 +1,18 @@
 import { defineSandbox } from "eve/sandbox";
-
-import { parseSessionMembership } from "./workbench";
-import { workbenchBackend } from "./workbench";
+import { parseSessionMembership, workbenchBackend } from "./workbench";
 
 function attributeText(
   attributes: Readonly<Record<string, string | readonly string[]>> | undefined,
-  key: string,
+  key: string
 ): string | undefined {
   const value = attributes?.[key];
   if (typeof value === "string" && value.length > 0) {
     return value;
   }
   if (Array.isArray(value)) {
-    const first = value.find((entry) => typeof entry === "string" && entry.length > 0);
+    const first = value.find(
+      (entry) => typeof entry === "string" && entry.length > 0
+    );
     return first;
   }
   return undefined;
@@ -26,7 +26,7 @@ function membershipKey(session: {
     } | null;
   };
 }): string {
-  const current = session.auth.current;
+  const { current } = session.auth;
   if (current === null) {
     return "unbound";
   }
@@ -43,8 +43,8 @@ export default defineSandbox({
     const membershipId = parseSessionMembership(membershipKey(ctx.session));
     const sandbox = await use({ membershipId });
     await sandbox.writeTextFile({
-      path: "membership",
       content: `${membershipId}\n`,
+      path: "membership",
     });
   },
 });

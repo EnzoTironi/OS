@@ -17,19 +17,19 @@ import { SandboxTemplateNotProvisionedError } from "eve/sandbox";
 
 import {
   getHostCredential,
+  type HostCredential,
   hostCredentialFromRaw,
   putHostCredential,
-  type HostCredential,
 } from "./credentials";
 import {
-  MembershipId,
   ensureMembershipDisk,
   guestToHost,
+  type MembershipDisk,
+  MembershipId,
+  type MembershipId as MembershipIdBrand,
   membershipDisk,
   resolveWorkspacePath,
   unboundMembership,
-  type MembershipDisk,
-  type MembershipId as MembershipIdBrand,
 } from "./membership";
 import {
   isolatePlantScript,
@@ -43,53 +43,55 @@ export const WORKBENCH_BACKEND_NAME = "zoen-membership-workbench";
 
 const GUEST_NETWORK_DENY = "network default deny";
 
-type LiveVm = {
-  vm: AgentOs;
+interface LiveVm {
   refs: number;
-};
+  vm: AgentOs;
+}
 
 const liveVms = new Map<string, LiveVm>();
 
-export type WorkbenchSessionOptions = {
+export interface WorkbenchSessionOptions {
+  readonly definitionDigest?: string;
+  readonly definitionId?: string;
+  readonly doorToken?: string;
   readonly membershipId: string;
   readonly tenantId?: string;
-  readonly doorToken?: string;
-  readonly definitionId?: string;
-  readonly definitionDigest?: string;
   readonly validAt?: string;
-};
+}
 
-export type BoundSandbox = {
-  readonly membershipId: MembershipIdBrand;
+export interface BoundSandbox {
   readonly disk: MembershipDisk;
+  dispose: () => Promise<void>;
+  readonly membershipId: MembershipIdBrand;
+  readTextFile: (path: string) => Promise<string | null>;
+  run: (command: string) => Promise<SandboxCommandResult>;
   readonly workspace: string;
-  run(command: string): Promise<SandboxCommandResult>;
-  writeTextFile(path: string, content: string): Promise<void>;
-  readTextFile(path: string): Promise<string | null>;
-  dispose(): Promise<void>;
-};
+  writeTextFile: (path: string, content: string) => Promise<void>;
+}
 
-export type OpenBoundSandboxInput = {
+export interface OpenBoundSandboxInput {
+  readonly definitionDigest: string;
+  readonly definitionId: string;
+  readonly disksRoot: string;
+  readonly doorToken: string;
   readonly membershipId: string;
   readonly tenantId: string;
-  readonly doorToken: string;
-  readonly zoendBaseUrl: string;
-  readonly definitionId: string;
-  readonly definitionDigest: string;
   readonly validAt: string;
-  readonly disksRoot: string;
-};
+  readonly zoendBaseUrl: string;
+}
 
 const AGENTOS_PERMISSIONS = {
+  binding: "allow" as const,
+  childProcess: "allow" as const,
+  env: "allow" as const,
   fs: "allow" as const,
   network: "deny" as const,
-  childProcess: "allow" as const,
   process: "allow" as const,
-  env: "allow" as const,
-  binding: "allow" as const,
 };
 
-export async function openBoundSandbox(input: OpenBoundSandboxInput): Promise<BoundSandbox> {
+export async function openBoundSandbox(
+  input: OpenBoundSandboxInput
+): Promise<BoundSandbox> {
   const credential = hostCredentialFromRaw(input);
   putHostCredential(credential);
   const disk = membershipDisk(input.disksRoot, credential.membershipId);
@@ -97,10 +99,10 @@ export async function openBoundSandbox(input: OpenBoundSandboxInput): Promise<Bo
   await plantZoenMarker(disk);
   const vm = await retainVm(disk);
   return createBoundSandbox({
+    credential,
     disk,
     vm,
     zoendBaseUrl: input.zoendBaseUrl,
-    credential,
   });
 }
 
@@ -112,16 +114,16 @@ async function retainVm(disk: MembershipDisk): Promise<AgentOs> {
   }
   const vm = await AgentOs.create({
     defaultSoftware: true,
-    permissions: AGENTOS_PERMISSIONS,
     mounts: [
       {
         path: "/workspace",
-        plugin: { id: "host_dir", config: { hostPath: disk.workspace } },
+        plugin: { config: { hostPath: disk.workspace }, id: "host_dir" },
         readOnly: false,
       },
     ],
+    permissions: AGENTOS_PERMISSIONS,
   });
-  liveVms.set(disk.membershipId, { vm, refs: 1 });
+  liveVms.set(disk.membershipId, { refs: 1, vm });
   return vm;
 }
 
@@ -145,23 +147,11 @@ function createBoundSandbox(input: {
   readonly credential: HostCredential | undefined;
 }): BoundSandbox {
   return {
-    membershipId: input.disk.membershipId,
     disk: input.disk,
-    workspace: input.disk.workspace,
-    async run(command: string): Promise<SandboxCommandResult> {
-      return runOnWorkbench({
-        command,
-        disk: input.disk,
-        vm: input.vm,
-        zoendBaseUrl: input.zoendBaseUrl,
-        credential: input.credential ?? getHostCredential(input.disk.membershipId),
-      });
+    async dispose(): Promise<void> {
+      await releaseVm(input.disk.membershipId);
     },
-    async writeTextFile(path: string, content: string): Promise<void> {
-      const host = guestToHost(input.disk, path);
-      await mkdir(dirname(host), { recursive: true });
-      await writeFile(host, content);
-    },
+    membershipId: input.disk.membershipId,
     async readTextFile(path: string): Promise<string | null> {
       try {
         return await readFile(guestToHost(input.disk, path), "utf8");
@@ -172,8 +162,21 @@ function createBoundSandbox(input: {
         throw error;
       }
     },
-    async dispose(): Promise<void> {
-      await releaseVm(input.disk.membershipId);
+    run(command: string): Promise<SandboxCommandResult> {
+      return runOnWorkbench({
+        command,
+        credential:
+          input.credential ?? getHostCredential(input.disk.membershipId),
+        disk: input.disk,
+        vm: input.vm,
+        zoendBaseUrl: input.zoendBaseUrl,
+      });
+    },
+    workspace: input.disk.workspace,
+    async writeTextFile(path: string, content: string): Promise<void> {
+      const host = guestToHost(input.disk, path);
+      await mkdir(dirname(host), { recursive: true });
+      await writeFile(host, content);
     },
   };
 }
@@ -190,8 +193,8 @@ async function runOnWorkbench(input: {
     return runIsolateZoen({
       argv,
       credential: input.credential,
-      zoendBaseUrl: input.zoendBaseUrl,
       workspace: input.disk.workspace,
+      zoendBaseUrl: input.zoendBaseUrl,
     });
   }
   const result = await input.vm.process.exec(input.command, {
@@ -201,15 +204,25 @@ async function runOnWorkbench(input: {
   const exitCode = typeof result.exitCode === "number" ? result.exitCode : 1;
   const stdout = typeof result.stdout === "string" ? result.stdout : "";
   const stderr = typeof result.stderr === "string" ? result.stderr : "";
-  if (looksLikeNetworkProbe(argv) && exitCode === 0 && stdout.length === 0 && stderr.length === 0) {
-    return { exitCode: 1, stdout, stderr: `${GUEST_NETWORK_DENY}\n` };
+  if (
+    looksLikeNetworkProbe(argv) &&
+    exitCode === 0 &&
+    stdout.length === 0 &&
+    stderr.length === 0
+  ) {
+    return { exitCode: 1, stderr: `${GUEST_NETWORK_DENY}\n`, stdout };
   }
-  return { exitCode, stdout, stderr };
+  return { exitCode, stderr, stdout };
 }
 
 function looksLikeNetworkProbe(argv: readonly string[]): boolean {
   const joined = argv.join(" ");
-  return joined.includes("fetch(") || argv[0] === "curl" || argv[0] === "wget" || argv[0] === "nc";
+  return (
+    joined.includes("fetch(") ||
+    argv[0] === "curl" ||
+    argv[0] === "wget" ||
+    argv[0] === "nc"
+  );
 }
 
 export function workbenchBackend(options: {
@@ -222,42 +235,20 @@ export function workbenchBackend(options: {
     "http://127.0.0.1:58705";
 
   return {
-    name: WORKBENCH_BACKEND_NAME,
-    async prewarm(input: SandboxBackendPrewarmInput): Promise<{ reused: boolean }> {
-      const disksRoot = resolveDisksRoot(options.disksRoot, input.runtimeContext.appRoot);
-      const templateRoot = templatePath(disksRoot, input.templateKey);
-      try {
-        await readFile(join(templateRoot, ".seeded"), "utf8");
-        return { reused: true };
-      } catch (error) {
-        if (!isNotFound(error)) {
-          throw error;
-        }
-      }
-      await mkdir(join(templateRoot, "workspace"), { recursive: true });
-      for (const seed of input.seedFiles) {
-        const host = join(templateRoot, "workspace", seed.path);
-        await mkdir(dirname(host), { recursive: true });
-        const content = typeof seed.content === "string" ? seed.content : Buffer.from(seed.content);
-        await writeFile(host, content);
-      }
-      await writeFile(join(templateRoot, ".seeded"), "1\n");
-      return { reused: false };
-    },
     async create(
-      input: SandboxBackendCreateInput,
+      input: SandboxBackendCreateInput
     ): Promise<SandboxBackendHandle<WorkbenchSessionOptions>> {
-      const disksRoot = resolveDisksRoot(options.disksRoot, input.runtimeContext.appRoot);
+      const disksRoot = resolveDisksRoot(
+        options.disksRoot,
+        input.runtimeContext.appRoot
+      );
       if (input.templateKey !== null) {
         const templateRoot = templatePath(disksRoot, input.templateKey);
         try {
           await readFile(join(templateRoot, ".seeded"), "utf8");
         } catch (error) {
           if (isNotFound(error)) {
-            throw new SandboxTemplateNotProvisionedError({
-              backendName: WORKBENCH_BACKEND_NAME,
-              templateKey: input.templateKey,
-            });
+            throwTemplateNotProvisioned(input.templateKey, error);
           }
           throw error;
         }
@@ -267,8 +258,8 @@ export function workbenchBackend(options: {
       let boundMembership = unboundMembership;
 
       const session = lazySession({
-        id: input.sessionKey,
         getBound: () => bound,
+        id: input.sessionKey,
       });
 
       const useSessionFn = async (sessionOptions?: WorkbenchSessionOptions) => {
@@ -276,24 +267,30 @@ export function workbenchBackend(options: {
           sessionOptions?.membershipId ??
             (typeof input.existingMetadata?.membershipId === "string"
               ? input.existingMetadata.membershipId
-              : unboundMembership),
+              : unboundMembership)
         );
-        if (sessionOptions?.doorToken !== undefined && sessionOptions.tenantId !== undefined) {
+        if (
+          sessionOptions?.doorToken !== undefined &&
+          sessionOptions.tenantId !== undefined
+        ) {
           putHostCredential(
             hostCredentialFromRaw({
+              definitionDigest: sessionOptions.definitionDigest ?? "",
+              definitionId: sessionOptions.definitionId ?? "",
+              doorToken: sessionOptions.doorToken,
               membershipId,
               tenantId: sessionOptions.tenantId,
-              doorToken: sessionOptions.doorToken,
-              definitionId: sessionOptions.definitionId ?? "",
-              definitionDigest: sessionOptions.definitionDigest ?? "",
               validAt: sessionOptions.validAt ?? "",
-            }),
+            })
           );
         }
         const disk = membershipDisk(disksRoot, membershipId);
         await ensureMembershipDisk(disk);
         if (input.templateKey !== null) {
-          await copyTemplateWorkspace(templatePath(disksRoot, input.templateKey), disk);
+          await copyTemplateWorkspace(
+            templatePath(disksRoot, input.templateKey),
+            disk
+          );
         }
         await plantZoenMarker(disk);
         const vm = await retainVm(disk);
@@ -302,23 +299,21 @@ export function workbenchBackend(options: {
         }
         boundMembership = membershipId;
         bound = createBoundSandbox({
+          credential: getHostCredential(membershipId),
           disk,
           vm,
           zoendBaseUrl,
-          credential: getHostCredential(membershipId),
         });
         return session;
       };
 
       return {
-        session,
-        useSessionFn,
-        async captureState(): Promise<SandboxBackendSessionState> {
-          return {
+        captureState(): Promise<SandboxBackendSessionState> {
+          return Promise.resolve({
             backendName: WORKBENCH_BACKEND_NAME,
-            sessionKey: input.sessionKey,
             metadata: { membershipId: boundMembership },
-          };
+            sessionKey: input.sessionKey,
+          });
         },
         async delete() {
           if (bound !== undefined) {
@@ -330,19 +325,43 @@ export function workbenchBackend(options: {
             recursive: true,
           });
         },
-        async stop() {
-          if (bound !== undefined) {
-            await bound.dispose();
-            bound = undefined;
-          }
-        },
+        session,
         async shutdown() {
           if (bound !== undefined) {
             await bound.dispose();
             bound = undefined;
           }
         },
+        async stop() {
+          if (bound !== undefined) {
+            await bound.dispose();
+            bound = undefined;
+          }
+        },
+        useSessionFn,
       };
+    },
+    name: WORKBENCH_BACKEND_NAME,
+    async prewarm(
+      input: SandboxBackendPrewarmInput
+    ): Promise<{ reused: boolean }> {
+      const disksRoot = resolveDisksRoot(
+        options.disksRoot,
+        input.runtimeContext.appRoot
+      );
+      const templateRoot = templatePath(disksRoot, input.templateKey);
+      try {
+        await readFile(join(templateRoot, ".seeded"), "utf8");
+        return { reused: true };
+      } catch (error) {
+        if (!isNotFound(error)) {
+          throw error;
+        }
+      }
+      await mkdir(join(templateRoot, "workspace"), { recursive: true });
+      await writeTemplateSeeds(templateRoot, input.seedFiles);
+      await writeFile(join(templateRoot, ".seeded"), "1\n");
+      return { reused: false };
     },
   };
 }
@@ -361,29 +380,9 @@ function lazySession(input: {
 
   return {
     id: input.id,
-    resolvePath: resolveWorkspacePath,
-    async run(options) {
-      const command = commandFromRun(options);
-      return requireBound().run(command);
-    },
-    async spawn(options: SandboxSpawnOptions) {
-      const command = commandFromRun(options);
-      const result = await requireBound().run(command);
-      return finishedProcess(result);
-    },
-    async readTextFile(options) {
-      return requireBound().readTextFile(options.path);
-    },
-    async writeTextFile(options) {
-      await requireBound().writeTextFile(options.path, options.content);
-    },
     async readBinaryFile(options) {
       const text = await requireBound().readTextFile(options.path);
       return text === null ? null : Buffer.from(text);
-    },
-    async writeBinaryFile(options) {
-      const content = Buffer.from(options.content).toString("utf8");
-      await requireBound().writeTextFile(options.path, content);
     },
     async readFile(options) {
       const text = await requireBound().readTextFile(options.path);
@@ -392,12 +391,8 @@ function lazySession(input: {
       }
       return bytesStream(text);
     },
-    async writeFile(options) {
-      const chunks: Buffer[] = [];
-      for await (const chunk of options.content) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      await requireBound().writeTextFile(options.path, Buffer.concat(chunks).toString("utf8"));
+    readTextFile(options) {
+      return requireBound().readTextFile(options.path);
     },
     async removePath(options) {
       const bound = requireBound();
@@ -406,15 +401,45 @@ function lazySession(input: {
         recursive: options.recursive === true,
       });
     },
-    async setNetworkPolicy(policy: SandboxNetworkPolicy) {
+    resolvePath: resolveWorkspacePath,
+    run(options) {
+      const command = commandFromRun(options);
+      return requireBound().run(command);
+    },
+    setNetworkPolicy(policy: SandboxNetworkPolicy) {
       if (policy !== "deny-all") {
-        throw new Error("workbench network is deny-all");
+        return Promise.reject(new Error("workbench network is deny-all"));
       }
+      return Promise.resolve();
+    },
+    async spawn(options: SandboxSpawnOptions) {
+      const command = commandFromRun(options);
+      const result = await requireBound().run(command);
+      return finishedProcess(result);
+    },
+    async writeBinaryFile(options) {
+      const content = Buffer.from(options.content).toString("utf8");
+      await requireBound().writeTextFile(options.path, content);
+    },
+    async writeFile(options) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of options.content) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      await requireBound().writeTextFile(
+        options.path,
+        Buffer.concat(chunks).toString("utf8")
+      );
+    },
+    async writeTextFile(options) {
+      await requireBound().writeTextFile(options.path, options.content);
     },
   };
 }
 
-function commandFromRun(options: { readonly command?: string } | string): string {
+function commandFromRun(
+  options: { readonly command?: string } | string
+): string {
   if (typeof options === "string") {
     return options;
   }
@@ -436,24 +461,66 @@ function bytesStream(text: string): ReadableStream<Uint8Array> {
 
 function finishedProcess(result: SandboxCommandResult) {
   return {
-    stdout: bytesStream(result.stdout),
-    stderr: bytesStream(result.stderr),
-    async wait() {
-      return { exitCode: result.exitCode };
+    kill(): Promise<void> {
+      return Promise.resolve();
     },
-    async kill() {},
+    stderr: bytesStream(result.stderr),
+    stdout: bytesStream(result.stdout),
+    wait() {
+      return Promise.resolve({ exitCode: result.exitCode });
+    },
   };
 }
 
-function resolveDisksRoot(explicit: string | undefined, appRoot: string): string {
-  return explicit ?? process.env.ZOEN_MEMBERSHIP_DISK_ROOT?.trim() ?? join(appRoot, ".eve", "workbench-disks");
+function throwTemplateNotProvisioned(
+  templateKey: string,
+  cause: unknown
+): never {
+  throw Object.assign(
+    new SandboxTemplateNotProvisionedError({
+      backendName: WORKBENCH_BACKEND_NAME,
+      templateKey,
+    }),
+    { cause }
+  );
+}
+
+async function writeTemplateSeeds(
+  templateRoot: string,
+  seedFiles: SandboxBackendPrewarmInput["seedFiles"]
+): Promise<void> {
+  await Promise.all(
+    seedFiles.map(async (seed) => {
+      const host = join(templateRoot, "workspace", seed.path);
+      await mkdir(dirname(host), { recursive: true });
+      const content =
+        typeof seed.content === "string"
+          ? seed.content
+          : Buffer.from(seed.content);
+      await writeFile(host, content);
+    })
+  );
+}
+
+function resolveDisksRoot(
+  explicit: string | undefined,
+  appRoot: string
+): string {
+  return (
+    explicit ??
+    process.env.ZOEN_MEMBERSHIP_DISK_ROOT?.trim() ??
+    join(appRoot, ".eve", "workbench-disks")
+  );
 }
 
 function templatePath(disksRoot: string, templateKey: string): string {
   return join(disksRoot, ".templates", encodeURIComponent(templateKey));
 }
 
-async function copyTemplateWorkspace(templateRoot: string, disk: MembershipDisk): Promise<void> {
+async function copyTemplateWorkspace(
+  templateRoot: string,
+  disk: MembershipDisk
+): Promise<void> {
   const source = join(templateRoot, "workspace");
   await mkdir(disk.workspace, { recursive: true });
   await cp(source, disk.workspace, { recursive: true });
@@ -466,10 +533,17 @@ async function plantZoenMarker(disk: MembershipDisk): Promise<void> {
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
 }
 
-export function parseSessionMembership(raw: string | undefined): MembershipIdBrand {
+export function parseSessionMembership(
+  raw: string | undefined
+): MembershipIdBrand {
   if (raw === undefined || raw.trim().length === 0) {
     return unboundMembership;
   }

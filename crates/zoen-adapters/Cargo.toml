@@ -1,12 +1,18 @@
 [package]
 name = "zoen-adapters"
 version = "0.1.0"
+categories.workspace = true
+description = "Postgres, Cedar, and Wasm adapters for Zoen"
 edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-base64 = "0.22.1"
+base64 = "0.23.1"
 cedar-policy = "4.7.1"
 ed25519-dalek = { version = "2.2.0", default-features = false, features = ["std"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }

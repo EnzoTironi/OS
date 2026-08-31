@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use crate::{ActionId, ActionInput, ExactValue, ResourceId};
 
 /// Schema id hashed into every Action preview document.
@@ -53,6 +55,7 @@ impl ActionPreviewDocument {
     }
 
     /// JSON object ready for RFC 8785 JCS. Key order is not significant.
+    #[must_use]
     pub fn to_json(&self) -> String {
         let mut out = String::from("{");
         write_json_member(&mut out, "action", true);
@@ -160,6 +163,7 @@ impl ActionPreviewInput {
 }
 
 /// Deterministic PT-BR preview. Does not mention proposal, operation, or claim IDs.
+#[must_use]
 pub fn canonical_preview_text(action_id: &str, inputs: &[ActionInput]) -> String {
     match action_id {
         "personal.writeMemory" => {
@@ -243,8 +247,8 @@ fn write_json_string(out: &mut String, value: &str) {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            character if (character as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", character as u32));
+            character if u32::from(character) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", u32::from(character));
             }
             character => out.push(character),
         }

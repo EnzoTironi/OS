@@ -152,48 +152,7 @@ pub(crate) async fn begin_execution(
     .await
     .map_err(|error| ComputationError::Store(error.to_string()))?;
     if let Some(row) = existing {
-        let stored_digest = row
-            .try_get::<String, _>("request_digest")
-            .map_err(|error| ComputationError::Store(error.to_string()))?;
-        if stored_digest != request.request_digest().as_str() {
-            return Err(ComputationError::IdentityCollision);
-        }
-        let stored_actor = row
-            .try_get::<String, _>("started_actor_id")
-            .map_err(|error| ComputationError::Store(error.to_string()))?;
-        let stored_principal = row
-            .try_get::<String, _>("started_principal_id")
-            .map_err(|error| ComputationError::Store(error.to_string()))?;
-        let stored_workload = row
-            .try_get::<String, _>("started_workload_id")
-            .map_err(|error| ComputationError::Store(error.to_string()))?;
-        if stored_actor != context.actor_id().as_str()
-            || stored_principal != context.principal_id().as_str()
-            || stored_workload != context.workload_id().as_str()
-        {
-            return Err(ComputationError::IdentityCollision);
-        }
-        let status = row
-            .try_get::<String, _>("status")
-            .map_err(|error| ComputationError::Store(error.to_string()))?;
-        let result = if status == "completed" {
-            let value = row
-                .try_get::<serde_json::Value, _>("result_json")
-                .map_err(|error| ComputationError::Store(error.to_string()))?;
-            let stored = serde_json::from_value::<StoredOutcome>(value)
-                .map_err(|error| ComputationError::Store(error.to_string()))?;
-            BeginExecution::Completed(Box::new(ComputationExecution {
-                evidence: request.evidence(),
-                outcome: stored.try_into()?,
-                request_digest: request.request_digest(),
-            }))
-        } else if status == "running" {
-            BeginExecution::Run
-        } else {
-            return Err(ComputationError::Store(format!(
-                "unknown Wasm execution status {status}"
-            )));
-        };
+        let result = replay_existing_execution(&row, context, request)?;
         transaction
             .commit()
             .await
@@ -263,6 +222,55 @@ pub(crate) async fn begin_execution(
         .await
         .map_err(|error| ComputationError::Store(error.to_string()))?;
     Ok(BeginExecution::Run)
+}
+
+fn replay_existing_execution(
+    row: &sqlx::postgres::PgRow,
+    context: &ExecutionContext,
+    request: &ComputationRequest,
+) -> Result<BeginExecution, ComputationError> {
+    let stored_digest = row
+        .try_get::<String, _>("request_digest")
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    if stored_digest != request.request_digest().as_str() {
+        return Err(ComputationError::IdentityCollision);
+    }
+    let stored_actor = row
+        .try_get::<String, _>("started_actor_id")
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    let stored_principal = row
+        .try_get::<String, _>("started_principal_id")
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    let stored_workload = row
+        .try_get::<String, _>("started_workload_id")
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    if stored_actor != context.actor_id().as_str()
+        || stored_principal != context.principal_id().as_str()
+        || stored_workload != context.workload_id().as_str()
+    {
+        return Err(ComputationError::IdentityCollision);
+    }
+    let status = row
+        .try_get::<String, _>("status")
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    if status == "completed" {
+        let value = row
+            .try_get::<serde_json::Value, _>("result_json")
+            .map_err(|error| ComputationError::Store(error.to_string()))?;
+        let stored = serde_json::from_value::<StoredOutcome>(value)
+            .map_err(|error| ComputationError::Store(error.to_string()))?;
+        Ok(BeginExecution::Completed(Box::new(ComputationExecution {
+            evidence: request.evidence(),
+            outcome: stored.try_into()?,
+            request_digest: request.request_digest(),
+        })))
+    } else if status == "running" {
+        Ok(BeginExecution::Run)
+    } else {
+        Err(ComputationError::Store(format!(
+            "unknown Wasm execution status {status}"
+        )))
+    }
 }
 
 pub(crate) async fn finish_execution(

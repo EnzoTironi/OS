@@ -151,7 +151,7 @@ export function worldClient(
 
 export async function startZoend(policyManifestPath: string): Promise<ManagedProcess> {
   return startProcess({
-    command: path.join(targetDirectory, "zoend"),
+    command: path.join(targetDirectory, "zoen"),
     environment: {
       DATABASE_URL: applicationDatabaseUrl,
       ZOEN_AUTH_DATABASE_URL: authDatabaseUrl,

@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
@@ -14,7 +16,7 @@ use zoen_core::{
     ExplanationSubject, ExplanationTarget, GapReason, LineageRole, MigrationOrigin, PayloadDigest,
     PayloadRedaction, PolicyDecisionEvidence, PolicyDecisionStage, PolicyEvaluation,
     ProposalAuthority, RedactionReason, StateBasisStage, StateDependency, TimestampMicros,
-    TrustedExecutionContext, ValidTime, expression_relations,
+    TrustedExecutionContext, ValidTime, encode_hex, expression_relations,
 };
 
 use crate::{
@@ -172,6 +174,12 @@ where
         Self { store }
     }
 
+    /// Explain an action or claim from durable history.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError`] when the store fails, the snapshot tenant mismatches,
+    /// or a read used for payload access fails.
     pub async fn explain<Q, P>(
         &self,
         context: &TrustedExecutionContext,
@@ -366,8 +374,8 @@ fn definition_evidence(
         digest: revision.digest.clone(),
         revision: revision.revision,
     };
-    let digest_verified =
-        hex_digest(Sha256::digest(revision.canonical_json.as_bytes())) == revision.digest.as_str();
+    let digest_verified = encode_hex(Sha256::digest(revision.canonical_json.as_bytes()).as_ref())
+        == revision.digest.as_str();
     if reference != *expected || !digest_verified {
         gaps.push(gap(
             EvidenceClass::DefinitionRevision,
@@ -534,78 +542,24 @@ fn commit_evidence(
 }
 
 fn effect_evidence(
-    snapshot: EffectHistorySnapshot,
+    history: EffectHistorySnapshot,
     access: PayloadAccess,
     gaps: &mut Vec<ExplanationGap>,
 ) -> CausalEffect {
+    let actual_digest_bytes: [u8; 32] = Sha256::digest(&history.snapshot.request.payload).into();
+    let actual_digest = encode_hex(&actual_digest_bytes);
+    note_effect_request_gaps(&history, &actual_digest, gaps);
     let EffectHistorySnapshot {
         dispatches,
         snapshot,
-    } = snapshot;
+    } = history;
     let EffectSnapshot {
         attempts,
         evidence,
         reconciliations,
         request,
     } = snapshot;
-    let reference = CausalReference::EffectRequest(request.effect_request_id.clone());
-    let actual_digest_bytes: [u8; 32] = Sha256::digest(&request.payload).into();
-    let actual_digest = hex_digest(actual_digest_bytes);
-    if actual_digest != request.request_digest.as_str() {
-        gaps.push(gap(
-            EvidenceClass::EffectRequest,
-            GapReason::Corrupt,
-            reference.clone(),
-            "the EffectRequest payload does not match its durable digest",
-        ));
-    }
-    if dispatches.is_empty() {
-        gaps.push(gap(
-            EvidenceClass::EffectDispatch,
-            GapReason::Missing,
-            reference.clone(),
-            "the EffectRequest has no durable scheduler dispatch evidence",
-        ));
-    }
-    for attempt in &attempts {
-        if attempt.request_digest != request.request_digest {
-            gaps.push(gap(
-                EvidenceClass::EffectAttempt,
-                GapReason::Corrupt,
-                CausalReference::EffectAttempt(attempt.attempt_id.clone()),
-                "the connector attempt references a different EffectRequest digest",
-            ));
-        }
-    }
-    if !matches!(request.state, EffectKnowledgeState::NotAttempted) && attempts.is_empty() {
-        gaps.push(gap(
-            EvidenceClass::EffectAttempt,
-            GapReason::Missing,
-            reference.clone(),
-            "the effect knowledge state requires connector attempt evidence",
-        ));
-    }
-    for item in &evidence {
-        if item.idempotency_key != request.idempotency_key {
-            gaps.push(gap(
-                EvidenceClass::EffectEvidence,
-                GapReason::Corrupt,
-                CausalReference::EffectEvidence(item.evidence_id.clone()),
-                "the reconciliation evidence references a different idempotency key",
-            ));
-        }
-        if !reconciliations
-            .iter()
-            .any(|reconciliation| reconciliation.evidence_id == item.evidence_id)
-        {
-            gaps.push(gap(
-                EvidenceClass::EffectReconciliation,
-                GapReason::Missing,
-                CausalReference::EffectEvidence(item.evidence_id.clone()),
-                "effect evidence has no durable reconciliation record",
-            ));
-        }
-    }
+    let reference = CausalReference::EffectRequest(request.identity.effect_request_id.clone());
     let payload = match access {
         PayloadAccess::Full => ExplanationPayload::Value(request.payload),
         PayloadAccess::Redacted => {
@@ -631,7 +585,7 @@ fn effect_evidence(
             payload,
             structure: CausalEffectRequestStructure {
                 commit_sequence: request.commit_sequence,
-                effect_request_id: request.effect_request_id,
+                effect_request_id: request.identity.effect_request_id,
                 idempotency_key: request.idempotency_key,
                 intent_digest: request.intent_digest,
                 operation_id: request.operation_id,
@@ -766,7 +720,7 @@ fn verify_target(
         ExplanationTarget::EffectRequest(effect_request_id) => snapshot
             .effects
             .iter()
-            .any(|effect| effect.snapshot.request.effect_request_id == *effect_request_id),
+            .any(|effect| effect.snapshot.request.identity.effect_request_id == *effect_request_id),
         ExplanationTarget::Decision(DecisionReference::Proposal(proposal_id)) => {
             snapshot.proposal.proposal_id == *proposal_id
         }
@@ -1113,12 +1067,72 @@ fn gap(
     }
 }
 
-fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+fn note_effect_request_gaps(
+    history: &EffectHistorySnapshot,
+    actual_digest: &str,
+    gaps: &mut Vec<ExplanationGap>,
+) {
+    let request = &history.snapshot.request;
+    let reference = CausalReference::EffectRequest(request.identity.effect_request_id.clone());
+    if actual_digest != request.request_digest.as_str() {
+        gaps.push(gap(
+            EvidenceClass::EffectRequest,
+            GapReason::Corrupt,
+            reference.clone(),
+            "the EffectRequest payload does not match its durable digest",
+        ));
+    }
+    if history.dispatches.is_empty() {
+        gaps.push(gap(
+            EvidenceClass::EffectDispatch,
+            GapReason::Missing,
+            reference.clone(),
+            "the EffectRequest has no durable scheduler dispatch evidence",
+        ));
+    }
+    for attempt in &history.snapshot.attempts {
+        if attempt.request_digest != request.request_digest {
+            gaps.push(gap(
+                EvidenceClass::EffectAttempt,
+                GapReason::Corrupt,
+                CausalReference::EffectAttempt(attempt.attempt_id.clone()),
+                "the connector attempt references a different EffectRequest digest",
+            ));
+        }
+    }
+    if !matches!(request.state, EffectKnowledgeState::NotAttempted)
+        && history.snapshot.attempts.is_empty()
+    {
+        gaps.push(gap(
+            EvidenceClass::EffectAttempt,
+            GapReason::Missing,
+            reference,
+            "the effect knowledge state requires connector attempt evidence",
+        ));
+    }
+    for item in &history.snapshot.evidence {
+        if item.idempotency_key != request.idempotency_key {
+            gaps.push(gap(
+                EvidenceClass::EffectEvidence,
+                GapReason::Corrupt,
+                CausalReference::EffectEvidence(item.evidence_id.clone()),
+                "the reconciliation evidence references a different idempotency key",
+            ));
+        }
+        if !history
+            .snapshot
+            .reconciliations
+            .iter()
+            .any(|reconciliation| reconciliation.evidence_id == item.evidence_id)
+        {
+            gaps.push(gap(
+                EvidenceClass::EffectReconciliation,
+                GapReason::Missing,
+                CausalReference::EffectEvidence(item.evidence_id.clone()),
+                "effect evidence has no durable reconciliation record",
+            ));
+        }
+    }
 }
 
 #[cfg(test)]

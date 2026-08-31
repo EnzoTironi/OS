@@ -1,7 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt::{Display, Formatter},
+    sync::Arc,
+};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
@@ -14,11 +16,14 @@ use zoen_core::{
     ResourceId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
     StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
     TrustedExecutionContext, TypeId, ValidTime, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION,
-    classified_as_relation, evaluate_expression, expression_relations, join_labels,
+    classified_as_relation, encode_hex, evaluate_expression, expression_relations, join_labels,
 };
 
-use crate::action_preview::{bind_proposal_preview, build_action_preview, preview_hash};
-use crate::{AdmittedEvidence, AuthorityStore, StoreError, admission, decode_canonical_definition};
+use crate::{
+    AdmittedEvidence, AuthorityStore, StoreError,
+    action_preview::{bind_proposal_preview, build_action_preview, preview_hash},
+    admission, decode_canonical_definition,
+};
 
 mod state_basis;
 
@@ -117,6 +122,11 @@ where
     }
 }
 
+/// Build a directory-only policy projection for a resource.
+///
+/// # Errors
+///
+/// Returns an error when `resource_id` is not a valid entity id.
 pub fn directory_projection(
     context: &TrustedExecutionContext,
     resource_id: &ResourceId,
@@ -231,6 +241,22 @@ pub enum CommitPreparation<T> {
     OperationMismatch,
     Ready(T),
     Replayed(Box<CommitReceipt>),
+}
+
+enum StartedCommit<T> {
+    Outcome(CommitOutcome),
+    Ready {
+        proposal: Box<ActionProposal>,
+        transaction: T,
+    },
+}
+
+async fn abort_commit<T: ActionCommitTransaction>(
+    transaction: T,
+    outcome: Result<CommitOutcome, ActionError>,
+) -> Result<CommitOutcome, ActionError> {
+    transaction.rollback().await.map_err(ActionError::Store)?;
+    outcome
 }
 
 pub trait ActionCommitTransaction: Send {
@@ -365,7 +391,7 @@ where
             })
             .await?;
         let relation_values =
-            read_action_state_basis(&loaded.action, &loaded.definition, snapshot)?.values;
+            read_action_state_basis(&loaded.action, &loaded.definition, &snapshot)?.values;
         let join = self
             .join_input_labels(context, proposal, &loaded.definition, &loaded.revision)
             .await?;
@@ -376,6 +402,11 @@ where
         )
     }
 
+    /// Discover Actions the caller may request on a resource.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionError`] when the definition is inactive, decoding fails, or the store fails.
     pub async fn discover(
         &self,
         context: &TrustedExecutionContext,
@@ -439,6 +470,12 @@ where
         Ok(discoveries)
     }
 
+    /// Propose an Action. Direct commit or approval is decided by policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionError`] when the proposal is expired, inputs are invalid, delegation
+    /// denies the Action, evaluation fails, or the store fails.
     pub async fn propose(
         &self,
         context: &TrustedExecutionContext,
@@ -474,77 +511,12 @@ where
                 return Ok(ProposeOutcome::PreconditionDenied(state_basis));
             }
         };
-        let projection = self
-            .load_world_projection(LoadWorldProjectionRequest {
-                context,
-                definition: &loaded.definition,
-                revision: &loaded.revision,
-                action: &loaded.action,
-                resource_id: &command.resource_id,
-                scenario_id: command.scenario_id.clone(),
-                valid_at: command.valid_at,
-            })
-            .await?;
-        let direct = self
-            .policy
-            .evaluate(&PolicyRequest {
-                action_id: &command.action_id,
-                approved: false,
-                classification: None,
-                context,
-                definition: &command.definition,
-                inputs: &command.inputs,
-                operation: PolicyOperation::Commit,
-                projection: Some(&projection),
-                resource_id: &command.resource_id,
-                written_classification: None,
-            })
-            .await;
-        let authority = match direct {
-            PolicyEvaluation::Permit(evidence) => ProposalAuthority::Ready(evidence),
-            PolicyEvaluation::EvaluationError { message, revision } => {
-                return Ok(ProposeOutcome::EvaluationError {
-                    message,
-                    policy: revision.map(|revision| PolicyEvidence {
-                        determining_policies: Vec::new(),
-                        revision,
-                    }),
-                });
-            }
-            PolicyEvaluation::Deny(_) => {
-                match self
-                    .policy
-                    .evaluate(&PolicyRequest {
-                        action_id: &command.action_id,
-                        approved: false,
-                        classification: None,
-                        context,
-                        definition: &command.definition,
-                        inputs: &command.inputs,
-                        operation: PolicyOperation::RequestApproval,
-                        projection: Some(&projection),
-                        resource_id: &command.resource_id,
-                        written_classification: None,
-                    })
-                    .await
-                {
-                    PolicyEvaluation::Permit(evidence) => {
-                        ProposalAuthority::AwaitingApproval(evidence)
-                    }
-                    PolicyEvaluation::Deny(evidence) => {
-                        return Ok(ProposeOutcome::Denied(evidence));
-                    }
-                    PolicyEvaluation::EvaluationError { message, revision } => {
-                        return Ok(ProposeOutcome::EvaluationError {
-                            message,
-                            policy: revision.map(|revision| PolicyEvidence {
-                                determining_policies: Vec::new(),
-                                revision,
-                            }),
-                        });
-                    }
-                }
-            }
+        let authority = match self
+            .resolve_propose_authority(context, &command, &loaded)
+            .await?
+        {
+            Ok(authority) => authority,
+            Err(outcome) => return Ok(outcome),
         };
         let intent_digest = intent_digest(context, &command, &state_basis)?;
         let preview =
@@ -584,6 +556,12 @@ where
         Ok(ProposeOutcome::Accepted(Box::new(saved)))
     }
 
+    /// Record an approval for a proposal that is awaiting approval.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionError`] when approval bounds are invalid, delegation denies the Action,
+    /// or the store fails.
     pub async fn approve(
         &self,
         context: &TrustedExecutionContext,
@@ -679,15 +657,18 @@ where
             PolicyEvaluation::EvaluationError { message, revision } => {
                 Ok(ApproveOutcome::EvaluationError {
                     message,
-                    policy: revision.map(|revision| PolicyEvidence {
-                        determining_policies: Vec::new(),
-                        revision,
-                    }),
+                    policy: policy_from_revision(revision),
                 })
             }
         }
     }
 
+    /// Commit an accepted proposal under a held operation lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionError`] when the store fails, the proposal is expired, approval is
+    /// missing or expired, delegation does not permit the Action, or effect assembly fails.
     pub async fn commit(
         &self,
         context: &TrustedExecutionContext,
@@ -696,37 +677,15 @@ where
         preview_hash: Option<&str>,
         committed_at: TimestampMicros,
     ) -> Result<CommitOutcome, ActionError> {
-        let proposal = self
-            .store
-            .get_proposal(context, proposal_id)
-            .await
-            .map_err(ActionError::Store)?;
-        if proposal.action_id.as_str() == WORLD_WHO_CAN_ACTION {
-            return Err(ActionError::Evaluation(
-                "zoen.world.whoCan is Discover/Read, not a mutation".to_owned(),
-            ));
-        }
-        if proposal.scenario_id.is_some() {
-            return Err(ActionError::Evaluation(
-                "scenario-scoped proposals commit only via scenario apply".to_owned(),
-            ));
-        }
-        if &proposal.operation_id != operation_id {
-            return Ok(CommitOutcome::OperationMismatch);
-        }
-        let transaction = match self
-            .store
-            .begin_action_commit(context, &proposal)
-            .await
-            .map_err(ActionError::Store)?
+        let (proposal, transaction) = match self
+            .start_commit(context, proposal_id, operation_id)
+            .await?
         {
-            crate::CommitPreparation::OperationMismatch => {
-                return Ok(CommitOutcome::OperationMismatch);
-            }
-            crate::CommitPreparation::Ready(transaction) => transaction,
-            crate::CommitPreparation::Replayed(receipt) => {
-                return Ok(CommitOutcome::Committed(receipt));
-            }
+            StartedCommit::Ready {
+                proposal,
+                transaction,
+            } => (*proposal, transaction),
+            StartedCommit::Outcome(outcome) => return Ok(outcome),
         };
         if bind_proposal_preview(
             &proposal.action_id,
@@ -738,12 +697,10 @@ where
         )
         .is_err()
         {
-            transaction.rollback().await.map_err(ActionError::Store)?;
-            return Ok(CommitOutcome::PreviewMismatch);
+            return abort_commit(transaction, Ok(CommitOutcome::PreviewMismatch)).await;
         }
         if committed_at >= proposal.expires_at {
-            transaction.rollback().await.map_err(ActionError::Store)?;
-            return Err(ActionError::ExpiredProposal);
+            return abort_commit(transaction, Err(ActionError::ExpiredProposal)).await;
         }
         if let Err(error) = authorize_delegation(
             context,
@@ -752,159 +709,24 @@ where
             &proposal.definition.definition_id,
             committed_at,
         ) {
-            transaction.rollback().await.map_err(ActionError::Store)?;
-            return Err(error);
+            return abort_commit(transaction, Err(error)).await;
         }
-        let approval = match &proposal.authority {
-            ProposalAuthority::Ready(_) => None,
-            ProposalAuthority::AwaitingApproval(_) => {
-                let approval = self
-                    .store
-                    .get_approval(context, &proposal.proposal_id)
-                    .await
-                    .map_err(ActionError::Store)?;
-                match approval {
-                    Some(approval) if committed_at < approval.expires_at => Some(approval),
-                    _ => {
-                        transaction.rollback().await.map_err(ActionError::Store)?;
-                        return Err(ActionError::ApprovalExpired);
-                    }
-                }
-            }
-        };
-        let loaded = match self
-            .load_action(context, &proposal.definition, &proposal.action_id)
+        let (loaded, policy) = match self
+            .resolve_commit_policy(context, &proposal, committed_at)
             .await
         {
-            Ok(loaded) => loaded,
-            Err(error) => {
-                transaction.rollback().await.map_err(ActionError::Store)?;
-                return Err(error);
-            }
+            Ok(Ok(ready)) => ready,
+            Ok(Err(outcome)) => return abort_commit(transaction, Ok(outcome)).await,
+            Err(error) => return abort_commit(transaction, Err(error)).await,
         };
-        let projection = match self
-            .load_world_projection(LoadWorldProjectionRequest {
-                context,
-                definition: &loaded.definition,
-                revision: &loaded.revision,
-                action: &loaded.action,
-                resource_id: &proposal.resource_id,
-                scenario_id: proposal.scenario_id.clone(),
-                valid_at: proposal.valid_at,
-            })
+        let effects = match self
+            .assemble_commit_plan(context, &proposal, &loaded, &policy)
             .await
         {
-            Ok(projection) => projection,
-            Err(error) => {
-                transaction.rollback().await.map_err(ActionError::Store)?;
-                return Err(error);
-            }
+            Ok(Ok(effects)) => effects,
+            Ok(Err(outcome)) => return abort_commit(transaction, Ok(outcome)).await,
+            Err(error) => return abort_commit(transaction, Err(error)).await,
         };
-        let policy = match self
-            .policy
-            .evaluate(&PolicyRequest {
-                action_id: &proposal.action_id,
-                approved: approval.is_some(),
-                classification: None,
-                context,
-                definition: &proposal.definition,
-                inputs: &proposal.inputs,
-                operation: PolicyOperation::Commit,
-                projection: Some(&projection),
-                resource_id: &proposal.resource_id,
-                written_classification: None,
-            })
-            .await
-        {
-            PolicyEvaluation::Permit(evidence) => evidence,
-            PolicyEvaluation::Deny(evidence) => {
-                transaction.rollback().await.map_err(ActionError::Store)?;
-                return Ok(CommitOutcome::Denied(evidence));
-            }
-            PolicyEvaluation::EvaluationError { message, revision } => {
-                transaction.rollback().await.map_err(ActionError::Store)?;
-                return Ok(CommitOutcome::EvaluationError {
-                    message,
-                    policy: revision.map(|revision| PolicyEvidence {
-                        determining_policies: Vec::new(),
-                        revision,
-                    }),
-                });
-            }
-        };
-        let relation_ids = effect_evaluation_relations(&loaded.action);
-        let snapshot = self
-            .load_relation_snapshot(LoadRelationSnapshotRequest {
-                context,
-                revision: &loaded.revision,
-                resource_id: &proposal.resource_id,
-                relations: relation_ids,
-                scenario_id: proposal.scenario_id.clone(),
-                valid_at: proposal.valid_at,
-                authority_cut_error: "Action effect relations used different authority cuts",
-            })
-            .await?;
-        let relation_values =
-            read_action_state_basis(&loaded.action, &loaded.definition, snapshot)?.values;
-        let human_request_payload = if crate::is_human_executor_action(&proposal.action_id) {
-            Some(
-                crate::mint_human_task_contract_payload(&proposal)
-                    .map_err(|error| ActionError::Evaluation(error.to_string()))?,
-            )
-        } else {
-            None
-        };
-        let join = match self
-            .join_input_labels(context, &proposal, &loaded.definition, &loaded.revision)
-            .await
-        {
-            Ok(join) => join,
-            Err(error) => {
-                transaction.rollback().await.map_err(ActionError::Store)?;
-                return Err(error);
-            }
-        };
-        let drafts = match share_or_join_effects(
-            build_effects(&proposal, &loaded.action, &relation_values)?,
-            &proposal,
-            join.as_ref(),
-        ) {
-            Ok(drafts) => drafts,
-            Err(error) => {
-                transaction.rollback().await.map_err(ActionError::Store)?;
-                return Err(error);
-            }
-        };
-        let written = match written_classified_as_tokens(&drafts) {
-            Ok(written) => written,
-            Err(error) => {
-                transaction.rollback().await.map_err(ActionError::Store)?;
-                return Err(error);
-            }
-        };
-        if !written.is_empty() && !zoen_core::mac_write_permitted(context.clearance(), &written) {
-            transaction.rollback().await.map_err(ActionError::Store)?;
-            return Ok(CommitOutcome::Denied(PolicyEvidence {
-                determining_policies: vec![crate::MAC_DETERMINING_POLICY.to_owned()],
-                revision: policy.revision,
-            }));
-        }
-        let effects = drafts
-            .into_iter()
-            .enumerate()
-            .map(|(index, draft)| {
-                let evidence = admission::admit_action_effect(&loaded.revision, draft)
-                    .map_err(|error| ActionError::Evaluation(error.to_string()))?;
-                let request_payload = human_request_payload
-                    .clone()
-                    .unwrap_or_else(|| evidence.projection_event().payload().as_bytes().to_vec());
-                Ok(ActionCommitEffect {
-                    effect_request_id: effect_request_id(&proposal.operation_id, index)?,
-                    evidence,
-                    request_payload,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         match transaction
             .commit(&CommitPlan {
                 effects,
@@ -923,6 +745,247 @@ where
         }
     }
 
+    async fn start_commit(
+        &self,
+        context: &TrustedExecutionContext,
+        proposal_id: &ProposalId,
+        operation_id: &OperationId,
+    ) -> Result<StartedCommit<S::ActionCommit>, ActionError> {
+        let proposal = self
+            .store
+            .get_proposal(context, proposal_id)
+            .await
+            .map_err(ActionError::Store)?;
+        if proposal.action_id.as_str() == WORLD_WHO_CAN_ACTION {
+            return Err(ActionError::Evaluation(
+                "zoen.world.whoCan is Discover/Read, not a mutation".to_owned(),
+            ));
+        }
+        if proposal.scenario_id.is_some() {
+            return Err(ActionError::Evaluation(
+                "scenario-scoped proposals commit only via scenario apply".to_owned(),
+            ));
+        }
+        if &proposal.operation_id != operation_id {
+            return Ok(StartedCommit::Outcome(CommitOutcome::OperationMismatch));
+        }
+        match self
+            .store
+            .begin_action_commit(context, &proposal)
+            .await
+            .map_err(ActionError::Store)?
+        {
+            crate::CommitPreparation::OperationMismatch => {
+                Ok(StartedCommit::Outcome(CommitOutcome::OperationMismatch))
+            }
+            crate::CommitPreparation::Ready(transaction) => Ok(StartedCommit::Ready {
+                proposal: Box::new(proposal),
+                transaction,
+            }),
+            crate::CommitPreparation::Replayed(receipt) => {
+                Ok(StartedCommit::Outcome(CommitOutcome::Committed(receipt)))
+            }
+        }
+    }
+
+    async fn resolve_propose_authority(
+        &self,
+        context: &TrustedExecutionContext,
+        command: &ProposeCommand,
+        loaded: &LoadedAction,
+    ) -> Result<Result<ProposalAuthority, ProposeOutcome>, ActionError> {
+        let projection = self
+            .load_world_projection(LoadWorldProjectionRequest {
+                context,
+                definition: &loaded.definition,
+                revision: &loaded.revision,
+                action: &loaded.action,
+                resource_id: &command.resource_id,
+                scenario_id: command.scenario_id.clone(),
+                valid_at: command.valid_at,
+            })
+            .await?;
+        match self
+            .policy
+            .evaluate(&PolicyRequest {
+                action_id: &command.action_id,
+                approved: false,
+                classification: None,
+                context,
+                definition: &command.definition,
+                inputs: &command.inputs,
+                operation: PolicyOperation::Commit,
+                projection: Some(&projection),
+                resource_id: &command.resource_id,
+                written_classification: None,
+            })
+            .await
+        {
+            PolicyEvaluation::Permit(evidence) => Ok(Ok(ProposalAuthority::Ready(evidence))),
+            PolicyEvaluation::EvaluationError { message, revision } => {
+                Ok(Err(ProposeOutcome::EvaluationError {
+                    message,
+                    policy: policy_from_revision(revision),
+                }))
+            }
+            PolicyEvaluation::Deny(_) => match self
+                .policy
+                .evaluate(&PolicyRequest {
+                    action_id: &command.action_id,
+                    approved: false,
+                    classification: None,
+                    context,
+                    definition: &command.definition,
+                    inputs: &command.inputs,
+                    operation: PolicyOperation::RequestApproval,
+                    projection: Some(&projection),
+                    resource_id: &command.resource_id,
+                    written_classification: None,
+                })
+                .await
+            {
+                PolicyEvaluation::Permit(evidence) => {
+                    Ok(Ok(ProposalAuthority::AwaitingApproval(evidence)))
+                }
+                PolicyEvaluation::Deny(evidence) => Ok(Err(ProposeOutcome::Denied(evidence))),
+                PolicyEvaluation::EvaluationError { message, revision } => {
+                    Ok(Err(ProposeOutcome::EvaluationError {
+                        message,
+                        policy: policy_from_revision(revision),
+                    }))
+                }
+            },
+        }
+    }
+
+    async fn resolve_commit_policy(
+        &self,
+        context: &TrustedExecutionContext,
+        proposal: &ActionProposal,
+        committed_at: TimestampMicros,
+    ) -> Result<Result<(LoadedAction, PolicyEvidence), CommitOutcome>, ActionError> {
+        let approval = match &proposal.authority {
+            ProposalAuthority::Ready(_) => None,
+            ProposalAuthority::AwaitingApproval(_) => {
+                match self
+                    .store
+                    .get_approval(context, &proposal.proposal_id)
+                    .await
+                    .map_err(ActionError::Store)?
+                {
+                    Some(approval) if committed_at < approval.expires_at => Some(approval),
+                    _ => return Err(ActionError::ApprovalExpired),
+                }
+            }
+        };
+        let loaded = self
+            .load_action(context, &proposal.definition, &proposal.action_id)
+            .await?;
+        let projection = self
+            .load_world_projection(LoadWorldProjectionRequest {
+                context,
+                definition: &loaded.definition,
+                revision: &loaded.revision,
+                action: &loaded.action,
+                resource_id: &proposal.resource_id,
+                scenario_id: proposal.scenario_id.clone(),
+                valid_at: proposal.valid_at,
+            })
+            .await?;
+        match self
+            .policy
+            .evaluate(&PolicyRequest {
+                action_id: &proposal.action_id,
+                approved: approval.is_some(),
+                classification: None,
+                context,
+                definition: &proposal.definition,
+                inputs: &proposal.inputs,
+                operation: PolicyOperation::Commit,
+                projection: Some(&projection),
+                resource_id: &proposal.resource_id,
+                written_classification: None,
+            })
+            .await
+        {
+            PolicyEvaluation::Permit(evidence) => Ok(Ok((loaded, evidence))),
+            PolicyEvaluation::Deny(evidence) => Ok(Err(CommitOutcome::Denied(evidence))),
+            PolicyEvaluation::EvaluationError { message, revision } => {
+                Ok(Err(CommitOutcome::EvaluationError {
+                    message,
+                    policy: policy_from_revision(revision),
+                }))
+            }
+        }
+    }
+
+    async fn assemble_commit_plan(
+        &self,
+        context: &TrustedExecutionContext,
+        proposal: &ActionProposal,
+        loaded: &LoadedAction,
+        policy: &PolicyEvidence,
+    ) -> Result<Result<Vec<ActionCommitEffect>, CommitOutcome>, ActionError> {
+        let snapshot = self
+            .load_relation_snapshot(LoadRelationSnapshotRequest {
+                context,
+                revision: &loaded.revision,
+                resource_id: &proposal.resource_id,
+                relations: effect_evaluation_relations(&loaded.action),
+                scenario_id: proposal.scenario_id.clone(),
+                valid_at: proposal.valid_at,
+                authority_cut_error: "Action effect relations used different authority cuts",
+            })
+            .await?;
+        let relation_values =
+            read_action_state_basis(&loaded.action, &loaded.definition, &snapshot)?.values;
+        let human_request_payload = if crate::is_human_executor_action(&proposal.action_id) {
+            Some(
+                crate::mint_human_task_contract_payload(proposal)
+                    .map_err(|error| ActionError::Evaluation(error.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let join = self
+            .join_input_labels(context, proposal, &loaded.definition, &loaded.revision)
+            .await?;
+        let drafts = share_or_join_effects(
+            build_effects(proposal, &loaded.action, &relation_values)?,
+            proposal,
+            join.as_ref(),
+        )?;
+        let written = written_classified_as_tokens(&drafts)?;
+        if !written.is_empty() && !zoen_core::mac_write_permitted(context.clearance(), &written) {
+            return Ok(Err(CommitOutcome::Denied(PolicyEvidence {
+                determining_policies: vec![crate::MAC_DETERMINING_POLICY.to_owned()],
+                revision: policy.revision.clone(),
+            })));
+        }
+        drafts
+            .into_iter()
+            .enumerate()
+            .map(|(index, draft)| {
+                let evidence = admission::admit_action_effect(&loaded.revision, draft)
+                    .map_err(|error| ActionError::Evaluation(error.to_string()))?;
+                let request_payload = human_request_payload
+                    .clone()
+                    .unwrap_or_else(|| evidence.projection_event().payload().as_bytes().to_vec());
+                Ok(ActionCommitEffect {
+                    effect_request_id: effect_request_id(&proposal.operation_id, index)?,
+                    evidence,
+                    request_payload,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Ok)
+    }
+
+    /// Load the commit receipt for an operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionError::Store`] when the authority store cannot load the operation.
     pub async fn operation_status(
         &self,
         context: &TrustedExecutionContext,
@@ -934,6 +997,11 @@ where
             .map_err(ActionError::Store)
     }
 
+    /// Load a stored Action proposal.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionError::Store`] when the authority store cannot load the proposal.
     pub async fn get_proposal(
         &self,
         context: &TrustedExecutionContext,
@@ -1002,7 +1070,7 @@ where
                 authority_cut_error: "Action precondition relations used different authority cuts",
             })
             .await?;
-        evaluate_action_state_basis(&loaded.action, &loaded.definition, inputs, snapshot)
+        evaluate_action_state_basis(&loaded.action, &loaded.definition, inputs, &snapshot)
     }
 
     pub(crate) async fn load_relation_snapshot(
@@ -1092,8 +1160,7 @@ where
             snapshot
                 .relations
                 .get(&classified_as)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]),
+                .map_or(&[], Vec::as_slice),
         )?;
         let mut seen = BTreeSet::from([entity_id.clone()]);
         let mut neighbors = Vec::new();
@@ -1181,8 +1248,7 @@ where
                 snapshot
                     .relations
                     .get(&classified_as)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]),
+                    .map_or(&[], Vec::as_slice),
             )?);
         }
         if labels.is_empty() {
@@ -1287,6 +1353,11 @@ fn validate_inputs(action: &ActionDefinition, inputs: &[ActionInput]) -> Result<
     Ok(())
 }
 
+/// Hash ordered state dependencies into a state-basis digest.
+///
+/// # Errors
+///
+/// Returns [`ActionError::Evaluation`] when the digest hex is not a valid SHA-256 digest.
 pub fn calculate_state_basis_digest(
     dependencies: &[StateDependency],
 ) -> Result<StateBasisDigest, ActionError> {
@@ -1301,10 +1372,15 @@ pub fn calculate_state_basis_digest(
         hash_field(&mut hasher, dependency.source_id.as_str());
         hash_field(&mut hasher, &dependency.source_ref);
     }
-    StateBasisDigest::parse(hex_digest(hasher.finalize()))
+    StateBasisDigest::parse(encode_hex(hasher.finalize().as_ref()))
         .map_err(|error| ActionError::Evaluation(error.to_string()))
 }
 
+/// Compare a stored state-basis digest with a recomputed digest.
+///
+/// # Errors
+///
+/// Returns [`ActionError::Evaluation`] when the recomputed digest cannot be encoded.
 pub fn state_basis_digest_matches(
     dependencies: &[StateDependency],
     expected: &StateBasisDigest,
@@ -1341,7 +1417,7 @@ fn intent_digest(
         hash_field(&mut hasher, &value_key(&input.value));
     }
     hash_field(&mut hasher, state_basis.digest.as_str());
-    IntentDigest::parse(hex_digest(hasher.finalize()))
+    IntentDigest::parse(encode_hex(hasher.finalize().as_ref()))
         .map_err(|error| ActionError::Evaluation(error.to_string()))
 }
 
@@ -1561,12 +1637,11 @@ fn lineage_role_name(role: LineageRole) -> &'static str {
     }
 }
 
-fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+fn policy_from_revision(revision: Option<zoen_core::PolicyRevision>) -> Option<PolicyEvidence> {
+    revision.map(|revision| PolicyEvidence {
+        determining_policies: Vec::new(),
+        revision,
+    })
 }
 
 #[cfg(test)]

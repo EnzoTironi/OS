@@ -1,14 +1,14 @@
-use std::collections::BTreeSet;
-use std::fs::File;
-use std::io::Read;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeSet,
+    fs::File,
+    io::Read,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::postgres::PgRow;
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     AccountMergePlan, AccountStatus, ActionId, ActorId, BindingStatus, ChannelProvider, Clearance,
     DelegationChain, DelegationGrant, DelegationId, ExternalBinding, ExternalBindingId,
@@ -25,10 +25,14 @@ pub struct PostgresIdentityStore {
 }
 
 impl PostgresIdentityStore {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn ensure_provisional(
         &self,
         subject: ExternalSubject,
@@ -72,6 +76,9 @@ impl PostgresIdentityStore {
         Ok(account)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn verify_binding(
         &self,
         account: ZoenAccountId,
@@ -123,6 +130,9 @@ impl PostgresIdentityStore {
         Ok(verified)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn bind_verified_subject(
         &self,
         account: ZoenAccountId,
@@ -170,6 +180,9 @@ impl PostgresIdentityStore {
         Ok(binding)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn unbind(
         &self,
         binding: ExternalBindingId,
@@ -199,6 +212,9 @@ impl PostgresIdentityStore {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn ensure_personal_workspace(
         &self,
         account: ZoenAccountId,
@@ -267,6 +283,9 @@ impl PostgresIdentityStore {
         Ok(membership)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn create_invite(&self, input: CreateInvite<'_>) -> Result<Invite, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let invite_id = new_invite_id();
@@ -311,6 +330,9 @@ impl PostgresIdentityStore {
         Ok(invite)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn accept_invite(
         &self,
         account: ZoenAccountId,
@@ -411,6 +433,9 @@ impl PostgresIdentityStore {
         Ok(membership)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn stamp_world_invite(
         &self,
         input: WorldInvite,
@@ -450,6 +475,9 @@ impl PostgresIdentityStore {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn active_membership(
         &self,
         account: &ZoenAccountId,
@@ -461,6 +489,9 @@ impl PostgresIdentityStore {
         Ok(membership)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn revoke_membership(
         &self,
         id: MembershipId,
@@ -470,6 +501,9 @@ impl PostgresIdentityStore {
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn leave_membership(&self, id: MembershipId) -> Result<(), IdentityError> {
         self.end_membership(id, "left", None).await
     }
@@ -514,6 +548,9 @@ impl PostgresIdentityStore {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn plan_merge(
         &self,
         survivor: ZoenAccountId,
@@ -553,6 +590,9 @@ impl PostgresIdentityStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn commit_merge(&self, plan: AccountMergePlan) -> Result<(), IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let survivor_row = load_account(&mut transaction, &plan.survivor).await?;
@@ -595,6 +635,9 @@ impl PostgresIdentityStore {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn binding_for_subject(
         &self,
         subject: &ExternalSubject,
@@ -605,6 +648,9 @@ impl PostgresIdentityStore {
         Ok(binding)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn snapshot_for_verified_subject(
         &self,
         subject: &ExternalSubject,
@@ -625,6 +671,9 @@ impl PostgresIdentityStore {
         Ok((binding, snapshot))
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn resolve_for_subject(
         &self,
         subject: &ExternalSubject,
@@ -648,6 +697,9 @@ impl PostgresIdentityStore {
         Ok((membership, context))
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn get_binding(
         &self,
         id: &ExternalBindingId,
@@ -658,6 +710,9 @@ impl PostgresIdentityStore {
         Ok(binding)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn get_membership(&self, id: &MembershipId) -> Result<Membership, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let tenant: String =
@@ -685,6 +740,9 @@ impl PostgresIdentityStore {
         Ok(membership)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn snapshot_account(
         &self,
         account: &ZoenAccountId,
@@ -735,6 +793,9 @@ impl PostgresIdentityStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn mint_onboard_token(
         &self,
         subject: ExternalSubject,
@@ -768,6 +829,9 @@ impl PostgresIdentityStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn lookup_onboard_token(
         &self,
         token: &str,
@@ -795,6 +859,9 @@ impl PostgresIdentityStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn consume_onboard_token(&self, token: &str) -> Result<(), IdentityError> {
         let token_hash = hash_onboard_token(token);
         let now = now_micros();
@@ -814,6 +881,9 @@ impl PostgresIdentityStore {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn admit_whatsapp(
         &self,
         subject: ExternalSubject,
@@ -834,6 +904,9 @@ impl PostgresIdentityStore {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn complete_onboard(
         &self,
         subject: ExternalSubject,
@@ -866,10 +939,10 @@ impl PostgresIdentityStore {
             self.ensure_personal_workspace(account.id.clone()).await?
         };
         Ok(CompleteOnboard {
-            account_id: membership.account_id.clone(),
-            membership_id: membership.id.clone(),
-            principal_id: membership.principal_id.clone(),
-            tenant_id: membership.tenant_id.clone(),
+            account: membership.account_id.clone(),
+            membership: membership.id.clone(),
+            principal: membership.principal_id.clone(),
+            tenant: membership.tenant_id.clone(),
         })
     }
 
@@ -909,10 +982,10 @@ pub struct OnboardTokenRow {
 }
 
 pub struct CompleteOnboard {
-    pub account_id: ZoenAccountId,
-    pub membership_id: MembershipId,
-    pub principal_id: PrincipalId,
-    pub tenant_id: TenantId,
+    pub account: ZoenAccountId,
+    pub membership: MembershipId,
+    pub principal: PrincipalId,
+    pub tenant: TenantId,
 }
 
 pub struct CreateInvite<'a> {
@@ -1213,6 +1286,9 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
     DelegationChain::new(vec![grant]).map_err(|error| IdentityError::Conflict(error.to_string()))
 }
 
+/// # Errors
+///
+/// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
 pub fn dest_invitee_delegation(
     workload_id: &WorkloadId,
     resource_id: &ResourceId,
@@ -1277,11 +1353,7 @@ fn new_principal_id() -> PrincipalId {
 }
 
 fn now_micros() -> TimestampMicros {
-    let micros = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_micros() as i64)
-        .unwrap_or(0);
-    TimestampMicros::new(micros)
+    TimestampMicros::new(crate::clock_micros())
 }
 
 fn unavailable(error: impl std::fmt::Display) -> IdentityError {
@@ -1327,12 +1399,24 @@ impl From<&DelegationChain> for DelegationWire {
                 .grants()
                 .iter()
                 .map(|grant| DelegationGrantWire {
-                    action_ids: grant.actions().iter().map(|id| id.to_string()).collect(),
+                    action_ids: grant
+                        .actions()
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
                     delegation_id: grant.id().to_string(),
                     expires_at: grant.expires_at().get() / 1_000_000,
                     not_before: grant.not_before().get() / 1_000_000,
-                    resource_ids: grant.resources().iter().map(|id| id.to_string()).collect(),
-                    workload_ids: grant.workloads().iter().map(|id| id.to_string()).collect(),
+                    resource_ids: grant
+                        .resources()
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
+                    workload_ids: grant
+                        .workloads()
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
                 })
                 .collect(),
         }

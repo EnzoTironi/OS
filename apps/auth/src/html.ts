@@ -14,7 +14,7 @@ export function onboardStart(google: Google): string {
       '<input type="hidden" name="provider" value="google">' +
       '<input type="hidden" name="callbackURL" value="/onboard/done">' +
       '<button type="submit">Continuar</button>' +
-      "</form>",
+      "</form>"
   );
 }
 
@@ -28,6 +28,6 @@ export function devicePage(): string {
       '<form method="get" action="/device">' +
       '<input name="user_code" autocomplete="off">' +
       '<button type="submit">Continuar</button>' +
-      "</form>",
+      "</form>"
   );
 }

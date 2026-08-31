@@ -1,7 +1,4 @@
-use std::env;
-use std::error::Error;
-use std::fs;
-use std::io::ErrorKind;
+use std::{env, error::Error, fs, io::ErrorKind};
 
 use serde::Deserialize;
 
@@ -31,6 +28,12 @@ pub struct RebuildableState {
     pub object_storage: Vec<String>,
 }
 
+/// Load dest state classification from disk, or the embedded default.
+///
+/// # Errors
+///
+/// Returns an error when the classification file cannot be read (except
+/// not-found) or the YAML is invalid.
 pub fn load_classification() -> Result<StateClassification, Box<dyn Error + Send + Sync>> {
     let path = env::var("ZOEN_STATE_CLASSIFICATION")
         .unwrap_or_else(|_| "/etc/zoen/state-classification.yaml".to_owned());
@@ -42,6 +45,12 @@ pub fn load_classification() -> Result<StateClassification, Box<dyn Error + Send
     parse_classification(&text)
 }
 
+/// Parse and validate a state classification document.
+///
+/// # Errors
+///
+/// Returns an error when YAML is invalid, authority tables are empty, or a
+/// rebuildable table is also classified as unrebuildable authority.
 pub fn parse_classification(
     text: &str,
 ) -> Result<StateClassification, Box<dyn Error + Send + Sync>> {
@@ -50,11 +59,16 @@ pub fn parse_classification(
     Ok(classification)
 }
 
+#[must_use]
 pub fn require_reference_tables() -> bool {
     matches!(env::var("ZOEN_REQUIRE_REFERENCE_TABLES"), Ok(value) if value == "true")
 }
 
 impl StateClassification {
+    /// # Errors
+    ///
+    /// Returns an error when authority tables are empty or a rebuildable table
+    /// is also classified as unrebuildable authority.
     pub fn validate(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         if self.authority.postgres_tables.is_empty() {
             return Err("state classification has no authority postgres tables".into());
@@ -87,7 +101,8 @@ mod tests {
 
     #[test]
     fn embedded_classification_separates_authority_from_rebuildable_projections() {
-        let classification = parse_classification(EMBEDDED_CLASSIFICATION).unwrap();
+        let classification =
+            parse_classification(EMBEDDED_CLASSIFICATION).expect("embedded classification");
         assert!(
             classification
                 .authority
@@ -140,7 +155,10 @@ authority:
 rebuildable:
   postgresTables: [projection_watermarks]
 ";
-        let error = parse_classification(mutant).unwrap_err().to_string();
+        let error = match parse_classification(mutant) {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("expected overlapping authority/rebuildable tables"),
+        };
         assert!(error.contains("projection_watermarks"));
     }
 }

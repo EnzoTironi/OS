@@ -1,5 +1,4 @@
-use sqlx::Row;
-use sqlx::postgres::PgRow;
+use sqlx::{Row, postgres::PgRow};
 use zoen_core::{
     EntityId, ExactDecimal, ExactInteger, ExactValue, TimestampMicros, UnitId, ValidTime,
 };

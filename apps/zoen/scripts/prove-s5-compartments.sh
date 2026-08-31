@@ -272,7 +272,7 @@ sleep 1
 docker exec "$zoend_pg_name" psql -U postgres -d zoen -c 'SELECT 1' >/dev/null \
   || fail "zoend postgres select 1 failed"
 
-zoend_bin="${repo}/target/debug/zoend"
+zoend_bin="${repo}/target/debug/zoen"
 if [[ ! -x "$zoend_bin" ]]; then
   (
     cd "$repo"

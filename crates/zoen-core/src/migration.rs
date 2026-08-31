@@ -25,6 +25,7 @@ pub enum MigrationRuleKind {
 }
 
 impl MigrationRuleKind {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::PreserveMeaning => "preserve_meaning",
@@ -34,6 +35,7 @@ impl MigrationRuleKind {
         }
     }
 
+    #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "preserve_meaning" => Some(Self::PreserveMeaning),
@@ -141,6 +143,7 @@ pub enum MigrationStatus {
 }
 
 impl MigrationStatus {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::InProgress => "in_progress",

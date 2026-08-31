@@ -1,31 +1,52 @@
 [package]
 name = "zoend"
 version = "0.1.0"
+categories.workspace = true
+description = "Zoen ontology CLI and daemon"
 edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
 rust-version.workspace = true
+autobins = false
+
+[[bin]]
+name = "zoen"
+path = "src/main.rs"
+
+[[bin]]
+name = "zoen-effect-dispatcher"
+path = "src/bin/zoen-effect-dispatcher.rs"
+
+[[bin]]
+name = "zoen-http-connector"
+path = "src/bin/zoen-http-connector.rs"
+
+[[bin]]
+name = "zoen-projection"
+path = "src/bin/zoen-projection.rs"
 
 [dependencies]
 axum = "0.8.9"
 base64 = "0.23.1"
 buffa = { version = "0.8.1", features = ["json"] }
 buffa-types = { version = "0.8.1", features = ["json"] }
+clap = { version = "4.5.45", features = ["derive"] }
 connectrpc = { version = "0.8.1", features = ["axum", "server"] }
-hmac = "0.12.1"
+hmac = "0.13.0"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serde_yaml = "0.9.34"
 sha2 = "0.11.0"
-sha2-hmac = { package = "sha2", version = "0.10.9" }
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 zoen-adapters = { path = "../../crates/zoen-adapters" }
 zoen-core = { path = "../../crates/zoen-core" }
 zoen-engine = { path = "../../crates/zoen-engine" }
+zoen-proto = { path = "../../crates/zoen-proto" }
 zoen-query = { version = "0.1.0", path = "../../crates/zoen-query" }
-
-[build-dependencies]
-connectrpc-build = "0.8.0"
 
 [dev-dependencies]
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }

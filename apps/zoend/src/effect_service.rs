@@ -17,15 +17,17 @@ use zoen_engine::{
     EffectReconcileCommand,
 };
 
-use crate::proto::zoen::effect::v1::{
-    ClaimAttemptRequest, ClaimAttemptResponse, EffectAttempt, EffectAttemptClaim,
-    EffectAttemptInput, EffectAttemptOutcome, EffectAttemptReason, EffectEvidence,
-    EffectEvidenceInput, EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation,
-    EffectRequest, EffectService, EffectSnapshot, GetEffectRequest, GetEffectResponse,
-    ReconcileRequest, ReconcileResponse, RecordAttemptRequest, RecordAttemptResponse,
+use crate::{
+    proto::zoen::effect::v1::{
+        ClaimAttemptRequest, ClaimAttemptResponse, EffectAttempt, EffectAttemptClaim,
+        EffectAttemptInput, EffectAttemptOutcome, EffectAttemptReason, EffectEvidence,
+        EffectEvidenceInput, EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation,
+        EffectRequest, EffectService, EffectSnapshot, GetEffectRequest, GetEffectResponse,
+        ReconcileRequest, ReconcileResponse, RecordAttemptRequest, RecordAttemptResponse,
+    },
+    session::SessionExchange,
+    world_service::{invalid, parse_timestamp, to_timestamp},
 };
-use crate::session::SessionExchange;
-use crate::world_service::{invalid, parse_timestamp, to_timestamp};
 
 pub struct EffectServiceImpl {
     engine: EffectEngine<PostgresAuthorityStore>,
@@ -329,7 +331,7 @@ fn to_snapshot(snapshot: CoreEffectSnapshot) -> EffectSnapshot {
         reconciliations: snapshot
             .reconciliations
             .into_iter()
-            .map(to_reconciliation)
+            .map(|reconciliation| to_reconciliation(&reconciliation))
             .collect(),
         request: Some(to_request(snapshot.request)).into(),
         ..Default::default()
@@ -339,7 +341,7 @@ fn to_snapshot(snapshot: CoreEffectSnapshot) -> EffectSnapshot {
 pub(crate) fn to_request(request: CoreEffectRequest) -> EffectRequest {
     EffectRequest {
         commit_sequence: request.commit_sequence.get(),
-        effect_request_id: request.effect_request_id.as_str().to_owned(),
+        effect_request_id: request.identity.effect_request_id.as_str().to_owned(),
         idempotency_key: request.idempotency_key.as_str().to_owned(),
         intent_digest: request.intent_digest.as_str().to_owned(),
         operation_id: request.operation_id.as_str().to_owned(),
@@ -452,7 +454,7 @@ pub(crate) fn to_evidence(evidence: CoreEffectEvidence) -> EffectEvidence {
     }
 }
 
-pub(crate) fn to_reconciliation(reconciliation: CoreEffectReconciliation) -> EffectReconciliation {
+pub(crate) fn to_reconciliation(reconciliation: &CoreEffectReconciliation) -> EffectReconciliation {
     EffectReconciliation {
         commit_sequence: reconciliation.commit_sequence.get(),
         evidence_id: reconciliation.evidence_id.as_str().to_owned(),
@@ -485,7 +487,7 @@ fn map_effect_error(error: EffectError) -> ConnectError {
         EffectError::ForbiddenWorkload => {
             ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
         }
-        EffectError::Store(error) => crate::service::map_store_error(error),
+        EffectError::Store(error) => crate::service::map_store_error(&error),
         EffectError::UnsafeRetry(_) => {
             ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
         }

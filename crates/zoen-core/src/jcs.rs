@@ -5,9 +5,11 @@
 //! hash; SHA-256 of the returned UTF-8 bytes is computed by callers so
 //! `zoen-core` stays dependency-free.
 
-use std::cmp::Ordering;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    cmp::Ordering,
+    error::Error,
+    fmt::{Display, Formatter, Write as _},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JcsError {
@@ -51,11 +53,20 @@ enum JsonValue {
 }
 
 /// Canonicalize UTF-8 JSON bytes per RFC 8785 as implemented by Zoen.
+///
+/// # Errors
+///
+/// Returns [`JcsError`] when the input is not a single canonicalizable JSON value.
 pub fn canonicalize_json(input: &str) -> Result<String, JcsError> {
     canonicalize_json_bytes(input.as_bytes())
 }
 
 /// Canonicalize JSON bytes. Rejects invalid UTF-8 before parsing.
+///
+/// # Errors
+///
+/// Returns [`JcsError`] when the input is not valid UTF-8 or is not a single
+/// canonicalizable JSON value.
 pub fn canonicalize_json_bytes(input: &[u8]) -> Result<String, JcsError> {
     let text = std::str::from_utf8(input).map_err(|_| JcsError::InvalidUtf8)?;
     if text.trim().is_empty() {
@@ -76,6 +87,7 @@ pub fn canonicalize_json_bytes(input: &[u8]) -> Result<String, JcsError> {
 }
 
 /// Lowercase hex SHA-256 encoding law. Digest computation lives in engine/TS.
+#[must_use]
 pub fn is_canonical_digest_hex(value: &str) -> bool {
     value.len() == 64
         && value
@@ -239,7 +251,7 @@ impl Parser<'_> {
             if !(0xdc00..=0xdfff).contains(&low) {
                 return Err(JcsError::InvalidEscape);
             }
-            let code = 0x10000 + (((unit as u32) - 0xd800) << 10) + ((low as u32) - 0xdc00);
+            let code = 0x10000 + ((u32::from(unit) - 0xd800) << 10) + (u32::from(low) - 0xdc00);
             return char::from_u32(code).ok_or(JcsError::InvalidEscape);
         }
         if (0xdc00..=0xdfff).contains(&unit) {
@@ -358,9 +370,9 @@ fn write_string(text: &str, out: &mut String) {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            ch if (ch as u32) < 0x20 => {
-                let code = ch as u32;
-                out.push_str(&format!("\\u{code:04x}"));
+            ch if u32::from(ch) < 0x20 => {
+                let code = u32::from(ch);
+                let _ = write!(out, "\\u{code:04x}");
             }
             ch => out.push(ch),
         }
@@ -388,9 +400,10 @@ fn es6_number(value: f64) -> Result<String, JcsError> {
             body.push('0');
         }
     } else if (1..=21).contains(&n) {
-        body.push_str(&digits[..n as usize]);
+        let n_usize = usize::try_from(n).map_err(|_| JcsError::InvalidNumber)?;
+        body.push_str(&digits[..n_usize]);
         body.push('.');
-        body.push_str(&digits[n as usize..]);
+        body.push_str(&digits[n_usize..]);
     } else if (-6..1).contains(&n) {
         body.push_str("0.");
         for _ in 0..(-n) {
@@ -398,7 +411,7 @@ fn es6_number(value: f64) -> Result<String, JcsError> {
         }
         body.push_str(&digits);
     } else {
-        body.push(digits.as_bytes()[0] as char);
+        body.push(char::from(digits.as_bytes()[0]));
         if digits.len() > 1 {
             body.push('.');
             body.push_str(&digits[1..]);
@@ -437,8 +450,7 @@ fn parse_rust_scientific(sci: &str) -> Result<(String, i32), JcsError> {
 #[cfg(test)]
 mod tests {
     use super::{JcsError, canonicalize_json, canonicalize_json_bytes, is_canonical_digest_hex};
-    use std::fs;
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     fn testdata() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/jcs")

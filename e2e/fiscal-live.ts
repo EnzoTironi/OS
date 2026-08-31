@@ -164,8 +164,8 @@ export async function runFiscalLive(provider: LiveProvider): Promise<void> {
     );
     await registerWorker();
 
-    const definitionA = definitionClient(adminAToken);
-    const definitionB = definitionClient(adminBToken);
+    const definitionA = definitionClient(adminAToken, tenantA);
+    const definitionB = definitionClient(adminBToken, tenantB);
     await Promise.all(
       [commercial, fiscal].flatMap((fixture) => [
         publishDefinition(definitionA, tenantA, fixture),
@@ -179,7 +179,7 @@ export async function runFiscalLive(provider: LiveProvider): Promise<void> {
       ]),
     );
 
-    const worldClientA = worldClient(fiscalAToken);
+    const worldClientA = worldClient(fiscalAToken, tenantA);
     const liveValidAt = new Date();
     for (const [index, relation] of context.relations.entries()) {
       await recordFiscalEvidence(worldClientA, fiscal, {
@@ -192,7 +192,7 @@ export async function runFiscalLive(provider: LiveProvider): Promise<void> {
         value: relation.value,
       });
     }
-    const action = actionClient(fiscalAToken);
+    const action = actionClient(fiscalAToken, tenantA);
     const suffix = `${provider}-live-${Date.now()}`;
     const proposal = proposalRequest({
       actionId: context.actionId,

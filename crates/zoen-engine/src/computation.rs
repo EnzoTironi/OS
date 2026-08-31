@@ -1,7 +1,9 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::future::Future;
-use std::pin::Pin;
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+    future::Future,
+    pin::Pin,
+};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -39,6 +41,7 @@ pub enum ComputationCapability {
 }
 
 impl ComputationCapability {
+    #[must_use]
     pub fn id(&self) -> &CapabilityId {
         match self {
             Self::Action { id, .. } | Self::Explain { id } | Self::Query { id, .. } => id,
@@ -54,6 +57,12 @@ pub struct CapabilityManifest {
 }
 
 impl CapabilityManifest {
+    /// Build a capability manifest with a stable digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComputationContractError::DuplicateCapability`] when two capabilities share an
+    /// id, or [`ComputationContractError::Encoding`] when the canonical manifest cannot be hashed.
     pub fn new(
         interface: ComponentInterface,
         mut capabilities: Vec<ComputationCapability>,
@@ -73,10 +82,12 @@ impl CapabilityManifest {
         })
     }
 
+    #[must_use]
     pub fn capabilities(&self) -> &[ComputationCapability] {
         &self.capabilities
     }
 
+    #[must_use]
     pub fn capability_ids(&self) -> Vec<CapabilityId> {
         self.capabilities
             .iter()
@@ -84,14 +95,21 @@ impl CapabilityManifest {
             .collect()
     }
 
+    #[must_use]
     pub fn digest(&self) -> &CapabilityManifestDigest {
         &self.digest
     }
 
+    #[must_use]
     pub fn interface(&self) -> &ComponentInterface {
         &self.interface
     }
 
+    /// RFC 8785 JCS of the capability manifest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComputationContractError::Encoding`] when the manifest cannot be serialized.
     pub fn canonical_json(&self) -> Result<String, ComputationContractError> {
         canonical_manifest(&self.interface, &self.capabilities)
     }
@@ -109,6 +127,11 @@ pub struct ComputationLimits {
 }
 
 impl ComputationLimits {
+    /// Construct resource limits. Every bound must be nonzero.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComputationContractError::ZeroLimit`] when any bound is zero.
     pub fn new(
         fuel: u64,
         memory_bytes: usize,
@@ -139,30 +162,37 @@ impl ComputationLimits {
         })
     }
 
+    #[must_use]
     pub fn deadline_millis(self) -> u64 {
         self.deadline_millis
     }
 
+    #[must_use]
     pub fn fuel(self) -> u64 {
         self.fuel
     }
 
+    #[must_use]
     pub fn instances(self) -> usize {
         self.instances
     }
 
+    #[must_use]
     pub fn memories(self) -> usize {
         self.memories
     }
 
+    #[must_use]
     pub fn memory_bytes(self) -> usize {
         self.memory_bytes
     }
 
+    #[must_use]
     pub fn table_elements(self) -> usize {
         self.table_elements
     }
 
+    #[must_use]
     pub fn tables(self) -> usize {
         self.tables
     }
@@ -206,6 +236,7 @@ pub struct ComputationRequest {
 }
 
 impl ComputationRequest {
+    #[must_use]
     pub fn evidence(&self) -> ComponentExecutionEvidence {
         ComponentExecutionEvidence::new(
             self.manifest.capability_ids(),
@@ -216,10 +247,12 @@ impl ComputationRequest {
         )
     }
 
+    #[must_use]
     pub fn input_digest(&self) -> ExecutionRequestDigest {
         digest_bytes(&self.input)
     }
 
+    #[must_use]
     pub fn request_digest(&self) -> ExecutionRequestDigest {
         let mut hasher = Sha256::new();
         hash_field(&mut hasher, self.component_digest.as_str());

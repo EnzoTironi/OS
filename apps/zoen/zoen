@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-root="$(cd "$(dirname "$0")/../.." && pwd)"
-exec npx --yes tsx "$root/apps/zoen/src/main.ts" "$@"

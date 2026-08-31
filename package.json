@@ -6,15 +6,18 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
     "buf:breaking": "buf breaking --against .buf-baseline",
     "buf:generate": "buf generate",
     "buf:lint": "buf lint",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint:ts": "ultracite check",
+    "lint:ts:fix": "ultracite fix"
   },
   "devDependencies": {
     "@babel/parser": "7.29.8",
     "@babel/types": "7.29.8",
+    "@biomejs/biome": "^2.5.11",
     "@bufbuild/buf": "1.72.0",
     "@bufbuild/protobuf": "2.14.0",
     "@bufbuild/protoc-gen-es": "2.14.0",
@@ -28,6 +31,7 @@
     "canonicalize": "4.0.0",
     "pg": "8.23.0",
     "typescript": "7.0.2",
+    "ultracite": "^7.10.7",
     "zod": "4.4.3"
   }
 }

@@ -1,12 +1,10 @@
-use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     AttributionEventKind, CatalogEntry, CreatorAttributionDigestRow, CreatorAttributionSummary,
     DefinitionDigest, DefinitionId, ObjectSource, ObjectStoreConflictReason, ObjectStorePutResult,
@@ -46,10 +44,14 @@ pub struct RecordAttributionInput<'a> {
 }
 
 impl PostgresPackRegistryStore {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn public_registry_enabled(&self) -> Result<bool, PackError> {
         let row = sqlx::query(
             "SELECT public_registry_enabled FROM pack_registry_config WHERE config_id = 'default'",
@@ -61,6 +63,9 @@ impl PostgresPackRegistryStore {
             .map_err(store)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn set_public_registry_enabled(&self, enabled: bool) -> Result<(), PackError> {
         sqlx::query(
             "UPDATE pack_registry_config
@@ -74,6 +79,9 @@ impl PostgresPackRegistryStore {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn register_publisher_key(&self, key: &PublisherKey) -> Result<(), PackError> {
         if key.algorithm != "ed25519" {
             return Err(PackError::InvalidFormat(key.algorithm.clone()));
@@ -100,40 +108,15 @@ impl PostgresPackRegistryStore {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn put_object(
         &self,
         input: PutObjectInput,
     ) -> Result<ObjectStorePutResult, PackError> {
         let (digest, mut manifest) = admit_pack(input.manifest_jcs.as_bytes(), None)?;
-        let mut artifacts = BTreeMap::new();
-        for (definition_id, definition_digest, canonical_json) in &input.ontology_artifacts {
-            artifacts.insert(
-                definition_id.as_str().to_owned(),
-                (definition_digest.clone(), canonical_json.clone()),
-            );
-        }
-        for dependency in &mut manifest.ontology_dependencies {
-            let Some((artifact_digest, canonical_json)) =
-                artifacts.remove(dependency.definition_id.as_str())
-            else {
-                return Err(PackError::MissingDependency(
-                    dependency.definition_id.as_str().to_owned(),
-                ));
-            };
-            if artifact_digest.as_str() != dependency.digest.as_str() {
-                return Err(PackError::DigestMismatch);
-            }
-            let actual = hex_sha256(canonical_json.as_bytes());
-            if actual != dependency.digest.as_str() {
-                return Err(PackError::DigestMismatch);
-            }
-            dependency.canonical_json = canonical_json;
-        }
-        if !artifacts.is_empty() {
-            return Err(PackError::InvalidFormat(
-                "unexpected ontology artifacts".to_owned(),
-            ));
-        }
+        crate::pack_store::bind_pack_ontology(&mut manifest, &input.ontology_artifacts)?;
 
         let publisher_id = manifest.publisher.publisher_id.clone();
         self.verify_signature(&publisher_id, &digest, &input.signature)
@@ -183,86 +166,16 @@ impl PostgresPackRegistryStore {
             }
         }
 
-        let signature_json = serde_json::json!({
-            "algorithm": input.signature.algorithm,
-            "publicKeyId": input.signature.public_key_id.as_str(),
-            "signatureB64": input.signature.signature_b64,
-        });
-        let lock_jcs = serde_jcs::to_string(&serde_json::json!({
-            "artifacts": manifest.ontology_dependencies.iter().map(|dependency| {
-                serde_json::json!({
-                    "definitionId": dependency.definition_id.as_str(),
-                    "digest": dependency.digest.as_str(),
-                })
-            }).collect::<Vec<_>>(),
-        }))
-        .map_err(|error| PackError::Store(error.to_string()))?;
-
-        sqlx::query(
-            "INSERT INTO pack_registry_objects (
-                pack_digest, format_version, pack_id, pack_version, publisher_id,
-                manifest_jcs, signature_json, lock_jcs, stored_by
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-        )
-        .bind(digest.as_str())
-        .bind(PACK_FORMAT_V1)
-        .bind(manifest.pack_id.as_str())
-        .bind(manifest.version.as_str())
-        .bind(publisher_id.as_str())
-        .bind(&input.manifest_jcs)
-        .bind(signature_json)
-        .bind(&lock_jcs)
-        .bind(&input.stored_by)
-        .execute(&mut *transaction)
-        .await
-        .map_err(store)?;
-
-        for dependency in &manifest.ontology_dependencies {
-            sqlx::query(
-                "INSERT INTO pack_registry_object_ontology (
-                    pack_digest, definition_id, definition_digest, canonical_json
-                 ) VALUES ($1, $2, $3, $4)",
-            )
-            .bind(digest.as_str())
-            .bind(dependency.definition_id.as_str())
-            .bind(dependency.digest.as_str())
-            .bind(&dependency.canonical_json)
-            .execute(&mut *transaction)
-            .await
-            .map_err(store)?;
-        }
-
-        let (visibility_kind, allowlist) = visibility_columns(&input.visibility);
-        sqlx::query(
-            "INSERT INTO pack_catalog_entries (
-                pack_digest, pack_id, pack_version, publisher_id, outcome_label,
-                categories, visibility_kind, tenant_allowlist
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (pack_digest) DO UPDATE SET
-                outcome_label = EXCLUDED.outcome_label,
-                categories = EXCLUDED.categories,
-                visibility_kind = EXCLUDED.visibility_kind,
-                tenant_allowlist = EXCLUDED.tenant_allowlist,
-                indexed_at = clock_timestamp()",
-        )
-        .bind(digest.as_str())
-        .bind(manifest.pack_id.as_str())
-        .bind(manifest.version.as_str())
-        .bind(publisher_id.as_str())
-        .bind(&input.outcome_label)
-        .bind(serde_json::json!(input.categories))
-        .bind(visibility_kind)
-        .bind(serde_json::json!(allowlist))
-        .execute(&mut *transaction)
-        .await
-        .map_err(store)?;
-
+        insert_registry_object(&mut transaction, &digest, &publisher_id, &manifest, &input).await?;
         transaction.commit().await.map_err(store)?;
         Ok(ObjectStorePutResult::Created {
             pack_digest: digest,
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn load_object(&self, pack_digest: &PackDigest) -> Result<PackObject, PackError> {
         let row = sqlx::query(
             "SELECT format_version, manifest_jcs, signature_json, lock_jcs,
@@ -318,6 +231,9 @@ impl PostgresPackRegistryStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn open(
         &self,
         pack_digest: &PackDigest,
@@ -331,7 +247,7 @@ impl PostgresPackRegistryStore {
                 Err(error) => return Err(error),
             },
             ObjectSource::Inline { object } => object.clone(),
-            _ => {
+            ObjectSource::File { .. } => {
                 return Err(PackError::InvalidFormat(
                     "filesystem pack sources are not supported".to_owned(),
                 ));
@@ -356,6 +272,9 @@ impl PostgresPackRegistryStore {
         open_object(pack_digest, object, source, self).await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn mint_share(
         &self,
         pack_digest: &PackDigest,
@@ -378,6 +297,9 @@ impl PostgresPackRegistryStore {
         Ok(token)
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn resolve_share(&self, token: &ShareToken) -> Result<ShareResolve, PackError> {
         let row = sqlx::query(
             "SELECT s.pack_digest, s.publisher_id, s.referral_id, s.expires_at,
@@ -447,6 +369,9 @@ impl PostgresPackRegistryStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn search_public(
         &self,
         outcome_query: Option<&str>,
@@ -485,9 +410,12 @@ impl PostgresPackRegistryStore {
             .await
             .map_err(store)?
         };
-        rows.into_iter().map(row_to_catalog).collect()
+        rows.iter().map(row_to_catalog).collect()
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn fetch_catalog_entry(
         &self,
         pack_digest: &PackDigest,
@@ -508,14 +436,13 @@ impl PostgresPackRegistryStore {
         let Some(row) = row else {
             return Ok(None);
         };
-        let entry = row_to_catalog(row)?;
+        let entry = row_to_catalog(&row)?;
         match &entry.visibility {
             PackVisibility::Public => Ok(Some(entry)),
             PackVisibility::Local => Ok(None),
             PackVisibility::Private { tenant_allowlist } => {
                 if viewer_tenant_id
-                    .map(|tenant| tenant_allowlist.iter().any(|allowed| allowed == tenant))
-                    .unwrap_or(false)
+                    .is_some_and(|tenant| tenant_allowlist.iter().any(|allowed| allowed == tenant))
                 {
                     Ok(Some(entry))
                 } else {
@@ -525,6 +452,9 @@ impl PostgresPackRegistryStore {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn record_attribution(
         &self,
         input: RecordAttributionInput<'_>,
@@ -581,6 +511,9 @@ impl PostgresPackRegistryStore {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn creator_attribution(
         &self,
         publisher_id: &PublisherId,
@@ -651,6 +584,9 @@ impl PostgresPackRegistryStore {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn reindex(&self) -> Result<(i64, i64), PackError> {
         let objects_scanned =
             sqlx::query_scalar::<_, i64>("SELECT count(*)::bigint FROM pack_registry_objects")
@@ -674,7 +610,12 @@ impl PostgresPackRegistryStore {
         .execute(&self.pool)
         .await
         .map_err(store)?;
-        Ok((objects_scanned, result.rows_affected() as i64))
+        Ok((
+            objects_scanned,
+            i64::try_from(result.rows_affected()).map_err(|_| {
+                PackError::Store("catalog reindex row count exceeds i64".to_owned())
+            })?,
+        ))
     }
 
     async fn verify_signature(
@@ -732,6 +673,9 @@ impl PostgresPackRegistryStore {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn load_publisher_key(
         &self,
         public_key_id: &PublicKeyId,
@@ -804,7 +748,9 @@ async fn open_object(
             .iter_mut()
             .find(|item| item.definition_id.as_str() == artifact.definition_id.as_str())
         {
-            dependency.canonical_json = artifact.canonical_json.clone();
+            dependency
+                .canonical_json
+                .clone_from(&artifact.canonical_json);
         }
     }
     Ok(OpenResult::Opened {
@@ -837,6 +783,9 @@ fn verify_ed25519_signature(
 }
 
 mod hex {
+    /// # Errors
+    ///
+    /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub fn decode_digest(value: &str) -> Result<[u8; 32], ()> {
         if value.len() != 64 {
             return Err(());
@@ -904,6 +853,86 @@ fn parse_signature(value: &Value) -> Result<SignatureEvidence, PackError> {
     })
 }
 
+async fn insert_registry_object(
+    transaction: &mut Transaction<'_, Postgres>,
+    digest: &PackDigest,
+    publisher_id: &PublisherId,
+    manifest: &zoen_core::PackManifest,
+    input: &PutObjectInput,
+) -> Result<(), PackError> {
+    let signature_json = serde_json::json!({
+        "algorithm": input.signature.algorithm,
+        "publicKeyId": input.signature.public_key_id.as_str(),
+        "signatureB64": input.signature.signature_b64,
+    });
+    let lock_jcs = serde_jcs::to_string(&serde_json::json!({
+        "artifacts": manifest.ontology_dependencies.iter().map(|dependency| {
+            serde_json::json!({
+                "definitionId": dependency.definition_id.as_str(),
+                "digest": dependency.digest.as_str(),
+            })
+        }).collect::<Vec<_>>(),
+    }))
+    .map_err(|error| PackError::Store(error.to_string()))?;
+    sqlx::query(
+        "INSERT INTO pack_registry_objects (
+            pack_digest, format_version, pack_id, pack_version, publisher_id,
+            manifest_jcs, signature_json, lock_jcs, stored_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    )
+    .bind(digest.as_str())
+    .bind(PACK_FORMAT_V1)
+    .bind(manifest.pack_id.as_str())
+    .bind(manifest.version.as_str())
+    .bind(publisher_id.as_str())
+    .bind(&input.manifest_jcs)
+    .bind(signature_json)
+    .bind(&lock_jcs)
+    .bind(&input.stored_by)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store)?;
+    for dependency in &manifest.ontology_dependencies {
+        sqlx::query(
+            "INSERT INTO pack_registry_object_ontology (
+                pack_digest, definition_id, definition_digest, canonical_json
+             ) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(digest.as_str())
+        .bind(dependency.definition_id.as_str())
+        .bind(dependency.digest.as_str())
+        .bind(&dependency.canonical_json)
+        .execute(&mut **transaction)
+        .await
+        .map_err(store)?;
+    }
+    let (visibility_kind, allowlist) = visibility_columns(&input.visibility);
+    sqlx::query(
+        "INSERT INTO pack_catalog_entries (
+            pack_digest, pack_id, pack_version, publisher_id, outcome_label,
+            categories, visibility_kind, tenant_allowlist
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (pack_digest) DO UPDATE SET
+            outcome_label = EXCLUDED.outcome_label,
+            categories = EXCLUDED.categories,
+            visibility_kind = EXCLUDED.visibility_kind,
+            tenant_allowlist = EXCLUDED.tenant_allowlist,
+            indexed_at = clock_timestamp()",
+    )
+    .bind(digest.as_str())
+    .bind(manifest.pack_id.as_str())
+    .bind(manifest.version.as_str())
+    .bind(publisher_id.as_str())
+    .bind(&input.outcome_label)
+    .bind(serde_json::json!(input.categories))
+    .bind(visibility_kind)
+    .bind(serde_json::json!(allowlist))
+    .execute(&mut **transaction)
+    .await
+    .map_err(store)?;
+    Ok(())
+}
+
 fn visibility_columns(visibility: &PackVisibility) -> (&'static str, Vec<String>) {
     match visibility {
         PackVisibility::Public => ("public", Vec::new()),
@@ -912,7 +941,7 @@ fn visibility_columns(visibility: &PackVisibility) -> (&'static str, Vec<String>
     }
 }
 
-fn row_to_catalog(row: sqlx::postgres::PgRow) -> Result<CatalogEntry, PackError> {
+fn row_to_catalog(row: &sqlx::postgres::PgRow) -> Result<CatalogEntry, PackError> {
     let visibility_kind: String = row.try_get("visibility_kind").map_err(store)?;
     let allowlist: Value = row.try_get("tenant_allowlist").map_err(store)?;
     let tenant_allowlist = allowlist
@@ -963,8 +992,7 @@ fn row_to_catalog(row: sqlx::postgres::PgRow) -> Result<CatalogEntry, PackError>
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    zoen_core::encode_hex(Sha256::digest(bytes).as_ref())
 }
 
 fn hex_id() -> String {
@@ -975,6 +1003,6 @@ fn hex_id() -> String {
     format!("{nanos:x}")
 }
 
-fn store(error: impl ToString) -> PackError {
+fn store(error: impl std::fmt::Display) -> PackError {
     PackError::Store(error.to_string())
 }

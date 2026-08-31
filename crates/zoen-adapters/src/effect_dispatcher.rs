@@ -1,5 +1,7 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{EffectRequestId, TenantId};
@@ -84,6 +86,12 @@ where
         Self { pool, scheduler }
     }
 
+    /// Claim and schedule up to `limit` pending effect requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when `PostgreSQL` is unavailable or a stored row is
+    /// corrupt.
     pub async fn dispatch_once(
         &self,
         tenant_id: &TenantId,
@@ -194,32 +202,7 @@ where
         .fetch_one(&mut *transaction)
         .await
         .map_err(store_unavailable)?;
-        let (outcome, outcome_name, invocation_id, error_message) = match result {
-            Ok(scheduled) => (
-                EffectDispatchOutcome::Accepted,
-                "accepted",
-                Some(scheduled.invocation_id),
-                None,
-            ),
-            Err(DispatchScheduleError::InvalidResponse(message)) => (
-                EffectDispatchOutcome::InvalidResponse,
-                "invalid_response",
-                None,
-                Some(message),
-            ),
-            Err(DispatchScheduleError::Rejected(message)) => (
-                EffectDispatchOutcome::Rejected,
-                "rejected",
-                None,
-                Some(message),
-            ),
-            Err(DispatchScheduleError::Unavailable(message)) => (
-                EffectDispatchOutcome::RestateUnavailable,
-                "restate_unavailable",
-                None,
-                Some(message),
-            ),
-        };
+        let (outcome, outcome_name, invocation_id, error_message) = dispatch_columns(result);
         sqlx::query(
             "INSERT INTO effect_dispatch_attempts (
                 tenant_id, effect_request_id, attempt_number, outcome,
@@ -277,6 +260,42 @@ where
             outcome,
             restate_invocation_id: invocation_id,
         })
+    }
+}
+
+fn dispatch_columns(
+    result: Result<DispatchAcceptance, DispatchScheduleError>,
+) -> (
+    EffectDispatchOutcome,
+    &'static str,
+    Option<String>,
+    Option<String>,
+) {
+    match result {
+        Ok(scheduled) => (
+            EffectDispatchOutcome::Accepted,
+            "accepted",
+            Some(scheduled.invocation_id),
+            None,
+        ),
+        Err(DispatchScheduleError::InvalidResponse(message)) => (
+            EffectDispatchOutcome::InvalidResponse,
+            "invalid_response",
+            None,
+            Some(message),
+        ),
+        Err(DispatchScheduleError::Rejected(message)) => (
+            EffectDispatchOutcome::Rejected,
+            "rejected",
+            None,
+            Some(message),
+        ),
+        Err(DispatchScheduleError::Unavailable(message)) => (
+            EffectDispatchOutcome::RestateUnavailable,
+            "restate_unavailable",
+            None,
+            Some(message),
+        ),
     }
 }
 

@@ -10,8 +10,8 @@ COPY crates crates
 COPY apps/zoend apps/zoend
 COPY proto proto
 COPY wit wit
-RUN cargo build --locked --release --package zoend --bin zoend --bin zoen-effect-dispatcher \
-    && strip --strip-debug target/release/zoend target/release/zoen-effect-dispatcher
+RUN cargo build --locked --release --package zoend --bin zoen --bin zoen-effect-dispatcher \
+    && strip --strip-debug target/release/zoen target/release/zoen-effect-dispatcher
 
 FROM node:22.18.0-bookworm-slim AS auth
 WORKDIR /auth
@@ -44,7 +44,7 @@ RUN apt-get update \
       ca-certificates curl supervisor python3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=zoend /src/target/release/zoend /usr/local/bin/zoend
+COPY --from=zoend /src/target/release/zoen /usr/local/bin/zoen
 COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
 COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
 COPY --from=personal-lake /app /app

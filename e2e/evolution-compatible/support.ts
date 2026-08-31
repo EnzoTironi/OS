@@ -106,7 +106,7 @@ const compilerPath = path.join(
   "src",
   "cli.js",
 );
-const serverPath = path.join(repositoryRoot, "target", "debug", "zoend");
+const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
 const workerPath = path.join(
   repositoryRoot,
   "target",
@@ -220,14 +220,14 @@ export async function writePolicyManifest(
 
 export function definitionClient(
   token: string,
-  tenantId: string = tenantA,
+  tenantId: string,
 ): DefinitionClient {
   return createClient(DefinitionService, transport(token, tenantId));
 }
 
 export function actionClient(
   token: string,
-  tenantId: string = tenantA,
+  tenantId: string,
 ): ActionClient {
   return bindActionPreviewHash(
     createClient(ActionService, transport(token, tenantId)),
@@ -236,14 +236,14 @@ export function actionClient(
 
 export function worldClient(
   token: string,
-  tenantId: string = tenantA,
+  tenantId: string,
 ): WorldClient {
   return createClient(WorldService, transport(token, tenantId));
 }
 
 export function historyClient(
   token: string,
-  tenantId: string = tenantA,
+  tenantId: string,
 ): HistoryClient {
   return createClient(HistoryService, transport(token, tenantId));
 }

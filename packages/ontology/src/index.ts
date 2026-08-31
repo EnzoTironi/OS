@@ -1,3 +1,22 @@
+import {
+  ACTION_PREVIEW_LOCALE as actionPreviewLocale,
+  ACTION_PREVIEW_SCHEMA as actionPreviewSchema,
+  toWireDocument as actionPreviewToWire,
+  buildActionPreviewDocument as createActionPreviewDocument,
+  actionPreviewHash as hashActionPreview,
+  canonicalPreviewText as previewText,
+} from "./action-preview.js";
+import {
+  compileDefinition as compileOntologyDefinition,
+  canonicalDefinitionFromJson as definitionFromCanonicalJson,
+} from "./compiler.js";
+import {
+  canonicalizeJsonBytes as canonicalizeJsonFromBytes,
+  canonicalizeJson as canonicalizeJsonText,
+  isCanonicalDigestHex as digestIsCanonicalHex,
+  sha256Hex as hexSha256,
+  JcsError as JsonCanonicalError,
+} from "./jcs.js";
 import type {
   ActionDefinition,
   ComputationDefinition,
@@ -6,30 +25,11 @@ import type {
   TypeDefinition,
 } from "./model.js";
 
-export {
-  canonicalDefinitionFromJson,
-  compileDefinition,
-} from "./compiler.js";
-export {
-  ACTION_PREVIEW_LOCALE,
-  ACTION_PREVIEW_SCHEMA,
-  actionPreviewHash,
-  buildActionPreviewDocument,
-  canonicalPreviewText,
-  toWireDocument,
-} from "./action-preview.js";
 export type {
   ActionPreviewDocument,
   ActionPreviewInput,
   ActionPreviewValue,
 } from "./action-preview.js";
-export {
-  JcsError,
-  canonicalizeJson,
-  canonicalizeJsonBytes,
-  isCanonicalDigestHex,
-  sha256Hex,
-} from "./jcs.js";
 export type {
   ActionDefinition,
   ActionEffect,
@@ -47,26 +47,39 @@ export type {
   ValueType,
 } from "./model.js";
 
-export function defineAction(
-  definition: ActionDefinition,
-): ActionDefinition {
+export const ACTION_PREVIEW_LOCALE = actionPreviewLocale;
+export const ACTION_PREVIEW_SCHEMA = actionPreviewSchema;
+export const actionPreviewHash = hashActionPreview;
+export const buildActionPreviewDocument = createActionPreviewDocument;
+export const canonicalDefinitionFromJson = definitionFromCanonicalJson;
+export const canonicalizeJson = canonicalizeJsonText;
+export const canonicalizeJsonBytes = canonicalizeJsonFromBytes;
+export const canonicalPreviewText = previewText;
+export const compileDefinition = compileOntologyDefinition;
+export const isCanonicalDigestHex = digestIsCanonicalHex;
+export const JcsError = JsonCanonicalError;
+export type JcsError = InstanceType<typeof JsonCanonicalError>;
+export const sha256Hex = hexSha256;
+export const toWireDocument = actionPreviewToWire;
+
+export function defineAction(definition: ActionDefinition): ActionDefinition {
   return definition;
 }
 
 export function defineBundle(
-  definition: RawDefinitionBundle,
+  definition: RawDefinitionBundle
 ): RawDefinitionBundle {
   return definition;
 }
 
 export function defineComputation(
-  definition: ComputationDefinition,
+  definition: ComputationDefinition
 ): ComputationDefinition {
   return definition;
 }
 
 export function defineRelation(
-  definition: RelationDefinition,
+  definition: RelationDefinition
 ): RelationDefinition {
   return definition;
 }

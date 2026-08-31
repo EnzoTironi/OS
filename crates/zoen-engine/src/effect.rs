@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
@@ -10,8 +12,10 @@ use zoen_core::{
     ProviderOperationId, SourceId, TimestampMicros, WorkloadId,
 };
 
-use crate::human::{is_human_task_payload, parse_human_task_contract};
-use crate::{AuthorityStore, StoreError};
+use crate::{
+    AuthorityStore, StoreError,
+    human::{is_human_task_payload, parse_human_task_contract},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectAttemptCommand {
@@ -153,6 +157,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn with_allowed_executor_workloads(
         mut self,
         allowed_executor_workloads: BTreeSet<WorkloadId>,
@@ -161,6 +166,11 @@ where
         self
     }
 
+    /// Load the durable effect snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EffectError::Store`] when the authority store cannot load the effect.
     pub async fn get(
         &self,
         context: &ExecutionContext,
@@ -172,6 +182,12 @@ where
             .map_err(EffectError::Store)
     }
 
+    /// Claim an attempt identity for a worker or human executor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EffectError`] when evidence is invalid, the workload is forbidden, retry is
+    /// unsafe, attempt identity collides, or the store fails.
     pub async fn claim_attempt(
         &self,
         context: &ExecutionContext,
@@ -236,6 +252,12 @@ where
         })
     }
 
+    /// Record a claimed attempt outcome.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EffectError`] when the workload is forbidden, the attempt was not claimed,
+    /// identity collides, or the store fails.
     pub async fn record_attempt(
         &self,
         context: &ExecutionContext,
@@ -292,6 +314,12 @@ where
             .map_err(EffectError::Store)
     }
 
+    /// Record independent reconciliation evidence for an effect.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EffectError`] when the caller is not the reconciler, evidence is invalid,
+    /// identity collides, or the store fails.
     pub async fn reconcile(
         &self,
         context: &ExecutionContext,
@@ -408,6 +436,7 @@ fn now_micros() -> i64 {
         .unwrap_or(0)
 }
 
+#[must_use]
 pub fn effect_state_after_attempt(
     current: EffectKnowledgeState,
     result: &EffectAttemptResult,
@@ -421,20 +450,26 @@ pub fn effect_state_after_attempt(
     };
     match (current, observed) {
         (EffectKnowledgeState::Contradicted, _) => EffectKnowledgeState::Contradicted,
-        (EffectKnowledgeState::Confirmed, EffectKnowledgeState::ConfirmedNoEffect)
-        | (EffectKnowledgeState::Confirmed, EffectKnowledgeState::DefinitelyNotSent)
+        (
+            EffectKnowledgeState::Confirmed,
+            EffectKnowledgeState::ConfirmedNoEffect | EffectKnowledgeState::DefinitelyNotSent,
+        )
         | (EffectKnowledgeState::ConfirmedNoEffect, EffectKnowledgeState::Confirmed) => {
             EffectKnowledgeState::Contradicted
         }
         (EffectKnowledgeState::Confirmed, _)
-        | (EffectKnowledgeState::ConfirmedNoEffect, EffectKnowledgeState::AcceptedPending)
-        | (EffectKnowledgeState::ConfirmedNoEffect, EffectKnowledgeState::DefinitelyNotSent)
-        | (EffectKnowledgeState::ConfirmedNoEffect, EffectKnowledgeState::ConfirmedNoEffect)
-        | (EffectKnowledgeState::ConfirmedNoEffect, EffectKnowledgeState::Unknown) => current,
+        | (
+            EffectKnowledgeState::ConfirmedNoEffect,
+            EffectKnowledgeState::AcceptedPending
+            | EffectKnowledgeState::DefinitelyNotSent
+            | EffectKnowledgeState::ConfirmedNoEffect
+            | EffectKnowledgeState::Unknown,
+        ) => current,
         _ => observed,
     }
 }
 
+#[must_use]
 pub fn effect_state_after_evidence(
     current: EffectKnowledgeState,
     outcome: EffectEvidenceOutcome,
@@ -482,12 +517,8 @@ fn mint_attempt_id(
         )
         .as_bytes(),
     );
-    EffectAttemptId::parse(format!("attempt.{}", hex_digest(&digest)))
+    EffectAttemptId::parse(format!("attempt.{}", zoen_core::encode_hex(&digest)))
         .map_err(|error| EffectError::InvalidEvidence(error.to_string()))
-}
-
-fn hex_digest(digest: &[u8]) -> String {
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn state_name(state: EffectKnowledgeState) -> &'static str {

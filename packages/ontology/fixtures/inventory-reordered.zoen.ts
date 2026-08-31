@@ -7,83 +7,83 @@ import {
 } from "@zoen/ontology";
 
 const Warehouse = defineType({
+  attributes: [{ id: "code", valueType: { kind: "text" } }],
   id: "inventory.Warehouse",
-  attributes: [{ valueType: { kind: "text" }, id: "code" }],
 });
 
 const InventoryItem = defineType({
-  id: "inventory.Item",
   attributes: [
     {
-      valueType: { unit: "kg", kind: "quantity" },
       id: "reorderPoint",
+      valueType: { kind: "quantity", unit: "kg" },
     },
-    { valueType: { kind: "text" }, id: "sku" },
+    { id: "sku", valueType: { kind: "text" } },
   ],
+  id: "inventory.Item",
 });
 
 const storedAt = defineRelation({
-  target: { typeId: "inventory.Warehouse", kind: "type" },
-  sourceType: "inventory.Item",
-  id: "inventory.storedAt",
   cardinality: "many",
+  id: "inventory.storedAt",
+  sourceType: "inventory.Item",
+  target: { kind: "type", typeId: "inventory.Warehouse" },
 });
 
 const inventoryLevel = defineRelation({
-  target: {
-    valueType: { unit: "kg", kind: "quantity" },
-    kind: "value",
-  },
-  sourceType: "inventory.Item",
-  id: "inventory.level",
   cardinality: "one",
+  id: "inventory.level",
+  sourceType: "inventory.Item",
+  target: {
+    kind: "value",
+    valueType: { kind: "quantity", unit: "kg" },
+  },
 });
 
 const requiredPurchase = defineComputation({
-  returns: { unit: "kg", kind: "quantity" },
-  inputs: [
-    { valueType: { unit: "kg", kind: "quantity" }, id: "onHand" },
-    { valueType: { unit: "kg", kind: "quantity" }, id: "target" },
-  ],
-  id: "inventory.requiredPurchase",
   expression: {
-    right: { kind: "input", inputId: "onHand" },
-    operator: "subtract",
-    left: { kind: "input", inputId: "target" },
     kind: "binary",
+    left: { inputId: "target", kind: "input" },
+    operator: "subtract",
+    right: { inputId: "onHand", kind: "input" },
   },
+  id: "inventory.requiredPurchase",
+  inputs: [
+    { id: "onHand", valueType: { kind: "quantity", unit: "kg" } },
+    { id: "target", valueType: { kind: "quantity", unit: "kg" } },
+  ],
+  returns: { kind: "quantity", unit: "kg" },
 });
 
 const replenish = defineAction({
-  precondition: {
-    right: {
-      value: { unit: "kg", kind: "quantity", amount: "0.125" },
-      kind: "literal",
-    },
-    operator: "greater_than",
-    left: { kind: "input", inputId: "quantity" },
-    kind: "binary",
-  },
-  inputs: [
+  effects: [
     {
-      valueType: { unit: "kg", kind: "quantity" },
-      id: "quantity",
+      relationId: "inventory.level",
+      value: { inputId: "quantity", kind: "input" },
     },
   ],
   id: "inventory.replenish",
-  effects: [
+  inputs: [
     {
-      value: { kind: "input", inputId: "quantity" },
-      relationId: "inventory.level",
+      id: "quantity",
+      valueType: { kind: "quantity", unit: "kg" },
     },
   ],
+  precondition: {
+    kind: "binary",
+    left: { inputId: "quantity", kind: "input" },
+    operator: "greater_than",
+    right: {
+      kind: "literal",
+      value: { amount: "0.125", kind: "quantity", unit: "kg" },
+    },
+  },
 });
 
 export default defineBundle({
-  types: [InventoryItem, Warehouse],
-  revision: 1,
-  relations: [inventoryLevel, storedAt],
-  id: "inventory.definition",
-  computations: [requiredPurchase],
   actions: [replenish],
+  computations: [requiredPurchase],
+  id: "inventory.definition",
+  relations: [inventoryLevel, storedAt],
+  revision: 1,
+  types: [InventoryItem, Warehouse],
 });

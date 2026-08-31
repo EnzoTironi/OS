@@ -9,9 +9,11 @@ use zoen_engine::{
     MigrationHistorySnapshot, StoreError,
 };
 
-use crate::action_store::{load_approval, load_operation, load_proposal};
-use crate::effect_store::load_snapshot;
-use crate::{row_to_claim, row_to_revision, set_tenant, store_unavailable};
+use crate::{
+    action_store::{load_approval, load_operation, load_proposal},
+    effect_store::load_snapshot,
+    row_to_claim, row_to_revision, set_tenant, store_unavailable,
+};
 
 enum ClaimActionOwner {
     Operation(OperationId),

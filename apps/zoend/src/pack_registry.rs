@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use axum::Json;
-use axum::Router;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    routing::{get, post},
+};
 use connectrpc::ErrorCode;
 use serde::Deserialize;
 use zoen_adapters::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
@@ -141,9 +142,12 @@ struct AttributionBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AttributionSummaryBody {
-    tenant_id: String,
-    publisher_id: String,
-    pack_id: String,
+    #[serde(rename = "tenantId")]
+    tenant: String,
+    #[serde(rename = "publisherId")]
+    publisher: String,
+    #[serde(rename = "packId")]
+    pack: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,7 +167,7 @@ async fn register_key(
     }
     let key = match build_key(&body) {
         Ok(key) => key,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state.registry.register_publisher_key(&key).await {
         Ok(()) => (
@@ -175,7 +179,7 @@ async fn register_key(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -192,17 +196,17 @@ async fn put_object(
     for artifact in body.ontology_artifacts {
         let definition_id = match DefinitionId::parse(artifact.definition_id) {
             Ok(id) => id,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         };
         let digest = match DefinitionDigest::parse(artifact.digest) {
             Ok(digest) => digest,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         };
         ontology_artifacts.push((definition_id, digest, artifact.canonical_json));
     }
     let signature = match parse_signature(body.signature) {
         Ok(signature) => signature,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let visibility = match body.visibility {
         VisibilityBody::Public => PackVisibility::Public,
@@ -252,7 +256,7 @@ async fn put_object(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -266,7 +270,7 @@ async fn open_object(
     }
     let digest = match PackDigest::parse(body.pack_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let viewer_tenant = body.tenant_id.as_deref();
     let source = match body.source.unwrap_or(OpenSourceBody::Registry {
@@ -280,17 +284,17 @@ async fn open_object(
         } => {
             let signature = match parse_signature(signature) {
                 Ok(signature) => signature,
-                Err(error) => return bad_request(error.to_string()),
+                Err(error) => return bad_request(&error.to_string()),
             };
             let mut ontology = Vec::new();
             for artifact in ontology_artifacts {
                 let definition_id = match DefinitionId::parse(artifact.definition_id) {
                     Ok(id) => id,
-                    Err(error) => return bad_request(error.to_string()),
+                    Err(error) => return bad_request(&error.to_string()),
                 };
                 let definition_digest = match DefinitionDigest::parse(artifact.digest) {
                     Ok(digest) => digest,
-                    Err(error) => return bad_request(error.to_string()),
+                    Err(error) => return bad_request(&error.to_string()),
                 };
                 ontology.push(zoen_core::PackObjectOntology {
                     definition_id,
@@ -314,7 +318,7 @@ async fn open_object(
     };
     match state.registry.open(&digest, source, viewer_tenant).await {
         Ok(result) => open_json(result),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -328,18 +332,18 @@ async fn mint_share(
     }
     let digest = match PackDigest::parse(body.pack_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let publisher_id = match PublisherId::parse(body.publisher_id) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let referral_id = match ReferralId::parse(
         body.referral_id
             .unwrap_or_else(|| format!("ref_{}", now_micros().get())),
     ) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .registry
@@ -357,7 +361,7 @@ async fn mint_share(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -371,7 +375,7 @@ async fn resolve_share(
     }
     let token = match ShareToken::parse(body.token) {
         Ok(token) => token,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state.registry.resolve_share(&token).await {
         Ok(ShareResolve::Ok {
@@ -412,7 +416,7 @@ async fn resolve_share(
             Json(serde_json::json!({ "kind": "expired" })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -439,7 +443,7 @@ async fn search_public(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -453,19 +457,19 @@ async fn record_attribution(
     }
     let kind = match AttributionEventKind::parse(&body.kind) {
         Ok(kind) => kind,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let digest = match PackDigest::parse(body.pack_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let publisher_id = match PublisherId::parse(body.publisher_id) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let referral_id = match ReferralId::parse(body.referral_id) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .registry
@@ -485,7 +489,7 @@ async fn record_attribution(
             Json(serde_json::json!({ "recorded": true })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -494,16 +498,16 @@ async fn attribution_summary(
     headers: HeaderMap,
     Json(body): Json<AttributionSummaryBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_context(&state, &headers, &body.tenant_id).await {
+    if let Err(error) = require_context(&state, &headers, &body.tenant).await {
         return context_error(error);
     }
-    let publisher_id = match PublisherId::parse(body.publisher_id) {
+    let publisher_id = match PublisherId::parse(body.publisher) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
-    let pack_id = match PackId::parse(body.pack_id) {
+    let pack_id = match PackId::parse(body.pack) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .registry
@@ -526,7 +530,7 @@ async fn attribution_summary(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -550,7 +554,7 @@ async fn set_config(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -570,7 +574,7 @@ async fn reindex(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -672,7 +676,7 @@ async fn require_bearer(
         .resolve(authorization, None)
         .await
         .map(|_| ())
-        .map_err(map_resolve_error)
+        .map_err(|error| map_resolve_error(&error))
 }
 
 async fn require_context(
@@ -689,7 +693,7 @@ async fn require_context(
         .sessions
         .resolve(authorization, Some(&claimed))
         .await
-        .map_err(map_resolve_error)?;
+        .map_err(|error| map_resolve_error(&error))?;
     if context.tenant_id() != &claimed {
         return Err(ContextError::Forbidden(
             "payload tenant does not match the trusted session".to_owned(),
@@ -698,11 +702,10 @@ async fn require_context(
     Ok(context)
 }
 
-fn map_resolve_error(error: connectrpc::ConnectError) -> ContextError {
+fn map_resolve_error(error: &connectrpc::ConnectError) -> ContextError {
     match error.code {
         ErrorCode::Unauthenticated => ContextError::Unauthorized(error.to_string()),
         ErrorCode::InvalidArgument => ContextError::BadRequest(error.to_string()),
-        ErrorCode::PermissionDenied => ContextError::Forbidden(error.to_string()),
         _ => ContextError::Forbidden(error.to_string()),
     }
 }
@@ -719,11 +722,11 @@ fn context_error(error: ContextError) -> axum::response::Response {
             Json(serde_json::json!({ "error": message })),
         )
             .into_response(),
-        ContextError::BadRequest(message) => bad_request(message),
+        ContextError::BadRequest(message) => bad_request(&message),
     }
 }
 
-fn pack_error(error: PackError) -> axum::response::Response {
+fn pack_error(error: &PackError) -> axum::response::Response {
     let status = match &error {
         PackError::DigestMismatch
         | PackError::NonCanonicalPack
@@ -750,7 +753,7 @@ fn pack_error(error: PackError) -> axum::response::Response {
         .into_response()
 }
 
-fn bad_request(message: String) -> axum::response::Response {
+fn bad_request(message: &str) -> axum::response::Response {
     (
         StatusCode::BAD_REQUEST,
         Json(serde_json::json!({ "error": message })),
@@ -762,7 +765,8 @@ fn now_micros() -> TimestampMicros {
     TimestampMicros::new(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_micros() as i64)
+            .ok()
+            .and_then(|duration| i64::try_from(duration.as_micros()).ok())
             .unwrap_or(0),
     )
 }

@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite/biome/core"],
+  "files": {
+    "includes": [
+      "!!e2e",
+      "!!gen",
+      "!!testdata",
+      "!!scripts",
+      "!!deploy",
+      "!!docs",
+      "!!.audit",
+      "!!**/node_modules",
+      "!!**/dist",
+      "!!**/target",
+      "!!**/*.canonical.json"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": [
+        "apps/conversation/agent/tools/read_file.ts",
+        "apps/conversation/agent/tools/share_this.ts",
+        "apps/conversation/agent/tools/who_can.ts",
+        "apps/conversation/agent/tools/write_file.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": "off"
+          }
+        }
+      }
+    }
+  ]
+}

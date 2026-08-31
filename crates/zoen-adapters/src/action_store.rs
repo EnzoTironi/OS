@@ -1,8 +1,6 @@
-use std::collections::BTreeSet;
-use std::fmt::Display;
+use std::{collections::BTreeSet, fmt::Display};
 
-use sqlx::postgres::PgRow;
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     ActionApproval, ActionId, ActionInput, ActionPreviewHash, ActionProposal, ActorId, ApprovalId,
     CapabilityId, CapabilityManifestDigest, ClaimId, CommitReceipt, CommitSequence,
@@ -62,6 +60,25 @@ pub(crate) async fn save_proposal(
         return Err(StoreError::OperationMismatch);
     }
 
+    insert_proposal_row(&mut transaction, context, proposal).await?;
+    insert_inputs(&mut transaction, context.tenant_id(), proposal).await?;
+    insert_dependencies(&mut transaction, context.tenant_id(), proposal).await?;
+    insert_grants(
+        &mut transaction,
+        context.tenant_id(),
+        GrantOwner::Proposal(&proposal.proposal_id),
+        &proposal.proposed_by,
+    )
+    .await?;
+    transaction.commit().await.map_err(store_unavailable)?;
+    Ok(proposal.clone())
+}
+
+async fn insert_proposal_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: &ExecutionContext,
+    proposal: &ActionProposal,
+) -> Result<(), StoreError> {
     let (authority_kind, policy) = proposal_authority_columns(&proposal.authority);
     sqlx::query(
         "INSERT INTO action_proposals (
@@ -149,22 +166,16 @@ pub(crate) async fn save_proposal(
     }))
     .bind(proposal.preview_hash.as_str())
     .bind(&proposal.canonical_preview_text)
-    .bind(proposal.scenario_id.as_ref().map(|id| id.as_str()))
-    .execute(&mut *transaction)
+    .bind(
+        proposal
+            .scenario_id
+            .as_ref()
+            .map(zoen_core::ScenarioId::as_str),
+    )
+    .execute(&mut **transaction)
     .await
     .map_err(map_action_insert)?;
-
-    insert_inputs(&mut transaction, context.tenant_id(), proposal).await?;
-    insert_dependencies(&mut transaction, context.tenant_id(), proposal).await?;
-    insert_grants(
-        &mut transaction,
-        context.tenant_id(),
-        GrantOwner::Proposal(&proposal.proposal_id),
-        &proposal.proposed_by,
-    )
-    .await?;
-    transaction.commit().await.map_err(store_unavailable)?;
-    Ok(proposal.clone())
+    Ok(())
 }
 
 pub(crate) async fn get_proposal(

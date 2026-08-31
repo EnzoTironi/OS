@@ -1,5 +1,8 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::{
+    fmt::Write as _,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, Instant},
+};
 
 const LATENCY_BOUNDS_SECONDS: &[f64] = &[
     0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
@@ -40,7 +43,7 @@ pub fn record_admit_latency(started: Instant) {
     let micros = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
     ADMIT_COUNT.fetch_add(1, Ordering::Relaxed);
     ADMIT_SUM_MICROS.fetch_add(micros, Ordering::Relaxed);
-    let seconds = micros as f64 / 1_000_000.0;
+    let seconds = Duration::from_micros(micros).as_secs_f64();
     for (index, bound) in LATENCY_BOUNDS_SECONDS.iter().enumerate() {
         if seconds <= *bound {
             ADMIT_BUCKETS[index].fetch_add(1, Ordering::Relaxed);
@@ -55,32 +58,33 @@ pub fn prometheus_text() -> String {
         "# HELP zoen_jcs_mismatch_total RFC 8785 JCS admission mismatches\n\
          # TYPE zoen_jcs_mismatch_total counter\n",
     );
-    text.push_str(&format!(
-        "zoen_jcs_mismatch_total {}\n",
-        jcs_mismatch_total()
-    ));
+    let _ = writeln!(text, "zoen_jcs_mismatch_total {}", jcs_mismatch_total());
     text.push_str(
         "# HELP zoen_admit_duration_seconds Definition admission latency\n\
          # TYPE zoen_admit_duration_seconds histogram\n",
     );
     for (index, bound) in LATENCY_BOUNDS_SECONDS.iter().enumerate() {
-        text.push_str(&format!(
-            "zoen_admit_duration_seconds_bucket{{le=\"{bound}\"}} {}\n",
+        let _ = writeln!(
+            text,
+            "zoen_admit_duration_seconds_bucket{{le=\"{bound}\"}} {}",
             ADMIT_BUCKETS[index].load(Ordering::Relaxed)
-        ));
+        );
     }
-    text.push_str(&format!(
-        "zoen_admit_duration_seconds_bucket{{le=\"+Inf\"}} {}\n",
+    let _ = writeln!(
+        text,
+        "zoen_admit_duration_seconds_bucket{{le=\"+Inf\"}} {}",
         ADMIT_BUCKETS[LATENCY_BOUNDS_SECONDS.len()].load(Ordering::Relaxed)
-    ));
-    text.push_str(&format!(
-        "zoen_admit_duration_seconds_sum {}\n",
-        ADMIT_SUM_MICROS.load(Ordering::Relaxed) as f64 / 1_000_000.0
-    ));
-    text.push_str(&format!(
-        "zoen_admit_duration_seconds_count {}\n",
+    );
+    let _ = writeln!(
+        text,
+        "zoen_admit_duration_seconds_sum {}",
+        Duration::from_micros(ADMIT_SUM_MICROS.load(Ordering::Relaxed)).as_secs_f64()
+    );
+    let _ = writeln!(
+        text,
+        "zoen_admit_duration_seconds_count {}",
         ADMIT_COUNT.load(Ordering::Relaxed)
-    ));
+    );
     text
 }
 

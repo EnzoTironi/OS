@@ -23,26 +23,32 @@ pub struct AdmittedMigrationPlan {
 }
 
 impl AdmittedMigrationPlan {
+    #[must_use]
     pub fn canonical_plan(&self) -> &str {
         &self.canonical_plan
     }
 
+    #[must_use]
     pub fn context(&self) -> &ExecutionContext {
         &self.context
     }
 
+    #[must_use]
     pub fn intent_digest(&self) -> &IntentDigest {
         &self.intent_digest
     }
 
+    #[must_use]
     pub fn plan(&self) -> &zoen_core::MigrationPlan {
         &self.plan
     }
 
+    #[must_use]
     pub fn policy(&self) -> &PolicyEvidence {
         &self.policy
     }
 
+    #[must_use]
     pub fn prepared_at(&self) -> TimestampMicros {
         self.prepared_at
     }
@@ -57,18 +63,22 @@ pub struct AdmittedMigrationRecord {
 }
 
 impl AdmittedMigrationRecord {
+    #[must_use]
     pub fn evidence(&self) -> &AdmittedEvidence {
         &self.evidence
     }
 
+    #[must_use]
     pub fn kind(&self) -> MigrationRuleKind {
         self.kind
     }
 
+    #[must_use]
     pub fn rule_id(&self) -> &MigrationRuleId {
         &self.rule_id
     }
 
+    #[must_use]
     pub fn source_claim_ids(&self) -> &[zoen_core::ClaimId] {
         &self.source_claim_ids
     }
@@ -85,26 +95,32 @@ pub struct AdmittedMigrationBatch {
 }
 
 impl AdmittedMigrationBatch {
+    #[must_use]
     pub fn batch_index(&self) -> u32 {
         self.batch_index
     }
 
+    #[must_use]
     pub fn context(&self) -> &ExecutionContext {
         &self.context
     }
 
+    #[must_use]
     pub fn intent_digest(&self) -> &IntentDigest {
         &self.intent_digest
     }
 
+    #[must_use]
     pub fn migration(&self) -> &MigrationProgress {
         &self.migration
     }
 
+    #[must_use]
     pub fn policy(&self) -> &PolicyEvidence {
         &self.policy
     }
 
+    #[must_use]
     pub fn records(&self) -> &[AdmittedMigrationRecord] {
         &self.records
     }

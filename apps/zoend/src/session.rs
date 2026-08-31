@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use connectrpc::{ConnectError, ErrorCode, RequestContext};
 use zoen_adapters::{PostgresIdentityStore, PostgresWorkloadCredentialStore, SessionDoor};
@@ -11,21 +11,6 @@ use zoen_core::{
     SessionCredential, TenantId, TimestampMicros, TrustedExecutionContext, VerifiedSessionEvidence,
     WorkloadCredentialId, WorkloadExchangeToken, trusted_context_from_workload_credential,
 };
-
-#[derive(Debug)]
-pub enum SessionConfigError {
-    Invalid(String),
-}
-
-impl Display for SessionConfigError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Invalid(message) => write!(formatter, "invalid session door: {message}"),
-        }
-    }
-}
-
-impl Error for SessionConfigError {}
 
 #[derive(Clone)]
 pub struct SessionExchange {
@@ -37,27 +22,36 @@ pub struct SessionExchange {
 }
 
 impl SessionExchange {
+    /// Build a session exchange over an already-connected door.
+    #[must_use]
     pub fn from_door(
         door: SessionDoor,
         directory: PostgresIdentityStore,
         credentials: PostgresWorkloadCredentialStore,
         machine: Option<MachineToken>,
-    ) -> Result<Self, SessionConfigError> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             credentials,
             directory,
             door,
             machine,
             workload_exchanges: Arc::new(Mutex::new(HashMap::new())),
-        })
+        }
     }
 
+    #[must_use]
     pub fn bearer_from(request_context: &RequestContext) -> Option<&str> {
         request_context
             .header("authorization")
             .and_then(|value| value.to_str().ok())
     }
 
+    /// Read an optional tenant id from `x-zoen-tenant`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-argument Connect error when the header is present but
+    /// not a valid tenant id.
     pub fn tenant_from_header(
         request_context: &RequestContext,
     ) -> Result<Option<TenantId>, ConnectError> {
@@ -72,6 +66,7 @@ impl SessionExchange {
         }
     }
 
+    #[must_use]
     pub fn register_workload_exchange(
         &self,
         credential_id: WorkloadCredentialId,
@@ -82,21 +77,22 @@ impl SessionExchange {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         let token = format!("wlx.{nanos:x}");
-        self.workload_exchanges
-            .lock()
-            .expect("workload exchange lock")
-            .insert(token.clone(), credential_id);
+        self.workload_map().insert(token.clone(), credential_id);
         token
     }
 
     pub fn invalidate_workload_credential(&self, credential_id: &WorkloadCredentialId) {
-        let mut guard = self
-            .workload_exchanges
-            .lock()
-            .expect("workload exchange lock");
-        guard.retain(|_, stored| stored != credential_id);
+        self.workload_map()
+            .retain(|_, stored| stored != credential_id);
     }
 
+    /// Verify a Better Auth door session. Workload and channel credentials fail
+    /// closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unauthenticated`] when the credential is missing
+    /// or is not a door session, or when door verification fails.
     pub async fn verify_door(
         &self,
         authorization: Option<&str>,
@@ -110,6 +106,13 @@ impl SessionExchange {
         }
     }
 
+    /// Resolve a trusted execution context from a door, workload, or channel
+    /// credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns a Connect error when the session cannot be authenticated or the
+    /// membership cannot be resolved.
     pub async fn resolve(
         &self,
         authorization: Option<&str>,
@@ -122,6 +125,12 @@ impl SessionExchange {
             .map_err(map_identity_error)
     }
 
+    /// Resolve the door membership for the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when the credential is not a door session or
+    /// the membership cannot be resolved.
     pub async fn resolve_membership(
         &self,
         authorization: Option<&str>,
@@ -164,6 +173,12 @@ impl SessionExchange {
         self.directory.resolve_for_subject(&subject, tenant).await
     }
 
+    /// Resolve a live workload exchange token to its credential and context.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unauthenticated`] when the token is not a live
+    /// workload exchange, or when the credential cannot be loaded.
     pub async fn resolve_workload_exchange(
         &self,
         authorization: Option<&str>,
@@ -173,9 +188,7 @@ impl SessionExchange {
             SessionCredential::Workload(token) => {
                 let context = self.resolve_workload(&token).await?;
                 let credential_id = self
-                    .workload_exchanges
-                    .lock()
-                    .expect("workload exchange lock")
+                    .workload_map()
                     .get(token.as_str())
                     .cloned()
                     .ok_or(IdentityError::Unauthenticated)?;
@@ -192,14 +205,18 @@ impl SessionExchange {
         token: &WorkloadExchangeToken,
     ) -> Result<TrustedExecutionContext, IdentityError> {
         let credential_id = self
-            .workload_exchanges
-            .lock()
-            .expect("workload exchange lock")
+            .workload_map()
             .get(token.as_str())
             .cloned()
             .ok_or(IdentityError::Unauthenticated)?;
         let credential = self.credentials.get(&credential_id).await?;
         trusted_context_from_workload_credential(&credential, now_micros())
+    }
+
+    fn workload_map(&self) -> MutexGuard<'_, HashMap<String, WorkloadCredentialId>> {
+        self.workload_exchanges
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     async fn resolve_channel(
@@ -227,7 +244,8 @@ impl SessionExchange {
 fn now_micros() -> TimestampMicros {
     let micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_micros() as i64)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_micros()).ok())
         .unwrap_or(0);
     TimestampMicros::new(micros)
 }
@@ -242,6 +260,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
         == 0
 }
 
+#[must_use]
 pub fn map_identity_error(error: IdentityError) -> ConnectError {
     match error {
         IdentityError::Unauthenticated | IdentityError::InvalidSessionToken => {

@@ -1,6 +1,4 @@
-use std::env;
-use std::error::Error;
-use std::time::Duration;
+use std::{env, error::Error, time::Duration};
 
 use reqwest::Url;
 use zoen_adapters::{PostgresAuthorityStore, PostgresEffectDispatcher, RestateEffectScheduler};
@@ -27,7 +25,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     loop {
         dispatcher.dispatch_once(&tenant_id, limit).await?;
         tokio::select! {
-            _ = tokio::time::sleep(interval) => {}
+            () = tokio::time::sleep(interval) => {}
             _ = tokio::signal::ctrl_c() => return Ok(()),
         }
     }

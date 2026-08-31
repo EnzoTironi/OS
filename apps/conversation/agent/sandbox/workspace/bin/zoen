@@ -2,4 +2,4 @@
 set -euo pipefail
 export ZOEN_ISOLATE=1
 root="$(cd "$(dirname "$0")/../../../../../.." && pwd)"
-exec "$root/apps/zoen/zoen" "$@"
+exec "${ZOEN_BIN:-$root/target/debug/zoen}" "$@"

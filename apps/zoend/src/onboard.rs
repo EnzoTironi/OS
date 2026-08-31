@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
-use axum::Router;
-use axum::extract::{Path, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::{
+    Router,
+    extract::{Path, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::{get, post},
+};
 use zoen_adapters::PostgresIdentityStore;
 use zoen_core::IdentityError;
 
@@ -25,7 +27,7 @@ async fn get_onboard(
         Ok(row) if row.consumed || row.expired => onboard_missing(),
         Ok(_) => onboard_page(&token),
         Err(IdentityError::InviteNotFound) => onboard_missing(),
-        Err(error) => identity_error_response(error),
+        Err(error) => identity_error_response(&error),
     }
 }
 
@@ -36,13 +38,13 @@ async fn confirm_onboard(
     let row = match identity.lookup_onboard_token(&token).await {
         Ok(row) => row,
         Err(IdentityError::InviteNotFound) => return onboard_missing(),
-        Err(error) => return identity_error_response(error),
+        Err(error) => return identity_error_response(&error),
     };
     if row.consumed {
-        return identity_error_response(IdentityError::AlreadyConsumed);
+        return identity_error_response(&IdentityError::AlreadyConsumed);
     }
     if row.expired {
-        return identity_error_response(IdentityError::InviteExpired);
+        return identity_error_response(&IdentityError::InviteExpired);
     }
     match identity.complete_onboard(row.subject).await {
         Ok(_) => {
@@ -51,9 +53,9 @@ async fn confirm_onboard(
         }
         Err(IdentityError::AlreadyConsumed) => {
             let _ = identity.consume_onboard_token(&token).await;
-            identity_error_response(IdentityError::AlreadyConsumed)
+            identity_error_response(&IdentityError::AlreadyConsumed)
         }
-        Err(error) => identity_error_response(error),
+        Err(error) => identity_error_response(&error),
     }
 }
 

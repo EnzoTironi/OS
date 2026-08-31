@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use buffa::MessageView;
 use connectrpc::{
@@ -28,23 +30,26 @@ use zoen_engine::{
     PublishError, StoreError,
 };
 
-use crate::action_service::to_policy_evidence;
-use crate::proto::zoen::definition::v1::__buffa::view::oneof::activate_revision_request as activate_revision_request_view;
-use crate::proto::zoen::definition::v1::{
-    ActivateRevisionRequest, ActivateRevisionResponse, ApplyMigrationBatchRequest,
-    ApplyMigrationBatchResponse, DefinitionActivation, DefinitionActivationKind, DefinitionChange,
-    DefinitionChangeKind, DefinitionElementKind, DefinitionImpact, DefinitionImpactApplicability,
-    DefinitionImpactArea, DefinitionRevision, DefinitionService, EvolutionClassification,
-    EvolutionPlan, GetActiveRevisionRequest, GetActiveRevisionResponse, GetMigrationRequest,
-    GetMigrationResponse, GetRevisionRequest, GetRevisionResponse, MigrationArtifactDependency,
-    MigrationDependency, MigrationElement, MigrationLineage, MigrationObligation,
-    MigrationObligationSource, MigrationPlan, MigrationPostcondition, MigrationProgress,
-    MigrationRecipe, MigrationRecord, MigrationRule, MigrationRuleKind, MigrationStatus,
-    PlanEvolutionRequest, PlanEvolutionResponse, PrepareMigrationRequest, PrepareMigrationResponse,
-    PublishRequest, PublishResponse, RollbackRevisionRequest, RollbackRevisionResponse,
+use crate::{
+    action_service::to_policy_evidence,
+    proto::zoen::definition::v1::{
+        __buffa::view::oneof::activate_revision_request as activate_revision_request_view,
+        ActivateRevisionRequest, ActivateRevisionResponse, ApplyMigrationBatchRequest,
+        ApplyMigrationBatchResponse, DefinitionActivation, DefinitionActivationKind,
+        DefinitionChange, DefinitionChangeKind, DefinitionElementKind, DefinitionImpact,
+        DefinitionImpactApplicability, DefinitionImpactArea, DefinitionRevision, DefinitionService,
+        EvolutionClassification, EvolutionPlan, GetActiveRevisionRequest,
+        GetActiveRevisionResponse, GetMigrationRequest, GetMigrationResponse, GetRevisionRequest,
+        GetRevisionResponse, MigrationArtifactDependency, MigrationDependency, MigrationElement,
+        MigrationLineage, MigrationObligation, MigrationObligationSource, MigrationPlan,
+        MigrationPostcondition, MigrationProgress, MigrationRecipe, MigrationRecord, MigrationRule,
+        MigrationRuleKind, MigrationStatus, PlanEvolutionRequest, PlanEvolutionResponse,
+        PrepareMigrationRequest, PrepareMigrationResponse, PublishRequest, PublishResponse,
+        RollbackRevisionRequest, RollbackRevisionResponse,
+    },
+    session::SessionExchange,
+    world_service::{invalid, parse_evidence_claim, to_definition_reference, to_timestamp},
 };
-use crate::session::SessionExchange;
-use crate::world_service::{invalid, parse_evidence_claim, to_definition_reference, to_timestamp};
 
 pub struct DefinitionServiceImpl {
     engine: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,
@@ -100,7 +105,7 @@ impl DefinitionService for DefinitionServiceImpl {
             .await
             .map_err(map_publish_error)?;
         Response::ok(PublishResponse {
-            definition_revision: Some(to_protocol_revision(revision)).into(),
+            definition_revision: Some(to_protocol_revision(&revision)).into(),
             ..Default::default()
         })
     }
@@ -123,7 +128,7 @@ impl DefinitionService for DefinitionServiceImpl {
             .await
             .map_err(map_get_error)?;
         Response::ok(GetRevisionResponse {
-            definition_revision: Some(to_protocol_revision(revision)).into(),
+            definition_revision: Some(to_protocol_revision(&revision)).into(),
             ..Default::default()
         })
     }
@@ -144,7 +149,7 @@ impl DefinitionService for DefinitionServiceImpl {
             .await
             .map_err(map_get_error)?;
         Response::ok(GetActiveRevisionResponse {
-            definition_revision: revision.map(to_protocol_revision).into(),
+            definition_revision: revision.as_ref().map(to_protocol_revision).into(),
             ..Default::default()
         })
     }
@@ -320,7 +325,7 @@ impl DefinitionService for DefinitionServiceImpl {
     }
 }
 
-fn to_protocol_revision(revision: CoreDefinitionRevision) -> DefinitionRevision {
+fn to_protocol_revision(revision: &CoreDefinitionRevision) -> DefinitionRevision {
     DefinitionRevision {
         canonical_json: revision.canonical_json.as_bytes().to_vec(),
         commit_sequence: revision.commit_sequence.get(),
@@ -335,11 +340,10 @@ fn to_protocol_activation(activation: CoreDefinitionActivation) -> DefinitionAct
     DefinitionActivation {
         activated_at: Some(to_timestamp(activation.activated_at)).into(),
         activated_by: activation.activated_by.as_str().to_owned(),
-        active: Some(to_definition_reference(activation.active)).into(),
+        active: Some(to_definition_reference(&activation.active)).into(),
         classification: activation
             .classification
-            .map(to_classification)
-            .unwrap_or(EvolutionClassification::Unspecified)
+            .map_or(EvolutionClassification::Unspecified, to_classification)
             .into(),
         commit_sequence: activation.commit_sequence.get(),
         kind: match activation.kind {
@@ -352,7 +356,11 @@ fn to_protocol_activation(activation: CoreDefinitionActivation) -> DefinitionAct
             .map(|operation_id| operation_id.as_str().to_owned())
             .unwrap_or_default(),
         policy: Some(to_policy_evidence(activation.policy)).into(),
-        previous: activation.previous.map(to_definition_reference).into(),
+        previous: activation
+            .previous
+            .as_ref()
+            .map(to_definition_reference)
+            .into(),
         principal_id: activation.principal_id.as_str().to_owned(),
         workload_id: activation.workload_id.as_str().to_owned(),
         ..Default::default()
@@ -404,7 +412,7 @@ fn to_protocol_plan(plan: CoreEvolutionPlan) -> EvolutionPlan {
             })
             .collect(),
         classification: to_classification(plan.classification).into(),
-        from: Some(to_definition_reference(plan.from)).into(),
+        from: Some(to_definition_reference(&plan.from)).into(),
         impacts: plan
             .impacts
             .into_iter()
@@ -418,7 +426,7 @@ fn to_protocol_plan(plan: CoreEvolutionPlan) -> EvolutionPlan {
             })
             .collect(),
         migration_required,
-        to: Some(to_definition_reference(plan.to)).into(),
+        to: Some(to_definition_reference(&plan.to)).into(),
         ..Default::default()
     }
 }
@@ -557,7 +565,7 @@ fn to_protocol_migration_progress(progress: CoreMigrationProgress) -> MigrationP
         remaining_obligations: progress
             .remaining_obligations
             .into_iter()
-            .map(to_protocol_migration_obligation)
+            .map(|obligation| to_protocol_migration_obligation(&obligation))
             .collect(),
         status: match progress.status {
             CoreMigrationStatus::Prepared => MigrationStatus::Prepared,
@@ -600,7 +608,7 @@ fn to_protocol_migration_plan(plan: CoreMigrationPlan) -> MigrationPlan {
             })
             .collect(),
         format_version: plan.format_version,
-        from: Some(to_definition_reference(plan.from)).into(),
+        from: Some(to_definition_reference(&plan.from)).into(),
         obligation_sources: plan
             .obligation_sources
             .into_iter()
@@ -640,7 +648,7 @@ fn to_protocol_migration_plan(plan: CoreMigrationPlan) -> MigrationPlan {
                 ..Default::default()
             })
             .collect(),
-        to: Some(to_definition_reference(plan.to)).into(),
+        to: Some(to_definition_reference(&plan.to)).into(),
         ..Default::default()
     }
 }
@@ -667,7 +675,7 @@ fn to_protocol_migration_lineage(lineage: CoreMigrationLineage) -> MigrationLine
     }
 }
 
-fn to_protocol_migration_obligation(obligation: CoreMigrationObligation) -> MigrationObligation {
+fn to_protocol_migration_obligation(obligation: &CoreMigrationObligation) -> MigrationObligation {
     MigrationObligation {
         kind: to_migration_rule_kind(obligation.kind).into(),
         relation_id: obligation.relation_id.as_str().to_owned(),
@@ -774,7 +782,7 @@ fn map_activate_error(error: ActivateRevisionError) -> ConnectError {
         ActivateRevisionError::InvalidRevision(_) => {
             ConnectError::new(ErrorCode::DataLoss, error.to_string())
         }
-        ActivateRevisionError::Store(error) => map_store_error(error),
+        ActivateRevisionError::Store(error) => map_store_error(&error),
     }
 }
 
@@ -792,7 +800,7 @@ fn map_migration_error(error: MigrationError) -> ConnectError {
         MigrationError::PolicyEvaluation { .. } => {
             ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
         }
-        MigrationError::Store(error) => map_store_error(error),
+        MigrationError::Store(error) => map_store_error(&error),
     }
 }
 
@@ -801,7 +809,7 @@ fn map_plan_error(error: PlanEvolutionError) -> ConnectError {
         PlanEvolutionError::InvalidRevision(_) => {
             ConnectError::new(ErrorCode::DataLoss, error.to_string())
         }
-        PlanEvolutionError::Store(error) => map_store_error(error),
+        PlanEvolutionError::Store(error) => map_store_error(&error),
     }
 }
 
@@ -815,7 +823,7 @@ fn map_publish_error(error: PublishError) -> ConnectError {
             ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
         }
         PublishError::EventEncoding(_) => ConnectError::new(ErrorCode::Internal, error.to_string()),
-        PublishError::Store(error) => map_store_error(error),
+        PublishError::Store(error) => map_store_error(&error),
     }
 }
 
@@ -824,19 +832,19 @@ fn map_get_error(error: GetRevisionError) -> ConnectError {
         GetRevisionError::DigestMismatch => {
             ConnectError::new(ErrorCode::DataLoss, error.to_string())
         }
-        GetRevisionError::Store(error) => map_store_error(error),
+        GetRevisionError::Store(error) => map_store_error(&error),
     }
 }
 
-pub(crate) fn map_store_error(error: StoreError) -> ConnectError {
-    let code = match &error {
-        StoreError::Conflict(_) => ErrorCode::AlreadyExists,
+pub(crate) fn map_store_error(error: &StoreError) -> ConnectError {
+    let code = match error {
+        StoreError::Conflict(_) | StoreError::IdentityCollision(_) => ErrorCode::AlreadyExists,
         StoreError::Corrupt(_) => ErrorCode::DataLoss,
-        StoreError::IdentityCollision(_) => ErrorCode::AlreadyExists,
-        StoreError::InactiveDefinition => ErrorCode::FailedPrecondition,
+        StoreError::InactiveDefinition | StoreError::StalePrecondition => {
+            ErrorCode::FailedPrecondition
+        }
         StoreError::NotFound => ErrorCode::NotFound,
         StoreError::OperationMismatch => ErrorCode::InvalidArgument,
-        StoreError::StalePrecondition => ErrorCode::FailedPrecondition,
         StoreError::Unavailable(_) => ErrorCode::Unavailable,
     };
     ConnectError::new(code, error.to_string())

@@ -1,6 +1,4 @@
-use std::env;
-use std::error::Error;
-use std::time::Duration;
+use std::{env, error::Error, time::Duration};
 
 use serde_json::json;
 use zoen_adapters::PostgresAuthorityStore;

@@ -1,7 +1,9 @@
-use std::env::{self, VarError};
-use std::error::Error;
-use std::io::{Error as IoError, ErrorKind};
-use std::path::PathBuf;
+use std::{
+    env::{self, VarError},
+    error::Error,
+    io::{Error as IoError, ErrorKind},
+    path::PathBuf,
+};
 
 use zoen_query::ObjectStoreConfig;
 
@@ -13,18 +15,41 @@ pub enum ProcessAuth {
 
 type EnvLookup<'a> = dyn Fn(&str) -> Result<Option<String>, VarError> + 'a;
 
+/// Object-store settings from the S3 environment, if any S3 variable is set.
+///
+/// # Errors
+///
+/// Returns an error when S3 is partially configured, a required S3 variable is
+/// missing, or `S3_ALLOW_HTTP` is not a boolean.
 pub fn object_store_config() -> Result<Option<ObjectStoreConfig>, Box<dyn Error + Send + Sync>> {
     object_store_config_from(&|name| optional_env(name))
 }
 
+/// Session-door auth settings from the process environment.
+///
+/// # Errors
+///
+/// Returns an error when `ZOEN_AUTH_DATABASE_URL` is missing, empty, or not a
+/// loopback URL.
 pub fn process_auth() -> Result<ProcessAuth, Box<dyn Error + Send + Sync>> {
     process_auth_from(&|name| optional_env(name))
 }
 
+/// Cedar policy manifest path from the process environment.
+///
+/// # Errors
+///
+/// Returns an error when `ZOEN_CEDAR_POLICY_MANIFEST` is missing or empty.
 pub fn cedar_manifest_path() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     cedar_manifest_path_from(&|name| optional_env(name))
 }
 
+/// Session-door auth settings from an environment lookup.
+///
+/// # Errors
+///
+/// Returns an error when `ZOEN_AUTH_DATABASE_URL` is missing, empty, not
+/// readable, or not a loopback URL.
 pub fn process_auth_from(
     lookup: &EnvLookup<'_>,
 ) -> Result<ProcessAuth, Box<dyn Error + Send + Sync>> {
@@ -38,6 +63,12 @@ pub fn process_auth_from(
     Ok(ProcessAuth::SessionDoor { auth_database_url })
 }
 
+/// Cedar policy manifest path from an environment lookup.
+///
+/// # Errors
+///
+/// Returns an error when `ZOEN_CEDAR_POLICY_MANIFEST` is missing, empty, or
+/// not readable.
 pub fn cedar_manifest_path_from(
     lookup: &EnvLookup<'_>,
 ) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
@@ -113,8 +144,7 @@ fn config_error(message: &str) -> Box<dyn Error + Send + Sync> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::env::VarError;
+    use std::{collections::HashMap, env::VarError};
 
     use super::cedar_manifest_path_from;
 

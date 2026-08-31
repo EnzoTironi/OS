@@ -1,6 +1,8 @@
-use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeMap,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use crate::{
     DefinitelyNotSentReason, EffectAttemptId, EffectAttemptResult, EffectRequestDigest,
@@ -16,10 +18,17 @@ pub enum HumanExecutorClass {
 }
 
 impl HumanExecutorClass {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
-        "human_executor"
+        match self {
+            Self::HumanExecutor => "human_executor",
+        }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`HumanTaskError::InvalidExecutorClass`] when `value` is not
+    /// `human_executor`.
     pub fn parse(value: &str) -> Result<Self, HumanTaskError> {
         match value {
             "human_executor" => Ok(Self::HumanExecutor),
@@ -35,6 +44,7 @@ pub enum DisclosureClass {
 }
 
 impl DisclosureClass {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Minimal => "minimal",
@@ -42,6 +52,10 @@ impl DisclosureClass {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`HumanTaskError::InvalidDisclosureClass`] when `value` is not a
+    /// known disclosure class.
     pub fn parse(value: &str) -> Result<Self, HumanTaskError> {
         match value {
             "minimal" => Ok(Self::Minimal),
@@ -58,6 +72,7 @@ pub enum ReconciliationPolicy {
 }
 
 impl ReconciliationPolicy {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RequiredIndependent => "required_independent",
@@ -65,6 +80,10 @@ impl ReconciliationPolicy {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`HumanTaskError::InvalidReconciliationPolicy`] when `value` is not a
+    /// known reconciliation policy.
     pub fn parse(value: &str) -> Result<Self, HumanTaskError> {
         match value {
             "required_independent" => Ok(Self::RequiredIndependent),
@@ -218,6 +237,10 @@ const FORBIDDEN_INPUT_KEYS: &[&str] = &[
     "token",
 ];
 
+/// # Errors
+///
+/// Returns [`HumanTaskError`] when the contract schema, instruction, or fields are
+/// invalid.
 pub fn validate_human_task_contract(contract: &HumanTaskContract) -> Result<(), HumanTaskError> {
     if contract.schema_version != HUMAN_TASK_SCHEMA_VERSION {
         return Err(HumanTaskError::InvalidSchemaVersion(
@@ -269,7 +292,8 @@ fn reject_forbidden_blob(field: &str, value: &str) -> Result<(), HumanTaskError>
     Ok(())
 }
 
-/// Operator self-report never yields Confirmed / ConfirmedNoEffect.
+/// Operator self-report never yields Confirmed / `ConfirmedNoEffect`.
+#[must_use]
 pub fn map_operator_report(
     report: &OperatorReport,
     provider_operation_id: ProviderOperationId,
@@ -296,6 +320,9 @@ pub fn map_operator_report(
     }
 }
 
+/// # Errors
+///
+/// Returns [`HumanTaskError`] when the contract is invalid or `now` is after expiry.
 pub fn project_human_task_packet_from_contract(
     effect_request_id: EffectRequestId,
     attempt_id: EffectAttemptId,

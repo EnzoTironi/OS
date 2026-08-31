@@ -1,7 +1,9 @@
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use crate::{EntityId, InputId, RelationId, SemanticValue, TypeId, UnitId};
 
@@ -20,6 +22,9 @@ impl Error for ExactIntegerError {}
 pub struct ExactInteger(String);
 
 impl ExactInteger {
+    /// # Errors
+    ///
+    /// Returns [`ExactIntegerError`] when `value` is not a canonical exact integer.
     pub fn parse(value: impl Into<String>) -> Result<Self, ExactIntegerError> {
         let value = value.into();
         if is_canonical_integer(&value) {
@@ -29,6 +34,7 @@ impl ExactInteger {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -59,6 +65,9 @@ impl Error for ExactDecimalError {}
 pub struct ExactDecimal(String);
 
 impl ExactDecimal {
+    /// # Errors
+    ///
+    /// Returns [`ExactDecimalError`] when `value` is not a canonical exact decimal.
     pub fn parse(value: impl Into<String>) -> Result<Self, ExactDecimalError> {
         let value = value.into();
         if is_canonical_decimal(&value) {
@@ -68,6 +77,7 @@ impl ExactDecimal {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -169,12 +179,17 @@ impl Display for ExpressionEvaluationError {
 
 impl Error for ExpressionEvaluationError {}
 
+#[must_use]
 pub fn expression_relations(expression: &Expression) -> BTreeSet<RelationId> {
     let mut relations = BTreeSet::new();
     collect_expression_relations(expression, &mut relations);
     relations
 }
 
+/// # Errors
+///
+/// Returns [`ExpressionEvaluationError`] when an input is missing, operands are
+/// invalid for the operator, or integer arithmetic overflows `i128`.
 pub fn evaluate_expression(
     expression: &Expression,
     inputs: &BTreeMap<InputId, ExactValue>,
@@ -440,10 +455,10 @@ fn subtract_magnitudes(left: &[u8], right: &[u8]) -> Vec<u8> {
     for index in (0..left.len()).rev() {
         let difference = i16::from(left[index]) - borrow - i16::from(right[index]);
         if difference < 0 {
-            result[index] = (difference + 10) as u8;
+            result[index] = u8::try_from(difference + 10).unwrap_or(0);
             borrow = 1;
         } else {
-            result[index] = difference as u8;
+            result[index] = u8::try_from(difference).unwrap_or(0);
             borrow = 0;
         }
     }

@@ -7,6 +7,7 @@ use zoen_core::{
     ExactValue, IntentDigest, MigrationArtifactDependency, MigrationDependency, MigrationElement,
     MigrationObligationSource, MigrationPlan, MigrationPostcondition, MigrationRecord,
     MigrationRule, MigrationRuleId, MigrationRuleKind, OperationId, RelationId, ValidTime,
+    encode_hex,
 };
 
 use super::MigrationError;
@@ -14,7 +15,7 @@ use super::MigrationError;
 const MIGRATION_PLAN_SCHEMA: &str = "zoen.migration.v1";
 
 pub(super) fn digest(bytes: &[u8]) -> Result<IntentDigest, MigrationError> {
-    IntentDigest::parse(hex_digest(Sha256::digest(bytes)))
+    IntentDigest::parse(encode_hex(Sha256::digest(bytes).as_ref()))
         .map_err(|error| MigrationError::Configuration(error.to_string()))
 }
 
@@ -111,6 +112,12 @@ pub(super) fn encode_migration_plan(plan: &MigrationPlan) -> Result<String, Migr
         .map_err(|error| MigrationError::Configuration(error.to_string()))
 }
 
+/// Decode a canonical migration plan document.
+///
+/// # Errors
+///
+/// Returns an error when the JSON is malformed, the schema is unknown, the bytes are not
+/// canonical, or a field cannot be parsed.
 pub fn decode_migration_plan(source: &str) -> Result<MigrationPlan, String> {
     let document =
         serde_json::from_str::<MigrationPlanDocument>(source).map_err(|error| error.to_string())?;
@@ -632,12 +639,4 @@ fn parse_rule_kind(value: &str) -> Result<MigrationRuleKind, String> {
         "transform" => Ok(MigrationRuleKind::Transform),
         _ => Err(format!("unknown migration rule kind {value:?}")),
     }
-}
-
-fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }

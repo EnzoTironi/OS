@@ -75,7 +75,7 @@ const cargoTargetDir = (() => {
   }
   return path.isAbsolute(raw) ? raw : path.join(repositoryRoot, raw);
 })();
-const serverPath = path.join(cargoTargetDir, "debug", "zoend");
+const serverPath = path.join(cargoTargetDir, "debug", "zoen");
 const workerPath = path.join(cargoTargetDir, "debug", "zoen-projection");
 const postgresPortFallback = 55_433;
 const zoendPortFallback = 58_081;

@@ -273,7 +273,7 @@ sleep 1
 docker exec "$zoend_pg_name" psql -U postgres -d zoen -c 'SELECT 1' >/dev/null \
   || fail "zoend postgres select 1 failed"
 
-zoend_bin="${repo}/target/debug/zoend"
+zoend_bin="${repo}/target/debug/zoen"
 if [[ ! -x "$zoend_bin" ]]; then
   (
     cd "$repo"
@@ -562,7 +562,7 @@ record "plant reception reserve grant with floor clearance" \
   "psql UPDATE memberships delegation_json += zoen.world.reserve" \
   "memberships.delegation_json" "0" "reserve granted; clearance floor"
 
-zoen_bin="${repo}/apps/zoen/zoen"
+zoen_bin="${repo}/target/debug/zoen"
 [[ -x "$zoen_bin" ]] || fail "planted zoen CLI missing at ${zoen_bin}"
 
 export ZOEN_ZOEND="$zoend_base"

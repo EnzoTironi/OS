@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use zoen_core::{
     CanonicalDefinition, Expression, InputDefinition, RelationTarget, allows_empty_action_effects,

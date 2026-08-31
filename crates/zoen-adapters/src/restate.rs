@@ -17,6 +17,7 @@ pub struct RestateEffectScheduler {
 }
 
 impl RestateEffectScheduler {
+    #[must_use]
     pub fn new(ingress: Url) -> Self {
         Self {
             client: Client::new(),
@@ -34,7 +35,7 @@ impl DispatchScheduler for RestateEffectScheduler {
         let key = restate_effect_key(command);
         let mut url = self.ingress.clone();
         url.path_segments_mut()
-            .map_err(|_| {
+            .map_err(|()| {
                 DispatchScheduleError::InvalidResponse(
                     "Restate ingress URL cannot hold path segments".to_owned(),
                 )
@@ -77,6 +78,7 @@ impl DispatchScheduler for RestateEffectScheduler {
     }
 }
 
+#[must_use]
 pub fn restate_effect_key(command: &DispatchScheduleCommand) -> String {
     format!(
         "{}:{}:{}",

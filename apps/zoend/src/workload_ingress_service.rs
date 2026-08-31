@@ -1,13 +1,16 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeSet,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use axum::Json;
-use axum::Router;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
-use axum::routing::{post, put};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    routing::{post, put},
+};
 use serde::{Deserialize, Serialize};
 use zoen_adapters::{
     IssueWorkloadCredential, PostgresExternalSignalStore, PostgresWorkloadCredentialStore,
@@ -189,28 +192,28 @@ async fn issue_credential(
     let expires_at = TimestampMicros::new(body.expires_at_micros);
     let delegation = match build_delegation(&body.delegation, &body.workload_id) {
         Ok(value) => value,
-        Err(message) => return bad_request(message),
+        Err(message) => return bad_request(&message),
     };
     let allowed_ingress = match parse_ingress(&body.allowed_ingress) {
         Ok(value) => value,
-        Err(message) => return bad_request(message),
+        Err(message) => return bad_request(&message),
     };
     let cmd = IssueWorkloadCredential {
         tenant_id: match TenantId::parse(body.tenant_id) {
             Ok(value) => value,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         },
         workload_id: match WorkloadId::parse(body.workload_id) {
             Ok(value) => value,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         },
         principal_id: match PrincipalId::parse(body.principal_id) {
             Ok(value) => value,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         },
         actor_id: match ActorId::parse(body.actor_id) {
             Ok(value) => value,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         },
         delegation,
         allowed_ingress,
@@ -222,7 +225,7 @@ async fn issue_credential(
         audience_class: match body.audience_class {
             Some(value) => match AudienceClass::parse(value) {
                 Ok(value) => Some(value),
-                Err(error) => return identity_error(error),
+                Err(error) => return identity_error(&error),
             },
             None => None,
         },
@@ -242,7 +245,7 @@ async fn issue_credential(
             }),
         )
             .into_response(),
-        Err(error) => identity_error(error),
+        Err(error) => identity_error(&error),
     }
 }
 
@@ -257,11 +260,11 @@ async fn revoke_credential(
     }
     let id = match WorkloadCredentialId::parse(credential_id) {
         Ok(value) => value,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let reason = match WorkloadRevocationReason::parse(body.reason.as_deref().unwrap_or("admin")) {
         Ok(value) => value,
-        Err(error) => return identity_error(error),
+        Err(error) => return identity_error(&error),
     };
     match state.credentials.revoke(&id, reason).await {
         Ok(credential) => {
@@ -277,7 +280,7 @@ async fn revoke_credential(
             )
                 .into_response()
         }
-        Err(error) => identity_error(error),
+        Err(error) => identity_error(&error),
     }
 }
 
@@ -288,10 +291,10 @@ async fn authenticate(
     let (credential, tec) = if let Some(api_key) = body.api_key.as_deref() {
         match state.credentials.resolve_api_key(api_key).await {
             Ok(value) => value,
-            Err(error) => return identity_error(error),
+            Err(error) => return identity_error(&error),
         }
     } else {
-        return bad_request("apiKey required".to_owned());
+        return bad_request("apiKey required");
     };
 
     let exchange_token = state
@@ -305,7 +308,11 @@ async fn authenticate(
             grant.actions().iter().map(|action| ScopeJson {
                 kind: "action".to_owned(),
                 definition_id: action.to_string(),
-                resource_id: grant.resources().iter().next().map(|id| id.to_string()),
+                resource_id: grant
+                    .resources()
+                    .iter()
+                    .next()
+                    .map(std::string::ToString::to_string),
             })
         })
         .collect::<Vec<_>>();
@@ -339,60 +346,23 @@ async fn accept_signal(
         .await
     {
         Ok(value) => value,
-        Err(error) => return identity_error(error),
+        Err(error) => return identity_error(&error),
     };
     let credential = match state.credentials.get(&credential_id).await {
         Ok(value) => value,
-        Err(error) => return identity_error(error),
+        Err(error) => return identity_error(&error),
     };
-    let now = TimestampMicros::new(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_micros() as i64)
-            .unwrap_or(0),
-    );
+    let now = now_micros();
     if let Err(error) = zoen_core::trusted_context_from_workload_credential(&credential, now) {
-        return identity_error(error);
+        return identity_error(&error);
     }
     if let Err(error) = state.credentials.consume_accept_budget(&credential).await {
-        return identity_error(error);
+        return identity_error(&error);
     }
 
-    let draft = ExternalSignalDraft {
-        durable_event_id: match DurableEventId::parse(body.durable_event_id) {
-            Ok(value) => value,
-            Err(error) => return bad_request(error.to_string()),
-        },
-        source: SignalSourceIdentity {
-            class: match SourceClass::parse(body.source.class) {
-                Ok(value) => value,
-                Err(error) => return identity_error(error),
-            },
-            external_id: body.source.external_id,
-            audience_class: match body.source.audience_class {
-                Some(value) => match AudienceClass::parse(value) {
-                    Ok(value) => Some(value),
-                    Err(error) => return identity_error(error),
-                },
-                None => None,
-            },
-        },
-        payload_digest_ref: match DigestRef::parse(body.payload_digest_ref) {
-            Ok(value) => value,
-            Err(error) => return bad_request(error.to_string()),
-        },
-        source_digest_ref: match DigestRef::parse(body.source_digest_ref) {
-            Ok(value) => value,
-            Err(error) => return bad_request(error.to_string()),
-        },
-        trust_disposition: match SignalTrustDisposition::parse(
-            body.trust_disposition
-                .as_deref()
-                .unwrap_or("evidence_candidate"),
-        ) {
-            Ok(value) => value,
-            Err(error) => return bad_request(error.to_string()),
-        },
+    let draft = match parse_signal_draft(body) {
+        Ok(draft) => draft,
+        Err(error) => return *error,
     };
 
     match state.signals.accept(&tec, &credential, draft).await {
@@ -423,8 +393,49 @@ async fn accept_signal(
             )
                 .into_response()
         }
-        Err(error) => identity_error(error),
+        Err(error) => identity_error(&error),
     }
+}
+
+fn parse_signal_draft(
+    body: AcceptSignalBody,
+) -> Result<ExternalSignalDraft, Box<axum::response::Response>> {
+    Ok(ExternalSignalDraft {
+        durable_event_id: DurableEventId::parse(body.durable_event_id)
+            .map_err(|error| Box::new(bad_request(&error.to_string())))?,
+        source: SignalSourceIdentity {
+            class: SourceClass::parse(body.source.class)
+                .map_err(|error| Box::new(identity_error(&error)))?,
+            external_id: body.source.external_id,
+            audience_class: match body.source.audience_class {
+                Some(value) => Some(
+                    AudienceClass::parse(value)
+                        .map_err(|error| Box::new(identity_error(&error)))?,
+                ),
+                None => None,
+            },
+        },
+        payload_digest_ref: DigestRef::parse(body.payload_digest_ref)
+            .map_err(|error| Box::new(bad_request(&error.to_string())))?,
+        source_digest_ref: DigestRef::parse(body.source_digest_ref)
+            .map_err(|error| Box::new(bad_request(&error.to_string())))?,
+        trust_disposition: SignalTrustDisposition::parse(
+            body.trust_disposition
+                .as_deref()
+                .unwrap_or("evidence_candidate"),
+        )
+        .map_err(|error| Box::new(bad_request(&error.to_string())))?,
+    })
+}
+
+fn now_micros() -> TimestampMicros {
+    TimestampMicros::new(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| i64::try_from(duration.as_micros()).ok())
+            .unwrap_or(0),
+    )
 }
 
 async fn require_ops_bearer(
@@ -518,7 +529,7 @@ fn parse_ingress(items: &[IngressBody]) -> Result<Vec<IngressAllowance>, String>
         .collect()
 }
 
-fn identity_error(error: IdentityError) -> axum::response::Response {
+fn identity_error(error: &IdentityError) -> axum::response::Response {
     let status = match error {
         IdentityError::Unauthenticated
         | IdentityError::WorkloadCredentialInactive
@@ -537,7 +548,7 @@ fn identity_error(error: IdentityError) -> axum::response::Response {
         .into_response()
 }
 
-fn bad_request(message: String) -> axum::response::Response {
+fn bad_request(message: &str) -> axum::response::Response {
     (
         StatusCode::BAD_REQUEST,
         Json(serde_json::json!({ "error": message })),

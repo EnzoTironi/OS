@@ -1,7 +1,9 @@
-use crate::identity::{
-    AudienceClass, DurableEventId, ExternalSignalId, SourceClass, WorkloadCredentialId,
+use crate::{
+    PrincipalId, TenantId, TimestampMicros, WorkloadId,
+    identity::{
+        AudienceClass, DurableEventId, ExternalSignalId, SourceClass, WorkloadCredentialId,
+    },
 };
-use crate::{PrincipalId, TenantId, TimestampMicros, WorkloadId};
 
 /// Programmatic/event ingress record. Not human speech. Not accepted world state.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,6 +32,10 @@ pub struct SignalSourceIdentity {
 pub struct DigestRef(String);
 
 impl DigestRef {
+    /// # Errors
+    ///
+    /// Returns [`ExternalSignalError::InvalidDigestRef`] when `value` is not a
+    /// `sha256:` prefix followed by 64 lowercase hex characters.
     pub fn parse(value: impl Into<String>) -> Result<Self, ExternalSignalError> {
         let value = value.into();
         if !value.starts_with("sha256:") || value.len() != 71 {
@@ -45,6 +51,7 @@ impl DigestRef {
         Ok(Self(value))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -58,6 +65,7 @@ pub enum SignalTrustDisposition {
 }
 
 impl SignalTrustDisposition {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AttentionCandidate => "attention_candidate",
@@ -66,6 +74,10 @@ impl SignalTrustDisposition {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ExternalSignalError::InvalidTrustDisposition`] when `value` is not a
+    /// known trust disposition.
     pub fn parse(value: &str) -> Result<Self, ExternalSignalError> {
         match value {
             "attention_candidate" => Ok(Self::AttentionCandidate),
@@ -85,7 +97,7 @@ pub struct ExternalSignalDraft {
     pub trust_disposition: SignalTrustDisposition,
 }
 
-/// Promotion seam: ExternalSignal → evidence candidate only when disposition allows.
+/// Promotion seam: `ExternalSignal` → evidence candidate only when disposition allows.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvidenceCandidateOffer {
     pub signal_id: ExternalSignalId,
@@ -95,6 +107,10 @@ pub struct EvidenceCandidateOffer {
     pub workload_credential_id: WorkloadCredentialId,
 }
 
+/// # Errors
+///
+/// Returns [`ExternalSignalError::NotEvidenceCandidate`] when the signal is not
+/// already an evidence candidate.
 pub fn offer_external_signal_as_evidence_candidate(
     signal: &ExternalSignal,
 ) -> Result<EvidenceCandidateOffer, ExternalSignalError> {

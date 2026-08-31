@@ -114,7 +114,7 @@ const cargoTargetDir = (() => {
   }
   return path.isAbsolute(raw) ? raw : path.join(repositoryRoot, raw);
 })();
-const serverPath = path.join(cargoTargetDir, "debug", "zoend");
+const serverPath = path.join(cargoTargetDir, "debug", "zoen");
 const commercialSource = path.join(
   repositoryRoot,
   "packages",

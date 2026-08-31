@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use buffa::MessageView;
 use connectrpc::{
@@ -20,18 +22,20 @@ use zoen_engine::{
 };
 use zoen_query::QueryRuntime;
 
-use crate::proto::zoen::action::v1::{
-    ActionCapability, ActionInput, ActionService, Approval, ApproveRequest, ApproveResponse,
-    CommitIdentityKind, CommitReceipt as ProtocolCommitReceipt, CommitRequest, CommitResponse,
-    CommitStatus, ComponentExecutionEvidence, DelegationGrant, DiscoverRequest, DiscoverResponse,
-    GetOperationStatusRequest, GetOperationStatusResponse, PolicyDecision, PolicyEvidence,
-    PolicyRevision, Proposal, ProposalStatus, ProposeRequest, ProposeResponse, StateBasis,
-    StateDependency, TrustedContext,
-};
-use crate::session::SessionExchange;
-use crate::world_service::{
-    invalid, parse_definition_reference, parse_exact_value, parse_timestamp,
-    to_definition_reference, to_exact_value, to_timestamp,
+use crate::{
+    proto::zoen::action::v1::{
+        ActionCapability, ActionInput, ActionService, Approval, ApproveRequest, ApproveResponse,
+        CommitIdentityKind, CommitReceipt as ProtocolCommitReceipt, CommitRequest, CommitResponse,
+        CommitStatus, ComponentExecutionEvidence, DelegationGrant, DiscoverRequest,
+        DiscoverResponse, GetOperationStatusRequest, GetOperationStatusResponse, PolicyDecision,
+        PolicyEvidence, PolicyRevision, Proposal, ProposalStatus, ProposeRequest, ProposeResponse,
+        StateBasis, StateDependency, TrustedContext,
+    },
+    session::SessionExchange,
+    world_service::{
+        invalid, parse_definition_reference, parse_exact_value, parse_timestamp,
+        to_definition_reference, to_exact_value, to_timestamp,
+    },
 };
 
 pub struct ActionServiceImpl {
@@ -73,7 +77,7 @@ impl ActionService for ActionServiceImpl {
             .engine
             .discover(&trusted, &definition, &resource_id, now()?)
             .await
-            .map_err(map_action_error)?
+            .map_err(|error| map_action_error(&error))?
             .into_iter()
             .map(|discovery| to_capability(discovery.action_id.as_str(), discovery.evaluation))
             .collect();
@@ -163,35 +167,8 @@ impl ActionService for ActionServiceImpl {
                 },
             )
             .await
-            .map_err(map_action_error)?;
-        let trusted_context = Some(to_trusted_context(&trusted)).into();
-        match outcome {
-            ProposeOutcome::Accepted(proposal) => Response::ok(ProposeResponse {
-                decision: PolicyDecision::Permit.into(),
-                proposal: Some(to_proposal(*proposal)).into(),
-                trusted_context,
-                ..Default::default()
-            }),
-            ProposeOutcome::Denied(policy) => Response::ok(ProposeResponse {
-                decision: PolicyDecision::Deny.into(),
-                policy: Some(to_policy_evidence(policy)).into(),
-                trusted_context,
-                ..Default::default()
-            }),
-            ProposeOutcome::PreconditionDenied(state_basis) => Response::ok(ProposeResponse {
-                decision: PolicyDecision::Deny.into(),
-                state_basis: Some(to_state_basis(state_basis)).into(),
-                trusted_context,
-                ..Default::default()
-            }),
-            ProposeOutcome::EvaluationError { message, policy } => Response::ok(ProposeResponse {
-                decision: PolicyDecision::EvaluationError.into(),
-                evaluation_error: message,
-                policy: policy.map(to_policy_evidence).into(),
-                trusted_context,
-                ..Default::default()
-            }),
-        }
+            .map_err(|error| map_action_error(&error))?;
+        Response::ok(propose_response(outcome, &trusted))
     }
 
     async fn approve(
@@ -229,7 +206,7 @@ impl ActionService for ActionServiceImpl {
                 preview_hash,
             )
             .await
-            .map_err(map_action_error)?;
+            .map_err(|error| map_action_error(&error))?;
         match outcome {
             ApproveOutcome::Approved(approval) => Response::ok(ApproveResponse {
                 approval: Some(to_approval(approval)).into(),
@@ -322,7 +299,7 @@ impl ActionService for ActionServiceImpl {
                     ..Default::default()
                 })
             }
-            Err(error) => Err(map_action_error(error)),
+            Err(error) => Err(map_action_error(&error)),
         }
     }
 
@@ -343,12 +320,43 @@ impl ActionService for ActionServiceImpl {
             .engine
             .operation_status(&trusted, &operation_id)
             .await
-            .map_err(map_action_error)?;
+            .map_err(|error| map_action_error(&error))?;
         Response::ok(GetOperationStatusResponse {
             receipt: Some(to_commit_receipt(receipt)).into(),
             status: CommitStatus::Committed.into(),
             ..Default::default()
         })
+    }
+}
+
+fn propose_response(outcome: ProposeOutcome, trusted: &TrustedExecutionContext) -> ProposeResponse {
+    let trusted_context = Some(to_trusted_context(trusted)).into();
+    match outcome {
+        ProposeOutcome::Accepted(proposal) => ProposeResponse {
+            decision: PolicyDecision::Permit.into(),
+            proposal: Some(to_proposal(*proposal)).into(),
+            trusted_context,
+            ..Default::default()
+        },
+        ProposeOutcome::Denied(policy) => ProposeResponse {
+            decision: PolicyDecision::Deny.into(),
+            policy: Some(to_policy_evidence(policy)).into(),
+            trusted_context,
+            ..Default::default()
+        },
+        ProposeOutcome::PreconditionDenied(state_basis) => ProposeResponse {
+            decision: PolicyDecision::Deny.into(),
+            state_basis: Some(to_state_basis(state_basis)).into(),
+            trusted_context,
+            ..Default::default()
+        },
+        ProposeOutcome::EvaluationError { message, policy } => ProposeResponse {
+            decision: PolicyDecision::EvaluationError.into(),
+            evaluation_error: message,
+            policy: policy.map(to_policy_evidence).into(),
+            trusted_context,
+            ..Default::default()
+        },
     }
 }
 
@@ -442,8 +450,12 @@ pub(crate) fn to_proposal(proposal: ActionProposal) -> Proposal {
     };
     Proposal {
         action_id: proposal.action_id.as_str().to_owned(),
-        definition: Some(to_definition_reference(proposal.definition)).into(),
-        execution: proposal.execution.map(to_component_execution).into(),
+        definition: Some(to_definition_reference(&proposal.definition)).into(),
+        execution: proposal
+            .execution
+            .as_ref()
+            .map(to_component_execution)
+            .into(),
         expires_at: Some(to_timestamp(proposal.expires_at)).into(),
         inputs: proposal
             .inputs
@@ -471,7 +483,7 @@ pub(crate) fn to_proposal(proposal: ActionProposal) -> Proposal {
 }
 
 pub(crate) fn to_component_execution(
-    evidence: CoreComponentExecutionEvidence,
+    evidence: &CoreComponentExecutionEvidence,
 ) -> ComponentExecutionEvidence {
     ComponentExecutionEvidence {
         capability_ids: evidence
@@ -536,7 +548,7 @@ pub(crate) fn to_commit_receipt(receipt: CommitReceipt) -> ProtocolCommitReceipt
         action_id: receipt.action_id.as_str().to_owned(),
         commit_sequence: receipt.commit_sequence.get(),
         commit_state_basis: receipt.commit_state_basis.map(to_state_basis).into(),
-        definition: Some(to_definition_reference(receipt.definition)).into(),
+        definition: Some(to_definition_reference(&receipt.definition)).into(),
         effect_request_ids: receipt
             .effect_request_ids
             .into_iter()
@@ -571,8 +583,8 @@ fn now() -> Result<TimestampMicros, ConnectError> {
     Ok(TimestampMicros::new(micros))
 }
 
-fn map_action_error(error: ActionError) -> ConnectError {
-    let code = match &error {
+fn map_action_error(error: &ActionError) -> ConnectError {
+    let code = match error {
         ActionError::ApprovalExpired
         | ActionError::ApprovalOutsideBounds
         | ActionError::Evaluation(_)
@@ -580,7 +592,7 @@ fn map_action_error(error: ActionError) -> ConnectError {
         | ActionError::InactiveDefinition => ErrorCode::FailedPrecondition,
         ActionError::Definition(_) | ActionError::Input(_) => ErrorCode::InvalidArgument,
         ActionError::DelegationDenied => ErrorCode::PermissionDenied,
-        ActionError::Store(error) => return crate::service::map_store_error(error.clone()),
+        ActionError::Store(error) => return crate::service::map_store_error(error),
     };
     ConnectError::new(code, error.to_string())
 }

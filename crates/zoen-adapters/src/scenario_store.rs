@@ -7,14 +7,18 @@ use zoen_engine::{
     Scenario, ScenarioProposalPlan, ScenarioStatus, StoreError, state_basis_digest_matches,
 };
 
-use crate::action_store::commit_sequence as parse_commit_sequence;
-use crate::action_store::state_basis::load_current;
-use crate::action_store::writes::{
-    OperationInsertError, insert_effect_request, insert_operation, insert_operation_records,
-    insert_semantic_record,
+use crate::{
+    action_store::{
+        commit_sequence as parse_commit_sequence,
+        state_basis::load_current,
+        writes::{
+            OperationInsertError, insert_effect_request, insert_operation,
+            insert_operation_records, insert_semantic_record,
+        },
+        {self},
+    },
+    set_tenant, store_unavailable, u64_to_i64, valid_time_columns, value_columns,
 };
-use crate::action_store::{self};
-use crate::{set_tenant, store_unavailable, u64_to_i64, valid_time_columns, value_columns};
 
 pub(crate) async fn current_head(
     pool: &PgPool,
@@ -67,7 +71,7 @@ pub(crate) async fn insert_open_scenario(
     }
     transaction.commit().await.map_err(store_unavailable)?;
     Ok(Scenario {
-        scenario_id: scenario_id.clone(),
+        id: scenario_id.clone(),
         base_commit_sequence: base,
         status: ScenarioStatus::Open,
         created_principal_id: context.principal_id().as_str().to_owned(),
@@ -125,7 +129,7 @@ pub(crate) async fn get_scenario(
         .try_get::<Option<i64>, _>("applied_commit_sequence")
         .map_err(store_unavailable)?;
     Ok(Scenario {
-        scenario_id: ScenarioId::parse(
+        id: ScenarioId::parse(
             row.try_get::<String, _>("scenario_id")
                 .map_err(store_unavailable)?,
         )
@@ -327,7 +331,7 @@ pub(crate) async fn commit_scenario_package(
          FOR UPDATE",
     )
     .bind(context.tenant_id().as_str())
-    .bind(scenario.scenario_id.as_str())
+    .bind(scenario.id.as_str())
     .fetch_one(&mut *transaction)
     .await
     .map_err(store_unavailable)?;
@@ -347,8 +351,74 @@ pub(crate) async fn commit_scenario_package(
     .await
     .map_err(store_unavailable)?;
     let commit_sequence = parse_commit_sequence(next_sequence, "commit sequence")?;
+    apply_scenario_plans(
+        &mut transaction,
+        context,
+        plans,
+        head,
+        next_sequence,
+        commit_sequence,
+    )
+    .await?;
+    finalize_scenario_commit(&mut transaction, context, scenario, next_sequence).await?;
+    transaction.commit().await.map_err(store_unavailable)?;
+    Ok(commit_sequence)
+}
+
+async fn finalize_scenario_commit(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: &ExecutionContext,
+    scenario: &Scenario,
+    next_sequence: i64,
+) -> Result<(), StoreError> {
+    let updated = sqlx::query(
+        "UPDATE authority_heads
+         SET commit_sequence = $2
+         WHERE tenant_id = $1",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(next_sequence)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    if updated.rows_affected() != 1 {
+        return Err(StoreError::Corrupt(
+            "authority head update affected an unexpected row count".to_owned(),
+        ));
+    }
+    sqlx::query(
+        "UPDATE world_scenarios
+         SET status = 'applied', applied_commit_sequence = $3
+         WHERE tenant_id = $1 AND scenario_id = $2",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(scenario.id.as_str())
+    .bind(next_sequence)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    sqlx::query(
+        "DELETE FROM overlay_claims
+         WHERE tenant_id = $1 AND scenario_id = $2",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(scenario.id.as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    Ok(())
+}
+
+async fn apply_scenario_plans(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: &ExecutionContext,
+    plans: &[ScenarioProposalPlan],
+    head: i64,
+    next_sequence: i64,
+    commit_sequence: CommitSequence,
+) -> Result<(), StoreError> {
     for plan in plans {
-        let current_basis = load_current(&mut transaction, context, &plan.proposal, head).await?;
+        let current_basis = load_current(transaction, context, &plan.proposal, head).await?;
         let basis_matches = state_basis_digest_matches(
             &current_basis.dependencies,
             &plan.proposal.state_basis.digest,
@@ -380,7 +450,7 @@ pub(crate) async fn commit_scenario_package(
                 .map(|effect| effect.evidence.draft().claim_id.clone())
                 .collect(),
         };
-        insert_operation(&mut transaction, context.tenant_id(), &receipt)
+        insert_operation(transaction, context.tenant_id(), &receipt)
             .await
             .map_err(|error| match error {
                 OperationInsertError::Store(error) => error,
@@ -394,17 +464,17 @@ pub(crate) async fn commit_scenario_package(
             })?;
         for effect in &plan.effects {
             insert_semantic_record(
-                &mut transaction,
+                transaction,
                 context.tenant_id(),
                 next_sequence,
                 &effect.evidence,
             )
             .await?;
         }
-        insert_operation_records(&mut transaction, context.tenant_id(), &receipt).await?;
+        insert_operation_records(transaction, context.tenant_id(), &receipt).await?;
         for (ordinal, effect) in plan.effects.iter().enumerate() {
             insert_effect_request(
-                &mut transaction,
+                transaction,
                 context.tenant_id(),
                 next_sequence,
                 ordinal,
@@ -415,43 +485,7 @@ pub(crate) async fn commit_scenario_package(
             .await?;
         }
     }
-    let updated = sqlx::query(
-        "UPDATE authority_heads
-         SET commit_sequence = $2
-         WHERE tenant_id = $1",
-    )
-    .bind(context.tenant_id().as_str())
-    .bind(next_sequence)
-    .execute(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
-    if updated.rows_affected() != 1 {
-        return Err(StoreError::Corrupt(
-            "authority head update affected an unexpected row count".to_owned(),
-        ));
-    }
-    sqlx::query(
-        "UPDATE world_scenarios
-         SET status = 'applied', applied_commit_sequence = $3
-         WHERE tenant_id = $1 AND scenario_id = $2",
-    )
-    .bind(context.tenant_id().as_str())
-    .bind(scenario.scenario_id.as_str())
-    .bind(next_sequence)
-    .execute(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
-    sqlx::query(
-        "DELETE FROM overlay_claims
-         WHERE tenant_id = $1 AND scenario_id = $2",
-    )
-    .bind(context.tenant_id().as_str())
-    .bind(scenario.scenario_id.as_str())
-    .execute(&mut *transaction)
-    .await
-    .map_err(store_unavailable)?;
-    transaction.commit().await.map_err(store_unavailable)?;
-    Ok(commit_sequence)
+    Ok(())
 }
 
 async fn insert_overlay_draft(
@@ -502,8 +536,18 @@ async fn insert_overlay_draft(
     .bind(&draft.provenance.source_ref)
     .bind(overlay_seq)
     .bind(proposal_id.as_str())
-    .bind(draft.provenance.observed_at.map(|value| value.get()))
-    .bind(draft.provenance.ingested_at.map(|value| value.get()))
+    .bind(
+        draft
+            .provenance
+            .observed_at
+            .map(zoen_core::TimestampMicros::get),
+    )
+    .bind(
+        draft
+            .provenance
+            .ingested_at
+            .map(zoen_core::TimestampMicros::get),
+    )
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;

@@ -1,19 +1,21 @@
-use std::collections::HashMap;
-use std::env;
-use std::error::Error;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    env,
+    error::Error,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use axum::extract::{Request, State};
-use axum::http::header::AUTHORIZATION;
-use axum::http::{HeaderMap, StatusCode};
-use axum::middleware::{self, Next};
-use axum::response::Response;
-use axum::routing::{get, post};
-use axum::{Json, Router};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
+use axum::{
+    Json, Router,
+    extract::{Request, State},
+    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
+    middleware::{self, Next},
+    response::Response,
+    routing::{get, post},
+};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -204,31 +206,38 @@ async fn execute(
         })
         .send()
         .await;
-    let response = match response {
-        Ok(response) => response,
-        Err(error) if error.is_connect() => {
-            return Ok(Json(ConnectorResponse::DefinitelyNotSent {
-                observed_at_micros: observed_at_micros(),
-                reason: "timeout_before_send",
-            }));
+    match response {
+        Ok(response) => provider_outcome(response).await,
+        Err(error) => Ok(Json(provider_send_error(&error))),
+    }
+}
+
+fn provider_send_error(error: &reqwest::Error) -> ConnectorResponse {
+    if error.is_connect() {
+        ConnectorResponse::DefinitelyNotSent {
+            observed_at_micros: observed_at_micros(),
+            reason: "timeout_before_send",
         }
-        Err(error) if error.is_timeout() => {
-            return Ok(Json(ConnectorResponse::Unknown {
-                observed_at_micros: observed_at_micros(),
-                provider_operation_id: None,
-                reason: "timeout_after_possible_delivery",
-                response_digest: None,
-            }));
+    } else if error.is_timeout() {
+        ConnectorResponse::Unknown {
+            observed_at_micros: observed_at_micros(),
+            provider_operation_id: None,
+            reason: "timeout_after_possible_delivery",
+            response_digest: None,
         }
-        Err(_) => {
-            return Ok(Json(ConnectorResponse::Unknown {
-                observed_at_micros: observed_at_micros(),
-                provider_operation_id: None,
-                reason: "provider_unavailable",
-                response_digest: None,
-            }));
+    } else {
+        ConnectorResponse::Unknown {
+            observed_at_micros: observed_at_micros(),
+            provider_operation_id: None,
+            reason: "provider_unavailable",
+            response_digest: None,
         }
-    };
+    }
+}
+
+async fn provider_outcome(
+    response: reqwest::Response,
+) -> Result<Json<ConnectorResponse>, HttpError> {
     let status = response.status();
     let body = response.bytes().await.map_err(|error| {
         (
@@ -237,15 +246,9 @@ async fn execute(
         )
     })?;
     let response_digest = sha256(&body);
-    if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
-        return Ok(Json(ConnectorResponse::Unknown {
-            observed_at_micros: observed_at_micros(),
-            provider_operation_id: None,
-            reason: "provider_unavailable",
-            response_digest: Some(response_digest),
-        }));
-    }
-    if !matches!(status, StatusCode::OK | StatusCode::ACCEPTED) {
+    if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
+        || !matches!(status, StatusCode::OK | StatusCode::ACCEPTED)
+    {
         return Ok(Json(ConnectorResponse::Unknown {
             observed_at_micros: observed_at_micros(),
             provider_operation_id: None,
@@ -273,31 +276,29 @@ async fn execute(
         }
     };
     let observed_at_micros = observed_at_micros();
-    match (status, provider.outcome.as_str()) {
-        (StatusCode::ACCEPTED, "accepted_pending") => {
-            Ok(Json(ConnectorResponse::AcceptedPending {
-                observed_at_micros,
-                provider_operation_id: provider.provider_operation_id,
-                response_digest,
-            }))
-        }
-        (StatusCode::OK, "confirmed") => Ok(Json(ConnectorResponse::Confirmed {
+    Ok(Json(match (status, provider.outcome.as_str()) {
+        (StatusCode::ACCEPTED, "accepted_pending") => ConnectorResponse::AcceptedPending {
             observed_at_micros,
             provider_operation_id: provider.provider_operation_id,
             response_digest,
-        })),
-        (StatusCode::OK, "confirmed_no_effect") => Ok(Json(ConnectorResponse::ConfirmedNoEffect {
+        },
+        (StatusCode::OK, "confirmed") => ConnectorResponse::Confirmed {
             observed_at_micros,
             provider_operation_id: provider.provider_operation_id,
             response_digest,
-        })),
-        _ => Ok(Json(ConnectorResponse::Unknown {
+        },
+        (StatusCode::OK, "confirmed_no_effect") => ConnectorResponse::ConfirmedNoEffect {
+            observed_at_micros,
+            provider_operation_id: provider.provider_operation_id,
+            response_digest,
+        },
+        _ => ConnectorResponse::Unknown {
             observed_at_micros,
             provider_operation_id: Some(provider.provider_operation_id),
             reason: "response_schema_error",
             response_digest: Some(response_digest),
-        })),
-    }
+        },
+    }))
 }
 
 async fn query_status(
@@ -316,7 +317,7 @@ async fn query_status(
     require_tenant(binding, &request.tenant_id)?;
     let mut url = state.provider.clone();
     url.path_segments_mut()
-        .map_err(|_| {
+        .map_err(|()| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "provider URL cannot hold path segments".to_owned(),
@@ -389,10 +390,7 @@ fn require_tenant(binding: &CredentialBinding, tenant_id: &str) -> Result<(), Ht
 }
 
 fn sha256(value: &[u8]) -> String {
-    Sha256::digest(value)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    zoen_core::encode_hex(Sha256::digest(value).as_slice())
 }
 
 fn observed_at_micros() -> String {

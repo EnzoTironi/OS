@@ -1,38 +1,43 @@
 #!/usr/bin/env node
 import { createHmac } from "node:crypto";
 
-const url = process.argv[2];
+const [, , url] = process.argv;
 const secret = process.env.KAPSO_WEBHOOK_SECRET;
-if (url === undefined || url.length === 0 || secret === undefined || secret.length === 0) {
+if (
+  url === undefined ||
+  url.length === 0 ||
+  secret === undefined ||
+  secret.length === 0
+) {
   console.error(
-    "usage: KAPSO_WEBHOOK_SECRET=... node scripts/kapso-webhook-admit.mjs <url>",
+    "usage: KAPSO_WEBHOOK_SECRET=... node scripts/kapso-webhook-admit.mjs <url>"
   );
   process.exit(2);
 }
 
 const fixture = JSON.stringify({
-  message: {
-    id: "wamid.proof1",
-    timestamp: "1730092800",
-    type: "text",
-    from: "16315551181",
-    text: { body: "oi" },
-    kapso: {
-      direction: "inbound",
-      status: "received",
-      processing_status: "pending",
-      origin: "cloud_api",
-      has_media: false,
-      content: "oi",
-    },
-  },
   conversation: {
     id: "conv_proof1",
     phone_number: "16315551181",
-    status: "active",
     phone_number_id: "597907523413541",
+    status: "active",
   },
   is_new_conversation: true,
+  message: {
+    from: "16315551181",
+    id: "wamid.proof1",
+    kapso: {
+      content: "oi",
+      direction: "inbound",
+      has_media: false,
+      origin: "cloud_api",
+      processing_status: "pending",
+      status: "received",
+    },
+    text: { body: "oi" },
+    timestamp: "1730092800",
+    type: "text",
+  },
   phone_number_id: "597907523413541",
 });
 
@@ -41,26 +46,28 @@ const bad = "0".repeat(hmac.length);
 
 async function post(signature, event) {
   const response = await fetch(url, {
-    method: "POST",
+    body: fixture,
     headers: {
       "content-type": "application/json",
       "X-Webhook-Event": event,
       "X-Webhook-Signature": signature,
     },
-    body: fixture,
+    method: "POST",
   });
   const body = await response.text();
   return {
-    status: response.status,
-    contentType: response.headers.get("content-type"),
     body,
+    contentType: response.headers.get("content-type"),
+    status: response.status,
   };
 }
 
 function printCase(name, result) {
   console.log(`== ${name}`);
   console.log(`status ${result.status}`);
-  if (result.contentType !== null) console.log(`content-type ${result.contentType}`);
+  if (result.contentType !== null) {
+    console.log(`content-type ${result.contentType}`);
+  }
   console.log(result.body);
 }
 

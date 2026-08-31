@@ -1,20 +1,23 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use zoen_core::{
     ActionProposal, CommitSequence, PolicyEvidence, ProposalAuthority, ProposalId, ScenarioId,
     TimestampMicros, TrustedExecutionContext, WORLD_WHO_CAN_ACTION, mac_write_permitted,
 };
 
-use crate::action::{
-    ActionCommitEffect, ActionEngine, ActionError, LoadRelationSnapshotRequest,
-    LoadWorldProjectionRequest, PolicyEvaluator, PolicyOperation, PolicyRequest, QueryExecutor,
-    authorize_delegation, build_effects, effect_evaluation_relations, effect_request_id,
-    share_or_join_effects, written_classified_as_tokens,
-};
-use crate::action_preview::bind_proposal_preview;
 use crate::{
-    AuthorityStore, MAC_DETERMINING_POLICY, StoreError, admission, read_action_state_basis,
+    AuthorityStore, MAC_DETERMINING_POLICY, StoreError,
+    action::{
+        ActionCommitEffect, ActionEngine, ActionError, LoadRelationSnapshotRequest,
+        LoadWorldProjectionRequest, LoadedAction, PolicyEvaluator, PolicyOperation, PolicyRequest,
+        QueryExecutor, authorize_delegation, build_effects, effect_evaluation_relations,
+        effect_request_id, share_or_join_effects, written_classified_as_tokens,
+    },
+    action_preview::bind_proposal_preview,
+    admission, read_action_state_basis,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,7 +29,7 @@ pub enum ScenarioStatus {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scenario {
-    pub scenario_id: ScenarioId,
+    pub id: ScenarioId,
     pub base_commit_sequence: CommitSequence,
     pub status: ScenarioStatus,
     pub created_principal_id: String,
@@ -96,6 +99,11 @@ where
         Self { action, store }
     }
 
+    /// Open a scenario on the current tenant head.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScenarioError`] when the tenant has no snapshot or the store fails.
     pub async fn create(
         &self,
         context: &TrustedExecutionContext,
@@ -116,6 +124,11 @@ where
             .map_err(ScenarioError::Store)
     }
 
+    /// Commit every stacked proposal in an open scenario.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScenarioError`] when a proposal cannot be prepared or the store fails.
     pub async fn apply(
         &self,
         context: &TrustedExecutionContext,
@@ -191,6 +204,11 @@ where
         Ok(ApplyOutcome::Committed { commit_sequence })
     }
 
+    /// Discard an open scenario without committing stacked proposals.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScenarioError`] when the scenario is not open or the store fails.
     pub async fn discard(
         &self,
         context: &TrustedExecutionContext,
@@ -252,6 +270,23 @@ where
             committed_at,
         )
         .map_err(ScenarioError::Action)?;
+        let (loaded, policy) = match self
+            .stacked_proposal_policy(context, proposal, committed_at)
+            .await?
+        {
+            Ok(ready) => ready,
+            Err(result) => return Ok(result),
+        };
+        self.stacked_proposal_effects(context, proposal, loaded, policy)
+            .await
+    }
+
+    async fn stacked_proposal_policy(
+        &self,
+        context: &TrustedExecutionContext,
+        proposal: &ActionProposal,
+        committed_at: TimestampMicros,
+    ) -> Result<Result<(LoadedAction, PolicyEvidence), PrepareResult>, ScenarioError> {
         let approval = match &proposal.authority {
             ProposalAuthority::Ready(_) => None,
             ProposalAuthority::AwaitingApproval(_) => {
@@ -284,7 +319,7 @@ where
             })
             .await
             .map_err(ScenarioError::Action)?;
-        let policy = match self
+        match self
             .action
             .policy()
             .evaluate(&PolicyRequest {
@@ -301,41 +336,48 @@ where
             })
             .await
         {
-            zoen_core::PolicyEvaluation::Permit(evidence) => evidence,
-            zoen_core::PolicyEvaluation::Deny(evidence) => {
-                return Ok(PrepareResult::Denied {
-                    evidence,
-                    proposal_id: proposal.proposal_id.clone(),
-                });
-            }
+            zoen_core::PolicyEvaluation::Permit(evidence) => Ok(Ok((loaded, evidence))),
+            zoen_core::PolicyEvaluation::Deny(evidence) => Ok(Err(PrepareResult::Denied {
+                evidence,
+                proposal_id: proposal.proposal_id.clone(),
+            })),
             zoen_core::PolicyEvaluation::EvaluationError { message, revision } => {
-                return Ok(PrepareResult::EvaluationError {
+                Ok(Err(PrepareResult::EvaluationError {
                     message,
                     policy: revision.map(|revision| PolicyEvidence {
                         determining_policies: Vec::new(),
                         revision,
                     }),
                     proposal_id: proposal.proposal_id.clone(),
-                });
+                }))
             }
-        };
-        let relation_ids = effect_evaluation_relations(&loaded.action);
+        }
+    }
+
+    async fn stacked_proposal_effects(
+        &self,
+        context: &TrustedExecutionContext,
+        proposal: &ActionProposal,
+        loaded: LoadedAction,
+        policy: PolicyEvidence,
+    ) -> Result<PrepareResult, ScenarioError> {
         let snapshot = self
             .action
             .load_relation_snapshot(LoadRelationSnapshotRequest {
                 context,
                 revision: &loaded.revision,
                 resource_id: &proposal.resource_id,
-                relations: relation_ids,
+                relations: effect_evaluation_relations(&loaded.action),
                 scenario_id: proposal.scenario_id.clone(),
                 valid_at: proposal.valid_at,
                 authority_cut_error: "Action effect relations used different authority cuts",
             })
             .await
             .map_err(ScenarioError::Action)?;
-        let relation_values = read_action_state_basis(&loaded.action, &loaded.definition, snapshot)
-            .map_err(ScenarioError::Action)?
-            .values;
+        let relation_values =
+            read_action_state_basis(&loaded.action, &loaded.definition, &snapshot)
+                .map_err(ScenarioError::Action)?
+                .values;
         let join = self
             .action
             .join_input_labels(context, proposal, &loaded.definition, &loaded.revision)

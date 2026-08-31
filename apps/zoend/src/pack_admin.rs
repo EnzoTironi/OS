@@ -1,18 +1,20 @@
 use std::sync::Arc;
 
-use axum::Json;
-use axum::Router;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
-use axum::routing::post;
+use axum::{
+    Json, Router,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    routing::post,
+};
 use connectrpc::ErrorCode;
 use serde::Deserialize;
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore, PostgresPackStore};
 use zoen_core::{
     ActivatedDefinitionRef, ActivationPrecondition, DefinitionDigest, DefinitionId,
     EvolutionAckDigest, ExecutionContext, FirstSuccessEval, GrantId, GrantStatus, InstallId,
-    InstallPhase, Necessity, PackDigest, PackError, PreviewDigest, TenantId, TimestampMicros,
+    InstallPhase, Necessity, PackDigest, PackError, PackManifest, PreviewDigest, TenantId,
+    TimestampMicros,
 };
 use zoen_engine::DefinitionEngine;
 
@@ -122,17 +124,17 @@ async fn verify_and_stage(
     };
     let expected = match body.expected_digest.map(PackDigest::parse).transpose() {
         Ok(value) => value,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let mut ontology_artifacts = Vec::new();
     for artifact in body.ontology_artifacts {
         let definition_id = match DefinitionId::parse(artifact.definition_id) {
             Ok(id) => id,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         };
         let digest = match DefinitionDigest::parse(artifact.digest) {
             Ok(digest) => digest,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         };
         ontology_artifacts.push((definition_id, digest, artifact.canonical_json));
     }
@@ -157,7 +159,7 @@ async fn verify_and_stage(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -172,7 +174,7 @@ async fn preview_install(
     };
     let digest = match PackDigest::parse(body.pack_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .packs
@@ -199,7 +201,7 @@ async fn preview_install(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -214,15 +216,15 @@ async fn install(
     };
     let pack_digest = match PackDigest::parse(body.pack_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let preview_digest = match PreviewDigest::parse(body.preview_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let prior = match body.prior_install_id.map(InstallId::parse).transpose() {
         Ok(value) => value,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .packs
@@ -236,7 +238,7 @@ async fn install(
         .await
     {
         Ok(receipt) => (StatusCode::OK, Json(receipt_json(&receipt))).into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -251,7 +253,7 @@ async fn get_install(
     };
     let install_id = match InstallId::parse(body.install_id) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .packs
@@ -259,7 +261,7 @@ async fn get_install(
         .await
     {
         Ok(receipt) => (StatusCode::OK, Json(receipt_json(&receipt))).into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -274,13 +276,13 @@ async fn decide_grants(
     };
     let install_id = match InstallId::parse(body.install_id) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let mut decisions = Vec::new();
     for decision in body.decisions {
         let grant_id = match GrantId::parse(decision.grant_id) {
             Ok(id) => id,
-            Err(error) => return bad_request(error.to_string()),
+            Err(error) => return bad_request(&error.to_string()),
         };
         decisions.push((grant_id, decision.accept));
     }
@@ -295,7 +297,7 @@ async fn decide_grants(
         .await
     {
         Ok(receipt) => (StatusCode::OK, Json(receipt_json(&receipt))).into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -310,11 +312,11 @@ async fn activate_installed(
     };
     let install_id = match InstallId::parse(body.install_id) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let evolution_ack = match EvolutionAckDigest::parse(body.evolution_ack_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let receipt = match state
         .packs
@@ -322,7 +324,7 @@ async fn activate_installed(
         .await
     {
         Ok(receipt) => receipt,
-        Err(error) => return pack_error(error),
+        Err(error) => return pack_error(&error),
     };
     if matches!(receipt.phase, InstallPhase::Active { .. }) {
         return (StatusCode::OK, Json(receipt_json(&receipt))).into_response();
@@ -333,34 +335,53 @@ async fn activate_installed(
         .await
     {
         Ok(manifest) => manifest,
-        Err(error) => return pack_error(error),
+        Err(error) => return pack_error(&error),
     };
+    let activated = match activate_ontology_dependencies(&state, &context, &manifest).await {
+        Ok(activated) => activated,
+        Err(error) => return error,
+    };
+    match state
+        .packs
+        .mark_active(context.tenant_id(), &install_id, activated)
+        .await
+    {
+        Ok(receipt) => (StatusCode::OK, Json(receipt_json(&receipt))).into_response(),
+        Err(error) => pack_error(&error),
+    }
+}
+
+async fn activate_ontology_dependencies(
+    state: &PackAdminState,
+    context: &ExecutionContext,
+    manifest: &PackManifest,
+) -> Result<Vec<ActivatedDefinitionRef>, axum::response::Response> {
     let mut activated = Vec::new();
     for dependency in &manifest.ontology_dependencies {
         let published = state
             .definitions
-            .get_revision(&context, &dependency.definition_id, &dependency.digest)
+            .get_revision(context, &dependency.definition_id, &dependency.digest)
             .await;
         if published.is_err() {
             if let Err(error) = state
                 .definitions
                 .publish(
-                    &context,
+                    context,
                     dependency.canonical_json.as_bytes(),
                     dependency.digest.clone(),
                 )
                 .await
             {
-                return pack_error(PackError::Store(error.to_string()));
+                return Err(pack_error(&PackError::Store(error.to_string())));
             }
         }
         let active = match state
             .definitions
-            .get_active_revision(&context, &dependency.definition_id)
+            .get_active_revision(context, &dependency.definition_id)
             .await
         {
             Ok(active) => active,
-            Err(error) => return pack_error(PackError::Store(error.to_string())),
+            Err(error) => return Err(pack_error(&PackError::Store(error.to_string()))),
         };
         let precondition = match active.as_ref() {
             None => ActivationPrecondition::NoActiveRevision,
@@ -376,7 +397,7 @@ async fn activate_installed(
         match state
             .definitions
             .activate_revision(
-                &context,
+                context,
                 &dependency.definition_id,
                 &dependency.digest,
                 &precondition,
@@ -388,17 +409,10 @@ async fn activate_installed(
                 definition_id: dependency.definition_id.clone(),
                 digest: dependency.digest.clone(),
             }),
-            Err(error) => return pack_error(PackError::Store(error.to_string())),
+            Err(error) => return Err(pack_error(&PackError::Store(error.to_string()))),
         }
     }
-    match state
-        .packs
-        .mark_active(context.tenant_id(), &install_id, activated)
-        .await
-    {
-        Ok(receipt) => (StatusCode::OK, Json(receipt_json(&receipt))).into_response(),
-        Err(error) => pack_error(error),
-    }
+    Ok(activated)
 }
 
 async fn preview_update(
@@ -412,11 +426,11 @@ async fn preview_update(
     };
     let from = match PackDigest::parse(body.from_pack_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     let to = match PackDigest::parse(body.to_pack_digest) {
         Ok(digest) => digest,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .packs
@@ -427,11 +441,11 @@ async fn preview_update(
             StatusCode::OK,
             Json(serde_json::json!({
                 "reauthorizationRequired": diff.reauthorization_required,
-                "addedSensitive": diff.added_sensitive.iter().map(|id| id.as_str()).collect::<Vec<_>>(),
+                "addedSensitive": diff.added_sensitive.iter().map(zoen_core::RequirementId::as_str).collect::<Vec<_>>(),
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -446,7 +460,7 @@ async fn evaluate_first_success(
     };
     let install_id = match InstallId::parse(body.install_id) {
         Ok(id) => id,
-        Err(error) => return bad_request(error.to_string()),
+        Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .packs
@@ -475,7 +489,7 @@ async fn evaluate_first_success(
             })),
         )
             .into_response(),
-        Err(error) => pack_error(error),
+        Err(error) => pack_error(&error),
     }
 }
 
@@ -499,7 +513,7 @@ async fn require_context(
         .sessions
         .resolve(authorization, Some(&claimed))
         .await
-        .map_err(map_resolve_error)?;
+        .map_err(|error| map_resolve_error(&error))?;
     if context.tenant_id() != &claimed {
         return Err(ContextError::Forbidden(
             "payload tenant does not match the trusted session".to_owned(),
@@ -508,11 +522,10 @@ async fn require_context(
     Ok(context)
 }
 
-fn map_resolve_error(error: connectrpc::ConnectError) -> ContextError {
+fn map_resolve_error(error: &connectrpc::ConnectError) -> ContextError {
     match error.code {
         ErrorCode::Unauthenticated => ContextError::Unauthorized(error.to_string()),
         ErrorCode::InvalidArgument => ContextError::BadRequest(error.to_string()),
-        ErrorCode::PermissionDenied => ContextError::Forbidden(error.to_string()),
         _ => ContextError::Forbidden(error.to_string()),
     }
 }
@@ -529,7 +542,7 @@ fn context_error(error: ContextError) -> axum::response::Response {
             Json(serde_json::json!({ "error": message })),
         )
             .into_response(),
-        ContextError::BadRequest(message) => bad_request(message),
+        ContextError::BadRequest(message) => bad_request(&message),
     }
 }
 
@@ -575,7 +588,7 @@ fn receipt_json(receipt: &zoen_core::InstallReceipt) -> serde_json::Value {
     })
 }
 
-fn pack_error(error: PackError) -> axum::response::Response {
+fn pack_error(error: &PackError) -> axum::response::Response {
     let status = match &error {
         PackError::DigestMismatch
         | PackError::NonCanonicalPack
@@ -584,7 +597,11 @@ fn pack_error(error: PackError) -> axum::response::Response {
         | PackError::OptionalWithoutDegrade(_)
         | PackError::SecretEmbedded(_)
         | PackError::Identifier(_)
-        | PackError::Digest(_) => StatusCode::BAD_REQUEST,
+        | PackError::Digest(_)
+        | PackError::SignatureInvalid
+        | PackError::PublisherKeyUnknown
+        | PackError::VisibilityDenied
+        | PackError::PublicRegistryDisabled => StatusCode::BAD_REQUEST,
         PackError::PreviewStale
         | PackError::RequiredGrantDeclined(_)
         | PackError::GrantsUnresolved
@@ -594,10 +611,6 @@ fn pack_error(error: PackError) -> axum::response::Response {
             StatusCode::NOT_FOUND
         }
         PackError::VersionBytesMismatch => StatusCode::CONFLICT,
-        PackError::SignatureInvalid
-        | PackError::PublisherKeyUnknown
-        | PackError::VisibilityDenied
-        | PackError::PublicRegistryDisabled => StatusCode::BAD_REQUEST,
         PackError::ShareExpired => StatusCode::GONE,
         PackError::Store(_)
         | PackError::InvalidIntegrationKind(_)
@@ -611,7 +624,7 @@ fn pack_error(error: PackError) -> axum::response::Response {
         .into_response()
 }
 
-fn bad_request(message: String) -> axum::response::Response {
+fn bad_request(message: &str) -> axum::response::Response {
     (
         StatusCode::BAD_REQUEST,
         Json(serde_json::json!({ "error": message })),
@@ -623,7 +636,8 @@ fn now_micros() -> TimestampMicros {
     TimestampMicros::new(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_micros() as i64)
+            .ok()
+            .and_then(|duration| i64::try_from(duration.as_micros()).ok())
             .unwrap_or(0),
     )
 }

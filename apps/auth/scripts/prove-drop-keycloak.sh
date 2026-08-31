@@ -123,8 +123,16 @@ check "Dockerfile has no Keycloak image" "! grep -q keycloak deploy/fly/Dockerfi
 check "Dockerfile has no openjdk" "! grep -q openjdk deploy/fly/Dockerfile" "absent"
 check "zoen-start-keycloak file is gone" "! test -e deploy/fly/zoen-start-keycloak" "deleted"
 check "realm.template.json is gone" "! test -e deploy/fly/realm.template.json" "deleted"
-check "local e2e Keycloak compose stays" "grep -q 'image: quay.io/keycloak/keycloak:26.0.7' e2e/governed-action/compose.yaml" "e2e/governed-action/compose.yaml"
-check "local e2e prepare-realm stays" "test -f e2e/governed-action/prepare-realm.mjs" "e2e/governed-action/prepare-realm.mjs"
+if grep -R --include='compose.yaml' 'quay.io/keycloak' e2e \
+  | grep -v 'fiscal-' >/dev/null; then
+  fail=1
+  dest_kc="present"
+else
+  dest_kc="absent"
+fi
+record "dest live e2e compose does not plant Keycloak" "grep -R --include=compose.yaml quay.io/keycloak e2e | grep -v fiscal-" "e2e" "$dest_kc" "dest Keycloak ${dest_kc}"
+
+check "dest governed-action does not keep prepare-realm.mjs" "! test -f e2e/governed-action/prepare-realm.mjs" "deleted"
 
 live_body="${work}/live-ready"
 set +e
@@ -139,11 +147,10 @@ record "live GET https://zoen.tironi.xyz/ready (pre-remount)" "curl -sS -o body 
   printf '%s\n' '- Better Auth `[program:auth]` and `zoen-start-auth`'
   printf '%s\n' '- remint session mint on `127.0.0.1:58704`'
   printf '%s\n' '- `[program:agent-binding]`'
-  printf '%s\n' '- local e2e Keycloak (`e2e/*/compose.yaml`, `prepare-realm.mjs`)'
+  printf '%s\n' '- dest live e2e compose is Postgres only'
   printf '\n## Out of this PR\n\n'
   printf '%s\n' '- Live Fly remount. Coder remounts after squash. Missing remount is not a fail.'
   printf '%s\n' '- Unset Fly secrets `KC_*` / `ZOEN_OIDC_CLIENT_SECRET`'
-  printf '%s\n' '- `deploy/fly/compose.yaml` still has a local Keycloak service. Fly deploy does not use that file.'
   printf '%s\n' '- Eve on Fly. Kapso point. Companion `/send`.'
   printf '\n'
 } >> "$draft"

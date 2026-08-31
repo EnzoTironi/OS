@@ -1,5 +1,5 @@
 use sha2::{Digest, Sha256};
-use zoen_core::{CommitSequence, EntityId, ExecutionContext, SemanticQuery};
+use zoen_core::{CommitSequence, EntityId, ExecutionContext, SemanticQuery, encode_hex};
 
 use crate::QueryError;
 
@@ -55,7 +55,7 @@ fn encode(
         "v1/{:x}/{}/{}",
         commit_sequence.get(),
         fingerprint(context, query)?,
-        hex_encode(after_entity_id.as_str().as_bytes())
+        encode_hex(after_entity_id.as_str().as_bytes())
     ))
 }
 
@@ -124,22 +124,16 @@ fn fingerprint(context: &ExecutionContext, query: &SemanticQuery) -> Result<Stri
     hash_field(&mut hasher, &valid_at.get().to_string());
     hash_field(
         &mut hasher,
-        query.scenario_id().map(|id| id.as_str()).unwrap_or(""),
+        query
+            .scenario_id()
+            .map_or("", zoen_core::ScenarioId::as_str),
     );
-    Ok(hex_encode(hasher.finalize()))
+    Ok(encode_hex(hasher.finalize().as_slice()))
 }
 
 fn hash_field(hasher: &mut Sha256, value: &str) {
     hasher.update(value.len().to_be_bytes());
     hasher.update(value.as_bytes());
-}
-
-fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 fn hex_decode(value: &str) -> Result<Vec<u8>, QueryError> {

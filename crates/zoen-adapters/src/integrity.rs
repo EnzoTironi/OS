@@ -1,5 +1,7 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 use sqlx::{PgPool, Row};
 
@@ -36,6 +38,12 @@ impl Error for IntegrityError {
 }
 
 impl PostgresAuthorityStore {
+    /// Fail closed when authority tables lack RLS or expected relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntegrityError`] when a required table is missing, RLS is off,
+    /// or `PostgreSQL` is unavailable.
     pub async fn verify_integrity(
         &self,
         authority_tables: &[String],

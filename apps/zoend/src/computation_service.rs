@@ -1,5 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use buffa::MessageView;
 use connectrpc::{
@@ -26,15 +28,17 @@ use zoen_engine::{
 };
 use zoen_query::QueryRuntime;
 
-use crate::action_service::to_component_execution;
-use crate::proto::zoen::computation::v1::{
-    ComponentAdmissionStatus, ComputationOutput, ComputationService, ExecuteRequest,
-    ExecuteResponse, ExecutionStatus, ProgramActionOutcome as ProtocolProgramActionOutcome,
-    ProgramActionStatus, PublishComponentRequest, PublishComponentResponse, ResourceLimits,
-    capability,
+use crate::{
+    action_service::to_component_execution,
+    proto::zoen::computation::v1::{
+        ComponentAdmissionStatus, ComputationOutput, ComputationService, ExecuteRequest,
+        ExecuteResponse, ExecutionStatus, ProgramActionOutcome as ProtocolProgramActionOutcome,
+        ProgramActionStatus, PublishComponentRequest, PublishComponentResponse, ResourceLimits,
+        capability,
+    },
+    session::SessionExchange,
+    world_service::{invalid, parse_definition_reference, parse_selection, parse_timestamp},
 };
-use crate::session::SessionExchange;
-use crate::world_service::{invalid, parse_definition_reference, parse_selection, parse_timestamp};
 
 type DaemonActionEngine =
     ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>;
@@ -155,7 +159,7 @@ impl ComputationService for ComputationServiceImpl {
                 host,
             )
             .await
-            .map_err(map_computation_error)?;
+            .map_err(|error| map_computation_error(&error))?;
         Response::ok(execution_response(execution, limits))
     }
 }
@@ -394,7 +398,7 @@ impl ComputationHost for ScopedComputationHost {
                     },
                 )
                 .await
-                .map_err(map_action_error)?
+                .map_err(|error| map_action_error(&error))?
             {
                 ProposeOutcome::Accepted(proposal) => {
                     let authorized = AuthorizedProposal {
@@ -462,9 +466,9 @@ impl ComputationHost for ScopedComputationHost {
                 .operation_status(&self.context, &request.operation_id)
                 .await
             {
-                Ok(receipt) => return recovered_receipt(receipt, &authorized),
+                Ok(receipt) => return Ok(recovered_receipt(receipt, &authorized)),
                 Err(ActionError::Store(StoreError::NotFound)) => {}
-                Err(error) => return Err(map_action_error(error)),
+                Err(error) => return Err(map_action_error(&error)),
             }
             let outcome = self
                 .action
@@ -476,14 +480,15 @@ impl ComputationHost for ScopedComputationHost {
                     current_time()?,
                 )
                 .await
-                .map_err(map_action_error)?;
+                .map_err(|error| map_action_error(&error))?;
             Ok(match outcome {
                 CommitOutcome::Committed(receipt) => committed_receipt(*receipt, false),
-                CommitOutcome::Denied(_) => HostCommitOutcome::Denied,
+                CommitOutcome::Denied(_) | CommitOutcome::PreviewMismatch => {
+                    HostCommitOutcome::Denied
+                }
                 CommitOutcome::EvaluationError { .. } => HostCommitOutcome::EvaluationError,
                 CommitOutcome::IdentityCollision(_) => HostCommitOutcome::IdentityCollision,
                 CommitOutcome::OperationMismatch => HostCommitOutcome::OperationMismatch,
-                CommitOutcome::PreviewMismatch => HostCommitOutcome::Denied,
                 CommitOutcome::Stale(_) => HostCommitOutcome::Stale,
             })
         })
@@ -563,7 +568,7 @@ fn parse_manifest(
             }
         })
         .collect::<Result<Vec<_>, ConnectError>>()?;
-    CapabilityManifest::new(interface, capabilities).map_err(map_contract_error)
+    CapabilityManifest::new(interface, capabilities).map_err(|error| map_contract_error(&error))
 }
 
 fn parse_limits(limits: &ResourceLimits) -> Result<ComputationLimits, ConnectError> {
@@ -576,7 +581,7 @@ fn parse_limits(limits: &ResourceLimits) -> Result<ComputationLimits, ConnectErr
         usize_limit(limits.memories, "memories")?,
         limits.deadline_millis,
     )
-    .map_err(map_contract_error)
+    .map_err(|error| map_contract_error(&error))
 }
 
 fn usize_limit(value: u64, name: &str) -> Result<usize, ConnectError> {
@@ -616,7 +621,7 @@ fn execution_response(
     limits: ComputationLimits,
 ) -> ExecuteResponse {
     let mut response = ExecuteResponse {
-        evidence: Some(to_component_execution(execution.evidence)).into(),
+        evidence: Some(to_component_execution(&execution.evidence)).into(),
         limits: Some(protocol_limits(limits)).into(),
         request_digest: execution.request_digest.as_str().to_owned(),
         ..Default::default()
@@ -627,13 +632,18 @@ fn execution_response(
             response.status = ExecutionStatus::CapabilityDenied.into();
         }
         ComputationOutcome::CapabilityUnavailable(capability) => {
-            response.denied_capability = capability.as_str().to_owned();
+            capability
+                .as_str()
+                .clone_into(&mut response.denied_capability);
             response.status = ExecutionStatus::CapabilityUnavailable.into();
         }
         ComputationOutcome::Completed(completed) => {
             response.fuel_consumed = completed.fuel_consumed;
             response.output = Some(protocol_output(completed.output)).into();
-            response.result_digest = completed.result_digest.as_str().to_owned();
+            completed
+                .result_digest
+                .as_str()
+                .clone_into(&mut response.result_digest);
             response.status = ExecutionStatus::Completed.into();
         }
         ComputationOutcome::DeadlineExceeded => {
@@ -668,13 +678,17 @@ fn protocol_limits(limits: ComputationLimits) -> ResourceLimits {
     ResourceLimits {
         deadline_millis: limits.deadline_millis(),
         fuel: limits.fuel(),
-        instances: limits.instances() as u64,
-        memories: limits.memories() as u64,
-        memory_bytes: limits.memory_bytes() as u64,
-        table_elements: limits.table_elements() as u64,
-        tables: limits.tables() as u64,
+        instances: usize_as_u64(limits.instances()),
+        memories: usize_as_u64(limits.memories()),
+        memory_bytes: usize_as_u64(limits.memory_bytes()),
+        table_elements: usize_as_u64(limits.table_elements()),
+        tables: usize_as_u64(limits.tables()),
         ..Default::default()
     }
+}
+
+fn usize_as_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 fn protocol_output(output: CoreComputationOutput) -> ComputationOutput {
@@ -747,17 +761,17 @@ fn committed_receipt(receipt: zoen_core::CommitReceipt, recovered: bool) -> Host
 fn recovered_receipt(
     receipt: zoen_core::CommitReceipt,
     authorized: &AuthorizedProposal,
-) -> Result<HostCommitOutcome, HostCallError> {
+) -> HostCommitOutcome {
     if receipt.intent_digest != authorized.intent_digest
         || receipt.operation_id != authorized.operation_id
         || receipt.proposal_id != authorized.proposal_id
     {
-        return Ok(HostCommitOutcome::OperationMismatch);
+        return HostCommitOutcome::OperationMismatch;
     }
-    Ok(committed_receipt(receipt, true))
+    committed_receipt(receipt, true)
 }
 
-fn map_action_error(error: ActionError) -> HostCallError {
+fn map_action_error(error: &ActionError) -> HostCallError {
     let message = error.to_string();
     match error {
         ActionError::DelegationDenied => HostCallError::CapabilityDenied(message),
@@ -787,11 +801,11 @@ fn map_query_error(error: QueryPortError) -> HostCallError {
     }
 }
 
-fn map_contract_error(error: ComputationContractError) -> ConnectError {
+fn map_contract_error(error: &ComputationContractError) -> ConnectError {
     invalid(error.to_string())
 }
 
-fn map_computation_error(error: ComputationError) -> ConnectError {
+fn map_computation_error(error: &ComputationError) -> ConnectError {
     let message = error.to_string();
     match error {
         ComputationError::IdentityCollision => ConnectError::new(ErrorCode::AlreadyExists, message),
@@ -814,10 +828,10 @@ fn explanation_digest(
     gap_count: usize,
 ) -> ExecutionResultDigest {
     let mut hasher = Sha256::new();
-    hasher.update((claim_id.as_str().len() as u64).to_be_bytes());
+    hasher.update(usize_as_u64(claim_id.as_str().len()).to_be_bytes());
     hasher.update(claim_id.as_str().as_bytes());
     hasher.update([u8::from(complete)]);
-    hasher.update((gap_count as u64).to_be_bytes());
+    hasher.update(usize_as_u64(gap_count).to_be_bytes());
     ExecutionResultDigest::from_sha256(hasher.finalize().into())
 }
 
