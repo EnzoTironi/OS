@@ -16,7 +16,9 @@ export default defineTool({
       return { committed: true, receipt };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "personal.writeMemory failed";
+        error instanceof Error
+          ? error.message
+          : "personal.writeMemory failed";
       return { committed: false, error: message };
     }
   },
