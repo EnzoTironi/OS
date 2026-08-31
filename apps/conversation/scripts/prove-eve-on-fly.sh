@@ -64,6 +64,8 @@ check "supervisord has no [program:keycloak]" "! grep -q '^\\[program:keycloak\\
 check "supervisord keeps auth" "grep -q '^\\[program:auth\\]' deploy/fly/supervisord.conf" "[program:auth]"
 check "supervisord keeps remint" "grep -q '^\\[program:remint\\]' deploy/fly/supervisord.conf" "[program:remint]"
 check "Eve root instructions exist" "test -s apps/conversation/agent/instructions.md" "apps/conversation/agent/instructions.md"
+check "dockerignore excludes nested node_modules" "grep -q '^\\*\\*/node_modules$' .dockerignore" "**/node_modules"
+check "dockerignore excludes Eve output" "grep -q '^\\*\\*/\\.eve$' .dockerignore && grep -q '^\\*\\*/\\.output$' .dockerignore" "**/.eve **/.output"
 check "Dockerfile conversation stage is node:24" "grep -q 'FROM node:24.20.0-bookworm-slim AS conversation' deploy/fly/Dockerfile && ! grep 'AS conversation' deploy/fly/Dockerfile | grep -q 'node:22'" "node:24.20.0-bookworm-slim AS conversation"
 check "Dockerfile still copies auth Node 22 from personal-lake" "grep -q 'COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node' deploy/fly/Dockerfile" "COPY --from=personal-lake /usr/local/bin/node"
 check "Dockerfile COPY zoen-start-eve" "grep -q 'COPY deploy/fly/zoen-start-eve /usr/local/bin/zoen-start-eve' deploy/fly/Dockerfile" "COPY zoen-start-eve"
