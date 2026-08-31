@@ -2,20 +2,45 @@ use std::{
     env,
     error::Error,
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
+    net::IpAddr,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use base64::Engine;
 use clap::{Parser, Subcommand};
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{
+    AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, SET_COOKIE,
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const AUTH_CLIENT_ID: &str = "zoen";
+const ROOT_AFTER_HELP: &str = "\
+Environment:
+  ZOEN_BEARER             Better Auth session cookie (session_token)
+  ZOEN_TENANT             tenant id
+  ZOEN_ZOEND              zoend origin
+  ZOEN_DEFINITION_DIGEST  active definition digest
+
+Examples:
+  zoen serve
+  zoen auth login --email you@example.com --password secret
+  zoen world query --type inventory.Item
+  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --dry-run
+";
+
 /// Ontology CLI parser. Empty args and `serve` start the daemon.
 #[derive(Parser)]
-#[command(name = "zoen", about = "Zoen ontology CLI and daemon", version)]
+#[command(
+    name = "zoen",
+    about = "Zoen ontology CLI and daemon",
+    version,
+    after_help = ROOT_AFTER_HELP
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -24,27 +49,45 @@ pub struct Cli {
 /// Ontology commands the `zoen` binary accepts.
 #[derive(Subcommand)]
 pub enum Command {
+    /// Start the Connect API daemon
+    #[command(after_help = "Examples:\n  zoen serve\n  zoen")]
     Serve,
+    /// Query the world and manage scenarios
+    #[command(after_help = "Examples:\n  zoen world query --type inventory.Item")]
     World {
         #[command(subcommand)]
         command: WorldCommand,
     },
+    /// Publish and activate canonical JSON definitions
+    #[command(after_help = "Examples:\n  zoen definition publish --file definition.canonical.json")]
     Definition {
         #[command(subcommand)]
         command: DefinitionCommand,
     },
+    /// Connect, introduce, and sync external sources
+    #[command(
+        after_help = "Examples:\n  zoen source connect rest --id rest --base https://api.example.com"
+    )]
     Source {
         #[command(subcommand)]
         command: SourceCommand,
     },
+    /// Discover, propose, and commit governed Actions
+    #[command(after_help = "Examples:\n  zoen action discover --resource-id inventory.item.1")]
     Action {
         #[command(subcommand)]
         command: ActionCommand,
     },
+    /// Explain committed history
+    #[command(after_help = "Examples:\n  zoen history explain --claim-id claim.x")]
     History {
         #[command(subcommand)]
         command: HistoryCommand,
     },
+    /// Sign in at the Better Auth door
+    #[command(
+        after_help = "Examples:\n  zoen auth login --email you@example.com --password secret"
+    )]
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
@@ -53,6 +96,10 @@ pub enum Command {
 
 #[derive(Subcommand)]
 pub enum WorldCommand {
+    /// Query semantic objects at a knowledge cut
+    #[command(
+        after_help = "Examples:\n  zoen world query --type inventory.Item\n  zoen world query --type inventory.Item --limit 20"
+    )]
     Query {
         #[arg(long = "type")]
         type_id: String,
@@ -61,14 +108,8 @@ pub enum WorldCommand {
         #[arg(long = "scenario", default_value = "")]
         scenario: String,
     },
-    Evidence {
-        #[arg(long = "type")]
-        type_id: String,
-        #[arg(long, default_value_t = 10)]
-        limit: u32,
-        #[arg(long = "scenario", default_value = "")]
-        scenario: String,
-    },
+    /// Create, apply, or discard a named scenario
+    #[command(after_help = "Examples:\n  zoen world scenario create --name draft")]
     Scenario {
         #[command(subcommand)]
         command: ScenarioCommand,
@@ -77,14 +118,20 @@ pub enum WorldCommand {
 
 #[derive(Subcommand)]
 pub enum ScenarioCommand {
+    /// Create a named scenario
+    #[command(after_help = "Examples:\n  zoen world scenario create --name draft")]
     Create {
         #[arg(long)]
         name: String,
     },
+    /// Apply a named scenario
+    #[command(after_help = "Examples:\n  zoen world scenario apply --name draft")]
     Apply {
         #[arg(long)]
         name: String,
     },
+    /// Discard a named scenario
+    #[command(after_help = "Examples:\n  zoen world scenario discard --name draft")]
     Discard {
         #[arg(long)]
         name: String,
@@ -93,10 +140,18 @@ pub enum ScenarioCommand {
 
 #[derive(Subcommand)]
 pub enum DefinitionCommand {
+    /// Publish canonical JSON. `--file -` reads stdin
+    #[command(
+        after_help = "Examples:\n  zoen definition publish --file definition.canonical.json\n  zoen definition publish --file -"
+    )]
     Publish {
         #[arg(long)]
         file: PathBuf,
     },
+    /// Activate a published definition digest
+    #[command(
+        after_help = "Examples:\n  zoen definition activate --definition-id world.source --digest <digest>"
+    )]
     Activate {
         #[arg(long = "definition-id")]
         definition_id: String,
@@ -107,10 +162,16 @@ pub enum DefinitionCommand {
 
 #[derive(Subcommand)]
 pub enum SourceCommand {
+    /// Store a source connection
+    #[command(
+        after_help = "Examples:\n  zoen source connect rest --id rest --base https://api.example.com"
+    )]
     Connect {
         #[command(subcommand)]
         command: ConnectCommand,
     },
+    /// Introduce a folder, path, or query on a connected source
+    #[command(after_help = "Examples:\n  zoen source introduce rest --path /pedidos")]
     Introduce {
         id: String,
         #[arg(long)]
@@ -122,6 +183,8 @@ pub enum SourceCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Fetch an introduced source and map quantity
+    #[command(after_help = "Examples:\n  zoen source sync rest\n  zoen source sync rest --dry-run")]
     Sync {
         id: String,
         #[arg(long)]
@@ -131,6 +194,10 @@ pub enum SourceCommand {
 
 #[derive(Subcommand)]
 pub enum ConnectCommand {
+    /// Connect a REST source
+    #[command(
+        after_help = "Examples:\n  zoen source connect rest --id rest --base https://api.example.com"
+    )]
     Rest {
         #[arg(long, default_value = "rest")]
         id: String,
@@ -143,6 +210,10 @@ pub enum ConnectCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Connect an `OAuth2` client-credentials source
+    #[command(
+        after_help = "Examples:\n  zoen source connect oauth2 --id oauth2 --token-url https://auth.example.com/token --client-id client"
+    )]
     Oauth2 {
         #[arg(long, default_value = "oauth2")]
         id: String,
@@ -157,6 +228,10 @@ pub enum ConnectCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Connect a Google Drive stand-in. Door tokens are not ingest authority
+    #[command(
+        after_help = "Examples:\n  zoen source connect google --profile work --base https://www.googleapis.com"
+    )]
     Google {
         #[arg(long)]
         profile: String,
@@ -171,6 +246,10 @@ pub enum ConnectCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Connect an MCP source
+    #[command(
+        after_help = "Examples:\n  zoen source connect mcp --id mcp --url https://mcp.example.com"
+    )]
     Mcp {
         #[arg(long)]
         url: String,
@@ -183,10 +262,14 @@ pub enum ConnectCommand {
 
 #[derive(Subcommand)]
 pub enum ActionCommand {
+    /// Propose an Action. `--quantity` is dest quantity. `--input` is text
+    #[command(
+        after_help = "Examples:\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --unit each --dry-run\n  zoen action propose --proposal-id p --action-id world.stamp --resource-id world.note.1 --input text=hello"
+    )]
     Propose {
         #[arg(long = "proposal-id")]
         proposal_id: String,
-        #[arg(long = "action-id", default_value = "source.mapQuantity")]
+        #[arg(long = "action-id")]
         action_id: String,
         #[arg(long = "resource-id")]
         resource_id: String,
@@ -203,6 +286,10 @@ pub enum ActionCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Commit a proposed Action
+    #[command(
+        after_help = "Examples:\n  zoen action commit --proposal-id p --operation-id p --preview-hash <hash> --dry-run\n  zoen action commit --proposal-id p --operation-id p --preview-hash <hash>"
+    )]
     Commit {
         #[arg(long = "proposal-id")]
         proposal_id: String,
@@ -210,18 +297,49 @@ pub enum ActionCommand {
         operation_id: String,
         #[arg(long = "preview-hash")]
         preview_hash: String,
+        #[arg(long)]
+        dry_run: bool,
     },
-    Discover,
+    /// List Actions on the active definition
+    #[command(after_help = "Examples:\n  zoen action discover --resource-id inventory.item.1")]
+    Discover {
+        #[arg(long = "resource-id")]
+        resource_id: String,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum HistoryCommand {
-    Explain,
+    /// Explain an operation, claim, proposal, or effect
+    #[command(
+        after_help = "Examples:\n  zoen history explain --claim-id claim.x\n  zoen history explain --operation-id operation.x\n  zoen history explain --proposal-id proposal.x\n  zoen history explain --effect-request-id effect.x"
+    )]
+    Explain {
+        #[arg(long = "operation-id")]
+        operation_id: Option<String>,
+        #[arg(long = "claim-id")]
+        claim_id: Option<String>,
+        #[arg(long = "effect-request-id")]
+        effect_request_id: Option<String>,
+        #[arg(long = "proposal-id")]
+        proposal_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum AuthCommand {
-    Login,
+    /// Sign in at Better Auth. Writes the session for `ZOEN_BEARER`
+    #[command(
+        after_help = "Examples:\n  zoen auth login --email you@example.com --password secret\n  zoen auth login --device"
+    )]
+    Login {
+        #[arg(long)]
+        email: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+        #[arg(long)]
+        device: bool,
+    },
 }
 
 struct RuntimeEnv {
@@ -334,41 +452,21 @@ pub async fn run(command: Command) -> Result<(), Box<dyn Error + Send + Sync>> {
 }
 
 async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    if matches!(
-        command,
-        Command::History {
-            command: HistoryCommand::Explain
-        }
-    ) {
-        return Ok(fail(2, "zoen history explain is not this slice"));
-    }
-    if matches!(
-        command,
-        Command::Auth {
-            command: AuthCommand::Login
-        }
-    ) {
-        return Ok(fail(
-            2,
-            "zoen auth login uses the Better Auth door, not this binary",
-        ));
-    }
-    if matches!(
-        command,
-        Command::Action {
-            command: ActionCommand::Discover
-        }
-    ) {
-        return Ok(fail(2, "zoen action discover is not this slice"));
-    }
-    let env = parse_env()?;
     match command {
         Command::Serve => unreachable!("serve is handled in main"),
-        Command::World { command } => run_world(&env, command).await,
-        Command::Definition { command } => run_definition(&env, command).await,
-        Command::Source { command } => run_source(&env, command).await,
-        Command::Action { command } => run_action(&env, command).await,
-        Command::History { .. } | Command::Auth { .. } => unreachable!("handled above"),
+        Command::Auth {
+            command:
+                AuthCommand::Login {
+                    email,
+                    password,
+                    device,
+                },
+        } => run_auth_login(email, password, device).await,
+        Command::World { command } => run_world(&parse_env()?, command).await,
+        Command::Definition { command } => run_definition(&parse_env()?, command).await,
+        Command::Source { command } => run_source(&parse_env()?, command).await,
+        Command::Action { command } => run_action(&parse_env()?, command).await,
+        Command::History { command } => run_history(&parse_env()?, command).await,
     }
 }
 
@@ -381,11 +479,6 @@ async fn run_world(
             type_id,
             limit,
             scenario,
-        }
-        | WorldCommand::Evidence {
-            type_id,
-            limit,
-            scenario,
         } => world_query(env, &type_id, limit, &scenario).await,
         WorldCommand::Scenario { command } => match command {
             ScenarioCommand::Create { name } => {
@@ -393,7 +486,7 @@ async fn run_world(
             }
             ScenarioCommand::Apply { name } => {
                 if env.isolate {
-                    return Ok(fail(1, "isolate cannot commit"));
+                    return Ok(fail(1, "isolate cannot apply"));
                 }
                 scenario_rpc(env, "/zoen.world.v1.WorldService/ApplyScenario", &name).await
             }
@@ -445,9 +538,6 @@ async fn run_action(
     env: &RuntimeEnv,
     command: ActionCommand,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    if env.isolate {
-        return Ok(fail(1, "isolate cannot commit"));
-    }
     match command {
         ActionCommand::Propose {
             proposal_id,
@@ -480,9 +570,30 @@ async fn run_action(
             proposal_id,
             operation_id,
             preview_hash,
-        } => commit_action(env, &proposal_id, &operation_id, &preview_hash).await,
-        ActionCommand::Discover => unreachable!("handled in dispatch"),
+            dry_run,
+        } => commit_action(env, &proposal_id, &operation_id, &preview_hash, dry_run).await,
+        ActionCommand::Discover { resource_id } => discover_actions(env, &resource_id).await,
     }
+}
+
+async fn run_history(
+    env: &RuntimeEnv,
+    command: HistoryCommand,
+) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    let HistoryCommand::Explain {
+        operation_id,
+        claim_id,
+        effect_request_id,
+        proposal_id,
+    } = command;
+    explain_history(
+        env,
+        operation_id.as_deref(),
+        claim_id.as_deref(),
+        effect_request_id.as_deref(),
+        proposal_id.as_deref(),
+    )
+    .await
 }
 
 fn parse_env() -> Result<RuntimeEnv, Box<dyn Error + Send + Sync>> {
@@ -497,9 +608,7 @@ fn parse_env() -> Result<RuntimeEnv, Box<dyn Error + Send + Sync>> {
         tenant: required_env("ZOEN_TENANT")?,
         valid_at: env_or("ZOEN_VALID_AT", "2026-01-15T00:00:00Z"),
         workload_id: env_or("ZOEN_WORKLOAD", "workload.personal"),
-        zoend: required_env_any(&["ZOEN_ZOEND", "ZOEN_IDENTITY_BASE_URL"])?
-            .trim_end_matches('/')
-            .to_owned(),
+        zoend: required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned(),
     })
 }
 
@@ -512,19 +621,24 @@ fn env_or(name: &str, fallback: &str) -> String {
 }
 
 fn required_env(name: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-    required_env_any(&[name])
-}
-
-fn required_env_any(names: &[&str]) -> Result<String, Box<dyn Error + Send + Sync>> {
-    for name in names {
-        if let Ok(value) = env::var(name) {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_owned());
-            }
+    if let Ok(value) = env::var(name) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_owned());
         }
     }
-    Err(format!("{} is required", names[0]).into())
+    Err(required_env_message(name).into())
+}
+
+fn required_env_message(name: &str) -> String {
+    match name {
+        "ZOEN_BEARER" => format!(
+            "{name} is required\n  zoen auth login --email you@example.com --password secret"
+        ),
+        "ZOEN_ZOEND" => format!("{name} is required\n  export ZOEN_ZOEND=http://127.0.0.1:58080"),
+        "ZOEN_TENANT" => format!("{name} is required\n  export ZOEN_TENANT=tenant.a"),
+        _ => format!("{name} is required"),
+    }
 }
 
 fn parse_inputs(values: &[String]) -> Vec<(String, String)> {
@@ -561,7 +675,7 @@ async fn publish_definition(
     env: &RuntimeEnv,
     file: &Path,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    let raw = fs::read(file)?;
+    let raw = read_file_or_stdin(file)?;
     let digest = hex_digest(&raw);
     let status = connect_json(
         env,
@@ -708,16 +822,20 @@ async fn propose_action(
     } else {
         parsed.operation_id.clone()
     };
-    if parsed.proposal_id.is_empty() || parsed.resource_id.is_empty() {
+    if parsed.proposal_id.is_empty() || parsed.resource_id.is_empty() || parsed.action_id.is_empty()
+    {
         return Ok(fail(
             2,
-            "zoen action propose requires --proposal-id and --resource-id",
+            "zoen action propose requires --proposal-id --action-id --resource-id\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1",
         ));
     }
     if env.definition_digest.is_empty() {
         return Ok(fail(2, "ZOEN_DEFINITION_DIGEST is required"));
     }
-    let inputs = propose_inputs(&parsed);
+    let inputs = match propose_inputs(&parsed) {
+        Ok(inputs) => inputs,
+        Err(message) => return Ok(fail(2, &message)),
+    };
     let body = json!({
         "actionId": parsed.action_id,
         "definition": {
@@ -756,9 +874,19 @@ async fn propose_action(
     })))
 }
 
-fn propose_inputs(parsed: &ProposeInput) -> Value {
+fn propose_inputs(parsed: &ProposeInput) -> Result<Value, String> {
+    if parsed
+        .inputs
+        .iter()
+        .any(|(input_id, _)| input_id == "quantity")
+    {
+        return Err(
+            "quantity is not a textValue. Use --quantity:\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1"
+                .to_owned(),
+        );
+    }
     if !parsed.inputs.is_empty() {
-        return json!(
+        return Ok(json!(
             parsed
                 .inputs
                 .iter()
@@ -767,15 +895,15 @@ fn propose_inputs(parsed: &ProposeInput) -> Value {
                     "value": { "textValue": value },
                 }))
                 .collect::<Vec<_>>()
-        );
+        ));
     }
     let Some(quantity) = parsed.quantity.as_ref() else {
-        return json!([]);
+        return Ok(json!([]));
     };
-    json!([{
+    Ok(json!([{
         "inputId": "quantity",
         "value": { "quantityValue": { "amount": quantity, "unit": parsed.unit } },
-    }])
+    }]))
 }
 
 async fn commit_action(
@@ -783,23 +911,26 @@ async fn commit_action(
     proposal_id: &str,
     operation_id: &str,
     preview_hash: &str,
+    dry_run: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
     if proposal_id.is_empty() || operation_id.is_empty() || preview_hash.is_empty() {
         return Ok(fail(
             2,
-            "zoen action commit requires --proposal-id --operation-id --preview-hash",
+            "zoen action commit requires --proposal-id --operation-id --preview-hash\n  zoen action commit --proposal-id p --operation-id p --preview-hash <hash>",
         ));
     }
-    let status = connect_json(
-        env,
-        "/zoen.action.v1.ActionService/Commit",
-        json!({
-            "operationId": operation_id,
-            "previewHash": preview_hash,
-            "proposalId": proposal_id,
-        }),
-    )
-    .await?;
+    if env.isolate && !dry_run {
+        return Ok(fail(1, "isolate cannot commit"));
+    }
+    let body = json!({
+        "operationId": operation_id,
+        "previewHash": preview_hash,
+        "proposalId": proposal_id,
+    });
+    if dry_run {
+        return Ok(ok(&json!({ "commit": body, "dryRun": true })));
+    }
+    let status = connect_json(env, "/zoen.action.v1.ActionService/Commit", body).await?;
     if status.status != 200 {
         return Ok(fail(
             1,
@@ -1673,7 +1804,7 @@ async fn map_quantity(
         .and_then(Value::as_str)
         .or_else(|| doc.pointer("/proposal/previewHash").and_then(Value::as_str))
         .ok_or_else(|| format!("propose missing previewHash {}", proposed.stdout))?;
-    let committed = commit_action(env, &proposal_id, operation_id, preview_hash).await?;
+    let committed = commit_action(env, &proposal_id, operation_id, preview_hash, false).await?;
     if committed.exit_code != 0 {
         return Err(committed.stderr.trim().to_owned().into());
     }
@@ -1741,13 +1872,34 @@ struct ConnectStatus {
     json: Value,
 }
 
+fn read_file_or_stdin(file: &Path) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+    if file.as_os_str() == "-" {
+        let mut raw = Vec::new();
+        io::stdin().read_to_end(&mut raw)?;
+        return Ok(raw);
+    }
+    Ok(fs::read(file)?)
+}
+
+fn http_client() -> Result<reqwest::Client, Box<dyn Error + Send + Sync>> {
+    Ok(reqwest::Client::builder()
+        .timeout(CONNECT_TIMEOUT)
+        .build()?)
+}
+
+fn timed_out_talking_to(origin: &str, started: Instant) -> Box<dyn Error + Send + Sync> {
+    let elapsed = started.elapsed().as_secs().max(CONNECT_TIMEOUT.as_secs());
+    format!("ZOEN_ZOEND={origin} timed out after {elapsed}s").into()
+}
+
 async fn connect_json(
     env: &RuntimeEnv,
     path: &str,
     body: Value,
 ) -> Result<ConnectStatus, Box<dyn Error + Send + Sync>> {
-    let client = reqwest::Client::new();
-    let response = client
+    let started = Instant::now();
+    let client = http_client()?;
+    let response = match client
         .post(format!("{}{path}", env.zoend))
         .header(AUTHORIZATION, format!("Bearer {}", env.bearer))
         .header(CONTENT_TYPE, "application/json")
@@ -1755,9 +1907,362 @@ async fn connect_json(
         .header("x-zoen-tenant", &env.tenant)
         .json(&body)
         .send()
-        .await?;
+        .await
+    {
+        Ok(response) => response,
+        Err(error) if error.is_timeout() => return Err(timed_out_talking_to(&env.zoend, started)),
+        Err(error) => return Err(error.into()),
+    };
     let status = response.status().as_u16();
     let text = response.text().await?;
     let json = serde_json::from_str(&text).unwrap_or_else(|_| Value::String(text.clone()));
     Ok(ConnectStatus { status, text, json })
+}
+
+async fn discover_actions(
+    env: &RuntimeEnv,
+    resource_id: &str,
+) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    if resource_id.is_empty() {
+        return Ok(fail(
+            2,
+            "zoen action discover requires --resource-id\n  zoen action discover --resource-id inventory.item.1",
+        ));
+    }
+    if env.definition_digest.is_empty() {
+        return Ok(fail(2, "ZOEN_DEFINITION_DIGEST is required"));
+    }
+    let status = connect_json(
+        env,
+        "/zoen.action.v1.ActionService/Discover",
+        json!({
+            "definition": {
+                "definitionId": env.definition_id,
+                "digest": env.definition_digest,
+                "revision": "1",
+            },
+            "resourceId": resource_id,
+        }),
+    )
+    .await?;
+    if status.status != 200 {
+        return Ok(fail(
+            1,
+            &format!("Discover {} {}", status.status, status.text),
+        ));
+    }
+    Ok(CommandResult {
+        exit_code: 0,
+        stdout: format!("{}\n", status.text),
+        stderr: String::new(),
+    })
+}
+
+async fn explain_history(
+    env: &RuntimeEnv,
+    operation_id: Option<&str>,
+    claim_id: Option<&str>,
+    effect_request_id: Option<&str>,
+    proposal_id: Option<&str>,
+) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    let target = match explain_target(operation_id, claim_id, effect_request_id, proposal_id) {
+        Ok(target) => target,
+        Err(message) => return Ok(fail(2, &message)),
+    };
+    let status = connect_json(
+        env,
+        "/zoen.history.v1.HistoryService/Explain",
+        json!({ "target": target }),
+    )
+    .await?;
+    if status.status != 200 {
+        return Ok(fail(
+            1,
+            &format!("Explain {} {}", status.status, status.text),
+        ));
+    }
+    Ok(CommandResult {
+        exit_code: 0,
+        stdout: format!("{}\n", status.text),
+        stderr: String::new(),
+    })
+}
+
+fn explain_target(
+    operation_id: Option<&str>,
+    claim_id: Option<&str>,
+    effect_request_id: Option<&str>,
+    proposal_id: Option<&str>,
+) -> Result<Value, String> {
+    let mut target = None;
+    for (key, value) in [
+        ("operationId", operation_id),
+        ("claimId", claim_id),
+        ("effectRequestId", effect_request_id),
+        ("proposalId", proposal_id),
+    ] {
+        let Some(value) = value.filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        if target.is_some() {
+            return Err(explain_example());
+        }
+        target = Some(json!({ key: value }));
+    }
+    target.ok_or_else(explain_example)
+}
+
+fn explain_example() -> String {
+    "zoen history explain needs one target:\n  zoen history explain --claim-id claim.x\n  zoen history explain --operation-id operation.x\n  zoen history explain --proposal-id proposal.x\n  zoen history explain --effect-request-id effect.x"
+        .to_owned()
+}
+
+async fn run_auth_login(
+    email: Option<String>,
+    password: Option<String>,
+    device: bool,
+) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    if device {
+        if email.is_some() || password.is_some() {
+            return Ok(fail(
+                2,
+                "zoen auth login --device does not take --email or --password\n  zoen auth login --device",
+            ));
+        }
+        let zoend = required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned();
+        return login_device(&zoend).await;
+    }
+    match (email, password) {
+        (Some(email), Some(password)) if !email.trim().is_empty() && !password.is_empty() => {
+            let zoend = required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned();
+            login_email(&zoend, email.trim(), &password).await
+        }
+        _ => Ok(fail(
+            2,
+            "zoen auth login needs --email and --password, or --device:\n  zoen auth login --email you@example.com --password secret\n  zoen auth login --device",
+        )),
+    }
+}
+
+async fn login_email(
+    zoend: &str,
+    email: &str,
+    password: &str,
+) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    let started = Instant::now();
+    let response = match http_client()?
+        .post(format!("{zoend}/api/auth/sign-in/email"))
+        .header(CONTENT_TYPE, "application/json")
+        .header("origin", zoend)
+        .json(&json!({ "email": email, "password": password }))
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) if error.is_timeout() => return Err(timed_out_talking_to(zoend, started)),
+        Err(error) => return Err(error.into()),
+    };
+    let status = response.status().as_u16();
+    let headers = response.headers().clone();
+    let text = response.text().await?;
+    if !(200..300).contains(&status) {
+        return Ok(fail(1, &format!("sign-in {status} {text}")));
+    }
+    let Some(bearer) =
+        session_token_from_headers(&headers).or_else(|| session_token_from_body(&text))
+    else {
+        return Ok(fail(1, &format!("sign-in {status} missing session_token")));
+    };
+    Ok(ok(&json!({ "bearer": bearer })))
+}
+
+async fn login_device(zoend: &str) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    let started = Instant::now();
+    let response = match http_client()?
+        .post(format!("{zoend}/api/auth/device/code"))
+        .header(CONTENT_TYPE, "application/json")
+        .header("origin", zoend)
+        .json(&json!({ "client_id": AUTH_CLIENT_ID }))
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) if error.is_timeout() => return Err(timed_out_talking_to(zoend, started)),
+        Err(error) => return Err(error.into()),
+    };
+    let status = response.status().as_u16();
+    let text = response.text().await?;
+    if !(200..300).contains(&status) {
+        return Ok(fail(1, &format!("device/code {status} {text}")));
+    }
+    let doc: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    let device_code = doc
+        .get("device_code")
+        .and_then(Value::as_str)
+        .ok_or("device/code missing device_code")?;
+    let user_code = doc
+        .get("user_code")
+        .and_then(Value::as_str)
+        .ok_or("device/code missing user_code")?;
+    let verification_uri = doc
+        .get("verification_uri")
+        .and_then(Value::as_str)
+        .unwrap_or("/device");
+    let verification_uri = rewrite_loopback_uri(verification_uri, zoend);
+    let interval = doc.get("interval").and_then(Value::as_u64).unwrap_or(5);
+    let expires_in = doc
+        .get("expires_in")
+        .and_then(Value::as_u64)
+        .unwrap_or(1800);
+    io::stderr()
+        .write_all(format!("Open {verification_uri} and enter {user_code}\n").as_bytes())?;
+    poll_device_token(zoend, device_code, interval, expires_in).await
+}
+
+async fn poll_device_token(
+    zoend: &str,
+    device_code: &str,
+    interval: u64,
+    expires_in: u64,
+) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+    let deadline = Instant::now() + Duration::from_secs(expires_in.max(1));
+    let sleep_for = Duration::from_secs(interval.max(1));
+    loop {
+        if Instant::now() >= deadline {
+            return Ok(fail(1, "device authorization timed out"));
+        }
+        tokio::time::sleep(sleep_for).await;
+        let started = Instant::now();
+        let response = match http_client()?
+            .post(format!("{zoend}/api/auth/device/token"))
+            .header(CONTENT_TYPE, "application/json")
+            .header("origin", zoend)
+            .json(&json!({
+                "client_id": AUTH_CLIENT_ID,
+                "device_code": device_code,
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            }))
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(error) if error.is_timeout() => return Err(timed_out_talking_to(zoend, started)),
+            Err(error) => return Err(error.into()),
+        };
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
+        let text = response.text().await?;
+        if status == 200 {
+            let Some(bearer) = session_token_from_headers(&headers)
+                .or_else(|| session_token_from_body(&text))
+                .or_else(|| {
+                    serde_json::from_str::<Value>(&text).ok().and_then(|doc| {
+                        doc.get("access_token")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
+                })
+            else {
+                return Ok(fail(1, "device/token missing session"));
+            };
+            return Ok(ok(&json!({ "bearer": bearer })));
+        }
+        let error = serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|doc| doc.get("error").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or_default();
+        if error == "authorization_pending" || error == "slow_down" {
+            continue;
+        }
+        return Ok(fail(1, &format!("device/token {status} {text}")));
+    }
+}
+
+fn session_token_from_headers(headers: &HeaderMap) -> Option<String> {
+    for value in headers.get_all(SET_COOKIE) {
+        let Ok(raw) = value.to_str() else {
+            continue;
+        };
+        let Some(pair) = raw.split(';').next() else {
+            continue;
+        };
+        let Some((name, rest)) = pair.split_once('=') else {
+            continue;
+        };
+        if name.trim().ends_with("session_token") {
+            return Some(cookie_value(rest));
+        }
+    }
+    None
+}
+
+fn session_token_from_body(text: &str) -> Option<String> {
+    let doc: Value = serde_json::from_str(text).ok()?;
+    doc.get("token")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            doc.pointer("/session/token")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+}
+
+fn cookie_value(raw: &str) -> String {
+    let mut out = String::new();
+    let bytes = raw.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (from_hex(bytes[i + 1]), from_hex(bytes[i + 2])) {
+                out.push(char::from(hi * 16 + lo));
+                i += 3;
+                continue;
+            }
+        }
+        out.push(char::from(bytes[i]));
+        i += 1;
+    }
+    out
+}
+
+fn from_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn rewrite_loopback_uri(raw: &str, zoend: &str) -> String {
+    let parsed = match reqwest::Url::parse(raw) {
+        Ok(parsed) => parsed,
+        Err(_) => match reqwest::Url::parse(zoend).and_then(|base| base.join(raw)) {
+            Ok(parsed) => parsed,
+            Err(_) => return raw.to_owned(),
+        },
+    };
+    let Some(host) = parsed.host_str() else {
+        return parsed.to_string();
+    };
+    if !host_is_loopback(host) {
+        return parsed.to_string();
+    }
+    let Ok(base) = reqwest::Url::parse(zoend) else {
+        return parsed.to_string();
+    };
+    let mut next = parsed;
+    let _ = next.set_scheme(base.scheme());
+    let _ = next.set_host(base.host_str());
+    let _ = next.set_port(base.port());
+    next.to_string()
+}
+
+fn host_is_loopback(host: &str) -> bool {
+    let host = host.trim_matches(|c| c == '[' || c == ']');
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }

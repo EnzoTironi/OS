@@ -58,6 +58,12 @@ async fn forward(
         if hop_by_hop(name) {
             continue;
         }
+        if name == header::ORIGIN {
+            if let Some(rewritten) = rewrite_loopback_origin(value) {
+                upstream = upstream.header(name, rewritten);
+                continue;
+            }
+        }
         upstream = upstream.header(name, value);
     }
     match upstream.body(body).send().await {
@@ -88,6 +94,16 @@ async fn forward(
         }
         Err(_) => (StatusCode::BAD_GATEWAY, "auth_door_unreachable\n").into_response(),
     }
+}
+
+fn rewrite_loopback_origin(origin: &HeaderValue) -> Option<HeaderValue> {
+    let raw = origin.to_str().ok()?;
+    let url = reqwest::Url::parse(raw).ok()?;
+    let host = url.host_str()?;
+    if !host_is_loopback(host) || raw == DOOR {
+        return None;
+    }
+    Some(HeaderValue::from_static(DOOR))
 }
 
 fn inbound_origin(headers: &HeaderMap) -> Option<String> {

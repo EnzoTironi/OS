@@ -29,6 +29,7 @@ scenario_table=(
   "fiscal-protheus-live:fiscal-protheus-live::credential"
   "governed-action:::live"
   "public-surface:::live"
+  "cli-dest:::live"
   "semantic-query:::live"
   "wasm-code-mode:::live"
 )
@@ -59,12 +60,16 @@ usage() {
   exit 2
 }
 
+no_compose_scenario() {
+  [[ "$scenario" == "public-surface" || "$scenario" == "cli-dest" ]]
+}
+
 load_scenario_env() {
   local env_file="e2e/${scenario}/.env"
   export ZOEN_E2E_ARTIFACTS_DIR="artifacts/${scenario}"
   export ZOEN_E2E_GENERATED_DIR="e2e/${scenario}/.generated"
   generated_directory="${ZOEN_E2E_GENERATED_DIR}"
-  if [[ "$scenario" == "public-surface" ]]; then
+  if no_compose_scenario; then
     return
   fi
   if [[ ! -f "$env_file" ]]; then
@@ -91,7 +96,7 @@ resolve_scenario() {
       project="zoen-${scenario}"
       runner="dist/e2e/${scenario}.js"
       prepare=""
-      if [[ "$scenario" == "public-surface" ]]; then
+      if no_compose_scenario; then
         compose_file=""
         project=""
       elif [[ "$klass" == "credential" && -n "$realm" ]]; then
@@ -206,7 +211,7 @@ require_fiscal_live_environment() {
 }
 
 cleanup_scenario() {
-  if [[ "$scenario" == "public-surface" ]]; then
+  if no_compose_scenario; then
     return
   fi
   docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
@@ -217,7 +222,7 @@ cleanup_scenario() {
 
 run_scenario() {
   require_fiscal_live_environment
-  if [[ "$scenario" != "public-surface" ]] && ! command -v docker >/dev/null 2>&1; then
+  if ! no_compose_scenario && ! command -v docker >/dev/null 2>&1; then
     echo "e2e-run requires docker; check/build do not" >&2
     exit 1
   fi
@@ -225,7 +230,7 @@ run_scenario() {
   trap cleanup_scenario EXIT
   cleanup_scenario
   mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
-  if [[ "$scenario" == "public-surface" ]]; then
+  if no_compose_scenario; then
     node "$runner"
     trap - EXIT
     return
