@@ -1014,9 +1014,7 @@ fn missing_definition(env: &RuntimeEnv) -> Option<CommandResult> {
     None
 }
 
-async fn definition_ref(
-    env: &RuntimeEnv,
-) -> Result<Value, Box<dyn Error + Send + Sync>> {
+async fn definition_ref(env: &RuntimeEnv) -> Result<Value, Box<dyn Error + Send + Sync>> {
     let revision = if env.definition_revision.is_empty() {
         resolve_active_revision(env).await?
     } else {
@@ -1029,9 +1027,7 @@ async fn definition_ref(
     }))
 }
 
-async fn resolve_active_revision(
-    env: &RuntimeEnv,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
+async fn resolve_active_revision(env: &RuntimeEnv) -> Result<String, Box<dyn Error + Send + Sync>> {
     let status = connect_json(
         env,
         "/zoen.definition.v1.DefinitionService/GetRevision",
