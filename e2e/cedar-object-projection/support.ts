@@ -18,13 +18,16 @@ import {
 } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
-import { z } from "zod";
 import {
   ActionInputSchema,
   ActionService,
   type ActionInput,
 } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
+import {
+  loadCommercialLake,
+  type CompiledDefinition,
+} from "../canonical-definition.js";
 import { DefinitionService } from "../../gen/connect/zoen/definition/v1/definition_pb.js";
 import { HistoryService } from "../../gen/connect/zoen/history/v1/history_pb.js";
 import {
@@ -86,42 +89,14 @@ export const applicationDatabaseUrl = e2ePostgresUrl(
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 export const zoendBaseUrl = baseUrl;
-const compilerPath = path.join(
-  repositoryRoot,
-  "dist",
-  "packages",
-  "ontology",
-  "src",
-  "cli.js",
-);
 const cargoTargetDir =
   process.env.CARGO_TARGET_DIR === undefined ||
   process.env.CARGO_TARGET_DIR === ""
     ? path.join(repositoryRoot, "target")
     : process.env.CARGO_TARGET_DIR;
 const serverPath = path.join(cargoTargetDir, "debug", "zoen");
-const commercialSource = path.join(
-  repositoryRoot,
-  "packages",
-  "ontology",
-  "fixtures",
-  "commercial.zoen.ts",
-);
 
-const compiledDefinitionSchema = z
-  .object({
-    canonicalJson: z.string(),
-    definition: z
-      .object({
-        definitionId: z.string(),
-        revision: z.number().int().positive(),
-      })
-      .passthrough(),
-    digest: z.string().regex(/^[0-9a-f]{64}$/),
-  })
-  .strict();
-
-export type CompiledDefinition = z.infer<typeof compiledDefinitionSchema>;
+export type { CompiledDefinition };
 export type ActionClient = Client<typeof ActionService>;
 export type DefinitionClient = Client<typeof DefinitionService>;
 export type HistoryClient = Client<typeof HistoryService>;
@@ -132,13 +107,8 @@ export interface ServerProcess {
   output: string[];
 }
 
-export async function compileCommercial(): Promise<CompiledDefinition> {
-  const output = await command(process.execPath, [
-    compilerPath,
-    "compile",
-    commercialSource,
-  ]);
-  return compiledDefinitionSchema.parse(JSON.parse(output));
+export function loadCommercial(): Promise<CompiledDefinition> {
+  return loadCommercialLake(repositoryRoot);
 }
 
 export function definitionReference(

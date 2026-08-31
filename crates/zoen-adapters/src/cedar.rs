@@ -748,10 +748,8 @@ when {
     #[tokio::test]
     async fn personal_text_actions_permit_commit_without_quantity() {
         let definition_digest = "b".repeat(64);
-        let write_memory =
-            include_str!("../../../packages/ontology/fixtures/personal.writeMemory.cedar");
-        let create_reminder =
-            include_str!("../../../packages/ontology/fixtures/personal.createReminder.cedar");
+        let write_memory = include_str!("../../../testdata/cedar/personal.writeMemory.cedar");
+        let create_reminder = include_str!("../../../testdata/cedar/personal.createReminder.cedar");
         assert!(!write_memory.contains("quantity"));
         assert!(!create_reminder.contains("quantity"));
         let evaluator = CedarPolicyEvaluator::from_json(&format!(

@@ -22,7 +22,7 @@ import {
   applicationDatabaseUrl,
   authDatabaseUrl,
   command,
-  compileCommercial,
+  loadCommercial,
   definitionClient,
   definitionReference,
   expectConnectCode,
@@ -60,7 +60,7 @@ function inject(name: string): void {
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  const commercial = await compileCommercial();
+  const commercial = await loadCommercial();
   const definition = definitionReference(commercial);
   const identityRelationIds = [
     "commercial.buyerPartyReference",

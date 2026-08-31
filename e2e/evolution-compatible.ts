@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
@@ -17,7 +17,7 @@ import {
   authDatabaseUrl,
   command,
   commitReplenish,
-  compileDefinition,
+  loadCanonicalDefinition,
   definitionClient,
   definitionId,
   definitionReference,
@@ -67,14 +67,18 @@ function recordFailure(name: string): void {
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  const v1 = await compileDefinition(
-    path.join(fixtureDirectory, "inventory.zoen.ts"),
+  const v1 = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory.canonical.json"),
   );
-  const v2 = await compileDefinition(
-    path.join(fixtureDirectory, "inventory-v2.zoen.ts"),
+  const v2 = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory-v2.canonical.json"),
   );
-  const mutant = await compileMutant(v2);
-  const addedActionMutant = await compileAddedActionMutant(v2);
+  const mutant = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory-v2-amount.canonical.json"),
+  );
+  const addedActionMutant = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory-v2-reserve.canonical.json"),
+  );
   assert.equal(v1.definition.revision, 1);
   assert.equal(v2.definition.revision, 2);
   assert.equal(mutant.definition.revision, 3);
@@ -832,76 +836,6 @@ function impact(plan: EvolutionPlan, area: DefinitionImpactArea) {
   const result = plan.impacts.find((item) => item.area === area);
   assert.ok(result);
   return result;
-}
-
-async function compileMutant(
-  v2: CompiledDefinition,
-): Promise<CompiledDefinition> {
-  const source = await readFile(
-    path.join(fixtureDirectory, "inventory-v2.zoen.ts"),
-    "utf8",
-  );
-  const mutated = source
-    .replace('value: { amount: "0.125"', 'value: { amount: "0.25"')
-    .replace("revision: 2", "revision: 3");
-  assert.notEqual(mutated, source);
-  const outputPath = path.join(generatedDirectory, "inventory-mutant.zoen.ts");
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, mutated);
-  const mutant = await compileDefinition(outputPath);
-  assert.notEqual(mutant.digest, v2.digest);
-  return mutant;
-}
-
-async function compileAddedActionMutant(
-  v2: CompiledDefinition,
-): Promise<CompiledDefinition> {
-  const source = await readFile(
-    path.join(fixtureDirectory, "inventory-v2.zoen.ts"),
-    "utf8",
-  );
-  const reserveAction = `const reserve = defineAction({
-  effects: [
-    {
-      relationId: "inventory.reserved",
-      value: { inputId: "quantity", kind: "input" },
-    },
-  ],
-  id: "inventory.reserve",
-  inputs: [
-    {
-      id: "quantity",
-      valueType: { kind: "quantity", unit: "kg" },
-    },
-  ],
-  precondition: {
-    kind: "binary",
-    left: { inputId: "quantity", kind: "input" },
-    operator: "greater_than",
-    right: {
-      kind: "literal",
-      value: { amount: "0.125", kind: "quantity", unit: "kg" },
-    },
-  },
-});
-
-`;
-  const mutated = source
-    .replace("const replenish = defineAction({", `${reserveAction}const replenish = defineAction({`)
-    .replace("actions: [replenish]", "actions: [replenish, reserve]")
-    .replace("revision: 2", "revision: 3");
-  assert.notEqual(mutated, source);
-  assert.match(mutated, /id: "inventory\.reserve"/);
-  assert.match(mutated, /actions: \[replenish, reserve\]/);
-  const outputPath = path.join(
-    generatedDirectory,
-    "inventory-added-action-mutant.zoen.ts",
-  );
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, mutated);
-  const mutant = await compileDefinition(outputPath);
-  assert.notEqual(mutant.digest, v2.digest);
-  return mutant;
 }
 
 async function exactRevision(

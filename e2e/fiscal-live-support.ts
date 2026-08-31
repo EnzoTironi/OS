@@ -21,7 +21,11 @@ import {
   QuantityValueSchema,
   ValidTimeSchema,
 } from "../gen/connect/zoen/world/v1/world_pb.js";
-import { canonicalDefinitionFromJson } from "../packages/ontology/src/index.js";
+import {
+  loadCanonicalDefinition,
+  loadCommercialLake,
+  type CompiledDefinition,
+} from "./canonical-definition.js";
 import {
   dispatchOnce,
   effectClient,
@@ -35,14 +39,12 @@ import {
 } from "./effect-support.js";
 import {
   actionClient,
-  compileDefinition,
   definitionClient,
   publish,
   repositoryRoot,
   startServer,
   stopServer,
   worldClient,
-  type CompiledDefinition,
   type DefinitionClient,
   type WorldClient,
 } from "./evolution-compatible/support.js";
@@ -92,7 +94,7 @@ export interface DomainFixture {
   readonly compiled: CompiledDefinition;
   readonly definition: ReturnType<typeof definitionReference>;
   readonly digest: string;
-  readonly metadata: ReturnType<typeof canonicalDefinitionFromJson>;
+  readonly metadata: CompiledDefinition["definition"];
   readonly packageName: string;
 }
 
@@ -106,19 +108,9 @@ const generatedDirectory =
 const packageDirectory = generatedDirectory.replace(/\/\.generated\/?$/, "");
 const fiscalPackageSourcePath = path.join(
   repositoryRoot,
-  "archive",
-  "domain",
-  "fiscal-brazil",
-  "src",
-  "fiscal-brazil.zoen.ts",
-);
-const commercialPackageSourcePath = path.join(
-  repositoryRoot,
-  "archive",
-  "domain",
-  "commercial",
-  "src",
-  "commercial.zoen.ts",
+  "testdata",
+  "lakes",
+  "fiscal-brazil.canonical.json",
 );
 const distDirectory = path.join(repositoryRoot, "dist");
 const zoenUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_271);
@@ -155,31 +147,30 @@ function definitionReference(compiled: CompiledDefinition) {
   });
 }
 
-async function compileNamedPackage(
-  sourcePath: string,
+async function namedPackage(
+  compiled: CompiledDefinition,
   packageName: string,
 ): Promise<DomainFixture> {
-  const compiled = await compileDefinition(sourcePath);
   return {
     canonicalJson: compiled.canonicalJson,
     compiled,
     definition: definitionReference(compiled),
     digest: compiled.digest,
-    metadata: canonicalDefinitionFromJson(compiled.canonicalJson),
+    metadata: compiled.definition,
     packageName,
   };
 }
 
-export async function compileFiscalPackage(): Promise<FiscalFixture> {
-  const fixture = await compileNamedPackage(
-    fiscalPackageSourcePath,
+export async function loadFiscalPackage(): Promise<FiscalFixture> {
+  const fixture = await namedPackage(
+    await loadCanonicalDefinition(fiscalPackageSourcePath),
     "fiscal-brazil",
   );
   return { ...fixture, packageName: "fiscal-brazil" };
 }
 
-export function compileCommercialPackage(): Promise<DomainFixture> {
-  return compileNamedPackage(commercialPackageSourcePath, "commercial");
+export async function loadCommercialPackage(): Promise<DomainFixture> {
+  return namedPackage(await loadCommercialLake(repositoryRoot), "commercial");
 }
 
 export async function recordFiscalEvidence(
