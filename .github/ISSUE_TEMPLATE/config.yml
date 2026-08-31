@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/EnzoTironi/OS/discussions
+    about: Questions and ideas that are not a bug or a concrete change
+  - name: Security advisory
+    url: https://github.com/EnzoTironi/OS/security/advisories/new
+    about: Privately report a vulnerability
