@@ -786,12 +786,6 @@ fn infer_fail_code(exit_code: u8, message: &str) -> FailCode {
     if exit_code == 2 {
         return FailCode::Usage;
     }
-    if head.contains("401") {
-        return FailCode::Unauthenticated;
-    }
-    if head.contains("403") {
-        return FailCode::PermissionDenied;
-    }
     FailCode::NotConnected
 }
 
