@@ -1,12 +1,16 @@
-.git
-.audit
-.cache
-artifacts
-dist
-node_modules
-target
-apps/web/.nitro
-apps/web/.output
-apps/web/dist
+# Fly COPY apps/conversation copies that tree after npm ci.
+# A root-only node_modules rule still sends apps/*/node_modules.
+**/.git
+**/.audit
+**/.cache
+**/.DS_Store
+**/.eve
+**/.nitro
+**/.output
+**/artifacts
+**/dist
+**/node_modules
+**/target
+**/*.log
+**/*.tsbuildinfo
 e2e/**/.generated
-*.log
