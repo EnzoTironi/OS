@@ -1,0 +1,21 @@
+name: Change
+description: A concrete product or kernel change
+labels: [enhancement]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: What should exist
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The gap, not a stack of tools.
+    validations:
+      required: true
+  - type: textarea
+    id: out
+    attributes:
+      label: Out of scope
