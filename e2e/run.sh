@@ -132,6 +132,7 @@ run_lint() {
   npm run build
   npm run lint:ts
   node scripts/generate-jcs-fixtures.mjs --check
+  node scripts/check-canonical-json.mjs
   cargo fmt --all --check
   cargo test --locked --workspace
   test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1

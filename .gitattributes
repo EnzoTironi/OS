@@ -1,1 +1,2 @@
 packages/sdk/src/gen/** whitespace=-blank-at-eof
+*.canonical.json -text
