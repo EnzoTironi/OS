@@ -193,6 +193,74 @@ async function main(): Promise<void> {
     helpRoot.stdout.includes("zoen world query --type inventory.Item"),
   );
 
+  const skill = runZoen(["--skill"]);
+  record("skill_ok", skill.status === 0);
+  record("skill_flags_over_prompts", skill.stdout.includes("flags over prompts"));
+  record("skill_json_stdout", skill.stdout.includes("JSON on stdout"));
+  record("skill_dry_run", skill.stdout.includes("--dry-run"));
+  record("skill_names_ZOEN_ISOLATE", skill.stdout.includes("ZOEN_ISOLATE"));
+  record("skill_file_dash", skill.stdout.includes("--file -"));
+  record("skill_device_not_password_argv", skill.stdout.includes("--device"));
+  record(
+    "skill_no_password_secret_argv",
+    !skill.stdout.includes("--password secret"),
+  );
+  record(
+    "skill_no_bare_zoen_discovery",
+    skill.stdout.includes("No bare zoen for discovery"),
+  );
+  record("skill_no_connect_proto", !skill.stdout.includes("protobuf"));
+  killMutant("zoen --skill missing agent dest");
+
+  const schemaPropose = runZoen(["schema", "action.propose"]);
+  record("schema_propose_ok", schemaPropose.status === 0);
+  let schemaProposeJson: {
+    command?: unknown;
+    requiredFlags?: unknown;
+    examples?: unknown;
+    stdout?: unknown;
+  } = {};
+  try {
+    schemaProposeJson = JSON.parse(schemaPropose.stdout) as typeof schemaProposeJson;
+  } catch {
+    schemaProposeJson = {};
+  }
+  record(
+    "schema_propose_command",
+    schemaProposeJson.command === "action.propose",
+  );
+  record(
+    "schema_propose_required_flags",
+    Array.isArray(schemaProposeJson.requiredFlags) &&
+      schemaProposeJson.requiredFlags.includes("--action-id") &&
+      schemaProposeJson.requiredFlags.includes("--resource-id") &&
+      schemaProposeJson.requiredFlags.includes("--expires-at"),
+  );
+  record(
+    "schema_propose_examples",
+    Array.isArray(schemaProposeJson.examples) &&
+      schemaProposeJson.examples.some(
+        (example) =>
+          typeof example === "string" &&
+          example.includes("zoen action propose") &&
+          example.includes("--dry-run"),
+      ),
+  );
+  record(
+    "schema_propose_stdout_shape",
+    schemaProposeJson.stdout !== undefined && schemaProposeJson.stdout !== null,
+  );
+  killMutant("zoen schema action.propose missing");
+
+  const schemaUnknown = runZoen(["schema", "world.evidence"]);
+  record("schema_unknown_fails", schemaUnknown.status === 2);
+  record(
+    "schema_unknown_teaches",
+    schemaUnknown.stderr.includes("action.propose") ||
+      schemaUnknown.stdout.includes("action.propose"),
+  );
+  killMutant("zoen schema accepts dest-wrong verbs");
+
   const helpQuery = runZoen(["world", "query", "--help"]);
   record("query_help_ok", helpQuery.status === 0);
   record("query_help_has_page_token", helpQuery.stdout.includes("--page-token"));

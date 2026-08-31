@@ -31,16 +31,39 @@ Environment:
   ZOEN_DEFINITION_DIGEST  active definition digest
   ZOEN_DEFINITION_ID      active definition id
   ZOEN_VALID_AT           as-of timestamp for query and propose
+  ZOEN_ISOLATE            set to 1 to deny live side effects
   ZOEN_SOURCE_API_KEY     REST --auth apikey secret (prefer over --api-key)
   ZOEN_SOURCE_CLIENT_SECRET  oauth2 client secret (prefer over --client-secret)
   ZOEN_SOURCE_TOKEN       google stand-in bearer (prefer over --token)
 
 Examples:
+  zoen --skill
+  zoen schema action.propose
   zoen serve
   zoen auth login --device
   zoen auth login --email you@example.com --password-stdin
   zoen world query --type inventory.Item
   zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --dry-run
+";
+
+const SKILL_TEXT: &str = "\
+# Zoen CLI skill
+
+Discovery: `zoen --help`, `zoen --skill`, or `zoen schema <command>`.
+No bare zoen for discovery beyond the one-shot root help print.
+
+Rules:
+- Prefer flags over prompts.
+- JSON on stdout. Errors and teaching go to stderr.
+- Use `--dry-run` before commit, apply, activate, sync, or connect.
+- Set `ZOEN_ISOLATE=1` to deny live side effects.
+- Secrets via env or stdin (`ZOEN_PASSWORD`, `ZOEN_SOURCE_*`, `--password-stdin`). Prefer `--device` for auth. Do not put `--password` on argv.
+- Publish with `zoen definition publish --file -` to read stdin.
+
+Env: ZOEN_BEARER, ZOEN_TENANT, ZOEN_ZOEND, ZOEN_DEFINITION_ID, ZOEN_DEFINITION_DIGEST, ZOEN_VALID_AT, ZOEN_ISOLATE, ZOEN_PASSWORD, ZOEN_SOURCE_API_KEY, ZOEN_SOURCE_CLIENT_SECRET, ZOEN_SOURCE_TOKEN.
+
+Commands: serve, world, definition, source, action, history, auth.
+Schema example: `zoen schema action.propose`
 ";
 
 /// Ontology CLI parser. No args prints help; `serve` starts the daemon.
@@ -52,6 +75,9 @@ Examples:
     after_help = ROOT_AFTER_HELP
 )]
 pub struct Cli {
+    /// Print agent skill dest (flags, JSON, dry-run, isolate)
+    #[arg(long = "skill")]
+    pub skill: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -68,9 +94,215 @@ pub fn print_root_help() -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }
 
+/// Print the agent skill dest from the binary.
+///
+/// # Errors
+///
+/// Returns an error when stdout cannot be written.
+pub fn print_skill() -> Result<(), Box<dyn Error + Send + Sync>> {
+    io::stdout().write_all(SKILL_TEXT.as_bytes())?;
+    Ok(())
+}
+
+struct SchemaEntry {
+    command: &'static str,
+    required_flags: &'static [&'static str],
+    examples: &'static [&'static str],
+    stdout_json: &'static str,
+}
+
+const SCHEMA_REGISTRY: &[SchemaEntry] = &[
+    SchemaEntry {
+        command: "serve",
+        required_flags: &[],
+        examples: &["zoen serve"],
+        stdout_json: r#"{"format":"daemon"}"#,
+    },
+    SchemaEntry {
+        command: "world.query",
+        required_flags: &["--type"],
+        examples: &[
+            "zoen world query --type inventory.Item",
+            "zoen world query --type inventory.Item --limit 20 --page-token <nextPageToken>",
+        ],
+        stdout_json: r#"{"format":"json","fields":["items","nextPageToken"]}"#,
+    },
+    SchemaEntry {
+        command: "world.scenario.create",
+        required_flags: &["--idempotency-key|--name"],
+        examples: &[
+            "zoen world scenario create --idempotency-key draft",
+            "zoen world scenario create --name draft",
+        ],
+        stdout_json: r#"{"format":"json","fields":["name","scenarioId"]}"#,
+    },
+    SchemaEntry {
+        command: "world.scenario.apply",
+        required_flags: &["--name"],
+        examples: &[
+            "zoen world scenario apply --name draft --dry-run",
+            "zoen world scenario apply --name draft",
+        ],
+        stdout_json: r#"{"format":"json","dryRun":{"dryRun":true},"live":{"applied":true}}"#,
+    },
+    SchemaEntry {
+        command: "world.scenario.discard",
+        required_flags: &["--name"],
+        examples: &[
+            "zoen world scenario discard --name draft --dry-run",
+            "zoen world scenario discard --name draft",
+        ],
+        stdout_json: r#"{"format":"json","dryRun":{"dryRun":true},"live":{"discarded":true}}"#,
+    },
+    SchemaEntry {
+        command: "definition.publish",
+        required_flags: &["--file"],
+        examples: &[
+            "zoen definition publish --file definition.canonical.json",
+            "zoen definition publish --file -",
+        ],
+        stdout_json: r#"{"format":"json","fields":["definitionId","digest"]}"#,
+    },
+    SchemaEntry {
+        command: "definition.activate",
+        required_flags: &["--definition-id", "--digest"],
+        examples: &[
+            "zoen definition activate --definition-id inventory.definition --digest <digest> --dry-run",
+            "zoen definition activate --definition-id inventory.definition --digest <digest>",
+        ],
+        stdout_json: r#"{"format":"json","dryRun":{"dryRun":true,"definitionId":"...","digest":"..."},"live":{"definitionId":"...","digest":"..."}}"#,
+    },
+    SchemaEntry {
+        command: "source.connect.rest",
+        required_flags: &["--base", "--idempotency-key|--id"],
+        examples: &[
+            "zoen source connect rest --idempotency-key rest --base https://api.example.com",
+            "zoen source connect rest --id rest --base https://api.example.com --dry-run",
+        ],
+        stdout_json: r#"{"format":"json","fields":["id","kind","baseUrl"]}"#,
+    },
+    SchemaEntry {
+        command: "source.connect.oauth2",
+        required_flags: &["--token-url", "--client-id", "--idempotency-key|--id"],
+        examples: &[
+            "ZOEN_SOURCE_CLIENT_SECRET=... zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client",
+            "zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client --client-secret-stdin",
+        ],
+        stdout_json: r#"{"format":"json","fields":["id","kind"]}"#,
+    },
+    SchemaEntry {
+        command: "source.connect.google",
+        required_flags: &["--profile", "--idempotency-key|--id"],
+        examples: &[
+            "zoen source connect google --idempotency-key work --profile work --base https://www.googleapis.com",
+            "ZOEN_SOURCE_TOKEN=... zoen source connect google --idempotency-key work --profile work --base https://stand-in.example",
+        ],
+        stdout_json: r#"{"format":"json","fields":["id","kind","profile"]}"#,
+    },
+    SchemaEntry {
+        command: "source.connect.mcp",
+        required_flags: &["--url", "--idempotency-key|--id"],
+        examples: &["zoen source connect mcp --idempotency-key mcp --url https://mcp.example.com"],
+        stdout_json: r#"{"format":"json","fields":["id","kind","url"]}"#,
+    },
+    SchemaEntry {
+        command: "source.introduce",
+        required_flags: &[],
+        examples: &["zoen source introduce rest --path /pedidos"],
+        stdout_json: r#"{"format":"json","fields":["id","introduced"]}"#,
+    },
+    SchemaEntry {
+        command: "source.sync",
+        required_flags: &[],
+        examples: &["zoen source sync rest", "zoen source sync rest --dry-run"],
+        stdout_json: r#"{"format":"json","dryRun":{"dryRun":true},"live":{"synced":true}}"#,
+    },
+    SchemaEntry {
+        command: "action.propose",
+        required_flags: &[
+            "--idempotency-key|--proposal-id",
+            "--action-id",
+            "--resource-id",
+            "--expires-at",
+            "--quantity|--input",
+        ],
+        examples: &[
+            "zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --unit each --dry-run",
+            "zoen action propose --idempotency-key p --action-id world.stamp --resource-id world.note.1 --input text=hello --expires-at 2030-01-01T00:00:00Z",
+        ],
+        stdout_json: r#"{"format":"json","dryRun":{"dryRun":true,"propose":{"actionId":"...","resourceId":"...","expiresAt":"..."}},"live":{"decision":"...","previewHash":"...","proposal":"..."}}"#,
+    },
+    SchemaEntry {
+        command: "action.commit",
+        required_flags: &["--proposal-id", "--operation-id", "--preview-hash"],
+        examples: &[
+            "zoen action commit --proposal-id p --operation-id p --preview-hash <hash> --dry-run",
+            "zoen action commit --proposal-id p --operation-id p --preview-hash <hash>",
+        ],
+        stdout_json: r#"{"format":"json","dryRun":{"commit":{"proposalId":"...","operationId":"...","previewHash":"..."},"dryRun":true},"live":{"claimIds":[],"receipt":"...","status":"..."}}"#,
+    },
+    SchemaEntry {
+        command: "action.discover",
+        required_flags: &["--resource-id"],
+        examples: &["zoen action discover --resource-id inventory.item.1"],
+        stdout_json: r#"{"format":"json","fields":["actions"]}"#,
+    },
+    SchemaEntry {
+        command: "history.explain",
+        required_flags: &["--claim-id|--operation-id|--proposal-id|--effect-request-id"],
+        examples: &[
+            "zoen history explain --claim-id claim.x",
+            "zoen history explain --operation-id operation.x",
+        ],
+        stdout_json: r#"{"format":"json","fields":["explanation"]}"#,
+    },
+    SchemaEntry {
+        command: "auth.login",
+        required_flags: &["--device|--email"],
+        examples: &[
+            "zoen auth login --device",
+            "zoen auth login --device --wait",
+            "zoen auth login --email you@example.com --password-stdin",
+        ],
+        stdout_json: r#"{"format":"json","device":{"deviceCode":"...","userCode":"...","verificationUri":"..."},"email":{"session":"..."}}"#,
+    },
+];
+
+fn schema_json(entry: &SchemaEntry) -> Value {
+    let stdout: Value = serde_json::from_str(entry.stdout_json).unwrap_or(Value::Null);
+    json!({
+        "command": entry.command,
+        "requiredFlags": entry.required_flags,
+        "examples": entry.examples,
+        "stdout": stdout,
+    })
+}
+
+fn lookup_schema(command: &str) -> CommandResult {
+    let key = command.trim();
+    if let Some(entry) = SCHEMA_REGISTRY.iter().find(|entry| entry.command == key) {
+        return ok(&schema_json(entry));
+    }
+    let known = SCHEMA_REGISTRY
+        .iter()
+        .map(|entry| entry.command)
+        .collect::<Vec<_>>()
+        .join(", ");
+    fail(
+        2,
+        &format!("unknown schema command `{key}`\n  known: {known}\n  zoen schema action.propose"),
+    )
+}
+
 /// Ontology commands the `zoen` binary accepts.
 #[derive(Subcommand)]
 pub enum Command {
+    /// Dump machine-readable schema JSON for one command
+    #[command(after_help = "Examples:\n  zoen schema action.propose\n  zoen schema world.query")]
+    Schema {
+        /// Dotted command path such as `action.propose`
+        command: String,
+    },
     /// Start the Connect API daemon
     #[command(after_help = "Examples:\n  zoen serve")]
     Serve,
@@ -509,6 +741,7 @@ pub async fn run(command: Command) -> Result<(), Box<dyn Error + Send + Sync>> {
 
 async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
     match command {
+        Command::Schema { command } => Ok(lookup_schema(&command)),
         Command::Serve => unreachable!("serve is handled in main"),
         Command::Auth {
             command:
