@@ -9,7 +9,7 @@ import {
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { DefinitionService } from "../../../gen/connect/zoen/definition/v1/definition_pb.js";
 
-const baseUrl = required("ZOEN_IDENTITY_BASE_URL");
+const baseUrl = required("ZOEN_ZOEND");
 const tenantId = required("ZOEN_TENANT_ID");
 const personalPath = required("ZOEN_PERSONAL_DEFINITION_PATH");
 const bearer = bearerFromEnv();

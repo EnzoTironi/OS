@@ -1,7 +1,7 @@
 #!/bin/sh
 # Bind a person WhatsApp JID via machine-token identity admin.
 set -eu
-zoend_url="${ZOEN_IDENTITY_BASE_URL:-http://127.0.0.1:58701}"
+zoend_url="${ZOEN_ZOEND:-http://127.0.0.1:58701}"
 token="${ZOEN_IDENTITY_ADMIN_TOKEN:?ZOEN_IDENTITY_ADMIN_TOKEN required}"
 door_e164="${ZOEN_WHATSAPP_DOOR_E164:-+553798136141}"
 person_subject="${ZOEN_WHATSAPP_PERSON_SUBJECT:-5531999941160@s.whatsapp.net}"
