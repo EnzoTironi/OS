@@ -13,6 +13,7 @@ const requiredHeadingOrder = [
   "Auth door",
   "Conversation",
   "WhatsApp",
+  "Telegram",
   "Deploy",
   "Develop",
 ] as const;
@@ -103,6 +104,10 @@ async function main(): Promise<void> {
   const whatsapp = sectionBody(readme, "WhatsApp");
   record("whatsapp_kapso_path", /\/eve\/v1\/kapso/.test(whatsapp));
   record("whatsapp_rejects_cloud_api", /@chat-adapter\/whatsapp/.test(whatsapp));
+
+  const telegram = sectionBody(readme, "Telegram");
+  record("telegram_eve_path", /\/eve\/v1\/telegram/.test(telegram));
+  record("telegram_names_eve_channel", /eve\/channels\/telegram/.test(telegram));
 
   const deploy = sectionBody(readme, "Deploy");
   record("deploy_one_fly_app", /one Fly app/.test(deploy));

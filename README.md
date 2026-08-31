@@ -17,7 +17,7 @@ This repository is the product. See [architecture.md](architecture.md) for the m
 | Conversation | Eve in `apps/conversation` |
 | Auth door | Better Auth in `apps/auth` |
 
-Conversation is not named Poke. Poke is a voice reference only.
+Conversation is Eve. Do not name the product Poke. The bar is Poke plus Palantir: intimate conversation and ontology-grade depth for every audience. Poke is the voice reference only.
 
 ## Install
 
@@ -79,7 +79,11 @@ Eve is `apps/conversation`. It binds loopback `:3000`. zoend forwards `/eve/v1` 
 
 ## WhatsApp
 
-Inbound dest is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Everyday replies are text plus one https URL. Do not use `@chat-adapter/whatsapp` Cloud API.
+Inbound dest is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Flatten structured chrome to readable text. Never invent a URL. Never ship helpdesk copy. Do not use `@chat-adapter/whatsapp` Cloud API.
+
+## Telegram
+
+Inbound dest is Eve's first-class Telegram channel at `/eve/v1/telegram` (`eve/channels/telegram`). Same reply law as WhatsApp. Secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, optional `TELEGRAM_BOT_USERNAME`. Register the webhook yourself with `setWebhook` (eve does not). Prefer Telegram for headless loop proofs: forge an Update with the secret header, then observe `sendMessage`.
 
 ## Deploy
 
