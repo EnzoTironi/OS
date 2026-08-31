@@ -966,11 +966,23 @@ where
             .into_iter()
             .enumerate()
             .map(|(index, draft)| {
+                let draft_relation_id = draft.relation_id.clone();
                 let evidence = admission::admit_action_effect(&loaded.revision, draft)
                     .map_err(|error| ActionError::Evaluation(error.to_string()))?;
-                let request_payload = human_request_payload
-                    .clone()
-                    .unwrap_or_else(|| evidence.projection_event().payload().as_bytes().to_vec());
+                let request_payload = if let Some(payload) = human_request_payload.clone() {
+                    payload
+                } else if crate::is_reminder_delivery_action(&proposal.action_id)
+                    && crate::is_reminder_due_relation(draft_relation_id.as_str())
+                {
+                    match crate::mint_reminder_delivery_payload(proposal)
+                        .map_err(ActionError::Evaluation)?
+                    {
+                        Some(payload) => payload,
+                        None => evidence.projection_event().payload().as_bytes().to_vec(),
+                    }
+                } else {
+                    evidence.projection_event().payload().as_bytes().to_vec()
+                };
                 Ok(ActionCommitEffect {
                     effect_request_id: effect_request_id(&proposal.operation_id, index)?,
                     evidence,
