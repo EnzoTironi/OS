@@ -71,7 +71,13 @@ mod proto {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     match cli::Cli::parse().command {
-        None | Some(cli::Command::Serve) => serve().await,
+        None | Some(cli::Command::Serve) => match serve().await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                eprintln!("Error: {error}");
+                std::process::exit(1);
+            }
+        },
         Some(command) => cli::run(command).await,
     }
 }
@@ -114,7 +120,7 @@ struct OntologyServices {
 }
 
 async fn boot_runtime() -> Result<BootRuntime, Box<dyn Error + Send + Sync>> {
-    let database_url = env::var("DATABASE_URL")?;
+    let database_url = required_database_url()?;
     let ProcessAuth::SessionDoor { auth_database_url } = config::process_auth()?;
     let policy = Arc::new(CedarPolicyEvaluator::from_path(
         config::cedar_manifest_path()?,
@@ -291,6 +297,18 @@ fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
         .merge(pack_routes)
         .merge(pack_registry_routes)
         .merge(rpc)
+}
+
+fn required_database_url() -> Result<String, Box<dyn Error + Send + Sync>> {
+    match env::var("DATABASE_URL") {
+        Ok(value) if !value.trim().is_empty() => Ok(value),
+        Ok(_) | Err(env::VarError::NotPresent) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "DATABASE_URL is required",
+        )
+        .into()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn listen_address() -> Result<SocketAddr, Box<dyn Error + Send + Sync>> {

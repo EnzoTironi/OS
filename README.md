@@ -36,20 +36,19 @@ That builds the `zoen` binary (API daemon and CLI) plus workspace TypeScript. Th
 `zoen` is one Rust binary. No args, or `zoen serve`, is the Connect API. `zoen <noun> <verb>` is the CLI. JSON on stdout. Flags over prompts. `--dry-run` on mutations. One static executable. No Node runtime for the CLI.
 
 ```
-zoen auth login
+zoen auth login --email you@example.com --password secret
 zoen definition publish --file definition.canonical.json
-zoen world query
-zoen world evidence
-zoen action discover
-zoen action propose
-zoen action commit
-zoen source connect
-zoen source introduce
-zoen source sync
-zoen history explain
+zoen world query --type inventory.Item
+zoen action discover --resource-id inventory.item.1
+zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1
+zoen action commit --proposal-id p --operation-id p --preview-hash <hash>
+zoen source connect rest --id rest --base https://api.example.com
+zoen source introduce rest --path /pedidos
+zoen source sync rest
+zoen history explain --claim-id claim.x
 ```
 
-The binary does not govern. Propose, Cedar, and commit run on zoend. Bearer is a Better Auth session. Isolate (`ZOEN_ISOLATE=1`) denies `action commit`.
+The binary does not govern. Propose, Cedar, and commit run on zoend. Bearer is a Better Auth session. Isolate (`ZOEN_ISOLATE=1`) denies `action commit` and `world scenario apply`.
 
 Publish canonical JSON. Do not author `.zoen.ts` as the compiler. `@zoen/sdk` and `@zoen/osdk` are not this door.
 
