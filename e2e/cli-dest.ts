@@ -71,6 +71,7 @@ function cliEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     ZOEN_BEARER: "x",
     ZOEN_DEFINITION_DIGEST: "dead",
     ZOEN_DEFINITION_ID: "inventory.definition",
+    ZOEN_DEFINITION_REVISION: "1",
     ZOEN_TENANT: "tenant.a",
     ZOEN_VALID_AT: "2026-01-15T00:00:00Z",
     ZOEN_ZOEND: "http://127.0.0.1:58080",
