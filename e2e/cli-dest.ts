@@ -586,6 +586,28 @@ async function main(): Promise<void> {
       timeoutMs: 5_000,
     });
     record("unbound_query_fails", unboundQuery.status === 1);
+    const unboundFirst = unboundQuery.stderr.split("\n")[0] ?? "";
+    let unboundJson: { code?: string; message?: string } = {};
+    try {
+      unboundJson = JSON.parse(unboundFirst) as {
+        code?: string;
+        message?: string;
+      };
+    } catch {
+      unboundJson = {};
+    }
+    record(
+      "unbound_query_json_code",
+      unboundJson.code === "permission_denied",
+    );
+    record(
+      "unbound_query_json_message",
+      unboundJson.message === "subject has no verified binding",
+    );
+    record(
+      "unbound_query_no_http_status_code",
+      !unboundFirst.includes("403") && !unboundFirst.startsWith("SemanticQuery"),
+    );
     record(
       "unbound_query_keeps_connect",
       unboundQuery.stderr.includes("subject has no verified binding"),
@@ -601,6 +623,7 @@ async function main(): Promise<void> {
         unboundQuery.stderr.includes("zoen.world.invite"),
     );
     killMutant("unbound SemanticQuery dumps Connect JSON only");
+    killMutant("unbound fail mints HTTP status as code");
   } finally {
     unbound.close();
   }
