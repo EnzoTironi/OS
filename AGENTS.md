@@ -1,6 +1,6 @@
 # Agent laws
 
-The same law lives in `.cursor/rules/journey-tests-and-restate.mdc`.
+The same law lives in `.cursor/rules/journey-tests-and-rivet.mdc`.
 
 Zoen is three products. Ontology is the CLI, the API, and MCP. Conversation is Eve in `apps/conversation`. Auth door is Better Auth. A fourth product is out of scope.
 
@@ -8,7 +8,7 @@ The product bar is Poke plus Palantir for every audience. Poke is the conversati
 
 Do not add unit tests, mocks, fakes, stubs, or `vi.mock`. Tests are journeys that drive a product as a user would. Import-graph locks live in dependency-cruiser or eslint, not `*.test.ts`.
 
-Do not add Redis. Restate is ontology ZoenEffect only. Conversation durability is Eve.
+Do not add Redis. Rivet Workflows is ontology ZoenEffect only. Conversation durability is Eve.
 
 WhatsApp dest is Kapso at `/eve/v1/kapso`. Do not use `@chat-adapter/whatsapp`. Telegram dest is Eve first-class at `/eve/v1/telegram` (`eve/channels/telegram`). Messaging flattens structured chrome to readable text for the person. Never invent a URL. Never ship helpdesk copy. Depth lives in ontology verbs and the membership workbench, not fake dashboards in chat.
 

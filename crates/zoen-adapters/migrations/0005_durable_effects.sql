@@ -180,9 +180,9 @@ CREATE TABLE effect_dispatch_attempts (
     effect_request_id TEXT NOT NULL,
     attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
     outcome TEXT NOT NULL CHECK (
-        outcome IN ('accepted', 'restate_unavailable', 'rejected', 'invalid_response')
+        outcome IN ('accepted', 'scheduler_unavailable', 'rejected', 'invalid_response')
     ),
-    restate_invocation_id TEXT,
+    scheduler_invocation_id TEXT,
     error_message TEXT,
     attempted_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (tenant_id, effect_request_id, attempt_number),
@@ -191,12 +191,12 @@ CREATE TABLE effect_dispatch_attempts (
     CHECK (
         (
             outcome = 'accepted'
-            AND restate_invocation_id IS NOT NULL
+            AND scheduler_invocation_id IS NOT NULL
             AND error_message IS NULL
         )
         OR (
             outcome <> 'accepted'
-            AND restate_invocation_id IS NULL
+            AND scheduler_invocation_id IS NULL
             AND error_message IS NOT NULL
         )
     )
@@ -206,7 +206,7 @@ CREATE TABLE effect_dispatches (
     tenant_id TEXT NOT NULL,
     effect_request_id TEXT NOT NULL,
     knowledge_commit_sequence BIGINT NOT NULL CHECK (knowledge_commit_sequence > 0),
-    restate_invocation_id TEXT NOT NULL,
+    scheduler_invocation_id TEXT NOT NULL,
     dispatched_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (tenant_id, effect_request_id, knowledge_commit_sequence),
     FOREIGN KEY (tenant_id, effect_request_id)

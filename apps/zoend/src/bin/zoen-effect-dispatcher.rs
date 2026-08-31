@@ -1,13 +1,14 @@
 use std::{env, error::Error, time::Duration};
 
 use reqwest::Url;
-use zoen_adapters::{PostgresAuthorityStore, PostgresEffectDispatcher, RestateEffectScheduler};
+use zoen_adapters::{PostgresAuthorityStore, PostgresEffectDispatcher, RivetEffectScheduler};
 use zoen_core::TenantId;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let store = PostgresAuthorityStore::connect(&env::var("DATABASE_URL")?).await?;
-    let scheduler = RestateEffectScheduler::new(env::var("RESTATE_INGRESS")?.parse::<Url>()?);
+    let scheduler =
+        RivetEffectScheduler::new(env::var("ZOEN_EFFECT_SCHEDULER_URL")?.parse::<Url>()?);
     let dispatcher = PostgresEffectDispatcher::new(store.pool(), scheduler);
     let tenant_id = TenantId::parse(env::var("ZOEN_TENANT_ID")?)?;
     let limit = env::var("ZOEN_EFFECT_DISPATCH_BATCH_SIZE")

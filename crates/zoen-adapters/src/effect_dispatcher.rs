@@ -63,14 +63,14 @@ pub enum EffectDispatchOutcome {
     Accepted,
     InvalidResponse,
     Rejected,
-    RestateUnavailable,
+    SchedulerUnavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectDispatchResult {
     pub effect_request_id: EffectRequestId,
     pub outcome: EffectDispatchOutcome,
-    pub restate_invocation_id: Option<String>,
+    pub scheduler_invocation_id: Option<String>,
 }
 
 pub struct PostgresEffectDispatcher<S> {
@@ -206,7 +206,7 @@ where
         sqlx::query(
             "INSERT INTO effect_dispatch_attempts (
                 tenant_id, effect_request_id, attempt_number, outcome,
-                restate_invocation_id, error_message
+                scheduler_invocation_id, error_message
              ) VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(tenant_id.as_str())
@@ -222,7 +222,7 @@ where
             sqlx::query(
                 "INSERT INTO effect_dispatches (
                     tenant_id, effect_request_id, knowledge_commit_sequence,
-                    restate_invocation_id
+                    scheduler_invocation_id
                  ) VALUES ($1, $2, $3, $4)
                  ON CONFLICT (
                     tenant_id, effect_request_id, knowledge_commit_sequence
@@ -236,7 +236,7 @@ where
             .await
             .map_err(store_unavailable)?;
             let stored = sqlx::query_scalar::<_, String>(
-                "SELECT restate_invocation_id
+                "SELECT scheduler_invocation_id
                  FROM effect_dispatches
                  WHERE tenant_id = $1
                    AND effect_request_id = $2
@@ -250,7 +250,7 @@ where
             .map_err(store_unavailable)?;
             if stored != invocation_id {
                 return Err(StoreError::Corrupt(
-                    "Restate idempotency returned different invocation identities".to_owned(),
+                    "Scheduler idempotency returned different invocation identities".to_owned(),
                 ));
             }
         }
@@ -258,7 +258,7 @@ where
         Ok(EffectDispatchResult {
             effect_request_id,
             outcome,
-            restate_invocation_id: invocation_id,
+            scheduler_invocation_id: invocation_id,
         })
     }
 }
@@ -291,8 +291,8 @@ fn dispatch_columns(
             Some(message),
         ),
         Err(DispatchScheduleError::Unavailable(message)) => (
-            EffectDispatchOutcome::RestateUnavailable,
-            "restate_unavailable",
+            EffectDispatchOutcome::SchedulerUnavailable,
+            "scheduler_unavailable",
             None,
             Some(message),
         ),

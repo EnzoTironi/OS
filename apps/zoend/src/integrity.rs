@@ -125,7 +125,7 @@ mod tests {
             classification
                 .rebuildable
                 .orchestration
-                .contains(&"restate".to_owned())
+                .contains(&"rivet".to_owned())
         );
         assert!(
             classification

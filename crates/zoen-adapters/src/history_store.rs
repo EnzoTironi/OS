@@ -387,7 +387,7 @@ async fn load_dispatches(
     effect_request_id: &EffectRequestId,
 ) -> Result<Vec<EffectDispatchEvidence>, StoreError> {
     let rows = sqlx::query(
-        "SELECT attempt_number, outcome, restate_invocation_id, error_message
+        "SELECT attempt_number, outcome, scheduler_invocation_id, error_message
          FROM effect_dispatch_attempts
          WHERE tenant_id = $1 AND effect_request_id = $2
          ORDER BY attempt_number",
@@ -410,7 +410,7 @@ async fn load_dispatches(
                 "accepted" => EffectDispatchOutcome::Accepted,
                 "invalid_response" => EffectDispatchOutcome::InvalidResponse,
                 "rejected" => EffectDispatchOutcome::Rejected,
-                "restate_unavailable" => EffectDispatchOutcome::SchedulerUnavailable,
+                "scheduler_unavailable" => EffectDispatchOutcome::SchedulerUnavailable,
                 value => {
                     return Err(StoreError::Corrupt(format!(
                         "unknown effect dispatch outcome: {value}"
@@ -424,7 +424,7 @@ async fn load_dispatches(
                     .map_err(store_unavailable)?,
                 outcome,
                 scheduler_invocation_id: row
-                    .try_get::<Option<String>, _>("restate_invocation_id")
+                    .try_get::<Option<String>, _>("scheduler_invocation_id")
                     .map_err(store_unavailable)?,
             })
         })

@@ -7,46 +7,46 @@ use crate::effect_dispatcher::{
     DispatchAcceptance, DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
 };
 
-const RESTATE_SEND_TIMEOUT: Duration = Duration::from_secs(10);
+const SCHEDULER_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
-pub struct RestateEffectScheduler {
+pub struct RivetEffectScheduler {
     client: Client,
-    ingress: Url,
+    ingest: Url,
     timeout: Duration,
 }
 
-impl RestateEffectScheduler {
+impl RivetEffectScheduler {
     #[must_use]
-    pub fn new(ingress: Url) -> Self {
+    pub fn new(ingest: Url) -> Self {
         Self {
             client: Client::new(),
-            ingress,
-            timeout: RESTATE_SEND_TIMEOUT,
+            ingest,
+            timeout: SCHEDULER_SEND_TIMEOUT,
         }
     }
 }
 
-impl DispatchScheduler for RestateEffectScheduler {
+impl DispatchScheduler for RivetEffectScheduler {
     async fn schedule(
         &self,
         command: &DispatchScheduleCommand,
     ) -> Result<DispatchAcceptance, DispatchScheduleError> {
-        let key = restate_effect_key(command);
-        let mut url = self.ingress.clone();
+        let key = rivet_effect_key(command);
+        let mut url = self.ingest.clone();
         url.path_segments_mut()
             .map_err(|()| {
                 DispatchScheduleError::InvalidResponse(
-                    "Restate ingress URL cannot hold path segments".to_owned(),
+                    "Rivet ingest URL cannot hold path segments".to_owned(),
                 )
             })?
-            .extend(["restate", "send", "ZoenEffect", &key, "execute"]);
+            .extend(["schedule"]);
         let response = self
             .client
             .post(url)
             .timeout(self.timeout)
             .header("idempotency-key", &key)
-            .json(&RestateEffectInput {
+            .json(&RivetEffectInput {
                 dispatch_version: command.knowledge_commit_sequence,
                 effect_request_id: command.effect_request_id.as_str(),
                 tenant_id: command.tenant_id.as_str(),
@@ -65,21 +65,21 @@ impl DispatchScheduler for RestateEffectScheduler {
                 String::from_utf8_lossy(&bytes)
             )));
         }
-        let accepted = serde_json::from_slice::<RestateAccepted>(&bytes)
+        let accepted = serde_json::from_slice::<RivetAccepted>(&bytes)
             .map_err(|error| DispatchScheduleError::InvalidResponse(error.to_string()))?;
-        if accepted.invocation_id.is_empty() {
+        if accepted.actor_key.is_empty() {
             return Err(DispatchScheduleError::InvalidResponse(
-                "invocation id is empty".to_owned(),
+                "actor key is empty".to_owned(),
             ));
         }
         Ok(DispatchAcceptance {
-            invocation_id: accepted.invocation_id,
+            invocation_id: accepted.actor_key,
         })
     }
 }
 
 #[must_use]
-pub fn restate_effect_key(command: &DispatchScheduleCommand) -> String {
+pub fn rivet_effect_key(command: &DispatchScheduleCommand) -> String {
     format!(
         "{}:{}:{}",
         command.tenant_id.as_str(),
@@ -90,7 +90,7 @@ pub fn restate_effect_key(command: &DispatchScheduleCommand) -> String {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RestateEffectInput<'a> {
+struct RivetEffectInput<'a> {
     dispatch_version: u64,
     effect_request_id: &'a str,
     tenant_id: &'a str,
@@ -98,8 +98,8 @@ struct RestateEffectInput<'a> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct RestateAccepted {
-    invocation_id: String,
+struct RivetAccepted {
+    actor_key: String,
 }
 
 #[cfg(test)]
@@ -110,15 +110,15 @@ mod tests {
 
     use reqwest::{Client, Url};
 
-    use super::{RestateEffectScheduler, restate_effect_key};
+    use super::{RivetEffectScheduler, rivet_effect_key};
     use crate::effect_dispatcher::{
         DispatchScheduleCommand, DispatchScheduleError, DispatchScheduler,
     };
 
-    fn with_timeout(ingress: Url, timeout: Duration) -> RestateEffectScheduler {
-        RestateEffectScheduler {
+    fn with_timeout(ingest: Url, timeout: Duration) -> RivetEffectScheduler {
+        RivetEffectScheduler {
             client: Client::new(),
-            ingress,
+            ingest,
             timeout,
         }
     }
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn key_contains_trusted_tenant_and_effect_identity() {
         assert_eq!(
-            restate_effect_key(&command()),
+            rivet_effect_key(&command()),
             "tenant.a:effect.action.operation.1.0:12"
         );
     }

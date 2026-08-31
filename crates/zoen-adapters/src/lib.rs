@@ -28,7 +28,7 @@ mod integrity;
 mod migration_store;
 mod pack_registry_store;
 mod pack_store;
-mod restate;
+mod rivet;
 mod scenario_store;
 mod semantic_claim_store;
 mod session_door;
@@ -58,7 +58,7 @@ pub use ingress_replay_store::{PostgresIngressReplayStore, ZOEND_INGRESS_REPLAY_
 pub use integrity::IntegrityError;
 pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
 pub use pack_store::{PostgresPackStore, admit_pack};
-pub use restate::{RestateEffectScheduler, restate_effect_key};
+pub use rivet::{RivetEffectScheduler, rivet_effect_key};
 pub use session_door::SessionDoor;
 use value_store::row_to_valid_time;
 pub(crate) use value_store::{row_to_value, valid_time_columns, value_columns};
