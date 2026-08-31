@@ -65,7 +65,7 @@ fn onboard_page(token: &str) -> Response {
         StatusCode::OK,
         format!(
             "<!doctype html><html lang=\"pt\"><meta charset=\"utf-8\"><title>Zoen</title><body>\
-<p>Confirmar sua conta e continuar.</p>\
+<p>Confirmar este WhatsApp e continuar.</p>\
 <form method=\"post\" action=\"/onboard/{safe}/confirm\">\
 <button type=\"submit\">Continuar</button>\
 </form></body></html>"
@@ -77,7 +77,7 @@ fn confirmed_page() -> Response {
     html(
         StatusCode::OK,
         "<!doctype html><html lang=\"pt\"><meta charset=\"utf-8\"><title>Zoen</title><body>\
-<p>Pronto. Volta pra conversa — WhatsApp, Telegram, ou o terminal.</p>\
+<p>Pronto. Este WhatsApp está na sua conta.</p>\
 </body></html>"
             .to_owned(),
     )
