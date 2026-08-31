@@ -29,12 +29,13 @@ Environment:
   ZOEN_ZOEND              zoend origin
   ZOEN_DEFINITION_DIGEST  active definition digest
   ZOEN_DEFINITION_ID      active definition id
+  ZOEN_VALID_AT           as-of timestamp for query and propose
 
 Examples:
   zoen serve
   zoen auth login --email you@example.com --password secret
   zoen world query --type inventory.Item
-  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --dry-run
+  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --dry-run
 ";
 
 /// Ontology CLI parser. No args prints help; `serve` starts the daemon.
@@ -280,7 +281,7 @@ pub enum ConnectCommand {
 pub enum ActionCommand {
     /// Propose an Action. `--quantity` is dest quantity. `--input` is text
     #[command(
-        after_help = "Examples:\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --unit each --dry-run\n  zoen action propose --proposal-id p --action-id world.stamp --resource-id world.note.1 --input text=hello"
+        after_help = "Examples:\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --unit each --dry-run\n  zoen action propose --proposal-id p --action-id world.stamp --resource-id world.note.1 --input text=hello --expires-at 2030-01-01T00:00:00Z"
     )]
     Propose {
         #[arg(long = "proposal-id")]
@@ -299,6 +300,8 @@ pub enum ActionCommand {
         scenario: String,
         #[arg(long = "input", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
+        #[arg(long = "expires-at")]
+        expires_at: Option<String>,
         #[arg(long)]
         dry_run: bool,
     },
@@ -567,6 +570,7 @@ async fn run_action(
             unit,
             scenario,
             inputs,
+            expires_at,
             dry_run,
         } => {
             propose_action(
@@ -580,6 +584,7 @@ async fn run_action(
                     unit,
                     scenario,
                     inputs: parse_inputs(&inputs),
+                    expires_at,
                     dry_run,
                 },
             )
@@ -625,7 +630,7 @@ fn parse_env() -> Result<RuntimeEnv, Box<dyn Error + Send + Sync>> {
         principal_id: env_or("ZOEN_PRINCIPAL", "principal.personal"),
         source_home: PathBuf::from(env_or("ZOEN_SOURCE_HOME", ".zoen")),
         tenant: required_env("ZOEN_TENANT")?,
-        valid_at: env_or("ZOEN_VALID_AT", "2026-01-15T00:00:00Z"),
+        valid_at: required_env("ZOEN_VALID_AT")?,
         workload_id: env_or("ZOEN_WORKLOAD", "workload.personal"),
         zoend: required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned(),
     })
@@ -656,13 +661,22 @@ fn required_env_message(name: &str) -> String {
         ),
         "ZOEN_ZOEND" => format!("{name} is required\n  export ZOEN_ZOEND=http://127.0.0.1:58080"),
         "ZOEN_TENANT" => format!("{name} is required\n  export ZOEN_TENANT=tenant.a"),
+        "ZOEN_VALID_AT" => {
+            format!("{name} is required\n  export ZOEN_VALID_AT=2026-01-15T00:00:00Z")
+        }
+        "ZOEN_EXPIRES_AT" => {
+            format!("{name} is required\n  export ZOEN_EXPIRES_AT=2030-01-01T00:00:00Z")
+        }
         _ => format!("{name} is required"),
     }
 }
 
 fn missing_definition(env: &RuntimeEnv) -> Option<CommandResult> {
     if env.definition_digest.is_empty() {
-        return Some(fail(2, "ZOEN_DEFINITION_DIGEST is required"));
+        return Some(fail(
+            2,
+            "ZOEN_DEFINITION_DIGEST is required\n  export ZOEN_DEFINITION_DIGEST=<digest>",
+        ));
     }
     if env.definition_id.is_empty() {
         return Some(fail(
@@ -851,6 +865,7 @@ struct ProposeInput {
     unit: String,
     scenario: String,
     inputs: Vec<(String, String)>,
+    expires_at: Option<String>,
     dry_run: bool,
 }
 
@@ -867,9 +882,21 @@ async fn propose_action(
     {
         return Ok(fail(
             2,
-            "zoen action propose requires --proposal-id --action-id --resource-id\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1",
+            "zoen action propose requires --proposal-id --action-id --resource-id\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z",
         ));
     }
+    let Some(expires_at) = parsed
+        .expires_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+    else {
+        return Ok(fail(
+            2,
+            "zoen action propose requires --expires-at\n  zoen action propose --proposal-id p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z",
+        ));
+    };
     if let Some(result) = missing_definition(env) {
         return Ok(result);
     }
@@ -884,7 +911,7 @@ async fn propose_action(
             "digest": env.definition_digest,
             "revision": "1",
         },
-        "expiresAt": "2030-01-01T00:00:00Z",
+        "expiresAt": expires_at,
         "inputs": inputs,
         "operationId": operation_id,
         "proposalId": parsed.proposal_id,
@@ -1828,6 +1855,7 @@ async fn map_quantity(
         ProposeInput {
             action_id: "source.mapQuantity".to_owned(),
             dry_run: false,
+            expires_at: Some(required_env("ZOEN_EXPIRES_AT")?),
             inputs: Vec::new(),
             operation_id: operation_id.to_owned(),
             proposal_id: proposal_id.clone(),

@@ -71,6 +71,7 @@ function cliEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     ZOEN_DEFINITION_DIGEST: "dead",
     ZOEN_DEFINITION_ID: "inventory.definition",
     ZOEN_TENANT: "tenant.a",
+    ZOEN_VALID_AT: "2026-01-15T00:00:00Z",
     ZOEN_ZOEND: "http://127.0.0.1:58080",
     ...extra,
   };
@@ -161,6 +162,7 @@ async function main(): Promise<void> {
     "root_help_names_ZOEN_DEFINITION_ID",
     helpRoot.stdout.includes("ZOEN_DEFINITION_ID"),
   );
+  record("root_help_names_ZOEN_VALID_AT", helpRoot.stdout.includes("ZOEN_VALID_AT"));
   record("root_help_no_world_source", !helpRoot.stdout.includes("world.source"));
   record(
     "root_help_query_has_type",
@@ -182,6 +184,7 @@ async function main(): Promise<void> {
   record("propose_help_ok", helpPropose.status === 0);
   record("propose_help_has_examples", helpPropose.stdout.includes("Examples:"));
   record("propose_help_shows_quantity", helpPropose.stdout.includes("--quantity"));
+  record("propose_help_shows_expires_at", helpPropose.stdout.includes("--expires-at"));
   record(
     "propose_help_no_map_quantity_default",
     !helpPropose.stdout.includes("source.mapQuantity"),
@@ -231,12 +234,18 @@ async function main(): Promise<void> {
       "inventory.item.1",
       "--quantity",
       "1",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
       "--dry-run",
     ],
     { env: cliEnv({ ZOEN_ISOLATE: "1" }) },
   );
   record("isolate_propose_dry_run_ok", isolateDryRun.status === 0);
   record("isolate_propose_dry_run_json", isolateDryRun.stdout.includes('"dryRun":true'));
+  record(
+    "isolate_propose_dry_run_no_hardcoded_2030_without_flag",
+    isolateDryRun.stdout.includes('"expiresAt":"2030-01-01T00:00:00Z"'),
+  );
   killMutant("ZOEN_ISOLATE=1 denies propose --dry-run");
 
   const isolateCommit = runZoen(
@@ -285,6 +294,8 @@ async function main(): Promise<void> {
       "inventory.item.1",
       "--quantity",
       "1",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
       "--dry-run",
     ],
     { env: cliEnv() },
@@ -308,6 +319,8 @@ async function main(): Promise<void> {
       "inventory.item.1",
       "--input",
       "quantity=1",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
       "--dry-run",
     ],
     { env: cliEnv() },
@@ -342,6 +355,8 @@ async function main(): Promise<void> {
       "inventory.item.1",
       "--quantity",
       "1",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
       "--dry-run",
     ],
     { env: identityOnly },
@@ -372,6 +387,8 @@ async function main(): Promise<void> {
       "inventory.replenish",
       "--resource-id",
       "inventory.item.1",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
       "--dry-run",
     ],
     { env: cliEnv() },
@@ -383,6 +400,44 @@ async function main(): Promise<void> {
     !missingQuantity.stdout.includes('"inputs":[]'),
   );
   killMutant("propose --dry-run with no --quantity and no --input succeeds");
+
+  const missingExpiresAt = runZoen(
+    [
+      "action",
+      "propose",
+      "--proposal-id",
+      "p",
+      "--action-id",
+      "inventory.replenish",
+      "--resource-id",
+      "inventory.item.1",
+      "--quantity",
+      "1",
+      "--dry-run",
+    ],
+    { env: cliEnv() },
+  );
+  record("missing_expires_at_fails", missingExpiresAt.status === 2);
+  record("missing_expires_at_names_flag", missingExpiresAt.stderr.includes("--expires-at"));
+  record(
+    "missing_expires_at_no_2030_body",
+    !missingExpiresAt.stdout.includes("2030-01-01"),
+  );
+  killMutant("propose hardcodes expiresAt 2030-01-01");
+
+  const missingValidAtEnv = cliEnv();
+  delete missingValidAtEnv.ZOEN_VALID_AT;
+  const missingValidAt = runZoen(["world", "query", "--type", "inventory.Item"], {
+    env: missingValidAtEnv,
+    timeoutMs: 5_000,
+  });
+  record("missing_valid_at_fails", missingValidAt.status !== 0);
+  record("missing_valid_at_names_var", missingValidAt.stderr.includes("ZOEN_VALID_AT"));
+  record(
+    "missing_valid_at_export",
+    missingValidAt.stderr.includes("export ZOEN_VALID_AT=2026-01-15T00:00:00Z"),
+  );
+  killMutant("ZOEN_VALID_AT defaults to 2026-01-15");
 
   const missingDefinitionIdEnv = cliEnv();
   delete missingDefinitionIdEnv.ZOEN_DEFINITION_ID;
@@ -586,6 +641,10 @@ async function main(): Promise<void> {
     readme.includes("zoen world query --type"),
   );
   record("readme_has_no_world_evidence", !readme.includes("zoen world evidence"));
+  record(
+    "readme_isolate_names_source_sync",
+    readme.includes("source sync"),
+  );
 
   const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
     assertions,
