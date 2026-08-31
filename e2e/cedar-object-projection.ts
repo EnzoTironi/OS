@@ -21,7 +21,7 @@ import {
   applicationDatabaseUrl,
   authDatabaseUrl,
   command,
-  compileCommercial,
+  loadCommercial,
   definitionClient,
   definitionReference,
   explainOperation,
@@ -62,7 +62,7 @@ function inject(name: string): void {
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  const commercial = await compileCommercial();
+  const commercial = await loadCommercial();
   observe(
     "commercialCompilesRecordQuote",
     commercial.definition.definitionId === "commercial.sales" &&

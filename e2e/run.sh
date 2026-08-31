@@ -111,7 +111,7 @@ run_lint() {
   npm run buf:generate
   npm exec -- buf build --as-file-descriptor-set -o proto/definition_descriptor.binpb
   git diff --exit-code -- gen/connect proto/definition_descriptor.binpb
-  if grep -REn '@zoen/sdk|@zoen/osdk|packages/sdk|packages/osdk' \
+  if grep -REn '@zoen/sdk|@zoen/osdk|@zoen/ontology|packages/sdk|packages/osdk|packages/ontology' \
     --include='*.ts' --include='*.tsx' --include='package.json' \
     --include='buf.gen.yaml' --include='Dockerfile*' --include='tsconfig*.json' \
     --exclude='package-lock.json' \

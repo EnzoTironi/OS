@@ -28,7 +28,7 @@ import {
   applicationDatabaseUrl,
   authDatabaseUrl,
   command,
-  compileCommercial,
+  loadCommercial,
   correctionEntityId,
   definitionClient,
   definitionReference,
@@ -77,7 +77,7 @@ function killMutant(name: (typeof REQUIRED_MUTANTS)[number]): void {
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  const commercial = await compileCommercial();
+  const commercial = await loadCommercial();
   const definition = definitionReference(commercial);
   observe(
     "commercialCompilesChangeCommitment",

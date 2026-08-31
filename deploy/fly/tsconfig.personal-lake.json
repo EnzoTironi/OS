@@ -7,9 +7,5 @@
   "include": [
     "../../deploy/fly/ensure-personal-lake.ts",
     "../../gen/connect/**/*.ts"
-  ],
-  "exclude": [
-    "../../packages/**/*.test.ts",
-    "../../packages/**/*.test.tsx"
   ]
 }

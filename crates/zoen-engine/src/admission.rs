@@ -607,8 +607,7 @@ mod tests {
     };
     use crate::PublishError;
 
-    const INVENTORY: &str =
-        include_str!("../../../packages/ontology/fixtures/inventory.canonical.json");
+    const INVENTORY: &str = include_str!("../../../testdata/definitions/inventory.canonical.json");
 
     #[test]
     fn admission_converts_entity_value_type_and_exact_value() {
@@ -699,7 +698,7 @@ mod tests {
         let canonical = INVENTORY.trim();
         let pinned = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../packages/ontology/fixtures/inventory.sha256"),
+                .join("../../testdata/definitions/inventory.sha256"),
         )
         .expect("inventory.sha256");
         let pinned = pinned.trim();

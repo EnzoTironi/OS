@@ -26,6 +26,10 @@ import {
   type CommitReceipt,
 } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
+import {
+  loadCanonicalDefinition,
+  type CompiledDefinition,
+} from "../canonical-definition.js";
 import { DefinitionService } from "../../gen/connect/zoen/definition/v1/definition_pb.js";
 import { HistoryService } from "../../gen/connect/zoen/history/v1/history_pb.js";
 import {
@@ -64,9 +68,8 @@ export const scenarioDirectory = path.join(
 );
 export const fixtureDirectory = path.join(
   repositoryRoot,
-  "packages",
-  "ontology",
-  "fixtures",
+  "testdata",
+  "definitions",
 );
 export const generatedDirectory = e2eGeneratedDirectory(
   repositoryRoot,
@@ -98,14 +101,6 @@ const projectionDatabaseUrl = e2ePostgresUrl(
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 export const zoendBaseUrl = baseUrl;
-const compilerPath = path.join(
-  repositoryRoot,
-  "dist",
-  "packages",
-  "ontology",
-  "src",
-  "cli.js",
-);
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
 const workerPath = path.join(
   repositoryRoot,
@@ -115,18 +110,6 @@ const workerPath = path.join(
 );
 const validAt = new Date("2026-08-19T00:00:00.000Z");
 
-const compiledDefinitionSchema = z
-  .object({
-    canonicalJson: z.string(),
-    definition: z
-      .object({
-        definitionId: z.string(),
-        revision: z.number().int().positive(),
-      })
-      .passthrough(),
-    digest: z.string().regex(/^[0-9a-f]{64}$/),
-  })
-  .strict();
 const projectionOutcomeSchema = z
   .object({
     manifestDigest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -139,7 +122,7 @@ const projectionOutcomeSchema = z
   })
   .strict();
 
-export type CompiledDefinition = z.infer<typeof compiledDefinitionSchema>;
+export type { CompiledDefinition };
 export type DefinitionClient = Client<typeof DefinitionService>;
 export type ActionClient = Client<typeof ActionService>;
 export type WorldClient = Client<typeof WorldService>;
@@ -150,16 +133,7 @@ export interface ServerProcess {
   output: string[];
 }
 
-export async function compileDefinition(
-  sourcePath: string,
-): Promise<CompiledDefinition> {
-  const output = await command(process.execPath, [
-    compilerPath,
-    "compile",
-    sourcePath,
-  ]);
-  return compiledDefinitionSchema.parse(JSON.parse(output));
-}
+export { loadCanonicalDefinition };
 
 export function definitionReference(
   definition: CompiledDefinition,

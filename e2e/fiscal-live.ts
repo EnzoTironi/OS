@@ -22,8 +22,8 @@ import {
   actionClient,
   activateDefinition,
   adapterProviderUrl,
-  compileCommercialPackage,
-  compileFiscalPackage,
+  loadCommercialPackage,
+  loadFiscalPackage,
   definitionClient,
   dispatchOnce,
   effectClient,
@@ -103,8 +103,8 @@ export async function runFiscalLive(provider: LiveProvider): Promise<void> {
   requireCompatibleAction(provider, context.actionId);
   const providerConfig = liveProviderConfig(provider);
   const [commercial, fiscal] = await Promise.all([
-    compileCommercialPackage(),
-    compileFiscalPackage(),
+    loadCommercialPackage(),
+    loadFiscalPackage(),
   ]);
   const policyManifestPath = path.join(
     e2eGeneratedDirectory(repositoryRoot, scenario),

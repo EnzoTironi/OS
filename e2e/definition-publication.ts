@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createConnection } from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import {
@@ -15,8 +14,11 @@ import {
 } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { Client as PostgresClient } from "pg";
-import { z } from "zod";
 import { DefinitionService } from "../gen/connect/zoen/definition/v1/definition_pb.js";
+import {
+  loadCanonicalDefinition,
+  type CompiledDefinition,
+} from "./canonical-definition.js";
 import {
   adminPairPersonas,
   e2eAuthDatabaseUrl,
@@ -38,17 +40,8 @@ import {
 const repositoryRoot = process.cwd();
 const fixtureDirectory = path.join(
   repositoryRoot,
-  "packages",
-  "ontology",
-  "fixtures",
-);
-const compilerPath = path.join(
-  repositoryRoot,
-  "dist",
-  "packages",
-  "ontology",
-  "src",
-  "cli.js",
+  "testdata",
+  "definitions",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
 const postgresPortFallback = 55_432;
@@ -69,20 +62,6 @@ const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 const tenantA = "tenant.a";
 const tenantB = "tenant.b";
 
-const compiledDefinitionSchema = z
-  .object({
-    canonicalJson: z.string(),
-    definition: z
-      .object({
-        definitionId: z.string(),
-        revision: z.number().int().positive(),
-      })
-      .passthrough(),
-    digest: z.string().regex(/^[0-9a-f]{64}$/),
-  })
-  .strict();
-
-type CompiledDefinition = z.infer<typeof compiledDefinitionSchema>;
 type DefinitionClient = Client<typeof DefinitionService>;
 
 interface ServerProcess {
@@ -98,63 +77,26 @@ function recordAssertion(name: string): void {
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
-  const sourcePath = path.join(fixtureDirectory, "inventory.zoen.ts");
-  const reorderedPath = path.join(
-    fixtureDirectory,
-    "inventory-reordered.zoen.ts",
+  const first = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory.canonical.json"),
   );
-  const expectedCanonical = (
-    await readFile(
-      path.join(fixtureDirectory, "inventory.canonical.json"),
-      "utf8",
-    )
-  ).trimEnd();
+  const expectedCanonical = first.canonicalJson;
   const expectedDigest = (
     await readFile(path.join(fixtureDirectory, "inventory.sha256"), "utf8")
   ).trim();
-
-  const first = await compile(sourcePath);
-  const second = await compile(sourcePath);
-  const reordered = await compile(reorderedPath);
-  assert.equal(first.canonicalJson, second.canonicalJson);
-  assert.equal(first.digest, second.digest);
-  assert.equal(first.canonicalJson, reordered.canonicalJson);
-  assert.equal(first.digest, reordered.digest);
-  assert.equal(first.canonicalJson, expectedCanonical);
   assert.equal(first.digest, expectedDigest);
   recordAssertion("canonicalFixtureMatched");
-  recordAssertion("deterministicIndependentCompiles");
-  recordAssertion("sourceOrderingNormalized");
 
-  const source = await readFile(sourcePath, "utf8");
-  const temporaryDirectory = await mkdtemp(
-    path.join(os.tmpdir(), "zoen-definition-e2e-"),
+  const computationMutationJson = first.canonicalJson.replace(
+    '"operator":"subtract"',
+    '"operator":"add"',
   );
-  const computationMutationPath = path.join(
-    temporaryDirectory,
-    "computation-mutation.zoen.ts",
+  assert.notEqual(computationMutationJson, first.canonicalJson);
+  assert.notEqual(sha256(computationMutationJson), first.digest);
+  const actionMutation = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory-amount-rev2.canonical.json"),
   );
-  const actionMutationPath = path.join(
-    temporaryDirectory,
-    "action-mutation.zoen.ts",
-  );
-  await writeFile(
-    computationMutationPath,
-    source.replace('operator: "subtract"', 'operator: "add"'),
-  );
-  await writeFile(
-    actionMutationPath,
-    source
-      .replace('value: { amount: "0.125"', 'value: { amount: "0.25"')
-      .replace("revision: 1", "revision: 2"),
-  );
-  const computationMutation = await compile(computationMutationPath);
-  const actionMutation = await compile(actionMutationPath);
-  assert.notEqual(first.digest, computationMutation.digest);
   assert.notEqual(first.digest, actionMutation.digest);
-  await expectCompilerFailure(
-    path.join(fixtureDirectory, "nondeterministic.zoen.ts"),
-  );
   recordAssertion("computationMutationChangedDigest");
 
   const door = await startAuthDoor(authDatabaseUrl);
@@ -326,10 +268,6 @@ async function main(): Promise<void> {
     await assertRlsIsolation();
 
     await stopServer(server);
-    const afterStopCompile = await compile(sourcePath);
-    assert.equal(afterStopCompile.canonicalJson, expectedCanonical);
-    assert.equal(afterStopCompile.digest, expectedDigest);
-
     server = await startServer();
     const recoveredA = await getRevision(
       clientA,
@@ -454,22 +392,6 @@ async function getRevision(
   });
   assert.ok(response.definitionRevision);
   return response.definitionRevision;
-}
-
-async function compile(sourcePath: string): Promise<CompiledDefinition> {
-  const output = await command(process.execPath, [
-    compilerPath,
-    "compile",
-    sourcePath,
-  ]);
-  return compiledDefinitionSchema.parse(JSON.parse(output));
-}
-
-async function expectCompilerFailure(sourcePath: string): Promise<void> {
-  await assert.rejects(
-    command(process.execPath, [compilerPath, "compile", sourcePath]),
-    /nondeterministic or unsupported syntax/,
-  );
 }
 
 function command(executable: string, arguments_: readonly string[]): Promise<string> {

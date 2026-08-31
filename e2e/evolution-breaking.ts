@@ -51,7 +51,7 @@ import {
   adminDatabaseUrl,
   authDatabaseUrl,
   commitAction,
-  compileDefinition,
+  loadCanonicalDefinition,
   definitionClient,
   definitionId,
   definitionReference,
@@ -99,14 +99,14 @@ async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const sourceLineCounts = await sourceLineCountsUnderLimit();
   const mutants = createMutantKills();
-  const v1 = await compileDefinition(
-    path.join(fixtureDirectory, "inventory.zoen.ts"),
+  const v1 = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory.canonical.json"),
   );
-  const v2 = await compileDefinition(
-    path.join(fixtureDirectory, "inventory-breaking-v2.zoen.ts"),
+  const v2 = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory-breaking-v2.canonical.json"),
   );
-  const v3 = await compileDefinition(
-    path.join(fixtureDirectory, "inventory-breaking-v3.zoen.ts"),
+  const v3 = await loadCanonicalDefinition(
+    path.join(fixtureDirectory, "inventory-breaking-v3.canonical.json"),
   );
   const actionContractOnly = actionContractOnlyRevision(v1);
   assert.equal(v1.definition.revision, 1);
