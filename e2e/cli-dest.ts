@@ -629,6 +629,118 @@ async function main(): Promise<void> {
   record("input_quantity_not_textValue", !inputQuantity.stdout.includes("textValue"));
   killMutant("--input quantity always sends textValue");
 
+  const proposeHelp = runZoen(["action", "propose", "--help"]);
+  record("propose_help_input_file_example", proposeHelp.stdout.includes("--input-file -"));
+
+  const inputFileStdin = runZoen(
+    [
+      "action",
+      "propose",
+      "--proposal-id",
+      "p",
+      "--action-id",
+      "world.stamp",
+      "--resource-id",
+      "world.note.1",
+      "--input-file",
+      "-",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
+      "--dry-run",
+    ],
+    {
+      env: cliEnv(),
+      input: JSON.stringify([{ inputId: "text", value: { textValue: "hello" } }]),
+    },
+  );
+  record("input_file_stdin_ok", inputFileStdin.status === 0);
+  record("input_file_stdin_textValue", inputFileStdin.stdout.includes('"textValue":"hello"'));
+  record(
+    "input_file_stdin_not_missing_file",
+    !inputFileStdin.stderr.includes("No such file or directory"),
+  );
+  killMutant("--input-file - looks for a file named -");
+
+  const inputFileQuantity = runZoen(
+    [
+      "action",
+      "propose",
+      "--proposal-id",
+      "p",
+      "--action-id",
+      "inventory.replenish",
+      "--resource-id",
+      "inventory.item.1",
+      "--input-file",
+      "-",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
+      "--dry-run",
+    ],
+    {
+      env: cliEnv(),
+      input: JSON.stringify([
+        {
+          inputId: "quantity",
+          value: { quantityValue: { amount: "2", unit: "kg" } },
+        },
+      ]),
+    },
+  );
+  record("input_file_quantity_ok", inputFileQuantity.status === 0);
+  record(
+    "input_file_quantityValue",
+    inputFileQuantity.stdout.includes('"quantityValue"') &&
+      inputFileQuantity.stdout.includes('"amount":"2"'),
+  );
+  record("input_file_quantity_not_textValue", !inputFileQuantity.stdout.includes("textValue"));
+  killMutant("--input-file quantityValue forced to textValue");
+
+  const missingInputFile = path.join(tmpdir(), `zoen-input-file-missing-${process.pid}.json`);
+  const inputFileMissing = runZoen(
+    [
+      "action",
+      "propose",
+      "--proposal-id",
+      "p",
+      "--action-id",
+      "world.stamp",
+      "--resource-id",
+      "world.note.1",
+      "--input-file",
+      missingInputFile,
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
+      "--dry-run",
+    ],
+    { env: cliEnv() },
+  );
+  record("input_file_missing_exit_2", inputFileMissing.status === 2);
+  record("input_file_missing_stamp", inputFileMissing.stderr.includes("--input"));
+  killMutant("missing --input-file exits 0");
+
+  const inputFileInvalid = runZoen(
+    [
+      "action",
+      "propose",
+      "--proposal-id",
+      "p",
+      "--action-id",
+      "world.stamp",
+      "--resource-id",
+      "world.note.1",
+      "--input-file",
+      "-",
+      "--expires-at",
+      "2030-01-01T00:00:00Z",
+      "--dry-run",
+    ],
+    { env: cliEnv(), input: "not-json{" },
+  );
+  record("input_file_invalid_exit_2", inputFileInvalid.status === 2);
+  record("input_file_invalid_stamp", inputFileInvalid.stderr.includes("--input"));
+  killMutant("invalid --input-file JSON exits 0");
+
   const publishStdin = runZoen(["definition", "publish", "--file", "-"], {
     env: cliEnv(),
     input: "{}",

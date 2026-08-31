@@ -224,11 +224,12 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
             "--action-id",
             "--resource-id",
             "--expires-at",
-            "--quantity|--input",
+            "--quantity|--input|--input-file",
         ],
         examples: &[
             "zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --unit each --dry-run",
             "zoen action propose --idempotency-key p --action-id world.stamp --resource-id world.note.1 --input text=hello --expires-at 2030-01-01T00:00:00Z",
+            "zoen action propose --idempotency-key p --action-id world.stamp --resource-id world.note.1 --input-file - --expires-at 2030-01-01T00:00:00Z",
         ],
         stdout_json: r#"{"format":"json","dryRun":{"dryRun":true,"propose":{"actionId":"...","resourceId":"...","expiresAt":"..."}},"live":{"decision":"...","previewHash":"...","proposal":"..."}}"#,
     },
@@ -546,9 +547,9 @@ pub enum ConnectCommand {
 
 #[derive(Subcommand)]
 pub enum ActionCommand {
-    /// Propose an Action. `--quantity` is dest quantity. `--input` is text
+    /// Propose an Action. `--quantity` is dest quantity. `--input` is text. `--input-file` is JSON
     #[command(
-        after_help = "Examples:\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --unit each --dry-run\n  zoen action propose --idempotency-key p --action-id world.stamp --resource-id world.note.1 --input text=hello --expires-at 2030-01-01T00:00:00Z"
+        after_help = "Examples:\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1 --expires-at 2030-01-01T00:00:00Z --unit each --dry-run\n  zoen action propose --idempotency-key p --action-id world.stamp --resource-id world.note.1 --input text=hello --expires-at 2030-01-01T00:00:00Z\n  zoen action propose --idempotency-key p --action-id world.stamp --resource-id world.note.1 --input-file - --expires-at 2030-01-01T00:00:00Z"
     )]
     Propose {
         #[arg(long = "proposal-id", default_value = "")]
@@ -569,6 +570,8 @@ pub enum ActionCommand {
         scenario: String,
         #[arg(long = "input", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
+        #[arg(long = "input-file", value_name = "PATH")]
+        input_file: Option<PathBuf>,
         #[arg(long = "expires-at")]
         expires_at: Option<String>,
         #[arg(long)]
@@ -883,6 +886,7 @@ async fn run_action(
             unit,
             scenario,
             inputs,
+            input_file,
             expires_at,
             dry_run,
         } => {
@@ -903,6 +907,7 @@ async fn run_action(
                     unit,
                     scenario,
                     inputs: parse_inputs(&inputs),
+                    input_file,
                     expires_at,
                     dry_run,
                 },
@@ -1375,9 +1380,12 @@ struct ProposeInput {
     unit: String,
     scenario: String,
     inputs: Vec<(String, String)>,
+    input_file: Option<PathBuf>,
     expires_at: Option<String>,
     dry_run: bool,
 }
+
+const PROPOSE_INPUT_STAMP: &str = "zoen action propose --idempotency-key p --action-id world.stamp --resource-id world.note.1 --input text=hello --expires-at 2030-01-01T00:00:00Z";
 
 async fn propose_action(
     env: &RuntimeEnv,
@@ -1450,6 +1458,19 @@ async fn propose_action(
 }
 
 fn propose_inputs(parsed: &ProposeInput) -> Result<Value, String> {
+    if let Some(path) = parsed.input_file.as_ref() {
+        if parsed
+            .quantity
+            .as_ref()
+            .is_some_and(|value| !value.is_empty())
+            || !parsed.inputs.is_empty()
+        {
+            return Err(format!(
+                "--input-file cannot combine with --input or --quantity:\n  {PROPOSE_INPUT_STAMP}"
+            ));
+        }
+        return read_propose_input_file(path);
+    }
     if parsed
         .inputs
         .iter()
@@ -1474,7 +1495,7 @@ fn propose_inputs(parsed: &ProposeInput) -> Result<Value, String> {
     }
     let Some(quantity) = parsed.quantity.as_ref().filter(|value| !value.is_empty()) else {
         return Err(
-            "zoen action propose needs --quantity or --input:\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1"
+            "zoen action propose needs --quantity, --input, or --input-file:\n  zoen action propose --idempotency-key p --action-id inventory.replenish --resource-id inventory.item.1 --quantity 1"
                 .to_owned(),
         );
     };
@@ -1482,6 +1503,25 @@ fn propose_inputs(parsed: &ProposeInput) -> Result<Value, String> {
         "inputId": "quantity",
         "value": { "quantityValue": { "amount": quantity, "unit": parsed.unit } },
     }]))
+}
+
+fn read_propose_input_file(path: &Path) -> Result<Value, String> {
+    let Ok(raw) = read_file_or_stdin(path) else {
+        return Err(format!(
+            "could not read --input-file. Use --input for one-liners:\n  {PROPOSE_INPUT_STAMP}"
+        ));
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&raw) else {
+        return Err(format!(
+            "invalid --input-file JSON. Use --input for one-liners:\n  {PROPOSE_INPUT_STAMP}"
+        ));
+    };
+    match value.as_array() {
+        Some(inputs) if !inputs.is_empty() => Ok(value),
+        _ => Err(format!(
+            "invalid --input-file JSON. Use --input for one-liners:\n  {PROPOSE_INPUT_STAMP}"
+        )),
+    }
 }
 
 async fn commit_action(
@@ -2410,6 +2450,7 @@ async fn map_quantity(
             action_id: "source.mapQuantity".to_owned(),
             dry_run: false,
             expires_at: Some(required_env("ZOEN_EXPIRES_AT")?),
+            input_file: None,
             inputs: Vec::new(),
             operation_id: operation_id.to_owned(),
             proposal_id: proposal_id.clone(),
