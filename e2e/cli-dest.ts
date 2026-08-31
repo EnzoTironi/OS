@@ -101,15 +101,37 @@ function listenHttp(
   status: number,
   body: string,
 ): Promise<{ close: () => void; port: number }> {
+  return listenHttpCapture(status, body).then(({ close, port }) => ({ close, port }));
+}
+
+function listenHttpCapture(
+  status: number,
+  body: string,
+): Promise<{ close: () => void; port: number; requestsPath: string }> {
   return new Promise((resolve, reject) => {
+    const requestsPath = path.join(
+      mkdtempSync(path.join(tmpdir(), "zoen-http-")),
+      "requests.json",
+    );
+    writeFileSync(requestsPath, "[]\n");
     const script = `
       const fs = require("node:fs");
       const http = require("node:http");
       const status = ${status};
       const body = ${JSON.stringify(body)};
-      const server = http.createServer((_request, response) => {
-        response.writeHead(status, { "content-type": "application/json" });
-        response.end(body);
+      const requestsPath = ${JSON.stringify(requestsPath)};
+      const requests = [];
+      const server = http.createServer((request, response) => {
+        let raw = "";
+        request.on("data", (chunk) => {
+          raw += chunk;
+        });
+        request.on("end", () => {
+          requests.push({ body: raw, path: request.url ?? "" });
+          fs.writeFileSync(requestsPath, JSON.stringify(requests));
+          response.writeHead(status, { "content-type": "application/json" });
+          response.end(body);
+        });
       });
       server.listen(0, "127.0.0.1", () => {
         const address = server.address();
@@ -135,6 +157,7 @@ function listenHttp(
           child.kill("SIGTERM");
         },
         port,
+        requestsPath,
       });
     });
   });
@@ -167,6 +190,15 @@ async function main(): Promise<void> {
   record(
     "root_help_query_has_type",
     helpRoot.stdout.includes("zoen world query --type inventory.Item"),
+  );
+
+  const helpQuery = runZoen(["world", "query", "--help"]);
+  record("query_help_ok", helpQuery.status === 0);
+  record("query_help_has_page_token", helpQuery.stdout.includes("--page-token"));
+  record("query_help_has_fields", helpQuery.stdout.includes("--fields"));
+  record(
+    "query_help_page_token_example",
+    helpQuery.stdout.includes("--page-token <nextPageToken>"),
   );
 
   const helpActivate = runZoen(["definition", "activate", "--help"]);
@@ -626,6 +658,118 @@ async function main(): Promise<void> {
     killMutant("unbound fail mints HTTP status as code");
   } finally {
     unbound.close();
+  }
+
+  const fieldsMissing = runZoen(["world", "query", "--type", "inventory.Item", "--fields"], {
+    env: cliEnv(),
+  });
+  record("query_fields_missing_fails", fieldsMissing.status === 2);
+  record(
+    "query_fields_missing_lists_allowed",
+    fieldsMissing.stderr.includes("Specify one or more comma-separated fields for `--fields`:") &&
+      fieldsMissing.stderr.includes("id") &&
+      fieldsMissing.stderr.includes("type") &&
+      fieldsMissing.stderr.includes("nextPageToken"),
+  );
+  const fieldsUnknown = runZoen(
+    ["world", "query", "--type", "inventory.Item", "--fields", "definition"],
+    { env: cliEnv() },
+  );
+  record("query_fields_unknown_fails", fieldsUnknown.status === 2);
+  record(
+    "query_fields_unknown_lists_allowed",
+    fieldsUnknown.stderr.includes("Specify one or more comma-separated fields for `--fields`:"),
+  );
+  killMutant("world query --fields accepts unknown Connect keys");
+
+  const queryBody = JSON.stringify({
+    actualCommitSequence: "9",
+    definition: {
+      definitionId: "inventory.definition",
+      digest: "dead",
+      revision: "1",
+    },
+    knowledgeCut: "9",
+    nextPageToken: "page-cursor-abc",
+    validAt: "2026-01-15T00:00:00Z",
+    values: [
+      {
+        dependencies: [{ claimId: "c1", entityId: "inventory.item.1" }],
+        value: { entityRefValue: "inventory.item.1" },
+      },
+      {
+        dependencies: [{ claimId: "c2", entityId: "inventory.item.2" }],
+        value: { entityRefValue: "inventory.item.2" },
+      },
+    ],
+  });
+  const queryDoor = await listenHttpCapture(200, queryBody);
+  try {
+    const projected = runZoen(
+      ["world", "query", "--type", "inventory.Item", "--limit", "2"],
+      {
+        env: cliEnv({ ZOEN_ZOEND: `http://127.0.0.1:${queryDoor.port}` }),
+        timeoutMs: 5_000,
+      },
+    );
+    record("query_projected_ok", projected.status === 0);
+    let projectedJson: {
+      items?: Array<{ id?: string; type?: string }>;
+      nextPageToken?: string;
+      definition?: unknown;
+      values?: unknown;
+    } = {};
+    try {
+      projectedJson = JSON.parse(projected.stdout.trim()) as typeof projectedJson;
+    } catch {
+      projectedJson = {};
+    }
+    record(
+      "query_projected_items",
+      Array.isArray(projectedJson.items) &&
+        projectedJson.items.length === 2 &&
+        projectedJson.items[0]?.id === "inventory.item.1" &&
+        projectedJson.items[0]?.type === "inventory.Item" &&
+        projectedJson.items[1]?.id === "inventory.item.2",
+    );
+    record(
+      "query_projected_next_page_token",
+      projectedJson.nextPageToken === "page-cursor-abc",
+    );
+    record(
+      "query_projected_no_connect_blob",
+      projectedJson.definition === undefined && projectedJson.values === undefined,
+    );
+    killMutant("world query dumps Connect SemanticQuery body");
+
+    const paged = runZoen(
+      [
+        "world",
+        "query",
+        "--type",
+        "inventory.Item",
+        "--limit",
+        "2",
+        "--page-token",
+        "page-cursor-abc",
+      ],
+      {
+        env: cliEnv({ ZOEN_ZOEND: `http://127.0.0.1:${queryDoor.port}` }),
+        timeoutMs: 5_000,
+      },
+    );
+    record("query_page_token_ok", paged.status === 0);
+    const requests = JSON.parse(await readFile(queryDoor.requestsPath, "utf8")) as Array<{
+      body: string;
+    }>;
+    const pagedRequest = requests.at(-1)?.body ?? "";
+    record(
+      "query_page_token_round_trips",
+      pagedRequest.includes('"pageToken":"page-cursor-abc"'),
+    );
+    killMutant("world query drops page_token cursor");
+  } finally {
+    queryDoor.close();
   }
 
   const deviceDoor = await listenHttp(
