@@ -30,6 +30,7 @@ Environment:
   ZOEN_ZOEND              zoend origin
   ZOEN_DEFINITION_DIGEST  active definition digest
   ZOEN_DEFINITION_ID      active definition id
+  ZOEN_DEFINITION_REVISION  revision for the digest (optional; resolved via GetRevision when empty)
   ZOEN_VALID_AT           as-of timestamp for query and propose
   ZOEN_ISOLATE            set to 1 to deny live side effects
   ZOEN_SOURCE_API_KEY     REST --auth apikey secret (prefer over --api-key)
@@ -644,6 +645,7 @@ struct RuntimeEnv {
     source_home: PathBuf,
     definition_id: String,
     definition_digest: String,
+    definition_revision: String,
     valid_at: String,
     principal_id: String,
     actor_id: String,
@@ -950,6 +952,7 @@ fn parse_env() -> Result<RuntimeEnv, Box<dyn Error + Send + Sync>> {
         bearer: required_env("ZOEN_BEARER")?,
         definition_digest: env_or("ZOEN_DEFINITION_DIGEST", ""),
         definition_id: env_or("ZOEN_DEFINITION_ID", ""),
+        definition_revision: env_or("ZOEN_DEFINITION_REVISION", ""),
         isolate: env::var("ZOEN_ISOLATE").ok().as_deref() == Some("1"),
         principal_id: env_or("ZOEN_PRINCIPAL", "principal.personal"),
         source_home: PathBuf::from(env_or("ZOEN_SOURCE_HOME", ".zoen")),
@@ -1009,6 +1012,56 @@ fn missing_definition(env: &RuntimeEnv) -> Option<CommandResult> {
         ));
     }
     None
+}
+
+async fn definition_ref(
+    env: &RuntimeEnv,
+) -> Result<Value, Box<dyn Error + Send + Sync>> {
+    let revision = if env.definition_revision.is_empty() {
+        resolve_active_revision(env).await?
+    } else {
+        env.definition_revision.clone()
+    };
+    Ok(json!({
+        "definitionId": env.definition_id,
+        "digest": env.definition_digest,
+        "revision": revision,
+    }))
+}
+
+async fn resolve_active_revision(
+    env: &RuntimeEnv,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let status = connect_json(
+        env,
+        "/zoen.definition.v1.DefinitionService/GetRevision",
+        json!({
+            "definitionId": env.definition_id,
+            "digest": env.definition_digest,
+            "tenantId": env.tenant,
+        }),
+    )
+    .await?;
+    if status.status != 200 {
+        return Err(format!(
+            "GetRevision failed: {} {}\n  export ZOEN_DEFINITION_REVISION=<n> for this digest",
+            status.status, status.text
+        )
+        .into());
+    }
+    let revision = status
+        .json
+        .pointer("/definitionRevision/revision")
+        .or_else(|| status.json.pointer("/definition_revision/revision"))
+        .cloned();
+    match revision {
+        Some(Value::String(value)) if !value.is_empty() => Ok(value),
+        Some(Value::Number(value)) => Ok(value.to_string()),
+        _ => Err(
+            "GetRevision returned no definitionRevision.revision\n  export ZOEN_DEFINITION_REVISION=<n>"
+                .into(),
+        ),
+    }
 }
 
 fn parse_inputs(values: &[String]) -> Vec<(String, String)> {
@@ -1263,14 +1316,14 @@ async fn world_query(
         Ok(selected) => selected,
         Err(message) => return Ok(fail(2, &message)),
     };
+    let definition = match definition_ref(env).await {
+        Ok(value) => value,
+        Err(error) => return Ok(fail(2, &error.to_string())),
+    };
     let mut body = json!({
         "byType": { "limit": limit, "typeId": type_id },
         "consistency": { "strong": {} },
-        "definition": {
-            "definitionId": env.definition_id,
-            "digest": env.definition_digest,
-            "revision": "1",
-        },
+        "definition": definition,
         "scenarioId": scenario_id,
         "tenantId": env.tenant,
         "validAt": env.valid_at,
@@ -1422,13 +1475,13 @@ async fn propose_action(
         Ok(inputs) => inputs,
         Err(message) => return Ok(fail(2, &message)),
     };
+    let definition = match definition_ref(env).await {
+        Ok(value) => value,
+        Err(error) => return Ok(fail(2, &error.to_string())),
+    };
     let body = json!({
         "actionId": parsed.action_id,
-        "definition": {
-            "definitionId": env.definition_id,
-            "digest": env.definition_digest,
-            "revision": "1",
-        },
+        "definition": definition,
         "expiresAt": expires_at,
         "inputs": inputs,
         "operationId": operation_id,
@@ -2640,15 +2693,15 @@ async fn discover_actions(
     if let Some(result) = missing_definition(env) {
         return Ok(result);
     }
+    let definition = match definition_ref(env).await {
+        Ok(value) => value,
+        Err(error) => return Ok(fail(2, &error.to_string())),
+    };
     let status = connect_json(
         env,
         "/zoen.action.v1.ActionService/Discover",
         json!({
-            "definition": {
-                "definitionId": env.definition_id,
-                "digest": env.definition_digest,
-                "revision": "1",
-            },
+            "definition": definition,
             "resourceId": resource_id,
         }),
     )
