@@ -200,9 +200,22 @@ async function main(): Promise<void> {
   record("login_help_has_email", helpLogin.stdout.includes("--email"));
   record("login_help_has_device", helpLogin.stdout.includes("--device"));
   record("login_help_has_wait", helpLogin.stdout.includes("--wait"));
+  record("login_help_has_password_stdin", helpLogin.stdout.includes("--password-stdin"));
   record(
     "login_help_device_wait_example",
     helpLogin.stdout.includes("zoen auth login --device --wait"),
+  );
+  const loginHelpExamples = helpLogin.stdout.split("Examples:")[1] ?? "";
+  const loginHelpDeviceIdx = loginHelpExamples.indexOf("zoen auth login --device");
+  const loginHelpEmailIdx = loginHelpExamples.indexOf("zoen auth login --email");
+  record(
+    "login_help_device_before_email",
+    loginHelpDeviceIdx >= 0 &&
+      (loginHelpEmailIdx < 0 || loginHelpDeviceIdx < loginHelpEmailIdx),
+  );
+  record(
+    "login_help_no_password_secret_argv",
+    !helpLogin.stdout.includes("--password secret"),
   );
 
   const helpDiscover = runZoen(["action", "discover", "--help"]);
@@ -213,6 +226,14 @@ async function main(): Promise<void> {
   const bareZoen = runZoen([]);
   record("bare_zoen_is_help", bareZoen.status === 0);
   record("bare_zoen_has_examples", bareZoen.stdout.includes("Examples:"));
+  record(
+    "bare_zoen_login_device_example",
+    bareZoen.stdout.includes("zoen auth login --device"),
+  );
+  record(
+    "bare_zoen_no_password_secret_argv",
+    !bareZoen.stdout.includes("--password secret"),
+  );
   killMutant("bare zoen starts serve");
 
   const missingDbEnv = { ...process.env };
@@ -375,6 +396,15 @@ async function main(): Promise<void> {
   const loginMissing = runZoen(["auth", "login"]);
   record("login_missing_flags_fails", loginMissing.status === 2);
   record("login_missing_flags_example", loginMissing.stderr.includes("--email"));
+  record(
+    "login_missing_flags_leads_device",
+    (loginMissing.stderr.split("\n").find((line) => line.includes("zoen auth login")) ??
+      "").includes("--device"),
+  );
+  record(
+    "login_missing_no_password_secret_argv",
+    !loginMissing.stderr.includes("--password secret"),
+  );
   record("login_not_this_slice", !loginMissing.stderr.includes("not this slice"));
 
   const missingQuantity = runZoen(
