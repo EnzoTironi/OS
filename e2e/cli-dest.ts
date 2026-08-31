@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { createServer } from "node:net";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { writeScenarioArtifact } from "./host-env.js";
 
@@ -60,6 +69,7 @@ function cliEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     ...process.env,
     ZOEN_BEARER: "x",
     ZOEN_DEFINITION_DIGEST: "dead",
+    ZOEN_DEFINITION_ID: "inventory.definition",
     ZOEN_TENANT: "tenant.a",
     ZOEN_ZOEND: "http://127.0.0.1:58080",
     ...extra,
@@ -68,7 +78,7 @@ function cliEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 
 function listenHang(): Promise<{ close: () => void; port: number }> {
   return new Promise((resolve, reject) => {
-    const server = createServer(() => undefined);
+    const server = createNetServer(() => undefined);
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
@@ -81,6 +91,49 @@ function listenHang(): Promise<{ close: () => void; port: number }> {
           server.close();
         },
         port: address.port,
+      });
+    });
+  });
+}
+
+function listenHttp(
+  status: number,
+  body: string,
+): Promise<{ close: () => void; port: number }> {
+  return new Promise((resolve, reject) => {
+    const script = `
+      const fs = require("node:fs");
+      const http = require("node:http");
+      const status = ${status};
+      const body = ${JSON.stringify(body)};
+      const server = http.createServer((_request, response) => {
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(body);
+      });
+      server.listen(0, "127.0.0.1", () => {
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+          process.exit(1);
+        }
+        fs.writeSync(1, String(address.port));
+      });
+    `;
+    const child = spawn(process.execPath, ["-e", script], {
+      stdio: ["ignore", "pipe", "inherit"],
+    });
+    child.once("error", reject);
+    child.stdout.once("data", (chunk: Buffer) => {
+      const port = Number(chunk.toString());
+      if (!Number.isInteger(port) || port < 1) {
+        child.kill("SIGTERM");
+        reject(new Error("http child has no port"));
+        return;
+      }
+      resolve({
+        close: () => {
+          child.kill("SIGTERM");
+        },
+        port,
       });
     });
   });
@@ -101,8 +154,24 @@ async function main(): Promise<void> {
     helpRoot.stdout.includes("ZOEN_DEFINITION_DIGEST"),
   );
   record(
+    "root_help_names_ZOEN_DEFINITION_ID",
+    helpRoot.stdout.includes("ZOEN_DEFINITION_ID"),
+  );
+  record("root_help_no_world_source", !helpRoot.stdout.includes("world.source"));
+  record(
     "root_help_query_has_type",
     helpRoot.stdout.includes("zoen world query --type inventory.Item"),
+  );
+
+  const helpActivate = runZoen(["definition", "activate", "--help"]);
+  record("activate_help_ok", helpActivate.status === 0);
+  record(
+    "activate_help_inventory_definition",
+    helpActivate.stdout.includes("--definition-id inventory.definition"),
+  );
+  record(
+    "activate_help_no_world_source",
+    !helpActivate.stdout.includes("world.source"),
   );
 
   const helpPropose = runZoen(["action", "propose", "--help"]);
@@ -123,6 +192,11 @@ async function main(): Promise<void> {
   record("login_help_has_examples", helpLogin.stdout.includes("Examples:"));
   record("login_help_has_email", helpLogin.stdout.includes("--email"));
   record("login_help_has_device", helpLogin.stdout.includes("--device"));
+  record("login_help_has_wait", helpLogin.stdout.includes("--wait"));
+  record(
+    "login_help_device_wait_example",
+    helpLogin.stdout.includes("zoen auth login --device --wait"),
+  );
 
   const helpDiscover = runZoen(["action", "discover", "--help"]);
   record("discover_help_has_examples", helpDiscover.stdout.includes("Examples:"));
@@ -278,6 +352,206 @@ async function main(): Promise<void> {
   record("login_missing_flags_fails", loginMissing.status === 2);
   record("login_missing_flags_example", loginMissing.stderr.includes("--email"));
   record("login_not_this_slice", !loginMissing.stderr.includes("not this slice"));
+
+  const missingQuantity = runZoen(
+    [
+      "action",
+      "propose",
+      "--proposal-id",
+      "p",
+      "--action-id",
+      "inventory.replenish",
+      "--resource-id",
+      "inventory.item.1",
+      "--dry-run",
+    ],
+    { env: cliEnv() },
+  );
+  record("missing_quantity_fails", missingQuantity.status === 2);
+  record("missing_quantity_example", missingQuantity.stderr.includes("--quantity"));
+  record(
+    "missing_quantity_not_empty_inputs",
+    !missingQuantity.stdout.includes('"inputs":[]'),
+  );
+  killMutant("propose --dry-run with no --quantity and no --input succeeds");
+
+  const missingDefinitionIdEnv = cliEnv();
+  delete missingDefinitionIdEnv.ZOEN_DEFINITION_ID;
+  const missingDefinitionId = runZoen(["world", "query", "--type", "inventory.Item"], {
+    env: missingDefinitionIdEnv,
+    timeoutMs: 5_000,
+  });
+  record("missing_definition_id_fails", missingDefinitionId.status === 2);
+  record(
+    "missing_definition_id_names_var",
+    missingDefinitionId.stderr.includes("ZOEN_DEFINITION_ID"),
+  );
+  record(
+    "missing_definition_id_export",
+    missingDefinitionId.stderr.includes(
+      "export ZOEN_DEFINITION_ID=inventory.definition",
+    ),
+  );
+  record(
+    "missing_definition_id_not_world_source",
+    !missingDefinitionId.stderr.includes("world.source") &&
+      !missingDefinitionId.stdout.includes("world.source"),
+  );
+  killMutant("ZOEN_DEFINITION_ID defaults to world.source");
+
+  const sourceHome = mkdtempSync(path.join(tmpdir(), "zoen-src-"));
+  try {
+    const missingSource = runZoen(
+      ["source", "introduce", "rest.qa", "--path", "/x", "--dry-run"],
+      { env: cliEnv({ ZOEN_SOURCE_HOME: sourceHome }) },
+    );
+    record("missing_source_exit_2", missingSource.status === 2);
+    record(
+      "missing_source_not_os_error",
+      !missingSource.stderr.includes("os error 2") &&
+        !missingSource.stderr.includes("No such file or directory"),
+    );
+    record(
+      "missing_source_not_connected",
+      missingSource.stderr.includes("source rest.qa is not connected"),
+    );
+    record(
+      "missing_source_connect_example",
+      missingSource.stderr.includes(
+        "zoen source connect rest --id rest.qa --base",
+      ),
+    );
+    killMutant("missing source instance is os error 2");
+
+    const missingSync = runZoen(["source", "sync", "nosuch", "--dry-run"], {
+      env: cliEnv({ ZOEN_SOURCE_HOME: sourceHome }),
+    });
+    record("missing_sync_exit_2", missingSync.status === 2);
+    record(
+      "missing_sync_not_connected",
+      missingSync.stderr.includes("source nosuch is not connected"),
+    );
+    record(
+      "missing_sync_connect_example",
+      missingSync.stderr.includes("zoen source connect rest --id nosuch --base"),
+    );
+
+    const fetchable = await listenHttp(200, JSON.stringify({ quantity: "1" }));
+    try {
+      mkdirSync(path.join(sourceHome, "sources"), { recursive: true });
+      writeFileSync(
+        path.join(sourceHome, "sources", "rest.qa.json"),
+        `${JSON.stringify({
+          auth: { type: "none" },
+          baseUrl: `http://127.0.0.1:${fetchable.port}`,
+          id: "rest.qa",
+          introduced: { path: "/x" },
+          kind: "rest",
+        })}\n`,
+      );
+      const isolateSync = runZoen(["source", "sync", "rest.qa"], {
+        env: cliEnv({ ZOEN_ISOLATE: "1", ZOEN_SOURCE_HOME: sourceHome }),
+        timeoutMs: 5_000,
+      });
+      record("isolate_sync_denied", isolateSync.status === 1);
+      record(
+        "isolate_sync_names_commit",
+        isolateSync.stderr.includes("isolate cannot commit"),
+      );
+      const casDir = path.join(sourceHome, "cas");
+      const casFiles = existsSync(casDir) ? readdirSync(casDir) : [];
+      record("isolate_sync_no_cas", casFiles.length === 0);
+      killMutant("isolate source sync writes CAS then fails");
+
+      const isolateSyncDry = runZoen(["source", "sync", "rest.qa", "--dry-run"], {
+        env: cliEnv({ ZOEN_ISOLATE: "1", ZOEN_SOURCE_HOME: sourceHome }),
+        timeoutMs: 5_000,
+      });
+      record("isolate_sync_dry_run_ok", isolateSyncDry.status === 0);
+      record(
+        "isolate_sync_dry_run_json",
+        isolateSyncDry.stdout.includes('"dryRun":true'),
+      );
+    } finally {
+      fetchable.close();
+    }
+  } finally {
+    rmSync(sourceHome, { force: true, recursive: true });
+  }
+
+  const unbound = await listenHttp(
+    403,
+    JSON.stringify({
+      code: "permission_denied",
+      message: "subject has no verified binding",
+    }),
+  );
+  try {
+    const unboundQuery = runZoen(["world", "query", "--type", "inventory.Item"], {
+      env: cliEnv({ ZOEN_ZOEND: `http://127.0.0.1:${unbound.port}` }),
+      timeoutMs: 5_000,
+    });
+    record("unbound_query_fails", unboundQuery.status === 1);
+    record(
+      "unbound_query_keeps_connect",
+      unboundQuery.stderr.includes("subject has no verified binding"),
+    );
+    record(
+      "unbound_query_names_membership",
+      unboundQuery.stderr.includes("Active row"),
+    );
+    record("unbound_query_names_invite", unboundQuery.stderr.includes("invite"));
+    record(
+      "unbound_query_next_verb",
+      unboundQuery.stderr.includes("zoen action propose") &&
+        unboundQuery.stderr.includes("zoen.world.invite"),
+    );
+    killMutant("unbound SemanticQuery dumps Connect JSON only");
+  } finally {
+    unbound.close();
+  }
+
+  const deviceDoor = await listenHttp(
+    200,
+    JSON.stringify({
+      device_code: "dev-code",
+      expires_in: 1800,
+      interval: 5,
+      user_code: "ABCD1234",
+      verification_uri: "/device",
+    }),
+  );
+  try {
+    const deviceLogin = runZoen(["auth", "login", "--device"], {
+      env: { ...process.env, ZOEN_ZOEND: `http://127.0.0.1:${deviceDoor.port}` },
+      timeoutMs: 5_000,
+    });
+    record("device_default_exits", deviceLogin.status === 0);
+    record(
+      "device_default_json_deviceCode",
+      deviceLogin.stdout.includes('"deviceCode"'),
+    );
+    record(
+      "device_default_json_userCode",
+      deviceLogin.stdout.includes("ABCD1234"),
+    );
+    record(
+      "device_default_json_verificationUri",
+      deviceLogin.stdout.includes('"verificationUri"'),
+    );
+    record(
+      "device_default_open_stderr",
+      deviceLogin.stderr.includes("Open ") &&
+        deviceLogin.stderr.includes("ABCD1234"),
+    );
+    record(
+      "device_default_stdout_not_open",
+      !deviceLogin.stdout.includes("Open "),
+    );
+    killMutant("zoen auth login --device polls until expires_in");
+  } finally {
+    deviceDoor.close();
+  }
 
   const explainMissing = runZoen(["history", "explain"], { env: cliEnv() });
   record("explain_missing_target_fails", explainMissing.status === 2);
