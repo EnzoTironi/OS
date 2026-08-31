@@ -2,7 +2,7 @@
 set -eu
 ready="${ZOEN_PERSONAL_LAKE_READY_FILE:-/data/zoen/personal.lake.ready}"
 token="${ZOEN_AGENT_BEARER_TOKEN_FILE:-/data/zoen/agent.token}"
-zoend="${ZOEN_IDENTITY_BASE_URL:-http://127.0.0.1:58701}"
+zoend="${ZOEN_ZOEND:-http://127.0.0.1:58701}"
 script="/app/dist/deploy/fly/ensure-personal-lake.js"
 mkdir -p /data/zoen
 rm -f "$ready"

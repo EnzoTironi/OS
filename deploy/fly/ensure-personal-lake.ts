@@ -8,7 +8,7 @@ async function main(): Promise<void> {
   const tenantId = requiredEnv("ZOEN_TENANT_ID");
   const personalPath = requiredEnv("ZOEN_PERSONAL_DEFINITION_PATH");
   const commercialPath = requiredEnv("ZOEN_WORLD_DEFINITION_PATH");
-  const baseUrl = requiredEnv("ZOEN_IDENTITY_BASE_URL");
+  const baseUrl = requiredEnv("ZOEN_ZOEND");
   const tokenFile = requiredEnv("ZOEN_AGENT_BEARER_TOKEN_FILE");
   const personalReady = process.env.ZOEN_PERSONAL_LAKE_READY_FILE?.trim()
     ?? "/data/zoen/personal.lake.ready";

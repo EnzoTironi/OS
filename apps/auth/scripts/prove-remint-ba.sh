@@ -127,7 +127,7 @@ export ZOEN_BA_AGENT_PASSWORD="$agent_password"
 export ZOEN_BA_DOOR_URL="$base"
 export ZOEN_AGENT_BEARER_TOKEN_FILE="$token_file"
 export ZOEN_IDENTITY_ADMIN_TOKEN="$admin_token"
-export ZOEN_IDENTITY_BASE_URL="$zoend_base"
+export ZOEN_ZOEND="$zoend_base"
 
 npx --yes auth@1.7.2 migrate --config src/auth.ts --yes
 
@@ -376,7 +376,7 @@ if ! (
   export ZOEN_BA_AGENT_EMAIL
   export ZOEN_BA_AGENT_PASSWORD
   export ZOEN_BA_DOOR_URL
-  export ZOEN_IDENTITY_BASE_URL
+  export ZOEN_ZOEND
   export ZOEN_IDENTITY_ADMIN_TOKEN
   timeout 90 "${repo}/deploy/fly/zoen-ensure-agent-binding"
 ) >"$bind_log" 2>&1; then
@@ -412,7 +412,7 @@ if (
   export ZOEN_TENANT_ID='tenant.a'
   export ZOEN_PUBLISH_BEARER='not-a-jwt'
   export ZOEN_PERSONAL_DEFINITION_PATH="${repo}/testdata/lakes/personal.canonical.json"
-  export ZOEN_IDENTITY_BASE_URL="$zoend_base"
+  export ZOEN_ZOEND="$zoend_base"
   npx --yes tsx apps/auth/scripts/publish-with-bearer.ts
 ) >"$garbage_log" 2>&1; then
   garbage_status="$(grep -E '^status=' "$garbage_log" | tail -n1 | cut -d= -f2)"
