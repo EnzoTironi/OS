@@ -117,13 +117,17 @@ pub enum Command {
 pub enum WorldCommand {
     /// Query semantic objects at a knowledge cut
     #[command(
-        after_help = "Examples:\n  zoen world query --type inventory.Item\n  zoen world query --type inventory.Item --limit 20"
+        after_help = "Examples:\n  zoen world query --type inventory.Item\n  zoen world query --type inventory.Item --limit 20\n  zoen world query --type inventory.Item --limit 20 --page-token <nextPageToken>"
     )]
     Query {
         #[arg(long = "type")]
         type_id: String,
         #[arg(long, default_value_t = 10)]
         limit: u32,
+        #[arg(long = "page-token", default_value = "")]
+        page_token: String,
+        #[arg(long = "fields", value_delimiter = ',', num_args = 0..)]
+        fields: Option<Vec<String>>,
         #[arg(long = "scenario", default_value = "")]
         scenario: String,
     },
@@ -501,8 +505,20 @@ async fn run_world(
         WorldCommand::Query {
             type_id,
             limit,
+            page_token,
+            fields,
             scenario,
-        } => world_query(env, &type_id, limit, &scenario).await,
+        } => {
+            world_query(
+                env,
+                &type_id,
+                limit,
+                &page_token,
+                fields.as_deref(),
+                &scenario,
+            )
+            .await
+        }
         WorldCommand::Scenario { command } => match command {
             ScenarioCommand::Create { name } => {
                 scenario_rpc(env, "/zoen.world.v1.WorldService/CreateScenario", &name).await
@@ -921,28 +937,33 @@ async fn world_query(
     env: &RuntimeEnv,
     type_id: &str,
     limit: u32,
+    page_token: &str,
+    fields: Option<&[String]>,
     scenario_id: &str,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
     if let Some(result) = missing_definition(env) {
         return Ok(result);
     }
-    let status = connect_json(
-        env,
-        "/zoen.world.v1.WorldService/SemanticQuery",
-        json!({
-            "byType": { "limit": limit, "typeId": type_id },
-            "consistency": { "strong": {} },
-            "definition": {
-                "definitionId": env.definition_id,
-                "digest": env.definition_digest,
-                "revision": "1",
-            },
-            "scenarioId": scenario_id,
-            "tenantId": env.tenant,
-            "validAt": env.valid_at,
-        }),
-    )
-    .await?;
+    let selected = match parse_world_query_fields(fields) {
+        Ok(selected) => selected,
+        Err(message) => return Ok(fail(2, &message)),
+    };
+    let mut body = json!({
+        "byType": { "limit": limit, "typeId": type_id },
+        "consistency": { "strong": {} },
+        "definition": {
+            "definitionId": env.definition_id,
+            "digest": env.definition_digest,
+            "revision": "1",
+        },
+        "scenarioId": scenario_id,
+        "tenantId": env.tenant,
+        "validAt": env.valid_at,
+    });
+    if !page_token.is_empty() {
+        body["pageToken"] = json!(page_token);
+    }
+    let status = connect_json(env, "/zoen.world.v1.WorldService/SemanticQuery", body).await?;
     if status.status != 200 {
         if status.status == 403 && status.text.contains("subject has no verified binding") {
             return Ok(fail_connect(
@@ -954,11 +975,85 @@ async fn world_query(
         }
         return Ok(fail_connect(&status, None));
     }
-    Ok(CommandResult {
-        exit_code: 0,
-        stdout: format!("{}\n", status.text),
-        stderr: String::new(),
-    })
+    Ok(ok(&project_world_query(&status.json, type_id, selected)))
+}
+
+const WORLD_QUERY_FIELDS: &[&str] = &["id", "nextPageToken", "type"];
+
+#[derive(Clone, Copy)]
+struct WorldQueryFields {
+    id: bool,
+    next_page_token: bool,
+    type_id: bool,
+}
+
+fn parse_world_query_fields(fields: Option<&[String]>) -> Result<WorldQueryFields, String> {
+    let Some(fields) = fields else {
+        return Ok(WorldQueryFields {
+            id: true,
+            next_page_token: true,
+            type_id: true,
+        });
+    };
+    if fields.is_empty() || fields.iter().any(String::is_empty) {
+        return Err(world_query_fields_help());
+    }
+    let mut selected = WorldQueryFields {
+        id: false,
+        next_page_token: false,
+        type_id: false,
+    };
+    for field in fields {
+        match field.as_str() {
+            "id" => selected.id = true,
+            "nextPageToken" => selected.next_page_token = true,
+            "type" => selected.type_id = true,
+            _ => return Err(world_query_fields_help()),
+        }
+    }
+    Ok(selected)
+}
+
+fn world_query_fields_help() -> String {
+    let mut lines = vec!["Specify one or more comma-separated fields for `--fields`:".to_owned()];
+    lines.extend(WORLD_QUERY_FIELDS.iter().map(|field| format!("  {field}")));
+    lines.join("\n")
+}
+
+fn project_world_query(body: &Value, type_id: &str, fields: WorldQueryFields) -> Value {
+    let mut out = serde_json::Map::new();
+    if fields.id || fields.type_id {
+        let items = body
+            .get("values")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                let id = entry
+                    .pointer("/value/entityRefValue")
+                    .and_then(Value::as_str)?;
+                let mut item = serde_json::Map::new();
+                if fields.id {
+                    item.insert("id".to_owned(), json!(id));
+                }
+                if fields.type_id {
+                    item.insert("type".to_owned(), json!(type_id));
+                }
+                Some(Value::Object(item))
+            })
+            .collect::<Vec<_>>();
+        out.insert("items".to_owned(), Value::Array(items));
+    }
+    if fields.next_page_token {
+        let token = body
+            .get("nextPageToken")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !token.is_empty() {
+            out.insert("nextPageToken".to_owned(), json!(token));
+        }
+    }
+    Value::Object(out)
 }
 
 struct ProposeInput {
