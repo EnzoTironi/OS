@@ -10,10 +10,26 @@ Do not add Redis. Restate is ontology ZoenEffect only. Conversation durability i
 
 WhatsApp dest is Kapso at `/eve/v1/kapso`. Do not use `@chat-adapter/whatsapp`. Everyday replies are text plus one https URL.
 
-Zoen has not launched. There are no production users or production data. Dest today is Better Auth SessionDoor, planted `zoen`, Eve membership workbench, one Fly app, canonical JSON Publish, and `zoen-effect-dispatcher`. Delete obsolete paths. Do not add compatibility shims, dual-read, dual-write, or leftover aliases. Internal interfaces are not public contracts. Development data is disposable. Do not rewrite an already-applied migration without resetting the databases it touched. Keep transactional safety and migration idempotence.
+## Pre-launch evolution
+
+Zoen has not launched and has no production users or production data. Revisit this policy before the first production deployment.
+
+Optimize for the smallest coherent design that represents the product today: Better Auth SessionDoor, planted `zoen`, Eve membership workbench, one Fly app, canonical JSON Publish, and `zoen-effect-dispatcher`.
+
+Remove obsolete code, schemas, APIs, configuration, aliases, dest-wrong teaching, and transitional paths directly.
+
+Do not add backward-compatibility shims, leftover aliases, dual-read or dual-write paths, or data-preserving backfills unless Enzo explicitly asks.
+
+Internal interfaces are not public compatibility contracts. Update callers and journeys atomically when they change.
+
+Development and test data are disposable. Prefer recreating those databases over complicating the product to preserve local data.
+
+Treat migration history as a replaceable development baseline, but keep the checked-in migration chain and setup workflow coherent. Do not rewrite an already-applied migration without also resetting affected development and test databases.
+
+Preserve database invariants, transactional safety, migration idempotence, and deterministic setup. Those are correctness properties, not backward-compatibility requirements.
+
+Consolidate the migration baseline only as an explicit coordinated change, not as incidental work in a feature branch.
 
 Do not add `#[allow(clippy::...)]` or other linter bypasses. Generated `gen/connect` protobuf is the exception.
 
 Do not `.unwrap()`. Return `Result` or handle the case. Clippy `unwrap_used` is deny.
-
-A Fly image may still build zoend this week.
