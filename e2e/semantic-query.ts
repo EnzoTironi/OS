@@ -799,6 +799,108 @@ async function main(): Promise<void> {
     assert.deepEqual(entityValues(items).sort(), [entityId, "entity.overflow"].sort());
     recordAssertion("typeQueryDoesNotReturnOtherTypes");
 
+    const destEnv = destZoenEnv(tokenA, definitionDigest);
+    const firstActivate = destJson(
+      await destZoenOk(destEnv, [
+        "definition",
+        "activate",
+        "--definition-id",
+        definitionId,
+        "--digest",
+        definitionDigest,
+      ]),
+    );
+    const secondActivate = destJson(
+      await destZoenOk(destEnv, [
+        "definition",
+        "activate",
+        "--definition-id",
+        definitionId,
+        "--digest",
+        definitionDigest,
+      ]),
+    );
+    assert.equal(firstActivate.activated, true);
+    assert.equal(firstActivate.definitionId, definitionId);
+    assert.equal(firstActivate.digest, definitionDigest);
+    assert.equal(secondActivate.activated, true);
+    assert.equal(secondActivate.digest, definitionDigest);
+    recordAssertion("destActivateAlreadyActiveDigestSucceeds");
+
+    const v2Canonical = canonicalDefinition
+      .replace('"operator":"subtract"', '"operator":"add"')
+      .replace('"revision":1', '"revision":2');
+    assert.notEqual(v2Canonical, canonicalDefinition);
+    const v2Digest = sha256(v2Canonical);
+    await clientA.publish({
+      canonicalJson: new TextEncoder().encode(v2Canonical),
+      digest: v2Digest,
+      tenantId: tenantA,
+    });
+    const differentActivate = await destZoen(destEnv, [
+      "definition",
+      "activate",
+      "--definition-id",
+      definitionId,
+      "--digest",
+      v2Digest,
+    ]);
+    assert.notEqual(differentActivate.code, 0);
+    assert.match(differentActivate.stderr, /failed_precondition/);
+    recordAssertion("destActivateDifferentDigestFailsPrecondition");
+
+    const firstScenario = destJson(
+      await destZoenOk(destEnv, [
+        "world",
+        "scenario",
+        "create",
+        "--name",
+        "scenario.qa.retry",
+      ]),
+    );
+    const secondScenario = destJson(
+      await destZoenOk(destEnv, [
+        "world",
+        "scenario",
+        "create",
+        "--name",
+        "scenario.qa.retry",
+      ]),
+    );
+    assert.equal(firstScenario.scenarioId, "scenario.qa.retry");
+    assert.equal(secondScenario.scenarioId, firstScenario.scenarioId);
+    assert.equal(
+      secondScenario.baseCommitSequence,
+      firstScenario.baseCommitSequence,
+    );
+    recordAssertion("destCreateOpenScenarioIsIdempotent");
+
+    await destZoenOk(destEnv, [
+      "world",
+      "scenario",
+      "create",
+      "--name",
+      "scenario.qa.closed",
+    ]);
+    await destZoenOk(destEnv, [
+      "world",
+      "scenario",
+      "discard",
+      "--name",
+      "scenario.qa.closed",
+    ]);
+    const closedCreate = await destZoen(destEnv, [
+      "world",
+      "scenario",
+      "create",
+      "--name",
+      "scenario.qa.closed",
+    ]);
+    assert.notEqual(closedCreate.code, 0);
+    assert.match(closedCreate.stderr, /failed_precondition/);
+    assert.doesNotMatch(closedCreate.stderr, /"unavailable"/);
+    recordAssertion("destCreateClosedScenarioFailsPrecondition");
+
     const postgresVersion = (
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
@@ -1556,6 +1658,66 @@ function composeOutput(...arguments_: string[]): Promise<string> {
     composeFile,
     ...arguments_,
   ]);
+}
+
+function destZoenEnv(token: string, digest: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ZOEN_ACTOR: "actor.admin.a",
+    ZOEN_BEARER: token,
+    ZOEN_DEFINITION_DIGEST: digest,
+    ZOEN_DEFINITION_ID: definitionId,
+    ZOEN_PRINCIPAL: "principal.admin.a",
+    ZOEN_TENANT: tenantA,
+    ZOEN_WORKLOAD: "workload.admin.a",
+    ZOEN_ZOEND: baseUrl,
+  };
+}
+
+function destZoen(
+  environment: NodeJS.ProcessEnv,
+  arguments_: readonly string[],
+): Promise<{ code: number; stderr: string; stdout: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      serverPath,
+      [...arguments_],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        env: environment,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        if (error === null) {
+          resolve({ code: 0, stderr, stdout });
+          return;
+        }
+        if (typeof error.code === "number") {
+          resolve({ code: error.code, stderr, stdout });
+          return;
+        }
+        reject(new Error(`${stdout}${stderr}`, { cause: error }));
+      },
+    );
+  });
+}
+
+async function destZoenOk(
+  environment: NodeJS.ProcessEnv,
+  arguments_: readonly string[],
+): Promise<string> {
+  const result = await destZoen(environment, arguments_);
+  assert.equal(result.code, 0, result.stderr);
+  return result.stdout;
+}
+
+function destJson(text: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(text);
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+  assert.equal(Array.isArray(value), false);
+  return value as Record<string, unknown>;
 }
 
 function command(

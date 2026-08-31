@@ -8,10 +8,12 @@ use sqlx::{
     postgres::{PgPoolOptions, PgRow},
 };
 use zoen_core::{
-    ActionApproval, ActionProposal, CommitReceipt, CommitSequence, DefinitionActivation,
-    DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
-    DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim, EvidenceDraft,
-    ExecutionContext, ExplanationTarget, OperationId, ProposalId, TenantId,
+    ActionApproval, ActionProposal, ActorId, CommitReceipt, CommitSequence, DefinitionActivation,
+    DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionReference,
+    DefinitionRevision, DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim,
+    EvidenceDraft, EvolutionClassification, ExecutionContext, ExplanationTarget, OperationId,
+    PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
+    ProposalId, TenantId, TimestampMicros, WorkloadId,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore,
@@ -230,6 +232,40 @@ impl AuthorityStore for PostgresAuthorityStore {
         let revision = row.as_ref().map(row_to_revision).transpose()?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(revision)
+    }
+
+    async fn get_active_activation(
+        &self,
+        tenant_id: &TenantId,
+        definition_id: &DefinitionId,
+    ) -> Result<Option<DefinitionActivation>, StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
+        set_tenant(&mut transaction, tenant_id).await?;
+        let row = sqlx::query(
+            "SELECT activation.definition_id, activation.revision, activation.digest,
+                    activation.previous_revision, activation.previous_digest,
+                    activation.commit_sequence, activation.activated_at_micros,
+                    activation.actor_id, activation.principal_id, activation.workload_id,
+                    activation.policy_id, activation.policy_revision, activation.policy_digest,
+                    activation.determining_policies, activation.classification,
+                    activation.activation_kind, activation.migration_operation_id
+             FROM active_definition_revisions AS active
+             JOIN definition_activations AS activation
+               ON activation.tenant_id = active.tenant_id
+              AND activation.definition_id = active.definition_id
+              AND activation.digest = active.digest
+              AND activation.revision = active.revision
+              AND activation.commit_sequence = active.activation_commit_sequence
+             WHERE active.tenant_id = $1 AND active.definition_id = $2",
+        )
+        .bind(tenant_id.as_str())
+        .bind(definition_id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(store_unavailable)?;
+        let activation = row.as_ref().map(row_to_activation).transpose()?;
+        transaction.commit().await.map_err(store_unavailable)?;
+        Ok(activation)
     }
 
     async fn get_migration(
@@ -885,5 +921,100 @@ fn row_to_reference(row: &PgRow) -> Result<DefinitionReference, StoreError> {
             "definition revision",
         )?)
         .ok_or_else(|| StoreError::Corrupt("zero definition revision".to_owned()))?,
+    })
+}
+
+fn row_to_activation(row: &PgRow) -> Result<DefinitionActivation, StoreError> {
+    let previous_digest = row
+        .try_get::<Option<String>, _>("previous_digest")
+        .map_err(store_unavailable)?;
+    let previous_revision = row
+        .try_get::<Option<i64>, _>("previous_revision")
+        .map_err(store_unavailable)?;
+    let previous = match (previous_digest, previous_revision) {
+        (None, None) => None,
+        (Some(digest), Some(revision)) => Some(DefinitionReference {
+            definition_id: DefinitionId::parse(row_string(row, "definition_id")?)
+                .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+            digest: DefinitionDigest::parse(digest)
+                .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+            revision: DefinitionRevisionNumber::new(i64_to_u64(
+                revision,
+                "previous definition revision",
+            )?)
+            .ok_or_else(|| StoreError::Corrupt("zero previous definition revision".to_owned()))?,
+        }),
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(StoreError::Corrupt(
+                "activation previous digest and revision must both be present or both be absent"
+                    .to_owned(),
+            ));
+        }
+    };
+    let classification = match row
+        .try_get::<Option<String>, _>("classification")
+        .map_err(store_unavailable)?
+        .as_deref()
+    {
+        None => None,
+        Some("compatible") => Some(EvolutionClassification::Compatible),
+        Some("requires_migration") => Some(EvolutionClassification::RequiresMigration),
+        Some("breaking") => Some(EvolutionClassification::Breaking),
+        Some("forbidden") => Some(EvolutionClassification::Forbidden),
+        Some(value) => {
+            return Err(StoreError::Corrupt(format!(
+                "unknown evolution classification: {value}"
+            )));
+        }
+    };
+    let kind = match row_string(row, "activation_kind")?.as_str() {
+        "activation" => DefinitionActivationKind::Activation,
+        "rollback" => DefinitionActivationKind::Rollback,
+        value => {
+            return Err(StoreError::Corrupt(format!(
+                "unknown definition activation kind: {value}"
+            )));
+        }
+    };
+    let migration_operation_id = row
+        .try_get::<Option<String>, _>("migration_operation_id")
+        .map_err(store_unavailable)?
+        .map(OperationId::parse)
+        .transpose()
+        .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+    Ok(DefinitionActivation {
+        activated_at: TimestampMicros::new(row_i64(row, "activated_at_micros")?),
+        activated_by: ActorId::parse(row_string(row, "actor_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        active: row_to_reference(row)?,
+        classification,
+        commit_sequence: CommitSequence::new(i64_to_u64(
+            row_i64(row, "commit_sequence")?,
+            "activation commit sequence",
+        )?)
+        .ok_or_else(|| StoreError::Corrupt("zero activation commit sequence".to_owned()))?,
+        kind,
+        migration_operation_id,
+        policy: PolicyEvidence {
+            determining_policies: row
+                .try_get::<Vec<String>, _>("determining_policies")
+                .map_err(store_unavailable)?,
+            revision: PolicyRevision {
+                digest: PolicyDigest::parse(row_string(row, "policy_digest")?)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+                id: PolicyId::parse(row_string(row, "policy_id")?)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+                revision: PolicyRevisionNumber::new(i64_to_u64(
+                    row_i64(row, "policy_revision")?,
+                    "policy revision",
+                )?)
+                .ok_or_else(|| StoreError::Corrupt("zero policy revision".to_owned()))?,
+            },
+        },
+        previous,
+        principal_id: PrincipalId::parse(row_string(row, "principal_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        workload_id: WorkloadId::parse(row_string(row, "workload_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
     })
 }
