@@ -5,7 +5,13 @@ import {
 } from "node:http";
 import { toNodeHandler } from "better-auth/node";
 import { auth, config } from "./auth.ts";
-import { devicePage, onboardDone, onboardStart } from "./html.ts";
+import {
+  devicePage,
+  homePage,
+  loginPage,
+  onboardDone,
+  onboardStart,
+} from "./html.ts";
 
 const handleAuth = toNodeHandler(auth);
 
@@ -44,6 +50,16 @@ const server = createServer((req, res) => {
 
   if (req.method !== "GET") {
     sendText(res, 405, "method not allowed");
+    return;
+  }
+
+  if (pathname === "/" || pathname === "") {
+    sendHtml(res, homePage(config.google));
+    return;
+  }
+
+  if (pathname === "/login") {
+    sendHtml(res, loginPage(config.google));
     return;
   }
 

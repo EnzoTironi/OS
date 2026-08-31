@@ -15,6 +15,8 @@ const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
 pub fn router() -> Router {
     Router::new()
+        .route("/", any(proxy_door))
+        .route("/login", any(proxy_door))
         .route("/api/auth", any(proxy_door))
         .route("/api/auth/{*path}", any(proxy_door))
         .route("/device", any(proxy_door))
