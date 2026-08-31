@@ -259,6 +259,36 @@ async function main(): Promise<void> {
     !helpLogin.stdout.includes("--password secret"),
   );
 
+  const helpOauth2 = runZoen(["source", "connect", "oauth2", "--help"]);
+  record("oauth2_help_ok", helpOauth2.status === 0);
+  record(
+    "oauth2_help_has_client_secret_stdin",
+    helpOauth2.stdout.includes("--client-secret-stdin"),
+  );
+  record(
+    "oauth2_help_names_ZOEN_SOURCE_CLIENT_SECRET",
+    helpOauth2.stdout.includes("ZOEN_SOURCE_CLIENT_SECRET"),
+  );
+  const oauth2HelpExamples = helpOauth2.stdout.split("Examples:")[1] ?? "";
+  record(
+    "oauth2_help_examples_no_secret_argv",
+    !oauth2HelpExamples.includes("--client-secret "),
+  );
+
+  const helpGoogle = runZoen(["source", "connect", "google", "--help"]);
+  record("google_help_ok", helpGoogle.status === 0);
+  record("google_help_has_token_stdin", helpGoogle.stdout.includes("--token-stdin"));
+  record(
+    "google_help_names_ZOEN_SOURCE_TOKEN",
+    helpGoogle.stdout.includes("ZOEN_SOURCE_TOKEN"),
+  );
+  const googleHelpExamples = helpGoogle.stdout.split("Examples:")[1] ?? "";
+  record(
+    "google_help_examples_no_token_argv",
+    !googleHelpExamples.includes("--token "),
+  );
+  record("google_help_examples_no_ya29", !googleHelpExamples.includes("ya29"));
+
   const helpDiscover = runZoen(["action", "discover", "--help"]);
   record("discover_help_has_examples", helpDiscover.stdout.includes("Examples:"));
   const helpExplain = runZoen(["history", "explain", "--help"]);
@@ -652,6 +682,132 @@ async function main(): Promise<void> {
       afterRetry.introduced?.path === "/x" && afterRetry.cursor === "c1",
     );
     killMutant("source connect retry truncates introduced state");
+
+    const oauth2MissingEnv = cliEnv({ ZOEN_SOURCE_HOME: sourceHome });
+    delete oauth2MissingEnv.ZOEN_SOURCE_CLIENT_SECRET;
+    const oauth2Missing = runZoen(
+      [
+        "source",
+        "connect",
+        "oauth2",
+        "--idempotency-key",
+        "oauth2.miss",
+        "--token-url",
+        "https://auth.example.com/token",
+        "--client-id",
+        "client",
+      ],
+      { env: oauth2MissingEnv },
+    );
+    record("oauth2_missing_secret_exit_2", oauth2Missing.status === 2);
+    record(
+      "oauth2_missing_secret_names_env",
+      oauth2Missing.stderr.includes("ZOEN_SOURCE_CLIENT_SECRET"),
+    );
+    record(
+      "oauth2_missing_secret_not_network",
+      !oauth2Missing.stderr.includes("error sending request") &&
+        !oauth2Missing.stderr.includes("auth.example.com"),
+    );
+    killMutant("oauth2 connect proceeds with empty client secret");
+
+    const oauth2Token = await listenHttp(
+      200,
+      JSON.stringify({ access_token: "tok.oauth2", token_type: "Bearer", expires_in: 3600 }),
+    );
+    try {
+      const oauth2Env = cliEnv({
+        ZOEN_SOURCE_HOME: sourceHome,
+        ZOEN_SOURCE_CLIENT_SECRET: "from-env-secret",
+      });
+      const oauth2Ok = runZoen(
+        [
+          "source",
+          "connect",
+          "oauth2",
+          "--idempotency-key",
+          "oauth2.env",
+          "--token-url",
+          `http://127.0.0.1:${oauth2Token.port}/token`,
+          "--client-id",
+          "client",
+        ],
+        { env: oauth2Env },
+      );
+      record("oauth2_env_secret_ok", oauth2Ok.status === 0);
+      record(
+        "oauth2_env_secret_receipt",
+        oauth2Ok.stdout.includes('"connected":"oauth2.env"'),
+      );
+      record(
+        "oauth2_env_secret_not_on_stdout",
+        !oauth2Ok.stdout.includes("from-env-secret") &&
+          !oauth2Ok.stdout.includes("tok.oauth2"),
+      );
+      record(
+        "oauth2_env_secret_not_on_stderr",
+        !oauth2Ok.stderr.includes("from-env-secret"),
+      );
+    } finally {
+      oauth2Token.close();
+    }
+
+    const googleDoor = runZoen(
+      [
+        "source",
+        "connect",
+        "google",
+        "--idempotency-key",
+        "google.door",
+        "--profile",
+        "work",
+        "--use-door",
+      ],
+      { env: cliEnv({ ZOEN_SOURCE_HOME: sourceHome }) },
+    );
+    record("google_use_door_exit_2", googleDoor.status === 2);
+    record(
+      "google_use_door_not_ingest",
+      googleDoor.stderr.includes("door tokens are not ingest authority"),
+    );
+
+    const googleTokenEnv = cliEnv({
+      ZOEN_SOURCE_HOME: sourceHome,
+      ZOEN_SOURCE_TOKEN: "ya29.from-env",
+    });
+    const googleOk = runZoen(
+      [
+        "source",
+        "connect",
+        "google",
+        "--idempotency-key",
+        "google.env",
+        "--profile",
+        "work",
+        "--base",
+        "https://stand-in.example",
+      ],
+      { env: googleTokenEnv },
+    );
+    record("google_env_token_ok", googleOk.status === 0);
+    record(
+      "google_env_token_receipt",
+      googleOk.stdout.includes('"connected":"google.env"'),
+    );
+    record(
+      "google_env_token_not_on_stdout",
+      !googleOk.stdout.includes("ya29.from-env"),
+    );
+    const googlePath = path.join(sourceHome, "sources", "google.env.json");
+    const googleDoc = JSON.parse(readFileSync(googlePath, "utf8")) as {
+      auth?: { type?: string; value?: string };
+    };
+    record(
+      "google_env_token_stored_as_apikey",
+      googleDoc.auth?.type === "apikey" &&
+        googleDoc.auth?.value === "Bearer ya29.from-env",
+    );
+    killMutant("google token stays on argv or prints on stdout");
 
     const fetchable = await listenHttp(200, JSON.stringify({ quantity: "1" }));
     try {
