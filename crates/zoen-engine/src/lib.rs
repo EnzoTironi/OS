@@ -11,7 +11,6 @@ use zoen_core::{
     EvidenceDraft, EvolutionClassification, ExecutionContext, ExplanationTarget, IntentDigest,
     OperationId, PolicyEvidence, ProposalId, TenantId, TimestampMicros,
 };
-
 mod action;
 mod action_preview;
 mod admission;
@@ -73,10 +72,6 @@ pub use migration::{
 };
 pub use read::{
     MAC_DETERMINING_POLICY, MAX_TYPE_PAGE, PolicySchema, ReadAbsence, ReadEngine, ReadError,
-};
-pub use reminder::{
-    REMINDER_DELIVERY_EXECUTOR_CLASS, REMINDER_DELIVERY_SCHEMA_VERSION,
-    is_reminder_delivery_action, is_reminder_due_relation, mint_reminder_delivery_payload,
 };
 pub use scenario::{
     ApplyOutcome, Scenario, ScenarioEngine, ScenarioError, ScenarioProposalPlan, ScenarioStatus,

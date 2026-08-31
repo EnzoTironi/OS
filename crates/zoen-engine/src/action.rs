@@ -971,10 +971,10 @@ where
                     .map_err(|error| ActionError::Evaluation(error.to_string()))?;
                 let request_payload = if let Some(payload) = human_request_payload.clone() {
                     payload
-                } else if crate::is_reminder_delivery_action(&proposal.action_id)
-                    && crate::is_reminder_due_relation(draft_relation_id.as_str())
+                } else if crate::reminder::is_reminder_delivery_action(&proposal.action_id)
+                    && crate::reminder::is_reminder_due_relation(draft_relation_id.as_str())
                 {
-                    match crate::mint_reminder_delivery_payload(proposal)
+                    match crate::reminder::mint_reminder_delivery_payload(proposal)
                         .map_err(ActionError::Evaluation)?
                     {
                         Some(payload) => payload,
