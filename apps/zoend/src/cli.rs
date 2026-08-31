@@ -461,11 +461,7 @@ struct SourceFetch {
 pub async fn run(command: Command) -> Result<(), Box<dyn Error + Send + Sync>> {
     let result = match dispatch(command).await {
         Ok(result) => result,
-        Err(error) => CommandResult {
-            exit_code: 1,
-            stdout: String::new(),
-            stderr: format!("{error}\n"),
-        },
+        Err(error) => command_error(&error.to_string()),
     };
     io::stdout().write_all(result.stdout.as_bytes())?;
     io::stderr().write_all(result.stderr.as_bytes())?;
@@ -714,12 +710,134 @@ fn ok(value: &Value) -> CommandResult {
     }
 }
 
+#[derive(Clone, Copy)]
+enum FailCode {
+    PermissionDenied,
+    Unauthenticated,
+    TimedOut,
+    NotConnected,
+    IsolateDenied,
+    MissingEnv,
+    Usage,
+}
+
+impl FailCode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::PermissionDenied => "permission_denied",
+            Self::Unauthenticated => "unauthenticated",
+            Self::TimedOut => "timed_out",
+            Self::NotConnected => "not_connected",
+            Self::IsolateDenied => "isolate_denied",
+            Self::MissingEnv => "missing_env",
+            Self::Usage => "usage",
+        }
+    }
+
+    fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "permission_denied" => Some(Self::PermissionDenied),
+            "unauthenticated" => Some(Self::Unauthenticated),
+            "timed_out" => Some(Self::TimedOut),
+            "not_connected" => Some(Self::NotConnected),
+            "isolate_denied" => Some(Self::IsolateDenied),
+            "missing_env" => Some(Self::MissingEnv),
+            "usage" => Some(Self::Usage),
+            _ => None,
+        }
+    }
+}
+
 fn fail(exit_code: u8, message: &str) -> CommandResult {
+    fail_coded(exit_code, infer_fail_code(exit_code, message), message)
+}
+
+fn fail_coded(exit_code: u8, code: FailCode, message: &str) -> CommandResult {
+    let mut lines = message.lines();
+    let head = lines.next().unwrap_or(message);
+    let teaching = lines.collect::<Vec<_>>().join("\n");
+    let header = json!({ "code": code.as_str(), "message": head });
+    let stderr = if teaching.is_empty() {
+        format!("{header}\n")
+    } else {
+        format!("{header}\n{teaching}\n")
+    };
     CommandResult {
         exit_code,
         stdout: String::new(),
-        stderr: format!("{message}\n"),
+        stderr,
     }
+}
+
+fn infer_fail_code(exit_code: u8, message: &str) -> FailCode {
+    let head = message.lines().next().unwrap_or(message);
+    if head.contains("timed out") {
+        return FailCode::TimedOut;
+    }
+    if head.contains("isolate cannot") {
+        return FailCode::IsolateDenied;
+    }
+    if head.contains("is not connected") {
+        return FailCode::NotConnected;
+    }
+    if head.contains("is required") {
+        return FailCode::MissingEnv;
+    }
+    if exit_code == 2 {
+        return FailCode::Usage;
+    }
+    FailCode::NotConnected
+}
+
+fn command_error(text: &str) -> CommandResult {
+    let head = text.lines().next().unwrap_or(text);
+    let exit_code = if head.contains("is required") { 2 } else { 1 };
+    fail(exit_code, text)
+}
+
+fn map_connect(status: &ConnectStatus) -> (FailCode, String) {
+    let body_code = status.json.get("code").and_then(Value::as_str);
+    let body_message = status
+        .json
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or(status.text.as_str());
+    if let Some(code) = body_code.and_then(FailCode::parse) {
+        return (code, body_message.to_owned());
+    }
+    match status.status {
+        401 => (FailCode::Unauthenticated, body_message.to_owned()),
+        403 => (FailCode::PermissionDenied, body_message.to_owned()),
+        408 | 504 => (FailCode::TimedOut, body_message.to_owned()),
+        status if (500..600).contains(&status) => (FailCode::NotConnected, body_message.to_owned()),
+        _ => {
+            let message = match body_code {
+                Some(code) => format!("{code}: {body_message}"),
+                None => body_message.to_owned(),
+            };
+            (FailCode::Usage, message)
+        }
+    }
+}
+
+fn fail_connect(status: &ConnectStatus, teaching: Option<&str>) -> CommandResult {
+    let (code, message) = map_connect(status);
+    match teaching {
+        Some(extra) if !extra.is_empty() => fail_coded(1, code, &format!("{message}\n{extra}")),
+        _ => fail_coded(1, code, &message),
+    }
+}
+
+fn fail_http_body(status: u16, text: &str) -> CommandResult {
+    let json = serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_owned()));
+    fail_connect(
+        &ConnectStatus {
+            status,
+            text: text.to_owned(),
+            json,
+        },
+        None,
+    )
 }
 
 async fn publish_definition(
@@ -739,10 +857,7 @@ async fn publish_definition(
     )
     .await?;
     if status.status != 200 {
-        return Ok(fail(
-            1,
-            &format!("Publish {} {}", status.status, status.text),
-        ));
+        return Ok(fail_connect(&status, None));
     }
     Ok(ok(&json!({
         "definition": status.json,
@@ -768,10 +883,7 @@ async fn activate_definition(
     )
     .await?;
     if status.status != 200 {
-        return Ok(fail(
-            1,
-            &format!("ActivateRevision {} {}", status.status, status.text),
-        ));
+        return Ok(fail_connect(&status, None));
     }
     Ok(ok(&json!({
         "activated": true,
@@ -796,15 +908,7 @@ async fn scenario_rpc(
     )
     .await?;
     if status.status != 200 {
-        return Ok(fail(
-            1,
-            &format!(
-                "{} {} {}",
-                path.rsplit('/').next().unwrap_or(path),
-                status.status,
-                status.text
-            ),
-        ));
+        return Ok(fail_connect(&status, None));
     }
     Ok(CommandResult {
         exit_code: 0,
@@ -841,18 +945,14 @@ async fn world_query(
     .await?;
     if status.status != 200 {
         if status.status == 403 && status.text.contains("subject has no verified binding") {
-            return Ok(fail(
-                1,
-                &format!(
-                    "SemanticQuery 403 {}\nsubject has no verified binding. Dest membership is an Active row. An invite is required.\n  zoen action propose --proposal-id p --action-id zoen.world.invite --resource-id world --input accountId=<account>",
-                    status.text
+            return Ok(fail_connect(
+                &status,
+                Some(
+                    "subject has no verified binding. Dest membership is an Active row. An invite is required.\n  zoen action propose --proposal-id p --action-id zoen.world.invite --resource-id world --input accountId=<account>",
                 ),
             ));
         }
-        return Ok(fail(
-            1,
-            &format!("SemanticQuery {} {}", status.status, status.text),
-        ));
+        return Ok(fail_connect(&status, None));
     }
     Ok(CommandResult {
         exit_code: 0,
@@ -929,10 +1029,7 @@ async fn propose_action(
     }
     let status = connect_json(env, "/zoen.action.v1.ActionService/Propose", body).await?;
     if status.status != 200 {
-        return Ok(fail(
-            1,
-            &format!("Propose {} {}", status.status, status.text),
-        ));
+        return Ok(fail_connect(&status, None));
     }
     let preview = status
         .json
@@ -1008,10 +1105,7 @@ async fn commit_action(
     }
     let status = connect_json(env, "/zoen.action.v1.ActionService/Commit", body).await?;
     if status.status != 200 {
-        return Ok(fail(
-            1,
-            &format!("Commit {} {}", status.status, status.text),
-        ));
+        return Ok(fail_connect(&status, None));
     }
     let claim_ids = status
         .json
@@ -2030,10 +2124,7 @@ async fn discover_actions(
     )
     .await?;
     if status.status != 200 {
-        return Ok(fail(
-            1,
-            &format!("Discover {} {}", status.status, status.text),
-        ));
+        return Ok(fail_connect(&status, None));
     }
     Ok(CommandResult {
         exit_code: 0,
@@ -2060,10 +2151,7 @@ async fn explain_history(
     )
     .await?;
     if status.status != 200 {
-        return Ok(fail(
-            1,
-            &format!("Explain {} {}", status.status, status.text),
-        ));
+        return Ok(fail_connect(&status, None));
     }
     Ok(CommandResult {
         exit_code: 0,
@@ -2195,13 +2283,17 @@ async fn login_email(
     let headers = response.headers().clone();
     let text = response.text().await?;
     if !(200..300).contains(&status) {
-        return Ok(fail(1, &format!("sign-in {status} {text}")));
+        return Ok(fail_http_body(status, &text));
     }
     if session_token_from_headers(&headers)
         .or_else(|| session_token_from_body(&text))
         .is_none()
     {
-        return Ok(fail(1, &format!("sign-in {status} missing session_token")));
+        return Ok(fail_coded(
+            1,
+            FailCode::Unauthenticated,
+            "sign-in missing session_token",
+        ));
     }
     Ok(ok(&json!({ "loggedIn": true })))
 }
@@ -2226,7 +2318,7 @@ async fn login_device(
     let status = response.status().as_u16();
     let text = response.text().await?;
     if !(200..300).contains(&status) {
-        return Ok(fail(1, &format!("device/code {status} {text}")));
+        return Ok(fail_http_body(status, &text));
     }
     let doc: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     let device_code = doc
@@ -2288,8 +2380,9 @@ async fn poll_device_token(
     let sleep_for = Duration::from_secs(interval.max(1));
     loop {
         if Instant::now() >= deadline {
-            return Ok(fail(
+            return Ok(fail_coded(
                 1,
+                FailCode::TimedOut,
                 &format!(
                     "device authorization timed out. Open {verification_uri} and enter {user_code}"
                 ),
@@ -2328,7 +2421,11 @@ async fn poll_device_token(
                 })
                 .is_some();
             if !has_session {
-                return Ok(fail(1, "device/token missing session"));
+                return Ok(fail_coded(
+                    1,
+                    FailCode::Unauthenticated,
+                    "device/token missing session",
+                ));
             }
             return Ok(ok(&json!({ "loggedIn": true })));
         }
@@ -2339,7 +2436,7 @@ async fn poll_device_token(
         if error == "authorization_pending" || error == "slow_down" {
             continue;
         }
-        return Ok(fail(1, &format!("device/token {status} {text}")));
+        return Ok(fail_http_body(status, &text));
     }
 }
 
