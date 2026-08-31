@@ -48,7 +48,7 @@ zoen source sync rest
 zoen history explain --claim-id claim.x
 ```
 
-The binary does not govern. Propose, Cedar, and commit run on zoend. Bearer is a Better Auth session. Isolate (`ZOEN_ISOLATE=1`) denies `action commit` and `world scenario apply`.
+The binary does not govern. Propose, Cedar, and commit run on zoend. Bearer is a Better Auth session. Isolate (`ZOEN_ISOLATE=1`) denies `action commit`, `world scenario apply`, and `source sync` without `--dry-run`.
 
 Publish canonical JSON. Do not author `.zoen.ts` as the compiler. `@zoen/sdk` and `@zoen/osdk` are not this door.
 

@@ -18,7 +18,19 @@ export async function commitKernelAction(command: {
   const tenant = process.env.ZOEN_TENANT?.trim();
   const definitionId = process.env.ZOEN_DEFINITION_ID?.trim();
   const digest = process.env.ZOEN_DEFINITION_DIGEST?.trim();
-  if (!(zoend && bearer && tenant && definitionId && digest)) {
+  const validAt = process.env.ZOEN_VALID_AT?.trim();
+  const expiresAt = process.env.ZOEN_EXPIRES_AT?.trim();
+  if (
+    !(
+      zoend &&
+      bearer &&
+      tenant &&
+      definitionId &&
+      digest &&
+      validAt &&
+      expiresAt
+    )
+  ) {
     throw new Error("zoend session env is required");
   }
   const env = {
@@ -27,7 +39,7 @@ export async function commitKernelAction(command: {
     ZOEN_DEFINITION_ID: definitionId,
     ZOEN_ISOLATE: "0",
     ZOEN_TENANT: tenant,
-    ZOEN_VALID_AT: process.env.ZOEN_VALID_AT?.trim() || "2026-01-15T00:00:00Z",
+    ZOEN_VALID_AT: validAt,
     ZOEN_ZOEND: zoend,
   };
   const slug = command.actionId.replaceAll(".", "-");
@@ -44,6 +56,8 @@ export async function commitKernelAction(command: {
     command.actionId,
     "--resource-id",
     command.resourceId,
+    "--expires-at",
+    expiresAt,
   ];
   for (const input of command.inputs) {
     proposeArgv.push("--input", `${input.inputId}=${input.value.textValue}`);
