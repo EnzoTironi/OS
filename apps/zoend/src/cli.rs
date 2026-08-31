@@ -1014,11 +1014,17 @@ fn missing_definition(env: &RuntimeEnv) -> Option<CommandResult> {
     None
 }
 
-async fn definition_ref(env: &RuntimeEnv) -> Result<Value, Box<dyn Error + Send + Sync>> {
-    let revision = if env.definition_revision.is_empty() {
+async fn definition_ref(
+    env: &RuntimeEnv,
+    resolve_when_empty: bool,
+) -> Result<Value, Box<dyn Error + Send + Sync>> {
+    let revision = if !env.definition_revision.is_empty() {
+        env.definition_revision.clone()
+    } else if resolve_when_empty {
         resolve_active_revision(env).await?
     } else {
-        env.definition_revision.clone()
+        // Dry-run / offline fixtures omit ZOEN_DEFINITION_REVISION; do not invent a live revision.
+        String::new()
     };
     Ok(json!({
         "definitionId": env.definition_id,
@@ -1312,7 +1318,7 @@ async fn world_query(
         Ok(selected) => selected,
         Err(message) => return Ok(fail(2, &message)),
     };
-    let definition = match definition_ref(env).await {
+    let definition = match definition_ref(env, true).await {
         Ok(value) => value,
         Err(error) => return Ok(fail(2, &error.to_string())),
     };
@@ -1471,7 +1477,7 @@ async fn propose_action(
         Ok(inputs) => inputs,
         Err(message) => return Ok(fail(2, &message)),
     };
-    let definition = match definition_ref(env).await {
+    let definition = match definition_ref(env, !parsed.dry_run).await {
         Ok(value) => value,
         Err(error) => return Ok(fail(2, &error.to_string())),
     };
@@ -2689,7 +2695,7 @@ async fn discover_actions(
     if let Some(result) = missing_definition(env) {
         return Ok(result);
     }
-    let definition = match definition_ref(env).await {
+    let definition = match definition_ref(env, true).await {
         Ok(value) => value,
         Err(error) => return Ok(fail(2, &error.to_string())),
     };
