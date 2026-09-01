@@ -103,11 +103,7 @@ async function main(): Promise<void> {
       applicationDatabaseUrl,
       personas: adminPairPersonas(
         [commercial.definition.definitionId, resourceId, correctionEntityId],
-        [
-          ...definitionPublishAndWorldReadActionIds,
-          activationActionId,
-          actionId,
-        ],
+        definitionPublishAndWorldReadActionIds([activationActionId, actionId]),
       ),
       zoendBaseUrl,
     });

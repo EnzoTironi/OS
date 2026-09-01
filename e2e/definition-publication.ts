@@ -403,7 +403,7 @@ when {
     recordAssertion("atomicDatabaseFailure");
 
     await assertDeferredPublicationInvariant(admin, tenantA, actionMutation);
-    recordAssertion("unguvernedRevisionRejectedAtCommit");
+    recordAssertion("ungovernedRevisionRejectedAtCommit");
 
     await assert.rejects(
       admin.query(

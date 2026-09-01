@@ -3,12 +3,19 @@ import {
   definitionPublishActionId,
   definitionPublishPolicy,
 } from "./definition-publish-policy.js";
+import type { CompiledDefinition } from "./canonical-definition.js";
 
 export const worldReadActionId = "zoen.world.read";
-export const definitionPublishAndWorldReadActionIds = [
-  definitionPublishActionId,
-  worldReadActionId,
-] as const;
+
+export function definitionPublishAndWorldReadActionIds(
+  additionalActionIds: readonly string[],
+): string[] {
+  return [
+    definitionPublishActionId,
+    worldReadActionId,
+    ...additionalActionIds,
+  ];
+}
 
 const source =
   'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n';
@@ -28,15 +35,16 @@ export function worldReadPolicy(input: {
   };
 }
 
-export function definitionPublishAndWorldReadPolicies(input: {
-  definitionDigest: string;
-  revision: number;
-}) {
+export function definitionPublishAndWorldReadPolicies(
+  definition: CompiledDefinition,
+) {
+  const revision = definition.definition.revision;
   return [
-    definitionPublishPolicy(input),
+    definitionPublishPolicy({ definitionDigest: definition.digest, revision }),
     worldReadPolicy({
-      ...input,
-      policyId: `policy.world.read.r${input.revision}`,
+      definitionDigest: definition.digest,
+      policyId: `policy.world.read.r${revision}`,
+      revision,
     }),
   ] as const;
 }

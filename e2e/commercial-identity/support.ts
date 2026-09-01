@@ -153,10 +153,7 @@ export async function writePolicyManifest(
             revision: definition.definition.revision,
             source: activationSource,
           },
-          ...definitionPublishAndWorldReadPolicies({
-            definitionDigest: definition.digest,
-            revision: definition.definition.revision,
-          }),
+          ...definitionPublishAndWorldReadPolicies(definition),
         ],
       },
       null,
