@@ -516,7 +516,10 @@ function effectClient(
   bearerToken: (id: string) => Promise<string> = serviceBearerToken
 ) {
   const authorization: Interceptor = (next) => async (request) => {
-    request.header.set("authorization", `Bearer ${await bearerToken(tenantId)}`);
+    request.header.set(
+      "authorization",
+      `Bearer ${await bearerToken(tenantId)}`
+    );
     request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
@@ -530,9 +533,11 @@ function effectClient(
   );
 }
 
-async function reconcilerBearerToken(tenantId: string): Promise<string> {
+function reconcilerBearerToken(tenantId: string): Promise<string> {
   const token = reconcilerTokens?.[tenantId];
-  return token ?? serviceBearerToken(tenantId);
+  return token === undefined
+    ? serviceBearerToken(tenantId)
+    : Promise.resolve(token);
 }
 
 async function serviceBearerToken(tenantId: string): Promise<string> {
