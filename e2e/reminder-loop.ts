@@ -20,7 +20,7 @@ import {
   startAuthDoor,
   stopAuthDoor,
 } from "./ba-door.js";
-import { waitForState } from "./effect-scenario.js";
+import { sha256, waitForState } from "./effect-scenario.js";
 import {
   actionClient,
   adminDatabaseUrl,
@@ -43,7 +43,6 @@ import {
   publishDefinition,
   textInput,
 } from "./governed-action/support.js";
-import { sha256 } from "./effect-scenario.js";
 import {
   e2eGeneratedDirectory,
   e2eIdentityAdminToken,

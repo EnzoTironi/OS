@@ -67,7 +67,7 @@ const dispatchInputSchema = z
   .strict();
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
-const observedAtSchema = z.string().regex(/^[0-9]+$/);
+const observedAtSchema = z.string().regex(/^\d+$/);
 const connectorOutcomeSchema = z.discriminatedUnion("kind", [
   z
     .object({

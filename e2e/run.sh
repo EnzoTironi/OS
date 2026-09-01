@@ -115,8 +115,8 @@ run_lint() {
     echo "apps/conversation/agent/instructions.md is required for eve build" >&2
     exit 1
   fi
-  npm ci
-  npm --prefix apps/effect-worker ci
+  npm ci --ignore-scripts
+  npm --prefix apps/effect-worker ci --ignore-scripts
   npm run buf:lint
   npm run buf:breaking
   npm run buf:generate

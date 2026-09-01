@@ -60,7 +60,7 @@ export const rivetEndpoint = e2eHttpUrl(
   rivetPortFallback,
 );
 /** URL-auth form (namespace + admin token) for the worker's RIVET_ENDPOINT. */
-export const rivetEndpointAuthed = rivetEndpoint.replace(
+export const rivetEndpointAuthed = rivetEndpoint.replace( // NOSONAR typescript:S5332 - loopback e2e; Rivet URL-auth embeds credentials in an http URL
   "http://",
   "http://default:admin@",
 );

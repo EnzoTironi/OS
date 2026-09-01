@@ -41,7 +41,7 @@ RUN node ./node_modules/eve/bin/eve.js build
 FROM node:22.18.0-bookworm-slim AS effect-worker
 WORKDIR /effect-worker
 COPY apps/effect-worker/package.json apps/effect-worker/package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 COPY apps/effect-worker/ ./
 
 FROM postgres:18

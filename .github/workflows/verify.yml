@@ -66,7 +66,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: ./e2e/run.sh build all
       - uses: actions/upload-artifact@v4
         with:
@@ -110,8 +110,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88.0"
-      - run: npm ci
-      - run: npm --prefix apps/effect-worker ci
+      - run: npm ci --ignore-scripts
+      - run: npm --prefix apps/effect-worker ci --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries
