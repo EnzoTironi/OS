@@ -93,7 +93,12 @@ async function main(): Promise<void> {
     generatedDirectory,
     "policies.json",
   );
-  await writePolicyManifest(policyManifestPath, [v1, v2, addedActionMutant]);
+  await writePolicyManifest(policyManifestPath, [
+    v1,
+    v2,
+    mutant,
+    addedActionMutant,
+  ]);
   const door = await startAuthDoor(authDatabaseUrl);
   const admin = adminClient();
   await admin.connect();
