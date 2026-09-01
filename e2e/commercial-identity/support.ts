@@ -26,8 +26,7 @@ import {
   type ActionInput,
 } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
-import { definitionPublishPolicy } from "../definition-publish-policy.js";
-import { worldReadPolicy } from "../world-read-policy.js";
+import { definitionPublishAndWorldReadPolicies } from "../world-read-policy.js";
 import {
   loadCommercialLake,
   type CompiledDefinition,
@@ -154,13 +153,8 @@ export async function writePolicyManifest(
             revision: definition.definition.revision,
             source: activationSource,
           },
-          definitionPublishPolicy({
+          ...definitionPublishAndWorldReadPolicies({
             definitionDigest: definition.digest,
-            revision: definition.definition.revision,
-          }),
-          worldReadPolicy({
-            definitionDigest: definition.digest,
-            policyId: "policy.world.read.r2",
             revision: definition.definition.revision,
           }),
         ],

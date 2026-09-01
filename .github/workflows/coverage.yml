@@ -19,6 +19,10 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
       - uses: dtolnay/rust-toolchain@master
         with:
           components: llvm-tools-preview
@@ -29,8 +33,16 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
+      - run: npm ci
+      - run: npm run build
       - name: Generate lcov
-        run: cargo llvm-cov --locked --workspace --exclude zoen-proto --lcov --output-path lcov.info
+        run: |
+          source <(cargo llvm-cov show-env --sh)
+          cargo llvm-cov clean --workspace
+          cargo test --locked --workspace --exclude zoen-proto
+          cargo build --locked --workspace
+          ./e2e/run.sh run definition-publication
+          cargo llvm-cov report --workspace --exclude zoen-proto --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v5
         with:
           files: lcov.info

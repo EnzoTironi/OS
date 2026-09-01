@@ -80,14 +80,22 @@ DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW
 EXECUTE FUNCTION require_governed_definition_publication();
 
-ALTER TABLE definition_publications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE definition_publications FORCE ROW LEVEL SECURITY;
-CREATE POLICY definition_publications_tenant_policy ON definition_publications
-    USING (tenant_id = current_setting('zoen.tenant_id', true))
-    WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
-
-ALTER TABLE definition_publication_grants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE definition_publication_grants FORCE ROW LEVEL SECURITY;
-CREATE POLICY definition_publication_grants_tenant_policy ON definition_publication_grants
-    USING (tenant_id = current_setting('zoen.tenant_id', true))
-    WITH CHECK (tenant_id = current_setting('zoen.tenant_id', true));
+DO $$
+DECLARE
+    table_name TEXT;
+BEGIN
+    FOREACH table_name IN ARRAY ARRAY[
+        'definition_publications',
+        'definition_publication_grants'
+    ]
+    LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', table_name);
+        EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', table_name);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I USING (tenant_id = current_setting(''zoen.tenant_id'', true)) WITH CHECK (tenant_id = current_setting(''zoen.tenant_id'', true))',
+            table_name || '_tenant_policy',
+            table_name
+        );
+    END LOOP;
+END;
+$$;
