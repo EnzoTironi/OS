@@ -4,7 +4,7 @@ pub const REMINDER_DELIVERY_SCHEMA_VERSION: u32 = 1;
 pub const REMINDER_DELIVERY_EXECUTOR_CLASS: &str = "reminder_delivery";
 const REMINDER_ACTION: &str = "personal.createReminder";
 const REMINDER_DUE_RELATION: &str = "personal.dueAt";
-const WHATSAPP_PRINCIPAL_SUFFIX: &str = "@s.whatsapp.net";
+const REMINDER_TO_INPUT: &str = "to";
 
 #[must_use]
 pub fn is_reminder_delivery_action(action_id: &ActionId) -> bool {
@@ -20,11 +20,14 @@ pub fn is_reminder_due_relation(relation_id: &str) -> bool {
 
 /// Mint the reminder delivery contract from an Action proposal.
 ///
-/// Returns `None` when the `body`/`dueAt` text inputs are absent or when the
-/// proposing principal is not a `WhatsApp` principal (`<waId>@s.whatsapp.net`,
-/// the format planted in `apps/conversation/agent/channels/kapso.ts`); the
+/// Returns `None` when the `body`/`dueAt`/`to` text inputs are absent; the
 /// caller falls back to the normal projection-event payload and the worker
-/// ignores the effect.
+/// ignores the effect. `to` is the `WhatsApp` delivery destination (waId). It
+/// currently arrives as an explicit action input because provider-native
+/// senders are `ExternalSubject`s and can never appear as a `PrincipalId`
+/// (see `crates/zoen-core/src/identity.rs`); the follow-up PR threads the
+/// channel subject into proposals so the destination derives from the
+/// committing principal's channel binding instead of an input.
 ///
 /// # Errors
 ///
@@ -38,15 +41,15 @@ pub fn mint_reminder_delivery_payload(
             .iter()
             .find(|input| input.id.as_str() == id)
             .and_then(|input| match &input.value {
-                ExactValue::Text(text) => Some(text.clone()),
+                ExactValue::Text(text) if !text.is_empty() => Some(text.clone()),
                 _ => None,
             })
     };
-    let (Some(body), Some(due_at)) = (text_input("body"), text_input("dueAt")) else {
-        return Ok(None);
-    };
-    let principal = proposal.proposed_by.principal_id().as_str();
-    let Some(wa_id) = principal.strip_suffix(WHATSAPP_PRINCIPAL_SUFFIX) else {
+    let (Some(body), Some(due_at), Some(to)) = (
+        text_input("body"),
+        text_input("dueAt"),
+        text_input(REMINDER_TO_INPUT),
+    ) else {
         return Ok(None);
     };
     serde_json::to_vec(&serde_json::json!({
@@ -54,7 +57,7 @@ pub fn mint_reminder_delivery_payload(
         "executorClass": REMINDER_DELIVERY_EXECUTOR_CLASS,
         "body": body,
         "dueAt": due_at,
-        "channel": { "kind": "whatsapp", "to": wa_id },
+        "channel": { "kind": "whatsapp", "to": to },
     }))
     .map(Some)
     .map_err(|error| error.to_string())

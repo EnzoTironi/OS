@@ -20,6 +20,8 @@ import {
   startAuthDoor,
   stopAuthDoor,
 } from "./ba-door.js";
+import canonicalize from "canonicalize";
+
 import { sha256, waitForState } from "./effect-scenario.js";
 import {
   actionClient,
@@ -52,7 +54,6 @@ import {
 const reminderActionId = "personal.createReminder";
 const reminderResourceId = "personal.reminder";
 const waId = "5531987654321";
-const waPrincipal = `${waId}@s.whatsapp.net`;
 const kapsoPhoneNumberId = "e2e-kapso-phone-number-id";
 const reminderBody = "ligar pro Carlos";
 const validAt = new Date("2026-08-19T00:00:00.000Z");
@@ -127,12 +128,29 @@ async function main(): Promise<void> {
   const kapso = await startMockKapso();
   process.env.ZOEN_E2E_REMINDER_CHANNEL_URL = kapso.url;
 
-  const canonicalJson = (
-    await readFile(
-      path.join(repositoryRoot, "testdata/lakes/personal.canonical.json"),
-      "utf8",
-    )
-  ).trimEnd();
+  const baseDefinition = JSON.parse(
+    (
+      await readFile(
+        path.join(repositoryRoot, "testdata/lakes/personal.canonical.json"),
+        "utf8",
+      )
+    ).trimEnd(),
+  ) as {
+    actions: Array<{ id: string; inputs?: Array<unknown> }>;
+  };
+  // The delivery destination is declared only in this scenario: production
+  // personal.createReminder keeps body/dueAt only, so the mint stays inert
+  // until the channel subject lands on proposals (follow-up PR).
+  const createReminderAction = baseDefinition.actions.find(
+    (action) => action.id === reminderActionId,
+  );
+  assert.ok(createReminderAction);
+  createReminderAction.inputs = [
+    ...(createReminderAction.inputs ?? []),
+    { id: "to", valueType: { kind: "text" } },
+  ];
+  const canonicalJson = canonicalize(baseDefinition);
+  assert.ok(canonicalJson !== undefined);
   const digest = sha256(canonicalJson);
   const definitionId = "personal.memory";
   const policySource =
@@ -214,7 +232,7 @@ async function main(): Promise<void> {
           actionIds: [reminderActionId],
           actorId: "actor.wa.user",
           id: "wa-user",
-          principalId: waPrincipal,
+          principalId: "principal.wa.user",
           resourceIds: [reminderResourceId],
           tenantId: tenantA,
           workloadId: "workload.wa.user",
@@ -265,6 +283,7 @@ async function main(): Promise<void> {
       inputs: [
         textInput("body", reminderBody),
         textInput("dueAt", dueAt.toISOString()),
+        textInput("to", waId),
       ],
       operationId,
       proposalId,
