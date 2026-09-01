@@ -388,9 +388,10 @@ async function runReminderEffect(
       evidence: {
         evidenceDigest: sha256Hex(`${claim.effectRequestId}.confirmed.kapso`),
         evidenceId: `evidence.reminder.${claim.effectRequestId}`,
-        // EffectIdempotencyKey grammar allows only alphanumerics plus . _ -
-        // (crates/zoen-core parse_identifier) - no colon separators.
-        idempotencyKey: `${claim.effectRequestId}.confirmed.kapso`,
+        // The engine requires the evidence idempotency key to equal the
+        // request idempotency key minted at commit time (effect.rs:
+        // "evidence idempotency key does not match the request").
+        idempotencyKey: claim.idempotencyKey,
         observedAt: timestampFromDate(new Date()),
         outcome: EffectEvidenceOutcome.CONFIRMED,
         providerOperationId: delivery.providerOperationId,
