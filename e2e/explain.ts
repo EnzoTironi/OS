@@ -165,8 +165,6 @@ async function main(): Promise<void> {
   const workerBToken = sessionOf(planted, "effect-worker-b").token;
   const reconcilerAToken = sessionOf(planted, "effect-reconciler-a").token;
   const actionA = actionClient(agentAToken, tenantA);
-  const definitionA = definitionClient(agentAToken, tenantA);
-  const definitionB = definitionClient(agentBToken, tenantB);
   const definitionAdminA = definitionClient(adminAToken, tenantA);
   const definitionAdminB = definitionClient(adminBToken, tenantB);
   const effectA = effectClient(agentAToken, tenantA);
@@ -186,8 +184,8 @@ async function main(): Promise<void> {
   try {
     const registration = await registerWorker();
     assert.match(registration, /ZoenEffect|deployment/i);
-    await publishDefinition(definitionA, tenantA, fixture);
-    await publishDefinition(definitionB, tenantB, fixture);
+    await publishDefinition(definitionAdminA, tenantA, fixture);
+    await publishDefinition(definitionAdminB, tenantB, fixture);
     await activateDefinition(definitionAdminA, tenantA, fixture);
     await activateDefinition(definitionAdminB, tenantB, fixture);
     await recordAvailable(worldA, {
@@ -269,7 +267,7 @@ async function main(): Promise<void> {
       EffectKnowledgeState.UNKNOWN,
     );
 
-    await publishDefinition(definitionA, tenantA, laterFixture);
+    await publishDefinition(definitionAdminA, tenantA, laterFixture);
     await admin.query("TRUNCATE projection_outbox");
     await stopProcess(firstZoend);
     const freshZoend = await startZoend(policyManifestPath);

@@ -112,18 +112,16 @@ async function main(): Promise<void> {
     const actionA = actionClient(agentAToken, tenantA);
     const computationA = computationClient(agentAToken, tenantA);
     const computationB = computationClient(agentBToken, tenantB);
-    const definitionA = definitionClient(agentAToken, tenantA);
-    const definitionB = definitionClient(agentBToken, tenantB);
     const definitionAdminA = definitionClient(adminAToken, tenantA);
     const definitionAdminB = definitionClient(adminBToken, tenantB);
     const historyA = historyClient(agentAToken, tenantA);
     const worldA = worldClient(agentAToken, tenantA);
     const worldB = worldClient(agentBToken, tenantB);
     for (const fixture of Object.values(fixtures)) {
-      await publishDefinition(definitionA, tenantA, fixture);
+      await publishDefinition(definitionAdminA, tenantA, fixture);
       await activateDefinition(definitionAdminA, tenantA, fixture);
     }
-    await publishDefinition(definitionB, tenantB, fixtures.direct);
+    await publishDefinition(definitionAdminB, tenantB, fixtures.direct);
     await activateDefinition(definitionAdminB, tenantB, fixtures.direct);
     await recordClaims(worldA, worldB, fixtures);
 

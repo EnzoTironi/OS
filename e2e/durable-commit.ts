@@ -73,15 +73,13 @@ async function main(): Promise<void> {
     const adminBToken = sessionOf(planted, "admin-b").token;
     const actionA = actionClient(agentAToken, tenantA);
     const actionB = actionClient(agentBToken, tenantB);
-    const definitionA = definitionClient(agentAToken, tenantA);
-    const definitionB = definitionClient(agentBToken, tenantB);
     const definitionAdminA = definitionClient(adminAToken, tenantA);
     const definitionAdminB = definitionClient(adminBToken, tenantB);
     const worldA = worldClient(agentAToken, tenantA);
     const worldB = worldClient(agentBToken, tenantB);
     for (const fixture of Object.values(fixtures)) {
-      await publishDefinition(definitionA, tenantA, fixture);
-      await publishDefinition(definitionB, tenantB, fixture);
+      await publishDefinition(definitionAdminA, tenantA, fixture);
+      await publishDefinition(definitionAdminB, tenantB, fixture);
       await activateDefinition(definitionAdminA, tenantA, fixture);
       await activateDefinition(definitionAdminB, tenantB, fixture);
       await recordAvailable(worldA, {
