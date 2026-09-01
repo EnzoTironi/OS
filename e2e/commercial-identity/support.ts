@@ -70,6 +70,7 @@ export const generatedDirectory = e2eGeneratedDirectory(
 );
 export const actionId = "commercial.recordQuote";
 export const activationActionId = "zoen.definition.activate";
+export const worldReadActionId = "zoen.world.read";
 export const quoteEntityId = "commercial.quote.q-1001";
 export const resourceId = "commercial.order-line.ol-1001";
 export const tenantA = "tenant.a";
@@ -131,6 +132,8 @@ export async function writePolicyManifest(
     readFile(path.join(scenarioDirectory, "activation.cedar"), "utf8"),
     readFile(path.join(scenarioDirectory, "action.cedar"), "utf8"),
   ]);
+  const readSource =
+    'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n';
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(
     outputPath,
@@ -157,6 +160,14 @@ export async function writePolicyManifest(
             definitionDigest: definition.digest,
             revision: definition.definition.revision,
           }),
+          {
+            actionId: worldReadActionId,
+            definitionDigest: definition.digest,
+            digest: sha256(readSource),
+            policyId: "policy.world.read.r2",
+            revision: definition.definition.revision,
+            source: readSource,
+          },
         ],
       },
       null,

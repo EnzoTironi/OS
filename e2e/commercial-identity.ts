@@ -42,6 +42,7 @@ import {
   textInput,
   worldClient,
   writePolicyManifest,
+  worldReadActionId,
   zoendBaseUrl,
   type ServerProcess,
 } from "./commercial-identity/support.js";
@@ -107,7 +108,12 @@ async function main(): Promise<void> {
       applicationDatabaseUrl,
       personas: adminPairPersonas(
         [commercial.definition.definitionId, resourceId, quoteEntityId],
-        [definitionPublishActionId, activationActionId, actionId],
+        [
+          definitionPublishActionId,
+          activationActionId,
+          actionId,
+          worldReadActionId,
+        ],
       ),
       zoendBaseUrl,
     });
