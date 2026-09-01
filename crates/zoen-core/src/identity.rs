@@ -4,8 +4,6 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-
 use crate::{
     ActorId, DelegationChain, IdentifierError, PrincipalId, TenantId, TimestampMicros,
     TrustedExecutionContext, WorkloadId,
@@ -315,9 +313,7 @@ fn parse_channel_credential(value: &str) -> Result<SessionCredential, IdentityEr
         .split_once('.')
         .ok_or(IdentityError::Unauthenticated)?;
     let decode = |part: &str| -> Result<String, IdentityError> {
-        let bytes = URL_SAFE_NO_PAD
-            .decode(part)
-            .map_err(|_| IdentityError::Unauthenticated)?;
+        let bytes = base64url_decode(part).ok_or(IdentityError::Unauthenticated)?;
         String::from_utf8(bytes).map_err(|_| IdentityError::Unauthenticated)
     };
     let machine = MachineToken::parse(decode(machine_part)?)?;
@@ -333,13 +329,66 @@ fn parse_channel_credential(value: &str) -> Result<SessionCredential, IdentityEr
 /// Callers (gateways, tests) mirror the `chx.` wire format.
 #[must_use]
 pub fn encode_channel_credential(machine: &MachineToken, subject: &ExternalSubject) -> String {
-    let machine_part = URL_SAFE_NO_PAD.encode(machine.as_str());
-    let subject_part = URL_SAFE_NO_PAD.encode(format!(
-        "{}:{}",
-        subject.provider.as_str(),
-        subject.subject_key
-    ));
+    let machine_part = base64url_encode(machine.as_str().as_bytes());
+    let subject_part = base64url_encode(
+        format!("{}:{}", subject.provider.as_str(), subject.subject_key).as_bytes(),
+    );
     format!("{CHANNEL_CREDENTIAL_PREFIX}{machine_part}.{subject_part}")
+}
+
+const BASE64URL_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/// zoen-core stays dependency-free (`run_lint` asserts `cargo tree` depth 1), so
+/// the channel credential's base64url (RFC 4648 section 5, no padding) codec
+/// lives here instead of pulling in a crate.
+fn base64url_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = u32::from(chunk[0]);
+        let second = chunk.get(1).map_or(0, |byte| u32::from(*byte));
+        let third = chunk.get(2).map_or(0, |byte| u32::from(*byte));
+        let group = (first << 16) | (second << 8) | third;
+        out.push(BASE64URL_ALPHABET[(group >> 18) as usize & 63] as char);
+        out.push(BASE64URL_ALPHABET[(group >> 12) as usize & 63] as char);
+        if chunk.len() > 1 {
+            out.push(BASE64URL_ALPHABET[(group >> 6) as usize & 63] as char);
+        }
+        if chunk.len() > 2 {
+            out.push(BASE64URL_ALPHABET[group as usize & 63] as char);
+        }
+    }
+    out
+}
+
+fn base64url_decode(value: &str) -> Option<Vec<u8>> {
+    if value.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(value.len() * 3 / 4);
+    let mut accumulator = 0u32;
+    let mut bits = 0u32;
+    for byte in value.bytes() {
+        let digit = u32::from(match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'-' => 62,
+            b'_' => 63,
+            _ => return None,
+        });
+        accumulator = (accumulator << 6) | digit;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((accumulator >> bits) & 0xFF) as u8);
+        }
+    }
+    // Trailing bits must be zero padding; a partial byte is a decode error.
+    if bits >= 8 || (bits > 0 && accumulator != (accumulator >> bits) << bits) {
+        return None;
+    }
+    Some(out)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1048,6 +1097,32 @@ mod tests {
             SessionCredential::from_authorization(Some("Bearer chx.bWFjaGluZQ")),
             Err(IdentityError::Unauthenticated)
         );
+    }
+
+    #[test]
+    fn base64url_rfc4648_vectors() {
+        use super::{base64url_decode, base64url_encode};
+        let cases = [
+            ("", ""),
+            ("f", "Zg"),
+            ("fo", "Zm8"),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg"),
+            ("fooba", "Zm9vYmE"),
+            ("foobar", "Zm9vYmFy"),
+        ];
+        for (raw, encoded) in cases {
+            assert_eq!(base64url_encode(raw.as_bytes()), encoded);
+            assert_eq!(
+                base64url_decode(encoded).as_deref(),
+                Some(raw.as_bytes()),
+                "decode {encoded}"
+            );
+        }
+        assert_eq!(base64url_decode("Zg=="), None, "padding rejected");
+        assert_eq!(base64url_decode("Z"), None, "len % 4 == 1 rejected");
+        assert_eq!(base64url_decode("Zm9!"), None, "alphabet rejected");
+        assert_eq!(base64url_decode("Zh"), None, "nonzero pad bits rejected");
     }
 
     #[test]
