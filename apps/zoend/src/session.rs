@@ -233,11 +233,8 @@ impl SessionExchange {
             return Err(IdentityError::Unauthenticated);
         }
         let tenant = tenant_hint.ok_or(IdentityError::MembershipNotFound)?;
-        Ok(self
-            .directory
-            .resolve_for_subject(&subject, tenant)
-            .await?
-            .1)
+        let (_, context) = self.directory.resolve_for_subject(&subject, tenant).await?;
+        Ok(context.with_channel_subject(subject))
     }
 }
 

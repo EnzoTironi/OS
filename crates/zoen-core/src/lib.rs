@@ -62,8 +62,8 @@ pub use identity::{
     VerifiedSessionEvidence, VerifiedWorkloadEvidence, WORLD_FLOOR, WORLD_TOP, WorkloadCredential,
     WorkloadCredentialId, WorkloadCredentialLookupKey, WorkloadCredentialStatus,
     WorkloadEvidenceKind, WorkloadExchangeToken, WorkloadRevocationReason, WorkloadSecretId,
-    ZoenAccount, ZoenAccountId, join_labels, mac_write_permitted, resource_label,
-    trusted_context_from_membership, trusted_context_from_workload_credential,
+    ZoenAccount, ZoenAccountId, encode_channel_credential, join_labels, mac_write_permitted,
+    resource_label, trusted_context_from_membership, trusted_context_from_workload_credential,
 };
 pub use jcs::{JcsError, canonicalize_json, canonicalize_json_bytes, is_canonical_digest_hex};
 pub use migration::{
@@ -737,6 +737,7 @@ pub struct TrustedExecutionContext {
     principal_id: PrincipalId,
     workload_id: WorkloadId,
     clearance: crate::Clearance,
+    channel_subject: Option<Box<crate::ExternalSubject>>,
 }
 
 impl TrustedExecutionContext {
@@ -756,7 +757,24 @@ impl TrustedExecutionContext {
             principal_id,
             workload_id,
             clearance,
+            channel_subject: None,
         }
+    }
+
+    /// Attach the channel subject the caller presented, so proposals and
+    /// commits carry the provider-native sender (e.g. the `WhatsApp` waId)
+    /// alongside the converged membership principal.
+    #[must_use]
+    pub fn with_channel_subject(mut self, subject: crate::ExternalSubject) -> Self {
+        self.channel_subject = Some(Box::new(subject));
+        self
+    }
+
+    /// The provider-native channel subject the caller authenticated with, when
+    /// the session credential was a channel credential.
+    #[must_use]
+    pub fn channel_subject(&self) -> Option<&crate::ExternalSubject> {
+        self.channel_subject.as_deref()
     }
 
     #[must_use]

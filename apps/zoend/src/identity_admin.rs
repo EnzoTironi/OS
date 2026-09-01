@@ -50,6 +50,10 @@ pub fn router(state: IdentityAdminState) -> Router {
             get(snapshot_account),
         )
         .route("/identity/admin/resolve-subject", get(resolve_subject))
+        .route(
+            "/identity/admin/resolve-channel-membership",
+            get(resolve_channel_membership),
+        )
         .route("/identity/admin/onboard-tokens", post(mint_onboard_token))
         .route("/identity/admin/admit-whatsapp", post(admit_whatsapp))
         .route("/identity/admin/bootstrap-bound", post(bootstrap_bound))
@@ -605,6 +609,38 @@ async fn resolve_subject(
             }
             (StatusCode::OK, Json(snapshot_json(&snapshot))).into_response()
         }
+        Err(error) => identity_error(&error),
+    }
+}
+
+/// Resolve a verified channel subject to its converged personal membership.
+/// Machine-only: the messaging gateway presents its machine token here, then
+/// commits as the subject with a `chx.` channel credential.
+async fn resolve_channel_membership(
+    State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
+    Query(query): Query<ResolveSubjectQuery>,
+) -> impl IntoResponse {
+    if let Some(error) = require_machine(&actor) {
+        return error;
+    }
+    let subject = match parse_subject(&query.provider, &query.subject_key) {
+        Ok(subject) => subject,
+        Err(error) => return identity_error(&error),
+    };
+    if let Err(error) = reject_whatsapp_door(&subject) {
+        return identity_error(&error);
+    }
+    let snapshot = match state.identity.snapshot_for_verified_subject(&subject).await {
+        Ok((_binding, snapshot)) => snapshot,
+        Err(error) => return identity_error(&error),
+    };
+    match state
+        .identity
+        .ensure_personal_workspace(snapshot.account.id.clone())
+        .await
+    {
+        Ok(membership) => (StatusCode::OK, Json(membership_json(&membership))).into_response(),
         Err(error) => identity_error(&error),
     }
 }

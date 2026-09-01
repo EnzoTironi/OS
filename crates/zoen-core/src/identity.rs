@@ -4,6 +4,8 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
 use crate::{
     ActorId, DelegationChain, IdentifierError, PrincipalId, TenantId, TimestampMicros,
     TrustedExecutionContext, WorkloadId,
@@ -292,12 +294,52 @@ impl SessionCredential {
             .and_then(|value| value.strip_prefix("Bearer "))
             .filter(|value| !value.is_empty())
             .ok_or(IdentityError::Unauthenticated)?;
-        if token.starts_with("wlx.") {
+        if let Some(channel) = token.strip_prefix(CHANNEL_CREDENTIAL_PREFIX) {
+            parse_channel_credential(channel)
+        } else if token.starts_with("wlx.") {
             Ok(Self::Workload(WorkloadExchangeToken::parse(token)?))
         } else {
             Ok(Self::Door(OpaqueSessionToken::parse(token)?))
         }
     }
+}
+
+/// Channel credentials ride the `Authorization` header as
+/// `Bearer chx.<base64url(machine)>.<base64url(provider:subject_key)>` so the
+/// machine secret and the provider-native subject survive an opaque token
+/// slot without delimiter ambiguity (both may contain `.`/`@`).
+pub const CHANNEL_CREDENTIAL_PREFIX: &str = "chx.";
+
+fn parse_channel_credential(value: &str) -> Result<SessionCredential, IdentityError> {
+    let (machine_part, subject_part) = value
+        .split_once('.')
+        .ok_or(IdentityError::Unauthenticated)?;
+    let decode = |part: &str| -> Result<String, IdentityError> {
+        let bytes = URL_SAFE_NO_PAD
+            .decode(part)
+            .map_err(|_| IdentityError::Unauthenticated)?;
+        String::from_utf8(bytes).map_err(|_| IdentityError::Unauthenticated)
+    };
+    let machine = MachineToken::parse(decode(machine_part)?)?;
+    let subject_raw = decode(subject_part)?;
+    let (provider, subject_key) = subject_raw
+        .split_once(':')
+        .ok_or(IdentityError::Unauthenticated)?;
+    let subject = ExternalSubject::new(ChannelProvider::parse(provider)?, subject_key)?;
+    Ok(SessionCredential::Channel { machine, subject })
+}
+
+/// Encode the `Authorization` bearer value for a channel credential.
+/// Callers (gateways, tests) mirror the `chx.` wire format.
+#[must_use]
+pub fn encode_channel_credential(machine: &MachineToken, subject: &ExternalSubject) -> String {
+    let machine_part = URL_SAFE_NO_PAD.encode(machine.as_str());
+    let subject_part = URL_SAFE_NO_PAD.encode(format!(
+        "{}:{}",
+        subject.provider.as_str(),
+        subject.subject_key
+    ));
+    format!("{CHANNEL_CREDENTIAL_PREFIX}{machine_part}.{subject_part}")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -375,6 +417,22 @@ impl ExternalSubject {
             return Err(IdentityError::InvalidSubject);
         }
         Ok(())
+    }
+
+    /// The deliverable `WhatsApp` id (bare international digits) for a person
+    /// subject, e.g. `5531987654321` from `5531987654321@s.whatsapp.net` or
+    /// `+5531987654321`. `None` for non-WhatsApp providers.
+    #[must_use]
+    pub fn whatsapp_wa_id(&self) -> Option<String> {
+        if self.provider != ChannelProvider::WhatsApp {
+            return None;
+        }
+        let digits = whatsapp_digits(&self.subject_key);
+        if digits.is_empty() {
+            None
+        } else {
+            Some(digits)
+        }
     }
 }
 
@@ -962,7 +1020,47 @@ pub fn trusted_context_from_workload_credential(
 
 #[cfg(test)]
 mod tests {
-    use super::{ChannelProvider, IdentityError};
+    use super::{
+        ChannelProvider, ExternalSubject, IdentityError, MachineToken, SessionCredential,
+        encode_channel_credential,
+    };
+
+    #[test]
+    fn channel_credential_round_trips_through_authorization() {
+        let machine = MachineToken::parse("machine.secret.with.dots").expect("machine");
+        let subject =
+            ExternalSubject::new(ChannelProvider::WhatsApp, "5531987654321@s.whatsapp.net")
+                .expect("subject");
+        let value = encode_channel_credential(&machine, &subject);
+        let header = format!("Bearer {value}");
+        let parsed = SessionCredential::from_authorization(Some(&header)).expect("parsed");
+        assert_eq!(parsed, SessionCredential::Channel { machine, subject });
+    }
+
+    #[test]
+    fn channel_credential_rejects_malformed() {
+        assert_eq!(
+            SessionCredential::from_authorization(Some("Bearer chx.not-base64!!!")),
+            Err(IdentityError::Unauthenticated)
+        );
+        // Valid base64 but no subject separator.
+        assert_eq!(
+            SessionCredential::from_authorization(Some("Bearer chx.bWFjaGluZQ")),
+            Err(IdentityError::Unauthenticated)
+        );
+    }
+
+    #[test]
+    fn whatsapp_wa_id_strips_to_bare_digits() {
+        let jid = ExternalSubject::new(ChannelProvider::WhatsApp, "5531987654321@s.whatsapp.net")
+            .expect("jid");
+        assert_eq!(jid.whatsapp_wa_id().as_deref(), Some("5531987654321"));
+        let e164 = ExternalSubject::new(ChannelProvider::WhatsApp, "+5531987654321").expect("e164");
+        assert_eq!(e164.whatsapp_wa_id().as_deref(), Some("5531987654321"));
+        let telegram =
+            ExternalSubject::new(ChannelProvider::Telegram, "123456789").expect("telegram");
+        assert_eq!(telegram.whatsapp_wa_id(), None);
+    }
 
     #[test]
     fn channel_provider_parses_linq() {

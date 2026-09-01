@@ -189,12 +189,12 @@ pub(crate) async fn insert_operation(
             tenant_id, operation_id, proposal_id, intent_digest, commit_sequence,
             committed_actor_id, committed_principal_id, committed_workload_id,
             policy_id, policy_digest, policy_revision, determining_policies,
-            state_basis_digest, observed_commit_sequence
+            state_basis_digest, observed_commit_sequence, committed_channel_subject
          ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8,
             $9, $10, $11, $12,
-            $13, $14
+            $13, $14, $15
          )",
     )
     .bind(tenant_id.as_str())
@@ -222,6 +222,12 @@ pub(crate) async fn insert_operation(
             "commit observed sequence",
         )
         .map_err(OperationInsertError::Store)?,
+    )
+    .bind(
+        receipt
+            .committed_by
+            .channel_subject()
+            .map(|subject| format!("{}:{}", subject.provider.as_str(), subject.subject_key)),
     )
     .execute(&mut **transaction)
     .await

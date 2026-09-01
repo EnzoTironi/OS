@@ -4,7 +4,6 @@ pub const REMINDER_DELIVERY_SCHEMA_VERSION: u32 = 1;
 pub const REMINDER_DELIVERY_EXECUTOR_CLASS: &str = "reminder_delivery";
 const REMINDER_ACTION: &str = "personal.createReminder";
 const REMINDER_DUE_RELATION: &str = "personal.dueAt";
-const REMINDER_TO_INPUT: &str = "to";
 
 #[must_use]
 pub fn is_reminder_delivery_action(action_id: &ActionId) -> bool {
@@ -20,14 +19,15 @@ pub fn is_reminder_due_relation(relation_id: &str) -> bool {
 
 /// Mint the reminder delivery contract from an Action proposal.
 ///
-/// Returns `None` when the `body`/`dueAt`/`to` text inputs are absent; the
-/// caller falls back to the normal projection-event payload and the worker
-/// ignores the effect. `to` is the `WhatsApp` delivery destination (waId). It
-/// currently arrives as an explicit action input because provider-native
+/// Returns `None` when the `body`/`dueAt` text inputs are absent or the
+/// committing context carries no `WhatsApp` channel subject; the caller falls
+/// back to the normal projection-event payload and the worker ignores the
+/// effect. The delivery destination (`to`, the waId) derives from the channel
+/// subject threaded into the proposal by the session layer: provider-native
 /// senders are `ExternalSubject`s and can never appear as a `PrincipalId`
-/// (see `crates/zoen-core/src/identity.rs`); the follow-up PR threads the
-/// channel subject into proposals so the destination derives from the
-/// committing principal's channel binding instead of an input.
+/// (see `crates/zoen-core/src/identity.rs`), so the subject rides the
+/// committing context instead. Door- and workload-authenticated commits carry
+/// no channel subject, which keeps the mint inert outside `WhatsApp` turns.
 ///
 /// # Errors
 ///
@@ -45,11 +45,14 @@ pub fn mint_reminder_delivery_payload(
                 _ => None,
             })
     };
-    let (Some(body), Some(due_at), Some(to)) = (
-        text_input("body"),
-        text_input("dueAt"),
-        text_input(REMINDER_TO_INPUT),
-    ) else {
+    let (Some(body), Some(due_at)) = (text_input("body"), text_input("dueAt")) else {
+        return Ok(None);
+    };
+    let Some(to) = proposal
+        .proposed_by
+        .channel_subject()
+        .and_then(zoen_core::ExternalSubject::whatsapp_wa_id)
+    else {
         return Ok(None);
     };
     serde_json::to_vec(&serde_json::json!({

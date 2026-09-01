@@ -74,12 +74,43 @@ pub(crate) async fn save_proposal(
     Ok(proposal.clone())
 }
 
+struct ExecutionFieldRow<'a> {
+    capability_ids: Option<Vec<String>>,
+    capability_manifest_digest: Option<&'a str>,
+    component_digest: Option<&'a str>,
+    execution_id: Option<&'a str>,
+    interface: Option<&'a str>,
+}
+
+fn execution_fields(
+    execution: Option<&zoen_core::ComponentExecutionEvidence>,
+) -> ExecutionFieldRow<'_> {
+    ExecutionFieldRow {
+        capability_ids: execution.map(|value| {
+            value
+                .capability_ids()
+                .iter()
+                .map(|capability| capability.as_str().to_owned())
+                .collect::<Vec<_>>()
+        }),
+        capability_manifest_digest: execution
+            .map(|value| value.capability_manifest_digest().as_str()),
+        component_digest: execution.map(|value| value.component_digest().as_str()),
+        execution_id: execution.map(|value| value.execution_id().as_str()),
+        interface: execution.map(|value| value.interface().as_str()),
+    }
+}
+
 async fn insert_proposal_row(
     transaction: &mut Transaction<'_, Postgres>,
     context: &ExecutionContext,
     proposal: &ActionProposal,
 ) -> Result<(), StoreError> {
     let (authority_kind, policy) = proposal_authority_columns(&proposal.authority);
+    let proposed_channel_subject = proposal
+        .proposed_by
+        .channel_subject()
+        .map(format_channel_subject);
     sqlx::query(
         "INSERT INTO action_proposals (
             tenant_id, proposal_id, operation_id, intent_digest, action_id,
@@ -133,37 +164,11 @@ async fn insert_proposal_row(
         proposal.state_basis.observed_commit_sequence.get(),
         "observed commit sequence",
     )?)
-    .bind(
-        proposal
-            .execution
-            .as_ref()
-            .map(|execution| execution.execution_id().as_str()),
-    )
-    .bind(
-        proposal
-            .execution
-            .as_ref()
-            .map(|execution| execution.component_digest().as_str()),
-    )
-    .bind(
-        proposal
-            .execution
-            .as_ref()
-            .map(|execution| execution.interface().as_str()),
-    )
-    .bind(
-        proposal
-            .execution
-            .as_ref()
-            .map(|execution| execution.capability_manifest_digest().as_str()),
-    )
-    .bind(proposal.execution.as_ref().map(|execution| {
-        execution
-            .capability_ids()
-            .iter()
-            .map(|capability| capability.as_str().to_owned())
-            .collect::<Vec<_>>()
-    }))
+    .bind(execution_fields(proposal.execution.as_ref()).execution_id)
+    .bind(execution_fields(proposal.execution.as_ref()).component_digest)
+    .bind(execution_fields(proposal.execution.as_ref()).interface)
+    .bind(execution_fields(proposal.execution.as_ref()).capability_manifest_digest)
+    .bind(execution_fields(proposal.execution.as_ref()).capability_ids)
     .bind(proposal.preview_hash.as_str())
     .bind(&proposal.canonical_preview_text)
     .bind(
@@ -172,6 +177,7 @@ async fn insert_proposal_row(
             .as_ref()
             .map(zoen_core::ScenarioId::as_str),
     )
+    .bind(proposed_channel_subject)
     .execute(&mut **transaction)
     .await
     .map_err(map_action_insert)?;
@@ -352,7 +358,8 @@ pub(crate) async fn load_proposal(
                 determining_policies, state_basis_digest, observed_commit_sequence,
                 execution_id, component_digest, component_interface,
                 capability_manifest_digest, capability_ids,
-                preview_hash, canonical_preview_text, scenario_id
+                preview_hash, canonical_preview_text, scenario_id,
+                proposed_channel_subject
          FROM action_proposals
          WHERE tenant_id = $1 AND proposal_id = $2",
     )
@@ -371,6 +378,8 @@ pub(crate) async fn load_proposal(
         row_string(&row, "proposed_principal_id")?,
         row_string(&row, "proposed_workload_id")?,
         grants,
+        row.try_get::<Option<String>, _>("proposed_channel_subject")
+            .map_err(store_unavailable)?,
     )?;
     let policy = policy_from_row(&row)?;
     let authority = match row_string(&row, "authority_kind")?.as_str() {
@@ -468,6 +477,7 @@ pub(crate) async fn load_approval(
             row_string(&row, "approved_principal_id")?,
             row_string(&row, "approved_workload_id")?,
             grants,
+            None,
         )?,
         expires_at: TimestampMicros::new(row_i64(&row, "expires_at_micros")?),
         policy: policy_from_row(&row)?,
@@ -484,7 +494,7 @@ pub(crate) async fn load_operation(
         "SELECT operation.operation_id, operation.proposal_id, operation.intent_digest,
                 operation.commit_sequence,
                 operation.committed_actor_id, operation.committed_principal_id,
-                operation.committed_workload_id,
+                operation.committed_workload_id, operation.committed_channel_subject,
                 operation.policy_id, operation.policy_digest, operation.policy_revision,
                 operation.determining_policies, operation.state_basis_digest,
                 operation.observed_commit_sequence,
@@ -536,6 +546,8 @@ pub(crate) async fn load_operation(
             row_string(&row, "committed_principal_id")?,
             row_string(&row, "committed_workload_id")?,
             grants,
+            row.try_get::<Option<String>, _>("committed_channel_subject")
+                .map_err(store_unavailable)?,
         )?,
         definition: definition_from_row(&row)?,
         effect_request_ids,
@@ -847,15 +859,41 @@ fn trusted_context(
     principal_id: String,
     workload_id: String,
     grants: Vec<DelegationGrant>,
+    channel_subject: Option<String>,
 ) -> Result<TrustedExecutionContext, StoreError> {
-    Ok(TrustedExecutionContext::new(
+    let context = TrustedExecutionContext::new(
         tenant_id.clone(),
         ActorId::parse(actor_id).map_err(corrupt)?,
         PrincipalId::parse(principal_id).map_err(corrupt)?,
         WorkloadId::parse(workload_id).map_err(corrupt)?,
         DelegationChain::new(grants).map_err(corrupt)?,
         zoen_core::Clearance::world_floor(),
-    ))
+    );
+    Ok(match parse_channel_subject(channel_subject)? {
+        Some(subject) => context.with_channel_subject(subject),
+        None => context,
+    })
+}
+
+/// Stored form: `<provider>:<subject_key>` (e.g.
+/// `whatsapp:5531987654321@s.whatsapp.net`).
+fn format_channel_subject(subject: &zoen_core::ExternalSubject) -> String {
+    format!("{}:{}", subject.provider.as_str(), subject.subject_key)
+}
+
+fn parse_channel_subject(
+    raw: Option<String>,
+) -> Result<Option<zoen_core::ExternalSubject>, StoreError> {
+    raw.map(|value| {
+        let (provider, key) = value
+            .split_once(':')
+            .ok_or_else(|| StoreError::Corrupt("invalid channel subject".to_owned()))?;
+        let provider = zoen_core::ChannelProvider::parse(provider)
+            .map_err(|_| StoreError::Corrupt("invalid channel subject provider".to_owned()))?;
+        zoen_core::ExternalSubject::new(provider, key)
+            .map_err(|_| StoreError::Corrupt("invalid channel subject key".to_owned()))
+    })
+    .transpose()
 }
 
 fn definition_from_row(row: &PgRow) -> Result<DefinitionReference, StoreError> {

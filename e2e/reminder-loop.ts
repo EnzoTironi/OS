@@ -25,6 +25,7 @@ import canonicalize from "canonicalize";
 import { sha256, waitForState } from "./effect-scenario.js";
 import {
   actionClient,
+  adminClient,
   adminDatabaseUrl,
   authDatabaseUrl,
   definitionClient,
@@ -52,6 +53,55 @@ import {
 } from "./host-env.js";
 
 const reminderActionId = "personal.createReminder";
+
+function channelCredential(subjectKey: string): string {
+  const encode = (value: string): string =>
+    Buffer.from(value, "utf8").toString("base64url");
+  return `chx.${encode(e2eIdentityAdminToken())}.${encode(`whatsapp:${subjectKey}`)}`;
+}
+
+async function bindVerifiedSubject(
+  accountId: string,
+  subjectKey: string,
+): Promise<void> {
+  const response = await fetch(`${zoenBaseUrl}/identity/admin/bind-verified`, {
+    body: JSON.stringify({ accountId, provider: "whatsapp", subjectKey }),
+    headers: {
+      authorization: `Bearer ${e2eIdentityAdminToken()}`,
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+  assert.equal(
+    response.status,
+    200,
+    `bind-verified ${subjectKey} -> ${await response.text()}`,
+  );
+}
+
+async function committedAttribution(
+  operationId: string,
+): Promise<{ channelSubject: string | null; principalId: string } | undefined> {
+  const client = adminClient();
+  await client.connect();
+  try {
+    const result = await client.query(
+      "SELECT committed_principal_id, committed_channel_subject FROM action_operations WHERE operation_id = $1",
+      [operationId],
+    );
+    const row = result.rows[0] as
+      | { committed_channel_subject: string | null; committed_principal_id: string }
+      | undefined;
+    return row === undefined
+      ? undefined
+      : {
+          channelSubject: row.committed_channel_subject,
+          principalId: row.committed_principal_id,
+        };
+  } finally {
+    await client.end();
+  }
+}
 const reminderResourceId = "personal.reminder";
 const waId = "5531987654321";
 const kapsoPhoneNumberId = "e2e-kapso-phone-number-id";
@@ -138,17 +188,6 @@ async function main(): Promise<void> {
   ) as {
     actions: Array<{ id: string; inputs?: Array<unknown> }>;
   };
-  // The delivery destination is declared only in this scenario: production
-  // personal.createReminder keeps body/dueAt only, so the mint stays inert
-  // until the channel subject lands on proposals (follow-up PR).
-  const createReminderAction = baseDefinition.actions.find(
-    (action) => action.id === reminderActionId,
-  );
-  assert.ok(createReminderAction);
-  createReminderAction.inputs = [
-    ...(createReminderAction.inputs ?? []),
-    { id: "to", valueType: { kind: "text" } },
-  ];
   const canonicalJson = canonicalize(baseDefinition);
   assert.ok(canonicalJson !== undefined);
   const digest = sha256(canonicalJson);
@@ -269,7 +308,12 @@ async function main(): Promise<void> {
       ],
       zoendBaseUrl: zoenBaseUrl,
     });
-    const waToken = sessionOf(planted, "wa-user").token;
+    const waSession = sessionOf(planted, "wa-user");
+    // The WhatsApp sender's provider-native subject is bound (verified) to the
+    // same account the door invite created; channel-authenticated commits then
+    // converge on the same membership instead of a parallel principal.
+    await bindVerifiedSubject(waSession.accountId, `${waId}@s.whatsapp.net`);
+    const waToken = channelCredential(`${waId}@s.whatsapp.net`);
     const adminToken = sessionOf(planted, "admin-a").token;
     const workerToken = sessionOf(planted, "effect-worker-a").token;
     const reconcilerToken = sessionOf(planted, "effect-reconciler-a").token;
@@ -298,7 +342,6 @@ async function main(): Promise<void> {
       inputs: [
         textInput("body", reminderBody),
         textInput("dueAt", dueAt.toISOString()),
-        textInput("to", waId),
       ],
       operationId,
       proposalId,
@@ -309,6 +352,15 @@ async function main(): Promise<void> {
     const committed = await action.commit({ operationId, proposalId });
     assert.equal(committed.status, CommitStatus.COMMITTED);
     assert.ok(committed.receipt);
+    const attribution = await committedAttribution(operationId);
+    observe(
+      "commit_carries_channel_subject",
+      attribution?.channelSubject === `whatsapp:${waId}@s.whatsapp.net`,
+    );
+    observe(
+      "commit_principal_is_converged_membership",
+      attribution?.principalId === "principal.wa.user",
+    );
     const effectRequestIds = committed.receipt.effectRequestIds;
     assert.equal(effectRequestIds.length, 2);
 
