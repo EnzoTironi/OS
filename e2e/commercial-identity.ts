@@ -15,6 +15,7 @@ import {
 } from "./ba-door.js";
 import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
 import { definitionPublishActionId } from "./definition-publish-policy.js";
+import { worldReadActionId } from "./world-read-policy.js";
 import {
   actionClient,
   actionId,
@@ -42,7 +43,6 @@ import {
   textInput,
   worldClient,
   writePolicyManifest,
-  worldReadActionId,
   zoendBaseUrl,
   type ServerProcess,
 } from "./commercial-identity/support.js";

@@ -14,6 +14,7 @@ import {
 } from "./ba-door.js";
 import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
 import { definitionPublishActionId } from "./definition-publish-policy.js";
+import { worldReadActionId } from "./world-read-policy.js";
 import {
   changeCommitmentRequest,
   commitChangeCommitment,
@@ -103,7 +104,12 @@ async function main(): Promise<void> {
       applicationDatabaseUrl,
       personas: adminPairPersonas(
         [commercial.definition.definitionId, resourceId, correctionEntityId],
-        [definitionPublishActionId, activationActionId, actionId],
+        [
+          definitionPublishActionId,
+          activationActionId,
+          actionId,
+          worldReadActionId,
+        ],
       ),
       zoendBaseUrl,
     });
