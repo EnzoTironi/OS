@@ -121,7 +121,8 @@ async fn insert_proposal_row(
             determining_policies, state_basis_digest, observed_commit_sequence,
             execution_id, component_digest, component_interface,
             capability_manifest_digest, capability_ids,
-            preview_hash, canonical_preview_text, scenario_id
+            preview_hash, canonical_preview_text, scenario_id,
+            proposed_channel_subject
          ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
@@ -130,7 +131,7 @@ async fn insert_proposal_row(
             $16, $17, $18, $19,
             $20, $21, $22,
             $23, $24, $25, $26, $27,
-            $28, $29, $30
+            $28, $29, $30, $31
          )",
     )
     .bind(context.tenant_id().as_str())
