@@ -801,7 +801,10 @@ function parseOidcClientMap(
   return oidcClientMapSchema.parse(parsed);
 }
 
-export const registry = setup({ use: { zoenEffect } });
+export const registry = setup({
+  shutdown: { disableSignalHandlers: true },
+  use: { zoenEffect },
+});
 
 const rivetClient = createRivetClient<typeof registry>(
   environment.RIVET_ENDPOINT
@@ -844,3 +847,25 @@ const ingest = createServer((request, response) => {
 
 ingest.listen(environment.ZOEN_EFFECT_WORKER_PORT);
 registry.startEnvoy();
+
+// The host owns signal policy: drain the Rivet registry gracefully, then exit
+// 0 so supervisors (and the e2e harness) observe a clean shutdown instead of
+// a re-raised signal or a wrapper-propagated exit code.
+let shutdownStarted = false;
+const shutdown = () => {
+  if (shutdownStarted) {
+    return;
+  }
+  shutdownStarted = true;
+  const forceExit = setTimeout(() => process.exit(0), 10_000);
+  ingest.close();
+  registry
+    .shutdown()
+    .catch(() => undefined)
+    .finally(() => {
+      clearTimeout(forceExit);
+      process.exit(0);
+    });
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

@@ -274,7 +274,7 @@ export async function stopProcess(process: ManagedProcess): Promise<void> {
   await once(process.child, "exit");
   assert.ok(
     process.child.exitCode === 0 || process.child.signalCode === "SIGINT",
-    `${process.name} failed during shutdown:\n${process.output.join("")}`,
+    `${process.name} failed during shutdown (exit code ${process.child.exitCode}, signal ${process.child.signalCode}):\n${process.output.join("")}`,
   );
 }
 
