@@ -14,6 +14,7 @@ import {
   stopAuthDoor,
 } from "./ba-door.js";
 import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
+import { definitionPublishActionId } from "./definition-publish-policy.js";
 import {
   actionClient,
   actionId,
@@ -106,7 +107,7 @@ async function main(): Promise<void> {
       applicationDatabaseUrl,
       personas: adminPairPersonas(
         [commercial.definition.definitionId, resourceId, quoteEntityId],
-        [activationActionId, actionId],
+        [definitionPublishActionId, activationActionId, actionId],
       ),
       zoendBaseUrl,
     });

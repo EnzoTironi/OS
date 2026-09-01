@@ -127,6 +127,7 @@ print(json.dumps({
     "actorId": "actor.admin.a",
     "actionIds": [
         "commercial.changeCommitment",
+        "zoen.definition.publish",
         "zoen.definition.activate",
         "personal.writeMemory",
         "personal.createReminder",

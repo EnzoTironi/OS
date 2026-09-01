@@ -369,6 +369,7 @@ async fn activate_ontology_dependencies(
                     context,
                     dependency.canonical_json.as_bytes(),
                     dependency.digest.clone(),
+                    now_micros(),
                 )
                 .await
             {

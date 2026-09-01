@@ -27,6 +27,7 @@ import {
   type DefinitionReference,
 } from "../../gen/connect/zoen/world/v1/world_pb.js";
 import { invitePersona, type DoorPersona } from "../ba-door.js";
+import { definitionPublishActionId } from "../definition-publish-policy.js";
 import { e2eHttpUrl } from "../host-env.js";
 
 export const componentInterface = "zoen:code-mode/computation@1.0.0";
@@ -59,7 +60,7 @@ export const wasmCodeModePersonas: readonly DoorPersona[] = [
     workloadId: "workload.agent.b",
   }),
   invitePersona({
-    actionIds: ["zoen.definition.activate"],
+    actionIds: [definitionPublishActionId, "zoen.definition.activate"],
     actorId: "actor.admin.a",
     id: "admin-a",
     principalId: "principal.admin.a",
@@ -68,7 +69,7 @@ export const wasmCodeModePersonas: readonly DoorPersona[] = [
     workloadId: "workload.admin.a",
   }),
   invitePersona({
-    actionIds: ["zoen.definition.activate"],
+    actionIds: [definitionPublishActionId, "zoen.definition.activate"],
     actorId: "actor.admin.b",
     id: "admin-b",
     principalId: "principal.admin.b",

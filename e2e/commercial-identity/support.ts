@@ -26,6 +26,7 @@ import {
   type ActionInput,
 } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
+import { definitionPublishPolicy } from "../definition-publish-policy.js";
 import {
   loadCommercialLake,
   type CompiledDefinition,
@@ -152,6 +153,10 @@ export async function writePolicyManifest(
             revision: definition.definition.revision,
             source: activationSource,
           },
+          definitionPublishPolicy({
+            definitionDigest: definition.digest,
+            revision: definition.definition.revision,
+          }),
         ],
       },
       null,
@@ -205,8 +210,8 @@ export async function publish(
     digest: definition.digest,
     tenantId: tenantA,
   });
-  assert.ok(response.definitionRevision);
-  return response.definitionRevision;
+  assert.ok(response.publication?.revision);
+  return response.publication.revision;
 }
 
 export function entityInput(inputId: string, value: string): ActionInput {

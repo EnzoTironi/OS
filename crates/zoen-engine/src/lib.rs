@@ -6,8 +6,8 @@ use std::{
 use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionApproval, ActionProposal, CanonicalJson, CommitIdentityKind, CommitReceipt,
-    CommitSequence, DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevision, DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim,
+    CommitSequence, DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionPublication,
+    DefinitionReference, DefinitionRevision, EffectRequestId, EffectSnapshot, EvidenceClaim,
     EvidenceDraft, EvolutionClassification, ExecutionContext, ExplanationTarget, IntentDigest,
     OperationId, PolicyEvidence, ProposalId, TenantId, TimestampMicros,
 };
@@ -23,6 +23,7 @@ mod history;
 mod human;
 pub mod metrics;
 mod migration;
+mod publication;
 mod read;
 mod scenario;
 
@@ -70,6 +71,7 @@ pub use migration::{
     AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,
     MigrationBatchPreflight, MigrationError, decode_migration_plan,
 };
+pub use publication::AdmittedDefinitionPublication;
 pub use read::{
     MAC_DETERMINING_POLICY, MAX_TYPE_PAGE, PolicySchema, ReadAbsence, ReadEngine, ReadError,
 };
@@ -191,18 +193,34 @@ impl Error for RecordEvidenceError {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PublishError {
+    Configuration(String),
+    DelegationDenied,
     DigestMismatch,
     EventEncoding(String),
     InvalidCanonicalDefinition(String),
     InvalidDefinition(ValidationError),
     MalformedDefinition(String),
     NonCanonicalDefinition,
+    PolicyDenied(PolicyEvidence),
+    PolicyEvaluation {
+        message: String,
+        policy: Option<PolicyEvidence>,
+    },
     Store(StoreError),
 }
 
 impl Display for PublishError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Configuration(message) => {
+                write!(
+                    formatter,
+                    "definition publication is misconfigured: {message}"
+                )
+            }
+            Self::DelegationDenied => {
+                formatter.write_str("delegation does not permit definition publication")
+            }
             Self::DigestMismatch => formatter.write_str("canonical definition digest mismatch"),
             Self::EventEncoding(message) => {
                 write!(formatter, "failed to encode publication event: {message}")
@@ -217,6 +235,10 @@ impl Display for PublishError {
             Self::NonCanonicalDefinition => {
                 formatter.write_str("definition JSON is not normalized RFC 8785 canonical JSON")
             }
+            Self::PolicyDenied(_) => formatter.write_str("definition publication was denied"),
+            Self::PolicyEvaluation { message, .. } => {
+                write!(formatter, "definition publication policy failed: {message}")
+            }
             Self::Store(error) => error.fmt(formatter),
         }
     }
@@ -227,11 +249,15 @@ impl Error for PublishError {
         match self {
             Self::InvalidDefinition(error) => Some(error),
             Self::Store(error) => Some(error),
-            Self::DigestMismatch
+            Self::Configuration(_)
+            | Self::DelegationDenied
+            | Self::DigestMismatch
             | Self::EventEncoding(_)
             | Self::InvalidCanonicalDefinition(_)
             | Self::MalformedDefinition(_)
-            | Self::NonCanonicalDefinition => None,
+            | Self::NonCanonicalDefinition
+            | Self::PolicyDenied(_)
+            | Self::PolicyEvaluation { .. } => None,
         }
     }
 }
@@ -390,58 +416,6 @@ impl ProjectionEvent {
     #[must_use]
     pub fn payload(&self) -> &str {
         &self.payload
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AdmittedDefinitionPublication {
-    canonical_json: CanonicalJson,
-    definition_id: DefinitionId,
-    digest: DefinitionDigest,
-    revision: DefinitionRevisionNumber,
-    projection_event: ProjectionEvent,
-}
-
-impl AdmittedDefinitionPublication {
-    fn new(
-        canonical_json: CanonicalJson,
-        definition_id: DefinitionId,
-        digest: DefinitionDigest,
-        revision: DefinitionRevisionNumber,
-        projection_event: ProjectionEvent,
-    ) -> Self {
-        Self {
-            canonical_json,
-            definition_id,
-            digest,
-            revision,
-            projection_event,
-        }
-    }
-
-    #[must_use]
-    pub fn canonical_json(&self) -> &CanonicalJson {
-        &self.canonical_json
-    }
-
-    #[must_use]
-    pub fn definition_id(&self) -> &DefinitionId {
-        &self.definition_id
-    }
-
-    #[must_use]
-    pub fn digest(&self) -> &DefinitionDigest {
-        &self.digest
-    }
-
-    #[must_use]
-    pub fn revision(&self) -> DefinitionRevisionNumber {
-        self.revision
-    }
-
-    #[must_use]
-    pub fn projection_event(&self) -> &ProjectionEvent {
-        &self.projection_event
     }
 }
 
@@ -688,9 +662,8 @@ pub trait AuthorityStore: Send + Sync {
 
     fn publish(
         &self,
-        context: &ExecutionContext,
         publication: &AdmittedDefinitionPublication,
-    ) -> impl std::future::Future<Output = Result<DefinitionRevision, StoreError>> + Send;
+    ) -> impl std::future::Future<Output = Result<DefinitionPublication, StoreError>> + Send;
 
     fn prepare_migration(
         &self,
@@ -894,24 +867,6 @@ where
 {
     pub fn new(store: S, policy: P) -> Self {
         Self { policy, store }
-    }
-
-    /// Admit and publish a canonical definition document.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PublishError`] when admission fails or the store cannot persist the revision.
-    pub async fn publish(
-        &self,
-        context: &ExecutionContext,
-        canonical_bytes: &[u8],
-        claimed_digest: DefinitionDigest,
-    ) -> Result<DefinitionRevision, PublishError> {
-        let publication = admission::admit(canonical_bytes, claimed_digest)?;
-        self.store
-            .publish(context, &publication)
-            .await
-            .map_err(PublishError::Store)
     }
 
     /// Load the active definition revision and verify its digest.

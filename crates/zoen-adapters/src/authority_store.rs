@@ -9,11 +9,11 @@ use sqlx::{
 };
 use zoen_core::{
     ActionApproval, ActionProposal, ActorId, CommitReceipt, CommitSequence, DefinitionActivation,
-    DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevision, DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim,
-    EvidenceDraft, EvolutionClassification, ExecutionContext, ExplanationTarget, OperationId,
-    PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
-    ProposalId, TenantId, TimestampMicros, WorkloadId,
+    DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionPublication,
+    DefinitionReference, DefinitionRevision, DefinitionRevisionNumber, EffectRequestId,
+    EffectSnapshot, EvidenceClaim, EvidenceDraft, EvolutionClassification, ExecutionContext,
+    ExplanationTarget, OperationId, PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision,
+    PolicyRevisionNumber, PrincipalId, ProposalId, TenantId, TimestampMicros, WorkloadId,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore,
@@ -327,12 +327,12 @@ impl AuthorityStore for PostgresAuthorityStore {
 
     async fn publish(
         &self,
-        context: &ExecutionContext,
         publication: &AdmittedDefinitionPublication,
-    ) -> Result<DefinitionRevision, StoreError> {
+    ) -> Result<DefinitionPublication, StoreError> {
+        let context = publication.context();
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
         set_tenant(&mut transaction, context.tenant_id()).await?;
-        let revision = persist_publication(&mut transaction, context, publication).await?;
+        let revision = persist_publication(&mut transaction, publication).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(revision)
     }
@@ -660,9 +660,9 @@ async fn project_activation(
 
 async fn persist_publication(
     transaction: &mut Transaction<'_, Postgres>,
-    context: &ExecutionContext,
     publication: &AdmittedDefinitionPublication,
-) -> Result<DefinitionRevision, StoreError> {
+) -> Result<DefinitionPublication, StoreError> {
+    let context = publication.context();
     sqlx::query(
         "INSERT INTO authority_heads (tenant_id, commit_sequence)
          VALUES ($1, 0)
@@ -684,8 +684,8 @@ async fn persist_publication(
     .map_err(store_unavailable)?
     .try_get::<i64, _>("commit_sequence")
     .map_err(store_unavailable)?;
-    if let Some(revision) = existing_publication(transaction, context, publication).await? {
-        return Ok(revision);
+    if let Some(existing) = existing_publication(transaction, publication).await? {
+        return Ok(existing);
     }
     let revision_conflict = sqlx::query(
         "SELECT digest
@@ -706,8 +706,8 @@ async fn persist_publication(
     let next_sequence = head
         .checked_add(1)
         .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
-    insert_published_revision(transaction, context, publication, next_sequence).await?;
-    Ok(DefinitionRevision {
+    insert_published_revision(transaction, publication, next_sequence).await?;
+    let revision = DefinitionRevision {
         canonical_json: publication.canonical_json().clone(),
         commit_sequence: CommitSequence::new(
             u64::try_from(next_sequence)
@@ -717,18 +717,40 @@ async fn persist_publication(
         definition_id: publication.definition_id().clone(),
         digest: publication.digest().clone(),
         revision: publication.revision(),
+    };
+    Ok(DefinitionPublication {
+        policy: publication.policy().clone(),
+        principal_id: context.principal_id().clone(),
+        published_at: publication.published_at(),
+        published_by: context.actor_id().clone(),
+        revision,
+        workload_id: context.workload_id().clone(),
     })
 }
 
 async fn existing_publication(
     transaction: &mut Transaction<'_, Postgres>,
-    context: &ExecutionContext,
     publication: &AdmittedDefinitionPublication,
-) -> Result<Option<DefinitionRevision>, StoreError> {
+) -> Result<Option<DefinitionPublication>, StoreError> {
+    let context = publication.context();
     let existing = sqlx::query(
-        "SELECT definition_id, revision, digest, canonical_json, commit_sequence
-         FROM definition_revisions
-         WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3",
+        "SELECT revision.definition_id, revision.revision, revision.digest,
+                revision.canonical_json, revision.commit_sequence,
+                publication.commit_sequence AS publication_commit_sequence,
+                publication.published_at_micros, publication.actor_id,
+                publication.principal_id, publication.workload_id,
+                publication.policy_id, publication.policy_revision,
+                publication.policy_digest, publication.determining_policies
+         FROM definition_revisions AS revision
+         LEFT JOIN definition_publications AS publication
+           ON publication.tenant_id = revision.tenant_id
+          AND publication.definition_id = revision.definition_id
+          AND publication.digest = revision.digest
+          AND publication.revision = revision.revision
+          AND publication.commit_sequence = revision.commit_sequence
+         WHERE revision.tenant_id = $1
+           AND revision.definition_id = $2
+           AND revision.digest = $3",
     )
     .bind(context.tenant_id().as_str())
     .bind(publication.definition_id().as_str())
@@ -747,7 +769,25 @@ async fn existing_publication(
             "content-addressed revision has different content".to_owned(),
         ));
     }
-    Ok(Some(revision))
+    let publication_commit_sequence = row
+        .try_get::<Option<i64>, _>("publication_commit_sequence")
+        .map_err(store_unavailable)?
+        .ok_or_else(|| {
+            StoreError::Corrupt(
+                "definition revision is missing governed publication evidence".to_owned(),
+            )
+        })?;
+    if publication_commit_sequence
+        != u64_to_i64(
+            revision.commit_sequence.get(),
+            "publication commit sequence",
+        )?
+    {
+        return Err(StoreError::Corrupt(
+            "definition publication commit does not match its revision".to_owned(),
+        ));
+    }
+    Ok(Some(row_to_publication(&row, revision)?))
 }
 
 async fn insert_commit_kind(
@@ -794,10 +834,10 @@ async fn insert_projection_event(
 
 async fn insert_published_revision(
     transaction: &mut Transaction<'_, Postgres>,
-    context: &ExecutionContext,
     publication: &AdmittedDefinitionPublication,
     next_sequence: i64,
 ) -> Result<(), StoreError> {
+    let context = publication.context();
     insert_commit_kind(
         transaction,
         context.tenant_id(),
@@ -819,6 +859,8 @@ async fn insert_published_revision(
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
+    insert_publication_row(transaction, publication, next_sequence).await?;
+    insert_publication_grants(transaction, publication, next_sequence).await?;
     let event = publication.projection_event();
     sqlx::query(
         "INSERT INTO projection_outbox
@@ -834,6 +876,96 @@ async fn insert_published_revision(
     .await
     .map_err(store_unavailable)?;
     advance_authority_head(transaction, context.tenant_id(), next_sequence).await
+}
+
+async fn insert_publication_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    publication: &AdmittedDefinitionPublication,
+    next_sequence: i64,
+) -> Result<(), StoreError> {
+    let context = publication.context();
+    let policy = publication.policy();
+    sqlx::query(
+        "INSERT INTO definition_publications (
+            tenant_id, definition_id, revision, digest, commit_sequence,
+            published_at_micros, actor_id, principal_id, workload_id,
+            policy_id, policy_revision, policy_digest, determining_policies
+         ) VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8, $9,
+            $10, $11, $12, $13
+         )",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(publication.definition_id().as_str())
+    .bind(u64_to_i64(publication.revision().get(), "revision")?)
+    .bind(publication.digest().as_str())
+    .bind(next_sequence)
+    .bind(publication.published_at().get())
+    .bind(context.actor_id().as_str())
+    .bind(context.principal_id().as_str())
+    .bind(context.workload_id().as_str())
+    .bind(policy.revision.id.as_str())
+    .bind(u64_to_i64(
+        policy.revision.revision.get(),
+        "policy revision",
+    )?)
+    .bind(policy.revision.digest.as_str())
+    .bind(&policy.determining_policies)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    Ok(())
+}
+
+async fn insert_publication_grants(
+    transaction: &mut Transaction<'_, Postgres>,
+    publication: &AdmittedDefinitionPublication,
+    commit_sequence: i64,
+) -> Result<(), StoreError> {
+    let context = publication.context();
+    for (ordinal, grant) in context.delegation().grants().iter().enumerate() {
+        let ordinal = i32::try_from(ordinal)
+            .map_err(|_| StoreError::Conflict("publication has too many grants".to_owned()))?;
+        sqlx::query(
+            "INSERT INTO definition_publication_grants (
+                tenant_id, commit_sequence, ordinal, delegation_id,
+                action_ids, resource_ids, workload_ids,
+                not_before_micros, expires_at_micros
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(commit_sequence)
+        .bind(ordinal)
+        .bind(grant.id().as_str())
+        .bind(
+            grant
+                .actions()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            grant
+                .resources()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            grant
+                .workloads()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(grant.not_before().get())
+        .bind(grant.expires_at().get())
+        .execute(&mut **transaction)
+        .await
+        .map_err(store_unavailable)?;
+    }
+    Ok(())
 }
 
 async fn advance_authority_head(
@@ -921,6 +1053,38 @@ fn row_to_reference(row: &PgRow) -> Result<DefinitionReference, StoreError> {
             "definition revision",
         )?)
         .ok_or_else(|| StoreError::Corrupt("zero definition revision".to_owned()))?,
+    })
+}
+
+fn row_to_publication(
+    row: &PgRow,
+    revision: DefinitionRevision,
+) -> Result<DefinitionPublication, StoreError> {
+    Ok(DefinitionPublication {
+        policy: PolicyEvidence {
+            determining_policies: row
+                .try_get::<Vec<String>, _>("determining_policies")
+                .map_err(store_unavailable)?,
+            revision: PolicyRevision {
+                digest: PolicyDigest::parse(row_string(row, "policy_digest")?)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+                id: PolicyId::parse(row_string(row, "policy_id")?)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+                revision: PolicyRevisionNumber::new(i64_to_u64(
+                    row_i64(row, "policy_revision")?,
+                    "policy revision",
+                )?)
+                .ok_or_else(|| StoreError::Corrupt("zero policy revision".to_owned()))?,
+            },
+        },
+        principal_id: PrincipalId::parse(row_string(row, "principal_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        published_at: TimestampMicros::new(row_i64(row, "published_at_micros")?),
+        published_by: ActorId::parse(row_string(row, "actor_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        revision,
+        workload_id: WorkloadId::parse(row_string(row, "workload_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
     })
 }
 

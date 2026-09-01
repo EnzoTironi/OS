@@ -55,7 +55,7 @@ invite_token="invite.whatsapp.live.${account_id}"
 invite_code="$(curl -sS -o "$tmp/invite.json" -w '%{http_code}' \
   -X POST "${zoend_url}/identity/admin/invites" \
   -H 'content-type: application/json' -H "$auth" \
-  -d "{\"tenantId\":\"${live_tenant}\",\"principalId\":\"principal.live.whatsapp\",\"token\":\"${invite_token}\",\"expiresAtMicros\":${expires_at},\"workloadId\":\"workload.admin.a\",\"actorId\":\"actor.admin.a\",\"actionIds\":[\"commercial.changeCommitment\",\"zoen.definition.activate\",\"personal.writeMemory\",\"personal.createReminder\"],\"resourceIds\":[\"personal.memory\",\"personal.note\",\"personal.reminder\",\"commercial.sales\",\"commercial.order-line.dirty-quote\"]}")"
+  -d "{\"tenantId\":\"${live_tenant}\",\"principalId\":\"principal.live.whatsapp\",\"token\":\"${invite_token}\",\"expiresAtMicros\":${expires_at},\"workloadId\":\"workload.admin.a\",\"actorId\":\"actor.admin.a\",\"actionIds\":[\"commercial.changeCommitment\",\"zoen.definition.publish\",\"zoen.definition.activate\",\"personal.writeMemory\",\"personal.createReminder\"],\"resourceIds\":[\"personal.memory\",\"personal.note\",\"personal.reminder\",\"commercial.sales\",\"commercial.order-line.dirty-quote\"]}")"
 if ! http_ok "$invite_code"; then
   echo "create invite HTTP ${invite_code}" >&2
   cat "$tmp/invite.json" >&2

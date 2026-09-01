@@ -58,6 +58,10 @@ import {
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "./host-env.js";
+import {
+  definitionPublishActionId,
+  definitionPublishPolicy,
+} from "./definition-publish-policy.js";
 
 const repositoryRoot = process.cwd();
 const composeFile = path.join("e2e", "semantic-query", "compose.yaml");
@@ -155,7 +159,10 @@ async function main(): Promise<void> {
     const planted = await plantPersonas(door, {
       adminToken: e2eIdentityAdminToken(),
       applicationDatabaseUrl: adminDatabaseUrl,
-      personas: adminPairPersonas([definitionId]),
+      personas: adminPairPersonas(
+        [definitionId],
+        [definitionPublishActionId, "zoen.definition.activate"],
+      ),
       zoendBaseUrl: baseUrl,
     });
     const tokenA = sessionOf(planted, "admin-a").token;
@@ -169,13 +176,13 @@ async function main(): Promise<void> {
       digest: definitionDigest,
       tenantId: tenantA,
     });
-    assert.equal(publishedA.definitionRevision?.commitSequence, 1n);
+    assert.equal(publishedA.publication?.revision?.commitSequence, 1n);
     const publishedB = await clientB.publish({
       canonicalJson: new TextEncoder().encode(canonicalDefinition),
       digest: definitionDigest,
       tenantId: tenantB,
     });
-    assert.equal(publishedB.definitionRevision?.commitSequence, 1n);
+    assert.equal(publishedB.publication?.revision?.commitSequence, 1n);
 
     const activatedA = await clientA.activateRevision({
       activeRevisionPrecondition: {
@@ -1261,6 +1268,10 @@ async function writeActivationManifest(definitionDigest: string): Promise<string
     `${JSON.stringify(
       {
         policies: [
+          definitionPublishPolicy({
+            definitionDigest,
+            revision: 1,
+          }),
           {
             actionId: "zoen.definition.activate",
             definitionDigest,
