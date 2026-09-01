@@ -144,6 +144,23 @@ async function main(): Promise<void> {
     await readFile(definitionPath, "utf8")
   ).trimEnd();
   const definitionDigest = sha256(canonicalDefinition);
+  const v2Canonical = canonicalDefinition
+    .replace('"operator":"subtract"', '"operator":"add"')
+    .replace('"revision":1', '"revision":2');
+  assert.notEqual(v2Canonical, canonicalDefinition);
+  const publicationCandidates = [
+    {
+      canonicalJson: canonicalDefinition,
+      digest: definitionDigest,
+      revision: 1,
+    },
+    {
+      canonicalJson: v2Canonical,
+      digest: sha256(v2Canonical),
+      revision: 2,
+    },
+  ] as const;
+  const [v1Publication, v2Publication] = publicationCandidates;
   const definition = create(DefinitionReferenceSchema, {
     definitionId,
     digest: definitionDigest,
@@ -151,7 +168,9 @@ async function main(): Promise<void> {
   });
   const door = await startAuthDoor(authDatabaseUrl);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
-  const policyManifestPath = await writeActivationManifest(definitionDigest);
+  const policyManifestPath = await writeActivationManifest(
+    publicationCandidates,
+  );
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
     server = await startServer(policyManifestPath);
@@ -172,14 +191,14 @@ async function main(): Promise<void> {
     const worldA = worldClient(tokenA, tenantA);
     const worldB = worldClient(tokenB, tenantB);
     const publishedA = await clientA.publish({
-      canonicalJson: new TextEncoder().encode(canonicalDefinition),
-      digest: definitionDigest,
+      canonicalJson: new TextEncoder().encode(v1Publication.canonicalJson),
+      digest: v1Publication.digest,
       tenantId: tenantA,
     });
     assert.equal(publishedA.publication?.revision?.commitSequence, 1n);
     const publishedB = await clientB.publish({
-      canonicalJson: new TextEncoder().encode(canonicalDefinition),
-      digest: definitionDigest,
+      canonicalJson: new TextEncoder().encode(v1Publication.canonicalJson),
+      digest: v1Publication.digest,
       tenantId: tenantB,
     });
     assert.equal(publishedB.publication?.revision?.commitSequence, 1n);
@@ -834,14 +853,9 @@ async function main(): Promise<void> {
     assert.equal(secondActivate.digest, definitionDigest);
     recordAssertion("destActivateAlreadyActiveDigestSucceeds");
 
-    const v2Canonical = canonicalDefinition
-      .replace('"operator":"subtract"', '"operator":"add"')
-      .replace('"revision":1', '"revision":2');
-    assert.notEqual(v2Canonical, canonicalDefinition);
-    const v2Digest = sha256(v2Canonical);
     await clientA.publish({
-      canonicalJson: new TextEncoder().encode(v2Canonical),
-      digest: v2Digest,
+      canonicalJson: new TextEncoder().encode(v2Publication.canonicalJson),
+      digest: v2Publication.digest,
       tenantId: tenantA,
     });
     const differentActivate = await destZoen(destEnv, [
@@ -850,7 +864,7 @@ async function main(): Promise<void> {
       "--definition-id",
       definitionId,
       "--digest",
-      v2Digest,
+      v2Publication.digest,
     ]);
     assert.notEqual(differentActivate.code, 0);
     assert.match(differentActivate.stderr, /failed_precondition/);
@@ -1253,7 +1267,12 @@ function assertComputationLineage(
   }
 }
 
-async function writeActivationManifest(definitionDigest: string): Promise<string> {
+async function writeActivationManifest(
+  publicationCandidates: readonly [
+    { digest: string; revision: number },
+    ...{ digest: string; revision: number }[],
+  ],
+): Promise<string> {
   const source = await readFile(
     path.join(repositoryRoot, "e2e", "semantic-query", "activation.cedar"),
     "utf8",
@@ -1268,13 +1287,15 @@ async function writeActivationManifest(definitionDigest: string): Promise<string
     `${JSON.stringify(
       {
         policies: [
-          definitionPublishPolicy({
-            definitionDigest,
-            revision: 1,
-          }),
+          ...publicationCandidates.map((candidate) =>
+            definitionPublishPolicy({
+              definitionDigest: candidate.digest,
+              revision: candidate.revision,
+            }),
+          ),
           {
             actionId: "zoen.definition.activate",
-            definitionDigest,
+            definitionDigest: publicationCandidates[0].digest,
             digest: sha256(source),
             policyId: "policy.activation.v1",
             revision: 1,
@@ -1282,7 +1303,7 @@ async function writeActivationManifest(definitionDigest: string): Promise<string
           },
           {
             actionId: "zoen.world.read",
-            definitionDigest,
+            definitionDigest: publicationCandidates[0].digest,
             digest: sha256(
               'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n',
             ),
