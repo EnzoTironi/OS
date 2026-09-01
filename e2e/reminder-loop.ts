@@ -255,15 +255,30 @@ async function main(): Promise<void> {
           tenantId: tenantA,
           workloadId: "workload.effect-worker",
         }),
+        // The engine gates reconcile on a dedicated reconciler workload
+        // identity, separate from the claiming worker (require_reconciler).
+        invitePersona({
+          actionIds: [reminderActionId],
+          actorId: "actor.effect.reconciler.a",
+          id: "effect-reconciler-a",
+          principalId: "principal.effect-reconciler.a",
+          resourceIds: [reminderResourceId],
+          tenantId: tenantA,
+          workloadId: "workload.effect-reconciler",
+        }),
       ],
       zoendBaseUrl: zoenBaseUrl,
     });
     const waToken = sessionOf(planted, "wa-user").token;
     const adminToken = sessionOf(planted, "admin-a").token;
     const workerToken = sessionOf(planted, "effect-worker-a").token;
+    const reconcilerToken = sessionOf(planted, "effect-reconciler-a").token;
 
     processes.push(
-      await startWorker({ [tenantA]: workerToken }, { connectorUrl: null }),
+      await startWorker(
+        { [tenantA]: workerToken },
+        { connectorUrl: null, reconcilerTokens: { [tenantA]: reconcilerToken } },
+      ),
     );
     const registration = await registerWorker();
     assert.match(registration, /runner|normal/i);

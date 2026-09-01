@@ -38,6 +38,7 @@ const environmentSchema = z.intersection(
     ZOEN_CONNECTOR_CALLER_TOKEN: z.string().min(1),
     ZOEN_CONNECTOR_CREDENTIAL_REFS: z.string().min(1),
     ZOEN_EFFECT_CONNECTOR_URL: z.url().optional(),
+    ZOEN_EFFECT_RECONCILER_BEARER_TOKENS: z.string().min(1).optional(),
     ZOEN_EFFECT_SERVICE_URL: z.url(),
     ZOEN_EFFECT_WORKER_PORT: z.coerce.number().int().min(1).max(65_535),
     ZOEN_KAPSO_API_KEY: z.string().min(1),
@@ -194,6 +195,15 @@ const serviceAuthentication = (
         tokenEndpoint: rawEnvironment.ZOEN_EFFECT_SERVICE_OIDC_TOKEN_ENDPOINT,
       }
 ) satisfies ServiceAuthentication;
+// The engine gates reconcile on a dedicated reconciler workload identity
+// (require_reconciler in crates/zoen-engine/src/effect.rs), separate from the
+// claiming worker workload. When ZOEN_EFFECT_RECONCILER_BEARER_TOKENS is set,
+// reconcile calls authenticate with it; otherwise they fall back to the
+// service credential (back-compatible with single-credential deploys).
+const reconcilerTokens =
+  rawEnvironment.ZOEN_EFFECT_RECONCILER_BEARER_TOKENS === undefined
+    ? undefined
+    : parseStringMap(rawEnvironment.ZOEN_EFFECT_RECONCILER_BEARER_TOKENS);
 const environment = {
   ...rawEnvironment,
   ZOEN_CONNECTOR_CREDENTIAL_REFS: parseStringMap(
@@ -373,7 +383,7 @@ async function runReminderEffect(
     return "recorded";
   });
   await loopCtx.step("reconcile confirmed", async () => {
-    await client.reconcile({
+    await effectClient(command.tenantId, reconcilerBearerToken).reconcile({
       effectRequestId: claim.effectRequestId,
       evidence: {
         evidenceDigest: sha256Hex(`${claim.effectRequestId}.confirmed.kapso`),
@@ -501,12 +511,12 @@ function classifyPayload(payload: Uint8Array): PayloadClass {
   return { kind: "external" };
 }
 
-function effectClient(tenantId: string) {
+function effectClient(
+  tenantId: string,
+  bearerToken: (id: string) => Promise<string> = serviceBearerToken
+) {
   const authorization: Interceptor = (next) => async (request) => {
-    request.header.set(
-      "authorization",
-      `Bearer ${await serviceBearerToken(tenantId)}`
-    );
+    request.header.set("authorization", `Bearer ${await bearerToken(tenantId)}`);
     request.header.set("x-zoen-tenant", tenantId);
     return next(request);
   };
@@ -518,6 +528,11 @@ function effectClient(tenantId: string) {
       interceptors: [authorization],
     })
   );
+}
+
+async function reconcilerBearerToken(tenantId: string): Promise<string> {
+  const token = reconcilerTokens?.[tenantId];
+  return token ?? serviceBearerToken(tenantId);
 }
 
 async function serviceBearerToken(tenantId: string): Promise<string> {

@@ -217,7 +217,10 @@ export async function startConnector(options?: {
 
 export async function startWorker(
   tokens: Readonly<Record<string, string>>,
-  options?: { readonly connectorUrl?: string | null },
+  options?: {
+    readonly connectorUrl?: string | null;
+    readonly reconcilerTokens?: Readonly<Record<string, string>>;
+  },
 ): Promise<ManagedProcess> {
   return startProcess({
     command: path.join(
@@ -237,6 +240,13 @@ export async function startWorker(
         : {
             ZOEN_EFFECT_CONNECTOR_URL:
               options?.connectorUrl ?? connectorUrl,
+          }),
+      ...(options?.reconcilerTokens === undefined
+        ? {}
+        : {
+            ZOEN_EFFECT_RECONCILER_BEARER_TOKENS: JSON.stringify(
+              options.reconcilerTokens,
+            ),
           }),
       ZOEN_EFFECT_SERVICE_BEARER_TOKENS: JSON.stringify(tokens),
       ZOEN_EFFECT_SERVICE_URL: zoenBaseUrl,
