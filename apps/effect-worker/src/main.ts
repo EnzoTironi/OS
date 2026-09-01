@@ -376,9 +376,11 @@ async function runReminderEffect(
     await client.reconcile({
       effectRequestId: claim.effectRequestId,
       evidence: {
-        evidenceDigest: sha256Hex(`${claim.effectRequestId}:confirmed:kapso`),
+        evidenceDigest: sha256Hex(`${claim.effectRequestId}.confirmed.kapso`),
         evidenceId: `evidence.reminder.${claim.effectRequestId}`,
-        idempotencyKey: `${claim.effectRequestId}:confirmed:kapso`,
+        // EffectIdempotencyKey grammar allows only alphanumerics plus . _ -
+        // (crates/zoen-core parse_identifier) - no colon separators.
+        idempotencyKey: `${claim.effectRequestId}.confirmed.kapso`,
         observedAt: timestampFromDate(new Date()),
         outcome: EffectEvidenceOutcome.CONFIRMED,
         providerOperationId: delivery.providerOperationId,
