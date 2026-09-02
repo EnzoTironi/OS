@@ -11,6 +11,7 @@
     "@bufbuild/protobuf": "2.14.0",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-node": "2.1.2",
+    "@rivet-dev/dynamic-apps": "0.3.1",
     "rivetkit": "2.3.11",
     "tsx": "4.20.5",
     "zod": "4.4.3"

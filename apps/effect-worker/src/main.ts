@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { join, relative } from "node:path";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   Code,
@@ -12,6 +14,7 @@ import {
   type Interceptor,
 } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
+import { deployApp } from "@rivet-dev/dynamic-apps";
 import { actor, queue, setup } from "rivetkit";
 import { createClient as createRivetClient } from "rivetkit/client";
 import { type WorkflowLoopContextOf, workflow } from "rivetkit/workflow";
@@ -23,6 +26,7 @@ import {
   EffectKnowledgeState,
   EffectService,
 } from "../../../gen/connect/zoen/effect/v1/effect_pb.js";
+import { digestAppFiles } from "../../shared/app-files-digest";
 
 const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
 const oidcClientSchema = z
@@ -43,7 +47,12 @@ const environmentSchema = z.intersection(
     ZOEN_EFFECT_WORKER_PORT: z.coerce.number().int().min(1).max(65_535),
     ZOEN_KAPSO_API_KEY: z.string().min(1),
     ZOEN_KAPSO_PHONE_NUMBER_ID: z.string().min(1),
+    ZOEN_MEMBERSHIP_DISK_ROOT: z
+      .string()
+      .min(1)
+      .default("/data/eve/workbench-disks"),
     ZOEN_REMINDER_CHANNEL_URL: z.url().optional(),
+    ZOEN_WORKSHOP_PUBLIC_ORIGIN: z.url().optional(),
   }),
   z.union([
     z.object({
@@ -136,8 +145,30 @@ const kapsoResponseSchema = z
   .object({ messages: z.array(z.object({ id: z.string().min(1) })).min(1) })
   .passthrough();
 
+const TRAILING_SLASHES = /\/+$/;
+const BUILD_DIAGNOSTICS_MESSAGE = /error TS|diagnostics|tsc/i;
+
+const workshopPayloadSchema = z
+  .object({
+    channel: z
+      .object({
+        kind: z.literal("whatsapp"),
+        to: z.string().min(1),
+      })
+      .strict()
+      .optional(),
+    executorClass: z.literal("workshop_deploy_app"),
+    filesDigest: digestSchema,
+    membershipId: z.string().min(1),
+    schemaVersion: z.literal(1),
+    slug: z.string().regex(/^[a-z0-9-]{1,40}$/),
+    summary: z.string().min(1),
+  })
+  .strict();
+
 type ConnectorOutcome = z.infer<typeof connectorOutcomeSchema>;
 type ReminderPayload = z.infer<typeof reminderPayloadSchema>;
+type WorkshopPayload = z.infer<typeof workshopPayloadSchema>;
 type DispatchInput = z.infer<typeof dispatchInputSchema>;
 
 interface EffectDispatchRequest {
@@ -163,7 +194,8 @@ type PayloadClass =
   | { kind: "external" }
   | { kind: "human" }
   | { kind: "missing" }
-  | { kind: "reminder"; payload: ReminderPayload };
+  | { kind: "reminder"; payload: ReminderPayload }
+  | { kind: "workshop"; payload: WorkshopPayload };
 
 type ServiceAuthentication =
   | {
@@ -246,6 +278,16 @@ export const zoenEffect = actor({
       }
       if (payloadClass.kind === "reminder") {
         await runReminderEffect(
+          loopCtx,
+          client,
+          command,
+          adapterExecutionId,
+          payloadClass.payload
+        );
+        return;
+      }
+      if (payloadClass.kind === "workshop") {
+        await runWorkshopEffect(
           loopCtx,
           client,
           command,
@@ -365,7 +407,7 @@ async function runReminderEffect(
     retryBackoffBase: 100,
     retryBackoffMax: 500,
     retryOnTimeout: true,
-    run: async () => invokeKapso(payload),
+    run: async () => invokeKapso(payload.channel.to, payload.body),
     timeout: 10_000,
   });
   await loopCtx.step("record effect attempt", async () => {
@@ -402,6 +444,226 @@ async function runReminderEffect(
     return "reconciled";
   });
   await markDone(loopCtx);
+}
+
+async function runWorkshopEffect(
+  loopCtx: LoopContext,
+  client: ReturnType<typeof effectClient>,
+  command: DispatchInput,
+  adapterExecutionId: string,
+  payload: WorkshopPayload
+): Promise<void> {
+  const claim = await claimAttempt(
+    loopCtx,
+    client,
+    command.effectRequestId,
+    adapterExecutionId
+  );
+  if (claim.kind === "not_sendable") {
+    await markDone(loopCtx);
+    return;
+  }
+  // Deploy errors that can never succeed without new files (digest drift,
+  // TypeScript diagnostics) are terminal: they record DEFINITELY_NOT_SENT with
+  // the cause in providerOperationId instead of burning step retries. The
+  // repair loop (agent fixes the files on a later turn) is out of scope here.
+  const deploy = await loopCtx.step({
+    maxRetries: 3,
+    name: "deploy workshop app",
+    retryBackoffBase: 500,
+    retryBackoffMax: 5000,
+    retryOnTimeout: true,
+    run: async () => deployWorkshopApp(payload),
+    timeout: 300_000,
+  });
+  if (deploy.kind === "not_deployed") {
+    await loopCtx.step("record effect attempt", async () => {
+      await client.recordAttempt({
+        attempt: {
+          attemptId: claim.attemptId,
+          observedAt: timestampFromDate(new Date()),
+          outcome: EffectAttemptOutcome.DEFINITELY_NOT_SENT,
+          providerOperationId: deploy.providerOperationId,
+          reason: EffectAttemptReason.UNSPECIFIED,
+          responseDigest: deploy.responseDigest,
+        },
+        effectRequestId: claim.effectRequestId,
+      });
+      return "recorded";
+    });
+    await markDone(loopCtx);
+    return;
+  }
+  await loopCtx.step("record effect attempt", async () => {
+    await client.recordAttempt({
+      attempt: {
+        attemptId: claim.attemptId,
+        observedAt: timestampFromDate(new Date()),
+        outcome: EffectAttemptOutcome.ACCEPTED_PENDING,
+        providerOperationId: deploy.providerOperationId,
+        reason: EffectAttemptReason.UNSPECIFIED,
+        responseDigest: deploy.responseDigest,
+      },
+      effectRequestId: claim.effectRequestId,
+    });
+    return "recorded";
+  });
+  await loopCtx.step("reconcile confirmed", async () => {
+    await effectClient(command.tenantId, reconcilerBearerToken).reconcile({
+      effectRequestId: claim.effectRequestId,
+      evidence: {
+        evidenceDigest: sha256Hex(
+          `${claim.effectRequestId}.confirmed.workshop`
+        ),
+        evidenceId: `evidence.workshop.${claim.effectRequestId}`,
+        // The engine requires the evidence idempotency key to equal the
+        // request idempotency key minted at commit time (effect.rs:
+        // "evidence idempotency key does not match the request").
+        idempotencyKey: claim.idempotencyKey,
+        observedAt: timestampFromDate(new Date()),
+        outcome: EffectEvidenceOutcome.CONFIRMED,
+        providerOperationId: deploy.providerOperationId,
+        sourceId: "workshop",
+        sourceRef: deploy.providerOperationId,
+      },
+    });
+    return "reconciled";
+  });
+  // Channel step: the mint includes `channel` only when the committing context
+  // carried a WhatsApp subject (crates/zoen-engine/src/workshop.rs). Without
+  // it the deploy is still confirmed and the person simply is not messaged.
+  // A Kapso failure here must not un-confirm the deploy: log and move on.
+  const { channel } = payload;
+  if (channel !== undefined) {
+    const origin = environment.ZOEN_WORKSHOP_PUBLIC_ORIGIN;
+    if (origin === undefined) {
+      console.error(
+        `workshop app ${payload.slug} deployed but ZOEN_WORKSHOP_PUBLIC_ORIGIN is unset; skipping chat notification`
+      );
+    } else {
+      const url = `${origin.replace(TRAILING_SLASHES, "")}/apps/${payload.membershipId}/${payload.slug}`;
+      await loopCtx.step("notify channel", async () => {
+        try {
+          await invokeKapso(channel.to, `tá no ar: ${url}`);
+          return "notified";
+        } catch (error: unknown) {
+          console.error("workshop channel notification failed", error);
+          return "notification_failed";
+        }
+      });
+    }
+  }
+  await markDone(loopCtx);
+}
+
+type WorkshopDeployResult =
+  | {
+      kind: "deployed";
+      providerOperationId: string;
+      responseDigest: string;
+    }
+  | {
+      kind: "not_deployed";
+      providerOperationId: string;
+      responseDigest: string;
+    };
+
+async function deployWorkshopApp(
+  payload: WorkshopPayload
+): Promise<WorkshopDeployResult> {
+  const root = join(
+    environment.ZOEN_MEMBERSHIP_DISK_ROOT,
+    payload.membershipId,
+    "workspace",
+    "apps",
+    payload.slug
+  );
+  const files = await readAppFiles(root);
+  if (files === null || Object.keys(files).length === 0) {
+    return terminalWorkshopFailure("workshop:apps_directory_missing");
+  }
+  const entries = Object.entries(files).map(([path, text]) => ({
+    path,
+    text,
+  }));
+  // The isolate owns the disk: without this check the commit approves X and
+  // the deploy would read Y.
+  if (digestAppFiles(entries) !== payload.filesDigest) {
+    return terminalWorkshopFailure("workshop:files_changed_after_commit");
+  }
+  const appId = sanitizeAppId(`${payload.membershipId}-${payload.slug}`);
+  let deployment: Awaited<ReturnType<typeof deployApp>>;
+  try {
+    deployment = await deployApp({ appId, files });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Build diagnostics (broken generated TypeScript) are terminal; anything
+    // else may be transient and deserves the step's retry policy.
+    if (BUILD_DIAGNOSTICS_MESSAGE.test(message)) {
+      return terminalWorkshopFailure("workshop:build_failed", message);
+    }
+    throw error;
+  }
+  const operationId = `workshop:${deployment.appId}@${deployment.release}`;
+  return {
+    kind: "deployed",
+    providerOperationId: operationId,
+    responseDigest: sha256Hex(operationId),
+  };
+}
+
+function terminalWorkshopFailure(
+  cause: string,
+  detail = ""
+): WorkshopDeployResult {
+  if (detail.length > 0) {
+    console.error(`workshop deploy terminal failure ${cause}: ${detail}`);
+  }
+  return {
+    kind: "not_deployed",
+    providerOperationId: cause,
+    responseDigest: sha256Hex(`${cause}:${detail}`),
+  };
+}
+
+async function readAppFiles(
+  root: string
+): Promise<Record<string, string> | null> {
+  const files: Record<string, string> = {};
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    await Promise.all(
+      entries.map(async (entry) => {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(full);
+        } else if (entry.isFile()) {
+          files[relative(root, full).split("\\").join("/")] = await readFile(
+            full,
+            "utf8"
+          );
+        }
+      })
+    );
+  }
+  try {
+    await walk(root);
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+  return files;
+}
+
+function sanitizeAppId(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 63);
 }
 
 async function runExternalEffect(
@@ -502,6 +764,10 @@ function classifyPayload(payload: Uint8Array): PayloadClass {
   if (reminder.success) {
     return { kind: "reminder", payload: reminder.data };
   }
+  const workshop = workshopPayloadSchema.safeParse(parsed);
+  if (workshop.success) {
+    return { kind: "workshop", payload: workshop.data };
+  }
   const record = parsed as {
     executorClass?: unknown;
     schemaVersion?: unknown;
@@ -582,7 +848,8 @@ async function serviceBearerToken(tenantId: string): Promise<string> {
 }
 
 async function invokeKapso(
-  payload: ReminderPayload
+  to: string,
+  body: string
 ): Promise<{ providerOperationId: string; responseDigest: string }> {
   const baseUrl =
     environment.ZOEN_REMINDER_CHANNEL_URL ?? "https://api.kapso.ai";
@@ -592,8 +859,8 @@ async function invokeKapso(
       body: JSON.stringify({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        text: { body: payload.body, preview_url: false },
-        to: payload.channel.to,
+        text: { body, preview_url: false },
+        to,
         type: "text",
       }),
       headers: {
@@ -603,14 +870,14 @@ async function invokeKapso(
       method: "POST",
     }
   );
-  const body = new Uint8Array(await response.arrayBuffer());
-  const digest = sha256Hex(Buffer.from(body).toString("binary"));
+  const responseBytes = new Uint8Array(await response.arrayBuffer());
+  const digest = sha256Hex(Buffer.from(responseBytes).toString("binary"));
   if (!response.ok) {
     throw new Error(`kapso rejected reminder with HTTP ${response.status}`);
   }
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder().decode(body));
+    value = JSON.parse(new TextDecoder().decode(responseBytes));
   } catch (parseError: unknown) {
     throw new Error("kapso response was not JSON", { cause: parseError });
   }
