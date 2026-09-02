@@ -190,7 +190,7 @@ jobs:
         env:
           PROOF_PATH: ${{ steps.runtime_proof.outputs.proof_path }}
         run: |
-          node dist/e2e/verify-journey-runtime-proof.js \
+          ./e2e/run.sh verify-runtime-proof \
             --proof "$PROOF_PATH" \
             --expected-source "$GITHUB_SHA"
       - id: proof_artifact
