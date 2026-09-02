@@ -2214,7 +2214,12 @@ async function assertProjectionTableCapabilities(
       assert.equal(capability.row_security_active, true);
     }
   }
-  assert.deepEqual([...foundReadTables].sort(), [...readTables].sort());
+  const alphabetically = (left: string, right: string): number =>
+    left.localeCompare(right);
+  assert.deepEqual(
+    [...foundReadTables].sort(alphabetically),
+    [...readTables].sort(alphabetically),
+  );
 }
 
 async function assertProjectionColumnCapabilities(
