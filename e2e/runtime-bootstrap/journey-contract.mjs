@@ -8,16 +8,19 @@ import { noncePattern } from "./command-line.mjs";
 export const journeyBootstrapReaderCommandTimeoutMilliseconds = 30_000;
 export const journeyCleanupRuntimeTimeoutMilliseconds = 300_000;
 
-// The cleanup authority also owns reader acquisition and release, guardian
-// startup and shutdown, and descendant drain outside the runtime deadline.
-// The final 30 seconds covers their bounded 5 + 10 + 12 second process waits
-// and leaves 3 seconds for IPC and scheduling.
+// The cleanup authority can attempt reader release twice after a failed first
+// release. It also owns guardian startup and shutdown and descendant drain.
+// The final 60 seconds covers their bounded 5 + 10 + 12 second process waits
+// and leaves 33 seconds for IPC and scheduling.
 const journeyCleanupAuthorityLifecycleMarginMilliseconds =
-  journeyBootstrapReaderCommandTimeoutMilliseconds * 2 + 30_000;
+  journeyBootstrapReaderCommandTimeoutMilliseconds * 3 + 60_000;
 
 export const journeyCleanupAuthorityTimeoutMilliseconds =
   journeyCleanupRuntimeTimeoutMilliseconds +
   journeyCleanupAuthorityLifecycleMarginMilliseconds;
+
+export const journeyLeaseReconciliationTimeoutMilliseconds =
+  journeyCleanupAuthorityTimeoutMilliseconds + 30_000;
 
 export async function canonicalJourneyAuthority(repository, contextFile, allowMissing = false) {
   const resolvedContext = path.resolve(contextFile);

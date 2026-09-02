@@ -20,7 +20,10 @@ import {
   writeJsonAtomically,
 } from "./atomic-state.mjs";
 import { flag, nonce, scriptPath } from "./command-line.mjs";
-import { isLeaseDirectory } from "./journey-contract.mjs";
+import {
+  isLeaseDirectory,
+  journeyLeaseReconciliationTimeoutMilliseconds,
+} from "./journey-contract.mjs";
 import {
   abandonChild,
   acquireOwnedLock,
@@ -438,7 +441,7 @@ async function reconcileLeasesIfPossible(readerCount, abortSignal) {
   const completed = completion.then((outcome) => ({ kind: "child", outcome }));
   const event = await deadline(
     Promise.race([completed, aborted]),
-    120_000,
+    journeyLeaseReconciliationTimeoutMilliseconds,
     "journey lease reconciliation timed out",
   ).catch(async (error) => {
     child.kill("SIGTERM");

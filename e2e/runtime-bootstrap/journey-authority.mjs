@@ -42,11 +42,12 @@ export async function runJourneyCleaner() {
   let runtime;
   let readerToken;
   let completed = false;
-  process.once("disconnect", () => {
+  const exitOnControllerDisconnect = () => {
     if (!completed) {
       process.exit(143);
     }
-  });
+  };
+  process.once("disconnect", exitOnControllerDisconnect);
   if (!process.connected) {
     process.exit(143);
   }
@@ -144,14 +145,18 @@ export async function runJourneyCleaner() {
     guardian = undefined;
     completed = true;
   } finally {
-    if (runtime !== undefined) {
-      await terminatePreparationDescendants(process.pid, guardian?.pid);
-    }
-    if (readerToken !== undefined) {
-      releaseReaderFromAuthority(repository, readerToken, ownerNonce);
-    }
-    if (guardian !== undefined && guardianCompletion !== undefined) {
-      await stopGuardian(guardian, guardianCompletion, ownerNonce);
+    try {
+      if (runtime !== undefined) {
+        await terminatePreparationDescendants(process.pid, guardian?.pid);
+      }
+      if (readerToken !== undefined) {
+        releaseReaderFromAuthority(repository, readerToken, ownerNonce);
+      }
+      if (guardian !== undefined && guardianCompletion !== undefined) {
+        await stopGuardian(guardian, guardianCompletion, ownerNonce);
+      }
+    } finally {
+      disconnectCompletedController(completed, exitOnControllerDisconnect);
     }
   }
 }
@@ -188,11 +193,13 @@ export async function runJourneyWorker() {
   let guardianCompletion;
   let authority;
   let completed = false;
-  process.once("disconnect", () => {
+  const exitOnControllerDisconnect = () => {
     if (!completed) {
       process.exit(143);
     }
-  });
+  };
+  const signalForwarders = [];
+  process.once("disconnect", exitOnControllerDisconnect);
   if (!process.connected) {
     process.exit(143);
   }
@@ -248,7 +255,9 @@ export async function runJourneyWorker() {
       ownerNonce,
     );
     for (const signal of ["SIGINT", "SIGTERM"]) {
-      process.on(signal, () => body?.kill(signal));
+      const forward = () => body?.kill(signal);
+      signalForwarders.push({ forward, signal });
+      process.on(signal, forward);
     }
     const completedProcess = await Promise.race([
       bodyCompletion.then((outcome) => ({ kind: "body", outcome })),
@@ -286,12 +295,29 @@ export async function runJourneyWorker() {
       process.exitCode = outcome.code ?? 1;
     }
   } finally {
-    if (body !== undefined) {
-      await terminatePreparationDescendants(process.pid, guardian?.pid);
+    try {
+      if (body !== undefined) {
+        await terminatePreparationDescendants(process.pid, guardian?.pid);
+      }
+      if (guardian !== undefined && guardianCompletion !== undefined) {
+        await stopGuardian(guardian, guardianCompletion, ownerNonce);
+      }
+    } finally {
+      for (const { forward, signal } of signalForwarders) {
+        process.off(signal, forward);
+      }
+      disconnectCompletedController(completed, exitOnControllerDisconnect);
     }
-    if (guardian !== undefined && guardianCompletion !== undefined) {
-      await stopGuardian(guardian, guardianCompletion, ownerNonce);
-    }
+  }
+}
+
+function disconnectCompletedController(completed, disconnectListener) {
+  if (!completed) {
+    return;
+  }
+  process.off("disconnect", disconnectListener);
+  if (process.connected) {
+    process.disconnect();
   }
 }
 

@@ -89,8 +89,9 @@ export async function runJourneyController() {
   const cancellation = new Promise((resolve) => {
     cancellationRequested = resolve;
   });
+  const controllerSignalHandlers = [];
   for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.once(signal, () => {
+    const handler = () => {
       interrupted = true;
       cancellationRequested();
       const signaledAuthority = { ...activeAuthority };
@@ -117,7 +118,9 @@ export async function runJourneyController() {
         }
       }, 5_000);
       escalation.unref();
-    });
+    };
+    controllerSignalHandlers.push({ handler, signal });
+    process.once(signal, handler);
   }
 
   let outcome;
@@ -209,6 +212,10 @@ export async function runJourneyController() {
     cleanupFailure = error;
   }
 
+  worker.off("message", captureContext);
+  for (const { handler, signal } of controllerSignalHandlers) {
+    process.off(signal, handler);
+  }
   if (
     (externalPointer === undefined || externalPointer === "") &&
     lifecycleFailure === undefined &&
@@ -231,7 +238,6 @@ export async function runJourneyController() {
   if (outcome?.code !== 0) {
     process.exitCode = outcome.code ?? (interrupted ? 130 : 1);
   }
-  worker.off("message", captureContext);
 }
 
 export async function startJourneyCleanupAuthority(repository, contextFile) {
