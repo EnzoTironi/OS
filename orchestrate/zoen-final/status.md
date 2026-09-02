@@ -1,10 +1,10 @@
 # Orchestrate status
 
-Generated: 2026-09-02T11:33:12.000Z
+Generated: 2026-09-02T12:46:06.000Z
 
 ## Units
 
-States: active=3, done=8
+States: active=4, done=8
 
 | ID | Track | State | Branch | PR | SHA | Brief |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -19,6 +19,7 @@ States: active=3, done=8
 | w1-02-supervised-projection | runtime-truth | active | codex/w1-02-supervised-projection |  |  | orchestrate/zoen-final/briefs/w1-02-supervised-projection.md |
 | w1-03-production-effect-handler | runtime-truth | active | codex/w1-03-production-effect-handler |  |  | orchestrate/zoen-final/briefs/w1-03-production-effect-handler.md |
 | w1-04-eve-runtime-boundary | runtime-truth | active | codex/w1-04-eve-runtime-boundary |  |  | orchestrate/zoen-final/briefs/w1-04-eve-runtime-boundary.md |
+| w1-h1-idempotent-journeys | integration | active | codex/w1-h1-idempotent-journeys |  |  | orchestrate/zoen-final/briefs/w1-h1-idempotent-journeys.md |
 
 ## Verification ledger
 
@@ -41,4 +42,4 @@ Lowest unmerged: none
 
 (none)
 
-<!-- orch-summary {"unitStates":{"active":3,"done":8},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":3,"openGateIds":[]} -->
+<!-- orch-summary {"unitStates":{"active":4,"done":8},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":3,"openGateIds":[]} -->

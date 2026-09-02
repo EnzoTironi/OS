@@ -10,3 +10,4 @@ w1-01-governed-publish	w1-publish	done	codex/w1-01-governed-publish	602	6e6eddf3
 w1-02-supervised-projection	runtime-truth	active	codex/w1-02-supervised-projection			orchestrate/zoen-final/briefs/w1-02-supervised-projection.md
 w1-03-production-effect-handler	runtime-truth	active	codex/w1-03-production-effect-handler			orchestrate/zoen-final/briefs/w1-03-production-effect-handler.md
 w1-04-eve-runtime-boundary	runtime-truth	active	codex/w1-04-eve-runtime-boundary			orchestrate/zoen-final/briefs/w1-04-eve-runtime-boundary.md
+w1-h1-idempotent-journeys	integration	active	codex/w1-h1-idempotent-journeys			orchestrate/zoen-final/briefs/w1-h1-idempotent-journeys.md
