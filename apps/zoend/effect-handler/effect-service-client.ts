@@ -196,6 +196,10 @@ export class EffectServiceClient {
     }
   }
 
+  async requireCurrentWorkerAuthentication(): Promise<void> {
+    await this.#authenticate();
+  }
+
   async #withAuthentication<T>(
     operationName: string,
     operation: (options: CallOptions) => Promise<T>
@@ -226,7 +230,9 @@ export class EffectServiceClient {
       apiKey = readWorkloadApiKey(this.#config.identity.apiKeyFile);
     } catch (error: unknown) {
       if (error instanceof EffectHandlerConfigurationError) {
-        throw terminalError(error.message, error);
+        throw new Error("effect worker API key is unavailable", {
+          cause: error,
+        });
       }
       throw error;
     }
@@ -248,7 +254,7 @@ export class EffectServiceClient {
     }
     if (!response.ok) {
       await cancelResponse(response);
-      if (response.status >= 500 || response.status === 429) {
+      if (response.status >= 500 || [401, 404, 429].includes(response.status)) {
         throw new Error(
           `workload credential exchange returned HTTP ${response.status}`
         );
@@ -417,6 +423,7 @@ function unknownReason(
 ): EffectAttemptReason {
   switch (reason) {
     case "provider_unavailable":
+    case "response_body_read_error":
       return EffectAttemptReason.PROVIDER_UNAVAILABLE;
     case "response_parse_error":
       return EffectAttemptReason.RESPONSE_PARSE_ERROR;

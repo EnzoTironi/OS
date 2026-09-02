@@ -20,6 +20,7 @@ const connectorOutcomeSchema = z.discriminatedUnion("kind", [
       providerOperationId: z.string().min(1).optional(),
       reason: z.enum([
         "provider_unavailable",
+        "response_body_read_error",
         "response_parse_error",
         "response_schema_error",
         "timeout_after_possible_delivery",

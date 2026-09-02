@@ -102,6 +102,7 @@ export function createZoenEffect(
         context,
         registrationLease,
         artifact.revision,
+        effectService,
         connector,
         claim
       );
@@ -128,6 +129,7 @@ function invokeConnectorDurably(
   context: ObjectContext,
   registrationLease: RegistrationLease,
   artifactRevision: string,
+  effectService: EffectServiceClient,
   connector: ConnectorClient,
   claim: AttemptClaim
 ): Promise<ConnectorOutcome> {
@@ -137,6 +139,7 @@ function invokeConnectorDurably(
     claim,
     connector,
     context,
+    effectService,
     registrationLease,
   });
 }
@@ -147,12 +150,14 @@ async function invokeConnectorAttempt(input: {
   claim: AttemptClaim;
   connector: ConnectorClient;
   context: ObjectContext;
+  effectService: EffectServiceClient;
   registrationLease: RegistrationLease;
 }): Promise<ConnectorOutcome> {
   const attempt = await input.context.run(
     `invoke external connector attempt ${input.attemptNumber}`,
     async () => {
       await input.registrationLease.requireCurrent(input.artifactRevision);
+      await input.effectService.requireCurrentWorkerAuthentication();
       try {
         return {
           kind: "completed" as const,

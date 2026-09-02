@@ -265,12 +265,14 @@ async fn provider_outcome(
     response: reqwest::Response,
 ) -> Result<Json<ConnectorResponse>, HttpError> {
     let status = response.status();
-    let body = response.bytes().await.map_err(|error| {
-        (
-            StatusCode::BAD_GATEWAY,
-            format!("provider response body could not be read: {error}"),
-        )
-    })?;
+    let Ok(body) = response.bytes().await else {
+        return Ok(Json(ConnectorResponse::Unknown {
+            observed_at_micros: observed_at_micros(),
+            provider_operation_id: None,
+            reason: "response_body_read_error",
+            response_digest: None,
+        }));
+    };
     let response_digest = sha256(&body);
     if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
         || !matches!(status, StatusCode::OK | StatusCode::ACCEPTED)

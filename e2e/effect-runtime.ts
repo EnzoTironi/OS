@@ -71,8 +71,10 @@ import {
   startZoend,
   stopProcess,
   stopRestate,
+  suspendProcess,
   tenantA,
   tenantB,
+  resumeProcess,
   waitFor,
   waitForCredentialReady,
   worldClient,
@@ -563,6 +565,248 @@ async function main(): Promise<void> {
           reconcilerCredential.credentialId,
     );
 
+    await setProviderMode("truncate_after_commit");
+    const truncated = await commitEffect(
+      actionA,
+      fixture,
+      "truncated-response-no-resend",
+    );
+    await dispatchOnce();
+    await waitForState(
+      effectA,
+      truncated.effectRequestId,
+      EffectKnowledgeState.UNKNOWN,
+    );
+    const truncatedProvider = await waitForProviderOperation(
+      truncated.idempotencyKey,
+    );
+    await dispatchOnce();
+    await delay(100);
+    const truncatedProviderAfterRedispatch = await waitForProviderOperation(
+      truncated.idempotencyKey,
+    );
+    const truncatedWorkerEvidence = evidenceInput(
+      await waitForConnectorStatus(truncated.idempotencyKey),
+      "effect-runtime-truncated-response-worker",
+    );
+    const truncatedWorkerDenied = await expectConnectCode(
+      () =>
+        workerEffect.reconcile({
+          effectRequestId: truncated.effectRequestId,
+          evidence: truncatedWorkerEvidence,
+        }),
+      Code.PermissionDenied,
+    );
+    const truncatedEvidence = evidenceInput(
+      await waitForConnectorStatus(truncated.idempotencyKey),
+      "effect-runtime-truncated-response",
+    );
+    const truncatedReconciled = await reconciler.reconcile({
+      effectRequestId: truncated.effectRequestId,
+      evidence: truncatedEvidence,
+    });
+    const truncatedReconciliationCounts = await evidenceCounts(
+      admin,
+      truncated.effectRequestId,
+    );
+    observe(
+      "truncatedProviderResponseIsUnknownNeverResentAndReconciled",
+      (await dispatchAttemptCount(admin, truncated.effectRequestId)) === 1 &&
+        truncatedProvider.requests === 1 &&
+        truncatedProviderAfterRedispatch.requests === 1 &&
+        truncatedWorkerDenied === Code.PermissionDenied &&
+        truncatedReconciled.snapshot?.request?.state ===
+          EffectKnowledgeState.CONFIRMED &&
+        truncatedReconciliationCounts.evidence === 1 &&
+        truncatedReconciliationCounts.reconciliations === 1,
+    );
+
+    await setProviderMode("confirmed");
+    const preClaimCredentialRace = await commitEffect(
+      actionA,
+      fixture,
+      "credential-loss-before-claim",
+    );
+    await suspendValidatorAtFreshCredentialMarker(workerIdentity, validator);
+    let acceptedWithoutClaimBeforeCredentialLoss = false;
+    let revokedWorkerSessionWasInvalidated = false;
+    const preClaimRecoveryCredential = await (async () => {
+      const pending: { revoke?: Promise<void> } = {};
+      try {
+        await withCredentialRowHeld(
+          replacementWorkerCredential.credentialId,
+          async () => {
+            pending.revoke = revokeWorkloadCredential(
+              adminAToken,
+              replacementWorkerCredential.credentialId,
+              tenantA,
+            );
+            await waitFor(
+              async () =>
+                (await blockedWorkloadQueryCount(
+                  admin,
+                  "zoen:workload-credential-revocation",
+                )) === 1
+                  ? true
+                  : undefined,
+              "governed revocation waiting on the credential row",
+            );
+            await dispatchOnce();
+            await waitFor(
+              async () =>
+                (await blockedWorkloadQueryCount(
+                  admin,
+                  "zoen:workload-api-key-authentication",
+                )) === 1
+                  ? true
+                  : undefined,
+              "effect handler authentication waiting on the credential row",
+            );
+            const heldCounts = await attemptCounts(
+              admin,
+              preClaimCredentialRace.effectRequestId,
+            );
+            acceptedWithoutClaimBeforeCredentialLoss =
+              heldCounts.dispatches === 1 &&
+              heldCounts.schedulerAttempts === 1 &&
+              heldCounts.claims === 0 &&
+              heldCounts.effectAttempts === 0 &&
+              (await providerOperation(
+                preClaimCredentialRace.idempotencyKey,
+              )) === undefined;
+          },
+        );
+        assert.ok(pending.revoke);
+        await pending.revoke;
+        revokedWorkerSessionWasInvalidated =
+          (await expectConnectCode(
+            () =>
+              workerEffect.getEffect({
+                effectRequestId: preClaimCredentialRace.effectRequestId,
+              }),
+            Code.Unauthenticated,
+          )) === Code.Unauthenticated;
+        const credential = await issueWorkloadCredential(
+          adminAToken,
+          workerIdentity,
+        );
+        await writeEffectWorkerApiKey(credential);
+        return credential;
+      } finally {
+        resumeProcess(validator);
+      }
+    })();
+    await waitForCredentialReady(workerIdentity, validator);
+    await exactRegistration();
+    await waitForState(
+      effectA,
+      preClaimCredentialRace.effectRequestId,
+      EffectKnowledgeState.CONFIRMED,
+    );
+    const preClaimRaceCounts = await attemptCounts(
+      admin,
+      preClaimCredentialRace.effectRequestId,
+    );
+    const preClaimRaceProvider = await waitForProviderOperation(
+      preClaimCredentialRace.idempotencyKey,
+    );
+    observe(
+      "acceptedPreClaimCredentialLossResumesAfterCredentialRestoration",
+      acceptedWithoutClaimBeforeCredentialLoss &&
+        revokedWorkerSessionWasInvalidated &&
+        preClaimRaceCounts.dispatches === 1 &&
+        preClaimRaceCounts.schedulerAttempts === 1 &&
+        preClaimRaceCounts.claims === 1 &&
+        preClaimRaceCounts.effectAttempts === 1 &&
+        preClaimRaceProvider.requests === 1,
+    );
+
+    const postClaimCredentialRace = await commitEffect(
+      actionA,
+      fixture,
+      "credential-revoked-after-claim-authorization",
+    );
+    await suspendValidatorAtFreshCredentialMarker(workerIdentity, validator);
+    let postClaimRevocationStoppedProvider = false;
+    const finalWorkerCredential = await (async () => {
+      try {
+        const authorityHead = await holdAuthorityHead(tenantA);
+        try {
+          await dispatchOnce();
+          await waitFor(
+            async () =>
+              (await blockedAuthorityHeadClaimCount(admin)) > 0
+                ? true
+                : undefined,
+            "claim authorization waiting on the authority head",
+          );
+          await revokeWorkloadCredential(
+            adminAToken,
+            preClaimRecoveryCredential.credentialId,
+            tenantA,
+          );
+          const secretReads = await holdWorkloadSecretReads();
+          try {
+            await authorityHead.release();
+            await waitFor(
+              async () =>
+                (await blockedWorkloadQueryCount(
+                  admin,
+                  "zoen:workload-api-key-lookup",
+                )) === 1
+                  ? true
+                  : undefined,
+              "post-claim worker authentication waiting on secret reads",
+            );
+            postClaimRevocationStoppedProvider =
+              (await registrarReady()) &&
+              (await claimCount(
+                admin,
+                postClaimCredentialRace.effectRequestId,
+              )) === 1 &&
+              (await providerOperation(
+                postClaimCredentialRace.idempotencyKey,
+              )) === undefined;
+          } finally {
+            await secretReads.release();
+          }
+        } finally {
+          await authorityHead.release();
+        }
+        const credential = await issueWorkloadCredential(
+          adminAToken,
+          workerIdentity,
+        );
+        await writeEffectWorkerApiKey(credential);
+        return credential;
+      } finally {
+        resumeProcess(validator);
+      }
+    })();
+    await waitForCredentialReady(workerIdentity, validator);
+    await exactRegistration();
+    await waitForState(
+      effectA,
+      postClaimCredentialRace.effectRequestId,
+      EffectKnowledgeState.CONFIRMED,
+    );
+    const postClaimRaceCounts = await attemptCounts(
+      admin,
+      postClaimCredentialRace.effectRequestId,
+    );
+    const postClaimRaceProvider = await waitForProviderOperation(
+      postClaimCredentialRace.idempotencyKey,
+    );
+    observe(
+      "freshAuthenticationAfterClaimBlocksRevokedWorkerUntilRestored",
+      postClaimRevocationStoppedProvider &&
+        postClaimRaceCounts.dispatches === 1 &&
+        postClaimRaceCounts.schedulerAttempts === 1 &&
+        postClaimRaceCounts.claims === 1 &&
+        postClaimRaceCounts.effectAttempts === 1 &&
+        postClaimRaceProvider.requests === 1,
+    );
+
     const terminalProviderRequestsBefore = (await providerStats()).requests;
     const crossTenantEffect = await commitEffect(
       actionB,
@@ -737,9 +981,11 @@ async function main(): Promise<void> {
         sessionDoor: "better-auth",
       },
       credentialIds: {
+        preClaimRevokedWorker: replacementWorkerCredential.credentialId,
+        postClaimRevokedWorker: preClaimRecoveryCredential.credentialId,
         reconciler: reconcilerCredential.credentialId,
         revokedWorker: firstWorkerCredential.credentialId,
-        worker: replacementWorkerCredential.credentialId,
+        worker: finalWorkerCredential.credentialId,
       },
       finishedAt: new Date().toISOString(),
       invocationIdentity: identity,
@@ -750,7 +996,12 @@ async function main(): Promise<void> {
       targets: {
         humanEffectRequestId: human.effectRequestId,
         normalEffectRequestId: normal.effectRequestId,
+        postClaimCredentialRaceEffectRequestId:
+          postClaimCredentialRace.effectRequestId,
+        preClaimCredentialRaceEffectRequestId:
+          preClaimCredentialRace.effectRequestId,
         retryableEffectRequestId: retryable.effectRequestId,
+        truncatedResponseEffectRequestId: truncated.effectRequestId,
         unknownEffectRequestId: unknown.effectRequestId,
       },
       tenants: [tenantA, tenantB],
@@ -1090,6 +1341,126 @@ async function effectIdentity(
     ...row,
     restate_object_key: `${row.tenant_id}:${row.effect_request_id}:${row.dispatch_version}`,
   };
+}
+
+async function withCredentialRowHeld(
+  credentialId: string,
+  whileHeld: () => Promise<void>,
+): Promise<void> {
+  const held = await holdDatabaseLock(async (locker) => {
+    const locked = await locker.query(
+      `SELECT credential_id
+       FROM workload_credentials
+       WHERE credential_id = $1
+       FOR UPDATE`,
+      [credentialId],
+    );
+    assert.equal(locked.rowCount, 1);
+  });
+  try {
+    await whileHeld();
+  } finally {
+    await held.release();
+  }
+}
+
+async function suspendValidatorAtFreshCredentialMarker(
+  identity: WorkloadIdentity,
+  validator: ManagedProcess,
+): Promise<void> {
+  assert.ok(validator.processGroupId !== undefined);
+  await rm(effectWorkerReadyFile, { force: true });
+  await waitForCredentialReady(identity, validator);
+  suspendProcess(validator);
+}
+
+async function blockedWorkloadQueryCount(
+  admin: ReturnType<typeof adminClient>,
+  marker: string,
+): Promise<number> {
+  const result = await admin.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM pg_stat_activity
+     WHERE datname = current_database()
+       AND usename = 'zoen_app'
+       AND wait_event_type = 'Lock'
+       AND query LIKE $1`,
+    [`%${marker}%`],
+  );
+  return Number(result.rows[0]?.count);
+}
+
+async function holdAuthorityHead(tenantId: string): Promise<HeldDatabaseLock> {
+  return holdDatabaseLock(async (locker) => {
+    const locked = await locker.query(
+      `SELECT commit_sequence
+       FROM authority_heads
+       WHERE tenant_id = $1
+       FOR UPDATE`,
+      [tenantId],
+    );
+    assert.equal(locked.rowCount, 1);
+  });
+}
+
+function holdWorkloadSecretReads(): Promise<HeldDatabaseLock> {
+  return holdDatabaseLock(async (locker) => {
+    await locker.query(
+      "LOCK TABLE workload_secrets IN ACCESS EXCLUSIVE MODE",
+    );
+  });
+}
+
+interface HeldDatabaseLock {
+  release: () => Promise<void>;
+}
+
+async function holdDatabaseLock(
+  acquire: (locker: ReturnType<typeof adminClient>) => Promise<void>,
+): Promise<HeldDatabaseLock> {
+  const locker = adminClient();
+  await locker.connect();
+  try {
+    await locker.query("BEGIN");
+    await acquire(locker);
+  } catch (error: unknown) {
+    try {
+      await locker.query("ROLLBACK");
+    } catch {
+      // Closing the connection below also releases every held lock.
+    }
+    await locker.end();
+    throw error;
+  }
+  let released = false;
+  return {
+    release: async () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      try {
+        await locker.query("COMMIT");
+      } finally {
+        await locker.end();
+      }
+    },
+  };
+}
+
+async function blockedAuthorityHeadClaimCount(
+  admin: ReturnType<typeof adminClient>,
+): Promise<number> {
+  const result = await admin.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM pg_stat_activity
+     WHERE datname = current_database()
+       AND usename = 'zoen_app'
+       AND wait_event_type = 'Lock'
+       AND query LIKE '%FROM authority_heads%'
+       AND query LIKE '%FOR UPDATE%'`,
+  );
+  return Number(result.rows[0]?.count);
 }
 
 main().catch((error: unknown) => {

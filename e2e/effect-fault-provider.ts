@@ -11,6 +11,7 @@ const modeSchema = z.enum([
   "parse_error",
   "schema_error",
   "timeout_after_delivery",
+  "truncate_after_commit",
   "unavailable",
 ]);
 const controlSchema = z.object({ mode: modeSchema }).strict();
@@ -192,6 +193,22 @@ async function respondForMode(
         providerOperationId: operation.providerOperationId,
       });
       return;
+    case "truncate_after_commit": {
+      const body = JSON.stringify({
+        outcome: "confirmed",
+        providerOperationId: operation.providerOperationId,
+      });
+      response.writeHead(200, {
+        connection: "close",
+        "content-length": Buffer.byteLength(body) + 1024,
+        "content-type": "application/json",
+      });
+      response.flushHeaders();
+      response.write(body.slice(0, Math.max(1, Math.floor(body.length / 2))));
+      await delay(25);
+      response.destroy();
+      return;
+    }
     case "unavailable":
       sendJson(response, 503, { error: "provider unavailable" });
       return;

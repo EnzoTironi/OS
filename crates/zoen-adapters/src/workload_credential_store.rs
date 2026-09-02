@@ -291,19 +291,27 @@ impl PostgresWorkloadCredentialStore {
         let secret_hash = hash_secret(api_key);
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let row = sqlx::query(
-            "SELECT secret_id, credential_id
+            "SELECT secret_id, credential_id /* zoen:workload-api-key-lookup */
              FROM workload_secrets
-             WHERE secret_hash = $1 AND revoked_at IS NULL
-             FOR UPDATE",
+             WHERE secret_hash = $1 AND revoked_at IS NULL",
         )
         .bind(secret_hash.as_slice())
         .fetch_optional(&mut *transaction)
         .await
         .map_err(unavailable)?
         .ok_or(IdentityError::Unauthenticated)?;
+        // The credential row is the stable lock anchor. The unlocked lookup only
+        // discovers its id; the secret is revalidated after that lock is held.
+        let secret_id = WorkloadSecretId::parse(row_text(&row, "secret_id")?)
+            .map_err(|_| IdentityError::Conflict("invalid secret id".to_owned()))?;
         let credential_id = WorkloadCredentialId::parse(row_text(&row, "credential_id")?)
             .map_err(|_| IdentityError::Conflict("invalid credential id".to_owned()))?;
-        let credential = load_credential(&mut transaction, &credential_id).await?;
+        let credential = load_credential_for_api_key(&mut transaction, &credential_id).await?;
+        if credential.secret_id.as_str() != secret_id.as_str() {
+            return Err(IdentityError::Unauthenticated);
+        }
+        require_live_api_key_secret(&mut transaction, &credential_id, &secret_id, &secret_hash)
+            .await?;
         let now = now_micros();
         let tec = trusted_context_from_workload_credential(&credential, now)?;
         transaction.commit().await.map_err(unavailable)?;
@@ -356,6 +364,52 @@ impl PostgresWorkloadCredentialStore {
     }
 }
 
+async fn load_credential_for_api_key(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: &WorkloadCredentialId,
+) -> Result<WorkloadCredential, IdentityError> {
+    let sql = format!(
+        "SELECT {CREDENTIAL_SELECT} /* zoen:workload-api-key-authentication */
+         FROM workload_credentials
+         WHERE credential_id = $1
+         FOR UPDATE"
+    );
+    let row = sqlx::query(&sql)
+        .bind(id.as_str())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(unavailable)?
+        .ok_or(IdentityError::Unauthenticated)?;
+    row_to_credential(&row)
+}
+
+async fn require_live_api_key_secret(
+    transaction: &mut Transaction<'_, Postgres>,
+    credential_id: &WorkloadCredentialId,
+    secret_id: &WorkloadSecretId,
+    secret_hash: &[u8; 32],
+) -> Result<(), IdentityError> {
+    let found = sqlx::query_scalar::<_, bool>(
+        "SELECT true
+         FROM workload_secrets
+         WHERE credential_id = $1
+           AND secret_id = $2
+           AND secret_hash = $3
+           AND revoked_at IS NULL
+         FOR UPDATE",
+    )
+    .bind(credential_id.as_str())
+    .bind(secret_id.as_str())
+    .bind(secret_hash.as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+    if found.is_none() {
+        return Err(IdentityError::Unauthenticated);
+    }
+    Ok(())
+}
+
 async fn load_credential(
     transaction: &mut Transaction<'_, Postgres>,
     id: &WorkloadCredentialId,
@@ -381,7 +435,7 @@ async fn load_credential_for_tenant(
     id: &WorkloadCredentialId,
 ) -> Result<WorkloadCredential, IdentityError> {
     let sql = format!(
-        "SELECT {CREDENTIAL_SELECT}
+        "SELECT {CREDENTIAL_SELECT} /* zoen:workload-credential-revocation */
          FROM workload_credentials
          WHERE credential_id = $1 AND tenant_id = $2
          FOR UPDATE"
@@ -400,28 +454,37 @@ async fn load_credential_by_secret(
     transaction: &mut Transaction<'_, Postgres>,
     secret_id: &WorkloadSecretId,
 ) -> Result<WorkloadCredential, IdentityError> {
-    let row = sqlx::query(
-        "SELECT c.credential_id, c.tenant_id, c.principal_id, c.workload_id, c.actor_id, c.status,
-                c.allowed_ingress_json, c.rate_budget_json,
-                (EXTRACT(EPOCH FROM c.expires_at) * 1000000)::bigint AS expires_at_micros,
-                c.audience_class, c.secret_id, c.delegation_json,
-                (EXTRACT(EPOCH FROM c.created_at) * 1000000)::bigint AS created_at_micros,
-                CASE WHEN c.rotated_at IS NULL THEN NULL
-                     ELSE (EXTRACT(EPOCH FROM c.rotated_at) * 1000000)::bigint END AS rotated_at_micros,
-                CASE WHEN c.revoked_at IS NULL THEN NULL
-                     ELSE (EXTRACT(EPOCH FROM c.revoked_at) * 1000000)::bigint END AS revoked_at_micros,
-                c.revocation_reason
-         FROM workload_secrets s
-         JOIN workload_credentials c ON c.credential_id = s.credential_id
-         WHERE s.secret_id = $1 AND s.revoked_at IS NULL
-         FOR UPDATE OF c",
+    let credential_id = sqlx::query_scalar::<_, String>(
+        "SELECT credential_id
+         FROM workload_secrets
+         WHERE secret_id = $1 AND revoked_at IS NULL",
     )
-        .bind(secret_id.as_str())
-        .fetch_optional(&mut **transaction)
-        .await
-        .map_err(unavailable)?
-        .ok_or(IdentityError::WorkloadCredentialNotFound)?;
-    row_to_credential(&row)
+    .bind(secret_id.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(unavailable)?
+    .ok_or(IdentityError::WorkloadCredentialNotFound)?;
+    let credential_id = WorkloadCredentialId::parse(credential_id)
+        .map_err(|_| IdentityError::Conflict("invalid credential id".to_owned()))?;
+    let credential = load_credential(transaction, &credential_id).await?;
+    if credential.secret_id.as_str() != secret_id.as_str() {
+        return Err(IdentityError::WorkloadCredentialNotFound);
+    }
+    let found = sqlx::query_scalar::<_, bool>(
+        "SELECT true
+         FROM workload_secrets
+         WHERE credential_id = $1 AND secret_id = $2 AND revoked_at IS NULL
+         FOR UPDATE",
+    )
+    .bind(credential_id.as_str())
+    .bind(secret_id.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+    if found.is_none() {
+        return Err(IdentityError::WorkloadCredentialNotFound);
+    }
+    Ok(credential)
 }
 
 async fn load_credential_by_jwt(

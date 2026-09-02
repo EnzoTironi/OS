@@ -171,6 +171,7 @@ export interface ManagedProcess {
   child: ChildProcessWithoutNullStreams;
   name: string;
   output: string[];
+  processGroupId?: number;
   stderr: string[];
 }
 
@@ -422,6 +423,7 @@ export async function startCredentialValidator(
       ZOEN_ZOEND: zoenBaseUrl,
     },
     name: "effect credential validator",
+    processGroup: true,
   });
   if (options.awaitReady === false) {
     return process;
@@ -536,7 +538,7 @@ export async function startEffectRegistrar(
       ZOEN_EFFECT_REGISTRAR_LISTEN_ADDR: `127.0.0.1:${registrarPort}`,
       ZOEN_EFFECT_REGISTRATION_INTERVAL_MS: "100",
       ZOEN_EFFECT_WORKER_ACTOR_ID: identity.actorId,
-      ZOEN_EFFECT_WORKER_CREDENTIAL_MAX_AGE_MS: "5000",
+      ZOEN_EFFECT_WORKER_CREDENTIAL_MAX_AGE_MS: "30000",
       ZOEN_EFFECT_WORKER_CREDENTIAL_READY_FILE: effectWorkerReadyFile,
       ZOEN_EFFECT_WORKER_PRINCIPAL_ID: identity.principalId,
       ZOEN_EFFECT_WORKER_WORKLOAD_ID: identity.workloadId,
@@ -548,31 +550,43 @@ export async function startEffectRegistrar(
   });
 }
 
-export async function stopProcess(process: ManagedProcess): Promise<void> {
-  if (process.child.exitCode !== null) {
+export async function stopProcess(managed: ManagedProcess): Promise<void> {
+  if (managed.child.exitCode !== null) {
     return;
   }
-  process.child.kill("SIGINT");
-  await Promise.race([once(process.child, "exit"), delay(2000)]);
-  if (process.child.exitCode === null && process.child.signalCode === null) {
-    process.child.kill("SIGKILL");
-    await once(process.child, "exit");
+  signalManagedProcess(managed, "SIGINT");
+  await Promise.race([once(managed.child, "exit"), delay(2000)]);
+  if (managed.child.exitCode === null && managed.child.signalCode === null) {
+    signalManagedProcess(managed, "SIGKILL");
+    await once(managed.child, "exit");
   }
   assert.ok(
-    process.child.exitCode === 0 ||
-      process.child.signalCode === "SIGINT" ||
-      process.child.signalCode === "SIGKILL",
-    `${process.name} failed during shutdown:\n${process.output.join("")}`,
+    managed.child.exitCode === 0 ||
+      managed.child.signalCode === "SIGINT" ||
+      managed.child.signalCode === "SIGKILL",
+    `${managed.name} failed during shutdown:\n${managed.output.join("")}`,
   );
 }
 
-export async function crashProcess(process: ManagedProcess): Promise<void> {
-  if (process.child.exitCode !== null || process.child.signalCode !== null) {
+export async function crashProcess(managed: ManagedProcess): Promise<void> {
+  if (managed.child.exitCode !== null || managed.child.signalCode !== null) {
     return;
   }
-  process.child.kill("SIGKILL");
-  await once(process.child, "exit");
-  assert.equal(process.child.signalCode, "SIGKILL");
+  signalManagedProcess(managed, "SIGKILL");
+  await once(managed.child, "exit");
+  assert.equal(managed.child.signalCode, "SIGKILL");
+}
+
+export function suspendProcess(managed: ManagedProcess): void {
+  assert.equal(managed.child.exitCode, null);
+  assert.equal(managed.child.signalCode, null);
+  assert.equal(signalManagedProcess(managed, "SIGSTOP"), true);
+}
+
+export function resumeProcess(managed: ManagedProcess): void {
+  if (managed.child.exitCode === null && managed.child.signalCode === null) {
+    assert.equal(signalManagedProcess(managed, "SIGCONT"), true);
+  }
 }
 
 export async function dispatchOnce(
@@ -649,6 +663,7 @@ export async function setProviderMode(
     | "parse_error"
     | "schema_error"
     | "timeout_after_delivery"
+    | "truncate_after_commit"
     | "unavailable",
 ): Promise<void> {
   const response = await fetch(
@@ -761,11 +776,13 @@ function spawnProcess(options: {
   command: string;
   environment: Readonly<Record<string, string>>;
   name: string;
+  processGroup?: boolean;
 }): ManagedProcess {
   const output: string[] = [];
   const stderr: string[] = [];
   const child = spawn(options.command, [...(options.arguments ?? [])], {
     cwd: repositoryRoot,
+    detached: options.processGroup === true,
     env: { ...process.env, ...options.environment },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -776,7 +793,27 @@ function spawnProcess(options: {
     output.push(text);
     stderr.push(text);
   });
-  return { child, name: options.name, output, stderr };
+  const processGroupId = options.processGroup === true ? child.pid : undefined;
+  assert.ok(options.processGroup !== true || processGroupId !== undefined);
+  return { child, name: options.name, output, processGroupId, stderr };
+}
+
+function signalManagedProcess(
+  managed: ManagedProcess,
+  signal: NodeJS.Signals,
+): boolean {
+  if (managed.processGroupId === undefined) {
+    return managed.child.kill(signal);
+  }
+  try {
+    process.kill(-managed.processGroupId, signal);
+    return true;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function waitForPort(
