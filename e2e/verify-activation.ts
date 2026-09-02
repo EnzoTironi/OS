@@ -10,6 +10,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
+import { exactSourceCommit, scenarioPassed } from "./scenario-evidence.js";
 
 const SCHEMA_ID = "zoen.activation.v1" as const;
 const FIXTURE_COMMIT_PLACEHOLDER = "__CANDIDATE_SHA__";
@@ -128,32 +129,12 @@ function commitsMatch(candidate: string, evidence: string): boolean {
 }
 
 function extractSourceCommit(body: Record<string, unknown>): string | null {
-  for (const key of ["sourceCommit", "sourceSha", "source_sha", "headSha"] as const) {
-    const value = body[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return null;
-}
-
-function scenarioPassed(body: Record<string, unknown>): boolean {
-  if (typeof body.verdict === "string") {
-    return body.verdict.toUpperCase() === "PASS";
-  }
-  if (typeof body.status === "string") {
-    const status = body.status.toLowerCase();
-    return status === "pass" || status === "passed" || status === "ok";
-  }
-  const assertions = body.assertions;
-  if (assertions !== null && typeof assertions === "object" && !Array.isArray(assertions)) {
-    const values = Object.values(assertions as Record<string, unknown>);
-    if (values.length === 0) {
-      return false;
-    }
-    return values.every((value) => value === true);
-  }
-  return false;
+  return exactSourceCommit(body, [
+    "sourceCommit",
+    "sourceSha",
+    "source_sha",
+    "headSha",
+  ]);
 }
 
 function isFixtureMarked(body: Record<string, unknown>): boolean {
@@ -445,6 +426,37 @@ function runVerificationMutants(
   assert.equal(healthy.failures.length, 0, JSON.stringify(healthy.failures));
 
   {
+    const id = "ignore-failed-scenario";
+    const target = REQUIRED_SCENARIOS.find((row) => row.id === "activation-identity");
+    assert.ok(target);
+    const contradictory = syntheticPassing(target, candidate, {
+      body: {
+        assertions: { identityBound: false },
+        scenario: target.id,
+        sourceCommit: candidate,
+        verdict: "PASS",
+      },
+    });
+    const cleanClaims = advertisedClaims.map((claim) => ({ ...claim, advertised: false }));
+    const loaded = fillGraph({ [target.id]: contradictory });
+    const strict = evaluateGate(candidate, loaded, cleanClaims, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, cleanClaims, false, {
+      ...STRICT_OPTIONS,
+      ignoreFailedScenario: true,
+    });
+    const killed =
+      strict.failures.some((row) => row.code === "failed-scenario") &&
+      mutant.failures.every((row) => row.code !== "failed-scenario");
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "strict gate rejected contradictory PASS/assertions evidence"
+        : "contradictory scenario evidence passed the strict gate",
+    });
+  }
+
+  {
     const id = "missing-slot";
     const target = REQUIRED_SCENARIOS[0];
     assert.ok(target);
@@ -460,6 +472,20 @@ function runVerificationMutants(
       observation: killed
         ? `strict gate fail-closed on missing slot ${target.id}`
         : "missing-slot mutant survived: gate did not name the missing scenario",
+    });
+  }
+
+  {
+    const id = "conflicting-source-aliases";
+    const other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const killed =
+      extractSourceCommit({ sourceCommit: candidate, sourceSha: other }) === null;
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "conflicting source commit aliases were rejected"
+        : "conflicting source commit aliases were accepted",
     });
   }
 

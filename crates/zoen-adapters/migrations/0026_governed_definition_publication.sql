@@ -1,3 +1,22 @@
+-- The migration role is subject to forced RLS. Toggle it inside one DO
+-- transaction so the emptiness check covers every tenant and any failure
+-- restores the prior RLS state.
+DO $$
+DECLARE
+    has_existing_revisions BOOLEAN;
+BEGIN
+    EXECUTE 'ALTER TABLE definition_revisions DISABLE ROW LEVEL SECURITY';
+    SELECT EXISTS (SELECT 1 FROM definition_revisions)
+    INTO has_existing_revisions;
+    EXECUTE 'ALTER TABLE definition_revisions ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'ALTER TABLE definition_revisions FORCE ROW LEVEL SECURITY';
+
+    IF has_existing_revisions THEN
+        RAISE EXCEPTION 'migration 0026 requires an empty definition_revisions baseline; reset this pre-launch database before retrying';
+    END IF;
+END;
+$$;
+
 CREATE TABLE definition_publications (
     tenant_id TEXT NOT NULL,
     definition_id TEXT NOT NULL,

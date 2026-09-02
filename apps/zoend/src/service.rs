@@ -778,7 +778,7 @@ fn now() -> Result<TimestampMicros, ConnectError> {
     Ok(TimestampMicros::new(micros))
 }
 
-fn map_activate_error(error: ActivateRevisionError) -> ConnectError {
+pub(crate) fn map_activate_error(error: ActivateRevisionError) -> ConnectError {
     match error {
         ActivateRevisionError::Configuration(_) | ActivateRevisionError::EventEncoding(_) => {
             ConnectError::new(ErrorCode::Internal, error.to_string())
@@ -827,7 +827,7 @@ fn map_plan_error(error: PlanEvolutionError) -> ConnectError {
     }
 }
 
-fn map_publish_error(error: PublishError) -> ConnectError {
+pub(crate) fn map_publish_error(error: PublishError) -> ConnectError {
     match error {
         PublishError::Configuration(_) | PublishError::EventEncoding(_) => {
             ConnectError::new(ErrorCode::Internal, error.to_string())

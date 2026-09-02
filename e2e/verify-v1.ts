@@ -10,6 +10,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
+import { exactSourceCommit, scenarioPassed } from "./scenario-evidence.js";
 import { z } from "zod";
 
 const SCHEMA_ID = "zoen.verify.v1" as const;
@@ -151,24 +152,7 @@ function commitsMatch(candidate: string, evidence: string): boolean {
 }
 
 function extractSourceCommit(body: Record<string, unknown>): string | null {
-  for (const key of ["sourceCommit", "sourceSha", "source_sha"] as const) {
-    const value = body[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return null;
-}
-
-function scenarioPassed(body: Record<string, unknown>): boolean {
-  if (typeof body.verdict === "string") {
-    return body.verdict.toUpperCase() === "PASS";
-  }
-  if (typeof body.status === "string") {
-    const status = body.status.toLowerCase();
-    return status === "pass" || status === "passed" || status === "ok";
-  }
-  return false;
+  return exactSourceCommit(body, ["sourceCommit", "sourceSha", "source_sha"]);
 }
 
 function isFixtureMarked(body: Record<string, unknown>): boolean {
@@ -418,7 +402,7 @@ function evaluateGate(
       failures.push({
         code: "failed-scenario",
         scenario: spec.id,
-        detail: `scenario verdict/status is not PASS`,
+        detail: `scenario verdict/status/assertions is not PASS`,
       });
     }
 
@@ -571,7 +555,12 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     const loaded = fillGraph({
       "governed-action": {
         ...passingScenario(candidate),
-        body: { scenario: "governed-action", verdict: "FAIL", sourceCommit: candidate },
+        body: {
+          assertions: { committed: false },
+          scenario: "governed-action",
+          sourceCommit: candidate,
+          verdict: "PASS",
+        },
       },
     });
     const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
@@ -586,8 +575,22 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
       id,
       killed,
       observation: killed
-        ? "strict gate rejected FAIL scenario; ignore-failed-scenario mutant would accept it"
+        ? "strict gate rejected contradictory PASS/assertions evidence; ignore-failed-scenario mutant would accept it"
         : "mutant was not distinguished from the strict gate",
+    });
+  }
+
+  {
+    const id = "conflicting-source-aliases";
+    const other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const killed =
+      extractSourceCommit({ sourceCommit: candidate, sourceSha: other }) === null;
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "conflicting source commit aliases were rejected"
+        : "conflicting source commit aliases were accepted",
     });
   }
 

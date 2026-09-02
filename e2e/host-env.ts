@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { exactSourceCommit, sourceCommitKeys } from "./scenario-evidence.js";
 
 /**
  * Host TCP port for an e2e scenario.
@@ -141,9 +142,38 @@ export async function writeScenarioArtifact(
   scenario: string,
   value: unknown,
 ): Promise<string> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${scenario} artifact must be a JSON object`);
+  }
+  const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).trim();
+  const providedCommitKeys = sourceCommitKeys.filter((key) =>
+    Object.prototype.hasOwnProperty.call(value, key),
+  );
+  const providedSourceCommit = exactSourceCommit(value, sourceCommitKeys);
+  if (providedCommitKeys.length > 0 && providedSourceCommit !== sourceCommit) {
+    throw new Error(
+      `${scenario} artifact sourceCommit ${JSON.stringify(providedSourceCommit)} does not match HEAD ${sourceCommit}`,
+    );
+  }
   const directory = e2eArtifactsDirectory(repositoryRoot, scenario);
   await mkdir(directory, { recursive: true });
   const outputPath = path.join(directory, `${scenario}.json`);
-  await writeFile(outputPath, `${JSON.stringify(value, null, 2)}\n`);
+  const serialized = JSON.stringify({ ...value, sourceCommit }, null, 2);
+  if (serialized === undefined) {
+    throw new Error(`${scenario} artifact could not be serialized`);
+  }
+  const written: unknown = JSON.parse(serialized);
+  if (
+    written === null ||
+    typeof written !== "object" ||
+    Array.isArray(written) ||
+    exactSourceCommit(written, sourceCommitKeys) !== sourceCommit
+  ) {
+    throw new Error(`${scenario} serialized artifact lost its exact sourceCommit`);
+  }
+  await writeFile(outputPath, `${serialized}\n`);
   return outputPath;
 }

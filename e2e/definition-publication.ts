@@ -13,6 +13,7 @@ import {
   type Interceptor,
 } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
+import canonicalize from "canonicalize";
 import { Client as PostgresClient } from "pg";
 import {
   DefinitionService,
@@ -92,6 +93,15 @@ interface PublicationState {
   projectionOutbox: number;
 }
 
+interface PolicyManifestEntry {
+  actionId: string;
+  definitionDigest: string;
+  digest: string;
+  policyId: string;
+  revision: number;
+  source: string;
+}
+
 const assertions: Record<string, boolean> = {};
 
 function recordAssertion(name: string): void {
@@ -143,8 +153,29 @@ when {
       source: publicationSource,
     }),
   );
+  const activationSource = `permit (
+    principal,
+    action == Action::"activate_revision",
+    resource
+)
+when {
+    principal == Zoen::Principal::"principal.builder.a" ||
+    principal == Zoen::Principal::"principal.observer.a"
+};
+`;
+  const activationPolicy: PolicyManifestEntry = {
+    actionId: "zoen.definition.activate",
+    definitionDigest: first.digest,
+    digest: sha256(activationSource),
+    policyId: "policy.definition.activate.inventory.r1",
+    revision: first.definition.revision,
+    source: activationSource,
+  };
   const policyManifestPath = path.join(generatedDirectory, "policies.json");
-  await writePolicyManifest(policyManifestPath, publicationPolicies);
+  await writePolicyManifest(policyManifestPath, [
+    ...publicationPolicies,
+    activationPolicy,
+  ]);
 
   const door = await startAuthDoor(authDatabaseUrl);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
@@ -152,12 +183,14 @@ when {
   try {
     server = await startServer(policyManifestPath);
     await admin.connect();
+    await assertMigrationRejectsUngoovernedBaseline(admin, first);
+    recordAssertion("migrationRejectedUngovernedBaseline");
     const planted = await plantPersonas(door, {
       adminToken: e2eIdentityAdminToken(),
       applicationDatabaseUrl: adminDatabaseUrl,
       personas: [
         invitePersona({
-          actionIds: [definitionPublishActionId],
+          actionIds: [definitionPublishActionId, "zoen.definition.activate"],
           actorId: "actor.builder.a",
           id: "builder-a",
           principalId: "principal.builder.a",
@@ -166,7 +199,7 @@ when {
           workloadId: "workload.builder.a",
         }),
         invitePersona({
-          actionIds: [definitionPublishActionId],
+          actionIds: [definitionPublishActionId, "zoen.definition.activate"],
           actorId: "actor.observer.a",
           id: "observer-a",
           principalId: "principal.observer.a",
@@ -198,10 +231,11 @@ when {
     const builderA = sessionOf(planted, "builder-a");
     const tokenA = builderA.token;
     const tokenB = sessionOf(planted, "builder-b").token;
+    const observerTokenA = sessionOf(planted, "observer-a").token;
     const clientA = definitionClient(tokenA, tenantA);
     const clientB = definitionClient(tokenB, tenantB);
     const observerA = definitionClient(
-      sessionOf(planted, "observer-a").token,
+      observerTokenA,
       tenantA,
     );
     const noPublishA = definitionClient(
@@ -441,6 +475,17 @@ when {
     recordAssertion("publishDidNotActivate");
     await assertRlsIsolation();
 
+    const builderPackInstallId = await preparePackInstall(
+      tokenA,
+      tenantA,
+      first,
+    );
+    const observerPackInstallId = await preparePackInstall(
+      observerTokenA,
+      tenantA,
+      first,
+    );
+
     const delegation = await membershipDelegation(
       admin,
       builderA.accountId,
@@ -459,6 +504,42 @@ when {
       Code.PermissionDenied,
     );
     recordAssertion("deniedCallerCannotReplayOriginalCommit");
+    const beforePackDenials = await publicationState(admin, tenantA);
+    await postPackJson(
+      tokenA,
+      tenantA,
+      "/pack/admin/activate-installed",
+      {
+        evolutionAckDigest: "a".repeat(64),
+        installId: builderPackInstallId,
+        tenantId: tenantA,
+      },
+      StatusCode.Forbidden,
+    );
+    assert.deepEqual(await publicationState(admin, tenantA), beforePackDenials);
+    assert.equal(
+      await rowCount(admin, "active_definition_revisions", tenantA),
+      0,
+    );
+    recordAssertion("packReplayReauthorizedCurrentDelegation");
+
+    await postPackJson(
+      observerTokenA,
+      tenantA,
+      "/pack/admin/activate-installed",
+      {
+        evolutionAckDigest: "b".repeat(64),
+        installId: observerPackInstallId,
+        tenantId: tenantA,
+      },
+      StatusCode.Forbidden,
+    );
+    assert.deepEqual(await publicationState(admin, tenantA), beforePackDenials);
+    assert.equal(
+      await rowCount(admin, "active_definition_revisions", tenantA),
+      0,
+    );
+    recordAssertion("packReplayReauthorizedCurrentPolicy");
     await restoreMembershipDelegation(
       admin,
       builderA.accountId,
@@ -676,15 +757,209 @@ async function assertStoredPublication(
   });
 }
 
+async function assertMigrationRejectsUngoovernedBaseline(
+  admin: PostgresClient,
+  definition: CompiledDefinition,
+): Promise<void> {
+  const schema = "e2e_definition_publication_migration_guard";
+  await admin.query(`CREATE SCHEMA ${schema} AUTHORIZATION zoen_app`);
+  const application = new PostgresClient({
+    connectionString: applicationDatabaseUrl,
+  });
+  try {
+    await application.connect();
+    const bootstrap = await readFile(
+      path.join(
+        repositoryRoot,
+        "crates",
+        "zoen-adapters",
+        "migrations",
+        "0001_definition_authority.sql",
+      ),
+      "utf8",
+    );
+    const governedPublication = await readFile(
+      path.join(
+        repositoryRoot,
+        "crates",
+        "zoen-adapters",
+        "migrations",
+        "0026_governed_definition_publication.sql",
+      ),
+      "utf8",
+    );
+    await application.query("BEGIN");
+    await application.query(`SET LOCAL search_path TO ${schema}`);
+    await application.query(bootstrap);
+    await application.query(
+      "SELECT set_config('zoen.tenant_id', $1, true)",
+      [tenantA],
+    );
+    await application.query(
+      "INSERT INTO authority_heads (tenant_id, commit_sequence) VALUES ($1, 1)",
+      [tenantA],
+    );
+    await application.query(
+      `INSERT INTO authority_commits (tenant_id, commit_sequence)
+       VALUES ($1, 1)`,
+      [tenantA],
+    );
+    await application.query(
+      `INSERT INTO definition_revisions (
+         tenant_id, definition_id, revision, digest, canonical_json, commit_sequence
+       ) VALUES ($1, $2, $3, $4, $5, 1)`,
+      [
+        tenantA,
+        definition.definition.definitionId,
+        definition.definition.revision,
+        definition.digest,
+        definition.canonicalJson,
+      ],
+    );
+    await application.query(
+      "SELECT set_config('zoen.tenant_id', '', true)",
+    );
+    await assert.rejects(
+      application.query(governedPublication),
+      /migration 0026 requires an empty definition_revisions baseline; reset this pre-launch database before retrying/,
+    );
+  } finally {
+    await application.query("ROLLBACK").catch(() => undefined);
+    await application.end().catch(() => undefined);
+    await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+  }
+}
+
 async function writePolicyManifest(
   outputPath: string,
-  policies: readonly DefinitionPublishPolicy[],
+  policies: readonly PolicyManifestEntry[],
 ): Promise<void> {
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(
     outputPath,
     `${JSON.stringify({ policies }, null, 2)}\n`,
   );
+}
+
+enum StatusCode {
+  Ok = 200,
+  Forbidden = 403,
+}
+
+async function preparePackInstall(
+  token: string,
+  tenantId: string,
+  definition: CompiledDefinition,
+): Promise<string> {
+  const manifestJcs = canonicalize({
+    description: {
+      summary: "Exercises governed definition publication from pack installation.",
+      title: "Governed publication journey",
+    },
+    firstSuccessContract: {
+      contractId: "fs.1",
+      outcome: {
+        actionId: "action.commit",
+        kind: "action_committed",
+      },
+    },
+    formatVersion: "zoen.pack.v1",
+    integrationRequirements: [],
+    ontologyDependencies: [
+      {
+        definitionId: definition.definition.definitionId,
+        digest: definition.digest,
+      },
+    ],
+    packId: "pack.sample",
+    publisher: {
+      displayName: "Zoen",
+      publisherId: "pub.zoen",
+    },
+    version: "1.0.0",
+  });
+  if (manifestJcs === undefined) {
+    throw new Error("pack manifest canonicalization returned undefined");
+  }
+  const packDigest = sha256(manifestJcs);
+  const staged = await postPackJson(
+    token,
+    tenantId,
+    "/pack/admin/verify-and-stage",
+    {
+      expectedDigest: packDigest,
+      manifestJcs,
+      ontologyArtifacts: [
+        {
+          canonicalJson: definition.canonicalJson,
+          definitionId: definition.definition.definitionId,
+          digest: definition.digest,
+        },
+      ],
+      tenantId,
+    },
+    StatusCode.Ok,
+  );
+  assert.equal(requiredString(staged, "packDigest"), packDigest);
+
+  const preview = await postPackJson(
+    token,
+    tenantId,
+    "/pack/admin/preview-install",
+    { packDigest, tenantId },
+    StatusCode.Ok,
+  );
+  const previewDigest = requiredString(preview, "previewDigest");
+  const installed = await postPackJson(
+    token,
+    tenantId,
+    "/pack/admin/install",
+    { packDigest, previewDigest, tenantId },
+    StatusCode.Ok,
+  );
+  const installId = requiredString(installed, "installId");
+  const resolved = await postPackJson(
+    token,
+    tenantId,
+    "/pack/admin/decide-grants",
+    { decisions: [], installId, tenantId },
+    StatusCode.Ok,
+  );
+  assert.equal(requiredString(resolved, "phase"), "grants_resolved");
+  return installId;
+}
+
+async function postPackJson(
+  token: string,
+  tenantId: string,
+  route: string,
+  body: unknown,
+  expectedStatus: StatusCode,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${baseUrl}${route}`, {
+    body: JSON.stringify(body),
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      "x-zoen-tenant": tenantId,
+    },
+    method: "POST",
+  });
+  const responseText = await response.text();
+  assert.equal(
+    response.status,
+    expectedStatus,
+    `${route} returned HTTP ${response.status}: ${responseText}`,
+  );
+  const parsed: unknown = JSON.parse(responseText);
+  assert.ok(parsed !== null && typeof parsed === "object" && !Array.isArray(parsed));
+  return parsed as Record<string, unknown>;
+}
+
+function requiredString(body: Record<string, unknown>, key: string): string {
+  const value = body[key];
+  assert.equal(typeof value, "string", `${key} must be a string`);
+  return value as string;
 }
 
 async function getRevision(
