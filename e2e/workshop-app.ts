@@ -69,6 +69,10 @@ import {
   e2eIdentityAdminToken,
   writeScenarioArtifact,
 } from "./host-env.js";
+import {
+  definitionPublishActionId,
+  definitionPublishPolicy,
+} from "./definition-publish-policy.js";
 
 const workshopActionId = "workshop.deployApp";
 const workshopResourceId = "workshop.app";
@@ -339,6 +343,10 @@ when {
     `${JSON.stringify(
       {
         policies: [
+          definitionPublishPolicy({
+            definitionDigest: digest,
+            revision: baseDefinition.revision,
+          }),
           {
             actionId: workshopActionId,
             definitionDigest: digest,
@@ -409,7 +417,11 @@ when {
           workloadId: "workload.wa.user.b",
         }),
         invitePersona({
-          actionIds: ["zoen.definition.activate", workshopActionId],
+          actionIds: [
+            definitionPublishActionId,
+            "zoen.definition.activate",
+            workshopActionId,
+          ],
           actorId: "actor.admin.a",
           id: "admin-a",
           principalId: "principal.admin.a",
