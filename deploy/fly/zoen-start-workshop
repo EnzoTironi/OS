@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+if [ -z "${ZOEN_AUTH_BASE_URL:-}" ]; then
+  echo "workshop: ZOEN_AUTH_BASE_URL is required" >&2
+  exit 1
+fi
+if [ -z "${ZOEN_ZOEND_BASE_URL:-}" ]; then
+  echo "workshop: ZOEN_ZOEND_BASE_URL is required" >&2
+  exit 1
+fi
+export PATH="/usr/local/node24/bin:${PATH}"
+major="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$major" -lt 24 ]; then
+  echo "workshop: Node >= 24 required, got $(node -v)" >&2
+  exit 1
+fi
+for _ in $(seq 1 120); do
+  if curl -sf -o /dev/null "http://127.0.0.1:6420/" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+export RIVET_ENDPOINT="${RIVET_ENDPOINT:-http://default:admin@127.0.0.1:6420}"
+export ZOEN_WORKSHOP_PORT="${ZOEN_WORKSHOP_PORT:-58707}"
+cd /workshop
+exec node ./node_modules/tsx/dist/cli.mjs src/server.ts

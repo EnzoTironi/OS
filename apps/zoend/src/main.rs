@@ -43,6 +43,7 @@ use crate::{
 };
 
 mod action_service;
+mod apps_proxy;
 mod cli;
 mod conversation_stage;
 mod session {
@@ -294,6 +295,7 @@ fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
         .merge(ready_routes)
         .merge(door_proxy::router())
         .merge(eve_proxy::router())
+        .merge(apps_proxy::router())
         .merge(identity_routes)
         .merge(conversation_routes)
         .merge(onboard_routes)

@@ -10,6 +10,7 @@ while [ ! -s /data/zoen/agent.token ]; do
   sleep 1
 done
 export RIVET_ENDPOINT="http://default:admin@127.0.0.1:6420"
+export DYNAMIC_APPS_CALLBACK_URL="${DYNAMIC_APPS_CALLBACK_URL:-http://127.0.0.1:58707}"
 export ZOEN_EFFECT_SERVICE_URL="http://127.0.0.1:58701"
 export ZOEN_EFFECT_WORKER_PORT="58706"
 export ZOEN_EFFECT_SERVICE_BEARER_TOKENS="{\"${ZOEN_TENANT_ID:-tenant.a}\":\"$(cat /data/zoen/agent.token)\"}"

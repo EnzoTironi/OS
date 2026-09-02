@@ -51,6 +51,12 @@ COPY apps/effect-worker/package.json apps/effect-worker/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY apps/effect-worker/ ./
 
+FROM node:24.20.0-bookworm-slim AS workshop
+WORKDIR /workshop
+COPY apps/workshop/package.json apps/workshop/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY apps/workshop/ ./
+
 FROM postgres:18
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
@@ -66,10 +72,12 @@ COPY --from=auth /auth /auth
 COPY --from=conversation /usr/local/bin/node /usr/local/node24/bin/node
 COPY --from=conversation /conversation /conversation
 COPY --from=effect-worker /effect-worker /effect-worker
+COPY --from=workshop /workshop /workshop
 COPY gen/connect /gen/connect
 COPY apps/shared /shared
 COPY deploy/fly/zoen-start-eve /usr/local/bin/zoen-start-eve
 COPY deploy/fly/zoen-start-effect-worker /usr/local/bin/zoen-start-effect-worker
+COPY deploy/fly/zoen-start-workshop /usr/local/bin/zoen-start-workshop
 
 COPY --from=rivetdev/engine:2.3.11 /usr/bin/rivet-engine /usr/local/bin/rivet-engine
 COPY --from=minio/minio:RELEASE.2025-09-07T16-13-09Z /usr/bin/minio /usr/local/bin/minio
