@@ -1,0 +1,1050 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Zoen, produto final</title>
+    <style>
+      :root {
+        --paper: #f3f0e8;
+        --paper-2: #ebe6da;
+        --ink: #17221e;
+        --muted: #647069;
+        --line: rgba(23, 34, 30, 0.14);
+        --forest: #173f36;
+        --mint: #bce4c9;
+        --mint-2: #dff2e5;
+        --amber: #efa85f;
+        --coral: #e7836f;
+        --blue: #6e9ecb;
+        --white: #fffdf7;
+        --shadow: 0 24px 70px rgba(22, 42, 33, 0.12);
+        --radius: 28px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html { scroll-behavior: auto; }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 8% 5%, rgba(188, 228, 201, 0.55), transparent 25rem),
+          radial-gradient(circle at 94% 24%, rgba(239, 168, 95, 0.18), transparent 28rem),
+          var(--paper);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+
+      a { color: inherit; }
+
+      .shell {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .nav {
+        position: sticky;
+        z-index: 20;
+        top: 14px;
+        width: min(1180px, calc(100% - 40px));
+        margin: 14px auto 0;
+        padding: 12px 14px 12px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        border-radius: 999px;
+        background: rgba(255, 253, 247, 0.83);
+        box-shadow: 0 10px 35px rgba(23, 34, 30, 0.08);
+        backdrop-filter: blur(18px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+        font-weight: 780;
+        letter-spacing: -0.01em;
+      }
+
+      .mark {
+        width: 26px;
+        aspect-ratio: 1;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        color: var(--white);
+        background: var(--forest);
+        box-shadow: inset 0 0 0 6px rgba(255,255,255,.08);
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .nav-links a { text-decoration: none; }
+
+      .pill {
+        padding: 8px 13px;
+        border-radius: 999px;
+        color: var(--white);
+        background: var(--forest);
+      }
+
+      header {
+        min-height: 830px;
+        display: grid;
+        align-content: center;
+        padding: 120px 0 80px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        color: var(--forest);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: .13em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 18px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--forest);
+      }
+
+      h1, h2, h3, p { margin-top: 0; }
+
+      h1 {
+        max-width: 1040px;
+        margin-bottom: 24px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(64px, 9vw, 126px);
+        font-weight: 500;
+        letter-spacing: -.07em;
+        line-height: .88;
+      }
+
+      .hero-copy {
+        max-width: 720px;
+        margin-bottom: 42px;
+        color: #415149;
+        font-size: clamp(18px, 2.1vw, 26px);
+        letter-spacing: -.025em;
+        line-height: 1.38;
+      }
+
+      .thesis-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+
+      .thesis-card {
+        min-height: 210px;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: rgba(255,253,247,.64);
+      }
+
+      .thesis-card strong {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 30px;
+        font-weight: 500;
+        letter-spacing: -.04em;
+      }
+
+      .thesis-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .product-index {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        color: var(--forest);
+        background: var(--mint-2);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      section { padding: 100px 0; }
+
+      .section-head {
+        max-width: 780px;
+        margin-bottom: 48px;
+      }
+
+      h2 {
+        margin-bottom: 18px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(44px, 6vw, 76px);
+        font-weight: 500;
+        letter-spacing: -.055em;
+        line-height: .98;
+      }
+
+      .section-head > p {
+        color: var(--muted);
+        font-size: 19px;
+      }
+
+      .dark {
+        color: var(--white);
+        background:
+          radial-gradient(circle at 75% 20%, rgba(110,158,203,.17), transparent 25rem),
+          radial-gradient(circle at 18% 92%, rgba(188,228,201,.12), transparent 32rem),
+          #13211c;
+      }
+
+      .dark .eyebrow { color: var(--mint); }
+      .dark .eyebrow::before { background: var(--mint); }
+      .dark .section-head > p, .dark .muted { color: #9eb0a7; }
+
+      .system-map {
+        padding: 24px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: var(--radius);
+        background: rgba(255,255,255,.035);
+        box-shadow: var(--shadow);
+      }
+
+      .map-row {
+        display: grid;
+        grid-template-columns: 1fr 70px 1.35fr 70px 1.35fr;
+        align-items: stretch;
+        gap: 10px;
+      }
+
+      .map-node {
+        min-height: 170px;
+        padding: 22px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        border-radius: 22px;
+        color: var(--ink);
+        background: var(--white);
+      }
+
+      .map-node.eve { background: var(--mint); }
+      .map-node.kernel { color: var(--white); background: #286050; }
+
+      .map-node small {
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        opacity: .68;
+      }
+
+      .map-node strong {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 30px;
+        font-weight: 500;
+        letter-spacing: -.04em;
+      }
+
+      .map-node span { font-size: 13px; opacity: .75; }
+
+      .connector {
+        display: grid;
+        place-items: center;
+        color: #82958c;
+        font-size: 30px;
+      }
+
+      .shared-line {
+        width: 1px;
+        height: 40px;
+        margin: 0 auto;
+        background: rgba(255,255,255,.22);
+      }
+
+      .infra {
+        padding: 18px;
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 8px;
+        border-radius: 20px;
+        background: rgba(255,255,255,.07);
+      }
+
+      .infra div {
+        padding: 14px 8px;
+        border: 1px solid rgba(255,255,255,.08);
+        border-radius: 14px;
+        color: #b9c9c0;
+        text-align: center;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .verbs {
+        margin-top: 16px;
+        padding: 18px;
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 7px;
+        border-radius: 18px;
+        color: var(--ink);
+        background: var(--amber);
+      }
+
+      .verb {
+        padding: 12px 4px;
+        border-right: 1px solid rgba(23,34,30,.2);
+        text-align: center;
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .verb:last-child { border-right: 0; }
+
+      .experience-grid {
+        display: grid;
+        grid-template-columns: .76fr 1.55fr;
+        gap: 28px;
+        align-items: center;
+      }
+
+      .phone {
+        max-width: 355px;
+        margin: 0 auto;
+        padding: 12px;
+        border: 7px solid #1b2924;
+        border-radius: 48px;
+        background: #1b2924;
+        box-shadow: var(--shadow);
+      }
+
+      .phone-screen {
+        min-height: 630px;
+        padding: 20px 16px;
+        border-radius: 35px;
+        background: #f9f5ed;
+      }
+
+      .phone-top {
+        margin-bottom: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .eve-avatar {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        color: var(--white);
+        background: var(--forest);
+        font-family: Georgia, serif;
+      }
+
+      .bubble {
+        max-width: 88%;
+        margin-bottom: 13px;
+        padding: 13px 15px;
+        border-radius: 18px;
+        font-size: 14px;
+      }
+
+      .bubble.person { margin-left: auto; background: #dce9df; }
+      .bubble.eve-bubble { background: #fff; box-shadow: 0 8px 24px rgba(23,34,30,.06); }
+
+      .receipt-chip {
+        margin: -5px 0 16px 8px;
+        color: #6b766f;
+        font-size: 10px;
+      }
+
+      .composer {
+        margin-top: 120px;
+        padding: 13px 16px;
+        display: flex;
+        justify-content: space-between;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: #929b96;
+        background: #fff;
+        font-size: 12px;
+      }
+
+      .workbench {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 30px;
+        background: rgba(255,253,247,.8);
+        box-shadow: var(--shadow);
+      }
+
+      .window-bar {
+        padding: 14px 18px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .window-dot { width: 9px; height: 9px; border-radius: 50%; background: #d2cbc0; }
+
+      .workbench-body {
+        min-height: 560px;
+        display: grid;
+        grid-template-columns: 190px 1fr;
+      }
+
+      .side {
+        padding: 24px 16px;
+        border-right: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .world-switch {
+        margin-bottom: 26px;
+        padding: 12px;
+        border-radius: 14px;
+        color: var(--ink);
+        background: var(--mint-2);
+        font-weight: 750;
+      }
+
+      .side-item { padding: 9px 10px; border-radius: 10px; }
+      .side-item.active { color: var(--ink); background: rgba(23,63,54,.08); font-weight: 750; }
+
+      .main-pane { padding: 30px; }
+
+      .main-pane h3 {
+        margin-bottom: 6px;
+        font-family: Georgia, serif;
+        font-size: 32px;
+        font-weight: 500;
+        letter-spacing: -.035em;
+      }
+
+      .subtle { color: var(--muted); font-size: 12px; }
+
+      .knowledge-card {
+        margin-top: 26px;
+        padding: 18px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #fff;
+      }
+
+      .knowledge-card strong { display: block; margin-bottom: 5px; font-size: 14px; }
+      .knowledge-card p { margin: 0; color: var(--muted); font-size: 12px; }
+
+      .evidence {
+        align-self: center;
+        padding: 7px 10px;
+        border-radius: 999px;
+        color: var(--forest);
+        background: var(--mint-2);
+        font-size: 9px;
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+
+      .mini-grid {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 14px;
+      }
+
+      .mini-card {
+        min-height: 120px;
+        padding: 16px;
+        border-radius: 18px;
+        background: var(--paper-2);
+      }
+
+      .mini-card b { display: block; font-family: Georgia, serif; font-size: 28px; font-weight: 500; }
+      .mini-card span { color: var(--muted); font-size: 11px; }
+
+      .release-layout {
+        display: grid;
+        grid-template-columns: .9fr 1.25fr;
+        gap: 46px;
+        align-items: center;
+      }
+
+      .release-stack { position: relative; min-height: 540px; }
+
+      .release-card {
+        position: absolute;
+        left: 50%;
+        width: min(460px, 88%);
+        min-height: 300px;
+        padding: 28px;
+        border: 1px solid rgba(255,255,255,.13);
+        border-radius: 28px;
+        transform: translateX(-50%);
+        box-shadow: 0 28px 80px rgba(0,0,0,.22);
+      }
+
+      .release-card:nth-child(1) { top: 0; opacity: .27; transform: translateX(-50%) scale(.86); background: #426b5e; }
+      .release-card:nth-child(2) { top: 62px; opacity: .55; transform: translateX(-50%) scale(.93); background: #30594c; }
+      .release-card:nth-child(3) { top: 130px; background: #fffdf7; color: var(--ink); }
+
+      .digest {
+        margin: 12px 0 24px;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+      }
+
+      .release-components {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+
+      .release-components div {
+        padding: 12px;
+        border-radius: 12px;
+        background: var(--paper-2);
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .principles { display: grid; gap: 12px; }
+
+      .principle {
+        padding: 18px 20px;
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 14px;
+        border: 1px solid rgba(255,255,255,.1);
+        border-radius: 18px;
+        background: rgba(255,255,255,.045);
+      }
+
+      .principle .n { color: var(--amber); font-family: Georgia, serif; font-size: 25px; }
+      .principle strong { display: block; margin-bottom: 3px; font-size: 14px; }
+      .principle p { margin: 0; color: #9eb0a7; font-size: 12px; }
+
+      .identity-flow {
+        display: grid;
+        grid-template-columns: repeat(7, auto);
+        align-items: center;
+        gap: 10px;
+      }
+
+      .identity-node {
+        min-height: 120px;
+        padding: 18px 12px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255,253,247,.75);
+      }
+
+      .identity-node strong { font-size: 13px; }
+      .identity-node span { color: var(--muted); font-size: 10px; }
+      .identity-arrow { color: #8b978f; font-size: 20px; }
+
+      .invariant {
+        margin-top: 22px;
+        padding: 18px 22px;
+        border-left: 4px solid var(--forest);
+        border-radius: 0 16px 16px 0;
+        color: #36473f;
+        background: var(--mint-2);
+        font-size: 14px;
+      }
+
+      .journeys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+
+      .journey {
+        min-height: 230px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(255,253,247,.72);
+      }
+
+      .journey:nth-child(2), .journey:nth-child(7) { background: var(--mint-2); }
+      .journey:nth-child(4), .journey:nth-child(5) { background: #f3dfc8; }
+
+      .journey small { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+      .journey strong { font-family: Georgia, serif; font-size: 24px; font-weight: 500; letter-spacing: -.03em; }
+      .journey p { margin: 0; color: var(--muted); font-size: 12px; }
+
+      .fly-box {
+        padding: 24px;
+        border: 1px solid rgba(255,255,255,.15);
+        border-radius: 34px;
+        background: rgba(255,255,255,.04);
+      }
+
+      .fly-top {
+        margin-bottom: 18px;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        border-radius: 20px;
+        color: var(--ink);
+        background: var(--mint);
+      }
+
+      .fly-top strong { font-family: Georgia, serif; font-size: 26px; font-weight: 500; }
+      .fly-top span { align-self: center; font-size: 11px; font-weight: 750; }
+
+      .processes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+
+      .process {
+        min-height: 94px;
+        padding: 14px;
+        border: 1px solid rgba(255,255,255,.1);
+        border-radius: 16px;
+        background: rgba(255,255,255,.04);
+      }
+
+      .process strong { display: block; margin-bottom: 5px; font-size: 12px; }
+      .process span { color: #93a69d; font-size: 10px; }
+
+      .ready {
+        margin-top: 14px;
+        padding: 16px 18px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        border-radius: 16px;
+        background: rgba(255,255,255,.06);
+      }
+
+      .ready b { margin-right: 10px; color: var(--mint); font-size: 11px; }
+      .ready span { padding: 4px 8px; border-radius: 999px; color: #b4c6bd; background: rgba(255,255,255,.07); font-size: 9px; }
+
+      .roadmap { position: relative; display: grid; gap: 10px; }
+      .roadmap::before { content: ""; position: absolute; left: 29px; top: 20px; bottom: 20px; width: 2px; background: var(--line); }
+
+      .wave {
+        position: relative;
+        padding: 18px 20px 18px 78px;
+        display: grid;
+        grid-template-columns: 180px 1fr auto;
+        gap: 18px;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255,253,247,.7);
+      }
+
+      .wave::before {
+        content: attr(data-wave);
+        position: absolute;
+        left: 14px;
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border: 7px solid var(--paper);
+        border-radius: 50%;
+        color: var(--white);
+        background: var(--forest);
+        font-size: 10px;
+        font-weight: 850;
+      }
+
+      .wave strong { font-size: 13px; }
+      .wave p { margin: 0; color: var(--muted); font-size: 12px; }
+      .wave em { color: var(--forest); font-size: 9px; font-style: normal; font-weight: 850; text-transform: uppercase; }
+
+      .decision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+      .decision-card {
+        padding: 25px;
+        border-radius: 24px;
+        background: var(--white);
+      }
+
+      .decision-card.reject { background: #e9ddd6; }
+      .decision-card h3 { font-family: Georgia, serif; font-size: 28px; font-weight: 500; }
+
+      .clean-list { margin: 0; padding: 0; list-style: none; }
+      .clean-list li { padding: 10px 0; border-top: 1px solid var(--line); color: #4f5d56; font-size: 13px; }
+
+      footer {
+        padding: 70px 0 90px;
+        border-top: 1px solid var(--line);
+      }
+
+      .footer-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 50px; }
+      footer h2 { font-size: 45px; }
+      footer p, footer li { color: var(--muted); font-size: 12px; }
+      footer ul { padding-left: 18px; }
+
+      @media (max-width: 900px) {
+        .nav-links a:not(.pill) { display: none; }
+        header { min-height: auto; }
+        .thesis-grid, .journeys { grid-template-columns: repeat(2, 1fr); }
+        .map-row { grid-template-columns: 1fr; }
+        .connector { transform: rotate(90deg); }
+        .infra { grid-template-columns: repeat(2, 1fr); }
+        .verbs { grid-template-columns: repeat(4, 1fr); }
+        .verb { border: 0; }
+        .experience-grid, .release-layout, .footer-grid { grid-template-columns: 1fr; }
+        .identity-flow { grid-template-columns: 1fr; }
+        .identity-arrow { text-align: center; transform: rotate(90deg); }
+        .processes { grid-template-columns: repeat(2, 1fr); }
+        .wave { grid-template-columns: 1fr; gap: 5px; }
+      }
+
+      @media (max-width: 560px) {
+        .shell, .nav { width: min(100% - 22px, 1180px); }
+        .nav { top: 7px; margin-top: 7px; }
+        header { padding-top: 100px; }
+        h1 { font-size: 58px; }
+        section { padding: 70px 0; }
+        .thesis-grid, .journeys, .decision-grid, .processes { grid-template-columns: 1fr; }
+        .thesis-card { min-height: 170px; }
+        .workbench-body { grid-template-columns: 1fr; }
+        .side { display: none; }
+        .main-pane { padding: 20px; }
+        .mini-grid { grid-template-columns: 1fr; }
+        .release-stack { min-height: 480px; }
+        .release-card { width: 95%; }
+        .wave { padding-left: 68px; }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="nav" aria-label="Navegação da arquitetura">
+      <div class="brand"><span class="mark">z</span> Zoen, produto final</div>
+      <div class="nav-links">
+        <a href="#sistema">Sistema</a>
+        <a href="#experiencia">Experiência</a>
+        <a href="#release">WorldRelease</a>
+        <a href="#execucao" class="pill">Execução</a>
+      </div>
+    </nav>
+
+    <header class="shell">
+      <div class="eyebrow">Arquitetura de destino</div>
+      <h1>Simples para viver.<br />Sério para operar.</h1>
+      <p class="hero-copy">
+        Eve torna agentes com ontologia acessíveis para qualquer pessoa. A conversa parece leve porque significado, autoridade, evidência e execução ficam rigorosamente governados por baixo.
+      </p>
+      <div class="thesis-grid">
+        <article class="thesis-card">
+          <span class="product-index">01</span>
+          <strong>Eve</strong>
+          <p>A relação. Conversa, memória, canais, approvals e o membership workbench.</p>
+        </article>
+        <article class="thesis-card">
+          <span class="product-index">02</span>
+          <strong>Ontology</strong>
+          <p>A autoridade. CLI, Connect e MCP sobre significado publicado e Actions governadas.</p>
+        </article>
+        <article class="thesis-card">
+          <span class="product-index">03</span>
+          <strong>Auth door</strong>
+          <p>A entrada. Better Auth prova a conta, completa device flow e devolve a pessoa a Eve.</p>
+        </article>
+      </div>
+    </header>
+
+    <section id="sistema" class="dark">
+      <div class="shell">
+        <div class="section-head">
+          <div class="eyebrow">Um sistema, três produtos</div>
+          <h2>Eve conversa. Zoen decide o que é verdadeiro e permitido.</h2>
+          <p>Todo caller atravessa a mesma linguagem operacional. Nenhum canal, agente ou UI reimplementa política.</p>
+        </div>
+        <div class="system-map">
+          <div class="map-row">
+            <div class="map-node">
+              <small>Entrada</small>
+              <strong>Better Auth</strong>
+              <span>SessionDoor, device flow, LinkIntent, recovery</span>
+            </div>
+            <div class="connector">→</div>
+            <div class="map-node eve">
+              <small>Relação</small>
+              <strong>Eve</strong>
+              <span>Web, Kapso, Telegram, TurnContext, workbench</span>
+            </div>
+            <div class="connector">↔</div>
+            <div class="map-node kernel">
+              <small>Autoridade</small>
+              <strong>World kernel</strong>
+              <span>WorldRelease, Cedar, Evidence, Action, Explain</span>
+            </div>
+          </div>
+          <div class="verbs" aria-label="Catálogo universal de verbos">
+            <div class="verb">Discover</div><div class="verb">Query</div><div class="verb">Propose</div>
+            <div class="verb">Decide</div><div class="verb">Commit</div><div class="verb">Explain</div><div class="verb">Execute</div>
+          </div>
+          <div class="shared-line"></div>
+          <div class="infra">
+            <div>Postgres + RLS</div><div>DataFusion</div><div>Wasmtime</div><div>MinIO</div><div>Restate, effects only</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="experiencia">
+      <div class="shell">
+        <div class="section-head">
+          <div class="eyebrow">A experiência</div>
+          <h2>Intimidade na conversa. Profundidade quando importa.</h2>
+          <p>Chat não vira console. O workbench mostra evidência, autoridade e história sem criar um quarto produto.</p>
+        </div>
+        <div class="experience-grid">
+          <div class="phone" aria-label="Mockup da conversa com Eve">
+            <div class="phone-screen">
+              <div class="phone-top"><span>9:41</span><span class="eve-avatar">e</span><span>•••</span></div>
+              <div class="bubble person">lembra que minha mãe prefere consulta de manhã?</div>
+              <div class="bubble eve-bubble">vou lembrar disso.</div>
+              <div class="receipt-chip">salvo com evidência · ver por quê</div>
+              <div class="bubble person">e me lembra de ligar amanhã às 9</div>
+              <div class="bubble eve-bubble">claro. amanhã, 9h.</div>
+              <div class="composer"><span>fala comigo…</span><span>↑</span></div>
+            </div>
+          </div>
+          <div class="workbench" aria-label="Mockup do membership workbench de Eve">
+            <div class="window-bar"><span class="window-dot"></span><span class="window-dot"></span><span class="window-dot"></span></div>
+            <div class="workbench-body">
+              <aside class="side">
+                <div class="world-switch">Casa Tironi⌄</div>
+                <div class="side-item active">Conversa</div>
+                <div class="side-item">O que Eve sabe</div>
+                <div class="side-item">Aprovações</div>
+                <div class="side-item">Automações</div>
+                <div class="side-item">Pessoas e papéis</div>
+                <div class="side-item">Conexões</div>
+                <div class="side-item">Atividade</div>
+              </aside>
+              <main class="main-pane">
+                <h3>O que Eve sabe</h3>
+                <div class="subtle">Significado válido agora, com origem e autoridade.</div>
+                <div class="knowledge-card">
+                  <div><strong>Preferência de consulta</strong><p>Sua mãe prefere horários pela manhã.</p></div>
+                  <span class="evidence">Evidência</span>
+                </div>
+                <div class="knowledge-card">
+                  <div><strong>Lembrete agendado</strong><p>Ligar amanhã às 9h, pelo WhatsApp vinculado.</p></div>
+                  <span class="evidence">Ativo</span>
+                </div>
+                <div class="mini-grid">
+                  <div class="mini-card"><b>1</b><span>aprovação esperando por você</span></div>
+                  <div class="mini-card"><b>3</b><span>pessoas neste World</span></div>
+                </div>
+              </main>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="release" class="dark">
+      <div class="shell release-layout">
+        <div class="release-stack" aria-label="WorldRelease content-addressed">
+          <div class="release-card"></div>
+          <div class="release-card"></div>
+          <div class="release-card">
+            <small>WorldRelease ativa</small>
+            <div class="digest">sha256:7fc9…e21b</div>
+            <div class="release-components">
+              <div>Ontology</div><div>Policy bundle</div><div>Executors</div><div>Components</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="eyebrow">A decisão central</div>
+          <h2>Significado executável, publicado como uma unidade.</h2>
+          <p class="muted">Uma operação nunca mistura definição, política ou executor de releases diferentes. Ativação muda tudo atomicamente e deixa um recibo causal.</p>
+          <div class="principles">
+            <div class="principle"><div class="n">1</div><div><strong>World é a fronteira</strong><p>Pessoa, família, clínica e fábrica usam o mesmo kernel. Membership define presença e autoridade.</p></div></div>
+            <div class="principle"><div class="n">2</div><div><strong>Pack produz uma candidate release</strong><p>Meaning, política, automações e apresentação passam por preview antes da ativação.</p></div></div>
+            <div class="principle"><div class="n">3</div><div><strong>Policy não mora no boot</strong><p>Cedar é publicado, versionado e explicável junto ao restante do World.</p></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <div class="eyebrow">Identidade sem autoridade ambiente</div>
+          <h2>Cada turno sabe quem fala, onde age e por quê.</h2>
+          <p>Subjects de provedor ficam no boundary. O modelo recebe uma capacidade de turno, nunca um tenant hint ou machine token.</p>
+        </div>
+        <div class="identity-flow">
+          <div class="identity-node"><strong>ExternalSubject</strong><span>privado no adapter</span></div><div class="identity-arrow">→</div>
+          <div class="identity-node"><strong>ChannelBinding</strong><span>vínculo verificado</span></div><div class="identity-arrow">→</div>
+          <div class="identity-node"><strong>Account</strong><span>uma pessoa, vários canais</span></div><div class="identity-arrow">→</div>
+          <div class="identity-node"><strong>Membership</strong><span>World, roles, clearance</span></div>
+        </div>
+        <div class="invariant"><strong>TurnContext =</strong> conversa + Membership + WorldRelease + source attribution + namespace de operação. Ele existe só durante o turno e não pode ser trocado por uma tool.</div>
+      </div>
+    </section>
+
+    <section class="dark">
+      <div class="shell">
+        <div class="section-head">
+          <div class="eyebrow">Automação genérica</div>
+          <h2>O kernel agenda intenção. Eve entrega presença.</h2>
+          <p>Restate torna o efeito durável. Eve continua dona do canal. Nenhuma branch de reminder, Kapso ou Telegram entra no engine.</p>
+        </div>
+        <div class="system-map">
+          <div class="map-row" style="grid-template-columns: 1fr 55px 1fr 55px 1fr">
+            <div class="map-node kernel"><small>Authority</small><strong>Action Commit</strong><span>Receipt + EffectRequest + outbox, uma transação</span></div>
+            <div class="connector">→</div>
+            <div class="map-node"><small>Durability</small><strong>ZoenEffect</strong><span>delay, retry, dedupe, timeout, reconcile</span></div>
+            <div class="connector">→</div>
+            <div class="map-node eve"><small>Relationship</small><strong>Eve delivery</strong><span>ChannelBinding → Kapso ou Telegram</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <div class="eyebrow">Journeys como contrato</div>
+          <h2>O produto só existe quando a pessoa atravessa tudo.</h2>
+          <p>Sem unit tests, mocks ou provas por proxy. Cada fatia dirige o sistema como um usuário real.</p>
+        </div>
+        <div class="journeys">
+          <article class="journey"><small>01 · identidade</small><strong>Uma pessoa, três entradas</strong><p>Web, WhatsApp e Telegram chegam à mesma Account e ao World correto.</p></article>
+          <article class="journey"><small>02 · memória</small><strong>Lembrar com evidência</strong><p>Action, receipt, valid time e explain no workbench.</p></article>
+          <article class="journey"><small>03 · efeitos</small><strong>Dois lembretes reais</strong><p>Restart, retry e uma entrega por operação no canal de origem.</p></article>
+          <article class="journey"><small>04 · autoridade</small><strong>Família aprova</strong><p>Duas Memberships, StateBasis e commit atômico do convite.</p></article>
+          <article class="journey"><small>05 · leitura</small><strong>Clínica filtra antes</strong><p>Cedar antes da página, cursor opaco, lineage e redaction.</p></article>
+          <article class="journey"><small>06 · agentes</small><strong>Fábrica via MCP</strong><p>Descobrir, propor, decidir, commitar, executar e explicar.</p></article>
+          <article class="journey"><small>07 · evolução</small><strong>Pack vira release</strong><p>Preview de cenários e ativação atômica de meaning e policy.</p></article>
+          <article class="journey"><small>08 · operação</small><strong>A imagem que sobe</strong><p>Build, boot, readiness e journeys na mesma imagem Fly.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="dark">
+      <div class="shell">
+        <div class="section-head">
+          <div class="eyebrow">Uma implantação</div>
+          <h2>Um Fly app. Vários processos honestos. Zero produto acidental.</h2>
+          <p>A fronteira operacional fica pequena antes do lançamento, sem misturar as responsabilidades internas.</p>
+        </div>
+        <div class="fly-box">
+          <div class="fly-top"><strong>zoend, único router público</strong><span>Connect · MCP · /auth/* · /eve/*</span></div>
+          <div class="processes">
+            <div class="process"><strong>Postgres</strong><span>authority, RLS, outbox, auth</span></div>
+            <div class="process"><strong>MinIO</strong><span>artifacts e lake imutável</span></div>
+            <div class="process"><strong>Eve</strong><span>conversation durability e canais</span></div>
+            <div class="process"><strong>Better Auth</strong><span>door e device flow</span></div>
+            <div class="process"><strong>zoen-projection</strong><span>outbox para read models</span></div>
+            <div class="process"><strong>effect-dispatcher</strong><span>effects committed para Restate</span></div>
+            <div class="process"><strong>effect-runtime</strong><span>handler de ZoenEffect</span></div>
+            <div class="process"><strong>DataFusion + Wasmtime</strong><span>query e compute limitados</span></div>
+          </div>
+          <div class="ready"><b>/ready</b><span>active release</span><span>policy</span><span>migrations</span><span>projection watermark</span><span>Restate handler</span><span>backlog age</span><span>Eve</span><span>Auth</span><span>object store</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="execucao">
+      <div class="shell">
+        <div class="section-head">
+          <div class="eyebrow">Ordem de construção</div>
+          <h2>Oito ondas. Cada uma termina em verdade observável.</h2>
+          <p>A execução futura deve ser orquestrada por fatias verticais e journeys, não por uma pilha de PRs de infraestrutura sem usuário.</p>
+        </div>
+        <div class="roadmap">
+          <div class="wave" data-wave="1"><strong>Verdade operacional</strong><p>Policy/read, wiring, image, projection, handler, CI e triagem dos PRs.</p><em>imagem sobe</em></div>
+          <div class="wave" data-wave="2"><strong>WorldRelease</strong><p>Release atômica, policy governada, catálogo e contratos gerados.</p><em>meaning único</em></div>
+          <div class="wave" data-wave="3"><strong>Identidade por turno</strong><p>Bindings, Membership, LinkIntent, TurnContext e device flow.</p><em>3 entradas</em></div>
+          <div class="wave" data-wave="4"><strong>Autoridade atômica</strong><p>Evidence, invites, effect access, commit e explicação causal.</p><em>família aprova</em></div>
+          <div class="wave" data-wave="5"><strong>Eve completa</strong><p>Workbench, dynamic tools, consentimento e canais legíveis.</p><em>memória real</em></div>
+          <div class="wave" data-wave="6"><strong>Automação durável</strong><p>Automation genérica, projection, Restate e reconciliação.</p><em>2 lembretes</em></div>
+          <div class="wave" data-wave="7"><strong>Agentes e Packs</strong><p>MCP, CLI/API coerentes, distribuição e cenários de evolução.</p><em>fábrica opera</em></div>
+          <div class="wave" data-wave="8"><strong>Prova de lançamento</strong><p>Recovery, observabilidade, segurança, artifacts e deploy gate.</p><em>ship</em></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <div class="eyebrow">Escolhas conscientes</div>
+          <h2>Ambição no produto. Disciplina na forma.</h2>
+        </div>
+        <div class="decision-grid">
+          <article class="decision-card">
+            <h3>Fica</h3>
+            <ul class="clean-list">
+              <li>WorldRelease content-addressed</li><li>TurnContext como capability</li><li>Action e AuthorityDelta atômicos</li>
+              <li>ZoenPack e automação genérica</li><li>Eve como casa e workbench</li><li>Restate somente para ZoenEffect</li>
+            </ul>
+          </article>
+          <article class="decision-card reject">
+            <h3>Sai</h3>
+            <ul class="clean-list">
+              <li>Cell como segunda fronteira no lançamento</li><li>Policy JSON como runtime truth</li><li>Credenciais globais e IDs fixos</li>
+              <li>Workbench unbound e /channels/*</li><li>Dashboard ou gateway como quarto produto</li><li>Redis, Rivet e conversation state no kernel</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="shell footer-grid">
+        <div>
+          <div class="eyebrow">Critério de pronto</div>
+          <h2>Uma mesma Action. Quatro superfícies. Uma verdade.</h2>
+          <p>Eve, CLI, Connect e MCP produzem a mesma decisão de política, o mesmo commit atômico e a mesma explicação causal. A pessoa percebe apenas uma conversa simples e confiável.</p>
+        </div>
+        <div>
+          <strong>Referências de produto e arquitetura</strong>
+          <ul>
+            <li><a href="https://poke.com">Poke</a>, referência para conversa proativa, pessoal e presente nos canais.</li>
+            <li><a href="https://www.palantir.com/docs/foundry/architecture-center/ontology-system">Palantir Ontology</a>, referência para unir dados, lógica, Actions e segurança.</li>
+            <li><a href="https://docs.restate.dev/">Restate</a>, execução durável restrita aos efeitos de Ontology.</li>
+            <li><a href="https://blog.modelcontextprotocol.io/posts/2026-07-28/">MCP 2026-07-28</a>, direção do transporte MCP de entrada.</li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
