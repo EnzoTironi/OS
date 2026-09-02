@@ -26,6 +26,10 @@ e2e scenario:
 verify:
     ./e2e/run.sh verify
 
+# Compare clean-target workspace builds with and without Kache.
+benchmark-kache:
+    node scripts/benchmark-kache.mjs
+
 # V1 release gate: aggregate typed artifacts into a signed zoen.verify.v1 bundle.
 # Does not rerun scenarios. Missing/stale/wrong-commit evidence fails closed.
 verify-v1:
