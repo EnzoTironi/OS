@@ -155,6 +155,10 @@ const authBase = stripTrailingSlashes(requiredEnv("ZOEN_AUTH_BASE_URL"));
 const zoendBase = stripTrailingSlashes(requiredEnv("ZOEN_ZOEND_BASE_URL"));
 const tenantId = trimmedEnv("ZOEN_TENANT_ID") ?? "tenant.a";
 const port = Number(trimmedEnv("ZOEN_WORKSHOP_PORT") ?? "58707");
+// Loopback by default: production keeps the workshop private behind zoend's
+// apps_proxy on the same host. E2E binds 0.0.0.0 so the dockerized Rivet
+// engine can reach the /api/rivet runner callback via the host gateway.
+const hostname = trimmedEnv("ZOEN_WORKSHOP_HOST") ?? "127.0.0.1";
 
 async function resolveSession(request: Request): Promise<Session | undefined> {
   const headers = sessionHeaders(request);
@@ -277,6 +281,6 @@ async function handle(request: Request): Promise<Response> {
   return await app.fetch(forward);
 }
 
-serve({ fetch: handle, hostname: "127.0.0.1", port }, (info) => {
-  console.log(`workshop: listening on 127.0.0.1:${info.port}`);
+serve({ fetch: handle, hostname, port }, (info) => {
+  console.log(`workshop: listening on ${hostname}:${info.port}`);
 });
