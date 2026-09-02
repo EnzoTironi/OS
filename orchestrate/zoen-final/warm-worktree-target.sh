@@ -23,5 +23,11 @@ if [[ -e "$destination_target" ]]; then
   exit 1
 fi
 
-cp -a --reflink=auto "$source_target" "$destination_target"
+
+if [[ "$(uname)" == "Darwin" ]]; then
+  cp -a "$source_target" "$destination_target"
+else
+  cp -a --reflink=auto "$source_target" "$destination_target"
+fi
+
 du -sh "$destination_target"
