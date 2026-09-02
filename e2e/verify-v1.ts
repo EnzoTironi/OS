@@ -10,19 +10,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
 import {
-  exactGitObjectId,
+  bindFixtureCommitValue,
   exactSourceCommit,
-  gitHead,
   hasSourceCommitAlias,
+  resolveCandidateCommit,
   scenarioPassed,
+  sourceCommitMatches,
+  sourceCommitVerificationMutants,
   sourceCommitKeys,
+  type VerificationMutantResult,
 } from "./scenario-evidence.js";
 import { z } from "zod";
 
 const SCHEMA_ID = "zoen.verify.v1" as const;
 const RPO_TARGET_SECONDS = 300;
 const RTO_TARGET_SECONDS = 1800;
-const FIXTURE_COMMIT_PLACEHOLDER = "__CANDIDATE_SHA__";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 // Compiled output lives at dist/e2e/; sources live at e2e/.
@@ -127,26 +129,12 @@ type GateResult = {
   readonly semanticSurvivors: Array<{ scenario: string; id: string }>;
 };
 
-type VerificationMutantResult = {
-  readonly id: string;
-  readonly killed: boolean;
-  readonly observation: string;
-};
-
 function sha256Text(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
 function sha256Bytes(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function commitsMatch(candidate: string, evidence: string): boolean {
-  return (
-    exactGitObjectId(candidate) !== null &&
-    exactGitObjectId(evidence) !== null &&
-    candidate === evidence
-  );
 }
 
 function extractSourceCommit(body: Record<string, unknown>): string | null {
@@ -340,7 +328,7 @@ async function resolveLiveSlots(
     if (await pathExists(livePath)) {
       const body = await readJsonObject(livePath);
       const commit = extractSourceCommit(body);
-      if (commit === null || !commitsMatch(candidate, commit)) {
+      if (commit === null || !sourceCommitMatches(candidate, commit)) {
         slots.push({
           id: provider.id,
           present: false,
@@ -433,7 +421,10 @@ function evaluateGate(
         scenario: spec.id,
         detail: "evidence does not record sourceCommit/sourceSha",
       });
-    } else if (!commitsMatch(candidate, commit) && !options.acceptWrongCommit) {
+    } else if (
+      !sourceCommitMatches(candidate, commit) &&
+      !options.acceptWrongCommit
+    ) {
       failures.push({
         code: "wrong-commit",
         scenario: spec.id,
@@ -443,7 +434,10 @@ function evaluateGate(
 
     if (evidence.signedOci !== null) {
       const signedCommit = evidence.signedOci.sourceSha;
-      if (!commitsMatch(candidate, signedCommit) && !options.acceptWrongCommit) {
+      if (
+        !sourceCommitMatches(candidate, signedCommit) &&
+        !options.acceptWrongCommit
+      ) {
         failures.push({
           code: "wrong-commit",
           scenario: spec.id,
@@ -632,49 +626,7 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     });
   }
 
-  {
-    const id = "accept-abbreviated-commit";
-    const abbreviated = candidate.slice(0, 7);
-    const loaded = fillGraph({
-      "governed-action": passingScenario(abbreviated),
-    });
-    const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
-    const killed =
-      extractSourceCommit({ sourceCommit: abbreviated }) === null &&
-      !commitsMatch(candidate, abbreviated) &&
-      strict.failures.some((row) => row.code === "wrong-commit");
-    results.push({
-      id,
-      killed,
-      observation: killed
-        ? "strict gate rejected abbreviated commit evidence"
-        : "abbreviated commit evidence survived the strict gate",
-    });
-  }
-
-  {
-    const id = "accept-malformed-commit";
-    const malformed = [
-      "a".repeat(39),
-      "a".repeat(41),
-      "A".repeat(40),
-      "g".repeat(40),
-      FIXTURE_COMMIT_PLACEHOLDER,
-    ];
-    const validSha256 = "a".repeat(64);
-    const killed =
-      malformed.every(
-        (commit) => extractSourceCommit({ sourceCommit: commit }) === null,
-      ) &&
-      extractSourceCommit({ sourceCommit: validSha256 }) === validSha256;
-    results.push({
-      id,
-      killed,
-      observation: killed
-        ? "strict parser rejected malformed commits and retained full SHA-256 support"
-        : "malformed commit evidence survived the strict parser",
-    });
-  }
+  results.push(...sourceCommitVerificationMutants(candidate));
 
   {
     const id = "accept-wrong-commit";
@@ -800,20 +752,6 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
   return results;
 }
 
-function resolveCandidateSha(): string {
-  const fromEnv = process.env.ZOEN_VERIFY_CANDIDATE_SHA;
-  if (fromEnv !== undefined) {
-    const candidate = exactGitObjectId(fromEnv.trim());
-    if (candidate === null) {
-      throw new Error(
-        "ZOEN_VERIFY_CANDIDATE_SHA must be a full lowercase Git object ID",
-      );
-    }
-    return candidate;
-  }
-  return gitHead(repositoryRoot);
-}
-
 function resolveEvidenceRoot(): string {
   const override = process.env.ZOEN_VERIFY_EVIDENCE_DIR?.trim();
   if (override) {
@@ -829,23 +767,6 @@ function isFixtureEvidenceRoot(evidenceRoot: string): boolean {
     normalized === fixturesRoot ||
     normalized.startsWith(`${fixturesRoot}${path.sep}`)
   );
-}
-
-function bindFixtureCommitValue(value: unknown, candidate: string): unknown {
-  if (typeof value === "string") {
-    return value === FIXTURE_COMMIT_PLACEHOLDER ? candidate : value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => bindFixtureCommitValue(entry, candidate));
-  }
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = bindFixtureCommitValue(entry, candidate);
-    }
-    return out;
-  }
-  return value;
 }
 
 function bindFixtureEvidence(
@@ -959,7 +880,7 @@ function assertNoSecrets(text: string): void {
 }
 
 async function main(): Promise<void> {
-  const candidate = resolveCandidateSha();
+  const candidate = resolveCandidateCommit(repositoryRoot);
   const evidenceRoot = resolveEvidenceRoot();
   const fixtureMode = isFixtureEvidenceRoot(evidenceRoot);
   // Fixture runs are gate-contract only; always emit the official bundle under artifacts/.

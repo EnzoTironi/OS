@@ -10,16 +10,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
 import {
-  exactGitObjectId,
+  bindFixtureCommitValue,
   exactSourceCommit,
-  gitHead,
   hasSourceCommitAlias,
+  resolveCandidateCommit,
   scenarioPassed,
+  sourceCommitMatches,
+  sourceCommitVerificationMutants,
   sourceCommitKeys,
+  type VerificationMutantResult,
 } from "./scenario-evidence.js";
 
 const SCHEMA_ID = "zoen.activation.v1" as const;
-const FIXTURE_COMMIT_PLACEHOLDER = "__CANDIDATE_SHA__";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot =
@@ -109,22 +111,8 @@ type GateResult = {
   readonly advertisedClaims: AdvertisedClaim[];
 };
 
-type VerificationMutantResult = {
-  readonly id: string;
-  readonly killed: boolean;
-  readonly observation: string;
-};
-
 function sha256Text(value: string): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function commitsMatch(candidate: string, evidence: string): boolean {
-  return (
-    exactGitObjectId(candidate) !== null &&
-    exactGitObjectId(evidence) !== null &&
-    candidate === evidence
-  );
 }
 
 function extractSourceCommit(body: Record<string, unknown>): string | null {
@@ -310,7 +298,10 @@ function evaluateGate(
         scenario: spec.id,
         detail: "evidence does not record sourceCommit/sourceSha/headSha",
       });
-    } else if (!commitsMatch(candidate, commit) && !options.acceptWrongCommit) {
+    } else if (
+      !sourceCommitMatches(candidate, commit) &&
+      !options.acceptWrongCommit
+    ) {
       failures.push({
         code: "wrong-commit",
         scenario: spec.id,
@@ -494,63 +485,7 @@ function runVerificationMutants(
     });
   }
 
-  {
-    const id = "accept-abbreviated-commit";
-    const abbreviated = candidate.slice(0, 7);
-    const target = REQUIRED_SCENARIOS.find(
-      (row) => row.id === "activation-identity",
-    );
-    assert.ok(target);
-    const loaded = fillGraph({
-      "activation-identity": syntheticPassing(target, abbreviated),
-    });
-    const cleanClaims = advertisedClaims.map((claim) => ({
-      ...claim,
-      advertised: false,
-    }));
-    const strict = evaluateGate(
-      candidate,
-      loaded,
-      cleanClaims,
-      false,
-      STRICT_OPTIONS,
-    );
-    const killed =
-      extractSourceCommit({ sourceCommit: abbreviated }) === null &&
-      !commitsMatch(candidate, abbreviated) &&
-      strict.failures.some((row) => row.code === "wrong-commit");
-    results.push({
-      id,
-      killed,
-      observation: killed
-        ? "strict gate rejected abbreviated commit evidence"
-        : "abbreviated commit evidence survived the strict gate",
-    });
-  }
-
-  {
-    const id = "accept-malformed-commit";
-    const malformed = [
-      "a".repeat(39),
-      "a".repeat(41),
-      "A".repeat(40),
-      "g".repeat(40),
-      FIXTURE_COMMIT_PLACEHOLDER,
-    ];
-    const validSha256 = "a".repeat(64);
-    const killed =
-      malformed.every(
-        (commit) => extractSourceCommit({ sourceCommit: commit }) === null,
-      ) &&
-      extractSourceCommit({ sourceCommit: validSha256 }) === validSha256;
-    results.push({
-      id,
-      killed,
-      observation: killed
-        ? "strict parser rejected malformed commits and retained full SHA-256 support"
-        : "malformed commit evidence survived the strict parser",
-    });
-  }
+  results.push(...sourceCommitVerificationMutants(candidate));
 
   {
     const id = "wrong-sha";
@@ -649,20 +584,6 @@ function runVerificationMutants(
   return results;
 }
 
-function resolveCandidateSha(): string {
-  const fromEnv = process.env.ZOEN_VERIFY_CANDIDATE_SHA;
-  if (fromEnv !== undefined) {
-    const candidate = exactGitObjectId(fromEnv.trim());
-    if (candidate === null) {
-      throw new Error(
-        "ZOEN_VERIFY_CANDIDATE_SHA must be a full lowercase Git object ID",
-      );
-    }
-    return candidate;
-  }
-  return gitHead(repositoryRoot);
-}
-
 function resolveEvidenceRoot(): string {
   const override = process.env.ZOEN_VERIFY_EVIDENCE_DIR?.trim();
   if (override) {
@@ -678,23 +599,6 @@ function isFixtureEvidenceRoot(evidenceRoot: string): boolean {
     normalized === fixturesRoot ||
     normalized.startsWith(`${fixturesRoot}${path.sep}`)
   );
-}
-
-function bindFixtureCommitValue(value: unknown, candidate: string): unknown {
-  if (typeof value === "string") {
-    return value === FIXTURE_COMMIT_PLACEHOLDER ? candidate : value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => bindFixtureCommitValue(entry, candidate));
-  }
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = bindFixtureCommitValue(entry, candidate);
-    }
-    return out;
-  }
-  return value;
 }
 
 function bindFixtureEvidence(
@@ -793,7 +697,7 @@ function assertNoSecrets(text: string): void {
 }
 
 async function main(): Promise<void> {
-  const candidate = resolveCandidateSha();
+  const candidate = resolveCandidateCommit(repositoryRoot);
   const evidenceRoot = resolveEvidenceRoot();
   const fixtureMode = isFixtureEvidenceRoot(evidenceRoot);
   const outputDirectory = fixtureMode
