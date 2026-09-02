@@ -99,6 +99,7 @@ jobs:
           - public-surface
           - reminder-loop
           - workshop-app
+          - mcp-server
           - cli-dest
           - semantic-query
           - wasm-code-mode

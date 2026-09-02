@@ -57,6 +57,7 @@ mod history_service;
 mod identity_admin;
 mod identity_admin_auth;
 mod ingress_hmac;
+mod mcp_server;
 mod messaging_ingress;
 mod onboard;
 mod pack_admin;
@@ -271,7 +272,7 @@ fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
         PostgresIngressReplayStore::new(boot.store.pool()),
     ));
     let workload_routes = workload_ingress_service::router(WorkloadIngressState {
-        credentials: boot.credentials,
+        credentials: boot.credentials.clone(),
         signals: PostgresExternalSignalStore::new(boot.store.pool()),
         sessions: boot.sessions.clone(),
     });
@@ -283,6 +284,15 @@ fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
         .add_service(Arc::new(services.history))
         .add_service(Arc::new(services.world))
         .into_axum_router();
+    let mcp_routes = mcp_server::router(mcp_server::McpState {
+        sessions: boot.sessions.clone(),
+        credentials: boot.credentials,
+        connect: rpc.clone(),
+        tools_ttl_ms: env::var("ZOEN_MCP_TOOLS_TTL_MS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(300_000),
+    });
     let ready_routes = HttpRouter::new()
         .route("/ready", get(ready))
         .with_state(ReadyState {
@@ -303,6 +313,7 @@ fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
         .merge(workload_routes)
         .merge(pack_routes)
         .merge(pack_registry_routes)
+        .merge(mcp_routes)
         .merge(rpc)
 }
 
