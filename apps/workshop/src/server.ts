@@ -230,8 +230,17 @@ app.all("/zoen/*", async (c) => {
   const upstream = `${zoendBase}${url.pathname.slice("/zoen".length)}${url.search}`;
   const headers = new Headers();
   headers.set("authorization", `Bearer ${session.doorToken}`);
-  headers.set("connect-protocol-version", "1");
-  headers.set("content-type", "application/json");
+  // Pass the client's Connect format through: browser apps speak JSON, but
+  // a proxy must not transcode - hardcoding application/json corrupts
+  // binary protobuf bodies (serde then fails with "expected value").
+  headers.set(
+    "connect-protocol-version",
+    c.req.header("connect-protocol-version") ?? "1"
+  );
+  headers.set(
+    "content-type",
+    c.req.header("content-type") ?? "application/json"
+  );
   headers.set("x-zoen-tenant", session.tenantId);
   const hasBody = c.req.method !== "GET" && c.req.method !== "HEAD";
   const body = hasBody ? await c.req.raw.arrayBuffer() : undefined;
