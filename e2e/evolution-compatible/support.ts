@@ -59,6 +59,7 @@ import {
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
+  projectionProcessEnvironment,
 } from "../host-env.js";
 
 export const repositoryRoot = process.cwd();
@@ -542,8 +543,7 @@ export async function rebuildProjection(tenantId: string) {
 
 function projectionEnvironment(): NodeJS.ProcessEnv {
   return {
-    ...process.env,
-    DATABASE_URL: applicationDatabaseUrl,
+    ...projectionProcessEnvironment(),
     S3_ACCESS_KEY_ID: "zoen-access",
     S3_ALLOW_HTTP: "true",
     S3_BUCKET: "zoen-projections",

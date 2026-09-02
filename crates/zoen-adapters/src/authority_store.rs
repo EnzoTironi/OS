@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     error::Error,
     fmt::{Display, Formatter},
 };
@@ -31,7 +32,7 @@ pub enum PostgresInitError {
     Connect(sqlx::Error),
     Migrate(sqlx::migrate::MigrateError),
     Grant(sqlx::Error),
-    PrivilegedProjection,
+    ProjectionRoleBoundary(String),
 }
 
 impl Display for PostgresInitError {
@@ -42,9 +43,9 @@ impl Display for PostgresInitError {
             Self::Grant(error) => {
                 write!(formatter, "failed to apply zoen_projection grants: {error}")
             }
-            Self::PrivilegedProjection => write!(
+            Self::ProjectionRoleBoundary(reason) => write!(
                 formatter,
-                "ZOEN_PROJECTION_DATABASE_URL can INSERT into semantic_claims"
+                "ZOEN_PROJECTION_DATABASE_URL violates the projection role boundary: {reason}"
             ),
         }
     }
@@ -55,7 +56,7 @@ impl Error for PostgresInitError {
         match self {
             Self::Connect(error) | Self::Grant(error) => Some(error),
             Self::Migrate(error) => Some(error),
-            Self::PrivilegedProjection => None,
+            Self::ProjectionRoleBoundary(_) => None,
         }
     }
 }
@@ -107,15 +108,16 @@ impl PostgresAuthorityStore {
 
     /// Re-apply `zoen_projection` table grants when that role exists.
     ///
-    /// sqlx records migration `0021` once. A role created later still
-    /// needs the same GRANT/REVOKE on the next `connect`.
+    /// `SQLx` records each migration once. A role created later still needs the
+    /// current full-state GRANT/REVOKE on the next `connect`. When the allowlist
+    /// evolves, add a migration and repoint this method instead of editing `0027`.
     ///
     /// # Errors
     ///
     /// Returns [`PostgresInitError::Grant`] when the GRANT/REVOKE statements fail.
     pub async fn apply_projection_role_grants(&self) -> Result<(), PostgresInitError> {
         sqlx::query(include_str!(
-            "../migrations/0021_projection_role_grants.sql"
+            "../migrations/0027_projection_role_boundary.sql"
         ))
         .execute(&self.pool)
         .await
@@ -123,27 +125,526 @@ impl PostgresAuthorityStore {
         Ok(())
     }
 
-    /// Fail closed when this pool can write `semantic_claims`.
+    /// Fail closed unless this pool has exactly the projection role's capabilities.
     ///
     /// Call on the worker pool after `ZOEN_PROJECTION_DATABASE_URL` is set
-    /// so an empty or `zoen_app` URL cannot start the projection process.
+    /// so an empty, privileged, or drifted role cannot start the projection process.
     ///
     /// # Errors
     ///
     /// Returns [`PostgresInitError::Connect`] when privilege lookup fails, or
-    /// [`PostgresInitError::PrivilegedProjection`] when this pool can INSERT.
-    pub async fn require_projection_cannot_write_authority(&self) -> Result<(), PostgresInitError> {
-        let can_insert: bool =
-            sqlx::query_scalar("SELECT has_table_privilege('semantic_claims', 'INSERT')")
-                .fetch_one(&self.pool)
-                .await
-                .map_err(PostgresInitError::Connect)?;
-        if can_insert {
-            Err(PostgresInitError::PrivilegedProjection)
-        } else {
-            Ok(())
+    /// [`PostgresInitError::ProjectionRoleBoundary`] when the effective role
+    /// differs from the allowlist.
+    pub async fn require_projection_role_boundary(&self) -> Result<(), PostgresInitError> {
+        match projection_role_violation(&self.pool)
+            .await
+            .map_err(PostgresInitError::Connect)?
+        {
+            Some(reason) => Err(PostgresInitError::ProjectionRoleBoundary(reason)),
+            None => Ok(()),
         }
     }
+}
+
+const PROJECTION_READ_TABLES: [&str; 6] = [
+    "authority_commits",
+    "authority_heads",
+    "projection_manifests",
+    "projection_outbox",
+    "projection_watermarks",
+    "semantic_claims",
+];
+
+const PROJECTION_MANIFEST_INSERT_COLUMNS: [&str; 9] = [
+    "build_id",
+    "from_commit",
+    "manifest_digest",
+    "manifest_object_key",
+    "parquet_digest",
+    "parquet_object_key",
+    "projection_id",
+    "tenant_id",
+    "through_commit",
+];
+
+const PROJECTION_WATERMARK_INSERT_COLUMNS: [&str; 4] = [
+    "manifest_digest",
+    "projection_id",
+    "tenant_id",
+    "through_commit",
+];
+
+const PROJECTION_WATERMARK_UPDATE_COLUMNS: [&str; 3] =
+    ["manifest_digest", "through_commit", "updated_at"];
+
+async fn projection_role_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    if let Some(reason) = projection_role_identity_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_database_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_schema_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_column_violation(projection_columns(pool).await?) {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_table_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_sequence_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_default_acl_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    projection_routine_violation(pool).await
+}
+
+async fn projection_role_identity_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let role = sqlx::query(
+        "SELECT current_user AS current_role, session_user AS session_role,
+                rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
+                rolreplication, rolbypassrls
+         FROM pg_catalog.pg_roles
+         WHERE rolname = current_user",
+    )
+    .fetch_optional(pool)
+    .await?;
+    let Some(role) = role else {
+        return Ok(Some("current role is absent from pg_roles".to_owned()));
+    };
+    let current_role = role.try_get::<String, _>("current_role")?;
+    let session_role = role.try_get::<String, _>("session_role")?;
+    if current_role != "zoen_projection" || session_role != "zoen_projection" {
+        return Ok(Some(format!(
+            "current_user and session_user must both be zoen_projection, got {current_role} and {session_role}"
+        )));
+    }
+    let forbidden_role_attributes = [
+        ("SUPERUSER", role.try_get::<bool, _>("rolsuper")?),
+        ("INHERIT", role.try_get::<bool, _>("rolinherit")?),
+        ("CREATEROLE", role.try_get::<bool, _>("rolcreaterole")?),
+        ("CREATEDB", role.try_get::<bool, _>("rolcreatedb")?),
+        ("REPLICATION", role.try_get::<bool, _>("rolreplication")?),
+        ("BYPASSRLS", role.try_get::<bool, _>("rolbypassrls")?),
+    ];
+    if !role.try_get::<bool, _>("rolcanlogin")? {
+        return Ok(Some("zoen_projection must be a LOGIN role".to_owned()));
+    }
+    if let Some((attribute, _)) = forbidden_role_attributes
+        .iter()
+        .find(|(_, enabled)| *enabled)
+    {
+        return Ok(Some(format!("zoen_projection must not have {attribute}")));
+    }
+
+    let has_membership: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1
+             FROM pg_catalog.pg_auth_members membership
+             JOIN pg_catalog.pg_roles member ON member.oid = membership.member
+             WHERE member.rolname = current_user
+         )",
+    )
+    .fetch_one(pool)
+    .await?;
+    if has_membership {
+        return Ok(Some(
+            "zoen_projection must not be a member of another role".to_owned(),
+        ));
+    }
+    Ok(None)
+}
+
+async fn projection_database_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let databases = sqlx::query(
+        "SELECT database.datname,
+             database.datname = pg_catalog.current_database() AS is_current,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'CONNECT'
+             ) AS can_connect,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'CREATE'
+             ) AS can_create,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'TEMPORARY'
+             ) AS can_temp,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'CONNECT WITH GRANT OPTION'
+             ) AS can_grant_connect,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'CREATE WITH GRANT OPTION'
+             ) AS can_grant_create,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'TEMPORARY WITH GRANT OPTION'
+             ) AS can_grant_temp
+         FROM pg_catalog.pg_database database
+         WHERE database.datallowconn
+         ORDER BY database.datname",
+    )
+    .fetch_all(pool)
+    .await?;
+    for database in databases {
+        let name = database.try_get::<String, _>("datname")?;
+        let expected_connect = name == "zoen" && database.try_get::<bool, _>("is_current")?;
+        let can_connect = database.try_get::<bool, _>("can_connect")?;
+        let forbidden = database.try_get::<bool, _>("can_create")?
+            || database.try_get::<bool, _>("can_temp")?
+            || database.try_get::<bool, _>("can_grant_connect")?
+            || database.try_get::<bool, _>("can_grant_create")?
+            || database.try_get::<bool, _>("can_grant_temp")?;
+        if can_connect != expected_connect || forbidden {
+            return Ok(Some(format!(
+                "database {name} has CONNECT={can_connect}, expected {expected_connect}, or a forbidden CREATE, TEMPORARY, or grant option"
+            )));
+        }
+    }
+    Ok(None)
+}
+
+async fn projection_schema_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let schemas = sqlx::query(
+        "SELECT nspname,
+                pg_catalog.has_schema_privilege(current_user, oid, 'USAGE') AS can_use,
+                pg_catalog.has_schema_privilege(current_user, oid, 'CREATE') AS can_create,
+                pg_catalog.has_schema_privilege(
+                    current_user, oid, 'USAGE WITH GRANT OPTION'
+                ) AS can_grant_use,
+                pg_catalog.has_schema_privilege(
+                    current_user, oid, 'CREATE WITH GRANT OPTION'
+                ) AS can_grant_create
+         FROM pg_catalog.pg_namespace
+         WHERE nspname <> 'information_schema'
+           AND nspname !~ '^pg_'
+         ORDER BY nspname",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut found_public = false;
+    for schema in schemas {
+        let name = schema.try_get::<String, _>("nspname")?;
+        let can_use = schema.try_get::<bool, _>("can_use")?;
+        let can_create = schema.try_get::<bool, _>("can_create")?;
+        let can_grant = schema.try_get::<bool, _>("can_grant_use")?
+            || schema.try_get::<bool, _>("can_grant_create")?;
+        if name == "public" {
+            found_public = true;
+            if !can_use || can_create || can_grant {
+                return Ok(Some(
+                    "public schema requires USAGE without CREATE or grant option".to_owned(),
+                ));
+            }
+        } else if can_use || can_create || can_grant {
+            return Ok(Some(format!("unexpected schema capability on {name}")));
+        }
+    }
+    if !found_public {
+        return Ok(Some("public schema is missing".to_owned()));
+    }
+    Ok(None)
+}
+
+struct ProjectionColumnCapability {
+    schema: String,
+    table: String,
+    name: String,
+    select: EffectiveCapability,
+    insert: EffectiveCapability,
+    update: EffectiveCapability,
+    references: EffectiveCapability,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EffectiveCapability {
+    Denied,
+    Granted,
+    Grantable,
+}
+
+impl From<bool> for EffectiveCapability {
+    fn from(expected: bool) -> Self {
+        if expected {
+            Self::Granted
+        } else {
+            Self::Denied
+        }
+    }
+}
+
+impl EffectiveCapability {
+    fn new(granted: bool, grantable: bool) -> Self {
+        if grantable {
+            Self::Grantable
+        } else {
+            granted.into()
+        }
+    }
+}
+
+async fn projection_columns(pool: &PgPool) -> Result<Vec<ProjectionColumnCapability>, sqlx::Error> {
+    let columns = sqlx::query(
+        "SELECT namespace.nspname AS schema_name, relation.relname AS table_name,
+                attribute.attname AS column_name,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum, 'SELECT'
+                )
+                    AS can_select,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum, 'INSERT'
+                )
+                    AS can_insert,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum, 'UPDATE'
+                )
+                    AS can_update,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum, 'REFERENCES'
+                ) AS can_reference,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum,
+                    'SELECT WITH GRANT OPTION'
+                ) AS can_grant_select,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum,
+                    'INSERT WITH GRANT OPTION'
+                ) AS can_grant_insert,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum,
+                    'UPDATE WITH GRANT OPTION'
+                ) AS can_grant_update,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum,
+                    'REFERENCES WITH GRANT OPTION'
+                ) AS can_grant_reference
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+         JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid = relation.oid
+         WHERE namespace.nspname <> 'information_schema'
+           AND namespace.nspname !~ '^pg_'
+           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+           AND attribute.attnum > 0
+           AND NOT attribute.attisdropped
+         ORDER BY namespace.nspname, relation.relname, attribute.attnum",
+    )
+    .fetch_all(pool)
+    .await?;
+    columns
+        .into_iter()
+        .map(|column| {
+            Ok(ProjectionColumnCapability {
+                schema: column.try_get("schema_name")?,
+                table: column.try_get("table_name")?,
+                name: column.try_get("column_name")?,
+                select: EffectiveCapability::new(
+                    column.try_get("can_select")?,
+                    column.try_get("can_grant_select")?,
+                ),
+                insert: EffectiveCapability::new(
+                    column.try_get("can_insert")?,
+                    column.try_get("can_grant_insert")?,
+                ),
+                update: EffectiveCapability::new(
+                    column.try_get("can_update")?,
+                    column.try_get("can_grant_update")?,
+                ),
+                references: EffectiveCapability::new(
+                    column.try_get("can_reference")?,
+                    column.try_get("can_grant_reference")?,
+                ),
+            })
+        })
+        .collect()
+}
+
+fn projection_column_violation(columns: Vec<ProjectionColumnCapability>) -> Option<String> {
+    let mut found_read_tables = HashSet::new();
+    for column in columns {
+        let expected_select =
+            column.schema == "public" && PROJECTION_READ_TABLES.contains(&column.table.as_str());
+        if expected_select {
+            found_read_tables.insert(column.table.clone());
+        }
+        let expected_insert = column.schema == "public"
+            && ((column.table == "projection_manifests"
+                && PROJECTION_MANIFEST_INSERT_COLUMNS.contains(&column.name.as_str()))
+                || (column.table == "projection_watermarks"
+                    && PROJECTION_WATERMARK_INSERT_COLUMNS.contains(&column.name.as_str())));
+        let expected_update = column.schema == "public"
+            && column.table == "projection_watermarks"
+            && PROJECTION_WATERMARK_UPDATE_COLUMNS.contains(&column.name.as_str());
+        let actual = [
+            ("SELECT", column.select, expected_select.into()),
+            ("INSERT", column.insert, expected_insert.into()),
+            ("UPDATE", column.update, expected_update.into()),
+            ("REFERENCES", column.references, false.into()),
+        ];
+        if let Some((privilege, enabled, expected)) = actual
+            .iter()
+            .find(|(_, enabled, expected)| enabled != expected)
+        {
+            let qualifier = format!("{}.{}.{}", column.schema, column.table, column.name);
+            return Some(format!(
+                "{privilege} on {qualifier} is {enabled:?}, expected {expected:?}"
+            ));
+        }
+    }
+    for table in PROJECTION_READ_TABLES {
+        if !found_read_tables.contains(table) {
+            return Some(format!(
+                "required projection table public.{table} is missing"
+            ));
+        }
+    }
+    None
+}
+
+async fn projection_table_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let privileges = sqlx::query(
+        "SELECT namespace.nspname AS schema_name, relation.relname AS table_name,
+                privilege.name AS privilege_name,
+                pg_catalog.has_table_privilege(
+                    current_user, relation.oid, privilege.name
+                ) AS granted,
+                pg_catalog.has_table_privilege(
+                    current_user, relation.oid,
+                    privilege.name || ' WITH GRANT OPTION'
+                ) AS grantable,
+                relation.relrowsecurity,
+                relation.relforcerowsecurity,
+                pg_catalog.row_security_active(relation.oid) AS row_security_active,
+                relation.relowner = (
+                    SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user
+                ) AS role_owns_table
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+         CROSS JOIN (
+             VALUES
+                 ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'),
+                 ('REFERENCES'), ('TRIGGER'), ('MAINTAIN')
+         ) AS privilege(name)
+         WHERE namespace.nspname <> 'information_schema'
+           AND namespace.nspname !~ '^pg_'
+           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+         ORDER BY namespace.nspname, relation.relname, privilege.name",
+    )
+    .fetch_all(pool)
+    .await?;
+    for privilege in privileges {
+        let schema = privilege.try_get::<String, _>("schema_name")?;
+        let table = privilege.try_get::<String, _>("table_name")?;
+        let name = privilege.try_get::<String, _>("privilege_name")?;
+        let expected = schema == "public"
+            && name == "SELECT"
+            && PROJECTION_READ_TABLES.contains(&table.as_str());
+        let actual = EffectiveCapability::new(
+            privilege.try_get("granted")?,
+            privilege.try_get("grantable")?,
+        );
+        if actual != expected.into() {
+            return Ok(Some(format!(
+                "table-level {name} on {schema}.{table} is {actual:?}, expected {:?}",
+                EffectiveCapability::from(expected)
+            )));
+        }
+        if expected
+            && (!privilege.try_get::<bool, _>("relrowsecurity")?
+                || !privilege.try_get::<bool, _>("relforcerowsecurity")?
+                || !privilege.try_get::<bool, _>("row_security_active")?
+                || privilege.try_get::<bool, _>("role_owns_table")?)
+        {
+            return Ok(Some(format!(
+                "public.{table} must enforce RLS and have a different owner"
+            )));
+        }
+    }
+    Ok(None)
+}
+
+async fn projection_sequence_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let privileged_sequence = sqlx::query(
+        "SELECT namespace.nspname AS schema_name, relation.relname AS sequence_name
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+         WHERE namespace.nspname <> 'information_schema'
+           AND namespace.nspname !~ '^pg_'
+           AND relation.relkind = 'S'
+           AND (pg_catalog.has_sequence_privilege(current_user, relation.oid, 'USAGE')
+                OR pg_catalog.has_sequence_privilege(current_user, relation.oid, 'SELECT')
+                OR pg_catalog.has_sequence_privilege(current_user, relation.oid, 'UPDATE'))
+         ORDER BY namespace.nspname, relation.relname
+         LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if let Some(sequence) = privileged_sequence {
+        return Ok(Some(format!(
+            "unexpected sequence capability on {}.{}",
+            sequence.try_get::<String, _>("schema_name")?,
+            sequence.try_get::<String, _>("sequence_name")?,
+        )));
+    }
+    Ok(None)
+}
+
+async fn projection_default_acl_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let default_acl = sqlx::query(
+        "SELECT defaults.defaclobjtype, owner.rolname AS owner_name,
+                COALESCE(namespace.nspname, '') AS schema_name,
+                acl.privilege_type
+         FROM pg_catalog.pg_default_acl defaults
+         JOIN pg_catalog.pg_roles owner ON owner.oid = defaults.defaclrole
+         LEFT JOIN pg_catalog.pg_namespace namespace
+           ON namespace.oid = defaults.defaclnamespace
+         CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) acl
+         WHERE defaults.defaclobjtype IN ('r', 'S')
+           AND acl.grantee IN (
+               0,
+               (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user)
+           )
+         ORDER BY owner.rolname, namespace.nspname, defaults.defaclobjtype
+         LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if let Some(default_acl) = default_acl {
+        return Ok(Some(format!(
+            "unexpected default {} privilege for owner {} in schema {}",
+            default_acl.try_get::<String, _>("privilege_type")?,
+            default_acl.try_get::<String, _>("owner_name")?,
+            default_acl.try_get::<String, _>("schema_name")?,
+        )));
+    }
+    Ok(None)
+}
+
+async fn projection_routine_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    // SECURITY INVOKER routines cannot exceed the effective capabilities checked
+    // above. An executable SECURITY DEFINER routine could, so none are allowed.
+    let routine = sqlx::query(
+        "SELECT namespace.nspname AS schema_name,
+                routine.oid::pg_catalog.regprocedure::text AS routine_name
+         FROM pg_catalog.pg_proc routine
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = routine.pronamespace
+         WHERE namespace.nspname <> 'information_schema'
+           AND namespace.nspname !~ '^pg_'
+           AND routine.prosecdef
+           AND pg_catalog.has_schema_privilege(current_user, namespace.oid, 'USAGE')
+           AND pg_catalog.has_function_privilege(current_user, routine.oid, 'EXECUTE')
+         ORDER BY namespace.nspname, routine.oid::pg_catalog.regprocedure::text
+         LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if let Some(routine) = routine {
+        return Ok(Some(format!(
+            "unexpected routine EXECUTE on {}.{}",
+            routine.try_get::<String, _>("schema_name")?,
+            routine.try_get::<String, _>("routine_name")?,
+        )));
+    }
+    Ok(None)
 }
 
 impl AuthorityStore for PostgresAuthorityStore {

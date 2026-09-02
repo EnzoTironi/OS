@@ -5,8 +5,9 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import {
@@ -56,6 +57,8 @@ import {
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
+  projectionAmbientDatabaseVariables,
+  projectionProcessEnvironment,
   writeScenarioArtifact,
 } from "./host-env.js";
 import {
@@ -96,6 +99,10 @@ const projectionDatabaseUrl = e2ePostgresUrl(
   "zoen_projection",
   postgresPortFallback,
 );
+const projectionAuthDatabaseUrl = projectionDatabaseUrl.replace(
+  /\/zoen$/,
+  "/zoen_auth",
+);
 const adminDatabaseUrl = e2ePostgresUrl(
   "postgres",
   "postgres",
@@ -119,6 +126,37 @@ const validEnd = new Date("2025-02-01T00:00:00.000Z");
 const validAt = new Date("2025-01-15T00:00:00.000Z");
 const instantAt = new Date("2025-01-20T00:00:00.000Z");
 const afterInstant = new Date("2025-01-21T00:00:00.000Z");
+const projectionIntervalMilliseconds = 250;
+const projectionReadTables = [
+  "authority_commits",
+  "authority_heads",
+  "projection_manifests",
+  "projection_outbox",
+  "projection_watermarks",
+  "semantic_claims",
+] as const;
+const projectionManifestInsertColumns = [
+  "build_id",
+  "from_commit",
+  "manifest_digest",
+  "manifest_object_key",
+  "parquet_digest",
+  "parquet_object_key",
+  "projection_id",
+  "tenant_id",
+  "through_commit",
+] as const;
+const projectionWatermarkInsertColumns = [
+  "manifest_digest",
+  "projection_id",
+  "tenant_id",
+  "through_commit",
+] as const;
+const projectionWatermarkUpdateColumns = [
+  "manifest_digest",
+  "through_commit",
+  "updated_at",
+] as const;
 
 type DefinitionClient = Client<typeof DefinitionService>;
 type WorldClient = Client<typeof WorldService>;
@@ -126,6 +164,19 @@ type WorldClient = Client<typeof WorldService>;
 interface ServerProcess {
   child: ChildProcessWithoutNullStreams;
   output: string[];
+}
+
+interface ProjectionProcess {
+  child: ChildProcessWithoutNullStreams;
+  output: string[];
+}
+
+interface ProjectionState {
+  manifestDigest: string;
+  parquetDigest: string;
+  parquetObjectKey: string;
+  throughCommit: number;
+  updatedAtMicros: bigint;
 }
 
 const assertions: Record<string, boolean> = {};
@@ -333,11 +384,12 @@ async function main(): Promise<void> {
 
     await installProjectionPublishFailure(admin);
     try {
-      await expectCommandFailure(
+      const publishFailure = await expectCommandFailure(
         workerPath,
         ["--once", tenantA],
         projectionWorkerEnvironment(),
       );
+      assert.match(publishFailure, /injected projection manifest failure/);
     } finally {
       await removeProjectionPublishFailure(admin);
     }
@@ -363,8 +415,54 @@ async function main(): Promise<void> {
     );
     recordFailureInjection("duplicate-projection-delivery");
     recordAssertion("duplicateOutboxDeliveryIdempotent");
-    await assertProjectionRoleIsolation(tenantA);
-    recordAssertion("projectionRoleCannotWriteAuthority");
+    await assertProjectionRoleBoundary(admin, tenantA);
+    await assertProjectionCannotConnectToAuthDatabase();
+    recordAssertion("projectionRoleHasExactCapabilities");
+    recordAssertion("projectionRoleCannotConnectToAuthDatabase");
+    const failClosedBaseline = await requireProjectionState(admin, tenantA);
+    await assertProjectionStartupFailsClosed(
+      admin,
+      tenantA,
+      failClosedBaseline,
+    );
+    recordAssertion("projectionStartupFailsClosedWithoutFallback");
+
+    const continuousProjection = startContinuousProjection(tenantA);
+    let caughtUpHeartbeat: ProjectionState;
+    try {
+      const firstHeartbeat = await waitForProjectionState(
+        admin,
+        tenantA,
+        continuousProjection,
+        (state) => state.updatedAtMicros > failClosedBaseline.updatedAtMicros,
+        "first caught-up heartbeat",
+      );
+      caughtUpHeartbeat = await waitForProjectionState(
+        admin,
+        tenantA,
+        continuousProjection,
+        (state) => state.updatedAtMicros > firstHeartbeat.updatedAtMicros,
+        "second caught-up heartbeat",
+      );
+      assert.equal(caughtUpHeartbeat.throughCommit, 5);
+      assert.equal(caughtUpHeartbeat.manifestDigest, firstProjection.manifestDigest);
+      recordAssertion("caughtUpProjectionRefreshesHeartbeat");
+    } finally {
+      await stopProjection(continuousProjection);
+    }
+    const stoppedProjection = await requireProjectionState(admin, tenantA);
+    assert.equal(stoppedProjection.throughCommit, caughtUpHeartbeat.throughCommit);
+    assert.equal(stoppedProjection.manifestDigest, caughtUpHeartbeat.manifestDigest);
+    assert.ok(
+      stoppedProjection.updatedAtMicros >= caughtUpHeartbeat.updatedAtMicros,
+    );
+    await delay(projectionIntervalMilliseconds * 2);
+    assert.deepEqual(
+      await requireProjectionState(admin, tenantA),
+      stoppedProjection,
+    );
+    recordAssertion("stoppedProjectionFreezesHeartbeat");
+    recordAssertion("projectionHandlesSigterm");
 
     const strongAfterReserved = await query(worldA, {
       consistency: strong(),
@@ -422,6 +520,16 @@ async function main(): Promise<void> {
       }),
       6n,
     );
+    const stoppedAfterAuthorityAdvance = await requireProjectionState(
+      admin,
+      tenantA,
+    );
+    assert.equal(stoppedAfterAuthorityAdvance.throughCommit, 5);
+    assert.equal(
+      stoppedAfterAuthorityAdvance.updatedAtMicros,
+      stoppedProjection.updatedAtMicros,
+    );
+    recordAssertion("authorityAdvancesWhileProjectionStopped");
     const knownThen = await query(worldA, {
       consistency: snapshot(5n),
       definition,
@@ -479,8 +587,69 @@ async function main(): Promise<void> {
     recordFailureInjection("stale-at-least");
     recordAssertion("staleAtLeastRejected");
 
-    const caughtUp = await runProjection(["--once", tenantA]);
+    await installProjectionPublishFailure(admin);
+    try {
+      const failedProjection = await expectCommandFailure(
+        workerPath,
+        ["--once", tenantA],
+        projectionWorkerEnvironment(),
+      );
+      assert.match(failedProjection, /injected projection manifest failure/);
+    } finally {
+      await removeProjectionPublishFailure(admin);
+    }
+    assert.deepEqual(
+      await requireProjectionState(admin, tenantA),
+      stoppedAfterAuthorityAdvance,
+    );
+    recordFailureInjection("projection-failure-after-watermark");
+    recordAssertion("failedProjectionPreservesCutAndHeartbeat");
+
+    const authorityBeforeProjectionRestart = await rowCount(
+      admin,
+      "authority_commits",
+      tenantA,
+    );
+    const claimsBeforeProjectionRestart = await rowCount(
+      admin,
+      "semantic_claims",
+      tenantA,
+    );
+    const manifestsBeforeProjectionRestart = await rowCount(
+      admin,
+      "projection_manifests",
+      tenantA,
+    );
+    const restartedProjection = startContinuousProjection(tenantA);
+    let caughtUp: ProjectionState;
+    try {
+      caughtUp = await waitForProjectionState(
+        admin,
+        tenantA,
+        restartedProjection,
+        (state) => state.throughCommit === 6,
+        "projection restart catch-up",
+      );
+    } finally {
+      await stopProjection(restartedProjection);
+    }
     assert.equal(caughtUp.throughCommit, 6);
+    assert.ok(caughtUp.updatedAtMicros > stoppedProjection.updatedAtMicros);
+    assert.equal(
+      await rowCount(admin, "authority_commits", tenantA),
+      authorityBeforeProjectionRestart,
+    );
+    assert.equal(
+      await rowCount(admin, "semantic_claims", tenantA),
+      claimsBeforeProjectionRestart,
+    );
+    assert.equal(
+      await rowCount(admin, "projection_manifests", tenantA),
+      manifestsBeforeProjectionRestart + 1,
+    );
+    await assertProjectionRoleBoundary(admin, tenantA);
+    recordAssertion("projectionRestartRecoversWithoutBusinessHistory");
+    recordAssertion("projectionRestartRetainsRoleBoundary");
     const atLeastAfterLate = await query(worldA, {
       consistency: atLeast(6n),
       definition,
@@ -552,21 +721,40 @@ async function main(): Promise<void> {
       }),
       3n,
     );
-    assert.equal(
-      await recordInterval(worldB, {
-        claimId: "claim.reserved",
-        definition,
-        end: validEnd,
-        entityId,
-        relationId: reserved,
-        sourceId: "source.planner",
-        start: validStart,
-        tenantId: tenantB,
-        value: "1",
-      }),
-      4n,
-    );
-    await runProjection(["--once", tenantB]);
+    const tenantBProjection = startContinuousProjection(tenantB);
+    try {
+      await waitForProjectionOutput(
+        tenantBProjection,
+        "worker pool from ZOEN_PROJECTION_DATABASE_URL",
+      );
+      assert.equal(
+        await recordInterval(worldB, {
+          claimId: "claim.reserved",
+          definition,
+          end: validEnd,
+          entityId,
+          relationId: reserved,
+          sourceId: "source.planner",
+          start: validStart,
+          tenantId: tenantB,
+          value: "1",
+        }),
+        4n,
+      );
+      const tenantBCaughtUp = await waitForProjectionState(
+        admin,
+        tenantB,
+        tenantBProjection,
+        (state) => state.throughCommit === 4,
+        "new authority commit created after continuous startup",
+      );
+      assert.equal(tenantBCaughtUp.throughCommit, 4);
+    } finally {
+      await stopProjection(tenantBProjection);
+    }
+    const tenantBNoop = await runProjection(["--once", tenantB]);
+    assert.equal(tenantBNoop.wroteManifest, false);
+    recordAssertion("continuousProjectionCatchesNewAuthorityCommit");
     const tenantBResult = await query(worldB, {
       consistency: snapshot(4n),
       definition,
@@ -1409,9 +1597,222 @@ function workerEnvironment(): NodeJS.ProcessEnv {
 
 function projectionWorkerEnvironment(): NodeJS.ProcessEnv {
   return {
-    ...workerEnvironment(),
+    ...projectionProcessEnvironment(workerEnvironment()),
     ZOEN_PROJECTION_DATABASE_URL: projectionDatabaseUrl,
   };
+}
+
+function startContinuousProjection(tenantId: string): ProjectionProcess {
+  const output: string[] = [];
+  const child = spawn(workerPath, [], {
+    cwd: repositoryRoot,
+    env: {
+      ...projectionWorkerEnvironment(),
+      ZOEN_PROJECTION_INTERVAL_MS: String(projectionIntervalMilliseconds),
+      ZOEN_TENANT_ID: tenantId,
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  child.stdin.end();
+  child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  return { child, output };
+}
+
+async function waitForProjectionOutput(
+  projection: ProjectionProcess,
+  expected: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (projection.output.join("").includes(expected)) {
+      return;
+    }
+    if (projection.child.exitCode !== null) {
+      throw new Error(
+        `zoen-projection exited before logging ${expected}:\n${projection.output.join("")}`,
+      );
+    }
+    await delay(25);
+  }
+  throw new Error(
+    `zoen-projection did not log ${expected}:\n${projection.output.join("")}`,
+  );
+}
+
+async function stopProjection(projection: ProjectionProcess): Promise<void> {
+  if (projection.child.exitCode === null) {
+    const exited = once(projection.child, "exit");
+    projection.child.kill("SIGTERM");
+    await exited;
+  }
+  assert.equal(
+    projection.child.exitCode,
+    0,
+    `zoen-projection failed during shutdown:\n${projection.output.join("")}`,
+  );
+}
+
+async function waitForProjectionState(
+  client: PostgresClient,
+  tenantId: string,
+  projection: ProjectionProcess,
+  predicate: (state: ProjectionState) => boolean,
+  description: string,
+): Promise<ProjectionState> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (projection.child.exitCode !== null) {
+      throw new Error(
+        `zoen-projection exited before ${description}:\n${projection.output.join("")}`,
+      );
+    }
+    const state = await projectionState(client, tenantId);
+    if (state !== null && predicate(state)) {
+      return state;
+    }
+    await delay(50);
+  }
+  throw new Error(
+    `zoen-projection did not reach ${description}:\n${projection.output.join("")}`,
+  );
+}
+
+async function requireProjectionState(
+  client: PostgresClient,
+  tenantId: string,
+): Promise<ProjectionState> {
+  const state = await projectionState(client, tenantId);
+  assert.ok(state, `expected active projection for ${tenantId}`);
+  return state;
+}
+
+async function assertProjectionStartupFailsClosed(
+  admin: PostgresClient,
+  tenantId: string,
+  baseline: ProjectionState,
+): Promise<void> {
+  const appRoleEnvironment = {
+    ...projectionWorkerEnvironment(),
+    ZOEN_PROJECTION_DATABASE_URL: applicationDatabaseUrl,
+  };
+  assert.match(
+    await expectCommandFailure(
+      workerPath,
+      ["--once", tenantId],
+      appRoleEnvironment,
+    ),
+    /must both be zoen_projection/,
+  );
+  assert.deepEqual(await requireProjectionState(admin, tenantId), baseline);
+  recordFailureInjection("projection-app-role-url");
+
+  for (const variable of projectionAmbientDatabaseVariables) {
+    assert.match(
+      await expectCommandFailure(workerPath, ["--once", tenantId], {
+        ...projectionWorkerEnvironment(),
+        [variable]: "forbidden",
+      }),
+      new RegExp(`${variable} must not be present`),
+    );
+    assert.deepEqual(await requireProjectionState(admin, tenantId), baseline);
+    recordFailureInjection(
+      `projection-ambient-${variable.toLowerCase().replaceAll("_", "-")}`,
+    );
+  }
+
+  const missingUrlEnvironment = projectionWorkerEnvironment();
+  delete missingUrlEnvironment.ZOEN_PROJECTION_DATABASE_URL;
+  assert.match(
+    await expectCommandFailure(
+      workerPath,
+      ["--once", tenantId],
+      missingUrlEnvironment,
+    ),
+    /ZOEN_PROJECTION_DATABASE_URL is required/,
+  );
+  assert.deepEqual(await requireProjectionState(admin, tenantId), baseline);
+  recordFailureInjection("projection-missing-database-url");
+
+  assert.match(
+    await expectCommandFailure(workerPath, ["--once", tenantId], {
+      ...projectionWorkerEnvironment(),
+      ZOEN_PROJECTION_DATABASE_URL: e2ePostgresUrl(
+        "zoen_projection",
+        "wrong-password",
+        postgresPortFallback,
+      ),
+    }),
+    /failed to connect to PostgreSQL|password authentication failed/i,
+  );
+  assert.deepEqual(await requireProjectionState(admin, tenantId), baseline);
+  recordFailureInjection("projection-wrong-password");
+
+  const pgpassHome = await mkdtemp(
+    path.join(tmpdir(), "zoen-projection-pgpass-"),
+  );
+  const projectionUrl = new URL(projectionDatabaseUrl);
+  const passwordlessUrl = projectionDatabaseUrl.replace(
+    ":zoen_projection@",
+    "@",
+  );
+  await writeFile(
+    path.join(pgpassHome, ".pgpass"),
+    `127.0.0.1:${projectionUrl.port}:zoen:zoen_projection:zoen_projection\n`,
+    { mode: 0o600 },
+  );
+  try {
+    assert.match(
+      await expectCommandFailure(workerPath, ["--once", tenantId], {
+        ...projectionWorkerEnvironment(),
+        HOME: pgpassHome,
+        ZOEN_PROJECTION_DATABASE_URL: passwordlessUrl,
+      }),
+      /must include an explicit user, non-empty password, host, and database/,
+    );
+  } finally {
+    await rm(pgpassHome, { force: true, recursive: true });
+  }
+  assert.deepEqual(await requireProjectionState(admin, tenantId), baseline);
+  recordFailureInjection("projection-default-pgpass");
+
+  await admin.query(
+    "REVOKE SELECT ON TABLE public.authority_heads FROM zoen_projection",
+  );
+  try {
+    assert.match(
+      await expectCommandFailure(
+        workerPath,
+        ["--once", tenantId],
+        projectionWorkerEnvironment(),
+      ),
+      /ProjectionRoleBoundary|projection role boundary/i,
+    );
+  } finally {
+    await admin.query(
+      "GRANT SELECT ON TABLE public.authority_heads TO zoen_projection",
+    );
+  }
+  assert.deepEqual(await requireProjectionState(admin, tenantId), baseline);
+  recordFailureInjection("projection-missing-grant");
+
+  await admin.query(
+    "GRANT SELECT ON TABLE public.memberships TO zoen_projection",
+  );
+  try {
+    assert.match(
+      await expectCommandFailure(
+        workerPath,
+        ["--once", tenantId],
+        projectionWorkerEnvironment(),
+      ),
+      /ProjectionRoleBoundary|projection role boundary/i,
+    );
+  } finally {
+    await admin.query(
+      "REVOKE SELECT ON TABLE public.memberships FROM zoen_projection",
+    );
+  }
+  assert.deepEqual(await requireProjectionState(admin, tenantId), baseline);
+  recordFailureInjection("projection-excess-grant");
 }
 
 function postgresErrorCode(error: unknown): string {
@@ -1429,29 +1830,60 @@ async function expectPermissionDenied(
   sql: string,
   values: string[] = [],
 ): Promise<void> {
+  let failure: unknown;
   try {
     await client.query(sql, values);
-    assert.fail(`expected permission denied: ${sql}`);
   } catch (error: unknown) {
-    assert.equal(postgresErrorCode(error), "42501", String(error));
+    failure = error;
   }
+  assert.equal(
+    postgresErrorCode(failure),
+    "42501",
+    `expected permission denied: ${sql}\n${String(failure)}`,
+  );
 }
 
-async function assertProjectionRoleIsolation(tenantId: string): Promise<void> {
-  const client = new PostgresClient({ connectionString: projectionDatabaseUrl });
-  await client.connect();
+async function assertProjectionCannotConnectToAuthDatabase(): Promise<void> {
+  const client = new PostgresClient({
+    connectionString: projectionAuthDatabaseUrl,
+  });
+  let failure: unknown;
   try {
-    await client.query("SELECT set_config('zoen.tenant_id', $1, false)", [
-      tenantId,
-    ]);
+    await client.connect();
+  } catch (error: unknown) {
+    failure = error;
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+  assert.equal(
+    postgresErrorCode(failure),
+    "42501",
+    `expected zoen_projection CONNECT on zoen_auth to be denied: ${String(failure)}`,
+  );
+}
+
+async function assertProjectionRoleBoundary(
+  admin: PostgresClient,
+  tenantId: string,
+): Promise<void> {
+  const sequenceName = "e2e_projection_forbidden_sequence";
+  await admin.query(`CREATE SEQUENCE public.${sequenceName}`);
+  const client = new PostgresClient({ connectionString: projectionDatabaseUrl });
+  try {
+    await client.connect();
+    await client.query(
+      "SELECT pg_catalog.set_config('zoen.tenant_id', $1, false)",
+      [tenantId],
+    );
+    await assertProjectionCatalogCapabilities(client);
     const readable = await client.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM semantic_claims WHERE tenant_id = $1",
+      "SELECT count(*)::text AS count FROM public.semantic_claims WHERE tenant_id = $1",
       [tenantId],
     );
     assert.ok(Number(readable.rows[0]?.count) > 0);
     await expectPermissionDenied(
       client,
-      `INSERT INTO semantic_claims (
+      `INSERT INTO public.semantic_claims (
          tenant_id, claim_id, definition_id, definition_digest,
          definition_revision, entity_id, relation_id, value_kind, value_text,
          valid_time_kind, valid_from_micros, source_id, source_digest,
@@ -1468,29 +1900,412 @@ async function assertProjectionRoleIsolation(tenantId: string): Promise<void> {
     );
     await expectPermissionDenied(
       client,
-      "INSERT INTO authority_heads (tenant_id, commit_sequence) VALUES ($1, 1)",
+      "INSERT INTO public.authority_heads (tenant_id, commit_sequence) VALUES ($1, 1)",
       [tenantId],
     );
     await expectPermissionDenied(
       client,
-      "UPDATE authority_heads SET commit_sequence = commit_sequence + 1 WHERE tenant_id = $1",
+      "UPDATE public.authority_heads SET commit_sequence = commit_sequence + 1 WHERE tenant_id = $1",
       [tenantId],
     );
     await expectPermissionDenied(
       client,
-      "DELETE FROM semantic_claims WHERE tenant_id = $1",
+      "DELETE FROM public.semantic_claims WHERE tenant_id = $1",
       [tenantId],
+    );
+    await expectPermissionDenied(client, "TRUNCATE TABLE public.semantic_claims");
+    await expectPermissionDenied(
+      client,
+      "SELECT count(*) FROM public.memberships",
+    );
+    await expectPermissionDenied(
+      client,
+      "CREATE SCHEMA e2e_projection_forbidden_schema",
+    );
+    await expectPermissionDenied(
+      client,
+      `SELECT pg_catalog.nextval('public.${sequenceName}'::pg_catalog.regclass)`,
+    );
+    await expectPermissionDenied(
+      client,
+      `UPDATE public.projection_manifests
+       SET build_id = build_id
+       WHERE tenant_id = $1`,
+      [tenantId],
+    );
+    await expectPermissionDenied(
+      client,
+      "DELETE FROM public.projection_manifests WHERE tenant_id = $1",
+      [tenantId],
+    );
+    await expectPermissionDenied(
+      client,
+      "TRUNCATE TABLE public.projection_manifests",
+    );
+    await expectPermissionDenied(
+      client,
+      `UPDATE public.projection_watermarks
+       SET tenant_id = tenant_id
+       WHERE tenant_id = $1`,
+      [tenantId],
+    );
+    await expectPermissionDenied(
+      client,
+      "DELETE FROM public.projection_watermarks WHERE tenant_id = $1",
+      [tenantId],
+    );
+    await expectPermissionDenied(
+      client,
+      "TRUNCATE TABLE public.projection_watermarks",
     );
     const watermark = await client.query(
-      `UPDATE projection_watermarks
-       SET updated_at = clock_timestamp()
+      `UPDATE public.projection_watermarks
+       SET updated_at = pg_catalog.clock_timestamp()
        WHERE tenant_id = $1
        RETURNING tenant_id`,
       [tenantId],
     );
     assert.equal(watermark.rowCount, 1);
   } finally {
-    await client.end();
+    await client.end().catch(() => undefined);
+    await admin.query(`DROP SEQUENCE IF EXISTS public.${sequenceName}`);
+  }
+}
+
+async function assertProjectionCatalogCapabilities(
+  client: PostgresClient,
+): Promise<void> {
+  const role = (
+    await client.query<{
+      current_role: string;
+      membership_count: string;
+      rolbypassrls: boolean;
+      rolcanlogin: boolean;
+      rolcreatedb: boolean;
+      rolcreaterole: boolean;
+      rolinherit: boolean;
+      rolreplication: boolean;
+      rolsuper: boolean;
+      session_role: string;
+    }>(
+      `SELECT current_user::text AS current_role,
+              session_user::text AS session_role,
+              role.rolsuper, role.rolinherit, role.rolcreaterole,
+              role.rolcreatedb, role.rolcanlogin, role.rolreplication,
+              role.rolbypassrls,
+              (
+                SELECT count(*)::text
+                FROM pg_catalog.pg_auth_members membership
+                WHERE membership.member = role.oid
+              ) AS membership_count
+       FROM pg_catalog.pg_roles role
+       WHERE role.rolname = current_user`,
+    )
+  ).rows[0];
+  assert.ok(role);
+  assert.deepEqual(role, {
+    current_role: "zoen_projection",
+    membership_count: "0",
+    rolbypassrls: false,
+    rolcanlogin: true,
+    rolcreatedb: false,
+    rolcreaterole: false,
+    rolinherit: false,
+    rolreplication: false,
+    rolsuper: false,
+    session_role: "zoen_projection",
+  });
+
+  const database = (
+    await client.query<{
+      can_connect: boolean;
+      can_create: boolean;
+      can_grant_connect: boolean;
+      can_grant_create: boolean;
+      can_grant_temp: boolean;
+      can_temp: boolean;
+    }>(
+      `SELECT
+           pg_catalog.has_database_privilege(
+             current_user, pg_catalog.current_database(), 'CONNECT'
+           ) AS can_connect,
+           pg_catalog.has_database_privilege(
+             current_user, pg_catalog.current_database(), 'CREATE'
+           ) AS can_create,
+           pg_catalog.has_database_privilege(
+             current_user, pg_catalog.current_database(), 'TEMPORARY'
+           ) AS can_temp,
+           pg_catalog.has_database_privilege(
+             current_user, pg_catalog.current_database(), 'CONNECT WITH GRANT OPTION'
+           ) AS can_grant_connect,
+           pg_catalog.has_database_privilege(
+             current_user, pg_catalog.current_database(), 'CREATE WITH GRANT OPTION'
+           ) AS can_grant_create,
+           pg_catalog.has_database_privilege(
+             current_user, pg_catalog.current_database(), 'TEMPORARY WITH GRANT OPTION'
+           ) AS can_grant_temp`,
+    )
+  ).rows[0];
+  assert.deepEqual(database, {
+    can_connect: true,
+    can_create: false,
+    can_grant_connect: false,
+    can_grant_create: false,
+    can_grant_temp: false,
+    can_temp: false,
+  });
+
+  const schemas = await client.query<{
+    can_create: boolean;
+    can_grant_create: boolean;
+    can_grant_use: boolean;
+    can_use: boolean;
+    schema_name: string;
+  }>(
+    `SELECT namespace.nspname AS schema_name,
+            pg_catalog.has_schema_privilege(
+              current_user, namespace.oid, 'USAGE'
+            ) AS can_use,
+            pg_catalog.has_schema_privilege(
+              current_user, namespace.oid, 'CREATE'
+            ) AS can_create,
+            pg_catalog.has_schema_privilege(
+              current_user, namespace.oid, 'USAGE WITH GRANT OPTION'
+            ) AS can_grant_use,
+            pg_catalog.has_schema_privilege(
+              current_user, namespace.oid, 'CREATE WITH GRANT OPTION'
+            ) AS can_grant_create
+     FROM pg_catalog.pg_namespace namespace
+     WHERE namespace.nspname <> 'information_schema'
+       AND namespace.nspname !~ '^pg_'
+     ORDER BY namespace.nspname`,
+  );
+  assert.deepEqual(schemas.rows, [
+    {
+      can_create: false,
+      can_grant_create: false,
+      can_grant_use: false,
+      can_use: true,
+      schema_name: "public",
+    },
+  ]);
+
+  await assertProjectionTableCapabilities(client);
+  await assertProjectionColumnCapabilities(client);
+
+  const broaderCapabilities = (
+    await client.query<{
+      default_acl_count: string;
+      security_definer_count: string;
+      sequence_capability_count: string;
+    }>(
+      `SELECT
+         (
+           SELECT count(*)::text
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_namespace namespace
+             ON namespace.oid = relation.relnamespace
+           WHERE namespace.nspname <> 'information_schema'
+             AND namespace.nspname !~ '^pg_'
+             AND relation.relkind = 'S'
+             AND (
+               pg_catalog.has_sequence_privilege(
+                 current_user, relation.oid, 'USAGE, SELECT, UPDATE'
+               )
+               OR pg_catalog.has_sequence_privilege(
+                 current_user, relation.oid,
+                 'USAGE WITH GRANT OPTION, SELECT WITH GRANT OPTION, UPDATE WITH GRANT OPTION'
+               )
+             )
+         ) AS sequence_capability_count,
+         (
+           SELECT count(*)::text
+           FROM pg_catalog.pg_default_acl defaults
+           CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) acl
+           WHERE defaults.defaclobjtype IN ('r', 'S')
+             AND acl.grantee IN (0, role.oid)
+         ) AS default_acl_count,
+         (
+           SELECT count(*)::text
+           FROM pg_catalog.pg_proc routine
+           JOIN pg_catalog.pg_namespace namespace
+             ON namespace.oid = routine.pronamespace
+           WHERE namespace.nspname <> 'information_schema'
+             AND namespace.nspname !~ '^pg_'
+             AND routine.prosecdef
+             AND pg_catalog.has_schema_privilege(
+               current_user, namespace.oid, 'USAGE'
+             )
+             AND pg_catalog.has_function_privilege(
+               current_user, routine.oid, 'EXECUTE'
+             )
+         ) AS security_definer_count
+       FROM pg_catalog.pg_roles role
+       WHERE role.rolname = current_user`,
+    )
+  ).rows[0];
+  assert.deepEqual(broaderCapabilities, {
+    default_acl_count: "0",
+    security_definer_count: "0",
+    sequence_capability_count: "0",
+  });
+}
+
+async function assertProjectionTableCapabilities(
+  client: PostgresClient,
+): Promise<void> {
+  const capabilities = await client.query<{
+    grantable: boolean;
+    granted: boolean;
+    privilege_name: string;
+    relforcerowsecurity: boolean;
+    relrowsecurity: boolean;
+    row_security_active: boolean;
+    schema_name: string;
+    table_name: string;
+  }>(
+    `SELECT namespace.nspname AS schema_name,
+            relation.relname AS table_name,
+            privilege.name AS privilege_name,
+            pg_catalog.has_table_privilege(
+              current_user, relation.oid, privilege.name
+            ) AS granted,
+            pg_catalog.has_table_privilege(
+              current_user, relation.oid,
+              privilege.name || ' WITH GRANT OPTION'
+            ) AS grantable,
+            relation.relrowsecurity,
+            relation.relforcerowsecurity,
+            pg_catalog.row_security_active(relation.oid) AS row_security_active
+     FROM pg_catalog.pg_class relation
+     JOIN pg_catalog.pg_namespace namespace
+       ON namespace.oid = relation.relnamespace
+     CROSS JOIN (
+       VALUES
+         ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'),
+         ('REFERENCES'), ('TRIGGER'), ('MAINTAIN')
+     ) AS privilege(name)
+     WHERE namespace.nspname <> 'information_schema'
+       AND namespace.nspname !~ '^pg_'
+       AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+     ORDER BY namespace.nspname, relation.relname, privilege.name`,
+  );
+  const readTables = new Set<string>(projectionReadTables);
+  const foundReadTables = new Set<string>();
+  for (const capability of capabilities.rows) {
+    const expected =
+      capability.schema_name === "public" &&
+      capability.privilege_name === "SELECT" &&
+      readTables.has(capability.table_name);
+    assert.equal(
+      capability.granted,
+      expected,
+      `${capability.privilege_name} on ${capability.schema_name}.${capability.table_name}`,
+    );
+    assert.equal(
+      capability.grantable,
+      false,
+      `grant option for ${capability.privilege_name} on ${capability.schema_name}.${capability.table_name}`,
+    );
+    if (expected) {
+      foundReadTables.add(capability.table_name);
+      assert.equal(capability.relrowsecurity, true);
+      assert.equal(capability.relforcerowsecurity, true);
+      assert.equal(capability.row_security_active, true);
+    }
+  }
+  assert.deepEqual([...foundReadTables].sort(), [...readTables].sort());
+}
+
+async function assertProjectionColumnCapabilities(
+  client: PostgresClient,
+): Promise<void> {
+  const columns = await client.query<{
+    can_grant_insert: boolean;
+    can_grant_reference: boolean;
+    can_grant_select: boolean;
+    can_grant_update: boolean;
+    can_insert: boolean;
+    can_reference: boolean;
+    can_select: boolean;
+    can_update: boolean;
+    column_name: string;
+    schema_name: string;
+    table_name: string;
+  }>(
+    `SELECT namespace.nspname AS schema_name,
+            relation.relname AS table_name,
+            attribute.attname AS column_name,
+            pg_catalog.has_column_privilege(
+              current_user, relation.oid, attribute.attnum, 'SELECT'
+            ) AS can_select,
+            pg_catalog.has_column_privilege(
+              current_user, relation.oid, attribute.attnum, 'INSERT'
+            ) AS can_insert,
+            pg_catalog.has_column_privilege(
+              current_user, relation.oid, attribute.attnum, 'UPDATE'
+            ) AS can_update,
+            pg_catalog.has_column_privilege(
+              current_user, relation.oid, attribute.attnum, 'REFERENCES'
+            ) AS can_reference,
+            pg_catalog.has_column_privilege(
+              current_user, relation.oid, attribute.attnum,
+              'SELECT WITH GRANT OPTION'
+            ) AS can_grant_select,
+            pg_catalog.has_column_privilege(
+              current_user, relation.oid, attribute.attnum,
+              'INSERT WITH GRANT OPTION'
+            ) AS can_grant_insert,
+            pg_catalog.has_column_privilege(
+              current_user, relation.oid, attribute.attnum,
+              'UPDATE WITH GRANT OPTION'
+            ) AS can_grant_update,
+            pg_catalog.has_column_privilege(
+              current_user, relation.oid, attribute.attnum,
+              'REFERENCES WITH GRANT OPTION'
+            ) AS can_grant_reference
+     FROM pg_catalog.pg_class relation
+     JOIN pg_catalog.pg_namespace namespace
+       ON namespace.oid = relation.relnamespace
+     JOIN pg_catalog.pg_attribute attribute
+       ON attribute.attrelid = relation.oid
+     WHERE namespace.nspname <> 'information_schema'
+       AND namespace.nspname !~ '^pg_'
+       AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+       AND attribute.attnum > 0
+       AND NOT attribute.attisdropped
+     ORDER BY namespace.nspname, relation.relname, attribute.attnum`,
+  );
+  const readTables = new Set<string>(projectionReadTables);
+  const manifestInserts = new Set<string>(projectionManifestInsertColumns);
+  const watermarkInserts = new Set<string>(projectionWatermarkInsertColumns);
+  const watermarkUpdates = new Set<string>(projectionWatermarkUpdateColumns);
+  for (const column of columns.rows) {
+    const isPublic = column.schema_name === "public";
+    const expectedSelect = isPublic && readTables.has(column.table_name);
+    const expectedInsert =
+      isPublic &&
+      ((column.table_name === "projection_manifests" &&
+        manifestInserts.has(column.column_name)) ||
+        (column.table_name === "projection_watermarks" &&
+          watermarkInserts.has(column.column_name)));
+    const expectedUpdate =
+      isPublic &&
+      column.table_name === "projection_watermarks" &&
+      watermarkUpdates.has(column.column_name);
+    const qualifier = `${column.schema_name}.${column.table_name}.${column.column_name}`;
+    assert.equal(column.can_select, expectedSelect, `SELECT on ${qualifier}`);
+    assert.equal(column.can_insert, expectedInsert, `INSERT on ${qualifier}`);
+    assert.equal(column.can_update, expectedUpdate, `UPDATE on ${qualifier}`);
+    assert.equal(column.can_reference, false, `REFERENCES on ${qualifier}`);
+    assert.equal(column.can_grant_select, false, `SELECT grant on ${qualifier}`);
+    assert.equal(column.can_grant_insert, false, `INSERT grant on ${qualifier}`);
+    assert.equal(column.can_grant_update, false, `UPDATE grant on ${qualifier}`);
+    assert.equal(
+      column.can_grant_reference,
+      false,
+      `REFERENCES grant on ${qualifier}`,
+    );
   }
 }
 
@@ -1577,22 +2392,21 @@ async function removeProjectionPublishFailure(
 async function projectionState(
   client: PostgresClient,
   tenantId: string,
-): Promise<{
-  manifestDigest: string;
-  parquetDigest: string;
-  parquetObjectKey: string;
-  throughCommit: number;
-} | null> {
+): Promise<ProjectionState | null> {
   const result = await client.query<{
     manifest_digest: string;
     parquet_digest: string;
     parquet_object_key: string;
     through_commit: string;
+    updated_at_micros: string;
   }>(
     `SELECT w.manifest_digest, m.parquet_digest, m.parquet_object_key,
-            w.through_commit::text
-     FROM projection_watermarks w
-     JOIN projection_manifests m
+            w.through_commit::text,
+            (
+              EXTRACT(epoch FROM w.updated_at) * 1000000
+            )::bigint::text AS updated_at_micros
+     FROM public.projection_watermarks w
+     JOIN public.projection_manifests m
        ON m.tenant_id = w.tenant_id
       AND m.projection_id = w.projection_id
       AND m.manifest_digest = w.manifest_digest
@@ -1606,6 +2420,7 @@ async function projectionState(
         parquetDigest: row.parquet_digest,
         parquetObjectKey: row.parquet_object_key,
         throughCommit: Number(row.through_commit),
+        updatedAtMicros: BigInt(row.updated_at_micros),
       }
     : null;
 }
@@ -1813,8 +2628,15 @@ async function expectCommandFailure(
   executable: string,
   arguments_: readonly string[],
   environment: NodeJS.ProcessEnv,
-): Promise<void> {
-  await assert.rejects(command(executable, arguments_, environment));
+): Promise<string> {
+  let failure: unknown;
+  try {
+    await command(executable, arguments_, environment);
+  } catch (error: unknown) {
+    failure = error;
+  }
+  assert.notEqual(failure, undefined, `expected ${executable} to fail`);
+  return failure instanceof Error ? failure.message : String(failure);
 }
 
 function sha256(value: string): string {
