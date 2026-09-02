@@ -1,5 +1,5 @@
 # One Fly VM. Volume /data = pgdata + Restate + MinIO.
-FROM rust:1.89-bookworm AS zoend
+FROM rust:1.98-bookworm AS zoend
 WORKDIR /src
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
