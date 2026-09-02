@@ -15,10 +15,16 @@ pub enum EffectKnowledgeState {
     Contradicted,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DefinitelyNotSentReason {
     CredentialRevoked,
     TimeoutBeforeSend,
+    /// Pre-send validation (for example digest pinning) refused delivery; the
+    /// provider operation id and response digest carry the rejection evidence.
+    ValidationFailed {
+        provider_operation_id: ProviderOperationId,
+        response_digest: EffectResponseDigest,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

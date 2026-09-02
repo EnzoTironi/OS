@@ -484,7 +484,7 @@ async function runWorkshopEffect(
           observedAt: timestampFromDate(new Date()),
           outcome: EffectAttemptOutcome.DEFINITELY_NOT_SENT,
           providerOperationId: deploy.providerOperationId,
-          reason: EffectAttemptReason.UNSPECIFIED,
+          reason: EffectAttemptReason.VALIDATION_FAILED,
           responseDigest: deploy.responseDigest,
         },
         effectRequestId: claim.effectRequestId,

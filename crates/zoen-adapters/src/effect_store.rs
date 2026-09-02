@@ -535,6 +535,17 @@ fn row_to_attempt(row: &PgRow) -> Result<EffectAttempt, StoreError> {
         provider_operation_id,
         response_digest,
     ) {
+        (
+            "definitely_not_sent",
+            Some("validation_failed"),
+            Some(provider_operation_id),
+            Some(response_digest),
+        ) => EffectAttemptResult::DefinitelyNotSent {
+            reason: DefinitelyNotSentReason::ValidationFailed {
+                provider_operation_id,
+                response_digest,
+            },
+        },
         ("definitely_not_sent", Some(reason), None, None) => {
             EffectAttemptResult::DefinitelyNotSent {
                 reason: parse_definitely_not_sent_reason(reason)?,
@@ -619,12 +630,24 @@ fn attempt_result_columns(
     Option<&str>,
 ) {
     match result {
-        EffectAttemptResult::DefinitelyNotSent { reason } => (
-            "definitely_not_sent",
-            Some(definitely_not_sent_reason_name(*reason)),
-            None,
-            None,
-        ),
+        EffectAttemptResult::DefinitelyNotSent { reason } => {
+            let (provider_operation_id, response_digest) = match reason {
+                DefinitelyNotSentReason::ValidationFailed {
+                    provider_operation_id,
+                    response_digest,
+                } => (
+                    Some(provider_operation_id.as_str()),
+                    Some(response_digest.as_str()),
+                ),
+                _ => (None, None),
+            };
+            (
+                "definitely_not_sent",
+                Some(definitely_not_sent_reason_name(reason)),
+                provider_operation_id,
+                response_digest,
+            )
+        }
         EffectAttemptResult::Unknown {
             provider_operation_id,
             reason,
@@ -720,10 +743,11 @@ fn parse_definitely_not_sent_reason(value: &str) -> Result<DefinitelyNotSentReas
     }
 }
 
-fn definitely_not_sent_reason_name(reason: DefinitelyNotSentReason) -> &'static str {
+fn definitely_not_sent_reason_name(reason: &DefinitelyNotSentReason) -> &'static str {
     match reason {
         DefinitelyNotSentReason::CredentialRevoked => "credential_revoked",
         DefinitelyNotSentReason::TimeoutBeforeSend => "timeout_before_send",
+        DefinitelyNotSentReason::ValidationFailed { .. } => "validation_failed",
     }
 }
 

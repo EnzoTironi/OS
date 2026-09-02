@@ -204,6 +204,17 @@ fn parse_attempt(attempt: EffectAttemptInput) -> Result<EffectAttemptCommand, Co
         ) => EffectAttemptResult::DefinitelyNotSent {
             reason: DefinitelyNotSentReason::TimeoutBeforeSend,
         },
+        (
+            EffectAttemptOutcome::DefinitelyNotSent,
+            EffectAttemptReason::ValidationFailed,
+            provider_operation_id,
+            response_digest,
+        ) => EffectAttemptResult::DefinitelyNotSent {
+            reason: DefinitelyNotSentReason::ValidationFailed {
+                provider_operation_id: parse_provider_operation_id(provider_operation_id)?,
+                response_digest: parse_response_digest(response_digest)?,
+            },
+        },
         (EffectAttemptOutcome::Unknown, reason, provider_operation_id, response_digest) => {
             EffectAttemptResult::Unknown {
                 provider_operation_id: parse_optional_provider_operation_id(provider_operation_id)?,
@@ -302,7 +313,8 @@ fn parse_unknown_reason(
         }
         EffectAttemptReason::Unspecified
         | EffectAttemptReason::CredentialRevoked
-        | EffectAttemptReason::TimeoutBeforeSend => Err(invalid(
+        | EffectAttemptReason::TimeoutBeforeSend
+        | EffectAttemptReason::ValidationFailed => Err(invalid(
             "attempt reason does not describe an unknown outcome",
         )),
     }
@@ -354,19 +366,34 @@ pub(crate) fn to_request(request: CoreEffectRequest) -> EffectRequest {
 
 pub(crate) fn to_attempt(attempt: CoreEffectAttempt) -> EffectAttempt {
     let (outcome, reason, provider_operation_id, response_digest) = match attempt.result {
-        EffectAttemptResult::DefinitelyNotSent { reason } => (
-            EffectAttemptOutcome::DefinitelyNotSent,
-            match reason {
-                DefinitelyNotSentReason::CredentialRevoked => {
-                    EffectAttemptReason::CredentialRevoked
-                }
-                DefinitelyNotSentReason::TimeoutBeforeSend => {
-                    EffectAttemptReason::TimeoutBeforeSend
-                }
-            },
-            String::new(),
-            String::new(),
-        ),
+        EffectAttemptResult::DefinitelyNotSent { reason } => {
+            let (reason, provider_operation_id, response_digest) = match reason {
+                DefinitelyNotSentReason::CredentialRevoked => (
+                    EffectAttemptReason::CredentialRevoked,
+                    String::new(),
+                    String::new(),
+                ),
+                DefinitelyNotSentReason::TimeoutBeforeSend => (
+                    EffectAttemptReason::TimeoutBeforeSend,
+                    String::new(),
+                    String::new(),
+                ),
+                DefinitelyNotSentReason::ValidationFailed {
+                    provider_operation_id,
+                    response_digest,
+                } => (
+                    EffectAttemptReason::ValidationFailed,
+                    provider_operation_id.as_str().to_owned(),
+                    response_digest.as_str().to_owned(),
+                ),
+            };
+            (
+                EffectAttemptOutcome::DefinitelyNotSent,
+                reason,
+                provider_operation_id,
+                response_digest,
+            )
+        }
         EffectAttemptResult::Unknown {
             provider_operation_id,
             reason,

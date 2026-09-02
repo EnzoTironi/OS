@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { Code } from "@connectrpc/connect";
+import { CommitStatus } from "../../../gen/connect/zoen/action/v1/action_pb.js";
 import {
   expectConnectCode,
   minutesFromNow,
@@ -53,15 +54,20 @@ export async function verifyRollback(
       scenario.runtime.admin,
       tenantA,
     );
-    const missingStatusCode = await expectConnectCode(
-      () => scenario.actionA.getOperationStatus({ operationId }),
-      Code.NotFound,
-    );
+    // A rolled-back commit leaves no receipt: the operation stays visible as
+    // PENDING (the proposal remains actionable) and the snapshot equality
+    // below proves no partial commit landed.
+    const rolledBackStatus = await scenario.actionA.getOperationStatus({
+      operationId,
+    });
+    assert.equal(rolledBackStatus.status, CommitStatus.PENDING);
+    assert.equal(rolledBackStatus.receipt, undefined);
     scenario.recorder.inject(failpoint);
     scenario.recorder.observe(
       `failpoint${index}RolledBack`,
       failureCode === Code.Unavailable &&
-        missingStatusCode === Code.NotFound &&
+        rolledBackStatus.status === CommitStatus.PENDING &&
+        rolledBackStatus.receipt === undefined &&
         isDeepStrictEqual(afterFailure, beforeFailure),
     );
   }
