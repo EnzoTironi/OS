@@ -85,10 +85,10 @@ From the restored orchestration checkout, run exactly one gate:
 "$ZOEN_REPO/orchestrate/zoen-final/validate-pr" \
   --pr 602 \
   --worktree "$ZOEN_PR_WT" \
-  --expected-head 601af9d472e6a9f0602e4c2e64477bd68df316bd
+  --expected-head 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409
 ```
 
-The lever fails closed when the local SHA and PR SHA differ, the tracked tree is dirty, a live journey or evidence bundle fails, the definition-publication artifact does not name the exact SHA, CI fails or stays pending, a review thread remains open, or a fresh Codecov/Sonar comment reports failure. CodeRabbit remains an advisory source of findings, but its OSS quota is not a verdict. The exact-head independent verifier and ledger row are the merge gate.
+The lever fails closed when the local SHA and PR SHA differ, the tracked tree is dirty, a live journey or evidence bundle fails, the definition-publication artifact does not name the exact SHA, CI fails or stays pending, a review thread remains open, the exact-head `codecov/patch` check is absent or unsuccessful, or a fresh Sonar comment reports failure. CodeRabbit remains an advisory source of findings, but its OSS quota is not a verdict. The exact-head independent verifier and ledger row are the merge gate.
 
 The source machine lost Docker before the final local live run. Static checks, Rust tests, Clippy, builds, TypeScript lint, and Comment Sicko passed. Treat current-head GitHub CI and the Mac run above as the required live proof.
 

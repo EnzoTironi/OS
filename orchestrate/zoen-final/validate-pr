@@ -135,16 +135,17 @@ open_threads=$(printf '%s' "$threads" |
   jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved != true)] | length')
 [[ "$open_threads" -eq 0 ]] || fail "$open_threads review threads remain unresolved"
 
-comments=$(gh api "repos/$owner/$repo/issues/$pr/comments")
-codecov_failed=$(printf '%s' "$comments" | jq --arg since "$commit_time" '
-  [.[] | select(
-    (.user.login == "codecov" or .user.login == "codecov[bot]") and
-    ((.updated_at // .created_at) >= $since)
-  )] | sort_by(.updated_at // .created_at) | last |
-  if . == null then false else (.body | contains(":x:")) end
+codecov_checks=$(gh api "repos/$owner/$repo/commits/$head/check-runs?per_page=100")
+codecov_patch_conclusion=$(printf '%s' "$codecov_checks" | jq -r '
+  [.check_runs[] | select(.name == "codecov/patch")]
+  | sort_by(.completed_at // .started_at // "")
+  | last
+  | .conclusion // "missing"
 ')
-[[ "$codecov_failed" == "false" ]] || fail "fresh Codecov comment reports failure"
+[[ "$codecov_patch_conclusion" == "success" ]] ||
+  fail "exact-head codecov/patch check is $codecov_patch_conclusion"
 
+comments=$(gh api "repos/$owner/$repo/issues/$pr/comments")
 sonar_failed=$(printf '%s' "$comments" | jq --arg since "$commit_time" '
   [.[] | select(
     (.user.login == "sonarqubecloud" or .user.login == "sonarqubecloud[bot]") and

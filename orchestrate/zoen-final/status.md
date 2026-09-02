@@ -1,6 +1,6 @@
 # Orchestrate status
 
-Generated: 2026-09-02T04:10:15.713Z
+Generated: 2026-09-02T10:46:38.709Z
 
 ## Units
 
@@ -19,9 +19,11 @@ States: active=1, done=7
 
 ## Verification ledger
 
-Verdicts: none
+Verdicts: live-ui-verified=1
 
-(none)
+| PR | SHA | Verdict | Evidence | Verifier | Timestamp |
+| --- | --- | --- | --- | --- | --- |
+| 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | live-ui-verified | orchestrate/zoen-final/reports/w1-01-validation.md | pr602-final-verifier | 2026-09-02T10:46:18.608Z |
 
 ## Frontier
 
@@ -36,4 +38,4 @@ Lowest unmerged: 602
 
 (none)
 
-<!-- orch-summary {"unitStates":{"active":1,"done":7},"ledgerVerdicts":{},"frontierGeneration":2,"openGateIds":[]} -->
+<!-- orch-summary {"unitStates":{"active":1,"done":7},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":2,"openGateIds":[]} -->
