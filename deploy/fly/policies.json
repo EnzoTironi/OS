@@ -1,6 +1,14 @@
 {
   "policies": [
     {
+      "actionId": "zoen.definition.publish",
+      "definitionDigest": "ac2a21af8aacad316bb94ddadea759e84bdfb5f3679673e24ebaa8a5dda7178d",
+      "digest": "27ed34a89349b0ae26644395f8fd2f8d8f100b5dced8fff2d06b8db5ffc16cd6",
+      "policyId": "policy.commercial.publish.r1",
+      "revision": 1,
+      "source": "permit (\n    principal,\n    action == Action::\"publish_definition\",\n    resource\n)\nwhen {\n    context.actionId == \"zoen.definition.publish\"\n};\n"
+    },
+    {
       "actionId": "commercial.changeCommitment",
       "definitionDigest": "ac2a21af8aacad316bb94ddadea759e84bdfb5f3679673e24ebaa8a5dda7178d",
       "digest": "761e009d36d072eeb452d4fbad0eb736188a5160ea0b778cab99bf96d975f685",
@@ -15,6 +23,14 @@
       "policyId": "policy.activation.r1",
       "revision": 3,
       "source": "permit (\n    principal,\n    action == Action::\"activate_revision\",\n    resource\n)\nwhen {\n    principal == Zoen::Principal::\"principal.admin.a\" ||\n    principal == Zoen::Principal::\"principal.live.whatsapp\"\n};\n"
+    },
+    {
+      "actionId": "zoen.definition.publish",
+      "definitionDigest": "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548",
+      "digest": "27ed34a89349b0ae26644395f8fd2f8d8f100b5dced8fff2d06b8db5ffc16cd6",
+      "policyId": "policy.personal.publish.r1",
+      "revision": 1,
+      "source": "permit (\n    principal,\n    action == Action::\"publish_definition\",\n    resource\n)\nwhen {\n    context.actionId == \"zoen.definition.publish\"\n};\n"
     },
     {
       "actionId": "personal.writeMemory",

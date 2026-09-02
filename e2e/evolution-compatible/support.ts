@@ -26,6 +26,7 @@ import {
   type CommitReceipt,
 } from "../../gen/connect/zoen/action/v1/action_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
+import { definitionPublishPolicy } from "../definition-publish-policy.js";
 import {
   loadCanonicalDefinition,
   type CompiledDefinition,
@@ -58,6 +59,7 @@ import {
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
+  projectionProcessEnvironment,
 } from "../host-env.js";
 
 export const repositoryRoot = process.cwd();
@@ -160,6 +162,10 @@ export async function writePolicyManifest(
   const readSource =
     'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n';
   const policies = definitions.flatMap((definition) => [
+    definitionPublishPolicy({
+      definitionDigest: definition.digest,
+      revision: definition.definition.revision,
+    }),
     {
       actionId: "inventory.replenish",
       definitionDigest: definition.digest,
@@ -245,8 +251,8 @@ export async function publish(
     digest: definition.digest,
     tenantId,
   });
-  assert.ok(response.definitionRevision);
-  return response.definitionRevision;
+  assert.ok(response.publication?.revision);
+  return response.publication.revision;
 }
 
 export async function commitReplenish(
@@ -537,8 +543,7 @@ export async function rebuildProjection(tenantId: string) {
 
 function projectionEnvironment(): NodeJS.ProcessEnv {
   return {
-    ...process.env,
-    DATABASE_URL: applicationDatabaseUrl,
+    ...projectionProcessEnvironment(),
     S3_ACCESS_KEY_ID: "zoen-access",
     S3_ALLOW_HTTP: "true",
     S3_BUCKET: "zoen-projections",

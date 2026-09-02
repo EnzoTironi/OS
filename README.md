@@ -93,7 +93,7 @@ Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS 
 2. GitHub Actions `fly-deploy` builds `deploy/fly/Dockerfile` on the runner.
 3. It pushes `registry.fly.io/zoen:$GITHUB_SHA` and runs `fly deploy --image`.
 
-Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET` and `ZOEN_BA_AGENT_PASSWORD` are Fly secrets. After `/ready`:
+Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET`, `ZOEN_BA_AGENT_PASSWORD`, and `ZOEN_PROJECTION_PASSWORD` are Fly secrets. The projection role is created only while PostgreSQL initializes an empty volume; recreate the disposable pre-launch development volume when adopting this role. After `/ready`:
 
 ```
 fly ssh console --app zoen -C "zoen-bind-inbox"

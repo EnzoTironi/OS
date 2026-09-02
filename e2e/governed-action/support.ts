@@ -39,6 +39,10 @@ import {
   type DefinitionReference,
 } from "../../gen/connect/zoen/world/v1/world_pb.js";
 import { bindActionPreviewHash } from "../action-preview-bind.js";
+import {
+  definitionPublishActionId,
+  definitionPublishPolicy,
+} from "../definition-publish-policy.js";
 
 export {
   approveProposal,
@@ -130,6 +134,7 @@ const adminDefinitionIds = [
   "inventory.governed.self",
 ] as const;
 const adminActions = [
+  definitionPublishActionId,
   "zoen.definition.activate",
   "inventory.requestStock",
 ] as const;
@@ -392,6 +397,10 @@ export async function writePolicyManifest(
     `${JSON.stringify(
       {
         policies: fixtures.flatMap((fixture) => [
+          definitionPublishPolicy({
+            definitionDigest: fixture.digest,
+            revision: fixture.policyRevision,
+          }),
           {
             actionId,
             definitionDigest: fixture.digest,
@@ -477,9 +486,9 @@ export async function publishDefinition(
     digest: fixture.digest,
     tenantId,
   });
-  assert.equal(response.definitionRevision?.digest, fixture.digest);
+  assert.equal(response.publication?.revision?.digest, fixture.digest);
   assert.equal(
-    response.definitionRevision?.revision,
+    response.publication?.revision?.revision,
     fixture.definition.revision,
   );
 }

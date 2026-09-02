@@ -136,7 +136,7 @@ function tenantClients(suffix) {
   const tenantId = `tenant.${suffix}`;
   return [
     client({
-      actionIds: ["zoen.definition.activate"],
+      actionIds: ["zoen.definition.publish", "zoen.definition.activate"],
       actorId: `actor.domain-admin.${suffix}`,
       clientId: `domain-admin-${suffix}`,
       principalId: `principal.domain-admin.${suffix}`,

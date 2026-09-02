@@ -234,6 +234,15 @@ def entry(action_id, policy_id, source):
         "source": source,
     }
 manifest = {"policies": [
+    entry("zoen.definition.publish", "policy.s2.publish", '''permit (
+    principal,
+    action == Action::"publish_definition",
+    resource
+)
+when {
+    context.actionId == "zoen.definition.publish"
+};
+'''),
     entry("zoen.world.read", "policy.s2.read", read_src),
     entry("zoen.definition.activate", "policy.s2.activate", activate_src),
     entry("world.stampLow", "policy.s2.stamp", stamp_src),
@@ -359,7 +368,7 @@ record "POST /identity/admin/bootstrap-bound (owner Personal)" \
 updated="$(docker exec "$zoend_pg_name" psql -U postgres -d zoen -v ON_ERROR_STOP=1 -tAc \
   "UPDATE memberships
    SET clearance_json = '[\"zoen.world.floor\",\"zoen.world.reserved\",\"zoen.world.top\"]'::jsonb,
-       delegation_json = '{\"grants\":[{\"actionIds\":[\"zoen.definition.activate\",\"world.stampLow\"],\"delegationId\":\"delegation.personal\",\"expiresAt\":253402300799,\"notBefore\":0,\"resourceIds\":[\"world.s2read\",\"entity.note\"],\"workloadIds\":[\"workload.personal\"]}]}'::jsonb
+       delegation_json = '{\"grants\":[{\"actionIds\":[\"zoen.definition.publish\",\"zoen.definition.activate\",\"world.stampLow\"],\"delegationId\":\"delegation.personal\",\"expiresAt\":253402300799,\"notBefore\":0,\"resourceIds\":[\"world.s2read\",\"entity.note\"],\"workloadIds\":[\"workload.personal\"]}]}'::jsonb
    WHERE membership_id = '${owner_membership}'
    RETURNING membership_id")"
 updated="$(printf '%s' "$updated" | tr -d '[:space:]')"

@@ -4,6 +4,7 @@ import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { PolicyDecision } from "../../gen/connect/zoen/action/v1/action_pb.js";
+import { definitionPublishPolicy } from "../definition-publish-policy.js";
 import {
   EventualConsistencySchema,
   EvidenceClaimSchema,
@@ -49,6 +50,7 @@ import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2ePostgresUrl,
+  projectionProcessEnvironment,
 } from "../host-env.js";
 
 export {
@@ -111,6 +113,10 @@ export async function writePolicyManifest(
   const policies = definitions.flatMap((definition) => {
     const revision = definition.definition.revision;
     return [
+      definitionPublishPolicy({
+        definitionDigest: definition.digest,
+        revision,
+      }),
       {
         actionId: "inventory.replenish",
         definitionDigest: definition.digest,
@@ -286,8 +292,7 @@ export async function expectProjectionFailure(tenantId: string): Promise<void> {
   );
   await assert.rejects(
     command(workerPath, ["--rebuild", tenantId], {
-      ...process.env,
-      DATABASE_URL: e2ePostgresUrl("zoen_app", "zoen_app", 55_444),
+      ...projectionProcessEnvironment(),
       S3_ACCESS_KEY_ID: "zoen-access",
       S3_ALLOW_HTTP: "true",
       S3_BUCKET: "missing-projection-bucket",

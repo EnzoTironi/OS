@@ -1,0 +1,72 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${ZOEN_PROJECTION_PASSWORD:-}" ]; then
+  echo "projection: ZOEN_PROJECTION_PASSWORD is required" >&2
+  exit 1
+fi
+if [ -z "${ZOEN_TENANT_ID:-}" ]; then
+  echo "projection: ZOEN_TENANT_ID is required" >&2
+  exit 1
+fi
+
+unset DATABASE_URL ZOEN_APP_PASSWORD ZOEN_AUTH_DATABASE_URL POSTGRES_PASSWORD
+unset PGAPPNAME PGDATABASE PGHOST PGHOSTADDR PGPASSFILE PGPASSWORD PGPORT
+unset PGSERVICE PGSERVICEFILE PGSSLCERT PGSSLKEY PGSSLMODE PGSSLROOTCERT
+unset PGUSER PGOPTIONS
+export PGHOST=127.0.0.1
+export PGPORT=5432
+export PGDATABASE=zoen
+export PGUSER=zoen_projection
+export PGPASSWORD="$ZOEN_PROJECTION_PASSWORD"
+export PGCONNECT_TIMEOUT=2
+export PGSSLMODE=disable
+
+attempt=0
+maximum_attempts="${ZOEN_PROJECTION_STARTUP_ATTEMPTS:-60}"
+case "$maximum_attempts" in
+  ''|*[!0-9]*|0)
+    echo "projection: ZOEN_PROJECTION_STARTUP_ATTEMPTS must be a positive integer" >&2
+    exit 1
+    ;;
+esac
+
+while [ "$attempt" -lt "$maximum_attempts" ]; do
+  if psql --no-psqlrc --tuples-only --no-align \
+      --command="SELECT
+          pg_catalog.to_regclass('public.projection_watermarks') IS NOT NULL
+          AND pg_catalog.has_table_privilege(
+              current_user,
+              'public.authority_heads',
+              'SELECT'
+          )
+          AND pg_catalog.has_column_privilege(
+              current_user,
+              'public.projection_watermarks',
+              'updated_at',
+              'UPDATE'
+          )" 2>/dev/null | grep -qx 't'; then
+    break
+  fi
+  attempt=$((attempt + 1))
+  sleep 1
+done
+
+if [ "$attempt" -eq "$maximum_attempts" ]; then
+  echo "projection: PostgreSQL schema and grants did not become ready" >&2
+  exit 1
+fi
+
+projection_database_url="$(
+  ZOEN_PROJECTION_PASSWORD="$ZOEN_PROJECTION_PASSWORD" python3 -c '
+import os
+import urllib.parse
+
+password = urllib.parse.quote(os.environ["ZOEN_PROJECTION_PASSWORD"], safe="")
+print(f"postgres://zoen_projection:{password}@127.0.0.1:5432/zoen")
+'
+)"
+export ZOEN_PROJECTION_DATABASE_URL="$projection_database_url"
+unset POSTGRES_PASSWORD PGPASSWORD ZOEN_PROJECTION_PASSWORD projection_database_url
+unset PGHOST PGPORT PGDATABASE PGUSER PGCONNECT_TIMEOUT PGSSLMODE
+exec /usr/local/bin/zoen-projection

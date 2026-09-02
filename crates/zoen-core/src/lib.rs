@@ -628,6 +628,16 @@ pub struct DefinitionRevision {
     pub revision: DefinitionRevisionNumber,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DefinitionPublication {
+    pub policy: PolicyEvidence,
+    pub principal_id: PrincipalId,
+    pub published_at: TimestampMicros,
+    pub published_by: ActorId,
+    pub revision: DefinitionRevision,
+    pub workload_id: WorkloadId,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EvolutionClassification {
     Compatible,

@@ -7,6 +7,8 @@ authority:
     - authority_heads
     - authority_commits
     - definition_revisions
+    - definition_publications
+    - definition_publication_grants
     - projection_outbox
     - semantic_claims
     - action_proposals

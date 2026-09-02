@@ -53,6 +53,7 @@ import {
   e2eHttpUrl,
   e2ePort,
 } from "./host-env.js";
+import { definitionPublishPolicy } from "./definition-publish-policy.js";
 
 export {
   actionClient,
@@ -309,6 +310,10 @@ export async function writeFiscalPolicyManifest(
   ]);
   const fixtures = [...contextFixtures, commercial, fiscal];
   const policies = fixtures.flatMap((fixture) => [
+    definitionPublishPolicy({
+      definitionDigest: fixture.digest,
+      revision: fixture.metadata.revision,
+    }),
     policyEntry(fixture, "zoen.definition.activate", activation),
     ...fixture.metadata.actions.map((action) => {
       const policy =

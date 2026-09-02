@@ -7,7 +7,7 @@ use axum::{
     response::IntoResponse,
     routing::post,
 };
-use connectrpc::ErrorCode;
+use connectrpc::{ConnectError, ErrorCode};
 use serde::Deserialize;
 use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore, PostgresPackStore};
 use zoen_core::{
@@ -358,22 +358,19 @@ async fn activate_ontology_dependencies(
 ) -> Result<Vec<ActivatedDefinitionRef>, axum::response::Response> {
     let mut activated = Vec::new();
     for dependency in &manifest.ontology_dependencies {
-        let published = state
+        if let Err(error) = state
             .definitions
-            .get_revision(context, &dependency.definition_id, &dependency.digest)
-            .await;
-        if published.is_err() {
-            if let Err(error) = state
-                .definitions
-                .publish(
-                    context,
-                    dependency.canonical_json.as_bytes(),
-                    dependency.digest.clone(),
-                )
-                .await
-            {
-                return Err(pack_error(&PackError::Store(error.to_string())));
-            }
+            .publish(
+                context,
+                dependency.canonical_json.as_bytes(),
+                dependency.digest.clone(),
+                now_micros(),
+            )
+            .await
+        {
+            return Err(connect_error_response(&crate::service::map_publish_error(
+                error,
+            )));
         }
         let active = match state
             .definitions
@@ -409,7 +406,11 @@ async fn activate_ontology_dependencies(
                 definition_id: dependency.definition_id.clone(),
                 digest: dependency.digest.clone(),
             }),
-            Err(error) => return Err(pack_error(&PackError::Store(error.to_string()))),
+            Err(error) => {
+                return Err(connect_error_response(&crate::service::map_activate_error(
+                    error,
+                )));
+            }
         }
     }
     Ok(activated)
@@ -616,6 +617,24 @@ fn pack_error(error: &PackError) -> axum::response::Response {
         | PackError::InvalidIntegrationKind(_)
         | PackError::InvalidSensitivity(_)
         | PackError::InvalidPhase(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (
+        status,
+        Json(serde_json::json!({ "error": error.to_string() })),
+    )
+        .into_response()
+}
+
+fn connect_error_response(error: &ConnectError) -> axum::response::Response {
+    let status = match error.code {
+        ErrorCode::InvalidArgument => StatusCode::BAD_REQUEST,
+        ErrorCode::Unauthenticated => StatusCode::UNAUTHORIZED,
+        ErrorCode::PermissionDenied => StatusCode::FORBIDDEN,
+        ErrorCode::NotFound => StatusCode::NOT_FOUND,
+        ErrorCode::AlreadyExists => StatusCode::CONFLICT,
+        ErrorCode::FailedPrecondition => StatusCode::PRECONDITION_FAILED,
+        ErrorCode::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (
         status,

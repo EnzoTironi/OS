@@ -55,6 +55,7 @@ import {
   writePolicyManifest,
 } from "./governed-action/support.js";
 import { writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -97,7 +98,6 @@ async function main(): Promise<void> {
     const expiredToken = sessionOf(planted, "expired-a").token;
 
     const definitionA = definitionClient(agentAToken, tenantA);
-    const definitionB = definitionClient(agentBToken, tenantB);
     const definitionAdminA = definitionClient(adminAToken, tenantA);
     const definitionAdminB = definitionClient(adminBToken, tenantB);
     const worldA = worldClient(agentAToken, tenantA);
@@ -107,10 +107,10 @@ async function main(): Promise<void> {
     const actionB = actionClient(agentBToken, tenantB);
 
     for (const fixture of Object.values(fixtures)) {
-      await publishDefinition(definitionA, tenantA, fixture);
+      await publishDefinition(definitionAdminA, tenantA, fixture);
       await activateDefinition(definitionAdminA, tenantA, fixture);
     }
-    await publishDefinition(definitionB, tenantB, fixtures.direct);
+    await publishDefinition(definitionAdminB, tenantB, fixtures.direct);
     await activateDefinition(definitionAdminB, tenantB, fixtures.direct);
 
     await recordAvailable(worldA, {
@@ -978,7 +978,7 @@ async function main(): Promise<void> {
       "--images",
     ]);
     assert.doesNotMatch(composeServices, /keycloak/i);
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const manifest = {
       actors: {
         agent: trusted.actorId,

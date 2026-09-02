@@ -1253,6 +1253,8 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
         DelegationId::parse("delegation.personal")
             .map_err(|_| IdentityError::Conflict("invalid delegation".to_owned()))?,
         BTreeSet::from([
+            ActionId::parse("zoen.definition.publish")
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse("zoen.definition.activate")
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse("personal.writeMemory")

@@ -14,7 +14,8 @@ use zoen_core::{
     DefinitionChangeKind as CoreChangeKind, DefinitionDigest,
     DefinitionElementKind as CoreElementKind, DefinitionId,
     DefinitionImpactApplicability as CoreImpactApplicability,
-    DefinitionImpactArea as CoreImpactArea, DefinitionRevision as CoreDefinitionRevision,
+    DefinitionImpactArea as CoreImpactArea, DefinitionPublication as CoreDefinitionPublication,
+    DefinitionRevision as CoreDefinitionRevision,
     EvolutionClassification as CoreEvolutionClassification, EvolutionPlan as CoreEvolutionPlan,
     ExecutionContext, MigrationDependency as CoreMigrationDependency,
     MigrationElement as CoreMigrationElement, MigrationLineage as CoreMigrationLineage,
@@ -37,15 +38,16 @@ use crate::{
         ActivateRevisionRequest, ActivateRevisionResponse, ApplyMigrationBatchRequest,
         ApplyMigrationBatchResponse, DefinitionActivation, DefinitionActivationKind,
         DefinitionChange, DefinitionChangeKind, DefinitionElementKind, DefinitionImpact,
-        DefinitionImpactApplicability, DefinitionImpactArea, DefinitionRevision, DefinitionService,
-        EvolutionClassification, EvolutionPlan, GetActiveRevisionRequest,
-        GetActiveRevisionResponse, GetMigrationRequest, GetMigrationResponse, GetRevisionRequest,
-        GetRevisionResponse, MigrationArtifactDependency, MigrationDependency, MigrationElement,
-        MigrationLineage, MigrationObligation, MigrationObligationSource, MigrationPlan,
-        MigrationPostcondition, MigrationProgress, MigrationRecipe, MigrationRecord, MigrationRule,
-        MigrationRuleKind, MigrationStatus, PlanEvolutionRequest, PlanEvolutionResponse,
-        PrepareMigrationRequest, PrepareMigrationResponse, PublishRequest, PublishResponse,
-        RollbackRevisionRequest, RollbackRevisionResponse,
+        DefinitionImpactApplicability, DefinitionImpactArea, DefinitionPublication,
+        DefinitionRevision, DefinitionService, EvolutionClassification, EvolutionPlan,
+        GetActiveRevisionRequest, GetActiveRevisionResponse, GetMigrationRequest,
+        GetMigrationResponse, GetRevisionRequest, GetRevisionResponse, MigrationArtifactDependency,
+        MigrationDependency, MigrationElement, MigrationLineage, MigrationObligation,
+        MigrationObligationSource, MigrationPlan, MigrationPostcondition, MigrationProgress,
+        MigrationRecipe, MigrationRecord, MigrationRule, MigrationRuleKind, MigrationStatus,
+        PlanEvolutionRequest, PlanEvolutionResponse, PrepareMigrationRequest,
+        PrepareMigrationResponse, PublishRequest, PublishResponse, RollbackRevisionRequest,
+        RollbackRevisionResponse,
     },
     session::SessionExchange,
     world_service::{invalid, parse_evidence_claim, to_definition_reference, to_timestamp},
@@ -99,13 +101,13 @@ impl DefinitionService for DefinitionServiceImpl {
             .await?;
         let digest = DefinitionDigest::parse(request.digest)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
-        let revision = self
+        let publication = self
             .engine
-            .publish(&execution_context, request.canonical_json, digest)
+            .publish(&execution_context, request.canonical_json, digest, now()?)
             .await
             .map_err(map_publish_error)?;
         Response::ok(PublishResponse {
-            definition_revision: Some(to_protocol_revision(&revision)).into(),
+            publication: Some(to_protocol_publication(publication)).into(),
             ..Default::default()
         })
     }
@@ -332,6 +334,18 @@ fn to_protocol_revision(revision: &CoreDefinitionRevision) -> DefinitionRevision
         definition_id: revision.definition_id.as_str().to_owned(),
         digest: revision.digest.as_str().to_owned(),
         revision: revision.revision.get(),
+        ..Default::default()
+    }
+}
+
+fn to_protocol_publication(publication: CoreDefinitionPublication) -> DefinitionPublication {
+    DefinitionPublication {
+        policy: Some(to_policy_evidence(publication.policy)).into(),
+        principal_id: publication.principal_id.as_str().to_owned(),
+        published_at: Some(to_timestamp(publication.published_at)).into(),
+        published_by: publication.published_by.as_str().to_owned(),
+        revision: Some(to_protocol_revision(&publication.revision)).into(),
+        workload_id: publication.workload_id.as_str().to_owned(),
         ..Default::default()
     }
 }
@@ -764,7 +778,7 @@ fn now() -> Result<TimestampMicros, ConnectError> {
     Ok(TimestampMicros::new(micros))
 }
 
-fn map_activate_error(error: ActivateRevisionError) -> ConnectError {
+pub(crate) fn map_activate_error(error: ActivateRevisionError) -> ConnectError {
     match error {
         ActivateRevisionError::Configuration(_) | ActivateRevisionError::EventEncoding(_) => {
             ConnectError::new(ErrorCode::Internal, error.to_string())
@@ -813,8 +827,14 @@ fn map_plan_error(error: PlanEvolutionError) -> ConnectError {
     }
 }
 
-fn map_publish_error(error: PublishError) -> ConnectError {
+pub(crate) fn map_publish_error(error: PublishError) -> ConnectError {
     match error {
+        PublishError::Configuration(_) | PublishError::EventEncoding(_) => {
+            ConnectError::new(ErrorCode::Internal, error.to_string())
+        }
+        PublishError::DelegationDenied | PublishError::PolicyDenied(_) => {
+            ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
+        }
         PublishError::DigestMismatch
         | PublishError::InvalidCanonicalDefinition(_)
         | PublishError::InvalidDefinition(_)
@@ -822,7 +842,9 @@ fn map_publish_error(error: PublishError) -> ConnectError {
         | PublishError::NonCanonicalDefinition => {
             ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
         }
-        PublishError::EventEncoding(_) => ConnectError::new(ErrorCode::Internal, error.to_string()),
+        PublishError::PolicyEvaluation { .. } => {
+            ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
+        }
         PublishError::Store(error) => map_store_error(&error),
     }
 }

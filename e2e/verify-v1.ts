@@ -5,17 +5,26 @@ import {
   sign as signBytes,
   verify as verifyBytes,
 } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
+import {
+  bindFixtureCommitValue,
+  exactSourceCommit,
+  hasSourceCommitAlias,
+  resolveCandidateCommit,
+  scenarioPassed,
+  sourceCommitMatches,
+  sourceCommitVerificationMutants,
+  sourceCommitKeys,
+  type VerificationMutantResult,
+} from "./scenario-evidence.js";
 import { z } from "zod";
 
 const SCHEMA_ID = "zoen.verify.v1" as const;
 const RPO_TARGET_SECONDS = 300;
 const RTO_TARGET_SECONDS = 1800;
-const FIXTURE_COMMIT_PLACEHOLDER = "__CANDIDATE_SHA__";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 // Compiled output lives at dist/e2e/; sources live at e2e/.
@@ -120,12 +129,6 @@ type GateResult = {
   readonly semanticSurvivors: Array<{ scenario: string; id: string }>;
 };
 
-type VerificationMutantResult = {
-  readonly id: string;
-  readonly killed: boolean;
-  readonly observation: string;
-};
-
 function sha256Text(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -134,41 +137,14 @@ function sha256Bytes(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function commitsMatch(candidate: string, evidence: string): boolean {
-  const a = candidate.trim().toLowerCase();
-  const b = evidence.trim().toLowerCase();
-  if (a.length === 0 || b.length === 0) {
-    return false;
-  }
-  if (a === b) {
-    return true;
-  }
-  // Prefix only when evidence is an unambiguous short SHA of the candidate.
-  if (b.length >= 7 && b.length < a.length && a.startsWith(b)) {
-    return true;
-  }
-  return false;
-}
-
 function extractSourceCommit(body: Record<string, unknown>): string | null {
-  for (const key of ["sourceCommit", "sourceSha", "source_sha"] as const) {
-    const value = body[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return null;
+  return exactSourceCommit(body, sourceCommitKeys);
 }
 
-function scenarioPassed(body: Record<string, unknown>): boolean {
-  if (typeof body.verdict === "string") {
-    return body.verdict.toUpperCase() === "PASS";
-  }
-  if (typeof body.status === "string") {
-    const status = body.status.toLowerCase();
-    return status === "pass" || status === "passed" || status === "ok";
-  }
-  return false;
+function resolvedSourceCommit(evidence: ScenarioEvidence): string | null {
+  return hasSourceCommitAlias(evidence.body)
+    ? evidence.sourceCommit
+    : (evidence.signedOci?.sourceSha ?? null);
 }
 
 function isFixtureMarked(body: Record<string, unknown>): boolean {
@@ -352,7 +328,7 @@ async function resolveLiveSlots(
     if (await pathExists(livePath)) {
       const body = await readJsonObject(livePath);
       const commit = extractSourceCommit(body);
-      if (commit === null || !commitsMatch(candidate, commit)) {
+      if (commit === null || !sourceCommitMatches(candidate, commit)) {
         slots.push({
           id: provider.id,
           present: false,
@@ -418,7 +394,7 @@ function evaluateGate(
       failures.push({
         code: "failed-scenario",
         scenario: spec.id,
-        detail: `scenario verdict/status is not PASS`,
+        detail: `scenario verdict/status/assertions is not PASS`,
       });
     }
 
@@ -431,17 +407,24 @@ function evaluateGate(
       });
     }
 
-    const commit =
-      evidence.sourceCommit ??
-      evidence.signedOci?.sourceSha ??
-      null;
-    if (commit === null) {
+    const bodyHasSourceCommitAlias = hasSourceCommitAlias(evidence.body);
+    const commit = resolvedSourceCommit(evidence);
+    if (bodyHasSourceCommitAlias && evidence.sourceCommit === null) {
+      failures.push({
+        code: "invalid-source-commit",
+        scenario: spec.id,
+        detail: "evidence records malformed or conflicting source commit aliases",
+      });
+    } else if (commit === null) {
       failures.push({
         code: "missing-source-commit",
         scenario: spec.id,
         detail: "evidence does not record sourceCommit/sourceSha",
       });
-    } else if (!commitsMatch(candidate, commit) && !options.acceptWrongCommit) {
+    } else if (
+      !sourceCommitMatches(candidate, commit) &&
+      !options.acceptWrongCommit
+    ) {
       failures.push({
         code: "wrong-commit",
         scenario: spec.id,
@@ -451,7 +434,10 @@ function evaluateGate(
 
     if (evidence.signedOci !== null) {
       const signedCommit = evidence.signedOci.sourceSha;
-      if (!commitsMatch(candidate, signedCommit) && !options.acceptWrongCommit) {
+      if (
+        !sourceCommitMatches(candidate, signedCommit) &&
+        !options.acceptWrongCommit
+      ) {
         failures.push({
           code: "wrong-commit",
           scenario: spec.id,
@@ -571,7 +557,12 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
     const loaded = fillGraph({
       "governed-action": {
         ...passingScenario(candidate),
-        body: { scenario: "governed-action", verdict: "FAIL", sourceCommit: candidate },
+        body: {
+          assertions: { committed: false },
+          scenario: "governed-action",
+          sourceCommit: candidate,
+          verdict: "PASS",
+        },
       },
     });
     const strict = evaluateGate(candidate, loaded, liveAll, false, STRICT_OPTIONS);
@@ -586,10 +577,56 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
       id,
       killed,
       observation: killed
-        ? "strict gate rejected FAIL scenario; ignore-failed-scenario mutant would accept it"
+        ? "strict gate rejected contradictory PASS/assertions evidence; ignore-failed-scenario mutant would accept it"
         : "mutant was not distinguished from the strict gate",
     });
   }
+
+  {
+    const id = "conflicting-source-aliases";
+    const other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const body = {
+      scenario: "governed-action",
+      verdict: "PASS",
+      sourceCommit: candidate,
+      sourceSha: candidate,
+      source_sha: candidate,
+      headSha: other,
+    };
+    const evidence = {
+      ...passingScenario(candidate),
+      body,
+      sourceCommit: extractSourceCommit(body),
+      signedOci: {
+        chartSignatureDigest: "synthetic",
+        nodeSignatureDigest: "synthetic",
+        publicKeyDigest: "synthetic",
+        rustSignatureDigest: "synthetic",
+        sourceSha: candidate,
+      },
+      signedOciPath: "synthetic/signed-oci.json",
+    };
+    const boundEvidence = bindFixtureEvidence(evidence, candidate);
+    const strict = evaluateGate(
+      candidate,
+      fillGraph({ "governed-action": boundEvidence }),
+      liveAll,
+      false,
+      STRICT_OPTIONS,
+    );
+    const killed =
+      boundEvidence.sourceCommit === null &&
+      strict.failures.some((row) => row.code === "invalid-source-commit");
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "conflicting fixture aliases were rejected even when signed OCI named the candidate"
+        : "fixture binding let signed OCI mask conflicting source commit aliases",
+    });
+  }
+
+  results.push(...sourceCommitVerificationMutants(candidate));
 
   {
     const id = "accept-wrong-commit";
@@ -715,17 +752,6 @@ function runVerificationMutants(candidate: string): VerificationMutantResult[] {
   return results;
 }
 
-function resolveCandidateSha(): string {
-  const fromEnv = process.env.ZOEN_VERIFY_CANDIDATE_SHA?.trim();
-  if (fromEnv) {
-    return fromEnv;
-  }
-  return execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  }).trim();
-}
-
 function resolveEvidenceRoot(): string {
   const override = process.env.ZOEN_VERIFY_EVIDENCE_DIR?.trim();
   if (override) {
@@ -741,23 +767,6 @@ function isFixtureEvidenceRoot(evidenceRoot: string): boolean {
     normalized === fixturesRoot ||
     normalized.startsWith(`${fixturesRoot}${path.sep}`)
   );
-}
-
-function bindFixtureCommitValue(value: unknown, candidate: string): unknown {
-  if (typeof value === "string") {
-    return value === FIXTURE_COMMIT_PLACEHOLDER ? candidate : value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => bindFixtureCommitValue(entry, candidate));
-  }
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = bindFixtureCommitValue(entry, candidate);
-    }
-    return out;
-  }
-  return value;
 }
 
 function bindFixtureEvidence(
@@ -786,7 +795,7 @@ function bindFixtureEvidence(
     body,
     signedOci,
     rpoBody,
-    sourceCommit: extractSourceCommit(body) ?? signedOci?.sourceSha ?? null,
+    sourceCommit: extractSourceCommit(body),
     fixtureMarked: isFixtureMarked(body),
   };
 }
@@ -871,7 +880,7 @@ function assertNoSecrets(text: string): void {
 }
 
 async function main(): Promise<void> {
-  const candidate = resolveCandidateSha();
+  const candidate = resolveCandidateCommit(repositoryRoot);
   const evidenceRoot = resolveEvidenceRoot();
   const fixtureMode = isFixtureEvidenceRoot(evidenceRoot);
   // Fixture runs are gate-contract only; always emit the official bundle under artifacts/.
@@ -956,7 +965,7 @@ async function main(): Promise<void> {
           evidence.signedOciPath === null
             ? null
             : sha256Bytes(Buffer.from(JSON.stringify(evidence.signedOci))),
-        sourceCommit: evidence.sourceCommit ?? evidence.signedOci?.sourceSha ?? null,
+        sourceCommit: resolvedSourceCommit(evidence),
         status: scenarioPassed(evidence.body) ? "pass" : "fail",
         ticket: spec.ticket,
       };

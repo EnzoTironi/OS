@@ -42,6 +42,10 @@ import {
   e2eWhatsAppDoorE164,
   writeScenarioArtifact,
 } from "./host-env.js";
+import {
+  definitionPublishActionId,
+  definitionPublishPolicy,
+} from "./definition-publish-policy.js";
 
 const scenario = "activation-identity";
 const repositoryRoot = process.cwd();
@@ -149,6 +153,10 @@ async function writePolicyManifest(outputPath: string): Promise<{
             revision: 1,
             source: activationSource,
           },
+          definitionPublishPolicy({
+            definitionDigest: digest,
+            revision: 1,
+          }),
         ],
       },
       null,
@@ -180,7 +188,11 @@ async function main(): Promise<void> {
       personas: [
         signupOnlyPersona("unbound-a"),
         invitePersona({
-          actionIds: ["zoen.definition.activate", "inventory.requestStock"],
+          actionIds: [
+            definitionPublishActionId,
+            "zoen.definition.activate",
+            "inventory.requestStock",
+          ],
           actorId: "actor.admin.a",
           id: "admin-a",
           principalId: "principal.admin.a",
@@ -191,7 +203,11 @@ async function main(): Promise<void> {
         signupOnlyPersona("bound-bait"),
         signupOnlyPersona("bound-second"),
         invitePersona({
-          actionIds: ["zoen.definition.activate", "inventory.requestStock"],
+          actionIds: [
+            definitionPublishActionId,
+            "zoen.definition.activate",
+            "inventory.requestStock",
+          ],
           actorId: "actor.org.a.admin",
           id: "org-a-admin",
           principalId: "principal.admin.a",

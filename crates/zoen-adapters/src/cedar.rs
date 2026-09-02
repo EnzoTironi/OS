@@ -403,6 +403,7 @@ fn operation_name(operation: PolicyOperation) -> &'static str {
         PolicyOperation::Commit => "commit",
         PolicyOperation::Discover => "discover",
         PolicyOperation::PrepareMigration => "prepare_migration",
+        PolicyOperation::PublishDefinition => "publish_definition",
         PolicyOperation::Read => "read",
         PolicyOperation::RequestApproval => "request_approval",
         PolicyOperation::RollbackRevision => "rollback_revision",

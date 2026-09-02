@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     error::Error,
     fmt::{Display, Formatter},
 };
@@ -9,11 +10,11 @@ use sqlx::{
 };
 use zoen_core::{
     ActionApproval, ActionProposal, ActorId, CommitReceipt, CommitSequence, DefinitionActivation,
-    DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevision, DefinitionRevisionNumber, EffectRequestId, EffectSnapshot, EvidenceClaim,
-    EvidenceDraft, EvolutionClassification, ExecutionContext, ExplanationTarget, OperationId,
-    PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
-    ProposalId, TenantId, TimestampMicros, WorkloadId,
+    DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionPublication,
+    DefinitionReference, DefinitionRevision, DefinitionRevisionNumber, EffectRequestId,
+    EffectSnapshot, EvidenceClaim, EvidenceDraft, EvolutionClassification, ExecutionContext,
+    ExplanationTarget, OperationId, PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision,
+    PolicyRevisionNumber, PrincipalId, ProposalId, TenantId, TimestampMicros, WorkloadId,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore,
@@ -31,7 +32,7 @@ pub enum PostgresInitError {
     Connect(sqlx::Error),
     Migrate(sqlx::migrate::MigrateError),
     Grant(sqlx::Error),
-    PrivilegedProjection,
+    ProjectionRoleBoundary(String),
 }
 
 impl Display for PostgresInitError {
@@ -42,9 +43,9 @@ impl Display for PostgresInitError {
             Self::Grant(error) => {
                 write!(formatter, "failed to apply zoen_projection grants: {error}")
             }
-            Self::PrivilegedProjection => write!(
+            Self::ProjectionRoleBoundary(reason) => write!(
                 formatter,
-                "ZOEN_PROJECTION_DATABASE_URL can INSERT into semantic_claims"
+                "ZOEN_PROJECTION_DATABASE_URL violates the projection role boundary: {reason}"
             ),
         }
     }
@@ -55,7 +56,7 @@ impl Error for PostgresInitError {
         match self {
             Self::Connect(error) | Self::Grant(error) => Some(error),
             Self::Migrate(error) => Some(error),
-            Self::PrivilegedProjection => None,
+            Self::ProjectionRoleBoundary(_) => None,
         }
     }
 }
@@ -107,15 +108,16 @@ impl PostgresAuthorityStore {
 
     /// Re-apply `zoen_projection` table grants when that role exists.
     ///
-    /// sqlx records migration `0021` once. A role created later still
-    /// needs the same GRANT/REVOKE on the next `connect`.
+    /// `SQLx` records each migration once. A role created later still needs the
+    /// current full-state GRANT/REVOKE on the next `connect`. When the allowlist
+    /// evolves, add a migration and repoint this method instead of editing `0027`.
     ///
     /// # Errors
     ///
     /// Returns [`PostgresInitError::Grant`] when the GRANT/REVOKE statements fail.
     pub async fn apply_projection_role_grants(&self) -> Result<(), PostgresInitError> {
         sqlx::query(include_str!(
-            "../migrations/0021_projection_role_grants.sql"
+            "../migrations/0027_projection_role_boundary.sql"
         ))
         .execute(&self.pool)
         .await
@@ -123,27 +125,526 @@ impl PostgresAuthorityStore {
         Ok(())
     }
 
-    /// Fail closed when this pool can write `semantic_claims`.
+    /// Fail closed unless this pool has exactly the projection role's capabilities.
     ///
     /// Call on the worker pool after `ZOEN_PROJECTION_DATABASE_URL` is set
-    /// so an empty or `zoen_app` URL cannot start the projection process.
+    /// so an empty, privileged, or drifted role cannot start the projection process.
     ///
     /// # Errors
     ///
     /// Returns [`PostgresInitError::Connect`] when privilege lookup fails, or
-    /// [`PostgresInitError::PrivilegedProjection`] when this pool can INSERT.
-    pub async fn require_projection_cannot_write_authority(&self) -> Result<(), PostgresInitError> {
-        let can_insert: bool =
-            sqlx::query_scalar("SELECT has_table_privilege('semantic_claims', 'INSERT')")
-                .fetch_one(&self.pool)
-                .await
-                .map_err(PostgresInitError::Connect)?;
-        if can_insert {
-            Err(PostgresInitError::PrivilegedProjection)
-        } else {
-            Ok(())
+    /// [`PostgresInitError::ProjectionRoleBoundary`] when the effective role
+    /// differs from the allowlist.
+    pub async fn require_projection_role_boundary(&self) -> Result<(), PostgresInitError> {
+        match projection_role_violation(&self.pool)
+            .await
+            .map_err(PostgresInitError::Connect)?
+        {
+            Some(reason) => Err(PostgresInitError::ProjectionRoleBoundary(reason)),
+            None => Ok(()),
         }
     }
+}
+
+const PROJECTION_READ_TABLES: [&str; 6] = [
+    "authority_commits",
+    "authority_heads",
+    "projection_manifests",
+    "projection_outbox",
+    "projection_watermarks",
+    "semantic_claims",
+];
+
+const PROJECTION_MANIFEST_INSERT_COLUMNS: [&str; 9] = [
+    "build_id",
+    "from_commit",
+    "manifest_digest",
+    "manifest_object_key",
+    "parquet_digest",
+    "parquet_object_key",
+    "projection_id",
+    "tenant_id",
+    "through_commit",
+];
+
+const PROJECTION_WATERMARK_INSERT_COLUMNS: [&str; 4] = [
+    "manifest_digest",
+    "projection_id",
+    "tenant_id",
+    "through_commit",
+];
+
+const PROJECTION_WATERMARK_UPDATE_COLUMNS: [&str; 3] =
+    ["manifest_digest", "through_commit", "updated_at"];
+
+async fn projection_role_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    if let Some(reason) = projection_role_identity_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_database_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_schema_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_column_violation(projection_columns(pool).await?) {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_table_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_sequence_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    if let Some(reason) = projection_default_acl_violation(pool).await? {
+        return Ok(Some(reason));
+    }
+    projection_routine_violation(pool).await
+}
+
+async fn projection_role_identity_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let role = sqlx::query(
+        "SELECT current_user AS current_role, session_user AS session_role,
+                rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
+                rolreplication, rolbypassrls
+         FROM pg_catalog.pg_roles
+         WHERE rolname = current_user",
+    )
+    .fetch_optional(pool)
+    .await?;
+    let Some(role) = role else {
+        return Ok(Some("current role is absent from pg_roles".to_owned()));
+    };
+    let current_role = role.try_get::<String, _>("current_role")?;
+    let session_role = role.try_get::<String, _>("session_role")?;
+    if current_role != "zoen_projection" || session_role != "zoen_projection" {
+        return Ok(Some(format!(
+            "current_user and session_user must both be zoen_projection, got {current_role} and {session_role}"
+        )));
+    }
+    let forbidden_role_attributes = [
+        ("SUPERUSER", role.try_get::<bool, _>("rolsuper")?),
+        ("INHERIT", role.try_get::<bool, _>("rolinherit")?),
+        ("CREATEROLE", role.try_get::<bool, _>("rolcreaterole")?),
+        ("CREATEDB", role.try_get::<bool, _>("rolcreatedb")?),
+        ("REPLICATION", role.try_get::<bool, _>("rolreplication")?),
+        ("BYPASSRLS", role.try_get::<bool, _>("rolbypassrls")?),
+    ];
+    if !role.try_get::<bool, _>("rolcanlogin")? {
+        return Ok(Some("zoen_projection must be a LOGIN role".to_owned()));
+    }
+    if let Some((attribute, _)) = forbidden_role_attributes
+        .iter()
+        .find(|(_, enabled)| *enabled)
+    {
+        return Ok(Some(format!("zoen_projection must not have {attribute}")));
+    }
+
+    let has_membership: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1
+             FROM pg_catalog.pg_auth_members membership
+             JOIN pg_catalog.pg_roles member ON member.oid = membership.member
+             WHERE member.rolname = current_user
+         )",
+    )
+    .fetch_one(pool)
+    .await?;
+    if has_membership {
+        return Ok(Some(
+            "zoen_projection must not be a member of another role".to_owned(),
+        ));
+    }
+    Ok(None)
+}
+
+async fn projection_database_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let databases = sqlx::query(
+        "SELECT database.datname,
+             database.datname = pg_catalog.current_database() AS is_current,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'CONNECT'
+             ) AS can_connect,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'CREATE'
+             ) AS can_create,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'TEMPORARY'
+             ) AS can_temp,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'CONNECT WITH GRANT OPTION'
+             ) AS can_grant_connect,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'CREATE WITH GRANT OPTION'
+             ) AS can_grant_create,
+             pg_catalog.has_database_privilege(
+                 current_user, database.oid, 'TEMPORARY WITH GRANT OPTION'
+             ) AS can_grant_temp
+         FROM pg_catalog.pg_database database
+         WHERE database.datallowconn
+         ORDER BY database.datname",
+    )
+    .fetch_all(pool)
+    .await?;
+    for database in databases {
+        let name = database.try_get::<String, _>("datname")?;
+        let expected_connect = name == "zoen" && database.try_get::<bool, _>("is_current")?;
+        let can_connect = database.try_get::<bool, _>("can_connect")?;
+        let forbidden = database.try_get::<bool, _>("can_create")?
+            || database.try_get::<bool, _>("can_temp")?
+            || database.try_get::<bool, _>("can_grant_connect")?
+            || database.try_get::<bool, _>("can_grant_create")?
+            || database.try_get::<bool, _>("can_grant_temp")?;
+        if can_connect != expected_connect || forbidden {
+            return Ok(Some(format!(
+                "database {name} has CONNECT={can_connect}, expected {expected_connect}, or a forbidden CREATE, TEMPORARY, or grant option"
+            )));
+        }
+    }
+    Ok(None)
+}
+
+async fn projection_schema_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let schemas = sqlx::query(
+        "SELECT nspname,
+                pg_catalog.has_schema_privilege(current_user, oid, 'USAGE') AS can_use,
+                pg_catalog.has_schema_privilege(current_user, oid, 'CREATE') AS can_create,
+                pg_catalog.has_schema_privilege(
+                    current_user, oid, 'USAGE WITH GRANT OPTION'
+                ) AS can_grant_use,
+                pg_catalog.has_schema_privilege(
+                    current_user, oid, 'CREATE WITH GRANT OPTION'
+                ) AS can_grant_create
+         FROM pg_catalog.pg_namespace
+         WHERE nspname <> 'information_schema'
+           AND nspname !~ '^pg_'
+         ORDER BY nspname",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut found_public = false;
+    for schema in schemas {
+        let name = schema.try_get::<String, _>("nspname")?;
+        let can_use = schema.try_get::<bool, _>("can_use")?;
+        let can_create = schema.try_get::<bool, _>("can_create")?;
+        let can_grant = schema.try_get::<bool, _>("can_grant_use")?
+            || schema.try_get::<bool, _>("can_grant_create")?;
+        if name == "public" {
+            found_public = true;
+            if !can_use || can_create || can_grant {
+                return Ok(Some(
+                    "public schema requires USAGE without CREATE or grant option".to_owned(),
+                ));
+            }
+        } else if can_use || can_create || can_grant {
+            return Ok(Some(format!("unexpected schema capability on {name}")));
+        }
+    }
+    if !found_public {
+        return Ok(Some("public schema is missing".to_owned()));
+    }
+    Ok(None)
+}
+
+struct ProjectionColumnCapability {
+    schema: String,
+    table: String,
+    name: String,
+    select: EffectiveCapability,
+    insert: EffectiveCapability,
+    update: EffectiveCapability,
+    references: EffectiveCapability,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EffectiveCapability {
+    Denied,
+    Granted,
+    Grantable,
+}
+
+impl From<bool> for EffectiveCapability {
+    fn from(expected: bool) -> Self {
+        if expected {
+            Self::Granted
+        } else {
+            Self::Denied
+        }
+    }
+}
+
+impl EffectiveCapability {
+    fn new(granted: bool, grantable: bool) -> Self {
+        if grantable {
+            Self::Grantable
+        } else {
+            granted.into()
+        }
+    }
+}
+
+async fn projection_columns(pool: &PgPool) -> Result<Vec<ProjectionColumnCapability>, sqlx::Error> {
+    let columns = sqlx::query(
+        "SELECT namespace.nspname AS schema_name, relation.relname AS table_name,
+                attribute.attname AS column_name,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum, 'SELECT'
+                )
+                    AS can_select,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum, 'INSERT'
+                )
+                    AS can_insert,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum, 'UPDATE'
+                )
+                    AS can_update,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum, 'REFERENCES'
+                ) AS can_reference,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum,
+                    'SELECT WITH GRANT OPTION'
+                ) AS can_grant_select,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum,
+                    'INSERT WITH GRANT OPTION'
+                ) AS can_grant_insert,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum,
+                    'UPDATE WITH GRANT OPTION'
+                ) AS can_grant_update,
+                pg_catalog.has_column_privilege(
+                    current_user, relation.oid, attribute.attnum,
+                    'REFERENCES WITH GRANT OPTION'
+                ) AS can_grant_reference
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+         JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid = relation.oid
+         WHERE namespace.nspname <> 'information_schema'
+           AND namespace.nspname !~ '^pg_'
+           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+           AND attribute.attnum > 0
+           AND NOT attribute.attisdropped
+         ORDER BY namespace.nspname, relation.relname, attribute.attnum",
+    )
+    .fetch_all(pool)
+    .await?;
+    columns
+        .into_iter()
+        .map(|column| {
+            Ok(ProjectionColumnCapability {
+                schema: column.try_get("schema_name")?,
+                table: column.try_get("table_name")?,
+                name: column.try_get("column_name")?,
+                select: EffectiveCapability::new(
+                    column.try_get("can_select")?,
+                    column.try_get("can_grant_select")?,
+                ),
+                insert: EffectiveCapability::new(
+                    column.try_get("can_insert")?,
+                    column.try_get("can_grant_insert")?,
+                ),
+                update: EffectiveCapability::new(
+                    column.try_get("can_update")?,
+                    column.try_get("can_grant_update")?,
+                ),
+                references: EffectiveCapability::new(
+                    column.try_get("can_reference")?,
+                    column.try_get("can_grant_reference")?,
+                ),
+            })
+        })
+        .collect()
+}
+
+fn projection_column_violation(columns: Vec<ProjectionColumnCapability>) -> Option<String> {
+    let mut found_read_tables = HashSet::new();
+    for column in columns {
+        let expected_select =
+            column.schema == "public" && PROJECTION_READ_TABLES.contains(&column.table.as_str());
+        if expected_select {
+            found_read_tables.insert(column.table.clone());
+        }
+        let expected_insert = column.schema == "public"
+            && ((column.table == "projection_manifests"
+                && PROJECTION_MANIFEST_INSERT_COLUMNS.contains(&column.name.as_str()))
+                || (column.table == "projection_watermarks"
+                    && PROJECTION_WATERMARK_INSERT_COLUMNS.contains(&column.name.as_str())));
+        let expected_update = column.schema == "public"
+            && column.table == "projection_watermarks"
+            && PROJECTION_WATERMARK_UPDATE_COLUMNS.contains(&column.name.as_str());
+        let actual = [
+            ("SELECT", column.select, expected_select.into()),
+            ("INSERT", column.insert, expected_insert.into()),
+            ("UPDATE", column.update, expected_update.into()),
+            ("REFERENCES", column.references, false.into()),
+        ];
+        if let Some((privilege, enabled, expected)) = actual
+            .iter()
+            .find(|(_, enabled, expected)| enabled != expected)
+        {
+            let qualifier = format!("{}.{}.{}", column.schema, column.table, column.name);
+            return Some(format!(
+                "{privilege} on {qualifier} is {enabled:?}, expected {expected:?}"
+            ));
+        }
+    }
+    for table in PROJECTION_READ_TABLES {
+        if !found_read_tables.contains(table) {
+            return Some(format!(
+                "required projection table public.{table} is missing"
+            ));
+        }
+    }
+    None
+}
+
+async fn projection_table_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let privileges = sqlx::query(
+        "SELECT namespace.nspname AS schema_name, relation.relname AS table_name,
+                privilege.name AS privilege_name,
+                pg_catalog.has_table_privilege(
+                    current_user, relation.oid, privilege.name
+                ) AS granted,
+                pg_catalog.has_table_privilege(
+                    current_user, relation.oid,
+                    privilege.name || ' WITH GRANT OPTION'
+                ) AS grantable,
+                relation.relrowsecurity,
+                relation.relforcerowsecurity,
+                pg_catalog.row_security_active(relation.oid) AS row_security_active,
+                relation.relowner = (
+                    SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user
+                ) AS role_owns_table
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+         CROSS JOIN (
+             VALUES
+                 ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'),
+                 ('REFERENCES'), ('TRIGGER'), ('MAINTAIN')
+         ) AS privilege(name)
+         WHERE namespace.nspname <> 'information_schema'
+           AND namespace.nspname !~ '^pg_'
+           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+         ORDER BY namespace.nspname, relation.relname, privilege.name",
+    )
+    .fetch_all(pool)
+    .await?;
+    for privilege in privileges {
+        let schema = privilege.try_get::<String, _>("schema_name")?;
+        let table = privilege.try_get::<String, _>("table_name")?;
+        let name = privilege.try_get::<String, _>("privilege_name")?;
+        let expected = schema == "public"
+            && name == "SELECT"
+            && PROJECTION_READ_TABLES.contains(&table.as_str());
+        let actual = EffectiveCapability::new(
+            privilege.try_get("granted")?,
+            privilege.try_get("grantable")?,
+        );
+        if actual != expected.into() {
+            return Ok(Some(format!(
+                "table-level {name} on {schema}.{table} is {actual:?}, expected {:?}",
+                EffectiveCapability::from(expected)
+            )));
+        }
+        if expected
+            && (!privilege.try_get::<bool, _>("relrowsecurity")?
+                || !privilege.try_get::<bool, _>("relforcerowsecurity")?
+                || !privilege.try_get::<bool, _>("row_security_active")?
+                || privilege.try_get::<bool, _>("role_owns_table")?)
+        {
+            return Ok(Some(format!(
+                "public.{table} must enforce RLS and have a different owner"
+            )));
+        }
+    }
+    Ok(None)
+}
+
+async fn projection_sequence_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let privileged_sequence = sqlx::query(
+        "SELECT namespace.nspname AS schema_name, relation.relname AS sequence_name
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+         WHERE namespace.nspname <> 'information_schema'
+           AND namespace.nspname !~ '^pg_'
+           AND relation.relkind = 'S'
+           AND (pg_catalog.has_sequence_privilege(current_user, relation.oid, 'USAGE')
+                OR pg_catalog.has_sequence_privilege(current_user, relation.oid, 'SELECT')
+                OR pg_catalog.has_sequence_privilege(current_user, relation.oid, 'UPDATE'))
+         ORDER BY namespace.nspname, relation.relname
+         LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if let Some(sequence) = privileged_sequence {
+        return Ok(Some(format!(
+            "unexpected sequence capability on {}.{}",
+            sequence.try_get::<String, _>("schema_name")?,
+            sequence.try_get::<String, _>("sequence_name")?,
+        )));
+    }
+    Ok(None)
+}
+
+async fn projection_default_acl_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    let default_acl = sqlx::query(
+        "SELECT defaults.defaclobjtype, owner.rolname AS owner_name,
+                COALESCE(namespace.nspname, '') AS schema_name,
+                acl.privilege_type
+         FROM pg_catalog.pg_default_acl defaults
+         JOIN pg_catalog.pg_roles owner ON owner.oid = defaults.defaclrole
+         LEFT JOIN pg_catalog.pg_namespace namespace
+           ON namespace.oid = defaults.defaclnamespace
+         CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) acl
+         WHERE defaults.defaclobjtype IN ('r', 'S')
+           AND acl.grantee IN (
+               0,
+               (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user)
+           )
+         ORDER BY owner.rolname, namespace.nspname, defaults.defaclobjtype
+         LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if let Some(default_acl) = default_acl {
+        return Ok(Some(format!(
+            "unexpected default {} privilege for owner {} in schema {}",
+            default_acl.try_get::<String, _>("privilege_type")?,
+            default_acl.try_get::<String, _>("owner_name")?,
+            default_acl.try_get::<String, _>("schema_name")?,
+        )));
+    }
+    Ok(None)
+}
+
+async fn projection_routine_violation(pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+    // SECURITY INVOKER routines cannot exceed the effective capabilities checked
+    // above. An executable SECURITY DEFINER routine could, so none are allowed.
+    let routine = sqlx::query(
+        "SELECT namespace.nspname AS schema_name,
+                routine.oid::pg_catalog.regprocedure::text AS routine_name
+         FROM pg_catalog.pg_proc routine
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = routine.pronamespace
+         WHERE namespace.nspname <> 'information_schema'
+           AND namespace.nspname !~ '^pg_'
+           AND routine.prosecdef
+           AND pg_catalog.has_schema_privilege(current_user, namespace.oid, 'USAGE')
+           AND pg_catalog.has_function_privilege(current_user, routine.oid, 'EXECUTE')
+         ORDER BY namespace.nspname, routine.oid::pg_catalog.regprocedure::text
+         LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if let Some(routine) = routine {
+        return Ok(Some(format!(
+            "unexpected routine EXECUTE on {}.{}",
+            routine.try_get::<String, _>("schema_name")?,
+            routine.try_get::<String, _>("routine_name")?,
+        )));
+    }
+    Ok(None)
 }
 
 impl AuthorityStore for PostgresAuthorityStore {
@@ -327,12 +828,12 @@ impl AuthorityStore for PostgresAuthorityStore {
 
     async fn publish(
         &self,
-        context: &ExecutionContext,
         publication: &AdmittedDefinitionPublication,
-    ) -> Result<DefinitionRevision, StoreError> {
+    ) -> Result<DefinitionPublication, StoreError> {
+        let context = publication.context();
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
         set_tenant(&mut transaction, context.tenant_id()).await?;
-        let revision = persist_publication(&mut transaction, context, publication).await?;
+        let revision = persist_publication(&mut transaction, publication).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(revision)
     }
@@ -660,9 +1161,9 @@ async fn project_activation(
 
 async fn persist_publication(
     transaction: &mut Transaction<'_, Postgres>,
-    context: &ExecutionContext,
     publication: &AdmittedDefinitionPublication,
-) -> Result<DefinitionRevision, StoreError> {
+) -> Result<DefinitionPublication, StoreError> {
+    let context = publication.context();
     sqlx::query(
         "INSERT INTO authority_heads (tenant_id, commit_sequence)
          VALUES ($1, 0)
@@ -684,8 +1185,8 @@ async fn persist_publication(
     .map_err(store_unavailable)?
     .try_get::<i64, _>("commit_sequence")
     .map_err(store_unavailable)?;
-    if let Some(revision) = existing_publication(transaction, context, publication).await? {
-        return Ok(revision);
+    if let Some(existing) = existing_publication(transaction, publication).await? {
+        return Ok(existing);
     }
     let revision_conflict = sqlx::query(
         "SELECT digest
@@ -706,8 +1207,8 @@ async fn persist_publication(
     let next_sequence = head
         .checked_add(1)
         .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
-    insert_published_revision(transaction, context, publication, next_sequence).await?;
-    Ok(DefinitionRevision {
+    insert_published_revision(transaction, publication, next_sequence).await?;
+    let revision = DefinitionRevision {
         canonical_json: publication.canonical_json().clone(),
         commit_sequence: CommitSequence::new(
             u64::try_from(next_sequence)
@@ -717,18 +1218,40 @@ async fn persist_publication(
         definition_id: publication.definition_id().clone(),
         digest: publication.digest().clone(),
         revision: publication.revision(),
+    };
+    Ok(DefinitionPublication {
+        policy: publication.policy().clone(),
+        principal_id: context.principal_id().clone(),
+        published_at: publication.published_at(),
+        published_by: context.actor_id().clone(),
+        revision,
+        workload_id: context.workload_id().clone(),
     })
 }
 
 async fn existing_publication(
     transaction: &mut Transaction<'_, Postgres>,
-    context: &ExecutionContext,
     publication: &AdmittedDefinitionPublication,
-) -> Result<Option<DefinitionRevision>, StoreError> {
+) -> Result<Option<DefinitionPublication>, StoreError> {
+    let context = publication.context();
     let existing = sqlx::query(
-        "SELECT definition_id, revision, digest, canonical_json, commit_sequence
-         FROM definition_revisions
-         WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3",
+        "SELECT revision.definition_id, revision.revision, revision.digest,
+                revision.canonical_json, revision.commit_sequence,
+                publication.commit_sequence AS publication_commit_sequence,
+                publication.published_at_micros, publication.actor_id,
+                publication.principal_id, publication.workload_id,
+                publication.policy_id, publication.policy_revision,
+                publication.policy_digest, publication.determining_policies
+         FROM definition_revisions AS revision
+         LEFT JOIN definition_publications AS publication
+           ON publication.tenant_id = revision.tenant_id
+          AND publication.definition_id = revision.definition_id
+          AND publication.digest = revision.digest
+          AND publication.revision = revision.revision
+          AND publication.commit_sequence = revision.commit_sequence
+         WHERE revision.tenant_id = $1
+           AND revision.definition_id = $2
+           AND revision.digest = $3",
     )
     .bind(context.tenant_id().as_str())
     .bind(publication.definition_id().as_str())
@@ -747,7 +1270,25 @@ async fn existing_publication(
             "content-addressed revision has different content".to_owned(),
         ));
     }
-    Ok(Some(revision))
+    let publication_commit_sequence = row
+        .try_get::<Option<i64>, _>("publication_commit_sequence")
+        .map_err(store_unavailable)?
+        .ok_or_else(|| {
+            StoreError::Corrupt(
+                "definition revision is missing governed publication evidence".to_owned(),
+            )
+        })?;
+    if publication_commit_sequence
+        != u64_to_i64(
+            revision.commit_sequence.get(),
+            "publication commit sequence",
+        )?
+    {
+        return Err(StoreError::Corrupt(
+            "definition publication commit does not match its revision".to_owned(),
+        ));
+    }
+    Ok(Some(row_to_publication(&row, revision)?))
 }
 
 async fn insert_commit_kind(
@@ -794,10 +1335,10 @@ async fn insert_projection_event(
 
 async fn insert_published_revision(
     transaction: &mut Transaction<'_, Postgres>,
-    context: &ExecutionContext,
     publication: &AdmittedDefinitionPublication,
     next_sequence: i64,
 ) -> Result<(), StoreError> {
+    let context = publication.context();
     insert_commit_kind(
         transaction,
         context.tenant_id(),
@@ -819,6 +1360,8 @@ async fn insert_published_revision(
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
+    insert_publication_row(transaction, publication, next_sequence).await?;
+    insert_publication_grants(transaction, publication, next_sequence).await?;
     let event = publication.projection_event();
     sqlx::query(
         "INSERT INTO projection_outbox
@@ -834,6 +1377,101 @@ async fn insert_published_revision(
     .await
     .map_err(store_unavailable)?;
     advance_authority_head(transaction, context.tenant_id(), next_sequence).await
+}
+
+async fn insert_publication_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    publication: &AdmittedDefinitionPublication,
+    next_sequence: i64,
+) -> Result<(), StoreError> {
+    let context = publication.context();
+    let policy = publication.policy();
+    let grant_count = i32::try_from(context.delegation().grants().len())
+        .map_err(|_| StoreError::Conflict("publication has too many grants".to_owned()))?;
+    sqlx::query(
+        "INSERT INTO definition_publications (
+            tenant_id, definition_id, revision, digest, commit_sequence,
+            published_at_micros, actor_id, principal_id, workload_id,
+            policy_id, policy_revision, policy_digest, determining_policies,
+            grant_count
+         ) VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8, $9,
+            $10, $11, $12, $13,
+            $14
+         )",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(publication.definition_id().as_str())
+    .bind(u64_to_i64(publication.revision().get(), "revision")?)
+    .bind(publication.digest().as_str())
+    .bind(next_sequence)
+    .bind(publication.published_at().get())
+    .bind(context.actor_id().as_str())
+    .bind(context.principal_id().as_str())
+    .bind(context.workload_id().as_str())
+    .bind(policy.revision.id.as_str())
+    .bind(u64_to_i64(
+        policy.revision.revision.get(),
+        "policy revision",
+    )?)
+    .bind(policy.revision.digest.as_str())
+    .bind(&policy.determining_policies)
+    .bind(grant_count)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    Ok(())
+}
+
+async fn insert_publication_grants(
+    transaction: &mut Transaction<'_, Postgres>,
+    publication: &AdmittedDefinitionPublication,
+    commit_sequence: i64,
+) -> Result<(), StoreError> {
+    let context = publication.context();
+    for (ordinal, grant) in context.delegation().grants().iter().enumerate() {
+        let ordinal = i32::try_from(ordinal)
+            .map_err(|_| StoreError::Conflict("publication has too many grants".to_owned()))?;
+        sqlx::query(
+            "INSERT INTO definition_publication_grants (
+                tenant_id, commit_sequence, ordinal, delegation_id,
+                action_ids, resource_ids, workload_ids,
+                not_before_micros, expires_at_micros
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(context.tenant_id().as_str())
+        .bind(commit_sequence)
+        .bind(ordinal)
+        .bind(grant.id().as_str())
+        .bind(
+            grant
+                .actions()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            grant
+                .resources()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            grant
+                .workloads()
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .bind(grant.not_before().get())
+        .bind(grant.expires_at().get())
+        .execute(&mut **transaction)
+        .await
+        .map_err(store_unavailable)?;
+    }
+    Ok(())
 }
 
 async fn advance_authority_head(
@@ -921,6 +1559,38 @@ fn row_to_reference(row: &PgRow) -> Result<DefinitionReference, StoreError> {
             "definition revision",
         )?)
         .ok_or_else(|| StoreError::Corrupt("zero definition revision".to_owned()))?,
+    })
+}
+
+fn row_to_publication(
+    row: &PgRow,
+    revision: DefinitionRevision,
+) -> Result<DefinitionPublication, StoreError> {
+    Ok(DefinitionPublication {
+        policy: PolicyEvidence {
+            determining_policies: row
+                .try_get::<Vec<String>, _>("determining_policies")
+                .map_err(store_unavailable)?,
+            revision: PolicyRevision {
+                digest: PolicyDigest::parse(row_string(row, "policy_digest")?)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+                id: PolicyId::parse(row_string(row, "policy_id")?)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+                revision: PolicyRevisionNumber::new(i64_to_u64(
+                    row_i64(row, "policy_revision")?,
+                    "policy revision",
+                )?)
+                .ok_or_else(|| StoreError::Corrupt("zero policy revision".to_owned()))?,
+            },
+        },
+        principal_id: PrincipalId::parse(row_string(row, "principal_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        published_at: TimestampMicros::new(row_i64(row, "published_at_micros")?),
+        published_by: ActorId::parse(row_string(row, "actor_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
+        revision,
+        workload_id: WorkloadId::parse(row_string(row, "workload_id")?)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
     })
 }
 

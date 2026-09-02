@@ -15,7 +15,6 @@ import {
   adminClient,
   adminDatabaseUrl,
   authDatabaseUrl,
-  command,
   commitReplenish,
   loadCanonicalDefinition,
   definitionClient,
@@ -52,6 +51,8 @@ import {
   stopAuthDoor,
 } from "./ba-door.js";
 import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
+import { definitionPublishActionId } from "./definition-publish-policy.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -92,7 +93,12 @@ async function main(): Promise<void> {
     generatedDirectory,
     "policies.json",
   );
-  await writePolicyManifest(policyManifestPath, [v1, v2, addedActionMutant]);
+  await writePolicyManifest(policyManifestPath, [
+    v1,
+    v2,
+    mutant,
+    addedActionMutant,
+  ]);
   const door = await startAuthDoor(authDatabaseUrl);
   const admin = adminClient();
   await admin.connect();
@@ -109,7 +115,11 @@ async function main(): Promise<void> {
       personas: [
         ...adminPairPersonas(
           [definitionId, resourceId],
-          ["zoen.definition.activate", "inventory.replenish"],
+          [
+            definitionPublishActionId,
+            "zoen.definition.activate",
+            "inventory.replenish",
+          ],
         ),
         signupOnlyPersona("denied-a"),
       ],
@@ -680,7 +690,7 @@ async function main(): Promise<void> {
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
     assert.ok(compatiblePlan);
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const protocol = await readFile(
       path.join(
         repositoryRoot,

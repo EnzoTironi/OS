@@ -5,14 +5,23 @@ import {
   sign as signBytes,
   verify as verifyBytes,
 } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
+import {
+  bindFixtureCommitValue,
+  exactSourceCommit,
+  hasSourceCommitAlias,
+  resolveCandidateCommit,
+  scenarioPassed,
+  sourceCommitMatches,
+  sourceCommitVerificationMutants,
+  sourceCommitKeys,
+  type VerificationMutantResult,
+} from "./scenario-evidence.js";
 
 const SCHEMA_ID = "zoen.activation.v1" as const;
-const FIXTURE_COMMIT_PLACEHOLDER = "__CANDIDATE_SHA__";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot =
@@ -102,58 +111,12 @@ type GateResult = {
   readonly advertisedClaims: AdvertisedClaim[];
 };
 
-type VerificationMutantResult = {
-  readonly id: string;
-  readonly killed: boolean;
-  readonly observation: string;
-};
-
 function sha256Text(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function commitsMatch(candidate: string, evidence: string): boolean {
-  const a = candidate.trim().toLowerCase();
-  const b = evidence.trim().toLowerCase();
-  if (a.length === 0 || b.length === 0) {
-    return false;
-  }
-  if (a === b) {
-    return true;
-  }
-  if (b.length >= 7 && b.length < a.length && a.startsWith(b)) {
-    return true;
-  }
-  return false;
-}
-
 function extractSourceCommit(body: Record<string, unknown>): string | null {
-  for (const key of ["sourceCommit", "sourceSha", "source_sha", "headSha"] as const) {
-    const value = body[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return null;
-}
-
-function scenarioPassed(body: Record<string, unknown>): boolean {
-  if (typeof body.verdict === "string") {
-    return body.verdict.toUpperCase() === "PASS";
-  }
-  if (typeof body.status === "string") {
-    const status = body.status.toLowerCase();
-    return status === "pass" || status === "passed" || status === "ok";
-  }
-  const assertions = body.assertions;
-  if (assertions !== null && typeof assertions === "object" && !Array.isArray(assertions)) {
-    const values = Object.values(assertions as Record<string, unknown>);
-    if (values.length === 0) {
-      return false;
-    }
-    return values.every((value) => value === true);
-  }
-  return false;
+  return exactSourceCommit(body, sourceCommitKeys);
 }
 
 function isFixtureMarked(body: Record<string, unknown>): boolean {
@@ -323,13 +286,22 @@ function evaluateGate(
     }
 
     const commit = evidence.sourceCommit;
-    if (commit === null) {
+    if (hasSourceCommitAlias(evidence.body) && commit === null) {
+      failures.push({
+        code: "invalid-source-commit",
+        scenario: spec.id,
+        detail: "evidence records malformed or conflicting source commit aliases",
+      });
+    } else if (commit === null) {
       failures.push({
         code: "missing-source-commit",
         scenario: spec.id,
         detail: "evidence does not record sourceCommit/sourceSha/headSha",
       });
-    } else if (!commitsMatch(candidate, commit) && !options.acceptWrongCommit) {
+    } else if (
+      !sourceCommitMatches(candidate, commit) &&
+      !options.acceptWrongCommit
+    ) {
       failures.push({
         code: "wrong-commit",
         scenario: spec.id,
@@ -445,6 +417,37 @@ function runVerificationMutants(
   assert.equal(healthy.failures.length, 0, JSON.stringify(healthy.failures));
 
   {
+    const id = "ignore-failed-scenario";
+    const target = REQUIRED_SCENARIOS.find((row) => row.id === "activation-identity");
+    assert.ok(target);
+    const contradictory = syntheticPassing(target, candidate, {
+      body: {
+        assertions: { identityBound: false },
+        scenario: target.id,
+        sourceCommit: candidate,
+        verdict: "PASS",
+      },
+    });
+    const cleanClaims = advertisedClaims.map((claim) => ({ ...claim, advertised: false }));
+    const loaded = fillGraph({ [target.id]: contradictory });
+    const strict = evaluateGate(candidate, loaded, cleanClaims, false, STRICT_OPTIONS);
+    const mutant = evaluateGate(candidate, loaded, cleanClaims, false, {
+      ...STRICT_OPTIONS,
+      ignoreFailedScenario: true,
+    });
+    const killed =
+      strict.failures.some((row) => row.code === "failed-scenario") &&
+      mutant.failures.every((row) => row.code !== "failed-scenario");
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "strict gate rejected contradictory PASS/assertions evidence"
+        : "contradictory scenario evidence passed the strict gate",
+    });
+  }
+
+  {
     const id = "missing-slot";
     const target = REQUIRED_SCENARIOS[0];
     assert.ok(target);
@@ -462,6 +465,27 @@ function runVerificationMutants(
         : "missing-slot mutant survived: gate did not name the missing scenario",
     });
   }
+
+  {
+    const id = "conflicting-source-aliases";
+    const other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const killed =
+      extractSourceCommit({
+        sourceCommit: candidate,
+        sourceSha: candidate,
+        source_sha: candidate,
+        headSha: other,
+      }) === null;
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "conflicting source commit aliases were rejected"
+        : "conflicting source commit aliases were accepted",
+    });
+  }
+
+  results.push(...sourceCommitVerificationMutants(candidate));
 
   {
     const id = "wrong-sha";
@@ -560,17 +584,6 @@ function runVerificationMutants(
   return results;
 }
 
-function resolveCandidateSha(): string {
-  const fromEnv = process.env.ZOEN_VERIFY_CANDIDATE_SHA?.trim();
-  if (fromEnv) {
-    return fromEnv;
-  }
-  return execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  }).trim();
-}
-
 function resolveEvidenceRoot(): string {
   const override = process.env.ZOEN_VERIFY_EVIDENCE_DIR?.trim();
   if (override) {
@@ -586,23 +599,6 @@ function isFixtureEvidenceRoot(evidenceRoot: string): boolean {
     normalized === fixturesRoot ||
     normalized.startsWith(`${fixturesRoot}${path.sep}`)
   );
-}
-
-function bindFixtureCommitValue(value: unknown, candidate: string): unknown {
-  if (typeof value === "string") {
-    return value === FIXTURE_COMMIT_PLACEHOLDER ? candidate : value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => bindFixtureCommitValue(entry, candidate));
-  }
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = bindFixtureCommitValue(entry, candidate);
-    }
-    return out;
-  }
-  return value;
 }
 
 function bindFixtureEvidence(
@@ -701,7 +697,7 @@ function assertNoSecrets(text: string): void {
 }
 
 async function main(): Promise<void> {
-  const candidate = resolveCandidateSha();
+  const candidate = resolveCandidateCommit(repositoryRoot);
   const evidenceRoot = resolveEvidenceRoot();
   const fixtureMode = isFixtureEvidenceRoot(evidenceRoot);
   const outputDirectory = fixtureMode
