@@ -580,7 +580,7 @@ async function deployWorkshopApp(
   );
   const files = await readAppFiles(root);
   if (files === null || Object.keys(files).length === 0) {
-    return terminalWorkshopFailure("workshop:apps_directory_missing");
+    return terminalWorkshopFailure("workshop.apps_directory_missing");
   }
   const entries = Object.entries(files).map(([path, text]) => ({
     path,
@@ -589,22 +589,35 @@ async function deployWorkshopApp(
   // The isolate owns the disk: without this check the commit approves X and
   // the deploy would read Y.
   if (digestAppFiles(entries) !== payload.filesDigest) {
-    return terminalWorkshopFailure("workshop:files_changed_after_commit");
+    return terminalWorkshopFailure("workshop.files_changed_after_commit");
   }
   const appId = sanitizeAppId(`${payload.membershipId}-${payload.slug}`);
   let deployment: Awaited<ReturnType<typeof deployApp>>;
   try {
-    deployment = await deployApp({ appId, files });
+    // Build engine-side through the stable dynamicAppsApp actor. The local
+    // AgentOs build VM cannot write its packed artifact to the host-dir
+    // mount from inside the guest (the runtime denies guest writes to host
+    // mounts on Linux: tar pack fails with EPERM), while the engine-side
+    // builder bundles with esbuild-wasm and publishes into the same release
+    // store the serving side reads. The workshop service hosts that actor
+    // on the dedicated dynamic-apps envoy pool (see dynamicAppsDeployClient).
+    deployment = await deployApp(
+      { appId, files },
+      { client: dynamicAppsDeployClient }
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     // Build diagnostics (broken generated TypeScript) are terminal; anything
     // else may be transient and deserves the step's retry policy.
     if (BUILD_DIAGNOSTICS_MESSAGE.test(message)) {
-      return terminalWorkshopFailure("workshop:build_failed", message);
+      return terminalWorkshopFailure("workshop.build_failed", message);
     }
     throw error;
   }
-  const operationId = `workshop:${deployment.appId}@${deployment.release}`;
+  // ProviderOperationId must be a parse-safe identifier (alphanumerics plus
+  // dot/underscore/dash, leading letter): colons and at-signs are rejected by
+  // the engine when the attempt is recorded.
+  const operationId = `workshop.deploy.${deployment.appId}.${deployment.release}`;
   return {
     kind: "deployed",
     providerOperationId: operationId,
@@ -1076,6 +1089,28 @@ export const registry = setup({
 const rivetClient = createRivetClient<typeof registry>(
   environment.RIVET_ENDPOINT
 );
+
+// The workshop service hosts the dynamicAppsApp actor (the dynamic-apps
+// private apps registry, builder included) on a dedicated envoy pool.
+// Engine allocation is pool-wide and not factory-aware, so the deploy RPC
+// must pin this pool or the actor can be scheduled onto this worker's
+// zoenEffect envoy, which has no factory for it (actor_stopped_before_ready).
+// deployApp's client option is structural ({ dynamicAppsApp: { get?,
+// getOrCreate } }); the RivetKit client resolves any actor group through its
+// proxy, so the client is cast to the shape dynamic-apps expects.
+const dynamicAppsDeployClient = createRivetClient({
+  endpoint: environment.RIVET_ENDPOINT,
+  poolName: "dynamic-apps",
+}) as unknown as {
+  dynamicAppsApp: {
+    get?: (key: string | string[]) => {
+      deploy: (input: unknown) => Promise<never>;
+    };
+    getOrCreate: (key: string | string[]) => {
+      deploy: (input: unknown) => Promise<never>;
+    };
+  };
+};
 
 async function handleSchedule(
   request: IncomingMessage,
