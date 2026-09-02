@@ -25,7 +25,17 @@ pub fn router() -> Router {
         .route("/apps/{*path}", any(proxy_apps))
         .route("/zoen", any(proxy_apps))
         .route("/zoen/{*path}", any(proxy_apps))
-        .with_state(Client::new())
+        .with_state(apps_client())
+}
+
+// A proxy passes redirects through: the workshop answers anonymous page
+// requests with 302 to /login, and following that upstream would surface the
+// workshop's missing /login route as a 404 instead of the login redirect.
+fn apps_client() -> Client {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("HTTP client cannot be initialized")
 }
 
 async fn proxy_apps(State(client): State<Client>, request: Request) -> Response {
