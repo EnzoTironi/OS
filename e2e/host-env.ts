@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   exactSourceCommit,
   gitHead,
+  hasSourceCommitAlias,
   sourceCommitKeys,
 } from "./scenario-evidence.js";
 
@@ -150,11 +151,9 @@ export async function writeScenarioArtifact(
     throw new Error(`${scenario} artifact must be a JSON object`);
   }
   const sourceCommit = gitHead(repositoryRoot);
-  const providedCommitKeys = sourceCommitKeys.filter((key) =>
-    Object.hasOwn(value, key),
-  );
+  const providedSourceCommitAlias = hasSourceCommitAlias(value);
   const providedSourceCommit = exactSourceCommit(value, sourceCommitKeys);
-  if (providedCommitKeys.length > 0 && providedSourceCommit !== sourceCommit) {
+  if (providedSourceCommitAlias && providedSourceCommit !== sourceCommit) {
     throw new Error(
       `${scenario} artifact sourceCommit ${JSON.stringify(providedSourceCommit)} does not match HEAD ${sourceCommit}`,
     );

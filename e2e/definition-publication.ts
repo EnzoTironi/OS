@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -47,6 +47,7 @@ import {
   definitionPublishPolicy,
   type DefinitionPublishPolicy,
 } from "./definition-publish-policy.js";
+import { gitHead } from "./scenario-evidence.js";
 
 const repositoryRoot = process.cwd();
 const fixtureDirectory = path.join(
@@ -607,7 +608,7 @@ when {
     const version = postgresVersion.rows[0]?.server_version;
     assert.match(version ?? "", /^18\./);
 
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const protocol = await readFile(
       path.join(
         repositoryRoot,
@@ -975,23 +976,6 @@ async function getRevision(
   });
   assert.ok(response.definitionRevision);
   return response.definitionRevision;
-}
-
-function command(executable: string, arguments_: readonly string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      executable,
-      arguments_,
-      { cwd: repositoryRoot, encoding: "utf8" },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          reject(new Error(`${stdout}${stderr}`, { cause: error }));
-          return;
-        }
-        resolve(stdout.trim());
-      },
-    );
-  });
 }
 
 async function startServer(policyManifestPath: string): Promise<ServerProcess> {

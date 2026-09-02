@@ -55,6 +55,7 @@ import {
   writePolicyManifest,
 } from "./governed-action/support.js";
 import { writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -977,7 +978,7 @@ async function main(): Promise<void> {
       "--images",
     ]);
     assert.doesNotMatch(composeServices, /keycloak/i);
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const manifest = {
       actors: {
         agent: trusted.actorId,

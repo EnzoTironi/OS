@@ -62,6 +62,7 @@ import {
   definitionPublishActionId,
   definitionPublishPolicy,
 } from "./definition-publish-policy.js";
+import { gitHead } from "./scenario-evidence.js";
 
 const repositoryRoot = process.cwd();
 const composeFile = path.join("e2e", "semantic-query", "compose.yaml");
@@ -934,7 +935,7 @@ async function main(): Promise<void> {
       .find((line) => line.includes("datafusion v"))
       ?.trim();
     assert.ok(dataFusionVersion);
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const protocol = await readFile(
       path.join(repositoryRoot, "proto", "zoen", "world", "v1", "world.proto"),
     );

@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 
+const fullGitObjectIdPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
 export const sourceCommitKeys = [
   "sourceCommit",
   "sourceSha",
@@ -7,12 +9,26 @@ export const sourceCommitKeys = [
   "headSha",
 ] as const;
 
+export function exactGitObjectId(value: unknown): string | null {
+  return typeof value === "string" && fullGitObjectIdPattern.test(value)
+    ? value
+    : null;
+}
+
+export function hasSourceCommitAlias(
+  body: object,
+  keys: readonly string[] = sourceCommitKeys,
+): boolean {
+  return keys.some((key) => Object.hasOwn(body, key));
+}
+
 export function gitHead(repositoryRoot: string): string {
   const head = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], {
     cwd: repositoryRoot,
     encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin" },
   }).trim();
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) {
+  if (exactGitObjectId(head) === null) {
     throw new Error(`git returned an invalid HEAD: ${JSON.stringify(head)}`);
   }
   return head;
@@ -27,11 +43,11 @@ export function exactSourceCommit(
     if (!Object.hasOwn(body, key)) {
       continue;
     }
-    const value = Reflect.get(body, key);
-    if (typeof value !== "string" || value.trim().length === 0) {
+    const commit = exactGitObjectId(Reflect.get(body, key));
+    if (commit === null) {
       return null;
     }
-    commits.push(value.trim());
+    commits.push(commit);
   }
   const first = commits[0];
   if (first === undefined || commits.some((commit) => commit !== first)) {

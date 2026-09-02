@@ -15,7 +15,6 @@ import {
   adminClient,
   adminDatabaseUrl,
   authDatabaseUrl,
-  command,
   commitReplenish,
   loadCanonicalDefinition,
   definitionClient,
@@ -52,6 +51,7 @@ import {
   stopAuthDoor,
 } from "./ba-door.js";
 import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 import { definitionPublishActionId } from "./definition-publish-policy.js";
 
 const assertions: Record<string, boolean> = {};
@@ -690,7 +690,7 @@ async function main(): Promise<void> {
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
     assert.ok(compatiblePlan);
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const protocol = await readFile(
       path.join(
         repositoryRoot,

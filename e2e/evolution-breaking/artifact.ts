@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeScenarioArtifact } from "../host-env.js";
+import { gitHead } from "../scenario-evidence.js";
 import type { MutantKills } from "./acceptance.js";
 import {
-  command,
   repositoryRoot,
   sha256,
   type CompiledDefinition,
@@ -44,7 +44,7 @@ export async function writeEvolutionBreakingArtifact(input: {
       "definition.proto",
     ),
   );
-  const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+  const sourceCommit = gitHead(repositoryRoot);
   const manifest = {
     architecture: {
       authorityCommitLedger: "authority_commits",

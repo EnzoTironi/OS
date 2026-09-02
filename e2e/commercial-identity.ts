@@ -14,6 +14,7 @@ import {
   stopAuthDoor,
 } from "./ba-door.js";
 import { e2eIdentityAdminToken, writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 import { definitionPublishAndWorldReadActionIds } from "./world-read-policy.js";
 import {
   actionClient,
@@ -22,7 +23,6 @@ import {
   adminClient,
   applicationDatabaseUrl,
   authDatabaseUrl,
-  command,
   loadCommercial,
   definitionClient,
   definitionReference,
@@ -188,7 +188,7 @@ async function main(): Promise<void> {
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const manifest = {
       assertions,
       componentVersions: {

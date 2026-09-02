@@ -55,6 +55,7 @@ import {
   e2eIdentityAdminToken,
   writeScenarioArtifact,
 } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 import {
   componentInterface,
   computationClient,
@@ -397,7 +398,7 @@ async function main(): Promise<void> {
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
     const wasmtimeVersion = await wasmtimeDependency();
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const artifact = {
       assertions,
       component: {

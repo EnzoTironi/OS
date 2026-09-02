@@ -10,9 +10,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
 import {
+  exactGitObjectId,
   exactSourceCommit,
   gitHead,
+  hasSourceCommitAlias,
   scenarioPassed,
+  sourceCommitKeys,
 } from "./scenario-evidence.js";
 
 const SCHEMA_ID = "zoen.activation.v1" as const;
@@ -117,27 +120,15 @@ function sha256Text(value: string): string {
 }
 
 function commitsMatch(candidate: string, evidence: string): boolean {
-  const a = candidate.trim().toLowerCase();
-  const b = evidence.trim().toLowerCase();
-  if (a.length === 0 || b.length === 0) {
-    return false;
-  }
-  if (a === b) {
-    return true;
-  }
-  if (b.length >= 7 && b.length < a.length && a.startsWith(b)) {
-    return true;
-  }
-  return false;
+  return (
+    exactGitObjectId(candidate) !== null &&
+    exactGitObjectId(evidence) !== null &&
+    candidate === evidence
+  );
 }
 
 function extractSourceCommit(body: Record<string, unknown>): string | null {
-  return exactSourceCommit(body, [
-    "sourceCommit",
-    "sourceSha",
-    "source_sha",
-    "headSha",
-  ]);
+  return exactSourceCommit(body, sourceCommitKeys);
 }
 
 function isFixtureMarked(body: Record<string, unknown>): boolean {
@@ -307,7 +298,13 @@ function evaluateGate(
     }
 
     const commit = evidence.sourceCommit;
-    if (commit === null) {
+    if (hasSourceCommitAlias(evidence.body) && commit === null) {
+      failures.push({
+        code: "invalid-source-commit",
+        scenario: spec.id,
+        detail: "evidence records malformed or conflicting source commit aliases",
+      });
+    } else if (commit === null) {
       failures.push({
         code: "missing-source-commit",
         scenario: spec.id,
@@ -482,13 +479,76 @@ function runVerificationMutants(
     const id = "conflicting-source-aliases";
     const other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const killed =
-      extractSourceCommit({ sourceCommit: candidate, sourceSha: other }) === null;
+      extractSourceCommit({
+        sourceCommit: candidate,
+        sourceSha: candidate,
+        source_sha: candidate,
+        headSha: other,
+      }) === null;
     results.push({
       id,
       killed,
       observation: killed
         ? "conflicting source commit aliases were rejected"
         : "conflicting source commit aliases were accepted",
+    });
+  }
+
+  {
+    const id = "accept-abbreviated-commit";
+    const abbreviated = candidate.slice(0, 7);
+    const target = REQUIRED_SCENARIOS.find(
+      (row) => row.id === "activation-identity",
+    );
+    assert.ok(target);
+    const loaded = fillGraph({
+      "activation-identity": syntheticPassing(target, abbreviated),
+    });
+    const cleanClaims = advertisedClaims.map((claim) => ({
+      ...claim,
+      advertised: false,
+    }));
+    const strict = evaluateGate(
+      candidate,
+      loaded,
+      cleanClaims,
+      false,
+      STRICT_OPTIONS,
+    );
+    const killed =
+      extractSourceCommit({ sourceCommit: abbreviated }) === null &&
+      !commitsMatch(candidate, abbreviated) &&
+      strict.failures.some((row) => row.code === "wrong-commit");
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "strict gate rejected abbreviated commit evidence"
+        : "abbreviated commit evidence survived the strict gate",
+    });
+  }
+
+  {
+    const id = "accept-malformed-commit";
+    const malformed = [
+      "a".repeat(39),
+      "a".repeat(41),
+      "A".repeat(40),
+      "g".repeat(40),
+      FIXTURE_COMMIT_PLACEHOLDER,
+    ];
+    const validSha256 = "a".repeat(64);
+    const killed =
+      malformed.every(
+        (commit) => extractSourceCommit({ sourceCommit: commit }) === null,
+      ) &&
+      extractSourceCommit({ sourceCommit: validSha256 }) === validSha256;
+    results.push({
+      id,
+      killed,
+      observation: killed
+        ? "strict parser rejected malformed commits and retained full SHA-256 support"
+        : "malformed commit evidence survived the strict parser",
     });
   }
 
@@ -590,9 +650,15 @@ function runVerificationMutants(
 }
 
 function resolveCandidateSha(): string {
-  const fromEnv = process.env.ZOEN_VERIFY_CANDIDATE_SHA?.trim();
-  if (fromEnv) {
-    return fromEnv;
+  const fromEnv = process.env.ZOEN_VERIFY_CANDIDATE_SHA;
+  if (fromEnv !== undefined) {
+    const candidate = exactGitObjectId(fromEnv.trim());
+    if (candidate === null) {
+      throw new Error(
+        "ZOEN_VERIFY_CANDIDATE_SHA must be a full lowercase Git object ID",
+      );
+    }
+    return candidate;
   }
   return gitHead(repositoryRoot);
 }
