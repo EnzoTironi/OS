@@ -17,6 +17,8 @@ pub fn router() -> Router {
     Router::new()
         .route("/apps", any(proxy_apps))
         .route("/apps/{*path}", any(proxy_apps))
+        .route("/zoen", any(proxy_apps))
+        .route("/zoen/{*path}", any(proxy_apps))
         .with_state(Client::new())
 }
 
