@@ -16,6 +16,7 @@ import {
 import { isMissingFile, record } from "./proof-support.js";
 
 export async function linkPreparedInputs(worktree: string): Promise<void> {
+  assertCleanProofSource(worktree);
   for (const name of ["dist", "node_modules", "target"] as const) {
     await symlink(path.join(repositoryRoot, name), path.join(worktree, name), "dir");
   }
@@ -29,7 +30,6 @@ export async function linkPreparedInputs(worktree: string): Promise<void> {
     path.join(worktree, "apps", "auth", "dist"),
     "dir",
   );
-  assertCleanProofSource(worktree);
 }
 
 export function cleanEnvironment(extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
