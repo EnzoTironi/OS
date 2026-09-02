@@ -1,13 +1,12 @@
 {
-  "generation": 1,
-  "lowestUnmerged": 602,
-  "pullRequests": [
+  "generation": 2,
+  "prs": [
     {
-      "number": 602,
-      "branch": "codex/w1-01-governed-publish",
-      "head": "601af9d472e6a9f0602e4c2e64477bd68df316bd",
-      "state": "open",
-      "verdict": "pending"
+      "pr": 602,
+      "branches": "codex/w1-01-governed-publish",
+      "sha": "6e6eddf3fa326cc1d30182ac5a53a6031d4c6409",
+      "state": "OPEN"
     }
-  ]
+  ],
+  "lowestUnmerged": 602
 }
