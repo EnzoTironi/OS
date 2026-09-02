@@ -284,3 +284,20 @@ async function handle(request: Request): Promise<Response> {
 serve({ fetch: handle, hostname, port }, (info) => {
   console.log(`workshop: listening on ${hostname}:${info.port}`);
 });
+
+// Host the dynamic-apps private apps registry (the dynamicAppsApp actor,
+// including the esbuild-wasm release builder) on this service's Rivet
+// runner. Started eagerly so deploy RPCs find a runner with the actor
+// factory; RIVET_POOL=dynamic-apps keeps engine allocation away from envoys
+// that do not have it. The health route is the exported, idempotent start
+// trigger for the registry runner.
+appsRouter
+  .fetch(new Request("http://workshop.internal/api/rivet/health"))
+  .then(async (response: Response) => {
+    console.log(
+      `workshop: private apps registry health HTTP ${response.status} ${(await response.text()).slice(0, 200)}`
+    );
+  })
+  .catch((error: unknown) => {
+    console.error("workshop: private apps registry start failed", error);
+  });
