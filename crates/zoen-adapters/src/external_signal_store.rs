@@ -162,8 +162,7 @@ fn row_to_signal(row: &PgRow) -> Result<ExternalSignal, IdentityError> {
 fn new_signal_id() -> ExternalSignalId {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |duration| duration.as_nanos());
     ExternalSignalId::parse(format!("wlsig.{nanos:x}")).expect("generated signal id")
 }
 

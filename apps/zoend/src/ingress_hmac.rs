@@ -90,10 +90,9 @@ pub fn verify_whatsapp_ingress(
     let timestamp_secs: i64 = timestamp
         .parse()
         .map_err(|_| IngressAuthError::StaleTimestamp)?;
-    let now_secs = now
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| i64::try_from(duration.as_secs()).unwrap_or(i64::MAX))
-        .unwrap_or(0);
+    let now_secs = now.duration_since(UNIX_EPOCH).map_or(0, |duration| {
+        i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+    });
     if now_secs.abs_diff(timestamp_secs) > MAX_SKEW_SECS.unsigned_abs() {
         return Err(IngressAuthError::StaleTimestamp);
     }

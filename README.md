@@ -21,7 +21,7 @@ Conversation is Eve. Do not name the product Poke. The bar is Poke plus Palantir
 
 ## Install
 
-You need Docker, `just`, Node 22, and Rust 1.88 (`rust-toolchain.toml`).
+You need Docker, `just`, Node 22, and Rust 1.98 (`rust-toolchain.toml`).
 
 ```bash
 git clone https://github.com/EnzoTironi/OS.git

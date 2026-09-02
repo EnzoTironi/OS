@@ -3098,12 +3098,13 @@ fn cookie_value(raw: &str) -> String {
     let bytes = raw.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (from_hex(bytes[i + 1]), from_hex(bytes[i + 2])) {
-                out.push(char::from(hi * 16 + lo));
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (from_hex(bytes[i + 1]), from_hex(bytes[i + 2]))
+        {
+            out.push(char::from(hi * 16 + lo));
+            i += 3;
+            continue;
         }
         out.push(char::from(bytes[i]));
         i += 1;

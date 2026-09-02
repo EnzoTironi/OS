@@ -60,11 +60,11 @@ async fn forward(
         if hop_by_hop(name) {
             continue;
         }
-        if name == header::ORIGIN {
-            if let Some(rewritten) = rewrite_loopback_origin(value) {
-                upstream = upstream.header(name, rewritten);
-                continue;
-            }
+        if name == header::ORIGIN
+            && let Some(rewritten) = rewrite_loopback_origin(value)
+        {
+            upstream = upstream.header(name, rewritten);
+            continue;
         }
         upstream = upstream.header(name, value);
     }
@@ -79,14 +79,13 @@ async fn forward(
                 if hop_by_hop(name) {
                     continue;
                 }
-                if name == header::LOCATION {
-                    if let Some(rewritten) = origin
+                if name == header::LOCATION
+                    && let Some(rewritten) = origin
                         .as_deref()
                         .and_then(|origin| rewrite_loopback_location(value, origin))
-                    {
-                        builder = builder.header(name, rewritten);
-                        continue;
-                    }
+                {
+                    builder = builder.header(name, rewritten);
+                    continue;
                 }
                 builder = builder.header(name, value);
             }

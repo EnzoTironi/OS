@@ -339,7 +339,7 @@ async fn activate_installed(
     };
     let activated = match activate_ontology_dependencies(&state, &context, &manifest).await {
         Ok(activated) => activated,
-        Err(error) => return error,
+        Err(error) => return *error,
     };
     match state
         .packs
@@ -355,7 +355,7 @@ async fn activate_ontology_dependencies(
     state: &PackAdminState,
     context: &ExecutionContext,
     manifest: &PackManifest,
-) -> Result<Vec<ActivatedDefinitionRef>, axum::response::Response> {
+) -> Result<Vec<ActivatedDefinitionRef>, Box<axum::response::Response>> {
     let mut activated = Vec::new();
     for dependency in &manifest.ontology_dependencies {
         if let Err(error) = state
@@ -368,8 +368,8 @@ async fn activate_ontology_dependencies(
             )
             .await
         {
-            return Err(connect_error_response(&crate::service::map_publish_error(
-                error,
+            return Err(Box::new(connect_error_response(
+                &crate::service::map_publish_error(error),
             )));
         }
         let active = match state
@@ -378,7 +378,9 @@ async fn activate_ontology_dependencies(
             .await
         {
             Ok(active) => active,
-            Err(error) => return Err(pack_error(&PackError::Store(error.to_string()))),
+            Err(error) => {
+                return Err(Box::new(pack_error(&PackError::Store(error.to_string()))));
+            }
         };
         let precondition = match active.as_ref() {
             None => ActivationPrecondition::NoActiveRevision,
@@ -407,8 +409,8 @@ async fn activate_ontology_dependencies(
                 digest: dependency.digest.clone(),
             }),
             Err(error) => {
-                return Err(connect_error_response(&crate::service::map_activate_error(
-                    error,
+                return Err(Box::new(connect_error_response(
+                    &crate::service::map_activate_error(error),
                 )));
             }
         }
