@@ -8,6 +8,7 @@ import { publishedSuiteSchema } from "../published-evidence.js";
 import { preparedBuildSnapshotSchema } from "../verify-journey-runtime-proof.js";
 import {
   buildManifest,
+  commandTimeoutMilliseconds,
   fullSuiteTimeoutMilliseconds,
   gracefulTerminationMilliseconds,
   repositoryRoot,
@@ -188,7 +189,7 @@ export async function exerciseRuntime(): Promise<ProofEvidence> {
   });
   await waitForFile(
     path.join(claimBarrier, `${claimRunId}.claim-ready.ready.json`),
-    120_000,
+    commandTimeoutMilliseconds,
   );
   await killWithoutCleanup(claimCrash);
   const claimRetry = startJourney({
@@ -383,7 +384,7 @@ export async function exerciseRuntime(): Promise<ProofEvidence> {
       releaseCrashBarrier,
       "release-crash-retry.release-renamed.ready.json",
     ),
-    120_000,
+    commandTimeoutMilliseconds,
   );
   const releaseContext = await currentContextOf(releaseCrash);
   rememberContext(releaseContext);

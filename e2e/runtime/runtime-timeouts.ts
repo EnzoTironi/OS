@@ -31,7 +31,7 @@ export const cleanupRecoveryAdmissionWindowMilliseconds =
   120 * secondMilliseconds;
 
 export const bootstrapCleanupAuthorityBoundMilliseconds =
-  390 * secondMilliseconds;
+  450 * secondMilliseconds;
 const runtimeCommandHeadroomMilliseconds = 30 * secondMilliseconds;
 const runtimeCommandInnerBoundMilliseconds = Math.max(
   bootstrapCleanupAuthorityBoundMilliseconds,

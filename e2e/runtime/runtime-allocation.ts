@@ -42,6 +42,10 @@ import {
   drainCleanupRecoveries,
   reconcileActiveLeases,
 } from "./runtime-cleanup-recovery.js";
+import {
+  cleanupClaimPollIntervalMilliseconds,
+  runtimeCommandTimeoutMilliseconds,
+} from "./runtime-timeouts.js";
 
 export async function allocateCommand(): Promise<void> {
   const repository = await realpath(process.cwd());
@@ -268,12 +272,12 @@ export async function allocateCommand(): Promise<void> {
       logicalRunActive.ownerToken,
       "logical-run-active",
     );
-    if (Date.now() - waitStartedAt >= 120_000) {
+    if (Date.now() - waitStartedAt >= runtimeCommandTimeoutMilliseconds) {
       throw new Error(
         `timed out waiting for prior ${scenario}/${runId} execution to release`,
       );
     }
-    await delay(250);
+    await delay(cleanupClaimPollIntervalMilliseconds);
   }
 }
 

@@ -8,7 +8,11 @@ import {
   journeyRunContextSchema,
   type JourneyRunContext,
 } from "../journey-run-context.js";
-import { journeyTimeoutMilliseconds, repositoryRoot } from "./proof-config.js";
+import {
+  commandTimeoutMilliseconds,
+  journeyTimeoutMilliseconds,
+  repositoryRoot,
+} from "./proof-config.js";
 import type { RunningJourney, TrackedProcess } from "./proof-contracts.js";
 import { contexts } from "./proof-state.js";
 import { cleanEnvironment, executeSync, inspectionEnvironment } from "./proof-environment.js";
@@ -24,7 +28,7 @@ export async function contextOf(
   journey: RunningJourney,
   minimumAttempt = 1,
 ): Promise<JourneyRunContext> {
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + commandTimeoutMilliseconds;
   while (Date.now() < deadline) {
     try {
       const pointer = journeyContextPointerSchema.parse(
