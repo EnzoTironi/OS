@@ -72,6 +72,7 @@ npm --version
 rustc --version
 cargo --version
 gh auth status
+jq --version
 ```
 
 Use Node 22 and Rust 1.88. Docker Desktop must be running. Do not reuse the Linux `target`; warm a Mac-native worktree from a compatible Mac build cache only.
@@ -81,7 +82,7 @@ Use Node 22 and Rust 1.88. Docker Desktop must be running. Do not reuse the Linu
 From the restored orchestration checkout, run exactly one gate:
 
 ```bash
-node "$ZOEN_REPO/orchestrate/zoen-final/validate-pr.mjs" \
+"$ZOEN_REPO/orchestrate/zoen-final/validate-pr" \
   --pr 602 \
   --worktree "$ZOEN_PR_WT" \
   --expected-head 601af9d472e6a9f0602e4c2e64477bd68df316bd

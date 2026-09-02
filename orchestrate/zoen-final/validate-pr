@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: validate-pr --pr <number> [--worktree <path>] [--expected-head <sha>] [--poll-seconds <n>] [--timeout-seconds <n>]" >&2
+  exit "${1:-2}"
+}
+
+fail() {
+  echo "FAIL: $*" >&2
+  exit 1
+}
+
+pr=""
+worktree="."
+expected_head=""
+poll_seconds=30
+timeout_seconds=3600
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --pr)
+      [[ $# -ge 2 ]] || usage
+      pr=$2
+      shift 2
+      ;;
+    --worktree)
+      [[ $# -ge 2 ]] || usage
+      worktree=$2
+      shift 2
+      ;;
+    --expected-head)
+      [[ $# -ge 2 ]] || usage
+      expected_head=$2
+      shift 2
+      ;;
+    --poll-seconds)
+      [[ $# -ge 2 ]] || usage
+      poll_seconds=$2
+      shift 2
+      ;;
+    --timeout-seconds)
+      [[ $# -ge 2 ]] || usage
+      timeout_seconds=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage 0
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ "$pr" =~ ^[1-9][0-9]*$ ]] || fail "--pr must be a positive integer"
+[[ "$poll_seconds" =~ ^[1-9][0-9]*$ ]] || fail "--poll-seconds must be a positive integer"
+[[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || fail "--timeout-seconds must be a positive integer"
+[[ -d "$worktree" ]] || fail "worktree does not exist: $worktree"
+
+for command in git gh jq node docker npm cargo; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+repo_name=$(cd "$worktree" && gh repo view --json nameWithOwner --jq .nameWithOwner)
+owner=${repo_name%%/*}
+repo=${repo_name#*/}
+
+pr_json() {
+  cd "$worktree"
+  gh pr view "$pr" --json headRefOid,isDraft,mergeStateStatus,reviewDecision,state,url
+}
+
+remote_head() {
+  pr_json | jq -r .headRefOid
+}
+
+require_same_head() {
+  local current_head
+  current_head=$(remote_head)
+  [[ "$current_head" == "$head" ]] || fail "PR head moved from $head to $current_head"
+}
+
+require_clean_tree() {
+  git -C "$worktree" diff --quiet || fail "tracked worktree has unstaged changes"
+  git -C "$worktree" diff --cached --quiet || fail "tracked worktree has staged changes"
+}
+
+coderabbit_review_count() {
+  gh api "repos/$owner/$repo/pulls/$pr/reviews" |
+    jq --arg head "$head" '[.[] | select((.user.login == "coderabbitai" or .user.login == "coderabbitai[bot]") and .commit_id == $head)] | length'
+}
+
+head=$(remote_head)
+local_head=$(git -C "$worktree" rev-parse HEAD)
+[[ "$local_head" == "$head" ]] || fail "local HEAD $local_head does not match PR head $head"
+if [[ -n "$expected_head" ]]; then
+  [[ "$head" == "$expected_head" ]] || fail "PR head $head does not match expected head $expected_head"
+fi
+require_clean_tree
+
+commit_time=$(gh api "repos/$owner/$repo/commits/$head" --jq .commit.committer.date)
+trigger_count=$(gh api "repos/$owner/$repo/issues/$pr/comments" |
+  jq --arg since "$commit_time" '[.[] | select(.body == "@coderabbitai review" and .created_at >= $since)] | length')
+if [[ "$(coderabbit_review_count)" -eq 0 && "$trigger_count" -eq 0 ]]; then
+  (cd "$worktree" && gh pr comment "$pr" --body '@coderabbitai review')
+fi
+
+echo "LOCAL: pr=#$pr head=$head worktree=$worktree"
+(
+  cd "$worktree"
+  ./e2e/run.sh verify
+  ./e2e/run.sh verify-v1
+  ./e2e/run.sh verify-activation
+)
+
+artifact="$worktree/artifacts/definition-publication/definition-publication.json"
+[[ -f "$artifact" ]] || fail "missing definition-publication artifact"
+jq -e --arg head "$head" '
+  .scenario == "definition-publication" and
+  .sourceCommit == $head and
+  (.assertions | type == "object") and
+  ([.assertions[] | select(. != true)] | length == 0)
+' "$artifact" >/dev/null || fail "definition-publication artifact does not prove $head"
+
+require_clean_tree
+require_same_head
+(cd "$worktree" && gh pr checks "$pr" --watch --interval "$poll_seconds")
+
+deadline=$(( $(date +%s) + timeout_seconds ))
+while [[ "$(coderabbit_review_count)" -eq 0 ]]; do
+  require_same_head
+  [[ $(date +%s) -lt $deadline ]] || fail "CodeRabbit did not review $head before timeout"
+  echo "WAIT: CodeRabbit review for $head"
+  sleep "$poll_seconds"
+done
+
+threads=$(gh api graphql \
+  -F owner="$owner" \
+  -F name="$repo" \
+  -F number="$pr" \
+  -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){pageInfo{hasNextPage} nodes{isResolved}}}}}')
+[[ "$(printf '%s' "$threads" | jq -r .data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage)" == "false" ]] ||
+  fail "more than 100 review threads exist; inspect pagination"
+open_threads=$(printf '%s' "$threads" |
+  jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved != true)] | length')
+[[ "$open_threads" -eq 0 ]] || fail "$open_threads review threads remain unresolved"
+
+comments=$(gh api "repos/$owner/$repo/issues/$pr/comments")
+codecov_failed=$(printf '%s' "$comments" | jq --arg since "$commit_time" '
+  [.[] | select(
+    (.user.login == "codecov" or .user.login == "codecov[bot]") and
+    ((.updated_at // .created_at) >= $since)
+  )] | sort_by(.updated_at // .created_at) | last |
+  if . == null then false else (.body | contains(":x:")) end
+')
+[[ "$codecov_failed" == "false" ]] || fail "fresh Codecov comment reports failure"
+
+sonar_failed=$(printf '%s' "$comments" | jq --arg since "$commit_time" '
+  [.[] | select(
+    (.user.login == "sonarqubecloud" or .user.login == "sonarqubecloud[bot]") and
+    ((.updated_at // .created_at) >= $since)
+  )] | sort_by(.updated_at // .created_at) | last |
+  if . == null then false else (.body | contains("Quality Gate failed")) end
+')
+[[ "$sonar_failed" == "false" ]] || fail "fresh Sonar comment reports failure"
+
+final_pr=$(pr_json)
+[[ "$(printf '%s' "$final_pr" | jq -r .headRefOid)" == "$head" ]] || fail "PR head moved during validation"
+[[ "$(printf '%s' "$final_pr" | jq -r .state)" == "OPEN" ]] || fail "PR is not open"
+[[ "$(printf '%s' "$final_pr" | jq -r .isDraft)" == "false" ]] || fail "PR is draft"
+[[ "$(printf '%s' "$final_pr" | jq -r .reviewDecision)" != "CHANGES_REQUESTED" ]] || fail "PR has changes requested"
+merge_state=$(printf '%s' "$final_pr" | jq -r .mergeStateStatus)
+[[ "$merge_state" != "DIRTY" && "$merge_state" != "CONFLICTING" ]] || fail "PR has merge conflicts"
+
+echo "READY: pr=#$pr head=$head mergeState=$merge_state"

@@ -30,7 +30,7 @@ Lowest unmerged: #602
 
 | PR | Branch | Head | State |
 | --- | --- | --- | --- |
-| #602 | codex/w1-01-governed-publish | 601af9d472e6a9f0602e4c2e64477bd68df316bd | fresh CI and current-head CodeRabbit review pending |
+| #602 | codex/w1-01-governed-publish | 601af9d472e6a9f0602e4c2e64477bd68df316bd | 26/26 checks green, zero open threads, current-head CodeRabbit complete |
 
 ## Gates
 
