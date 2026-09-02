@@ -464,6 +464,27 @@ when {
       /definition publication history is immutable/,
     );
     recordAssertion("publicationEvidenceImmutable");
+    const beforeForgedGrant = await publicationState(admin, tenantA);
+    await assert.rejects(
+      admin.query(
+        `INSERT INTO definition_publication_grants (
+           tenant_id, commit_sequence, ordinal, delegation_id,
+           action_ids, resource_ids, workload_ids,
+           not_before_micros, expires_at_micros
+         )
+         SELECT tenant_id, commit_sequence, ordinal + 1,
+                delegation_id || '.forged', action_ids, resource_ids,
+                workload_ids, not_before_micros, expires_at_micros
+         FROM definition_publication_grants
+         WHERE tenant_id = $1 AND commit_sequence = 1
+         ORDER BY ordinal DESC
+         LIMIT 1`,
+        [tenantA],
+      ),
+      /definition publication grant set must exactly match admitted evidence/,
+    );
+    assert.deepEqual(await publicationState(admin, tenantA), beforeForgedGrant);
+    recordAssertion("publicationGrantSetSealed");
 
     assert.equal(
       await relationName(admin, "active_definition_revisions"),

@@ -885,15 +885,19 @@ async fn insert_publication_row(
 ) -> Result<(), StoreError> {
     let context = publication.context();
     let policy = publication.policy();
+    let grant_count = i32::try_from(context.delegation().grants().len())
+        .map_err(|_| StoreError::Conflict("publication has too many grants".to_owned()))?;
     sqlx::query(
         "INSERT INTO definition_publications (
             tenant_id, definition_id, revision, digest, commit_sequence,
             published_at_micros, actor_id, principal_id, workload_id,
-            policy_id, policy_revision, policy_digest, determining_policies
+            policy_id, policy_revision, policy_digest, determining_policies,
+            grant_count
          ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
-            $10, $11, $12, $13
+            $10, $11, $12, $13,
+            $14
          )",
     )
     .bind(context.tenant_id().as_str())
@@ -912,6 +916,7 @@ async fn insert_publication_row(
     )?)
     .bind(policy.revision.digest.as_str())
     .bind(&policy.determining_policies)
+    .bind(grant_count)
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
