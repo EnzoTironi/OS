@@ -266,7 +266,7 @@ async function acquirePreparationWriter(registryRoot, workerNonce) {
         if (state === "stale") {
           await removeStaleWriter(writerDirectory);
         } else if (state === "orphaned") {
-          await terminateOrphanedWriter(existing);
+          await terminateOrphanedWriter(existing, writerDirectory);
           await removeStaleWriter(writerDirectory);
         } else if (state === "uncertain") {
           throw new Error("preparation writer ownership is uncertain");

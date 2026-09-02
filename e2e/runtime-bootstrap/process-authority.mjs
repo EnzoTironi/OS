@@ -548,24 +548,46 @@ function signalGroup(pgid, signal) {
 }
 
 export function signalOwnedGroup(pgid, ownerNonce, signal) {
-  const group = inspectGroup(pgid);
-  if (group.kind === "empty") {
+  const result = signalOwnedGroupIfAnchored(pgid, ownerNonce, signal);
+  if (result.kind === "empty" || result.kind === "signaled") {
     return;
   }
+  if (result.kind === "uncertain") {
+    throw new Error(`cannot inspect preparation group ${pgid}: ${result.reason}`);
+  }
+  throw new Error(
+    `refusing to signal preparation group ${pgid} without its ownership anchor`,
+  );
+}
+
+export function signalOwnedGroupIfAnchored(
+  pgid,
+  ownerNonce,
+  signal,
+  requiredGuardian,
+) {
+  const group = inspectGroup(pgid);
+  if (group.kind === "empty") {
+    return { kind: "empty" };
+  }
   if (group.kind === "uncertain") {
-    throw new Error(`cannot inspect preparation group ${pgid}: ${group.reason}`);
+    return group;
   }
   const anchored = group.members.some(
     (member) =>
       member.command.includes(ownerNonce) &&
-      (member.pid === pgid || member.command.includes("guardian")),
+      (requiredGuardian === undefined
+        ? member.pid === pgid || member.command.includes("guardian")
+        : member.command.includes("prepare-lock.mjs") &&
+          member.command.includes("guardian") &&
+          (requiredGuardian.pid === undefined ||
+            member.pid === requiredGuardian.pid)),
   );
   if (!anchored) {
-    throw new Error(
-      `refusing to signal preparation group ${pgid} without its ownership anchor`,
-    );
+    return { kind: "anchor-missing" };
   }
   signalGroup(pgid, signal);
+  return { kind: "signaled" };
 }
 
 export function childCompletion(child) {

@@ -32,9 +32,12 @@ import {
   inspectGroup,
   processOwnership,
   releaseOwnedLock,
-  signalOwnedGroup,
+  signalOwnedGroupIfAnchored,
   waitForEmptyGroup,
 } from "./process-authority.mjs";
+
+const guardianNaturalDrainAttempts = 110;
+const ownedGroupSignalDrainAttempts = 50;
 
 export async function acquireBootstrapReaderCommand() {
   const ownerPid = positiveInteger(flag("--owner-pid"), "--owner-pid");
@@ -86,7 +89,7 @@ export async function acquireBootstrapReaderCommand() {
         if (state === "stale") {
           await removeStaleWriter(writerDirectory);
         } else if (state === "orphaned") {
-          await terminateOrphanedWriter(writer);
+          await terminateOrphanedWriter(writer, writerDirectory);
           await removeStaleWriter(writerDirectory);
         } else if (state === "uncertain") {
           throw new Error("preparation writer ownership is uncertain");
@@ -231,37 +234,16 @@ export async function reconcileBootstrapReaders(readersRoot) {
       throw error;
     }
     if (reader.guardianPid !== null) {
-      const group = inspectGroup(reader.ownerPgid);
-      if (group.kind === "uncertain") {
-        const error = new Error(
-          `cannot inspect bootstrap reader group ${reader.ownerPgid}`,
-        );
+      try {
+        await drainOrphanedGroup({
+          guardianPid: reader.guardianPid,
+          label: "bootstrap reader",
+          ownerNonce: reader.ownerNonce,
+          pgid: reader.ownerPgid,
+        });
+      } catch (error) {
         await quarantineDirectory(directory, error);
         throw error;
-      }
-      if (group.kind === "members") {
-        const anchored = group.members.some(
-          (member) =>
-            member.pid === reader.guardianPid &&
-            member.command.includes("guardian") &&
-            member.command.includes(reader.ownerNonce),
-        );
-        if (!anchored) {
-          const error = new Error(
-            `bootstrap reader group ${reader.ownerPgid} lost its ownership anchor`,
-          );
-          await quarantineDirectory(directory, error);
-          throw error;
-        }
-        signalOwnedGroup(reader.ownerPgid, reader.ownerNonce, "SIGTERM");
-        if (!(await waitForEmptyGroup(reader.ownerPgid, 50))) {
-          signalOwnedGroup(reader.ownerPgid, reader.ownerNonce, "SIGKILL");
-          if (!(await waitForEmptyGroup(reader.ownerPgid, 50))) {
-            throw new Error(
-              `bootstrap reader group ${reader.ownerPgid} survived SIGKILL`,
-            );
-          }
-        }
       }
     }
     const stale = `${directory}.stale-${randomBytes(8).toString("hex")}`;
@@ -350,27 +332,67 @@ export function writerState(writer) {
     : "uncertain";
 }
 
-export async function terminateOrphanedWriter(writer) {
-  const inspection = inspectGroup(writer.ownerPgid);
-  if (
-    inspection.kind !== "members" ||
-    !inspection.members.some(
-      (member) =>
-        member.command.includes("prepare-lock.mjs") &&
-        member.command.includes("guardian") &&
-        member.command.includes(writer.ownerNonce),
-    )
-  ) {
-    throw new Error("refusing to signal an orphaned preparation without its guardian");
+export async function terminateOrphanedWriter(writer, writerDirectory) {
+  try {
+    await drainOrphanedGroup({
+      label: "orphaned preparation",
+      ownerNonce: writer.ownerNonce,
+      pgid: writer.ownerPgid,
+    });
+  } catch (error) {
+    await quarantineDirectory(writerDirectory, error);
+    throw error;
   }
-  signalOwnedGroup(writer.ownerPgid, writer.ownerNonce, "SIGTERM");
-  if (await waitForEmptyGroup(writer.ownerPgid, 50)) {
+}
+
+async function drainOrphanedGroup(group) {
+  if (await waitForEmptyGroup(group.pgid, guardianNaturalDrainAttempts)) {
     return;
   }
-  signalOwnedGroup(writer.ownerPgid, writer.ownerNonce, "SIGKILL");
-  if (!(await waitForEmptyGroup(writer.ownerPgid, 50))) {
-    throw new Error(`orphaned preparation group ${writer.ownerPgid} survived SIGKILL`);
+  const term = await signalOrObserveOwnedGroup(group, "SIGTERM");
+  if (term === "empty") {
+    return;
   }
+  if (term === "anchor-missing") {
+    throw new Error(
+      `${group.label} group ${group.pgid} lost its ownership anchor`,
+    );
+  }
+  const kill = await signalOrObserveOwnedGroup(group, "SIGKILL");
+  if (kill === "empty") {
+    return;
+  }
+  if (kill === "anchor-missing") {
+    throw new Error(
+      `${group.label} group ${group.pgid} lost its ownership anchor`,
+    );
+  }
+  throw new Error(`${group.label} group ${group.pgid} survived SIGKILL`);
+}
+
+async function signalOrObserveOwnedGroup(group, signal) {
+  const result = signalOwnedGroupIfAnchored(
+    group.pgid,
+    group.ownerNonce,
+    signal,
+    { pid: group.guardianPid },
+  );
+  if (result.kind === "uncertain") {
+    throw new Error(
+      `cannot inspect ${group.label} group ${group.pgid}: ${result.reason}`,
+    );
+  }
+  if (result.kind === "empty") {
+    return "empty";
+  }
+  const empty = await waitForEmptyGroup(
+    group.pgid,
+    ownedGroupSignalDrainAttempts,
+  );
+  if (empty) {
+    return "empty";
+  }
+  return result.kind;
 }
 
 export function parseWriter(value) {
