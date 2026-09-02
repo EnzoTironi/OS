@@ -10,8 +10,14 @@ COPY crates crates
 COPY apps/zoend apps/zoend
 COPY proto proto
 COPY wit wit
-RUN cargo build --locked --release --package zoend --bin zoen --bin zoen-effect-dispatcher \
-    && strip --strip-debug target/release/zoen target/release/zoen-effect-dispatcher
+RUN cargo build --locked --release --package zoend \
+      --bin zoen \
+      --bin zoen-effect-dispatcher \
+      --bin zoen-projection \
+    && strip --strip-debug \
+      target/release/zoen \
+      target/release/zoen-effect-dispatcher \
+      target/release/zoen-projection
 
 FROM node:22.18.0-bookworm-slim AS auth
 WORKDIR /auth
@@ -46,6 +52,7 @@ RUN apt-get update \
 
 COPY --from=zoend /src/target/release/zoen /usr/local/bin/zoen
 COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
+COPY --from=zoend /src/target/release/zoen-projection /usr/local/bin/zoen-projection
 COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
 COPY --from=personal-lake /app /app
 COPY --from=auth /auth /auth
@@ -61,6 +68,7 @@ COPY --from=minio/mc:RELEASE.2025-08-13T08-35-41Z /usr/bin/mc /usr/local/bin/mc
 COPY deploy/fly/supervisord.conf /etc/supervisor/conf.d/zoen.conf
 COPY deploy/fly/zoen-ensure-minio-bucket /usr/local/bin/zoen-ensure-minio-bucket
 COPY deploy/fly/zoen-wait-for-pg /usr/local/bin/zoen-wait-for-pg
+COPY deploy/fly/zoen-start-projection /usr/local/bin/zoen-start-projection
 COPY deploy/fly/zoen-start-restate /usr/local/bin/zoen-start-restate
 COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent

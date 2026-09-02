@@ -516,22 +516,40 @@ async function ensureAuthDatabase(authDatabaseUrl: string): Promise<void> {
           NOCREATEDB
           NOCREATEROLE
           NOINHERIT
+          NOREPLICATION
           NOBYPASSRLS;
       EXCEPTION WHEN duplicate_object THEN
         NULL;
       END $$;
     `);
-    await client.query(
-      "GRANT CONNECT ON DATABASE zoen TO zoen_app, zoen_projection",
-    );
-    await client.query("GRANT ALL ON SCHEMA public TO zoen_app");
-    await client.query("GRANT USAGE ON SCHEMA public TO zoen_projection");
     const existing = await client.query<{ datname: string }>(
       "SELECT datname FROM pg_database WHERE datname = 'zoen_auth'",
     );
     if (existing.rows.length === 0) {
       await client.query("CREATE DATABASE zoen_auth");
     }
+    await client.query(`
+      DO $$
+      DECLARE
+        database_name text;
+      BEGIN
+        FOR database_name IN
+          SELECT datname FROM pg_catalog.pg_database WHERE datallowconn
+        LOOP
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC',
+            database_name
+          );
+        END LOOP;
+      END $$;
+    `);
+    await client.query(
+      "GRANT CONNECT ON DATABASE zoen TO zoen_app, zoen_projection",
+    );
+    await client.query("GRANT CONNECT ON DATABASE zoen_auth TO zoen_app");
+    await client.query("REVOKE ALL PRIVILEGES ON SCHEMA public FROM PUBLIC");
+    await client.query("GRANT ALL ON SCHEMA public TO zoen_app");
+    await client.query("GRANT USAGE ON SCHEMA public TO zoen_projection");
   } finally {
     await client.end();
   }
