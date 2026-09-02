@@ -41,6 +41,6 @@ export function loadConfig(env: NodeJS.Dict<string>): DoorConfig {
     databaseUrl: required(env, "DATABASE_URL"),
     google: parseGoogle(env),
     listenHost: "127.0.0.1",
-    listenPort: 58_704,
+    listenPort: Number(env.ZOEN_DOOR_PORT ?? "58704"),
   };
 }

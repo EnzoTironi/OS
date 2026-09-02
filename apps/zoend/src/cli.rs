@@ -2959,7 +2959,14 @@ async fn login_device(
         .and_then(Value::as_str)
         .unwrap_or("/device");
     let verification_uri = rewrite_loopback_uri(verification_uri, zoend);
-    let open_line = format!("Open {verification_uri} and enter {user_code}\n");
+    let verification_uri_complete = doc
+        .get("verification_uri_complete")
+        .and_then(Value::as_str)
+        .map(|uri| rewrite_loopback_uri(uri, zoend));
+    let open_line = match verification_uri_complete {
+        Some(uri) => format!("Open {uri}\n"),
+        None => format!("Open {verification_uri} and enter {user_code}\n"),
+    };
     if !wait {
         return Ok(CommandResult {
             exit_code: 0,
@@ -2969,6 +2976,7 @@ async fn login_device(
                     "deviceCode": device_code,
                     "userCode": user_code,
                     "verificationUri": verification_uri,
+                    "verificationUriComplete": verification_uri_complete,
                 })
             ),
             stderr: open_line,
