@@ -31,6 +31,7 @@ scenario_table=(
   "public-surface:::live"
   "reminder-loop:::live"
   "workshop-app:::live"
+  "mcp-server:::live"
   "cli-dest:::live"
   "semantic-query:::live"
   "wasm-code-mode:::live"
