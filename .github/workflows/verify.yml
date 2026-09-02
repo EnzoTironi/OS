@@ -67,16 +67,31 @@ jobs:
         with:
           shared-key: build
           cache-targets: false
+      - name: Restore and save Kache store on main
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/kache
+          key: zoen-build-kache-v0.16.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.kache.toml', 'e2e/run.sh', '.github/workflows/verify.yml') }}-${{ github.sha }}
+          restore-keys: |
+            zoen-build-kache-v0.16.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.kache.toml', 'e2e/run.sh', '.github/workflows/verify.yml') }}-
+      - name: Restore Kache store outside main
+        if: github.ref != 'refs/heads/main'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/kache
+          key: zoen-build-kache-v0.16.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.kache.toml', 'e2e/run.sh', '.github/workflows/verify.yml') }}-${{ github.sha }}
+          restore-keys: |
+            zoen-build-kache-v0.16.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.kache.toml', 'e2e/run.sh', '.github/workflows/verify.yml') }}-
       - uses: kunobi-ninja/kache-action@78ff455251aa37139061201a39113a1924994035 # v1
         with:
           version: v0.16.0
-          github-cache: true
+          github-cache: false
           cache-dir: ${{ runner.temp }}/kache
-          cache-key-prefix: zoen-build-rust-1.98.0-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.kache.toml', 'e2e/run.sh', '.github/workflows/verify.yml') }}
           max-size: 6GiB
           cache-executables: true
           cache-c-cpp: true
-          save-cache: ${{ github.ref == 'refs/heads/main' }}
+          save-cache: false
           pr-comment: false
           job-summary: true
       - name: Verify Kache installation
