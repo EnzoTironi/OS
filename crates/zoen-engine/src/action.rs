@@ -1035,6 +1035,22 @@ where
             .map_err(ActionError::Store)
     }
 
+    /// Loads the pending proposal associated with an operation, if one exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActionError::Store`] when the authority store cannot load the proposal.
+    pub async fn get_operation_proposal(
+        &self,
+        context: &TrustedExecutionContext,
+        operation_id: &OperationId,
+    ) -> Result<Option<ActionProposal>, ActionError> {
+        self.store
+            .get_operation_proposal(context, operation_id)
+            .await
+            .map_err(ActionError::Store)
+    }
+
     pub(crate) async fn load_action(
         &self,
         context: &TrustedExecutionContext,

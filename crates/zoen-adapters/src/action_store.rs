@@ -285,6 +285,19 @@ pub(crate) async fn get_operation(
     Ok(receipt)
 }
 
+pub(crate) async fn get_operation_proposal(
+    pool: &PgPool,
+    context: &ExecutionContext,
+    operation_id: &OperationId,
+) -> Result<Option<ActionProposal>, StoreError> {
+    let mut transaction = pool.begin().await.map_err(store_unavailable)?;
+    set_tenant(&mut transaction, context.tenant_id()).await?;
+    let proposal =
+        load_proposal_by_operation(&mut transaction, context.tenant_id(), operation_id).await?;
+    transaction.commit().await.map_err(store_unavailable)?;
+    Ok(proposal)
+}
+
 async fn insert_inputs(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,

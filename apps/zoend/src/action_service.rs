@@ -317,11 +317,26 @@ impl ActionService for ActionServiceImpl {
         };
         let operation_id =
             OperationId::parse(request.operation_id).map_err(|error| invalid(error.to_string()))?;
-        let receipt = self
-            .engine
-            .operation_status(&trusted, &operation_id)
-            .await
-            .map_err(|error| map_action_error(&error))?;
+        let receipt = match self.engine.operation_status(&trusted, &operation_id).await {
+            Ok(receipt) => receipt,
+            Err(ActionError::Store(StoreError::NotFound)) => {
+                // A proposed-but-uncommitted operation has no receipt row yet, but the
+                // proposing app must still observe it awaiting approval.
+                let proposal = self
+                    .engine
+                    .get_operation_proposal(&trusted, &operation_id)
+                    .await
+                    .map_err(|error| map_action_error(&error))?;
+                return match proposal {
+                    Some(_) => Response::ok(GetOperationStatusResponse {
+                        status: CommitStatus::Pending.into(),
+                        ..Default::default()
+                    }),
+                    None => Err(map_action_error(&ActionError::Store(StoreError::NotFound))),
+                };
+            }
+            Err(error) => return Err(map_action_error(&error)),
+        };
         Response::ok(GetOperationStatusResponse {
             receipt: Some(to_commit_receipt(receipt)).into(),
             status: CommitStatus::Committed.into(),

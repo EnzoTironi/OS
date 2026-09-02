@@ -810,6 +810,14 @@ impl AuthorityStore for PostgresAuthorityStore {
         action_store::get_operation(&self.pool, context, operation_id).await
     }
 
+    async fn get_operation_proposal(
+        &self,
+        context: &ExecutionContext,
+        operation_id: &OperationId,
+    ) -> Result<Option<ActionProposal>, StoreError> {
+        action_store::get_operation_proposal(&self.pool, context, operation_id).await
+    }
+
     async fn load_history(
         &self,
         context: &ExecutionContext,

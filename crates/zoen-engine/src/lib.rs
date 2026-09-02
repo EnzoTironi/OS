@@ -648,6 +648,12 @@ pub trait AuthorityStore: Send + Sync {
         operation_id: &OperationId,
     ) -> impl std::future::Future<Output = Result<CommitReceipt, StoreError>> + Send;
 
+    fn get_operation_proposal(
+        &self,
+        context: &ExecutionContext,
+        operation_id: &OperationId,
+    ) -> impl std::future::Future<Output = Result<Option<ActionProposal>, StoreError>> + Send;
+
     fn load_history(
         &self,
         context: &ExecutionContext,
