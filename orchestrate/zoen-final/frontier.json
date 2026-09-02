@@ -1,12 +1,12 @@
 {
-  "generation": 2,
+  "generation": 3,
   "prs": [
     {
       "pr": 602,
       "branches": "codex/w1-01-governed-publish",
       "sha": "6e6eddf3fa326cc1d30182ac5a53a6031d4c6409",
-      "state": "OPEN"
+      "state": "MERGED"
     }
   ],
-  "lowestUnmerged": 602
+  "lowestUnmerged": null
 }

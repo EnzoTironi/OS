@@ -3,7 +3,7 @@
 - [x] Read the Principles section of the Poteto Mode skill in full.
 - [x] Frame. State the done predicate as something countable. Quantify scope, rough effort, expected stacks, wall-clock budget, and tracks. Present the framing once. Reversible prep proceeds without waiting.
 - [x] Install the runtime. Run `orch init`. Open the trail via show-me-your-work, write the standing orders before any spawn, and seed `frontier.json` from existing PRs.
-- [ ] Pilot. Push one unit through brief, worker, verification, stack entry, ledger row, and merge. Fix the contract from pilot evidence before fan-out.
+- [x] Pilot. Push one unit through brief, worker, verification, stack entry, ledger row, and merge. Fix the contract from pilot evidence before fan-out.
 - [ ] Scale. Spawn a rolling window of workers, refill as children finish, relay upstream reports, and audit one sampled brief per wave.
 - [ ] Drain. Drain completions at critical sections and track rollups. Classify every pointer and update units, ledger, and status.
 - [ ] Land. Integrate verified units continuously. Keep the frontier green and invalidate verdicts when a head SHA changes.

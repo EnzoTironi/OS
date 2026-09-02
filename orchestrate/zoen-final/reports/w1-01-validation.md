@@ -6,8 +6,10 @@
 - Pull request: `#602`
 - Branch: `codex/w1-01-governed-publish`
 - Exact head: `6e6eddf3fa326cc1d30182ac5a53a6031d4c6409`
-- State: exact-head proof recorded as `live-ui-verified`
+- State: merged after exact-head proof was recorded as `live-ui-verified`
 - Merge blocker: none
+- Squash merge: `f121cef13e5bb9f8d702eaf15ec87607ae64d7d4` at `2026-09-02T10:48:53Z`
+- Merge tree: byte-for-byte equivalent to the verified PR head
 
 No verdict from an earlier head is inherited.
 
@@ -34,7 +36,7 @@ The verifier reviewed the corrected database design and the complete `main...HEA
 ## Remote evidence
 
 - GitHub checks: 26/26 PASS on the exact head
-- PR state: open, mergeable, and `CLEAN`
+- Pre-merge PR state: open, mergeable, and `CLEAN`
 - Sonar quality gate: PASS
 - Sonar new-code issues: 0
 - Sonar duplicated new lines: 1.2 percent
@@ -47,3 +49,5 @@ The validation command completed its live journeys, exact-SHA evidence checks, C
 ## Merge rule
 
 Record `live-ui-verified` for this exact SHA only after all current-head checks are green, zero review threads remain open, every actionable review comment is settled, and the independent verifier returns PASS. Only then may the coordinator merge `#602`.
+
+The coordinator recorded the ledger row first, merged with GitHub's exact-head guard, then fetched `main` and verified that the squash commit tree is identical to the verified PR head.

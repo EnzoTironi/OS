@@ -1,10 +1,10 @@
 # Orchestrate status
 
-Generated: 2026-09-02T10:46:38.709Z
+Generated: 2026-09-02T10:51:04.566Z
 
 ## Units
 
-States: active=1, done=7
+States: done=8
 
 | ID | Track | State | Branch | PR | SHA | Brief |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -15,7 +15,7 @@ States: active=1, done=7
 | w1-01-design-a | w1-publish | done |  |  |  | orchestrate/zoen-final/briefs/w1-01-architect.md |
 | w1-01-design-b | w1-publish | done |  |  |  | orchestrate/zoen-final/briefs/w1-01-architect.md |
 | w1-01-design-judge | w1-publish | done |  |  |  | orchestrate/zoen-final/briefs/w1-01-architect.md |
-| w1-01-governed-publish | w1-publish | active | codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | orchestrate/zoen-final/briefs/w1-01-governed-publish.md |
+| w1-01-governed-publish | w1-publish | done | codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | orchestrate/zoen-final/briefs/w1-01-governed-publish.md |
 
 ## Verification ledger
 
@@ -27,15 +27,15 @@ Verdicts: live-ui-verified=1
 
 ## Frontier
 
-Generation: 2
-Lowest unmerged: 602
+Generation: 3
+Lowest unmerged: none
 
 | Branch | PR | SHA | State |
 | --- | --- | --- | --- |
-| codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | OPEN |
+| codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | MERGED |
 
 ## Gates
 
 (none)
 
-<!-- orch-summary {"unitStates":{"active":1,"done":7},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":2,"openGateIds":[]} -->
+<!-- orch-summary {"unitStates":{"done":8},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":3,"openGateIds":[]} -->
