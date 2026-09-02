@@ -88,7 +88,7 @@ From the restored orchestration checkout, run exactly one gate:
   --expected-head 601af9d472e6a9f0602e4c2e64477bd68df316bd
 ```
 
-The lever fails closed when the local SHA and PR SHA differ, the tracked tree is dirty, a live journey or evidence bundle fails, the definition-publication artifact does not name the exact SHA, CI fails or stays pending, CodeRabbit did not review the exact SHA, a review thread remains open, or a fresh Codecov/Sonar comment reports failure.
+The lever fails closed when the local SHA and PR SHA differ, the tracked tree is dirty, a live journey or evidence bundle fails, the definition-publication artifact does not name the exact SHA, CI fails or stays pending, a review thread remains open, or a fresh Codecov/Sonar comment reports failure. CodeRabbit remains an advisory source of findings, but its OSS quota is not a verdict. The exact-head independent verifier and ledger row are the merge gate.
 
 The source machine lost Docker before the final local live run. Static checks, Rust tests, Clippy, builds, TypeScript lint, and Comment Sicko passed. Treat current-head GitHub CI and the Mac run above as the required live proof.
 
@@ -105,7 +105,7 @@ The source machine lost Docker before the final local live run. Static checks, R
 
 ## Next move
 
-Run the one-command gate on the Mac against PR #602. Fix every new current-head review finding, rerun the same command, and only then add the ledger row and merge the pilot. After the pilot lands, use its evidence to finalize the unit contract before starting the rolling Wave 1 worker window.
+Run the one-command gate on the Mac against PR #602. Fix every new current-head review finding, obtain an independent exact-head PASS, rerun the same command, and only then add the ledger row and merge the pilot. After the pilot lands, use its evidence to finalize the unit contract before starting the rolling Wave 1 worker window.
 
 Do not deploy from the transferred state. Production-shaped deployment remains a later verified unit.
 

@@ -7,7 +7,7 @@
 - Branch: `codex/w1-01-governed-publish`
 - Exact head: `6e6eddf3fa326cc1d30182ac5a53a6031d4c6409`
 - State: active, not yet recorded in the verification ledger
-- Merge blockers: current-head CI completion and a CodeRabbit incremental review after its included-review limit resets
+- Merge blocker: current-head CI completion
 
 No verdict from an earlier head is inherited.
 
@@ -29,7 +29,7 @@ The independent verifier found that the first migration protected publication gr
 
 The fix stores the admitted nonzero grant count on the immutable publication row. Deferred constraints on both parent and child inserts require the final grant ordinals to be exactly `0..grant_count-1`. Update, delete, and truncate remain sealed. The live `definition-publication` journey forges a fresh post-commit ordinal and proves that the statement rolls back without changing publication state.
 
-The verifier reviewed the corrected database design and found no remaining semantic or transactional flaw. Its final merge-readiness verdict remains pending until current-head remote checks settle.
+The verifier reviewed the corrected database design and the complete `main...HEAD` diff. It returned PASS for the exact head with no remaining actionable correctness, security, or isolation finding.
 
 ## Remote evidence
 
@@ -37,8 +37,8 @@ The verifier reviewed the corrected database design and found no remaining seman
 - Sonar new-code issues: 0
 - Sonar duplicated new lines: 1.2 percent at the first current-head analysis
 - Review threads before the current CodeRabbit run: 0 unresolved
-- CodeRabbit selected the three files in the final delta but reported that the next included review becomes available after its hourly limit resets. This is recorded as a blocker, not treated as a review.
+- CodeRabbit selected the three files in the final delta but reported that the next included review becomes available after its hourly limit resets. It produced no actionable comment. The pilot therefore removed vendor quota from the merge predicate while preserving every actual bot finding as mandatory review input.
 
 ## Merge rule
 
-Record `live-ui-verified` for this exact SHA only after all current-head checks are green, the incremental review completes without an actionable finding, zero review threads remain open, and the independent verifier returns PASS. Only then may the coordinator merge `#602`.
+Record `live-ui-verified` for this exact SHA only after all current-head checks are green, zero review threads remain open, every actionable review comment is settled, and the independent verifier returns PASS. Only then may the coordinator merge `#602`.

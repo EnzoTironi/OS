@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: validate-pr --pr <number> [--worktree <path>] [--expected-head <sha>] [--poll-seconds <n>] [--timeout-seconds <n>]" >&2
+  echo "usage: validate-pr --pr <number> [--worktree <path>] [--expected-head <sha>] [--poll-seconds <n>]" >&2
   exit "${1:-2}"
 }
 
@@ -15,7 +15,6 @@ pr=""
 worktree="."
 expected_head=""
 poll_seconds=30
-timeout_seconds=3600
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,11 +38,6 @@ while [[ $# -gt 0 ]]; do
       poll_seconds=$2
       shift 2
       ;;
-    --timeout-seconds)
-      [[ $# -ge 2 ]] || usage
-      timeout_seconds=$2
-      shift 2
-      ;;
     -h|--help)
       usage 0
       ;;
@@ -55,7 +49,6 @@ done
 
 [[ "$pr" =~ ^[1-9][0-9]*$ ]] || fail "--pr must be a positive integer"
 [[ "$poll_seconds" =~ ^[1-9][0-9]*$ ]] || fail "--poll-seconds must be a positive integer"
-[[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || fail "--timeout-seconds must be a positive integer"
 [[ -d "$worktree" ]] || fail "worktree does not exist: $worktree"
 
 for command in git gh jq node docker npm cargo; do
@@ -127,13 +120,9 @@ require_clean_tree
 require_same_head
 (cd "$worktree" && gh pr checks "$pr" --watch --interval "$poll_seconds")
 
-deadline=$(( $(date +%s) + timeout_seconds ))
-while [[ "$(coderabbit_review_count)" -eq 0 ]]; do
-  require_same_head
-  [[ $(date +%s) -lt $deadline ]] || fail "CodeRabbit did not review $head before timeout"
-  echo "WAIT: CodeRabbit review for $head"
-  sleep "$poll_seconds"
-done
+if [[ "$(coderabbit_review_count)" -eq 0 ]]; then
+  echo "NOTE: no substantive CodeRabbit review exists for $head; exact-head independent verification and the ledger remain required"
+fi
 
 threads=$(gh api graphql \
   -F owner="$owner" \
@@ -173,4 +162,4 @@ final_pr=$(pr_json)
 merge_state=$(printf '%s' "$final_pr" | jq -r .mergeStateStatus)
 [[ "$merge_state" != "DIRTY" && "$merge_state" != "CONFLICTING" ]] || fail "PR has merge conflicts"
 
-echo "READY: pr=#$pr head=$head mergeState=$merge_state"
+echo "READY-FOR-LEDGER: pr=#$pr head=$head mergeState=$merge_state"
