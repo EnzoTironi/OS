@@ -20,11 +20,15 @@ const expectedKacheVersion = "0.16.0";
 const samplesInput = process.env.KACHE_BENCH_SAMPLES ?? "3";
 const thresholdInput = process.env.KACHE_BENCH_THRESHOLD_PERCENT ?? "20";
 const jobsInput = process.env.KACHE_BENCH_JOBS ?? "10";
+const maxAttemptsInput = process.env.KACHE_BENCH_MAX_ATTEMPTS ?? "5";
 const samples = Number(samplesInput);
 const thresholdPercent = Number(thresholdInput);
 const jobs = Number(jobsInput);
+const maxAttempts = Number(maxAttemptsInput);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRepository = path.resolve(scriptDirectory, "..");
+const compilerQuietPeriodMilliseconds = 10_000;
+const compilerQuietTimeoutMilliseconds = 10 * 60_000;
 const compilerNames = new Set([
   "cargo",
   "clang",
@@ -77,6 +81,35 @@ function competingCompilers(ownedRootPid) {
   );
 }
 
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForCompilerQuietWindow() {
+  const startedAt = performance.now();
+  let quietSince;
+  let announcedWait = false;
+  while (performance.now() - startedAt < compilerQuietTimeoutMilliseconds) {
+    const competitors = competingCompilers();
+    if (competitors.length === 0) {
+      quietSince ??= performance.now();
+      if (performance.now() - quietSince >= compilerQuietPeriodMilliseconds) {
+        return;
+      }
+    } else {
+      quietSince = undefined;
+      if (!announcedWait) {
+        console.log(
+          `Waiting for ${competitors.length} external compiler process(es) to finish`,
+        );
+        announcedWait = true;
+      }
+    }
+    await delay(2_000);
+  }
+  throw new Error("external compilers did not become quiet within 10 minutes");
+}
+
 if (!/^\d+$/.test(samplesInput) || !Number.isSafeInteger(samples) || samples < 3) {
   throw new Error("KACHE_BENCH_SAMPLES must be an integer of at least 3");
 }
@@ -89,6 +122,13 @@ if (
 }
 if (!/^\d+$/.test(jobsInput) || !Number.isSafeInteger(jobs) || jobs < 1) {
   throw new Error("KACHE_BENCH_JOBS must be a positive integer");
+}
+if (
+  !/^\d+$/.test(maxAttemptsInput) ||
+  !Number.isSafeInteger(maxAttempts) ||
+  maxAttempts < 1
+) {
+  throw new Error("KACHE_BENCH_MAX_ATTEMPTS must be a positive integer");
 }
 
 const trackedStatus = spawnSync(
@@ -109,19 +149,6 @@ const trackedScript = spawnSync(
 );
 if (trackedScript.status !== 0) {
   throw new Error("commit scripts/benchmark-kache.mjs before benchmarking");
-}
-
-const initialCompetingCompilers = competingCompilers();
-if (
-  initialCompetingCompilers.length > 0 &&
-  process.env.KACHE_BENCH_ALLOW_COMPETING_BUILDS !== "1"
-) {
-  throw new Error(
-    `another compiler is running:\n${initialCompetingCompilers
-      .map(({ command, pid, ppid }) => `${pid}\t${ppid}\t${command}`)
-      .join("\n")}\n` +
-      "wait for it or set KACHE_BENCH_ALLOW_COMPETING_BUILDS=1",
-  );
 }
 
 const kacheBinary = process.env.KACHE_BIN ?? "kache";
@@ -160,6 +187,7 @@ mkdirSync(targetsDirectory);
 mkdirSync(cacheDirectory);
 mkdirSync(runtimesDirectory);
 mkdirSync(reportsDirectory);
+const discardedResults = [];
 writeFileSync(
   kacheConfig,
   '[cache]\nevent_log_max_size = "8GiB"\nevent_log_keep_lines = 100000\n',
@@ -272,25 +300,30 @@ async function runLogged(label, command, args, environment) {
     process.stderr.write(chunk);
     log.write(chunk);
   });
-  const status = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", resolve);
-  });
-  clearInterval(monitor);
-  const elapsedMilliseconds = Math.round(performance.now() - startedAt);
-  await new Promise((resolve, reject) => {
-    log.end((error) => (error ? reject(error) : resolve()));
-  });
+  let elapsedMilliseconds;
+  let status;
+  try {
+    status = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    elapsedMilliseconds = Math.round(performance.now() - startedAt);
+  } finally {
+    clearInterval(monitor);
+    if (child.pid !== undefined) {
+      inspectCompetition();
+    }
+    await new Promise((resolve, reject) => {
+      log.end((error) => (error ? reject(error) : resolve()));
+    });
+  }
   if (status !== 0) {
     throw new Error(`${label} failed with exit code ${status}; see ${logPath}`);
   }
   if (monitorError) {
     throw new Error(`${label} could not monitor competing compilers: ${monitorError.message}`);
   }
-  if (
-    observedCompetition.size > 0 &&
-    process.env.KACHE_BENCH_ALLOW_COMPETING_BUILDS !== "1"
-  ) {
+  if (observedCompetition.size > 0) {
     const rows = ["pid\tppid\tfirst_seen\tcommand"];
     for (const process of observedCompetition.values()) {
       rows.push(
@@ -298,15 +331,21 @@ async function runLogged(label, command, args, environment) {
       );
     }
     writeFileSync(competitionPath, `${rows.join("\n")}\n`);
-    throw new Error(
-      `${label} overlapped another compiler; see ${competitionPath}`,
-    );
   }
-  return { elapsedMilliseconds, logPath };
+  return {
+    competitionPath:
+      observedCompetition.size > 0 ? competitionPath : undefined,
+    competingCompilerCount: observedCompetition.size,
+    elapsedMilliseconds,
+    logPath,
+  };
 }
 
-async function build(kind, sample) {
-  const label = `${kind}-${sample}`;
+async function build(kind, sample, attempt = 1) {
+  const label =
+    sample === "warmup"
+      ? `${kind}-${sample}`
+      : `${kind}-${sample}-attempt-${attempt}`;
   const targetDirectory = path.join(targetsDirectory, "current");
   const runtimeDirectory = path.join(runtimesDirectory, label);
   mkdirSync(targetDirectory);
@@ -347,9 +386,12 @@ async function build(kind, sample) {
       throw new Error(`${label} produced an unusable zoen binary`);
     }
     const report =
-      kind === "treatment" ? captureReport(label, environment) : undefined;
+      kind === "treatment"
+        ? captureReport(label, environment, sample === "warmup")
+        : undefined;
     return {
       ...result,
+      attempt,
       binaryVersion: binaryResult.stdout.trim(),
       kind,
       report,
@@ -360,7 +402,7 @@ async function build(kind, sample) {
   }
 }
 
-function captureReport(label, environment) {
+function captureReport(label, environment, isWarmup) {
   const reportPath = path.join(reportsDirectory, `${label}.json`);
   const reportResult = spawnSync(
     kacheBinary,
@@ -398,7 +440,6 @@ function captureReport(label, environment) {
       };
     }
     const failures = [];
-    const isWarmup = label === "treatment-warmup";
     for (const field of [
       "errors",
       "fallbacks",
@@ -474,12 +515,104 @@ function median(values) {
     : ordered[middle];
 }
 
+function treatmentReportFailures(result, warmup) {
+  const failures = [...(result.report?.failures ?? ["report unavailable"])];
+  const expectedTotalCrates = warmup.report?.summary?.total_crates;
+  const expectedPassthroughs = warmup.report?.summary?.passthroughs;
+  const expectedBypassSignature = JSON.stringify(
+    warmup.report?.bypassSignature,
+  );
+  if (
+    result.report?.summary &&
+    expectedTotalCrates !== undefined &&
+    result.report.summary.total_crates !== expectedTotalCrates
+  ) {
+    failures.push(
+      `total_crates=${String(result.report.summary.total_crates)}, warmup=${String(expectedTotalCrates)}`,
+    );
+  }
+  if (
+    result.report?.summary &&
+    expectedPassthroughs !== undefined &&
+    result.report.summary.passthroughs !== expectedPassthroughs
+  ) {
+    failures.push(
+      `passthroughs=${String(result.report.summary.passthroughs)}, warmup=${String(expectedPassthroughs)}`,
+    );
+  }
+  if (
+    result.report?.bypassSignature &&
+    expectedBypassSignature !== undefined &&
+    JSON.stringify(result.report.bypassSignature) !== expectedBypassSignature
+  ) {
+    failures.push("passthrough reasons differ from warmup");
+  }
+  return failures;
+}
+
+function recordDiscardedResult(result) {
+  discardedResults.push(result);
+  const rows = [
+    "kind\tsample\tattempt\telapsed_ms\tcompeting_compilers\tlog\tcompetition\treport",
+    ...discardedResults.map((discarded) =>
+      [
+        discarded.kind,
+        discarded.sample,
+        discarded.attempt,
+        discarded.elapsedMilliseconds,
+        discarded.competingCompilerCount,
+        path.relative(outputDirectory, discarded.logPath),
+        path.relative(outputDirectory, discarded.competitionPath),
+        discarded.report
+          ? path.relative(outputDirectory, discarded.report.reportPath)
+          : "",
+      ].join("\t"),
+    ),
+  ];
+  writeFileSync(
+    path.join(outputDirectory, "discarded.tsv"),
+    `${rows.join("\n")}\n`,
+  );
+}
+
+async function runUncontaminatedSample(kind, sample, warmup) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await waitForCompilerQuietWindow();
+    console.log(
+      `Running ${kind} sample ${sample}/${samples}, attempt ${attempt}/${maxAttempts}`,
+    );
+    const result = await build(kind, sample, attempt);
+    if (result.competingCompilerCount === 0) {
+      return result;
+    }
+    recordDiscardedResult(result);
+    const competition = path.relative(
+      outputDirectory,
+      result.competitionPath,
+    );
+    if (kind === "treatment") {
+      const failures = treatmentReportFailures(result, warmup);
+      if (failures.length > 0) {
+        throw new Error(
+          `${kind} sample ${sample} was contaminated and changed or failed the cache: ${failures.join("; ")}`,
+        );
+      }
+    }
+    console.log(
+      `Discarding contaminated ${kind} sample ${sample} attempt ${attempt}; evidence: ${competition}`,
+    );
+  }
+  throw new Error(
+    `${kind} sample ${sample} remained contaminated for ${maxAttempts} attempts`,
+  );
+}
+
 writeFileSync(
   path.join(outputDirectory, "claim.md"),
   `# Kache benchmark claim\n\n` +
     `Kache ${expectedKacheVersion} must reduce the median wall time of ` +
     `\`cargo build --locked --offline --workspace --jobs ${jobs}\` with a new target directory by at ` +
-    `least ${thresholdPercent}%, across ${samples} samples on the same machine.\n`,
+    `least ${thresholdPercent}%, across ${samples} uncontaminated samples on the same machine.\n`,
 );
 
 const environmentFacts = [
@@ -493,6 +626,8 @@ const scriptHash = createHash("sha256")
 const environmentLines = [
   `kache=${version}`,
   `jobs=${jobs}`,
+  `max_attempts=${maxAttempts}`,
+  `quiet_period_ms=${compilerQuietPeriodMilliseconds}`,
   `benchmark_script_sha256=${scriptHash}`,
 ];
 for (const [label, [command, args]] of environmentFacts) {
@@ -525,8 +660,7 @@ for (let sample = 1; sample <= samples; sample += 1) {
       ? ["baseline", "treatment"]
       : ["treatment", "baseline"];
   for (const kind of order) {
-    console.log(`Running ${kind} sample ${sample}/${samples}`);
-    const result = await build(kind, sample);
+    const result = await runUncontaminatedSample(kind, sample, warmup);
     results.push(result);
     console.log(
       `${kind} sample ${sample}: ${(result.elapsedMilliseconds / 1000).toFixed(2)}s`,
@@ -549,42 +683,15 @@ const improvementPercent =
 const treatmentResults = results.filter((result) => result.kind === "treatment");
 const expectedTotalCrates = warmup.report?.summary?.total_crates;
 const expectedPassthroughs = warmup.report?.summary?.passthroughs;
-const expectedBypassSignature = JSON.stringify(warmup.report?.bypassSignature);
 const reportFailures = [
   ...(warmup.report?.failures ?? ["report unavailable"]).map(
     (failure) => `warmup: ${failure}`,
   ),
-  ...treatmentResults.flatMap((result) => {
-    const failures = [...(result.report?.failures ?? ["report unavailable"])];
-    if (
-      result.report?.summary &&
-      expectedTotalCrates !== undefined &&
-      result.report.summary.total_crates !== expectedTotalCrates
-    ) {
-      failures.push(
-        `total_crates=${String(result.report.summary.total_crates)}, warmup=${String(expectedTotalCrates)}`,
-      );
-    }
-    if (
-      result.report?.summary &&
-      expectedPassthroughs !== undefined &&
-      result.report.summary.passthroughs !== expectedPassthroughs
-    ) {
-      failures.push(
-        `passthroughs=${String(result.report.summary.passthroughs)}, warmup=${String(expectedPassthroughs)}`,
-      );
-    }
-    if (
-      result.report?.bypassSignature &&
-      expectedBypassSignature !== undefined &&
-      JSON.stringify(result.report.bypassSignature) !== expectedBypassSignature
-    ) {
-      failures.push("passthrough reasons differ from warmup");
-    }
-    return failures.map(
+  ...treatmentResults.flatMap((result) =>
+    treatmentReportFailures(result, warmup).map(
       (failure) => `treatment-${result.sample}: ${failure}`,
-    );
-  }),
+    ),
+  ),
 ];
 const reportsParseable =
   warmup.report?.summary !== undefined &&
@@ -597,7 +704,7 @@ const verdict = !reportsParseable
     : "NOT VERIFIED";
 
 const rows = [
-  "kind\tsample\telapsed_ms\tbinary\tlocal_hits\tmisses\tdups\tpassthroughs\tweighted_hit_rate_pct\tlog\treport",
+  "kind\tsample\tattempt\telapsed_ms\tbinary\tlocal_hits\tmisses\tdups\tpassthroughs\tweighted_hit_rate_pct\tlog\treport",
 ];
 for (const result of results) {
   const summary = result.report?.summary;
@@ -605,6 +712,7 @@ for (const result of results) {
     [
       result.kind,
       result.sample,
+      result.attempt,
       result.elapsedMilliseconds,
       result.binaryVersion,
       summary?.local_hits ?? "",
@@ -630,7 +738,8 @@ const reasoning = !reportsParseable
   : cacheHealthy
     ? `Kache recorded ${totalLocalHits} local hits with no misses, duplicate compilations, skipped units, errors, store failures, or fallbacks. ` +
       `${String(expectedPassthroughs)} unsupported or probe invocations passed through consistently in each build. ` +
-      `The same locked workspace, command, machine, warm OS caches and freshly recreated target path were used for both paths.`
+      `The same locked workspace, command, machine, warm OS caches and freshly recreated target path were used for both paths. ` +
+      `${discardedResults.length} contaminated attempt(s) were excluded.`
     : `Kache's health gates failed: ${reportFailures.join("; ")}.`;
 const verdictText = `${verdict}\n` +
   `Claim: Kache ${expectedKacheVersion} reduces the median clean-target workspace build by at least ${thresholdPercent}%.\n\n` +
