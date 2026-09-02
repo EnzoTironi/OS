@@ -1,7 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { exactSourceCommit, sourceCommitKeys } from "./scenario-evidence.js";
+import {
+  exactSourceCommit,
+  gitHead,
+  sourceCommitKeys,
+} from "./scenario-evidence.js";
 
 /**
  * Host TCP port for an e2e scenario.
@@ -145,12 +149,9 @@ export async function writeScenarioArtifact(
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${scenario} artifact must be a JSON object`);
   }
-  const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  }).trim();
+  const sourceCommit = gitHead(repositoryRoot);
   const providedCommitKeys = sourceCommitKeys.filter((key) =>
-    Object.prototype.hasOwnProperty.call(value, key),
+    Object.hasOwn(value, key),
   );
   const providedSourceCommit = exactSourceCommit(value, sourceCommitKeys);
   if (providedCommitKeys.length > 0 && providedSourceCommit !== sourceCommit) {

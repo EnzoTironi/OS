@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -70,6 +69,7 @@ import {
 } from "./effect-support.js";
 import { historyClient, type HistoryClient } from "./explain/support.js";
 import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 
 type Target = Exclude<
   ExplanationTarget["target"],
@@ -515,10 +515,7 @@ async function main(): Promise<void> {
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-    }).trim();
+    const sourceCommit = gitHead(repositoryRoot);
     const mutants = {
       completeBasedOnlyOnReachability:
         assertions.missingRequiredEffectRequestMakesExplanationIncomplete ===

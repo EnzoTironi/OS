@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+
 export const sourceCommitKeys = [
   "sourceCommit",
   "sourceSha",
@@ -5,13 +7,24 @@ export const sourceCommitKeys = [
   "headSha",
 ] as const;
 
+export function gitHead(repositoryRoot: string): string {
+  const head = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).trim();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) {
+    throw new Error(`git returned an invalid HEAD: ${JSON.stringify(head)}`);
+  }
+  return head;
+}
+
 export function exactSourceCommit(
   body: object,
   keys: readonly string[],
 ): string | null {
   const commits: string[] = [];
   for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(body, key)) {
+    if (!Object.hasOwn(body, key)) {
       continue;
     }
     const value = Reflect.get(body, key);
@@ -29,20 +42,20 @@ export function exactSourceCommit(
 
 export function scenarioPassed(body: Record<string, unknown>): boolean {
   const signals: boolean[] = [];
-  if (Object.prototype.hasOwnProperty.call(body, "verdict")) {
+  if (Object.hasOwn(body, "verdict")) {
     if (typeof body.verdict !== "string") {
       return false;
     }
     signals.push(body.verdict.toUpperCase() === "PASS");
   }
-  if (Object.prototype.hasOwnProperty.call(body, "status")) {
+  if (Object.hasOwn(body, "status")) {
     if (typeof body.status !== "string") {
       return false;
     }
     const status = body.status.toLowerCase();
     signals.push(status === "pass" || status === "passed" || status === "ok");
   }
-  if (Object.prototype.hasOwnProperty.call(body, "assertions")) {
+  if (Object.hasOwn(body, "assertions")) {
     const assertions = body.assertions;
     if (
       assertions === null ||
@@ -54,5 +67,5 @@ export function scenarioPassed(body: Record<string, unknown>): boolean {
     const values = Object.values(assertions);
     signals.push(values.length > 0 && values.every((value) => value === true));
   }
-  return signals.length > 0 && signals.every((signal) => signal);
+  return signals.length > 0 && signals.every(Boolean);
 }

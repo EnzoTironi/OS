@@ -43,6 +43,7 @@ import {
   type DurableScenario,
 } from "./durable-commit/scenario.js";
 import { writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 
 const scenarioDirectory = path.join(repositoryRoot, "e2e", "durable-commit");
 
@@ -137,10 +138,7 @@ async function main(): Promise<void> {
       { encoding: "utf8" },
     );
     assert.doesNotMatch(composeImages, /keycloak/i);
-    const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-    }).trim();
+    const sourceCommit = gitHead(repositoryRoot);
     const actionProtocol = await readFile(
       path.join(
         repositoryRoot,

@@ -5,12 +5,15 @@ import {
   sign as signBytes,
   verify as verifyBytes,
 } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
-import { exactSourceCommit, scenarioPassed } from "./scenario-evidence.js";
+import {
+  exactSourceCommit,
+  gitHead,
+  scenarioPassed,
+} from "./scenario-evidence.js";
 
 const SCHEMA_ID = "zoen.activation.v1" as const;
 const FIXTURE_COMMIT_PLACEHOLDER = "__CANDIDATE_SHA__";
@@ -591,10 +594,7 @@ function resolveCandidateSha(): string {
   if (fromEnv) {
     return fromEnv;
   }
-  return execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  }).trim();
+  return gitHead(repositoryRoot);
 }
 
 function resolveEvidenceRoot(): string {

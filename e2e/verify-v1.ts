@@ -5,12 +5,15 @@ import {
   sign as signBytes,
   verify as verifyBytes,
 } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import canonicalize from "canonicalize";
-import { exactSourceCommit, scenarioPassed } from "./scenario-evidence.js";
+import {
+  exactSourceCommit,
+  gitHead,
+  scenarioPassed,
+} from "./scenario-evidence.js";
 import { z } from "zod";
 
 const SCHEMA_ID = "zoen.verify.v1" as const;
@@ -723,10 +726,7 @@ function resolveCandidateSha(): string {
   if (fromEnv) {
     return fromEnv;
   }
-  return execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  }).trim();
+  return gitHead(repositoryRoot);
 }
 
 function resolveEvidenceRoot(): string {
