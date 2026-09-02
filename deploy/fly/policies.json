@@ -18,7 +18,7 @@
     },
     {
       "actionId": "personal.writeMemory",
-      "definitionDigest": "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548",
+      "definitionDigest": "22033025d6988ca9d40d61f2e490d92cc5da10421642fcf29a60400530b37907",
       "digest": "866c7b688c1bcc62b0283d41485c5ee69a6c651bd8ffee730ba3fcb9b060623a",
       "policyId": "policy.personal.writeMemory.r1",
       "revision": 1,
@@ -26,7 +26,7 @@
     },
     {
       "actionId": "personal.createReminder",
-      "definitionDigest": "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548",
+      "definitionDigest": "22033025d6988ca9d40d61f2e490d92cc5da10421642fcf29a60400530b37907",
       "digest": "e5dd6559b6730c926a53a81276479927559b889f522126995d2f4456b3bdf171",
       "policyId": "policy.personal.createReminder.r1",
       "revision": 1,
@@ -34,11 +34,19 @@
     },
     {
       "actionId": "zoen.definition.activate",
-      "definitionDigest": "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548",
+      "definitionDigest": "22033025d6988ca9d40d61f2e490d92cc5da10421642fcf29a60400530b37907",
       "digest": "aa48ef156c78b6c6c9b6a1d2876bfa608c16e5d2593d6868f9cb97ba923540da",
       "policyId": "policy.personal.activation.r1",
       "revision": 2,
       "source": "@id(\"personal-activateRevision\")\npermit (\n    principal,\n    action == Action::\"activate_revision\",\n    resource\n)\nwhen {\n    principal == Zoen::Principal::\"principal.admin.a\" ||\n    principal == Zoen::Principal::\"principal.live.whatsapp\"\n};\n"
+    },
+    {
+      "actionId": "workshop.deployApp",
+      "definitionDigest": "22033025d6988ca9d40d61f2e490d92cc5da10421642fcf29a60400530b37907",
+      "digest": "ae7661fc044fff17bcf4853a0007c78bbdfec3af386177f88933f37d509b8421",
+      "policyId": "policy.workshop.deployApp.r2",
+      "revision": 2,
+      "source": "@id(\"workshop-deployApp-discover\")\npermit (\n    principal,\n    action == Action::\"discover\",\n    resource\n)\nwhen {\n    context.actionId == \"workshop.deployApp\"\n};\n\n@id(\"workshop-deployApp-commit\")\npermit (\n    principal,\n    action == Action::\"commit\",\n    resource\n)\nwhen {\n    context.actionId == \"workshop.deployApp\"\n};\n"
     }
   ]
 }

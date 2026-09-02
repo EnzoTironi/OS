@@ -525,12 +525,12 @@ mod tests {
         let evaluator =
             CedarPolicyEvaluator::from_json(include_str!("../../../deploy/fly/policies.json"))
                 .expect("fly manifest");
-        let definition_digest = "fbde8d543caf19596840ae092d99088d222bffdf7d17c2397df00050912e3548";
+        let definition_digest = "22033025d6988ca9d40d61f2e490d92cc5da10421642fcf29a60400530b37907";
         let action = ActionId::parse("zoen.definition.activate").expect("action");
         let definition = DefinitionReference {
             definition_id: DefinitionId::parse("personal.memory").expect("definition"),
             digest: DefinitionDigest::parse(definition_digest).expect("digest"),
-            revision: DefinitionRevisionNumber::new(1).expect("revision"),
+            revision: DefinitionRevisionNumber::new(2).expect("revision"),
         };
         let resource = ResourceId::parse("personal.memory").expect("resource");
 

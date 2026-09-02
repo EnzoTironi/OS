@@ -980,6 +980,15 @@ where
                         Some(payload) => payload,
                         None => evidence.projection_event().payload().as_bytes().to_vec(),
                     }
+                } else if crate::workshop::is_workshop_deploy_app_action(&proposal.action_id)
+                    && crate::workshop::is_workshop_app_slug_relation(draft_relation_id.as_str())
+                {
+                    match crate::workshop::mint_workshop_deploy_app_payload(proposal)
+                        .map_err(ActionError::Evaluation)?
+                    {
+                        Some(payload) => payload,
+                        None => evidence.projection_event().payload().as_bytes().to_vec(),
+                    }
                 } else {
                     evidence.projection_event().payload().as_bytes().to_vec()
                 };

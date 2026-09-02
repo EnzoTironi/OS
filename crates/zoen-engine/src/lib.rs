@@ -25,7 +25,7 @@ mod migration;
 mod read;
 mod reminder;
 mod scenario;
-
+mod workshop;
 pub use action::{
     ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
     ActionStateRead, ActionStateSnapshot, ApproveOutcome, CommitOutcome, CommitPlan,

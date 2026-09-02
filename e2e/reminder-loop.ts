@@ -187,6 +187,7 @@ async function main(): Promise<void> {
     ).trimEnd(),
   ) as {
     actions: Array<{ id: string; inputs?: Array<unknown> }>;
+    revision: number;
   };
   const canonicalJson = canonicalize(baseDefinition);
   assert.ok(canonicalJson !== undefined);
@@ -205,7 +206,10 @@ async function main(): Promise<void> {
     definition: create(DefinitionReferenceSchema, {
       definitionId,
       digest,
-      revision: 1n,
+      // Track the lake document's own revision: the personal definition
+      // carries workshop.deployApp at revision 2, and publish/activate assert
+      // the server-returned revision against this reference.
+      revision: BigInt(baseDefinition.revision),
     }),
     digest,
     policyDigest: sha256(policySource),
