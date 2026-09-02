@@ -11,6 +11,12 @@ use axum::{
 use reqwest::Client;
 
 const WORKSHOP: &str = "http://127.0.0.1:58707";
+
+/// Production keeps the workshop on the same host behind this proxy. E2E
+/// runs it on a per-scenario port, so the upstream is overridable.
+fn workshop_upstream() -> String {
+    std::env::var("ZOEN_WORKSHOP_UPSTREAM").unwrap_or_else(|_| WORKSHOP.to_string())
+}
 const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
 pub fn router() -> Router {
@@ -27,7 +33,7 @@ async fn proxy_apps(State(client): State<Client>, request: Request) -> Response 
         .uri()
         .path_and_query()
         .map_or("/", axum::http::uri::PathAndQuery::as_str);
-    let url = format!("{WORKSHOP}{path_and_query}");
+    let url = format!("{}{path_and_query}", workshop_upstream());
     let Ok(method) = reqwest::Method::from_bytes(request.method().as_str().as_bytes()) else {
         return StatusCode::BAD_GATEWAY.into_response();
     };
