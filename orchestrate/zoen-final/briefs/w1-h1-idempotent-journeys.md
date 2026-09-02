@@ -39,6 +39,9 @@ The context owns:
 10. Run live scenarios through a weighted pool, initially capped at four. Zero-weight scenarios may overlap; Postgres-only costs one; Postgres plus MinIO or Restate costs two. Credential journeys remain exclusive.
 11. Cleanup must be safe when called twice and must validate ownership before signaling a process group or removing a Compose project. Release the port lease last.
 12. Keep production's normal Better Auth port explicit in Fly configuration; the harness must have no static-port fallback.
+13. Treat Portless as an HTTP naming adapter, not as the resource allocator. When enabled, pin `portless@0.15.6`, derive every hostname from the run ID, use a non-privileged loopback proxy for noninteractive runs, and remove only aliases owned by the run. Never use `--force` or automatic `portless prune` in a parallel suite.
+
+Portless is not a correctness dependency for the first runner slice. Version 0.15.6 requires Node 24 while current CI pins Node 22, and its free-port probe closes the socket before the child binds. Adopt its stable URLs only when the suite provisions the matching Node runtime; the atomic cross-worktree lease remains authoritative for native and non-HTTP endpoints.
 
 ## Proof journey
 

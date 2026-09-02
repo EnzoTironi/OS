@@ -20,6 +20,14 @@ Publish Docker ports dynamically, bind native services to port zero, and make ev
 
 This is the cleaner endpoint mechanism long term. It is not the first move because it would combine a broad lifecycle rewrite with W1-02, W1-03, and W1-04 integration. The selected `JourneyRunContext` keeps this migration possible without changing callers again.
 
+## Portless 0.15.6
+
+Portless is useful above the run context, not below it. It gives HTTP services stable `.localhost` names and adds a worktree prefix. It does not reserve ports: its allocator probes a port, closes the socket, and starts the child afterward. Its route lock protects route metadata rather than the port. It also does not isolate PostgreSQL, Compose projects, databases, volumes, generated files, or artifacts.
+
+The local installation was updated from 0.15.1 to the current 0.15.6 package published from verified upstream commit `713f84dec04b5328c02ffc62d1937b27a80fbc5f`. The W1-H1 integration may expose names such as `auth.<run-id>.zoen.localhost` after the run owns the underlying port. It must not use `--force`; it must not run `portless prune` automatically because a reused stale port could identify the wrong process; and it must remove only the run's exact aliases during idempotent cleanup.
+
+Portless 0.15.6 requires Node 24, while repository CI currently pins Node 22. Therefore the first isolation slice must remain correct without Portless. A pinned adapter can become a suite feature when its runtime is provisioned explicitly, without changing the `JourneyRunContext` contract.
+
 ## Ownership model
 
 ```text
