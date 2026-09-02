@@ -51,6 +51,10 @@ import {
   e2eIdentityAdminToken,
   writeScenarioArtifact,
 } from "./host-env.js";
+import {
+  definitionPublishActionId,
+  definitionPublishPolicy,
+} from "./definition-publish-policy.js";
 
 const reminderActionId = "personal.createReminder";
 
@@ -226,6 +230,10 @@ async function main(): Promise<void> {
     `${JSON.stringify(
       {
         policies: [
+          definitionPublishPolicy({
+            definitionDigest: digest,
+            revision: baseDefinition.revision,
+          }),
           {
             actionId: reminderActionId,
             definitionDigest: digest,
@@ -281,7 +289,11 @@ async function main(): Promise<void> {
           workloadId: "workload.wa.user",
         }),
         invitePersona({
-          actionIds: ["zoen.definition.activate", reminderActionId],
+          actionIds: [
+            definitionPublishActionId,
+            "zoen.definition.activate",
+            reminderActionId,
+          ],
           actorId: "actor.admin.a",
           id: "admin-a",
           principalId: "principal.admin.a",
