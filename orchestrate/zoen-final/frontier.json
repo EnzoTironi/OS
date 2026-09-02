@@ -1,12 +1,18 @@
 {
-  "generation": 3,
+  "generation": 4,
   "prs": [
     {
       "pr": 602,
       "branches": "codex/w1-01-governed-publish",
       "sha": "6e6eddf3fa326cc1d30182ac5a53a6031d4c6409",
       "state": "MERGED"
+    },
+    {
+      "pr": 609,
+      "branches": "codex/w1-02-supervised-projection",
+      "sha": "6d2e28700217b06c0fd85be0bbde2e602bd632bd",
+      "state": "OPEN"
     }
   ],
-  "lowestUnmerged": null
+  "lowestUnmerged": 609
 }

@@ -1,6 +1,6 @@
 # Orchestrate status
 
-Generated: 2026-09-02T12:46:06.000Z
+Generated: 2026-09-02T13:03:00.000Z
 
 ## Units
 
@@ -16,7 +16,7 @@ States: active=4, done=8
 | w1-01-design-b | w1-publish | done |  |  |  | orchestrate/zoen-final/briefs/w1-01-architect.md |
 | w1-01-design-judge | w1-publish | done |  |  |  | orchestrate/zoen-final/briefs/w1-01-architect.md |
 | w1-01-governed-publish | w1-publish | done | codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | orchestrate/zoen-final/briefs/w1-01-governed-publish.md |
-| w1-02-supervised-projection | runtime-truth | active | codex/w1-02-supervised-projection |  |  | orchestrate/zoen-final/briefs/w1-02-supervised-projection.md |
+| w1-02-supervised-projection | runtime-truth | active | codex/w1-02-supervised-projection | 609 | 6d2e28700217b06c0fd85be0bbde2e602bd632bd | orchestrate/zoen-final/briefs/w1-02-supervised-projection.md |
 | w1-03-production-effect-handler | runtime-truth | active | codex/w1-03-production-effect-handler |  |  | orchestrate/zoen-final/briefs/w1-03-production-effect-handler.md |
 | w1-04-eve-runtime-boundary | runtime-truth | active | codex/w1-04-eve-runtime-boundary |  |  | orchestrate/zoen-final/briefs/w1-04-eve-runtime-boundary.md |
 | w1-h1-idempotent-journeys | integration | active | codex/w1-h1-idempotent-journeys |  |  | orchestrate/zoen-final/briefs/w1-h1-idempotent-journeys.md |
@@ -31,15 +31,16 @@ Verdicts: live-ui-verified=1
 
 ## Frontier
 
-Generation: 3
-Lowest unmerged: none
+Generation: 4
+Lowest unmerged: 609
 
 | Branch | PR | SHA | State |
 | --- | --- | --- | --- |
 | codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | MERGED |
+| codex/w1-02-supervised-projection | 609 | 6d2e28700217b06c0fd85be0bbde2e602bd632bd | OPEN |
 
 ## Gates
 
 (none)
 
-<!-- orch-summary {"unitStates":{"active":4,"done":8},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":3,"openGateIds":[]} -->
+<!-- orch-summary {"unitStates":{"active":4,"done":8},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":4,"openGateIds":[]} -->
