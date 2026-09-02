@@ -6,7 +6,11 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { pathExists, writeJsonAtomically } from "./atomic-state.mjs";
 import { flag, nonce, scriptPath } from "./command-line.mjs";
-import { canonicalJourneyAuthority, journeyId } from "./journey-contract.mjs";
+import {
+  canonicalJourneyAuthority,
+  journeyCleanupAuthorityTimeoutMilliseconds,
+  journeyId,
+} from "./journey-contract.mjs";
 import {
   abandonChild,
   armAuthorityChild,
@@ -166,7 +170,7 @@ export async function runJourneyController() {
       try {
         const normalCleanup = deadline(
           cleanup.completion,
-          120_000,
+          journeyCleanupAuthorityTimeoutMilliseconds,
           "journey cleanup authority timed out",
         );
         const cleanupOutcome = await Promise.race([

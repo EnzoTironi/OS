@@ -5,6 +5,20 @@ import path from "node:path";
 import { code, pathExists, runtimeRegistryRoot } from "./atomic-state.mjs";
 import { noncePattern } from "./command-line.mjs";
 
+export const journeyBootstrapReaderCommandTimeoutMilliseconds = 30_000;
+export const journeyCleanupRuntimeTimeoutMilliseconds = 300_000;
+
+// The cleanup authority also owns reader acquisition and release, guardian
+// startup and shutdown, and descendant drain outside the runtime deadline.
+// The final 30 seconds covers their bounded 5 + 10 + 12 second process waits
+// and leaves 3 seconds for IPC and scheduling.
+const journeyCleanupAuthorityLifecycleMarginMilliseconds =
+  journeyBootstrapReaderCommandTimeoutMilliseconds * 2 + 30_000;
+
+export const journeyCleanupAuthorityTimeoutMilliseconds =
+  journeyCleanupRuntimeTimeoutMilliseconds +
+  journeyCleanupAuthorityLifecycleMarginMilliseconds;
+
 export async function canonicalJourneyAuthority(repository, contextFile, allowMissing = false) {
   const resolvedContext = path.resolve(contextFile);
   await assertSafeJourneyContextFileBeforeRead(repository, resolvedContext);

@@ -15,6 +15,8 @@ import {
   assertRealJourneyLayout,
   canonicalJourneyAuthority,
   canonicalJourneyLayout,
+  journeyBootstrapReaderCommandTimeoutMilliseconds,
+  journeyCleanupRuntimeTimeoutMilliseconds,
   journeyId,
 } from "./journey-contract.mjs";
 import {
@@ -26,8 +28,6 @@ import {
   waitForAuthorityStart,
   waitForGuardianReady,
 } from "./process-authority.mjs";
-
-const journeyCleanupRuntimeTimeoutMilliseconds = 210_000;
 
 export async function runJourneyCleaner() {
   const ownerNonce = nonce(flag("--owner-nonce"));
@@ -93,7 +93,7 @@ export async function runJourneyCleaner() {
         cwd: repository,
         encoding: "utf8",
         env: process.env,
-        timeout: 30_000,
+        timeout: journeyBootstrapReaderCommandTimeoutMilliseconds,
       },
     ).trim();
     nonce(readerToken);
@@ -169,7 +169,12 @@ function releaseReaderFromAuthority(repository, token, ownerNonce) {
       "--owner-nonce",
       ownerNonce,
     ],
-    { cwd: repository, env: process.env, stdio: "inherit", timeout: 30_000 },
+    {
+      cwd: repository,
+      env: process.env,
+      stdio: "inherit",
+      timeout: journeyBootstrapReaderCommandTimeoutMilliseconds,
+    },
   );
 }
 
