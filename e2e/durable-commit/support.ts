@@ -19,7 +19,7 @@ const clientPath = path.join(
   "durable-commit",
   "client.js",
 );
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_101);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
 
 const commitResultSchema = z.object({
   collisionKind: z.number().int(),

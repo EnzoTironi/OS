@@ -98,21 +98,11 @@ export const generatedDirectory = e2eGeneratedDirectory(
   "governed-action",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
-const postgresPortFallback = 55_434;
-const zoendPortFallback = 58_083;
-const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const applicationDatabaseUrl = e2ePostgresUrl(
-  "zoen_app",
-  "zoen_app",
-  postgresPortFallback,
-);
-export const adminDatabaseUrl = e2ePostgresUrl(
-  "postgres",
-  "postgres",
-  postgresPortFallback,
-);
-export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
-export const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT");
+export const applicationDatabaseUrl = e2ePostgresUrl("zoen_app", "zoen_app");
+export const adminDatabaseUrl = e2ePostgresUrl("postgres", "postgres");
+export const authDatabaseUrl = e2eAuthDatabaseUrl();
+export const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
 export const actionId = "inventory.requestStock";
 export const activationActionId = "zoen.definition.activate";
 export const definitionId = "inventory.governed";
@@ -660,7 +650,7 @@ export async function startServer(
     ZOEN_AUTH_DATABASE_URL: authDatabaseUrl,
     ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
     ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
-    ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
+    ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT"),
     ZOEN_WHATSAPP_DOOR_E164: e2eWhatsAppDoorE164(),
     ...(failpoint === undefined
       ? {}

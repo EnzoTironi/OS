@@ -33,7 +33,7 @@ e2e-parallel:
 # Destructive harness journey: concurrency, stale retry, cross-worktree, cleanup.
 journey-runtime-proof:
     ./e2e/run.sh prepare
-    node dist/e2e/journey-runtime-proof.js
+    ./e2e/run.sh runtime-proof
 
 # Release gate: prepare once, fan out isolated lightweight runtime stacks.
 verify:

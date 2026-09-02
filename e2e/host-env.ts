@@ -1,8 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { link, mkdir, open, rename, unlink } from "node:fs/promises";
+import { link, mkdir, open, unlink } from "node:fs/promises";
 import path from "node:path";
-import { optionalJourneyRunContext } from "./journey-run-context.js";
+import { journeyRunContext } from "./journey-run-context.js";
 import {
   exactSourceCommit,
   gitHead,
@@ -10,27 +9,48 @@ import {
   sourceCommitKeys,
 } from "./scenario-evidence.js";
 
+type JourneyPortName = keyof ReturnType<typeof journeyRunContext>["ports"];
+
+const journeyPortEnvironment = {
+  ZOEN_E2E_ADAPTER_PORT: "adapter",
+  ZOEN_E2E_AUTH_PORT: "auth",
+  ZOEN_E2E_CONNECTOR_PORT: "connector",
+  ZOEN_E2E_EFFECT_PROVIDER_PORT: "provider",
+  ZOEN_E2E_EFFECT_WORKER_PORT: "effectWorker",
+  ZOEN_E2E_KEYCLOAK_PORT: "keycloak",
+  ZOEN_E2E_MINIO_PORT: "minio",
+  ZOEN_E2E_PLUGNOTAS_ADAPTER_PORT: "adapter",
+  ZOEN_E2E_POSTGRES_PORT: "postgres",
+  ZOEN_E2E_PROTHEUS_ADAPTER_PORT: "adapter",
+  ZOEN_E2E_PROVIDER_PORT: "provider",
+  ZOEN_E2E_RESTATE_INGRESS_PORT: "restateIngress",
+  ZOEN_E2E_RESTATE_NODE_PORT: "restateNode",
+  ZOEN_E2E_RESTATE_UI_PORT: "restateUi",
+  ZOEN_E2E_SYSTAX_ADAPTER_PORT: "adapter",
+  ZOEN_E2E_WORKER_CONTROL_PORT: "workerControl",
+  ZOEN_E2E_WORKER_PORT: "worker",
+  ZOEN_E2E_ZOEND_PORT: "zoend",
+} as const satisfies Readonly<Record<string, JourneyPortName>>;
+
 /**
  * Host TCP port for an e2e scenario.
  *
- * `just e2e-run` sources `e2e/<scenario>/.env` so shared support modules
- * (effect-support/governed-action imported by other runners) bind the caller’s
- * ports instead of the module’s defaults.
+ * The journey runtime publishes every owned port through the environment
+ * before loading scenario code.
  */
-export function e2ePort(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") {
-    return fallback;
-  }
-  const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`${name} must be a host TCP port, got ${JSON.stringify(raw)}`);
-  }
-  return port;
+export function e2ePort(name: string): number {
+  return requiredE2ePort(name);
 }
 
 /** Host TCP port that must be assigned by the journey run context. */
 export function requiredE2ePort(name: string): number {
+  const context = journeyRunContext();
+  const portName = Object.hasOwn(journeyPortEnvironment, name)
+    ? journeyPortEnvironment[name as keyof typeof journeyPortEnvironment]
+    : undefined;
+  if (portName === undefined) {
+    throw new Error(`${name} is not a journey runtime port`);
+  }
   const raw = process.env[name];
   if (raw === undefined || raw === "") {
     throw new Error(`${name} is required; start journeys through e2e/run.sh`);
@@ -39,21 +59,25 @@ export function requiredE2ePort(name: string): number {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`${name} must be a host TCP port, got ${JSON.stringify(raw)}`);
   }
+  if (port !== context.ports[portName]) {
+    throw new Error(
+      `${name} must equal the owned ${portName} port ${context.ports[portName]}`,
+    );
+  }
   return port;
 }
 
 /** `127.0.0.1:<port>` for process listen addresses. */
-export function e2eListenAddr(name: string, fallback: number): string {
-  return `127.0.0.1:${e2ePort(name, fallback)}`;
+export function e2eListenAddr(name: string): string {
+  return `127.0.0.1:${e2ePort(name)}`;
 }
 
 /** `http://127.0.0.1:<port><suffix>` for local HTTP clients. */
 export function e2eHttpUrl(
   name: string,
-  fallback: number,
   suffix = "",
 ): string {
-  return `http://127.0.0.1:${e2ePort(name, fallback)}${suffix}`;
+  return `http://127.0.0.1:${e2ePort(name)}${suffix}`;
 }
 
 const defaultIdentityAdminToken = "e2e-identity-admin";
@@ -94,9 +118,8 @@ export function e2eWhatsAppDoorE164(): string {
 export function e2ePostgresUrl(
   user: string,
   password: string,
-  fallbackPort: number,
 ): string {
-  return `postgres://${user}:${password}@127.0.0.1:${e2ePort("ZOEN_E2E_POSTGRES_PORT", fallbackPort)}/zoen`;
+  return `postgres://${user}:${password}@127.0.0.1:${e2ePort("ZOEN_E2E_POSTGRES_PORT")}/zoen`;
 }
 
 /** Environment inputs SQLx/libpq must never inherit in the projection process. */
@@ -142,13 +165,8 @@ export function e2eArtifactsDirectory(
   repositoryRoot: string,
   scenario: string,
 ): string {
-  const override = process.env.ZOEN_E2E_ARTIFACTS_DIR;
-  if (override !== undefined && override !== "") {
-    return path.isAbsolute(override)
-      ? override
-      : path.join(repositoryRoot, override);
-  }
-  return path.join(repositoryRoot, "artifacts", scenario);
+  const context = matchingJourneyContext(repositoryRoot, scenario);
+  return context.paths.artifacts;
 }
 
 /**
@@ -160,34 +178,8 @@ export function e2eGeneratedDirectory(
   repositoryRoot: string,
   scenario: string,
 ): string {
-  const override = process.env.ZOEN_E2E_GENERATED_DIR;
-  if (override !== undefined && override !== "") {
-    return path.isAbsolute(override)
-      ? override
-      : path.join(repositoryRoot, override);
-  }
-  return path.join(repositoryRoot, "e2e", scenario, ".generated");
-}
-
-/**
- * Emit a TypeScript project through its own tsconfig.
- * Credential fiscal compiles `archive/domain/fiscal-brazil` when that tree is checked out.
- */
-export function compileArchivedTsconfig(
-  repositoryRoot: string,
-  tsconfigRelative: string,
-): void {
-  execFileSync(
-    process.execPath,
-    [
-      path.join(repositoryRoot, "node_modules", "typescript", "bin", "tsc"),
-      "-p",
-      path.join(repositoryRoot, tsconfigRelative),
-      "--pretty",
-      "false",
-    ],
-    { cwd: repositoryRoot, stdio: "inherit" },
-  );
+  const context = matchingJourneyContext(repositoryRoot, scenario);
+  return context.paths.generated;
 }
 
 /** Write `artifacts/<scenario>/<scenario>.json` and return the path. */
@@ -199,7 +191,13 @@ export async function writeScenarioArtifact(
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${scenario} artifact must be a JSON object`);
   }
+  const context = matchingJourneyContext(repositoryRoot, scenario);
   const sourceCommit = gitHead(repositoryRoot);
+  if (sourceCommit !== context.sourceSha) {
+    throw new Error(
+      `${scenario} run source ${context.sourceSha} does not match HEAD ${sourceCommit}`,
+    );
+  }
   const providedSourceCommitAlias = hasSourceCommitAlias(value);
   const providedSourceCommit = exactSourceCommit(value, sourceCommitKeys);
   if (providedSourceCommitAlias && providedSourceCommit !== sourceCommit) {
@@ -210,28 +208,19 @@ export async function writeScenarioArtifact(
   const directory = e2eArtifactsDirectory(repositoryRoot, scenario);
   await mkdir(directory, { recursive: true });
   const outputPath = path.join(directory, `${scenario}.json`);
-  const context = optionalJourneyRunContext();
-  if (context !== undefined && context.scenario !== scenario) {
-    throw new Error(
-      `run context scenario ${context.scenario} cannot publish ${scenario} evidence`,
-    );
-  }
   if (Object.hasOwn(value, "journeyRun")) {
     throw new Error(`${scenario} artifact must not provide journeyRun provenance`);
   }
-  const journeyRun =
-    context === undefined
-      ? undefined
-      : {
-          attempt: context.attempt,
-          buildIdentity: context.buildIdentity,
-          runId: context.runId,
-          suiteId: context.suiteId,
-        };
+  const journeyRun = {
+    attempt: context.attempt,
+    buildIdentity: context.buildIdentity,
+    runId: context.runId,
+    suiteId: context.suiteId,
+  };
   const serialized = JSON.stringify(
     {
       ...value,
-      ...(journeyRun === undefined ? {} : { journeyRun }),
+      journeyRun,
       sourceCommit,
     },
     null,
@@ -256,14 +245,23 @@ export async function writeScenarioArtifact(
   } finally {
     await handle.close();
   }
-  if (context === undefined) {
-    await rename(temporary, outputPath);
-  } else {
-    try {
-      await link(temporary, outputPath);
-    } finally {
-      await unlink(temporary);
-    }
+  try {
+    await link(temporary, outputPath);
+  } finally {
+    await unlink(temporary);
   }
   return outputPath;
+}
+
+function matchingJourneyContext(repositoryRoot: string, scenario: string) {
+  const context = journeyRunContext();
+  if (
+    context.paths.repository !== path.resolve(repositoryRoot) ||
+    context.scenario !== scenario
+  ) {
+    throw new Error(
+      `run context ${context.paths.repository}/${context.scenario} cannot serve ${repositoryRoot}/${scenario}`,
+    );
+  }
+  return context;
 }

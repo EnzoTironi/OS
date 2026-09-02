@@ -27,52 +27,27 @@ import {
 import { composeArguments } from "./journey-run-context.js";
 
 export const repositoryRoot = process.cwd();
-const postgresPortFallback = 55_441;
-const zoendPortFallback = 58_111;
-const restateIngressFallback = 58_112;
-const restateUiFallback = 59_071;
-const connectorPortFallback = 58_113;
-const providerPortFallback = 58_114;
-const workerPortFallback = 58_115;
-const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-const connectorPort = e2ePort("ZOEN_E2E_CONNECTOR_PORT", connectorPortFallback);
-const providerPort = e2ePort(
-  "ZOEN_E2E_EFFECT_PROVIDER_PORT",
-  e2ePort("ZOEN_E2E_PROVIDER_PORT", providerPortFallback),
-);
-const workerPort = e2ePort(
-  "ZOEN_E2E_EFFECT_WORKER_PORT",
-  e2ePort("ZOEN_E2E_WORKER_PORT", workerPortFallback),
-);
-export const applicationDatabaseUrl = e2ePostgresUrl(
-  "zoen_app",
-  "zoen_app",
-  postgresPortFallback,
-);
-export const adminDatabaseUrl = e2ePostgresUrl(
-  "postgres",
-  "postgres",
-  postgresPortFallback,
-);
-export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
-export const zoenBaseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT");
+const connectorPort = e2ePort("ZOEN_E2E_CONNECTOR_PORT");
+const providerPort = e2ePort("ZOEN_E2E_EFFECT_PROVIDER_PORT");
+const workerPort = e2ePort("ZOEN_E2E_EFFECT_WORKER_PORT");
+export const applicationDatabaseUrl = e2ePostgresUrl("zoen_app", "zoen_app");
+export const adminDatabaseUrl = e2ePostgresUrl("postgres", "postgres");
+export const authDatabaseUrl = e2eAuthDatabaseUrl();
+export const zoenBaseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
 
 export const restateIngress = e2eHttpUrl(
   "ZOEN_E2E_RESTATE_INGRESS_PORT",
-  restateIngressFallback,
 );
 export const restateAdmin = e2eHttpUrl(
   "ZOEN_E2E_RESTATE_UI_PORT",
-  restateUiFallback,
 );
 export const connectorUrl = e2eHttpUrl(
   "ZOEN_E2E_CONNECTOR_PORT",
-  connectorPortFallback,
   "/v1/effects",
 );
 export const providerUrl = e2eHttpUrl(
   "ZOEN_E2E_EFFECT_PROVIDER_PORT",
-  providerPort,
   "/v1/operations",
 );
 export const connectorCallerToken = "connector-worker-token";
@@ -154,7 +129,7 @@ export async function startZoend(policyManifestPath: string): Promise<ManagedPro
       ZOEN_AUTH_DATABASE_URL: authDatabaseUrl,
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
       ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
-      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
+      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT"),
     },
     name: "zoend",
     port: zoendPort,
@@ -200,7 +175,6 @@ export async function startConnector(options?: {
       ZOEN_CONNECTOR_CALLER_TOKEN: connectorCallerToken,
       ZOEN_CONNECTOR_LISTEN_ADDR: e2eListenAddr(
         "ZOEN_E2E_CONNECTOR_PORT",
-        connectorPortFallback,
       ),
       ZOEN_CONNECTOR_PROVIDER_TIMEOUT_MS: (
         options?.timeoutMs ?? 250
@@ -307,7 +281,7 @@ export async function setProviderMode(
     | "unavailable",
 ): Promise<void> {
   const response = await fetch(
-    `${e2eHttpUrl("ZOEN_E2E_EFFECT_PROVIDER_PORT", providerPort)}/control`,
+    `${e2eHttpUrl("ZOEN_E2E_EFFECT_PROVIDER_PORT")}/control`,
     {
       body: JSON.stringify({ mode }),
       headers: { "content-type": "application/json" },
@@ -321,7 +295,7 @@ export async function providerOperation(
   idempotencyKey: string,
 ): Promise<ProviderOperation | undefined> {
   const response = await fetch(
-    `${e2eHttpUrl("ZOEN_E2E_EFFECT_PROVIDER_PORT", providerPort)}/v1/operations/by-idempotency/${encodeURIComponent(idempotencyKey)}`,
+    `${e2eHttpUrl("ZOEN_E2E_EFFECT_PROVIDER_PORT")}/v1/operations/by-idempotency/${encodeURIComponent(idempotencyKey)}`,
     { headers: { authorization: "Bearer provider-secret" } },
   );
   if (response.status === 404) {
@@ -361,17 +335,17 @@ export async function stopRestate(): Promise<void> {
 
 export async function startRestate(): Promise<void> {
   await compose("start", "restate");
-  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
+  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT"));
   await waitForPort(
-    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
+    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT"),
   );
 }
 
 export async function restartRestate(): Promise<void> {
   await compose("restart", "restate");
-  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
+  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT"));
   await waitForPort(
-    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
+    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT"),
   );
 }
 

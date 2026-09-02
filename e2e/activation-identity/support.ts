@@ -3,7 +3,7 @@ import { createConnectTransport } from "@connectrpc/connect-node";
 import { HistoryService } from "../../gen/connect/zoen/history/v1/history_pb.js";
 import { e2eHttpUrl } from "../host-env.js";
 
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_401);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
 
 export type HistoryClient = Client<typeof HistoryService>;
 

@@ -82,27 +82,15 @@ export const definitionId = "inventory.definition";
 export const resourceId = "inventory.item.1";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
-const postgresPortFallback = 55_438;
-const zoendPortFallback = 58_089;
-const minioPortFallback = 59_005;
-const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const adminDatabaseUrl = e2ePostgresUrl(
-  "postgres",
-  "postgres",
-  postgresPortFallback,
-);
-const applicationDatabaseUrl = e2ePostgresUrl(
-  "zoen_app",
-  "zoen_app",
-  postgresPortFallback,
-);
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT");
+export const adminDatabaseUrl = e2ePostgresUrl("postgres", "postgres");
+const applicationDatabaseUrl = e2ePostgresUrl("zoen_app", "zoen_app");
 const projectionDatabaseUrl = e2ePostgresUrl(
   "zoen_projection",
   "zoen_projection",
-  postgresPortFallback,
 );
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
+export const authDatabaseUrl = e2eAuthDatabaseUrl();
 export const zoendBaseUrl = baseUrl;
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
 const workerPath = path.join(
@@ -432,7 +420,6 @@ export async function startServer(
         ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
         ZOEN_LISTEN_ADDR: e2eListenAddr(
           "ZOEN_E2E_ZOEND_PORT",
-          zoendPortFallback,
         ),
       },
     }),
@@ -541,7 +528,7 @@ function projectionEnvironment(): NodeJS.ProcessEnv {
     S3_ACCESS_KEY_ID: "zoen-access",
     S3_ALLOW_HTTP: "true",
     S3_BUCKET: "zoen-projections",
-    S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT", minioPortFallback),
+    S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT"),
     S3_REGION: "us-east-1",
     S3_SECRET_ACCESS_KEY: "zoen-secret",
     ZOEN_PROJECTION_DATABASE_URL: projectionDatabaseUrl,

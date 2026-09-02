@@ -80,10 +80,9 @@ const signupBodySchema = z
   })
   .passthrough();
 
-export function e2eAuthDatabaseUrl(postgresPortFallback: number): string {
+export function e2eAuthDatabaseUrl(): string {
   return `postgres://postgres:postgres@127.0.0.1:${e2ePort(
     "ZOEN_E2E_POSTGRES_PORT",
-    postgresPortFallback,
   )}/zoen_auth`;
 }
 
@@ -163,6 +162,11 @@ export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> 
   if (!existsSync(path.join(authRoot, "node_modules", "better-auth"))) {
     throw new Error("missing apps/auth dependencies; run just prepare before journeys");
   }
+  const authModule = path.join(authRoot, "dist", "auth.mjs");
+  const serverModule = path.join(authRoot, "dist", "server.mjs");
+  if (!existsSync(authModule) || !existsSync(serverModule)) {
+    throw new Error("missing prepared Auth JavaScript; run just prepare before journeys");
+  }
   await ensureAuthDatabase(authDatabaseUrl);
   const port = requiredE2ePort("ZOEN_E2E_AUTH_PORT");
   const origin = `http://127.0.0.1:${port}`;
@@ -175,13 +179,13 @@ export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> 
   const env = doorEnv(authDatabaseUrl, secret, origin, port);
   execFileSync(
     path.join(authRoot, "node_modules", ".bin", "auth"),
-    ["migrate", "--config", "src/auth.ts", "--yes"],
+    ["migrate", "--config", authModule, "--yes"],
     { cwd: authRoot, env, stdio: "inherit" },
   );
   const output: string[] = [];
   const child = spawn(
     process.execPath,
-    [path.join(authRoot, "node_modules", "tsx", "dist", "cli.mjs"), "src/server.ts"],
+    [serverModule],
     {
       cwd: authRoot,
       env,

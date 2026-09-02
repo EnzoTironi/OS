@@ -44,7 +44,7 @@ export function gitHead(repositoryRoot: string): string {
   const head = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], {
     cwd: repositoryRoot,
     encoding: "utf8",
-    env: { PATH: "/usr/bin:/bin" },
+    env: { LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
   }).trim();
   if (exactGitObjectId(head) === null) {
     throw new Error(`git returned an invalid HEAD: ${JSON.stringify(head)}`);

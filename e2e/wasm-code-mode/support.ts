@@ -86,7 +86,7 @@ const fixtureDirectory = path.join(
   "wasm-code-mode",
   "fixtures",
 );
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
 
 export type ComputationClient = Client<typeof ComputationService>;
 

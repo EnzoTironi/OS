@@ -4,6 +4,7 @@ import { mkdir, open, readFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
+import { journeyPortSlotCount } from "./journey-runtime-layout.js";
 
 const idSchema = z
   .string()
@@ -59,11 +60,16 @@ export const journeyRunContextSchema = z
       .object({
         directory: absolutePathSchema,
         ownerToken: z.string().regex(/^[0-9a-f]{64}$/),
-        slot: z.number().int().nonnegative(),
+        slot: z.number().int().min(0).max(journeyPortSlotCount - 1),
       })
       .strict(),
     owner: z
-      .object({ pid: z.number().int().positive(), startedAt: z.string().min(1) })
+      .object({
+        guardianPid: z.number().int().positive(),
+        nonce: z.string().regex(/^[0-9a-f]{64}$/),
+        pgid: z.number().int().positive(),
+        pid: z.number().int().positive(),
+      })
       .strict(),
     paths: z
       .object({
@@ -113,14 +119,6 @@ export function journeyRunContext(): JourneyRunContext {
   const parsed: unknown = JSON.parse(readFileSync(contextPath, "utf8"));
   cachedContext = journeyRunContextSchema.parse(parsed);
   return cachedContext;
-}
-
-export function optionalJourneyRunContext(): JourneyRunContext | undefined {
-  const contextPath = process.env.ZOEN_E2E_CONTEXT_FILE;
-  if (contextPath === undefined || contextPath === "") {
-    return undefined;
-  }
-  return journeyRunContext();
 }
 
 export function journeyPort(name: JourneyPortName): number {

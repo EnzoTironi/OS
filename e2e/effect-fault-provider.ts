@@ -35,7 +35,7 @@ interface StoredOperation {
 }
 
 const listenAddress = "127.0.0.1";
-const listenPort = e2ePort("ZOEN_E2E_PROVIDER_PORT", 58_114);
+const listenPort = e2ePort("ZOEN_E2E_PROVIDER_PORT");
 const operationsById = new Map<string, StoredOperation>();
 const operationsByKey = new Map<string, StoredOperation>();
 let mode: FaultMode = "confirmed";

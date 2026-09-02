@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx src/server.ts"
+    "build": "tsc -p tsconfig.json --noEmit && esbuild src/auth.ts src/server.ts --bundle --platform=node --format=esm --packages=external --outdir=dist --out-extension:.js=.mjs",
+    "start": "node dist/server.mjs"
   },
   "dependencies": {
     "auth": "1.7.2",
@@ -14,6 +15,7 @@
   "devDependencies": {
     "@types/node": "22.18.6",
     "@types/pg": "8.15.5",
+    "esbuild": "0.25.12",
     "typescript": "5.9.2"
   }
 }

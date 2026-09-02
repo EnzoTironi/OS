@@ -56,21 +56,11 @@ const fixtureDirectory = path.join(
   "definitions",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
-const postgresPortFallback = 55_432;
-const zoendPortFallback = 58_080;
-const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-const applicationDatabaseUrl = e2ePostgresUrl(
-  "zoen_app",
-  "zoen_app",
-  postgresPortFallback,
-);
-const adminDatabaseUrl = e2ePostgresUrl(
-  "postgres",
-  "postgres",
-  postgresPortFallback,
-);
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT");
+const applicationDatabaseUrl = e2ePostgresUrl("zoen_app", "zoen_app");
+const adminDatabaseUrl = e2ePostgresUrl("postgres", "postgres");
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
+const authDatabaseUrl = e2eAuthDatabaseUrl();
 const generatedDirectory = e2eGeneratedDirectory(
   repositoryRoot,
   "definition-publication",
@@ -1011,7 +1001,6 @@ async function startServer(policyManifestPath: string): Promise<ServerProcess> {
         ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
         ZOEN_LISTEN_ADDR: e2eListenAddr(
           "ZOEN_E2E_ZOEND_PORT",
-          zoendPortFallback,
         ),
       },
     }),

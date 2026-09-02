@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { writeScenarioArtifact } from "./host-env.js";
+import { e2eHttpUrl, writeScenarioArtifact } from "./host-env.js";
 
 const scenario = "cli-dest";
 const repositoryRoot = process.cwd();
@@ -74,7 +74,7 @@ function cliEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     ZOEN_DEFINITION_REVISION: "1",
     ZOEN_TENANT: "tenant.a",
     ZOEN_VALID_AT: "2026-01-15T00:00:00Z",
-    ZOEN_ZOEND: "http://127.0.0.1:58080",
+    ZOEN_ZOEND: e2eHttpUrl("ZOEN_E2E_ZOEND_PORT"),
     ...extra,
   };
 }
@@ -754,7 +754,7 @@ async function main(): Promise<void> {
 
   const identityOnly = { ...cliEnv() };
   delete identityOnly.ZOEN_ZOEND;
-  identityOnly.ZOEN_IDENTITY_BASE_URL = "http://127.0.0.1:58080";
+  identityOnly.ZOEN_IDENTITY_BASE_URL = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
   const identityAlias = runZoen(
     [
       "action",

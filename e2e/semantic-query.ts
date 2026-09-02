@@ -84,19 +84,14 @@ const cargoTargetDir = (() => {
 })();
 const serverPath = path.join(cargoTargetDir, "debug", "zoen");
 const workerPath = path.join(cargoTargetDir, "debug", "zoen-projection");
-const postgresPortFallback = 55_433;
-const zoendPortFallback = 58_081;
-const minioPortFallback = 59_000;
-const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT");
 const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
   "zoen_app",
-  postgresPortFallback,
 );
 const projectionDatabaseUrl = e2ePostgresUrl(
   "zoen_projection",
   "zoen_projection",
-  postgresPortFallback,
 );
 const projectionAuthDatabaseUrl = projectionDatabaseUrl.replace(
   /\/zoen$/,
@@ -105,10 +100,9 @@ const projectionAuthDatabaseUrl = projectionDatabaseUrl.replace(
 const adminDatabaseUrl = e2ePostgresUrl(
   "postgres",
   "postgres",
-  postgresPortFallback,
 );
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
+const authDatabaseUrl = e2eAuthDatabaseUrl();
 const tenantA = "tenant.a";
 const tenantB = "tenant.b";
 const entityId = "entity.item";
@@ -1522,7 +1516,6 @@ async function startServer(policyManifestPath: string): Promise<ServerProcess> {
         ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
         ZOEN_LISTEN_ADDR: e2eListenAddr(
           "ZOEN_E2E_ZOEND_PORT",
-          zoendPortFallback,
         ),
       },
     }),
@@ -1588,7 +1581,7 @@ function workerEnvironment(): NodeJS.ProcessEnv {
     S3_ACCESS_KEY_ID: "zoen-access",
     S3_ALLOW_HTTP: "true",
     S3_BUCKET: "zoen-projections",
-    S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT", minioPortFallback),
+    S3_ENDPOINT: e2eHttpUrl("ZOEN_E2E_MINIO_PORT"),
     S3_REGION: "us-east-1",
     S3_SECRET_ACCESS_KEY: "zoen-secret",
   };
@@ -1737,7 +1730,6 @@ async function assertProjectionStartupFailsClosed(
       ZOEN_PROJECTION_DATABASE_URL: e2ePostgresUrl(
         "zoen_projection",
         "wrong-password",
-        postgresPortFallback,
       ),
     }),
     /failed to connect to PostgreSQL|password authentication failed/i,

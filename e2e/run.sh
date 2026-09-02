@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" != "--zoen-script-owner-token" ]]; then
+  script_owner_token="$(
+    node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))'
+  )"
+  exec /bin/bash "${BASH_SOURCE[0]}" \
+    --zoen-script-owner-token "$script_owner_token" "$@"
+fi
+script_owner_token="${2:-}"
+if [[ ! "$script_owner_token" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "invalid journey script owner token" >&2
+  exit 2
+fi
+shift 2
+
+if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+  echo "CARGO_TARGET_DIR is unsupported for journeys; prepared launchables live in target/debug" >&2
+  exit 2
+fi
+
 # `prepare` is the only phase allowed to install, generate, check, or build.
 # Each `run` leases all of its mutable runtime state before loading a scenario.
 
@@ -14,15 +33,106 @@ runner=""
 prepare_realm=""
 context_file=""
 result_marked="false"
-prepare_lock_token=""
-pool_weight=0
-suite_failed="false"
-pool_pids=()
-pool_weights=()
-pool_names=()
+bootstrap_reader_token=""
+suite_reader_token=""
+verified_build_identity=""
+journey_owner_pid="${ZOEN_E2E_LIFECYCLE_OWNER_PID:-$$}"
+journey_owner_nonce="${ZOEN_E2E_LIFECYCLE_OWNER_NONCE:-$script_owner_token}"
 
 registry() {
   node e2e/scenario-registry.mjs "$@"
+}
+
+runtime() {
+  local runtime_owner_nonce
+  runtime_owner_nonce="$(
+    node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))'
+  )"
+  node dist/e2e/journey-runtime.js "$@" \
+    --runtime-owner-nonce "$runtime_owner_nonce"
+}
+
+reader_shim() {
+  node e2e/prepare-lock.mjs "$@"
+}
+
+verify_prepared_artifacts() {
+  local manifest="${ZOEN_E2E_BUILD_MANIFEST:-.cache/e2e/prepared.json}"
+  verified_build_identity="$(
+    node e2e/prepared-artifacts.mjs verify \
+      --repository "$PWD" \
+      --manifest "$manifest"
+  )"
+  if [[ ! "$verified_build_identity" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "prepared artifact verifier returned an invalid build identity" >&2
+    return 1
+  fi
+}
+
+acquire_journey_reader() {
+  local lease_context="${1:-}"
+  local reader_arguments=(
+    reader-acquire
+    --kind journey
+    --owner-pid "$journey_owner_pid"
+    --owner-pgid "${ZOEN_E2E_LIFECYCLE_OWNER_PGID:-$journey_owner_pid}"
+    --owner-nonce "$journey_owner_nonce"
+  )
+  if [[ -n "${ZOEN_E2E_LIFECYCLE_GUARDIAN_PID:-}" ]]; then
+    reader_arguments+=(--guardian-pid "$ZOEN_E2E_LIFECYCLE_GUARDIAN_PID")
+  fi
+  if [[ -n "${ZOEN_E2E_SUITE_READER_TOKEN:-}" ]]; then
+    reader_arguments+=(--parent-token "$ZOEN_E2E_SUITE_READER_TOKEN")
+  fi
+  if [[ -n "$lease_context" ]]; then
+    reader_arguments+=(--lease-context "$lease_context")
+  fi
+  bootstrap_reader_token="$(reader_shim "${reader_arguments[@]}")"
+}
+
+release_journey_reader() {
+  local status=0
+  if [[ -z "$bootstrap_reader_token" ]]; then
+    return 0
+  fi
+  reader_shim reader-release \
+    --reader-token "$bootstrap_reader_token" \
+    --owner-pid "$journey_owner_pid" \
+    --owner-nonce "$journey_owner_nonce" || status=$?
+  if [[ "$status" -eq 0 ]]; then
+    bootstrap_reader_token=""
+  fi
+  return "$status"
+}
+
+acquire_suite_reader() {
+  local reader_arguments=(
+    reader-acquire
+    --kind suite
+    --owner-pid "$$"
+    --owner-nonce "$script_owner_token"
+  )
+  if [[ -n "${ZOEN_E2E_SUITE_READER_TOKEN:-}" ]]; then
+    reader_arguments+=(--parent-token "$ZOEN_E2E_SUITE_READER_TOKEN")
+  fi
+  suite_reader_token="$(reader_shim "${reader_arguments[@]}")"
+  export ZOEN_E2E_SUITE_READER_TOKEN="$suite_reader_token"
+}
+
+release_suite_reader() {
+  local status=0
+  if [[ -z "$suite_reader_token" ]]; then
+    return 0
+  fi
+  reader_shim reader-release \
+    --reader-token "$suite_reader_token" \
+    --owner-pid "$$" \
+    --owner-nonce "$script_owner_token" || status=$?
+  if [[ "$status" -eq 0 ]]; then
+    suite_reader_token=""
+    unset ZOEN_E2E_SUITE_READER_TOKEN
+  fi
+  return "$status"
 }
 
 usage() {
@@ -32,6 +142,7 @@ usage() {
   echo "       just e2e <scenario>" >&2
   echo "       just e2e-parallel" >&2
   echo "       just verify-v1 | verify-activation" >&2
+  echo "       ./e2e/run.sh verify-runtime-proof --proof PATH --expected-source SHA" >&2
   echo "scenarios: $(registry names all)" >&2
   exit 2
 }
@@ -50,23 +161,29 @@ resolve_scenario() {
   runner="dist/e2e/${scenario}.js"
   prepare_realm=""
   if [[ "$scenario_class" == "credential" && -n "$realm" ]]; then
-    prepare_realm="e2e/${realm}/prepare-realm.mjs"
+    prepare_realm="dist/e2e/realms/${realm}.mjs"
   fi
 }
 
-load_scenario_defaults() {
-  if [[ "$compose_kind" != "compose" ]]; then
-    return
-  fi
-  local env_file="e2e/${scenario}/.env"
-  if [[ ! -f "$env_file" ]]; then
-    echo "missing ${env_file}" >&2
-    exit 1
-  fi
-  set -a
-  # shellcheck disable=SC1090
-  source "$env_file"
-  set +a
+prepare_fiscal_realms() {
+  mkdir -p dist/e2e/realms
+  local realm
+  while IFS= read -r realm; do
+    if [[ ! -f "e2e/${realm}/prepare-realm.mjs" ]]; then
+      echo "missing credential realm generator e2e/${realm}/prepare-realm.mjs" >&2
+      exit 1
+    fi
+    install -m 0644 \
+      "e2e/${realm}/prepare-realm.mjs" \
+      "dist/e2e/realms/${realm}.mjs"
+  done < <(
+    node -e '
+      const scenarios = require("./e2e/scenarios.json");
+      for (const scenario of scenarios) {
+        if (typeof scenario.realm === "string") process.stdout.write(`${scenario.realm}\n`);
+      }
+    '
+  )
 }
 
 run_lint() {
@@ -76,6 +193,7 @@ run_lint() {
   fi
   npm ci
   npm ci --prefix apps/auth
+  npm run build --prefix apps/auth
   npm run buf:lint
   npm run buf:breaking
   npm run buf:generate
@@ -96,6 +214,7 @@ run_lint() {
     exit 1
   fi
   npm run build
+  prepare_fiscal_realms
   npm run lint:ts
   node scripts/generate-jcs-fixtures.mjs --check
   node scripts/check-canonical-json.mjs
@@ -106,7 +225,6 @@ run_lint() {
     RUSTC_WRAPPER="" RUSTC_WORKSPACE_WRAPPER="" \
     cargo test --locked --workspace --target-dir target/gates
   test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
-  ./e2e/assert-unique-ports.sh
 }
 
 run_clippy() {
@@ -161,46 +279,62 @@ run_native_build() {
 }
 
 mark_prepared() {
-  node dist/e2e/journey-runtime.js mark-prepared >/dev/null
+  if [[ -z "${ZOEN_E2E_PREPARE_OWNER_PID:-}" || -z "${ZOEN_E2E_PREPARE_OWNER_NONCE:-}" ]]; then
+    echo "mark-prepared requires the active shared preparation writer" >&2
+    exit 1
+  fi
+  runtime mark-prepared \
+    --writer-pid "$ZOEN_E2E_PREPARE_OWNER_PID" \
+    --writer-nonce "$ZOEN_E2E_PREPARE_OWNER_NONCE" >/dev/null
+}
+
+prepare_fiscal_archive() {
+  local fiscal_tsconfig="archive/domain/fiscal-brazil/tsconfig.json"
+  if [[ -f "$fiscal_tsconfig" ]]; then
+    node node_modules/typescript/bin/tsc \
+      -p "$fiscal_tsconfig" --pretty false
+  fi
 }
 
 run_build_phase() {
   npm ci --prefix apps/auth
+  npm run build --prefix apps/auth
   npm run buf:generate
   npm run build
+  prepare_fiscal_realms
+  prepare_fiscal_archive
   run_native_build
   mark_prepared
 }
 
 run_prepare_phase() {
   run_check
+  prepare_fiscal_archive
   run_native_build
   mark_prepared
 }
 
-release_prepare_lock() {
-  local token="$prepare_lock_token"
-  if [[ -z "$token" ]]; then
-    return
-  fi
-  prepare_lock_token=""
-  node e2e/prepare-lock.mjs release --token "$token"
+run_coverage_build_phase() {
+  npm run build
+  npm run build --prefix apps/auth
+  prepare_fiscal_realms
+  prepare_fiscal_archive
+  cargo build --locked --workspace
+  mark_prepared
 }
 
 with_prepare_lock() {
-  prepare_lock_token="$(node e2e/prepare-lock.mjs acquire --owner-pid "$$")"
-  trap release_prepare_lock EXIT
-  "$@"
-  release_prepare_lock
-  trap - EXIT
+  local phase="$1"
+  node e2e/prepare-lock.mjs run -- \
+    "${BASH_SOURCE[0]}" "_${phase}-body"
 }
 
 run_build() {
-  with_prepare_lock run_build_phase
+  with_prepare_lock build
 }
 
 run_prepare() {
-  with_prepare_lock run_prepare_phase
+  with_prepare_lock prepare
 }
 
 require_built() {
@@ -208,7 +342,7 @@ require_built() {
     echo "missing target/debug/zoen; run \`just build\` or \`just prepare\`" >&2
     exit 1
   fi
-  if [[ ! -f "$runner" || ! -f dist/e2e/journey-runtime.js || ! -f dist/e2e/journey-process-supervisor.js ]]; then
+  if [[ ! -f "$runner" || ! -f dist/e2e/journey-runtime.js || ! -f dist/e2e/journey-scenario-executor.js || ! -f dist/e2e/journey-pool.js ]]; then
     echo "missing built journey runtime; run \`just build\` or \`just prepare\`" >&2
     exit 1
   fi
@@ -220,6 +354,20 @@ require_built() {
     echo "missing apps/auth dependencies; run \`just prepare\`" >&2
     exit 1
   fi
+  if [[ "$compose_kind" == "compose" ]] && \
+    { [[ ! -f apps/auth/dist/auth.mjs ]] || [[ ! -f apps/auth/dist/server.mjs ]]; }; then
+    echo "missing prepared Auth JavaScript; run \`just prepare\`" >&2
+    exit 1
+  fi
+  if [[ "$scenario_class" == "credential" && ! -f dist/archive/domain/fiscal-brazil/src/adapter/main.js ]]; then
+    echo "missing prepared fiscal adapter JavaScript; check out the archive and run \`just prepare\`" >&2
+    exit 1
+  fi
+  if [[ -n "$prepare_realm" && ! -f "$prepare_realm" ]]; then
+    echo "missing prepared credential realm generator ${prepare_realm}; run \`just prepare\`" >&2
+    exit 1
+  fi
+  verify_prepared_artifacts
 }
 
 require_fiscal_live_environment() {
@@ -252,44 +400,12 @@ new_id() {
   node -e 'const { randomBytes } = require("node:crypto"); process.stdout.write(`${process.argv[1]}-${Date.now()}-${randomBytes(6).toString("hex")}`)' "$prefix"
 }
 
-compose_command() {
-  docker compose \
-    --project-name "$ZOEN_E2E_COMPOSE_PROJECT" \
-    --file "$ZOEN_E2E_COMPOSE_FILE" \
-    --file "$ZOEN_E2E_COMPOSE_OVERRIDE" \
-    "$@"
-}
-
-prepare_compose() {
-  local services
-  local volumes
-  services="$(
-    docker compose \
-      --project-name "$ZOEN_E2E_COMPOSE_PROJECT" \
-      --file "$ZOEN_E2E_COMPOSE_FILE" \
-      --profile tools \
-      config --services \
-      | paste -sd, -
-  )"
-  volumes="$(
-    docker compose \
-      --project-name "$ZOEN_E2E_COMPOSE_PROJECT" \
-      --file "$ZOEN_E2E_COMPOSE_FILE" \
-      --profile tools \
-      config --volumes \
-      | paste -sd, -
-  )"
-  node dist/e2e/journey-runtime.js write-compose-override \
-    --context "$context_file" \
-    --services "$services" \
-    --volumes "$volumes"
-}
-
 cleanup_scenario() {
   if [[ -z "$context_file" ]]; then
     return
   fi
-  node dist/e2e/journey-runtime.js cleanup --context "$context_file"
+  runtime cleanup --context "$context_file" \
+    --caller-pid "$$" --caller-nonce "$script_owner_token"
 }
 
 finish_scenario() {
@@ -297,71 +413,108 @@ finish_scenario() {
   local final_status="$original_status"
   trap - EXIT INT TERM
   if [[ -n "$context_file" && "$result_marked" != "true" ]]; then
-    node dist/e2e/journey-runtime.js mark-result \
+    runtime mark-result \
       --context "$context_file" --status failed >/dev/null 2>&1 || true
   fi
-  if ! cleanup_scenario; then
+  if ! release_journey_reader; then
     final_status=1
   fi
   exit "$final_status"
 }
 
 run_scenario() {
+  if [[ "${ZOEN_E2E_EXTERNAL_LIFECYCLE:-}" != "1" ]]; then
+    echo "internal journey execution requires its source lifecycle authority" >&2
+    exit 2
+  fi
   require_fiscal_live_environment
   if [[ "$compose_kind" == "compose" ]] && ! command -v docker >/dev/null 2>&1; then
     echo "e2e-run requires docker; prepare does not" >&2
     exit 1
   fi
+  acquire_journey_reader
+  result_marked="false"
+  trap finish_scenario EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   require_built
-  load_scenario_defaults
-
   local suite_id="${ZOEN_E2E_SUITE_ID:-$(new_id suite)}"
   local run_id="${ZOEN_E2E_RUN_ID:-$(new_id "$scenario")}"
   context_file="$(
-    node dist/e2e/journey-runtime.js allocate \
+    runtime allocate \
       --scenario "$scenario" \
       --suite-id "$suite_id" \
       --run-id "$run_id" \
       --compose "$([[ "$compose_kind" == "compose" ]] && echo true || echo false)" \
       --exclusive "$([[ "$scenario_class" == "credential" ]] && echo true || echo false)" \
-      --owner-pid "$$"
+      --owner-pid "$journey_owner_pid" \
+      --owner-pgid "${ZOEN_E2E_LIFECYCLE_OWNER_PGID:?}" \
+      --owner-guardian-pid "${ZOEN_E2E_LIFECYCLE_GUARDIAN_PID:?}" \
+      --owner-nonce "$journey_owner_nonce" \
+      --verified-build-identity "$verified_build_identity" \
+      --reader-token "$bootstrap_reader_token"
   )"
+  bootstrap_reader_token=""
   # Values originate from a validated context written by journey-runtime.
-  eval "$(node dist/e2e/journey-runtime.js shell-env --context "$context_file")"
-  result_marked="false"
-  trap finish_scenario EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+  eval "$(runtime shell-env --context "$context_file")"
+
+  if ! printf '%s\n' "$context_file" >&3; then
+    echo "could not publish the canonical journey context to its source authority" >&2
+    exit 1
+  fi
+  local authority_ack=""
+  if ! IFS= read -r authority_ack <&4 || [[ "$authority_ack" != "accepted" ]]; then
+    echo "journey source authority did not accept its canonical context" >&2
+    exit 1
+  fi
+  exec 3>&- 4<&-
+  verify_prepared_artifacts
+  if [[ "$verified_build_identity" != "$ZOEN_E2E_BUILD_IDENTITY" ]]; then
+    echo "prepared build changed between allocation and execution" >&2
+    exit 1
+  fi
 
   if [[ -n "${ZOEN_E2E_CONTEXT_POINTER:-}" ]]; then
-    node dist/e2e/journey-runtime.js write-pointer \
+    runtime write-pointer \
       --context "$context_file" --output "$ZOEN_E2E_CONTEXT_POINTER"
   fi
 
-  if [[ "$compose_kind" == "compose" ]]; then
-    prepare_compose
-    if [[ -n "$prepare_realm" ]]; then
-      node "$prepare_realm"
-    fi
-    compose_command up --detach --wait
-    if [[ "$minio_kind" == "minio" ]]; then
-      compose_command run --rm -T minio-client \
-        mb --ignore-existing local/zoen-projections
-    fi
-  fi
+  reader_shim journey-publish \
+    --context "$context_file" \
+    --owner-pgid "${ZOEN_E2E_LIFECYCLE_OWNER_PGID:?}" \
+    --leader-pid "${ZOEN_E2E_LIFECYCLE_LEADER_PID:?}" \
+    --guardian-pid "${ZOEN_E2E_LIFECYCLE_GUARDIAN_PID:?}" \
+    --owner-nonce "$journey_owner_nonce"
 
-  node dist/e2e/journey-process-supervisor.js --runner "$runner"
-  node dist/e2e/journey-runtime.js mark-result \
+  ZOEN_E2E_PREPARE_REALM="$prepare_realm" \
+    ZOEN_E2E_MINIO_KIND="$minio_kind" \
+    node dist/e2e/journey-scenario-executor.js
+  runtime mark-result \
     --context "$context_file" --status passed
   result_marked="true"
-  cleanup_scenario
-  context_file=""
   trap - EXIT INT TERM
 }
 
+run_journey_controller() {
+  resolve_scenario "$1"
+  require_fiscal_live_environment
+  exec node e2e/prepare-lock.mjs journey-run \
+    --owner-nonce "$script_owner_token" \
+    --scenario "$scenario"
+}
+
 aggregate_contexts() {
-  node dist/e2e/journey-runtime.js aggregate \
-    --suite-id "$1" --expected-scenarios "$2" --context-list "$3"
+  acquire_journey_reader
+  verify_prepared_artifacts
+  exec node dist/e2e/journey-runtime.js aggregate \
+    --suite-id "$1" \
+    --expected-scenarios "$2" \
+    --context-list "$3" \
+    --reader-token "$bootstrap_reader_token" \
+    --reader-owner-pid "$$" \
+    --reader-owner-nonce "$script_owner_token" \
+    --release-reader-token "$bootstrap_reader_token" \
+    --runtime-owner-nonce "$script_owner_token"
 }
 
 run_e2e() {
@@ -374,118 +527,53 @@ run_e2e() {
   local pointer="${suite_root}/${scenario}.pointer"
   local context_list="${suite_root}/contexts.list"
   mkdir -p "$suite_root"
+  acquire_suite_reader
+  trap release_suite_reader EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   ZOEN_E2E_SUITE_ID="$suite_id" \
     ZOEN_E2E_RUN_ID="$(new_id "$scenario")" \
     ZOEN_E2E_CONTEXT_POINTER="$pointer" \
-    run_scenario
+    /bin/bash "${BASH_SOURCE[0]}" run "$scenario"
   printf '%s\n' "$pointer" > "$context_list"
-  aggregate_contexts "$suite_id" "$scenario" "$context_list"
-}
-
-reap_completed() {
-  local reaped="false"
-  local index pid weight name
-  local remaining_pids=()
-  local remaining_weights=()
-  local remaining_names=()
-  for index in "${!pool_pids[@]}"; do
-    pid="${pool_pids[$index]}"
-    weight="${pool_weights[$index]}"
-    name="${pool_names[$index]}"
-    if kill -0 "$pid" 2>/dev/null; then
-      remaining_pids+=("$pid")
-      remaining_weights+=("$weight")
-      remaining_names+=("$name")
-      continue
-    fi
-    reaped="true"
-    if ! wait "$pid"; then
-      echo "journey ${name} failed" >&2
-      suite_failed="true"
-    fi
-    pool_weight=$((pool_weight - weight))
-  done
-  pool_pids=("${remaining_pids[@]}")
-  pool_weights=("${remaining_weights[@]}")
-  pool_names=("${remaining_names[@]}")
-  [[ "$reaped" == "true" ]]
-}
-
-terminate_pool() {
+  /bin/bash "${BASH_SOURCE[0]}" aggregate \
+    "$suite_id" "$scenario" "$context_list"
+  release_suite_reader
   trap - EXIT INT TERM
-  local pid
-  for pid in "${pool_pids[@]}"; do
-    kill -TERM "$pid" 2>/dev/null || true
-  done
-  for pid in "${pool_pids[@]}"; do
-    wait "$pid" 2>/dev/null || true
-  done
 }
 
 run_parallel_suite() {
-  local suite_id="${ZOEN_E2E_SUITE_ID:-$(new_id verify)}"
-  local suite_root=".cache/e2e/suites/${suite_id}"
-  local context_list="${suite_root}/contexts.list"
-  local expected
-  expected="$(registry names live | tr ' ' ',')"
-  mkdir -p "$suite_root"
+  acquire_suite_reader
+  verify_prepared_artifacts
+  exec node dist/e2e/journey-pool.js \
+    --zoen-suite-reader-token "$suite_reader_token" \
+    --zoen-suite-owner-nonce "$script_owner_token" \
+    -- "$@"
+}
 
-  local pool_capacity="${ZOEN_E2E_PARALLEL_WEIGHT:-4}"
-  local max_weight
-  max_weight="$(registry max-weight live)"
-  if [[ ! "$pool_capacity" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ZOEN_E2E_PARALLEL_WEIGHT must be a positive integer >= ${max_weight}" >&2
-    return 2
-  fi
-  pool_capacity=$((10#$pool_capacity))
-  if (( pool_capacity < max_weight )); then
-    echo "ZOEN_E2E_PARALLEL_WEIGHT must be a positive integer >= ${max_weight}" >&2
-    return 2
-  fi
-  pool_weight=0
-  suite_failed="false"
-  pool_pids=()
-  pool_weights=()
-  pool_names=()
-  local name klass kind weight selected_realm selected_minio
-  trap terminate_pool EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+cleanup_context() {
+  acquire_journey_reader "$1"
+  exec node dist/e2e/journey-runtime.js cleanup \
+    --context "$1" \
+    --caller-pid "$$" --caller-nonce "$script_owner_token" \
+    --release-reader-token "$bootstrap_reader_token" \
+    --runtime-owner-nonce "$script_owner_token"
+}
 
-  while IFS='|' read -r name klass kind weight selected_realm selected_minio _; do
-    if [[ "$klass" != "live" ]]; then
-      continue
-    fi
-    while (( pool_weight + weight > pool_capacity )) && (( ${#pool_pids[@]} > 0 )); do
-      if ! reap_completed; then
-        sleep 0.1
-      fi
-    done
-    local pointer="${suite_root}/${name}.pointer"
-    ZOEN_E2E_SUITE_ID="$suite_id" \
-      ZOEN_E2E_RUN_ID="$(new_id "$name")" \
-      ZOEN_E2E_CONTEXT_POINTER="$pointer" \
-      "${BASH_SOURCE[0]}" run "$name" &
-    pool_pids+=("$!")
-    pool_weights+=("$weight")
-    pool_names+=("$name")
-    pool_weight=$((pool_weight + weight))
-  done < <(registry rows live)
+reconcile_runtime() {
+  acquire_journey_reader
+  exec node dist/e2e/journey-runtime.js reconcile \
+    --release-reader-token "$bootstrap_reader_token" \
+    --runtime-owner-nonce "$script_owner_token"
+}
 
-  while (( ${#pool_pids[@]} > 0 )); do
-    if ! reap_completed; then
-      sleep 0.1
-    fi
-  done
-  if [[ "$suite_failed" == "true" ]]; then
-    return 1
-  fi
-  : > "$context_list"
-  for name in $(registry names live); do
-    printf '%s\n' "${suite_root}/${name}.pointer" >> "$context_list"
-  done
-  aggregate_contexts "$suite_id" "$expected" "$context_list"
-  trap - EXIT INT TERM
+resolve_context_pointer() {
+  acquire_journey_reader
+  verify_prepared_artifacts
+  exec node dist/e2e/journey-runtime.js resolve-pointer \
+    --pointer "$1" \
+    --release-reader-token "$bootstrap_reader_token" \
+    --runtime-owner-nonce "$script_owner_token"
 }
 
 run_verify() {
@@ -494,38 +582,116 @@ run_verify() {
 }
 
 run_verify_v1() {
-  if [[ ! -f node_modules/typescript/package.json ]]; then
-    npm ci
-  fi
-  npm exec -- tsc -p tsconfig.json --pretty false
-  node dist/e2e/verify-v1.js
+  run_read_only_verifier dist/e2e/verify-v1.js
 }
 
 run_verify_activation() {
-  if [[ ! -f node_modules/typescript/package.json ]]; then
-    npm ci
+  run_read_only_verifier dist/e2e/verify-activation.js
+}
+
+run_read_only_verifier() {
+  local verifier="$1"
+  acquire_journey_reader
+  local status=0
+  if [[ ! -f "$verifier" ]]; then
+    echo "missing prepared verifier ${verifier}; run \`just prepare\`" >&2
+    status=1
+  else
+    verify_prepared_artifacts
+    exec node "$verifier" \
+      --zoen-reader-token "$bootstrap_reader_token" \
+      --zoen-reader-owner-nonce "$script_owner_token"
   fi
-  npm exec -- tsc -p tsconfig.json --pretty false
-  node dist/e2e/verify-activation.js
+  release_journey_reader
+  return "$status"
+}
+
+run_runtime_proof() {
+  local proof_run_id="${ZOEN_E2E_PROOF_RUN_ID:-$(new_id runtime-proof)}"
+  local proof_root
+  proof_root="$(
+    reader_shim create-runtime-proof-root --proof-run-id "$proof_run_id"
+  )"
+  local crash_proof="${proof_root}/prepare-crash-proof.json"
+  reader_shim proof-crash-recovery --output "$crash_proof" >&2
+  acquire_suite_reader
+  verify_prepared_artifacts
+  ZOEN_E2E_PREPARE_CRASH_PROOF="$crash_proof" \
+    ZOEN_E2E_PROOF_RUN_ID="$proof_run_id" \
+    exec node dist/e2e/journey-runtime-proof.js \
+    --zoen-proof-reader-token "$suite_reader_token" \
+    --zoen-proof-owner-nonce "$script_owner_token"
+}
+
+run_runtime_proof_verifier() {
+  acquire_journey_reader
+  local status=0
+  if verify_prepared_artifacts; then
+    trap 'release_journey_reader' EXIT
+    exec node dist/e2e/verify-journey-runtime-proof.js "$@" \
+      --zoen-reader-token "$bootstrap_reader_token" \
+      --zoen-reader-owner-nonce "$script_owner_token"
+  else
+    status=$?
+  fi
+  local release_status=0
+  if release_journey_reader; then
+    :
+  else
+    release_status=$?
+    if [[ "$status" -eq 0 ]]; then
+      status="$release_status"
+    fi
+  fi
+  return "$status"
 }
 
 command="${1:-}"
 case "$command" in
-  lint) with_prepare_lock run_lint ;;
-  clippy) with_prepare_lock run_clippy ;;
-  check) with_prepare_lock run_check ;;
+  lint) with_prepare_lock lint ;;
+  clippy) with_prepare_lock clippy ;;
+  check) with_prepare_lock check ;;
   prepare) run_prepare ;;
   build) run_build ;;
   run | e2e-run)
+    run_journey_controller "${2:-}"
+    ;;
+  _run-owned)
     resolve_scenario "${2:-}"
     run_scenario
     ;;
   e2e) run_e2e "${2:-}" ;;
-  parallel | e2e-parallel) run_parallel_suite ;;
-  cleanup) node dist/e2e/journey-runtime.js cleanup --context "${2:-}" ;;
+  parallel | e2e-parallel)
+    shift
+    run_parallel_suite "$@"
+    ;;
+  aggregate) aggregate_contexts "${2:-}" "${3:-}" "${4:-}" ;;
+  cleanup) cleanup_context "${2:-}" ;;
+  reconcile) reconcile_runtime ;;
+  resolve-pointer) resolve_context_pointer "${2:-}" ;;
   verify) run_verify ;;
+  runtime-proof) run_runtime_proof ;;
+  verify-runtime-proof)
+    shift
+    run_runtime_proof_verifier "$@"
+    ;;
   verify-v1) run_verify_v1 ;;
   verify-activation) run_verify_activation ;;
+  coverage-build) with_prepare_lock coverage ;;
+  _lint-body | _clippy-body | _check-body | _prepare-body | _build-body | _coverage-body)
+    if [[ -z "${ZOEN_E2E_PREPARE_OWNER_PID:-}" || -z "${ZOEN_E2E_PREPARE_OWNER_NONCE:-}" ]]; then
+      echo "internal preparation phase requires the shared writer" >&2
+      exit 2
+    fi
+    case "$command" in
+      _lint-body) run_lint ;;
+      _clippy-body) run_clippy ;;
+      _check-body) run_check ;;
+      _prepare-body) run_prepare_phase ;;
+      _build-body) run_build_phase ;;
+      _coverage-body) run_coverage_build_phase ;;
+    esac
+    ;;
   -h | --help | help | "") usage ;;
   *) run_e2e "$command" ;;
 esac

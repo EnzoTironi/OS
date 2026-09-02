@@ -48,11 +48,7 @@ import {
   type DefinitionClient,
   type WorldClient,
 } from "./evolution-compatible/support.js";
-import {
-  compileArchivedTsconfig,
-  e2eHttpUrl,
-  e2ePort,
-} from "./host-env.js";
+import { e2eHttpUrl, e2ePort } from "./host-env.js";
 import { definitionPublishPolicy } from "./definition-publish-policy.js";
 import { journeyRunContext } from "./journey-run-context.js";
 
@@ -116,8 +112,8 @@ const fiscalPackageSourcePath = path.join(
   "fiscal-brazil.canonical.json",
 );
 const distDirectory = path.join(repositoryRoot, "dist");
-const zoenUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_271);
-const oidcTokenUrl = `${e2eHttpUrl("ZOEN_E2E_KEYCLOAK_PORT", 58_270)}/realms/zoen/protocol/openid-connect/token`;
+const zoenUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
+const oidcTokenUrl = `${e2eHttpUrl("ZOEN_E2E_KEYCLOAK_PORT")}/realms/zoen/protocol/openid-connect/token`;
 
 export async function oidcToken(clientId: string): Promise<string> {
   const response = await fetch(oidcTokenUrl, {
@@ -352,10 +348,6 @@ export async function startFiscalAdapter(input: {
     input.provider === "systax"
       ? { documents: {}, tax: route }
       : { documents: { "*": route } };
-  compileArchivedTsconfig(
-    repositoryRoot,
-    "archive/domain/fiscal-brazil/tsconfig.json",
-  );
   return startManagedProcess({
     arguments: [
       path.join(
@@ -456,11 +448,11 @@ function fiscalAdapterPort(
 ): number {
   switch (provider) {
     case "plugnotas":
-      return e2ePort("ZOEN_E2E_PLUGNOTAS_ADAPTER_PORT", 58_282);
+      return e2ePort("ZOEN_E2E_PLUGNOTAS_ADAPTER_PORT");
     case "protheus":
-      return e2ePort("ZOEN_E2E_PROTHEUS_ADAPTER_PORT", 58_283);
+      return e2ePort("ZOEN_E2E_PROTHEUS_ADAPTER_PORT");
     case "systax":
-      return e2ePort("ZOEN_E2E_SYSTAX_ADAPTER_PORT", 58_281);
+      return e2ePort("ZOEN_E2E_SYSTAX_ADAPTER_PORT");
     default: {
       const exhaustive: never = provider;
       throw new Error(`unsupported provider: ${String(exhaustive)}`);

@@ -74,21 +74,11 @@ export const permittedRequestId = "commercial.request.permitted";
 export const neighborRequestId = "commercial.request.neighbor";
 export const tenantA = "tenant.a";
 export const validAt = new Date("2026-08-21T12:00:00.000Z");
-const postgresPortFallback = 55_524;
-const zoendPortFallback = 58_721;
-const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const adminDatabaseUrl = e2ePostgresUrl(
-  "postgres",
-  "postgres",
-  postgresPortFallback,
-);
-export const applicationDatabaseUrl = e2ePostgresUrl(
-  "zoen_app",
-  "zoen_app",
-  postgresPortFallback,
-);
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
-export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
+const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT");
+export const adminDatabaseUrl = e2ePostgresUrl("postgres", "postgres");
+export const applicationDatabaseUrl = e2ePostgresUrl("zoen_app", "zoen_app");
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
+export const authDatabaseUrl = e2eAuthDatabaseUrl();
 export const zoendBaseUrl = baseUrl;
 const cargoTargetDir =
   process.env.CARGO_TARGET_DIR === undefined ||
@@ -303,7 +293,7 @@ export async function startServer(
       extra: {
         ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
         ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
-        ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
+        ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT"),
       },
     }),
     stdio: ["pipe", "pipe", "pipe"],

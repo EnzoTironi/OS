@@ -50,7 +50,7 @@ import {
 const scenario = "activation-identity";
 const repositoryRoot = process.cwd();
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_401);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
 let identityAdminBearer: string | undefined;
 const phoneSubject = "+5511999999999";
 const assertions: Record<string, boolean> = {};

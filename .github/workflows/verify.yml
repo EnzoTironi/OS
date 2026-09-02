@@ -112,6 +112,7 @@ jobs:
           name: e2e-binaries
           path: |
             dist/
+            apps/auth/dist/
             .cache/e2e/prepared.json
             target/debug/zoen
             target/debug/zoen-effect-dispatcher
@@ -119,7 +120,7 @@ jobs:
             target/debug/zoen-projection
 
   e2e:
-    needs: [check, clippy, build]
+    needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -142,9 +143,93 @@ jobs:
       - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection
       - run: ./e2e/run.sh run ${{ matrix.scenario }}
 
+  journey_runtime_proof:
+    name: journey-runtime-proof
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
+      - run: npm ci
+      - run: npm ci --prefix apps/auth
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-binaries
+      - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection
+      - id: runtime_proof
+        name: Run the idempotent parallel journey runtime proof
+        run: |
+          proof_path="$(./e2e/run.sh runtime-proof)"
+          if [[ -z "$proof_path" || "$proof_path" == *$'\n'* ]]; then
+            echo "runtime-proof must emit exactly one proof descriptor path" >&2
+            exit 1
+          fi
+          proof_path="$(realpath "$proof_path")"
+          case "$proof_path" in
+            "$GITHUB_WORKSPACE"/artifacts/runtime-proof/*/proof.json) ;;
+            *)
+              echo "runtime-proof emitted a descriptor outside artifacts/runtime-proof" >&2
+              exit 1
+              ;;
+          esac
+          proof_root="$(dirname "$proof_path")"
+          proof_run_id="$(basename "$proof_root")"
+          if [[ ! "$proof_run_id" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || \
+            [[ "$proof_path" != "$GITHUB_WORKSPACE/artifacts/runtime-proof/$proof_run_id/proof.json" ]]; then
+            echo "runtime-proof emitted an invalid proof run path" >&2
+            exit 1
+          fi
+          printf 'proof_path=%s\n' "$proof_path" >> "$GITHUB_OUTPUT"
+          printf 'proof_root=%s\n' "$proof_root" >> "$GITHUB_OUTPUT"
+          printf 'proof_run_id=%s\n' "$proof_run_id" >> "$GITHUB_OUTPUT"
+      - name: Verify exact proof provenance and write its digest
+        env:
+          PROOF_PATH: ${{ steps.runtime_proof.outputs.proof_path }}
+        run: |
+          node dist/e2e/verify-journey-runtime-proof.js \
+            --proof "$PROOF_PATH" \
+            --expected-source "$GITHUB_SHA"
+      - id: proof_artifact
+        if: always() && steps.runtime_proof.outputs.proof_root != ''
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          include-hidden-files: true
+          name: journey-runtime-proof-${{ github.sha }}-${{ steps.runtime_proof.outputs.proof_run_id }}
+          path: ${{ steps.runtime_proof.outputs.proof_root }}/
+      - name: Upload runtime-proof diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: warn
+          include-hidden-files: true
+          name: journey-runtime-proof-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            artifacts/runs/**/context.json
+            artifacts/runs/**/result.json
+            artifacts/runs/**/cleanup.json
+            artifacts/runs/**/logs/**
+            artifacts/runs/**/process/**
+            .cache/e2e/suites/
+      - name: Upload partial runtime-proof bundle
+        if: always() && steps.runtime_proof.outputs.proof_root == ''
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: warn
+          include-hidden-files: true
+          name: journey-runtime-proof-partial-${{ github.sha }}-${{ github.run_attempt }}
+          path: artifacts/runtime-proof/
+      - name: Record proof artifact digest
+        if: always() && steps.proof_artifact.outputs['artifact-digest'] != ''
+        run: echo "GitHub artifact SHA-256 ${{ steps.proof_artifact.outputs['artifact-digest'] }}" >> "$GITHUB_STEP_SUMMARY"
+
   required:
     if: always()
-    needs: [check, clippy, build, e2e]
+    needs: [check, clippy, build, e2e, journey_runtime_proof]
     runs-on: ubuntu-latest
     steps:
       - name: Require every gate
@@ -153,3 +238,4 @@ jobs:
           test "${{ needs.clippy.result }}" = "success"
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.e2e.result }}" = "success"
+          test "${{ needs.journey_runtime_proof.result }}" = "success"

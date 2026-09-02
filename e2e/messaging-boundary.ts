@@ -30,7 +30,7 @@ import {
 const scenario = "messaging-boundary";
 const repositoryRoot = process.cwd();
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
-const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_501);
+const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT");
 let identityAdminBearer: string | undefined;
 
 const telegramSubject = "tg_user_bound_1";

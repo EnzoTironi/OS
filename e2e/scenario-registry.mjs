@@ -19,7 +19,9 @@ const scenarios = parsed.map((entry) => {
     Array.isArray(entry) ||
     typeof entry.name !== "string" ||
     !namePattern.test(entry.name) ||
-    (entry.class !== "live" && entry.class !== "credential") ||
+    (entry.class !== "live" &&
+      entry.class !== "credential" &&
+      entry.class !== "static") ||
     typeof entry.compose !== "boolean" ||
     !Number.isInteger(entry.weight) ||
     entry.weight < 0 ||
@@ -34,8 +36,14 @@ const scenarios = parsed.map((entry) => {
   if (names.has(entry.name)) {
     throw new Error(`duplicate scenario registry entry: ${entry.name}`);
   }
-  if (entry.class === "credential" && entry.weight !== 4) {
-    throw new Error(`credential scenario ${entry.name} must remain exclusive`);
+  if (
+    (entry.class === "credential" && entry.weight !== 4) ||
+    (entry.class === "live" && entry.weight < 1) ||
+    (entry.class === "static" && entry.weight !== 0)
+  ) {
+    throw new Error(
+      `scenario ${entry.name} has invalid ${entry.class} weight ${entry.weight}`,
+    );
   }
   names.add(entry.name);
   return Object.freeze(entry);

@@ -104,7 +104,7 @@ async function main(): Promise<void> {
       adminToken: e2eIdentityAdminToken(),
       applicationDatabaseUrl: adminDatabaseUrl,
       personas: wasmCodeModePersonas,
-      zoendBaseUrl: e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
+      zoendBaseUrl: e2eHttpUrl("ZOEN_E2E_ZOEND_PORT"),
     });
     const agentAToken = sessionOf(planted, "agent-a").token;
     const agentBToken = sessionOf(planted, "agent-b").token;

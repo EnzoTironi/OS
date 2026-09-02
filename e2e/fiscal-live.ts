@@ -360,7 +360,7 @@ async function waitForAttempt(
 async function waitForTerminalStatus(idempotencyKey: string) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const response = await fetch(
-      `${e2eHttpUrl("ZOEN_E2E_CONNECTOR_PORT", 58_273)}/v1/effects/status`,
+      `${e2eHttpUrl("ZOEN_E2E_CONNECTOR_PORT")}/v1/effects/status`,
       {
         body: JSON.stringify({
           credentialRef: "secret.provider.a",
