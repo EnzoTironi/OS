@@ -41,6 +41,7 @@ WORKDIR /conversation
 COPY apps/conversation/package.json apps/conversation/package-lock.json ./
 RUN npm ci
 COPY apps/conversation/ ./
+COPY apps/shared /shared
 ENV ZOEN_MODEL=openai-compatible/hy3-free
 RUN node ./node_modules/eve/bin/eve.js build
 
@@ -66,6 +67,7 @@ COPY --from=conversation /usr/local/bin/node /usr/local/node24/bin/node
 COPY --from=conversation /conversation /conversation
 COPY --from=effect-worker /effect-worker /effect-worker
 COPY gen/connect /gen/connect
+COPY apps/shared /shared
 COPY deploy/fly/zoen-start-eve /usr/local/bin/zoen-start-eve
 COPY deploy/fly/zoen-start-effect-worker /usr/local/bin/zoen-start-effect-worker
 
