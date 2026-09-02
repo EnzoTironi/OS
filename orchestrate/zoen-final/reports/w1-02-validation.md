@@ -8,7 +8,10 @@
 - Exact head: `5bff33bfe9d8c1f623867eeff61b277b19c127f6`
 - Exact tree: `5a8dbd5fb49adab1395fd9a4124d1b95732cf1fe`
 - Verdict: `journey-verified`
-- Merge hold: complete the recoverable pre-launch Fly volume replacement and stage `ZOEN_PROJECTION_PASSWORD`
+- State: merged after the recoverable pre-launch Fly replacement and exact-head gate passed
+- Squash merge: `cf504cbf68a6956b199b9c8c8a5c2417b322586a` at `2026-09-02T14:52:39Z`
+- Merge tree: byte-for-byte equivalent to the verified PR head
+- Deployment: automatic main workflow in progress
 
 No verdict from the earlier `6d2e287` head is inherited.
 
@@ -67,4 +70,6 @@ A disposable full-image boot then proved:
 
 The current Fly machine runs the previous `f121cef` image, but `zoend` and the dispatcher are `FATAL`. The database has two pre-launch `definition_revisions` and migrations only through version 25. Migration 26 intentionally rejects that disposable legacy state, so no process listens on port 58701. Reusing the same volume would also skip PostgreSQL init and fail to create the projection role.
 
-Before merge, stop the only machine, create and materialize a recovery snapshot, destroy the old machine and volume, create one empty `zoen_data` volume in `gru`, and stage a generated `ZOEN_PROJECTION_PASSWORD` without deploying. Only then may the coordinator squash-merge this exact head with GitHub's head guard. The automatic main deployment must be watched to completion and the live Supervisor, role boundary, worker environment, watermark, and `/ready` state reverified.
+Before merge, the coordinator stopped the only machine cleanly, created snapshot `vs_YD4aLGoLNgRsBGK5XRMAq1O` with 60-day retention, materialized recovery volume `vol_rkgkj3ozngoko6w4`, destroyed the old machine and disposable volume, created empty `zoen_data` volume `vol_vjygw27ldmgo7xov` in `gru`, and staged a generated `ZOEN_PROJECTION_PASSWORD` without deploying. The exact verified head was then squash-merged with GitHub's head guard, and the merge tree was confirmed byte-for-byte equal to the verified head.
+
+The automatic main deployment must still be watched to completion and the live Supervisor, role boundary, worker environment, watermark, and `/ready` state reverified.

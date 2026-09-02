@@ -1,6 +1,6 @@
 # Orchestrate status
 
-Generated: 2026-09-02T14:40:16.000Z
+Generated: 2026-09-02T14:52:39.000Z
 
 ## Units
 
@@ -32,16 +32,16 @@ Verdicts: journey-verified=1, live-ui-verified=1
 
 ## Frontier
 
-Generation: 4
-Lowest unmerged: 609
+Generation: 5
+Lowest unmerged: none
 
 | Branch | PR | SHA | State |
 | --- | --- | --- | --- |
 | codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | MERGED |
-| codex/w1-02-supervised-projection | 609 | 5bff33bfe9d8c1f623867eeff61b277b19c127f6 | OPEN |
+| codex/w1-02-supervised-projection | 609 | 5bff33bfe9d8c1f623867eeff61b277b19c127f6 | MERGED |
 
 ## Gates
 
 (none)
 
-<!-- orch-summary {"unitStates":{"active":3,"done":9},"ledgerVerdicts":{"journey-verified":1,"live-ui-verified":1},"frontierGeneration":4,"openGateIds":[]} -->
+<!-- orch-summary {"unitStates":{"active":3,"done":9},"ledgerVerdicts":{"journey-verified":1,"live-ui-verified":1},"frontierGeneration":5,"openGateIds":[]} -->

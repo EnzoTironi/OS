@@ -1,5 +1,5 @@
 {
-  "generation": 4,
+  "generation": 5,
   "prs": [
     {
       "pr": 602,
@@ -11,8 +11,8 @@
       "pr": 609,
       "branches": "codex/w1-02-supervised-projection",
       "sha": "5bff33bfe9d8c1f623867eeff61b277b19c127f6",
-      "state": "OPEN"
+      "state": "MERGED"
     }
   ],
-  "lowestUnmerged": 609
+  "lowestUnmerged": null
 }
