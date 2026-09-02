@@ -2963,7 +2963,7 @@ async fn login_device(
         .get("verification_uri_complete")
         .and_then(Value::as_str)
         .map(|uri| rewrite_loopback_uri(uri, zoend));
-    let open_line = match verification_uri_complete {
+    let open_line = match verification_uri_complete.as_deref() {
         Some(uri) => format!("Open {uri}\n"),
         None => format!("Open {verification_uri} and enter {user_code}\n"),
     };
