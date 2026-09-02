@@ -27,4 +27,4 @@ if (proofEvidence === undefined) {
 }
 
 const descriptorPath = await publishRuntimeProof(proofEvidence);
-process.stdout.write(`${descriptorPath}\\n`);
+process.stdout.write(`${descriptorPath}\n`);

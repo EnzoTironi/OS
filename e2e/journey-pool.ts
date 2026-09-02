@@ -7,7 +7,7 @@ try {
   if (error instanceof PoolInterrupted) {
     process.exitCode = error.signal === "SIGINT" ? 130 : 143;
   } else {
-    process.stderr.write(`${formatError(error)}\\n`);
+    process.stderr.write(`${formatError(error)}\n`);
     process.exitCode = 1;
   }
 }
