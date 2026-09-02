@@ -22,6 +22,11 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Client as PostgresClient } from "pg";
 import { DefinitionService } from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
+  ActionInputSchema,
+  CommitStatus,
+  PolicyDecision,
+} from "../gen/connect/zoen/action/v1/action_pb.js";
+import {
   DefinitionReferenceSchema,
   EvidenceClaimSchema,
   EvidenceProvenanceSchema,
@@ -62,6 +67,15 @@ import {
   definitionPublishActionId,
   definitionPublishPolicy,
 } from "./definition-publish-policy.js";
+import {
+  actionClient,
+  actionId,
+  activateDefinition,
+  loadFixture,
+  publishDefinition,
+  resourceId as scenarioResourceId,
+  type DefinitionFixture,
+} from "./governed-action/support.js";
 import { gitHead } from "./scenario-evidence.js";
 
 const repositoryRoot = process.cwd();
@@ -120,6 +134,14 @@ const validAt = new Date("2025-01-15T00:00:00.000Z");
 const instantAt = new Date("2025-01-20T00:00:00.000Z");
 const afterInstant = new Date("2025-01-21T00:00:00.000Z");
 
+// Governed-action fixture used by the World.Scenario apply journey: one action
+// (`inventory.requestStock`) whose effect stages `inventory.requested` hold.
+const scenarioActionId = actionId;
+const scenarioItemId = scenarioResourceId;
+const scenarioAvailable = "inventory.available";
+const scenarioRequested = "inventory.requested";
+const scenarioDefinitionId = "inventory.governed";
+
 type DefinitionClient = Client<typeof DefinitionService>;
 type WorldClient = Client<typeof WorldService>;
 
@@ -169,8 +191,10 @@ async function main(): Promise<void> {
   });
   const door = await startAuthDoor(authDatabaseUrl);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
+  const scenarioFixture = await loadFixture("direct", 1);
   const policyManifestPath = await writeActivationManifest(
     publicationCandidates,
+    scenarioFixture,
   );
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
@@ -180,7 +204,7 @@ async function main(): Promise<void> {
       adminToken: e2eIdentityAdminToken(),
       applicationDatabaseUrl: adminDatabaseUrl,
       personas: adminPairPersonas(
-        [definitionId],
+        [definitionId, scenarioDefinitionId],
         [definitionPublishActionId, "zoen.definition.activate"],
       ),
       zoendBaseUrl: baseUrl,
@@ -923,6 +947,251 @@ async function main(): Promise<void> {
     assert.doesNotMatch(closedCreate.stderr, /"unavailable"/);
     recordAssertion("destCreateClosedScenarioFailsPrecondition");
 
+    // World.Scenario apply journey: staged proposal overlays, atomic roll-forward,
+    // divergence/empty/closed guards, and tenant isolation.
+    await publishDefinition(clientA, tenantA, scenarioFixture);
+    await activateDefinition(clientA, tenantA, scenarioFixture);
+    await publishDefinition(clientB, tenantB, scenarioFixture);
+    await activateDefinition(clientB, tenantB, scenarioFixture);
+    await recordInstant(worldA, {
+      claimId: "claim.available.scenario",
+      definition: scenarioFixture.definition,
+      entityId: scenarioItemId,
+      instant: validAt,
+      relationId: scenarioAvailable,
+      sourceId: "source.scenario",
+      tenantId: tenantA,
+      value: "5",
+    });
+    const scenarioAction = actionClient(tokenA, tenantA);
+
+    const stagedScenario = await worldA.createScenario({
+      scenarioId: "scenario.apply.draft",
+      tenantId: tenantA,
+    });
+    assert.equal(stagedScenario.scenarioId, "scenario.apply.draft");
+    assert.ok(stagedScenario.baseCommitSequence > 0n);
+    const stagedProposal = await scenarioAction.propose({
+      actionId: scenarioActionId,
+      definition: scenarioFixture.definition,
+      expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
+      inputs: [
+        create(ActionInputSchema, {
+          inputId: "quantity",
+          value: create(ExactValueSchema, {
+            value: { case: "integerValue", value: "3" },
+          }),
+        }),
+      ],
+      operationId: "operation.scenario.staged",
+      proposalId: "proposal.scenario.staged",
+      resourceId: scenarioItemId,
+      scenarioId: "scenario.apply.draft",
+      validAt: timestampFromDate(validAt),
+    });
+    assert.equal(stagedProposal.decision, PolicyDecision.PERMIT);
+    recordAssertion("scenarioStagedProposalPermitted");
+
+    const stagedView = await query(worldA, {
+      consistency: strong(),
+      definition: scenarioFixture.definition,
+      entityId: scenarioItemId,
+      scenarioId: "scenario.apply.draft",
+      selection: relation(scenarioRequested),
+      tenantId: tenantA,
+      validAt,
+    });
+    assert.deepEqual(integerValues(stagedView), ["3"]);
+    const headBeforeApply = await query(worldA, {
+      consistency: strong(),
+      definition: scenarioFixture.definition,
+      entityId: scenarioItemId,
+      selection: relation(scenarioRequested),
+      tenantId: tenantA,
+      validAt,
+    });
+    assert.deepEqual(integerValues(headBeforeApply), []);
+    recordAssertion("scenarioOverlayReadsInsideScenarioOnly");
+
+    const foreignStagedView = await query(worldB, {
+      consistency: strong(),
+      definition: scenarioFixture.definition,
+      entityId: scenarioItemId,
+      scenarioId: "scenario.apply.draft",
+      selection: relation(scenarioRequested),
+      tenantId: tenantB,
+      validAt,
+    });
+    assert.deepEqual(integerValues(foreignStagedView), []);
+    recordAssertion("scenarioOverlayIsTenantIsolated");
+
+    const applied = await worldA.applyScenario({
+      scenarioId: "scenario.apply.draft",
+      tenantId: tenantA,
+    });
+    assert.equal(applied.decision, "Permit");
+    assert.equal(
+      applied.commitSequence,
+      stagedScenario.baseCommitSequence + 1n,
+    );
+    const headAfterApply = await query(worldA, {
+      consistency: strong(),
+      definition: scenarioFixture.definition,
+      entityId: scenarioItemId,
+      selection: relation(scenarioRequested),
+      tenantId: tenantA,
+      validAt,
+    });
+    assert.deepEqual(integerValues(headAfterApply), ["3"]);
+    recordAssertion("scenarioApplyRollsStagedProposalToHead");
+
+    await expectConnectCode(
+      () =>
+        worldA.applyScenario({
+          scenarioId: "scenario.apply.draft",
+          tenantId: tenantA,
+        }),
+      Code.FailedPrecondition,
+    );
+    recordAssertion("scenarioApplyIsNotIdempotent");
+    await expectConnectCode(
+      () =>
+        worldA.createScenario({
+          scenarioId: "scenario.apply.draft",
+          tenantId: tenantA,
+        }),
+      Code.FailedPrecondition,
+    );
+    recordAssertion("scenarioAppliedNameCannotReopen");
+    await expectConnectCode(
+      () =>
+        worldA.discardScenario({
+          scenarioId: "scenario.apply.draft",
+          tenantId: tenantA,
+        }),
+      Code.NotFound,
+    );
+    recordAssertion("scenarioAppliedCannotDiscard");
+
+    // Divergence guard: a head commit between create and apply conflicts.
+    const diverged = await worldA.createScenario({
+      scenarioId: "scenario.apply.diverged",
+      tenantId: tenantA,
+    });
+    assert.ok(diverged.baseCommitSequence > 0n);
+    const directProposal = await scenarioAction.propose({
+      actionId: scenarioActionId,
+      definition: scenarioFixture.definition,
+      expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
+      inputs: [
+        create(ActionInputSchema, {
+          inputId: "quantity",
+          value: create(ExactValueSchema, {
+            value: { case: "integerValue", value: "1" },
+          }),
+        }),
+      ],
+      operationId: "operation.scenario.direct",
+      proposalId: "proposal.scenario.direct",
+      resourceId: scenarioItemId,
+      validAt: timestampFromDate(validAt),
+    });
+    assert.equal(directProposal.decision, PolicyDecision.PERMIT);
+    const directCommit = await scenarioAction.commit({
+      operationId: "operation.scenario.direct",
+      proposalId: "proposal.scenario.direct",
+    });
+    assert.equal(directCommit.status, CommitStatus.COMMITTED);
+    await expectConnectCode(
+      () =>
+        worldA.applyScenario({
+          scenarioId: "scenario.apply.diverged",
+          tenantId: tenantA,
+        }),
+      Code.FailedPrecondition,
+    );
+    recordAssertion("scenarioDivergedApplyFailsPrecondition");
+
+    // Empty scenario and closed-scenario staging both fail closed.
+    await worldA.createScenario({
+      scenarioId: "scenario.apply.empty",
+      tenantId: tenantA,
+    });
+    await expectConnectCode(
+      () =>
+        worldA.applyScenario({
+          scenarioId: "scenario.apply.empty",
+          tenantId: tenantA,
+        }),
+      Code.FailedPrecondition,
+    );
+    recordAssertion("scenarioEmptyApplyFailsPrecondition");
+    await worldA.createScenario({
+      scenarioId: "scenario.apply.closed",
+      tenantId: tenantA,
+    });
+    await worldA.discardScenario({
+      scenarioId: "scenario.apply.closed",
+      tenantId: tenantA,
+    });
+    await expectConnectCode(
+      () =>
+        scenarioAction.propose({
+          actionId: scenarioActionId,
+          definition: scenarioFixture.definition,
+          expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
+          inputs: [
+            create(ActionInputSchema, {
+              inputId: "quantity",
+              value: create(ExactValueSchema, {
+                value: { case: "integerValue", value: "1" },
+              }),
+            }),
+          ],
+          operationId: "operation.scenario.closed",
+          proposalId: "proposal.scenario.closed",
+          resourceId: scenarioItemId,
+          scenarioId: "scenario.apply.closed",
+          validAt: timestampFromDate(validAt),
+        }),
+      Code.AlreadyExists,
+    );
+    recordAssertion("scenarioClosedStagingFailsClosed");
+    await expectConnectCode(
+      () =>
+        scenarioAction.propose({
+          actionId: scenarioActionId,
+          definition: scenarioFixture.definition,
+          expiresAt: timestampFromDate(new Date(Date.now() + 300_000)),
+          inputs: [
+            create(ActionInputSchema, {
+              inputId: "quantity",
+              value: create(ExactValueSchema, {
+                value: { case: "integerValue", value: "1" },
+              }),
+            }),
+          ],
+          operationId: "operation.scenario.ghost",
+          proposalId: "proposal.scenario.ghost",
+          resourceId: scenarioItemId,
+          scenarioId: "scenario.apply.ghost",
+          validAt: timestampFromDate(validAt),
+        }),
+      Code.NotFound,
+    );
+    recordAssertion("scenarioUnknownStagingFailsNotFound");
+
+    // A tenant can neither read nor apply another tenant's open scenario.
+    await expectConnectCode(
+      () =>
+        worldB.applyScenario({
+          scenarioId: "scenario.apply.draft",
+          tenantId: tenantB,
+        }),
+      Code.NotFound,
+    );
+    recordAssertion("scenarioApplyIsTenantIsolated");
+
     const postgresVersion = (
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
@@ -1099,6 +1368,7 @@ interface QueryInput {
   consistency: QueryConsistency;
   definition: WorldDefinitionReference;
   entityId?: string;
+  scenarioId?: string;
   selection?: QuerySelection;
   tenantId: string;
   typeQuery?: { limit: number; typeId: string };
@@ -1119,6 +1389,7 @@ async function query(client: WorldClient, input: QueryInput) {
           }),
         }
       : { case: undefined },
+    scenarioId: input.scenarioId ?? "",
     selection: input.selection,
     tenantId: input.tenantId,
     validAt: timestampFromDate(input.validAt),
@@ -1273,11 +1544,14 @@ async function writeActivationManifest(
     { digest: string; revision: number },
     ...{ digest: string; revision: number }[],
   ],
+  scenarioFixture?: DefinitionFixture,
 ): Promise<string> {
   const source = await readFile(
     path.join(repositoryRoot, "e2e", "semantic-query", "activation.cedar"),
     "utf8",
   );
+  const readSource =
+    'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n';
   const outputPath = path.join(
     e2eGeneratedDirectory(repositoryRoot, "semantic-query"),
     "policies.json",
@@ -1305,14 +1579,43 @@ async function writeActivationManifest(
           {
             actionId: "zoen.world.read",
             definitionDigest: publicationCandidates[0].digest,
-            digest: sha256(
-              'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n',
-            ),
+            digest: sha256(readSource),
             policyId: "policy.read.v1",
             revision: 1,
-            source:
-              'permit (\n    principal,\n    action == Action::"read",\n    resource\n);\n',
+            source: readSource,
           },
+          ...(scenarioFixture === undefined
+            ? []
+            : [
+                definitionPublishPolicy({
+                  definitionDigest: scenarioFixture.digest,
+                  revision: 1,
+                }),
+                {
+                  actionId: "zoen.definition.activate",
+                  definitionDigest: scenarioFixture.digest,
+                  digest: sha256(source),
+                  policyId: "policy.activation.inventory.governed",
+                  revision: 1,
+                  source,
+                },
+                {
+                  actionId: "zoen.world.read",
+                  definitionDigest: scenarioFixture.digest,
+                  digest: sha256(readSource),
+                  policyId: "policy.read.inventory.governed",
+                  revision: 1,
+                  source: readSource,
+                },
+                {
+                  actionId: scenarioActionId,
+                  definitionDigest: scenarioFixture.digest,
+                  digest: scenarioFixture.policyDigest,
+                  policyId: scenarioFixture.policyId,
+                  revision: 1,
+                  source: scenarioFixture.policySource,
+                },
+              ]),
         ],
       },
       null,
