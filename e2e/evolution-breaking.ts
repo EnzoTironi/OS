@@ -82,6 +82,7 @@ import {
   stopAuthDoor,
 } from "./ba-door.js";
 import { e2eIdentityAdminToken } from "./host-env.js";
+import { definitionPublishActionId } from "./definition-publish-policy.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -171,6 +172,7 @@ async function main(): Promise<void> {
       personas: adminPairPersonas(
         [definitionId, "inventory.item.1"],
         [
+          definitionPublishActionId,
           "zoen.definition.activate",
           "zoen.definition.migrate",
           "zoen.definition.rollback",

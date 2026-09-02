@@ -40,6 +40,7 @@ pub enum PolicyOperation {
     Commit,
     Discover,
     PrepareMigration,
+    PublishDefinition,
     Read,
     RequestApproval,
     RollbackRevision,

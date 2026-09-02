@@ -4,15 +4,14 @@ use serde::{Deserialize, Serialize};
 use zoen_core::{
     ActionDefinition, ActionEffect, ActionId, ActionOutputDefinition, BinaryOperator,
     CanonicalDefinition, CanonicalJson, Cardinality, ComputationDefinition, ComputationId,
-    DefinitionDigest, DefinitionId, DefinitionRevision, DefinitionRevisionNumber, DefinitionSchema,
-    EntityId, EvidenceDraft, ExactDecimal, ExactInteger, ExactValue, Expression, InputDefinition,
-    InputId, OutputId, RelationDefinition, RelationId, RelationTarget, TypeDefinition, TypeId,
-    UnitId, ValueType,
+    DefinitionDigest, DefinitionId, DefinitionReference, DefinitionRevision,
+    DefinitionRevisionNumber, DefinitionSchema, EntityId, EvidenceDraft, ExactDecimal,
+    ExactInteger, ExactValue, Expression, InputDefinition, InputId, OutputId, RelationDefinition,
+    RelationId, RelationTarget, TypeDefinition, TypeId, UnitId, ValueType,
 };
 
 use crate::{
-    AdmittedDefinitionPublication, AdmittedEvidence, EvidenceValidationError, ProjectionEvent,
-    PublishError, RecordEvidenceError,
+    AdmittedEvidence, EvidenceValidationError, ProjectionEvent, PublishError, RecordEvidenceError,
     metrics::{record_admit_latency, record_jcs_mismatch},
     verify_digest,
 };
@@ -22,10 +21,26 @@ mod validation;
 use validation::validate_definition;
 pub use validation::{DefinitionFamily, ReferenceKind, ValidationError};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DefinitionCandidate {
+    canonical_json: CanonicalJson,
+    reference: DefinitionReference,
+}
+
+impl DefinitionCandidate {
+    pub(crate) fn canonical_json(&self) -> &CanonicalJson {
+        &self.canonical_json
+    }
+
+    pub(crate) fn reference(&self) -> &DefinitionReference {
+        &self.reference
+    }
+}
+
 pub(crate) fn admit(
     bytes: &[u8],
     claimed_digest: DefinitionDigest,
-) -> Result<AdmittedDefinitionPublication, PublishError> {
+) -> Result<DefinitionCandidate, PublishError> {
     let started = Instant::now();
     let result = admit_inner(bytes, claimed_digest);
     record_admit_latency(started);
@@ -35,7 +50,7 @@ pub(crate) fn admit(
 fn admit_inner(
     bytes: &[u8],
     claimed_digest: DefinitionDigest,
-) -> Result<AdmittedDefinitionPublication, PublishError> {
+) -> Result<DefinitionCandidate, PublishError> {
     let canonical = zoen_core::canonicalize_json_bytes(bytes)
         .map_err(|error| PublishError::MalformedDefinition(error.to_string()))?;
     if canonical.as_bytes() != bytes {
@@ -58,18 +73,14 @@ fn admit_inner(
     }
 
     let definition = decode(&canonical_json)?;
-    let event = ProjectionEvent::definition_published(
-        &definition.id,
-        definition.revision,
-        &claimed_digest,
-    )?;
-    Ok(AdmittedDefinitionPublication::new(
+    Ok(DefinitionCandidate {
         canonical_json,
-        definition.id,
-        claimed_digest,
-        definition.revision,
-        event,
-    ))
+        reference: DefinitionReference {
+            definition_id: definition.id,
+            digest: claimed_digest,
+            revision: definition.revision,
+        },
+    })
 }
 
 pub(crate) fn admit_evidence(
@@ -206,14 +217,6 @@ fn compare_code_points(left: &str, right: &str) -> Ordering {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DefinitionPublishedV1<'a> {
-    definition_id: &'a str,
-    digest: &'a str,
-    revision: u64,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct ClaimRecordedV1<'a> {
     claim_id: &'a str,
     definition_id: &'a str,
@@ -222,24 +225,6 @@ struct ClaimRecordedV1<'a> {
 }
 
 impl ProjectionEvent {
-    fn definition_published(
-        definition_id: &DefinitionId,
-        revision: DefinitionRevisionNumber,
-        digest: &DefinitionDigest,
-    ) -> Result<Self, PublishError> {
-        let payload = serde_jcs::to_string(&DefinitionPublishedV1 {
-            definition_id: definition_id.as_str(),
-            digest: digest.as_str(),
-            revision: revision.get(),
-        })
-        .map_err(|error| PublishError::EventEncoding(error.to_string()))?;
-        Ok(Self {
-            event_type: "DefinitionPublished",
-            event_version: 1,
-            payload,
-        })
-    }
-
     fn claim_recorded(draft: &EvidenceDraft) -> Result<Self, RecordEvidenceError> {
         let payload = serde_jcs::to_string(&ClaimRecordedV1 {
             claim_id: draft.claim_id.as_str(),

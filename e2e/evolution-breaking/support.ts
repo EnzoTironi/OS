@@ -4,6 +4,7 @@ import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { PolicyDecision } from "../../gen/connect/zoen/action/v1/action_pb.js";
+import { definitionPublishPolicy } from "../definition-publish-policy.js";
 import {
   EventualConsistencySchema,
   EvidenceClaimSchema,
@@ -111,6 +112,10 @@ export async function writePolicyManifest(
   const policies = definitions.flatMap((definition) => {
     const revision = definition.definition.revision;
     return [
+      definitionPublishPolicy({
+        definitionDigest: definition.digest,
+        revision,
+      }),
       {
         actionId: "inventory.replenish",
         definitionDigest: definition.digest,

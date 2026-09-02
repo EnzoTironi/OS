@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import { once } from "node:events";
@@ -13,15 +13,20 @@ import {
   type Interceptor,
 } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
+import canonicalize from "canonicalize";
 import { Client as PostgresClient } from "pg";
-import { DefinitionService } from "../gen/connect/zoen/definition/v1/definition_pb.js";
+import {
+  DefinitionService,
+  type DefinitionPublication,
+  type DefinitionRevision,
+} from "../gen/connect/zoen/definition/v1/definition_pb.js";
 import {
   loadCanonicalDefinition,
   type CompiledDefinition,
 } from "./canonical-definition.js";
 import {
-  adminPairPersonas,
   e2eAuthDatabaseUrl,
+  invitePersona,
   plantPersonas,
   sessionDoorProcessEnv,
   sessionOf,
@@ -29,6 +34,7 @@ import {
   stopAuthDoor,
 } from "./ba-door.js";
 import {
+  e2eGeneratedDirectory,
   e2eHttpUrl,
   e2eIdentityAdminToken,
   e2eListenAddr,
@@ -36,6 +42,12 @@ import {
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "./host-env.js";
+import {
+  definitionPublishActionId,
+  definitionPublishPolicy,
+  type DefinitionPublishPolicy,
+} from "./definition-publish-policy.js";
+import { gitHead } from "./scenario-evidence.js";
 
 const repositoryRoot = process.cwd();
 const fixtureDirectory = path.join(
@@ -59,6 +71,10 @@ const adminDatabaseUrl = e2ePostgresUrl(
 );
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
+const generatedDirectory = e2eGeneratedDirectory(
+  repositoryRoot,
+  "definition-publication",
+);
 const tenantA = "tenant.a";
 const tenantB = "tenant.b";
 
@@ -67,6 +83,24 @@ type DefinitionClient = Client<typeof DefinitionService>;
 interface ServerProcess {
   child: ChildProcessWithoutNullStreams;
   output: string[];
+}
+
+interface PublicationState {
+  authorityCommits: number;
+  authorityHead: number | null;
+  definitionPublicationGrants: number;
+  definitionPublications: number;
+  definitionRevisions: number;
+  projectionOutbox: number;
+}
+
+interface PolicyManifestEntry {
+  actionId: string;
+  definitionDigest: string;
+  digest: string;
+  policyId: string;
+  revision: number;
+  source: string;
 }
 
 const assertions: Record<string, boolean> = {};
@@ -99,53 +133,208 @@ async function main(): Promise<void> {
   assert.notEqual(first.digest, actionMutation.digest);
   recordAssertion("computationMutationChangedDigest");
 
+  const publicationSource = `permit (
+    principal,
+    action == Action::"publish_definition",
+    resource
+)
+when {
+    context.actionId == "zoen.definition.publish" &&
+    (
+        principal == Zoen::Principal::"principal.builder.a" ||
+        principal == Zoen::Principal::"principal.builder.b"
+    )
+};
+`;
+  const publicationPolicies = [first, actionMutation].map((definition) =>
+    definitionPublishPolicy({
+      definitionDigest: definition.digest,
+      policyId: `policy.definition.publish.inventory.r${definition.definition.revision}`,
+      revision: definition.definition.revision,
+      source: publicationSource,
+    }),
+  );
+  const activationSource = `permit (
+    principal,
+    action == Action::"activate_revision",
+    resource
+)
+when {
+    principal == Zoen::Principal::"principal.builder.a" ||
+    principal == Zoen::Principal::"principal.observer.a"
+};
+`;
+  const activationPolicy: PolicyManifestEntry = {
+    actionId: "zoen.definition.activate",
+    definitionDigest: first.digest,
+    digest: sha256(activationSource),
+    policyId: "policy.definition.activate.inventory.r1",
+    revision: first.definition.revision,
+    source: activationSource,
+  };
+  const policyManifestPath = path.join(generatedDirectory, "policies.json");
+  await writePolicyManifest(policyManifestPath, [
+    ...publicationPolicies,
+    activationPolicy,
+  ]);
+
   const door = await startAuthDoor(authDatabaseUrl);
   const admin = new PostgresClient({ connectionString: adminDatabaseUrl });
   let server: ServerProcess | undefined;
   try {
-    server = await startServer();
+    server = await startServer(policyManifestPath);
     await admin.connect();
+    await assertMigrationRejectsUngoovernedBaseline(admin, first);
+    recordAssertion("migrationRejectedUngovernedBaseline");
     const planted = await plantPersonas(door, {
       adminToken: e2eIdentityAdminToken(),
       applicationDatabaseUrl: adminDatabaseUrl,
-      personas: adminPairPersonas([first.definition.definitionId]),
+      personas: [
+        invitePersona({
+          actionIds: [definitionPublishActionId, "zoen.definition.activate"],
+          actorId: "actor.builder.a",
+          id: "builder-a",
+          principalId: "principal.builder.a",
+          resourceIds: [first.definition.definitionId],
+          tenantId: tenantA,
+          workloadId: "workload.builder.a",
+        }),
+        invitePersona({
+          actionIds: [definitionPublishActionId, "zoen.definition.activate"],
+          actorId: "actor.observer.a",
+          id: "observer-a",
+          principalId: "principal.observer.a",
+          resourceIds: [first.definition.definitionId],
+          tenantId: tenantA,
+          workloadId: "workload.observer.a",
+        }),
+        invitePersona({
+          actionIds: ["zoen.definition.activate"],
+          actorId: "actor.no-publish.a",
+          id: "no-publish-a",
+          principalId: "principal.no-publish.a",
+          resourceIds: [first.definition.definitionId],
+          tenantId: tenantA,
+          workloadId: "workload.no-publish.a",
+        }),
+        invitePersona({
+          actionIds: [definitionPublishActionId],
+          actorId: "actor.builder.b",
+          id: "builder-b",
+          principalId: "principal.builder.b",
+          resourceIds: [first.definition.definitionId],
+          tenantId: tenantB,
+          workloadId: "workload.builder.b",
+        }),
+      ],
       zoendBaseUrl: baseUrl,
     });
-    const tokenA = sessionOf(planted, "admin-a").token;
-    const tokenB = sessionOf(planted, "admin-b").token;
+    const builderA = sessionOf(planted, "builder-a");
+    const tokenA = builderA.token;
+    const tokenB = sessionOf(planted, "builder-b").token;
+    const observerTokenA = sessionOf(planted, "observer-a").token;
     const clientA = definitionClient(tokenA, tenantA);
     const clientB = definitionClient(tokenB, tenantB);
+    const observerA = definitionClient(
+      observerTokenA,
+      tenantA,
+    );
+    const noPublishA = definitionClient(
+      sessionOf(planted, "no-publish-a").token,
+      tenantA,
+    );
     const publishedA = await publish(clientA, tenantA, first);
-    assert.equal(publishedA.commitSequence, 1n);
-    assert.equal(publishedA.digest, expectedDigest);
-    assert.equal(decode(publishedA.canonicalJson), expectedCanonical);
+    const publishedRevisionA = requiredPublicationRevision(publishedA);
+    assert.equal(publishedRevisionA.commitSequence, 1n);
+    assert.equal(publishedRevisionA.digest, expectedDigest);
+    assert.equal(decode(publishedRevisionA.canonicalJson), expectedCanonical);
+    assert.equal(publishedA.publishedBy, "actor.builder.a");
+    assert.equal(publishedA.principalId, "principal.builder.a");
+    assert.equal(publishedA.workloadId, "workload.builder.a");
+    const publishedAtMicros = timestampMicros(publishedA.publishedAt);
+    assert.ok(publishedAtMicros > 0n);
+    assertPublicationPolicy(publishedA, publicationPolicies[0]);
+    await assertStoredPublication(admin, tenantA, publishedA);
+    recordAssertion("builderPublishPermitted");
+    recordAssertion("publicationEvidenceRoundTripped");
 
     const replayedA = await publish(clientA, tenantA, first);
-    assert.equal(replayedA.commitSequence, 1n);
+    assert.equal(requiredPublicationRevision(replayedA).commitSequence, 1n);
+    assert.deepEqual(replayedA.policy, publishedA.policy);
+    assert.deepEqual(replayedA.publishedAt, publishedA.publishedAt);
+    assert.equal(replayedA.publishedBy, publishedA.publishedBy);
+    assert.equal(replayedA.principalId, publishedA.principalId);
+    assert.equal(replayedA.workloadId, publishedA.workloadId);
     assert.equal(await rowCount(admin, "authority_commits", tenantA), 1);
     assert.equal(await rowCount(admin, "definition_revisions", tenantA), 1);
+    assert.equal(await rowCount(admin, "definition_publications", tenantA), 1);
+    assert.equal(
+      await rowCount(admin, "definition_publication_grants", tenantA),
+      1,
+    );
     assert.equal(await rowCount(admin, "projection_outbox", tenantA), 1);
     assert.deepEqual(await projectionEvent(admin, tenantA, 1), {
       eventType: "DefinitionPublished",
-      eventVersion: 1,
+      eventVersion: 2,
       payload: {
         definitionId: first.definition.definitionId,
+        determiningPolicies: publishedA.policy?.determiningPolicyIds,
         digest: first.digest,
+        policyDigest: publishedA.policy?.revision?.digest,
+        policyId: publishedA.policy?.revision?.policyId,
+        policyRevision: Number(publishedA.policy?.revision?.revision),
+        principalId: publishedA.principalId,
+        publishedAtMicros: Number(publishedAtMicros),
+        publishedBy: publishedA.publishedBy,
         revision: 1,
+        workloadId: publishedA.workloadId,
       },
     });
     recordAssertion("authorityCommitParentPersisted");
     recordAssertion("definitionPublishedEventPersisted");
     recordAssertion("outboxAndCommitSequencePersisted");
+    recordAssertion("authorizedReplayReturnedOriginalEvidence");
 
-    await expectConnectCode(
+    await expectNoPublicationWrites(
+      admin,
+      tenantA,
+      () => publish(observerA, tenantA, first),
+      Code.PermissionDenied,
+    );
+    recordAssertion("sameWorldObserverDeniedByCedar");
+
+    await expectNoPublicationWrites(
+      admin,
+      tenantA,
+      () => publish(noPublishA, tenantA, first),
+      Code.PermissionDenied,
+    );
+    recordAssertion("delegationDeniedBeforeStore");
+
+    await expectNoPublicationWrites(
+      admin,
+      tenantA,
+      () =>
+        publishCanonical(
+          clientA,
+          tenantA,
+          computationMutationJson,
+          sha256(computationMutationJson),
+        ),
+      Code.FailedPrecondition,
+    );
+    recordAssertion("missingCandidatePolicyFailedClosed");
+
+    await expectNoPublicationWrites(
+      admin,
+      tenantB,
       () => publish(clientA, tenantB, first),
       Code.PermissionDenied,
     );
-    assert.equal(await rowCount(admin, "definition_revisions", tenantB), 0);
+    recordAssertion("tenantSubstitutionDeniedWithoutWrites");
 
     const publishedB = await publish(clientB, tenantB, first);
-    assert.equal(publishedB.commitSequence, 1n);
+    assert.equal(requiredPublicationRevision(publishedB).commitSequence, 1n);
     assert.equal(await rowCount(admin, "authority_commits", tenantB), 1);
     assert.equal(await rowCount(admin, "definition_revisions", tenantB), 1);
 
@@ -228,7 +417,9 @@ async function main(): Promise<void> {
 
     await installOutboxFailure(admin);
     try {
-      await expectConnectCode(
+      await expectNoPublicationWrites(
+        admin,
+        tenantA,
         () => publish(clientA, tenantA, actionMutation),
         Code.Unavailable,
       );
@@ -237,9 +428,17 @@ async function main(): Promise<void> {
     }
     assert.equal(await rowCount(admin, "authority_commits", tenantA), 1);
     assert.equal(await rowCount(admin, "definition_revisions", tenantA), 1);
+    assert.equal(await rowCount(admin, "definition_publications", tenantA), 1);
+    assert.equal(
+      await rowCount(admin, "definition_publication_grants", tenantA),
+      1,
+    );
     assert.equal(await rowCount(admin, "projection_outbox", tenantA), 1);
     assert.equal(await authorityHead(admin, tenantA), 1);
     recordAssertion("atomicDatabaseFailure");
+
+    await assertDeferredPublicationInvariant(admin, tenantA, actionMutation);
+    recordAssertion("ungovernedRevisionRejectedAtCommit");
 
     await assert.rejects(
       admin.query(
@@ -255,6 +454,37 @@ async function main(): Promise<void> {
       /published definition revisions are immutable/,
     );
     recordAssertion("immutableMutationKilled");
+    await assert.rejects(
+      admin.query(
+        `UPDATE definition_publications
+         SET policy_id = 'policy.mutant'
+         WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3`,
+        [tenantA, first.definition.definitionId, first.digest],
+      ),
+      /definition publication history is immutable/,
+    );
+    recordAssertion("publicationEvidenceImmutable");
+    const beforeForgedGrant = await publicationState(admin, tenantA);
+    await assert.rejects(
+      admin.query(
+        `INSERT INTO definition_publication_grants (
+           tenant_id, commit_sequence, ordinal, delegation_id,
+           action_ids, resource_ids, workload_ids,
+           not_before_micros, expires_at_micros
+         )
+         SELECT tenant_id, commit_sequence, ordinal + 1,
+                delegation_id || '.forged', action_ids, resource_ids,
+                workload_ids, not_before_micros, expires_at_micros
+         FROM definition_publication_grants
+         WHERE tenant_id = $1 AND commit_sequence = 1
+         ORDER BY ordinal DESC
+         LIMIT 1`,
+        [tenantA],
+      ),
+      /definition publication grant set must exactly match admitted evidence/,
+    );
+    assert.deepEqual(await publicationState(admin, tenantA), beforeForgedGrant);
+    recordAssertion("publicationGrantSetSealed");
 
     assert.equal(
       await relationName(admin, "active_definition_revisions"),
@@ -267,8 +497,93 @@ async function main(): Promise<void> {
     recordAssertion("publishDidNotActivate");
     await assertRlsIsolation();
 
+    const builderPackInstallId = await preparePackInstall(
+      tokenA,
+      tenantA,
+      first,
+    );
+    const observerPackInstallId = await preparePackInstall(
+      observerTokenA,
+      tenantA,
+      first,
+    );
+
+    const delegation = await membershipDelegation(
+      admin,
+      builderA.accountId,
+      tenantA,
+    );
+    await replaceMembershipActions(
+      admin,
+      builderA.accountId,
+      tenantA,
+      ["zoen.definition.activate"],
+    );
+    await expectNoPublicationWrites(
+      admin,
+      tenantA,
+      () => publish(clientA, tenantA, first),
+      Code.PermissionDenied,
+    );
+    recordAssertion("deniedCallerCannotReplayOriginalCommit");
+    const beforePackDenials = await publicationState(admin, tenantA);
+    await postPackJson(
+      tokenA,
+      tenantA,
+      "/pack/admin/activate-installed",
+      {
+        evolutionAckDigest: "a".repeat(64),
+        installId: builderPackInstallId,
+        tenantId: tenantA,
+      },
+      StatusCode.Forbidden,
+    );
+    assert.deepEqual(await publicationState(admin, tenantA), beforePackDenials);
+    assert.equal(
+      await rowCount(admin, "active_definition_revisions", tenantA),
+      0,
+    );
+    recordAssertion("packReplayReauthorizedCurrentDelegation");
+
+    await postPackJson(
+      observerTokenA,
+      tenantA,
+      "/pack/admin/activate-installed",
+      {
+        evolutionAckDigest: "b".repeat(64),
+        installId: observerPackInstallId,
+        tenantId: tenantA,
+      },
+      StatusCode.Forbidden,
+    );
+    assert.deepEqual(await publicationState(admin, tenantA), beforePackDenials);
+    assert.equal(
+      await rowCount(admin, "active_definition_revisions", tenantA),
+      0,
+    );
+    recordAssertion("packReplayReauthorizedCurrentPolicy");
+    await restoreMembershipDelegation(
+      admin,
+      builderA.accountId,
+      tenantA,
+      delegation,
+    );
+
     await stopServer(server);
-    server = await startServer();
+    server = await startServer(policyManifestPath);
+    const recoveredPublication = await publish(clientA, tenantA, first);
+    assert.deepEqual(recoveredPublication.policy, publishedA.policy);
+    assert.deepEqual(recoveredPublication.publishedAt, publishedA.publishedAt);
+    assert.equal(recoveredPublication.publishedBy, publishedA.publishedBy);
+    assert.equal(recoveredPublication.principalId, publishedA.principalId);
+    assert.equal(recoveredPublication.workloadId, publishedA.workloadId);
+    assert.deepEqual(
+      requiredPublicationRevision(recoveredPublication),
+      publishedRevisionA,
+    );
+    assert.equal(await rowCount(admin, "authority_commits", tenantA), 1);
+    assert.equal(await rowCount(admin, "definition_publications", tenantA), 1);
+    recordAssertion("restartRecoveredExactPublication");
     const recoveredA = await getRevision(
       clientA,
       tenantA,
@@ -314,7 +629,7 @@ async function main(): Promise<void> {
     const version = postgresVersion.rows[0]?.server_version;
     assert.match(version ?? "", /^18\./);
 
-    const sourceCommit = await command("git", ["rev-parse", "HEAD"]);
+    const sourceCommit = gitHead(repositoryRoot);
     const protocol = await readFile(
       path.join(
         repositoryRoot,
@@ -332,6 +647,7 @@ async function main(): Promise<void> {
         postgres: version,
       },
       definitionDigest: expectedDigest,
+      policyDigest: publicationPolicies[0]?.digest,
       finishedAt: new Date().toISOString(),
       protocolDigest: createHash("sha256").update(protocol).digest("hex"),
       scenario: "definition-publication",
@@ -370,13 +686,302 @@ async function publish(
   tenantId: string,
   definition: CompiledDefinition,
 ) {
+  return publishCanonical(
+    client,
+    tenantId,
+    definition.canonicalJson,
+    definition.digest,
+  );
+}
+
+async function publishCanonical(
+  client: DefinitionClient,
+  tenantId: string,
+  canonicalJson: string,
+  digest: string,
+): Promise<DefinitionPublication> {
   const response = await client.publish({
-    canonicalJson: encode(definition.canonicalJson),
-    digest: definition.digest,
+    canonicalJson: encode(canonicalJson),
+    digest,
     tenantId,
   });
-  assert.ok(response.definitionRevision);
-  return response.definitionRevision;
+  assert.ok(response.publication);
+  return response.publication;
+}
+
+function requiredPublicationRevision(
+  publication: DefinitionPublication,
+): DefinitionRevision {
+  assert.ok(publication.revision);
+  return publication.revision;
+}
+
+function timestampMicros(
+  timestamp: DefinitionPublication["publishedAt"],
+): bigint {
+  assert.ok(timestamp);
+  assert.equal(timestamp.nanos % 1_000, 0);
+  return timestamp.seconds * 1_000_000n + BigInt(timestamp.nanos / 1_000);
+}
+
+function assertPublicationPolicy(
+  publication: DefinitionPublication,
+  expected: DefinitionPublishPolicy | undefined,
+): void {
+  assert.ok(expected);
+  assert.equal(publication.policy?.revision?.digest, expected.digest);
+  assert.equal(publication.policy?.revision?.policyId, expected.policyId);
+  assert.equal(publication.policy?.revision?.revision, BigInt(expected.revision));
+  assert.ok((publication.policy?.determiningPolicyIds.length ?? 0) > 0);
+}
+
+async function assertStoredPublication(
+  client: PostgresClient,
+  tenantId: string,
+  publication: DefinitionPublication,
+): Promise<void> {
+  const revision = requiredPublicationRevision(publication);
+  const policy = publication.policy;
+  assert.ok(policy?.revision);
+  const result = await client.query<{
+    actor_id: string;
+    commit_sequence: string;
+    determining_policies: string[];
+    digest: string;
+    policy_digest: string;
+    policy_id: string;
+    policy_revision: string;
+    principal_id: string;
+    published_at_micros: string;
+    revision: string;
+    workload_id: string;
+  }>(
+    `SELECT actor_id, commit_sequence::text, determining_policies, digest,
+            policy_digest, policy_id, policy_revision::text, principal_id,
+            published_at_micros::text, revision::text, workload_id
+     FROM definition_publications
+     WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3`,
+    [tenantId, revision.definitionId, revision.digest],
+  );
+  assert.equal(result.rowCount, 1);
+  assert.deepEqual(result.rows[0], {
+    actor_id: publication.publishedBy,
+    commit_sequence: revision.commitSequence.toString(),
+    determining_policies: policy.determiningPolicyIds,
+    digest: revision.digest,
+    policy_digest: policy.revision.digest,
+    policy_id: policy.revision.policyId,
+    policy_revision: policy.revision.revision.toString(),
+    principal_id: publication.principalId,
+    published_at_micros: timestampMicros(publication.publishedAt).toString(),
+    revision: revision.revision.toString(),
+    workload_id: publication.workloadId,
+  });
+}
+
+async function assertMigrationRejectsUngoovernedBaseline(
+  admin: PostgresClient,
+  definition: CompiledDefinition,
+): Promise<void> {
+  const schema = "e2e_definition_publication_migration_guard";
+  await admin.query(`CREATE SCHEMA ${schema} AUTHORIZATION zoen_app`);
+  const application = new PostgresClient({
+    connectionString: applicationDatabaseUrl,
+  });
+  try {
+    await application.connect();
+    const bootstrap = await readFile(
+      path.join(
+        repositoryRoot,
+        "crates",
+        "zoen-adapters",
+        "migrations",
+        "0001_definition_authority.sql",
+      ),
+      "utf8",
+    );
+    const governedPublication = await readFile(
+      path.join(
+        repositoryRoot,
+        "crates",
+        "zoen-adapters",
+        "migrations",
+        "0026_governed_definition_publication.sql",
+      ),
+      "utf8",
+    );
+    await application.query("BEGIN");
+    await application.query(`SET LOCAL search_path TO ${schema}`);
+    await application.query(bootstrap);
+    await application.query(
+      "SELECT set_config('zoen.tenant_id', $1, true)",
+      [tenantA],
+    );
+    await application.query(
+      "INSERT INTO authority_heads (tenant_id, commit_sequence) VALUES ($1, 1)",
+      [tenantA],
+    );
+    await application.query(
+      `INSERT INTO authority_commits (tenant_id, commit_sequence)
+       VALUES ($1, 1)`,
+      [tenantA],
+    );
+    await application.query(
+      `INSERT INTO definition_revisions (
+         tenant_id, definition_id, revision, digest, canonical_json, commit_sequence
+       ) VALUES ($1, $2, $3, $4, $5, 1)`,
+      [
+        tenantA,
+        definition.definition.definitionId,
+        definition.definition.revision,
+        definition.digest,
+        definition.canonicalJson,
+      ],
+    );
+    await application.query(
+      "SELECT set_config('zoen.tenant_id', '', true)",
+    );
+    await assert.rejects(
+      application.query(governedPublication),
+      /migration 0026 requires an empty definition_revisions baseline; reset this pre-launch database before retrying/,
+    );
+  } finally {
+    await application.query("ROLLBACK").catch(() => undefined);
+    await application.end().catch(() => undefined);
+    await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+  }
+}
+
+async function writePolicyManifest(
+  outputPath: string,
+  policies: readonly PolicyManifestEntry[],
+): Promise<void> {
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(
+    outputPath,
+    `${JSON.stringify({ policies }, null, 2)}\n`,
+  );
+}
+
+enum StatusCode {
+  Ok = 200,
+  Forbidden = 403,
+}
+
+async function preparePackInstall(
+  token: string,
+  tenantId: string,
+  definition: CompiledDefinition,
+): Promise<string> {
+  const manifestJcs = canonicalize({
+    description: {
+      summary: "Exercises governed definition publication from pack installation.",
+      title: "Governed publication journey",
+    },
+    firstSuccessContract: {
+      contractId: "fs.1",
+      outcome: {
+        actionId: "action.commit",
+        kind: "action_committed",
+      },
+    },
+    formatVersion: "zoen.pack.v1",
+    integrationRequirements: [],
+    ontologyDependencies: [
+      {
+        definitionId: definition.definition.definitionId,
+        digest: definition.digest,
+      },
+    ],
+    packId: "pack.sample",
+    publisher: {
+      displayName: "Zoen",
+      publisherId: "pub.zoen",
+    },
+    version: "1.0.0",
+  });
+  if (manifestJcs === undefined) {
+    throw new Error("pack manifest canonicalization returned undefined");
+  }
+  const packDigest = sha256(manifestJcs);
+  const staged = await postPackJson(
+    token,
+    tenantId,
+    "/pack/admin/verify-and-stage",
+    {
+      expectedDigest: packDigest,
+      manifestJcs,
+      ontologyArtifacts: [
+        {
+          canonicalJson: definition.canonicalJson,
+          definitionId: definition.definition.definitionId,
+          digest: definition.digest,
+        },
+      ],
+      tenantId,
+    },
+    StatusCode.Ok,
+  );
+  assert.equal(requiredString(staged, "packDigest"), packDigest);
+
+  const preview = await postPackJson(
+    token,
+    tenantId,
+    "/pack/admin/preview-install",
+    { packDigest, tenantId },
+    StatusCode.Ok,
+  );
+  const previewDigest = requiredString(preview, "previewDigest");
+  const installed = await postPackJson(
+    token,
+    tenantId,
+    "/pack/admin/install",
+    { packDigest, previewDigest, tenantId },
+    StatusCode.Ok,
+  );
+  const installId = requiredString(installed, "installId");
+  const resolved = await postPackJson(
+    token,
+    tenantId,
+    "/pack/admin/decide-grants",
+    { decisions: [], installId, tenantId },
+    StatusCode.Ok,
+  );
+  assert.equal(requiredString(resolved, "phase"), "grants_resolved");
+  return installId;
+}
+
+async function postPackJson(
+  token: string,
+  tenantId: string,
+  route: string,
+  body: unknown,
+  expectedStatus: StatusCode,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${baseUrl}${route}`, {
+    body: JSON.stringify(body),
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      "x-zoen-tenant": tenantId,
+    },
+    method: "POST",
+  });
+  const responseText = await response.text();
+  assert.equal(
+    response.status,
+    expectedStatus,
+    `${route} returned HTTP ${response.status}: ${responseText}`,
+  );
+  const parsed: unknown = JSON.parse(responseText);
+  assert.ok(parsed !== null && typeof parsed === "object" && !Array.isArray(parsed));
+  return parsed as Record<string, unknown>;
+}
+
+function requiredString(body: Record<string, unknown>, key: string): string {
+  const value = body[key];
+  assert.equal(typeof value, "string", `${key} must be a string`);
+  return value as string;
 }
 
 async function getRevision(
@@ -394,30 +999,7 @@ async function getRevision(
   return response.definitionRevision;
 }
 
-function command(executable: string, arguments_: readonly string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      executable,
-      arguments_,
-      { cwd: repositoryRoot, encoding: "utf8" },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          reject(new Error(`${stdout}${stderr}`, { cause: error }));
-          return;
-        }
-        resolve(stdout.trim());
-      },
-    );
-  });
-}
-
-async function startServer(): Promise<ServerProcess> {
-  const policyManifestPath = path.join(
-    repositoryRoot,
-    "e2e",
-    "definition-publication",
-    "policies.json",
-  );
+async function startServer(policyManifestPath: string): Promise<ServerProcess> {
   const output: string[] = [];
   const child = spawn(serverPath, ["serve"], {
     cwd: repositoryRoot,
@@ -511,6 +1093,8 @@ async function rowCount(
   const allowedTables = new Set([
     "active_definition_revisions",
     "authority_commits",
+    "definition_publication_grants",
+    "definition_publications",
     "definition_revisions",
     "projection_outbox",
   ]);
@@ -520,6 +1104,43 @@ async function rowCount(
     [tenantId],
   );
   return Number(result.rows[0]?.count);
+}
+
+async function publicationState(
+  client: PostgresClient,
+  tenantId: string,
+): Promise<PublicationState> {
+  return {
+    authorityCommits: await rowCount(client, "authority_commits", tenantId),
+    authorityHead: await authorityHead(client, tenantId),
+    definitionPublicationGrants: await rowCount(
+      client,
+      "definition_publication_grants",
+      tenantId,
+    ),
+    definitionPublications: await rowCount(
+      client,
+      "definition_publications",
+      tenantId,
+    ),
+    definitionRevisions: await rowCount(
+      client,
+      "definition_revisions",
+      tenantId,
+    ),
+    projectionOutbox: await rowCount(client, "projection_outbox", tenantId),
+  };
+}
+
+async function expectNoPublicationWrites(
+  client: PostgresClient,
+  tenantId: string,
+  action: () => Promise<unknown>,
+  expectedCode: Code,
+): Promise<void> {
+  const before = await publicationState(client, tenantId);
+  await expectConnectCode(action, expectedCode);
+  assert.deepEqual(await publicationState(client, tenantId), before);
 }
 
 async function projectionEvent(
@@ -564,14 +1185,66 @@ async function relationName(
 async function authorityHead(
   client: PostgresClient,
   tenantId: string,
-): Promise<number> {
+): Promise<number | null> {
   const result = await client.query<{ commit_sequence: string }>(
     `SELECT commit_sequence::text
      FROM authority_heads
      WHERE tenant_id = $1`,
     [tenantId],
   );
-  return Number(result.rows[0]?.commit_sequence);
+  const row = result.rows[0];
+  return row === undefined ? null : Number(row.commit_sequence);
+}
+
+async function membershipDelegation(
+  client: PostgresClient,
+  accountId: string,
+  tenantId: string,
+): Promise<unknown> {
+  const result = await client.query<{ delegation_json: unknown }>(
+    `SELECT delegation_json
+     FROM memberships
+     WHERE account_id = $1 AND tenant_id = $2 AND status = 'active'`,
+    [accountId, tenantId],
+  );
+  assert.equal(result.rowCount, 1);
+  return result.rows[0]?.delegation_json;
+}
+
+async function replaceMembershipActions(
+  client: PostgresClient,
+  accountId: string,
+  tenantId: string,
+  actionIds: readonly string[],
+): Promise<void> {
+  const result = await client.query(
+    `UPDATE memberships
+     SET delegation_json = jsonb_set(
+       delegation_json,
+       '{grants,0,actionIds}',
+       $1::jsonb
+     )
+     WHERE account_id = $2 AND tenant_id = $3 AND status = 'active'`,
+    [JSON.stringify(actionIds), accountId, tenantId],
+  );
+  assert.equal(result.rowCount, 1);
+}
+
+async function restoreMembershipDelegation(
+  client: PostgresClient,
+  accountId: string,
+  tenantId: string,
+  delegation: unknown,
+): Promise<void> {
+  const encoded = JSON.stringify(delegation);
+  assert.ok(encoded);
+  const result = await client.query(
+    `UPDATE memberships
+     SET delegation_json = $1::jsonb
+     WHERE account_id = $2 AND tenant_id = $3 AND status = 'active'`,
+    [encoded, accountId, tenantId],
+  );
+  assert.equal(result.rowCount, 1);
 }
 
 async function installOutboxFailure(client: PostgresClient): Promise<void> {
@@ -590,6 +1263,41 @@ async function installOutboxFailure(client: PostgresClient): Promise<void> {
     FOR EACH ROW
     EXECUTE FUNCTION e2e_fail_projection_outbox();
   `);
+}
+
+async function assertDeferredPublicationInvariant(
+  client: PostgresClient,
+  tenantId: string,
+  definition: CompiledDefinition,
+): Promise<void> {
+  const before = await publicationState(client, tenantId);
+  await client.query("BEGIN");
+  try {
+    await client.query(
+      `INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
+       VALUES ($1, 2, 'definition_publication')`,
+      [tenantId],
+    );
+    await client.query(
+      `INSERT INTO definition_revisions (
+         tenant_id, definition_id, revision, digest, canonical_json, commit_sequence
+       ) VALUES ($1, $2, $3, $4, $5, 2)`,
+      [
+        tenantId,
+        definition.definition.definitionId,
+        definition.definition.revision,
+        definition.digest,
+        definition.canonicalJson,
+      ],
+    );
+    await assert.rejects(
+      client.query("COMMIT"),
+      /definition revision requires governed publication/,
+    );
+  } finally {
+    await client.query("ROLLBACK").catch(() => undefined);
+  }
+  assert.deepEqual(await publicationState(client, tenantId), before);
 }
 
 async function removeOutboxFailure(client: PostgresClient): Promise<void> {
@@ -615,6 +1323,8 @@ async function assertRlsIsolation(): Promise<void> {
       "authority_commits",
       "definition_activation_grants",
       "definition_activations",
+      "definition_publication_grants",
+      "definition_publications",
       "definition_revisions",
       "projection_outbox",
     ]) {

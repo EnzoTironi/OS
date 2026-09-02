@@ -43,6 +43,7 @@ import {
   type DurableScenario,
 } from "./durable-commit/scenario.js";
 import { writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 
 const scenarioDirectory = path.join(repositoryRoot, "e2e", "durable-commit");
 
@@ -73,15 +74,13 @@ async function main(): Promise<void> {
     const adminBToken = sessionOf(planted, "admin-b").token;
     const actionA = actionClient(agentAToken, tenantA);
     const actionB = actionClient(agentBToken, tenantB);
-    const definitionA = definitionClient(agentAToken, tenantA);
-    const definitionB = definitionClient(agentBToken, tenantB);
     const definitionAdminA = definitionClient(adminAToken, tenantA);
     const definitionAdminB = definitionClient(adminBToken, tenantB);
     const worldA = worldClient(agentAToken, tenantA);
     const worldB = worldClient(agentBToken, tenantB);
     for (const fixture of Object.values(fixtures)) {
-      await publishDefinition(definitionA, tenantA, fixture);
-      await publishDefinition(definitionB, tenantB, fixture);
+      await publishDefinition(definitionAdminA, tenantA, fixture);
+      await publishDefinition(definitionAdminB, tenantB, fixture);
       await activateDefinition(definitionAdminA, tenantA, fixture);
       await activateDefinition(definitionAdminB, tenantB, fixture);
       await recordAvailable(worldA, {
@@ -139,10 +138,7 @@ async function main(): Promise<void> {
       { encoding: "utf8" },
     );
     assert.doesNotMatch(composeImages, /keycloak/i);
-    const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-    }).trim();
+    const sourceCommit = gitHead(repositoryRoot);
     const actionProtocol = await readFile(
       path.join(
         repositoryRoot,

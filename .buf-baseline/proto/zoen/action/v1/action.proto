@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package zoen.action.v1;
+
+message PolicyRevision {
+  string policy_id = 1;
+  uint64 revision = 2;
+  string digest = 3;
+}
+
+message PolicyEvidence {
+  PolicyRevision revision = 1;
+  repeated string determining_policy_ids = 2;
+}

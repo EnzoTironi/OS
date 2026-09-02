@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -70,6 +69,7 @@ import {
 } from "./effect-support.js";
 import { historyClient, type HistoryClient } from "./explain/support.js";
 import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
+import { gitHead } from "./scenario-evidence.js";
 
 type Target = Exclude<
   ExplanationTarget["target"],
@@ -165,8 +165,6 @@ async function main(): Promise<void> {
   const workerBToken = sessionOf(planted, "effect-worker-b").token;
   const reconcilerAToken = sessionOf(planted, "effect-reconciler-a").token;
   const actionA = actionClient(agentAToken, tenantA);
-  const definitionA = definitionClient(agentAToken, tenantA);
-  const definitionB = definitionClient(agentBToken, tenantB);
   const definitionAdminA = definitionClient(adminAToken, tenantA);
   const definitionAdminB = definitionClient(adminBToken, tenantB);
   const effectA = effectClient(agentAToken, tenantA);
@@ -186,8 +184,8 @@ async function main(): Promise<void> {
   try {
     const registration = await registerWorker();
     assert.match(registration, /ZoenEffect|deployment/i);
-    await publishDefinition(definitionA, tenantA, fixture);
-    await publishDefinition(definitionB, tenantB, fixture);
+    await publishDefinition(definitionAdminA, tenantA, fixture);
+    await publishDefinition(definitionAdminB, tenantB, fixture);
     await activateDefinition(definitionAdminA, tenantA, fixture);
     await activateDefinition(definitionAdminB, tenantB, fixture);
     await recordAvailable(worldA, {
@@ -269,7 +267,7 @@ async function main(): Promise<void> {
       EffectKnowledgeState.UNKNOWN,
     );
 
-    await publishDefinition(definitionA, tenantA, laterFixture);
+    await publishDefinition(definitionAdminA, tenantA, laterFixture);
     await admin.query("TRUNCATE projection_outbox");
     await stopProcess(firstZoend);
     const freshZoend = await startZoend(policyManifestPath);
@@ -517,10 +515,7 @@ async function main(): Promise<void> {
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-    }).trim();
+    const sourceCommit = gitHead(repositoryRoot);
     const mutants = {
       completeBasedOnlyOnReachability:
         assertions.missingRequiredEffectRequestMakesExplanationIncomplete ===

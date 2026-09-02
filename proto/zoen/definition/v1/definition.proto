@@ -25,7 +25,7 @@ message PublishRequest {
 }
 
 message PublishResponse {
-  DefinitionRevision definition_revision = 1;
+  DefinitionPublication publication = 1;
 }
 
 message GetRevisionRequest {
@@ -89,6 +89,15 @@ message DefinitionRevision {
   string digest = 3;
   bytes canonical_json = 4;
   uint64 commit_sequence = 5;
+}
+
+message DefinitionPublication {
+  DefinitionRevision revision = 1;
+  google.protobuf.Timestamp published_at = 2;
+  string published_by = 3;
+  string principal_id = 4;
+  string workload_id = 5;
+  zoen.action.v1.PolicyEvidence policy = 6;
 }
 
 enum EvolutionClassification {
