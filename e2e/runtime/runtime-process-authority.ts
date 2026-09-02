@@ -8,7 +8,20 @@ import {
   type ProcessOwnership,
 } from "./runtime-contracts.js";
 import { isNoSuchProcess } from "./runtime-support.js";
-import { processGroupPollIntervalMilliseconds } from "./runtime-timeouts.js";
+import {
+  deadlineScopedProcessInspectionTimeoutMilliseconds,
+  processGroupPollIntervalMilliseconds,
+} from "./runtime-timeouts.js";
+
+const processInspectionTimeoutMilliseconds = 5_000;
+
+export type ProcessOperationDeadline = {
+  readonly expiresAt: number;
+};
+
+type InspectionAllowance =
+  | { readonly kind: "available"; readonly timeoutMilliseconds: number }
+  | { readonly kind: "expired" };
 
 export function git(repository: string, arguments_: readonly string[]): string {
   return execFileSync("/usr/bin/git", arguments_, {
@@ -18,10 +31,18 @@ export function git(repository: string, arguments_: readonly string[]): string {
   }).trim();
 }
 
-export function processOwnership(pid: number, nonce: string): ProcessOwnership {
+export function processOwnership(
+  pid: number,
+  nonce: string,
+  deadline?: ProcessOperationDeadline,
+): ProcessOwnership {
   const liveness = processLiveness(pid);
   if (liveness.kind !== "alive") {
     return liveness;
+  }
+  const allowance = inspectionAllowance(deadline);
+  if (allowance.kind === "expired") {
+    return { kind: "uncertain", reason: "process inspection deadline expired" };
   }
   const result = spawnSync(
     "/bin/ps",
@@ -30,9 +51,15 @@ export function processOwnership(pid: number, nonce: string): ProcessOwnership {
       encoding: "utf8",
       env: processInspectionEnvironment(),
       killSignal: "SIGKILL",
-      timeout: 5_000,
+      timeout: allowance.timeoutMilliseconds,
     },
   );
+  if (deadlineExpired(deadline)) {
+    return {
+      kind: "uncertain",
+      reason: "process inspection deadline expired",
+    };
+  }
   if (result.error !== undefined || result.status !== 0) {
     const afterInspection = processLiveness(pid);
     return afterInspection.kind === "missing"
@@ -67,6 +94,7 @@ export function processLiveness(
 }
 
 type ProcessGroupInspection =
+  | { readonly kind: "deadline-expired" }
   | { readonly kind: "empty" }
   | {
       readonly kind: "members";
@@ -78,13 +106,23 @@ type ProcessGroupInspection =
     }
   | { readonly kind: "uncertain"; readonly reason: string };
 
-export function inspectProcessGroup(pgid: number): ProcessGroupInspection {
+export function inspectProcessGroup(
+  pgid: number,
+  deadline?: ProcessOperationDeadline,
+): ProcessGroupInspection {
+  const allowance = inspectionAllowance(deadline);
+  if (allowance.kind === "expired") {
+    return { kind: "deadline-expired" };
+  }
   const result = spawnSync("/bin/ps", ["-axo", "pid=,pgid=,command="], {
     encoding: "utf8",
     env: processInspectionEnvironment(),
     killSignal: "SIGKILL",
-    timeout: 5_000,
+    timeout: allowance.timeoutMilliseconds,
   });
+  if (deadlineExpired(deadline)) {
+    return { kind: "deadline-expired" };
+  }
   if (result.error !== undefined || result.status !== 0) {
     return {
       kind: "uncertain",
@@ -117,6 +155,9 @@ export function inspectProcessGroup(pgid: number): ProcessGroupInspection {
           ]
         : [];
     });
+  if (deadlineExpired(deadline)) {
+    return { kind: "deadline-expired" };
+  }
   if (members.length > 0) {
     return { kind: "members", members };
   }
@@ -134,25 +175,47 @@ export function inspectProcessGroup(pgid: number): ProcessGroupInspection {
 }
 
 export async function waitForEmptyProcessGroup(
-  pgid: number,
-  attempts: number,
+  input: {
+    readonly deadline: ProcessOperationDeadline;
+    readonly pgid: number;
+  },
 ): Promise<boolean> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const group = inspectProcessGroup(pgid);
+  while (!deadlineExpired(input.deadline)) {
+    const group = inspectProcessGroup(input.pgid, input.deadline);
     if (group.kind === "empty") {
       return true;
     }
-    if (group.kind === "uncertain") {
-      throw new Error(`cannot inspect process group ${pgid}: ${group.reason}`);
+    if (group.kind === "deadline-expired") {
+      return false;
     }
-    await delay(processGroupPollIntervalMilliseconds);
+    if (group.kind === "uncertain") {
+      throw new Error(
+        `cannot inspect process group ${input.pgid}: ${group.reason}`,
+      );
+    }
+    const remainingMilliseconds = input.deadline.expiresAt - Date.now();
+    if (remainingMilliseconds <= 0) {
+      return false;
+    }
+    await delay(
+      Math.min(processGroupPollIntervalMilliseconds, remainingMilliseconds),
+    );
   }
   return false;
 }
 
-export function signalProcessGroup(pgid: number, signal: NodeJS.Signals): void {
+export function signalProcessGroup(input: {
+  readonly deadline: ProcessOperationDeadline;
+  readonly pgid: number;
+  readonly signal: NodeJS.Signals;
+}): void {
+  if (deadlineExpired(input.deadline)) {
+    throw new Error(
+      `refusing to signal process group ${input.pgid} after its cleanup deadline`,
+    );
+  }
   try {
-    process.kill(-pgid, signal);
+    process.kill(-input.pgid, input.signal);
   } catch (error) {
     if (!isNoSuchProcess(error)) {
       throw error;
@@ -161,37 +224,55 @@ export function signalProcessGroup(pgid: number, signal: NodeJS.Signals): void {
 }
 
 export function signalOwnedJourneyGroup(
-  context: JourneyRunContext,
-  metadata: z.infer<typeof processMetadataSchema>,
-  signal: NodeJS.Signals,
+  input: {
+    readonly context: JourneyRunContext;
+    readonly deadline: ProcessOperationDeadline;
+    readonly metadata: z.infer<typeof processMetadataSchema>;
+    readonly signal: NodeJS.Signals;
+  },
 ): void {
-  const group = inspectProcessGroup(metadata.pgid);
+  const group = inspectProcessGroup(input.metadata.pgid, input.deadline);
   if (group.kind === "empty") {
     return;
   }
-  if (group.kind === "uncertain") {
+  if (group.kind === "deadline-expired") {
     throw new Error(
-      `cannot inspect journey group ${metadata.pgid}: ${group.reason}`,
+      `cannot inspect journey group ${input.metadata.pgid}: cleanup deadline expired`,
     );
   }
-  const leader = group.members.find((member) => member.pid === metadata.pid);
+  if (group.kind === "uncertain") {
+    throw new Error(
+      `cannot inspect journey group ${input.metadata.pgid}: ${group.reason}`,
+    );
+  }
+  const leader = group.members.find(
+    (member) => member.pid === input.metadata.pid,
+  );
   const anchoredByLeader =
     leader !== undefined &&
-    leader.command.includes(metadata.runnerPath) &&
-    processOwnership(metadata.pid, metadata.authorityNonce).kind === "owned";
+    leader.command.includes(input.metadata.runnerPath) &&
+    processOwnership(
+      input.metadata.pid,
+      input.metadata.authorityNonce,
+      input.deadline,
+    ).kind === "owned";
   const anchoredByGuardian = group.members.some(
     (member) =>
-      member.pid === context.owner.guardianPid &&
+      member.pid === input.context.owner.guardianPid &&
       member.command.includes("prepare-lock.mjs") &&
       member.command.includes("--guardian") &&
-      member.command.includes(metadata.authorityNonce),
+      member.command.includes(input.metadata.authorityNonce),
   );
   if (!anchoredByLeader && !anchoredByGuardian) {
     throw new Error(
-      `refusing to signal journey group ${metadata.pgid} without its ownership anchor`,
+      `refusing to signal journey group ${input.metadata.pgid} without its ownership anchor`,
     );
   }
-  signalProcessGroup(metadata.pgid, signal);
+  signalProcessGroup({
+    deadline: input.deadline,
+    pgid: input.metadata.pgid,
+    signal: input.signal,
+  });
 }
 
 export function assertJourneyAuthorityGroup(
@@ -230,6 +311,33 @@ export function assertJourneyAuthorityGroup(
 
 export function processInspectionEnvironment(): NodeJS.ProcessEnv {
   return { LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" };
+}
+
+function inspectionAllowance(
+  deadline: ProcessOperationDeadline | undefined,
+): InspectionAllowance {
+  if (deadline === undefined) {
+    return {
+      kind: "available",
+      timeoutMilliseconds: processInspectionTimeoutMilliseconds,
+    };
+  }
+  const remainingMilliseconds = deadline.expiresAt - Date.now();
+  return remainingMilliseconds > 0
+    ? {
+        kind: "available",
+        timeoutMilliseconds: Math.min(
+          deadlineScopedProcessInspectionTimeoutMilliseconds,
+          remainingMilliseconds,
+        ),
+      }
+    : { kind: "expired" };
+}
+
+function deadlineExpired(
+  deadline: ProcessOperationDeadline | undefined,
+): boolean {
+  return deadline !== undefined && Date.now() >= deadline.expiresAt;
 }
 
 export function assertCleanWorktree(repository: string): void {

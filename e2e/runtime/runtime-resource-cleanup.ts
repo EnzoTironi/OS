@@ -20,22 +20,26 @@ import {
   processOwnership,
   signalOwnedJourneyGroup,
   signalProcessGroup,
+  type ProcessOperationDeadline,
   waitForEmptyProcessGroup,
 } from "./runtime-process-authority.js";
 import { contextEnvironment } from "./runtime-context.js";
 import {
   composeCleanupTimeoutMilliseconds,
   dockerOwnershipInspectionTimeoutMilliseconds,
+  processGroupEscalationReserveMilliseconds,
   processGroupPollIntervalMilliseconds,
-  processGroupTerminationAttemptsPerSignal,
+  processGroupSignalDeadlineMilliseconds,
+  processGroupTerminationMaximumMilliseconds,
   releaseProofBarrierPollAttempts,
   releaseProofBarrierPollIntervalMilliseconds,
 } from "./runtime-timeouts.js";
 
 export function leaseAuthorityGroupState(
   lease: Lease,
-): "empty" | "foreign" | "owned" | "uncertain" {
-  const group = inspectProcessGroup(lease.ownerPgid);
+  deadline?: ProcessOperationDeadline,
+): "deadline-expired" | "empty" | "foreign" | "owned" | "uncertain" {
+  const group = inspectProcessGroup(lease.ownerPgid, deadline);
   if (group.kind !== "members") {
     return group.kind;
   }
@@ -51,17 +55,26 @@ export function leaseAuthorityGroupState(
 
 export async function waitForLeaseAuthorityRelease(
   lease: Lease,
-  attempts: number,
+  deadline: ProcessOperationDeadline,
 ): Promise<boolean> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const state = leaseAuthorityGroupState(lease);
+  while (Date.now() < deadline.expiresAt) {
+    const state = leaseAuthorityGroupState(lease, deadline);
     if (state === "empty") {
       return true;
+    }
+    if (state === "deadline-expired") {
+      return false;
     }
     if (state === "uncertain" || state === "foreign") {
       return false;
     }
-    await delay(processGroupPollIntervalMilliseconds);
+    const remainingMilliseconds = deadline.expiresAt - Date.now();
+    if (remainingMilliseconds <= 0) {
+      return false;
+    }
+    await delay(
+      Math.min(processGroupPollIntervalMilliseconds, remainingMilliseconds),
+    );
   }
   return false;
 }
@@ -194,7 +207,13 @@ export async function stopOwnedProcess(context: JourneyRunContext): Promise<void
     return;
   }
 
-  let group = inspectProcessGroup(metadata.pgid);
+  const terminationDeadline = processTerminationDeadline();
+  const group = inspectProcessGroup(metadata.pgid, terminationDeadline);
+  if (group.kind === "deadline-expired") {
+    throw new Error(
+      `cannot inspect journey process group ${metadata.pgid}: cleanup deadline expired`,
+    );
+  }
   if (group.kind === "uncertain") {
     throw new Error(
       `cannot inspect journey process group ${metadata.pgid}: ${group.reason}`,
@@ -206,7 +225,11 @@ export async function stopOwnedProcess(context: JourneyRunContext): Promise<void
   }
   const leader = group.members.find((member) => member.pid === metadata.pid);
   if (leader !== undefined) {
-    const ownership = processOwnership(metadata.pid, metadata.authorityNonce);
+    const ownership = processOwnership(
+      metadata.pid,
+      metadata.authorityNonce,
+      terminationDeadline,
+    );
     if (
       ownership.kind !== "owned" ||
       leader.pgid !== metadata.pgid ||
@@ -230,33 +253,41 @@ export async function stopOwnedProcess(context: JourneyRunContext): Promise<void
     );
   }
 
-  signalOwnedJourneyGroup(context, metadata, "SIGTERM");
+  const termDeadline = processSignalDeadline(terminationDeadline);
+  if (Date.now() < termDeadline.expiresAt) {
+    signalOwnedJourneyGroup({
+      context,
+      deadline: termDeadline,
+      metadata,
+      signal: "SIGTERM",
+    });
+    if (
+      await waitForEmptyProcessGroup({
+        deadline: termDeadline,
+        pgid: metadata.pgid,
+      })
+    ) {
+      await writeGroupCleanReceipt(context, metadata);
+      return;
+    }
+  }
+  signalOwnedJourneyGroup({
+    context,
+    deadline: terminationDeadline,
+    metadata,
+    signal: "SIGKILL",
+  });
   if (
     !(
-      await waitForEmptyProcessGroup(
-        metadata.pgid,
-        processGroupTerminationAttemptsPerSignal,
-      )
+      await waitForEmptyProcessGroup({
+        deadline: terminationDeadline,
+        pgid: metadata.pgid,
+      })
     )
   ) {
-    signalOwnedJourneyGroup(context, metadata, "SIGKILL");
-    if (
-      !(
-        await waitForEmptyProcessGroup(
-          metadata.pgid,
-          processGroupTerminationAttemptsPerSignal,
-        )
-      )
-    ) {
-      group = inspectProcessGroup(metadata.pgid);
-      const members =
-        group.kind === "members"
-          ? group.members.map((member) => member.pid).join(",")
-          : group.kind;
-      throw new Error(
-        `journey process group ${metadata.pgid} survived cleanup (${members})`,
-      );
-    }
+    throw new Error(
+      `journey process group ${metadata.pgid} survived its cleanup deadline`,
+    );
   }
   await writeGroupCleanReceipt(context, metadata);
 }
@@ -283,39 +314,66 @@ export async function stopPrepublicationAuthority(
     suiteId: context.suiteId,
     version: 2,
   };
-  const state = leaseAuthorityGroupState(lease);
-  if (state === "empty") {
+  const terminationDeadline = processTerminationDeadline();
+  const termDeadline = processSignalDeadline(terminationDeadline);
+  if (Date.now() < termDeadline.expiresAt) {
+    if (
+      signalOwnedLeaseAuthorityGroup(lease, "SIGTERM", termDeadline) === "empty"
+    ) {
+      return;
+    }
+    if (await waitForLeaseAuthorityRelease(lease, termDeadline)) {
+      return;
+    }
+  }
+  if (
+    signalOwnedLeaseAuthorityGroup(lease, "SIGKILL", terminationDeadline) ===
+    "empty"
+  ) {
     return;
+  }
+  if (!(await waitForLeaseAuthorityRelease(lease, terminationDeadline))) {
+    throw new Error(
+      `prepublication journey group ${context.owner.pgid} survived its cleanup deadline`,
+    );
+  }
+}
+
+function signalOwnedLeaseAuthorityGroup(
+  lease: Lease,
+  signal: NodeJS.Signals,
+  deadline: ProcessOperationDeadline,
+): "empty" | "signaled" {
+  const state = leaseAuthorityGroupState(lease, deadline);
+  if (state === "empty") {
+    return "empty";
   }
   if (state !== "owned") {
     throw new Error(
-      `cannot prove prepublication journey group ${context.owner.pgid} ownership (${state})`,
+      `cannot prove prepublication journey group ${lease.ownerPgid} ownership (${state})`,
     );
   }
-  signalProcessGroup(context.owner.pgid, "SIGTERM");
-  if (
-    await waitForLeaseAuthorityRelease(
-      lease,
-      processGroupTerminationAttemptsPerSignal,
-    )
-  ) {
-    return;
-  }
-  if (leaseAuthorityGroupState(lease) === "owned") {
-    signalProcessGroup(context.owner.pgid, "SIGKILL");
-  }
-  if (
-    !(
-      await waitForLeaseAuthorityRelease(
-        lease,
-        processGroupTerminationAttemptsPerSignal,
-      )
-    )
-  ) {
-    throw new Error(
-      `prepublication journey group ${context.owner.pgid} survived cleanup`,
-    );
-  }
+  signalProcessGroup({ deadline, pgid: lease.ownerPgid, signal });
+  return "signaled";
+}
+
+function processTerminationDeadline(): ProcessOperationDeadline {
+  return {
+    expiresAt: Date.now() + processGroupTerminationMaximumMilliseconds,
+  };
+}
+
+function processSignalDeadline(
+  terminationDeadline: ProcessOperationDeadline,
+): ProcessOperationDeadline {
+  return {
+    expiresAt: Math.min(
+      terminationDeadline.expiresAt,
+      Date.now() + processGroupSignalDeadlineMilliseconds,
+      terminationDeadline.expiresAt -
+        processGroupEscalationReserveMilliseconds,
+    ),
+  };
 }
 
 export async function matchingGroupCleanReceipt(

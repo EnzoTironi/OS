@@ -6,11 +6,18 @@ export const cleanupClaimWaitMilliseconds =
   cleanupClaimPollIntervalMilliseconds * cleanupClaimPollAttempts;
 
 export const processGroupPollIntervalMilliseconds = 100;
-export const processGroupTerminationAttemptsPerSignal = 50;
+export const deadlineScopedProcessInspectionTimeoutMilliseconds =
+  secondMilliseconds;
+export const processGroupSignalDeadlineMilliseconds = 5 * secondMilliseconds;
+const processGroupEscalationInspectionCount = 2;
+const processGroupSignalDispatchAllowanceMilliseconds = 500;
+export const processGroupEscalationReserveMilliseconds =
+  deadlineScopedProcessInspectionTimeoutMilliseconds *
+    processGroupEscalationInspectionCount +
+  processGroupSignalDispatchAllowanceMilliseconds;
 const processGroupTerminationSignalCount = 2;
 export const processGroupTerminationMaximumMilliseconds =
-  processGroupPollIntervalMilliseconds *
-  processGroupTerminationAttemptsPerSignal *
+  processGroupSignalDeadlineMilliseconds *
   processGroupTerminationSignalCount;
 
 export const dockerOwnershipInspectionCount = 3;
