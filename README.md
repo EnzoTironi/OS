@@ -22,6 +22,7 @@ Conversation is Eve. Do not name the product Poke. The bar is Poke plus Palantir
 ## Install
 
 You need Docker, `just`, Node 22, and Rust 1.98 (`rust-toolchain.toml`).
+Kache 0.16.0 is optional and can accelerate ordinary Rust builds when installed.
 
 ```bash
 git clone https://github.com/EnzoTironi/OS.git
@@ -112,6 +113,13 @@ just build
 just e2e <scenario>
 just verify    # lint, clippy, build, every live journey
 ```
+
+`just build`, `just e2e`, and `just verify` automatically use Kache 0.16.0
+for their ordinary Rust build when it is installed and none of
+`ZOEN_BUILD_RUSTC_WRAPPER`, `RUSTC_WRAPPER`, or
+`CARGO_BUILD_RUSTC_WRAPPER` is present. Tests, Clippy, and coverage remain
+outside Kache. See [Kache builds](CONTRIBUTING.md#kache-builds) for setup,
+safety boundaries, and the reproducible benchmark.
 
 CI is the same gates. Journeys live in `e2e/`. Do not add mocks or `vi.mock`.
 

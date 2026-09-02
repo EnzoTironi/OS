@@ -66,8 +66,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build
+          cache-targets: false
+      - uses: kunobi-ninja/kache-action@78ff455251aa37139061201a39113a1924994035 # v1
+        with:
+          version: v0.16.0
+          github-cache: true
+          cache-dir: ${{ runner.temp }}/kache
+          cache-key-prefix: zoen-build-rust-1.98.0-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.kache.toml', 'e2e/run.sh', '.github/workflows/verify.yml') }}
+          max-size: 6GiB
+          cache-executables: true
+          cache-c-cpp: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+          pr-comment: false
+          job-summary: true
+      - name: Verify Kache installation
+        run: test "$(kache --version)" = "kache 0.16.0"
       - run: npm ci
       - run: ./e2e/run.sh build all
+        env:
+          KACHE_KEY_SALT: zoen-build-rust-1.98.0-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.kache.toml', 'e2e/run.sh', '.github/workflows/verify.yml') }}
+          ZOEN_BUILD_RUSTC_WRAPPER: kache
       - uses: actions/upload-artifact@v4
         with:
           if-no-files-found: error

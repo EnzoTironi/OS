@@ -26,6 +26,57 @@ just verify    # lint, clippy, build, every live journey
 
 Journeys live in `e2e/`. Live lake JSON is `testdata/lakes/`. JCS fixtures are `testdata/jcs/`.
 
+## Kache builds
+
+Kache 0.16.0 is optional. Install the exact version:
+
+```bash
+cargo install --locked --version 0.16.0 kache
+kache --version
+```
+
+The version command must print `kache 0.16.0`. Do not run `kache init`: Zoen
+does not configure this release as a persistent Cargo wrapper.
+
+Once installed, `just build`, `just e2e`, and `just verify` use Kache only for
+their ordinary `cargo build`, unless `ZOEN_BUILD_RUSTC_WRAPPER`,
+`RUSTC_WRAPPER`, or `CARGO_BUILD_RUSTC_WRAPPER` is present. Rust tests and
+Clippy explicitly clear compiler wrappers; coverage does not install Kache.
+These gates can still use their existing CI target caches. Tests and Clippy
+routed through `e2e/run.sh` use `target/gates`, while ordinary builds use
+`target`, so Cargo fingerprints produced through Kache cannot be reused by a
+gate. The project configuration keeps the cache local, enables executable
+caching, and sets an 8 GiB local garbage-collection target. CI uses a 6 GiB
+target to leave room for its existing Rust caches. To bypass Kache for one
+build:
+
+```bash
+ZOEN_BUILD_RUSTC_WRAPPER="" just build
+```
+
+Kache 0.16.0 omits `-W`, `-A`, and `--check-cfg` settings from its cache key.
+Using it for lint or test gates could replay a successful compile after those
+settings change. The CI rollout is therefore limited to the ordinary `build`
+job and pins both Kache and its action. CI also asserts the installed version
+and explicitly selects Kache for that build, so an installation failure cannot
+silently turn the job into an uncached success. Release and coverage remain
+unchanged.
+The [upstream correction](https://github.com/kunobi-ninja/kache/pull/834) is
+merged but is not part of a published release yet.
+
+To reproduce the local clean-target comparison, first commit or stash tracked
+changes, then run:
+
+```bash
+just benchmark-kache
+```
+
+The benchmark uses at least three uncontaminated samples, defaults to ten Cargo
+jobs, and requires a 20% median improvement. It waits for a quiet compiler
+window and retries contaminated samples without admitting them to the result.
+Read `verdict.md` in the printed artifact directory; `results.tsv`,
+`discarded.tsv` when applicable, logs, and Kache reports contain the evidence.
+
 ## Pull requests
 
 1. Open an issue first if the change is not a small fix.

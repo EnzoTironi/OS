@@ -139,13 +139,22 @@ run_lint() {
   node scripts/generate-jcs-fixtures.mjs --check
   node scripts/check-canonical-json.mjs
   cargo fmt --all --check
-  cargo test --locked --workspace
+  CARGO_BUILD_BUILD_DIR="target/gates" CARGO_BUILD_TARGET_DIR="target/gates" \
+    CARGO_TARGET_DIR="target/gates" \
+    CARGO_BUILD_RUSTC_WRAPPER="" CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" \
+    RUSTC_WRAPPER="" RUSTC_WORKSPACE_WRAPPER="" \
+    cargo test --locked --workspace --target-dir target/gates
   test "$(cargo tree --package zoen-core --depth 1 | wc -l)" -eq 1
   ./e2e/assert-unique-ports.sh
 }
 
 run_clippy() {
-  cargo clippy --locked --workspace --all-targets --exclude zoen-proto --no-deps -- -D warnings
+  CARGO_BUILD_BUILD_DIR="target/gates" CARGO_BUILD_TARGET_DIR="target/gates" \
+    CARGO_TARGET_DIR="target/gates" \
+    CARGO_BUILD_RUSTC_WRAPPER="" CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" \
+    RUSTC_WRAPPER="" RUSTC_WORKSPACE_WRAPPER="" \
+    cargo clippy --locked --workspace --all-targets --exclude zoen-proto --no-deps \
+      --target-dir target/gates -- -D warnings
 }
 
 run_check() {
@@ -154,7 +163,40 @@ run_check() {
 }
 
 run_native_build() {
-  cargo build --locked --workspace
+  local wrapper=""
+  if [[ "${ZOEN_BUILD_RUSTC_WRAPPER+x}" == "x" ]]; then
+    wrapper="${ZOEN_BUILD_RUSTC_WRAPPER}"
+  elif [[ "${RUSTC_WRAPPER+x}" == "x" ]]; then
+    wrapper="${RUSTC_WRAPPER}"
+  elif [[ "${CARGO_BUILD_RUSTC_WRAPPER+x}" == "x" ]]; then
+    wrapper="${CARGO_BUILD_RUSTC_WRAPPER}"
+  elif command -v kache >/dev/null 2>&1; then
+    wrapper="$(command -v kache)"
+  fi
+
+  if [[ -n "$wrapper" ]]; then
+    local wrapper_version
+    wrapper_version="$("$wrapper" --version 2>/dev/null || true)"
+    if [[ "$wrapper_version" == kache\ * && "$wrapper_version" != "kache 0.16.0" ]]; then
+      echo "Zoen requires kache 0.16.0, found ${wrapper_version}" >&2
+      exit 1
+    fi
+    if [[ "$wrapper_version" == "kache 0.16.0" ]]; then
+      echo "building Rust with ${wrapper_version}" >&2
+    fi
+    CARGO_BUILD_BUILD_DIR="target" CARGO_BUILD_TARGET_DIR="target" \
+      CARGO_TARGET_DIR="target" CARGO_BUILD_RUSTC_WRAPPER="$wrapper" \
+      CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" \
+      KACHE_CONFIG="$PWD/.kache.toml" KACHE_LOCAL_ONLY=1 \
+      RUSTC_WRAPPER="$wrapper" RUSTC_WORKSPACE_WRAPPER="" \
+      cargo build --locked --workspace --target-dir target
+  else
+    CARGO_BUILD_BUILD_DIR="target" CARGO_BUILD_TARGET_DIR="target" \
+      CARGO_TARGET_DIR="target" CARGO_BUILD_RUSTC_WRAPPER="" \
+      CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" \
+      RUSTC_WRAPPER="" RUSTC_WORKSPACE_WRAPPER="" \
+      cargo build --locked --workspace --target-dir target
+  fi
 }
 
 run_build() {
