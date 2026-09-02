@@ -10,6 +10,10 @@ clippy:
 check:
     ./e2e/run.sh check
 
+# Install, generate, check, and build exactly once before live fanout.
+prepare:
+    ./e2e/run.sh prepare
+
 # Produce the binaries e2e-run executes.
 build scenario="":
     ./e2e/run.sh build {{scenario}}
@@ -22,7 +26,16 @@ e2e-run scenario:
 e2e scenario:
     ./e2e/run.sh e2e {{scenario}}
 
-# Release gate: check and build once, then every serial scenario runner.
+# Run the prepared live suite through the weighted local pool.
+e2e-parallel:
+    ./e2e/run.sh parallel
+
+# Destructive harness journey: concurrency, stale retry, cross-worktree, cleanup.
+journey-runtime-proof:
+    ./e2e/run.sh prepare
+    node dist/e2e/journey-runtime-proof.js
+
+# Release gate: prepare once, fan out isolated lightweight runtime stacks.
 verify:
     ./e2e/run.sh verify
 

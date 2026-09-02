@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { link, mkdir, open, rename, unlink } from "node:fs/promises";
 import path from "node:path";
+import { optionalJourneyRunContext } from "./journey-run-context.js";
 import {
   exactSourceCommit,
   gitHead,
@@ -19,6 +21,19 @@ export function e2ePort(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw === "") {
     return fallback;
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be a host TCP port, got ${JSON.stringify(raw)}`);
+  }
+  return port;
+}
+
+/** Host TCP port that must be assigned by the journey run context. */
+export function requiredE2ePort(name: string): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") {
+    throw new Error(`${name} is required; start journeys through e2e/run.sh`);
   }
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -195,7 +210,33 @@ export async function writeScenarioArtifact(
   const directory = e2eArtifactsDirectory(repositoryRoot, scenario);
   await mkdir(directory, { recursive: true });
   const outputPath = path.join(directory, `${scenario}.json`);
-  const serialized = JSON.stringify({ ...value, sourceCommit }, null, 2);
+  const context = optionalJourneyRunContext();
+  if (context !== undefined && context.scenario !== scenario) {
+    throw new Error(
+      `run context scenario ${context.scenario} cannot publish ${scenario} evidence`,
+    );
+  }
+  if (Object.hasOwn(value, "journeyRun")) {
+    throw new Error(`${scenario} artifact must not provide journeyRun provenance`);
+  }
+  const journeyRun =
+    context === undefined
+      ? undefined
+      : {
+          attempt: context.attempt,
+          buildIdentity: context.buildIdentity,
+          runId: context.runId,
+          suiteId: context.suiteId,
+        };
+  const serialized = JSON.stringify(
+    {
+      ...value,
+      ...(journeyRun === undefined ? {} : { journeyRun }),
+      sourceCommit,
+    },
+    null,
+    2,
+  );
   if (serialized === undefined) {
     throw new Error(`${scenario} artifact could not be serialized`);
   }
@@ -208,6 +249,21 @@ export async function writeScenarioArtifact(
   ) {
     throw new Error(`${scenario} serialized artifact lost its exact sourceCommit`);
   }
-  await writeFile(outputPath, `${serialized}\n`);
+  const temporary = `${outputPath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+  const handle = await open(temporary, "wx");
+  try {
+    await handle.writeFile(`${serialized}\n`);
+  } finally {
+    await handle.close();
+  }
+  if (context === undefined) {
+    await rename(temporary, outputPath);
+  } else {
+    try {
+      await link(temporary, outputPath);
+    } finally {
+      await unlink(temporary);
+    }
+  }
   return outputPath;
 }

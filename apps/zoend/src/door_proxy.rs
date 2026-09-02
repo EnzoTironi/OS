@@ -1,4 +1,4 @@
-use std::{net::IpAddr, time::Duration};
+use std::{env, error::Error, io, net::IpAddr, time::Duration};
 
 use axum::{
     Router,
@@ -8,12 +8,43 @@ use axum::{
     response::{IntoResponse, Response},
     routing::any,
 };
-use reqwest::Client;
+use reqwest::{Client, Url};
 
-const DOOR: &str = "http://127.0.0.1:58704";
 const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
-pub fn router() -> Router {
+#[derive(Clone)]
+struct DoorState {
+    client: Client,
+    origin: String,
+}
+
+pub fn origin_from_env() -> Result<String, Box<dyn Error + Send + Sync>> {
+    let raw = env::var("ZOEN_AUTH_BASE_URL").map_err(|error| match error {
+        env::VarError::NotPresent => invalid_origin("ZOEN_AUTH_BASE_URL is required"),
+        not_unicode @ env::VarError::NotUnicode(_) => {
+            Box::new(not_unicode) as Box<dyn Error + Send + Sync>
+        }
+    })?;
+    let trimmed = raw.trim();
+    let url = Url::parse(trimmed)
+        .map_err(|error| invalid_origin(format!("ZOEN_AUTH_BASE_URL is invalid: {error}")))?;
+    let valid = url.scheme() == "http"
+        && url.host_str().is_some_and(host_is_loopback)
+        && url.port().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if !valid {
+        return Err(invalid_origin(
+            "ZOEN_AUTH_BASE_URL must be an explicit loopback HTTP origin",
+        ));
+    }
+    Ok(url.as_str().trim_end_matches('/').to_owned())
+}
+
+pub fn router(origin: String) -> Router {
     Router::new()
         .route("/", any(proxy_door))
         .route("/login", any(proxy_door))
@@ -21,7 +52,10 @@ pub fn router() -> Router {
         .route("/api/auth/{*path}", any(proxy_door))
         .route("/device", any(proxy_door))
         .route("/onboard/done", any(proxy_door))
-        .with_state(door_client())
+        .with_state(DoorState {
+            client: door_client(),
+            origin,
+        })
 }
 
 fn door_client() -> Client {
@@ -31,12 +65,12 @@ fn door_client() -> Client {
         .expect("TLS backend cannot be initialized")
 }
 
-async fn proxy_door(State(client): State<Client>, request: Request) -> Response {
+async fn proxy_door(State(state): State<DoorState>, request: Request) -> Response {
     let path_and_query = request
         .uri()
         .path_and_query()
         .map_or("/", axum::http::uri::PathAndQuery::as_str);
-    let url = format!("{DOOR}{path_and_query}");
+    let url = format!("{}{path_and_query}", state.origin);
     let Ok(method) = reqwest::Method::from_bytes(request.method().as_str().as_bytes()) else {
         return StatusCode::BAD_GATEWAY.into_response();
     };
@@ -44,11 +78,12 @@ async fn proxy_door(State(client): State<Client>, request: Request) -> Response 
     let Ok(body) = axum::body::to_bytes(request.into_body(), BODY_LIMIT).await else {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     };
-    forward(&client, method, url, headers, body).await
+    forward(&state.client, &state.origin, method, url, headers, body).await
 }
 
 async fn forward(
     client: &Client,
+    door_origin: &str,
     method: reqwest::Method,
     url: String,
     headers: HeaderMap,
@@ -61,7 +96,7 @@ async fn forward(
             continue;
         }
         if name == header::ORIGIN
-            && let Some(rewritten) = rewrite_loopback_origin(value)
+            && let Some(rewritten) = rewrite_loopback_origin(value, door_origin)
         {
             upstream = upstream.header(name, rewritten);
             continue;
@@ -97,14 +132,14 @@ async fn forward(
     }
 }
 
-fn rewrite_loopback_origin(origin: &HeaderValue) -> Option<HeaderValue> {
+fn rewrite_loopback_origin(origin: &HeaderValue, door_origin: &str) -> Option<HeaderValue> {
     let raw = origin.to_str().ok()?;
     let url = reqwest::Url::parse(raw).ok()?;
     let host = url.host_str()?;
-    if !host_is_loopback(host) || raw == DOOR {
+    if !host_is_loopback(host) || raw == door_origin {
         return None;
     }
-    Some(HeaderValue::from_static(DOOR))
+    HeaderValue::from_str(door_origin).ok()
 }
 
 fn inbound_origin(headers: &HeaderMap) -> Option<String> {
@@ -143,6 +178,10 @@ fn host_is_loopback(host: &str) -> bool {
         return true;
     }
     host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+fn invalid_origin(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
+    io::Error::new(io::ErrorKind::InvalidInput, message.into()).into()
 }
 
 fn hop_by_hop(name: &HeaderName) -> bool {

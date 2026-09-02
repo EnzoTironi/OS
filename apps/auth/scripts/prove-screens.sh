@@ -8,8 +8,9 @@ base="http://127.0.0.1:58704"
 ok_url="${base}/api/auth/ok"
 proof="/workspace/ship/better-auth-screens-proof.md"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 draft="${work}/proof.md"
+auth_pid_file="${work}/auth.pid"
+auth_log="${work}/auth.log"
 
 if [[ ! -d node_modules ]]; then
   npm ci
@@ -35,7 +36,6 @@ set +a
 
 npx --yes auth@1.7.2 migrate --config src/auth.ts --yes
 
-# npx tsx leaves a grandchild node on :58704 if only the pid-file process is killed.
 kill_tree() {
   local parent="$1" child
   for child in $(ps -o pid= --ppid "$parent" 2>/dev/null || true); do
@@ -47,29 +47,24 @@ kill_tree() {
   kill "$parent" 2>/dev/null || true
 }
 
-if [[ -f .auth.pid ]]; then
-  recorded="$(tr -d ' \n' < .auth.pid || true)"
-  if [[ "$recorded" =~ ^[0-9]+$ ]] && kill -0 "$recorded" 2>/dev/null; then
-    kill_tree "$recorded"
-    for _ in $(seq 1 50); do
-      if ! kill -0 "$recorded" 2>/dev/null; then
-        break
-      fi
-      sleep 0.1
-    done
+cleanup() {
+  if [[ -f "$auth_pid_file" ]]; then
+    recorded="$(tr -d ' \n' < "$auth_pid_file" || true)"
+    if [[ "$recorded" =~ ^[0-9]+$ ]] && kill -0 "$recorded" 2>/dev/null; then
+      kill_tree "$recorded"
+    fi
   fi
-  rm -f .auth.pid
+  rm -rf "$work"
+}
+trap cleanup EXIT
+
+if curl -sf --connect-timeout 1 "$ok_url" >/dev/null 2>&1; then
+  printf 'auth door port 58704 is already owned; refusing to adopt or kill it\n' >&2
+  exit 1
 fi
 
-for _ in $(seq 1 50); do
-  if ! curl -sf --connect-timeout 1 "$ok_url" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.1
-done
-
-npx tsx src/server.ts >.auth.log 2>&1 &
-printf '%s\n' "$!" > .auth.pid
+npx tsx src/server.ts >"$auth_log" 2>&1 &
+printf '%s\n' "$!" > "$auth_pid_file"
 
 ready=0
 for _ in $(seq 1 40); do
@@ -80,7 +75,7 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 if [[ "$ready" -ne 1 ]]; then
-  cat .auth.log >&2
+  cat "$auth_log" >&2
   exit 1
 fi
 

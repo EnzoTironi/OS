@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { Client as PostgresClient } from "pg";
 import { delay, repositoryRoot } from "../governed-action/support.js";
 import { e2eHttpUrl } from "../host-env.js";
+import { composeArguments } from "../journey-run-context.js";
 
 const clientPath = path.join(
   repositoryRoot,
@@ -18,8 +19,6 @@ const clientPath = path.join(
   "durable-commit",
   "client.js",
 );
-const composeFile = path.join("e2e", "durable-commit", "compose.yaml");
-const composeProject = "zoen-durable-commit";
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_101);
 
 const commitResultSchema = z.object({
@@ -239,14 +238,7 @@ export async function seedSemanticRecordCollision(
 }
 
 export function composeOutput(...arguments_: string[]): Promise<string> {
-  return command("docker", [
-    "compose",
-    "--project-name",
-    composeProject,
-    "--file",
-    composeFile,
-    ...arguments_,
-  ]);
+  return command("docker", composeArguments(arguments_));
 }
 
 function command(

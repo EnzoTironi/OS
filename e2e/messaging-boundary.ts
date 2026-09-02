@@ -9,6 +9,7 @@ import {
   startServer,
   stopAuthDoor,
   stopServer,
+  type AuthDoor,
   type ServerProcess,
 } from "./governed-action/support.js";
 import {
@@ -71,7 +72,7 @@ async function admin(
   return { body: parsed, status: response.status };
 }
 
-async function seedBoundAccount(): Promise<{
+async function seedBoundAccount(door: AuthDoor): Promise<{
   accountId: string;
   tenantId: string;
   principalId: string;
@@ -79,7 +80,7 @@ async function seedBoundAccount(): Promise<{
   telegramBindingId: string;
   linqBindingId: string;
 }> {
-  const boundToken = (await signUpSession("bound-bait")).token;
+  const boundToken = (await signUpSession(door, "bound-bait")).token;
   identityAdminBearer = boundToken;
   const bootstrap = await admin(
     "POST",
@@ -133,12 +134,12 @@ async function main(): Promise<void> {
   let server: ServerProcess | undefined;
   try {
     server = await startServer(policyManifestPath, {
-    extraEnv: {
-      ZOEN_WHATSAPP_INGRESS_SECRET: "",
-    },
-    kind: "default",
-  });
-    const seed = await seedBoundAccount();
+      extraEnv: {
+        ZOEN_WHATSAPP_INGRESS_SECRET: "",
+      },
+      kind: "default",
+    });
+    const seed = await seedBoundAccount(door);
 
     record(
       "thread_is_not_tenant",

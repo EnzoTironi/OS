@@ -18,6 +18,8 @@ trap 'cleanup' EXIT
 draft="${work}/proof.md"
 cookie_jar="${work}/cookies.txt"
 token_file="${work}/agent.token"
+auth_pid_file="${work}/auth.pid"
+auth_log="${work}/auth.log"
 zoend_pg_name="zoen-remint-ba-pg-$$"
 zoend_pid=""
 auth_started=0
@@ -56,8 +58,8 @@ cleanup() {
     done
   fi
   docker rm -f "$zoend_pg_name" >/dev/null 2>&1 || true
-  if [[ "$auth_started" -eq 1 && -f .auth.pid ]]; then
-    recorded="$(tr -d ' \n' < .auth.pid || true)"
+  if [[ "$auth_started" -eq 1 && -f "$auth_pid_file" ]]; then
+    recorded="$(tr -d ' \n' < "$auth_pid_file" || true)"
     if [[ "$recorded" =~ ^[0-9]+$ ]] && kill -0 "$recorded" 2>/dev/null; then
       kill_tree "$recorded"
       for _ in $(seq 1 50); do
@@ -67,7 +69,6 @@ cleanup() {
         sleep 0.1
       done
     fi
-    rm -f .auth.pid
   fi
   rm -rf "$work"
 }
@@ -131,39 +132,11 @@ export ZOEN_ZOEND="$zoend_base"
 
 npx --yes auth@1.7.2 migrate --config src/auth.ts --yes
 
-if [[ -f .auth.pid ]]; then
-  recorded="$(tr -d ' \n' < .auth.pid || true)"
-  if [[ "$recorded" =~ ^[0-9]+$ ]] && kill -0 "$recorded" 2>/dev/null; then
-    kill_tree "$recorded"
-    for _ in $(seq 1 50); do
-      if ! kill -0 "$recorded" 2>/dev/null; then
-        break
-      fi
-      sleep 0.1
-    done
-  fi
-  rm -f .auth.pid
+if curl -sf --connect-timeout 1 "$ok_url" >/dev/null 2>&1; then
+  fail "auth door port 58704 is already owned; refusing to adopt or kill it"
 fi
-
-fuser -k 58704/tcp >/dev/null 2>&1 || true
-
-for _ in $(seq 1 50); do
-  if ! curl -sf --connect-timeout 1 "$ok_url" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.1
-done
-
-for _ in $(seq 1 50); do
-  if ! ss -ltn 2>/dev/null | grep -q ':58704'; then
-    break
-  fi
-  fuser -k 58704/tcp >/dev/null 2>&1 || true
-  sleep 0.1
-done
-
-npx tsx src/server.ts >.auth.log 2>&1 &
-printf '%s\n' "$!" > .auth.pid
+npx tsx src/server.ts >"$auth_log" 2>&1 &
+printf '%s\n' "$!" > "$auth_pid_file"
 auth_started=1
 
 ready=0
@@ -175,7 +148,7 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 if [[ "$ready" -ne 1 ]]; then
-  cat .auth.log >&2
+  cat "$auth_log" >&2
   fail "auth door did not become ready"
 fi
 
@@ -343,6 +316,7 @@ zoend_log="${work}/zoend.log"
   # shellcheck disable=SC1091
   . "$HOME/.cargo/env"
   export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55405/zoen'
+  export ZOEN_AUTH_BASE_URL="$base"
   export ZOEN_AUTH_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55404/zoen_auth'
   export ZOEN_LISTEN_ADDR='127.0.0.1:58705'
   export ZOEN_CEDAR_POLICY_MANIFEST="$policies"

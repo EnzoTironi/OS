@@ -61,6 +61,7 @@ import {
   e2ePostgresUrl,
   projectionProcessEnvironment,
 } from "../host-env.js";
+import { composeArguments } from "../journey-run-context.js";
 
 export const repositoryRoot = process.cwd();
 export const scenarioDirectory = path.join(
@@ -495,14 +496,7 @@ export function adminClient(): PostgresClient {
 }
 
 export function composeOutput(...arguments_: string[]): Promise<string> {
-  return command("docker", [
-    "compose",
-    "--project-name",
-    "zoen-evolution-compatible",
-    "--file",
-    path.join("e2e", "evolution-compatible", "compose.yaml"),
-    ...arguments_,
-  ]);
+  return command("docker", composeArguments(arguments_));
 }
 
 export function command(

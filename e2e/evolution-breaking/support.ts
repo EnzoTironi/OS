@@ -52,6 +52,7 @@ import {
   e2ePostgresUrl,
   projectionProcessEnvironment,
 } from "../host-env.js";
+import { composeArguments } from "../journey-run-context.js";
 
 export {
   actionClient,
@@ -309,12 +310,5 @@ export async function expectProjectionFailure(tenantId: string): Promise<void> {
 }
 
 export function composeOutput(...arguments_: string[]): Promise<string> {
-  return command("docker", [
-    "compose",
-    "--project-name",
-    "zoen-evolution-breaking",
-    "--file",
-    path.join("e2e", "evolution-breaking", "compose.yaml"),
-    ...arguments_,
-  ]);
+  return command("docker", composeArguments(arguments_));
 }

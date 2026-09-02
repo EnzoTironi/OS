@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
@@ -37,6 +36,7 @@ import { verifyRecovery } from "./durable-commit/laws/recovery.js";
 import { verifyReplayAndMismatch } from "./durable-commit/laws/replay.js";
 import { verifyRollback } from "./durable-commit/laws/rollback.js";
 import { verifyTenantIsolation } from "./durable-commit/laws/tenant-isolation.js";
+import { composeOutput } from "./durable-commit/support.js";
 import {
   EvidenceRecorder,
   type DurableFixtures,
@@ -124,19 +124,7 @@ async function main(): Promise<void> {
       )
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const composeImages = execFileSync(
-      "docker",
-      [
-        "compose",
-        "--project-name",
-        "zoen-durable-commit",
-        "--file",
-        "e2e/durable-commit/compose.yaml",
-        "config",
-        "--images",
-      ],
-      { encoding: "utf8" },
-    );
+    const composeImages = await composeOutput("config", "--images");
     assert.doesNotMatch(composeImages, /keycloak/i);
     const sourceCommit = gitHead(repositoryRoot);
     const actionProtocol = await readFile(

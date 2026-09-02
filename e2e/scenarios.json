@@ -1,0 +1,20 @@
+[
+  { "name": "activation-identity", "class": "live", "compose": true, "weight": 1, "ci": true, "minio": false },
+  { "name": "messaging-boundary", "class": "live", "compose": true, "weight": 1, "ci": true, "minio": false },
+  { "name": "definition-publication", "class": "live", "compose": true, "weight": 1, "ci": true, "minio": false },
+  { "name": "cedar-object-projection", "class": "live", "compose": true, "weight": 1, "ci": false, "minio": false },
+  { "name": "commercial-identity", "class": "live", "compose": true, "weight": 1, "ci": false, "minio": false },
+  { "name": "dirty-quote", "class": "live", "compose": true, "weight": 1, "ci": false, "minio": false },
+  { "name": "durable-commit", "class": "live", "compose": true, "weight": 1, "ci": true, "minio": false },
+  { "name": "evolution-breaking", "class": "live", "compose": true, "weight": 2, "ci": true, "minio": true },
+  { "name": "evolution-compatible", "class": "live", "compose": true, "weight": 2, "ci": true, "minio": true },
+  { "name": "explain", "class": "live", "compose": true, "weight": 2, "ci": true, "minio": false },
+  { "name": "fiscal-systax-live", "class": "credential", "compose": true, "weight": 4, "ci": false, "minio": false, "realm": "fiscal-systax-live" },
+  { "name": "fiscal-plugnotas-live", "class": "credential", "compose": true, "weight": 4, "ci": false, "minio": false, "realm": "fiscal-plugnotas-live" },
+  { "name": "fiscal-protheus-live", "class": "credential", "compose": true, "weight": 4, "ci": false, "minio": false, "realm": "fiscal-protheus-live" },
+  { "name": "governed-action", "class": "live", "compose": true, "weight": 1, "ci": true, "minio": false },
+  { "name": "public-surface", "class": "live", "compose": false, "weight": 0, "ci": true, "minio": false },
+  { "name": "cli-dest", "class": "live", "compose": false, "weight": 0, "ci": true, "minio": false },
+  { "name": "semantic-query", "class": "live", "compose": true, "weight": 2, "ci": true, "minio": true },
+  { "name": "wasm-code-mode", "class": "live", "compose": true, "weight": 1, "ci": true, "minio": false }
+]

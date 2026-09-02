@@ -20,6 +20,7 @@ import {
   authDatabaseUrl,
   command,
   commitProposal,
+  composeOutput,
   corruptToken,
   databaseSnapshot,
   definitionClient,
@@ -968,15 +969,7 @@ async function main(): Promise<void> {
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
     assert.match(postgresVersion ?? "", /^18\./);
-    const composeServices = await command("docker", [
-      "compose",
-      "--project-name",
-      "zoen-governed-action",
-      "--file",
-      "e2e/governed-action/compose.yaml",
-      "config",
-      "--images",
-    ]);
+    const composeServices = await composeOutput("config", "--images");
     assert.doesNotMatch(composeServices, /keycloak/i);
     const sourceCommit = gitHead(repositoryRoot);
     const manifest = {

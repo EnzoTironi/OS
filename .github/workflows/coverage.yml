@@ -34,6 +34,7 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - run: npm ci --ignore-scripts
+      - run: npm ci --prefix apps/auth --ignore-scripts
       - run: npm run build
       - name: Generate lcov
         run: |
@@ -41,6 +42,7 @@ jobs:
           cargo llvm-cov clean --workspace
           cargo test --locked --workspace --exclude zoen-proto
           cargo build --locked --workspace
+          node dist/e2e/journey-runtime.js mark-prepared
           ./e2e/run.sh run definition-publication
           cargo llvm-cov report --workspace --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v5

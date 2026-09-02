@@ -75,6 +75,7 @@ import {
   e2ePostgresUrl,
   e2eWhatsAppDoorE164,
 } from "../host-env.js";
+import { composeArguments } from "../journey-run-context.js";
 
 export {
   plantPersonas,
@@ -97,8 +98,6 @@ export const generatedDirectory = e2eGeneratedDirectory(
   "governed-action",
 );
 const serverPath = path.join(repositoryRoot, "target", "debug", "zoen");
-const composeFile = path.join("e2e", "governed-action", "compose.yaml");
-const composeProject = "zoen-governed-action";
 const postgresPortFallback = 55_434;
 const zoendPortFallback = 58_083;
 const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
@@ -768,14 +767,7 @@ export function millisecondsFromNow(milliseconds: number): Date {
 }
 
 export function composeOutput(...arguments_: string[]): Promise<string> {
-  return command("docker", [
-    "compose",
-    "--project-name",
-    composeProject,
-    "--file",
-    composeFile,
-    ...arguments_,
-  ]);
+  return command("docker", composeArguments(arguments_));
 }
 
 export function command(

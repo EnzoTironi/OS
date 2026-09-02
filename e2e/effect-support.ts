@@ -24,6 +24,7 @@ import {
   e2ePort,
   e2ePostgresUrl,
 } from "./host-env.js";
+import { composeArguments } from "./journey-run-context.js";
 
 export const repositoryRoot = process.cwd();
 const postgresPortFallback = 55_441;
@@ -78,11 +79,6 @@ export const connectorCallerToken = "connector-worker-token";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 
-const generatedDirectory =
-  process.env.ZOEN_E2E_GENERATED_DIR ?? "e2e/explain/.generated";
-const composeDirectory = generatedDirectory.replace(/\/\.generated\/?$/, "");
-const composeFile = path.join(composeDirectory, "compose.yaml");
-const composeProject = `zoen-${path.basename(composeDirectory)}`;
 const targetDirectory = path.join(repositoryRoot, "target", "debug");
 const distDirectory = path.join(repositoryRoot, "dist");
 const providerOperationSchema = z
@@ -474,14 +470,7 @@ function transport(token: string, tenantId: string) {
 }
 
 function compose(...arguments_: readonly string[]): Promise<string> {
-  return runProcess("docker", [
-    "compose",
-    "--project-name",
-    composeProject,
-    "--file",
-    composeFile,
-    ...arguments_,
-  ]);
+  return runProcess("docker", composeArguments(arguments_));
 }
 
 function runProcess(

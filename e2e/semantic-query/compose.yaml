@@ -34,23 +34,9 @@ services:
 
   minio-client:
     image: minio/mc:latest
+    profiles: [tools]
     depends_on:
       minio:
         condition: service_healthy
-    network_mode: host
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        mc alias set local http://127.0.0.1:${ZOEN_E2E_MINIO_PORT} zoen-access zoen-secret
-        mc mb --ignore-existing local/zoen-projections
-        sleep infinity
-    healthcheck:
-      test:
-        - CMD
-        - mc
-        - ready
-        - local
-      interval: 1s
-      timeout: 3s
-      retries: 30
+    environment:
+      MC_HOST_local: http://zoen-access:zoen-secret@minio:9000

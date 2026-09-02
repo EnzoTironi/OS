@@ -20,6 +20,7 @@ import {
   sourceCommitKeys,
   type VerificationMutantResult,
 } from "./scenario-evidence.js";
+import { publishedEvidence } from "./published-evidence.js";
 import { z } from "zod";
 
 const SCHEMA_ID = "zoen.verify.v1" as const;
@@ -757,7 +758,7 @@ function resolveEvidenceRoot(): string {
   if (override) {
     return path.isAbsolute(override) ? override : path.join(repositoryRoot, override);
   }
-  return path.join(repositoryRoot, "artifacts");
+  return publishedEvidence(repositoryRoot).root;
 }
 
 function isFixtureEvidenceRoot(evidenceRoot: string): boolean {
@@ -883,10 +884,9 @@ async function main(): Promise<void> {
   const candidate = resolveCandidateCommit(repositoryRoot);
   const evidenceRoot = resolveEvidenceRoot();
   const fixtureMode = isFixtureEvidenceRoot(evidenceRoot);
-  // Fixture runs are gate-contract only; always emit the official bundle under artifacts/.
-  const outputDirectory = fixtureMode
-    ? path.join(repositoryRoot, "artifacts/verify-v1")
-    : path.join(evidenceRoot, "verify-v1");
+  // Verification output is mutable derived state, never part of an immutable
+  // evidence generation.
+  const outputDirectory = path.join(repositoryRoot, "artifacts/verify-v1");
   await mkdir(outputDirectory, { recursive: true });
 
   const verificationMutants = runVerificationMutants(candidate);

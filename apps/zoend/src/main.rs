@@ -100,6 +100,7 @@ async fn serve() -> Result<(), Box<dyn Error + Send + Sync>> {
 struct BootRuntime {
     classification: Arc<StateClassification>,
     credentials: PostgresWorkloadCredentialStore,
+    door_origin: String,
     identity: PostgresIdentityStore,
     listen_address: SocketAddr,
     policy: Arc<CedarPolicyEvaluator>,
@@ -127,6 +128,7 @@ struct OntologyServices {
 async fn boot_runtime() -> Result<BootRuntime, Box<dyn Error + Send + Sync>> {
     let database_url = required_database_url()?;
     let ProcessAuth::SessionDoor { auth_database_url } = config::process_auth()?;
+    let door_origin = door_proxy::origin_from_env()?;
     let policy = Arc::new(CedarPolicyEvaluator::from_path(
         config::cedar_manifest_path()?,
     )?);
@@ -158,6 +160,7 @@ async fn boot_runtime() -> Result<BootRuntime, Box<dyn Error + Send + Sync>> {
     Ok(BootRuntime {
         classification,
         credentials,
+        door_origin,
         identity,
         listen_address,
         policy,
@@ -292,7 +295,7 @@ fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
     HttpRouter::new()
         .route("/metrics", get(metrics))
         .merge(ready_routes)
-        .merge(door_proxy::router())
+        .merge(door_proxy::router(boot.door_origin))
         .merge(eve_proxy::router())
         .merge(identity_routes)
         .merge(conversation_routes)

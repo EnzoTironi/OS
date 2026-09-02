@@ -54,6 +54,7 @@ import {
   e2ePort,
 } from "./host-env.js";
 import { definitionPublishPolicy } from "./definition-publish-policy.js";
+import { journeyRunContext } from "./journey-run-context.js";
 
 export {
   actionClient,
@@ -103,10 +104,11 @@ export type FiscalFixture = Omit<DomainFixture, "packageName"> & {
   readonly packageName: "fiscal-brazil";
 };
 
-const generatedDirectory =
-  process.env.ZOEN_E2E_GENERATED_DIR ??
-  path.join(repositoryRoot, "e2e", "fiscal-systax-live", ".generated");
-const packageDirectory = generatedDirectory.replace(/\/\.generated\/?$/, "");
+const packageDirectory = path.join(
+  repositoryRoot,
+  "e2e",
+  journeyRunContext().scenario,
+);
 const fiscalPackageSourcePath = path.join(
   repositoryRoot,
   "testdata",

@@ -34,6 +34,16 @@ function parseGoogle(env: NodeJS.Dict<string>): Google {
   return { clientId, clientSecret, kind: "set" };
 }
 
+function listenPort(env: NodeJS.Dict<string>): number {
+  const raw = env.BETTER_AUTH_LISTEN_PORT ?? "58704";
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    process.stderr.write("BETTER_AUTH_LISTEN_PORT\n");
+    process.exit(1);
+  }
+  return port;
+}
+
 export function loadConfig(env: NodeJS.Dict<string>): DoorConfig {
   return {
     baseURL: required(env, "BETTER_AUTH_URL"),
@@ -41,6 +51,6 @@ export function loadConfig(env: NodeJS.Dict<string>): DoorConfig {
     databaseUrl: required(env, "DATABASE_URL"),
     google: parseGoogle(env),
     listenHost: "127.0.0.1",
-    listenPort: 58_704,
+    listenPort: listenPort(env),
   };
 }

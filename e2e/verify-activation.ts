@@ -20,6 +20,7 @@ import {
   sourceCommitKeys,
   type VerificationMutantResult,
 } from "./scenario-evidence.js";
+import { publishedEvidence } from "./published-evidence.js";
 
 const SCHEMA_ID = "zoen.activation.v1" as const;
 
@@ -589,7 +590,7 @@ function resolveEvidenceRoot(): string {
   if (override) {
     return path.isAbsolute(override) ? override : path.join(repositoryRoot, override);
   }
-  return path.join(repositoryRoot, "artifacts");
+  return publishedEvidence(repositoryRoot).root;
 }
 
 function isFixtureEvidenceRoot(evidenceRoot: string): boolean {
@@ -700,9 +701,7 @@ async function main(): Promise<void> {
   const candidate = resolveCandidateCommit(repositoryRoot);
   const evidenceRoot = resolveEvidenceRoot();
   const fixtureMode = isFixtureEvidenceRoot(evidenceRoot);
-  const outputDirectory = fixtureMode
-    ? path.join(repositoryRoot, "artifacts/verify-activation")
-    : path.join(evidenceRoot, "verify-activation");
+  const outputDirectory = path.join(repositoryRoot, "artifacts/verify-activation");
   await mkdir(outputDirectory, { recursive: true });
 
   const advertisedClaims = await resolveAdvertisedClaims();

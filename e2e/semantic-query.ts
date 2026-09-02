@@ -66,10 +66,9 @@ import {
   definitionPublishPolicy,
 } from "./definition-publish-policy.js";
 import { gitHead } from "./scenario-evidence.js";
+import { composeArguments } from "./journey-run-context.js";
 
 const repositoryRoot = process.cwd();
-const composeFile = path.join("e2e", "semantic-query", "compose.yaml");
-const composeProject = "zoen-semantic-query";
 const definitionPath = path.join(
   repositoryRoot,
   "e2e",
@@ -2432,10 +2431,10 @@ async function projectionState(
 
 async function objectKeys(): Promise<string[]> {
   const output = await composeOutput(
-    "exec",
+    "run",
+    "--rm",
     "-T",
     "minio-client",
-    "mc",
     "ls",
     "--recursive",
     "--json",
@@ -2452,15 +2451,11 @@ async function overwriteObject(key: string, contents: string): Promise<void> {
   await commandWithInput(
     "docker",
     [
-      "compose",
-      "--project-name",
-      composeProject,
-      "--file",
-      composeFile,
-      "exec",
+      ...composeArguments([]),
+      "run",
+      "--rm",
       "-T",
       "minio-client",
-      "mc",
       "pipe",
       `local/zoen-projections/${key}`,
     ],
@@ -2470,10 +2465,10 @@ async function overwriteObject(key: string, contents: string): Promise<void> {
 
 async function removeObject(key: string): Promise<void> {
   await composeOutput(
-    "exec",
+    "run",
+    "--rm",
     "-T",
     "minio-client",
-    "mc",
     "rm",
     `local/zoen-projections/${key}`,
   );
@@ -2483,10 +2478,10 @@ async function waitForObjectStore(): Promise<void> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
       await composeOutput(
-        "exec",
+        "run",
+        "--rm",
         "-T",
         "minio-client",
-        "mc",
         "ready",
         "local",
       );
@@ -2503,14 +2498,7 @@ async function compose(...arguments_: string[]): Promise<void> {
 }
 
 function composeOutput(...arguments_: string[]): Promise<string> {
-  return command("docker", [
-    "compose",
-    "--project-name",
-    composeProject,
-    "--file",
-    composeFile,
-    ...arguments_,
-  ]);
+  return command("docker", composeArguments(arguments_));
 }
 
 function destZoenEnv(token: string, digest: string): NodeJS.ProcessEnv {

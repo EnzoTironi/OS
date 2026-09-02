@@ -54,6 +54,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    outputs:
+      matrix: ${{ steps.scenarios.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -97,6 +99,8 @@ jobs:
       - name: Verify Kache installation
         run: test "$(kache --version)" = "kache 0.16.0"
       - run: npm ci
+      - id: scenarios
+        run: echo "matrix=$(node e2e/scenario-registry.mjs matrix ci)" >> "$GITHUB_OUTPUT"
       - run: ./e2e/run.sh build all
         env:
           KACHE_KEY_SALT: zoen-build-rust-1.98.0-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.kache.toml', 'e2e/run.sh', '.github/workflows/verify.yml') }}
@@ -108,6 +112,7 @@ jobs:
           name: e2e-binaries
           path: |
             dist/
+            .cache/e2e/prepared.json
             target/debug/zoen
             target/debug/zoen-effect-dispatcher
             target/debug/zoen-http-connector
@@ -119,20 +124,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        scenario:
-          - activation-identity
-          - definition-publication
-          - durable-commit
-          - evolution-breaking
-          - evolution-compatible
-          - explain
-          - governed-action
-          - messaging-boundary
-          - public-surface
-          - cli-dest
-          - semantic-query
-          - wasm-code-mode
+      matrix: ${{ fromJSON(needs.build.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -143,6 +135,7 @@ jobs:
         with:
           toolchain: "1.98.0"
       - run: npm ci
+      - run: npm ci --prefix apps/auth
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries

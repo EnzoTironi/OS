@@ -19,6 +19,8 @@ trap 'cleanup' EXIT
 draft="${work}/proof.md"
 owner_jar="${work}/owner.cookies"
 reception_jar="${work}/reception.cookies"
+auth_pid_file="${work}/auth.pid"
+auth_log="${work}/auth.log"
 zoend_pg_name="zoen-s3-workbench-pg-$$"
 zoend_pid=""
 eve_pid=""
@@ -55,6 +57,19 @@ kill_tree() {
   kill "$parent" 2>/dev/null || true
 }
 
+port_is_open() {
+  python3 - "$1" <<'PY'
+import socket
+import sys
+
+try:
+    connection = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1)
+    connection.close()
+except OSError:
+    raise SystemExit(1)
+PY
+}
+
 cleanup() {
   if [[ -n "${eve_pid}" ]] && kill -0 "$eve_pid" 2>/dev/null; then
     kill_tree "$eve_pid"
@@ -69,12 +84,11 @@ cleanup() {
     done
   fi
   docker rm -f "$zoend_pg_name" >/dev/null 2>&1 || true
-  if [[ "$auth_started" -eq 1 && -f .auth.pid ]]; then
-    recorded="$(tr -d ' \n' < .auth.pid || true)"
+  if [[ "$auth_started" -eq 1 && -f "$auth_pid_file" ]]; then
+    recorded="$(tr -d ' \n' < "$auth_pid_file" || true)"
     if [[ "$recorded" =~ ^[0-9]+$ ]] && kill -0 "$recorded" 2>/dev/null; then
       kill_tree "$recorded"
     fi
-    rm -f .auth.pid
   fi
   rm -rf "$work"
 }
@@ -168,16 +182,11 @@ set -a
 set +a
 npx --yes auth@1.7.2 migrate --config src/auth.ts --yes
 
-if [[ -f .auth.pid ]]; then
-  recorded="$(tr -d ' \n' < .auth.pid || true)"
-  if [[ "$recorded" =~ ^[0-9]+$ ]] && kill -0 "$recorded" 2>/dev/null; then
-    kill_tree "$recorded"
-  fi
-  rm -f .auth.pid
+if port_is_open 58704; then
+  fail "auth door port 58704 is already owned; refusing to adopt or kill it"
 fi
-fuser -k 58704/tcp >/dev/null 2>&1 || true
-npx tsx src/server.ts >.auth.log 2>&1 &
-printf '%s\n' "$!" > .auth.pid
+npx tsx src/server.ts >"$auth_log" 2>&1 &
+printf '%s\n' "$!" > "$auth_pid_file"
 auth_started=1
 ready=0
 for _ in $(seq 1 40); do
@@ -233,7 +242,9 @@ when {
 open(path, "w", encoding="utf-8").write(json.dumps(manifest))
 PY
 
-fuser -k 58705/tcp >/dev/null 2>&1 || true
+if port_is_open 58705; then
+  fail "zoend port 58705 is already owned; refusing to adopt or kill it"
+fi
 docker rm -f "$zoend_pg_name" >/dev/null 2>&1 || true
 if ! docker run -d --name "$zoend_pg_name" \
   -e POSTGRES_DB=zoen \
@@ -282,6 +293,7 @@ zoend_log="${work}/zoend.log"
   # shellcheck disable=SC1091
   . "$HOME/.cargo/env"
   export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55405/zoen'
+  export ZOEN_AUTH_BASE_URL="$base"
   export ZOEN_AUTH_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55404/zoen_auth'
   export ZOEN_LISTEN_ADDR='127.0.0.1:58705'
   export ZOEN_CEDAR_POLICY_MANIFEST="$policies"
@@ -553,7 +565,9 @@ eve_node="$(command -v node)"
 if [[ -x /tmp/node24/node-v24.20.0-linux-x64/bin/node ]]; then
   eve_node="/tmp/node24/node-v24.20.0-linux-x64/bin/node"
 fi
-fuser -k 58706/tcp >/dev/null 2>&1 || true
+if port_is_open 58706; then
+  fail "Eve port 58706 is already owned; refusing to adopt or kill it"
+fi
 build_log="${work}/eve-build.log"
 (
   cd "$conv"

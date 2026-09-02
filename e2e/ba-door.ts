@@ -12,10 +12,9 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
-import { e2ePort } from "./host-env.js";
+import { e2ePort, requiredE2ePort } from "./host-env.js";
+import { reachJourneyBarrier } from "./journey-run-context.js";
 
-export const AUTH_DOOR_ORIGIN = "http://127.0.0.1:58704";
-const SIGN_UP_URL = `${AUTH_DOOR_ORIGIN}/api/auth/sign-up/email`;
 const DOOR_PASSWORD = "E2e-session-door-1";
 const INVITE_EXPIRES_AT_MICROS = 4_102_444_800_000_000;
 
@@ -69,6 +68,7 @@ export type BoundSession = {
 export type AuthDoor = {
   authDatabaseUrl: string;
   child: ChildProcessWithoutNullStreams;
+  origin: string;
   output: string[];
 };
 
@@ -161,17 +161,23 @@ export function corruptSessionToken(token: string): string {
 export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> {
   const authRoot = path.join(process.cwd(), "apps", "auth");
   if (!existsSync(path.join(authRoot, "node_modules", "better-auth"))) {
-    execFileSync("npm", ["ci"], { cwd: authRoot, stdio: "inherit" });
+    throw new Error("missing apps/auth dependencies; run just prepare before journeys");
   }
   await ensureAuthDatabase(authDatabaseUrl);
+  const port = requiredE2ePort("ZOEN_E2E_AUTH_PORT");
+  const origin = `http://127.0.0.1:${port}`;
+  if (await portOpen(port)) {
+    throw new Error(
+      `leased Auth port ${port} is already occupied; refusing to adopt its process`,
+    );
+  }
   const secret = randomBytes(32).toString("base64");
-  const env = doorEnv(authDatabaseUrl, secret);
+  const env = doorEnv(authDatabaseUrl, secret, origin, port);
   execFileSync(
-    "npx",
-    ["--yes", "auth@1.7.2", "migrate", "--config", "src/auth.ts", "--yes"],
+    path.join(authRoot, "node_modules", ".bin", "auth"),
+    ["migrate", "--config", "src/auth.ts", "--yes"],
     { cwd: authRoot, env, stdio: "inherit" },
   );
-  await freeAuthPort();
   const output: string[] = [];
   const child = spawn(
     process.execPath,
@@ -185,8 +191,10 @@ export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> 
   child.stdin.end();
   child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
   child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  await waitForAuth(child, output);
-  return { authDatabaseUrl, child, output };
+  await waitForAuth(child, output, port);
+  const door = { authDatabaseUrl, child, origin, output };
+  await reachJourneyBarrier("auth-ready");
+  return door;
 }
 
 export async function stopAuthDoor(door: AuthDoor): Promise<void> {
@@ -198,10 +206,11 @@ export async function stopAuthDoor(door: AuthDoor): Promise<void> {
 }
 
 export async function signUpSession(
+  door: AuthDoor,
   id: string,
 ): Promise<{ email: string; token: string }> {
   const email = `${id}@e2e.invalid`;
-  const response = await fetch(SIGN_UP_URL, {
+  const response = await fetch(`${door.origin}/api/auth/sign-up/email`, {
     body: JSON.stringify({
       email,
       name: id,
@@ -209,7 +218,7 @@ export async function signUpSession(
     }),
     headers: {
       "content-type": "application/json",
-      origin: AUTH_DOOR_ORIGIN,
+      origin: door.origin,
     },
     method: "POST",
   });
@@ -273,7 +282,7 @@ async function plantOne(
         workloadId: "",
       };
     case "signup-only": {
-      const signed = await signUpSession(persona.id);
+      const signed = await signUpSession(door, persona.id);
       return {
         accountId: "",
         actorId: "",
@@ -285,7 +294,7 @@ async function plantOne(
     }
     case "invite":
     case "expired": {
-      const signed = await signUpSession(persona.id);
+      const signed = await signUpSession(door, persona.id);
       const bound = await bindInvite({
         adminToken: input.adminToken,
         applicationDatabaseUrl: input.applicationDatabaseUrl,
@@ -574,38 +583,36 @@ async function connectPostgres(connectionString: string): Promise<PostgresClient
 function doorEnv(
   authDatabaseUrl: string,
   secret: string,
+  origin: string,
+  port: number,
 ): NodeJS.ProcessEnv {
   return {
     ...process.env,
     BETTER_AUTH_SECRET: secret,
-    BETTER_AUTH_URL: AUTH_DOOR_ORIGIN,
+    BETTER_AUTH_LISTEN_PORT: String(port),
+    BETTER_AUTH_URL: origin,
     DATABASE_URL: authDatabaseUrl,
     GOOGLE_CLIENT_ID: "",
     GOOGLE_CLIENT_SECRET: "",
   };
 }
 
-async function freeAuthPort(): Promise<void> {
-  try {
-    execFileSync("fuser", ["-k", "58704/tcp"], { stdio: "ignore" });
-  } catch {}
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (!(await portOpen(58704))) {
-      return;
-    }
-    await delay(100);
-  }
-}
-
 async function waitForAuth(
   child: ChildProcessWithoutNullStreams,
   output: readonly string[],
+  port: number,
 ): Promise<void> {
+  const expectedOrigin = `http://127.0.0.1:${port}`;
   for (let attempt = 0; attempt < 80; attempt += 1) {
     if (child.exitCode !== null) {
       throw new Error(`auth door exited:\n${output.join("")}`);
     }
-    if (await portOpen(58704)) {
+    if (
+      output
+        .join("")
+        .split(/\r?\n/)
+        .some((line) => line.trim() === expectedOrigin)
+    ) {
       return;
     }
     await delay(250);
