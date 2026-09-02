@@ -64,18 +64,9 @@ unchanged.
 The [upstream correction](https://github.com/kunobi-ninja/kache/pull/834) is
 merged but is not part of a published release yet.
 
-To reproduce the local clean-target comparison, first commit or stash tracked
-changes, then run:
-
-```bash
-just benchmark-kache
-```
-
-The benchmark uses at least three uncontaminated samples, defaults to ten Cargo
-jobs, and requires a 20% median improvement. It waits for a quiet compiler
-window and retries contaminated samples without admitting them to the result.
-Read `verdict.md` in the printed artifact directory; `results.tsv`,
-`discarded.tsv` when applicable, logs, and Kache reports contain the evidence.
+The completed clean-target comparison, acceptance criteria, and rollout
+evidence are recorded in
+[the Rust 1.98 and Kache report](research/2026-09-02-rust-1.98-kache.md).
 
 ## Pull requests
 

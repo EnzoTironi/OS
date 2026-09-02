@@ -119,7 +119,7 @@ for their ordinary Rust build when it is installed and none of
 `ZOEN_BUILD_RUSTC_WRAPPER`, `RUSTC_WRAPPER`, or
 `CARGO_BUILD_RUSTC_WRAPPER` is present. Tests, Clippy, and coverage remain
 outside Kache. See [Kache builds](CONTRIBUTING.md#kache-builds) for setup,
-safety boundaries, and the reproducible benchmark.
+safety boundaries, and measured rollout evidence.
 
 CI is the same gates. Journeys live in `e2e/`. Do not add mocks or `vi.mock`.
 
