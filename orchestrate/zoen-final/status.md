@@ -1,10 +1,10 @@
 # Orchestrate status
 
-Generated: 2026-09-02T11:07:28.815Z
+Generated: 2026-09-02T11:33:12.000Z
 
 ## Units
 
-States: active=1, done=8, queued=2
+States: active=3, done=8
 
 | ID | Track | State | Branch | PR | SHA | Brief |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -17,8 +17,8 @@ States: active=1, done=8, queued=2
 | w1-01-design-judge | w1-publish | done |  |  |  | orchestrate/zoen-final/briefs/w1-01-architect.md |
 | w1-01-governed-publish | w1-publish | done | codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | orchestrate/zoen-final/briefs/w1-01-governed-publish.md |
 | w1-02-supervised-projection | runtime-truth | active | codex/w1-02-supervised-projection |  |  | orchestrate/zoen-final/briefs/w1-02-supervised-projection.md |
-| w1-03-production-effect-handler | runtime-truth | queued | codex/w1-03-zoen-effect-handler |  |  | orchestrate/zoen-final/briefs/w1-03-production-effect-handler.md |
-| w1-04-eve-runtime-boundary | runtime-truth | queued | codex/w1-04-eve-runtime-paths |  |  | orchestrate/zoen-final/briefs/w1-04-eve-runtime-boundary.md |
+| w1-03-production-effect-handler | runtime-truth | active | codex/w1-03-production-effect-handler |  |  | orchestrate/zoen-final/briefs/w1-03-production-effect-handler.md |
+| w1-04-eve-runtime-boundary | runtime-truth | active | codex/w1-04-eve-runtime-boundary |  |  | orchestrate/zoen-final/briefs/w1-04-eve-runtime-boundary.md |
 
 ## Verification ledger
 
@@ -41,4 +41,4 @@ Lowest unmerged: none
 
 (none)
 
-<!-- orch-summary {"unitStates":{"active":1,"done":8,"queued":2},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":3,"openGateIds":[]} -->
+<!-- orch-summary {"unitStates":{"active":3,"done":8},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":3,"openGateIds":[]} -->
