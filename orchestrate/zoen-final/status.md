@@ -1,10 +1,10 @@
 # Orchestrate status
 
-Generated: 2026-09-02T10:51:04.566Z
+Generated: 2026-09-02T10:59:18.933Z
 
 ## Units
 
-States: done=8
+States: active=1, done=8
 
 | ID | Track | State | Branch | PR | SHA | Brief |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -16,6 +16,7 @@ States: done=8
 | w1-01-design-b | w1-publish | done |  |  |  | orchestrate/zoen-final/briefs/w1-01-architect.md |
 | w1-01-design-judge | w1-publish | done |  |  |  | orchestrate/zoen-final/briefs/w1-01-architect.md |
 | w1-01-governed-publish | w1-publish | done | codex/w1-01-governed-publish | 602 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | orchestrate/zoen-final/briefs/w1-01-governed-publish.md |
+| w1-02-supervised-projection | runtime-truth | active | codex/w1-02-supervised-projection |  |  | orchestrate/zoen-final/briefs/w1-02-supervised-projection.md |
 
 ## Verification ledger
 
@@ -38,4 +39,4 @@ Lowest unmerged: none
 
 (none)
 
-<!-- orch-summary {"unitStates":{"done":8},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":3,"openGateIds":[]} -->
+<!-- orch-summary {"unitStates":{"active":1,"done":8},"ledgerVerdicts":{"live-ui-verified":1},"frontierGeneration":3,"openGateIds":[]} -->
