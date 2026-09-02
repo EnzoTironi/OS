@@ -42,6 +42,7 @@ import {
 export const WORKBENCH_BACKEND_NAME = "zoen-membership-workbench";
 
 const GUEST_NETWORK_DENY = "network default deny";
+const TRAILING_SLASHES = /\/+$/u;
 
 interface LiveVm {
   refs: number;
@@ -227,12 +228,8 @@ function looksLikeNetworkProbe(argv: readonly string[]): boolean {
 
 export function workbenchBackend(options: {
   readonly disksRoot?: string;
-  readonly zoendBaseUrl?: string;
 }): SandboxBackend<Record<string, never>, WorkbenchSessionOptions> {
-  const zoendBaseUrl =
-    options.zoendBaseUrl ??
-    process.env.ZOEN_ZOEND_BASE_URL?.trim() ??
-    "http://127.0.0.1:58705";
+  const zoendBaseUrl = requiredZoendUrl();
 
   return {
     async create(
@@ -364,6 +361,14 @@ export function workbenchBackend(options: {
       return { reused: false };
     },
   };
+}
+
+function requiredZoendUrl(): string {
+  const zoend = process.env.ZOEN_ZOEND?.trim().replace(TRAILING_SLASHES, "");
+  if (zoend === undefined || zoend.length === 0) {
+    throw new Error("ZOEN_ZOEND is required");
+  }
+  return zoend;
 }
 
 function lazySession(input: {

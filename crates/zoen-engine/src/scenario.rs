@@ -5,7 +5,7 @@ use std::{
 
 use zoen_core::{
     ActionProposal, CommitSequence, PolicyEvidence, ProposalAuthority, ProposalId, ScenarioId,
-    TimestampMicros, TrustedExecutionContext, WORLD_WHO_CAN_ACTION, mac_write_permitted,
+    TimestampMicros, TrustedExecutionContext, mac_write_permitted,
 };
 
 use crate::{
@@ -238,11 +238,6 @@ where
         proposal: &ActionProposal,
         committed_at: TimestampMicros,
     ) -> Result<PrepareResult, ScenarioError> {
-        if proposal.action_id.as_str() == WORLD_WHO_CAN_ACTION {
-            return Err(ScenarioError::Invalid(
-                "zoen.world.whoCan is Discover/Read, not a mutation".to_owned(),
-            ));
-        }
         if bind_proposal_preview(
             &proposal.action_id,
             &proposal.resource_id,

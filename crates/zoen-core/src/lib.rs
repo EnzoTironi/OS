@@ -5,7 +5,6 @@ use std::{
 };
 
 mod action_preview;
-mod conversation;
 mod effect;
 mod expression;
 mod external_signal;
@@ -19,9 +18,6 @@ mod pack;
 pub use action_preview::{
     ACTION_PREVIEW_LOCALE, ACTION_PREVIEW_SCHEMA, ActionPreviewDocument, ActionPreviewInput,
     canonical_preview_text,
-};
-pub use conversation::{
-    CONVERSATION_STAGE_CAP, ConversationStage, ConversationStageError, ConversationStageId,
 };
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
@@ -163,7 +159,6 @@ pub const WORLD_READ_ACTION: &str = "zoen.world.read";
 pub const WORLD_INVITE_ACTION: &str = "zoen.world.invite";
 pub const WORLD_SHARE_ACTION: &str = "zoen.world.share";
 pub const WORLD_RESERVE_ACTION: &str = "zoen.world.reserve";
-pub const WORLD_WHO_CAN_ACTION: &str = "zoen.world.whoCan";
 pub const CLASSIFIED_AS_RELATION: &str = "zoen.classifiedAs";
 pub const SHARED_WITH_RELATION: &str = "zoen.sharedWith";
 
@@ -201,14 +196,6 @@ pub fn world_reserve_action() -> ActionId {
 
 /// # Panics
 ///
-/// Panics when [`WORLD_WHO_CAN_ACTION`] is not a valid identifier.
-#[must_use]
-pub fn world_who_can_action() -> ActionId {
-    ActionId::parse(WORLD_WHO_CAN_ACTION).expect("dest kernel Action id")
-}
-
-/// # Panics
-///
 /// Panics when [`CLASSIFIED_AS_RELATION`] is not a valid identifier.
 #[must_use]
 pub fn classified_as_relation() -> RelationId {
@@ -225,10 +212,7 @@ pub fn shared_with_relation() -> RelationId {
 
 #[must_use]
 pub fn allows_empty_action_effects(action_id: &ActionId) -> bool {
-    matches!(
-        action_id.as_str(),
-        WORLD_INVITE_ACTION | WORLD_WHO_CAN_ACTION
-    )
+    action_id.as_str() == WORLD_INVITE_ACTION
 }
 
 impl ResourceId {

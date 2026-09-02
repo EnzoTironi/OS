@@ -1,12 +1,6 @@
 #![allow(refining_impl_trait)]
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    env,
-    error::Error,
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use std::{collections::BTreeSet, env, error::Error, net::SocketAddr, sync::Arc};
 
 use axum::{
     Router as HttpRouter,
@@ -19,8 +13,8 @@ use clap::Parser;
 use connectrpc::Router;
 use zoen_adapters::{
     CedarPolicyEvaluator, PostgresAuthorityStore, PostgresExternalSignalStore,
-    PostgresIdentityStore, PostgresIngressReplayStore, PostgresPackRegistryStore,
-    PostgresPackStore, PostgresWorkloadCredentialStore, SessionDoor,
+    PostgresIdentityStore, PostgresPackRegistryStore, PostgresPackStore,
+    PostgresWorkloadCredentialStore, SessionDoor,
 };
 use zoen_core::{MachineToken, WorkloadId};
 use zoen_engine::{
@@ -44,7 +38,6 @@ use crate::{
 
 mod action_service;
 mod cli;
-mod conversation_stage;
 mod session {
     pub use zoend::session::*;
 }
@@ -55,8 +48,6 @@ mod eve_proxy;
 mod history_service;
 mod identity_admin;
 mod identity_admin_auth;
-mod ingress_hmac;
-mod messaging_ingress;
 mod onboard;
 mod pack_admin;
 mod pack_registry;
@@ -120,7 +111,6 @@ struct OntologyServices {
     definition: DefinitionServiceImpl,
     effect: EffectServiceImpl,
     history: HistoryServiceImpl,
-    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
     world: WorldServiceImpl,
 }
 
@@ -233,7 +223,6 @@ fn build_engines(boot: &BootRuntime) -> Result<OntologyServices, Box<dyn Error +
         definition,
         effect,
         history,
-        read,
         world,
     })
 }
@@ -256,22 +245,11 @@ fn build_routers(
         sessions: boot.sessions.clone(),
     });
     let identity_routes = identity_admin::router(IdentityAdminState {
-        admin_token: identity_admin_token.clone(),
+        admin_token: identity_admin_token,
         identity: boot.identity.clone(),
         sessions: boot.sessions.clone(),
     });
-    let conversation_routes =
-        conversation_stage::router(conversation_stage::ConversationStageState {
-            admin_token: identity_admin_token,
-            identity: boot.identity.clone(),
-            read: services.read,
-            sessions: boot.sessions.clone(),
-            stages: Arc::new(Mutex::new(BTreeMap::new())),
-        });
     let onboard_routes = onboard::router(boot.identity);
-    let messaging_routes = messaging_ingress::router(messaging_ingress::from_env(
-        PostgresIngressReplayStore::new(boot.store.pool()),
-    ));
     let workload_routes = workload_ingress_service::router(WorkloadIngressState {
         credentials: boot.credentials,
         signals: PostgresExternalSignalStore::new(boot.store.pool()),
@@ -298,9 +276,7 @@ fn build_routers(
         .merge(door_proxy::router()?)
         .merge(eve_proxy::router())
         .merge(identity_routes)
-        .merge(conversation_routes)
         .merge(onboard_routes)
-        .merge(messaging_routes)
         .merge(workload_routes)
         .merge(pack_routes)
         .merge(pack_registry_routes)

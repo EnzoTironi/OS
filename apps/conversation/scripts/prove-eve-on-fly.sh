@@ -74,7 +74,13 @@ check "eve_proxy.rs /eve/v1" "grep -q '/eve/v1' apps/zoend/src/eve_proxy.rs" "/e
 check "main.rs mods eve_proxy" "grep -q '^mod eve_proxy;' apps/zoend/src/main.rs" "mod eve_proxy;"
 check "main.rs merges eve_proxy" "grep -q 'eve_proxy::router()' apps/zoend/src/main.rs" "eve_proxy::router()"
 check "fly.toml internal_port 58701" "grep -q 'internal_port = 58701' deploy/fly/fly.toml" "58701"
+check "fly.toml canonical internal Ontology URL" "grep -q 'ZOEN_ZOEND = \"http://127.0.0.1:58701\"' deploy/fly/fly.toml" "ZOEN_ZOEND=http://127.0.0.1:58701"
 check "fly.toml ZOEN_AUTH_BASE_URL loopback 58704" "grep -q 'ZOEN_AUTH_BASE_URL = \"http://127.0.0.1:58704\"' deploy/fly/fly.toml" "http://127.0.0.1:58704"
+check "zoen-start-eve requires canonical internal Ontology URL" "grep -q 'require_nonblank ZOEN_ZOEND' deploy/fly/zoen-start-eve" "ZOEN_ZOEND required"
+legacy_zoend_alias='ZOEN_ZOEND_BASE''_URL'
+check "Eve has no legacy zoend URL alias" \
+  "! grep -R \"${legacy_zoend_alias}\" apps/conversation deploy/fly --exclude='package-lock.json' --exclude-dir='node_modules' --exclude-dir='.output' --exclude-dir='.eve'" \
+  "alias absent"
 check "fly.toml has no ZOEN_OIDC_ISSUER" "! grep -q 'ZOEN_OIDC_ISSUER' deploy/fly/fly.toml" "absent"
 check "fly.toml has no ZOEN_OIDC_AUDIENCE" "! grep -q 'ZOEN_OIDC_AUDIENCE' deploy/fly/fly.toml" "absent"
 check "fly.toml has no ZOEN_OIDC_DISCOVERY_URL" "! grep -q 'ZOEN_OIDC_DISCOVERY_URL' deploy/fly/fly.toml" "absent"

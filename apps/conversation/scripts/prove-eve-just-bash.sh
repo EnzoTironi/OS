@@ -164,7 +164,8 @@ if [[ "$major" -lt 24 ]]; then
   record "GET /eve/v1/health" "curl -sS -o body -w %{http_code} $health_url" "$health_url" "$health_code" "skipped"
 else
   set +e
-  node ./node_modules/eve/bin/eve.js start --host 127.0.0.1 --port "$port" >"$start_log" 2>&1 &
+  ZOEN_ZOEND=http://127.0.0.1:58701 \
+    node ./node_modules/eve/bin/eve.js start --host 127.0.0.1 --port "$port" >"$start_log" 2>&1 &
   eve_pid="$!"
   set -e
   deadline=$((SECONDS + 120))

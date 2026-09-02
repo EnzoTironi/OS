@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { Client as PostgresClient } from "pg";
 import { recordTelegramIdentity } from "../apps/conversation/agent/telegram-identity.js";
 import {
   applicationDatabaseUrl,
@@ -55,6 +56,26 @@ const provisionalTelegramSnapshotSchema = z.object({
   ),
   memberships: z.array(z.unknown()),
 });
+const retiredRoutes = [
+  { method: "GET", path: "/channels/whatsapp/advertise" },
+  { method: "POST", path: "/channels/whatsapp/inbound" },
+  { method: "GET", path: "/channels/telegram/advertise" },
+  { method: "POST", path: "/channels/telegram/inbound" },
+  { method: "POST", path: "/conversation/stages" },
+  { method: "POST", path: "/conversation/who-can" },
+] as const;
+const retiredTables = [
+  "interaction_records",
+  "conversation_pending",
+  "conversation_turns",
+  "turn_attempts",
+  "conversation_arms",
+  "delivery_intents",
+  "delivery_observations",
+  "delivery_send_claims",
+  "reply_ledger",
+  "ingress_replay",
+] as const;
 
 const assertions: Record<string, boolean> = {};
 const mutantsKilled: string[] = [];
@@ -224,6 +245,42 @@ async function recordTwoTelegramSubjects(): Promise<{
   };
 }
 
+async function assertRetiredRoutesAreAbsent(): Promise<void> {
+  for (const route of retiredRoutes) {
+    const response = await fetch(`${baseUrl}${route.path}`, {
+      body: route.method === "POST" ? "{}" : undefined,
+      headers:
+        route.method === "POST" ? { "content-type": "application/json" } : {},
+      method: route.method,
+    });
+    record(
+      `${route.method} ${route.path} is not found`,
+      response.status === 404,
+    );
+  }
+  killMutant("Restore a zoend /channels/* or /conversation/* compatibility route");
+}
+
+async function assertRetiredTablesAreAbsent(): Promise<void> {
+  const client = new PostgresClient({ connectionString: applicationDatabaseUrl });
+  await client.connect();
+  try {
+    for (const table of retiredTables) {
+      const result = await client.query<{ relation: string | null }>(
+        "SELECT to_regclass($1)::text AS relation",
+        [`public.${table}`],
+      );
+      record(
+        `${table} is absent after migrations`,
+        result.rows[0]?.relation === null,
+      );
+    }
+  } finally {
+    await client.end();
+  }
+  killMutant("Keep Ontology-owned conversation or ingress replay tables");
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   await mkdir(generatedDirectory, { recursive: true });
@@ -245,6 +302,10 @@ async function main(): Promise<void> {
     },
     kind: "default",
   });
+    const ready = await fetch(`${baseUrl}/ready`);
+    record("ready passes after retired state removal", ready.status === 200);
+    await assertRetiredRoutesAreAbsent();
+    await assertRetiredTablesAreAbsent();
     const telegramRecording = await recordTwoTelegramSubjects();
     record(
       "telegram_identity_recording_is_idempotent",
@@ -400,7 +461,7 @@ async function main(): Promise<void> {
       linqChannelProviderMapping: "linq",
       mutantsKilled,
       note:
-        "Fake provider gateway proofs moved to #327 / #328 against live adapters.",
+        "Fake provider gateway proofs moved to #327 / #328 against live adapters. Eve owns channel ingress; zoend has no legacy gateway or conversation-stage routes.",
       telegramIdentityRecording: {
         count: telegramRecording.accountIds.length,
         providerCeremony:

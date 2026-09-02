@@ -1,13 +1,22 @@
 #!/bin/sh
 set -eu
-if [ -z "${ZOEN_AUTH_BASE_URL:-}" ]; then
-  echo "eve: ZOEN_AUTH_BASE_URL is required" >&2
-  exit 1
-fi
-if [ -z "${ZOEN_MODEL:-}" ]; then
-  echo "eve: ZOEN_MODEL is required" >&2
-  exit 1
-fi
+
+require_nonblank() {
+  name="$1"
+  value="$2"
+  case "$value" in
+    *[![:space:]]*) ;;
+    *)
+      echo "eve: ${name} is required" >&2
+      exit 1
+      ;;
+  esac
+}
+
+require_nonblank ZOEN_AUTH_BASE_URL "${ZOEN_AUTH_BASE_URL:-}"
+require_nonblank ZOEN_ZOEND "${ZOEN_ZOEND:-}"
+require_nonblank ZOEN_MODEL "${ZOEN_MODEL:-}"
+
 export PATH="/usr/local/node24/bin:${PATH}"
 export ZOEN_BIN="${ZOEN_BIN:-/usr/local/bin/zoen}"
 major="$(node -p 'process.versions.node.split(".")[0]')"

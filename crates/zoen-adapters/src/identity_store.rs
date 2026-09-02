@@ -15,8 +15,8 @@ use zoen_core::{
     ExternalSubject, IdentityError, Invite, InviteId, InviteToken, Membership, MembershipId,
     MembershipKind, MembershipStatus, PrincipalId, ResourceId, RevocationReason, TenantId,
     TimestampMicros, TrustedExecutionContext, UnbindReason, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
-    WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION, WorkloadId, ZoenAccount,
-    ZoenAccountId, trusted_context_from_membership,
+    WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WorkloadId, ZoenAccount, ZoenAccountId,
+    trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -1266,8 +1266,6 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
             ActionId::parse(WORLD_SHARE_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORLD_RESERVE_ACTION)
-                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
-            ActionId::parse(WORLD_WHO_CAN_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
         ]),
         BTreeSet::from([

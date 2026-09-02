@@ -15,8 +15,8 @@ use zoen_core::{
     PreconditionEvaluation, PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget,
     ResourceId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
     StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
-    TrustedExecutionContext, TypeId, ValidTime, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION,
-    classified_as_relation, encode_hex, evaluate_expression, expression_relations, join_labels,
+    TrustedExecutionContext, TypeId, ValidTime, WORLD_SHARE_ACTION, classified_as_relation,
+    encode_hex, evaluate_expression, expression_relations, join_labels,
 };
 
 use crate::{
@@ -757,11 +757,6 @@ where
             .get_proposal(context, proposal_id)
             .await
             .map_err(ActionError::Store)?;
-        if proposal.action_id.as_str() == WORLD_WHO_CAN_ACTION {
-            return Err(ActionError::Evaluation(
-                "zoen.world.whoCan is Discover/Read, not a mutation".to_owned(),
-            ));
-        }
         if proposal.scenario_id.is_some() {
             return Err(ActionError::Evaluation(
                 "scenario-scoped proposals commit only via scenario apply".to_owned(),
