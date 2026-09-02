@@ -98,6 +98,7 @@ jobs:
           - messaging-boundary
           - public-surface
           - reminder-loop
+          - workshop-app
           - cli-dest
           - semantic-query
           - wasm-code-mode
@@ -112,6 +113,7 @@ jobs:
           toolchain: "1.88.0"
       - run: npm ci --ignore-scripts
       - run: npm --prefix apps/effect-worker ci --ignore-scripts
+      - run: npm --prefix apps/workshop ci --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries

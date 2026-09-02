@@ -588,7 +588,11 @@ async function deployWorkshopApp(
   }));
   // The isolate owns the disk: without this check the commit approves X and
   // the deploy would read Y.
-  if (digestAppFiles(entries) !== payload.filesDigest) {
+  const actualDigest = digestAppFiles(entries);
+  console.error(
+    `workshop deploy digest ${actualDigest === payload.filesDigest ? "matches" : "MISMATCHES"} committed digest for ${payload.slug}`
+  );
+  if (actualDigest !== payload.filesDigest) {
     return terminalWorkshopFailure("workshop.files_changed_after_commit");
   }
   const appId = sanitizeAppId(`${payload.membershipId}-${payload.slug}`);
@@ -629,9 +633,9 @@ function terminalWorkshopFailure(
   cause: string,
   detail = ""
 ): WorkshopDeployResult {
-  if (detail.length > 0) {
-    console.error(`workshop deploy terminal failure ${cause}: ${detail}`);
-  }
+  console.error(
+    `workshop deploy terminal failure ${cause}${detail.length > 0 ? `: ${detail}` : ""}`
+  );
   return {
     kind: "not_deployed",
     providerOperationId: cause,

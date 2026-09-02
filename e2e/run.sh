@@ -30,6 +30,7 @@ scenario_table=(
   "governed-action:::live"
   "public-surface:::live"
   "reminder-loop:::live"
+  "workshop-app:::live"
   "cli-dest:::live"
   "semantic-query:::live"
   "wasm-code-mode:::live"

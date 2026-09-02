@@ -27,6 +27,12 @@ import {
 } from "./host-env.js";
 
 export const repositoryRoot = process.cwd();
+
+/** Prebuilt dynamic-apps deploy artifacts for the workshop e2e (see e2e/dynamic-apps-artifact.ts). */
+export const dynamicAppsArtifactCacheDir = path.join(
+  repositoryRoot,
+  "e2e/.cache/dynamic-apps",
+);
 const postgresPortFallback = 55_441;
 const zoendPortFallback = 58_111;
 const rivetPortFallback = 58_112;
@@ -42,6 +48,12 @@ const providerPort = e2ePort(
 const workerPort = e2ePort(
   "ZOEN_E2E_EFFECT_WORKER_PORT",
   e2ePort("ZOEN_E2E_WORKER_PORT", workerPortFallback),
+);
+const workshopPortFallback = 58_116;
+const workshopPort = e2ePort("ZOEN_E2E_WORKSHOP_PORT", workshopPortFallback);
+export const workshopBaseUrl = e2eHttpUrl(
+  "ZOEN_E2E_WORKSHOP_PORT",
+  workshopPortFallback,
 );
 export const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
@@ -160,6 +172,7 @@ export async function startZoend(policyManifestPath: string): Promise<ManagedPro
       ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
       ZOEN_WHATSAPP_DOOR_E164: e2eWhatsAppDoorE164(),
+      ZOEN_WORKSHOP_UPSTREAM: workshopBaseUrl,
     },
     name: "zoend",
     port: zoendPort,
@@ -222,6 +235,11 @@ export async function startWorker(
   options?: {
     readonly connectorUrl?: string | null;
     readonly reconcilerTokens?: Readonly<Record<string, string>>;
+    readonly workshop?: {
+      readonly callbackUrl: string;
+      readonly membershipDiskRoot: string;
+      readonly publicOrigin?: string;
+    };
   },
 ): Promise<ManagedProcess> {
   return startProcess({
@@ -232,6 +250,17 @@ export async function startWorker(
     arguments: [path.join(repositoryRoot, "apps/effect-worker/src/main.ts")],
     environment: {
       RIVET_ENDPOINT: rivetEndpointAuthed,
+      ...(options?.workshop === undefined
+        ? {}
+        : {
+            // Diagnose the CI-only deploy stall: the workshop effect claims
+            // its attempt and then goes silent before deployApp's first log.
+            RUST_LOG: "info",
+            AGENTOS_DEBUG_HTTP_BRIDGE: "1",
+            ZOEN_MEMBERSHIP_DISK_ROOT: options.workshop.membershipDiskRoot,
+            ZOEN_WORKSHOP_PUBLIC_ORIGIN:
+              options.workshop.publicOrigin ?? zoenBaseUrl,
+          }),
       ZOEN_CONNECTOR_CALLER_TOKEN: connectorCallerToken,
       ZOEN_CONNECTOR_CREDENTIAL_REFS: JSON.stringify({
         [tenantA]: "secret.provider.a",
@@ -268,14 +297,51 @@ export async function startWorker(
   });
 }
 
+export async function startWorkshop(options: {
+  readonly authBaseUrl: string;
+}): Promise<ManagedProcess> {
+  return startProcess({
+    command: path.join(repositoryRoot, "apps/workshop/node_modules/.bin/tsx"),
+    arguments: [path.join(repositoryRoot, "apps/workshop/src/server.ts")],
+    environment: {
+      RIVET_ENDPOINT: rivetEndpointAuthed,
+      RUST_LOG: "info",
+      // Guest builds cannot write their artifact through a host-dir mount
+      // on Linux; the journey prebuilds the release into this cache so the
+      // deploy actor skips the VM build (see e2e/dynamic-apps-artifact.ts).
+      DYNAMIC_APPS_E2E_ARTIFACT_CACHE: dynamicAppsArtifactCacheDir,
+      // The workshop hosts the dynamic-apps private apps registry (the
+      // dynamicAppsApp actor and builder) on a dedicated envoy pool so the
+      // engine never schedules app actors onto envoys without the factory.
+      RIVET_POOL: "dynamic-apps",
+      // The registry actor pins app runner callbacks to this service.
+      DYNAMIC_APPS_CALLBACK_URL: `http://host.docker.internal:${workshopPort}`,
+      ZOEN_AUTH_BASE_URL: options.authBaseUrl,
+      ZOEN_TENANT_ID: tenantA,
+      // The dockerized engine reaches the /api/rivet runner callback through
+      // the host gateway, so the loopback default would refuse it.
+      ZOEN_WORKSHOP_HOST: "0.0.0.0",
+      ZOEN_WORKSHOP_PORT: workshopPort.toString(),
+      ZOEN_ZOEND_BASE_URL: zoenBaseUrl,
+    },
+    name: "workshop server",
+    port: workshopPort,
+  });
+}
+
 export async function stopProcess(process: ManagedProcess): Promise<void> {
   if (process.child.exitCode !== null) {
     return;
   }
   process.child.kill("SIGINT");
   await once(process.child, "exit");
+  // Exit 130 is SIGINT translated into an exit code by the runtime wrapper
+  // (tsx relays the signal to its child and exits 128+2 itself), so a clean
+  // interrupt shows up either as signalCode SIGINT or as exitCode 130.
   assert.ok(
-    process.child.exitCode === 0 || process.child.signalCode === "SIGINT",
+    process.child.exitCode === 0 ||
+      process.child.exitCode === 130 ||
+      process.child.signalCode === "SIGINT",
     `${process.name} failed during shutdown (exit code ${process.child.exitCode}, signal ${process.child.signalCode}):\n${process.output.join("")}`,
   );
 }
