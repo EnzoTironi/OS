@@ -12,11 +12,16 @@ on:
       - "apps/conversation/**"
       - "apps/zoend/**"
       - "crates/**"
+      - "gen/connect/**"
       - "proto/**"
+      - "testdata/lakes/**"
+      - "wit/**"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "rust-toolchain.toml"
       - "package-lock.json"
       - "package.json"
+      - "tsconfig.json"
       - ".github/workflows/fly-deploy.yml"
   workflow_dispatch:
 

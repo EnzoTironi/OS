@@ -163,12 +163,12 @@ where
         query: &SemanticQuery,
         absence: ReadAbsence,
     ) -> Result<SemanticResult, ReadError> {
-        if let SemanticQuery::ByType { limit, .. } = query {
-            if *limit > MAX_TYPE_PAGE {
-                return Err(ReadError::Invalid(format!(
-                    "type query limit exceeds {MAX_TYPE_PAGE}"
-                )));
-            }
+        if let SemanticQuery::ByType { limit, .. } = query
+            && *limit > MAX_TYPE_PAGE
+        {
+            return Err(ReadError::Invalid(format!(
+                "type query limit exceeds {MAX_TYPE_PAGE}"
+            )));
         }
         let mut result = self
             .query
@@ -204,14 +204,13 @@ where
                 kept.push(value);
             }
         }
-        if absence == ReadAbsence::PinnedHost {
-            if let SemanticQuery::ByEntity { entity_id, .. } = query {
-                if !decisions.contains(entity_id) {
-                    return Err(ReadError::Evaluation(
-                        "capability-required entity was denied".to_owned(),
-                    ));
-                }
-            }
+        if absence == ReadAbsence::PinnedHost
+            && let SemanticQuery::ByEntity { entity_id, .. } = query
+            && !decisions.contains(entity_id)
+        {
+            return Err(ReadError::Evaluation(
+                "capability-required entity was denied".to_owned(),
+            ));
         }
         result.values = kept;
         Ok(result)

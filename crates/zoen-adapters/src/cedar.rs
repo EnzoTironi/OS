@@ -124,8 +124,8 @@ impl CedarPolicyEvaluator {
     }
 }
 
-impl PolicyEvaluator for CedarPolicyEvaluator {
-    async fn evaluate(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
+impl CedarPolicyEvaluator {
+    fn evaluate_sync(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
         let Some(projection) = request.projection else {
             return PolicyEvaluation::EvaluationError {
                 message: "policy projection is required".to_owned(),
@@ -159,13 +159,13 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
                 revision: policy.revision.clone(),
             });
         }
-        if let Some(written) = request.written_classification {
-            if !zoen_core::mac_write_permitted(request.context.clearance(), written) {
-                return PolicyEvaluation::Deny(PolicyEvidence {
-                    determining_policies: vec![MAC_DETERMINING_POLICY.to_owned()],
-                    revision: policy.revision.clone(),
-                });
-            }
+        if let Some(written) = request.written_classification
+            && !zoen_core::mac_write_permitted(request.context.clearance(), written)
+        {
+            return PolicyEvaluation::Deny(PolicyEvidence {
+                determining_policies: vec![MAC_DETERMINING_POLICY.to_owned()],
+                revision: policy.revision.clone(),
+            });
         }
         let response = match stacker::maybe_grow(CEDAR_STACK_RED_ZONE, CEDAR_STACK_SIZE, || {
             let cedar_request = cedar_request(request)?;
@@ -211,6 +211,15 @@ impl PolicyEvaluator for CedarPolicyEvaluator {
             Decision::Allow => PolicyEvaluation::Permit(evidence),
             Decision::Deny => PolicyEvaluation::Deny(evidence),
         }
+    }
+}
+
+impl PolicyEvaluator for CedarPolicyEvaluator {
+    fn evaluate(
+        &self,
+        request: &PolicyRequest<'_>,
+    ) -> impl std::future::Future<Output = PolicyEvaluation> + Send {
+        std::future::ready(self.evaluate_sync(request))
     }
 }
 

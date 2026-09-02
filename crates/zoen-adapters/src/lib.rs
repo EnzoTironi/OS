@@ -221,8 +221,7 @@ pub(crate) fn clock_micros() -> i64 {
     i64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_micros())
-            .unwrap_or(0),
+            .map_or(0, |duration| duration.as_micros()),
     )
     .unwrap_or(i64::MAX)
 }

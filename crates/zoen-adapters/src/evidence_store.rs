@@ -67,8 +67,8 @@ pub(crate) async fn record_batch(
         recorded.push(write_claim(&mut transaction, context, item, &mut head).await?);
     }
 
-    if let Some((operation_id, intent_digest)) = operation {
-        if let Err(error) = insert_operation(
+    if let Some((operation_id, intent_digest)) = operation
+        && let Err(error) = insert_operation(
             &mut transaction,
             context,
             operation_id,
@@ -76,13 +76,12 @@ pub(crate) async fn record_batch(
             &recorded,
         )
         .await
-        {
-            if !matches!(error, StoreError::OperationMismatch) {
-                return Err(error);
-            }
-            transaction.rollback().await.map_err(store_unavailable)?;
-            return replay_after_conflict(store, context, operation_id, intent_digest).await;
+    {
+        if !matches!(error, StoreError::OperationMismatch) {
+            return Err(error);
         }
+        transaction.rollback().await.map_err(store_unavailable)?;
+        return replay_after_conflict(store, context, operation_id, intent_digest).await;
     }
 
     let updated = sqlx::query(

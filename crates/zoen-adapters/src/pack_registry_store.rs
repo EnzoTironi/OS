@@ -998,8 +998,7 @@ fn hex_sha256(bytes: &[u8]) -> String {
 fn hex_id() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |duration| duration.as_nanos());
     format!("{nanos:x}")
 }
 

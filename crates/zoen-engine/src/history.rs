@@ -404,15 +404,15 @@ fn definition_evidence(
     relation_ids.dedup();
     let mut computation_ids = Vec::new();
     if let Some(decoded) = decoded {
-        if let Some(action_id) = action_id {
-            if !decoded.actions.iter().any(|action| action.id == *action_id) {
-                gaps.push(gap(
-                    EvidenceClass::Action,
-                    GapReason::Corrupt,
-                    CausalReference::Action(action_id.clone()),
-                    "the pinned definition revision does not contain the historical Action",
-                ));
-            }
+        if let Some(action_id) = action_id
+            && !decoded.actions.iter().any(|action| action.id == *action_id)
+        {
+            gaps.push(gap(
+                EvidenceClass::Action,
+                GapReason::Corrupt,
+                CausalReference::Action(action_id.clone()),
+                "the pinned definition revision does not contain the historical Action",
+            ));
         }
         let computation_relations = dependencies
             .iter()

@@ -1,0 +1,5 @@
+[cache]
+cache_executables = true
+key_salt = "zoen-rust-1.98.0-build-v1"
+local_max_size = "8GiB"
+local_only = true
