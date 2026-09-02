@@ -25,6 +25,57 @@ const thresholdPercent = Number(thresholdInput);
 const jobs = Number(jobsInput);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRepository = path.resolve(scriptDirectory, "..");
+const compilerNames = new Set([
+  "cargo",
+  "clang",
+  "clang++",
+  "ld",
+  "ld64",
+  "rustc",
+]);
+
+function runningProcesses() {
+  const result = spawnSync("ps", ["-axo", "pid=,ppid=,comm="], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || "cannot inspect running processes");
+  }
+  return result.stdout
+    .split("\n")
+    .flatMap((line) => {
+      const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/);
+      return match
+        ? [
+            {
+              command: match[3],
+              pid: Number.parseInt(match[1], 10),
+              ppid: Number.parseInt(match[2], 10),
+            },
+          ]
+        : [];
+    });
+}
+
+function competingCompilers(ownedRootPid) {
+  const processes = runningProcesses();
+  const owned = new Set(ownedRootPid === undefined ? [] : [ownedRootPid]);
+  let foundDescendant = true;
+  while (foundDescendant) {
+    foundDescendant = false;
+    for (const process of processes) {
+      if (!owned.has(process.pid) && owned.has(process.ppid)) {
+        owned.add(process.pid);
+        foundDescendant = true;
+      }
+    }
+  }
+  return processes.filter(
+    (process) =>
+      !owned.has(process.pid) &&
+      compilerNames.has(path.basename(process.command)),
+  );
+}
 
 if (!/^\d+$/.test(samplesInput) || !Number.isSafeInteger(samples) || samples < 3) {
   throw new Error("KACHE_BENCH_SAMPLES must be an integer of at least 3");
@@ -60,29 +111,15 @@ if (trackedScript.status !== 0) {
   throw new Error("commit scripts/benchmark-kache.mjs before benchmarking");
 }
 
-const processList = spawnSync("ps", ["-axo", "pid=,command="], {
-  encoding: "utf8",
-});
-if (processList.status !== 0) {
-  throw new Error(processList.stderr.trim() || "cannot inspect running processes");
-}
-const competingCompilers = processList.stdout
-  .split("\n")
-  .filter((line) => {
-    const match = line.match(/^\s*(\d+)\s+(.+)$/);
-    if (!match || Number.parseInt(match[1], 10) === process.pid) {
-      return false;
-    }
-    return /(?:^|[ /])(?:cargo (?:build|check|clippy|test)|rustc |clang(?:\+\+)? |ld(?:64)? )/.test(
-      match[2],
-    );
-  });
+const initialCompetingCompilers = competingCompilers();
 if (
-  competingCompilers.length > 0 &&
+  initialCompetingCompilers.length > 0 &&
   process.env.KACHE_BENCH_ALLOW_COMPETING_BUILDS !== "1"
 ) {
   throw new Error(
-    `another compiler is running:\n${competingCompilers.join("\n")}\n` +
+    `another compiler is running:\n${initialCompetingCompilers
+      .map(({ command, pid, ppid }) => `${pid}\t${ppid}\t${command}`)
+      .join("\n")}\n` +
       "wait for it or set KACHE_BENCH_ALLOW_COMPETING_BUILDS=1",
   );
 }
@@ -201,6 +238,7 @@ function safeRemoveTarget(targetDirectory) {
 
 async function runLogged(label, command, args, environment) {
   const logPath = path.join(logsDirectory, `${label}.log`);
+  const competitionPath = path.join(logsDirectory, `${label}.competition.tsv`);
   const log = createWriteStream(logPath, { flags: "wx" });
   const startedAt = performance.now();
   const child = spawn(command, args, {
@@ -208,6 +246,24 @@ async function runLogged(label, command, args, environment) {
     env: environment,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  const observedCompetition = new Map();
+  let monitorError;
+  const inspectCompetition = () => {
+    try {
+      for (const process of competingCompilers(child.pid)) {
+        if (!observedCompetition.has(process.pid)) {
+          observedCompetition.set(process.pid, {
+            ...process,
+            firstSeen: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (error) {
+      monitorError = error;
+    }
+  };
+  inspectCompetition();
+  const monitor = setInterval(inspectCompetition, 2000);
   child.stdout.on("data", (chunk) => {
     process.stdout.write(chunk);
     log.write(chunk);
@@ -220,6 +276,7 @@ async function runLogged(label, command, args, environment) {
     child.once("error", reject);
     child.once("close", resolve);
   });
+  clearInterval(monitor);
   const elapsedMilliseconds = Math.round(performance.now() - startedAt);
   await new Promise((resolve, reject) => {
     log.end((error) => (error ? reject(error) : resolve()));
@@ -227,12 +284,30 @@ async function runLogged(label, command, args, environment) {
   if (status !== 0) {
     throw new Error(`${label} failed with exit code ${status}; see ${logPath}`);
   }
+  if (monitorError) {
+    throw new Error(`${label} could not monitor competing compilers: ${monitorError.message}`);
+  }
+  if (
+    observedCompetition.size > 0 &&
+    process.env.KACHE_BENCH_ALLOW_COMPETING_BUILDS !== "1"
+  ) {
+    const rows = ["pid\tppid\tfirst_seen\tcommand"];
+    for (const process of observedCompetition.values()) {
+      rows.push(
+        [process.pid, process.ppid, process.firstSeen, process.command].join("\t"),
+      );
+    }
+    writeFileSync(competitionPath, `${rows.join("\n")}\n`);
+    throw new Error(
+      `${label} overlapped another compiler; see ${competitionPath}`,
+    );
+  }
   return { elapsedMilliseconds, logPath };
 }
 
 async function build(kind, sample) {
   const label = `${kind}-${sample}`;
-  const targetDirectory = path.join(targetsDirectory, label);
+  const targetDirectory = path.join(targetsDirectory, "current");
   const runtimeDirectory = path.join(runtimesDirectory, label);
   mkdirSync(targetDirectory);
   mkdirSync(runtimeDirectory);
@@ -327,7 +402,6 @@ function captureReport(label, environment) {
     for (const field of [
       "errors",
       "fallbacks",
-      "passthroughs",
       "skipped",
       "store_failures",
     ]) {
@@ -373,7 +447,16 @@ function captureReport(label, environment) {
         `local_hits=${String(summary.local_hits)} of total_crates=${String(summary.total_crates)}`,
       );
     }
-    return { failures, reportPath, summary };
+    const bypassSignature = (parsed.bypass?.reasons ?? [])
+      .map(({ count, failures: bypassFailures, reason, result, route }) => ({
+        count,
+        failures: bypassFailures,
+        reason,
+        result,
+        route,
+      }))
+      .sort((left, right) => left.reason.localeCompare(right.reason));
+    return { bypassSignature, failures, reportPath, summary };
   } catch (error) {
     return {
       failures: [`cannot parse report: ${error.message}`],
@@ -465,6 +548,8 @@ const improvementPercent =
   ((baselineMedian - treatmentMedian) / baselineMedian) * 100;
 const treatmentResults = results.filter((result) => result.kind === "treatment");
 const expectedTotalCrates = warmup.report?.summary?.total_crates;
+const expectedPassthroughs = warmup.report?.summary?.passthroughs;
+const expectedBypassSignature = JSON.stringify(warmup.report?.bypassSignature);
 const reportFailures = [
   ...(warmup.report?.failures ?? ["report unavailable"]).map(
     (failure) => `warmup: ${failure}`,
@@ -479,6 +564,22 @@ const reportFailures = [
       failures.push(
         `total_crates=${String(result.report.summary.total_crates)}, warmup=${String(expectedTotalCrates)}`,
       );
+    }
+    if (
+      result.report?.summary &&
+      expectedPassthroughs !== undefined &&
+      result.report.summary.passthroughs !== expectedPassthroughs
+    ) {
+      failures.push(
+        `passthroughs=${String(result.report.summary.passthroughs)}, warmup=${String(expectedPassthroughs)}`,
+      );
+    }
+    if (
+      result.report?.bypassSignature &&
+      expectedBypassSignature !== undefined &&
+      JSON.stringify(result.report.bypassSignature) !== expectedBypassSignature
+    ) {
+      failures.push("passthrough reasons differ from warmup");
     }
     return failures.map(
       (failure) => `treatment-${result.sample}: ${failure}`,
@@ -496,7 +597,7 @@ const verdict = !reportsParseable
     : "NOT VERIFIED";
 
 const rows = [
-  "kind\tsample\telapsed_ms\tbinary\tlocal_hits\tmisses\tweighted_hit_rate_pct\tlog\treport",
+  "kind\tsample\telapsed_ms\tbinary\tlocal_hits\tmisses\tdups\tpassthroughs\tweighted_hit_rate_pct\tlog\treport",
 ];
 for (const result of results) {
   const summary = result.report?.summary;
@@ -508,6 +609,8 @@ for (const result of results) {
       result.binaryVersion,
       summary?.local_hits ?? "",
       summary?.misses ?? "",
+      summary?.dups ?? "",
+      summary?.passthroughs ?? "",
       summary?.weighted_hit_rate_pct ?? "",
       path.relative(outputDirectory, result.logPath),
       result.report
@@ -525,8 +628,9 @@ const totalLocalHits = treatmentResults.reduce(
 const reasoning = !reportsParseable
   ? "At least one Kache report was unavailable or malformed, so the timing cannot prove cache use."
   : cacheHealthy
-    ? `Kache recorded ${totalLocalHits} local hits with no misses, duplicate compilations, passthroughs, skipped units, errors, store failures, or fallbacks. ` +
-      `The same locked workspace, command, machine, warm OS caches and fresh target directories were used for both paths.`
+    ? `Kache recorded ${totalLocalHits} local hits with no misses, duplicate compilations, skipped units, errors, store failures, or fallbacks. ` +
+      `${String(expectedPassthroughs)} unsupported or probe invocations passed through consistently in each build. ` +
+      `The same locked workspace, command, machine, warm OS caches and freshly recreated target path were used for both paths.`
     : `Kache's health gates failed: ${reportFailures.join("; ")}.`;
 const verdictText = `${verdict}\n` +
   `Claim: Kache ${expectedKacheVersion} reduces the median clean-target workspace build by at least ${thresholdPercent}%.\n\n` +
