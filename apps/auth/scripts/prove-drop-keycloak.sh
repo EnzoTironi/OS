@@ -123,14 +123,13 @@ check "Dockerfile has no Keycloak image" "! grep -q keycloak deploy/fly/Dockerfi
 check "Dockerfile has no openjdk" "! grep -q openjdk deploy/fly/Dockerfile" "absent"
 check "zoen-start-keycloak file is gone" "! test -e deploy/fly/zoen-start-keycloak" "deleted"
 check "realm.template.json is gone" "! test -e deploy/fly/realm.template.json" "deleted"
-if grep -R --include='compose.yaml' 'quay.io/keycloak' e2e \
-  | grep -v 'fiscal-' >/dev/null; then
+if grep -R --include='compose.yaml' 'quay.io/keycloak' e2e >/dev/null; then
   fail=1
   dest_kc="present"
 else
   dest_kc="absent"
 fi
-record "dest live e2e compose does not plant Keycloak" "grep -R --include=compose.yaml quay.io/keycloak e2e | grep -v fiscal-" "e2e" "$dest_kc" "dest Keycloak ${dest_kc}"
+record "e2e compose does not plant Keycloak" "grep -R --include=compose.yaml quay.io/keycloak e2e" "e2e" "$dest_kc" "Keycloak ${dest_kc}"
 
 check "dest governed-action does not keep prepare-realm.mjs" "! test -f e2e/governed-action/prepare-realm.mjs" "deleted"
 

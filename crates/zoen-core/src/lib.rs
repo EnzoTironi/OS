@@ -164,6 +164,8 @@ pub const WORLD_INVITE_ACTION: &str = "zoen.world.invite";
 pub const WORLD_SHARE_ACTION: &str = "zoen.world.share";
 pub const WORLD_RESERVE_ACTION: &str = "zoen.world.reserve";
 pub const WORLD_WHO_CAN_ACTION: &str = "zoen.world.whoCan";
+pub const WORKLOAD_MANAGE_CREDENTIALS_ACTION: &str = "zoen.workload.manageCredentials";
+pub const WORKLOAD_CREDENTIALS_RESOURCE: &str = "zoen.workload.credentials";
 pub const CLASSIFIED_AS_RELATION: &str = "zoen.classifiedAs";
 pub const SHARED_WITH_RELATION: &str = "zoen.sharedWith";
 

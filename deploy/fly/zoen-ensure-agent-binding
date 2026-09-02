@@ -66,7 +66,7 @@ try_bind() {
     rm -rf "$tmp"
     return 1
   fi
-  curl -sf "${zoend}/ready" >/dev/null
+  curl -sf "${zoend}/live" >/dev/null
   prov_code="$(curl -sS -o "${tmp}/provisional.json" -w '%{http_code}' \
     -X POST "${zoend}/identity/admin/provisional" \
     -H "$auth" \
@@ -106,13 +106,34 @@ try_bind() {
 import json,sys
 snap=json.load(sys.stdin)
 for m in snap.get("memberships", []):
-    if m.get("tenantId")=="tenant.a" and m.get("principalId")=="principal.admin.a" and m.get("status")=="active":
+    if (
+        m.get("tenantId")=="tenant.a"
+        and m.get("principalId")=="principal.admin.a"
+        and m.get("status")=="active"
+        and m.get("actorId")=="actor.admin.a"
+        and m.get("workloadId")=="workload.admin.a"
+        and "zoen.workload.manageCredentials" in m.get("delegatedActionIds", [])
+        and "zoen.workload.credentials" in m.get("delegatedResourceIds", [])
+        and "workload.admin.a" in m.get("delegatedWorkloadIds", [])
+    ):
         sys.exit(0)
 sys.exit(1)
 ' <"${tmp}/account.json"; then
     rm -rf "$tmp"
     echo "agent binding already active for ${account_id}"
     return 0
+  fi
+  if python3 -c '
+import json,sys
+snap=json.load(sys.stdin)
+for m in snap.get("memberships", []):
+    if m.get("tenantId")=="tenant.a" and m.get("principalId")=="principal.admin.a" and m.get("status")=="active":
+        sys.exit(0)
+sys.exit(1)
+' <"${tmp}/account.json"; then
+    echo "agent binding: active principal.admin.a membership is missing the required zoen.workload.manageCredentials delegation on zoen.workload.credentials" >&2
+    rm -rf "$tmp"
+    return 1
   fi
   expires_at="$(python3 -c 'import time; print(int(time.time() * 1_000_000) + 3_600_000_000_000)')"
   invite_token="invite.agent.ba.${account_id}"
@@ -131,6 +152,7 @@ print(json.dumps({
         "zoen.definition.activate",
         "personal.writeMemory",
         "personal.createReminder",
+        "zoen.workload.manageCredentials",
     ],
     "resourceIds": [
         "personal.memory",
@@ -138,6 +160,7 @@ print(json.dumps({
         "personal.reminder",
         "commercial.sales",
         "commercial.order-line.dirty-quote",
+        "zoen.workload.credentials",
     ],
 }))
 ' "$invite_token" "$expires_at")"

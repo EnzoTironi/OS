@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../dist",
+    "rootDir": "../.."
+  },
+  "include": [
+    "../../apps/zoend/effect-handler/**/*.ts",
+    "../../apps/zoend/effect-registrar/**/*.ts",
+    "../../gen/connect/**/*.ts"
+  ]
+}

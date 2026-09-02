@@ -46,6 +46,7 @@ jobs:
           password: ${{ secrets.FLY_API_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
+          build-args: ZOEN_BUILD_REVISION=${{ github.sha }}
           context: .
           file: deploy/fly/Dockerfile
           push: true

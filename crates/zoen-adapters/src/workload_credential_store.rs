@@ -1,8 +1,11 @@
 use std::{
     collections::BTreeSet,
+    fs::File,
+    io::Read,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
@@ -61,7 +64,9 @@ impl PostgresWorkloadCredentialStore {
 
     /// # Errors
     ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
+    /// Returns [`IdentityError`] when operating-system randomness or `PostgreSQL`
+    /// is unavailable, a unique constraint conflicts, or a stored row cannot be
+    /// parsed.
     pub async fn issue(
         &self,
         cmd: IssueWorkloadCredential,
@@ -70,7 +75,7 @@ impl PostgresWorkloadCredentialStore {
         let now = now_micros();
         let credential_id = new_credential_id();
         let secret_id = new_secret_id();
-        let api_key_once = format!("zoen_wl_{}", new_id_value("key"));
+        let api_key_once = random_api_key()?;
         let secret_hash = hash_secret(&api_key_once);
         let allowed_ingress_json = serde_json::to_value(IngressWire::from(&cmd.allowed_ingress))
             .map_err(|error| IdentityError::Conflict(format!("ingress encode: {error}")))?;
@@ -151,7 +156,9 @@ impl PostgresWorkloadCredentialStore {
 
     /// # Errors
     ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
+    /// Returns [`IdentityError`] when operating-system randomness or `PostgreSQL`
+    /// is unavailable, a unique constraint conflicts, or a stored row cannot be
+    /// parsed.
     pub async fn rotate_secret(
         &self,
         id: &WorkloadCredentialId,
@@ -176,7 +183,7 @@ impl PostgresWorkloadCredentialStore {
         .await
         .map_err(unavailable)?;
         let secret_id = new_secret_id();
-        let api_key_once = format!("zoen_wl_{}", new_id_value("key"));
+        let api_key_once = random_api_key()?;
         let secret_hash = hash_secret(&api_key_once);
         sqlx::query(
             "INSERT INTO workload_secrets (secret_id, credential_id, secret_hash, created_at)
@@ -215,22 +222,24 @@ impl PostgresWorkloadCredentialStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn revoke(
         &self,
+        tenant_id: &TenantId,
         id: &WorkloadCredentialId,
         reason: WorkloadRevocationReason,
     ) -> Result<WorkloadCredential, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let mut credential = load_credential(&mut transaction, id).await?;
+        let mut credential = load_credential_for_tenant(&mut transaction, tenant_id, id).await?;
         let now = now_micros();
         sqlx::query(
             "UPDATE workload_credentials
              SET status = 'revoked',
                  revoked_at = to_timestamp($2::double precision / 1000000.0),
                  revocation_reason = $3
-             WHERE credential_id = $1",
+             WHERE credential_id = $1 AND tenant_id = $4",
         )
         .bind(id.as_str())
         .bind(now.get())
         .bind(reason.as_str())
+        .bind(tenant_id.as_str())
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
@@ -366,6 +375,27 @@ async fn load_credential(
     row_to_credential(&row)
 }
 
+async fn load_credential_for_tenant(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+    id: &WorkloadCredentialId,
+) -> Result<WorkloadCredential, IdentityError> {
+    let sql = format!(
+        "SELECT {CREDENTIAL_SELECT}
+         FROM workload_credentials
+         WHERE credential_id = $1 AND tenant_id = $2
+         FOR UPDATE"
+    );
+    let row = sqlx::query(&sql)
+        .bind(id.as_str())
+        .bind(tenant_id.as_str())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(unavailable)?
+        .ok_or(IdentityError::WorkloadCredentialNotFound)?;
+    row_to_credential(&row)
+}
+
 async fn load_credential_by_secret(
     transaction: &mut Transaction<'_, Postgres>,
     secret_id: &WorkloadSecretId,
@@ -478,6 +508,14 @@ fn hash_secret(secret: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(secret.as_bytes());
     hasher.finalize().into()
+}
+
+fn random_api_key() -> Result<String, IdentityError> {
+    let mut bytes = [0u8; 32];
+    File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
+    Ok(format!("zoen_wl_{}", URL_SAFE_NO_PAD.encode(bytes)))
 }
 
 fn new_id_value(prefix: &str) -> String {

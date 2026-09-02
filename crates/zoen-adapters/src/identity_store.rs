@@ -14,7 +14,8 @@ use zoen_core::{
     DelegationChain, DelegationGrant, DelegationId, ExternalBinding, ExternalBindingId,
     ExternalSubject, IdentityError, Invite, InviteId, InviteToken, Membership, MembershipId,
     MembershipKind, MembershipStatus, PrincipalId, ResourceId, RevocationReason, TenantId,
-    TimestampMicros, TrustedExecutionContext, UnbindReason, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
+    TimestampMicros, TrustedExecutionContext, UnbindReason, WORKLOAD_CREDENTIALS_RESOURCE,
+    WORKLOAD_MANAGE_CREDENTIALS_ACTION, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
     WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WORLD_WHO_CAN_ACTION, WorkloadId, ZoenAccount,
     ZoenAccountId, trusted_context_from_membership,
 };
@@ -1269,6 +1270,8 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORLD_WHO_CAN_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORKLOAD_MANAGE_CREDENTIALS_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
         ]),
         BTreeSet::from([
             ResourceId::parse("zoen.personal.workspace")
@@ -1278,6 +1281,8 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
             ResourceId::parse("personal.note")
                 .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
             ResourceId::parse("personal.reminder")
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse(WORKLOAD_CREDENTIALS_RESOURCE)
                 .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
         ]),
         BTreeSet::from([workload_id.clone()]),

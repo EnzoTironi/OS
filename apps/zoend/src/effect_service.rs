@@ -4,7 +4,7 @@ use connectrpc::{
 };
 use zoen_adapters::PostgresAuthorityStore;
 use zoen_core::{
-    DefinitelyNotSentReason, EffectAttempt as CoreEffectAttempt, EffectAttemptId,
+    CommitSequence, DefinitelyNotSentReason, EffectAttempt as CoreEffectAttempt, EffectAttemptId,
     EffectAttemptResult, EffectEvidence as CoreEffectEvidence, EffectEvidenceDigest,
     EffectEvidenceId, EffectEvidenceOutcome as CoreEffectEvidenceOutcome, EffectIdempotencyKey,
     EffectKnowledgeState as CoreEffectKnowledgeState,
@@ -78,6 +78,9 @@ impl EffectService for EffectServiceImpl {
         };
         let effect_request_id = EffectRequestId::parse(request.effect_request_id)
             .map_err(|error| invalid(error.to_string()))?;
+        let expected_knowledge_commit_sequence =
+            CommitSequence::new(request.expected_knowledge_commit_sequence)
+                .ok_or_else(|| invalid("expected knowledge commit sequence must be positive"))?;
         let claim = self
             .engine
             .claim_attempt(
@@ -85,6 +88,7 @@ impl EffectService for EffectServiceImpl {
                 &effect_request_id,
                 EffectAttemptClaimCommand {
                     adapter_execution_id: request.adapter_execution_id.to_owned(),
+                    expected_knowledge_commit_sequence,
                 },
             )
             .await
@@ -488,7 +492,7 @@ fn map_effect_error(error: EffectError) -> ConnectError {
             ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
         }
         EffectError::Store(error) => crate::service::map_store_error(&error),
-        EffectError::UnsafeRetry(_) => {
+        EffectError::DispatchVersionMismatch | EffectError::UnsafeRetry(_) => {
             ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
         }
     }

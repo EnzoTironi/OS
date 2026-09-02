@@ -286,6 +286,7 @@ fn build_routers(
         .add_service(Arc::new(services.world))
         .into_axum_router();
     let ready_routes = HttpRouter::new()
+        .route("/live", get(live))
         .route("/ready", get(ready))
         .with_state(ReadyState {
             classification: boot.classification,
@@ -340,6 +341,10 @@ async fn metrics() -> impl IntoResponse {
         )],
         zoen_engine::metrics::prometheus_text(),
     )
+}
+
+async fn live() -> impl IntoResponse {
+    (StatusCode::OK, "live\n")
 }
 
 async fn ready(State(state): State<ReadyState>) -> impl IntoResponse {

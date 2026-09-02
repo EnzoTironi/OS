@@ -115,10 +115,14 @@ where
                     tenant_id: tenant_id.clone(),
                 })
                 .await;
-            results.push(
-                self.record_dispatch_result(tenant_id, pending, scheduled)
-                    .await?,
-            );
+            let result = self
+                .record_dispatch_result(tenant_id, pending, scheduled)
+                .await?;
+            let accepted = result.outcome == EffectDispatchOutcome::Accepted;
+            results.push(result);
+            if !accepted {
+                break;
+            }
         }
         Ok(results)
     }

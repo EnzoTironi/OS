@@ -13,10 +13,12 @@ COPY wit wit
 RUN cargo build --locked --release --package zoend \
       --bin zoen \
       --bin zoen-effect-dispatcher \
+      --bin zoen-http-connector \
       --bin zoen-projection \
     && strip --strip-debug \
       target/release/zoen \
       target/release/zoen-effect-dispatcher \
+      target/release/zoen-http-connector \
       target/release/zoen-projection
 
 FROM node:22.18.0-bookworm-slim AS auth
@@ -28,13 +30,22 @@ COPY apps/auth/tsconfig.json ./
 
 FROM node:22.18.0-bookworm-slim AS personal-lake
 WORKDIR /app
+ARG ZOEN_BUILD_REVISION
 COPY package.json package-lock.json tsconfig.json ./
 COPY gen/connect gen/connect
 COPY testdata/lakes testdata/lakes
+COPY apps/zoend/effect-handler apps/zoend/effect-handler
+COPY apps/zoend/effect-registrar apps/zoend/effect-registrar
 COPY deploy/fly/tsconfig.personal-lake.json deploy/fly/tsconfig.personal-lake.json
+COPY deploy/fly/tsconfig.ontology-runtime.json deploy/fly/tsconfig.ontology-runtime.json
 COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
 RUN npm ci \
-    && npx tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false
+    && npx tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false \
+    && npx tsc -p deploy/fly/tsconfig.ontology-runtime.json --pretty false \
+    && test -n "${ZOEN_BUILD_REVISION}" \
+    && node /app/apps/zoend/effect-handler/write-build-artifact.mjs \
+      "${ZOEN_BUILD_REVISION}" \
+      /app/dist/apps/zoend/effect-handler
 
 FROM node:24.20.0-bookworm-slim AS conversation
 WORKDIR /conversation
@@ -52,6 +63,7 @@ RUN apt-get update \
 
 COPY --from=zoend /src/target/release/zoen /usr/local/bin/zoen
 COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
+COPY --from=zoend /src/target/release/zoen-http-connector /usr/local/bin/zoen-http-connector
 COPY --from=zoend /src/target/release/zoen-projection /usr/local/bin/zoen-projection
 COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
 COPY --from=personal-lake /app /app
@@ -74,6 +86,11 @@ COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
 COPY deploy/fly/zoen-ensure-agent-binding /usr/local/bin/zoen-ensure-agent-binding
 COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake
+COPY deploy/fly/zoen-ensure-effect-workload-credential /usr/local/bin/zoen-ensure-effect-workload-credential
+COPY deploy/fly/zoen-register-effects /usr/local/bin/zoen-register-effects
+COPY deploy/fly/zoen-start-effect-dispatcher /usr/local/bin/zoen-start-effect-dispatcher
+COPY deploy/fly/zoen-start-effect-handler /usr/local/bin/zoen-start-effect-handler
+COPY deploy/fly/zoen-start-http-connector /usr/local/bin/zoen-start-http-connector
 COPY deploy/fly/zoen-start-auth /usr/local/bin/zoen-start-auth
 COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
 COPY testdata/lakes/commercial.canonical.json /etc/zoen/commercial.canonical.json

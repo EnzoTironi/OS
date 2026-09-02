@@ -115,6 +115,7 @@ export const adminDatabaseUrl = e2ePostgresUrl(
 export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 export const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 export const actionId = "inventory.requestStock";
+export const humanActionId = `${actionId}.humanExecutor`;
 export const activationActionId = "zoen.definition.activate";
 export const definitionId = "inventory.governed";
 export const resourceId = "inventory.item.1";
@@ -123,7 +124,7 @@ const availableRelation = "inventory.available";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 const validAt = new Date("2026-08-19T00:00:00.000Z");
-const stockActions = ["inventory.requestStock"] as const;
+const stockActions = [actionId, humanActionId] as const;
 const stockResources = ["inventory.item.1"] as const;
 const adminDefinitionIds = [
   "inventory.governed",
@@ -137,8 +138,13 @@ const adminActions = [
   definitionPublishActionId,
   "zoen.definition.activate",
   "inventory.requestStock",
+  "zoen.workload.manageCredentials",
 ] as const;
-const adminResources = [...adminDefinitionIds, ...stockResources];
+const adminResources = [
+  ...adminDefinitionIds,
+  ...stockResources,
+  "zoen.workload.credentials",
+];
 
 export async function plantGovernedActionDoor(
   door: AuthDoor,
@@ -208,33 +214,6 @@ export const governedActionPersonas: readonly DoorPersona[] = [
     tenantId: tenantA,
     workloadId: "workload.expired.a",
   }),
-  invitePersona({
-    actionIds: stockActions,
-    actorId: "actor.effect-worker.a",
-    id: "effect-worker-a",
-    principalId: "principal.effect-worker.a",
-    resourceIds: stockResources,
-    tenantId: tenantA,
-    workloadId: "workload.effect-worker",
-  }),
-  invitePersona({
-    actionIds: stockActions,
-    actorId: "actor.effect-worker.b",
-    id: "effect-worker-b",
-    principalId: "principal.effect-worker.b",
-    resourceIds: stockResources,
-    tenantId: tenantB,
-    workloadId: "workload.effect-worker",
-  }),
-  invitePersona({
-    actionIds: stockActions,
-    actorId: "actor.effect-reconciler.a",
-    id: "effect-reconciler-a",
-    principalId: "principal.effect-reconciler.a",
-    resourceIds: stockResources,
-    tenantId: tenantA,
-    workloadId: "workload.effect-reconciler",
-  }),
 ];
 
 export type ActionClient = Client<typeof ActionService>;
@@ -242,6 +221,7 @@ export type DefinitionClient = Client<typeof DefinitionService>;
 export type WorldClient = Client<typeof WorldService>;
 
 export interface DefinitionFixture {
+  actionId?: string;
   canonicalJson: string;
   definition: DefinitionReference;
   digest: string;
@@ -308,6 +288,7 @@ export async function loadFixture(
   );
   const digest = sha256(canonicalJson);
   return {
+    actionId,
     canonicalJson,
     definition: create(DefinitionReferenceSchema, {
       definitionId: fixtureDefinitionId(name),
@@ -402,7 +383,7 @@ export async function writePolicyManifest(
             revision: fixture.policyRevision,
           }),
           {
-            actionId,
+            actionId: fixture.actionId ?? actionId,
             definitionDigest: fixture.digest,
             digest: fixture.policyDigest,
             policyId: fixture.policyId,
@@ -561,7 +542,7 @@ interface ProposeInput {
 
 export function propose(client: ActionClient, input: ProposeInput) {
   return client.propose({
-    actionId,
+    actionId: input.fixture.actionId ?? actionId,
     definition: input.fixture.definition,
     expiresAt: timestampFromDate(input.expiresAt),
     inputs: [integerInput("quantity", input.quantity), ...(input.extraInputs ?? [])],

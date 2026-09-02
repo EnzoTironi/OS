@@ -4,7 +4,7 @@ use std::{
     fs,
     io::{self, Read, Write},
     net::IpAddr,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -2440,13 +2440,7 @@ async fn emit_signal(
 
 async fn workload_exchange(env: &RuntimeEnv) -> Result<String, Box<dyn Error + Send + Sync>> {
     let key_path = env.source_home.join("workload.api-key");
-    let mut api_key = fs::read_to_string(&key_path)
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
-    if api_key.is_empty() {
-        api_key = issue_workload(env, &key_path).await?;
-    }
+    let api_key = load_workload_api_key(&key_path)?;
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/workload/authenticate", env.zoend))
@@ -2460,61 +2454,91 @@ async fn workload_exchange(env: &RuntimeEnv) -> Result<String, Box<dyn Error + S
         return Err(format!("POST /workload/authenticate {status} {text}").into());
     }
     let doc: Value = serde_json::from_str(&text)?;
+    for (field, expected) in [
+        ("tenantId", env.tenant.as_str()),
+        ("principalId", env.principal_id.as_str()),
+        ("workloadId", env.workload_id.as_str()),
+        ("actorId", env.actor_id.as_str()),
+    ] {
+        if doc.get(field).and_then(Value::as_str) != Some(expected) {
+            return Err(format!(
+                "workload credential {field} does not match the configured identity"
+            )
+            .into());
+        }
+    }
     doc.get("exchangeToken")
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "workload exchangeToken missing".into())
 }
 
-async fn issue_workload(
-    env: &RuntimeEnv,
-    key_path: &Path,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/workload/admin/credentials", env.zoend))
-        .header(AUTHORIZATION, format!("Bearer {}", env.bearer))
-        .header(CONTENT_TYPE, "application/json")
-        .json(&json!({
-            "actorId": env.actor_id,
-            "allowedIngress": [
-                { "kind": "api_event", "sourceClass": "google.drive" },
-                { "kind": "api_event", "sourceClass": "rest" },
-                { "kind": "api_event", "sourceClass": "mcp" },
-            ],
-            "delegation": [{
-                "actions": ["source.mapQuantity"],
-                "id": "delegation.source",
-                "resources": ["entity.pedido.1", "entity.nota.1"],
-            }],
-            "expiresAtMicros": 4_102_444_800_000_000_i64,
-            "principalId": env.principal_id,
-            "rateBudget": { "maxAcceptsPerMinute": 120, "maxCommitsPerHour": 120 },
-            "tenantId": env.tenant,
-            "workloadId": env.workload_id,
-        }))
-        .send()
-        .await?;
-    let status = response.status();
-    let text = response.text().await?;
-    if !status.is_success() {
-        return Err(format!("POST /workload/admin/credentials {status} {text}").into());
+fn load_workload_api_key(path: &Path) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let path_metadata = fs::symlink_metadata(path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "workload API key must already exist at {}: {error}",
+                path.display()
+            ),
+        )
+    })?;
+    if !path_metadata.file_type().is_file() || path_metadata.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "workload API key at {} must be a regular non-symlink file",
+                path.display()
+            ),
+        )
+        .into());
     }
-    let doc: Value = serde_json::from_str(&text)?;
-    let api_key = doc
-        .get("apiKeyOnce")
-        .and_then(Value::as_str)
-        .ok_or("workload apiKeyOnce missing")?;
-    if let Some(parent) = key_path.parent() {
-        fs::create_dir_all(parent)?;
+    let mut file = fs::File::open(path)?;
+    let opened_metadata = file.metadata()?;
+    if !opened_metadata.file_type().is_file()
+        || opened_metadata.dev() != path_metadata.dev()
+        || opened_metadata.ino() != path_metadata.ino()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "workload API key at {} changed while it was being opened",
+                path.display()
+            ),
+        )
+        .into());
     }
-    fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(key_path)?
-        .write_all(format!("{api_key}\n").as_bytes())?;
+    let mode = opened_metadata.permissions().mode() & 0o777;
+    if mode != 0o600 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "workload API key at {} must have mode 0600, found {mode:04o}",
+                path.display()
+            ),
+        )
+        .into());
+    }
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    let api_key = contents.strip_suffix('\n').unwrap_or(&contents);
+    if api_key.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("workload API key at {} is empty", path.display()),
+        )
+        .into());
+    }
+    if api_key.chars().any(char::is_whitespace) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "workload API key at {} must contain exactly one key with at most one final newline",
+                path.display()
+            ),
+        )
+        .into());
+    }
     Ok(api_key.to_owned())
 }
 

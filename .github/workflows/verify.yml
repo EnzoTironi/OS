@@ -130,6 +130,7 @@ jobs:
           - durable-commit
           - evolution-breaking
           - evolution-compatible
+          - effect-runtime
           - explain
           - governed-action
           - messaging-boundary

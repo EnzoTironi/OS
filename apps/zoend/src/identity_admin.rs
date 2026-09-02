@@ -203,6 +203,9 @@ struct MembershipJson {
     actor_id: String,
     workload_id: String,
     clearance: Vec<String>,
+    delegated_action_ids: Vec<String>,
+    delegated_resource_ids: Vec<String>,
+    delegated_workload_ids: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -848,6 +851,7 @@ fn binding_json(binding: &zoen_core::ExternalBinding) -> BindingJson {
 }
 
 fn membership_json(membership: &zoen_core::Membership) -> MembershipJson {
+    let effective_grant = membership.delegation.grants().last();
     MembershipJson {
         membership_id: membership.id.to_string(),
         account_id: membership.account_id.to_string(),
@@ -867,6 +871,15 @@ fn membership_json(membership: &zoen_core::Membership) -> MembershipJson {
         actor_id: membership.actor_id.to_string(),
         workload_id: membership.workload_id.to_string(),
         clearance: membership.clearance.to_token_strings(),
+        delegated_action_ids: effective_grant
+            .map(|grant| grant.actions().iter().map(ToString::to_string).collect())
+            .unwrap_or_default(),
+        delegated_resource_ids: effective_grant
+            .map(|grant| grant.resources().iter().map(ToString::to_string).collect())
+            .unwrap_or_default(),
+        delegated_workload_ids: effective_grant
+            .map(|grant| grant.workloads().iter().map(ToString::to_string).collect())
+            .unwrap_or_default(),
     }
 }
 

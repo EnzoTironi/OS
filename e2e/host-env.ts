@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -158,27 +157,6 @@ export function e2eGeneratedDirectory(
       : path.join(repositoryRoot, override);
   }
   return path.join(repositoryRoot, "e2e", scenario, ".generated");
-}
-
-/**
- * Emit a TypeScript project through its own tsconfig.
- * Credential fiscal compiles `archive/domain/fiscal-brazil` when that tree is checked out.
- */
-export function compileArchivedTsconfig(
-  repositoryRoot: string,
-  tsconfigRelative: string,
-): void {
-  execFileSync(
-    process.execPath,
-    [
-      path.join(repositoryRoot, "node_modules", "typescript", "bin", "tsc"),
-      "-p",
-      path.join(repositoryRoot, tsconfigRelative),
-      "--pretty",
-      "false",
-    ],
-    { cwd: repositoryRoot, stdio: "inherit" },
-  );
 }
 
 /** Write `artifacts/<scenario>/<scenario>.json` and return the path. */

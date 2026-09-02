@@ -17,5 +17,9 @@
     "types": ["node"]
   },
   "exclude": ["dist", "node_modules"],
-  "include": ["e2e/**/*.ts"]
+  "include": [
+    "apps/zoend/effect-handler/**/*.ts",
+    "apps/zoend/effect-registrar/**/*.ts",
+    "e2e/**/*.ts"
+  ]
 }

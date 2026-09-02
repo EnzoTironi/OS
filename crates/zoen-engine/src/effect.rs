@@ -6,10 +6,10 @@ use std::{
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    EffectAttempt, EffectAttemptId, EffectAttemptResult, EffectEvidence, EffectEvidenceDigest,
-    EffectEvidenceId, EffectEvidenceOutcome, EffectIdempotencyKey, EffectKnowledgeState,
-    EffectRequest, EffectRequestId, EffectSnapshot, ExecutionContext, HumanTaskError,
-    ProviderOperationId, SourceId, TimestampMicros, WorkloadId,
+    CommitSequence, EffectAttempt, EffectAttemptId, EffectAttemptResult, EffectEvidence,
+    EffectEvidenceDigest, EffectEvidenceId, EffectEvidenceOutcome, EffectIdempotencyKey,
+    EffectKnowledgeState, EffectRequest, EffectRequestId, EffectSnapshot, ExecutionContext,
+    HumanTaskError, ProviderOperationId, SourceId, TimestampMicros, WorkloadId,
 };
 
 use crate::{
@@ -27,6 +27,7 @@ pub struct EffectAttemptCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectAttemptClaimCommand {
     pub adapter_execution_id: String,
+    pub expected_knowledge_commit_sequence: CommitSequence,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -50,6 +51,7 @@ pub struct EffectReconcileCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EffectError {
     AttemptIdentityConflict,
+    DispatchVersionMismatch,
     EvidenceIdentityConflict,
     ForbiddenWorkload,
     InvalidEvidence(String),
@@ -65,6 +67,9 @@ impl Display for EffectError {
             }
             Self::EvidenceIdentityConflict => {
                 formatter.write_str("evidence identity or digest describes different evidence")
+            }
+            Self::DispatchVersionMismatch => {
+                formatter.write_str("effect dispatch version does not match current knowledge")
             }
             Self::ForbiddenWorkload => {
                 formatter.write_str("workload is not authorized for this effect operation")
@@ -87,12 +92,27 @@ impl Error for EffectError {
         match self {
             Self::Store(error) => Some(error),
             Self::AttemptIdentityConflict
+            | Self::DispatchVersionMismatch
             | Self::EvidenceIdentityConflict
             | Self::ForbiddenWorkload
             | Self::InvalidEvidence(_)
             | Self::UnsafeRetry(_) => None,
         }
     }
+}
+
+fn latest_knowledge_commit_sequence(snapshot: &EffectSnapshot) -> CommitSequence {
+    let mut latest = snapshot.request.commit_sequence;
+    for attempt in &snapshot.attempts {
+        latest = latest.max(attempt.commit_sequence);
+    }
+    for evidence in &snapshot.evidence {
+        latest = latest.max(evidence.commit_sequence);
+    }
+    for reconciliation in &snapshot.reconciliations {
+        latest = latest.max(reconciliation.commit_sequence);
+    }
+    latest
 }
 
 pub trait EffectUpdateTransaction: Send {
@@ -205,6 +225,12 @@ where
             .await
             .map_err(EffectError::Store)?;
         let request = transaction.snapshot().request.clone();
+        if latest_knowledge_commit_sequence(transaction.snapshot())
+            != command.expected_knowledge_commit_sequence
+        {
+            transaction.rollback().await.map_err(EffectError::Store)?;
+            return Err(EffectError::DispatchVersionMismatch);
+        }
         self.require_attempt_authority(context, &request)?;
         if is_human_task_payload(&request.payload) {
             refuse_expired_human_task(&request, TimestampMicros::new(now_micros()))?;

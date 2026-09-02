@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     env,
     error::Error,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -16,7 +16,7 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use reqwest::{Client, Url};
+use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -136,6 +136,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .unwrap_or_else(|_| "127.0.0.1:8081".to_owned())
         .parse::<SocketAddr>()?;
     let provider = env::var("ZOEN_CONNECTOR_PROVIDER_URL")?.parse::<Url>()?;
+    require_secure_provider_url(&provider)?;
     let credentials = serde_json::from_str::<HashMap<String, CredentialBinding>>(&env::var(
         "ZOEN_CONNECTOR_CREDENTIALS",
     )?)?;
@@ -150,7 +151,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
     let state = ConnectorState {
         caller_token: Arc::new(caller_token),
-        client: Client::builder().timeout(timeout).build()?,
+        client: Client::builder()
+            .redirect(Policy::none())
+            .timeout(timeout)
+            .build()?,
         credentials: Arc::new(credentials),
         provider,
     };
@@ -170,6 +174,28 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+fn require_secure_provider_url(provider: &Url) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if !provider.username().is_empty() || provider.password().is_some() {
+        return Err("ZOEN_CONNECTOR_PROVIDER_URL must not contain user information".into());
+    }
+    let host = provider
+        .host_str()
+        .ok_or("ZOEN_CONNECTOR_PROVIDER_URL must contain a host")?;
+    if provider.scheme() == "https" || (provider.scheme() == "http" && is_loopback_host(host)) {
+        return Ok(());
+    }
+    Err("ZOEN_CONNECTOR_PROVIDER_URL must use HTTPS outside loopback".into())
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 async fn execute(

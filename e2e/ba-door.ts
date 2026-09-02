@@ -208,6 +208,7 @@ export async function startAuthDoor(
     ["--import", "tsx", path.join(authRoot, "src", "server.ts")],
     {
       cwd: authRoot,
+      detached: process.platform !== "win32",
       env,
       stdio: ["pipe", "pipe", "pipe"],
     },

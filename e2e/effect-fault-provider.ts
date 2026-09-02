@@ -67,6 +67,16 @@ async function route(
     response.writeHead(204).end();
     return;
   }
+  if (request.method === "GET" && url.pathname === "/operations/stats") {
+    sendJson(response, 200, {
+      operations: operationsByKey.size,
+      requests: [...operationsByKey.values()].reduce(
+        (sum, operation) => sum + operation.requests,
+        0,
+      ),
+    });
+    return;
+  }
   if (request.method === "GET" && url.pathname.startsWith("/v1/operations/")) {
     if (request.headers.authorization !== "Bearer provider-secret") {
       sendJson(response, 401, { error: "credential rejected" });
