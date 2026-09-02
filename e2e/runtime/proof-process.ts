@@ -32,13 +32,17 @@ import {
   isNoSuchProcess,
   withTimeout,
 } from "./proof-support.js";
+import type { RuntimeProofBarrierStage } from "./runtime-contracts.js";
 
 export function startJourney(input: {
   readonly barrier?: string;
   readonly cwd?: string;
   readonly releaseBarrier?: string;
   readonly runId: string;
-  readonly runtimeBarrier?: string;
+  readonly runtimeBarrier?: {
+    readonly directory: string;
+    readonly stage: RuntimeProofBarrierStage;
+  };
   readonly scenario: string;
   readonly startupBarrier?: string;
   readonly suiteId: string;
@@ -68,7 +72,10 @@ export function startJourney(input: {
         : { ZOEN_E2E_RUNTIME_RELEASE_BARRIER_DIR: input.releaseBarrier }),
       ...(input.runtimeBarrier === undefined
         ? {}
-        : { ZOEN_E2E_RUNTIME_BARRIER_DIR: input.runtimeBarrier }),
+        : {
+            ZOEN_E2E_RUNTIME_BARRIER_DIR: input.runtimeBarrier.directory,
+            ZOEN_E2E_RUNTIME_BARRIER_STAGE: input.runtimeBarrier.stage,
+          }),
       ...(input.startupBarrier === undefined
         ? {}
         : { ZOEN_E2E_JOURNEY_STARTUP_BARRIER_DIR: input.startupBarrier }),

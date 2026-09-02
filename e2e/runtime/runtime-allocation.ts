@@ -10,7 +10,13 @@ import {
   journeyPortSlotCount,
   preferredJourneyPortSlot,
 } from "../journey-runtime-layout.js";
-import { idSchema, nonceSchema, type Lease } from "./runtime-contracts.js";
+import {
+  idSchema,
+  nonceSchema,
+  runtimeProofBarrierStageSchema,
+  type Lease,
+  type RuntimeProofBarrierStage,
+} from "./runtime-contracts.js";
 import {
   booleanFlag,
   positiveInteger,
@@ -284,10 +290,16 @@ export async function allocateCommand(): Promise<void> {
 export async function reachRuntimeProofBarrier(
   runId: string,
   ownerToken: string,
-  stage: string,
+  stage: RuntimeProofBarrierStage,
 ): Promise<void> {
   const root = process.env.ZOEN_E2E_RUNTIME_BARRIER_DIR;
   if (root === undefined || root === "") {
+    return;
+  }
+  const configuredStage = runtimeProofBarrierStageSchema.parse(
+    process.env.ZOEN_E2E_RUNTIME_BARRIER_STAGE,
+  );
+  if (configuredStage !== stage) {
     return;
   }
   await mkdir(root, { recursive: true });

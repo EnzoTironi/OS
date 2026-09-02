@@ -183,7 +183,7 @@ export async function exerciseRuntime(): Promise<ProofEvidence> {
   const claimRunId = "claim-crash-retry";
   const claimCrash = startJourney({
     runId: claimRunId,
-    runtimeBarrier: claimBarrier,
+    runtimeBarrier: { directory: claimBarrier, stage: "claim-ready" },
     scenario: "public-surface",
     suiteId: claimSuite,
   });
@@ -234,7 +234,10 @@ export async function exerciseRuntime(): Promise<ProofEvidence> {
   const logicalRunBarrier = path.join(work, "logical-run-active-barrier");
   const retry = startJourney({
     runId: interruptedContext.runId,
-    runtimeBarrier: logicalRunBarrier,
+    runtimeBarrier: {
+      directory: logicalRunBarrier,
+      stage: "logical-run-active",
+    },
     scenario: "definition-publication",
     suiteId: failureSuite,
   });

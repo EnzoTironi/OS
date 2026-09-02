@@ -4,6 +4,10 @@ import type { JourneyRunContext } from "../journey-run-context.js";
 import { journeyPortSlotCount } from "../journey-runtime-layout.js";
 
 export const nonceSchema = z.string().regex(/^[0-9a-f]{64}$/);
+export const runtimeProofBarrierStageSchema = z.enum([
+  "claim-ready",
+  "logical-run-active",
+]);
 export const sourceShaSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
 export const artifactPathSchema = z
   .string()
@@ -176,6 +180,9 @@ export const cleanupResultSchema = z
 
 export type Lease = z.infer<typeof leaseSchema>;
 export type PreparedBuild = z.infer<typeof preparedBuildSchema>;
+export type RuntimeProofBarrierStage = z.infer<
+  typeof runtimeProofBarrierStageSchema
+>;
 export type OwnedLock = {
   readonly directory: string;
   readonly token: string;

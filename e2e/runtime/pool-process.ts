@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
+  processOwnershipInspectionTimeoutMilliseconds,
   terminationGraceMilliseconds,
   type ChildOutcome,
   type TrackedChild,
@@ -202,7 +203,7 @@ function processOwnership(pid: number, nonce: string): ProcessOwnership {
       encoding: "utf8",
       env: { LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
       killSignal: "SIGKILL",
-      timeout: 5_000,
+      timeout: processOwnershipInspectionTimeoutMilliseconds,
     },
   );
   if (

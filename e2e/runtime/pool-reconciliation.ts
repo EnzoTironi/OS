@@ -8,9 +8,10 @@ import {
   type JourneyRunContext,
 } from "../journey-run-context.js";
 import {
-  cancellationConvergenceMilliseconds,
+  boundedChildTerminationMaximumMilliseconds,
   cleanupSchema,
   groupCleanSchema,
+  processOwnershipInspectionTimeoutMilliseconds,
   processMetadataSchema,
   reconciliationSchema,
   runtimeCommandTimeoutMilliseconds,
@@ -25,17 +26,19 @@ import {
 } from "./pool-process.js";
 
 export async function reconcileAdmittedJourneys(
-  journeys: readonly RunningJourney[],
-  suiteId: string,
+  input: {
+    readonly deadlineAt: number;
+    readonly journeys: readonly RunningJourney[];
+    readonly suiteId: string;
+  },
 ): Promise<void> {
-  const deadlineAt = Date.now() + cancellationConvergenceMilliseconds;
   const contexts = new Map<string, JourneyRunContext>();
   let lastFailures: Error[] = [];
   let lastOwned: z.infer<typeof reconciliationSchema>["leases"] = [];
-  while (Date.now() < deadlineAt) {
+  while (Date.now() < input.deadlineAt) {
     const iterationFailures: Error[] = [];
     await Promise.all(
-      journeys.map(async (journey) => {
+      input.journeys.map(async (journey) => {
         try {
           const pointer = journeyContextPointerSchema.parse(
             JSON.parse(await readFile(journey.pointer, "utf8")),
@@ -43,7 +46,7 @@ export async function reconcileAdmittedJourneys(
           const context = journeyRunContextSchema.parse(
             JSON.parse(await readFile(pointer.contextFile, "utf8")),
           );
-          if (context.suiteId !== suiteId) {
+          if (context.suiteId !== input.suiteId) {
             throw new Error(
               `cancelled pointer ${journey.pointer} belongs to ${context.suiteId}`,
             );
@@ -57,24 +60,49 @@ export async function reconcileAdmittedJourneys(
       }),
     );
 
-    const cleanupResults = await Promise.allSettled(
-      [...contexts.values()].map((context) => cleanupContext(context)),
-    );
-    for (const result of cleanupResults) {
-      if (result.status === "rejected") {
-        iterationFailures.push(errorFromUnknown(result.reason));
+    if (contexts.size > 0) {
+      const cleanupBudget = remainingCommandBudget(
+        input.deadlineAt,
+        parallelCleanupTerminationMaximumMilliseconds(contexts.size),
+      );
+      if (cleanupBudget.kind === "expired") {
+        lastFailures = [
+          ...iterationFailures,
+          cancellationDeadlineError(),
+        ];
+        break;
+      }
+      const cleanupResults = await Promise.allSettled(
+        [...contexts.values()].map((context) =>
+          cleanupContext(context, cleanupBudget.timeoutMilliseconds),
+        ),
+      );
+      for (const result of cleanupResults) {
+        if (result.status === "rejected") {
+          iterationFailures.push(errorFromUnknown(result.reason));
+        }
       }
     }
 
+    const reconciliationBudget = remainingCommandBudget(
+      input.deadlineAt,
+      boundedChildTerminationMaximumMilliseconds,
+    );
+    if (reconciliationBudget.kind === "expired") {
+      lastFailures = [...iterationFailures, cancellationDeadlineError()];
+      break;
+    }
     try {
-      const reconciliation = await reconcileRuntime();
+      const reconciliation = await reconcileRuntime(
+        reconciliationBudget.timeoutMilliseconds,
+      );
       if (reconciliation.uncertain) {
         throw new Error(
           "shared journey registry remains uncertain after cancellation",
         );
       }
       lastOwned = reconciliation.leases.filter(
-        (lease) => lease.suiteId === suiteId,
+        (lease) => lease.suiteId === input.suiteId,
       );
       if (lastOwned.length === 0) {
         const receiptResults = await Promise.allSettled(
@@ -93,7 +121,10 @@ export async function reconcileAdmittedJourneys(
       iterationFailures.push(errorFromUnknown(error));
     }
     lastFailures = iterationFailures;
-    await delay(250);
+    const remainingDelayMilliseconds = input.deadlineAt - Date.now();
+    if (remainingDelayMilliseconds > 0) {
+      await delay(Math.min(250, remainingDelayMilliseconds));
+    }
   }
   if (lastOwned.length > 0) {
     lastFailures.push(
@@ -110,7 +141,10 @@ export async function reconcileAdmittedJourneys(
   );
 }
 
-async function cleanupContext(context: JourneyRunContext): Promise<void> {
+async function cleanupContext(
+  context: JourneyRunContext,
+  timeoutMilliseconds: number,
+): Promise<void> {
   const cleanup = startTrackedChild({
     arguments: [
       "cleanup",
@@ -119,16 +153,15 @@ async function cleanupContext(context: JourneyRunContext): Promise<void> {
     environment: process.env,
     label: `cleanup ${context.scenario}/${context.runId}`,
   });
-  const outcome = await boundedChildOutcome(
-    cleanup,
-    runtimeCommandTimeoutMilliseconds,
-  );
+  const outcome = await boundedChildOutcome(cleanup, timeoutMilliseconds);
   if (!childSucceeded(outcome)) {
     throw childFailure(cleanup.label, outcome);
   }
 }
 
-async function reconcileRuntime(): Promise<z.infer<typeof reconciliationSchema>> {
+async function reconcileRuntime(
+  timeoutMilliseconds: number,
+): Promise<z.infer<typeof reconciliationSchema>> {
   const reconciliation = startTrackedChild({
     arguments: ["reconcile"],
     captureOutput: true,
@@ -137,7 +170,7 @@ async function reconcileRuntime(): Promise<z.infer<typeof reconciliationSchema>>
   });
   const outcome = await boundedChildOutcome(
     reconciliation,
-    runtimeCommandTimeoutMilliseconds,
+    timeoutMilliseconds,
   );
   if (!childSucceeded(outcome)) {
     throw new Error(
@@ -145,6 +178,38 @@ async function reconcileRuntime(): Promise<z.infer<typeof reconciliationSchema>>
     );
   }
   return reconciliationSchema.parse(JSON.parse(reconciliation.stdout()));
+}
+
+type RuntimeCommandBudget =
+  | { readonly kind: "available"; readonly timeoutMilliseconds: number }
+  | { readonly kind: "expired" };
+
+function remainingCommandBudget(
+  deadlineAt: number,
+  terminationMaximumMilliseconds: number,
+): RuntimeCommandBudget {
+  const timeoutMilliseconds = Math.min(
+    runtimeCommandTimeoutMilliseconds,
+    deadlineAt - Date.now() - terminationMaximumMilliseconds,
+  );
+  return timeoutMilliseconds > 0
+    ? { kind: "available", timeoutMilliseconds }
+    : { kind: "expired" };
+}
+
+function parallelCleanupTerminationMaximumMilliseconds(
+  childCount: number,
+): number {
+  return (
+    boundedChildTerminationMaximumMilliseconds +
+    (childCount - 1) *
+      processOwnershipInspectionTimeoutMilliseconds *
+      2
+  );
+}
+
+function cancellationDeadlineError(): Error {
+  return new Error("cancelled suite cleanup exceeded its deadline");
 }
 
 async function assertContextClean(context: JourneyRunContext): Promise<void> {

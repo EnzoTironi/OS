@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  cancellationConvergenceMilliseconds,
   idSchema,
   registrySchema,
   type AggregateEvent,
@@ -235,6 +236,8 @@ async function scheduleJourneys(input: {
     }
   } catch (error) {
     accepting = false;
+    const cancellationDeadlineAt =
+      Date.now() + cancellationConvergenceMilliseconds;
     const shutdownFailures: Error[] = [];
     try {
       await terminateChildren(
@@ -244,7 +247,11 @@ async function scheduleJourneys(input: {
       shutdownFailures.push(errorFromUnknown(terminationError));
     }
     try {
-      await reconcileAdmittedJourneys(admitted, input.suiteId);
+      await reconcileAdmittedJourneys({
+        deadlineAt: cancellationDeadlineAt,
+        journeys: admitted,
+        suiteId: input.suiteId,
+      });
     } catch (reconciliationError) {
       shutdownFailures.push(errorFromUnknown(reconciliationError));
     }

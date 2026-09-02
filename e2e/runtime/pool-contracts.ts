@@ -108,3 +108,9 @@ export type AggregateEvent =
   | { readonly kind: "signal"; readonly signal: NodeJS.Signals };
 
 export const terminationGraceMilliseconds = 5_000;
+export const processOwnershipInspectionTimeoutMilliseconds = 5_000;
+const boundedChildTerminationSignalCount = 2;
+export const boundedChildTerminationMaximumMilliseconds =
+  (processOwnershipInspectionTimeoutMilliseconds +
+    terminationGraceMilliseconds) *
+  boundedChildTerminationSignalCount;
