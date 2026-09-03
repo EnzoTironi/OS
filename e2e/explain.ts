@@ -201,7 +201,11 @@ async function main(): Promise<void> {
   const worldB = worldClient(agentBToken, tenantB);
   processes.push(await startFaultProvider());
   processes.push(await startConnector());
-  processes.push(await startCredentialValidator(workerIdentity));
+  processes.push(
+    await startCredentialValidator(workerIdentity, {
+      expectedCredentialId: workerCredential.credentialId,
+    }),
+  );
   processes.push(await startWorker(workerIdentity));
   processes.push(await startEffectRegistrar(workerIdentity));
   await admin.connect();

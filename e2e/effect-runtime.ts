@@ -318,7 +318,10 @@ async function main(): Promise<void> {
       tenantA,
     );
     await writeEffectWorkerApiKey(firstWorkerCredential);
-    await waitForCredentialReady(workerIdentity, validator);
+    await waitForCredentialReady(workerIdentity, {
+      expectedCredentialId: firstWorkerCredential.credentialId,
+      process: validator,
+    });
     let worker = await startWorker(workerIdentity, {
       artifactRevision: buildAArtifact,
     });
@@ -389,7 +392,10 @@ async function main(): Promise<void> {
         (await providerStats()).requests === crossTenantProviderRequests,
     );
     await writeEffectWorkerApiKey(firstWorkerCredential);
-    await waitForCredentialReady(workerIdentity, validator);
+    await waitForCredentialReady(workerIdentity, {
+      expectedCredentialId: firstWorkerCredential.credentialId,
+      process: validator,
+    });
     await exactRegistration();
 
     const crossReferenceProviderRequests = (await providerStats()).requests;
@@ -464,7 +470,10 @@ async function main(): Promise<void> {
       workerIdentity,
     );
     await writeEffectWorkerApiKey(replacementWorkerCredential);
-    await waitForCredentialReady(workerIdentity, validator);
+    await waitForCredentialReady(workerIdentity, {
+      expectedCredentialId: replacementWorkerCredential.credentialId,
+      process: validator,
+    });
     await exactRegistration();
     await dispatchOnce();
     await waitForState(
@@ -584,7 +593,10 @@ async function main(): Promise<void> {
     );
     zoend = await startZoend(policyManifestPath);
     processes.push(zoend);
-    await waitForCredentialReady(workerIdentity, validator);
+    await waitForCredentialReady(workerIdentity, {
+      expectedCredentialId: replacementWorkerCredential.credentialId,
+      process: validator,
+    });
     await exactRegistration();
     const invalidatedExchangeCode = await expectConnectCode(
       () =>
@@ -1063,7 +1075,11 @@ async function main(): Promise<void> {
       fixture,
       "credential-loss-before-claim",
     );
-    await suspendValidatorAtFreshCredentialMarker(workerIdentity, validator);
+    await suspendValidatorAtFreshCredentialMarker(
+      workerIdentity,
+      validator,
+      replacementWorkerCredential.credentialId,
+    );
     let acceptedWithoutClaimBeforeCredentialLoss = false;
     let revokedWorkerSessionWasInvalidated = false;
     const preClaimRecoveryCredential = await (async () => {
@@ -1132,7 +1148,10 @@ async function main(): Promise<void> {
         resumeProcess(validator);
       }
     })();
-    await waitForCredentialReady(workerIdentity, validator);
+    await waitForCredentialReady(workerIdentity, {
+      expectedCredentialId: preClaimRecoveryCredential.credentialId,
+      process: validator,
+    });
     await exactRegistration();
     await waitForState(
       effectA,
@@ -1162,7 +1181,11 @@ async function main(): Promise<void> {
       fixture,
       "credential-revoked-after-claim-authorization",
     );
-    await suspendValidatorAtFreshCredentialMarker(workerIdentity, validator);
+    await suspendValidatorAtFreshCredentialMarker(
+      workerIdentity,
+      validator,
+      preClaimRecoveryCredential.credentialId,
+    );
     let postClaimRevocationStoppedProvider = false;
     const finalWorkerCredential = await (async () => {
       try {
@@ -1219,7 +1242,10 @@ async function main(): Promise<void> {
         resumeProcess(validator);
       }
     })();
-    await waitForCredentialReady(workerIdentity, validator);
+    await waitForCredentialReady(workerIdentity, {
+      expectedCredentialId: finalWorkerCredential.credentialId,
+      process: validator,
+    });
     await exactRegistration();
     await waitForState(
       effectA,
@@ -1480,7 +1506,10 @@ async function main(): Promise<void> {
       effectWorkerWorkloadId: "workload.effect-worker-denied",
     });
     processes.push(zoend);
-    await waitForCredentialReady(workerIdentity, validator);
+    await waitForCredentialReady(workerIdentity, {
+      expectedCredentialId: finalWorkerCredential.credentialId,
+      process: validator,
+    });
     await exactRegistration();
     const forbiddenClaimResult = await invokeEffect(
       `${tenantA}:${forbiddenClaim.effectRequestId}:${forbiddenClaimVersion}`,
@@ -1500,7 +1529,10 @@ async function main(): Promise<void> {
     await crashProcess(zoend);
     zoend = await startZoend(policyManifestPath);
     processes.push(zoend);
-    await waitForCredentialReady(workerIdentity, validator);
+    await waitForCredentialReady(workerIdentity, {
+      expectedCredentialId: finalWorkerCredential.credentialId,
+      process: validator,
+    });
     await exactRegistration();
 
     const human = await commitHumanEffect(
@@ -2342,10 +2374,14 @@ async function withCredentialRowHeld(
 async function suspendValidatorAtFreshCredentialMarker(
   identity: WorkloadIdentity,
   validator: ManagedProcess,
+  expectedCredentialId: string,
 ): Promise<void> {
   assert.ok(validator.processGroupId !== undefined);
   await rm(effectWorkerReadyFile, { force: true });
-  await waitForCredentialReady(identity, validator);
+  await waitForCredentialReady(identity, {
+    expectedCredentialId,
+    process: validator,
+  });
   suspendProcess(validator);
 }
 

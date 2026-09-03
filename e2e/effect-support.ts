@@ -157,6 +157,25 @@ const issuedCredentialSchema = z
     workloadId: z.string().min(1),
   })
   .strict();
+const credentialMarkerSchema = z
+  .object({
+    actorId: z.string().min(1),
+    checkedAtMicros: z.string().regex(/^[0-9]+$/),
+    credentialId: z.string().min(1),
+    principalId: z.string().min(1),
+    tenantId: z.string().min(1),
+    workloadId: z.literal("workload.effect-worker"),
+  })
+  .strict();
+const registrationProbeSchema = z
+  .object({
+    artifact: z.string().min(1),
+    deploymentId: z.string().min(1).optional(),
+    ready: z.boolean(),
+    reason: z.string().min(1),
+    updatedAt: z.string().min(1),
+  })
+  .strict();
 const workloadSessionSchema = z
   .object({
     actorId: z.string().min(1),
@@ -441,7 +460,7 @@ export async function writeEffectWorkerApiKeyValue(
 
 export async function startCredentialValidator(
   identity: WorkloadIdentity,
-  options: { awaitReady?: boolean } = {},
+  options: { awaitReady?: boolean; expectedCredentialId?: string } = {},
 ): Promise<ManagedProcess> {
   assert.equal(identity.workloadId, "workload.effect-worker");
   const process = spawnProcess({
@@ -467,17 +486,33 @@ export async function startCredentialValidator(
   if (options.awaitReady === false) {
     return process;
   }
-  await waitForCredentialReady(identity, process);
+  await waitForCredentialReady(identity, {
+    expectedCredentialId: options.expectedCredentialId,
+    process,
+  });
   return process;
 }
 
 export async function credentialReady(
   identity: WorkloadIdentity,
+  expectedCredentialId?: string,
 ): Promise<boolean> {
   try {
     const metadata = await stat(effectWorkerReadyFile);
     const body = await readFile(effectWorkerReadyFile, "utf8");
-    return metadata.isFile() && body.includes(identity.principalId);
+    const document: unknown = JSON.parse(body);
+    const marker = credentialMarkerSchema.safeParse(document);
+    return (
+      metadata.isFile() &&
+      metadata.mode % 0o1000 === 0o600 &&
+      marker.success &&
+      marker.data.actorId === identity.actorId &&
+      marker.data.principalId === identity.principalId &&
+      marker.data.tenantId === identity.tenantId &&
+      marker.data.workloadId === identity.workloadId &&
+      (expectedCredentialId === undefined ||
+        marker.data.credentialId === expectedCredentialId)
+    );
   } catch {
     return false;
   }
@@ -485,15 +520,20 @@ export async function credentialReady(
 
 export async function waitForCredentialReady(
   identity: WorkloadIdentity,
-  process?: ManagedProcess,
+  options: {
+    expectedCredentialId?: string;
+    process?: ManagedProcess;
+  } = {},
 ): Promise<void> {
   await waitFor(async () => {
-    if (process !== undefined && process.child.exitCode !== null) {
+    if (options.process !== undefined && options.process.child.exitCode !== null) {
       throw new Error(
-        `${process.name} exited during startup:\n${process.output.join("")}`,
+        `${options.process.name} exited during startup:\n${options.process.output.join("")}`,
       );
     }
-    return (await credentialReady(identity)) ? true : undefined;
+    return (await credentialReady(identity, options.expectedCredentialId))
+      ? true
+      : undefined;
   }, "validated effect worker credential");
 }
 
@@ -712,19 +752,43 @@ export async function startEffectDispatcher(
 }
 
 export async function registerWorker(): Promise<string> {
-  return waitFor(async () => {
-    const health = await fetch(
-      `http://127.0.0.1:${registrarPort}/health`,
-    );
-    if (!health.ok) {
-      return undefined;
+  let lastReason = "registration status unavailable";
+  try {
+    return await waitFor(async () => {
+      const status = await fetch(
+        `http://127.0.0.1:${registrarPort}/status`,
+      );
+      const body = await status.text();
+      let document: unknown;
+      try {
+        document = JSON.parse(body);
+      } catch {
+        lastReason = "registration status was malformed";
+        return undefined;
+      }
+      const parsed = registrationProbeSchema.safeParse(document);
+      if (!status.ok || !parsed.success) {
+        lastReason = "registration status was malformed";
+        return undefined;
+      }
+      lastReason = parsed.data.reason.replace(/[\r\n]+/g, " ").slice(0, 256);
+      const health = await fetch(
+        `http://127.0.0.1:${registrarPort}/health`,
+      );
+      return health.ok && parsed.data.ready
+        ? JSON.stringify(parsed.data)
+        : undefined;
+    }, "exact production effect registration");
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      error.message ===
+        "timed out waiting for exact production effect registration"
+    ) {
+      throw new Error(`${error.message}: ${lastReason}`, { cause: error });
     }
-    const status = await fetch(
-      `http://127.0.0.1:${registrarPort}/status`,
-    );
-    const body = await status.text();
-    return status.ok ? body : undefined;
-  }, "exact production effect registration");
+    throw error;
+  }
 }
 
 export async function registrarReady(): Promise<boolean> {
