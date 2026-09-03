@@ -98,7 +98,7 @@ Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS 
 2. GitHub Actions `fly-deploy` builds `deploy/fly/Dockerfile` on the runner.
 3. It pushes `registry.fly.io/zoen:$GITHUB_SHA` and runs `fly deploy --image`.
 
-Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET`, `ZOEN_BA_AGENT_PASSWORD`, and `ZOEN_PROJECTION_PASSWORD` are Fly secrets. The projection role is created only while PostgreSQL initializes an empty volume; recreate the disposable pre-launch development volume when adopting this role. After `/ready`:
+Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET`, `ZOEN_BA_AGENT_PASSWORD`, `ZOEN_PROJECTION_PASSWORD`, `ZOEN_CONNECTOR_CALLER_TOKEN`, and `ZOEN_CONNECTOR_CREDENTIALS` are Fly secrets. `ZOEN_CONNECTOR_PROVIDER_URL` must use HTTPS outside loopback and name the real provider adapter. The projection role is created only while PostgreSQL initializes an empty volume; recreate the disposable pre-launch development volume when adopting this role. After `/ready`:
 
 ```
 fly ssh console --app zoen -C "zoen-bind-inbox"
@@ -107,6 +107,10 @@ fly ssh console --app zoen -C "zoen-bind-inbox"
 Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID. Never the door.
 
 zoend boots `ProcessAuth::SessionDoor` and `ZOEN_AUTH_DATABASE_URL`. Remint writes the opaque session to `/data/zoen/agent.token`.
+
+The effect runtime is private to the same VM: the HTTP connector binds `127.0.0.1:8081`, the Restate handler binds `127.0.0.1:9081`, and its exact-registration probe binds `127.0.0.1:9082`. None is a Fly service. Restate Admin also binds loopback and the registrar is its only deployment writer; the exclusive probe bind prevents a second registrar from entering reconciliation. The image bakes the Git commit into Restate service metadata. Before registration, the registrar authenticates a non-deliverable connector probe for the exact tenant credential reference. It replaces a prior build at the stable Restate URI only after validating URI, owner, artifact consistency, protocol range, transport settings, and the complete service/handler contract before and after the update; every other drift is refused.
+
+Provision `workload.effect-worker` explicitly after the operator’s Better Auth membership has the governed `zoen.workload.manageCredentials` action on `zoen.workload.credentials`. Save the one-time `apiKeyOnce` value as `/data/zoen/effect-worker.api-key` with mode `0600`. The supervised validator only authenticates that existing file and checks the configured tenant, principal, actor, and workload; it never mints or replaces a key. A missing, revoked, expired, unknown, mismatched, symlinked, or incorrectly permissioned key keeps effect registration and dispatch closed. The reconciler must use a different `workload.effect-reconciler` credential.
 
 ## Develop
 

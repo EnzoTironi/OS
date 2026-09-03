@@ -4,7 +4,7 @@ use std::{
     fs,
     io::{self, Read, Write},
     net::IpAddr,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -21,6 +21,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_CLIENT_ID: &str = "zoen";
 const DEVICE_POLL_FAILURE_LIMIT: u8 = 3;
 const DEVICE_SLOW_DOWN_SECS: u64 = 5;
+const MAX_WORKLOAD_API_KEY_FILE_BYTES: u64 = 52;
+const MAX_WORKLOAD_RESPONSE_BYTES: usize = 16 * 1024;
+const WORKLOAD_SECRET_BYTES: usize = 32;
+const WORKLOAD_SECRET_ENCODED_LENGTH: usize = 43;
 const ROOT_AFTER_HELP: &str = "\
 No args is help. Start the daemon with zoen serve.
 
@@ -268,6 +272,12 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
         ],
         stdout_json: r#"{"format":"json","fields":["loggedIn"]}"#,
     },
+    SchemaEntry {
+        command: "write-build-artifact",
+        required_flags: &["<revision>", "<dir>"],
+        examples: &["zoen write-build-artifact <revision> <dir>"],
+        stdout_json: r#"{"format":"artifact","fields":["revision","path"]}"#,
+    },
 ];
 
 fn schema_json(entry: &SchemaEntry) -> Value {
@@ -294,6 +304,117 @@ fn lookup_schema(command: &str) -> CommandResult {
         2,
         &format!("unknown schema command `{key}`\n  known: {known}\n  zoen schema action.propose"),
     )
+}
+
+fn write_build_artifact(revision: &str, dir: &Path) -> CommandResult {
+    match write_artifact_manifest(revision, dir) {
+        Ok(path) => {
+            let mut stdout = json!({
+                "format": "artifact",
+                "path": path.display().to_string(),
+                "revision": revision,
+            })
+            .to_string();
+            stdout.push('\n');
+            CommandResult {
+                exit_code: 0,
+                stdout,
+                stderr: String::new(),
+            }
+        }
+        Err(message) => fail(
+            2,
+            &format!("{message}\n  zoen write-build-artifact <immutable-revision> <dir>"),
+        ),
+    }
+}
+
+fn write_artifact_manifest(revision: &str, dir: &Path) -> Result<PathBuf, String> {
+    const FILENAME: &str = "effect-handler-artifact.json";
+    if !is_artifact_revision(revision) {
+        return Err("effect handler artifact revision is malformed".to_owned());
+    }
+    if !dir.is_absolute() || has_nul(dir) {
+        return Err("effect handler artifact directory must be absolute".to_owned());
+    }
+    let root = dir.to_path_buf();
+    let destination = root.join(FILENAME);
+    if destination.parent().is_none_or(|parent| parent != root) {
+        return Err("effect handler artifact path escapes its directory".to_owned());
+    }
+    let temporary = root.join(format!("{FILENAME}.{}.tmp", std::process::id()));
+    if temporary.parent().is_none_or(|parent| parent != root) {
+        return Err("effect handler artifact path escapes its directory".to_owned());
+    }
+    if let Err(error) = fs::create_dir_all(&root) {
+        return Err(format!(
+            "effect handler artifact directory cannot be created: {error}"
+        ));
+    }
+    let document = format!("{{\"revision\":\"{revision}\",\"schemaVersion\":1}}\n");
+    if let Err(error) = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o444)
+        .open(&temporary)
+        .and_then(|mut file| {
+            use std::io::Write;
+            file.write_all(document.as_bytes())
+        })
+    {
+        return Err(format!(
+            "effect handler artifact cannot be written: {error}"
+        ));
+    }
+    if let Err(error) = fs::rename(&temporary, &destination) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!(
+            "effect handler artifact cannot be published: {error}"
+        ));
+    }
+    let mut permissions = match fs::metadata(&destination) {
+        Ok(metadata) => metadata.permissions(),
+        Err(error) => {
+            return Err(format!(
+                "effect handler artifact cannot be published: {error}"
+            ));
+        }
+    };
+    permissions.set_mode(0o444);
+    if let Err(error) = fs::set_permissions(&destination, permissions) {
+        return Err(format!(
+            "effect handler artifact cannot be published: {error}"
+        ));
+    }
+    Ok(destination)
+}
+
+fn is_artifact_revision(revision: &str) -> bool {
+    if revision.is_empty() || revision.len() > 128 {
+        return false;
+    }
+    let mut characters = revision.chars();
+    match characters.next() {
+        Some(first) if first.is_ascii_alphanumeric() => (),
+        _ => return false,
+    }
+    characters.all(|character| {
+        character.is_ascii_alphanumeric()
+            || character == '.'
+            || character == '_'
+            || character == '-'
+    })
+}
+
+#[cfg(unix)]
+fn has_nul(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str().as_bytes().contains(&0)
+}
+
+#[cfg(not(unix))]
+fn has_nul(_path: &Path) -> bool {
+    false
 }
 
 /// Ontology commands the `zoen` binary accepts.
@@ -347,6 +468,14 @@ pub enum Command {
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
+    },
+    /// Write the baked effect-handler artifact manifest for a revision
+    #[command(after_help = "Examples:\n  zoen write-build-artifact <revision> <dir>")]
+    WriteBuildArtifact {
+        /// Immutable artifact revision baked into the image
+        revision: String,
+        /// Directory receiving effect-handler-artifact.json
+        dir: PathBuf,
     },
 }
 
@@ -767,6 +896,7 @@ async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Sen
         Command::Source { command } => run_source(&parse_env()?, command).await,
         Command::Action { command } => run_action(&parse_env()?, command).await,
         Command::History { command } => run_history(&parse_env()?, command).await,
+        Command::WriteBuildArtifact { revision, dir } => Ok(write_build_artifact(&revision, &dir)),
     }
 }
 
@@ -2020,14 +2150,17 @@ async fn sync_source(
             "id": id,
         })));
     }
-    let signal = emit_signal(env, &instance, &cas.digest, &fetched.durable_event_id).await?;
+    let signal = match emit_signal(env, &instance, &cas.digest, &fetched.durable_event_id).await {
+        Ok(signal) => signal,
+        Err(error) => return Ok(fail(1, error.message())),
+    };
     let Some(quantity) = fetched.quantity.clone() else {
         return Ok(ok(&json!({
             "claimIds": [],
             "cursor": fetched.cursor,
             "digest": cas.digest,
             "id": id,
-            "signalId": signal,
+            "signalId": signal.expose(),
         })));
     };
     let mapped = map_quantity(
@@ -2050,7 +2183,7 @@ async fn sync_source(
         "id": id,
         "proposalId": mapped.proposal_id,
         "quantity": quantity,
-        "signalId": signal,
+        "signalId": signal.expose(),
     })))
 }
 
@@ -2400,22 +2533,164 @@ struct Cas {
     digest: String,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum WorkloadSignalError {
+    AuthenticationIdentityMismatch,
+    AuthenticationMalformed,
+    AuthenticationRejected,
+    AuthenticationUnavailable,
+    CredentialChanged,
+    CredentialMalformed,
+    CredentialMode,
+    CredentialNotRegular,
+    CredentialUnavailable,
+    SignalMalformed,
+    SignalRejected,
+    SignalUnavailable,
+}
+
+impl WorkloadSignalError {
+    fn message(self) -> &'static str {
+        match self {
+            Self::AuthenticationIdentityMismatch => {
+                "workload authentication identity does not match the configured identity"
+            }
+            Self::AuthenticationMalformed => {
+                "workload authentication returned a malformed response"
+            }
+            Self::AuthenticationRejected => "workload authentication was rejected",
+            Self::AuthenticationUnavailable => "workload authentication is unavailable",
+            Self::CredentialChanged => "workload API key changed while it was being opened",
+            Self::CredentialMalformed => "workload API key file is malformed",
+            Self::CredentialMode => "workload API key file must have mode 0600",
+            Self::CredentialNotRegular => "workload API key must be a regular non-symlink file",
+            Self::CredentialUnavailable => "workload API key file is unavailable",
+            Self::SignalMalformed => "workload signal endpoint returned a malformed response",
+            Self::SignalRejected => "workload signal was rejected",
+            Self::SignalUnavailable => "workload signal endpoint is unavailable",
+        }
+    }
+}
+
+struct WorkloadApiKey(String);
+
+impl WorkloadApiKey {
+    fn parse(value: String) -> Result<Self, WorkloadSignalError> {
+        if !is_canonical_workload_secret(&value, "zoen_wl_") {
+            return Err(WorkloadSignalError::CredentialMalformed);
+        }
+        Ok(Self(value))
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+struct WorkloadExchangeToken(String);
+
+impl WorkloadExchangeToken {
+    fn parse(value: String) -> Result<Self, WorkloadSignalError> {
+        if !is_canonical_workload_secret(&value, "wlx.") {
+            return Err(WorkloadSignalError::AuthenticationMalformed);
+        }
+        Ok(Self(value))
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+struct SanitizedSignalId(String);
+
+impl SanitizedSignalId {
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+fn is_canonical_workload_secret(value: &str, prefix: &str) -> bool {
+    value.strip_prefix(prefix).is_some_and(|encoded| {
+        encoded.len() == WORKLOAD_SECRET_ENCODED_LENGTH
+            && base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(encoded)
+                .is_ok_and(|decoded| decoded.len() == WORKLOAD_SECRET_BYTES)
+    })
+}
+
+fn workload_http_client(
+    unavailable: WorkloadSignalError,
+) -> Result<reqwest::Client, WorkloadSignalError> {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(CONNECT_TIMEOUT)
+        .build()
+        .map_err(|_| unavailable)
+}
+
+async fn bounded_workload_json<T: serde::de::DeserializeOwned>(
+    mut response: reqwest::Response,
+    malformed: WorkloadSignalError,
+    unavailable: WorkloadSignalError,
+) -> Result<T, WorkloadSignalError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_WORKLOAD_RESPONSE_BYTES as u64)
+    {
+        return Err(malformed);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| unavailable)? {
+        if body
+            .len()
+            .checked_add(chunk.len())
+            .is_none_or(|length| length > MAX_WORKLOAD_RESPONSE_BYTES)
+        {
+            return Err(malformed);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body).map_err(|_| malformed)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkloadAuthenticationDocument {
+    actor_id: String,
+    exchange_token: String,
+    principal_id: String,
+    tenant_id: String,
+    workload_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct WorkloadSignalDocument {
+    signal: WorkloadSignalIdentity,
+}
+
+#[derive(serde::Deserialize)]
+struct WorkloadSignalIdentity {
+    id: String,
+}
+
 async fn emit_signal(
     env: &RuntimeEnv,
     instance: &SourceInstance,
     digest: &str,
     durable_event_id: &str,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
+) -> Result<SanitizedSignalId, WorkloadSignalError> {
     let exchange = workload_exchange(env).await?;
     let source_class = match instance.kind.as_str() {
         "google" => "google.drive",
         "mcp" => "mcp",
         _ => "rest",
     };
-    let client = reqwest::Client::new();
+    let client = workload_http_client(WorkloadSignalError::SignalUnavailable)?;
     let response = client
         .put(format!("{}/workload/signals", env.zoend))
-        .header(AUTHORIZATION, format!("Bearer {exchange}"))
+        .header(AUTHORIZATION, format!("Bearer {}", exchange.expose()))
         .header(CONTENT_TYPE, "application/json")
         .json(&json!({
             "durableEventId": durable_event_id,
@@ -2425,97 +2700,130 @@ async fn emit_signal(
             "trustDisposition": "evidence_candidate",
         }))
         .send()
-        .await?;
+        .await
+        .map_err(|_| WorkloadSignalError::SignalUnavailable)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("PUT /workload/signals {status} {text}").into());
+        return Err(if status.is_server_error() {
+            WorkloadSignalError::SignalUnavailable
+        } else {
+            WorkloadSignalError::SignalRejected
+        });
     }
-    let doc: Value = serde_json::from_str(&text)?;
-    doc.pointer("/signal/id")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "signal id missing".into())
+    let document = bounded_workload_json::<WorkloadSignalDocument>(
+        response,
+        WorkloadSignalError::SignalMalformed,
+        WorkloadSignalError::SignalUnavailable,
+    )
+    .await?;
+    sanitize_signal_id(&document.signal.id)
 }
 
-async fn workload_exchange(env: &RuntimeEnv) -> Result<String, Box<dyn Error + Send + Sync>> {
+async fn workload_exchange(env: &RuntimeEnv) -> Result<WorkloadExchangeToken, WorkloadSignalError> {
     let key_path = env.source_home.join("workload.api-key");
-    let mut api_key = fs::read_to_string(&key_path)
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
-    if api_key.is_empty() {
-        api_key = issue_workload(env, &key_path).await?;
-    }
-    let client = reqwest::Client::new();
+    let api_key = load_workload_api_key(&key_path)?;
+    let client = workload_http_client(WorkloadSignalError::AuthenticationUnavailable)?;
     let response = client
         .post(format!("{}/workload/authenticate", env.zoend))
         .header(CONTENT_TYPE, "application/json")
-        .json(&json!({ "apiKey": api_key }))
+        .json(&json!({ "apiKey": api_key.expose() }))
         .send()
-        .await?;
+        .await
+        .map_err(|_| WorkloadSignalError::AuthenticationUnavailable)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("POST /workload/authenticate {status} {text}").into());
+        return Err(if status.is_server_error() {
+            WorkloadSignalError::AuthenticationUnavailable
+        } else {
+            WorkloadSignalError::AuthenticationRejected
+        });
     }
-    let doc: Value = serde_json::from_str(&text)?;
-    doc.get("exchangeToken")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "workload exchangeToken missing".into())
+    let document = bounded_workload_json::<WorkloadAuthenticationDocument>(
+        response,
+        WorkloadSignalError::AuthenticationMalformed,
+        WorkloadSignalError::AuthenticationUnavailable,
+    )
+    .await?;
+    if document.tenant_id != env.tenant
+        || document.principal_id != env.principal_id
+        || document.workload_id != env.workload_id
+        || document.actor_id != env.actor_id
+    {
+        return Err(WorkloadSignalError::AuthenticationIdentityMismatch);
+    }
+    WorkloadExchangeToken::parse(document.exchange_token)
 }
 
-async fn issue_workload(
-    env: &RuntimeEnv,
-    key_path: &Path,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/workload/admin/credentials", env.zoend))
-        .header(AUTHORIZATION, format!("Bearer {}", env.bearer))
-        .header(CONTENT_TYPE, "application/json")
-        .json(&json!({
-            "actorId": env.actor_id,
-            "allowedIngress": [
-                { "kind": "api_event", "sourceClass": "google.drive" },
-                { "kind": "api_event", "sourceClass": "rest" },
-                { "kind": "api_event", "sourceClass": "mcp" },
-            ],
-            "delegation": [{
-                "actions": ["source.mapQuantity"],
-                "id": "delegation.source",
-                "resources": ["entity.pedido.1", "entity.nota.1"],
-            }],
-            "expiresAtMicros": 4_102_444_800_000_000_i64,
-            "principalId": env.principal_id,
-            "rateBudget": { "maxAcceptsPerMinute": 120, "maxCommitsPerHour": 120 },
-            "tenantId": env.tenant,
-            "workloadId": env.workload_id,
-        }))
-        .send()
-        .await?;
-    let status = response.status();
-    let text = response.text().await?;
-    if !status.is_success() {
-        return Err(format!("POST /workload/admin/credentials {status} {text}").into());
+fn load_workload_api_key(path: &Path) -> Result<WorkloadApiKey, WorkloadSignalError> {
+    let path_metadata =
+        fs::symlink_metadata(path).map_err(|_| WorkloadSignalError::CredentialUnavailable)?;
+    if !path_metadata.file_type().is_file() || path_metadata.file_type().is_symlink() {
+        return Err(WorkloadSignalError::CredentialNotRegular);
     }
-    let doc: Value = serde_json::from_str(&text)?;
-    let api_key = doc
-        .get("apiKeyOnce")
-        .and_then(Value::as_str)
-        .ok_or("workload apiKeyOnce missing")?;
-    if let Some(parent) = key_path.parent() {
-        fs::create_dir_all(parent)?;
+    let file = fs::File::open(path).map_err(|_| WorkloadSignalError::CredentialUnavailable)?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|_| WorkloadSignalError::CredentialUnavailable)?;
+    if !opened_metadata.file_type().is_file()
+        || opened_metadata.dev() != path_metadata.dev()
+        || opened_metadata.ino() != path_metadata.ino()
+    {
+        return Err(WorkloadSignalError::CredentialChanged);
     }
-    fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(key_path)?
-        .write_all(format!("{api_key}\n").as_bytes())?;
-    Ok(api_key.to_owned())
+    let mode = opened_metadata.permissions().mode() & 0o777;
+    if mode != 0o600 {
+        return Err(WorkloadSignalError::CredentialMode);
+    }
+    if opened_metadata.len() > MAX_WORKLOAD_API_KEY_FILE_BYTES {
+        return Err(WorkloadSignalError::CredentialMalformed);
+    }
+    let mut contents = String::new();
+    let mut limited = file.take(MAX_WORKLOAD_API_KEY_FILE_BYTES + 1);
+    let bytes_read = limited.read_to_string(&mut contents).map_err(|error| {
+        if error.kind() == io::ErrorKind::InvalidData {
+            WorkloadSignalError::CredentialMalformed
+        } else {
+            WorkloadSignalError::CredentialUnavailable
+        }
+    })?;
+    if bytes_read as u64 > MAX_WORKLOAD_API_KEY_FILE_BYTES {
+        return Err(WorkloadSignalError::CredentialMalformed);
+    }
+    let api_key = contents.strip_suffix('\n').unwrap_or(&contents);
+    WorkloadApiKey::parse(api_key.to_owned())
+}
+
+fn sanitize_signal_id(value: &str) -> Result<SanitizedSignalId, WorkloadSignalError> {
+    let Some(suffix) = value.strip_prefix("wlsig.") else {
+        return Err(WorkloadSignalError::SignalMalformed);
+    };
+    if suffix.is_empty() || suffix.len() > 32 {
+        return Err(WorkloadSignalError::SignalMalformed);
+    }
+    let mut sanitized = String::with_capacity(value.len());
+    sanitized.push_str("wlsig.");
+    for byte in suffix.bytes() {
+        sanitized.push(match byte {
+            b'0' => '0',
+            b'1' => '1',
+            b'2' => '2',
+            b'3' => '3',
+            b'4' => '4',
+            b'5' => '5',
+            b'6' => '6',
+            b'7' => '7',
+            b'8' => '8',
+            b'9' => '9',
+            b'a' => 'a',
+            b'b' => 'b',
+            b'c' => 'c',
+            b'd' => 'd',
+            b'e' => 'e',
+            b'f' => 'f',
+            _ => return Err(WorkloadSignalError::SignalMalformed),
+        });
+    }
+    Ok(SanitizedSignalId(sanitized))
 }
 
 struct MappedQuantity {

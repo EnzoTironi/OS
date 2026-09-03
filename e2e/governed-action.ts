@@ -28,6 +28,7 @@ import {
   expectConnectCode,
   flippedPreviewHash,
   generatedDirectory,
+  humanActionId,
   isPreviewHash,
   leaksInternalId,
   loadFixture,
@@ -59,6 +60,7 @@ import { gitHead } from "./scenario-evidence.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
+const delegatedStockActions = [actionId, humanActionId] as const;
 
 function recordAssertion(name: string, observed: boolean): void {
   assert.ok(observed, name);
@@ -167,7 +169,7 @@ async function main(): Promise<void> {
     assert.equal(trusted.principalId, "principal.agent.a");
     assert.equal(trusted.workloadId, "workload.agent.a");
     assert.equal(trusted.delegation.length, 1);
-    assert.deepEqual(trusted.delegation[0]?.actionIds, [actionId]);
+    assert.deepEqual(trusted.delegation[0]?.actionIds, delegatedStockActions);
     assert.deepEqual(trusted.delegation[0]?.resourceIds, [resourceId]);
     assert.deepEqual(trusted.delegation[0]?.workloadIds, [
       "workload.agent.a",
@@ -192,7 +194,10 @@ async function main(): Promise<void> {
     recordAssertion(
       "delegationScopeExposed",
       trusted.delegation.length === 1 &&
-        isDeepStrictEqual(trusted.delegation[0]?.actionIds, [actionId]) &&
+        isDeepStrictEqual(
+          trusted.delegation[0]?.actionIds,
+          delegatedStockActions,
+        ) &&
         isDeepStrictEqual(trusted.delegation[0]?.resourceIds, [resourceId]) &&
         isDeepStrictEqual(trusted.delegation[0]?.workloadIds, [
           "workload.agent.a",

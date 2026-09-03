@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     env,
     error::Error,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -16,7 +16,7 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use reqwest::{Client, Url};
+use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -53,6 +53,13 @@ struct ConnectorRequest {
 struct StatusRequest {
     credential_ref: String,
     idempotency_key: String,
+    tenant_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReadinessRequest {
+    credential_ref: String,
     tenant_id: String,
 }
 
@@ -136,6 +143,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .unwrap_or_else(|_| "127.0.0.1:8081".to_owned())
         .parse::<SocketAddr>()?;
     let provider = env::var("ZOEN_CONNECTOR_PROVIDER_URL")?.parse::<Url>()?;
+    require_secure_provider_url(&provider)?;
     let credentials = serde_json::from_str::<HashMap<String, CredentialBinding>>(&env::var(
         "ZOEN_CONNECTOR_CREDENTIALS",
     )?)?;
@@ -150,12 +158,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
     let state = ConnectorState {
         caller_token: Arc::new(caller_token),
-        client: Client::builder().timeout(timeout).build()?,
+        client: Client::builder()
+            .redirect(Policy::none())
+            .timeout(timeout)
+            .build()?,
         credentials: Arc::new(credentials),
         provider,
     };
     let protected = Router::new()
         .route("/v1/effects", post(execute))
+        .route("/v1/effects/probe", post(probe_readiness))
         .route("/v1/effects/status", post(query_status))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -170,6 +182,45 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+async fn probe_readiness(
+    State(state): State<ConnectorState>,
+    Json(request): Json<ReadinessRequest>,
+) -> Result<StatusCode, HttpError> {
+    let binding = state
+        .credentials
+        .get(&request.credential_ref)
+        .ok_or_else(|| {
+            (
+                StatusCode::FAILED_DEPENDENCY,
+                "credential reference is unavailable".to_owned(),
+            )
+        })?;
+    require_tenant(binding, &request.tenant_id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn require_secure_provider_url(provider: &Url) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if !provider.username().is_empty() || provider.password().is_some() {
+        return Err("ZOEN_CONNECTOR_PROVIDER_URL must not contain user information".into());
+    }
+    let host = provider
+        .host_str()
+        .ok_or("ZOEN_CONNECTOR_PROVIDER_URL must contain a host")?;
+    if provider.scheme() == "https" || (provider.scheme() == "http" && is_loopback_host(host)) {
+        return Ok(());
+    }
+    Err("ZOEN_CONNECTOR_PROVIDER_URL must use HTTPS outside loopback".into())
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 async fn execute(
@@ -239,12 +290,14 @@ async fn provider_outcome(
     response: reqwest::Response,
 ) -> Result<Json<ConnectorResponse>, HttpError> {
     let status = response.status();
-    let body = response.bytes().await.map_err(|error| {
-        (
-            StatusCode::BAD_GATEWAY,
-            format!("provider response body could not be read: {error}"),
-        )
-    })?;
+    let Ok(body) = response.bytes().await else {
+        return Ok(Json(ConnectorResponse::Unknown {
+            observed_at_micros: observed_at_micros(),
+            provider_operation_id: None,
+            reason: "response_body_read_error",
+            response_digest: None,
+        }));
+    };
     let response_digest = sha256(&body);
     if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
         || !matches!(status, StatusCode::OK | StatusCode::ACCEPTED)
@@ -403,5 +456,19 @@ fn observed_at_micros() -> String {
 }
 
 async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        () = ctrl_c => {}
+        () = terminate => {}
+    }
 }

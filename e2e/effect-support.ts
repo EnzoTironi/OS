@@ -5,6 +5,7 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { once } from "node:events";
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import { createClient, type Client, type Interceptor } from "@connectrpc/connect";
@@ -43,6 +44,11 @@ const workerPort = e2ePort(
   "ZOEN_E2E_EFFECT_WORKER_PORT",
   e2ePort("ZOEN_E2E_WORKER_PORT", workerPortFallback),
 );
+const registrarPortFallback = 58_116;
+const registrarPort = e2ePort(
+  "ZOEN_E2E_EFFECT_REGISTRAR_PORT",
+  registrarPortFallback,
+);
 export const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
   "zoen_app",
@@ -69,6 +75,11 @@ export const connectorUrl = e2eHttpUrl(
   connectorPortFallback,
   "/v1/effects",
 );
+export const connectorFaultBoundaryUrl = e2eHttpUrl(
+  "ZOEN_E2E_EFFECT_PROVIDER_PORT",
+  providerPort,
+  "/v1/effects",
+);
 export const providerUrl = e2eHttpUrl(
   "ZOEN_E2E_EFFECT_PROVIDER_PORT",
   providerPort,
@@ -80,11 +91,26 @@ export const tenantB = "tenant.b";
 
 const generatedDirectory =
   process.env.ZOEN_E2E_GENERATED_DIR ?? "e2e/explain/.generated";
-const composeDirectory = generatedDirectory.replace(/\/\.generated\/?$/, "");
+const generatedDirectoryPath = path.isAbsolute(generatedDirectory)
+  ? generatedDirectory
+  : path.join(repositoryRoot, generatedDirectory);
+const composeDirectory = generatedDirectoryPath.replace(/\/\.generated\/?$/, "");
 const composeFile = path.join(composeDirectory, "compose.yaml");
 const composeProject = `zoen-${path.basename(composeDirectory)}`;
 const targetDirectory = path.join(repositoryRoot, "target", "debug");
 const distDirectory = path.join(repositoryRoot, "dist");
+export const effectArtifactFile = path.join(
+  generatedDirectoryPath,
+  "effect-handler-artifact.json",
+);
+export const effectWorkerApiKeyFile = path.join(
+  generatedDirectoryPath,
+  "effect-worker.api-key",
+);
+export const effectWorkerReadyFile = path.join(
+  generatedDirectoryPath,
+  "effect-worker.ready.json",
+);
 const providerOperationSchema = z
   .object({
     evidenceDigest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -96,9 +122,55 @@ const providerOperationSchema = z
     sourceRef: z.string().min(1),
   })
   .strict();
+const providerStatsSchema = z
+  .object({
+    connectorRequests: z.number().int().nonnegative(),
+    connectorRetryableStatuses: z.array(z.number().int()),
+    operations: z.number().int().nonnegative(),
+    requests: z.number().int().nonnegative(),
+  })
+  .strict();
 const connectorStatusSchema = providerOperationSchema.omit({ requests: true });
 const invocationLookupSchema = z
   .object({ invocationId: z.string().min(1) })
+  .passthrough();
+const issuedCredentialSchema = z
+  .object({
+    apiKeyOnce: z.string().min(1),
+    credentialId: z.string().min(1),
+    principalId: z.string().min(1),
+    tenantId: z.string().min(1),
+    workloadId: z.string().min(1),
+  })
+  .strict();
+const credentialMarkerSchema = z
+  .object({
+    actorId: z.string().min(1),
+    checkedAtMicros: z.string().regex(/^\d+$/),
+    credentialId: z.string().min(1),
+    principalId: z.string().min(1),
+    tenantId: z.string().min(1),
+    workloadId: z.literal("workload.effect-worker"),
+  })
+  .strict();
+const registrationProbeSchema = z
+  .object({
+    artifact: z.string().min(1),
+    deploymentId: z.string().min(1).optional(),
+    ready: z.boolean(),
+    reason: z.string().min(1),
+    updatedAt: z.string().min(1),
+  })
+  .strict();
+const workloadSessionSchema = z
+  .object({
+    actorId: z.string().min(1),
+    credentialId: z.string().min(1),
+    exchangeToken: z.string().min(1),
+    principalId: z.string().min(1),
+    tenantId: z.string().min(1),
+    workloadId: z.string().min(1),
+  })
   .passthrough();
 
 export type ActionClient = Client<typeof ActionService>;
@@ -106,17 +178,48 @@ export type DefinitionClient = Client<typeof DefinitionService>;
 export type EffectClient = Client<typeof EffectService>;
 export type WorldClient = Client<typeof WorldService>;
 export type ProviderOperation = z.infer<typeof providerOperationSchema>;
+export type ProviderStats = z.infer<typeof providerStatsSchema>;
 export type ConnectorStatus = z.infer<typeof connectorStatusSchema>;
+export type IssuedWorkloadCredential = z.infer<
+  typeof issuedCredentialSchema
+>;
+
+export interface WorkloadIdentity {
+  actorId: string;
+  principalId: string;
+  tenantId: string;
+  workloadId: "workload.effect-reconciler" | "workload.effect-worker";
+}
+
+interface WorkloadCredentialOptions {
+  allowedIngress?: readonly {
+    kind: "api_event";
+    sourceClass: string;
+  }[];
+  delegation?: readonly {
+    actions: readonly string[];
+    id: string;
+    resources: readonly string[];
+  }[];
+  expiresAtMicros?: number;
+}
 
 export interface ManagedProcess {
   child: ChildProcessWithoutNullStreams;
   name: string;
   output: string[];
+  processGroupId?: number;
   stderr: string[];
 }
 
 export function adminClient(): PostgresClient {
-  return new PostgresClient({ connectionString: adminDatabaseUrl });
+  const client = new PostgresClient({ connectionString: adminDatabaseUrl });
+  client.on("error", (error: Error & { code?: string }) => {
+    if (!new Set(["57P01", "57P02", "57P03"]).has(error.code ?? "")) {
+      console.error("idle Postgres administration connection failed", error);
+    }
+  });
+  return client;
 }
 
 export function actionClient(
@@ -149,7 +252,10 @@ export function worldClient(
   return createClient(WorldService, transport(token, tenantId));
 }
 
-export async function startZoend(policyManifestPath: string): Promise<ManagedProcess> {
+export async function startZoend(
+  policyManifestPath: string,
+  options: { effectWorkerWorkloadId?: string } = {},
+): Promise<ManagedProcess> {
   return startProcess({
     command: path.join(targetDirectory, "zoen"),
     arguments: ["serve"],
@@ -157,6 +263,8 @@ export async function startZoend(policyManifestPath: string): Promise<ManagedPro
       DATABASE_URL: applicationDatabaseUrl,
       ZOEN_AUTH_DATABASE_URL: authDatabaseUrl,
       ZOEN_CEDAR_POLICY_MANIFEST: policyManifestPath,
+      ZOEN_EFFECT_WORKER_WORKLOAD_ID:
+        options.effectWorkerWorkloadId ?? "workload.effect-worker",
       ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
     },
@@ -216,42 +324,369 @@ export async function startConnector(options?: {
   });
 }
 
-export async function startWorker(tokens: {
-  readonly [tenantA]: string;
-  readonly [tenantB]: string;
-}): Promise<ManagedProcess> {
-  return startProcess({
-    command: process.execPath,
-    arguments: [path.join(distDirectory, "e2e", "effect-worker.js")],
+export async function issueWorkloadCredential(
+  operatorToken: string,
+  identity: WorkloadIdentity,
+  options: WorkloadCredentialOptions = {},
+): Promise<IssuedWorkloadCredential> {
+  const response = await requestWorkloadCredential(
+    operatorToken,
+    identity,
+    options,
+  );
+  const text = await response.text();
+  assert.equal(
+    response.ok,
+    true,
+    `workload credential issue failed: HTTP ${response.status} ${text}`,
+  );
+  return issuedCredentialSchema.parse(JSON.parse(text) as unknown);
+}
+
+export function requestWorkloadCredential(
+  operatorToken: string,
+  identity: WorkloadIdentity,
+  options: WorkloadCredentialOptions = {},
+): Promise<Response> {
+  return fetch(`${zoenBaseUrl}/workload/admin/credentials`, {
+    body: JSON.stringify({
+      actorId: identity.actorId,
+      allowedIngress: options.allowedIngress ?? [],
+      delegation: options.delegation ?? [
+        {
+          actions: [
+            identity.workloadId === "workload.effect-worker"
+              ? "zoen.effect.execute"
+              : "zoen.effect.reconcile",
+          ],
+          id: `delegation.${identity.workloadId}`,
+          resources: ["zoen.effect.requests"],
+        },
+      ],
+      expiresAtMicros:
+        options.expiresAtMicros ?? 4_102_444_800_000_000,
+      principalId: identity.principalId,
+      rateBudget: {
+        maxAcceptsPerMinute: 120,
+        maxCommitsPerHour: 120,
+      },
+      tenantId: identity.tenantId,
+      workloadId: identity.workloadId,
+    }),
+    headers: {
+      authorization: `Bearer ${operatorToken}`,
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+}
+
+export async function revokeWorkloadCredential(
+  operatorToken: string,
+  credentialId: string,
+  tenantId: string,
+): Promise<void> {
+  const response = await fetch(
+    `${zoenBaseUrl}/workload/admin/credentials/${encodeURIComponent(credentialId)}`,
+    {
+      body: JSON.stringify({ reason: "rotation", tenantId }),
+      headers: {
+        authorization: `Bearer ${operatorToken}`,
+        "content-type": "application/json",
+      },
+      method: "DELETE",
+    },
+  );
+  assert.equal(
+    response.ok,
+    true,
+    `workload credential revoke failed: HTTP ${response.status} ${await response.text()}`,
+  );
+}
+
+export async function exchangeWorkloadCredential(
+  credential: IssuedWorkloadCredential,
+  expected: WorkloadIdentity,
+): Promise<string> {
+  const response = await fetch(`${zoenBaseUrl}/workload/authenticate`, {
+    body: JSON.stringify({ apiKey: credential.apiKeyOnce }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const text = await response.text();
+  assert.equal(
+    response.ok,
+    true,
+    `workload credential exchange failed: HTTP ${response.status} ${text}`,
+  );
+  const session = workloadSessionSchema.parse(JSON.parse(text) as unknown);
+  assert.deepEqual(
+    {
+      actorId: session.actorId,
+      principalId: session.principalId,
+      tenantId: session.tenantId,
+      workloadId: session.workloadId,
+    },
+    expected,
+  );
+  assert.equal(session.credentialId, credential.credentialId);
+  return session.exchangeToken;
+}
+
+export async function writeEffectWorkerApiKey(
+  credential: IssuedWorkloadCredential,
+): Promise<string> {
+  return writeEffectWorkerApiKeyValue(credential.apiKeyOnce);
+}
+
+export async function writeEffectWorkerApiKeyValue(
+  apiKey: string,
+): Promise<string> {
+  await mkdir(path.dirname(effectWorkerApiKeyFile), { recursive: true });
+  await writeFile(effectWorkerApiKeyFile, `${apiKey}\n`, {
+    mode: 0o600,
+  });
+  await chmod(effectWorkerApiKeyFile, 0o600);
+  return effectWorkerApiKeyFile;
+}
+
+export async function startCredentialValidator(
+  identity: WorkloadIdentity,
+  options: { awaitReady?: boolean; expectedCredentialId?: string } = {},
+): Promise<ManagedProcess> {
+  assert.equal(identity.workloadId, "workload.effect-worker");
+  const validator = spawnProcess({
+    command: path.join(
+      repositoryRoot,
+      "deploy",
+      "fly",
+      "zoen-ensure-effect-workload-credential",
+    ),
     environment: {
+      ZOEN_EFFECT_CREDENTIAL_CHECK_INTERVAL_SECONDS: "1",
+      ZOEN_EFFECT_WORKER_ACTOR_ID: identity.actorId,
+      ZOEN_EFFECT_WORKER_API_KEY_FILE: effectWorkerApiKeyFile,
+      ZOEN_EFFECT_WORKER_CREDENTIAL_READY_FILE: effectWorkerReadyFile,
+      ZOEN_EFFECT_WORKER_PRINCIPAL_ID: identity.principalId,
+      ZOEN_EFFECT_WORKER_WORKLOAD_ID: identity.workloadId,
+      ZOEN_TENANT_ID: identity.tenantId,
+      ZOEN_ZOEND: zoenBaseUrl,
+    },
+    name: "effect credential validator",
+    processGroup: true,
+  });
+  if (options.awaitReady !== false) {
+    await waitForCredentialReady(identity, {
+      expectedCredentialId: options.expectedCredentialId,
+      process: validator,
+    });
+  }
+  return validator;
+}
+
+export async function credentialReady(
+  identity: WorkloadIdentity,
+  expectedCredentialId?: string,
+): Promise<boolean> {
+  try {
+    const metadata = await stat(effectWorkerReadyFile);
+    const body = await readFile(effectWorkerReadyFile, "utf8");
+    const document: unknown = JSON.parse(body);
+    const marker = credentialMarkerSchema.safeParse(document);
+    return (
+      metadata.isFile() &&
+      metadata.mode % 0o1000 === 0o600 &&
+      marker.success &&
+      marker.data.actorId === identity.actorId &&
+      marker.data.principalId === identity.principalId &&
+      marker.data.tenantId === identity.tenantId &&
+      marker.data.workloadId === identity.workloadId &&
+      (expectedCredentialId === undefined ||
+        marker.data.credentialId === expectedCredentialId)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function waitForCredentialReady(
+  identity: WorkloadIdentity,
+  options: {
+    expectedCredentialId?: string;
+    process?: ManagedProcess;
+  } = {},
+): Promise<void> {
+  await waitFor(async () => {
+    if (options.process !== undefined && options.process.child.exitCode !== null) {
+      throw new Error(
+        `${options.process.name} exited during startup:\n${options.process.output.join("")}`,
+      );
+    }
+    return (await credentialReady(identity, options.expectedCredentialId))
+      ? true
+      : undefined;
+  }, "validated effect worker credential");
+}
+
+export async function prepareWorkerArtifact(
+  revision = "effect-runtime-fixture",
+): Promise<void> {
+  await runProcess(
+    path.join(targetDirectory, "zoen"),
+    ["write-build-artifact", revision, generatedDirectoryPath],
+  );
+}
+
+type LegacyFiscalWorkerTokens = Readonly<Record<string, string>>;
+
+export async function startWorker(
+  identity: WorkloadIdentity | LegacyFiscalWorkerTokens,
+  options: { artifactRevision?: string; connectorUrl?: string } = {},
+): Promise<ManagedProcess> {
+  if (!("workloadId" in identity)) {
+    throw new Error(
+      "credential fiscal worker startup requires migration to workload credentials",
+    );
+  }
+  assert.equal(identity.workloadId, "workload.effect-worker");
+  await prepareWorkerArtifact(options.artifactRevision);
+  return startProcess({
+    command: path.join(targetDirectory, "zoen-effect-handler"),
+    environment: {
+      NODE_ENV: "test",
       ZOEN_CONNECTOR_CALLER_TOKEN: connectorCallerToken,
       ZOEN_CONNECTOR_CREDENTIAL_REFS: JSON.stringify({
-        [tenantA]: "secret.provider.a",
-        [tenantB]: "secret.provider.b",
+        [identity.tenantId]:
+          identity.tenantId === tenantA
+            ? "secret.provider.a"
+            : "secret.provider.b",
       }),
-      ZOEN_EFFECT_CONNECTOR_URL: connectorUrl,
-      ZOEN_EFFECT_SERVICE_BEARER_TOKENS: JSON.stringify(tokens),
-      ZOEN_EFFECT_SERVICE_URL: zoenBaseUrl,
-      ZOEN_EFFECT_WORKER_PORT: workerPort.toString(),
+      ZOEN_EFFECT_CONNECTOR_URL: options.connectorUrl ?? connectorUrl,
+      ZOEN_EFFECT_HANDLER_ARTIFACT_FILE: effectArtifactFile,
+      ZOEN_EFFECT_HANDLER_HOST: "0.0.0.0",
+      ZOEN_EFFECT_HANDLER_PORT: workerPort.toString(),
+      ZOEN_EFFECT_REGISTRATION_LEASE_MAX_AGE_MS: "1000",
+      ZOEN_EFFECT_REGISTRATION_STATUS_URL: `http://127.0.0.1:${registrarPort}/status`,
+      ZOEN_EFFECT_WORKER_ACTOR_ID: identity.actorId,
+      ZOEN_EFFECT_WORKER_API_KEY_FILE: effectWorkerApiKeyFile,
+      ZOEN_EFFECT_WORKER_PRINCIPAL_ID: identity.principalId,
+      ZOEN_EFFECT_WORKER_WORKLOAD_ID: identity.workloadId,
+      ZOEN_TENANT_ID: identity.tenantId,
+      ZOEN_ZOEND: zoenBaseUrl,
     },
-    name: "Restate effect worker",
+    name: "production Restate effect handler",
     port: workerPort,
   });
 }
 
-export async function stopProcess(process: ManagedProcess): Promise<void> {
-  if (process.child.exitCode !== null) {
+export async function startEffectRegistrar(
+  identity: WorkloadIdentity,
+  options: {
+    callerToken?: string;
+    credentialRefs?: Readonly<Record<string, string>>;
+  } = {},
+): Promise<ManagedProcess> {
+  assert.equal(identity.workloadId, "workload.effect-worker");
+  return startProcess({
+    command: path.join(targetDirectory, "zoen-effect-registrar"),
+    environment: {
+      NODE_ENV: "test",
+      RESTATE_ADMIN_URL: restateAdmin,
+      ZOEN_CONNECTOR_CALLER_TOKEN:
+        options.callerToken ?? connectorCallerToken,
+      ZOEN_CONNECTOR_CREDENTIAL_REFS: JSON.stringify(
+        options.credentialRefs ?? {
+          [identity.tenantId]:
+            identity.tenantId === tenantA
+              ? "secret.provider.a"
+              : "secret.provider.b",
+        },
+      ),
+      ZOEN_EFFECT_CONNECTOR_PROBE_URL: new URL(
+        "/v1/effects/probe",
+        connectorUrl,
+      ).toString(),
+      ZOEN_EFFECT_HANDLER_ARTIFACT_FILE: effectArtifactFile,
+      ZOEN_EFFECT_HANDLER_HEALTH_URL: `http://127.0.0.1:${workerPort}/health`,
+      ZOEN_EFFECT_HANDLER_IDENTITY_URL: `http://127.0.0.1:${workerPort}/zoen/artifact`,
+      ZOEN_EFFECT_HANDLER_REGISTRATION_URI: `http://host.docker.internal:${workerPort}`,
+      ZOEN_EFFECT_REGISTRAR_LISTEN_ADDR: `127.0.0.1:${registrarPort}`,
+      ZOEN_EFFECT_REGISTRATION_INTERVAL_MS: "100",
+      ZOEN_EFFECT_WORKER_ACTOR_ID: identity.actorId,
+      ZOEN_EFFECT_WORKER_CREDENTIAL_MAX_AGE_MS: "30000",
+      ZOEN_EFFECT_WORKER_CREDENTIAL_READY_FILE: effectWorkerReadyFile,
+      ZOEN_EFFECT_WORKER_PRINCIPAL_ID: identity.principalId,
+      ZOEN_EFFECT_WORKER_WORKLOAD_ID: identity.workloadId,
+      ZOEN_TENANT_ID: identity.tenantId,
+      ZOEN_ZOEND: zoenBaseUrl,
+    },
+    name: "effect registration reconciler",
+    port: registrarPort,
+  });
+}
+
+export async function stopProcess(managed: ManagedProcess): Promise<void> {
+  if (managed.child.exitCode !== null) {
     return;
   }
-  process.child.kill("SIGINT");
-  await once(process.child, "exit");
+  signalManagedProcess(managed, "SIGINT");
+  await Promise.race([once(managed.child, "exit"), delay(2000)]);
+  if (managed.child.exitCode === null && managed.child.signalCode === null) {
+    signalManagedProcess(managed, "SIGKILL");
+    await once(managed.child, "exit");
+  }
   assert.ok(
-    process.child.exitCode === 0 || process.child.signalCode === "SIGINT",
-    `${process.name} failed during shutdown:\n${process.output.join("")}`,
+    managed.child.exitCode === 0 ||
+      managed.child.signalCode === "SIGINT" ||
+      managed.child.signalCode === "SIGKILL",
+    `${managed.name} failed during shutdown:\n${managed.output.join("")}`,
   );
 }
 
-export async function dispatchOnce(tenantId = tenantA): Promise<void> {
+export async function terminateProcess(managed: ManagedProcess): Promise<void> {
+  assert.equal(managed.child.exitCode, null);
+  assert.equal(managed.child.signalCode, null);
+  const exited = once(managed.child, "exit");
+  assert.equal(signalManagedProcess(managed, "SIGTERM"), true);
+  await Promise.race([exited, delay(5000)]);
+  if (managed.child.exitCode === null && managed.child.signalCode === null) {
+    signalManagedProcess(managed, "SIGKILL");
+    await exited;
+    assert.fail(`${managed.name} did not drain SIGTERM within 5 seconds`);
+  }
+  assert.equal(
+    managed.child.exitCode,
+    0,
+    `${managed.name} failed during SIGTERM drain:\n${managed.output.join("")}`,
+  );
+  assert.equal(managed.child.signalCode, null);
+}
+
+export async function crashProcess(managed: ManagedProcess): Promise<void> {
+  if (managed.child.exitCode !== null || managed.child.signalCode !== null) {
+    return;
+  }
+  signalManagedProcess(managed, "SIGKILL");
+  await once(managed.child, "exit");
+  assert.equal(managed.child.signalCode, "SIGKILL");
+}
+
+export function suspendProcess(managed: ManagedProcess): void {
+  assert.equal(managed.child.exitCode, null);
+  assert.equal(managed.child.signalCode, null);
+  assert.equal(signalManagedProcess(managed, "SIGSTOP"), true);
+}
+
+export function resumeProcess(managed: ManagedProcess): void {
+  if (managed.child.exitCode === null && managed.child.signalCode === null) {
+    assert.equal(signalManagedProcess(managed, "SIGCONT"), true);
+  }
+}
+
+export async function dispatchOnce(
+  tenantId = tenantA,
+  gateTimeoutMs = 5000,
+): Promise<void> {
   await runProcess(
     path.join(targetDirectory, "zoen-effect-dispatcher"),
     [],
@@ -259,22 +694,95 @@ export async function dispatchOnce(tenantId = tenantA): Promise<void> {
       DATABASE_URL: applicationDatabaseUrl,
       RESTATE_INGRESS: restateIngress,
       ZOEN_EFFECT_DISPATCH_ONCE: "true",
+      ZOEN_EFFECT_DISPATCH_GATE_TIMEOUT_MS: gateTimeoutMs.toString(),
+      ZOEN_EFFECT_REGISTRATION_HEALTH_URL: `http://127.0.0.1:${registrarPort}/health`,
       ZOEN_TENANT_ID: tenantId,
     },
   );
 }
 
-export async function registerWorker(): Promise<string> {
-  const response = await fetch(`${restateAdmin}/deployments`, {
-    body: JSON.stringify({
-      uri: `http://host.docker.internal:${workerPort}`,
-    }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
+export async function startEffectDispatcher(
+  tenantId = tenantA,
+  intervalMs = 50,
+): Promise<ManagedProcess> {
+  const dispatcher = spawnProcess({
+    command: path.join(targetDirectory, "zoen-effect-dispatcher"),
+    environment: {
+      DATABASE_URL: applicationDatabaseUrl,
+      RESTATE_INGRESS: restateIngress,
+      ZOEN_EFFECT_DISPATCH_INTERVAL_MS: intervalMs.toString(),
+      ZOEN_EFFECT_REGISTRATION_HEALTH_URL: `http://127.0.0.1:${registrarPort}/health`,
+      ZOEN_TENANT_ID: tenantId,
+    },
+    name: "continuous effect dispatcher",
   });
+  await delay(100);
+  if (
+    dispatcher.child.exitCode !== null ||
+    dispatcher.child.signalCode !== null
+  ) {
+    throw new Error(
+      `${dispatcher.name} exited during startup:\n${dispatcher.output.join("")}`,
+    );
+  }
+  return dispatcher;
+}
+
+export async function registerWorker(): Promise<string> {
+  let lastReason = "registration status unavailable";
+  try {
+    return await waitFor(async () => {
+      const status = await fetch(
+        `http://127.0.0.1:${registrarPort}/status`,
+      );
+      const body = await status.text();
+      let document: unknown;
+      try {
+        document = JSON.parse(body);
+      } catch {
+        lastReason = "registration status was malformed";
+        return undefined;
+      }
+      const parsed = registrationProbeSchema.safeParse(document);
+      if (!status.ok || !parsed.success) {
+        lastReason = "registration status was malformed";
+        return undefined;
+      }
+      lastReason = parsed.data.reason.replace(/[\r\n]+/g, " ").slice(0, 256);
+      const health = await fetch(
+        `http://127.0.0.1:${registrarPort}/health`,
+      );
+      return health.ok && parsed.data.ready
+        ? JSON.stringify(parsed.data)
+        : undefined;
+    }, "exact production effect registration");
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      error.message ===
+        "timed out waiting for exact production effect registration"
+    ) {
+      throw new Error(`${error.message}: ${lastReason}`, { cause: error });
+    }
+    throw error;
+  }
+}
+
+export async function registrarReady(): Promise<boolean> {
+  try {
+    const health = await fetch(`http://127.0.0.1:${registrarPort}/health`);
+    return health.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function registrarStatus(): Promise<unknown> {
+  const response = await fetch(`http://127.0.0.1:${registrarPort}/status`);
   const body = await response.text();
-  assert.ok(response.ok, `Restate deployment registration failed: ${body}`);
-  return body;
+  assert.equal(response.ok, true, body);
+  const document: unknown = JSON.parse(body);
+  return document;
 }
 
 export async function lookupInvocation(
@@ -304,10 +812,12 @@ export async function setProviderMode(
     | "accepted_pending"
     | "confirmed"
     | "confirmed_no_effect"
+    | "connector_transient_sequence"
     | "hold_confirmed"
     | "parse_error"
     | "schema_error"
     | "timeout_after_delivery"
+    | "truncate_after_commit"
     | "unavailable",
 ): Promise<void> {
   const response = await fetch(
@@ -334,6 +844,15 @@ export async function providerOperation(
   const body: unknown = await response.json();
   assert.equal(response.ok, true, JSON.stringify(body));
   return providerOperationSchema.parse(body);
+}
+
+export async function providerStats(): Promise<ProviderStats> {
+  const response = await fetch(
+    `${e2eHttpUrl("ZOEN_E2E_EFFECT_PROVIDER_PORT", providerPort)}/operations/stats`,
+  );
+  const body: unknown = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return providerStatsSchema.parse(body);
 }
 
 export async function connectorStatus(
@@ -371,8 +890,9 @@ export async function startRestate(): Promise<void> {
   );
 }
 
-export async function restartRestate(): Promise<void> {
-  await compose("restart", "restate");
+export async function recreateRestateContainer(): Promise<void> {
+  await compose("rm", "--stop", "--force", "restate");
+  await compose("up", "--detach", "--wait", "restate");
   await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
   await waitForPort(
     e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
@@ -401,10 +921,23 @@ async function startProcess(options: {
   name: string;
   port: number;
 }): Promise<ManagedProcess> {
+  const managedProcess = spawnProcess(options);
+  await waitForPort(options.port, managedProcess);
+  return managedProcess;
+}
+
+function spawnProcess(options: {
+  arguments?: readonly string[];
+  command: string;
+  environment: Readonly<Record<string, string>>;
+  name: string;
+  processGroup?: boolean;
+}): ManagedProcess {
   const output: string[] = [];
   const stderr: string[] = [];
   const child = spawn(options.command, [...(options.arguments ?? [])], {
     cwd: repositoryRoot,
+    detached: options.processGroup === true,
     env: { ...process.env, ...options.environment },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -415,9 +948,27 @@ async function startProcess(options: {
     output.push(text);
     stderr.push(text);
   });
-  const managedProcess = { child, name: options.name, output, stderr };
-  await waitForPort(options.port, managedProcess);
-  return managedProcess;
+  const processGroupId = options.processGroup === true ? child.pid : undefined;
+  assert.ok(options.processGroup !== true || processGroupId !== undefined);
+  return { child, name: options.name, output, processGroupId, stderr };
+}
+
+function signalManagedProcess(
+  managed: ManagedProcess,
+  signal: NodeJS.Signals,
+): boolean {
+  if (managed.processGroupId === undefined) {
+    return managed.child.kill(signal);
+  }
+  try {
+    process.kill(-managed.processGroupId, signal);
+    return true;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function waitForPort(

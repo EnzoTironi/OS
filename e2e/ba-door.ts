@@ -21,6 +21,8 @@ export const AUTH_DOOR_ORIGIN = e2eHttpUrl(
 const AUTH_READY_TIMEOUT_MS = 20_000;
 const AUTH_STOP_TIMEOUT_MS = 10_000;
 const AUTH_KILL_TIMEOUT_MS = 3_000;
+const FIXED_CHILD_PATH =
+  "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const DOOR_PASSWORD = "E2e-session-door-1";
 const INVITE_EXPIRES_AT_MICROS = 4_102_444_800_000_000;
 
@@ -114,6 +116,7 @@ export function sessionDoorProcessEnv(input: {
     DATABASE_URL: input.applicationDatabaseUrl,
     ZOEN_AUTH_DATABASE_URL: input.authDatabaseUrl,
     ...input.extra,
+    PATH: FIXED_CHILD_PATH,
   };
   delete env.ZOEN_OIDC_AUDIENCE;
   delete env.ZOEN_OIDC_DISCOVERY_URL;
@@ -208,6 +211,7 @@ export async function startAuthDoor(
     ["--import", "tsx", path.join(authRoot, "src", "server.ts")],
     {
       cwd: authRoot,
+      detached: process.platform !== "win32",
       env,
       stdio: ["pipe", "pipe", "pipe"],
     },
@@ -650,6 +654,7 @@ function doorEnv(
             options.device.pollIntervalSeconds,
           ),
         }),
+    PATH: FIXED_CHILD_PATH,
   };
 }
 
@@ -680,16 +685,29 @@ async function stopAuthChild(
   if (processExited(child)) {
     return;
   }
-  child.kill("SIGINT");
+  signalAuthChild(child, "SIGINT");
   try {
     await waitForChildExit(child, AUTH_STOP_TIMEOUT_MS);
   } catch (error) {
     if (!processExited(child)) {
-      child.kill("SIGKILL");
+      signalAuthChild(child, "SIGKILL");
     }
     await waitForChildExit(child, AUTH_KILL_TIMEOUT_MS);
     throw error;
   }
+}
+
+function signalAuthChild(
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals,
+): void {
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {}
+  }
+  child.kill(signal);
 }
 
 function waitForChildExit(

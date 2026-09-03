@@ -114,6 +114,8 @@ jobs:
             dist/
             target/debug/zoen
             target/debug/zoen-effect-dispatcher
+            target/debug/zoen-effect-handler
+            target/debug/zoen-effect-registrar
             target/debug/zoen-http-connector
             target/debug/zoen-projection
 
@@ -130,6 +132,7 @@ jobs:
           - durable-commit
           - evolution-breaking
           - evolution-compatible
+          - effect-runtime
           - explain
           - governed-action
           - messaging-boundary
@@ -151,7 +154,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries
-      - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection
+      - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-effect-handler target/debug/zoen-effect-registrar target/debug/zoen-http-connector target/debug/zoen-projection
       - run: ./e2e/run.sh run ${{ matrix.scenario }}
 
   e2e-concurrent:
@@ -169,7 +172,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries
-      - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection
+      - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-effect-handler target/debug/zoen-effect-registrar target/debug/zoen-http-connector target/debug/zoen-projection
       - name: Run isolated journeys concurrently
         run: |
           port_in_use() {

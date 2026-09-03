@@ -23,6 +23,7 @@ scenario_table=(
   "durable-commit:::live"
   "evolution-breaking:::live"
   "evolution-compatible:::live"
+  "effect-runtime:::live"
   "explain:::live"
   "fiscal-systax-live:fiscal-systax-live::credential"
   "fiscal-plugnotas-live:fiscal-plugnotas-live::credential"
