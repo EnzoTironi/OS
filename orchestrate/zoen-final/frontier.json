@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "repository": "EnzoTironi/OS",
   "main": {
-    "sha": "edc5d1d172f12299a0920aabbcaca8c78c5d525b",
-    "observedAt": "2026-09-03T04:33:27Z"
+    "sha": "daba8615f5ed39c1d84f4cd64ac8d830999e16b6",
+    "observedAt": "2026-09-03T05:04:58Z"
   },
   "activeRatification": {
     "unit": "W0-05",
@@ -75,6 +75,15 @@
       "mergedAt": "2026-09-03T04:33:27Z",
       "verification": "proof_pending",
       "fact": "Implementation merged; the two-account Telegram ceremony has not been performed."
+    },
+    {
+      "number": 619,
+      "unit": null,
+      "scope": "journey infrastructure",
+      "head": "3c0d26f1c0778c58ef32b5450258941bbb4d6191",
+      "merge": "daba8615f5ed39c1d84f4cd64ac8d830999e16b6",
+      "mergedAt": "2026-09-03T05:04:58Z",
+      "fact": "Concurrent journey isolation infrastructure merged outside the canonical 52-unit product program."
     }
   ],
   "initialPullRequestDispositionsDigest": "sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38",

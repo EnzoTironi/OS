@@ -555,9 +555,9 @@ ${currentUnits.map((unit) => `| ${unit.id} | ${unit.status} | ${escapeCell(unit.
 
 | Pull request | Unit | Head | Merge | Merged at | Verification |
 | --- | --- | --- | --- | --- | --- |
-${merged.map((item) => `| #${item.number} | ${item.unit ?? "toolchain"} | ${item.head} | ${item.merge} | ${item.mergedAt} | ${ledgerRows.find(({ unitId }) => unitId === item.unit)?.verdict ?? item.verification ?? "not applicable"} |`).join("\n")}
+${merged.map((item) => `| #${item.number} | ${item.unit ?? item.scope ?? "toolchain"} | ${item.head} | ${item.merge} | ${item.mergedAt} | ${ledgerRows.find(({ unitId }) => unitId === item.unit)?.verdict ?? item.verification ?? "not applicable"} |`).join("\n")}
 
-PR 611 activated Rust 1.98 with Kache. PR 621 implemented W1-05, but its two-account Telegram ceremony proof remains pending.
+PR 611 activated Rust 1.98 with Kache. PR 621 implemented W1-05, but its two-account Telegram ceremony proof remains pending. PR 619 produced the recorded current main and landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 

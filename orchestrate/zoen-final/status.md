@@ -3,7 +3,7 @@
 Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 - Repository: `EnzoTironi/OS`
-- Base: `main@edc5d1d172f12299a0920aabbcaca8c78c5d525b`
+- Base: `main@daba8615f5ed39c1d84f4cd64ac8d830999e16b6`
 - Units: 52 total, 6 done, 4 active, 1 proof pending, 41 queued
 - Canonical journeys: 8, J1 through J8
 - Journey proof dimensions: actors, path, negative, replay, isolation, and recovery
@@ -31,8 +31,9 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | #609 | W1-02 | 5bff33bfe9d8c1f623867eeff61b277b19c127f6 | cf504cbf68a6956b199b9c8c8a5c2417b322586a | 2026-09-02T14:52:39Z | journey-verified |
 | #611 | toolchain | d84f8cf7f9910bdec9b16e92127da33c00121d78 | 304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b | 2026-09-02T20:09:17Z | not applicable |
 | #621 | W1-05 | c3e819c15e6aa4109a86a18d1b8e0915c208ceb9 | edc5d1d172f12299a0920aabbcaca8c78c5d525b | 2026-09-03T04:33:27Z | proof_pending |
+| #619 | journey infrastructure | 3c0d26f1c0778c58ef32b5450258941bbb4d6191 | daba8615f5ed39c1d84f4cd64ac8d830999e16b6 | 2026-09-03T05:04:58Z | not applicable |
 
-PR 611 activated Rust 1.98 with Kache. PR 621 implemented W1-05, but its two-account Telegram ceremony proof remains pending.
+PR 611 activated Rust 1.98 with Kache. PR 621 implemented W1-05, but its two-account Telegram ceremony proof remains pending. PR 619 produced the recorded current main and landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 

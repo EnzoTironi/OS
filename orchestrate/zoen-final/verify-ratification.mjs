@@ -338,14 +338,26 @@ const worldIdentityUnit = program.units.find(({ id }) => id === "W1-05");
 const worldIdentityMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 621
 );
+const journeyIsolationMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 619
+);
 assert(
-  program.base.sha === "edc5d1d172f12299a0920aabbcaca8c78c5d525b" &&
+  program.base.sha === "daba8615f5ed39c1d84f4cd64ac8d830999e16b6" &&
     worldIdentityUnit?.status === "proof_pending" &&
     worldIdentityMerge?.unit === "W1-05" &&
     worldIdentityMerge.head === "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9" &&
-    worldIdentityMerge.merge === program.base.sha &&
+    worldIdentityMerge.merge === "edc5d1d172f12299a0920aabbcaca8c78c5d525b" &&
     worldIdentityMerge.verification === "proof_pending",
-  "current main must record PR #621 as merged with W1-05 proof pending"
+  "PR #621 must remain recorded as merged with W1-05 proof pending"
+);
+assert(
+  journeyIsolationMerge?.unit === null &&
+    journeyIsolationMerge.scope === "journey infrastructure" &&
+    journeyIsolationMerge.head === "3c0d26f1c0778c58ef32b5450258941bbb4d6191" &&
+    journeyIsolationMerge.merge === program.base.sha &&
+    journeyIsolationMerge.mergedAt === "2026-09-03T05:04:58Z" &&
+    journeyIsolationMerge.fact.includes("outside the canonical 52-unit"),
+  "current main must record merged PR #619 outside the 52-unit graph"
 );
 const ledgerLines = ledgerText.replace(/\n$/, "").split("\n");
 assert(
@@ -776,7 +788,7 @@ assert(
       (command) => checkJob.split(command).length === 2
     ) &&
     !checkJob.includes("--write") &&
-    workflow.includes("needs: [check, clippy, build, e2e]"),
+    workflow.includes("needs: [check, clippy, build, e2e, e2e-concurrent]"),
   "required CI must run both canonical program checks without writing"
 );
 assert(

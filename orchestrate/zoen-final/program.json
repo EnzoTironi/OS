@@ -3,7 +3,7 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "edc5d1d172f12299a0920aabbcaca8c78c5d525b"
+    "sha": "daba8615f5ed39c1d84f4cd64ac8d830999e16b6"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
   "verbs": [
