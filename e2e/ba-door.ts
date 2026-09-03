@@ -23,6 +23,9 @@ const AUTH_STOP_TIMEOUT_MS = 10_000;
 const AUTH_KILL_TIMEOUT_MS = 3_000;
 const FIXED_CHILD_PATH =
   "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+const DETACH_CHILDREN =
+  process.platform !== "win32" &&
+  process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP !== "1";
 const DOOR_PASSWORD = "E2e-session-door-1";
 const INVITE_EXPIRES_AT_MICROS = 4_102_444_800_000_000;
 
@@ -211,7 +214,7 @@ export async function startAuthDoor(
     ["--import", "tsx", path.join(authRoot, "src", "server.ts")],
     {
       cwd: authRoot,
-      detached: process.platform !== "win32",
+      detached: DETACH_CHILDREN,
       env,
       stdio: ["pipe", "pipe", "pipe"],
     },
@@ -701,7 +704,7 @@ function signalAuthChild(
   child: ChildProcessWithoutNullStreams,
   signal: NodeJS.Signals,
 ): void {
-  if (process.platform !== "win32" && child.pid !== undefined) {
+  if (DETACH_CHILDREN && child.pid !== undefined) {
     try {
       process.kill(-child.pid, signal);
       return;

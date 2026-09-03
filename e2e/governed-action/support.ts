@@ -86,6 +86,9 @@ export {
 };
 
 export const repositoryRoot = process.cwd();
+const DETACH_CHILDREN =
+  process.platform !== "win32" &&
+  process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP !== "1";
 export const scenarioDirectory = path.join(
   repositoryRoot,
   "e2e",
@@ -663,7 +666,7 @@ export async function startServer(
   delete env.ZOEN_OIDC_ISSUER;
   const child = spawn(serverPath, ["serve"], {
     cwd: repositoryRoot,
-    detached: process.platform !== "win32",
+    detached: DETACH_CHILDREN,
     env,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -700,7 +703,7 @@ function signalServerChild(
   child: ChildProcessWithoutNullStreams,
   signal: NodeJS.Signals,
 ): void {
-  if (process.platform !== "win32" && child.pid !== undefined) {
+  if (DETACH_CHILDREN && child.pid !== undefined) {
     try {
       process.kill(-child.pid, signal);
       return;
