@@ -40,8 +40,8 @@ COPY deploy/fly/tsconfig.personal-lake.json deploy/fly/tsconfig.personal-lake.js
 COPY deploy/fly/tsconfig.ontology-runtime.json deploy/fly/tsconfig.ontology-runtime.json
 COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
 RUN npm ci \
-    && npx tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false \
-    && npx tsc -p deploy/fly/tsconfig.ontology-runtime.json --pretty false \
+    && /app/node_modules/.bin/tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false \
+    && /app/node_modules/.bin/tsc -p deploy/fly/tsconfig.ontology-runtime.json --pretty false \
     && test -n "${ZOEN_BUILD_REVISION}" \
     && node /app/apps/zoend/effect-handler/write-build-artifact.mjs \
       "${ZOEN_BUILD_REVISION}"
