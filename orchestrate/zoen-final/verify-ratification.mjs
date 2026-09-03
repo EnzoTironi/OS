@@ -402,8 +402,7 @@ assert(
 assert(
   effectRuntimeUnit?.status === "done" &&
     effectRuntimeUnit.pr === 625 &&
-    effectRuntimeUnit.headSha ===
-      "6683cdcf47af02464a01aa021b34977f450da5d2" &&
+    effectRuntimeUnit.headSha === "6683cdcf47af02464a01aa021b34977f450da5d2" &&
     effectRuntimeUnit.mergeSha === program.base.sha &&
     effectRuntimeMerge?.unit === "W1-03" &&
     effectRuntimeMerge.head === effectRuntimeUnit.headSha &&
