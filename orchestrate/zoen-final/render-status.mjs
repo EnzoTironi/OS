@@ -5,7 +5,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parseAndValidateImplementationLedger } from "./ledger-validation.mjs";
+import {
+  parseAndValidateImplementationLedger,
+  validateLedgerEvidence,
+} from "./ledger-validation.mjs";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const write = process.argv.includes("--write");
@@ -309,9 +312,7 @@ await Promise.all(
       join(directory, "../..", row.evidence),
       "utf8"
     ).catch(() => fail(`${row.unitId} ledger evidence is missing`));
-    if (!evidence.includes(row.headSha)) {
-      fail(`${row.unitId} ledger evidence does not name its exact head SHA`);
-    }
+    validateLedgerEvidence(row, evidence);
   })
 );
 
@@ -455,7 +456,7 @@ ${currentUnits.map((unit) => `| ${unit.id} | ${unit.status} | ${escapeCell(unit.
 | --- | --- | --- | --- | --- | --- |
 ${merged.map((item) => `| #${item.number} | ${item.unit ?? item.scope ?? "toolchain"} | ${item.head} | ${item.merge} | ${item.mergedAt} | ${ledgerRows.find(({ unitId }) => unitId === item.unit)?.verdict ?? item.verification ?? "not applicable"} |`).join("\n")}
 
-PR 611 activated Rust 1.98 with Kache. PR 621 implemented W1-05, but its two-account Telegram ceremony proof remains pending. PR 619 produced the recorded current main and landed the concurrent journey isolation barrier outside the 52-unit graph.
+PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 implemented W1-05, but its two-account Telegram ceremony proof remains pending. PR 622 produced the recorded current main through a Better Auth device-flow repair without changing the W1-02 verdict. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 

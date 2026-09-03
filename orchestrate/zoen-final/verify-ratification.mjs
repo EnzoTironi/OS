@@ -16,7 +16,10 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parseAndValidateImplementationLedger } from "./ledger-validation.mjs";
+import {
+  parseAndValidateImplementationLedger,
+  validateLedgerEvidence,
+} from "./ledger-validation.mjs";
 
 const programDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(programDirectory, "../..");
@@ -335,14 +338,21 @@ assert(
   "frontier and program main SHAs differ"
 );
 const worldIdentityUnit = program.units.find(({ id }) => id === "W1-05");
+const ratificationUnit = program.units.find(({ id }) => id === "W0-05");
 const worldIdentityMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 621
 );
 const journeyIsolationMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 619
 );
+const ratificationMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 620
+);
+const deviceFlowRepairMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 622
+);
 assert(
-  program.base.sha === "daba8615f5ed39c1d84f4cd64ac8d830999e16b6" &&
+  program.base.sha === "be24e0956e0bfb681634c796b5410afc5eef2e38" &&
     worldIdentityUnit?.status === "proof_pending" &&
     worldIdentityMerge?.unit === "W1-05" &&
     worldIdentityMerge.head === "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9" &&
@@ -354,10 +364,33 @@ assert(
   journeyIsolationMerge?.unit === null &&
     journeyIsolationMerge.scope === "journey infrastructure" &&
     journeyIsolationMerge.head === "3c0d26f1c0778c58ef32b5450258941bbb4d6191" &&
-    journeyIsolationMerge.merge === program.base.sha &&
+    journeyIsolationMerge.merge ===
+      "daba8615f5ed39c1d84f4cd64ac8d830999e16b6" &&
     journeyIsolationMerge.mergedAt === "2026-09-03T05:04:58Z" &&
     journeyIsolationMerge.fact.includes("outside the canonical 52-unit"),
-  "current main must record merged PR #619 outside the 52-unit graph"
+  "PR #619 must remain recorded outside the 52-unit graph"
+);
+assert(
+  ratificationUnit?.status === "done" &&
+    ratificationUnit.pr === 620 &&
+    ratificationUnit.headSha === "1cb0609561fcf00f9c5412a2dfb4cb28235c5c11" &&
+    ratificationUnit.mergeSha === "d8843d7effe2822dc69568319a3e01c177648b89" &&
+    ratificationMerge?.unit === "W0-05" &&
+    ratificationMerge.head === ratificationUnit.headSha &&
+    ratificationMerge.merge === ratificationUnit.mergeSha &&
+    ratificationMerge.mergedAt === "2026-09-03T06:17:12Z" &&
+    !("activeRatification" in frontier),
+  "PR #620 must close W0-05 with exact merge and ledger identity"
+);
+assert(
+  deviceFlowRepairMerge?.unit === null &&
+    deviceFlowRepairMerge.scope === "Better Auth device-flow repair" &&
+    deviceFlowRepairMerge.head === "4c45b95482e5b49a06b5cd05755495b6ff6aed9b" &&
+    deviceFlowRepairMerge.merge === program.base.sha &&
+    deviceFlowRepairMerge.mergedAt === "2026-09-03T06:42:21Z" &&
+    deviceFlowRepairMerge.fact.includes("without completing queued W3-04") &&
+    deviceFlowRepairMerge.fact.includes("W1-02 ledger verdict"),
+  "PR #622 must explain the current main without changing a unit verdict"
 );
 const ledgerRows = parseAndValidateImplementationLedger(
   program.units,
@@ -376,10 +409,7 @@ await Promise.all(
       `${row.unitId} ledger evidence`
     );
     const evidence = await readFile(evidencePath, "utf8");
-    assert(
-      evidence.includes(row.headSha),
-      `${row.unitId} ledger evidence does not name its exact head SHA`
-    );
+    validateLedgerEvidence(row, evidence);
   })
 );
 assert(

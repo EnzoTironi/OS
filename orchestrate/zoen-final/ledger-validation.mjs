@@ -37,7 +37,10 @@ export const parseLedger = (ledgerText) => {
   return lines.slice(1).map(parseRow);
 };
 
-const mergeFactsState = (unit, row, doneImplementation) => {
+const requiresLedgerVerdict = (unit) =>
+  unit.status === "done" && (unit.wave > 0 || unit.pr !== undefined);
+
+const mergeFactsState = (unit, row, requiresCompleteMergeFacts) => {
   if (
     SHA.test(unit.mergeSha) &&
     SHA.test(row.mergeSha) &&
@@ -46,7 +49,7 @@ const mergeFactsState = (unit, row, doneImplementation) => {
     return "complete";
   }
   if (
-    !doneImplementation &&
+    !requiresCompleteMergeFacts &&
     unit.mergeSha === undefined &&
     row.mergeSha === "" &&
     row.mergedAt === ""
@@ -57,8 +60,7 @@ const mergeFactsState = (unit, row, doneImplementation) => {
 };
 
 const validateRow = (unit, row) => {
-  const doneImplementation = unit.status === "done" && unit.wave > 0;
-  const mergeState = mergeFactsState(unit, row, doneImplementation);
+  const mergeState = mergeFactsState(unit, row, requiresLedgerVerdict(unit));
   if (
     !Number.isSafeInteger(unit.pr) ||
     unit.pr <= 0 ||
@@ -104,6 +106,12 @@ const validateDoneUnit = (unit, rows) => {
   }
 };
 
+export const validateLedgerEvidence = (row, evidence) => {
+  if (!evidence.includes(row.headSha)) {
+    fail(`${row.unitId} ledger evidence does not name its exact head SHA`);
+  }
+};
+
 export const validateImplementationLedger = (units, rows) => {
   const unitsById = new Map(units.map((unit) => [unit.id, unit]));
   for (const row of rows) {
@@ -113,9 +121,7 @@ export const validateImplementationLedger = (units, rows) => {
     }
     validateRow(unit, row);
   }
-  for (const unit of units.filter(
-    ({ status, wave }) => status === "done" && wave > 0
-  )) {
+  for (const unit of units.filter(requiresLedgerVerdict)) {
     validateDoneUnit(unit, rows);
   }
 };
@@ -150,6 +156,12 @@ const fixtureRow = {
   verdict: "journey-verified",
   verifiedAt: "2026-09-03T00:00:00Z",
   verifier: "independent-verifier",
+};
+const w0FixtureUnit = { ...fixtureUnit, id: "W0-05", pr: 620, wave: 0 };
+const w0FixtureRow = {
+  ...fixtureRow,
+  pr: String(w0FixtureUnit.pr),
+  unitId: w0FixtureUnit.id,
 };
 const invalidFixtures = [
   [
@@ -211,9 +223,18 @@ export const runLedgerSelfChecks = () => {
     "missing implementation ledger self-check"
   );
   expectFailure(
-    () => validateImplementationLedger([fixtureUnit], [fixtureRow, fixtureRow]),
+    () => validateImplementationLedger([w0FixtureUnit], []),
     "exactly one immutable ledger verdict",
-    "duplicate implementation ledger self-check"
+    "missing W0-05 ledger self-check"
+  );
+  expectFailure(
+    () =>
+      validateImplementationLedger(
+        [w0FixtureUnit],
+        [w0FixtureRow, w0FixtureRow]
+      ),
+    "exactly one immutable ledger verdict",
+    "duplicate W0-05 ledger self-check"
   );
   expectFailure(
     () =>
@@ -223,6 +244,11 @@ export const runLedgerSelfChecks = () => {
       ),
     "does not match its exact implementation",
     "mismatched implementation ledger self-check"
+  );
+  expectFailure(
+    () => validateLedgerEvidence(w0FixtureRow, "tampered evidence\n"),
+    "does not name its exact head SHA",
+    "tampered W0-05 evidence self-check"
   );
 };
 
