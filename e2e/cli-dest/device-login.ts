@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import {
+  constants as fsConstants,
+} from "node:fs";
+import {
   spawn,
   spawnSync,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { once } from "node:events";
 import {
   access,
   mkdtemp,
@@ -59,24 +61,11 @@ const deviceRecordSchema = z.object({
   userId: z.string().nullable(),
 });
 
-const deviceStatusSchema = z
-  .object({
-    client_id: z.string().optional(),
-    status: z.enum(["pending", "approved", "denied"]),
-    user_code: z.string(),
-  })
-  .passthrough();
-
 const errorBodySchema = z
   .object({
     error: z.string(),
   })
   .passthrough();
-
-const oauthStartSchema = z.object({
-  redirect: z.boolean(),
-  url: z.url(),
-});
 
 const oauthStateSchema = z
   .object({
@@ -86,14 +75,57 @@ const oauthStateSchema = z
   })
   .passthrough();
 
-const sessionSchema = z
+const browserTargetSchema = z.object({
+  type: z.literal("page"),
+  webSocketDebuggerUrl: z.url(),
+});
+
+const cdpEnvelopeSchema = z
   .object({
-    user: z.object({
-      email: z.email(),
-      id: z.string().min(1),
-    }),
+    error: z
+      .object({
+        message: z.string(),
+      })
+      .passthrough()
+      .optional(),
+    id: z.number().optional(),
+    method: z.string().optional(),
+    params: z.unknown().optional(),
+    result: z.unknown().optional(),
   })
   .passthrough();
+
+const cdpEvaluationSchema = z
+  .object({
+    exceptionDetails: z.unknown().optional(),
+    result: z
+      .object({
+        value: z.unknown().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+const googleRequestSchema = z.object({
+  request: z.object({
+    url: z.url(),
+  }),
+  requestId: z.string().min(1),
+});
+
+const browserLocationSchema = z.object({
+  inputCode: z.string().min(1),
+  origin: z.url(),
+  userCode: z.string().min(1),
+});
+
+const browserReviewSchema = z.object({
+  account: z.string().min(1),
+  approveVisible: z.boolean(),
+  client: z.string().min(1),
+  code: z.string().min(1),
+  denyVisible: z.boolean(),
+});
 
 const signupSchema = z
   .object({
@@ -121,6 +153,7 @@ type Evidence = {
 type ServerProcess = {
   child: ChildProcessWithoutNullStreams;
   output: string[];
+  processGroup: boolean;
 };
 
 type AsyncCli = {
@@ -131,19 +164,39 @@ type AsyncCli = {
 };
 
 type CliResult = {
+  signal: NodeJS.Signals | null;
   status: number | null;
   stderr: string;
   stdout: string;
 };
 
-type BrowserSession = {
-  cookie: string;
+type SignedUpAccount = {
   email: string;
+  userId: string;
 };
 
 type DeviceLink = {
   completeUrl: URL;
   userCode: string;
+};
+
+type BrowserProcess = {
+  child: ChildProcessWithoutNullStreams;
+  page: CdpPage;
+  processGroup: boolean;
+};
+
+type CdpPending = {
+  reject: (error: Error) => void;
+  resolve: (value: unknown) => void;
+  timer: ReturnType<typeof globalThis.setTimeout>;
+};
+
+type CdpWaiter = {
+  method: string;
+  reject: (error: Error) => void;
+  resolve: (value: unknown) => void;
+  timer: ReturnType<typeof globalThis.setTimeout>;
 };
 
 export async function runDeviceLoginJourney(
@@ -152,49 +205,50 @@ export async function runDeviceLoginJourney(
 ): Promise<void> {
   const home = await mkdtemp(path.join(tmpdir(), "zoen-device-login-"));
   const credentialsPath = path.join(home, ".zoen", "credentials.json");
-  const door = await startAuthDoor(authDatabaseUrl, {
-    google: {
-      clientId: "device-login.e2e.apps.googleusercontent.com",
-      clientSecret: "device-login-e2e-secret",
-    },
-  });
-  const authDatabase = new PostgresClient({ connectionString: authDatabaseUrl });
+  let door: Awaited<ReturnType<typeof startAuthDoor>> | undefined;
+  let doorStopped = false;
+  let authDatabase: PostgresClient | undefined;
   let server: ServerProcess | undefined;
+  let browser: BrowserProcess | undefined;
   let activeCli: AsyncCli | undefined;
   let completed = false;
   try {
+    door = await startAuthDoor(authDatabaseUrl, {
+      google: {
+        clientId: "device-login.e2e.apps.googleusercontent.com",
+        clientSecret: "device-login-e2e-secret",
+      },
+    });
+    authDatabase = new PostgresClient({ connectionString: authDatabaseUrl });
     await authDatabase.connect();
     server = await startServer(zoenPath);
+    browser = await startBrowser(home);
+    await assertInvalidClientRejected(evidence);
     const signedUp = await signUpThroughZoend();
 
     activeCli = spawnDeviceLogin(zoenPath, home);
     const deniedLink = await waitForDeviceLink(activeCli);
     const deniedRecord = await deviceRecord(authDatabase, deniedLink.userCode);
     assertPublicDeviceOutput(activeCli, deniedLink, deniedRecord.deviceCode, evidence);
-    const reviewHtml = await loadDevicePage(deniedLink.completeUrl);
-    assertReviewPage(reviewHtml, evidence);
-    const signedIn = await signInForDevice(signedUp.email, deniedLink.completeUrl);
+    await openAndSignInDeviceReview(
+      browser.page,
+      deniedLink,
+      signedUp.email,
+      "denial",
+      true,
+      evidence,
+    );
     const afterAuthentication = await deviceRecord(
       authDatabase,
       deniedLink.userCode,
     );
     evidence.record(
       "device_authentication_alone_stays_pending",
-      afterAuthentication.status === "pending" && afterAuthentication.userId === null,
+      afterAuthentication.status === "pending" &&
+        afterAuthentication.userId === signedUp.userId,
     );
-    const deniedReview = await reviewDevice(signedIn.cookie, deniedLink.userCode);
-    evidence.record(
-      "device_review_shows_code_and_client",
-      deniedReview.status === "pending" &&
-        deniedReview.user_code === deniedLink.userCode &&
-        deniedReview.client_id === clientId,
-    );
-    const account = await currentAccount(signedIn.cookie);
-    evidence.record(
-      "device_review_shows_account",
-      account.user.email === signedUp.email,
-    );
-    await decideDevice("deny", signedIn.cookie, deniedLink.userCode);
+    await clickDeviceDecision(browser.page, "deny");
+    await waitForText(browser.page, "#device-result", "negada", 10_000);
     const deniedResult = await waitForCli(activeCli, 15_000);
     activeCli = undefined;
     evidence.record(
@@ -253,34 +307,85 @@ export async function runDeviceLoginJourney(
       earlyPoll.response.status === 400 &&
         errorBodySchema.parse(earlyPoll.body).error === "slow_down",
     );
-    await assertGoogleReturnState(
-      authDatabase,
-      signedIn.cookie,
-      approvedLink.completeUrl,
+    await setPollingInterval(authDatabase, approvedRecord.deviceCode, 1);
+    await openAndSignInDeviceReview(
+      browser.page,
+      approvedLink,
+      signedUp.email,
+      "approval_authenticated",
+      false,
       evidence,
     );
-    const approvedReview = await reviewDevice(
-      signedIn.cookie,
+    const authenticatedReview = await deviceRecord(
+      authDatabase,
+      approvedLink.userCode,
+    );
+    evidence.record(
+      "device_authenticated_complete_link_stays_pending",
+      authenticatedReview.status === "pending" &&
+        authenticatedReview.userId === signedUp.userId,
+    );
+    await assertGoogleReturnState(
+      authDatabase,
+      browser.page,
+      approvedLink,
+      evidence,
+    );
+    await openAndSignInDeviceReview(
+      browser.page,
+      approvedLink,
+      signedUp.email,
+      "google_return",
+      true,
+      evidence,
+    );
+    const approvedReview = await deviceRecord(
+      authDatabase,
       approvedLink.userCode,
     );
     evidence.record(
       "device_approval_still_requires_explicit_action",
-      approvedReview.status === "pending",
+      approvedReview.status === "pending" &&
+        approvedReview.userId === signedUp.userId,
     );
-    await decideDevice("approve", signedIn.cookie, approvedLink.userCode);
+
+    evidence.record(
+      "device_better_auth_default_expires_in_is_1800_seconds",
+      approvedRecord.expiresAt.getTime() - Date.now() >= 1_790_000 &&
+        approvedRecord.expiresAt.getTime() - Date.now() <= 1_801_000,
+    );
+    await delayUntil(activeCli.startedAt + 115_500);
+    const beforeSlowDown = await deviceRecord(
+      authDatabase,
+      approvedLink.userCode,
+    );
+    const lastPoll = await waitForNextPoll(
+      authDatabase,
+      approvedRecord.deviceCode,
+      beforeSlowDown.lastPolledAt,
+      10_000,
+    );
+    await setPollingInterval(authDatabase, approvedRecord.deviceCode, 60_000);
+    await delayUntil(lastPoll.getTime() + 8_000);
+    evidence.record(
+      "device_cli_honors_server_expires_in_beyond_120_seconds",
+      Date.now() - activeCli.startedAt > 121_000 &&
+        !processExited(activeCli.child),
+    );
+    evidence.record(
+      "device_cli_survives_slow_down",
+      !processExited(activeCli.child),
+    );
+
+    await setPollingInterval(authDatabase, approvedRecord.deviceCode, 1);
+    const approvedAt = Date.now();
+    await clickDeviceDecision(browser.page, "approve");
+    await waitForText(browser.page, "#device-result", "aparelho entrou", 10_000);
     const approved = await deviceRecord(authDatabase, approvedLink.userCode);
     evidence.record("device_explicit_approve_succeeds", approved.status === "approved");
 
-    const firstCliPollAt =
-      activeCli.startedAt + (approvedRecord.pollingInterval ?? 5_000) + 1_500;
-    await delay(Math.max(0, firstCliPollAt - Date.now()));
-    evidence.record(
-      "device_cli_survives_slow_down",
-      activeCli.child.exitCode === null,
-    );
-    await setPollingInterval(authDatabase, approvedRecord.deviceCode, 1);
-    const approvedResult = await waitForCli(activeCli, 30_000);
-    const approvedElapsedMs = Date.now() - activeCli.startedAt;
+    const approvedResult = await waitForCli(activeCli, 45_000);
+    const approvalDelayMs = Date.now() - approvedAt;
     activeCli = undefined;
     evidence.record(
       "device_login_waits_for_approval",
@@ -289,7 +394,11 @@ export async function runDeviceLoginJourney(
     );
     evidence.record(
       "device_cli_backs_off_after_slow_down",
-      approvedElapsedMs >= 13_000,
+      approvalDelayMs >= 5_500,
+    );
+    evidence.record(
+      "device_login_finishes_before_server_expiry",
+      Date.now() < approvedRecord.expiresAt.getTime(),
     );
 
     const credentialsText = await readFile(credentialsPath, "utf8");
@@ -346,22 +455,87 @@ export async function runDeviceLoginJourney(
         query.stderr.includes("subject has no verified binding") &&
         !query.stderr.includes("ZOEN_BEARER is required"),
     );
+
+    activeCli = spawnDeviceLogin(zoenPath, home);
+    const unavailableLink = await waitForDeviceLink(activeCli);
+    const unavailableRecord = await deviceRecord(
+      authDatabase,
+      unavailableLink.userCode,
+    );
+    assertPublicDeviceOutput(
+      activeCli,
+      unavailableLink,
+      unavailableRecord.deviceCode,
+      evidence,
+    );
+    await stopAuthDoor(door);
+    doorStopped = true;
+    const unavailableResult = await waitForCli(activeCli, 30_000);
+    activeCli = undefined;
+    const unavailableOutput = `${unavailableResult.stdout}\n${unavailableResult.stderr}`;
+    evidence.record(
+      "device_cli_bounds_auth_door_unavailable_retries",
+      unavailableResult.status === 1 &&
+        (unavailableOutput.includes('"code":"not_connected"') ||
+          unavailableOutput.includes("server unavailable")),
+    );
+    assertSecretAbsent(
+      unavailableResult,
+      unavailableRecord.deviceCode,
+      evidence,
+      "door_unavailable",
+    );
+    const unavailableCleanup = await authDatabase.query(
+      'DELETE FROM "deviceCode" WHERE "deviceCode" = $1',
+      [unavailableRecord.deviceCode],
+    );
+    const entriesAfterUnavailable = await readdir(path.dirname(credentialsPath));
+    evidence.record(
+      "device_door_unavailable_cleans_device_and_partial_credentials",
+      unavailableCleanup.rowCount === 1 &&
+        entriesAfterUnavailable.length === 1 &&
+        entriesAfterUnavailable[0] === "credentials.json" &&
+        (await readFile(credentialsPath, "utf8")) === credentialsText,
+    );
     evidence.killMutant("device complete link approves before explicit consent");
     evidence.killMutant("device login prints or forgets its session secret");
     evidence.killMutant("device token survives denial expiry or replay");
     evidence.killMutant("normal CLI ignores persisted device session");
+    evidence.killMutant("device login retries a failed auth door forever");
     completed = true;
   } finally {
-    if (activeCli?.child.exitCode === null) {
-      activeCli.child.kill("SIGTERM");
-      await once(activeCli.child, "exit");
+    const cleanupErrors: unknown[] = [];
+    if (activeCli !== undefined) {
+      await stopProcess(activeCli.child, "SIGTERM", "device CLI").catch(
+        (error: unknown) => {
+          cleanupErrors.push(error);
+        },
+      );
+    }
+    if (browser !== undefined) {
+      await stopBrowser(browser).catch((error: unknown) => {
+        cleanupErrors.push(error);
+      });
     }
     if (server !== undefined) {
-      await stopServer(server);
+      await stopServer(server).catch((error: unknown) => {
+        cleanupErrors.push(error);
+      });
     }
-    await authDatabase.end().catch(() => undefined);
-    await stopAuthDoor(door);
-    await rm(home, { force: true, recursive: true });
+    await authDatabase?.end().catch((error: unknown) => {
+      cleanupErrors.push(error);
+    });
+    if (door !== undefined && !doorStopped) {
+      await stopAuthDoor(door).catch((error: unknown) => {
+        cleanupErrors.push(error);
+      });
+    }
+    await rm(home, { force: true, recursive: true }).catch((error: unknown) => {
+      cleanupErrors.push(error);
+    });
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, "device login journey cleanup failed");
+    }
   }
   evidence.record(
     "device_login_cleanup_removes_home",
@@ -393,7 +567,7 @@ async function waitForDeviceLink(cli: AsyncCli): Promise<DeviceLink> {
       assert.ok(userCode, "device link must contain user_code");
       return { completeUrl, userCode };
     }
-    if (cli.child.exitCode !== null) {
+    if (processExited(cli.child)) {
       throw new Error("device CLI exited before printing its public link");
     }
     await delay(50);
@@ -403,15 +577,15 @@ async function waitForDeviceLink(cli: AsyncCli): Promise<DeviceLink> {
 
 async function waitForCli(cli: AsyncCli, timeoutMs: number): Promise<CliResult> {
   const deadline = Date.now() + timeoutMs;
-  while (cli.child.exitCode === null && Date.now() < deadline) {
+  while (!processExited(cli.child) && Date.now() < deadline) {
     await delay(50);
   }
-  if (cli.child.exitCode === null) {
-    cli.child.kill("SIGTERM");
-    await once(cli.child, "exit");
+  if (!processExited(cli.child)) {
+    await stopProcess(cli.child, "SIGTERM", "device CLI");
     throw new Error("device CLI did not exit before the journey deadline");
   }
   return {
+    signal: cli.child.signalCode,
     status: cli.child.exitCode,
     stderr: cli.stderr.join(""),
     stdout: cli.stdout.join(""),
@@ -455,38 +629,7 @@ function assertSecretAbsent(
   );
 }
 
-function assertReviewPage(html: string, evidence: Evidence): void {
-  evidence.record(
-    "device_complete_page_has_review_fields",
-    html.includes('id="device-code"') &&
-      html.includes('id="device-client"') &&
-      html.includes('id="device-account"'),
-  );
-  evidence.record(
-    "device_complete_page_has_explicit_approve_and_deny",
-    html.includes('id="device-approve"') &&
-      html.includes('id="device-deny"') &&
-      html.includes("/api/auth/device/approve") &&
-      html.includes("/api/auth/device/deny"),
-  );
-  evidence.record(
-    "device_complete_page_preserves_auth_return",
-    html.includes("callbackURL") && html.includes("errorCallbackURL"),
-  );
-  evidence.record(
-    "device_complete_page_does_not_autoapprove",
-    !html.includes("deviceApprove(deviceQueryCode)"),
-  );
-}
-
-async function loadDevicePage(completeUrl: URL): Promise<string> {
-  const url = throughZoend(completeUrl);
-  const response = await fetch(url, { redirect: "manual" });
-  assert.equal(response.status, 200, "complete device page status");
-  return response.text();
-}
-
-async function signUpThroughZoend(): Promise<BrowserSession> {
+async function signUpThroughZoend(): Promise<SignedUpAccount> {
   const email = `device-${randomUUID()}@e2e.invalid`;
   const response = await fetch(`${zoendBaseUrl}/api/auth/sign-up/email`, {
     body: JSON.stringify({ email, name: "Device login", password }),
@@ -496,56 +639,135 @@ async function signUpThroughZoend(): Promise<BrowserSession> {
   const body = signupSchema.parse(await readJson(response));
   assert.equal(response.status, 200, "device sign-up status");
   assert.equal(body.user.email, email, "device sign-up account");
-  return { cookie: sessionCookie(response), email };
+  return { email, userId: body.user.id };
 }
 
-async function signInForDevice(
+async function openAndSignInDeviceReview(
+  page: CdpPage,
+  link: DeviceLink,
   email: string,
-  completeUrl: URL,
-): Promise<BrowserSession> {
-  const callbackURL = pathAndQuery(completeUrl);
-  const response = await fetch(`${zoendBaseUrl}/api/auth/sign-in/email`, {
-    body: JSON.stringify({ callbackURL, email, password }),
-    headers: jsonHeaders(),
-    method: "POST",
-  });
-  await readJson(response);
-  assert.equal(response.status, 200, "device email sign-in status");
-  return { cookie: sessionCookie(response), email };
-}
-
-async function currentAccount(cookie: string): Promise<z.infer<typeof sessionSchema>> {
-  const response = await fetch(`${zoendBaseUrl}/api/auth/get-session`, {
-    headers: { cookie },
-  });
-  assert.equal(response.status, 200, "device account session status");
-  return sessionSchema.parse(await readJson(response));
-}
-
-async function reviewDevice(
-  cookie: string,
-  userCode: string,
-): Promise<z.infer<typeof deviceStatusSchema>> {
-  const response = await fetch(
-    `${zoendBaseUrl}/api/auth/device?user_code=${encodeURIComponent(userCode)}`,
-    { headers: { cookie } },
-  );
-  assert.equal(response.status, 200, "device review status");
-  return deviceStatusSchema.parse(await readJson(response));
-}
-
-async function decideDevice(
-  decision: "approve" | "deny",
-  cookie: string,
-  userCode: string,
+  flow: "approval_authenticated" | "denial" | "google_return",
+  expectedSignIn: boolean,
+  evidence: Evidence,
 ): Promise<void> {
-  const response = await fetch(`${zoendBaseUrl}/api/auth/device/${decision}`, {
-    body: JSON.stringify({ userCode }),
-    headers: { ...jsonHeaders(), cookie },
-    method: "POST",
-  });
-  await readJson(response);
-  assert.equal(response.status, 200, `device ${decision} status`);
+  await page.navigate(throughZoend(link.completeUrl).toString());
+  await waitForCondition(
+    page,
+    `(() => {
+      const signIn = document.querySelector("#device-signin");
+      const review = document.querySelector("#device-review");
+      return (signIn instanceof HTMLElement && !signIn.hidden) ||
+        (review instanceof HTMLElement && !review.hidden);
+    })()`,
+    10_000,
+    "device sign-in or review panel",
+  );
+  const location = browserLocationSchema.parse(
+    await page.evaluate(`({
+      inputCode: document.querySelector("#user_code") instanceof HTMLInputElement
+        ? document.querySelector("#user_code").value
+        : "",
+      origin: location.origin,
+      userCode: new URLSearchParams(location.search).get("user_code")
+    })`),
+  );
+  evidence.record(
+    `device_${flow}_browser_opens_complete_link`,
+    location.origin === zoendBaseUrl &&
+      location.userCode === link.userCode &&
+      location.inputCode === link.userCode,
+  );
+
+  const needsSignIn = z.boolean().parse(
+    await page.evaluate(`(() => {
+      const panel = document.querySelector("#device-signin");
+      return panel instanceof HTMLElement && !panel.hidden;
+    })()`),
+  );
+  evidence.record(
+    `device_${flow}_has_expected_signin_state`,
+    needsSignIn === expectedSignIn,
+  );
+  assert.equal(
+    needsSignIn,
+    expectedSignIn,
+    `device ${flow} sign-in state`,
+  );
+  const submitted = !needsSignIn || z.boolean().parse(
+    await page.evaluate(`(() => {
+      const panel = document.querySelector("#device-signin");
+      const email = panel?.querySelector('input[name="email"]');
+      const password = panel?.querySelector('input[name="password"]');
+      const submit = panel?.querySelector('button[type="submit"]');
+      if (
+        !(email instanceof HTMLInputElement) ||
+        !(password instanceof HTMLInputElement) ||
+        !(submit instanceof HTMLButtonElement)
+      ) {
+        return false;
+      }
+      email.value = ${JSON.stringify(email)};
+      email.dispatchEvent(new Event("input", { bubbles: true }));
+      password.value = ${JSON.stringify(password)};
+      password.dispatchEvent(new Event("input", { bubbles: true }));
+      submit.click();
+      return true;
+    })()`),
+  );
+  assert.ok(submitted, "device email form must be present");
+
+  await waitForCondition(
+    page,
+    `(() => {
+      const review = document.querySelector("#device-review");
+      return review instanceof HTMLElement && !review.hidden;
+    })()`,
+    10_000,
+    "device review panel",
+  );
+  const review = browserReviewSchema.parse(
+    await page.evaluate(`(() => {
+      const text = (selector) => document.querySelector(selector)?.textContent?.trim() ?? "";
+      const visible = (selector) => {
+        const element = document.querySelector(selector);
+        return element instanceof HTMLElement && !element.hidden;
+      };
+      return {
+        account: text("#device-account"),
+        approveVisible: visible("#device-approve"),
+        client: text("#device-client"),
+        code: text("#device-code"),
+        denyVisible: visible("#device-deny"),
+      };
+    })()`),
+  );
+  evidence.record(
+    `device_${flow}_browser_shows_code_client_account`,
+    review.code === link.userCode &&
+      review.client === clientId &&
+      review.account === email,
+  );
+  evidence.record(
+    `device_${flow}_browser_requires_explicit_choice`,
+    review.approveVisible && review.denyVisible,
+  );
+}
+
+async function clickDeviceDecision(
+  page: CdpPage,
+  decision: "approve" | "deny",
+): Promise<void> {
+  const clicked = z.boolean().parse(
+    await page.evaluate(`(() => {
+      const button = document.querySelector(${JSON.stringify(`#device-${decision}`)});
+      if (!(button instanceof HTMLButtonElement) || button.disabled || button.hidden) {
+        return false;
+      }
+      button.click();
+      return true;
+    })()`),
+  );
+  assert.ok(clicked, `device ${decision} button must be clickable`);
 }
 
 async function pollDeviceToken(
@@ -563,32 +785,78 @@ async function pollDeviceToken(
   return { body: await readJson(response), response };
 }
 
+async function assertInvalidClientRejected(evidence: Evidence): Promise<void> {
+  const response = await fetch(`${zoendBaseUrl}/api/auth/device/code`, {
+    body: JSON.stringify({ client_id: "not-zoen" }),
+    headers: jsonHeaders(),
+    method: "POST",
+  });
+  const body = errorBodySchema.parse(await readJson(response));
+  evidence.record(
+    "device_invalid_client_is_rejected",
+    response.status === 400 && body.error === "invalid_client",
+  );
+}
+
 async function assertGoogleReturnState(
   authDatabase: PostgresClient,
-  cookie: string,
-  completeUrl: URL,
+  page: CdpPage,
+  link: DeviceLink,
   evidence: Evidence,
 ): Promise<void> {
-  const callbackURL = pathAndQuery(completeUrl);
-  const response = await fetch(`${zoendBaseUrl}/api/auth/sign-in/social`, {
-    body: JSON.stringify({
-      callbackURL,
-      disableRedirect: true,
-      errorCallbackURL: callbackURL,
-      provider: "google",
-    }),
-    headers: { ...jsonHeaders(), cookie },
-    method: "POST",
-    redirect: "manual",
+  await page.send("Network.clearBrowserCookies");
+  await page.navigate(throughZoend(link.completeUrl).toString());
+  await waitForCondition(
+    page,
+    `(() => {
+      const panel = document.querySelector("#device-signin");
+      return panel instanceof HTMLElement && !panel.hidden;
+    })()`,
+    10_000,
+    "device Google sign-in panel",
+  );
+  const callbackURL = z.string().parse(
+    await page.evaluate("deviceCallbackURL()"),
+  );
+  evidence.record(
+    "device_google_browser_callback_preserves_user_code",
+    callbackURL === pathAndQuery(link.completeUrl),
+  );
+
+  await page.send("Fetch.enable", {
+    patterns: [{ requestStage: "Request", urlPattern: "https://accounts.google.com/*" }],
   });
-  assert.equal(response.status, 200, "Google device sign-in start status");
-  const started = oauthStartSchema.parse(await readJson(response));
-  const providerUrl = new URL(started.url);
+  const googleRequest = await (async () => {
+    try {
+      const paused = page.waitForEvent("Fetch.requestPaused", 10_000);
+      const clicked = z.boolean().parse(
+        await page.evaluate(`(() => {
+          const button = document.querySelector("#device-google");
+          if (!(button instanceof HTMLButtonElement) || button.disabled || button.hidden) {
+            return false;
+          }
+          button.click();
+          return true;
+        })()`),
+      );
+      assert.ok(clicked, "device Google button must be clickable");
+      const request = googleRequestSchema.parse(await paused);
+      await page.send("Fetch.failRequest", {
+        errorReason: "Aborted",
+        requestId: request.requestId,
+      });
+      return request;
+    } finally {
+      await page.send("Fetch.disable").catch(() => undefined);
+    }
+  })();
+
+  const providerUrl = new URL(googleRequest.request.url);
   const state = providerUrl.searchParams.get("state");
   assert.ok(state, "Google authorization URL must contain state");
   evidence.record(
-    "device_google_uses_real_better_auth_redirect",
-    started.redirect === false && providerUrl.hostname === "accounts.google.com",
+    "device_google_starts_from_real_browser_button",
+    providerUrl.hostname === "accounts.google.com",
   );
   const result = await authDatabase.query(
     'SELECT value FROM verification WHERE identifier = $1',
@@ -603,6 +871,21 @@ async function assertGoogleReturnState(
     stored.callbackURL === callbackURL && stored.errorURL === callbackURL,
   );
   await authDatabase.query('DELETE FROM verification WHERE identifier = $1', [state]);
+  await page.navigate(new URL(stored.callbackURL, zoendBaseUrl).toString());
+  await waitForCondition(
+    page,
+    `new URLSearchParams(location.search).get("user_code") === ${JSON.stringify(link.userCode)}`,
+    10_000,
+    "device Google return URL",
+  );
+  evidence.record(
+    "device_google_returns_to_same_device_review",
+    z.string().parse(
+      await page.evaluate(
+        'new URLSearchParams(location.search).get("user_code")',
+      ),
+    ) === link.userCode,
+  );
 }
 
 async function deviceRecord(
@@ -655,6 +938,40 @@ async function setPollingInterval(
   assert.equal(result.rowCount, 1, "set device polling interval row count");
 }
 
+async function waitForNextPoll(
+  authDatabase: PostgresClient,
+  deviceCode: string,
+  previousPoll: Date | null,
+  timeoutMs: number,
+): Promise<Date> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await authDatabase.query(
+      'SELECT "lastPolledAt" AS "lastPolledAt" FROM "deviceCode" WHERE "deviceCode" = $1',
+      [deviceCode],
+    );
+    const row: unknown = result.rows[0];
+    const current = z
+      .object({ lastPolledAt: z.date().nullable() })
+      .parse(row).lastPolledAt;
+    if (
+      current !== null &&
+      (previousPoll === null || current.getTime() > previousPoll.getTime())
+    ) {
+      return current;
+    }
+    await delay(100);
+  }
+  throw new Error("device CLI did not complete its expected poll");
+}
+
+async function delayUntil(timestamp: number): Promise<void> {
+  const remaining = timestamp - Date.now();
+  if (remaining > 0) {
+    await delay(remaining);
+  }
+}
+
 async function assertReplayAndCleanup(
   authDatabase: PostgresClient,
   record: DeviceRecord,
@@ -696,10 +1013,325 @@ function unsignedSessionToken(token: string): string {
   return separator > 0 ? token.slice(0, separator) : token;
 }
 
+class CdpPage {
+  readonly #pending = new Map<number, CdpPending>();
+  readonly #socket: WebSocket;
+  readonly #waiters: CdpWaiter[] = [];
+  #nextId = 1;
+
+  private constructor(socket: WebSocket) {
+    this.#socket = socket;
+    socket.addEventListener("message", (event) => {
+      this.#receive(event.data);
+    });
+    socket.addEventListener("close", () => {
+      this.#failAll(new Error("Chromium CDP connection closed"));
+    });
+  }
+
+  static connect(url: string): Promise<CdpPage> {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(url);
+      const timer = globalThis.setTimeout(() => {
+        socket.close();
+        reject(new Error("Chromium CDP connection timed out"));
+      }, 10_000);
+      socket.addEventListener(
+        "open",
+        () => {
+          globalThis.clearTimeout(timer);
+          resolve(new CdpPage(socket));
+        },
+        { once: true },
+      );
+      socket.addEventListener(
+        "error",
+        () => {
+          globalThis.clearTimeout(timer);
+          reject(new Error("Chromium CDP connection failed"));
+        },
+        { once: true },
+      );
+    });
+  }
+
+  close(): void {
+    if (
+      this.#socket.readyState === WebSocket.OPEN ||
+      this.#socket.readyState === WebSocket.CONNECTING
+    ) {
+      this.#socket.close();
+    }
+  }
+
+  async evaluate(expression: string): Promise<unknown> {
+    const raw = await this.send("Runtime.evaluate", {
+      awaitPromise: true,
+      expression,
+      returnByValue: true,
+    });
+    const evaluation = cdpEvaluationSchema.parse(raw);
+    assert.equal(
+      evaluation.exceptionDetails,
+      undefined,
+      `browser expression failed: ${expression}`,
+    );
+    return evaluation.result.value;
+  }
+
+  async navigate(url: string): Promise<void> {
+    await this.send("Page.navigate", { url });
+    await waitForCondition(
+      this,
+      `location.href === ${JSON.stringify(url)}`,
+      10_000,
+      `browser navigation to ${url}`,
+    );
+  }
+
+  send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+    const id = this.#nextId;
+    this.#nextId += 1;
+    return new Promise((resolve, reject) => {
+      const timer = globalThis.setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new Error(`Chromium CDP command timed out: ${method}`));
+      }, 10_000);
+      this.#pending.set(id, { reject, resolve, timer });
+      try {
+        this.#socket.send(JSON.stringify({ id, method, params }));
+      } catch (error) {
+        globalThis.clearTimeout(timer);
+        this.#pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  waitForEvent(method: string, timeoutMs: number): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const timer = globalThis.setTimeout(() => {
+        const index = this.#waiters.findIndex(
+          (waiter) => waiter.resolve === resolve,
+        );
+        if (index >= 0) {
+          this.#waiters.splice(index, 1);
+        }
+        reject(new Error(`Chromium CDP event timed out: ${method}`));
+      }, timeoutMs);
+      this.#waiters.push({ method, reject, resolve, timer });
+    });
+  }
+
+  #failAll(error: Error): void {
+    for (const pending of this.#pending.values()) {
+      globalThis.clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.#pending.clear();
+    for (const waiter of this.#waiters.splice(0)) {
+      globalThis.clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+  }
+
+  #receive(raw: unknown): void {
+    try {
+      if (typeof raw !== "string") {
+        throw new Error("Chromium CDP sent a non-text message");
+      }
+      const parsed: unknown = JSON.parse(raw);
+      const message = cdpEnvelopeSchema.parse(parsed);
+      if (message.id !== undefined) {
+        const pending = this.#pending.get(message.id);
+        if (pending === undefined) {
+          return;
+        }
+        globalThis.clearTimeout(pending.timer);
+        this.#pending.delete(message.id);
+        if (message.error !== undefined) {
+          pending.reject(new Error(message.error.message));
+        } else {
+          pending.resolve(message.result);
+        }
+        return;
+      }
+      if (message.method === undefined) {
+        return;
+      }
+      const index = this.#waiters.findIndex(
+        (waiter) => waiter.method === message.method,
+      );
+      if (index < 0) {
+        return;
+      }
+      const waiter = this.#waiters[index];
+      if (waiter === undefined) {
+        return;
+      }
+      this.#waiters.splice(index, 1);
+      globalThis.clearTimeout(waiter.timer);
+      waiter.resolve(message.params);
+    } catch (error) {
+      this.#failAll(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+}
+
+async function startBrowser(home: string): Promise<BrowserProcess> {
+  const executable = await chromeExecutable();
+  const output: string[] = [];
+  const processGroup = process.platform !== "win32";
+  const child = spawn(
+    executable,
+    [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--remote-debugging-port=0",
+      `--user-data-dir=${path.join(home, "chromium")}`,
+      "about:blank",
+    ],
+    {
+      detached: processGroup,
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
+  child.stdin.end();
+  child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  child.on("error", (error) => output.push(`${error.message}\n`));
+  try {
+    const debuggerUrl = await waitForDevtoolsUrl(child, output);
+    const debuggerEndpoint = new URL(debuggerUrl);
+    const targetEndpoint = `http://${debuggerEndpoint.host}/json/list`;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (processExited(child)) {
+        throw new Error(`Chromium exited during startup:\n${output.join("")}`);
+      }
+      const response = await fetch(targetEndpoint).catch(() => undefined);
+      if (response?.ok) {
+        const targetsValue: unknown = await response.json();
+        const targets = z.array(z.unknown()).parse(targetsValue);
+        for (const value of targets) {
+          const parsed = browserTargetSchema.safeParse(value);
+          if (parsed.success) {
+            return {
+              child,
+              page: await CdpPage.connect(parsed.data.webSocketDebuggerUrl),
+              processGroup,
+            };
+          }
+        }
+      }
+      await delay(50);
+    }
+    throw new Error(`Chromium did not expose a page target:\n${output.join("")}`);
+  } catch (error) {
+    await stopProcess(
+      child,
+      "SIGTERM",
+      "Chromium startup",
+      processGroup,
+    ).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function chromeExecutable(): Promise<string> {
+  const configured = process.env.CHROME_PATH;
+  const candidates = [
+    configured,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+  ];
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate.length === 0) {
+      continue;
+    }
+    try {
+      await access(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(
+    "cli-dest device journey needs Chrome or Chromium; set CHROME_PATH",
+  );
+}
+
+async function waitForDevtoolsUrl(
+  child: ChildProcessWithoutNullStreams,
+  output: string[],
+): Promise<string> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const match = /DevTools listening on (ws:\/\/\S+)/.exec(output.join(""));
+    if (match?.[1] !== undefined) {
+      return match[1];
+    }
+    if (processExited(child)) {
+      throw new Error(`Chromium exited before CDP was ready:\n${output.join("")}`);
+    }
+    await delay(50);
+  }
+  throw new Error(`Chromium did not publish its CDP URL:\n${output.join("")}`);
+}
+
+async function stopBrowser(browser: BrowserProcess): Promise<void> {
+  browser.page.close();
+  await stopProcess(
+    browser.child,
+    "SIGTERM",
+    "Chromium",
+    browser.processGroup,
+  );
+}
+
+async function waitForCondition(
+  page: CdpPage,
+  expression: string,
+  timeoutMs: number,
+  description: string,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (z.boolean().parse(await page.evaluate(expression))) {
+      return;
+    }
+    await delay(50);
+  }
+  throw new Error(`timed out waiting for ${description}`);
+}
+
+async function waitForText(
+  page: CdpPage,
+  selector: string,
+  text: string,
+  timeoutMs: number,
+): Promise<void> {
+  await waitForCondition(
+    page,
+    `document.querySelector(${JSON.stringify(selector)})?.textContent?.includes(${JSON.stringify(text)}) === true`,
+    timeoutMs,
+    `${selector} to contain ${text}`,
+  );
+}
+
 async function startServer(zoenPath: string): Promise<ServerProcess> {
   const output: string[] = [];
+  const processGroup = process.platform !== "win32";
   const child = spawn(zoenPath, ["serve"], {
     cwd: process.cwd(),
+    detached: processGroup,
     env: sessionDoorProcessEnv({
       applicationDatabaseUrl,
       authDatabaseUrl,
@@ -722,26 +1354,38 @@ async function startServer(zoenPath: string): Promise<ServerProcess> {
   child.stdin.end();
   child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
   child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  for (let attempt = 0; attempt < 300; attempt += 1) {
-    if (child.exitCode !== null) {
-      throw new Error(`zoend exited during startup:\n${output.join("")}`);
+  child.on("error", (error) => output.push(`${error.message}\n`));
+  try {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      if (processExited(child)) {
+        throw new Error(`zoend exited during startup:\n${output.join("")}`);
+      }
+      if (await portOpen(zoendPort)) {
+        return { child, output, processGroup };
+      }
+      await delay(100);
     }
-    if (await portOpen(zoendPort)) {
-      return { child, output };
-    }
-    await delay(100);
+    throw new Error(`zoend did not listen on port ${zoendPort}`);
+  } catch (error) {
+    await stopProcess(
+      child,
+      "SIGTERM",
+      "zoend startup",
+      processGroup,
+    ).catch(() => undefined);
+    throw error;
   }
-  throw new Error(`zoend did not listen on port ${zoendPort}`);
 }
 
 async function stopServer(server: ServerProcess): Promise<void> {
-  if (server.child.exitCode === null) {
-    server.child.kill("SIGINT");
-    await once(server.child, "exit");
-  }
-  assert.equal(
-    server.child.exitCode,
-    0,
+  await stopProcess(
+    server.child,
+    "SIGINT",
+    "zoend",
+    server.processGroup,
+  );
+  assert.ok(
+    server.child.exitCode === 0 || server.child.signalCode === "SIGINT",
     `zoend failed during shutdown:\n${server.output.join("")}`,
   );
 }
@@ -763,10 +1407,89 @@ function runPersistedSessionQuery(zoenPath: string, home: string): CliResult {
     },
   );
   return {
+    signal: result.signal,
     status: result.status,
     stderr: result.stderr ?? "",
     stdout: result.stdout ?? "",
   };
+}
+
+function processExited(child: ChildProcessWithoutNullStreams): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+async function stopProcess(
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals,
+  name: string,
+  processGroup = false,
+): Promise<void> {
+  signalOwnedProcess(child, signal, processGroup);
+  try {
+    await waitForProcessExit(child, 10_000, name);
+  } catch (error) {
+    signalOwnedProcess(child, "SIGKILL", processGroup);
+    await waitForProcessExit(child, 3_000, name);
+    throw error;
+  }
+}
+
+function signalOwnedProcess(
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals,
+  processGroup: boolean,
+): void {
+  if (processGroup && child.pid !== undefined && child.pid > 0) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch (error) {
+      const noSuchProcess = z
+        .object({ code: z.literal("ESRCH") })
+        .safeParse(error).success;
+      if (!noSuchProcess) {
+        throw error;
+      }
+    }
+  }
+  if (!processExited(child)) {
+    child.kill(signal);
+  }
+}
+
+function waitForProcessExit(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+  name: string,
+): Promise<void> {
+  if (processExited(child)) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.clearTimeout(timer);
+      child.off("exit", onExit);
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(error);
+      }
+    };
+    const onExit = () => finish();
+    const timer = globalThis.setTimeout(
+      () => finish(new Error(`${name} did not exit within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    child.once("exit", onExit);
+    if (processExited(child)) {
+      finish();
+    }
+  });
 }
 
 function isolatedCliEnv(
@@ -789,16 +1512,6 @@ function jsonHeaders(): Record<string, string> {
     "content-type": "application/json",
     origin: zoendBaseUrl,
   };
-}
-
-function sessionCookie(response: Response): string {
-  for (const header of response.headers.getSetCookie()) {
-    const pair = header.split(";")[0];
-    if (pair?.split("=")[0]?.trim().endsWith("session_token")) {
-      return pair;
-    }
-  }
-  throw new Error("Better Auth response is missing its session cookie");
 }
 
 async function readJson(response: Response): Promise<unknown> {
