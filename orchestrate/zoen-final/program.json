@@ -3,9 +3,13 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "be24e0956e0bfb681634c796b5410afc5eef2e38"
+    "sha": "4e33c57151ec8e3e28ee4c43a894da63173febc0"
   },
-  "products": ["Ontology", "Eve", "Better Auth"],
+  "products": [
+    "Ontology",
+    "Eve",
+    "Better Auth"
+  ],
   "verbs": [
     "Discover",
     "Query",
@@ -15,7 +19,12 @@
     "Explain",
     "Execute"
   ],
-  "worldReleaseCatalogs": ["ontology", "policy", "executors", "components"],
+  "worldReleaseCatalogs": [
+    "ontology",
+    "policy",
+    "executors",
+    "components"
+  ],
   "tracks": [
     "runtime-truth",
     "world-authority",
@@ -23,7 +32,12 @@
     "agent-surfaces",
     "integration"
   ],
-  "states": ["queued", "active", "proof_pending", "done"],
+  "states": [
+    "queued",
+    "active",
+    "proof_pending",
+    "done"
+  ],
   "journeys": [
     {
       "id": "J1",
@@ -263,7 +277,11 @@
       "wave": 0,
       "size": "M",
       "status": "done",
-      "dependencies": ["W0-01", "W0-02", "W0-03"],
+      "dependencies": [
+        "W0-01",
+        "W0-02",
+        "W0-03"
+      ],
       "journeys": []
     },
     {
@@ -273,7 +291,9 @@
       "wave": 0,
       "size": "M",
       "status": "done",
-      "dependencies": ["W0-04"],
+      "dependencies": [
+        "W0-04"
+      ],
       "journeys": [],
       "finalGates": [
         "FIN-01",
@@ -291,7 +311,6 @@
       "headSha": "1cb0609561fcf00f9c5412a2dfb4cb28235c5c11",
       "mergeSha": "d8843d7effe2822dc69568319a3e01c177648b89"
     },
-
     {
       "id": "W1-01",
       "title": "Govern definition Publish with Cedar and persisted policy evidence",
@@ -299,8 +318,12 @@
       "wave": 1,
       "size": "L",
       "status": "done",
-      "dependencies": ["W0-04"],
-      "journeys": ["J1"],
+      "dependencies": [
+        "W0-04"
+      ],
+      "journeys": [
+        "J1"
+      ],
       "branch": "codex/w1-01-governed-publish",
       "pr": 602,
       "headSha": "6e6eddf3fa326cc1d30182ac5a53a6031d4c6409",
@@ -313,8 +336,12 @@
       "wave": 1,
       "size": "M",
       "status": "done",
-      "dependencies": ["W1-01"],
-      "journeys": ["J8"],
+      "dependencies": [
+        "W1-01"
+      ],
+      "journeys": [
+        "J8"
+      ],
       "branch": "codex/w1-02-supervised-projection",
       "pr": 609,
       "headSha": "5bff33bfe9d8c1f623867eeff61b277b19c127f6",
@@ -326,12 +353,18 @@
       "track": "runtime-truth",
       "wave": 1,
       "size": "L",
-      "status": "active",
-      "dependencies": ["W1-01"],
-      "journeys": ["J6", "J8"],
-      "branch": "codex/w1-03-production-effect-handler",
-      "pr": 617,
-      "headSha": "eb1444fb85f913a61b8569e116466dd4f96f8900"
+      "status": "done",
+      "dependencies": [
+        "W1-01"
+      ],
+      "journeys": [
+        "J6",
+        "J8"
+      ],
+      "branch": "codex/w1-03-rust-recovery",
+      "pr": 625,
+      "headSha": "6683cdcf47af02464a01aa021b34977f450da5d2",
+      "mergeSha": "4e33c57151ec8e3e28ee4c43a894da63173febc0"
     },
     {
       "id": "W1-04",
@@ -340,8 +373,14 @@
       "wave": 1,
       "size": "M",
       "status": "active",
-      "dependencies": ["W1-01", "W1-03"],
-      "journeys": ["J5", "J8"],
+      "dependencies": [
+        "W1-01",
+        "W1-03"
+      ],
+      "journeys": [
+        "J5",
+        "J8"
+      ],
       "branch": "codex/w1-04-eve-runtime-boundary",
       "pr": 618,
       "headSha": "aa07dce89325c25b2c0fd35129f1ee8628e8ff29",
@@ -354,8 +393,12 @@
       "wave": 1,
       "size": "S",
       "status": "done",
-      "dependencies": ["W1-01"],
-      "journeys": ["J5"],
+      "dependencies": [
+        "W1-01"
+      ],
+      "journeys": [
+        "J5"
+      ],
       "branch": "codex/w1-05-telegram-identities",
       "pr": 621,
       "headSha": "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9",
@@ -368,8 +411,14 @@
       "wave": 1,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W1-02", "W1-03", "W1-04"],
-      "journeys": ["J8"]
+      "dependencies": [
+        "W1-02",
+        "W1-03",
+        "W1-04"
+      ],
+      "journeys": [
+        "J8"
+      ]
     },
     {
       "id": "W1-07",
@@ -378,10 +427,17 @@
       "wave": 1,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W1-02", "W1-03", "W1-04", "W1-06"],
-      "journeys": ["J1", "J8"]
+      "dependencies": [
+        "W1-02",
+        "W1-03",
+        "W1-04",
+        "W1-06"
+      ],
+      "journeys": [
+        "J1",
+        "J8"
+      ]
     },
-
     {
       "id": "W2-01",
       "title": "Define private WorldRelease content types and derive ReleaseDigest with domain-tagged RFC 8785 JCS",
@@ -389,8 +445,15 @@
       "wave": 2,
       "size": "M",
       "status": "active",
-      "dependencies": ["W0-05", "W1-01", "W1-03", "W1-04"],
-      "journeys": ["J1"],
+      "dependencies": [
+        "W0-05",
+        "W1-01",
+        "W1-03",
+        "W1-04"
+      ],
+      "journeys": [
+        "J1"
+      ],
       "branch": "codex/w2-01-world-release-contract",
       "pr": null,
       "sourceHeadSha": "f00efc7f245db80ff0d0d9051986d4d61e0e20e8",
@@ -403,8 +466,12 @@
       "wave": 2,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-01"],
-      "journeys": ["J1"]
+      "dependencies": [
+        "W2-01"
+      ],
+      "journeys": [
+        "J1"
+      ]
     },
     {
       "id": "W2-03",
@@ -413,8 +480,12 @@
       "wave": 2,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-02"],
-      "journeys": ["J1"]
+      "dependencies": [
+        "W2-02"
+      ],
+      "journeys": [
+        "J1"
+      ]
     },
     {
       "id": "W2-04",
@@ -423,8 +494,12 @@
       "wave": 2,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-03"],
-      "journeys": ["J1"]
+      "dependencies": [
+        "W2-03"
+      ],
+      "journeys": [
+        "J1"
+      ]
     },
     {
       "id": "W2-05",
@@ -433,8 +508,13 @@
       "wave": 2,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-04"],
-      "journeys": ["J1", "J7"]
+      "dependencies": [
+        "W2-04"
+      ],
+      "journeys": [
+        "J1",
+        "J7"
+      ]
     },
     {
       "id": "W2-06",
@@ -443,9 +523,15 @@
       "wave": 2,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-04"],
-      "journeys": ["J4"],
-      "finalGates": ["FIN-05"]
+      "dependencies": [
+        "W2-04"
+      ],
+      "journeys": [
+        "J4"
+      ],
+      "finalGates": [
+        "FIN-05"
+      ]
     },
     {
       "id": "W2-07",
@@ -454,8 +540,13 @@
       "wave": 2,
       "size": "M",
       "status": "queued",
-      "dependencies": ["W2-04"],
-      "journeys": ["J4", "J7"]
+      "dependencies": [
+        "W2-04"
+      ],
+      "journeys": [
+        "J4",
+        "J7"
+      ]
     },
     {
       "id": "W2-08",
@@ -464,9 +555,16 @@
       "wave": 2,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-04"],
-      "journeys": ["J2", "J4"],
-      "finalGates": ["FIN-01"]
+      "dependencies": [
+        "W2-04"
+      ],
+      "journeys": [
+        "J2",
+        "J4"
+      ],
+      "finalGates": [
+        "FIN-01"
+      ]
     },
     {
       "id": "W2-09",
@@ -475,11 +573,17 @@
       "wave": 2,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-08"],
-      "journeys": ["J4"],
-      "finalGates": ["FIN-01", "FIN-04"]
+      "dependencies": [
+        "W2-08"
+      ],
+      "journeys": [
+        "J4"
+      ],
+      "finalGates": [
+        "FIN-01",
+        "FIN-04"
+      ]
     },
-
     {
       "id": "W3-01",
       "title": "Align Account, ExternalSubject, ChannelBinding, Membership, and World storage",
@@ -487,8 +591,12 @@
       "wave": 3,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-04"],
-      "journeys": ["J5"]
+      "dependencies": [
+        "W2-04"
+      ],
+      "journeys": [
+        "J5"
+      ]
     },
     {
       "id": "W3-02",
@@ -497,8 +605,12 @@
       "wave": 3,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W3-01"],
-      "journeys": ["J5"]
+      "dependencies": [
+        "W3-01"
+      ],
+      "journeys": [
+        "J5"
+      ]
     },
     {
       "id": "W3-03",
@@ -507,8 +619,13 @@
       "wave": 3,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W3-01", "W3-02"],
-      "journeys": ["J5"]
+      "dependencies": [
+        "W3-01",
+        "W3-02"
+      ],
+      "journeys": [
+        "J5"
+      ]
     },
     {
       "id": "W3-04",
@@ -517,8 +634,14 @@
       "wave": 3,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W3-02", "W3-03"],
-      "journeys": ["J5", "J7"]
+      "dependencies": [
+        "W3-02",
+        "W3-03"
+      ],
+      "journeys": [
+        "J5",
+        "J7"
+      ]
     },
     {
       "id": "W3-05",
@@ -527,8 +650,13 @@
       "wave": 3,
       "size": "M",
       "status": "queued",
-      "dependencies": ["W3-03", "W3-04"],
-      "journeys": ["J5"]
+      "dependencies": [
+        "W3-03",
+        "W3-04"
+      ],
+      "journeys": [
+        "J5"
+      ]
     },
     {
       "id": "W3-06",
@@ -537,10 +665,16 @@
       "wave": 3,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-05", "W3-03", "W3-05"],
-      "journeys": ["J2", "J5"]
+      "dependencies": [
+        "W2-05",
+        "W3-03",
+        "W3-05"
+      ],
+      "journeys": [
+        "J2",
+        "J5"
+      ]
     },
-
     {
       "id": "W4-01",
       "title": "Bind evidence admission to a published source capability and claim shape",
@@ -548,8 +682,14 @@
       "wave": 4,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-04", "W3-03"],
-      "journeys": ["J2", "J4"]
+      "dependencies": [
+        "W2-04",
+        "W3-03"
+      ],
+      "journeys": [
+        "J2",
+        "J4"
+      ]
     },
     {
       "id": "W4-02",
@@ -558,8 +698,13 @@
       "wave": 4,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-04", "W3-01"],
-      "journeys": ["J3"]
+      "dependencies": [
+        "W2-04",
+        "W3-01"
+      ],
+      "journeys": [
+        "J3"
+      ]
     },
     {
       "id": "W4-03",
@@ -568,8 +713,15 @@
       "wave": 4,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-05", "W3-03"],
-      "journeys": ["J2", "J3", "J7"]
+      "dependencies": [
+        "W2-05",
+        "W3-03"
+      ],
+      "journeys": [
+        "J2",
+        "J3",
+        "J7"
+      ]
     },
     {
       "id": "W4-04",
@@ -578,8 +730,13 @@
       "wave": 4,
       "size": "M",
       "status": "queued",
-      "dependencies": ["W2-04", "W3-03"],
-      "journeys": ["J6"]
+      "dependencies": [
+        "W2-04",
+        "W3-03"
+      ],
+      "journeys": [
+        "J6"
+      ]
     },
     {
       "id": "W4-05",
@@ -588,8 +745,18 @@
       "wave": 4,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W1-02", "W4-01", "W4-02", "W4-03", "W4-04"],
-      "journeys": ["J2", "J3", "J4"]
+      "dependencies": [
+        "W1-02",
+        "W4-01",
+        "W4-02",
+        "W4-03",
+        "W4-04"
+      ],
+      "journeys": [
+        "J2",
+        "J3",
+        "J4"
+      ]
     },
     {
       "id": "W4-06",
@@ -598,9 +765,19 @@
       "wave": 4,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-06", "W2-09", "W4-01"],
-      "journeys": ["J2", "J4"],
-      "finalGates": ["FIN-02", "FIN-04"]
+      "dependencies": [
+        "W2-06",
+        "W2-09",
+        "W4-01"
+      ],
+      "journeys": [
+        "J2",
+        "J4"
+      ],
+      "finalGates": [
+        "FIN-02",
+        "FIN-04"
+      ]
     },
     {
       "id": "W4-07",
@@ -609,9 +786,20 @@
       "wave": 4,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W1-02", "W2-02", "W2-08", "W4-01"],
-      "journeys": ["J4"],
-      "finalGates": ["FIN-03", "FIN-04", "FIN-06"]
+      "dependencies": [
+        "W1-02",
+        "W2-02",
+        "W2-08",
+        "W4-01"
+      ],
+      "journeys": [
+        "J4"
+      ],
+      "finalGates": [
+        "FIN-03",
+        "FIN-04",
+        "FIN-06"
+      ]
     },
     {
       "id": "W4-08",
@@ -620,11 +808,21 @@
       "wave": 4,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-06", "W3-03", "W4-01", "W4-06", "W4-07"],
-      "journeys": ["J4"],
-      "finalGates": ["FIN-05", "FIN-06"]
+      "dependencies": [
+        "W2-06",
+        "W3-03",
+        "W4-01",
+        "W4-06",
+        "W4-07"
+      ],
+      "journeys": [
+        "J4"
+      ],
+      "finalGates": [
+        "FIN-05",
+        "FIN-06"
+      ]
     },
-
     {
       "id": "W5-01",
       "title": "Finish Eve's Membership workbench for knowledge, evidence, approvals, receipts, channels, and roles",
@@ -632,8 +830,15 @@
       "wave": 5,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W3-04", "W4-05"],
-      "journeys": ["J2", "J3", "J5"]
+      "dependencies": [
+        "W3-04",
+        "W4-05"
+      ],
+      "journeys": [
+        "J2",
+        "J3",
+        "J5"
+      ]
     },
     {
       "id": "W5-02",
@@ -642,8 +847,15 @@
       "wave": 5,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-05", "W3-06", "W4-03"],
-      "journeys": ["J2", "J3"]
+      "dependencies": [
+        "W2-05",
+        "W3-06",
+        "W4-03"
+      ],
+      "journeys": [
+        "J2",
+        "J3"
+      ]
     },
     {
       "id": "W5-03",
@@ -652,8 +864,15 @@
       "wave": 5,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W1-05", "W3-02", "W3-03", "W3-05"],
-      "journeys": ["J5"]
+      "dependencies": [
+        "W1-05",
+        "W3-02",
+        "W3-03",
+        "W3-05"
+      ],
+      "journeys": [
+        "J5"
+      ]
     },
     {
       "id": "W5-04",
@@ -662,8 +881,14 @@
       "wave": 5,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W3-02", "W3-03", "W3-05"],
-      "journeys": ["J5"]
+      "dependencies": [
+        "W3-02",
+        "W3-03",
+        "W3-05"
+      ],
+      "journeys": [
+        "J5"
+      ]
     },
     {
       "id": "W5-05",
@@ -672,10 +897,16 @@
       "wave": 5,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W5-01", "W5-02", "W5-03", "W5-04"],
-      "journeys": ["J5"]
+      "dependencies": [
+        "W5-01",
+        "W5-02",
+        "W5-03",
+        "W5-04"
+      ],
+      "journeys": [
+        "J5"
+      ]
     },
-
     {
       "id": "W6-01",
       "title": "Add generic AutomationDefinition and content-addressed ExecutorCall",
@@ -683,8 +914,14 @@
       "wave": 6,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-04", "W2-05", "W4-03"],
-      "journeys": ["J6"]
+      "dependencies": [
+        "W2-04",
+        "W2-05",
+        "W4-03"
+      ],
+      "journeys": [
+        "J6"
+      ]
     },
     {
       "id": "W6-02",
@@ -693,8 +930,15 @@
       "wave": 6,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W1-03", "W4-04", "W6-01"],
-      "journeys": ["J6", "J8"]
+      "dependencies": [
+        "W1-03",
+        "W4-04",
+        "W6-01"
+      ],
+      "journeys": [
+        "J6",
+        "J8"
+      ]
     },
     {
       "id": "W6-03",
@@ -703,8 +947,15 @@
       "wave": 6,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W5-03", "W5-04", "W6-02"],
-      "journeys": ["J5", "J6"]
+      "dependencies": [
+        "W5-03",
+        "W5-04",
+        "W6-02"
+      ],
+      "journeys": [
+        "J5",
+        "J6"
+      ]
     },
     {
       "id": "W6-04",
@@ -713,10 +964,14 @@
       "wave": 6,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W5-05", "W6-03"],
-      "journeys": ["J6"]
+      "dependencies": [
+        "W5-05",
+        "W6-03"
+      ],
+      "journeys": [
+        "J6"
+      ]
     },
-
     {
       "id": "W7-01",
       "title": "Generate coherent CLI and Connect contracts from the governed catalog",
@@ -724,8 +979,14 @@
       "wave": 7,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-05", "W4-03", "W4-05"],
-      "journeys": ["J7"]
+      "dependencies": [
+        "W2-05",
+        "W4-03",
+        "W4-05"
+      ],
+      "journeys": [
+        "J7"
+      ]
     },
     {
       "id": "W7-02",
@@ -734,8 +995,12 @@
       "wave": 7,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W7-01"],
-      "journeys": ["J7"]
+      "dependencies": [
+        "W7-01"
+      ],
+      "journeys": [
+        "J7"
+      ]
     },
     {
       "id": "W7-03",
@@ -744,8 +1009,15 @@
       "wave": 7,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W2-07", "W4-01", "W7-02"],
-      "journeys": ["J4", "J7"]
+      "dependencies": [
+        "W2-07",
+        "W4-01",
+        "W7-02"
+      ],
+      "journeys": [
+        "J4",
+        "J7"
+      ]
     },
     {
       "id": "W7-04",
@@ -754,7 +1026,12 @@
       "wave": 7,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W4-06", "W4-07", "W4-08", "W7-02"],
+      "dependencies": [
+        "W4-06",
+        "W4-07",
+        "W4-08",
+        "W7-02"
+      ],
       "journeys": [],
       "finalGates": [
         "FIN-01",
@@ -768,7 +1045,6 @@
         "FIN-09"
       ]
     },
-
     {
       "id": "W8-01",
       "title": "Prove restart, rebuild, least privilege, observability, and dependency failure behavior",
@@ -776,8 +1052,15 @@
       "wave": 8,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W1-07", "W4-05", "W6-04", "W7-03"],
-      "journeys": ["J8"]
+      "dependencies": [
+        "W1-07",
+        "W4-05",
+        "W6-04",
+        "W7-03"
+      ],
+      "journeys": [
+        "J8"
+      ]
     },
     {
       "id": "W8-02",
@@ -786,8 +1069,20 @@
       "wave": 8,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W8-01", "W8-04"],
-      "journeys": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"],
+      "dependencies": [
+        "W8-01",
+        "W8-04"
+      ],
+      "journeys": [
+        "J1",
+        "J2",
+        "J3",
+        "J4",
+        "J5",
+        "J6",
+        "J7",
+        "J8"
+      ],
       "finalGates": [
         "FIN-01",
         "FIN-02",
@@ -807,8 +1102,19 @@
       "wave": 8,
       "size": "M",
       "status": "queued",
-      "dependencies": ["W8-02"],
-      "journeys": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"],
+      "dependencies": [
+        "W8-02"
+      ],
+      "journeys": [
+        "J1",
+        "J2",
+        "J3",
+        "J4",
+        "J5",
+        "J6",
+        "J7",
+        "J8"
+      ],
       "finalGates": [
         "FIN-01",
         "FIN-02",
@@ -828,7 +1134,10 @@
       "wave": 8,
       "size": "L",
       "status": "queued",
-      "dependencies": ["W7-04", "W8-01"],
+      "dependencies": [
+        "W7-04",
+        "W8-01"
+      ],
       "journeys": [],
       "finalGates": [
         "FIN-01",

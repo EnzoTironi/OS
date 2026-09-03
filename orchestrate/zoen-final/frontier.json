@@ -2,16 +2,10 @@
   "schemaVersion": 1,
   "repository": "EnzoTironi/OS",
   "main": {
-    "sha": "be24e0956e0bfb681634c796b5410afc5eef2e38",
-    "observedAt": "2026-09-03T06:42:21Z"
+    "sha": "4e33c57151ec8e3e28ee4c43a894da63173febc0",
+    "observedAt": "2026-09-03T17:02:36Z"
   },
   "activeCandidates": [
-    {
-      "unit": "W1-03",
-      "branch": "codex/w1-03-production-effect-handler",
-      "head": "eb1444fb85f913a61b8569e116466dd4f96f8900",
-      "pr": 617
-    },
     {
       "unit": "W1-04",
       "branch": "codex/w1-04-eve-runtime-boundary",
@@ -38,7 +32,10 @@
       "fact": "Concurrent journey isolation infrastructure; separate from the canonical 52-unit product program."
     }
   ],
-  "landingOrder": ["W1-03", "W1-04", "W2-01"],
+  "landingOrder": [
+    "W1-04",
+    "W2-01"
+  ],
   "mergedPullRequests": [
     {
       "number": 602,
@@ -95,6 +92,15 @@
       "merge": "be24e0956e0bfb681634c796b5410afc5eef2e38",
       "mergedAt": "2026-09-03T06:42:21Z",
       "fact": "Repairs device-login consent, persistence, origin isolation, and recovery without completing queued W3-04 or changing the W1-02 ledger verdict."
+    },
+    {
+      "number": 625,
+      "unit": "W1-03",
+      "head": "6683cdcf47af02464a01aa021b34977f450da5d2",
+      "merge": "4e33c57151ec8e3e28ee4c43a894da63173febc0",
+      "mergedAt": "2026-09-03T17:02:36Z",
+      "verification": "journey-verified",
+      "fact": "Rust production ZoenEffect runtime landed; independent 44/44 effect-runtime proof at 665e2b8; tip harness fixes for e2e process-group."
     }
   ],
   "initialPullRequestDispositionsDigest": "sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38",
