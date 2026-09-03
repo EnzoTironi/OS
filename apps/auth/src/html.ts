@@ -99,118 +99,285 @@ const deviceQueryCode = deviceParams.get("user_code");
 let deviceCode = deviceQueryCode ?? "";
 const deviceResult = () => document.getElementById("device-result");
 const deviceSignIn = () => document.getElementById("device-signin");
+const deviceReview = () => document.getElementById("device-review");
 
 async function deviceReadJson(response) {
   try {
     return await response.json();
   } catch {
-    return {};
+    return null;
   }
 }
 
-function deviceOutcome(response, body) {
-  if (response.status === 401) {
-    return "signin";
+function deviceError(body) {
+  if (body !== null && typeof body === "object" && typeof body.error === "string") {
+    return body.error;
   }
-  if (body.error === "expired_token") {
-    return "expired";
-  }
-  if (body.error === "access_denied") {
-    return "taken";
-  }
-  return "invalid";
+  return "";
 }
 
-function deviceShow(state) {
-  deviceResult().textContent = {
-    busy: "Confere o código…",
-    done: "Pronto. O aparelho entrou. Pode voltar pro terminal.",
-    expired: "O código expirou. Gera um novo no terminal.",
-    invalid: "Código não reconhecido. Confere o código no terminal.",
-    taken: "Esse código já foi usado ou cancelado. Gera um novo no terminal.",
-    signin: "Entra pra confirmar o aparelho.",
-  }[state] ?? "";
+function deviceSessionAccount(body) {
+  if (body === null || typeof body !== "object") {
+    return null;
+  }
+  const user = body.user;
+  if (user === null || typeof user !== "object") {
+    return null;
+  }
+  if (typeof user.email === "string" && user.email.length > 0) {
+    return user.email;
+  }
+  if (typeof user.name === "string" && user.name.length > 0) {
+    return user.name;
+  }
+  return null;
+}
+
+function deviceSetMessage(message) {
+  deviceResult().textContent = message;
   deviceResult().hidden = false;
-  deviceSignIn().hidden = state !== "signin";
-  document.getElementById("device-continue").disabled = state === "busy";
 }
 
-async function deviceApprove(code) {
-  deviceShow("busy");
-  const verify = await fetch(
-    "/api/auth/device?user_code=" + encodeURIComponent(code),
-    { credentials: "include" },
-  );
-  const verifyBody = await deviceReadJson(verify);
-  if (!verify.ok) {
-    deviceShow(deviceOutcome(verify, verifyBody));
+function deviceSetBusy(busy) {
+  document.getElementById("device-continue").disabled = busy;
+  document.getElementById("device-approve").disabled = busy;
+  document.getElementById("device-deny").disabled = busy;
+  const google = document.getElementById("device-google");
+  if (google !== null) {
+    google.disabled = busy;
+  }
+}
+
+function deviceHidePanels() {
+  deviceSignIn().hidden = true;
+  deviceReview().hidden = true;
+}
+
+function deviceShowFailure(response, body) {
+  const error = deviceError(body);
+  if (response.status === 401 || error === "unauthorized") {
+    deviceShowSignIn();
+  } else if (error === "expired_token") {
+    deviceSetMessage("O código expirou. Gera um novo no terminal.");
+  } else if (error === "access_denied") {
+    deviceSetMessage("Essa conta não pode decidir sobre este código.");
+  } else if (error === "device_code_already_processed") {
+    deviceSetMessage("Esse código já foi usado ou cancelado. Gera um novo no terminal.");
+  } else {
+    deviceSetMessage("Código não reconhecido. Confere o código no terminal.");
+  }
+}
+
+function deviceShowSignIn() {
+  deviceHidePanels();
+  deviceSignIn().hidden = false;
+  deviceSetMessage("Entra pra revisar o acesso deste aparelho.");
+}
+
+function deviceCallbackURL() {
+  return "/device?user_code=" + encodeURIComponent(deviceCode);
+}
+
+async function deviceLoadReview(code) {
+  deviceCode = code.trim();
+  if (deviceCode.length === 0) {
     return;
   }
-  if (verifyBody.status === "approved") {
-    deviceShow("done");
-    return;
+
+  document.getElementById("user_code").value = deviceCode;
+  deviceHidePanels();
+  deviceSetBusy(true);
+  deviceSetMessage("Conferindo o código…");
+
+  try {
+    const sessionResponse = await fetch("/api/auth/get-session", {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const sessionBody = await deviceReadJson(sessionResponse);
+    const verifyResponse = await fetch(
+      "/api/auth/device?user_code=" + encodeURIComponent(deviceCode),
+      { cache: "no-store", credentials: "include" },
+    );
+    const verifyBody = await deviceReadJson(verifyResponse);
+
+    if (!verifyResponse.ok) {
+      deviceShowFailure(verifyResponse, verifyBody);
+      return;
+    }
+    if (!sessionResponse.ok && sessionResponse.status !== 401) {
+      deviceSetMessage("Não deu pra conferir sua conta agora. Tenta de novo.");
+      return;
+    }
+    if (verifyBody === null || typeof verifyBody !== "object") {
+      deviceSetMessage("Não deu pra conferir o código agora. Tenta de novo.");
+      return;
+    }
+    if (verifyBody.status === "approved") {
+      deviceSetMessage("Pronto. O aparelho entrou. Pode voltar pro terminal.");
+      return;
+    }
+    if (verifyBody.status === "denied") {
+      deviceSetMessage("A entrada deste aparelho foi negada.");
+      return;
+    }
+    if (verifyBody.status !== "pending") {
+      deviceSetMessage("Código não reconhecido. Confere o código no terminal.");
+      return;
+    }
+
+    const account = sessionResponse.ok ? deviceSessionAccount(sessionBody) : null;
+    if (account === null) {
+      deviceShowSignIn();
+      return;
+    }
+
+    if (typeof verifyBody.client_id !== "string" || verifyBody.client_id.length === 0) {
+      deviceSetMessage("Esse código está ligado a outra conta.");
+      return;
+    }
+
+    document.getElementById("device-code").textContent = deviceCode;
+    document.getElementById("device-client").textContent = verifyBody.client_id;
+    document.getElementById("device-account").textContent = account;
+    deviceReview().hidden = false;
+    deviceSetMessage("Confere os dados e escolhe aprovar ou negar.");
+  } catch {
+    deviceSetMessage("Não deu pra conferir o código agora. Tenta de novo.");
+  } finally {
+    deviceSetBusy(false);
   }
-  if (verifyBody.status === "denied") {
-    deviceShow("taken");
-    return;
-  }
-  const approve = await fetch("/api/auth/device/approve", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ userCode: code }),
-    credentials: "include",
-  });
-  if (approve.ok) {
-    deviceShow("done");
-    return;
-  }
-  deviceShow(approve.status === 401 ? "signin" : "taken");
 }
 
 async function deviceSubmit(event) {
   event.preventDefault();
   const input = document.getElementById("user_code");
-  deviceCode = input.value.trim();
-  if (deviceCode.length === 0) {
-    return;
-  }
-  await deviceApprove(deviceCode);
+  await deviceLoadReview(input.value);
 }
 
 async function deviceSignInSubmit(event) {
   event.preventDefault();
   const form = event.target;
-  const response = await fetch("/api/auth/sign-in/email", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: form.email.value,
-      password: form.password.value,
-      callbackURL: "/device?user_code=" + encodeURIComponent(deviceCode),
-    }),
-    credentials: "include",
-  });
-  if (!response.ok) {
-    deviceResult().textContent =
-      response.status === 401
-        ? "Email ou senha errados. Confere e tenta de novo."
-        : "Não deu pra entrar agora. Tenta de novo.";
-    deviceResult().hidden = false;
-    return;
+  deviceSetBusy(true);
+  try {
+    const response = await fetch("/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: form.email.value,
+        password: form.password.value,
+        callbackURL: deviceCallbackURL(),
+      }),
+      credentials: "include",
+    });
+    if (!response.ok) {
+      deviceSetMessage(
+        response.status === 401
+          ? "Email ou senha errados. Confere e tenta de novo."
+          : "Não deu pra entrar agora. Tenta de novo.",
+      );
+      return;
+    }
+    await deviceLoadReview(deviceCode);
+  } catch {
+    deviceSetMessage("Não deu pra entrar agora. Tenta de novo.");
+  } finally {
+    deviceSetBusy(false);
   }
-  await deviceApprove(deviceCode);
+}
+
+async function deviceGoogleSignIn(event) {
+  event.preventDefault();
+  deviceSetBusy(true);
+  try {
+    const callbackURL = deviceCallbackURL();
+    const response = await fetch("/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: "google",
+        callbackURL,
+        errorCallbackURL: callbackURL,
+        disableRedirect: true,
+      }),
+      credentials: "include",
+    });
+    const body = await deviceReadJson(response);
+    if (
+      !response.ok ||
+      body === null ||
+      typeof body !== "object" ||
+      typeof body.url !== "string" ||
+      body.url.length === 0
+    ) {
+      deviceSetMessage("Não deu pra entrar com Google agora. Tenta de novo.");
+      return;
+    }
+    location.assign(body.url);
+  } catch {
+    deviceSetMessage("Não deu pra entrar com Google agora. Tenta de novo.");
+  } finally {
+    deviceSetBusy(false);
+  }
+}
+
+async function deviceDecide(endpoint, successMessage) {
+  deviceSetBusy(true);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userCode: deviceCode }),
+      credentials: "include",
+    });
+    const body = await deviceReadJson(response);
+    if (
+      !response.ok ||
+      body === null ||
+      typeof body !== "object" ||
+      body.success !== true
+    ) {
+      deviceHidePanels();
+      deviceShowFailure(response, body);
+      return;
+    }
+    deviceHidePanels();
+    deviceSetMessage(successMessage);
+  } catch {
+    deviceSetMessage("Não deu pra registrar sua escolha agora. Tenta de novo.");
+  } finally {
+    deviceSetBusy(false);
+  }
+}
+
+async function deviceApprove() {
+  await deviceDecide(
+    "/api/auth/device/approve",
+    "Pronto. O aparelho entrou. Pode voltar pro terminal.",
+  );
+}
+
+async function deviceDeny() {
+  await deviceDecide(
+    "/api/auth/device/deny",
+    "A entrada deste aparelho foi negada.",
+  );
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   const input = document.getElementById("user_code");
   if (deviceQueryCode) {
     input.value = deviceQueryCode;
-    deviceApprove(deviceQueryCode);
+    deviceLoadReview(deviceQueryCode);
   }
 });
 </script>`;
 
-export function devicePage(): string {
+export function devicePage(google: Google): string {
+  const googleBlock =
+    google.kind === "unset"
+      ? ""
+      : '<button id="device-google" type="button" onclick="deviceGoogleSignIn(event)">Continuar com Google</button>';
   return page(
     "<p>Digite o código do aparelho.</p>" +
       '<form id="device-form" onsubmit="deviceSubmit(event)">' +
@@ -223,7 +390,16 @@ export function devicePage(): string {
       '<label>Senha <input name="password" type="password" autocomplete="current-password" required></label>' +
       '<button type="submit">Entrar</button>' +
       "</form>" +
+      googleBlock +
       "</div>" +
+      '<section id="device-review" hidden>' +
+      "<p>Este aparelho quer entrar:</p>" +
+      '<dl><dt>Código</dt><dd id="device-code"></dd>' +
+      '<dt>Cliente</dt><dd id="device-client"></dd>' +
+      '<dt>Conta</dt><dd id="device-account"></dd></dl>' +
+      '<button id="device-approve" type="button" onclick="deviceApprove()">Aprovar</button>' +
+      '<button id="device-deny" type="button" onclick="deviceDeny()">Negar</button>' +
+      "</section>" +
       '<p id="device-result" role="alert" hidden></p>' +
       deviceScript
   );

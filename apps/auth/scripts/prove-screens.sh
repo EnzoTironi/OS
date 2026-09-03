@@ -124,8 +124,13 @@ assert_device_html() {
   local file="$1"
   grep -qiE '<!doctype html|<html' "$file" || fail "GET /device is not HTML"
   grep -q 'name="user_code"' "$file" || fail "GET /device has no user_code field"
+  grep -q 'id="device-approve"' "$file" || fail "GET /device has no explicit approve action"
+  grep -q 'id="device-deny"' "$file" || fail "GET /device has no explicit deny action"
   if grep -Eq 'name="user_code"[^>]*value="[^"]+' "$file" || grep -Eq 'value="[^"]+"[^>]*name="user_code"' "$file"; then
     fail "GET /device invented a code"
+  fi
+  if grep -q 'id="device-google"' "$file"; then
+    fail "GET /device rendered Google while provider is unset"
   fi
 }
 
