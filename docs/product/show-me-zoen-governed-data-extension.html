@@ -97,7 +97,7 @@
     }
     .hero-rule {
       margin-top: 29px; padding: 18px 21px; max-width: 1080px;
-      border-left: 3px solid var(--green); background: rgba(139,245,180,.055);
+      border-left: 3px solid var(--green); background: #101a15;
       color: #d9e4df; font-size: 15px;
     }
     .stats {
@@ -199,11 +199,11 @@
     .kernel-head strong { font-size: 13px; }
     .kernel-head span { color: var(--green); font: 9px var(--mono); }
     .verbs { display: grid; grid-template-columns: repeat(7,1fr); gap: 5px; }
-    .verb { padding: 8px 4px; border-radius: 8px; background: rgba(139,245,180,.07); color: #dff9e8; text-align: center; font: 9px var(--mono); }
+    .verb { padding: 8px 4px; border-radius: 8px; background: #14241a; color: #e8fff0; text-align: center; font: 9px var(--mono); }
     .basis {
       padding: 11px 13px; margin: 10px 0; overflow-wrap: anywhere;
       border: 1px dashed rgba(183,160,255,.42); border-radius: 10px;
-      color: #d9d0ff; background: rgba(183,160,255,.04); font: 9.5px/1.6 var(--mono);
+      color: #e4dcff; background: #171624; font: 9.5px/1.6 var(--mono);
     }
     .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .plane { padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #0e1314; }
@@ -222,7 +222,7 @@
     .inspector dl { margin: 22px 0; display: grid; gap: 14px; }
     .inspector dt { color: var(--muted); font: 700 8px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
     .inspector dd { margin: 3px 0 0; color: #c7d1cc; font-size: 11px; line-height: 1.55; }
-    .inspector .invariant { padding: 11px; border-radius: 9px; background: rgba(183,160,255,.055); color: #d7ceff; font: 8.5px/1.6 var(--mono); overflow-wrap: anywhere; }
+    .inspector .invariant { padding: 11px; border-radius: 9px; background: #171522; color: #e4dcff; font: 8.5px/1.6 var(--mono); overflow-wrap: anywhere; }
     .release-map {
       display: grid; grid-template-columns: 1fr 230px 1fr; gap: 12px; align-items: stretch; padding: 22px;
     }
@@ -403,7 +403,7 @@
 </head>
 <body data-mode="all">
   <div class="shell">
-    <aside class="rail">
+    <aside class="rail" aria-label="Navegação da arquitetura">
       <div class="brand">
         <div class="brandmark">Z∴</div>
         <div><strong>Dados governados</strong><small>North + pesquisa ratificada</small></div>
@@ -527,7 +527,7 @@
                 </div>
               </div>
             </div>
-            <aside class="inspector" aria-live="polite">
+            <aside class="inspector" aria-live="polite" aria-labelledby="inspect-title">
               <span class="eyebrow">componente selecionado</span>
               <h3 id="inspect-title">WorldRelease</h3>
               <span class="kind" id="inspect-kind">North aprovado</span>

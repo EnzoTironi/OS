@@ -170,7 +170,7 @@ for (const [index, line] of ledgerLines.slice(1).entries()) {
 
 const escapeCell = (value) =>
   String(value ?? "")
-    .replaceAll("|", "\\|")
+    .replaceAll("|", String.raw`\|`)
     .replaceAll("\n", " ");
 const tsvCell = (value) =>
   String(value ?? "")

@@ -86,9 +86,15 @@ const worldReleaseContent =
   spec.match(/struct WorldReleaseContent \{([\s\S]*?)\n\}/)?.[1] ?? "";
 const datasetVersionContent =
   spec.match(/struct DatasetVersionContent \{([\s\S]*?)\n\}/)?.[1] ?? "";
-const worldReleaseFields = [
-  ...worldReleaseContent.matchAll(/^\s+(\w+):/gm),
-].map((match) => match[1]);
+const rustFieldName = (line) => {
+  const separator = line.indexOf(":");
+  assert(separator > 0, `invalid Rust field line: ${line}`);
+  return line.slice(0, separator).trim();
+};
+const worldReleaseFields = worldReleaseContent
+  .trim()
+  .split("\n")
+  .map(rustFieldName);
 assert(spec.includes("Status: Ratified by W0-05"), "spec is not ratified");
 assert(
   spec.includes("zoen.world-release.v1"),
@@ -263,8 +269,10 @@ assert(
   "visual lacks its inline script"
 );
 assert(
-  lowercaseVisual.indexOf(scriptOpen, scriptStart + scriptOpen.length) === -1 &&
-    lowercaseVisual.indexOf(scriptClose, scriptEnd + scriptClose.length) === -1,
+  !(
+    lowercaseVisual.includes(scriptOpen, scriptStart + scriptOpen.length) ||
+    lowercaseVisual.includes(scriptClose, scriptEnd + scriptClose.length)
+  ),
   "visual must contain exactly one inline script"
 );
 const visualScript = visual.slice(scriptStart + scriptOpen.length, scriptEnd);
@@ -325,11 +333,20 @@ const markdownAnchor = (heading) => {
     .trim()
     .replace(/\s+/g, "-");
 };
+const markdownHeading = (line) => {
+  let markerCount = 0;
+  while (markerCount < 6 && line[markerCount] === "#") {
+    markerCount += 1;
+  }
+  const separator = line[markerCount];
+  if (!(markerCount > 0 && (separator === " " || separator === "\t"))) {
+    return;
+  }
+  return line.slice(markerCount).trimStart();
+};
 const markdownAnchors = (text) =>
   new Set(
-    [...text.matchAll(/^#{1,6}\s+(.+)$/gm)].map(([, heading]) =>
-      markdownAnchor(heading)
-    )
+    text.split("\n").map(markdownHeading).filter(Boolean).map(markdownAnchor)
   );
 const validateDecisionEvidence = async ([id, , , , , evidence]) => {
   const [target, fragment] = evidence.split("#", 2);
@@ -358,11 +375,30 @@ const markdownFiles = [
   "orchestrate/zoen-final/reports/w1-01-validation.md",
   "orchestrate/zoen-final/reports/w1-02-validation.md",
 ];
+const markdownLinkTargets = (markdown) => {
+  const targets = [];
+  let cursor = 0;
+  while (cursor < markdown.length) {
+    const labelStart = markdown.indexOf("[", cursor);
+    if (labelStart === -1) {
+      break;
+    }
+    const targetStart = markdown.indexOf("](", labelStart + 1);
+    if (targetStart === -1) {
+      break;
+    }
+    const targetEnd = markdown.indexOf(")", targetStart + 2);
+    if (targetEnd === -1) {
+      break;
+    }
+    targets.push(markdown.slice(targetStart + 2, targetEnd));
+    cursor = targetEnd + 1;
+  }
+  return targets;
+};
 const validateMarkdownFile = async (file) => {
   const markdown = await read(file);
-  const links = [...markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map(
-    ([, link]) => link
-  );
+  const links = markdownLinkTargets(markdown);
   await Promise.all(
     links.map(async (link) => {
       const [target, fragment] = link.split("#", 2);
