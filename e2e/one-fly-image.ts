@@ -29,8 +29,8 @@ const scenario = "one-fly-image";
 const repositoryRoot = process.cwd();
 const composeFile = path.join("e2e", scenario, "compose.yaml");
 const project = `zoen-${scenario}`;
-const postgresPortFallback = 55_490;
-const zoendPortFallback = 58_801;
+const postgresPortFallback = 55_542;
+const zoendPortFallback = 58_821;
 const postgresPort = e2ePort("ZOEN_E2E_POSTGRES_PORT", postgresPortFallback);
 const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 const tenantA = "tenant.a";
@@ -481,12 +481,14 @@ async function main(): Promise<void> {
       return ready.status === 200 && ready.body === "ready\n";
     }, "restart returns /ready after recovery", 180);
     observe("restartRecoversReady", true);
+    const recoveredToken = containerExec(["cat", "/data/zoen/agent.token"]).trim();
+    const recoveredAgent = definitionClient(recoveredToken, tenantA);
     const recoveredAdmin = new PostgresClient({
       connectionString: adminDatabaseUrl,
     });
     await recoveredAdmin.connect();
     try {
-      const recovered = await agent.getActiveRevision({
+      const recovered = await recoveredAgent.getActiveRevision({
         definitionId: commercial.definition.definitionId,
         tenantId: tenantA,
       });
