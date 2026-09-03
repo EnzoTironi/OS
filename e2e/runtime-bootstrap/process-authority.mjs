@@ -7,6 +7,9 @@ import { setTimeout as delay } from "node:timers/promises";
 import { code, inspectionEnvironment } from "./atomic-state.mjs";
 import { flag, nonce, noncePattern, positiveInteger } from "./command-line.mjs";
 
+const processInspectionTimeoutMilliseconds = 5_000;
+const deadlineScopedProcessInspectionTimeoutMilliseconds = 1_000;
+
 export function abandonChild(child) {
   child.stdout?.destroy();
   child.stderr?.destroy();
@@ -283,10 +286,13 @@ export async function stopGuardian(guardian, completion, ownerNonce) {
   }
 }
 
-export async function acquireOwnedLock(directory, ownerNonce) {
+export async function acquireOwnedLock(directory, ownerNonce, deadlineAt) {
   const token = randomBytes(32).toString("hex");
   await mkdir(path.dirname(directory), { recursive: true });
   for (let attempt = 0; attempt < 14_400; attempt += 1) {
+    if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+      break;
+    }
     const claim = `${directory}.claim-${process.pid}-${token.slice(0, 16)}-${attempt}`;
     try {
       await mkdir(claim);
@@ -313,7 +319,7 @@ export async function acquireOwnedLock(directory, ownerNonce) {
         throw error;
       }
     }
-    const state = await lockState(directory);
+    const state = await lockState(directory, deadlineAt);
     if (state === "uncertain") {
       throw new Error(`shared runtime lock ${directory} has uncertain ownership`);
     }
@@ -329,7 +335,14 @@ export async function acquireOwnedLock(directory, ownerNonce) {
         }
       }
     }
-    await delay(250);
+    const waitMilliseconds =
+      deadlineAt === undefined
+        ? 250
+        : Math.max(0, Math.min(250, deadlineAt - Date.now()));
+    if (waitMilliseconds === 0) {
+      break;
+    }
+    await delay(waitMilliseconds);
   }
   throw new Error(`timed out waiting for shared runtime lock ${directory}`);
 }
@@ -350,7 +363,7 @@ export async function releaseOwnedLock(lock, ownerNonce) {
   await rm(releasing, { force: true, recursive: true });
 }
 
-async function lockState(directory) {
+async function lockState(directory, deadlineAt) {
   let text;
   try {
     text = await readFile(path.join(directory, "owner.json"), "utf8");
@@ -375,7 +388,11 @@ async function lockState(directory) {
   } catch {
     return "uncertain";
   }
-  const ownership = processOwnership(owner.ownerPid, owner.ownerNonce);
+  const ownership = processOwnership(
+    owner.ownerPid,
+    owner.ownerNonce,
+    deadlineAt,
+  );
   if (ownership === "owned") {
     return "live";
   }
@@ -385,66 +402,64 @@ async function lockState(directory) {
 }
 
 export async function terminatePreparationDescendants(pgid, guardianPid) {
-  const isOwnedDescendant = (member) =>
-    member.pid !== process.pid && member.pid !== guardianPid;
-  let members = groupMembers(pgid).filter(isOwnedDescendant);
-  if (members.length === 0) {
-    return;
-  }
-  signalProcesses(members.map((member) => member.pid), "SIGTERM");
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    await delay(100);
-    members = groupMembers(pgid).filter(isOwnedDescendant);
-    if (members.length === 0) {
-      return;
-    }
-  }
-  signalProcesses(members.map((member) => member.pid), "SIGKILL");
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    await delay(100);
-    members = groupMembers(pgid).filter(isOwnedDescendant);
-    if (members.length === 0) {
-      return;
-    }
-  }
-  throw new Error(
-    `preparation descendants survived SIGKILL: ${members.map((member) => member.pid).join(",")}`,
+  await terminateSelectedGroupMembers(
+    pgid,
+    (member) => member.pid !== process.pid && member.pid !== guardianPid,
+    "preparation descendants",
   );
 }
 
 async function terminateGuardianGroup(pgid) {
-  let members = groupMembers(pgid).filter(
+  await terminateSelectedGroupMembers(
+    pgid,
     (member) => member.pid !== process.pid,
-  );
-  signalProcesses(members.map((member) => member.pid), "SIGTERM");
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    await delay(100);
-    members = groupMembers(pgid).filter(
-      (member) => member.pid !== process.pid,
-    );
-    if (members.length === 0) {
-      return;
-    }
-  }
-  signalProcesses(members.map((member) => member.pid), "SIGKILL");
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    await delay(100);
-    members = groupMembers(pgid).filter(
-      (member) => member.pid !== process.pid,
-    );
-    if (members.length === 0) {
-      return;
-    }
-  }
-  throw new Error(
-    `orphaned preparation descendants survived SIGKILL: ${members.map((member) => member.pid).join(",")}`,
+    "orphaned preparation descendants",
   );
 }
 
-export function processOwnership(pid, ownerNonce) {
+async function terminateSelectedGroupMembers(pgid, predicate, label) {
+  const termDeadlineAt = Date.now() + 5_000;
+  const killDeadlineAt = termDeadlineAt + 5_000;
+  let members = groupMembers(pgid, termDeadlineAt).filter(predicate);
+  if (members.length === 0) {
+    return;
+  }
+  signalProcesses(members.map((member) => member.pid), "SIGTERM");
+  members = await waitForGroupMembersToExit(
+    pgid,
+    members,
+    predicate,
+    termDeadlineAt,
+  );
+  if (members.length === 0) {
+    return;
+  }
+  members = groupMembers(pgid, killDeadlineAt).filter(predicate);
+  if (members.length === 0) {
+    return;
+  }
+  signalProcesses(members.map((member) => member.pid), "SIGKILL");
+  members = await waitForGroupMembersToExit(
+    pgid,
+    members,
+    predicate,
+    killDeadlineAt,
+  );
+  if (members.length > 0) {
+    throw new Error(
+      `${label} survived SIGKILL: ${members.map((member) => member.pid).join(",")}`,
+    );
+  }
+}
+
+export function processOwnership(pid, ownerNonce, deadlineAt) {
   const liveness = processLiveness(pid);
   if (liveness !== "alive") {
     return liveness;
+  }
+  const timeout = inspectionTimeout(deadlineAt);
+  if (timeout === 0) {
+    return "uncertain";
   }
   const result = spawnSync(
     "/bin/ps",
@@ -453,7 +468,7 @@ export function processOwnership(pid, ownerNonce) {
       encoding: "utf8",
       env: inspectionEnvironment(),
       killSignal: "SIGKILL",
-      timeout: 5_000,
+      timeout,
     },
   );
   if (
@@ -475,9 +490,9 @@ export function processLiveness(pid) {
   }
 }
 
-export function inspectGroup(pgid) {
+export function inspectGroup(pgid, deadlineAt) {
   try {
-    const members = groupMembers(pgid);
+    const members = groupMembers(pgid, deadlineAt);
     return members.length === 0
       ? { kind: "empty" }
       : { kind: "members", members };
@@ -486,12 +501,38 @@ export function inspectGroup(pgid) {
   }
 }
 
-export function groupMembers(pgid) {
+export function inspectProcessTable(deadlineAt) {
+  try {
+    return { kind: "members", members: processTableMembers(deadlineAt) };
+  } catch (error) {
+    return { kind: "uncertain", reason: String(error) };
+  }
+}
+
+export function processOwnershipInSnapshot(pid, ownerNonce, members) {
+  const member = members.find((candidate) => candidate.pid === pid);
+  if (member !== undefined) {
+    return member.command.includes(ownerNonce) ? "owned" : "foreign";
+  }
+  return processLiveness(pid) === "missing" ? "missing" : "uncertain";
+}
+
+export function groupMembers(pgid, deadlineAt) {
+  return processTableMembers(deadlineAt)
+    .filter((member) => member.pgid === pgid)
+    .map(({ command, pid }) => ({ command, pid }));
+}
+
+function processTableMembers(deadlineAt) {
+  const timeout = inspectionTimeout(deadlineAt);
+  if (timeout === 0) {
+    throw new Error("process inspection deadline expired");
+  }
   const result = spawnSync("/bin/ps", ["-axo", "pid=,pgid=,command="], {
     encoding: "utf8",
     env: inspectionEnvironment(),
     killSignal: "SIGKILL",
-    timeout: 5_000,
+    timeout,
   });
   if (result.error !== undefined || result.status !== 0) {
     throw new Error(result.error?.message ?? `ps exited ${String(result.status)}`);
@@ -503,26 +544,74 @@ export function groupMembers(pgid) {
   return result.stdout.split("\n").flatMap((line) => {
     const match = /^\s*([0-9]+)\s+([0-9]+)\s+(.*)$/.exec(line);
     const memberPid = match?.[1] === undefined ? undefined : Number(match[1]);
+    const memberPgid = match?.[2] === undefined ? undefined : Number(match[2]);
     return memberPid !== undefined &&
-      memberPid !== inspectionPid &&
-      Number(match?.[2]) === pgid
-      ? [{ command: match?.[3] ?? "", pid: memberPid }]
+      memberPgid !== undefined &&
+      memberPid !== inspectionPid
+      ? [
+          {
+            command: match?.[3] ?? "",
+            pgid: memberPgid,
+            pid: memberPid,
+          },
+        ]
       : [];
   });
 }
 
+function inspectionTimeout(deadlineAt) {
+  if (deadlineAt === undefined) {
+    return processInspectionTimeoutMilliseconds;
+  }
+  return Math.max(
+    0,
+    Math.min(
+      deadlineScopedProcessInspectionTimeoutMilliseconds,
+      Math.ceil(deadlineAt - Date.now()),
+    ),
+  );
+}
+
 export async function waitForEmptyGroup(pgid, attempts) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const group = inspectGroup(pgid);
+  const deadlineAt = Date.now() + attempts * 100;
+  while (Date.now() < deadlineAt) {
+    const group = inspectGroup(pgid, deadlineAt);
     if (group.kind === "empty") {
       return true;
     }
     if (group.kind === "uncertain") {
+      if (Date.now() >= deadlineAt) {
+        return false;
+      }
       throw new Error(`cannot inspect preparation group ${pgid}: ${group.reason}`);
     }
-    await delay(100);
+    await delay(Math.max(0, Math.min(100, deadlineAt - Date.now())));
   }
   return false;
+}
+
+async function waitForGroupMembersToExit(
+  pgid,
+  initialMembers,
+  predicate,
+  deadlineAt,
+) {
+  let members = initialMembers;
+  while (members.length > 0 && Date.now() < deadlineAt) {
+    await delay(Math.max(0, Math.min(100, deadlineAt - Date.now())));
+    if (Date.now() >= deadlineAt) {
+      break;
+    }
+    try {
+      members = groupMembers(pgid, deadlineAt).filter(predicate);
+    } catch (error) {
+      if (Date.now() >= deadlineAt) {
+        return members;
+      }
+      throw error;
+    }
+  }
+  return members;
 }
 
 function signalProcesses(pids, signal) {
@@ -573,7 +662,69 @@ export function signalOwnedGroupIfAnchored(
   if (group.kind === "uncertain") {
     return group;
   }
-  const anchored = group.members.some(
+  if (!hasOwnershipAnchor(group.members, pgid, ownerNonce, requiredGuardian)) {
+    return { kind: "anchor-missing" };
+  }
+  signalGroup(pgid, signal);
+  return { kind: "signaled" };
+}
+
+export function signalOwnedGroupsIfAnchored(groups, signal, deadlineAt) {
+  const inspection = inspectProcessTable(deadlineAt);
+  if (inspection.kind === "uncertain") {
+    return groups.map((group) => ({
+      group,
+      kind: "uncertain",
+      reason: inspection.reason,
+    }));
+  }
+  const requestedGroups = new Set(groups.map((group) => group.pgid));
+  const membersByGroup = new Map();
+  for (const member of inspection.members) {
+    if (!requestedGroups.has(member.pgid)) {
+      continue;
+    }
+    const members = membersByGroup.get(member.pgid) ?? [];
+    members.push({ command: member.command, pid: member.pid });
+    membersByGroup.set(member.pgid, members);
+  }
+  const signaled = new Set();
+  return groups.map((group) => {
+    const members = membersByGroup.get(group.pgid) ?? [];
+    if (members.length === 0) {
+      return { group, kind: "empty" };
+    }
+    if (
+      !hasOwnershipAnchor(
+        members,
+        group.pgid,
+        group.ownerNonce,
+        { pid: group.guardianPid ?? undefined },
+      )
+    ) {
+      return { group, kind: "anchor-missing" };
+    }
+    if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+      return {
+        group,
+        kind: "uncertain",
+        reason: "process signaling deadline expired",
+      };
+    }
+    try {
+      if (!signaled.has(group.pgid)) {
+        signalGroup(group.pgid, signal);
+        signaled.add(group.pgid);
+      }
+      return { group, kind: "signaled" };
+    } catch (error) {
+      return { group, kind: "uncertain", reason: String(error) };
+    }
+  });
+}
+
+function hasOwnershipAnchor(members, pgid, ownerNonce, requiredGuardian) {
+  return members.some(
     (member) =>
       member.command.includes(ownerNonce) &&
       (requiredGuardian === undefined
@@ -583,11 +734,6 @@ export function signalOwnedGroupIfAnchored(
           (requiredGuardian.pid === undefined ||
             member.pid === requiredGuardian.pid)),
   );
-  if (!anchored) {
-    return { kind: "anchor-missing" };
-  }
-  signalGroup(pgid, signal);
-  return { kind: "signaled" };
 }
 
 export function childCompletion(child) {

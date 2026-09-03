@@ -41,8 +41,6 @@ import {
   readOptionalWriter,
   reconcileBootstrapReaders,
   removeStaleWriter,
-  terminateOrphanedWriter,
-  writerState,
 } from "./runtime-registry.mjs";
 
 export async function runController(command) {
@@ -262,14 +260,12 @@ async function acquirePreparationWriter(registryRoot, workerNonce) {
         if (await pathExists(path.join(writerDirectory, "quarantined.json"))) {
           throw new Error("preparation writer is quarantined");
         }
-        const state = writerState(existing);
-        if (state === "stale") {
+        const { writerState: state } = await reconcileBootstrapReaders(
+          path.join(registryRoot, "readers"),
+          { writer: existing, writerDirectory },
+        );
+        if (state === "stale" || state === "orphaned") {
           await removeStaleWriter(writerDirectory);
-        } else if (state === "orphaned") {
-          await terminateOrphanedWriter(existing, writerDirectory);
-          await removeStaleWriter(writerDirectory);
-        } else if (state === "uncertain") {
-          throw new Error("preparation writer ownership is uncertain");
         } else {
           shouldWait = true;
         }
@@ -324,9 +320,8 @@ async function activatePreparationWriter(registryRoot, writer, abortSignal) {
       ).filter(
         (entry) => entry.isDirectory() && isLeaseDirectory(entry.name),
       ).length;
-      const bootstrapReaders = await reconcileBootstrapReaders(
-        path.join(registryRoot, "readers"),
-      );
+      const { readers: bootstrapReaders } =
+        await reconcileBootstrapReaders(path.join(registryRoot, "readers"));
       reconciledReaderTokens = bootstrapReaders.map((reader) => reader.token);
       readerCount = leaseCount + bootstrapReaders.length;
       if (readerCount === 0) {
