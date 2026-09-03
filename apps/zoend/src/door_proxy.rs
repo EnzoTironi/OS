@@ -1,4 +1,10 @@
-use std::{net::IpAddr, time::Duration};
+use std::{
+    env::{self, VarError},
+    error::Error,
+    io::{Error as IoError, ErrorKind},
+    net::IpAddr,
+    time::Duration,
+};
 
 use axum::{
     Router,
@@ -10,18 +16,60 @@ use axum::{
 };
 use reqwest::Client;
 
-const DOOR: &str = "http://127.0.0.1:58704";
+const DEFAULT_DOOR: &str = "http://127.0.0.1:58704";
 const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
-pub fn router() -> Router {
-    Router::new()
+#[derive(Clone)]
+struct DoorProxy {
+    client: Client,
+    origin: String,
+}
+
+pub fn router() -> Result<Router, Box<dyn Error + Send + Sync>> {
+    let origin = door_origin()?;
+    Ok(Router::new()
         .route("/", any(proxy_door))
         .route("/login", any(proxy_door))
         .route("/api/auth", any(proxy_door))
         .route("/api/auth/{*path}", any(proxy_door))
         .route("/device", any(proxy_door))
         .route("/onboard/done", any(proxy_door))
-        .with_state(door_client())
+        .with_state(DoorProxy {
+            client: door_client(),
+            origin,
+        }))
+}
+
+fn door_origin() -> Result<String, Box<dyn Error + Send + Sync>> {
+    let raw = match env::var("ZOEN_AUTH_BASE_URL") {
+        Ok(value) => value,
+        Err(VarError::NotPresent) => DEFAULT_DOOR.to_owned(),
+        Err(error) => return Err(error.into()),
+    };
+    let origin = raw.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(origin)
+        .map_err(|error| config_error(format!("ZOEN_AUTH_BASE_URL is invalid: {error}")))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| config_error("ZOEN_AUTH_BASE_URL must include a host"))?;
+    if parsed.scheme() != "http"
+        || host != "127.0.0.1"
+        || parsed.port().is_none()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(config_error(
+            "ZOEN_AUTH_BASE_URL must be an HTTP 127.0.0.1 origin with an explicit port",
+        ));
+    }
+    Ok(origin.to_owned())
+}
+
+fn config_error(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
+    IoError::new(ErrorKind::InvalidInput, message.into()).into()
 }
 
 fn door_client() -> Client {
@@ -31,12 +79,12 @@ fn door_client() -> Client {
         .expect("TLS backend cannot be initialized")
 }
 
-async fn proxy_door(State(client): State<Client>, request: Request) -> Response {
+async fn proxy_door(State(door): State<DoorProxy>, request: Request) -> Response {
     let path_and_query = request
         .uri()
         .path_and_query()
         .map_or("/", axum::http::uri::PathAndQuery::as_str);
-    let url = format!("{DOOR}{path_and_query}");
+    let url = format!("{}{path_and_query}", door.origin);
     let Ok(method) = reqwest::Method::from_bytes(request.method().as_str().as_bytes()) else {
         return StatusCode::BAD_GATEWAY.into_response();
     };
@@ -44,24 +92,27 @@ async fn proxy_door(State(client): State<Client>, request: Request) -> Response 
     let Ok(body) = axum::body::to_bytes(request.into_body(), BODY_LIMIT).await else {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     };
-    forward(&client, method, url, headers, body).await
+    forward(&door, method, url, headers, body).await
 }
 
 async fn forward(
-    client: &Client,
+    door: &DoorProxy,
     method: reqwest::Method,
     url: String,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     let origin = inbound_origin(&headers);
-    let mut upstream = client.request(method, url).timeout(Duration::from_secs(15));
+    let mut upstream = door
+        .client
+        .request(method, url)
+        .timeout(Duration::from_secs(15));
     for (name, value) in &headers {
         if hop_by_hop(name) {
             continue;
         }
         if name == header::ORIGIN
-            && let Some(rewritten) = rewrite_loopback_origin(value)
+            && let Some(rewritten) = rewrite_loopback_origin(value, &door.origin)
         {
             upstream = upstream.header(name, rewritten);
             continue;
@@ -97,14 +148,14 @@ async fn forward(
     }
 }
 
-fn rewrite_loopback_origin(origin: &HeaderValue) -> Option<HeaderValue> {
+fn rewrite_loopback_origin(origin: &HeaderValue, door_origin: &str) -> Option<HeaderValue> {
     let raw = origin.to_str().ok()?;
     let url = reqwest::Url::parse(raw).ok()?;
     let host = url.host_str()?;
-    if !host_is_loopback(host) || raw == DOOR {
+    if !host_is_loopback(host) || raw == door_origin {
         return None;
     }
-    Some(HeaderValue::from_static(DOOR))
+    HeaderValue::from_str(door_origin).ok()
 }
 
 fn inbound_origin(headers: &HeaderMap) -> Option<String> {
