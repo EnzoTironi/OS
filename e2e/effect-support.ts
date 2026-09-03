@@ -472,7 +472,6 @@ export async function prepareWorkerArtifact(
         "write-build-artifact.mjs",
       ),
       revision,
-      effectArtifactDirectory,
     ],
   );
 }
