@@ -150,7 +150,7 @@ Generated from \`program.json\`, \`frontier.json\`, and \`ledger.tsv\`.
 
 | Unit | Branch | Head or source | Pull request |
 | --- | --- | --- | --- |
-${activeUnits.map((unit) => `| ${unit.id} | ${escapeCell(unit.branch ?? "not assigned")} | ${escapeCell(unit.headSha ?? unit.sourceHeadSha ?? "not published")} | ${unit.pr ? `#${unit.pr}` : "not open"} |`).join("\n")}
+${activeUnits.map((unit) => `| ${unit.id} | ${escapeCell(unit.branch ?? "not assigned")} | ${escapeCell(unit.headSha ?? unit.sourceHeadSha ?? "not recorded")} | ${unit.pr ? `#${unit.pr}` : "not open"} |`).join("\n")}
 
 ## Merged pull requests
 

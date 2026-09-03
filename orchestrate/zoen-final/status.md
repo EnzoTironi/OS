@@ -15,7 +15,7 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 | Unit | Branch | Head or source | Pull request |
 | --- | --- | --- | --- |
-| W0-05 | codex/zoen-governed-north-ratification | not published | not open |
+| W0-05 | codex/zoen-governed-north-ratification | not recorded | #620 |
 | W1-03 | codex/w1-03-production-effect-handler | 904562917f994096aab46e6e7dbb04f08ca55919 | #617 |
 | W1-04 | codex/w1-04-eve-runtime-boundary | c149f62b1e45714c1357bf18a61eea025734beef | #618 |
 | W2-01 | codex/w2-01-world-release-contract | f00efc7f245db80ff0d0d9051986d4d61e0e20e8 | not open |

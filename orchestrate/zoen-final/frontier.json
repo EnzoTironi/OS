@@ -8,7 +8,7 @@
   "activeRatification": {
     "unit": "W0-05",
     "branch": "codex/zoen-governed-north-ratification",
-    "pr": null
+    "pr": 620
   },
   "activeCandidates": [
     {
