@@ -338,10 +338,14 @@ assert(
   "frontier and program main SHAs differ"
 );
 const effectRuntimeUnit = program.units.find(({ id }) => id === "W1-03");
+const eveRuntimeBoundaryUnit = program.units.find(({ id }) => id === "W1-04");
 const worldIdentityUnit = program.units.find(({ id }) => id === "W1-05");
 const ratificationUnit = program.units.find(({ id }) => id === "W0-05");
 const effectRuntimeMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 625
+);
+const eveRuntimeBoundaryMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 618
 );
 const worldIdentityMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 621
@@ -356,8 +360,11 @@ const deviceFlowRepairMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 622
 );
 assert(
-  program.base.sha === "4e33c57151ec8e3e28ee4c43a894da63173febc0" &&
-    worldIdentityUnit?.status === "done" &&
+  program.base.sha === "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3",
+  "program base must track the W1-04 journey-proof main tip"
+);
+assert(
+  worldIdentityUnit?.status === "done" &&
     worldIdentityMerge?.unit === "W1-05" &&
     worldIdentityMerge.head === "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9" &&
     worldIdentityMerge.merge === "edc5d1d172f12299a0920aabbcaca8c78c5d525b" &&
@@ -403,7 +410,7 @@ assert(
   effectRuntimeUnit?.status === "done" &&
     effectRuntimeUnit.pr === 625 &&
     effectRuntimeUnit.headSha === "6683cdcf47af02464a01aa021b34977f450da5d2" &&
-    effectRuntimeUnit.mergeSha === program.base.sha &&
+    effectRuntimeUnit.mergeSha === "4e33c57151ec8e3e28ee4c43a894da63173febc0" &&
     effectRuntimeMerge?.unit === "W1-03" &&
     effectRuntimeMerge.head === effectRuntimeUnit.headSha &&
     effectRuntimeMerge.merge === effectRuntimeUnit.mergeSha &&
@@ -412,6 +419,22 @@ assert(
     effectRuntimeMerge.fact.includes("44/44 effect-runtime proof") &&
     !frontier.activeCandidates.some(({ unit }) => unit === "W1-03"),
   "PR #625 must close W1-03 with its journey-verified merge"
+);
+assert(
+  eveRuntimeBoundaryUnit?.status === "done" &&
+    eveRuntimeBoundaryUnit.pr === 618 &&
+    eveRuntimeBoundaryUnit.headSha ===
+      "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3" &&
+    eveRuntimeBoundaryUnit.mergeSha === program.base.sha &&
+    eveRuntimeBoundaryMerge?.unit === "W1-04" &&
+    eveRuntimeBoundaryMerge.head === eveRuntimeBoundaryUnit.headSha &&
+    eveRuntimeBoundaryMerge.merge === eveRuntimeBoundaryUnit.mergeSha &&
+    eveRuntimeBoundaryMerge.mergedAt === "2026-09-03T11:30:11Z" &&
+    eveRuntimeBoundaryMerge.verification === "journey-verified" &&
+    eveRuntimeBoundaryMerge.fact.includes("messaging-boundary 27/27") &&
+    eveRuntimeBoundaryMerge.fact.includes("effect-runtime 44/44") &&
+    !frontier.activeCandidates.some(({ unit }) => unit === "W1-04"),
+  "PR #618 must close W1-04 with its journey-verified exact-tip proof"
 );
 const ledgerRows = parseAndValidateImplementationLedger(
   program.units,
@@ -428,6 +451,20 @@ assert(
     effectRuntimeLedger.verifiedAt === "2026-09-03T16:00:00Z" &&
     effectRuntimeLedger.mergedAt === "2026-09-03T17:02:36Z",
   "W1-03 must retain its exact journey-verified ledger verdict"
+);
+const eveRuntimeBoundaryLedger = ledgerRows.find(
+  ({ unitId }) => unitId === "W1-04"
+);
+assert(
+  eveRuntimeBoundaryLedger?.pr === "618" &&
+    eveRuntimeBoundaryLedger.headSha === eveRuntimeBoundaryUnit.headSha &&
+    eveRuntimeBoundaryLedger.mergeSha === eveRuntimeBoundaryUnit.mergeSha &&
+    eveRuntimeBoundaryLedger.verdict === "journey-verified" &&
+    eveRuntimeBoundaryLedger.evidence ===
+      "orchestrate/zoen-final/reports/w1-04-validation.md" &&
+    eveRuntimeBoundaryLedger.verifiedAt === "2026-09-03T19:30:00Z" &&
+    eveRuntimeBoundaryLedger.mergedAt === "2026-09-03T11:30:11Z",
+  "W1-04 must retain its exact journey-verified ledger verdict"
 );
 const worldIdentityLedger = ledgerRows.find(({ unitId }) => unitId === "W1-05");
 assert(
@@ -454,7 +491,7 @@ await Promise.all(
   })
 );
 assert(
-  frontier.landingOrder.join("|") === "W1-04|W2-01",
+  frontier.landingOrder.join("|") === "W1-06|W2-01",
   "landing order changed"
 );
 const allowedInitialPullRequestClassifications = new Set([
@@ -1037,6 +1074,7 @@ const markdownFiles = [
   "orchestrate/zoen-final/reports/w1-01-validation.md",
   "orchestrate/zoen-final/reports/w1-02-validation.md",
   "orchestrate/zoen-final/reports/w1-03-validation.md",
+  "orchestrate/zoen-final/reports/w1-04-validation.md",
   "orchestrate/zoen-final/reports/w1-05-validation.md",
 ];
 const markdownLinkTargets = (markdown) => {
