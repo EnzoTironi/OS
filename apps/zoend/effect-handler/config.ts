@@ -9,6 +9,7 @@ import path from "node:path";
 import { z } from "zod";
 
 export const EFFECT_HANDLER_HOST = "127.0.0.1";
+const EFFECT_HANDLER_TEST_HOST = "0.0.0.0";
 export const EFFECT_HANDLER_DEFAULT_PORT = 9081;
 export const EFFECT_WORKER_WORKLOAD_ID = "workload.effect-worker";
 
@@ -25,6 +26,7 @@ const apiKeySchema = z
   .brand<"WorkloadApiKey">();
 
 const environmentSchema = z.object({
+  NODE_ENV: z.enum(["production", "test"]).default("production"),
   ZOEN_CONNECTOR_CALLER_TOKEN: z
     .string()
     .min(1)
@@ -37,6 +39,9 @@ const environmentSchema = z.object({
     .max(60_000)
     .default(10_000),
   ZOEN_EFFECT_CONNECTOR_URL: z.url(),
+  ZOEN_EFFECT_HANDLER_HOST: z
+    .enum([EFFECT_HANDLER_HOST, EFFECT_HANDLER_TEST_HOST])
+    .default(EFFECT_HANDLER_HOST),
   ZOEN_EFFECT_HANDLER_PORT: z.coerce
     .number()
     .int()
@@ -91,7 +96,7 @@ export type EffectHandlerConfig = Readonly<{
     workloadId: typeof EFFECT_WORKER_WORKLOAD_ID;
   }>;
   listen: Readonly<{
-    host: typeof EFFECT_HANDLER_HOST;
+    host: typeof EFFECT_HANDLER_HOST | typeof EFFECT_HANDLER_TEST_HOST;
     port: number;
   }>;
   registration: Readonly<{
@@ -120,6 +125,14 @@ export function loadEffectHandlerConfig(
     );
   }
   const values = parsed.data;
+  if (
+    values.NODE_ENV !== "test" &&
+    values.ZOEN_EFFECT_HANDLER_HOST !== EFFECT_HANDLER_HOST
+  ) {
+    throw new EffectHandlerConfigurationError(
+      "ZOEN_EFFECT_HANDLER_HOST must remain loopback outside tests"
+    );
+  }
   const zoendUrl = localUrl(values.ZOEN_ZOEND, "ZOEN_ZOEND", "/");
   const connectorUrl = localUrl(
     values.ZOEN_EFFECT_CONNECTOR_URL,
@@ -168,7 +181,7 @@ export function loadEffectHandlerConfig(
       workloadId: values.ZOEN_EFFECT_WORKER_WORKLOAD_ID,
     },
     listen: {
-      host: EFFECT_HANDLER_HOST,
+      host: values.ZOEN_EFFECT_HANDLER_HOST,
       port: values.ZOEN_EFFECT_HANDLER_PORT,
     },
     registration: {

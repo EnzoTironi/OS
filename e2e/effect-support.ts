@@ -486,6 +486,7 @@ export async function startWorker(
     command: process.execPath,
     arguments: [path.join(effectArtifactDirectory, "main.js")],
     environment: {
+      NODE_ENV: "test",
       ZOEN_CONNECTOR_CALLER_TOKEN: connectorCallerToken,
       ZOEN_CONNECTOR_CREDENTIAL_REFS: JSON.stringify({
         [identity.tenantId]:
@@ -494,6 +495,7 @@ export async function startWorker(
             : "secret.provider.b",
       }),
       ZOEN_EFFECT_CONNECTOR_URL: connectorUrl,
+      ZOEN_EFFECT_HANDLER_HOST: "0.0.0.0",
       ZOEN_EFFECT_HANDLER_PORT: workerPort.toString(),
       ZOEN_EFFECT_REGISTRATION_LEASE_MAX_AGE_MS: "1000",
       ZOEN_EFFECT_REGISTRATION_STATUS_URL: `http://127.0.0.1:${registrarPort}/status`,
