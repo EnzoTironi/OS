@@ -42,6 +42,7 @@ jobs:
           cargo test --locked --workspace --exclude zoen-proto
           cargo build --locked --workspace
           ./e2e/run.sh run definition-publication
+          ./e2e/run.sh run cli-dest
           cargo llvm-cov report --workspace --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v5
         with:

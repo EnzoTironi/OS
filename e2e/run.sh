@@ -61,7 +61,7 @@ usage() {
 }
 
 no_compose_scenario() {
-  [[ "$scenario" == "public-surface" || "$scenario" == "cli-dest" ]]
+  [[ "$scenario" == "public-surface" ]]
 }
 
 load_scenario_env() {

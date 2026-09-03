@@ -13,6 +13,7 @@ import { readFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { runDeviceLoginJourney } from "./cli-dest/device-login.js";
 import { writeScenarioArtifact } from "./host-env.js";
 
 const scenario = "cli-dest";
@@ -320,11 +321,11 @@ async function main(): Promise<void> {
   record("login_help_has_examples", helpLogin.stdout.includes("Examples:"));
   record("login_help_has_email", helpLogin.stdout.includes("--email"));
   record("login_help_has_device", helpLogin.stdout.includes("--device"));
-  record("login_help_has_wait", helpLogin.stdout.includes("--wait"));
+  record("login_help_has_no_wait", !helpLogin.stdout.includes("--wait"));
   record("login_help_has_password_stdin", helpLogin.stdout.includes("--password-stdin"));
   record(
-    "login_help_device_wait_example",
-    helpLogin.stdout.includes("zoen auth login --device --wait"),
+    "login_help_device_poll_example",
+    helpLogin.stdout.includes("zoen auth login --device"),
   );
   const loginHelpExamples = helpLogin.stdout.split("Examples:")[1] ?? "";
   const loginHelpDeviceIdx = loginHelpExamples.indexOf("zoen auth login --device");
@@ -1304,56 +1305,7 @@ async function main(): Promise<void> {
     queryDoor.close();
   }
 
-  const deviceDoor = await listenHttp(
-    200,
-    JSON.stringify({
-      device_code: "dev-code",
-      expires_in: 1800,
-      interval: 5,
-      user_code: "ABCD1234",
-      verification_uri: "/device",
-      verification_uri_complete: "/device?user_code=ABCD1234",
-    }),
-  );
-  try {
-    const deviceLogin = runZoen(["auth", "login", "--device"], {
-      env: { ...process.env, ZOEN_ZOEND: `http://127.0.0.1:${deviceDoor.port}` },
-      timeoutMs: 5_000,
-    });
-    record("device_default_exits", deviceLogin.status === 0);
-    record(
-      "device_default_json_deviceCode",
-      deviceLogin.stdout.includes('"deviceCode"'),
-    );
-    record(
-      "device_default_json_userCode",
-      deviceLogin.stdout.includes("ABCD1234"),
-    );
-    record(
-      "device_default_json_verificationUri",
-      deviceLogin.stdout.includes('"verificationUri"'),
-    );
-    record(
-      "device_default_json_verificationUriComplete",
-      deviceLogin.stdout.includes('"verificationUriComplete"'),
-    );
-    record(
-      "device_default_open_stderr",
-      deviceLogin.stderr.includes("Open ") &&
-        deviceLogin.stderr.includes("ABCD1234"),
-    );
-    record(
-      "device_default_open_complete_uri",
-      deviceLogin.stderr.includes("/device?user_code=ABCD1234"),
-    );
-    record(
-      "device_default_stdout_not_open",
-      !deviceLogin.stdout.includes("Open "),
-    );
-    killMutant("zoen auth login --device polls until expires_in");
-  } finally {
-    deviceDoor.close();
-  }
+  await runDeviceLoginJourney(zoenPath, { killMutant, record });
 
   const explainMissing = runZoen(["history", "explain"], { env: cliEnv() });
   record("explain_missing_target_fails", explainMissing.status === 2);

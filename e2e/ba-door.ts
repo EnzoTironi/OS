@@ -72,6 +72,13 @@ export type AuthDoor = {
   output: string[];
 };
 
+type StartAuthDoorOptions = {
+  google?: {
+    clientId: string;
+    clientSecret: string;
+  };
+};
+
 const jsonObject = z.record(z.string(), z.unknown());
 const signupBodySchema = z
   .object({
@@ -158,14 +165,17 @@ export function corruptSessionToken(token: string): string {
   return `x${token}`;
 }
 
-export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> {
+export async function startAuthDoor(
+  authDatabaseUrl: string,
+  options: StartAuthDoorOptions = {},
+): Promise<AuthDoor> {
   const authRoot = path.join(process.cwd(), "apps", "auth");
   if (!existsSync(path.join(authRoot, "node_modules", "better-auth"))) {
     execFileSync("npm", ["ci"], { cwd: authRoot, stdio: "inherit" });
   }
   await ensureAuthDatabase(authDatabaseUrl);
   const secret = randomBytes(32).toString("base64");
-  const env = doorEnv(authDatabaseUrl, secret);
+  const env = doorEnv(authDatabaseUrl, secret, options.google);
   execFileSync(
     "npx",
     ["--yes", "auth@1.7.2", "migrate", "--config", "src/auth.ts", "--yes"],
@@ -556,14 +566,15 @@ async function connectPostgres(connectionString: string): Promise<PostgresClient
 function doorEnv(
   authDatabaseUrl: string,
   secret: string,
+  google: StartAuthDoorOptions["google"],
 ): NodeJS.ProcessEnv {
   return {
     ...process.env,
     BETTER_AUTH_SECRET: secret,
     BETTER_AUTH_URL: AUTH_DOOR_ORIGIN,
     DATABASE_URL: authDatabaseUrl,
-    GOOGLE_CLIENT_ID: "",
-    GOOGLE_CLIENT_SECRET: "",
+    GOOGLE_CLIENT_ID: google?.clientId ?? "",
+    GOOGLE_CLIENT_SECRET: google?.clientSecret ?? "",
   };
 }
 
