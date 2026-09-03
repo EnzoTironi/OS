@@ -1312,6 +1312,7 @@ async function main(): Promise<void> {
       interval: 5,
       user_code: "ABCD1234",
       verification_uri: "/device",
+      verification_uri_complete: "/device?user_code=ABCD1234",
     }),
   );
   try {
@@ -1333,9 +1334,17 @@ async function main(): Promise<void> {
       deviceLogin.stdout.includes('"verificationUri"'),
     );
     record(
+      "device_default_json_verificationUriComplete",
+      deviceLogin.stdout.includes('"verificationUriComplete"'),
+    );
+    record(
       "device_default_open_stderr",
       deviceLogin.stderr.includes("Open ") &&
         deviceLogin.stderr.includes("ABCD1234"),
+    );
+    record(
+      "device_default_open_complete_uri",
+      deviceLogin.stderr.includes("/device?user_code=ABCD1234"),
     );
     record(
       "device_default_stdout_not_open",
