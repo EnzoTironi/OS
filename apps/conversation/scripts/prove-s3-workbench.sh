@@ -720,6 +720,21 @@ done
 record "public zoend reaches Eve health" "curl ${zoend_base}/eve/v1/health" "${zoend_base}/eve/v1/health" "$health_code" "$eve_excerpt"
 [[ "$health_code" == "200" ]] || fail "eve health ${health_code}"
 
+body="${work}/eve-session-without-tenant"
+missing_tenant_code="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -b "$owner_jar" \
+    -H 'content-type: application/json' \
+    -d '{"message":"Open an unscoped workbench."}' \
+    "${zoend_base}/eve/v1/session"
+)"
+record "Better Auth cannot open an unscoped Eve session" \
+  "POST ${zoend_base}/eve/v1/session with Better Auth cookie and no x-zoen-tenant" \
+  "${zoend_base}/eve/v1/session" "$missing_tenant_code" \
+  "missing Membership context rejected body=$(excerpt_file "$body")"
+[[ "$missing_tenant_code" == "401" ]] \
+  || fail "Eve accepted a Better Auth session without a tenant (${missing_tenant_code})"
+
 body="${work}/eve-session"
 session_code="$(
   curl -sS -o "$body" -w '%{http_code}' \
@@ -731,6 +746,59 @@ session_code="$(
 )"
 [[ "$session_code" == "202" ]] || fail "eve session ${session_code}"
 session_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["sessionId"])' "$body")"
+
+body="${work}/cross-membership-continuation"
+cross_continuation_code="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -b "$reception_jar" \
+    -H 'content-type: application/json' \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    -d '{"message":"Continue another Membership session."}' \
+    "${zoend_base}/eve/v1/session/${session_id}"
+)"
+record "another Membership cannot continue an Eve session" \
+  "POST ${zoend_base}/eve/v1/session/${session_id} as membership B" \
+  "${zoend_base}/eve/v1/session/${session_id}" "$cross_continuation_code" \
+  "owner=${owner_membership} caller=${reception_membership} body=$(excerpt_file "$body")"
+[[ "$cross_continuation_code" == "403" ]] \
+  || fail "Membership B continued Membership A session (${cross_continuation_code})"
+
+body="${work}/cross-membership-stream"
+set +e
+cross_stream_code="$(
+  curl -sS --max-time 2 -o "$body" -w '%{http_code}' \
+    -b "$reception_jar" \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    "${zoend_base}/eve/v1/session/${session_id}/stream"
+)"
+cross_stream_exit="$?"
+set -e
+record "another Membership cannot stream an Eve session" \
+  "GET ${zoend_base}/eve/v1/session/${session_id}/stream as membership B" \
+  "${zoend_base}/eve/v1/session/${session_id}/stream" "$cross_stream_code" \
+  "curl_exit=${cross_stream_exit} owner=${owner_membership} caller=${reception_membership} body=$(excerpt_file "$body")"
+[[ "$cross_stream_code" == "403" ]] \
+  || fail "Membership B streamed Membership A session (${cross_stream_code})"
+
+body="${work}/owner-stream"
+set +e
+owner_stream_code="$(
+  curl -sS --max-time 2 -o "$body" -w '%{http_code}' \
+    -b "$owner_jar" \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    "${zoend_base}/eve/v1/session/${session_id}/stream"
+)"
+owner_stream_exit="$?"
+set -e
+record "owning Membership can stream its Eve session" \
+  "GET ${zoend_base}/eve/v1/session/${session_id}/stream as membership A" \
+  "${zoend_base}/eve/v1/session/${session_id}/stream" "$owner_stream_code" \
+  "curl_exit=${owner_stream_exit} owner=${owner_membership} body=$(excerpt_file "$body")"
+[[ "$owner_stream_code" == "200" ]] \
+  || fail "Membership A could not stream its Eve session (${owner_stream_code})"
+grep -q 'Open my membership workbench.' "$body" \
+  || fail "Membership A stream omitted its original message"
+
 session_context_file="$(wait_session_context "$session_id" "$owner_membership" "$tenant_id")" \
   || fail "Eve durable session omitted the resolved Membership context"
 record "Better Auth resolves Membership through canonical ZOEN_ZOEND" \
@@ -797,7 +865,7 @@ record "public zoend reaches Eve-owned Kapso rejection" \
 
 {
   printf '## Verdict\n\n'
-  printf 'pass. Eve authenticates through Better Auth, resolves Membership through canonical ZOEN_ZOEND, fails closed while zoend is unavailable, and recovers without restarting Eve. Health and unsigned Kapso reach Eve only through the public zoend proxy. The membership sandbox runs real zoen under isolate, Cedar still decides, the isolate cannot commit or use the network, and membership B cannot read membership A files.\n'
+  printf 'pass. Eve authenticates through Better Auth, requires a resolved Membership, and enforces durable per-session ownership for continuation and streaming. Membership resolution uses canonical ZOEN_ZOEND, fails closed while zoend is unavailable, and recovers without restarting Eve. Health and unsigned Kapso reach Eve only through the public zoend proxy. The membership sandbox runs real zoen under isolate, Cedar still decides, the isolate cannot commit or use the network, and membership B cannot read membership A files.\n'
 } >> "$draft"
 cp "$draft" "$proof"
 printf 'wrote %s\n' "$proof"
