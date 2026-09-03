@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +38,19 @@ const expectedInitialPullRequestNumbers = [
   601, 600, 598, 597, 593, 533, 532, 531, 530, 529, 528, 527, 526, 525, 524,
   523, 522, 521, 520, 519,
 ];
+const allowedInitialPullRequestClassifications = new Set([
+  "Replace",
+  "Drop",
+  "Keep and restack",
+  "Regenerate",
+  "Coordinate",
+  "Safe cohort",
+  "Blocked pair",
+  "Defer",
+]);
+const initialPullRequestDispositionsDigest =
+  "sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38";
+const expectedDependencyCount = 112;
 
 const fail = (message) => {
   throw new Error(message);
@@ -52,6 +66,30 @@ const unique = (values, label) => {
     );
   }
 };
+const expectFailure = (action, expectedMessage, label) => {
+  let message = "";
+  try {
+    action();
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  if (!message.includes(expectedMessage)) {
+    fail(`${label} did not reject the invalid fixture`);
+  }
+};
+const dispositionDigest = (items) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify(
+        items.map(({ number, classification, disposition, reason }) => [
+          number,
+          classification,
+          disposition,
+          reason,
+        ])
+      )
+    )
+    .digest("hex");
 
 if (program.units.length !== 52) {
   fail(`program must contain 52 units, found ${program.units.length}`);
@@ -109,12 +147,36 @@ if (
 }
 for (const item of initialPullRequestDispositions) {
   if (
+    !allowedInitialPullRequestClassifications.has(item.classification) ||
     [item.classification, item.disposition, item.reason].some(
       (value) => typeof value !== "string" || value.trim().length === 0
     )
   ) {
     fail(`PR #${item.number} has an incomplete initial disposition`);
   }
+}
+if (
+  `sha256:${dispositionDigest(initialPullRequestDispositions)}` !==
+    initialPullRequestDispositionsDigest ||
+  frontier.initialPullRequestDispositionsDigest !==
+    initialPullRequestDispositionsDigest
+) {
+  fail("initial pull request dispositions differ from the ratified snapshot");
+}
+const journeyInfrastructure = frontier.journeyInfrastructure ?? [];
+const [infrastructureSnapshot] = journeyInfrastructure;
+if (
+  journeyInfrastructure.length !== 1 ||
+  infrastructureSnapshot.number !== 619 ||
+  infrastructureSnapshot.snapshotKind !== "immutable-audit-evidence" ||
+  infrastructureSnapshot.headShaAtAudit !==
+    "93c800c9de09f43a8b0b145037ac989da7e6782f" ||
+  !(infrastructureSnapshot.observedAt && infrastructureSnapshot.provenance) ||
+  "state" in infrastructureSnapshot ||
+  "head" in infrastructureSnapshot ||
+  "branch" in infrastructureSnapshot
+) {
+  fail("PR #619 must remain immutable audit evidence, not a live candidate");
 }
 if (unitIds.includes("W1-H1")) {
   fail("the retired PR 616 runtime must not be a canonical unit");
@@ -262,6 +324,29 @@ const unitsTsv = withFinalNewline([
 const dependencyRows = program.units.flatMap((unit) =>
   unit.dependencies.map((dependency) => [unit.id, dependency])
 );
+const validateDependencyRows = (rows) => {
+  if (rows.length !== expectedDependencyCount) {
+    fail(
+      `program must contain ${expectedDependencyCount} dependency rows, found ${rows.length}`
+    );
+  }
+  unique(
+    rows.map(([unit, dependency]) => `${unit}\u0000${dependency}`),
+    "dependency pairs"
+  );
+};
+expectFailure(
+  () => {
+    const validFixture = Array.from(
+      { length: expectedDependencyCount },
+      (_, index) => [`W${index}`, `W${index + 1}`]
+    );
+    validateDependencyRows([...validFixture.slice(0, -1), validFixture[0]]);
+  },
+  "dependency pairs contains duplicates",
+  "duplicate dependency pair self-check"
+);
+validateDependencyRows(dependencyRows);
 const dependenciesTsv = withFinalNewline([
   "unit_id\tdependency_id",
   ...dependencyRows.map((row) => row.join("\t")),
@@ -300,7 +385,6 @@ const counts = Object.fromEntries(
 );
 const activeUnits = program.units.filter((unit) => unit.status === "active");
 const merged = frontier.mergedPullRequests;
-const journeyInfrastructure = frontier.journeyInfrastructure ?? [];
 const status = `# Zoen final program status
 
 Generated from \`program.json\`, \`frontier.json\`, and \`ledger.tsv\`.
@@ -314,6 +398,7 @@ Generated from \`program.json\`, \`frontier.json\`, and \`ledger.tsv\`.
 - Products: ${program.products.join(", ")}
 - Public verbs: ${program.verbs.join(", ")}
 - WorldRelease catalogs: ${program.worldReleaseCatalogs.join(", ")}
+- Initial PR disposition digest: \`${initialPullRequestDispositionsDigest}\`
 
 ## Active units
 
@@ -329,11 +414,13 @@ ${merged.map((item) => `| #${item.number} | ${item.unit ?? "toolchain"} | ${item
 
 PR 611 produced the current \`main\` commit and activated Rust 1.98 with Kache.
 
-## Journey infrastructure outside the unit graph
+## Immutable journey-infrastructure audit evidence
 
-| Pull request | State | Branch | Head | Scope |
-| --- | --- | --- | --- | --- |
-${journeyInfrastructure.map((item) => `| #${item.number} | ${item.state} | ${item.branch} | ${item.head} | ${escapeCell(item.fact)} |`).join("\n")}
+This snapshot does not track the live PR or branch. It is evidence outside the 52-unit graph.
+
+| Pull request | Record | State at audit | Branch at audit | Head at audit | Observed at | Provenance | Scope |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+${journeyInfrastructure.map((item) => `| #${item.number} | ${item.snapshotKind} | ${item.stateAtAudit} | ${item.branchAtAudit} | ${item.headShaAtAudit} | ${item.observedAt} | ${escapeCell(item.provenance)} | ${escapeCell(item.fact)} |`).join("\n")}
 
 ## Initial pull request dispositions
 
@@ -384,6 +471,6 @@ if (staleFiles.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    `program valid: ${program.units.length} units, ${program.journeys.length} journeys, ${program.finalGates.length} final gates, ${dependencyRows.length} dependencies`
+    `program valid: ${program.units.length} units, ${program.journeys.length} journeys, ${program.finalGates.length} final gates, ${dependencyRows.length} unique dependencies; duplicate-pair self-check passed`
   );
 }

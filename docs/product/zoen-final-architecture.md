@@ -401,16 +401,16 @@ Delete rather than wrap:
 - shared `unbound` workbench path
 - boot-only Fly policy authority
 
-## Launch journeys
+## Launch proof examples
 
-These are the acceptance tests for the architecture itself.
+These seven examples illustrate product behavior. They are not the acceptance catalog. [`program.json`](../../orchestrate/zoen-final/program.json) defines the eight canonical journeys, J1 through J8. J1 proves governed release and bootstrap. J8 proves production recovery.
 
-1. One person signs in, links WhatsApp and Telegram, and gets one identity across both channels.
-2. Eve remembers a fact only after a governed receipt exists.
-3. Eve schedules two reminders, retries safely, and delivers once through the verified origin channel.
-4. One family member proposes an action and another approves it within scoped authority.
-5. A clinic agent reads only authorized patient objects and can explain why.
-6. A factory MCP agent discovers, proposes, commits, and explains the same verbs.
+1. J5: One person signs in, links WhatsApp and Telegram, and gets one identity across both channels.
+2. J2: Eve remembers a fact only after a governed receipt exists.
+3. J6: Eve schedules two reminders, retries safely, and delivers once through the verified origin channel.
+4. J3: One family member proposes an action and another approves it within scoped authority.
+5. J4: A clinic agent reads only authorized patient objects and can explain why.
+6. J7: A factory MCP agent discovers, proposes, commits, and explains the same verbs.
 7. Every action, effect, evidence write, policy decision, and agent invocation is attributable.
 
 ## Execution order

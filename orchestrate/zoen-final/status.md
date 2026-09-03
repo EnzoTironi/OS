@@ -11,6 +11,7 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 - Products: Ontology, Eve, Better Auth
 - Public verbs: Discover, Query, Propose, Decide, Commit, Explain, Execute
 - WorldRelease catalogs: ontology, policy, executors, components
+- Initial PR disposition digest: `sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38`
 
 ## Active units
 
@@ -31,11 +32,13 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 PR 611 produced the current `main` commit and activated Rust 1.98 with Kache.
 
-## Journey infrastructure outside the unit graph
+## Immutable journey-infrastructure audit evidence
 
-| Pull request | State | Branch | Head | Scope |
-| --- | --- | --- | --- | --- |
-| #619 | open | codex/e2e-concurrent-isolation | 93c800c9de09f43a8b0b145037ac989da7e6782f | Concurrent journey isolation infrastructure; separate from the canonical 52-unit product program. |
+This snapshot does not track the live PR or branch. It is evidence outside the 52-unit graph.
+
+| Pull request | Record | State at audit | Branch at audit | Head at audit | Observed at | Provenance | Scope |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| #619 | immutable-audit-evidence | open | codex/e2e-concurrent-isolation | 93c800c9de09f43a8b0b145037ac989da7e6782f | 2026-09-03T04:21:55Z | W0-05 authoritative task handoff; this record does not follow the live branch. | Concurrent journey isolation infrastructure; separate from the canonical 52-unit product program. |
 
 ## Initial pull request dispositions
 

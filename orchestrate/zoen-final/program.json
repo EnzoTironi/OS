@@ -33,7 +33,27 @@
       "negativeProof": "Same-World non-builder and missing policy both fail before any commit; stale activation fails.",
       "replayProof": "An identical candidate replay reauthorizes the current caller, returns the original publication, and creates no second commit; a revoked caller is denied.",
       "isolationProof": "Another World or Membership cannot publish or activate for this World; publication visibility grants no authority, and the digest remains bound to its World and four catalogs.",
-      "recoveryProof": "A crash between publication and activation preserves the candidate and prior active pointer; retry converges to at most one active release."
+      "recoveryProof": "A crash between publication and activation preserves the candidate and prior active pointer; retry converges to at most one active release.",
+      "bootstrapCeremony": {
+        "decision": "RAT-04",
+        "scope": "first release for one World",
+        "transactionalArtifacts": [
+          "World",
+          "owner Membership",
+          "candidate release",
+          "publication record",
+          "active-release pointer"
+        ],
+        "refusesWhenAnyExists": [
+          "release",
+          "active-release pointer",
+          "Membership",
+          "completed bootstrap record"
+        ],
+        "capabilityAfterCommit": "removed",
+        "superuser": "forbidden",
+        "laterBypass": "forbidden"
+      }
     },
     {
       "id": "J2",
@@ -73,7 +93,51 @@
       "negativeProof": "Telegram B cannot read A's receipts or workbench and never receives A's reply; webhook replay creates no second operation.",
       "replayProof": "The same signed webhook event resolves to one operation and one logical reply through its verified origin.",
       "isolationProof": "Telegram B remains a separate Account and World context and cannot read or receive data from A.",
-      "recoveryProof": "A restart preserves channel bindings, the Membership workbench, and delivery state, then resumes only the verified origin."
+      "recoveryProof": "A restart preserves channel bindings, the Membership workbench, and delivery state, then resumes only the verified origin.",
+      "channelIdentityProof": {
+        "participants": [
+          {
+            "participant": "Web A",
+            "requiredBinding": "Better Auth A to Account A to Membership A",
+            "realAction": "Start a conversation and commit a governed memory",
+            "backendEvidence": "`TurnCapability` records Account A, Membership A, active release, and operation",
+            "visibleEvidence": "The receipt appears in the same authenticated workbench"
+          },
+          {
+            "participant": "Telegram A",
+            "requiredBinding": "Telegram subject A to a verified binding chosen for fixture A",
+            "realAction": "Send nonce A from the visible Telegram A account",
+            "backendEvidence": "Audit records binding A, World A, operation A, and delivery A",
+            "visibleEvidence": "Reply appears only in Telegram A"
+          },
+          {
+            "participant": "Telegram B",
+            "requiredBinding": "Telegram subject B to Account B and Membership B",
+            "realAction": "Revalidate the visible account, then send nonce B",
+            "backendEvidence": "Audit records binding B, World B, operation B, and delivery B",
+            "visibleEvidence": "Reply appears only in Telegram B; nonce A and receipt A are absent"
+          },
+          {
+            "participant": "WhatsApp",
+            "requiredBinding": "Kapso `waId` to a verified ChannelBinding",
+            "realAction": "Send a real message in the test thread",
+            "backendEvidence": "Signature, binding, operation, and delivery are recorded",
+            "visibleEvidence": "Reply appears in the same thread and not in either Telegram account"
+          },
+          {
+            "participant": "Restart",
+            "requiredBinding": "Existing delivery intents for A and B",
+            "realAction": "Restart after commit and around provider send",
+            "backendEvidence": "One logical operation and one stable delivery intent survive",
+            "visibleEvidence": "Each origin sees at most one logical reply"
+          }
+        ],
+        "sharedTelegramBrowserProfile": {
+          "execution": "serialized",
+          "revalidateVisibleIdentityBeforeEachAction": true,
+          "parallelBrowserActions": "forbidden"
+        }
+      }
     },
     {
       "id": "J6",

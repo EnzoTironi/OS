@@ -28,6 +28,20 @@ const assert = (condition, message) => {
     fail(message);
   }
 };
+const expectFailure = (action, expectedMessage, label) => {
+  let message = "";
+  try {
+    action();
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  assert(
+    message.includes(expectedMessage),
+    `${label} did not reject the invalid fixture`
+  );
+};
+const semanticDigest = (value) =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const isContainedPath = (repositoryRoot, candidate) => {
   const relativePath = relative(repositoryRoot, candidate);
   return (
@@ -150,6 +164,7 @@ const visual = await read(
   "docs/product/show-me-zoen-governed-data-extension.html"
 );
 const preferences = await read("orchestrate/zoen-final/preferences.md");
+const workflow = await read(".github/workflows/verify.yml");
 const agents = await read("AGENTS.md");
 
 assert(program.units.length === 52, "program.json must contain 52 units");
@@ -183,6 +198,80 @@ for (const journey of program.journeys) {
     `${journey.id} must define actors, path, negative, replay, isolation, and recovery proof`
   );
 }
+const journeysById = new Map(
+  program.journeys.map((journey) => [journey.id, journey])
+);
+const bootstrapCeremony = journeysById.get("J1")?.bootstrapCeremony;
+assert(
+  bootstrapCeremony?.decision === "RAT-04" &&
+    bootstrapCeremony.scope === "first release for one World" &&
+    bootstrapCeremony.transactionalArtifacts?.join("|") ===
+      "World|owner Membership|candidate release|publication record|active-release pointer" &&
+    bootstrapCeremony.refusesWhenAnyExists?.join("|") ===
+      "release|active-release pointer|Membership|completed bootstrap record" &&
+    bootstrapCeremony.capabilityAfterCommit === "removed" &&
+    bootstrapCeremony.superuser === "forbidden" &&
+    bootstrapCeremony.laterBypass === "forbidden",
+  "J1 must encode every RAT-04 bootstrap constraint"
+);
+const channelIdentityProof = journeysById.get("J5")?.channelIdentityProof;
+const channelParticipants = channelIdentityProof?.participants ?? [];
+const channelProofFields = [
+  "participant",
+  "requiredBinding",
+  "realAction",
+  "backendEvidence",
+  "visibleEvidence",
+];
+assert(
+  channelParticipants.map(({ participant }) => participant).join("|") ===
+    "Web A|Telegram A|Telegram B|WhatsApp|Restart" &&
+    channelParticipants.every((participant) =>
+      channelProofFields.every(
+        (field) =>
+          typeof participant[field] === "string" &&
+          participant[field].trim().length > 0
+      )
+    ),
+  "J5 must retain backend and visible evidence for every participant"
+);
+const sharedTelegramBrowserProfile =
+  channelIdentityProof?.sharedTelegramBrowserProfile;
+assert(
+  sharedTelegramBrowserProfile?.execution === "serialized" &&
+    sharedTelegramBrowserProfile.revalidateVisibleIdentityBeforeEachAction ===
+      true &&
+    sharedTelegramBrowserProfile.parallelBrowserActions === "forbidden" &&
+    channelParticipants[4]?.backendEvidence.includes("stable delivery intent"),
+  "J5 must serialize a shared Telegram profile and preserve delivery intent"
+);
+const channelIdentitySemanticValue = [
+  channelParticipants.map(
+    ({
+      participant,
+      requiredBinding,
+      realAction,
+      backendEvidence,
+      visibleEvidence,
+    }) => [
+      participant,
+      requiredBinding,
+      realAction,
+      backendEvidence,
+      visibleEvidence,
+    ]
+  ),
+  [
+    sharedTelegramBrowserProfile?.execution,
+    sharedTelegramBrowserProfile?.revalidateVisibleIdentityBeforeEachAction,
+    sharedTelegramBrowserProfile?.parallelBrowserActions,
+  ],
+];
+assert(
+  semanticDigest(channelIdentitySemanticValue) ===
+    "a10016a1a25aa7d84786c38180bfe8628090ac1c7611972970351a5eee6ddaf4",
+  "J5 channel identity matrix differs from the W0 synthesis"
+);
 assert(
   program.finalGates.map(({ id }) => id).join("|") ===
     "FIN-01|FIN-02|FIN-03|FIN-04|FIN-05|FIN-06|FIN-07|FIN-08|FIN-09",
@@ -210,44 +299,87 @@ assert(
   frontier.landingOrder.join("|") === "W1-03|W1-04|W2-01",
   "landing order changed"
 );
-const expectedInitialPullRequests = [
-  "601|Replace",
-  "600|Drop",
-  "598|Replace",
-  "597|Keep and restack",
-  "593|Regenerate",
-  "533|Coordinate",
-  "532|Coordinate",
-  "531|Safe cohort",
-  "530|Blocked pair",
-  "529|Blocked pair",
-  "528|Blocked pair",
-  "527|Blocked pair",
-  "526|Safe cohort",
-  "525|Safe cohort",
-  "524|Defer",
-  "523|Regenerate",
-  "522|Safe cohort",
-  "521|Regenerate",
-  "520|Defer",
-  "519|Safe cohort",
-];
+const allowedInitialPullRequestClassifications = new Set([
+  "Replace",
+  "Drop",
+  "Keep and restack",
+  "Regenerate",
+  "Coordinate",
+  "Safe cohort",
+  "Blocked pair",
+  "Defer",
+]);
+const initialPullRequestDispositionsDigest =
+  "sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38";
+const validateInitialPullRequestDispositions = (items) => {
+  assert(items.length === 20, "frontier must contain 20 initial PR records");
+  assert(
+    new Set(items.map(({ number }) => number)).size === 20,
+    "initial PR numbers must be unique"
+  );
+  assert(
+    items.every(({ classification }) =>
+      allowedInitialPullRequestClassifications.has(classification)
+    ),
+    "initial PR classification is outside the ratified enum"
+  );
+  const records = items.map(
+    ({ number, classification, disposition, reason }) => [
+      number,
+      classification,
+      disposition,
+      reason,
+    ]
+  );
+  assert(
+    `sha256:${semanticDigest(records)}` ===
+      initialPullRequestDispositionsDigest,
+    "initial PR records differ from the ratified semantic digest"
+  );
+};
 const initialPullRequestDispositions =
   frontier.initialPullRequestDispositions ?? [];
-assert(
-  initialPullRequestDispositions
-    .map(({ number, classification }) => `${number}|${classification}`)
-    .join("\n") === expectedInitialPullRequests.join("\n"),
-  "frontier must preserve all 20 authoritative initial PR classifications"
-);
-for (const item of initialPullRequestDispositions) {
-  assert(
-    [item.disposition, item.reason].every(
-      (value) => typeof value === "string" && value.trim().length > 0
+const mutatedInitialPullRequestDispositions =
+  initialPullRequestDispositions.map((item) => ({ ...item }));
+mutatedInitialPullRequestDispositions[0] = {
+  ...mutatedInitialPullRequestDispositions[0],
+  classification: "Drop",
+  disposition: "Merge as-is",
+  reason: "Approved",
+};
+expectFailure(
+  () =>
+    validateInitialPullRequestDispositions(
+      mutatedInitialPullRequestDispositions
     ),
-    `PR #${item.number} has an incomplete initial disposition`
-  );
-}
+  "ratified semantic digest",
+  "Drop|Merge as-is|Approved disposition self-check"
+);
+validateInitialPullRequestDispositions(initialPullRequestDispositions);
+assert(
+  frontier.initialPullRequestDispositionsDigest ===
+    initialPullRequestDispositionsDigest,
+  "frontier initial PR digest does not match the validator"
+);
+const journeyInfrastructure = frontier.journeyInfrastructure ?? [];
+const [infrastructureSnapshot] = journeyInfrastructure;
+assert(
+  journeyInfrastructure.length === 1 &&
+    infrastructureSnapshot.number === 619 &&
+    infrastructureSnapshot.snapshotKind === "immutable-audit-evidence" &&
+    infrastructureSnapshot.stateAtAudit === "open" &&
+    infrastructureSnapshot.branchAtAudit === "codex/e2e-concurrent-isolation" &&
+    infrastructureSnapshot.headShaAtAudit ===
+      "93c800c9de09f43a8b0b145037ac989da7e6782f" &&
+    /^2026-09-03T\d{2}:\d{2}:\d{2}Z$/.test(infrastructureSnapshot.observedAt) &&
+    infrastructureSnapshot.provenance.includes(
+      "this record does not follow the live branch"
+    ) &&
+    !("state" in infrastructureSnapshot) &&
+    !("head" in infrastructureSnapshot) &&
+    !("branch" in infrastructureSnapshot),
+  "PR #619 must be an immutable, provenance-bearing audit snapshot"
+);
 assert(
   frontier.dispositions.some(
     (item) =>
@@ -302,6 +434,18 @@ assert(
     "Their canonical constructor derives `ReleaseDigest`; callers cannot supply it. This is type encapsulation, not secrecy."
   ),
   "architecture does not state the private-field boundary"
+);
+assert(
+  architecture.includes("## Launch proof examples") &&
+    architecture.includes(
+      "[`program.json`](../../orchestrate/zoen-final/program.json) defines the eight canonical journeys, J1 through J8."
+    ) &&
+    architecture.includes("J1 proves governed release and bootstrap.") &&
+    architecture.includes("J8 proves production recovery.") &&
+    !architecture.includes(
+      "These are the acceptance tests for the architecture itself."
+    ),
+  "architecture must defer the J1-J8 acceptance catalog to program.json"
 );
 assert(spec.includes("Status: Ratified by W0-05"), "spec is not ratified");
 assert(
@@ -432,6 +576,36 @@ assert(
     "Do not add compatibility aliases, dual reads, dual writes, or preservation work"
   ),
   "pre-launch compatibility rule is missing"
+);
+const requiredWorkingAgreements = [
+  "private Cargo `target`",
+  "Workers never merge or deploy.",
+  "only the exact head SHA verified in the ledger",
+  "Resolve every actionable human and automated review comment before merge.",
+  "Every unit reports its branch, head SHA, exact commands, verdict, deviations, and follow-up risks.",
+];
+assert(
+  requiredWorkingAgreements.every((agreement) =>
+    preferences.includes(agreement)
+  ),
+  "program working agreements omit a worker or coordinator constraint"
+);
+const checkJobStart = workflow.indexOf("\n  check:\n");
+const clippyJobStart = workflow.indexOf("\n  clippy:\n", checkJobStart);
+const checkJob = workflow.slice(checkJobStart, clippyJobStart);
+const requiredProgramCommands = [
+  "node orchestrate/zoen-final/render-status.mjs",
+  "node orchestrate/zoen-final/verify-ratification.mjs",
+];
+assert(
+  checkJobStart >= 0 &&
+    clippyJobStart > checkJobStart &&
+    requiredProgramCommands.every(
+      (command) => checkJob.split(command).length === 2
+    ) &&
+    !checkJob.includes("--write") &&
+    workflow.includes("needs: [check, clippy, build, e2e]"),
+  "required CI must run both canonical program checks without writing"
 );
 assert(
   !/\bproposed\b|decisão proposta|extensão proposta/i.test(spec),
@@ -564,11 +738,55 @@ const decisions = (await read("orchestrate/zoen-final/decisions.tsv"))
   .split("\n")
   .slice(1)
   .map((line) => line.split("\t"));
+const expectedRatificationDecisionSequence =
+  "RAT-01|RAT-02|RAT-03|RAT-04|RAT-05|RAT-06|RAT-07";
+const expectedRatificationDecisionIds =
+  expectedRatificationDecisionSequence.split("|");
+const validateDecisionIds = (rows) => {
+  const decisionIds = rows.map(([id]) => id);
+  assert(
+    decisionIds.filter((id) => id === "LIC-01").length === 1,
+    "decisions.tsv must contain exactly one LIC-01"
+  );
+  assert(
+    new Set(decisionIds).size === decisionIds.length,
+    "decision IDs must be unique"
+  );
+  assert(
+    decisionIds.filter((id) => id.startsWith("RAT-")).join("|") ===
+      expectedRatificationDecisionSequence,
+    "ratification decision IDs must be exactly RAT-01 through RAT-07"
+  );
+};
+const validDecisionIdFixture = [
+  ...expectedRatificationDecisionIds.map((id) => [id]),
+  ["LIC-01"],
+  ["OPS-01"],
+];
+expectFailure(
+  () => validateDecisionIds([...validDecisionIdFixture, ["RAT-07"]]),
+  "decision IDs must be unique",
+  "duplicate ratification decision self-check"
+);
+expectFailure(
+  () =>
+    validateDecisionIds(
+      validDecisionIdFixture.map(([id]) => [id === "RAT-07" ? "RAT-08" : id])
+    ),
+  "exactly RAT-01 through RAT-07",
+  "wrong ratification decision self-check"
+);
+expectFailure(
+  () => validateDecisionIds([...validDecisionIdFixture, ["LIC-01"]]),
+  "exactly one LIC-01",
+  "duplicate LIC-01 self-check"
+);
+validateDecisionIds(decisions);
 assert(
-  decisions.filter(
-    ([id, , status]) => id.startsWith("RAT-") && status === "ratified"
-  ).length === 7,
-  "decisions.tsv must contain seven ratified decisions"
+  decisions
+    .filter(([id]) => id.startsWith("RAT-"))
+    .every(([, , status]) => status === "ratified"),
+  "RAT-01 through RAT-07 must all remain ratified"
 );
 const decisionsById = new Map(decisions.map((row) => [row[0], row]));
 const ratificationFour = decisionsById.get("RAT-04")?.[3] ?? "";
@@ -779,5 +997,5 @@ assert(
 );
 
 console.log(
-  "ratification valid: canonical path containment self-checks, links, HTML, JSON, TSV, research hashes, and product invariants passed"
+  "ratification valid: path, decision-ID, and disposition-mutation self-checks; links, HTML, JSON, TSV, research hashes, and product invariants passed"
 );

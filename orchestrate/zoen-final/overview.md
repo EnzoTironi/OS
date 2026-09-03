@@ -51,7 +51,7 @@ W1-H1 is absent by design. PR 616 is closed, unmerged, and retired. The program 
 
 ## Evidence and status
 
-- `frontier.json` records current `main`, merged pull requests, active candidates, retired PRs, and explicit dispositions for all 20 initial pull requests that W8-03 must resolve.
+- `frontier.json` records current `main`, merged pull requests, active candidates, retired PRs, and explicit dispositions for all 20 initial pull requests that W8-03 must resolve. Its PR #619 entry is immutable audit evidence, not a live-head record.
 - `ledger.tsv` records exact-head verification verdicts.
 - `decisions.tsv` records the seven ratified design decisions, the separate AGPL no-reuse disposition, and program operations.
 - `status.md`, `units.tsv`, `dependencies.tsv`, `journeys.tsv`, and `final-gates.tsv` are generated from the canonical sources. Every journey row records actors, path, negative, replay, isolation, and recovery proof.

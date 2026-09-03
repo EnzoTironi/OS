@@ -11,7 +11,10 @@ These rules apply to the 52-unit program in `program.json`.
 - Do not add Redis, a fourth product, a fifth release catalog, or provider-specific public verbs.
 - Pre-launch changes delete obsolete paths. Do not add compatibility aliases, dual reads, dual writes, or preservation work unless Enzo asks for them.
 - Journeys drive the products. Do not add unit tests, mocks, fakes, stubs, or `vi.mock`.
-- Use one writer per worktree. Give each worker its own branch and writable build state.
+- Use one writer per worktree. Give each worker its own branch and private Cargo `target`. Concurrent workers never share writable build state.
+- Workers never merge or deploy. Only the coordinator may merge or deploy, and only the exact head SHA verified in the ledger. W0-05 performs neither action.
+- Resolve every actionable human and automated review comment before merge. Any review-driven commit invalidates the prior verdict.
+- Every unit reports its branch, head SHA, exact commands, verdict, deviations, and follow-up risks.
 - Use the `gh` CLI for GitHub work. Do not add repository-owned PR Cockpit or Graphite wiring.
 - Do not revive PR 616 or its runtime design.
 - Do not use Herdr, Cursor SDK, Portless, force-push, or deployment in W0-05.
