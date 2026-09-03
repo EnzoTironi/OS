@@ -172,7 +172,6 @@ type Evidence = {
 type ServerProcess = {
   child: ChildProcessWithoutNullStreams;
   output: string[];
-  processGroup: boolean;
 };
 
 type AsyncCli = {
@@ -202,7 +201,6 @@ type DeviceLink = {
 type BrowserProcess = {
   child: ChildProcessWithoutNullStreams;
   page: CdpPage;
-  processGroup: boolean;
 };
 
 type CdpPending = {
@@ -1391,7 +1389,6 @@ class CdpPage {
 async function startBrowser(home: string): Promise<BrowserProcess> {
   const executable = await chromeExecutable();
   const output: string[] = [];
-  const processGroup = process.platform !== "win32";
   const child = spawn(
     executable,
     [
@@ -1406,7 +1403,6 @@ async function startBrowser(home: string): Promise<BrowserProcess> {
       "about:blank",
     ],
     {
-      detached: processGroup,
       stdio: ["pipe", "pipe", "pipe"],
     },
   );
@@ -1432,7 +1428,6 @@ async function startBrowser(home: string): Promise<BrowserProcess> {
             return {
               child,
               page: await CdpPage.connect(parsed.data.webSocketDebuggerUrl),
-              processGroup,
             };
           }
         }
@@ -1441,12 +1436,9 @@ async function startBrowser(home: string): Promise<BrowserProcess> {
     }
     throw new Error(`Chromium did not expose a page target:\n${output.join("")}`);
   } catch (error) {
-    await stopProcess(
-      child,
-      "SIGTERM",
-      "Chromium startup",
-      processGroup,
-    ).catch(() => undefined);
+    await stopProcess(child, "SIGTERM", "Chromium startup").catch(
+      () => undefined,
+    );
     throw error;
   }
 }
@@ -1498,12 +1490,7 @@ async function waitForDevtoolsUrl(
 
 async function stopBrowser(browser: BrowserProcess): Promise<void> {
   browser.page.close();
-  await stopProcess(
-    browser.child,
-    "SIGTERM",
-    "Chromium",
-    browser.processGroup,
-  );
+  await stopProcess(browser.child, "SIGTERM", "Chromium");
 }
 
 async function waitForCondition(
@@ -1547,10 +1534,8 @@ async function startServer(
     `zoend port ${port} is already occupied`,
   );
   const output: string[] = [];
-  const processGroup = process.platform !== "win32";
   const child = spawn(zoenPath, ["serve"], {
     cwd: process.cwd(),
-    detached: processGroup,
     env: sessionDoorProcessEnv({
       applicationDatabaseUrl,
       authDatabaseUrl,
@@ -1577,29 +1562,21 @@ async function startServer(
         throw new Error(`zoend exited during startup:\n${output.join("")}`);
       }
       if (await portOpen(port)) {
-        return { child, output, processGroup };
+        return { child, output };
       }
       await delay(100);
     }
     throw new Error(`zoend did not listen on port ${port}`);
   } catch (error) {
-    await stopProcess(
-      child,
-      "SIGTERM",
-      "zoend startup",
-      processGroup,
-    ).catch(() => undefined);
+    await stopProcess(child, "SIGTERM", "zoend startup").catch(
+      () => undefined,
+    );
     throw error;
   }
 }
 
 async function stopServer(server: ServerProcess): Promise<void> {
-  await stopProcess(
-    server.child,
-    "SIGINT",
-    "zoend",
-    server.processGroup,
-  );
+  await stopProcess(server.child, "SIGINT", "zoend");
   assert.ok(
     server.child.exitCode === 0 || server.child.signalCode === "SIGINT",
     `zoend failed during shutdown:\n${server.output.join("")}`,
@@ -1646,38 +1623,18 @@ async function stopProcess(
   child: ChildProcessWithoutNullStreams,
   signal: NodeJS.Signals,
   name: string,
-  processGroup = false,
 ): Promise<void> {
-  signalOwnedProcess(child, signal, processGroup);
+  if (!processExited(child)) {
+    child.kill(signal);
+  }
   try {
     await waitForProcessExit(child, 10_000, name);
   } catch (error) {
-    signalOwnedProcess(child, "SIGKILL", processGroup);
+    if (!processExited(child)) {
+      child.kill("SIGKILL");
+    }
     await waitForProcessExit(child, 3_000, name);
     throw error;
-  }
-}
-
-function signalOwnedProcess(
-  child: ChildProcessWithoutNullStreams,
-  signal: NodeJS.Signals,
-  processGroup: boolean,
-): void {
-  if (processGroup && child.pid !== undefined && child.pid > 0) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch (error) {
-      const noSuchProcess = z
-        .object({ code: z.literal("ESRCH") })
-        .safeParse(error).success;
-      if (!noSuchProcess) {
-        throw error;
-      }
-    }
-  }
-  if (!processExited(child)) {
-    child.kill(signal);
   }
 }
 
@@ -1697,19 +1654,22 @@ function waitForProcessExit(
       }
       settled = true;
       globalThis.clearTimeout(timer);
-      child.off("exit", onExit);
+      child.off("close", onClose);
+      child.off("error", onError);
       if (error === undefined) {
         resolve();
       } else {
         reject(error);
       }
     };
-    const onExit = () => finish();
+    const onClose = () => finish();
+    const onError = () => finish();
     const timer = globalThis.setTimeout(
       () => finish(new Error(`${name} did not exit within ${timeoutMs}ms`)),
       timeoutMs,
     );
-    child.once("exit", onExit);
+    child.once("close", onClose);
+    child.once("error", onError);
     if (processExited(child)) {
       finish();
     }

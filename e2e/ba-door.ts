@@ -75,7 +75,6 @@ export type AuthDoor = {
   authDatabaseUrl: string;
   child: ChildProcessWithoutNullStreams;
   output: string[];
-  processGroup: boolean;
 };
 
 type StartAuthDoorOptions = {
@@ -204,13 +203,11 @@ export async function startAuthDoor(
     { cwd: authRoot, env, stdio: "inherit" },
   );
   const output: string[] = [];
-  const processGroup = process.platform !== "win32";
   const child = spawn(
     process.execPath,
     ["--import", "tsx", path.join(authRoot, "src", "server.ts")],
     {
       cwd: authRoot,
-      detached: processGroup,
       env,
       stdio: ["pipe", "pipe", "pipe"],
     },
@@ -225,10 +222,10 @@ export async function startAuthDoor(
       output,
       options.readinessTimeoutMs ?? AUTH_READY_TIMEOUT_MS,
     );
-    return { authDatabaseUrl, child, output, processGroup };
+    return { authDatabaseUrl, child, output };
   } catch (error) {
     try {
-      await stopAuthChild(child, processGroup);
+      await stopAuthChild(child);
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
@@ -240,7 +237,7 @@ export async function startAuthDoor(
 }
 
 export async function stopAuthDoor(door: AuthDoor): Promise<void> {
-  await stopAuthChild(door.child, door.processGroup);
+  await stopAuthChild(door.child);
 }
 
 export async function signUpSession(
@@ -679,43 +676,19 @@ async function waitForAuth(
 
 async function stopAuthChild(
   child: ChildProcessWithoutNullStreams,
-  processGroup: boolean,
 ): Promise<void> {
   if (processExited(child)) {
     return;
   }
-  signalAuthChild(child, "SIGINT", processGroup);
+  child.kill("SIGINT");
   try {
     await waitForChildExit(child, AUTH_STOP_TIMEOUT_MS);
   } catch (error) {
     if (!processExited(child)) {
-      signalAuthChild(child, "SIGKILL", processGroup);
+      child.kill("SIGKILL");
     }
     await waitForChildExit(child, AUTH_KILL_TIMEOUT_MS);
     throw error;
-  }
-}
-
-function signalAuthChild(
-  child: ChildProcessWithoutNullStreams,
-  signal: NodeJS.Signals,
-  processGroup: boolean,
-): void {
-  if (processGroup && child.pid !== undefined && child.pid > 0) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch (error) {
-      const noSuchProcess = z
-        .object({ code: z.literal("ESRCH") })
-        .safeParse(error).success;
-      if (!noSuchProcess) {
-        throw error;
-      }
-    }
-  }
-  if (!processExited(child)) {
-    child.kill(signal);
   }
 }
 
