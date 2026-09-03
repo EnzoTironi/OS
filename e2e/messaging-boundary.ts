@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
+import { recordTelegramIdentity } from "../apps/conversation/agent/telegram-identity.js";
 import {
   applicationDatabaseUrl,
   authDatabaseUrl,
@@ -34,6 +36,25 @@ let identityAdminBearer: string | undefined;
 
 const telegramSubject = "tg_user_bound_1";
 const linqSubject = "linq_handle_bound_1";
+const firstRecordedTelegramSubject = "7100000001";
+const secondRecordedTelegramSubject = "7100000002";
+
+const provisionalTelegramSnapshotSchema = z.object({
+  account: z.object({
+    accountId: z.string().min(1),
+    status: z.literal("provisional"),
+  }),
+  bindings: z.array(
+    z.object({
+      accountId: z.string().min(1),
+      bindingId: z.string().min(1),
+      provider: z.literal("telegram"),
+      status: z.literal("provisional"),
+      subjectKey: z.string().min(1),
+    })
+  ),
+  memberships: z.array(z.unknown()),
+});
 
 const assertions: Record<string, boolean> = {};
 const mutantsKilled: string[] = [];
@@ -79,7 +100,9 @@ async function seedBoundAccount(): Promise<{
   telegramBindingId: string;
   linqBindingId: string;
 }> {
-  const boundToken = (await signUpSession("bound-bait")).token;
+  const boundToken = (
+    await signUpSession({ id: "bound-bait", zoendBaseUrl: baseUrl })
+  ).token;
   identityAdminBearer = boundToken;
   const bootstrap = await admin(
     "POST",
@@ -117,6 +140,90 @@ async function seedBoundAccount(): Promise<{
   };
 }
 
+async function recordTwoTelegramSubjects(): Promise<{
+  accountIds: readonly [string, string];
+  bindingIds: readonly [string, string];
+  concurrentFirstAccountId: string;
+  membershipCounts: readonly [number, number];
+  repeatedAccountIds: readonly [string, string];
+}> {
+  const environment = {
+    ...process.env,
+    ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
+    ZOEN_ZOEND: baseUrl,
+  };
+  const [first, firstConcurrent, second] = await Promise.all([
+    recordTelegramIdentity({
+      environment,
+      userId: firstRecordedTelegramSubject,
+    }),
+    recordTelegramIdentity({
+      environment,
+      userId: firstRecordedTelegramSubject,
+    }),
+    recordTelegramIdentity({
+      environment,
+      userId: secondRecordedTelegramSubject,
+    }),
+  ]);
+  const [firstRepeated, secondRepeated] = await Promise.all([
+    recordTelegramIdentity({
+      environment,
+      userId: firstRecordedTelegramSubject,
+    }),
+    recordTelegramIdentity({
+      environment,
+      userId: secondRecordedTelegramSubject,
+    }),
+  ]);
+  const [firstSnapshotResponse, secondSnapshotResponse] = await Promise.all([
+    admin(
+      "GET",
+      `/identity/admin/accounts/${encodeURIComponent(first.accountId)}`,
+      undefined,
+      e2eIdentityAdminToken()
+    ),
+    admin(
+      "GET",
+      `/identity/admin/accounts/${encodeURIComponent(second.accountId)}`,
+      undefined,
+      e2eIdentityAdminToken()
+    ),
+  ]);
+  assert.equal(firstSnapshotResponse.status, 200);
+  assert.equal(secondSnapshotResponse.status, 200);
+  const firstSnapshot = provisionalTelegramSnapshotSchema.parse(
+    firstSnapshotResponse.body
+  );
+  const secondSnapshot = provisionalTelegramSnapshotSchema.parse(
+    secondSnapshotResponse.body
+  );
+  const firstBindings = firstSnapshot.bindings.filter(
+    (binding) => binding.subjectKey === firstRecordedTelegramSubject
+  );
+  const secondBindings = secondSnapshot.bindings.filter(
+    (binding) => binding.subjectKey === secondRecordedTelegramSubject
+  );
+  assert.equal(firstBindings.length, 1);
+  assert.equal(secondBindings.length, 1);
+  const firstBinding = firstBindings[0];
+  const secondBinding = secondBindings[0];
+  assert.ok(firstBinding);
+  assert.ok(secondBinding);
+  assert.equal(firstBinding.accountId, first.accountId);
+  assert.equal(secondBinding.accountId, second.accountId);
+  return {
+    accountIds: [first.accountId, second.accountId],
+    bindingIds: [firstBinding.bindingId, secondBinding.bindingId],
+    concurrentFirstAccountId: firstConcurrent.accountId,
+    membershipCounts: [
+      firstSnapshot.memberships.length,
+      secondSnapshot.memberships.length,
+    ],
+    repeatedAccountIds: [firstRepeated.accountId, secondRepeated.accountId],
+  };
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   await mkdir(generatedDirectory, { recursive: true });
@@ -138,6 +245,31 @@ async function main(): Promise<void> {
     },
     kind: "default",
   });
+    const telegramRecording = await recordTwoTelegramSubjects();
+    record(
+      "telegram_identity_recording_is_idempotent",
+      telegramRecording.accountIds[0] ===
+        telegramRecording.concurrentFirstAccountId &&
+        telegramRecording.accountIds[0] ===
+          telegramRecording.repeatedAccountIds[0] &&
+        telegramRecording.accountIds[1] ===
+          telegramRecording.repeatedAccountIds[1]
+    );
+    killMutant("Create a new Account for a repeated Telegram sender");
+
+    record(
+      "two_telegram_identities_remain_distinct",
+      telegramRecording.accountIds[0] !== telegramRecording.accountIds[1] &&
+        telegramRecording.bindingIds[0] !== telegramRecording.bindingIds[1]
+    );
+    killMutant("Collapse two Telegram senders into one Account");
+
+    record(
+      "telegram_recording_does_not_claim_membership",
+      telegramRecording.membershipCounts.every((count) => count === 0)
+    );
+    killMutant("Grant Membership while only recording a Telegram sender");
+
     const seed = await seedBoundAccount();
 
     record(
@@ -269,6 +401,13 @@ async function main(): Promise<void> {
       mutantsKilled,
       note:
         "Fake provider gateway proofs moved to #327 / #328 against live adapters.",
+      telegramIdentityRecording: {
+        count: telegramRecording.accountIds.length,
+        providerCeremony:
+          "external acceptance: two owned Telegram accounts cross /eve/v1/telegram",
+        status: "provisional",
+        subjectIdsIncluded: false,
+      },
       seed: {
         accountId: seed.accountId,
         principalId: seed.principalId,

@@ -220,15 +220,13 @@ where
                 request,
             });
         }
-        if is_human_task_payload(&request.payload) {
-            if let Some((existing_adapter, _)) =
+        if is_human_task_payload(&request.payload)
+            && let Some((existing_adapter, _)) =
                 transaction.open_claim().await.map_err(EffectError::Store)?
-            {
-                if existing_adapter != command.adapter_execution_id {
-                    transaction.rollback().await.map_err(EffectError::Store)?;
-                    return Err(EffectError::AttemptIdentityConflict);
-                }
-            }
+            && existing_adapter != command.adapter_execution_id
+        {
+            transaction.rollback().await.map_err(EffectError::Store)?;
+            return Err(EffectError::AttemptIdentityConflict);
         }
         if !matches!(
             request.state,
@@ -432,8 +430,9 @@ fn refuse_expired_human_task(
 fn now_micros() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| i64::try_from(duration.as_micros()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_micros()).unwrap_or(i64::MAX)
+        })
 }
 
 #[must_use]

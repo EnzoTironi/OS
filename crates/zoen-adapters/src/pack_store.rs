@@ -823,12 +823,12 @@ fn reject_secret_fields(value: &Value, path: &str) -> Result<(), PackError> {
                 reject_secret_fields(child, &format!("{path}{index}."))?;
             }
         }
-        Value::String(text) => {
+        Value::String(text)
             if text.contains("://")
-                && (text.contains('@') && (text.contains("password") || text.contains("token=")))
-            {
-                return Err(PackError::SecretEmbedded(path.to_owned()));
-            }
+                && text.contains('@')
+                && (text.contains("password") || text.contains("token=")) =>
+        {
+            return Err(PackError::SecretEmbedded(path.to_owned()));
         }
         _ => {}
     }
@@ -849,8 +849,7 @@ fn hex_sha256(bytes: &[u8]) -> String {
 fn hex_id() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |duration| duration.as_nanos());
     format!("{nanos:x}")
 }
 

@@ -21,7 +21,8 @@ Conversation is Eve. Do not name the product Poke. The bar is Poke plus Palantir
 
 ## Install
 
-You need Docker, `just`, Node 22, and Rust 1.88 (`rust-toolchain.toml`).
+You need Docker, `just`, Node 22, and Rust 1.98 (`rust-toolchain.toml`).
+Kache 0.16.0 is optional and can accelerate ordinary Rust builds when installed.
 
 ```bash
 git clone https://github.com/EnzoTironi/OS.git
@@ -85,6 +86,10 @@ Inbound dest is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Flatten 
 
 Inbound dest is Eve's first-class Telegram channel at `/eve/v1/telegram` (`eve/channels/telegram`). Same reply law as WhatsApp. Secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, optional `TELEGRAM_BOT_USERNAME`. Register the webhook yourself with `setWebhook` (eve does not). Prefer Telegram for headless loop proofs: forge an Update with the secret header, then observe `sendMessage`.
 
+After Eve accepts a Telegram turn, it records `message.from.id` as a provisional external subject through zoend's loopback machine boundary. Recording proves only the channel subject: Better Auth linking and Membership admission remain separate ceremonies.
+
+The local messaging journey proves recorder and database idempotence. Provider acceptance remains a two-account ceremony through `/eve/v1/telegram`, using only owned Telegram accounts and without reading browser sessions, QR data, or webhook credentials.
+
 ## Deploy
 
 Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS is `zoen.tironi.xyz` on zoend `:58701`.
@@ -93,7 +98,7 @@ Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS 
 2. GitHub Actions `fly-deploy` builds `deploy/fly/Dockerfile` on the runner.
 3. It pushes `registry.fly.io/zoen:$GITHUB_SHA` and runs `fly deploy --image`.
 
-Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET` and `ZOEN_BA_AGENT_PASSWORD` are Fly secrets. After `/ready`:
+Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET`, `ZOEN_BA_AGENT_PASSWORD`, and `ZOEN_PROJECTION_PASSWORD` are Fly secrets. The projection role is created only while PostgreSQL initializes an empty volume; recreate the disposable pre-launch development volume when adopting this role. After `/ready`:
 
 ```
 fly ssh console --app zoen -C "zoen-bind-inbox"
@@ -112,6 +117,13 @@ just build
 just e2e <scenario>
 just verify    # lint, clippy, build, every live journey
 ```
+
+`just build`, `just e2e`, and `just verify` automatically use Kache 0.16.0
+for their ordinary Rust build when it is installed and none of
+`ZOEN_BUILD_RUSTC_WRAPPER`, `RUSTC_WRAPPER`, or
+`CARGO_BUILD_RUSTC_WRAPPER` is present. Tests, Clippy, and coverage remain
+outside Kache. See [Kache builds](CONTRIBUTING.md#kache-builds) for setup,
+safety boundaries, and measured rollout evidence.
 
 CI is the same gates. Journeys live in `e2e/`. Do not add mocks or `vi.mock`.
 

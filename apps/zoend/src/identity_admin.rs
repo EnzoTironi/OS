@@ -712,10 +712,9 @@ async fn bootstrap_bound(
     let already_verified = snapshot.bindings.iter().any(|binding| {
         binding.subject == subject && matches!(binding.status, zoen_core::BindingStatus::Verified)
     });
-    if !already_verified {
-        if let Err(error) = state.identity.verify_binding(account.id.clone()).await {
-            return identity_error(&error);
-        }
+    if !already_verified && let Err(error) = state.identity.verify_binding(account.id.clone()).await
+    {
+        return identity_error(&error);
     }
     let membership = match state
         .identity

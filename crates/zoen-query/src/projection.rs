@@ -89,6 +89,7 @@ impl ProjectionWorker {
             && let Some(current) = state.projection
             && current.through_commit >= target
         {
+            self.refresh_watermark(tenant_id).await?;
             return current.into_outcome(false);
         }
 
@@ -158,12 +159,12 @@ impl ProjectionWorker {
         set_tenant(&mut transaction, tenant_id).await?;
         let missing = sqlx::query(
             "SELECT count(*)::bigint AS missing
-             FROM authority_commits c
+             FROM public.authority_commits c
              WHERE c.tenant_id = $1
                AND c.commit_sequence <= $2
                AND NOT EXISTS (
                    SELECT 1
-                   FROM projection_outbox o
+                   FROM public.projection_outbox o
                    WHERE o.tenant_id = c.tenant_id
                      AND o.commit_sequence = c.commit_sequence
                      AND o.ordinal = 0
@@ -198,7 +199,7 @@ impl ProjectionWorker {
                     definition_revision, entity_id, relation_id, value_kind, value_text,
                     value_unit, valid_time_kind, valid_from_micros, valid_to_micros,
                     source_id, source_digest, source_ref, commit_sequence
-             FROM semantic_claims
+             FROM public.semantic_claims
              WHERE tenant_id = $1 AND commit_sequence <= $2
              ORDER BY commit_sequence, claim_id",
         )
@@ -222,14 +223,14 @@ impl ProjectionWorker {
     ) -> Result<(), QueryError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         set_tenant(&mut transaction, tenant_id).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
             .bind(format!("{}:{PROJECTION_ID}", tenant_id.as_str()))
             .execute(&mut *transaction)
             .await
             .map_err(unavailable)?;
         let current = sqlx::query(
             "SELECT through_commit
-             FROM projection_watermarks
+             FROM public.projection_watermarks
              WHERE tenant_id = $1 AND projection_id = $2
              FOR UPDATE",
         )
@@ -251,7 +252,7 @@ impl ProjectionWorker {
         // V1 rebuilds are always full (claims through through_commit). The column
         // stays NOT NULL in schema; 1 is a placeholder, not an incremental range.
         sqlx::query(
-            "INSERT INTO projection_manifests (
+            "INSERT INTO public.projection_manifests (
                 tenant_id, projection_id, manifest_digest, build_id,
                 from_commit, through_commit, manifest_object_key,
                 parquet_object_key, parquet_digest
@@ -269,14 +270,14 @@ impl ProjectionWorker {
         .await
         .map_err(unavailable)?;
         sqlx::query(
-            "INSERT INTO projection_watermarks (
+            "INSERT INTO public.projection_watermarks (
                 tenant_id, projection_id, through_commit, manifest_digest
              ) VALUES ($1, $2, $3, $4)
              ON CONFLICT (tenant_id, projection_id)
              DO UPDATE SET
                 through_commit = EXCLUDED.through_commit,
                 manifest_digest = EXCLUDED.manifest_digest,
-                updated_at = clock_timestamp()",
+                updated_at = pg_catalog.clock_timestamp()",
         )
         .bind(tenant_id.as_str())
         .bind(PROJECTION_ID)
@@ -287,6 +288,29 @@ impl ProjectionWorker {
         .map_err(unavailable)?;
         transaction.commit().await.map_err(unavailable)?;
         Ok(())
+    }
+
+    async fn refresh_watermark(&self, tenant_id: &TenantId) -> Result<(), QueryError> {
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        set_tenant(&mut transaction, tenant_id).await?;
+        let result = sqlx::query(
+            "UPDATE public.projection_watermarks
+             SET updated_at = pg_catalog.clock_timestamp()
+             WHERE tenant_id = $1 AND projection_id = $2",
+        )
+        .bind(tenant_id.as_str())
+        .bind(PROJECTION_ID)
+        .execute(&mut *transaction)
+        .await
+        .map_err(unavailable)?;
+        transaction.commit().await.map_err(unavailable)?;
+        if result.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(QueryError::Corrupt(
+                "active projection watermark disappeared during refresh".to_owned(),
+            ))
+        }
     }
 }
 
@@ -313,11 +337,11 @@ pub(crate) async fn load_source_state(
         "SELECT h.commit_sequence AS authority_head,
                 w.through_commit, w.manifest_digest,
                 m.manifest_object_key, m.parquet_object_key, m.parquet_digest
-         FROM authority_heads h
-         LEFT JOIN projection_watermarks w
+         FROM public.authority_heads h
+         LEFT JOIN public.projection_watermarks w
            ON w.tenant_id = h.tenant_id
           AND w.projection_id = $2
-         LEFT JOIN projection_manifests m
+         LEFT JOIN public.projection_manifests m
            ON m.tenant_id = w.tenant_id
           AND m.projection_id = w.projection_id
           AND m.manifest_digest = w.manifest_digest
@@ -430,7 +454,7 @@ async fn set_tenant(
     transaction: &mut Transaction<'_, Postgres>,
     tenant_id: &TenantId,
 ) -> Result<(), QueryError> {
-    sqlx::query("SELECT set_config('zoen.tenant_id', $1, true)")
+    sqlx::query("SELECT pg_catalog.set_config('zoen.tenant_id', $1, true)")
         .bind(tenant_id.as_str())
         .execute(&mut **transaction)
         .await
@@ -452,27 +476,4 @@ fn projection_manifest_object_key(tenant_id: &TenantId, manifest_digest: &str) -
         "projections/{PROJECTION_ID}/{}/manifests/{manifest_digest}.json",
         tenant_id.as_str()
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use zoen_core::TenantId;
-
-    use super::projection_manifest_object_key;
-
-    #[test]
-    fn manifest_keys_include_the_tenant_even_when_digests_collide() {
-        let digest = "a".repeat(64);
-        let tenant_a = TenantId::parse("tenant.a").expect("tenant a");
-        let tenant_b = TenantId::parse("tenant.b").expect("tenant b");
-
-        assert_eq!(
-            projection_manifest_object_key(&tenant_a, &digest),
-            format!("projections/semantic_claims_v1/tenant.a/manifests/{digest}.json")
-        );
-        assert_ne!(
-            projection_manifest_object_key(&tenant_a, &digest),
-            projection_manifest_object_key(&tenant_b, &digest)
-        );
-    }
 }

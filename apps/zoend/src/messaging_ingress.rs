@@ -206,10 +206,10 @@ async fn proxy<R>(
     }
     if let Some(headers) = inbound_headers {
         for name in ["webhook-id", "webhook-timestamp", "webhook-signature"] {
-            if let Some(value) = headers.get(HeaderName::from_static(name)) {
-                if let Ok(header) = HeaderValue::from_bytes(value.as_bytes()) {
-                    request = request.header(name, header);
-                }
+            if let Some(value) = headers.get(HeaderName::from_static(name))
+                && let Ok(header) = HeaderValue::from_bytes(value.as_bytes())
+            {
+                request = request.header(name, header);
             }
         }
     }
@@ -289,16 +289,22 @@ mod tests {
     }
 
     impl HopReplay for MemoryIngressReplay {
-        async fn contains(&self, webhook_id: &str) -> Result<bool, IngressAuthError> {
-            Ok(self.persisted(webhook_id))
+        fn contains(
+            &self,
+            webhook_id: &str,
+        ) -> impl std::future::Future<Output = Result<bool, IngressAuthError>> + Send {
+            std::future::ready(Ok(self.persisted(webhook_id)))
         }
 
-        async fn claim(&self, webhook_id: &str) -> Result<bool, IngressAuthError> {
-            Ok(self
+        fn claim(
+            &self,
+            webhook_id: &str,
+        ) -> impl std::future::Future<Output = Result<bool, IngressAuthError>> + Send {
+            std::future::ready(Ok(self
                 .keys
                 .lock()
                 .expect("ingress replay lock")
-                .insert(Self::namespaced(webhook_id)))
+                .insert(Self::namespaced(webhook_id))))
         }
     }
 

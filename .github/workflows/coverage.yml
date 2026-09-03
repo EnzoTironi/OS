@@ -26,7 +26,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           components: llvm-tools-preview
-          toolchain: "1.88.0"
+          toolchain: "1.98.0"
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: coverage
@@ -34,6 +34,7 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix apps/auth
       - run: npm run build
       - name: Generate lcov
         run: |

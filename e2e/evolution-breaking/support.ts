@@ -50,6 +50,7 @@ import {
   e2eGeneratedDirectory,
   e2eHttpUrl,
   e2ePostgresUrl,
+  projectionProcessEnvironment,
 } from "../host-env.js";
 
 export {
@@ -291,8 +292,7 @@ export async function expectProjectionFailure(tenantId: string): Promise<void> {
   );
   await assert.rejects(
     command(workerPath, ["--rebuild", tenantId], {
-      ...process.env,
-      DATABASE_URL: e2ePostgresUrl("zoen_app", "zoen_app", 55_444),
+      ...projectionProcessEnvironment(),
       S3_ACCESS_KEY_ID: "zoen-access",
       S3_ALLOW_HTTP: "true",
       S3_BUCKET: "missing-projection-bucket",

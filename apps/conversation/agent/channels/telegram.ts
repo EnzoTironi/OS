@@ -1,6 +1,7 @@
 import { telegramChannel } from "eve/channels/telegram";
 
 import { flattenInputRequests, flattenOutbound } from "../outbound-text";
+import { recordTelegramIdentity } from "../telegram-identity";
 
 function trimmedEnv(name: string): string | undefined {
   const value = process.env[name]?.trim();
@@ -37,6 +38,13 @@ export default telegramChannel({
     },
     async "turn.failed"(_event, channel) {
       await channel.telegram.post("não consegui agora");
+    },
+    async "turn.started"(_event, channel) {
+      const userId = channel.state.triggeringUserId;
+      if (userId !== undefined && userId !== null) {
+        await recordTelegramIdentity({ userId });
+      }
+      await channel.telegram.startTyping();
     },
   },
 });

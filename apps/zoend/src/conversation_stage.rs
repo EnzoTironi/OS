@@ -169,7 +169,7 @@ async fn who_can(
         match authorize_stage_member(&state, &query, &membership_id).await {
             Ok(Some(permit)) => permits.push(permit),
             Ok(None) => {}
-            Err(error) => return error,
+            Err(error) => return *error,
         }
     }
     (
@@ -255,17 +255,17 @@ async fn authorize_stage_member(
     state: &ConversationStageState,
     query: &WhoCanQuery,
     membership_id: &MembershipId,
-) -> Result<Option<WhoCanPermit>, Response> {
+) -> Result<Option<WhoCanPermit>, Box<Response>> {
     let membership = state
         .identity
         .get_membership(membership_id)
         .await
-        .map_err(|_| incomplete_stage())?;
+        .map_err(|_| Box::new(incomplete_stage()))?;
     if membership.tenant_id != query.tenant_id {
-        return Err(incomplete_stage());
+        return Err(Box::new(incomplete_stage()));
     }
     let context = trusted_context_from_membership(&membership)
-        .map_err(|error| identity_error_response(&error))?;
+        .map_err(|error| Box::new(identity_error_response(&error)))?;
     match state
         .read
         .authorize_entity(
@@ -281,16 +281,20 @@ async fn authorize_stage_member(
             principal_id: membership.principal_id.to_string(),
         })),
         Ok(PolicyEvaluation::Deny(_)) => Ok(None),
-        Ok(PolicyEvaluation::EvaluationError { message, .. }) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": message})),
-        )
-            .into_response()),
-        Err(error) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": error.to_string()})),
-        )
-            .into_response()),
+        Ok(PolicyEvaluation::EvaluationError { message, .. }) => Err(Box::new(
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": message})),
+            )
+                .into_response(),
+        )),
+        Err(error) => Err(Box::new(
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": error.to_string()})),
+            )
+                .into_response(),
+        )),
     }
 }
 

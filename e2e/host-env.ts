@@ -8,6 +8,12 @@ import {
   sourceCommitKeys,
 } from "./scenario-evidence.js";
 
+if (process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP === "1") {
+  delete process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP;
+  process.once("SIGINT", () => process.exit(130));
+  process.once("SIGTERM", () => process.exit(143));
+}
+
 /**
  * Host TCP port for an e2e scenario.
  *
@@ -82,6 +88,40 @@ export function e2ePostgresUrl(
   fallbackPort: number,
 ): string {
   return `postgres://${user}:${password}@127.0.0.1:${e2ePort("ZOEN_E2E_POSTGRES_PORT", fallbackPort)}/zoen`;
+}
+
+/** Environment inputs SQLx/libpq must never inherit in the projection process. */
+export const projectionAmbientDatabaseVariables = [
+  "DATABASE_URL",
+  "ZOEN_APP_PASSWORD",
+  "ZOEN_AUTH_DATABASE_URL",
+  "POSTGRES_PASSWORD",
+  "PGAPPNAME",
+  "PGDATABASE",
+  "PGHOST",
+  "PGHOSTADDR",
+  "PGPASSFILE",
+  "PGPASSWORD",
+  "PGPORT",
+  "PGSERVICE",
+  "PGSERVICEFILE",
+  "PGSSLCERT",
+  "PGSSLKEY",
+  "PGSSLMODE",
+  "PGSSLROOTCERT",
+  "PGUSER",
+  "PGOPTIONS",
+] as const;
+
+/** Copy an environment without alternate projection database inputs. */
+export function projectionProcessEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const environment = { ...source };
+  for (const variable of projectionAmbientDatabaseVariables) {
+    delete environment[variable];
+  }
+  return environment;
 }
 
 /**

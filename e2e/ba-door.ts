@@ -11,14 +11,16 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
-import { e2ePort } from "./host-env.js";
+import { e2eHttpUrl, e2ePort } from "./host-env.js";
 
-export const AUTH_DOOR_ORIGIN = "http://127.0.0.1:58704";
-const AUTH_DOOR_PORT = 58_704;
+const authDoorPort = e2ePort("ZOEN_E2E_AUTH_PORT", 58_704);
+export const AUTH_DOOR_ORIGIN = e2eHttpUrl(
+  "ZOEN_E2E_AUTH_PORT",
+  58_704,
+);
 const AUTH_READY_TIMEOUT_MS = 20_000;
 const AUTH_STOP_TIMEOUT_MS = 10_000;
 const AUTH_KILL_TIMEOUT_MS = 3_000;
-const SIGN_UP_URL = `${AUTH_DOOR_ORIGIN}/api/auth/sign-up/email`;
 const DOOR_PASSWORD = "E2e-session-door-1";
 const INVITE_EXPIRES_AT_MICROS = 4_102_444_800_000_000;
 
@@ -180,17 +182,25 @@ export async function startAuthDoor(
 ): Promise<AuthDoor> {
   const authRoot = path.join(process.cwd(), "apps", "auth");
   if (!existsSync(path.join(authRoot, "node_modules", "better-auth"))) {
-    execFileSync("npm", ["ci"], { cwd: authRoot, stdio: "inherit" });
+    throw new Error(
+      "missing apps/auth dependencies; run `npm ci --prefix apps/auth`",
+    );
   }
-  if (await portOpen(AUTH_DOOR_PORT)) {
-    throw new Error(`auth door port ${AUTH_DOOR_PORT} is already in use`);
+  if (await portOpen(authDoorPort)) {
+    throw new Error(`auth door port ${authDoorPort} is already in use`);
   }
   await ensureAuthDatabase(authDatabaseUrl);
   const secret = randomBytes(32).toString("base64");
   const env = doorEnv(authDatabaseUrl, secret, options);
   execFileSync(
-    "npx",
-    ["--yes", "auth@1.7.2", "migrate", "--config", "src/auth.ts", "--yes"],
+    process.execPath,
+    [
+      path.join(authRoot, "node_modules", "auth", "dist", "index.mjs"),
+      "migrate",
+      "--config",
+      "src/auth.ts",
+      "--yes",
+    ],
     { cwd: authRoot, env, stdio: "inherit" },
   );
   const output: string[] = [];
@@ -234,30 +244,37 @@ export async function stopAuthDoor(door: AuthDoor): Promise<void> {
 }
 
 export async function signUpSession(
-  id: string,
+  input: { id: string; zoendBaseUrl: string },
 ): Promise<{ email: string; token: string }> {
-  const email = `${id}@e2e.invalid`;
-  const response = await fetch(SIGN_UP_URL, {
-    body: JSON.stringify({
-      email,
-      name: id,
-      password: DOOR_PASSWORD,
-    }),
-    headers: {
-      "content-type": "application/json",
-      origin: AUTH_DOOR_ORIGIN,
+  const email = `${input.id}@e2e.invalid`;
+  const response = await fetch(
+    `${input.zoendBaseUrl}/api/auth/sign-up/email`,
+    {
+      body: JSON.stringify({
+        email,
+        name: input.id,
+        password: DOOR_PASSWORD,
+      }),
+      headers: {
+        "content-type": "application/json",
+        origin: input.zoendBaseUrl,
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const text = await response.text();
-  assert.equal(response.ok, true, `sign-up ${id} ${response.status} ${text}`);
+  assert.equal(
+    response.ok,
+    true,
+    `sign-up ${input.id} ${response.status} ${text}`,
+  );
   const cookie = sessionTokenFromSetCookie(response.headers.getSetCookie());
   if (cookie !== undefined) {
     return { email, token: cookie };
   }
   const parsed = signupBodySchema.parse(JSON.parse(text) as unknown);
   const token = parsed.token ?? parsed.session?.token;
-  assert.ok(token, `sign-up ${id} missing session token: ${text}`);
+  assert.ok(token, `sign-up ${input.id} missing session token: ${text}`);
   return { email, token };
 }
 
@@ -309,7 +326,10 @@ async function plantOne(
         workloadId: "",
       };
     case "signup-only": {
-      const signed = await signUpSession(persona.id);
+      const signed = await signUpSession({
+        id: persona.id,
+        zoendBaseUrl: input.zoendBaseUrl,
+      });
       return {
         accountId: "",
         actorId: "",
@@ -321,7 +341,10 @@ async function plantOne(
     }
     case "invite":
     case "expired": {
-      const signed = await signUpSession(persona.id);
+      const signed = await signUpSession({
+        id: persona.id,
+        zoendBaseUrl: input.zoendBaseUrl,
+      });
       const bound = await bindInvite({
         adminToken: input.adminToken,
         applicationDatabaseUrl: input.applicationDatabaseUrl,
@@ -552,22 +575,40 @@ async function ensureAuthDatabase(authDatabaseUrl: string): Promise<void> {
           NOCREATEDB
           NOCREATEROLE
           NOINHERIT
+          NOREPLICATION
           NOBYPASSRLS;
       EXCEPTION WHEN duplicate_object THEN
         NULL;
       END $$;
     `);
-    await client.query(
-      "GRANT CONNECT ON DATABASE zoen TO zoen_app, zoen_projection",
-    );
-    await client.query("GRANT ALL ON SCHEMA public TO zoen_app");
-    await client.query("GRANT USAGE ON SCHEMA public TO zoen_projection");
     const existing = await client.query<{ datname: string }>(
       "SELECT datname FROM pg_database WHERE datname = 'zoen_auth'",
     );
     if (existing.rows.length === 0) {
       await client.query("CREATE DATABASE zoen_auth");
     }
+    await client.query(`
+      DO $$
+      DECLARE
+        database_name text;
+      BEGIN
+        FOR database_name IN
+          SELECT datname FROM pg_catalog.pg_database WHERE datallowconn
+        LOOP
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC',
+            database_name
+          );
+        END LOOP;
+      END $$;
+    `);
+    await client.query(
+      "GRANT CONNECT ON DATABASE zoen TO zoen_app, zoen_projection",
+    );
+    await client.query("GRANT CONNECT ON DATABASE zoen_auth TO zoen_app");
+    await client.query("REVOKE ALL PRIVILEGES ON SCHEMA public FROM PUBLIC");
+    await client.query("GRANT ALL ON SCHEMA public TO zoen_app");
+    await client.query("GRANT USAGE ON SCHEMA public TO zoen_projection");
   } finally {
     await client.end();
   }
@@ -601,6 +642,7 @@ function doorEnv(
     DATABASE_URL: authDatabaseUrl,
     GOOGLE_CLIENT_ID: options.google?.clientId ?? "",
     GOOGLE_CLIENT_SECRET: options.google?.clientSecret ?? "",
+    ZOEN_AUTH_BASE_URL: AUTH_DOOR_ORIGIN,
     ...(options.device === undefined
       ? {}
       : {
@@ -626,7 +668,7 @@ async function waitForAuth(
     }
     if (
       output.join("").includes(`${AUTH_DOOR_ORIGIN}\n`) &&
-      (await portOpen(AUTH_DOOR_PORT))
+      (await portOpen(authDoorPort))
     ) {
       return;
     }

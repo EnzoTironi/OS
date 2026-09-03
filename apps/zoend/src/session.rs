@@ -74,8 +74,7 @@ impl SessionExchange {
     ) -> String {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |duration| duration.as_nanos());
         let token = format!("wlx.{nanos:x}");
         self.workload_map().insert(token.clone(), credential_id);
         token

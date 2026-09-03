@@ -920,12 +920,11 @@ fn verify_digest(canonical_json: &CanonicalJson, expected: &DefinitionDigest) ->
     expected
         .as_str()
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .zip(actual)
-        .all(|(encoded, actual)| match encoded {
-            [high, low] => (hex_value(*high) << 4 | hex_value(*low)) == actual,
-            _ => false,
-        })
+        .all(|(&[high, low], actual)| (hex_value(high) << 4 | hex_value(low)) == actual)
 }
 
 fn hex_value(byte: u8) -> u8 {

@@ -1676,11 +1676,12 @@ mod tests {
         .expect("current digest");
 
         assert_eq!(
-            calculate_state_basis_digest(&[dependency.clone()]).expect("current digest"),
+            calculate_state_basis_digest(std::slice::from_ref(&dependency))
+                .expect("current digest"),
             current
         );
         assert!(
-            !state_basis_digest_matches(&[dependency.clone()], &legacy)
+            !state_basis_digest_matches(std::slice::from_ref(&dependency), &legacy)
                 .expect("legacy must not verify")
         );
         assert!(state_basis_digest_matches(&[dependency], &current).expect("current must verify"));
