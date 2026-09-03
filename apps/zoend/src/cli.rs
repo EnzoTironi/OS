@@ -21,6 +21,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_CLIENT_ID: &str = "zoen";
 const DEVICE_POLL_FAILURE_LIMIT: u8 = 3;
 const DEVICE_SLOW_DOWN_SECS: u64 = 5;
+const MAX_WORKLOAD_API_KEY_FILE_BYTES: u64 = 52;
+const MAX_WORKLOAD_RESPONSE_BYTES: usize = 16 * 1024;
+const WORKLOAD_SECRET_BYTES: usize = 32;
+const WORKLOAD_SECRET_ENCODED_LENGTH: usize = 43;
 const ROOT_AFTER_HELP: &str = "\
 No args is help. Start the daemon with zoen serve.
 
@@ -2020,14 +2024,17 @@ async fn sync_source(
             "id": id,
         })));
     }
-    let signal = emit_signal(env, &instance, &cas.digest, &fetched.durable_event_id).await?;
+    let signal = match emit_signal(env, &instance, &cas.digest, &fetched.durable_event_id).await {
+        Ok(signal) => signal,
+        Err(error) => return Ok(fail(1, error.message())),
+    };
     let Some(quantity) = fetched.quantity.clone() else {
         return Ok(ok(&json!({
             "claimIds": [],
             "cursor": fetched.cursor,
             "digest": cas.digest,
             "id": id,
-            "signalId": signal,
+            "signalId": signal.expose(),
         })));
     };
     let mapped = map_quantity(
@@ -2050,7 +2057,7 @@ async fn sync_source(
         "id": id,
         "proposalId": mapped.proposal_id,
         "quantity": quantity,
-        "signalId": signal,
+        "signalId": signal.expose(),
     })))
 }
 
@@ -2400,22 +2407,164 @@ struct Cas {
     digest: String,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum WorkloadSignalError {
+    AuthenticationIdentityMismatch,
+    AuthenticationMalformed,
+    AuthenticationRejected,
+    AuthenticationUnavailable,
+    CredentialChanged,
+    CredentialMalformed,
+    CredentialMode,
+    CredentialNotRegular,
+    CredentialUnavailable,
+    SignalMalformed,
+    SignalRejected,
+    SignalUnavailable,
+}
+
+impl WorkloadSignalError {
+    fn message(self) -> &'static str {
+        match self {
+            Self::AuthenticationIdentityMismatch => {
+                "workload authentication identity does not match the configured identity"
+            }
+            Self::AuthenticationMalformed => {
+                "workload authentication returned a malformed response"
+            }
+            Self::AuthenticationRejected => "workload authentication was rejected",
+            Self::AuthenticationUnavailable => "workload authentication is unavailable",
+            Self::CredentialChanged => "workload API key changed while it was being opened",
+            Self::CredentialMalformed => "workload API key file is malformed",
+            Self::CredentialMode => "workload API key file must have mode 0600",
+            Self::CredentialNotRegular => "workload API key must be a regular non-symlink file",
+            Self::CredentialUnavailable => "workload API key file is unavailable",
+            Self::SignalMalformed => "workload signal endpoint returned a malformed response",
+            Self::SignalRejected => "workload signal was rejected",
+            Self::SignalUnavailable => "workload signal endpoint is unavailable",
+        }
+    }
+}
+
+struct WorkloadApiKey(String);
+
+impl WorkloadApiKey {
+    fn parse(value: String) -> Result<Self, WorkloadSignalError> {
+        if !is_canonical_workload_secret(&value, "zoen_wl_") {
+            return Err(WorkloadSignalError::CredentialMalformed);
+        }
+        Ok(Self(value))
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+struct WorkloadExchangeToken(String);
+
+impl WorkloadExchangeToken {
+    fn parse(value: String) -> Result<Self, WorkloadSignalError> {
+        if !is_canonical_workload_secret(&value, "wlx.") {
+            return Err(WorkloadSignalError::AuthenticationMalformed);
+        }
+        Ok(Self(value))
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+struct SanitizedSignalId(String);
+
+impl SanitizedSignalId {
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+fn is_canonical_workload_secret(value: &str, prefix: &str) -> bool {
+    value.strip_prefix(prefix).is_some_and(|encoded| {
+        encoded.len() == WORKLOAD_SECRET_ENCODED_LENGTH
+            && base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(encoded)
+                .is_ok_and(|decoded| decoded.len() == WORKLOAD_SECRET_BYTES)
+    })
+}
+
+fn workload_http_client(
+    unavailable: WorkloadSignalError,
+) -> Result<reqwest::Client, WorkloadSignalError> {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(CONNECT_TIMEOUT)
+        .build()
+        .map_err(|_| unavailable)
+}
+
+async fn bounded_workload_json<T: serde::de::DeserializeOwned>(
+    mut response: reqwest::Response,
+    malformed: WorkloadSignalError,
+    unavailable: WorkloadSignalError,
+) -> Result<T, WorkloadSignalError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_WORKLOAD_RESPONSE_BYTES as u64)
+    {
+        return Err(malformed);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| unavailable)? {
+        if body
+            .len()
+            .checked_add(chunk.len())
+            .is_none_or(|length| length > MAX_WORKLOAD_RESPONSE_BYTES)
+        {
+            return Err(malformed);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body).map_err(|_| malformed)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkloadAuthenticationDocument {
+    actor_id: String,
+    exchange_token: String,
+    principal_id: String,
+    tenant_id: String,
+    workload_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct WorkloadSignalDocument {
+    signal: WorkloadSignalIdentity,
+}
+
+#[derive(serde::Deserialize)]
+struct WorkloadSignalIdentity {
+    id: String,
+}
+
 async fn emit_signal(
     env: &RuntimeEnv,
     instance: &SourceInstance,
     digest: &str,
     durable_event_id: &str,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
+) -> Result<SanitizedSignalId, WorkloadSignalError> {
     let exchange = workload_exchange(env).await?;
     let source_class = match instance.kind.as_str() {
         "google" => "google.drive",
         "mcp" => "mcp",
         _ => "rest",
     };
-    let client = reqwest::Client::new();
+    let client = workload_http_client(WorkloadSignalError::SignalUnavailable)?;
     let response = client
         .put(format!("{}/workload/signals", env.zoend))
-        .header(AUTHORIZATION, format!("Bearer {exchange}"))
+        .header(AUTHORIZATION, format!("Bearer {}", exchange.expose()))
         .header(CONTENT_TYPE, "application/json")
         .json(&json!({
             "durableEventId": durable_event_id,
@@ -2425,121 +2574,130 @@ async fn emit_signal(
             "trustDisposition": "evidence_candidate",
         }))
         .send()
-        .await?;
+        .await
+        .map_err(|_| WorkloadSignalError::SignalUnavailable)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("PUT /workload/signals {status} {text}").into());
+        return Err(if status.is_server_error() {
+            WorkloadSignalError::SignalUnavailable
+        } else {
+            WorkloadSignalError::SignalRejected
+        });
     }
-    let doc: Value = serde_json::from_str(&text)?;
-    doc.pointer("/signal/id")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "signal id missing".into())
+    let document = bounded_workload_json::<WorkloadSignalDocument>(
+        response,
+        WorkloadSignalError::SignalMalformed,
+        WorkloadSignalError::SignalUnavailable,
+    )
+    .await?;
+    sanitize_signal_id(&document.signal.id)
 }
 
-async fn workload_exchange(env: &RuntimeEnv) -> Result<String, Box<dyn Error + Send + Sync>> {
+async fn workload_exchange(env: &RuntimeEnv) -> Result<WorkloadExchangeToken, WorkloadSignalError> {
     let key_path = env.source_home.join("workload.api-key");
     let api_key = load_workload_api_key(&key_path)?;
-    let client = reqwest::Client::new();
+    let client = workload_http_client(WorkloadSignalError::AuthenticationUnavailable)?;
     let response = client
         .post(format!("{}/workload/authenticate", env.zoend))
         .header(CONTENT_TYPE, "application/json")
-        .json(&json!({ "apiKey": api_key }))
+        .json(&json!({ "apiKey": api_key.expose() }))
         .send()
-        .await?;
+        .await
+        .map_err(|_| WorkloadSignalError::AuthenticationUnavailable)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("POST /workload/authenticate {status} {text}").into());
+        return Err(if status.is_server_error() {
+            WorkloadSignalError::AuthenticationUnavailable
+        } else {
+            WorkloadSignalError::AuthenticationRejected
+        });
     }
-    let doc: Value = serde_json::from_str(&text)?;
-    for (field, expected) in [
-        ("tenantId", env.tenant.as_str()),
-        ("principalId", env.principal_id.as_str()),
-        ("workloadId", env.workload_id.as_str()),
-        ("actorId", env.actor_id.as_str()),
-    ] {
-        if doc.get(field).and_then(Value::as_str) != Some(expected) {
-            return Err(format!(
-                "workload credential {field} does not match the configured identity"
-            )
-            .into());
-        }
+    let document = bounded_workload_json::<WorkloadAuthenticationDocument>(
+        response,
+        WorkloadSignalError::AuthenticationMalformed,
+        WorkloadSignalError::AuthenticationUnavailable,
+    )
+    .await?;
+    if document.tenant_id != env.tenant
+        || document.principal_id != env.principal_id
+        || document.workload_id != env.workload_id
+        || document.actor_id != env.actor_id
+    {
+        return Err(WorkloadSignalError::AuthenticationIdentityMismatch);
     }
-    doc.get("exchangeToken")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "workload exchangeToken missing".into())
+    WorkloadExchangeToken::parse(document.exchange_token)
 }
 
-fn load_workload_api_key(path: &Path) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let path_metadata = fs::symlink_metadata(path).map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!(
-                "workload API key must already exist at {}: {error}",
-                path.display()
-            ),
-        )
-    })?;
+fn load_workload_api_key(path: &Path) -> Result<WorkloadApiKey, WorkloadSignalError> {
+    let path_metadata =
+        fs::symlink_metadata(path).map_err(|_| WorkloadSignalError::CredentialUnavailable)?;
     if !path_metadata.file_type().is_file() || path_metadata.file_type().is_symlink() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "workload API key at {} must be a regular non-symlink file",
-                path.display()
-            ),
-        )
-        .into());
+        return Err(WorkloadSignalError::CredentialNotRegular);
     }
-    let mut file = fs::File::open(path)?;
-    let opened_metadata = file.metadata()?;
+    let file = fs::File::open(path).map_err(|_| WorkloadSignalError::CredentialUnavailable)?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|_| WorkloadSignalError::CredentialUnavailable)?;
     if !opened_metadata.file_type().is_file()
         || opened_metadata.dev() != path_metadata.dev()
         || opened_metadata.ino() != path_metadata.ino()
     {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "workload API key at {} changed while it was being opened",
-                path.display()
-            ),
-        )
-        .into());
+        return Err(WorkloadSignalError::CredentialChanged);
     }
     let mode = opened_metadata.permissions().mode() & 0o777;
     if mode != 0o600 {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!(
-                "workload API key at {} must have mode 0600, found {mode:04o}",
-                path.display()
-            ),
-        )
-        .into());
+        return Err(WorkloadSignalError::CredentialMode);
+    }
+    if opened_metadata.len() > MAX_WORKLOAD_API_KEY_FILE_BYTES {
+        return Err(WorkloadSignalError::CredentialMalformed);
     }
     let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
+    let mut limited = file.take(MAX_WORKLOAD_API_KEY_FILE_BYTES + 1);
+    let bytes_read = limited.read_to_string(&mut contents).map_err(|error| {
+        if error.kind() == io::ErrorKind::InvalidData {
+            WorkloadSignalError::CredentialMalformed
+        } else {
+            WorkloadSignalError::CredentialUnavailable
+        }
+    })?;
+    if bytes_read as u64 > MAX_WORKLOAD_API_KEY_FILE_BYTES {
+        return Err(WorkloadSignalError::CredentialMalformed);
+    }
     let api_key = contents.strip_suffix('\n').unwrap_or(&contents);
-    if api_key.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("workload API key at {} is empty", path.display()),
-        )
-        .into());
+    WorkloadApiKey::parse(api_key.to_owned())
+}
+
+fn sanitize_signal_id(value: &str) -> Result<SanitizedSignalId, WorkloadSignalError> {
+    let Some(suffix) = value.strip_prefix("wlsig.") else {
+        return Err(WorkloadSignalError::SignalMalformed);
+    };
+    if suffix.is_empty() || suffix.len() > 32 {
+        return Err(WorkloadSignalError::SignalMalformed);
     }
-    if api_key.chars().any(char::is_whitespace) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "workload API key at {} must contain exactly one key with at most one final newline",
-                path.display()
-            ),
-        )
-        .into());
+    let mut sanitized = String::with_capacity(value.len());
+    sanitized.push_str("wlsig.");
+    for byte in suffix.bytes() {
+        sanitized.push(match byte {
+            b'0' => '0',
+            b'1' => '1',
+            b'2' => '2',
+            b'3' => '3',
+            b'4' => '4',
+            b'5' => '5',
+            b'6' => '6',
+            b'7' => '7',
+            b'8' => '8',
+            b'9' => '9',
+            b'a' => 'a',
+            b'b' => 'b',
+            b'c' => 'c',
+            b'd' => 'd',
+            b'e' => 'e',
+            b'f' => 'f',
+            _ => return Err(WorkloadSignalError::SignalMalformed),
+        });
     }
-    Ok(api_key.to_owned())
+    Ok(SanitizedSignalId(sanitized))
 }
 
 struct MappedQuantity {

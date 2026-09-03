@@ -168,6 +168,10 @@ export interface WorkloadIdentity {
 }
 
 interface WorkloadCredentialOptions {
+  allowedIngress?: readonly {
+    kind: "api_event";
+    sourceClass: string;
+  }[];
   delegation?: readonly {
     actions: readonly string[];
     id: string;
@@ -317,7 +321,7 @@ export function requestWorkloadCredential(
   return fetch(`${zoenBaseUrl}/workload/admin/credentials`, {
     body: JSON.stringify({
       actorId: identity.actorId,
-      allowedIngress: [],
+      allowedIngress: options.allowedIngress ?? [],
       delegation: options.delegation ?? [
         {
           actions: [

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -81,6 +83,7 @@ import {
   writeEffectWorkerApiKey,
   writeEffectWorkerApiKeyValue,
   zoenBaseUrl,
+  type IssuedWorkloadCredential,
   type ManagedProcess,
   type WorkloadIdentity,
 } from "./effect-support.js";
@@ -248,6 +251,24 @@ async function main(): Promise<void> {
     const firstWorkerCredential = await issueWorkloadCredential(
       adminAToken,
       workerIdentity,
+    );
+    const sourceCredential = await issueWorkloadCredential(
+      adminAToken,
+      workerIdentity,
+      {
+        allowedIngress: [{ kind: "api_event", sourceClass: "rest" }],
+      },
+    );
+    await proveWorkloadSignalBoundary(
+      sourceCredential,
+      firstWorkerCredential,
+      workerIdentity,
+      observe,
+    );
+    await revokeWorkloadCredential(
+      adminAToken,
+      sourceCredential.credentialId,
+      tenantA,
     );
     await writeEffectWorkerApiKey(firstWorkerCredential);
     await waitForCredentialReady(workerIdentity, validator);
@@ -1269,6 +1290,186 @@ async function main(): Promise<void> {
       }
     }
     await stopAuthDoor(door);
+  }
+}
+
+async function proveWorkloadSignalBoundary(
+  sourceCredential: IssuedWorkloadCredential,
+  deniedCredential: IssuedWorkloadCredential,
+  identity: WorkloadIdentity,
+  observe: (name: string, value: boolean) => void,
+): Promise<void> {
+  const sourceHome = await mkdtemp(path.join(tmpdir(), "zoen-workload-boundary-"));
+  const invalidApiKey = `zoen_wl_${"A".repeat(43)}`;
+  const apiKeyPath = path.join(sourceHome, "workload.api-key");
+  const environment = {
+    ...process.env,
+    ZOEN_ACTOR: identity.actorId,
+    ZOEN_BEARER: "unused",
+    ZOEN_PRINCIPAL: identity.principalId,
+    ZOEN_SOURCE_HOME: sourceHome,
+    ZOEN_TENANT: identity.tenantId,
+    ZOEN_VALID_AT: new Date().toISOString(),
+    ZOEN_WORKLOAD: identity.workloadId,
+    ZOEN_ZOEND: zoenBaseUrl,
+  };
+  const runZoen = (arguments_: readonly string[]) => {
+    const result = spawnSync(
+      path.join(repositoryRoot, "target", "debug", "zoen"),
+      [...arguments_],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        env: environment,
+        timeout: 10_000,
+      },
+    );
+    return {
+      status: result.status,
+      stderr: result.stderr ?? "",
+      stdout: result.stdout ?? "",
+    };
+  };
+
+  try {
+    await writeFile(apiKeyPath, `${sourceCredential.apiKeyOnce}\n`, {
+      mode: 0o600,
+    });
+    await chmod(apiKeyPath, 0o600);
+    const connected = runZoen([
+      "source",
+      "connect",
+      "rest",
+      "--id",
+      "workload-boundary",
+      "--base",
+      zoenBaseUrl,
+    ]);
+    assert.equal(connected.status, 0, connected.stderr);
+    const introduced = runZoen([
+      "source",
+      "introduce",
+      "workload-boundary",
+      "--path",
+      "/live",
+    ]);
+    assert.equal(introduced.status, 0, introduced.stderr);
+
+    const synchronized = runZoen([
+      "source",
+      "sync",
+      "workload-boundary",
+    ]);
+    const synchronizedDocument = z
+      .object({ signalId: z.string().regex(/^wlsig\.[0-9a-f]{1,32}$/) })
+      .passthrough()
+      .parse(JSON.parse(synchronized.stdout) as unknown);
+    observe(
+      "workloadSignalSuccessIsCanonical",
+      synchronized.status === 0 &&
+        synchronized.stderr === "" &&
+        synchronizedDocument.signalId.startsWith("wlsig."),
+    );
+    observe(
+      "successfulWorkloadCredentialNeverReachesCommandOutput",
+      !synchronized.stdout.includes(sourceCredential.apiKeyOnce) &&
+        !synchronized.stderr.includes(sourceCredential.apiKeyOnce),
+    );
+
+    await writeFile(apiKeyPath, `${deniedCredential.apiKeyOnce}\n`);
+
+    const exchangeToken = await exchangeWorkloadCredential(
+      deniedCredential,
+      identity,
+    );
+    const rawSignal = await fetch(new URL("/workload/signals", zoenBaseUrl), {
+      body: JSON.stringify({
+        durableEventId: "evt.workload-boundary.raw",
+        payloadDigestRef: `sha256:${"0".repeat(64)}`,
+        source: { class: "rest", externalId: "workload-boundary" },
+        sourceDigestRef: `sha256:${"0".repeat(64)}`,
+        trustDisposition: "evidence_candidate",
+      }),
+      headers: {
+        authorization: `Bearer ${exchangeToken}`,
+        "content-type": "application/json",
+      },
+      method: "PUT",
+      signal: AbortSignal.timeout(10_000),
+    });
+    const rawSignalBody = await rawSignal.text();
+    const rawSignalError = z
+      .object({ error: z.string().min(1) })
+      .parse(JSON.parse(rawSignalBody) as unknown).error;
+    assert.equal(rawSignal.ok, false);
+
+    const signalRejected = runZoen([
+      "source",
+      "sync",
+      "workload-boundary",
+    ]);
+    observe(
+      "workloadSignalFailureIsSanitized",
+      signalRejected.status === 1 &&
+        signalRejected.stdout === "" &&
+        signalRejected.stderr.includes("workload signal was rejected"),
+    );
+    observe(
+      "workloadCredentialNeverReachesCommandOutput",
+      !signalRejected.stdout.includes(deniedCredential.apiKeyOnce) &&
+        !signalRejected.stderr.includes(deniedCredential.apiKeyOnce),
+    );
+    observe(
+      "workloadSignalBodyNeverReachesCommandOutput",
+      !signalRejected.stdout.includes(rawSignalBody) &&
+        !signalRejected.stderr.includes(rawSignalBody) &&
+        !signalRejected.stdout.includes(rawSignalError) &&
+        !signalRejected.stderr.includes(rawSignalError),
+    );
+
+    await writeFile(apiKeyPath, `${invalidApiKey}\n`);
+    const rawAuthentication = await fetch(
+      new URL("/workload/authenticate", zoenBaseUrl),
+      {
+        body: JSON.stringify({ apiKey: invalidApiKey }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    const rawAuthenticationBody = await rawAuthentication.text();
+    const rawAuthenticationError = z
+      .object({ error: z.string().min(1) })
+      .parse(JSON.parse(rawAuthenticationBody) as unknown).error;
+    assert.equal(rawAuthentication.ok, false);
+
+    const authenticationRejected = runZoen([
+      "source",
+      "sync",
+      "workload-boundary",
+    ]);
+    observe(
+      "workloadAuthenticationFailureIsSanitized",
+      authenticationRejected.status === 1 &&
+        authenticationRejected.stdout === "" &&
+        authenticationRejected.stderr.includes(
+          "workload authentication was rejected",
+        ),
+    );
+    observe(
+      "workloadApiKeyNeverReachesCommandOutput",
+      !authenticationRejected.stdout.includes(invalidApiKey) &&
+        !authenticationRejected.stderr.includes(invalidApiKey),
+    );
+    observe(
+      "workloadResponseBodyNeverReachesCommandOutput",
+      !authenticationRejected.stdout.includes(rawAuthenticationBody) &&
+        !authenticationRejected.stderr.includes(rawAuthenticationBody) &&
+        !authenticationRejected.stdout.includes(rawAuthenticationError) &&
+        !authenticationRejected.stderr.includes(rawAuthenticationError),
+    );
+  } finally {
+    await rm(sourceHome, { force: true, recursive: true });
   }
 }
 
