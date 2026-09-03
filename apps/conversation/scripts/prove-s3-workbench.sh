@@ -736,6 +736,7 @@ record "Better Auth cannot open an unscoped Eve session" \
   || fail "Eve accepted a Better Auth session without a tenant (${missing_tenant_code})"
 
 body="${work}/eve-session"
+session_body="$body"
 session_code="$(
   curl -sS -o "$body" -w '%{http_code}' \
     -b "$owner_jar" \
@@ -745,7 +746,7 @@ session_code="$(
     "${zoend_base}/eve/v1/session"
 )"
 [[ "$session_code" == "202" ]] || fail "eve session ${session_code}"
-session_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["sessionId"])' "$body")"
+session_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["sessionId"])' "$session_body")"
 
 body="${work}/cross-membership-continuation"
 cross_continuation_code="$(
@@ -804,7 +805,7 @@ session_context_file="$(wait_session_context "$session_id" "$owner_membership" "
 record "Better Auth resolves Membership through canonical ZOEN_ZOEND" \
   "POST ${zoend_base}/eve/v1/session with Better Auth cookie and x-zoen-tenant" \
   "${zoend_base}/eve/v1/session" "$session_code" \
-  "membership=${owner_membership} context=$(basename "$session_context_file") workbench=live-driver-same-membership body=$(excerpt_file "$body")"
+  "membership=${owner_membership} context=$(basename "$session_context_file") workbench=live-driver-same-membership body=$(excerpt_file "$session_body")"
 
 stop_zoend
 body="${work}/eve-session-without-zoend"
