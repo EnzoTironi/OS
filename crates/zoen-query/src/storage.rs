@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use object_store::{ObjectStore, aws::AmazonS3Builder};
+use object_store::{ObjectStore, ObjectStoreExt, aws::AmazonS3Builder, path::Path};
 
 use crate::QueryError;
 
@@ -26,6 +26,20 @@ impl ObjectStoreConfig {
             .build()
             .map_err(|error| QueryError::Unavailable(error.to_string()))?;
         Ok(Arc::new(store))
+    }
+
+    /// Confirm the configured bucket is reachable without writing objects.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QueryError::Unavailable`] when credentials, endpoint, or the
+    /// bucket cannot be reached.
+    pub async fn probe(&self) -> Result<(), QueryError> {
+        let store = self.build()?;
+        match store.head(&Path::from("zoen-ready-probe")).await {
+            Ok(_) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+            Err(error) => Err(QueryError::Unavailable(error.to_string())),
+        }
     }
 
     pub(crate) fn object_url(&self, key: &str) -> String {

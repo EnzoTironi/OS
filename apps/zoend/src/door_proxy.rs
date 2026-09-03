@@ -1,10 +1,4 @@
-use std::{
-    env::{self, VarError},
-    error::Error,
-    io::{Error as IoError, ErrorKind},
-    net::IpAddr,
-    time::Duration,
-};
+use std::{error::Error, net::IpAddr, time::Duration};
 
 use axum::{
     Router,
@@ -16,7 +10,6 @@ use axum::{
 };
 use reqwest::Client;
 
-const DEFAULT_DOOR: &str = "http://127.0.0.1:58704";
 const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
 #[derive(Clone)]
@@ -26,7 +19,7 @@ struct DoorProxy {
 }
 
 pub fn router() -> Result<Router, Box<dyn Error + Send + Sync>> {
-    let origin = door_origin()?;
+    let origin = zoend::config::auth_base_url()?;
     Ok(Router::new()
         .route("/", any(proxy_door))
         .route("/login", any(proxy_door))
@@ -38,38 +31,6 @@ pub fn router() -> Result<Router, Box<dyn Error + Send + Sync>> {
             client: door_client(),
             origin,
         }))
-}
-
-fn door_origin() -> Result<String, Box<dyn Error + Send + Sync>> {
-    let raw = match env::var("ZOEN_AUTH_BASE_URL") {
-        Ok(value) => value,
-        Err(VarError::NotPresent) => DEFAULT_DOOR.to_owned(),
-        Err(error) => return Err(error.into()),
-    };
-    let origin = raw.trim().trim_end_matches('/');
-    let parsed = reqwest::Url::parse(origin)
-        .map_err(|error| config_error(format!("ZOEN_AUTH_BASE_URL is invalid: {error}")))?;
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| config_error("ZOEN_AUTH_BASE_URL must include a host"))?;
-    if parsed.scheme() != "http"
-        || host != "127.0.0.1"
-        || parsed.port().is_none()
-        || parsed.path() != "/"
-        || parsed.query().is_some()
-        || parsed.fragment().is_some()
-        || !parsed.username().is_empty()
-        || parsed.password().is_some()
-    {
-        return Err(config_error(
-            "ZOEN_AUTH_BASE_URL must be an HTTP 127.0.0.1 origin with an explicit port",
-        ));
-    }
-    Ok(origin.to_owned())
-}
-
-fn config_error(message: impl Into<String>) -> Box<dyn Error + Send + Sync> {
-    IoError::new(ErrorKind::InvalidInput, message.into()).into()
 }
 
 fn door_client() -> Client {

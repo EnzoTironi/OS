@@ -74,7 +74,6 @@ import {
   startFaultProvider,
   startRestate,
   startWorker,
-  startZoend,
   stopProcess,
   stopRestate,
   suspendProcess,
@@ -92,6 +91,10 @@ import {
   type ManagedProcess,
   type WorkloadIdentity,
 } from "./effect-support.js";
+import {
+  proveProductReadiness,
+  startReadyZoend,
+} from "./effect-readiness.js";
 import {
   e2eGeneratedDirectory,
   writeScenarioArtifact,
@@ -198,7 +201,7 @@ async function main(): Promise<void> {
     rm(effectWorkerReadyFile, { force: true }),
   ]);
 
-  const door = await startAuthDoor(authDatabaseUrl);
+  let door = await startAuthDoor(authDatabaseUrl);
   const admin = adminClient();
   const processes: ManagedProcess[] = [];
   const assertions: Record<string, boolean> = {};
@@ -206,7 +209,7 @@ async function main(): Promise<void> {
     assert.ok(value, name);
     assertions[name] = true;
   };
-  let zoend = await startZoend(policyManifestPath);
+  let zoend = await startReadyZoend(policyManifestPath);
   processes.push(zoend);
   await admin.connect();
 
@@ -285,6 +288,24 @@ async function main(): Promise<void> {
     const identity = chain.identity;
     const normal = chain.normal;
     const replacementWorkerCredential = chain.replacementWorkerCredential;
+
+    const readiness = await proveProductReadiness({
+      admin,
+      adminAToken,
+      adminBToken,
+      door,
+      fixture,
+      humanFixture,
+      observe,
+      policyManifestPath,
+      processes,
+      registrar,
+      workerIdentity,
+      zoend,
+    });
+    door = readiness.door;
+    registrar = readiness.registrar;
+    zoend = readiness.zoend;
 
     const convergence = await proveRetryConvergenceAcrossRestarts({
       admin,
@@ -761,7 +782,7 @@ async function proveDelegatedClaimAuthorization(input: {
     async () => (!(await registrarReady()) ? true : undefined),
     "registration loss before forbidden claim proof",
   );
-  zoend = await startZoend(policyManifestPath, {
+  zoend = await startReadyZoend(policyManifestPath, {
     effectWorkerWorkloadId: "workload.effect-worker-denied",
   });
   processes.push(zoend);
@@ -786,7 +807,7 @@ async function proveDelegatedClaimAuthorization(input: {
       (await providerOperation(forbiddenClaim.idempotencyKey)) === undefined,
   );
   await crashProcess(zoend);
-  zoend = await startZoend(policyManifestPath);
+  zoend = await startReadyZoend(policyManifestPath);
   processes.push(zoend);
   await waitForCredentialReady(workerIdentity, {
     expectedCredentialId: finalWorkerCredential.credentialId,
@@ -2018,7 +2039,7 @@ async function proveRetryConvergenceAcrossRestarts(input: {
     async () => (!(await registrarReady()) ? true : undefined),
     "registration loss after zoend stop",
   );
-  zoend = await startZoend(policyManifestPath);
+  zoend = await startReadyZoend(policyManifestPath);
   processes.push(zoend);
   await waitForCredentialReady(workerIdentity, {
     expectedCredentialId: replacementWorkerCredential.credentialId,

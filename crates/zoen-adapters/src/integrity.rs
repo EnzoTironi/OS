@@ -1,9 +1,11 @@
 use std::{
     error::Error,
     fmt::{Display, Formatter},
+    time::Duration,
 };
 
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
+use zoen_core::TenantId;
 
 use super::PostgresAuthorityStore;
 
@@ -37,6 +39,24 @@ impl Error for IntegrityError {
     }
 }
 
+/// Readiness of the tenant's active definition, the current `WorldRelease` stand-in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActiveReleaseStatus {
+    Active,
+    Missing,
+    Stale,
+}
+
+/// Readiness of the tenant's projection watermark heartbeat.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProjectionWatermarkStatus {
+    Current,
+    Missing,
+    Stale,
+}
+
+const SEMANTIC_PROJECTION_ID: &str = "semantic_claims_v1";
+
 impl PostgresAuthorityStore {
     /// Fail closed when authority tables lack RLS or expected relations.
     ///
@@ -58,6 +78,97 @@ impl PostgresAuthorityStore {
         }
         Ok(())
     }
+
+    /// Report whether this tenant has a live definition activation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntegrityError::Query`] when PostgreSQL is unavailable.
+    pub async fn active_release(
+        &self,
+        tenant_id: &TenantId,
+    ) -> Result<ActiveReleaseStatus, IntegrityError> {
+        let mut transaction = self.pool.begin().await.map_err(IntegrityError::Query)?;
+        set_ready_tenant(&mut transaction, tenant_id).await?;
+        let row = sqlx::query(
+            "SELECT count(*)::bigint AS active_count,
+                    count(*) FILTER (WHERE revision.definition_id IS NULL)::bigint AS stale_count
+             FROM public.active_definition_revisions AS active
+             LEFT JOIN public.definition_revisions AS revision
+               ON revision.tenant_id = active.tenant_id
+              AND revision.definition_id = active.definition_id
+              AND revision.digest = active.digest
+              AND revision.revision = active.revision",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(IntegrityError::Query)?;
+        transaction.commit().await.map_err(IntegrityError::Query)?;
+        let active_count = row
+            .try_get::<i64, _>("active_count")
+            .map_err(IntegrityError::Query)?;
+        let stale_count = row
+            .try_get::<i64, _>("stale_count")
+            .map_err(IntegrityError::Query)?;
+        if active_count == 0 {
+            Ok(ActiveReleaseStatus::Missing)
+        } else if stale_count > 0 {
+            Ok(ActiveReleaseStatus::Stale)
+        } else {
+            Ok(ActiveReleaseStatus::Active)
+        }
+    }
+
+    /// Report whether the tenant watermark exists and has heartbeat within `max_age`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntegrityError::Query`] when PostgreSQL is unavailable.
+    pub async fn projection_watermark(
+        &self,
+        tenant_id: &TenantId,
+        max_age: Duration,
+    ) -> Result<ProjectionWatermarkStatus, IntegrityError> {
+        let mut transaction = self.pool.begin().await.map_err(IntegrityError::Query)?;
+        set_ready_tenant(&mut transaction, tenant_id).await?;
+        let row = sqlx::query(
+            "SELECT (EXTRACT(EPOCH FROM (pg_catalog.clock_timestamp() - updated_at)) * 1000)::bigint AS age_ms
+             FROM public.projection_watermarks
+             WHERE tenant_id = $1 AND projection_id = $2",
+        )
+        .bind(tenant_id.as_str())
+        .bind(SEMANTIC_PROJECTION_ID)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(IntegrityError::Query)?;
+        transaction.commit().await.map_err(IntegrityError::Query)?;
+        let Some(row) = row else {
+            return Ok(ProjectionWatermarkStatus::Missing);
+        };
+        let age_ms = row
+            .try_get::<i64, _>("age_ms")
+            .map_err(IntegrityError::Query)?;
+        let Ok(max_age_ms) = i64::try_from(max_age.as_millis()) else {
+            return Ok(ProjectionWatermarkStatus::Current);
+        };
+        if age_ms < 0 || age_ms > max_age_ms {
+            Ok(ProjectionWatermarkStatus::Stale)
+        } else {
+            Ok(ProjectionWatermarkStatus::Current)
+        }
+    }
+}
+
+async fn set_ready_tenant(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: &TenantId,
+) -> Result<(), IntegrityError> {
+    sqlx::query("SELECT pg_catalog.set_config('zoen.tenant_id', $1, true)")
+        .bind(tenant_id.as_str())
+        .execute(&mut **transaction)
+        .await
+        .map_err(IntegrityError::Query)?;
+    Ok(())
 }
 
 async fn verify_table(pool: &PgPool, table: &str, required: bool) -> Result<(), IntegrityError> {
