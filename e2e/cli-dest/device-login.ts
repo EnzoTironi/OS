@@ -23,6 +23,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import {
+  AUTH_DOOR_ORIGIN,
   e2eAuthDatabaseUrl,
   sessionDoorProcessEnv,
   startAuthDoor,
@@ -40,8 +41,18 @@ const clientId = "zoen";
 const deviceGrantType = "urn:ietf:params:oauth:grant-type:device_code";
 const postgresPortFallback = 55_536;
 const zoendPortFallback = 58_791;
+const secondaryZoendPortFallback = 58_792;
 const zoendPort = e2ePort("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 const zoendBaseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
+const secondaryZoendPort = e2ePort(
+  "ZOEN_E2E_SECOND_ZOEND_PORT",
+  secondaryZoendPortFallback,
+);
+const secondaryZoendBaseUrl = e2eHttpUrl(
+  "ZOEN_E2E_SECOND_ZOEND_PORT",
+  secondaryZoendPortFallback,
+);
+const authDoorPort = Number(new URL(AUTH_DOOR_ORIGIN).port);
 const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
@@ -217,19 +228,75 @@ export async function runDeviceLoginJourney(
   let doorStopped = false;
   let authDatabase: PostgresClient | undefined;
   let server: ServerProcess | undefined;
+  let secondaryServer: ServerProcess | undefined;
   let browser: BrowserProcess | undefined;
   let activeCli: AsyncCli | undefined;
   let completed = false;
   try {
+    await assertFailedAuthDoorStartupCleansUp(authDatabaseUrl, evidence);
+    door = await startAuthDoor(authDatabaseUrl, {
+      device: {
+        expiresInSeconds: 3,
+        pollIntervalSeconds: 1,
+      },
+    });
+    authDatabase = new PostgresClient({ connectionString: authDatabaseUrl });
+    await authDatabase.connect();
+    server = await startServer(zoenPath);
+
+    activeCli = spawnDeviceLogin(zoenPath, home);
+    const expiredLink = await waitForDeviceLink(activeCli);
+    const expiredRecord = await deviceRecord(authDatabase, expiredLink.userCode);
+    assertPublicDeviceOutput(activeCli, expiredLink, expiredRecord.deviceCode, evidence);
+    evidence.record(
+      "device_better_auth_non_default_expiry_and_interval",
+      expiredRecord.expiresAt.getTime() - activeCli.startedAt >= 2_500 &&
+        expiredRecord.expiresAt.getTime() - activeCli.startedAt <= 4_000 &&
+        expiredRecord.pollingInterval === 1_000,
+    );
+    const expiredResult = await waitForCli(activeCli, 8_000);
+    const expiredElapsedMs = Date.now() - activeCli.startedAt;
+    activeCli = undefined;
+    const expiredDiagnostic = cliDiagnostic(expiredResult);
+    evidence.record(
+      "device_expiry_reaches_waiting_cli",
+      expiredResult.status === 1 &&
+        expiredResult.signal === null &&
+        expiredDiagnostic.code === "timed_out" &&
+        (expiredDiagnostic.message === "Device code has expired" ||
+          expiredDiagnostic.message ===
+            "device authorization expired before approval"),
+    );
+    evidence.record(
+      "device_cli_honors_non_default_expires_in",
+      expiredElapsedMs >= 2_500 && expiredElapsedMs <= 6_000,
+    );
+    evidence.record(
+      "device_expiry_hides_upstream_error_body",
+      !expiredResult.stderr.includes("error_description") &&
+        !expiredResult.stderr.includes('\\"error\\"'),
+    );
+    assertSecretAbsent(expiredResult, expiredRecord.deviceCode, evidence, "expiry");
+    await assertExpiryAndReplayCleanup(
+      authDatabase,
+      expiredRecord,
+      expiredDiagnostic.message === "Device code has expired",
+      evidence,
+    );
+    evidence.record(
+      "device_expiry_writes_no_credentials",
+      !(await pathExists(credentialsPath)),
+    );
+
+    await stopAuthDoor(door);
+    doorStopped = true;
     door = await startAuthDoor(authDatabaseUrl, {
       google: {
         clientId: "device-login.e2e.apps.googleusercontent.com",
         clientSecret: "device-login-e2e-secret",
       },
     });
-    authDatabase = new PostgresClient({ connectionString: authDatabaseUrl });
-    await authDatabase.connect();
-    server = await startServer(zoenPath);
+    doorStopped = false;
     browser = await startBrowser(home);
     await assertInvalidClientRejected(evidence);
     const signedUp = await signUpThroughZoend();
@@ -285,55 +352,45 @@ export async function runDeviceLoginJourney(
     );
 
     activeCli = spawnDeviceLogin(zoenPath, home);
-    const expiredLink = await waitForDeviceLink(activeCli);
-    const expiredRecord = await deviceRecord(authDatabase, expiredLink.userCode);
-    assertPublicDeviceOutput(activeCli, expiredLink, expiredRecord.deviceCode, evidence);
-    await expireDevice(authDatabase, expiredRecord.deviceCode);
-    const expiredResult = await waitForCli(activeCli, 15_000);
-    activeCli = undefined;
-    const expiredDiagnostic = cliDiagnostic(expiredResult);
-    evidence.record(
-      "device_expiry_reaches_waiting_cli",
-      expiredResult.status === 1 &&
-        expiredResult.signal === null &&
-        expiredDiagnostic.code === "timed_out" &&
-        expiredDiagnostic.message === "Device code has expired",
-    );
-    evidence.record(
-      "device_expiry_hides_upstream_error_body",
-      !expiredResult.stderr.includes("error_description") &&
-        !expiredResult.stderr.includes('\\"error\\"'),
-    );
-    assertSecretAbsent(expiredResult, expiredRecord.deviceCode, evidence, "expiry");
-    await assertReplayAndCleanup(
-      authDatabase,
-      expiredRecord,
-      "device_expiry",
-      evidence,
-    );
-    evidence.record(
-      "device_expiry_writes_no_credentials",
-      !(await pathExists(credentialsPath)),
-    );
-
-    activeCli = spawnDeviceLogin(zoenPath, home);
     const approvedLink = await waitForDeviceLink(activeCli);
     const approvedRecord = await deviceRecord(authDatabase, approvedLink.userCode);
     assertPublicDeviceOutput(activeCli, approvedLink, approvedRecord.deviceCode, evidence);
-    const firstPoll = await pollDeviceToken(approvedRecord.deviceCode);
+    evidence.record(
+      "device_better_auth_default_timing_is_1800_and_5_seconds",
+      approvedRecord.expiresAt.getTime() - activeCli.startedAt >= 1_799_000 &&
+        approvedRecord.expiresAt.getTime() - activeCli.startedAt <= 1_802_000 &&
+        approvedRecord.pollingInterval === 5_000,
+    );
+    await delayUntil(activeCli.startedAt + 2_000);
+    const independentPoll = await pollDeviceToken(approvedRecord.deviceCode);
+    const independentlyPolledRecord = await deviceRecord(
+      authDatabase,
+      approvedLink.userCode,
+    );
     evidence.record(
       "device_real_better_auth_pending",
-      firstPoll.response.status === 400 &&
-        errorBodySchema.parse(firstPoll.body).error === "authorization_pending",
+      independentPoll.response.status === 400 &&
+        errorBodySchema.parse(independentPoll.body).error ===
+          "authorization_pending" &&
+        independentlyPolledRecord.lastPolledAt !== null,
     );
-    await setPollingInterval(authDatabase, approvedRecord.deviceCode, 60_000);
-    const earlyPoll = await pollDeviceToken(approvedRecord.deviceCode);
+    const pollAfterSlowDown = await waitForNextPoll(
+      authDatabase,
+      approvedRecord.deviceCode,
+      independentlyPolledRecord.lastPolledAt,
+      18_000,
+    );
     evidence.record(
       "device_real_better_auth_slow_down",
-      earlyPoll.response.status === 400 &&
-        errorBodySchema.parse(earlyPoll.body).error === "slow_down",
+      independentlyPolledRecord.lastPolledAt !== null &&
+        pollAfterSlowDown.getTime() -
+          independentlyPolledRecord.lastPolledAt.getTime() >=
+          10_000,
     );
-    await setPollingInterval(authDatabase, approvedRecord.deviceCode, 1);
+    evidence.record(
+      "device_cli_survives_slow_down",
+      !processExited(activeCli.child),
+    );
     await openAndSignInDeviceReview(
       browser.page,
       approvedLink,
@@ -375,11 +432,6 @@ export async function runDeviceLoginJourney(
         approvedReview.userId === signedUp.userId,
     );
 
-    evidence.record(
-      "device_better_auth_default_expires_in_is_1800_seconds",
-      approvedRecord.expiresAt.getTime() - Date.now() >= 1_790_000 &&
-        approvedRecord.expiresAt.getTime() - Date.now() <= 1_801_000,
-    );
     await delayUntil(activeCli.startedAt + 115_500);
     const beforeSlowDown = await deviceRecord(
       authDatabase,
@@ -389,21 +441,15 @@ export async function runDeviceLoginJourney(
       authDatabase,
       approvedRecord.deviceCode,
       beforeSlowDown.lastPolledAt,
-      10_000,
+      15_000,
     );
-    await setPollingInterval(authDatabase, approvedRecord.deviceCode, 60_000);
-    await delayUntil(lastPoll.getTime() + 8_000);
     evidence.record(
       "device_cli_honors_server_expires_in_beyond_120_seconds",
       Date.now() - activeCli.startedAt > 121_000 &&
-        !processExited(activeCli.child),
-    );
-    evidence.record(
-      "device_cli_survives_slow_down",
-      !processExited(activeCli.child),
+        !processExited(activeCli.child) &&
+        lastPoll.getTime() > activeCli.startedAt + 121_000,
     );
 
-    await setPollingInterval(authDatabase, approvedRecord.deviceCode, 1);
     const approvedAt = Date.now();
     await clickDeviceDecision(browser.page, "approve");
     await waitForText(browser.page, "#device-result", "aparelho entrou", 10_000);
@@ -420,7 +466,7 @@ export async function runDeviceLoginJourney(
     );
     evidence.record(
       "device_cli_backs_off_after_slow_down",
-      approvalDelayMs >= 5_500,
+      approvalDelayMs >= 8_000,
     );
     evidence.record(
       "device_login_finishes_before_server_expiry",
@@ -466,6 +512,35 @@ export async function runDeviceLoginJourney(
       "device_persisted_session_is_live",
       (await sessionCount(authDatabase, credentials.sessionToken)) === 1,
     );
+
+    secondaryServer = await startServer(
+      zoenPath,
+      secondaryZoendPort,
+      e2eListenAddr("ZOEN_E2E_SECOND_ZOEND_PORT", secondaryZoendPortFallback),
+    );
+    evidence.record(
+      "device_second_real_zoend_is_live",
+      secondaryServer.child.pid !== undefined &&
+        secondaryServer.child.pid !== server.child.pid &&
+        (await portOpen(secondaryZoendPort)),
+    );
+    const wrongOriginQuery = runPersistedSessionQuery(
+      zoenPath,
+      home,
+      secondaryZoendBaseUrl,
+    );
+    evidence.record(
+      "device_credentials_are_scoped_to_exact_zoend_origin",
+      wrongOriginQuery.status === 1 &&
+        wrongOriginQuery.signal === null &&
+        wrongOriginQuery.stderr.includes(
+          "authentication is required for ZOEN_ZOEND",
+        ) &&
+        !wrongOriginQuery.stderr.includes("subject has no verified binding") &&
+        (await readFile(credentialsPath, "utf8")) === credentialsText,
+    );
+    await stopServer(secondaryServer);
+    secondaryServer = undefined;
 
     const firstServerPid = server.child.pid;
     await stopServer(server);
@@ -543,6 +618,11 @@ export async function runDeviceLoginJourney(
         cleanupErrors.push(error);
       });
     }
+    if (secondaryServer !== undefined) {
+      await stopServer(secondaryServer).catch((error: unknown) => {
+        cleanupErrors.push(error);
+      });
+    }
     if (server !== undefined) {
       await stopServer(server).catch((error: unknown) => {
         cleanupErrors.push(error);
@@ -566,6 +646,87 @@ export async function runDeviceLoginJourney(
   evidence.record(
     "device_login_cleanup_removes_home",
     completed && !(await pathExists(home)),
+  );
+}
+
+async function assertFailedAuthDoorStartupCleansUp(
+  databaseUrl: string,
+  evidence: Evidence,
+): Promise<void> {
+  const processesBefore = authDoorProcessIds();
+  let startupError: unknown;
+  let unexpectedDoor: Awaited<ReturnType<typeof startAuthDoor>> | undefined;
+  try {
+    unexpectedDoor = await startAuthDoor(databaseUrl, {
+      readinessTimeoutMs: 0,
+    });
+  } catch (error) {
+    startupError = error;
+  } finally {
+    if (unexpectedDoor !== undefined) {
+      await stopAuthDoor(unexpectedDoor);
+    }
+  }
+  evidence.record(
+    "auth_door_failed_startup_is_reported",
+    startupError instanceof Error &&
+      startupError.message.includes("did not become ready"),
+  );
+  evidence.record(
+    "auth_door_failed_startup_cleans_child_and_listener",
+    await waitForAuthDoorCleanup(processesBefore, 5_000),
+  );
+}
+
+async function waitForAuthDoorCleanup(
+  expectedProcessIds: readonly number[],
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (
+      !(await portOpen(authDoorPort)) &&
+      sameNumbers(authDoorProcessIds(), expectedProcessIds)
+    ) {
+      return true;
+    }
+    await delay(50);
+  }
+  return false;
+}
+
+function authDoorProcessIds(): number[] {
+  const result = spawnSync(
+    "ps",
+    ["-ax", "-o", "pid=", "-o", "command="],
+    { encoding: "utf8" },
+  );
+  assert.equal(
+    result.status,
+    0,
+    `could not inspect auth door processes: ${result.stderr}`,
+  );
+  const marker = path.join(
+    process.cwd(),
+    "apps",
+    "auth",
+    "node_modules",
+    "tsx",
+    "dist",
+    "cli.mjs",
+  );
+  return (result.stdout ?? "")
+    .split(/\r?\n/)
+    .filter((line) => line.includes(marker) && line.includes("src/server.ts"))
+    .map((line) => Number.parseInt(line.trimStart(), 10))
+    .filter(Number.isSafeInteger)
+    .sort((left, right) => left - right);
+}
+
+function sameNumbers(left: readonly number[], right: readonly number[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
   );
 }
 
@@ -951,31 +1112,34 @@ async function deviceRecord(
   return deviceRecordSchema.parse(row);
 }
 
-async function expireDevice(
+async function assertExpiryAndReplayCleanup(
   authDatabase: PostgresClient,
-  deviceCode: string,
+  record: DeviceRecord,
+  cliObservedServerExpiry: boolean,
+  evidence: Evidence,
 ): Promise<void> {
-  const result = await authDatabase.query(
-    `UPDATE "deviceCode"
-        SET "expiresAt" = NOW() - INTERVAL '1 second'
-      WHERE "deviceCode" = $1`,
-    [deviceCode],
+  let serverExpiryObserved = cliObservedServerExpiry;
+  if (!serverExpiryObserved) {
+    await delayUntil(
+      record.expiresAt.getTime() + (record.pollingInterval ?? 0) + 100,
+    );
+    const expired = await pollDeviceToken(record.deviceCode);
+    const expiredBody = errorBodySchema.parse(expired.body);
+    serverExpiryObserved =
+      expired.response.status === 400 &&
+      expiredBody.error === "expired_token" &&
+      expiredBody.error_description === "Device code has expired";
+  }
+  evidence.record(
+    "device_expiry_is_real_better_auth_expired_token",
+    serverExpiryObserved,
   );
-  assert.equal(result.rowCount, 1, "expire device row count");
-}
-
-async function setPollingInterval(
-  authDatabase: PostgresClient,
-  deviceCode: string,
-  intervalMs: number,
-): Promise<void> {
-  const result = await authDatabase.query(
-    `UPDATE "deviceCode"
-        SET "pollingInterval" = $2
-      WHERE "deviceCode" = $1`,
-    [deviceCode, intervalMs],
+  await assertReplayAndCleanup(
+    authDatabase,
+    record,
+    "device_expiry",
+    evidence,
   );
-  assert.equal(result.rowCount, 1, "set device polling interval row count");
 }
 
 async function waitForNextPoll(
@@ -1368,11 +1532,15 @@ async function waitForText(
   );
 }
 
-async function startServer(zoenPath: string): Promise<ServerProcess> {
+async function startServer(
+  zoenPath: string,
+  port = zoendPort,
+  listenAddress = e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
+): Promise<ServerProcess> {
   assert.equal(
-    await portOpen(zoendPort),
+    await portOpen(port),
     false,
-    `zoend port ${zoendPort} is already occupied`,
+    `zoend port ${port} is already occupied`,
   );
   const output: string[] = [];
   const processGroup = process.platform !== "win32";
@@ -1390,10 +1558,7 @@ async function startServer(zoenPath: string): Promise<ServerProcess> {
           "policies.json",
         ),
         ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
-        ZOEN_LISTEN_ADDR: e2eListenAddr(
-          "ZOEN_E2E_ZOEND_PORT",
-          zoendPortFallback,
-        ),
+        ZOEN_LISTEN_ADDR: listenAddress,
       },
     }),
     stdio: ["pipe", "pipe", "pipe"],
@@ -1407,12 +1572,12 @@ async function startServer(zoenPath: string): Promise<ServerProcess> {
       if (processExited(child)) {
         throw new Error(`zoend exited during startup:\n${output.join("")}`);
       }
-      if (await portOpen(zoendPort)) {
+      if (await portOpen(port)) {
         return { child, output, processGroup };
       }
       await delay(100);
     }
-    throw new Error(`zoend did not listen on port ${zoendPort}`);
+    throw new Error(`zoend did not listen on port ${port}`);
   } catch (error) {
     await stopProcess(
       child,
@@ -1437,19 +1602,27 @@ async function stopServer(server: ServerProcess): Promise<void> {
   );
 }
 
-function runPersistedSessionQuery(zoenPath: string, home: string): CliResult {
+function runPersistedSessionQuery(
+  zoenPath: string,
+  home: string,
+  zoend = zoendBaseUrl,
+): CliResult {
   const result = spawnSync(
     zoenPath,
     ["world", "query", "--type", "inventory.Item"],
     {
       encoding: "utf8",
-      env: isolatedCliEnv(home, {
-        ZOEN_DEFINITION_DIGEST: "dead",
-        ZOEN_DEFINITION_ID: "inventory.definition",
-        ZOEN_DEFINITION_REVISION: "1",
-        ZOEN_TENANT: "tenant.a",
-        ZOEN_VALID_AT: "2026-01-15T00:00:00Z",
-      }),
+      env: isolatedCliEnv(
+        home,
+        {
+          ZOEN_DEFINITION_DIGEST: "dead",
+          ZOEN_DEFINITION_ID: "inventory.definition",
+          ZOEN_DEFINITION_REVISION: "1",
+          ZOEN_TENANT: "tenant.a",
+          ZOEN_VALID_AT: "2026-01-15T00:00:00Z",
+        },
+        zoend,
+      ),
       timeout: 10_000,
     },
   );
@@ -1542,11 +1715,12 @@ function waitForProcessExit(
 function isolatedCliEnv(
   home: string,
   extra: NodeJS.ProcessEnv = {},
+  zoend = zoendBaseUrl,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
-    ZOEN_ZOEND: zoendBaseUrl,
+    ZOEN_ZOEND: zoend,
     ...extra,
   };
   delete env.ZOEN_BEARER;
