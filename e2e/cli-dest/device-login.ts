@@ -531,7 +531,7 @@ export async function runDeviceLoginJourney(
     );
     evidence.record(
       "device_credentials_are_scoped_to_exact_zoend_origin",
-      wrongOriginQuery.status === 1 &&
+      wrongOriginQuery.status === 2 &&
         wrongOriginQuery.signal === null &&
         wrongOriginQuery.stderr.includes(
           "authentication is required for ZOEN_ZOEND",
