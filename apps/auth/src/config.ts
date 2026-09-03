@@ -6,9 +6,34 @@ export interface DoorConfig {
   baseURL: string;
   betterAuthSecret: string;
   databaseUrl: string;
+  deviceExpiresInSeconds: number;
+  devicePollIntervalSeconds: number;
   google: Google;
   listenHost: "127.0.0.1";
   listenPort: number;
+}
+
+const positiveIntegerPattern = /^[1-9]\d*$/;
+
+function positiveSeconds(
+  env: NodeJS.Dict<string>,
+  name: string,
+  fallback: number
+): number {
+  const raw = env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (!positiveIntegerPattern.test(raw)) {
+    process.stderr.write(`${name}\n`);
+    process.exit(1);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) {
+    process.stderr.write(`${name}\n`);
+    process.exit(1);
+  }
+  return value;
 }
 
 function required(env: NodeJS.Dict<string>, name: string): string {
@@ -39,6 +64,16 @@ export function loadConfig(env: NodeJS.Dict<string>): DoorConfig {
     baseURL: required(env, "BETTER_AUTH_URL"),
     betterAuthSecret: required(env, "BETTER_AUTH_SECRET"),
     databaseUrl: required(env, "DATABASE_URL"),
+    deviceExpiresInSeconds: positiveSeconds(
+      env,
+      "ZOEN_DEVICE_EXPIRES_IN_SECONDS",
+      1800
+    ),
+    devicePollIntervalSeconds: positiveSeconds(
+      env,
+      "ZOEN_DEVICE_POLL_INTERVAL_SECONDS",
+      5
+    ),
     google: parseGoogle(env),
     listenHost: "127.0.0.1",
     listenPort: 58_704,
