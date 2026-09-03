@@ -19,6 +19,7 @@ use sha2::{Digest, Sha256};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_CLIENT_ID: &str = "zoen";
+const DEVICE_POLL_FAILURE_LIMIT: u8 = 3;
 const DEVICE_SLOW_DOWN_SECS: u64 = 5;
 const ROOT_AFTER_HELP: &str = "\
 No args is help. Start the daemon with zoen serve.
@@ -2998,14 +2999,15 @@ async fn poll_device_token(
         return Err("device authorization expiry exceeds the supported clock range".into());
     };
     let mut sleep_for = Duration::from_secs(interval);
+    let mut consecutive_failures = 0_u8;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Ok(device_authorization_timed_out());
+            return Ok(device_poll_deadline(zoend, consecutive_failures));
         }
         tokio::time::sleep(sleep_for.min(remaining)).await;
         if Instant::now() >= deadline {
-            return Ok(device_authorization_timed_out());
+            return Ok(device_poll_deadline(zoend, consecutive_failures));
         }
         let response = match http_client()?
             .post(format!("{zoend}/api/auth/device/token"))
@@ -3020,12 +3022,33 @@ async fn poll_device_token(
             .await
         {
             Ok(response) => response,
-            Err(error) if error.is_timeout() || error.is_connect() => continue,
+            Err(error) if error.is_timeout() || error.is_connect() => {
+                if note_device_poll_failure(&mut consecutive_failures) {
+                    return Ok(device_authorization_unavailable(zoend));
+                }
+                continue;
+            }
             Err(error) => return Err(error.into()),
         };
         let status = response.status().as_u16();
+        if (500..600).contains(&status) {
+            if note_device_poll_failure(&mut consecutive_failures) {
+                return Ok(device_authorization_unavailable(zoend));
+            }
+            continue;
+        }
         let headers = response.headers().clone();
-        let text = response.text().await?;
+        let text = match response.text().await {
+            Ok(text) => text,
+            Err(error) if error.is_timeout() || error.is_connect() => {
+                if note_device_poll_failure(&mut consecutive_failures) {
+                    return Ok(device_authorization_unavailable(zoend));
+                }
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        consecutive_failures = 0;
         if status == 200 {
             let session_token = session_token_from_headers(&headers)
                 .or_else(|| session_token_from_body(&text))
@@ -3053,11 +3076,29 @@ async fn poll_device_token(
                 .ok_or("device polling interval exceeds the supported clock range")?;
             continue;
         }
-        if (500..600).contains(&status) {
-            continue;
-        }
         return Ok(fail_http_body(status, &text));
     }
+}
+
+fn note_device_poll_failure(consecutive_failures: &mut u8) -> bool {
+    *consecutive_failures = consecutive_failures.saturating_add(1);
+    *consecutive_failures >= DEVICE_POLL_FAILURE_LIMIT
+}
+
+fn device_poll_deadline(zoend: &str, consecutive_failures: u8) -> CommandResult {
+    if consecutive_failures == 0 {
+        device_authorization_timed_out()
+    } else {
+        device_authorization_unavailable(zoend)
+    }
+}
+
+fn device_authorization_unavailable(zoend: &str) -> CommandResult {
+    fail_coded(
+        1,
+        FailCode::NotConnected,
+        &format!("device authorization service at {zoend} is unavailable"),
+    )
 }
 
 fn device_authorization_timed_out() -> CommandResult {
