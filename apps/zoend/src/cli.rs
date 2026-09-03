@@ -1145,9 +1145,9 @@ impl FailCode {
 
     fn parse(raw: &str) -> Option<Self> {
         match raw {
-            "permission_denied" => Some(Self::PermissionDenied),
-            "unauthenticated" => Some(Self::Unauthenticated),
-            "timed_out" => Some(Self::TimedOut),
+            "permission_denied" | "access_denied" => Some(Self::PermissionDenied),
+            "unauthenticated" | "invalid_grant" => Some(Self::Unauthenticated),
+            "timed_out" | "expired_token" => Some(Self::TimedOut),
             "not_connected" => Some(Self::NotConnected),
             "isolate_denied" => Some(Self::IsolateDenied),
             "missing_env" => Some(Self::MissingEnv),
@@ -1205,24 +1205,36 @@ fn command_error(text: &str) -> CommandResult {
 }
 
 fn map_connect(status: &ConnectStatus) -> (FailCode, String) {
-    let body_code = status.json.get("code").and_then(Value::as_str);
+    let body_code = status
+        .json
+        .get("code")
+        .or_else(|| status.json.get("error"))
+        .and_then(Value::as_str);
     let body_message = status
         .json
         .get("message")
+        .or_else(|| status.json.get("error_description"))
         .and_then(Value::as_str)
-        .unwrap_or(status.text.as_str());
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            if status.json.is_object() {
+                format!("request failed with HTTP {}", status.status)
+            } else {
+                status.text.clone()
+            }
+        });
     if let Some(code) = body_code.and_then(FailCode::parse) {
-        return (code, body_message.to_owned());
+        return (code, body_message);
     }
     match status.status {
-        401 => (FailCode::Unauthenticated, body_message.to_owned()),
-        403 => (FailCode::PermissionDenied, body_message.to_owned()),
-        408 | 504 => (FailCode::TimedOut, body_message.to_owned()),
-        status if (500..600).contains(&status) => (FailCode::NotConnected, body_message.to_owned()),
+        401 => (FailCode::Unauthenticated, body_message),
+        403 => (FailCode::PermissionDenied, body_message),
+        408 | 504 => (FailCode::TimedOut, body_message),
+        status if (500..600).contains(&status) => (FailCode::NotConnected, body_message),
         _ => {
             let message = match body_code {
                 Some(code) => format!("{code}: {body_message}"),
-                None => body_message.to_owned(),
+                None => body_message,
             };
             (FailCode::Usage, message)
         }

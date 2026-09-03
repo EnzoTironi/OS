@@ -64,8 +64,16 @@ const deviceRecordSchema = z.object({
 const errorBodySchema = z
   .object({
     error: z.string(),
+    error_description: z.string(),
   })
   .passthrough();
+
+const cliDiagnosticSchema = z
+  .object({
+    code: z.string(),
+    message: z.string(),
+  })
+  .strict();
 
 const oauthStateSchema = z
   .object({
@@ -251,9 +259,18 @@ export async function runDeviceLoginJourney(
     await waitForText(browser.page, "#device-result", "negada", 10_000);
     const deniedResult = await waitForCli(activeCli, 15_000);
     activeCli = undefined;
+    const deniedDiagnostic = cliDiagnostic(deniedResult);
     evidence.record(
       "device_denial_reaches_waiting_cli",
-      deniedResult.status === 1 && deniedResult.stderr.includes("access_denied"),
+      deniedResult.status === 1 &&
+        deniedResult.signal === null &&
+        deniedDiagnostic.code === "permission_denied" &&
+        deniedDiagnostic.message === "Access denied",
+    );
+    evidence.record(
+      "device_denial_hides_upstream_error_body",
+      !deniedResult.stderr.includes("error_description") &&
+        !deniedResult.stderr.includes('\\"error\\"'),
     );
     assertSecretAbsent(deniedResult, deniedRecord.deviceCode, evidence, "denial");
     await assertReplayAndCleanup(
@@ -274,9 +291,18 @@ export async function runDeviceLoginJourney(
     await expireDevice(authDatabase, expiredRecord.deviceCode);
     const expiredResult = await waitForCli(activeCli, 15_000);
     activeCli = undefined;
+    const expiredDiagnostic = cliDiagnostic(expiredResult);
     evidence.record(
       "device_expiry_reaches_waiting_cli",
-      expiredResult.status === 1 && expiredResult.stderr.includes("expired_token"),
+      expiredResult.status === 1 &&
+        expiredResult.signal === null &&
+        expiredDiagnostic.code === "timed_out" &&
+        expiredDiagnostic.message === "Device code has expired",
+    );
+    evidence.record(
+      "device_expiry_hides_upstream_error_body",
+      !expiredResult.stderr.includes("error_description") &&
+        !expiredResult.stderr.includes('\\"error\\"'),
     );
     assertSecretAbsent(expiredResult, expiredRecord.deviceCode, evidence, "expiry");
     await assertReplayAndCleanup(
@@ -629,6 +655,14 @@ function assertSecretAbsent(
   );
 }
 
+function cliDiagnostic(result: CliResult): z.infer<typeof cliDiagnosticSchema> {
+  const lines = result.stderr.trim().split(/\r?\n/);
+  const lastLine = lines.at(-1);
+  assert.ok(lastLine, "device CLI must print a final diagnostic");
+  const value: unknown = JSON.parse(lastLine);
+  return cliDiagnosticSchema.parse(value);
+}
+
 async function signUpThroughZoend(): Promise<SignedUpAccount> {
   const email = `device-${randomUUID()}@e2e.invalid`;
   const response = await fetch(`${zoendBaseUrl}/api/auth/sign-up/email`, {
@@ -979,10 +1013,12 @@ async function assertReplayAndCleanup(
   evidence: Evidence,
 ): Promise<void> {
   const replay = await pollDeviceToken(record.deviceCode);
+  const replayBody = errorBodySchema.parse(replay.body);
   evidence.record(
     `${name}_replay_is_invalid_grant`,
     replay.response.status === 400 &&
-      errorBodySchema.parse(replay.body).error === "invalid_grant",
+      replayBody.error === "invalid_grant" &&
+      replayBody.error_description === "Invalid device code",
   );
   const result = await authDatabase.query(
     'SELECT count(*)::int AS count FROM "deviceCode" WHERE "deviceCode" = $1',
