@@ -40,6 +40,9 @@ project=""
 runner=""
 generated_directory=""
 prepare=""
+runner_pid=""
+runner_process_group=""
+pending_signal_status=""
 
 usage() {
   local row
@@ -261,7 +264,80 @@ require_fiscal_live_environment() {
   done
 }
 
+stop_runner_process_group() {
+  local process_group="${runner_process_group:-}"
+  local process_id="${runner_pid:-}"
+  local attempt
+  if [[ -z "$process_group" ]]; then
+    return
+  fi
+  kill -TERM -- "-${process_group}" 2>/dev/null || true
+  for ((attempt = 0; attempt < 50; attempt += 1)); do
+    if ! kill -0 -- "-${process_group}" 2>/dev/null; then
+      if [[ -n "$process_id" ]]; then
+        wait "$process_id" 2>/dev/null || true
+      fi
+      runner_pid=""
+      runner_process_group=""
+      return
+    fi
+    sleep 0.1
+  done
+  kill -KILL -- "-${process_group}" 2>/dev/null || true
+  if [[ -n "$process_id" ]]; then
+    wait "$process_id" 2>/dev/null || true
+  fi
+  runner_pid=""
+  runner_process_group=""
+}
+
+run_journey() {
+  local observed_process_group
+  local runner_status
+  pending_signal_status=""
+  trap 'pending_signal_status=130' INT
+  trap 'pending_signal_status=143' TERM
+  set -m
+  ZOEN_E2E_RUNNER_PROCESS_GROUP=1 node "$runner" &
+  runner_pid=$!
+  runner_process_group="$runner_pid"
+  set +m
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  if [[ -n "$pending_signal_status" ]]; then
+    exit "$pending_signal_status"
+  fi
+  observed_process_group="$(
+    ps -o pgid= -p "$runner_pid" 2>/dev/null | tr -d '[:space:]' || true
+  )"
+  if [[ -z "$observed_process_group" ]]; then
+    if wait "$runner_pid"; then
+      runner_status=0
+    else
+      runner_status=$?
+    fi
+    stop_runner_process_group
+    return "$runner_status"
+  fi
+  if [[ "$observed_process_group" != "$runner_process_group" ]]; then
+    kill -TERM "$runner_pid" 2>/dev/null || true
+    wait "$runner_pid" 2>/dev/null || true
+    runner_pid=""
+    runner_process_group=""
+    echo "failed to isolate journey process group" >&2
+    return 1
+  fi
+  if wait "$runner_pid"; then
+    runner_status=0
+  else
+    runner_status=$?
+  fi
+  stop_runner_process_group
+  return "$runner_status"
+}
+
 cleanup_scenario() {
+  stop_runner_process_group
   if no_compose_scenario; then
     return
   fi
@@ -279,11 +355,13 @@ run_scenario() {
   fi
   require_built
   trap cleanup_scenario EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   cleanup_scenario
   mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
   if no_compose_scenario; then
-    node "$runner"
-    trap - EXIT
+    run_journey
+    trap - EXIT INT TERM
     return
   fi
   mkdir -p "$generated_directory"
@@ -291,9 +369,9 @@ run_scenario() {
     node "$prepare"
   fi
   docker compose --project-name "$project" --file "$compose_file" up --detach --wait
-  node "$runner"
+  run_journey
   cleanup_scenario
-  trap - EXIT
+  trap - EXIT INT TERM
 }
 
 run_e2e() {
