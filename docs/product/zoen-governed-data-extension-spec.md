@@ -1217,7 +1217,7 @@ OpenBB patterns MAY inform:
 
 Zoen MUST NOT treat OpenBB endpoint names as ontology meaning.
 
-Zoen MUST implement these contracts as clean-room product work. Contributors MUST NOT copy OpenBB AGPL code into Zoen under this ratification. Any later AGPL code reuse requires a separate written license decision before implementation.
+Zoen MUST implement these contracts as clean-room product work. No OpenBB AGPL code reuse is authorized by W0-05. `LIC-01` records this no-reuse disposition. Before any later reuse, a separate written license disposition MUST name the code, license, approval, and implementation boundary.
 
 ## 20. Final acceptance gates
 
@@ -1399,10 +1399,10 @@ W0-05 accepts this specification with these seven decisions:
 1. `WorldRelease` content and publication metadata are separate. `ReleaseDigest` derives from domain-tagged RFC 8785 JCS content, and release fields remain private.
 2. `DatasetVersion` content and `DatasetVersionAcceptance` metadata are separate.
 3. `KnowledgeBasisDefinition` produces a durable `ResolutionDecision` retrievable by digest. The record is neither authority nor a `CommitReceipt`.
-4. A one-time World owner ceremony creates the first active release without a permanent superuser.
+4. One World owner ceremony creates the World, owner Membership, candidate, publication, and active pointer in one transaction. Existing bootstrap state refuses a repeat, commit removes the capability, and no superuser or later bypass exists.
 5. Authorization restricts discovery and scan planning before storage work. Public denials do not disclose resource existence or result shape.
 6. A typed link requires explicit endpoint `TypeAssignment` evidence that covers the link's valid interval.
-7. Institutional standards are informative. OpenBB research remains clean-room input, and AGPL code reuse requires a separate written license decision.
+7. Institutional standards are informative, and OpenBB research remains clean-room input. W0-05 authorizes no OpenBB AGPL code reuse; `LIC-01` requires a separate written license disposition before any later reuse.
 
 Verdict: Accept with the corrections incorporated in this version.
 

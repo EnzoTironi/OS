@@ -173,7 +173,7 @@
     .node.ratified { border-style: dashed; border-color: rgba(116,216,237,.55); }
     .node.physical { border-color: rgba(129,144,138,.42); background: #101415; }
     .node.external { border-color: rgba(255,197,110,.35); background: rgba(255,197,110,.025); }
-    .node.dimmed { opacity: .16; }
+    .node.dimmed { opacity: 0; visibility: hidden; pointer-events: none; }
     .node strong { display: block; margin-bottom: 4px; font-size: 12px; line-height: 1.25; }
     .node small { display: block; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
     .node .tag {
@@ -190,7 +190,7 @@
       height: 22px; display: grid; place-items: center; color: #52615a;
       font: 18px var(--mono); transition: opacity .2s ease;
     }
-    .arrow.dimmed { opacity: .12; }
+    .arrow.dimmed { opacity: 0; visibility: hidden; }
     .kernel {
       margin: 10px 0; padding: 13px; border: 1px solid rgba(139,245,180,.48);
       border-radius: 13px; background: rgba(139,245,180,.055);
@@ -397,7 +397,7 @@
       main { padding: 0; }
       body { background: white; color: black; }
       .card, .zone, .node, .inspector { box-shadow: none; break-inside: avoid; }
-      .node.dimmed { opacity: 1; }
+      .node.dimmed, .arrow.dimmed { opacity: 1; visibility: visible; }
     }
   </style>
 </head>
@@ -555,8 +555,8 @@
               <article class="catalog"><code>executor_digest</code><h3>ExecutorCatalog</h3><p>provider, broker, messaging e machine capability contracts; secret slots, nunca secrets.</p></article>
               <article class="catalog"><code>component_digest</code><h3>ComponentCatalog</h3><p>normalizers, mappings, calendars, adjustments, computations e Wasm digests.</p></article>
             </div>
-            <div class="release-note"><strong>Publicação fica fora do conteúdo:</strong> WorldReleasePublication guarda release, published_at, published_by e PolicyEvidence. Um ponteiro transacional mantém somente uma release ativa por World. O bootstrap do primeiro owner roda uma vez e não cria superuser.</div>
-            <div class="release-note"><strong>ProviderCapability é um contrato composto:</strong> shape e source no OntologyCatalog · acesso/resolução/rights no PolicyCatalog · chamada no ExecutorCatalog · código e mapper no ComponentCatalog.</div>
+            <div class="release-note"><strong>Publicação fica fora do conteúdo:</strong> WorldReleasePublication guarda release, published_at, published_by e PolicyEvidence. Um ponteiro transacional mantém somente uma release ativa por World. O único bootstrap do primeiro owner é uma transação, recusa qualquer estado prévio, remove a capacidade no commit e não cria superuser nem bypass.</div>
+            <div class="release-note"><strong>SourceCapability é um contrato composto:</strong> shape e source no OntologyCatalog · acesso/resolução/rights no PolicyCatalog · chamada no ExecutorCatalog · código e mapper no ComponentCatalog.</div>
           </div>
           <div class="equation">result / cursor / proposal / receipt = <b>WorldRelease</b> × authority_data_cut × caller_context</div>
         </section>
@@ -712,7 +712,7 @@
           </div>
           <div class="decision-grid">
             <article class="card decision approved"><span class="status">North aprovado</span><h3>Não negociar</h3><ul><li>exatamente três produtos</li><li>um WorldKernel e sete verbos</li><li>WorldRelease com quatro catálogos</li><li>Eve possui conversa; Better Auth possui identity ceremony</li><li>Evidence, Action, Commit e Effect separados</li><li>Restate somente para ZoenEffect</li><li>CLI, Connect, MCP e Eve compartilham semântica</li></ul></article>
-            <article class="card decision ratified"><span class="status">Extensão ratificada</span><h3>Contrato W0-05</h3><ul><li>ObjectKey, TypedObjectRef e TypeAssignment temporal</li><li>typed links válidos nos dois endpoints</li><li>ReleaseDigest derivado de JCS e publicação separada</li><li>KnowledgeBasisDefinition produz ResolutionDecision durável</li><li>DatasetVersion e acceptance separados</li><li>entitlements antes de discovery e scan</li><li>OpenBB clean-room; AGPL exige decisão separada</li><li>IBM cobre FIN-01 até FIN-09</li></ul></article>
+            <article class="card decision ratified"><span class="status">Extensão ratificada</span><h3>Contrato W0-05</h3><ul><li>ObjectKey, TypedObjectRef e TypeAssignment temporal</li><li>typed links válidos nos dois endpoints</li><li>ReleaseDigest derivado de JCS e publicação separada</li><li>KnowledgeBasisDefinition produz ResolutionDecision durável</li><li>DatasetVersion e acceptance separados</li><li>entitlements antes de discovery e scan</li><li>OpenBB clean-room; W0-05 não autoriza reuso AGPL; LIC-01 precede qualquer mudança</li><li>IBM cobre FIN-01 até FIN-09</li></ul></article>
             <article class="card decision later"><span class="status">Implementação evolutiva</span><h3>Não congelar cedo</h3><ul><li>layout exato de tables e partitions</li><li>estratégia de compaction</li><li>cache e materialized indexes</li><li>linguagem interna do query planner</li><li>número de processos no Fly</li><li>quais providers entram primeiro</li><li>UI terminal-like não é produto</li></ul></article>
           </div>
         </section>
@@ -781,6 +781,9 @@
         const flows = (node.dataset.flows || '').split(' ');
         const active = mode === 'all' || flows.includes(mode);
         node.classList.toggle('dimmed', !active);
+        node.disabled = !active;
+        node.tabIndex = active ? 0 : -1;
+        node.setAttribute('aria-hidden', String(!active));
         const step = node.querySelector('.step');
         if (step) {
           const attr = 'order' + mode.charAt(0).toUpperCase() + mode.slice(1);

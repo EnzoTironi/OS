@@ -2,8 +2,18 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const programDirectory = dirname(fileURLToPath(import.meta.url));
@@ -18,10 +28,124 @@ const assert = (condition, message) => {
     fail(message);
   }
 };
+const isContainedPath = (repositoryRoot, candidate) => {
+  const relativePath = relative(repositoryRoot, candidate);
+  return (
+    relativePath === "" ||
+    (!isAbsolute(relativePath) &&
+      relativePath !== ".." &&
+      !relativePath.startsWith(`..${sep}`))
+  );
+};
+const resolveContainedPath = async (
+  repositoryRoot,
+  baseDirectory,
+  target,
+  label
+) => {
+  assert(
+    !isAbsolute(target),
+    `${label} must be repository-relative: ${target}`
+  );
+  const candidate = resolve(repositoryRoot, baseDirectory, target);
+  assert(
+    isContainedPath(repositoryRoot, candidate),
+    `${label} escapes the repository: ${target}`
+  );
+  const [canonicalRoot, canonicalCandidate] = await Promise.all([
+    realpath(repositoryRoot),
+    realpath(candidate).catch(() => undefined),
+  ]);
+  assert(canonicalCandidate, `${label} links to missing path ${target}`);
+  assert(
+    isContainedPath(canonicalRoot, canonicalCandidate),
+    `${label} follows a symlink outside the repository: ${target}`
+  );
+  return canonicalCandidate;
+};
+const expectPathRejection = async (candidate, expectedMessage) => {
+  let message = "";
+  try {
+    await candidate;
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  assert(
+    message.includes(expectedMessage),
+    `path containment self-check did not reject ${expectedMessage}`
+  );
+};
+const verifyPathContainment = async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "zoen-path-containment-"));
+  const repository = join(fixture, "repo");
+  const sibling = join(fixture, "repo-sibling");
+  try {
+    await Promise.all([
+      mkdir(join(repository, "docs/product"), { recursive: true }),
+      mkdir(sibling, { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(join(repository, "docs/product/inside.md"), "inside\n"),
+      writeFile(join(sibling, "outside.md"), "outside\n"),
+      writeFile(join(fixture, "outside-visual.html"), "outside\n"),
+    ]);
+    await symlink(
+      join(sibling, "outside.md"),
+      join(repository, "symlink-escape.md")
+    );
+    await resolveContainedPath(
+      repository,
+      "docs/product",
+      "inside.md",
+      "inside self-check"
+    );
+    await expectPathRejection(
+      resolveContainedPath(
+        repository,
+        ".",
+        "/etc/hosts",
+        "absolute self-check"
+      ),
+      "must be repository-relative"
+    );
+    await expectPathRejection(
+      resolveContainedPath(
+        repository,
+        ".",
+        "../repo-sibling/outside.md",
+        "sibling self-check"
+      ),
+      "escapes the repository"
+    );
+    await expectPathRejection(
+      resolveContainedPath(
+        repository,
+        ".",
+        "symlink-escape.md",
+        "symlink self-check"
+      ),
+      "follows a symlink outside the repository"
+    );
+    await expectPathRejection(
+      resolveContainedPath(
+        repository,
+        "docs/product",
+        "../../../outside-visual.html",
+        "visual self-check"
+      ),
+      "escapes the repository"
+    );
+  } finally {
+    await rm(fixture, { force: true, recursive: true });
+  }
+};
+
+await verifyPathContainment();
 
 const program = JSON.parse(await read("orchestrate/zoen-final/program.json"));
 const frontier = JSON.parse(await read("orchestrate/zoen-final/frontier.json"));
 const spec = await read("docs/product/zoen-governed-data-extension-spec.md");
+const architecture = await read("docs/product/zoen-final-architecture.md");
 const visual = await read(
   "docs/product/show-me-zoen-governed-data-extension.html"
 );
@@ -41,6 +165,24 @@ assert(
   program.journeys.map(({ id }) => id).join("|") === "J1|J2|J3|J4|J5|J6|J7|J8",
   "canonical journey IDs changed"
 );
+const journeyEvidenceFields = [
+  "actors",
+  "path",
+  "negativeProof",
+  "replayProof",
+  "isolationProof",
+  "recoveryProof",
+];
+for (const journey of program.journeys) {
+  assert(
+    !("proof" in journey) &&
+      journeyEvidenceFields.every(
+        (field) =>
+          typeof journey[field] === "string" && journey[field].trim().length > 0
+      ),
+    `${journey.id} must define actors, path, negative, replay, isolation, and recovery proof`
+  );
+}
 assert(
   program.finalGates.map(({ id }) => id).join("|") ===
     "FIN-01|FIN-02|FIN-03|FIN-04|FIN-05|FIN-06|FIN-07|FIN-08|FIN-09",
@@ -68,6 +210,44 @@ assert(
   frontier.landingOrder.join("|") === "W1-03|W1-04|W2-01",
   "landing order changed"
 );
+const expectedInitialPullRequests = [
+  "601|Replace",
+  "600|Drop",
+  "598|Replace",
+  "597|Keep and restack",
+  "593|Regenerate",
+  "533|Coordinate",
+  "532|Coordinate",
+  "531|Safe cohort",
+  "530|Blocked pair",
+  "529|Blocked pair",
+  "528|Blocked pair",
+  "527|Blocked pair",
+  "526|Safe cohort",
+  "525|Safe cohort",
+  "524|Defer",
+  "523|Regenerate",
+  "522|Safe cohort",
+  "521|Regenerate",
+  "520|Defer",
+  "519|Safe cohort",
+];
+const initialPullRequestDispositions =
+  frontier.initialPullRequestDispositions ?? [];
+assert(
+  initialPullRequestDispositions
+    .map(({ number, classification }) => `${number}|${classification}`)
+    .join("\n") === expectedInitialPullRequests.join("\n"),
+  "frontier must preserve all 20 authoritative initial PR classifications"
+);
+for (const item of initialPullRequestDispositions) {
+  assert(
+    [item.disposition, item.reason].every(
+      (value) => typeof value === "string" && value.trim().length > 0
+    ),
+    `PR #${item.number} has an incomplete initial disposition`
+  );
+}
 assert(
   frontier.dispositions.some(
     (item) =>
@@ -95,6 +275,34 @@ const worldReleaseFields = worldReleaseContent
   .trim()
   .split("\n")
   .map(rustFieldName);
+const architectureWorldReleaseStart = architecture.indexOf(
+  "struct WorldRelease {"
+);
+const architectureWorldReleaseEnd = architecture.indexOf(
+  "\n}",
+  architectureWorldReleaseStart
+);
+assert(
+  architectureWorldReleaseStart >= 0 && architectureWorldReleaseEnd > 0,
+  "architecture lacks WorldRelease"
+);
+const architectureWorldRelease = architecture.slice(
+  architectureWorldReleaseStart,
+  architectureWorldReleaseEnd
+);
+assert(
+  architecture.includes("struct WorldReleaseContent {") &&
+    architecture.includes("struct WorldReleasePublication {") &&
+    architectureWorldRelease.includes("content: WorldReleaseContent") &&
+    !architectureWorldRelease.includes("published_at"),
+  "architecture does not separate release content from publication metadata"
+);
+assert(
+  architecture.includes(
+    "Their canonical constructor derives `ReleaseDigest`; callers cannot supply it. This is type encapsulation, not secrecy."
+  ),
+  "architecture does not state the private-field boundary"
+);
 assert(spec.includes("Status: Ratified by W0-05"), "spec is not ratified");
 assert(
   spec.includes("zoen.world-release.v1"),
@@ -151,11 +359,16 @@ assert(
     spec.includes("A `ResolutionDecision` is not a `CommitReceipt`"),
   "ResolutionDecision authority boundary is missing"
 );
+const bootstrapRequirements = [
+  "The first release for a World MUST use a one-time owner ceremony",
+  "Create the initial World, owner Membership, candidate release, publication record, and active-release pointer in one transaction.",
+  "Refuse to run if the World has any release, active-release pointer, Membership, or completed bootstrap record.",
+  "Remove the bootstrap capability when the transaction commits.",
+  "The ceremony MUST NOT create a superuser, a reusable bypass, or a policy-free path for a later release.",
+];
 assert(
-  spec.includes(
-    "The first release for a World MUST use a one-time owner ceremony"
-  ) && spec.includes("The ceremony MUST NOT create a superuser"),
-  "World owner bootstrap rule is missing"
+  bootstrapRequirements.every((requirement) => spec.includes(requirement)),
+  "World owner bootstrap transaction, refusal, or capability removal is missing"
 );
 assert(
   spec.includes(
@@ -198,8 +411,10 @@ assert(
   spec.includes(
     "OpenBB and the institutional standards in the research record are informative sources"
   ) &&
+    spec.includes("No OpenBB AGPL code reuse is authorized by W0-05") &&
+    spec.includes("`LIC-01` records this no-reuse disposition") &&
     spec.includes(
-      "Any later AGPL code reuse requires a separate written license decision"
+      "a separate written license disposition MUST name the code, license, approval, and implementation boundary"
     ),
   "informative-source or clean-room license rule is missing"
 );
@@ -240,6 +455,41 @@ assert(
   !/decisão proposta|extensão proposta|>proposto</i.test(visual),
   "visual still marks ratified contracts as proposed"
 );
+assert(
+  visual.includes("SourceCapability é um contrato composto:") &&
+    !visual.includes("ProviderCapability"),
+  "visual does not use the ratified SourceCapability name"
+);
+assert(
+  visual.includes(
+    "O único bootstrap do primeiro owner é uma transação, recusa qualquer estado prévio, remove a capacidade no commit e não cria superuser nem bypass."
+  ) &&
+    visual.includes(
+      "OpenBB clean-room; W0-05 não autoriza reuso AGPL; LIC-01 precede qualquer mudança"
+    ),
+  "visual does not show the executable bootstrap or AGPL disposition"
+);
+const visualNodeElements = visual
+  .split("\n")
+  .filter(
+    (line) => line.includes('class="node ') || line.includes('class="node"')
+  );
+assert(
+  visualNodeElements.length > 0 &&
+    visualNodeElements.every((line) => line.trimStart().startsWith("<button ")),
+  "every interactive architecture node must be a button"
+);
+for (const behavior of [
+  ".node.dimmed { opacity: 0; visibility: hidden; pointer-events: none; }",
+  "node.disabled = !active;",
+  "node.tabIndex = active ? 0 : -1;",
+  "node.setAttribute('aria-hidden', String(!active));",
+]) {
+  assert(
+    visual.includes(behavior),
+    `visual filter lacks accessible behavior: ${behavior}`
+  );
+}
 assert(
   visual.toLowerCase().startsWith("<!doctype html>"),
   "visual lacks an HTML doctype"
@@ -320,6 +570,32 @@ assert(
   ).length === 7,
   "decisions.tsv must contain seven ratified decisions"
 );
+const decisionsById = new Map(decisions.map((row) => [row[0], row]));
+const ratificationFour = decisionsById.get("RAT-04")?.[3] ?? "";
+assert(
+  [
+    "in one transaction",
+    "refuses a repeat",
+    "removes the capability",
+    "no superuser or later bypass exists",
+  ].every((requirement) => ratificationFour.includes(requirement)),
+  "RAT-04 does not encode the one-time bootstrap proof"
+);
+const ratificationSeven = decisionsById.get("RAT-07")?.[3] ?? "";
+assert(
+  ratificationSeven.includes("clean-room") &&
+    ratificationSeven.includes("authorizes no OpenBB AGPL code reuse") &&
+    ratificationSeven.includes("separate written license disposition"),
+  "RAT-07 does not encode the clean-room and AGPL boundary"
+);
+const licenseDisposition = decisionsById.get("LIC-01") ?? [];
+assert(
+  licenseDisposition[2] === "no-reuse" &&
+    licenseDisposition[3]?.includes(
+      "code, license, approval, and implementation boundary"
+    ),
+  "LIC-01 must separately record that AGPL reuse is not authorized"
+);
 
 const markdownAnchor = (heading) => {
   assert(
@@ -350,10 +626,8 @@ const markdownAnchors = (text) =>
   );
 const validateDecisionEvidence = async ([id, , , , , evidence]) => {
   const [target, fragment] = evidence.split("#", 2);
-  const path = resolve(root, target);
-  const targetText = await readFile(path, "utf8").catch(() =>
-    fail(`${id} links to missing evidence ${target}`)
-  );
+  const path = await resolveContainedPath(root, ".", target, `${id} evidence`);
+  const targetText = await readFile(path, "utf8");
   if (fragment && target.endsWith(".md")) {
     assert(
       markdownAnchors(targetText).has(fragment),
@@ -405,15 +679,11 @@ const validateMarkdownFile = async (file) => {
       if (externalLink.test(target)) {
         return;
       }
-      const path = target
-        ? resolve(root, dirname(file), target)
-        : resolve(root, file);
-      assert(
-        path.startsWith(root),
-        `${file} link escapes the repository: ${target}`
-      );
-      await stat(path).catch(() =>
-        fail(`${file} links to missing path ${target}`)
+      const path = await resolveContainedPath(
+        root,
+        target ? dirname(file) : ".",
+        target || file,
+        `${file} link`
       );
       if (fragment && path.endsWith(".md")) {
         const targetText = target ? await readFile(path, "utf8") : markdown;
@@ -435,10 +705,7 @@ await Promise.all(
     if (externalLink.test(target)) {
       return;
     }
-    const path = resolve(root, "docs/product", target);
-    await stat(path).catch(() =>
-      fail(`visual links to missing path ${target}`)
-    );
+    await resolveContainedPath(root, "docs/product", target, "visual link");
   })
 );
 
@@ -512,5 +779,5 @@ assert(
 );
 
 console.log(
-  "ratification valid: links, HTML, JSON, TSV, research hashes, and product invariants passed"
+  "ratification valid: canonical path containment self-checks, links, HTML, JSON, TSV, research hashes, and product invariants passed"
 );

@@ -25,6 +25,18 @@ const expectedFinalGateIds = [
   "FIN-08",
   "FIN-09",
 ];
+const journeyEvidenceFields = [
+  "actors",
+  "path",
+  "negativeProof",
+  "replayProof",
+  "isolationProof",
+  "recoveryProof",
+];
+const expectedInitialPullRequestNumbers = [
+  601, 600, 598, 597, 593, 533, 532, 531, 530, 529, 528, 527, 526, 525, 524,
+  523, 522, 521, 520, 519,
+];
 
 const fail = (message) => {
   throw new Error(message);
@@ -69,8 +81,40 @@ unique(finalGateIds, "final gate IDs");
 if (journeyIds.join("|") !== expectedJourneyIds.join("|")) {
   fail("journey catalog must contain exactly J1-J8 in order");
 }
+for (const journey of program.journeys) {
+  if (
+    "proof" in journey ||
+    journeyEvidenceFields.some(
+      (field) =>
+        typeof journey[field] !== "string" || journey[field].trim().length === 0
+    )
+  ) {
+    fail(`${journey.id} must define every canonical journey proof dimension`);
+  }
+}
 if (finalGateIds.join("|") !== expectedFinalGateIds.join("|")) {
   fail("final gate catalog must contain exactly FIN-01-FIN-09 in order");
+}
+const initialPullRequestDispositions =
+  frontier.initialPullRequestDispositions ?? [];
+const initialPullRequestNumbers = initialPullRequestDispositions.map(
+  ({ number }) => number
+);
+unique(initialPullRequestNumbers, "initial pull request disposition numbers");
+if (
+  initialPullRequestNumbers.join("|") !==
+  expectedInitialPullRequestNumbers.join("|")
+) {
+  fail("frontier must preserve the authoritative 20 initial PR dispositions");
+}
+for (const item of initialPullRequestDispositions) {
+  if (
+    [item.classification, item.disposition, item.reason].some(
+      (value) => typeof value !== "string" || value.trim().length === 0
+    )
+  ) {
+    fail(`PR #${item.number} has an incomplete initial disposition`);
+  }
 }
 if (unitIds.includes("W1-H1")) {
   fail("the retired PR 616 runtime must not be a canonical unit");
@@ -224,9 +268,20 @@ const dependenciesTsv = withFinalNewline([
 ]);
 
 const journeysTsv = withFinalNewline([
-  "id\tname\tproof",
+  "id\tname\tactors\tpath\tnegative_proof\treplay_proof\tisolation_proof\trecovery_proof",
   ...program.journeys.map((journey) =>
-    [journey.id, journey.name, journey.proof].map(tsvCell).join("\t")
+    [
+      journey.id,
+      journey.name,
+      journey.actors,
+      journey.path,
+      journey.negativeProof,
+      journey.replayProof,
+      journey.isolationProof,
+      journey.recoveryProof,
+    ]
+      .map(tsvCell)
+      .join("\t")
   ),
 ]);
 
@@ -254,6 +309,7 @@ Generated from \`program.json\`, \`frontier.json\`, and \`ledger.tsv\`.
 - Base: \`${program.base.branch}@${program.base.sha}\`
 - Units: ${program.units.length} total, ${counts.done} done, ${counts.active} active, ${counts.queued} queued
 - Canonical journeys: ${program.journeys.length}, J1 through J8
+- Journey proof dimensions: actors, path, negative, replay, isolation, and recovery
 - Final gates: ${program.finalGates.length}, FIN-01 through FIN-09
 - Products: ${program.products.join(", ")}
 - Public verbs: ${program.verbs.join(", ")}
@@ -278,6 +334,14 @@ PR 611 produced the current \`main\` commit and activated Rust 1.98 with Kache.
 | Pull request | State | Branch | Head | Scope |
 | --- | --- | --- | --- | --- |
 ${journeyInfrastructure.map((item) => `| #${item.number} | ${item.state} | ${item.branch} | ${item.head} | ${escapeCell(item.fact)} |`).join("\n")}
+
+## Initial pull request dispositions
+
+This is the complete 20-PR intake set that W8-03 must resolve.
+
+| Pull request | Classification | Disposition | Reason |
+| --- | --- | --- | --- |
+${initialPullRequestDispositions.map((item) => `| #${item.number} | ${escapeCell(item.classification)} | ${escapeCell(item.disposition)} | ${escapeCell(item.reason)} |`).join("\n")}
 
 ## Non-landing records
 

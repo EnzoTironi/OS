@@ -9,10 +9,10 @@ Commit the governed-data extension as an approved addition to the Zoen architect
 1. Separate `WorldRelease` content from publication metadata. Derive `ReleaseDigest` from domain-tagged RFC 8785 JCS bytes and keep the fields private.
 2. Separate `DatasetVersion` content from acceptance metadata.
 3. Persist each `ResolutionDecision` by digest without treating it as authority or a `CommitReceipt`.
-4. Bootstrap the first release through a one-time World owner ceremony without a permanent superuser.
+4. Use one transactional World owner ceremony, refuse repeat state, remove the capability on commit, and create no superuser or later bypass.
 5. Authorize discovery and scan planning before storage work. Return non-disclosing denials.
 6. Require valid `TypeAssignment` evidence for both typed-link endpoints over the link interval.
-7. Treat standards as informative. Keep OpenBB work clean-room, and require a separate decision before any AGPL code reuse.
+7. Treat standards as informative. Keep OpenBB work clean-room, authorize no AGPL code reuse in W0-05, and require the separate `LIC-01` disposition before any later reuse.
 
 ## Program change
 

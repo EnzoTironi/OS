@@ -168,15 +168,25 @@ enum Principal {
     Workload(AgentBindingId),
 }
 
+struct WorldReleaseContent {
+    world: WorldId,
+    parent: Option<ReleaseDigest>,
+    ontology: OntologyCatalogDigest,
+    policy: PolicyCatalogDigest,
+    executors: ExecutorCatalogDigest,
+    components: ComponentCatalogDigest,
+}
+
 struct WorldRelease {
     id: ReleaseDigest,
-    world: WorldId,
-    ontology: DefinitionDigest,
-    policy: PolicyDigest,
-    executors: Digest,
-    components: Digest,
-    parent: Option<ReleaseDigest>,
+    content: WorldReleaseContent,
+}
+
+struct WorldReleasePublication {
+    release: ReleaseDigest,
     published_at: Timestamp,
+    published_by: Principal,
+    policy: PolicyEvidence,
 }
 
 struct TrustedExecutionContext {
@@ -200,6 +210,8 @@ struct TurnCapability {
 ## World release
 
 `WorldRelease` is the load-bearing object.
+
+`WorldReleaseContent` and `WorldRelease` keep every field private. Their canonical constructor derives `ReleaseDigest`; callers cannot supply it. This is type encapsulation, not secrecy. Publication time, principal, and policy evidence live only in `WorldReleasePublication`.
 
 It binds:
 

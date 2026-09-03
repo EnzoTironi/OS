@@ -28,42 +28,82 @@
     {
       "id": "J1",
       "name": "Governed release",
-      "proof": "A builder publishes one coherent four-catalog candidate and a World owner atomically activates it under policy."
+      "actors": "Builder and World owner through CLI or Connect",
+      "path": "Candidate publication stores policy evidence; the owner activates one WorldRelease whose digest binds ontology, policy, executors, and components.",
+      "negativeProof": "Same-World non-builder and missing policy both fail before any commit; stale activation fails.",
+      "replayProof": "An identical candidate replay reauthorizes the current caller, returns the original publication, and creates no second commit; a revoked caller is denied.",
+      "isolationProof": "Another World or Membership cannot publish or activate for this World; publication visibility grants no authority, and the digest remains bound to its World and four catalogs.",
+      "recoveryProof": "A crash between publication and activation preserves the candidate and prior active pointer; retry converges to at most one active release."
     },
     {
       "id": "J2",
       "name": "Governed knowledge",
-      "proof": "Eve proposes and commits attributed knowledge, then returns a durable receipt and explanation."
+      "actors": "Person asking Eve to remember a fact",
+      "path": "Eve proposes and commits; one receipt and attributed evidence become queryable and explainable.",
+      "negativeProof": "A normal member cannot write raw evidence; Eve does not claim memory before the receipt.",
+      "replayProof": "The same operation returns the original receipt and creates no duplicate evidence or authority commit.",
+      "isolationProof": "Another World or Membership cannot read the fact, evidence, receipt, or explanation.",
+      "recoveryProof": "Committed evidence and its receipt survive Eve and projection restarts; a pending proposal resumes without claiming memory."
     },
     {
       "id": "J3",
       "name": "Shared authority",
-      "proof": "One family member proposes, another decides, and Commit materializes the authorized state atomically."
+      "actors": "Family member A proposing and family member B deciding",
+      "path": "The decision uses B's principal; Commit creates one receipt, and the invite and Membership materialize atomically.",
+      "negativeProof": "Self-approval outside policy, revoked Membership, and failed Commit create no partial Membership.",
+      "replayProof": "Repeated Decide or Commit returns the original receipt and creates no second invite or Membership.",
+      "isolationProof": "A principal from another World or family cannot decide the proposal or read the invite.",
+      "recoveryProof": "A crash before Commit leaves no partial Membership; retry commits every artifact once, and a post-commit retry returns the original receipt."
     },
     {
       "id": "J4",
       "name": "Governed clinic query",
-      "proof": "A clinic human and workload see only authorized objects through sealed cursors and server-owned budgets."
+      "actors": "Clinic human and clinic agent",
+      "path": "Both read only permitted patient objects, page with sealed cursors, run server-budgeted compute, and explain the policy.",
+      "negativeProof": "Cursor replay under another Membership or release fails; denied objects never affect public pagination, and the caller cannot raise the budget.",
+      "replayProof": "The same sealed cursor and basis return the same authorized page and explanation; altered authority context is denied.",
+      "isolationProof": "Denied patient objects affect no public values, counts, cursors, lineage, citations, or timing class.",
+      "recoveryProof": "After restart, the server accepts a still-valid sealed cursor and basis or rejects it without widening the result."
     },
     {
       "id": "J5",
       "name": "Bound conversation",
-      "proof": "Web, Kapso, and two Telegram identities resolve the correct Account, Membership, World, release, and return channel."
+      "actors": "Web A, WhatsApp through Kapso, Telegram A, and Telegram B",
+      "path": "Every ingress resolves Account, Membership, World, release, and origin delivery; linked Web A and Telegram A share authorized continuity.",
+      "negativeProof": "Telegram B cannot read A's receipts or workbench and never receives A's reply; webhook replay creates no second operation.",
+      "replayProof": "The same signed webhook event resolves to one operation and one logical reply through its verified origin.",
+      "isolationProof": "Telegram B remains a separate Account and World context and cannot read or receive data from A.",
+      "recoveryProof": "A restart preserves channel bindings, the Membership workbench, and delivery state, then resumes only the verified origin."
     },
     {
       "id": "J6",
       "name": "Durable automation",
-      "proof": "Two generic executor calls survive restart and each reaches its verified origin once through ZoenEffect."
+      "actors": "Person asking Eve for two reminders",
+      "path": "Generic Automation creates two ExecutorCall records; Restate survives restart, and each reminder reaches its verified origin once.",
+      "negativeProof": "The kernel contains no Telegram, Kapso, WhatsApp, reminder Action ID, or provider branch; an ambiguous send reconciles without channel fallback.",
+      "replayProof": "Restate retries the same ExecutorCall idempotency identity and creates no duplicate logical delivery.",
+      "isolationProof": "Calls, credentials, payloads, and delivery origins remain scoped to their World and Membership.",
+      "recoveryProof": "Application and Restate restarts resume pending attempts; an unknown send outcome is reconciled before another effect."
     },
     {
       "id": "J7",
       "name": "Agent parity",
-      "proof": "Eve, CLI, Connect, and MCP use the same catalog, policy result, proposal, receipt, and explanation."
+      "actors": "Factory operator and MCP workload",
+      "path": "CLI, Connect, MCP, and Eve discover the same catalog and produce the same proposal, decision, receipt, and explanation.",
+      "negativeProof": "A workload outside its Membership, release, or budget is denied by the same policy as a human.",
+      "replayProof": "The same operation through any surface returns the original receipt and effect status without a new commit.",
+      "isolationProof": "No surface bypasses Membership, release, or budget checks or crosses a World boundary.",
+      "recoveryProof": "After reconnect or restart, every surface retains the operation basis and rediscovers the same active catalog."
     },
     {
       "id": "J8",
       "name": "Production recovery",
-      "proof": "The one-Fly image boots from empty development state, reports exact dependencies, restarts, and recovers."
+      "actors": "Operator against the one-Fly image",
+      "path": "The image boots from empty development state, reaches the projection watermark, registers ZoenEffect, passes product dependencies, restarts, and recovers.",
+      "negativeProof": "Stopped projection, missing handler, stale release, broken Eve, or broken Better Auth makes /ready fail; authority remains immutable.",
+      "replayProof": "Repeated boot, setup, and migrations converge without duplicate releases, receipts, or effects.",
+      "isolationProof": "Least-privilege process credentials keep authority, projection, Eve, and effect access separated.",
+      "recoveryProof": "A killed process or application restart returns /ready only after the watermark, handler, active release, Eve, and Better Auth recover."
     }
   ],
   "finalGates": [

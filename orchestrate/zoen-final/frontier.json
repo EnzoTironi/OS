@@ -65,6 +65,128 @@
       "fact": "Rust 1.98 and Kache are active on main"
     }
   ],
+  "initialPullRequestDispositions": [
+    {
+      "number": 601,
+      "classification": "Replace",
+      "disposition": "Supersede after extracting the verified external-subject intent",
+      "reason": "It propagates channel identity, but uses a reversible machine admin token and races on Membership-scoped credential state. Rebuild under W3-02 and W3-03."
+    },
+    {
+      "number": 600,
+      "classification": "Drop",
+      "disposition": "Close without restack after a replacement exists",
+      "reason": "It replaces Restate with Rivet, rewrites a migration baseline, adds unit-style tests, and conflicts with the product law."
+    },
+    {
+      "number": 598,
+      "classification": "Replace",
+      "disposition": "Supersede with generic automation",
+      "reason": "It hardcodes `personal.createReminder`, `personal.dueAt`, and delivery semantics in the kernel. Replace in W6-01."
+    },
+    {
+      "number": 597,
+      "classification": "Keep and restack",
+      "disposition": "Preserve the direct Connect transport idea, then rebuild IDs and authority context",
+      "reason": "Moving Eve away from CLI spawn is correct. Fixed IDs and the missing journey are not. Target W3-06 and W7-01."
+    },
+    {
+      "number": 593,
+      "classification": "Regenerate",
+      "disposition": "Recreate in one npm lockfile cohort",
+      "reason": "Land with #521 and #523 only after application typecheck and the image build pass."
+    },
+    {
+      "number": 533,
+      "classification": "Coordinate",
+      "disposition": "Recreate with #532 as one toolchain unit",
+      "reason": "Rust image version must match `rust-toolchain.toml`, CI, protobuf tooling, and the release image."
+    },
+    {
+      "number": 532,
+      "classification": "Coordinate",
+      "disposition": "Recreate with #533 as one toolchain unit",
+      "reason": "Node image changes must match Auth, Eve, root build, native dependencies, and image proof."
+    },
+    {
+      "number": 531,
+      "classification": "Safe cohort",
+      "disposition": "Rebase and verify with #519, #522, #525, and #526",
+      "reason": "A leaf dependency update. It still needs the current journey and image gates."
+    },
+    {
+      "number": 530,
+      "classification": "Blocked pair",
+      "disposition": "Replace together with #528",
+      "reason": "`connectrpc` and `buffa` versions must move in one dependency graph. Individual heads have incompatible types."
+    },
+    {
+      "number": 529,
+      "classification": "Blocked pair",
+      "disposition": "Replace together with #527",
+      "reason": "`parquet` and `object_store` must use the versions selected by DataFusion and the projection worker."
+    },
+    {
+      "number": 528,
+      "classification": "Blocked pair",
+      "disposition": "Replace together with #530",
+      "reason": "The generated Connect boundary cannot carry two `buffa` versions."
+    },
+    {
+      "number": 527,
+      "classification": "Blocked pair",
+      "disposition": "Replace together with #529",
+      "reason": "The current update conflicts with the Parquet and DataFusion object-store graph."
+    },
+    {
+      "number": 526,
+      "classification": "Safe cohort",
+      "disposition": "Rebase and verify with the safe dependency cohort",
+      "reason": "Restate remains the correct product dependency. Verify the production handler and restart journey."
+    },
+    {
+      "number": 525,
+      "classification": "Safe cohort",
+      "disposition": "Rebase and verify with the safe dependency cohort",
+      "reason": "Action version change is mechanical, but the new image CI gate must prove it."
+    },
+    {
+      "number": 524,
+      "classification": "Defer",
+      "disposition": "Recreate after W1-07 owns a real image build",
+      "reason": "Updating setup-buildx before CI builds the product image provides no product proof."
+    },
+    {
+      "number": 523,
+      "classification": "Regenerate",
+      "disposition": "Recreate in the npm lockfile cohort",
+      "reason": "Type packages and Zod should share one regenerated lockfile and app typecheck."
+    },
+    {
+      "number": 522,
+      "classification": "Safe cohort",
+      "disposition": "Rebase and verify with the safe dependency cohort",
+      "reason": "Action version change is mechanical, but all workflows must pass together."
+    },
+    {
+      "number": 521,
+      "classification": "Regenerate",
+      "disposition": "Recreate in the npm lockfile cohort",
+      "reason": "Node types must match the chosen runtime versions and all TypeScript applications."
+    },
+    {
+      "number": 520,
+      "classification": "Defer",
+      "disposition": "Recreate after W1-07 owns a real image build and push artifact",
+      "reason": "The change becomes useful only when CI proves the Docker artifact."
+    },
+    {
+      "number": 519,
+      "classification": "Safe cohort",
+      "disposition": "Rebase and verify with the safe dependency cohort",
+      "reason": "Artifact download is mechanical, but must be checked against the final CI artifact layout."
+    }
+  ],
   "dispositions": [
     {
       "number": 603,
