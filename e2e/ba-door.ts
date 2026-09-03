@@ -681,16 +681,29 @@ async function stopAuthChild(
   if (processExited(child)) {
     return;
   }
-  child.kill("SIGINT");
+  signalAuthChild(child, "SIGINT");
   try {
     await waitForChildExit(child, AUTH_STOP_TIMEOUT_MS);
   } catch (error) {
     if (!processExited(child)) {
-      child.kill("SIGKILL");
+      signalAuthChild(child, "SIGKILL");
     }
     await waitForChildExit(child, AUTH_KILL_TIMEOUT_MS);
     throw error;
   }
+}
+
+function signalAuthChild(
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals,
+): void {
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {}
+  }
+  child.kill(signal);
 }
 
 function waitForChildExit(

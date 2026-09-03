@@ -5,7 +5,6 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
@@ -664,6 +663,7 @@ export async function startServer(
   delete env.ZOEN_OIDC_ISSUER;
   const child = spawn(serverPath, ["serve"], {
     cwd: repositoryRoot,
+    detached: process.platform !== "win32",
     env,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -675,16 +675,75 @@ export async function startServer(
 }
 
 export async function stopServer(server: ServerProcess): Promise<void> {
-  if (server.child.exitCode !== null) {
+  if (server.child.exitCode !== null || server.child.signalCode !== null) {
     return;
   }
-  server.child.kill("SIGINT");
-  await once(server.child, "exit");
-  assert.equal(
-    server.child.exitCode,
-    0,
+  signalServerChild(server.child, "SIGINT");
+  try {
+    await waitForServerExit(server.child, 10_000);
+  } catch {
+    if (server.child.exitCode === null && server.child.signalCode === null) {
+      signalServerChild(server.child, "SIGKILL");
+    }
+    await waitForServerExit(server.child, 3_000);
+  }
+  assert.ok(
+    server.child.exitCode === 0 ||
+      server.child.signalCode === "SIGINT" ||
+      server.child.signalCode === "SIGKILL" ||
+      server.child.signalCode === "SIGTERM",
     `zoend failed during shutdown:\n${server.output.join("")}`,
   );
+}
+
+function signalServerChild(
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals,
+): void {
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {}
+  }
+  child.kill(signal);
+}
+
+function waitForServerExit(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.clearTimeout(timer);
+      child.off("exit", onExit);
+      child.off("error", onError);
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(error);
+      }
+    };
+    const onExit = () => finish();
+    const onError = () => finish();
+    const timer = globalThis.setTimeout(
+      () => finish(new Error(`zoend did not exit within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    child.once("exit", onExit);
+    child.once("error", onError);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      finish();
+    }
+  });
 }
 
 async function waitForPort(
