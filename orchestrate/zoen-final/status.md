@@ -3,8 +3,8 @@
 Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 - Repository: `EnzoTironi/OS`
-- Base: `main@304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b`
-- Units: 52 total, 6 done, 4 active, 42 queued
+- Base: `main@edc5d1d172f12299a0920aabbcaca8c78c5d525b`
+- Units: 52 total, 7 done, 4 active, 41 queued
 - Canonical journeys: 8, J1 through J8
 - Journey proof dimensions: actors, path, negative, replay, isolation, and recovery
 - Final gates: 9, FIN-01 through FIN-09
@@ -29,8 +29,9 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | #602 | W1-01 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | f121cef13e5bb9f8d702eaf15ec87607ae64d7d4 | 2026-09-02T10:48:53Z |
 | #609 | W1-02 | 5bff33bfe9d8c1f623867eeff61b277b19c127f6 | cf504cbf68a6956b199b9c8c8a5c2417b322586a | 2026-09-02T14:52:39Z |
 | #611 | toolchain | d84f8cf7f9910bdec9b16e92127da33c00121d78 | 304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b | 2026-09-02T20:09:17Z |
+| #621 | W1-05 | c3e819c15e6aa4109a86a18d1b8e0915c208ceb9 | edc5d1d172f12299a0920aabbcaca8c78c5d525b | 2026-09-03T04:33:27Z |
 
-PR 611 produced the current `main` commit and activated Rust 1.98 with Kache.
+PR 611 activated Rust 1.98 with Kache. PR 621 produced the recorded current `main` commit and completed W1-05.
 
 ## Immutable journey-infrastructure audit evidence
 

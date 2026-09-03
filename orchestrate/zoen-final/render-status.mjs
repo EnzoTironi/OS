@@ -412,7 +412,7 @@ ${activeUnits.map((unit) => `| ${unit.id} | ${escapeCell(unit.branch ?? "not ass
 | --- | --- | --- | --- | --- |
 ${merged.map((item) => `| #${item.number} | ${item.unit ?? "toolchain"} | ${item.head} | ${item.merge} | ${item.mergedAt} |`).join("\n")}
 
-PR 611 produced the current \`main\` commit and activated Rust 1.98 with Kache.
+PR 611 activated Rust 1.98 with Kache. PR 621 produced the recorded current \`main\` commit and completed W1-05.
 
 ## Immutable journey-infrastructure audit evidence
 

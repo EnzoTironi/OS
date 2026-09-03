@@ -295,6 +295,18 @@ assert(
   frontier.main.sha === program.base.sha,
   "frontier and program main SHAs differ"
 );
+const worldIdentityUnit = program.units.find(({ id }) => id === "W1-05");
+const worldIdentityMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 621
+);
+assert(
+  program.base.sha === "edc5d1d172f12299a0920aabbcaca8c78c5d525b" &&
+    worldIdentityUnit?.status === "done" &&
+    worldIdentityMerge?.unit === "W1-05" &&
+    worldIdentityMerge.head === "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9" &&
+    worldIdentityMerge.merge === program.base.sha,
+  "current main must record the verified PR #621 W1-05 merge"
+);
 assert(
   frontier.landingOrder.join("|") === "W1-03|W1-04|W2-01",
   "landing order changed"

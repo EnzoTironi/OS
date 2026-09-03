@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "repository": "EnzoTironi/OS",
   "main": {
-    "sha": "304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b",
-    "observedAt": "2026-09-02T20:09:17Z"
+    "sha": "edc5d1d172f12299a0920aabbcaca8c78c5d525b",
+    "observedAt": "2026-09-03T04:33:27Z"
   },
   "activeRatification": {
     "unit": "W0-05",
@@ -66,6 +66,13 @@
       "merge": "304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b",
       "mergedAt": "2026-09-02T20:09:17Z",
       "fact": "Rust 1.98 and Kache are active on main"
+    },
+    {
+      "number": 621,
+      "unit": "W1-05",
+      "head": "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9",
+      "merge": "edc5d1d172f12299a0920aabbcaca8c78c5d525b",
+      "mergedAt": "2026-09-03T04:33:27Z"
     }
   ],
   "initialPullRequestDispositionsDigest": "sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38",

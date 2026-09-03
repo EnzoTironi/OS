@@ -3,7 +3,7 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b"
+    "sha": "edc5d1d172f12299a0920aabbcaca8c78c5d525b"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
   "verbs": [
@@ -343,9 +343,13 @@
       "track": "integration",
       "wave": 1,
       "size": "S",
-      "status": "queued",
+      "status": "done",
       "dependencies": ["W1-01"],
-      "journeys": ["J5"]
+      "journeys": ["J5"],
+      "branch": "codex/w1-05-telegram-identities",
+      "pr": 621,
+      "headSha": "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9",
+      "mergeSha": "edc5d1d172f12299a0920aabbcaca8c78c5d525b"
     },
     {
       "id": "W1-06",
