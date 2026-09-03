@@ -398,9 +398,7 @@ const ledgerRows = parseAndValidateImplementationLedger(
   program.units,
   ledgerText
 );
-const worldIdentityLedger = ledgerRows.find(
-  ({ unitId }) => unitId === "W1-05"
-);
+const worldIdentityLedger = ledgerRows.find(({ unitId }) => unitId === "W1-05");
 assert(
   worldIdentityLedger?.pr === "621" &&
     worldIdentityLedger.headSha === worldIdentityUnit.headSha &&
