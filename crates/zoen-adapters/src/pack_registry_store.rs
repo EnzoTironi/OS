@@ -11,7 +11,7 @@ use zoen_core::{
     OpenResult, PACK_FORMAT_V1, PackDigest, PackError, PackId, PackObject, PackObjectOntology,
     PackPresentation, PackVersion, PackVisibility, PublicKeyId, PublisherId, PublisherKey,
     PublisherKeyStatus, ReferralId, ShareInstallPolicy, ShareResolve, ShareToken,
-    SignatureEvidence, TimestampMicros,
+    SignatureEvidence, TimestampMicros, WorldId,
 };
 
 use crate::pack_store::admit_pack;
@@ -440,10 +440,12 @@ impl PostgresPackRegistryStore {
         match &entry.visibility {
             PackVisibility::Public => Ok(Some(entry)),
             PackVisibility::Local => Ok(None),
-            PackVisibility::Private { tenant_allowlist } => {
-                if viewer_tenant_id
-                    .is_some_and(|tenant| tenant_allowlist.iter().any(|allowed| allowed == tenant))
-                {
+            PackVisibility::Private { world_allowlist } => {
+                if viewer_tenant_id.is_some_and(|tenant| {
+                    world_allowlist
+                        .iter()
+                        .any(|allowed| allowed.as_str() == tenant)
+                }) {
                     Ok(Some(entry))
                 } else {
                     Err(PackError::VisibilityDenied)
@@ -936,7 +938,13 @@ async fn insert_registry_object(
 fn visibility_columns(visibility: &PackVisibility) -> (&'static str, Vec<String>) {
     match visibility {
         PackVisibility::Public => ("public", Vec::new()),
-        PackVisibility::Private { tenant_allowlist } => ("private", tenant_allowlist.clone()),
+        PackVisibility::Private { world_allowlist } => (
+            "private",
+            world_allowlist
+                .iter()
+                .map(|world| world.as_str().to_owned())
+                .collect(),
+        ),
         PackVisibility::Local => ("local", Vec::new()),
     }
 }
@@ -953,7 +961,13 @@ fn row_to_catalog(row: &sqlx::postgres::PgRow) -> Result<CatalogEntry, PackError
         .collect::<Vec<_>>();
     let visibility = match visibility_kind.as_str() {
         "public" => PackVisibility::Public,
-        "private" => PackVisibility::Private { tenant_allowlist },
+        "private" => {
+            let mut world_allowlist = Vec::new();
+            for value in tenant_allowlist {
+                world_allowlist.push(WorldId::parse(value)?);
+            }
+            PackVisibility::Private { world_allowlist }
+        }
         "local" => PackVisibility::Local,
         other => {
             return Err(PackError::InvalidFormat(format!(

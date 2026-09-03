@@ -30,6 +30,7 @@ scenario_table=(
   "fiscal-protheus-live:fiscal-protheus-live::credential"
   "governed-action:::live"
   "public-surface:::live"
+  "world-release:::live"
   "cli-dest:::live"
   "semantic-query:::live"
   "wasm-code-mode:::live"
