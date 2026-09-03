@@ -353,7 +353,7 @@
       "track": "integration",
       "wave": 1,
       "size": "S",
-      "status": "proof_pending",
+      "status": "done",
       "dependencies": ["W1-01"],
       "journeys": ["J5"],
       "branch": "codex/w1-05-telegram-identities",

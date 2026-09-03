@@ -353,12 +353,14 @@ const deviceFlowRepairMerge = frontier.mergedPullRequests.find(
 );
 assert(
   program.base.sha === "be24e0956e0bfb681634c796b5410afc5eef2e38" &&
-    worldIdentityUnit?.status === "proof_pending" &&
+    worldIdentityUnit?.status === "done" &&
     worldIdentityMerge?.unit === "W1-05" &&
     worldIdentityMerge.head === "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9" &&
     worldIdentityMerge.merge === "edc5d1d172f12299a0920aabbcaca8c78c5d525b" &&
-    worldIdentityMerge.verification === "proof_pending",
-  "PR #621 must remain recorded as merged with W1-05 proof pending"
+    worldIdentityMerge.verification === "live-ui-verified" &&
+    worldIdentityMerge.fact.includes("idempotence ceremony") &&
+    worldIdentityMerge.fact.includes("zero Memberships"),
+  "PR #621 must close W1-05 with its live two-account ceremony"
 );
 assert(
   journeyIsolationMerge?.unit === null &&
@@ -396,9 +398,19 @@ const ledgerRows = parseAndValidateImplementationLedger(
   program.units,
   ledgerText
 );
+const worldIdentityLedger = ledgerRows.find(
+  ({ unitId }) => unitId === "W1-05"
+);
 assert(
-  !ledgerRows.some(({ unitId }) => unitId === "W1-05"),
-  "W1-05 must not claim a ledger verdict before its two-account ceremony"
+  worldIdentityLedger?.pr === "621" &&
+    worldIdentityLedger.headSha === worldIdentityUnit.headSha &&
+    worldIdentityLedger.mergeSha === worldIdentityUnit.mergeSha &&
+    worldIdentityLedger.verdict === "live-ui-verified" &&
+    worldIdentityLedger.evidence ===
+      "orchestrate/zoen-final/reports/w1-05-validation.md" &&
+    worldIdentityLedger.verifiedAt === "2026-09-03T10:30:53Z" &&
+    worldIdentityLedger.mergedAt === "2026-09-03T04:33:27Z",
+  "W1-05 must retain its exact live ceremony ledger verdict"
 );
 await Promise.all(
   ledgerRows.map(async (row) => {
@@ -995,6 +1007,7 @@ const markdownFiles = [
   "orchestrate/zoen-final/briefs/w2-01-world-release-contract.md",
   "orchestrate/zoen-final/reports/w1-01-validation.md",
   "orchestrate/zoen-final/reports/w1-02-validation.md",
+  "orchestrate/zoen-final/reports/w1-05-validation.md",
 ];
 const markdownLinkTargets = (markdown) => {
   const targets = [];
