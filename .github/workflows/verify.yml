@@ -129,6 +129,9 @@ jobs:
         scenario:
           - activation-identity
           - definition-publication
+          - cedar-object-projection
+          - commercial-identity
+          - dirty-quote
           - durable-commit
           - evolution-breaking
           - evolution-compatible
@@ -371,9 +374,37 @@ jobs:
           assert_scenario_clean zoen-durable-commit e2e/durable-commit/.generated 55440 58101 59205
           assert_scenario_clean zoen-governed-action e2e/governed-action/.generated 55434 58083 59209
 
+  one-fly-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          build-args: ZOEN_BUILD_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          context: .
+          file: deploy/fly/Dockerfile
+          load: true
+          push: false
+          tags: zoen:one-fly
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Run the one-Fly image journey
+        env:
+          ZOEN_BUILD_REVISION: ${{ github.sha }}
+          ZOEN_ONE_FLY_IMAGE: zoen:one-fly
+        run: ./e2e/run.sh run one-fly-image
+
   required:
     if: always()
-    needs: [check, clippy, build, e2e, e2e-concurrent]
+    needs: [check, clippy, build, e2e, e2e-concurrent, one-fly-image]
     runs-on: ubuntu-latest
     steps:
       - name: Require every gate
@@ -383,3 +414,4 @@ jobs:
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.e2e.result }}" = "success"
           test "${{ needs.e2e-concurrent.result }}" = "success"
+          test "${{ needs.one-fly-image.result }}" = "success"
