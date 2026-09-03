@@ -13,8 +13,6 @@ import {
 
 const effectHandlerArtifact = loadEffectHandlerArtifact();
 const artifactMetadata = effectHandlerMetadata(effectHandlerArtifact);
-const trailingSlashesPattern = /\/+$/;
-const trailingSlashPattern = /\/$/;
 const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"]);
 
 const environmentSchema = z
@@ -534,8 +532,13 @@ function http2Text(value: string): Promise<string> {
 
 function canonicalUri(value: string): string {
   const url = new URL(value);
-  url.pathname = url.pathname.replace(trailingSlashesPattern, "");
-  return url.toString().replace(trailingSlashPattern, "");
+  let pathEnd = url.pathname.length;
+  while (pathEnd > 0 && url.pathname[pathEnd - 1] === "/") {
+    pathEnd -= 1;
+  }
+  url.pathname = url.pathname.slice(0, pathEnd);
+  const canonical = url.toString();
+  return canonical.endsWith("/") ? canonical.slice(0, -1) : canonical;
 }
 
 function requirePrivateHttpUrl(
