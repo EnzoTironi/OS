@@ -117,6 +117,11 @@ export async function acquireBootstrapReaderCommand() {
         }
       }
       if (!shouldWait) {
+        if (readers.length >= maximumBootstrapReaderEntries) {
+          throw new Error(
+            `bootstrap registry reached its ${maximumBootstrapReaderEntries} live reader limit`,
+          );
+        }
         assertBeforeDeadline(deadlineAt, "bootstrap reader registration");
         await publishBootstrapReader(readersRoot, {
           createdAt: new Date().toISOString(),
@@ -222,7 +227,10 @@ export async function reconcileBootstrapReaders(readersRoot, options = {}) {
   await mkdir(readersRoot, { recursive: true });
   const candidates = [];
   const entries = await readdir(readersRoot, { withFileTypes: true });
-  if (entries.length > maximumBootstrapReaderEntries) {
+  const stableEntryCount = entries.filter(
+    (entry) => entry.isDirectory() && noncePattern.test(entry.name),
+  ).length;
+  if (stableEntryCount > maximumBootstrapReaderEntries) {
     throw new Error(
       `bootstrap registry exceeds its ${maximumBootstrapReaderEntries} reader entry limit`,
     );
@@ -344,9 +352,23 @@ export async function reconcileBootstrapReaders(readersRoot, options = {}) {
     }
   }
   const groupFailures = await drainOrphanedGroups(groups, deadlineAt);
-  for (const [group, failure] of groupFailures) {
-    await quarantineDirectory(group.directory, failure);
-    throw failure;
+  if (groupFailures.size > 0) {
+    const failures = [];
+    for (const [group, failure] of groupFailures) {
+      failures.push(failure);
+      try {
+        await quarantineDirectory(group.directory, failure);
+      } catch (quarantineError) {
+        failures.push(quarantineError);
+      }
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    throw new AggregateError(
+      failures,
+      "orphaned runtime groups did not converge",
+    );
   }
   for (const candidate of staleReaders) {
     assertBeforeDeadline(deadlineAt, "bootstrap reader reconciliation");
