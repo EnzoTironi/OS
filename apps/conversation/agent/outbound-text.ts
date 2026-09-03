@@ -66,6 +66,13 @@ function flattenCards(value: unknown): string[] {
 }
 
 function flattenStructured(value: unknown): string | undefined {
+  if (Array.isArray(value)) {
+    const parts = value.flatMap((entry) => {
+      const nested = flattenStructured(entry);
+      return nested === undefined ? [] : [nested];
+    });
+    return parts.length === 0 ? undefined : parts.join("\n");
+  }
   if (!isRecord(value)) {
     return undefined;
   }
