@@ -6,91 +6,723 @@
     "sha": "304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
-  "verbs": ["Discover", "Query", "Propose", "Decide", "Commit", "Explain", "Execute"],
+  "verbs": [
+    "Discover",
+    "Query",
+    "Propose",
+    "Decide",
+    "Commit",
+    "Explain",
+    "Execute"
+  ],
   "worldReleaseCatalogs": ["ontology", "policy", "executors", "components"],
-  "tracks": ["runtime-truth", "world-authority", "identity-eve", "agent-surfaces", "integration"],
+  "tracks": [
+    "runtime-truth",
+    "world-authority",
+    "identity-eve",
+    "agent-surfaces",
+    "integration"
+  ],
   "states": ["queued", "active", "done"],
   "journeys": [
-    { "id": "J1", "name": "Governed release", "proof": "A builder publishes one coherent four-catalog candidate and a World owner atomically activates it under policy." },
-    { "id": "J2", "name": "Governed knowledge", "proof": "Eve proposes and commits attributed knowledge, then returns a durable receipt and explanation." },
-    { "id": "J3", "name": "Shared authority", "proof": "One family member proposes, another decides, and Commit materializes the authorized state atomically." },
-    { "id": "J4", "name": "Governed clinic query", "proof": "A clinic human and workload see only authorized objects through sealed cursors and server-owned budgets." },
-    { "id": "J5", "name": "Bound conversation", "proof": "Web, Kapso, and two Telegram identities resolve the correct Account, Membership, World, release, and return channel." },
-    { "id": "J6", "name": "Durable automation", "proof": "Two generic executor calls survive restart and each reaches its verified origin once through ZoenEffect." },
-    { "id": "J7", "name": "Agent parity", "proof": "Eve, CLI, Connect, and MCP use the same catalog, policy result, proposal, receipt, and explanation." },
-    { "id": "J8", "name": "Production recovery", "proof": "The one-Fly image boots from empty development state, reports exact dependencies, restarts, and recovers." }
+    {
+      "id": "J1",
+      "name": "Governed release",
+      "proof": "A builder publishes one coherent four-catalog candidate and a World owner atomically activates it under policy."
+    },
+    {
+      "id": "J2",
+      "name": "Governed knowledge",
+      "proof": "Eve proposes and commits attributed knowledge, then returns a durable receipt and explanation."
+    },
+    {
+      "id": "J3",
+      "name": "Shared authority",
+      "proof": "One family member proposes, another decides, and Commit materializes the authorized state atomically."
+    },
+    {
+      "id": "J4",
+      "name": "Governed clinic query",
+      "proof": "A clinic human and workload see only authorized objects through sealed cursors and server-owned budgets."
+    },
+    {
+      "id": "J5",
+      "name": "Bound conversation",
+      "proof": "Web, Kapso, and two Telegram identities resolve the correct Account, Membership, World, release, and return channel."
+    },
+    {
+      "id": "J6",
+      "name": "Durable automation",
+      "proof": "Two generic executor calls survive restart and each reaches its verified origin once through ZoenEffect."
+    },
+    {
+      "id": "J7",
+      "name": "Agent parity",
+      "proof": "Eve, CLI, Connect, and MCP use the same catalog, policy result, proposal, receipt, and explanation."
+    },
+    {
+      "id": "J8",
+      "name": "Production recovery",
+      "proof": "The one-Fly image boots from empty development state, reports exact dependencies, restarts, and recovers."
+    }
   ],
   "finalGates": [
-    { "id": "FIN-01", "name": "Ambiguous identity", "proof": "IBM resolves to typed, contextual candidates without selecting the first ticker match." },
-    { "id": "FIN-02", "name": "Competing provider evidence", "proof": "An IBM KnowledgeBasisDefinition produces a durable ResolutionDecision while preserving visible rivals." },
-    { "id": "FIN-03", "name": "Dense observation series", "proof": "A year of IBM OHLCV becomes immutable segments and one accepted DatasetVersion boundary." },
-    { "id": "FIN-04", "name": "SEC restatement", "proof": "Two knowledge cuts return the IBM filing value known at each cut without deleting the original filing." },
-    { "id": "FIN-05", "name": "Data entitlement", "proof": "Every interface hides unauthorized IBM fields, series, counts, lineage, citations, and derived output before scanning." },
-    { "id": "FIN-06", "name": "Derived adjusted series", "proof": "An adjusted IBM series cites raw segments, event evidence, component digest, parameters, calendar, policy, and knowledge cut." },
-    { "id": "FIN-07", "name": "Governed portfolio change", "proof": "An IBM portfolio rebalance separates the authority Commit from the broker effect and reconciles an ambiguous result." },
-    { "id": "FIN-08", "name": "Provider schema evolution", "proof": "An IBM provider shape change activates one coherent four-catalog release and leaves the prior release queryable." },
-    { "id": "FIN-09", "name": "Interface parity", "proof": "Eve, CLI, Connect, and MCP resolve the same IBM type, Action, policy result, operation basis, and CommitReceipt." }
+    {
+      "id": "FIN-01",
+      "name": "Ambiguous identity",
+      "proof": "IBM resolves to typed, contextual candidates without selecting the first ticker match."
+    },
+    {
+      "id": "FIN-02",
+      "name": "Competing provider evidence",
+      "proof": "An IBM KnowledgeBasisDefinition produces a durable ResolutionDecision while preserving visible rivals."
+    },
+    {
+      "id": "FIN-03",
+      "name": "Dense observation series",
+      "proof": "A year of IBM OHLCV becomes immutable segments and one accepted DatasetVersion boundary."
+    },
+    {
+      "id": "FIN-04",
+      "name": "SEC restatement",
+      "proof": "Two knowledge cuts return the IBM filing value known at each cut without deleting the original filing."
+    },
+    {
+      "id": "FIN-05",
+      "name": "Data entitlement",
+      "proof": "Every interface hides unauthorized IBM fields, series, counts, lineage, citations, and derived output before scanning."
+    },
+    {
+      "id": "FIN-06",
+      "name": "Derived adjusted series",
+      "proof": "An adjusted IBM series cites raw segments, event evidence, component digest, parameters, calendar, policy, and knowledge cut."
+    },
+    {
+      "id": "FIN-07",
+      "name": "Governed portfolio change",
+      "proof": "An IBM portfolio rebalance separates the authority Commit from the broker effect and reconciles an ambiguous result."
+    },
+    {
+      "id": "FIN-08",
+      "name": "Provider schema evolution",
+      "proof": "An IBM provider shape change activates one coherent four-catalog release and leaves the prior release queryable."
+    },
+    {
+      "id": "FIN-09",
+      "name": "Interface parity",
+      "proof": "Eve, CLI, Connect, and MCP resolve the same IBM type, Action, policy result, operation basis, and CommitReceipt."
+    }
   ],
   "units": [
-    { "id": "W0-01", "title": "Map runtime, image, CI, projection, effects, and PR state", "track": "runtime-truth", "wave": 0, "size": "M", "status": "done", "dependencies": [], "journeys": [] },
-    { "id": "W0-02", "title": "Map kernel, authority, policy, query, evidence, effects, and compute", "track": "world-authority", "wave": 0, "size": "M", "status": "done", "dependencies": [], "journeys": [] },
-    { "id": "W0-03", "title": "Map Better Auth, Eve, identity, workbench, Kapso, and Telegram", "track": "identity-eve", "wave": 0, "size": "M", "status": "done", "dependencies": [], "journeys": [] },
-    { "id": "W0-04", "title": "Synthesize product boundaries, journeys, units, and the pilot", "track": "integration", "wave": 0, "size": "M", "status": "done", "dependencies": ["W0-01", "W0-02", "W0-03"], "journeys": [] },
-    { "id": "W0-05", "title": "Ratify the governed-data extension and its research record", "track": "integration", "wave": 0, "size": "M", "status": "active", "dependencies": ["W0-04"], "journeys": [], "finalGates": ["FIN-01", "FIN-02", "FIN-03", "FIN-04", "FIN-05", "FIN-06", "FIN-07", "FIN-08", "FIN-09"], "branch": "codex/zoen-governed-north-ratification", "pr": 620 },
+    {
+      "id": "W0-01",
+      "title": "Map runtime, image, CI, projection, effects, and PR state",
+      "track": "runtime-truth",
+      "wave": 0,
+      "size": "M",
+      "status": "done",
+      "dependencies": [],
+      "journeys": []
+    },
+    {
+      "id": "W0-02",
+      "title": "Map kernel, authority, policy, query, evidence, effects, and compute",
+      "track": "world-authority",
+      "wave": 0,
+      "size": "M",
+      "status": "done",
+      "dependencies": [],
+      "journeys": []
+    },
+    {
+      "id": "W0-03",
+      "title": "Map Better Auth, Eve, identity, workbench, Kapso, and Telegram",
+      "track": "identity-eve",
+      "wave": 0,
+      "size": "M",
+      "status": "done",
+      "dependencies": [],
+      "journeys": []
+    },
+    {
+      "id": "W0-04",
+      "title": "Synthesize product boundaries, journeys, units, and the pilot",
+      "track": "integration",
+      "wave": 0,
+      "size": "M",
+      "status": "done",
+      "dependencies": ["W0-01", "W0-02", "W0-03"],
+      "journeys": []
+    },
+    {
+      "id": "W0-05",
+      "title": "Ratify the governed-data extension and its research record",
+      "track": "integration",
+      "wave": 0,
+      "size": "M",
+      "status": "active",
+      "dependencies": ["W0-04"],
+      "journeys": [],
+      "finalGates": [
+        "FIN-01",
+        "FIN-02",
+        "FIN-03",
+        "FIN-04",
+        "FIN-05",
+        "FIN-06",
+        "FIN-07",
+        "FIN-08",
+        "FIN-09"
+      ],
+      "branch": "codex/zoen-governed-north-ratification",
+      "pr": 620
+    },
 
-    { "id": "W1-01", "title": "Govern definition Publish with Cedar and persisted policy evidence", "track": "world-authority", "wave": 1, "size": "L", "status": "done", "dependencies": ["W0-04"], "journeys": ["J1"], "branch": "codex/w1-01-governed-publish", "pr": 602, "headSha": "6e6eddf3fa326cc1d30182ac5a53a6031d4c6409", "mergeSha": "f121cef13e5bb9f8d702eaf15ec87607ae64d7d4" },
-    { "id": "W1-02", "title": "Package and supervise projection with a least-privilege database role", "track": "runtime-truth", "wave": 1, "size": "M", "status": "done", "dependencies": ["W1-01"], "journeys": ["J8"], "branch": "codex/w1-02-supervised-projection", "pr": 609, "headSha": "5bff33bfe9d8c1f623867eeff61b277b19c127f6", "mergeSha": "cf504cbf68a6956b199b9c8c8a5c2417b322586a" },
-    { "id": "W1-03", "title": "Package and register a production ZoenEffect handler", "track": "runtime-truth", "wave": 1, "size": "L", "status": "active", "dependencies": ["W1-01"], "journeys": ["J6", "J8"], "branch": "codex/w1-03-production-effect-handler", "pr": 617, "headSha": "904562917f994096aab46e6e7dbb04f08ca55919" },
-    { "id": "W1-04", "title": "Use Eve's internal Ontology URL and delete legacy conversation paths", "track": "runtime-truth", "wave": 1, "size": "M", "status": "active", "dependencies": ["W1-01", "W1-03"], "journeys": ["J5", "J8"], "branch": "codex/w1-04-eve-runtime-boundary", "pr": 618, "headSha": "c149f62b1e45714c1357bf18a61eea025734beef", "acceptance": "Preserve the /live endpoint and workload credential governance while deleting Ontology Conversation and whoCan paths." },
-    { "id": "W1-05", "title": "Record two Telegram identities through the existing browser without copying secrets", "track": "integration", "wave": 1, "size": "S", "status": "queued", "dependencies": ["W1-01"], "journeys": ["J5"] },
-    { "id": "W1-06", "title": "Make readiness cover policy, release, projection, ZoenEffect, Eve, Auth, and storage", "track": "runtime-truth", "wave": 1, "size": "L", "status": "queued", "dependencies": ["W1-02", "W1-03", "W1-04"], "journeys": ["J8"] },
-    { "id": "W1-07", "title": "Build and run the one-Fly image in CI and restore all live scenarios", "track": "integration", "wave": 1, "size": "L", "status": "queued", "dependencies": ["W1-02", "W1-03", "W1-04", "W1-06"], "journeys": ["J1", "J8"] },
+    {
+      "id": "W1-01",
+      "title": "Govern definition Publish with Cedar and persisted policy evidence",
+      "track": "world-authority",
+      "wave": 1,
+      "size": "L",
+      "status": "done",
+      "dependencies": ["W0-04"],
+      "journeys": ["J1"],
+      "branch": "codex/w1-01-governed-publish",
+      "pr": 602,
+      "headSha": "6e6eddf3fa326cc1d30182ac5a53a6031d4c6409",
+      "mergeSha": "f121cef13e5bb9f8d702eaf15ec87607ae64d7d4"
+    },
+    {
+      "id": "W1-02",
+      "title": "Package and supervise projection with a least-privilege database role",
+      "track": "runtime-truth",
+      "wave": 1,
+      "size": "M",
+      "status": "done",
+      "dependencies": ["W1-01"],
+      "journeys": ["J8"],
+      "branch": "codex/w1-02-supervised-projection",
+      "pr": 609,
+      "headSha": "5bff33bfe9d8c1f623867eeff61b277b19c127f6",
+      "mergeSha": "cf504cbf68a6956b199b9c8c8a5c2417b322586a"
+    },
+    {
+      "id": "W1-03",
+      "title": "Package and register a production ZoenEffect handler",
+      "track": "runtime-truth",
+      "wave": 1,
+      "size": "L",
+      "status": "active",
+      "dependencies": ["W1-01"],
+      "journeys": ["J6", "J8"],
+      "branch": "codex/w1-03-production-effect-handler",
+      "pr": 617,
+      "headSha": "904562917f994096aab46e6e7dbb04f08ca55919"
+    },
+    {
+      "id": "W1-04",
+      "title": "Use Eve's internal Ontology URL and delete legacy conversation paths",
+      "track": "runtime-truth",
+      "wave": 1,
+      "size": "M",
+      "status": "active",
+      "dependencies": ["W1-01", "W1-03"],
+      "journeys": ["J5", "J8"],
+      "branch": "codex/w1-04-eve-runtime-boundary",
+      "pr": 618,
+      "headSha": "aa07dce89325c25b2c0fd35129f1ee8628e8ff29",
+      "acceptance": "Preserve the /live endpoint and workload credential governance while deleting Ontology Conversation and whoCan paths."
+    },
+    {
+      "id": "W1-05",
+      "title": "Record two Telegram identities through the existing browser without copying secrets",
+      "track": "integration",
+      "wave": 1,
+      "size": "S",
+      "status": "queued",
+      "dependencies": ["W1-01"],
+      "journeys": ["J5"]
+    },
+    {
+      "id": "W1-06",
+      "title": "Make readiness cover policy, release, projection, ZoenEffect, Eve, Auth, and storage",
+      "track": "runtime-truth",
+      "wave": 1,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W1-02", "W1-03", "W1-04"],
+      "journeys": ["J8"]
+    },
+    {
+      "id": "W1-07",
+      "title": "Build and run the one-Fly image in CI and restore all live scenarios",
+      "track": "integration",
+      "wave": 1,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W1-02", "W1-03", "W1-04", "W1-06"],
+      "journeys": ["J1", "J8"]
+    },
 
-    { "id": "W2-01", "title": "Define private WorldRelease content types and derive ReleaseDigest with domain-tagged RFC 8785 JCS", "track": "world-authority", "wave": 2, "size": "M", "status": "active", "dependencies": ["W0-05", "W1-01", "W1-03", "W1-04"], "journeys": ["J1"], "branch": "codex/w2-01-world-release-contract", "pr": null, "sourceHeadSha": "f00efc7f245db80ff0d0d9051986d4d61e0e20e8", "acceptance": "WorldRelease has private fields, exactly four catalog digests, no publication metadata, and an ID derived from its canonical content. One World can have only one active release. The integration migrates every W1-03 TenantId reference to WorldId, preserves RegistrationGate, Backoff, dispatch-version mismatch handling, secure session exchange, scoped revoke, and credential-race safety, accepts W1-04 deletions, and imports no PR 616 runtime file." },
-    { "id": "W2-02", "title": "Store immutable release candidates and their four content-addressed catalogs", "track": "world-authority", "wave": 2, "size": "L", "status": "queued", "dependencies": ["W2-01"], "journeys": ["J1"] },
-    { "id": "W2-03", "title": "Publish Cedar bundles inside candidates and remove boot policy as authority", "track": "world-authority", "wave": 2, "size": "L", "status": "queued", "dependencies": ["W2-02"], "journeys": ["J1"] },
-    { "id": "W2-04", "title": "Preview, decide, publish, and atomically activate one WorldRelease", "track": "world-authority", "wave": 2, "size": "L", "status": "queued", "dependencies": ["W2-03"], "journeys": ["J1"] },
-    { "id": "W2-05", "title": "Implement the seven public verbs on one governed catalog", "track": "world-authority", "wave": 2, "size": "L", "status": "queued", "dependencies": ["W2-04"], "journeys": ["J1", "J7"] },
-    { "id": "W2-06", "title": "Authorize before discovery and seal cursors to authority, query, release, and budget", "track": "world-authority", "wave": 2, "size": "L", "status": "queued", "dependencies": ["W2-04"], "journeys": ["J4"], "finalGates": ["FIN-05"] },
-    { "id": "W2-07", "title": "Replace client computation limits with release-owned BudgetClass", "track": "world-authority", "wave": 2, "size": "M", "status": "queued", "dependencies": ["W2-04"], "journeys": ["J4", "J7"] },
-    { "id": "W2-08", "title": "Add ObjectKey, private typed references, and temporal TypeAssignment", "track": "world-authority", "wave": 2, "size": "L", "status": "queued", "dependencies": ["W2-04"], "journeys": ["J2", "J4"], "finalGates": ["FIN-01"] },
-    { "id": "W2-09", "title": "Validate typed links and contextual identifier assignments over their valid intervals", "track": "world-authority", "wave": 2, "size": "L", "status": "queued", "dependencies": ["W2-08"], "journeys": ["J4"], "finalGates": ["FIN-01", "FIN-04"] },
+    {
+      "id": "W2-01",
+      "title": "Define private WorldRelease content types and derive ReleaseDigest with domain-tagged RFC 8785 JCS",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "M",
+      "status": "active",
+      "dependencies": ["W0-05", "W1-01", "W1-03", "W1-04"],
+      "journeys": ["J1"],
+      "branch": "codex/w2-01-world-release-contract",
+      "pr": null,
+      "sourceHeadSha": "f00efc7f245db80ff0d0d9051986d4d61e0e20e8",
+      "acceptance": "WorldRelease has private fields, exactly four catalog digests, no publication metadata, and an ID derived from its canonical content. One World can have only one active release. The integration migrates every W1-03 TenantId reference to WorldId, preserves RegistrationGate, Backoff, dispatch-version mismatch handling, secure session exchange, scoped revoke, and credential-race safety, accepts W1-04 deletions, and imports no PR 616 runtime file."
+    },
+    {
+      "id": "W2-02",
+      "title": "Store immutable release candidates and their four content-addressed catalogs",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-01"],
+      "journeys": ["J1"]
+    },
+    {
+      "id": "W2-03",
+      "title": "Publish Cedar bundles inside candidates and remove boot policy as authority",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-02"],
+      "journeys": ["J1"]
+    },
+    {
+      "id": "W2-04",
+      "title": "Preview, decide, publish, and atomically activate one WorldRelease",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-03"],
+      "journeys": ["J1"]
+    },
+    {
+      "id": "W2-05",
+      "title": "Implement the seven public verbs on one governed catalog",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-04"],
+      "journeys": ["J1", "J7"]
+    },
+    {
+      "id": "W2-06",
+      "title": "Authorize before discovery and seal cursors to authority, query, release, and budget",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-04"],
+      "journeys": ["J4"],
+      "finalGates": ["FIN-05"]
+    },
+    {
+      "id": "W2-07",
+      "title": "Replace client computation limits with release-owned BudgetClass",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "M",
+      "status": "queued",
+      "dependencies": ["W2-04"],
+      "journeys": ["J4", "J7"]
+    },
+    {
+      "id": "W2-08",
+      "title": "Add ObjectKey, private typed references, and temporal TypeAssignment",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-04"],
+      "journeys": ["J2", "J4"],
+      "finalGates": ["FIN-01"]
+    },
+    {
+      "id": "W2-09",
+      "title": "Validate typed links and contextual identifier assignments over their valid intervals",
+      "track": "world-authority",
+      "wave": 2,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-08"],
+      "journeys": ["J4"],
+      "finalGates": ["FIN-01", "FIN-04"]
+    },
 
-    { "id": "W3-01", "title": "Align Account, ExternalSubject, ChannelBinding, Membership, and World storage", "track": "identity-eve", "wave": 3, "size": "L", "status": "queued", "dependencies": ["W2-04"], "journeys": ["J5"] },
-    { "id": "W3-02", "title": "Add one-time LinkIntent confirmation through Better Auth and channel possession", "track": "identity-eve", "wave": 3, "size": "L", "status": "queued", "dependencies": ["W3-01"], "journeys": ["J5"] },
-    { "id": "W3-03", "title": "Add SessionBroker and an immutable short-lived TurnCapability", "track": "identity-eve", "wave": 3, "size": "L", "status": "queued", "dependencies": ["W3-01", "W3-02"], "journeys": ["J5"] },
-    { "id": "W3-04", "title": "Complete login, personal World bootstrap, Membership selection, and CLI device flow", "track": "identity-eve", "wave": 3, "size": "L", "status": "queued", "dependencies": ["W3-02", "W3-03"], "journeys": ["J5", "J7"] },
-    { "id": "W3-05", "title": "Enforce Eve session ownership and delete the unbound workbench state", "track": "identity-eve", "wave": 3, "size": "M", "status": "queued", "dependencies": ["W3-03", "W3-04"], "journeys": ["J5"] },
-    { "id": "W3-06", "title": "Pass TurnCapability to every tool and remove ambient credentials and fixed IDs", "track": "identity-eve", "wave": 3, "size": "L", "status": "queued", "dependencies": ["W2-05", "W3-03", "W3-05"], "journeys": ["J2", "J5"] },
+    {
+      "id": "W3-01",
+      "title": "Align Account, ExternalSubject, ChannelBinding, Membership, and World storage",
+      "track": "identity-eve",
+      "wave": 3,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-04"],
+      "journeys": ["J5"]
+    },
+    {
+      "id": "W3-02",
+      "title": "Add one-time LinkIntent confirmation through Better Auth and channel possession",
+      "track": "identity-eve",
+      "wave": 3,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W3-01"],
+      "journeys": ["J5"]
+    },
+    {
+      "id": "W3-03",
+      "title": "Add SessionBroker and an immutable short-lived TurnCapability",
+      "track": "identity-eve",
+      "wave": 3,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W3-01", "W3-02"],
+      "journeys": ["J5"]
+    },
+    {
+      "id": "W3-04",
+      "title": "Complete login, personal World bootstrap, Membership selection, and CLI device flow",
+      "track": "identity-eve",
+      "wave": 3,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W3-02", "W3-03"],
+      "journeys": ["J5", "J7"]
+    },
+    {
+      "id": "W3-05",
+      "title": "Enforce Eve session ownership and delete the unbound workbench state",
+      "track": "identity-eve",
+      "wave": 3,
+      "size": "M",
+      "status": "queued",
+      "dependencies": ["W3-03", "W3-04"],
+      "journeys": ["J5"]
+    },
+    {
+      "id": "W3-06",
+      "title": "Pass TurnCapability to every tool and remove ambient credentials and fixed IDs",
+      "track": "identity-eve",
+      "wave": 3,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-05", "W3-03", "W3-05"],
+      "journeys": ["J2", "J5"]
+    },
 
-    { "id": "W4-01", "title": "Bind evidence admission to a published source capability and claim shape", "track": "world-authority", "wave": 4, "size": "L", "status": "queued", "dependencies": ["W2-04", "W3-03"], "journeys": ["J2", "J4"] },
-    { "id": "W4-02", "title": "Materialize invite and Membership in one authority transaction", "track": "world-authority", "wave": 4, "size": "L", "status": "queued", "dependencies": ["W2-04", "W3-01"], "journeys": ["J3"] },
-    { "id": "W4-03", "title": "Converge proposal, decision, commit, and receipt on the seven verbs", "track": "world-authority", "wave": 4, "size": "L", "status": "queued", "dependencies": ["W2-05", "W3-03"], "journeys": ["J2", "J3", "J7"] },
-    { "id": "W4-04", "title": "Split sanitized public effect status from executor and reconciler payload access", "track": "world-authority", "wave": 4, "size": "M", "status": "queued", "dependencies": ["W2-04", "W3-03"], "journeys": ["J6"] },
-    { "id": "W4-05", "title": "Project and explain principal, release, policy, source, effect, and causal attribution", "track": "world-authority", "wave": 4, "size": "L", "status": "queued", "dependencies": ["W1-02", "W4-01", "W4-02", "W4-03", "W4-04"], "journeys": ["J2", "J3", "J4"] },
-    { "id": "W4-06", "title": "Make KnowledgeBasisDefinition produce durable digest-addressed ResolutionDecision records and typed ObjectView results", "track": "world-authority", "wave": 4, "size": "L", "status": "queued", "dependencies": ["W2-06", "W2-09", "W4-01"], "journeys": ["J2", "J4"], "finalGates": ["FIN-02", "FIN-04"] },
-    { "id": "W4-07", "title": "Store DatasetVersion content separately from acceptance metadata and project immutable observation segments incrementally", "track": "world-authority", "wave": 4, "size": "L", "status": "queued", "dependencies": ["W1-02", "W2-02", "W2-08", "W4-01"], "journeys": ["J4"], "finalGates": ["FIN-03", "FIN-04", "FIN-06"] },
-    { "id": "W4-08", "title": "Enforce source, field, series, purpose, and usage rights before discovery or scanning", "track": "world-authority", "wave": 4, "size": "L", "status": "queued", "dependencies": ["W2-06", "W3-03", "W4-01", "W4-06", "W4-07"], "journeys": ["J4"], "finalGates": ["FIN-05", "FIN-06"] },
+    {
+      "id": "W4-01",
+      "title": "Bind evidence admission to a published source capability and claim shape",
+      "track": "world-authority",
+      "wave": 4,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-04", "W3-03"],
+      "journeys": ["J2", "J4"]
+    },
+    {
+      "id": "W4-02",
+      "title": "Materialize invite and Membership in one authority transaction",
+      "track": "world-authority",
+      "wave": 4,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-04", "W3-01"],
+      "journeys": ["J3"]
+    },
+    {
+      "id": "W4-03",
+      "title": "Converge proposal, decision, commit, and receipt on the seven verbs",
+      "track": "world-authority",
+      "wave": 4,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-05", "W3-03"],
+      "journeys": ["J2", "J3", "J7"]
+    },
+    {
+      "id": "W4-04",
+      "title": "Split sanitized public effect status from executor and reconciler payload access",
+      "track": "world-authority",
+      "wave": 4,
+      "size": "M",
+      "status": "queued",
+      "dependencies": ["W2-04", "W3-03"],
+      "journeys": ["J6"]
+    },
+    {
+      "id": "W4-05",
+      "title": "Project and explain principal, release, policy, source, effect, and causal attribution",
+      "track": "world-authority",
+      "wave": 4,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W1-02", "W4-01", "W4-02", "W4-03", "W4-04"],
+      "journeys": ["J2", "J3", "J4"]
+    },
+    {
+      "id": "W4-06",
+      "title": "Make KnowledgeBasisDefinition produce durable digest-addressed ResolutionDecision records and typed ObjectView results",
+      "track": "world-authority",
+      "wave": 4,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-06", "W2-09", "W4-01"],
+      "journeys": ["J2", "J4"],
+      "finalGates": ["FIN-02", "FIN-04"]
+    },
+    {
+      "id": "W4-07",
+      "title": "Store DatasetVersion content separately from acceptance metadata and project immutable observation segments incrementally",
+      "track": "world-authority",
+      "wave": 4,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W1-02", "W2-02", "W2-08", "W4-01"],
+      "journeys": ["J4"],
+      "finalGates": ["FIN-03", "FIN-04", "FIN-06"]
+    },
+    {
+      "id": "W4-08",
+      "title": "Enforce source, field, series, purpose, and usage rights before discovery or scanning",
+      "track": "world-authority",
+      "wave": 4,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-06", "W3-03", "W4-01", "W4-06", "W4-07"],
+      "journeys": ["J4"],
+      "finalGates": ["FIN-05", "FIN-06"]
+    },
 
-    { "id": "W5-01", "title": "Finish Eve's Membership workbench for knowledge, evidence, approvals, receipts, channels, and roles", "track": "identity-eve", "wave": 5, "size": "L", "status": "queued", "dependencies": ["W3-04", "W4-05"], "journeys": ["J2", "J3", "J5"] },
-    { "id": "W5-02", "title": "Derive Eve tools and approval resumption from the active release", "track": "identity-eve", "wave": 5, "size": "L", "status": "queued", "dependencies": ["W2-05", "W3-06", "W4-03"], "journeys": ["J2", "J3"] },
-    { "id": "W5-03", "title": "Resolve Telegram ingress to ChannelBinding and return only through its origin", "track": "identity-eve", "wave": 5, "size": "L", "status": "queued", "dependencies": ["W1-05", "W3-02", "W3-03", "W3-05"], "journeys": ["J5"] },
-    { "id": "W5-04", "title": "Resolve Kapso ingress to ChannelBinding and persist its operational state", "track": "identity-eve", "wave": 5, "size": "L", "status": "queued", "dependencies": ["W3-02", "W3-03", "W3-05"], "journeys": ["J5"] },
-    { "id": "W5-05", "title": "Prove progressive consent and cross-channel continuity for Web A, Kapso, Telegram A, and Telegram B", "track": "integration", "wave": 5, "size": "L", "status": "queued", "dependencies": ["W5-01", "W5-02", "W5-03", "W5-04"], "journeys": ["J5"] },
+    {
+      "id": "W5-01",
+      "title": "Finish Eve's Membership workbench for knowledge, evidence, approvals, receipts, channels, and roles",
+      "track": "identity-eve",
+      "wave": 5,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W3-04", "W4-05"],
+      "journeys": ["J2", "J3", "J5"]
+    },
+    {
+      "id": "W5-02",
+      "title": "Derive Eve tools and approval resumption from the active release",
+      "track": "identity-eve",
+      "wave": 5,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-05", "W3-06", "W4-03"],
+      "journeys": ["J2", "J3"]
+    },
+    {
+      "id": "W5-03",
+      "title": "Resolve Telegram ingress to ChannelBinding and return only through its origin",
+      "track": "identity-eve",
+      "wave": 5,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W1-05", "W3-02", "W3-03", "W3-05"],
+      "journeys": ["J5"]
+    },
+    {
+      "id": "W5-04",
+      "title": "Resolve Kapso ingress to ChannelBinding and persist its operational state",
+      "track": "identity-eve",
+      "wave": 5,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W3-02", "W3-03", "W3-05"],
+      "journeys": ["J5"]
+    },
+    {
+      "id": "W5-05",
+      "title": "Prove progressive consent and cross-channel continuity for Web A, Kapso, Telegram A, and Telegram B",
+      "track": "integration",
+      "wave": 5,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W5-01", "W5-02", "W5-03", "W5-04"],
+      "journeys": ["J5"]
+    },
 
-    { "id": "W6-01", "title": "Add generic AutomationDefinition and content-addressed ExecutorCall", "track": "world-authority", "wave": 6, "size": "L", "status": "queued", "dependencies": ["W2-04", "W2-05", "W4-03"], "journeys": ["J6"] },
-    { "id": "W6-02", "title": "Execute generic calls through the production Restate ZoenEffect path", "track": "runtime-truth", "wave": 6, "size": "L", "status": "queued", "dependencies": ["W1-03", "W4-04", "W6-01"], "journeys": ["J6", "J8"] },
-    { "id": "W6-03", "title": "Add an origin-bound delivery ledger, retry identity, and ambiguous-send reconciliation", "track": "identity-eve", "wave": 6, "size": "L", "status": "queued", "dependencies": ["W5-03", "W5-04", "W6-02"], "journeys": ["J5", "J6"] },
-    { "id": "W6-04", "title": "Prove two reminders, restart, retry, and one logical delivery per origin", "track": "integration", "wave": 6, "size": "L", "status": "queued", "dependencies": ["W5-05", "W6-03"], "journeys": ["J6"] },
+    {
+      "id": "W6-01",
+      "title": "Add generic AutomationDefinition and content-addressed ExecutorCall",
+      "track": "world-authority",
+      "wave": 6,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-04", "W2-05", "W4-03"],
+      "journeys": ["J6"]
+    },
+    {
+      "id": "W6-02",
+      "title": "Execute generic calls through the production Restate ZoenEffect path",
+      "track": "runtime-truth",
+      "wave": 6,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W1-03", "W4-04", "W6-01"],
+      "journeys": ["J6", "J8"]
+    },
+    {
+      "id": "W6-03",
+      "title": "Add an origin-bound delivery ledger, retry identity, and ambiguous-send reconciliation",
+      "track": "identity-eve",
+      "wave": 6,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W5-03", "W5-04", "W6-02"],
+      "journeys": ["J5", "J6"]
+    },
+    {
+      "id": "W6-04",
+      "title": "Prove two reminders, restart, retry, and one logical delivery per origin",
+      "track": "integration",
+      "wave": 6,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W5-05", "W6-03"],
+      "journeys": ["J6"]
+    },
 
-    { "id": "W7-01", "title": "Generate coherent CLI and Connect contracts from the governed catalog", "track": "agent-surfaces", "wave": 7, "size": "L", "status": "queued", "dependencies": ["W2-05", "W4-03", "W4-05"], "journeys": ["J7"] },
-    { "id": "W7-02", "title": "Add an inbound MCP server over the same kernel and catalog", "track": "agent-surfaces", "wave": 7, "size": "L", "status": "queued", "dependencies": ["W7-01"], "journeys": ["J7"] },
-    { "id": "W7-03", "title": "Converge ZoenPack on release preview and prove clinic and factory Worlds", "track": "agent-surfaces", "wave": 7, "size": "L", "status": "queued", "dependencies": ["W2-07", "W4-01", "W7-02"], "journeys": ["J4", "J7"] },
-    { "id": "W7-04", "title": "Publish the finance pack with typed IBM identity, sources, fields, series, Actions, and generated interfaces", "track": "agent-surfaces", "wave": 7, "size": "L", "status": "queued", "dependencies": ["W4-06", "W4-07", "W4-08", "W7-02"], "journeys": [], "finalGates": ["FIN-01", "FIN-02", "FIN-03", "FIN-04", "FIN-05", "FIN-06", "FIN-07", "FIN-08", "FIN-09"] },
+    {
+      "id": "W7-01",
+      "title": "Generate coherent CLI and Connect contracts from the governed catalog",
+      "track": "agent-surfaces",
+      "wave": 7,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-05", "W4-03", "W4-05"],
+      "journeys": ["J7"]
+    },
+    {
+      "id": "W7-02",
+      "title": "Add an inbound MCP server over the same kernel and catalog",
+      "track": "agent-surfaces",
+      "wave": 7,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W7-01"],
+      "journeys": ["J7"]
+    },
+    {
+      "id": "W7-03",
+      "title": "Converge ZoenPack on release preview and prove clinic and factory Worlds",
+      "track": "agent-surfaces",
+      "wave": 7,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W2-07", "W4-01", "W7-02"],
+      "journeys": ["J4", "J7"]
+    },
+    {
+      "id": "W7-04",
+      "title": "Publish the finance pack with typed IBM identity, sources, fields, series, Actions, and generated interfaces",
+      "track": "agent-surfaces",
+      "wave": 7,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W4-06", "W4-07", "W4-08", "W7-02"],
+      "journeys": [],
+      "finalGates": [
+        "FIN-01",
+        "FIN-02",
+        "FIN-03",
+        "FIN-04",
+        "FIN-05",
+        "FIN-06",
+        "FIN-07",
+        "FIN-08",
+        "FIN-09"
+      ]
+    },
 
-    { "id": "W8-01", "title": "Prove restart, rebuild, least privilege, observability, and dependency failure behavior", "track": "integration", "wave": 8, "size": "L", "status": "queued", "dependencies": ["W1-07", "W4-05", "W6-04", "W7-03"], "journeys": ["J8"] },
-    { "id": "W8-02", "title": "Run all ratified journeys and final gates on one production-shaped artifact and complete the independent audit", "track": "integration", "wave": 8, "size": "L", "status": "queued", "dependencies": ["W8-01", "W8-04"], "journeys": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"], "finalGates": ["FIN-01", "FIN-02", "FIN-03", "FIN-04", "FIN-05", "FIN-06", "FIN-07", "FIN-08", "FIN-09"] },
-    { "id": "W8-03", "title": "Resolve every initial PR, reconcile the ledger and licenses, then deploy the verified artifact", "track": "integration", "wave": 8, "size": "M", "status": "queued", "dependencies": ["W8-02"], "journeys": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"], "finalGates": ["FIN-01", "FIN-02", "FIN-03", "FIN-04", "FIN-05", "FIN-06", "FIN-07", "FIN-08", "FIN-09"] },
-    { "id": "W8-04", "title": "Prove FIN-01 through FIN-09 against the one-Fly artifact with IBM fixtures and denial controls", "track": "integration", "wave": 8, "size": "L", "status": "queued", "dependencies": ["W7-04", "W8-01"], "journeys": [], "finalGates": ["FIN-01", "FIN-02", "FIN-03", "FIN-04", "FIN-05", "FIN-06", "FIN-07", "FIN-08", "FIN-09"] }
+    {
+      "id": "W8-01",
+      "title": "Prove restart, rebuild, least privilege, observability, and dependency failure behavior",
+      "track": "integration",
+      "wave": 8,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W1-07", "W4-05", "W6-04", "W7-03"],
+      "journeys": ["J8"]
+    },
+    {
+      "id": "W8-02",
+      "title": "Run all ratified journeys and final gates on one production-shaped artifact and complete the independent audit",
+      "track": "integration",
+      "wave": 8,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W8-01", "W8-04"],
+      "journeys": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"],
+      "finalGates": [
+        "FIN-01",
+        "FIN-02",
+        "FIN-03",
+        "FIN-04",
+        "FIN-05",
+        "FIN-06",
+        "FIN-07",
+        "FIN-08",
+        "FIN-09"
+      ]
+    },
+    {
+      "id": "W8-03",
+      "title": "Resolve every initial PR, reconcile the ledger and licenses, then deploy the verified artifact",
+      "track": "integration",
+      "wave": 8,
+      "size": "M",
+      "status": "queued",
+      "dependencies": ["W8-02"],
+      "journeys": ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"],
+      "finalGates": [
+        "FIN-01",
+        "FIN-02",
+        "FIN-03",
+        "FIN-04",
+        "FIN-05",
+        "FIN-06",
+        "FIN-07",
+        "FIN-08",
+        "FIN-09"
+      ]
+    },
+    {
+      "id": "W8-04",
+      "title": "Prove FIN-01 through FIN-09 against the one-Fly artifact with IBM fixtures and denial controls",
+      "track": "integration",
+      "wave": 8,
+      "size": "L",
+      "status": "queued",
+      "dependencies": ["W7-04", "W8-01"],
+      "journeys": [],
+      "finalGates": [
+        "FIN-01",
+        "FIN-02",
+        "FIN-03",
+        "FIN-04",
+        "FIN-05",
+        "FIN-06",
+        "FIN-07",
+        "FIN-08",
+        "FIN-09"
+      ]
+    }
   ]
 }

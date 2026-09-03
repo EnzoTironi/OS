@@ -17,7 +17,7 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | --- | --- | --- | --- |
 | W0-05 | codex/zoen-governed-north-ratification | not recorded | #620 |
 | W1-03 | codex/w1-03-production-effect-handler | 904562917f994096aab46e6e7dbb04f08ca55919 | #617 |
-| W1-04 | codex/w1-04-eve-runtime-boundary | c149f62b1e45714c1357bf18a61eea025734beef | #618 |
+| W1-04 | codex/w1-04-eve-runtime-boundary | aa07dce89325c25b2c0fd35129f1ee8628e8ff29 | #618 |
 | W2-01 | codex/w2-01-world-release-contract | f00efc7f245db80ff0d0d9051986d4d61e0e20e8 | not open |
 
 ## Merged pull requests
@@ -29,6 +29,12 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | #611 | toolchain | d84f8cf7f9910bdec9b16e92127da33c00121d78 | 304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b | 2026-09-02T20:09:17Z |
 
 PR 611 produced the current `main` commit and activated Rust 1.98 with Kache.
+
+## Journey infrastructure outside the unit graph
+
+| Pull request | State | Branch | Head | Scope |
+| --- | --- | --- | --- | --- |
+| #619 | open | codex/e2e-concurrent-isolation | 93c800c9de09f43a8b0b145037ac989da7e6782f | Concurrent journey isolation infrastructure; separate from the canonical 52-unit product program. |
 
 ## Non-landing records
 

@@ -20,7 +20,7 @@
     {
       "unit": "W1-04",
       "branch": "codex/w1-04-eve-runtime-boundary",
-      "head": "c149f62b1e45714c1357bf18a61eea025734beef",
+      "head": "aa07dce89325c25b2c0fd35129f1ee8628e8ff29",
       "pr": 618
     },
     {
@@ -29,6 +29,15 @@
       "sourceHead": "f00efc7f245db80ff0d0d9051986d4d61e0e20e8",
       "pr": null,
       "fact": "A separate Codex task owns the corrective derivative."
+    }
+  ],
+  "journeyInfrastructure": [
+    {
+      "number": 619,
+      "branch": "codex/e2e-concurrent-isolation",
+      "head": "93c800c9de09f43a8b0b145037ac989da7e6782f",
+      "state": "open",
+      "fact": "Concurrent journey isolation infrastructure; separate from the canonical 52-unit product program."
     }
   ],
   "landingOrder": ["W1-03", "W1-04", "W2-01"],
