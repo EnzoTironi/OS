@@ -4,7 +4,6 @@ use std::{collections::BTreeSet, env, error::Error, net::SocketAddr, sync::Arc};
 
 use axum::{
     Router as HttpRouter,
-    extract::State,
     http::{StatusCode, header},
     response::IntoResponse,
     routing::get,
@@ -51,6 +50,7 @@ mod identity_admin_auth;
 mod onboard;
 mod pack_admin;
 mod pack_registry;
+mod ready;
 mod service;
 mod workload_ingress_service;
 mod world_service;
@@ -265,17 +265,17 @@ fn build_routers(
         .into_axum_router();
     let ready_routes = HttpRouter::new()
         .route("/live", get(live))
-        .route("/ready", get(ready))
-        .with_state(ReadyState {
-            classification: boot.classification,
-            require_reference: boot.require_reference,
-            store: boot.store,
-        });
+        .route("/ready", get(ready::ready))
+        .with_state(ready::ReadyState::from_boot(
+            boot.classification,
+            boot.require_reference,
+            boot.store,
+        )?);
     Ok(HttpRouter::new()
         .route("/metrics", get(metrics))
         .merge(ready_routes)
         .merge(door_proxy::router()?)
-        .merge(eve_proxy::router())
+        .merge(eve_proxy::router()?)
         .merge(identity_routes)
         .merge(onboard_routes)
         .merge(workload_routes)
@@ -302,13 +302,6 @@ fn listen_address() -> Result<SocketAddr, Box<dyn Error + Send + Sync>> {
         .parse()?)
 }
 
-#[derive(Clone)]
-struct ReadyState {
-    classification: Arc<StateClassification>,
-    require_reference: bool,
-    store: PostgresAuthorityStore,
-}
-
 async fn metrics() -> impl IntoResponse {
     (
         [(
@@ -321,21 +314,6 @@ async fn metrics() -> impl IntoResponse {
 
 async fn live() -> impl IntoResponse {
     (StatusCode::OK, "live\n")
-}
-
-async fn ready(State(state): State<ReadyState>) -> impl IntoResponse {
-    match state
-        .store
-        .verify_integrity(
-            &state.classification.authority.postgres_tables,
-            &state.classification.authority.reference_tables,
-            state.require_reference,
-        )
-        .await
-    {
-        Ok(()) => (StatusCode::OK, "ready\n".to_owned()),
-        Err(error) => (StatusCode::SERVICE_UNAVAILABLE, format!("{error}\n")),
-    }
 }
 
 async fn shutdown_signal() {

@@ -3,8 +3,10 @@ use std::{
     error::Error,
     io::{Error as IoError, ErrorKind},
     path::PathBuf,
+    time::Duration,
 };
 
+use zoen_core::TenantId;
 use zoen_query::ObjectStoreConfig;
 
 /// Auth mode selected at process boot from the environment boundary.
@@ -42,6 +44,72 @@ pub fn process_auth() -> Result<ProcessAuth, Box<dyn Error + Send + Sync>> {
 /// Returns an error when `ZOEN_CEDAR_POLICY_MANIFEST` is missing or empty.
 pub fn cedar_manifest_path() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     cedar_manifest_path_from(&|name| optional_env(name))
+}
+
+/// Better Auth door origin from `ZOEN_AUTH_BASE_URL`.
+///
+/// # Errors
+///
+/// Returns an error when the value is not an HTTP `127.0.0.1` origin with an
+/// explicit port.
+pub fn auth_base_url() -> Result<String, Box<dyn Error + Send + Sync>> {
+    loopback_http_origin("ZOEN_AUTH_BASE_URL", "http://127.0.0.1:58704")
+}
+
+/// Eve origin from `ZOEN_EVE_BASE_URL`.
+///
+/// # Errors
+///
+/// Returns an error when the value is not an HTTP `127.0.0.1` origin with an
+/// explicit port.
+pub fn eve_base_url() -> Result<String, Box<dyn Error + Send + Sync>> {
+    loopback_http_origin("ZOEN_EVE_BASE_URL", "http://127.0.0.1:3000")
+}
+
+/// Registrar health URL from `ZOEN_EFFECT_REGISTRATION_HEALTH_URL`.
+///
+/// # Errors
+///
+/// Returns an error when the environment value cannot be read.
+pub fn effect_registration_health_url() -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    Ok(nonempty(optional_env(
+        "ZOEN_EFFECT_REGISTRATION_HEALTH_URL",
+    )?))
+}
+
+/// Tenant whose active release and watermark `/ready` must observe.
+///
+/// # Errors
+///
+/// Returns an error when `ZOEN_TENANT_ID` is set but not a tenant identifier.
+pub fn ready_tenant_id() -> Result<Option<TenantId>, Box<dyn Error + Send + Sync>> {
+    nonempty(optional_env("ZOEN_TENANT_ID")?)
+        .map(TenantId::parse)
+        .transpose()
+        .map_err(|error| config_error(&error.to_string()))
+}
+
+/// Maximum age of a live projection watermark heartbeat.
+///
+/// # Errors
+///
+/// Returns an error when `ZOEN_PROJECTION_WATERMARK_MAX_AGE_MS` is not a
+/// positive integer.
+pub fn projection_watermark_max_age() -> Result<Duration, Box<dyn Error + Send + Sync>> {
+    let Some(raw) = nonempty(optional_env("ZOEN_PROJECTION_WATERMARK_MAX_AGE_MS")?) else {
+        return Ok(Duration::from_secs(30));
+    };
+    let millis = raw.parse::<u64>().map_err(|error| {
+        config_error(&format!(
+            "ZOEN_PROJECTION_WATERMARK_MAX_AGE_MS is invalid: {error}"
+        ))
+    })?;
+    if millis == 0 {
+        return Err(config_error(
+            "ZOEN_PROJECTION_WATERMARK_MAX_AGE_MS must be greater than zero",
+        ));
+    }
+    Ok(Duration::from_millis(millis))
 }
 
 /// Session-door auth settings from an environment lookup.
@@ -136,6 +204,34 @@ fn required_env(name: &str, value: Option<String>) -> Result<String, Box<dyn Err
         )
         .into()
     })
+}
+
+fn loopback_http_origin(name: &str, default: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let raw = match env::var(name) {
+        Ok(value) => value,
+        Err(VarError::NotPresent) => default.to_owned(),
+        Err(error) => return Err(error.into()),
+    };
+    let origin = raw.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(origin)
+        .map_err(|error| config_error(&format!("{name} is invalid: {error}")))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| config_error(&format!("{name} must include a host")))?;
+    if parsed.scheme() != "http"
+        || host != "127.0.0.1"
+        || parsed.port().is_none()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(config_error(&format!(
+            "{name} must be an HTTP 127.0.0.1 origin with an explicit port"
+        )));
+    }
+    Ok(origin.to_owned())
 }
 
 fn config_error(message: &str) -> Box<dyn Error + Send + Sync> {

@@ -53,7 +53,7 @@ pub use identity_store::{
     AccountSnapshot, CompleteOnboard, CreateInvite, MintedOnboardToken, OnboardTokenRow,
     PostgresIdentityStore, WorldInvite, dest_invitee_delegation,
 };
-pub use integrity::IntegrityError;
+pub use integrity::{ActiveReleaseStatus, IntegrityError, ProjectionWatermarkStatus};
 pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
 pub use pack_store::{PostgresPackStore, admit_pack};
 pub use restate::{RestateEffectScheduler, restate_effect_key};

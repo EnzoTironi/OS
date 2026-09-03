@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{error::Error, time::Duration};
 
 use axum::{
     Router,
@@ -10,24 +10,32 @@ use axum::{
 };
 use reqwest::Client;
 
-const EVE: &str = "http://127.0.0.1:3000";
 const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
-pub fn router() -> Router {
-    Router::new()
+#[derive(Clone)]
+struct EveProxy {
+    client: Client,
+    origin: String,
+}
+
+pub fn router() -> Result<Router, Box<dyn Error + Send + Sync>> {
+    Ok(Router::new()
         .route("/eve/v1", any(proxy_eve))
         .route("/eve/v1/{*path}", any(proxy_eve))
         .route("/.well-known/workflow", any(proxy_eve))
         .route("/.well-known/workflow/{*path}", any(proxy_eve))
-        .with_state(Client::new())
+        .with_state(EveProxy {
+            client: Client::new(),
+            origin: zoend::config::eve_base_url()?,
+        }))
 }
 
-async fn proxy_eve(State(client): State<Client>, request: Request) -> Response {
+async fn proxy_eve(State(eve): State<EveProxy>, request: Request) -> Response {
     let path_and_query = request
         .uri()
         .path_and_query()
         .map_or("/", axum::http::uri::PathAndQuery::as_str);
-    let url = format!("{EVE}{path_and_query}");
+    let url = format!("{}{path_and_query}", eve.origin);
     let Ok(method) = reqwest::Method::from_bytes(request.method().as_str().as_bytes()) else {
         return StatusCode::BAD_GATEWAY.into_response();
     };
@@ -35,7 +43,7 @@ async fn proxy_eve(State(client): State<Client>, request: Request) -> Response {
     let Ok(body) = axum::body::to_bytes(request.into_body(), BODY_LIMIT).await else {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     };
-    forward(&client, method, url, headers, body).await
+    forward(&eve.client, method, url, headers, body).await
 }
 
 async fn forward(

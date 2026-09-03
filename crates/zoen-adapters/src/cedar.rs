@@ -122,6 +122,12 @@ impl CedarPolicyEvaluator {
         }
         Ok(Self { policies })
     }
+
+    /// True when the manifest compiled with no policy bindings.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.policies.is_empty()
+    }
 }
 
 impl CedarPolicyEvaluator {

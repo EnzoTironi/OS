@@ -24,6 +24,7 @@ import {
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
+  projectionProcessEnvironment,
 } from "./host-env.js";
 
 export const repositoryRoot = process.cwd();
@@ -97,7 +98,14 @@ const generatedDirectoryPath = path.isAbsolute(generatedDirectory)
 const composeDirectory = generatedDirectoryPath.replace(/\/\.generated\/?$/, "");
 const composeFile = path.join(composeDirectory, "compose.yaml");
 const composeProject = `zoen-${path.basename(composeDirectory)}`;
-const targetDirectory = path.join(repositoryRoot, "target", "debug");
+const cargoTargetRoot = (() => {
+  const raw = process.env.CARGO_TARGET_DIR;
+  if (raw === undefined || raw === "") {
+    return path.join(repositoryRoot, "target");
+  }
+  return path.isAbsolute(raw) ? raw : path.join(repositoryRoot, raw);
+})();
+const targetDirectory = path.join(cargoTargetRoot, "debug");
 const distDirectory = path.join(repositoryRoot, "dist");
 export const effectArtifactFile = path.join(
   generatedDirectoryPath,
@@ -254,7 +262,10 @@ export function worldClient(
 
 export async function startZoend(
   policyManifestPath: string,
-  options: { effectWorkerWorkloadId?: string } = {},
+  options: {
+    effectWorkerWorkloadId?: string;
+    environment?: Readonly<Record<string, string>>;
+  } = {},
 ): Promise<ManagedProcess> {
   return startProcess({
     command: path.join(targetDirectory, "zoen"),
@@ -267,10 +278,76 @@ export async function startZoend(
         options.effectWorkerWorkloadId ?? "workload.effect-worker",
       ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
       ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", zoendPortFallback),
+      ...(options.environment ?? {}),
     },
     name: "zoend",
     port: zoendPort,
   });
+}
+
+const minioPortFallback = 59_007;
+const minioPort = e2ePort("ZOEN_E2E_MINIO_PORT", minioPortFallback);
+export const minioEndpoint = e2eHttpUrl("ZOEN_E2E_MINIO_PORT", minioPortFallback);
+export const projectionDatabaseUrl = e2ePostgresUrl(
+  "zoen_projection",
+  "zoen_projection",
+  postgresPortFallback,
+);
+export const evePortFallback = 58_356;
+export const eveOrigin = e2eHttpUrl("ZOEN_E2E_EVE_PORT", evePortFallback);
+
+export function productReadinessEnvironment(): Record<string, string> {
+  return {
+    S3_ACCESS_KEY_ID: "zoen-access",
+    S3_ALLOW_HTTP: "true",
+    S3_BUCKET: "zoen-projections",
+    S3_ENDPOINT: minioEndpoint,
+    S3_REGION: "us-east-1",
+    S3_SECRET_ACCESS_KEY: "zoen-secret",
+    ZOEN_EFFECT_REGISTRATION_HEALTH_URL: `http://127.0.0.1:${registrarPort}/health`,
+    ZOEN_EVE_BASE_URL: eveOrigin,
+    ZOEN_PROJECTION_WATERMARK_MAX_AGE_MS: "1500",
+    ZOEN_TENANT_ID: tenantA,
+  };
+}
+
+export function startProjection(tenantId: string = tenantA): ManagedProcess {
+  return spawnProcess({
+    command: path.join(targetDirectory, "zoen-projection"),
+    environment: {
+      ...projectionProcessEnvironment(),
+      PATH: process.env.PATH,
+      S3_ACCESS_KEY_ID: "zoen-access",
+      S3_ALLOW_HTTP: "true",
+      S3_BUCKET: "zoen-projections",
+      S3_ENDPOINT: minioEndpoint,
+      S3_REGION: "us-east-1",
+      S3_SECRET_ACCESS_KEY: "zoen-secret",
+      ZOEN_PROJECTION_DATABASE_URL: projectionDatabaseUrl,
+      ZOEN_PROJECTION_INTERVAL_MS: "200",
+      ZOEN_TENANT_ID: tenantId,
+    },
+    isolatedEnvironment: true,
+    name: "zoen-projection",
+  });
+}
+
+export async function stopMinio(): Promise<void> {
+  await compose("stop", "minio");
+}
+
+export async function startMinio(): Promise<void> {
+  await compose("start", "minio");
+  await waitFor(async () => {
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${minioPort}/minio/health/live`,
+      );
+      return response.ok ? true : undefined;
+    } catch {
+      return undefined;
+    }
+  }, "minio live");
 }
 
 export async function startFaultProvider(): Promise<ManagedProcess> {
@@ -929,7 +1006,8 @@ async function startProcess(options: {
 function spawnProcess(options: {
   arguments?: readonly string[];
   command: string;
-  environment: Readonly<Record<string, string>>;
+  environment: Readonly<Record<string, string | undefined>>;
+  isolatedEnvironment?: boolean;
   name: string;
   processGroup?: boolean;
 }): ManagedProcess {
@@ -938,7 +1016,10 @@ function spawnProcess(options: {
   const child = spawn(options.command, [...(options.arguments ?? [])], {
     cwd: repositoryRoot,
     detached: options.processGroup === true,
-    env: { ...process.env, ...options.environment },
+    env:
+      options.isolatedEnvironment === true
+        ? options.environment
+        : { ...process.env, ...options.environment },
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.end();

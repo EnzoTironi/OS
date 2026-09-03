@@ -292,8 +292,15 @@ async function main(): Promise<void> {
     server = await startServer(policyManifestPath, {
       kind: "default",
     });
+    const live = await fetch(`${baseUrl}/live`);
+    record("live passes after retired state removal", live.status === 200);
     const ready = await fetch(`${baseUrl}/ready`);
-    record("ready passes after retired state removal", ready.status === 200);
+    const readyBody = await ready.text();
+    record(
+      "ready fails closed without product dependencies",
+      ready.status === 503 &&
+        (readyBody.includes("missing") || readyBody.includes("broken")),
+    );
     await assertRetiredRoutesAreAbsent();
     await assertRetiredTablesAreAbsent();
     const telegramRecording = await recordTwoTelegramSubjects();
