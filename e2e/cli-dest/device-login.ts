@@ -683,12 +683,18 @@ async function waitForAuthDoorCleanup(
   timeoutMs: number,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+  let quietSince: number | undefined;
   while (Date.now() < deadline) {
-    if (
+    const quiet =
       !(await portOpen(authDoorPort)) &&
-      sameNumbers(authDoorProcessIds(), expectedProcessIds)
-    ) {
-      return true;
+      sameNumbers(authDoorProcessIds(), expectedProcessIds);
+    if (quiet) {
+      quietSince ??= Date.now();
+      if (Date.now() - quietSince >= 300) {
+        return true;
+      }
+    } else {
+      quietSince = undefined;
     }
     await delay(50);
   }
@@ -710,14 +716,12 @@ function authDoorProcessIds(): number[] {
     process.cwd(),
     "apps",
     "auth",
-    "node_modules",
-    "tsx",
-    "dist",
-    "cli.mjs",
+    "src",
+    "server.ts",
   );
   return (result.stdout ?? "")
     .split(/\r?\n/)
-    .filter((line) => line.includes(marker) && line.includes("src/server.ts"))
+    .filter((line) => line.includes(marker) && line.includes("--import tsx"))
     .map((line) => Number.parseInt(line.trimStart(), 10))
     .filter(Number.isSafeInteger)
     .sort((left, right) => left - right);
