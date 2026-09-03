@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { Client as PostgresClient } from "pg";
 import { recordTelegramIdentity } from "../apps/conversation/agent/telegram-identity.js";
 import {
   applicationDatabaseUrl,
@@ -20,13 +21,6 @@ import {
   writeScenarioArtifact,
 } from "./host-env.js";
 import { assertImportGraphLaw } from "./messaging-boundary/import-graph.js";
-import {
-  assertZoendReplayRow,
-  freshWhatsAppIngressSecret,
-  postWhatsAppInbound,
-  signedWhatsAppInbound,
-  startMockWhatsAppGateway,
-} from "./messaging-boundary/whatsapp-inbound-auth.js";
 
 const scenario = "messaging-boundary";
 const repositoryRoot = process.cwd();
@@ -55,6 +49,26 @@ const provisionalTelegramSnapshotSchema = z.object({
   ),
   memberships: z.array(z.unknown()),
 });
+const retiredRoutes = [
+  { method: "GET", path: "/channels/whatsapp/advertise" },
+  { method: "POST", path: "/channels/whatsapp/inbound" },
+  { method: "GET", path: "/channels/telegram/advertise" },
+  { method: "POST", path: "/channels/telegram/inbound" },
+  { method: "POST", path: "/conversation/stages" },
+  { method: "POST", path: "/conversation/who-can" },
+] as const;
+const retiredTables = [
+  "interaction_records",
+  "conversation_pending",
+  "conversation_turns",
+  "turn_attempts",
+  "conversation_arms",
+  "delivery_intents",
+  "delivery_observations",
+  "delivery_send_claims",
+  "reply_ledger",
+  "ingress_replay",
+] as const;
 
 const assertions: Record<string, boolean> = {};
 const mutantsKilled: string[] = [];
@@ -224,6 +238,42 @@ async function recordTwoTelegramSubjects(): Promise<{
   };
 }
 
+async function assertRetiredRoutesAreAbsent(): Promise<void> {
+  for (const route of retiredRoutes) {
+    const response = await fetch(`${baseUrl}${route.path}`, {
+      body: route.method === "POST" ? "{}" : undefined,
+      headers:
+        route.method === "POST" ? { "content-type": "application/json" } : {},
+      method: route.method,
+    });
+    record(
+      `${route.method} ${route.path} is not found`,
+      response.status === 404,
+    );
+  }
+  killMutant("Restore a zoend /channels/* or /conversation/* compatibility route");
+}
+
+async function assertRetiredTablesAreAbsent(): Promise<void> {
+  const client = new PostgresClient({ connectionString: applicationDatabaseUrl });
+  await client.connect();
+  try {
+    for (const table of retiredTables) {
+      const result = await client.query<{ relation: string | null }>(
+        "SELECT to_regclass($1)::text AS relation",
+        [`public.${table}`],
+      );
+      record(
+        `${table} is absent after migrations`,
+        result.rows[0]?.relation === null,
+      );
+    }
+  } finally {
+    await client.end();
+  }
+  killMutant("Keep Ontology-owned conversation or ingress replay tables");
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   await mkdir(generatedDirectory, { recursive: true });
@@ -240,11 +290,12 @@ async function main(): Promise<void> {
   let server: ServerProcess | undefined;
   try {
     server = await startServer(policyManifestPath, {
-    extraEnv: {
-      ZOEN_WHATSAPP_INGRESS_SECRET: "",
-    },
-    kind: "default",
-  });
+      kind: "default",
+    });
+    const ready = await fetch(`${baseUrl}/ready`);
+    record("ready passes after retired state removal", ready.status === 200);
+    await assertRetiredRoutesAreAbsent();
+    await assertRetiredTablesAreAbsent();
     const telegramRecording = await recordTwoTelegramSubjects();
     record(
       "telegram_identity_recording_is_idempotent",
@@ -271,6 +322,17 @@ async function main(): Promise<void> {
     killMutant("Grant Membership while only recording a Telegram sender");
 
     const seed = await seedBoundAccount();
+    const resolved = await admin(
+      "GET",
+      `/identity/admin/resolve-context?tenant=${encodeURIComponent(seed.tenantId)}`,
+    );
+    record(
+      "membership resolves from the Better Auth session",
+      resolved.status === 200 &&
+        resolved.body.membershipId === seed.membershipId &&
+        resolved.body.tenantId === seed.tenantId,
+    );
+    killMutant("Bootstrap a Membership that the active door session cannot resolve");
 
     record(
       "thread_is_not_tenant",
@@ -310,97 +372,13 @@ async function main(): Promise<void> {
         process.env.PHOTON_API_KEY === undefined,
     );
 
-    const unsigned = await postWhatsAppInbound(
-      baseUrl,
-      {},
-      JSON.stringify({ body: "oi" }),
-    );
-    record(
-      "unsigned_inbound_without_secret_is_unavailable",
-      unsigned.status === 503 &&
-        unsigned.body.reason === "whatsapp_ingress_secret_missing",
-    );
-    killMutant("Accept WhatsApp inbound when ZOEN_WHATSAPP_INGRESS_SECRET is unset");
-
-    assert.ok(server);
-    await stopServer(server);
-    const gateway = await startMockWhatsAppGateway();
-    const secret = freshWhatsAppIngressSecret();
-    const rawBody = JSON.stringify({ body: "oi" });
-    const webhookId = "msg_boundary_1";
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    try {
-      server = await startServer(policyManifestPath, {
-        extraEnv: {
-          ZOEN_MESSAGING_GATEWAY_URL: gateway.url,
-          ZOEN_WHATSAPP_INGRESS_SECRET: secret,
-        },
-        kind: "default",
-      });
-      const validHeaders = signedWhatsAppInbound({
-        rawBody,
-        secret,
-        timestampSeconds: nowSeconds,
-        webhookId,
-      });
-      const forged = await postWhatsAppInbound(
-        baseUrl,
-        { ...validHeaders, "webhook-signature": "v1,AAAA" },
-        rawBody,
-      );
-      record(
-        "forged_inbound_signature_is_unauthorized",
-        forged.status === 401 &&
-          forged.body.reason === "whatsapp_ingress_signature_invalid",
-      );
-      killMutant("Accept a forged Standard Webhooks signature");
-
-      const stale = await postWhatsAppInbound(
-        baseUrl,
-        {
-          ...validHeaders,
-          "webhook-timestamp": String(nowSeconds - 20 * 60),
-        },
-        rawBody,
-      );
-      record(
-        "stale_inbound_timestamp_is_unauthorized",
-        stale.status === 401 &&
-          stale.body.reason === "whatsapp_ingress_timestamp_stale",
-      );
-      killMutant("Accept a webhook-timestamp outside the 5-minute skew window");
-
-      const accepted = await postWhatsAppInbound(baseUrl, validHeaders, rawBody);
-      record(
-        "signed_inbound_reaches_gateway",
-        accepted.status === 200 && accepted.body.ok === true,
-      );
-      record(
-        "hmac_signs_raw_webhook_id",
-        gateway.inboundIds.includes(webhookId),
-      );
-
-      const replayed = await postWhatsAppInbound(baseUrl, validHeaders, rawBody);
-      record(
-        "durable_inbound_replay_is_unauthorized",
-        replayed.status === 401 &&
-          replayed.body.reason === "whatsapp_ingress_replay",
-      );
-      killMutant("Replay a committed webhook-id through zoend inbound");
-
-      await assertZoendReplayRow(applicationDatabaseUrl, webhookId);
-      record("durable_replay_row_is_zoend_namespaced", true);
-    } finally {
-      await gateway.close();
-    }
-
     const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
       assertions,
       finishedAt: new Date().toISOString(),
       linqChannelProviderMapping: "linq",
       mutantsKilled,
       note:
-        "Fake provider gateway proofs moved to #327 / #328 against live adapters.",
+        "Eve owns channel ingress; zoend has no legacy gateway or conversation-stage routes.",
       telegramIdentityRecording: {
         count: telegramRecording.accountIds.length,
         providerCeremony:
@@ -410,6 +388,7 @@ async function main(): Promise<void> {
       },
       seed: {
         accountId: seed.accountId,
+        membershipId: seed.membershipId,
         principalId: seed.principalId,
         tenantId: seed.tenantId,
       },

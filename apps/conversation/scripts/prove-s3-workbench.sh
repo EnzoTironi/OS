@@ -12,8 +12,9 @@ fi
 
 base="http://127.0.0.1:58704"
 ok_url="${base}/api/auth/ok"
-zoend_base="http://127.0.0.1:58705"
-proof="/workspace/ship/s3-workbench-proof.md"
+zoend_port=58707
+zoend_base="http://127.0.0.1:${zoend_port}"
+proof="${S3_PROOF_PATH:-${repo}/artifacts/s3-workbench/s3-workbench-proof.md}"
 work="$(mktemp -d)"
 trap 'cleanup' EXIT
 draft="${work}/proof.md"
@@ -25,6 +26,8 @@ eve_pid=""
 auth_started=0
 admin_token="s3-workbench-admin-token"
 valid_at="2026-01-15T00:00:00Z"
+kapso_api_key="$(openssl rand -hex 24)"
+kapso_webhook_secret="$(openssl rand -hex 24)"
 
 stamp() {
   TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M:%S %Z'
@@ -73,6 +76,12 @@ cleanup() {
     recorded="$(tr -d ' \n' < .auth.pid || true)"
     if [[ "$recorded" =~ ^[0-9]+$ ]] && kill -0 "$recorded" 2>/dev/null; then
       kill_tree "$recorded"
+      for _ in $(seq 1 50); do
+        if ! kill -0 "$recorded" 2>/dev/null; then
+          break
+        fi
+        sleep 0.1
+      done
     fi
     rm -f .auth.pid
   fi
@@ -113,15 +122,21 @@ PY
 
 connect() {
   local token="$1" path="$2" body="$3" out="$4"
-  local extra=()
-  if [[ -n "${5:-}" ]]; then
-    extra=(-H "x-zoen-tenant: $5")
+  local tenant="${5:-}"
+  if [[ -n "$tenant" ]]; then
+    curl -sS -o "$out" -w '%{http_code}' \
+      -H "Authorization: Bearer ${token}" \
+      -H 'content-type: application/json' \
+      -H 'connect-protocol-version: 1' \
+      -H "x-zoen-tenant: $tenant" \
+      -d "$body" \
+      "${zoend_base}${path}"
+    return
   fi
   curl -sS -o "$out" -w '%{http_code}' \
     -H "Authorization: Bearer ${token}" \
     -H 'content-type: application/json' \
     -H 'connect-protocol-version: 1' \
-    "${extra[@]}" \
     -d "$body" \
     "${zoend_base}${path}"
 }
@@ -134,12 +149,70 @@ print(raw.replace("\n", " ")[:400])
 PY
 }
 
+port_is_open() {
+  python3 - "$1" <<'PY'
+import socket, sys
+try:
+    connection = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=0.2)
+    connection.close()
+except OSError:
+    raise SystemExit(1)
+PY
+}
+
+wait_session_context() {
+  local session_id="$1" membership_id="$2" tenant_id="$3"
+  local events="${conv}/.eve/.workflow-data/events"
+  for _ in $(seq 1 80); do
+    if python3 - "$events" "$session_id" "$membership_id" "$tenant_id" <<'PY'
+import base64, glob, json, os, sys
+events, session_id, membership_id, tenant_id = sys.argv[1:]
+for path in glob.glob(os.path.join(events, f"{session_id}-*.json")):
+    with open(path, encoding="utf-8") as handle:
+        event = json.load(handle)
+    if event.get("eventType") != "run_created":
+        continue
+    encoded = (((event.get("eventData") or {}).get("input") or {}).get("data"))
+    if not isinstance(encoded, str):
+        continue
+    serialized = base64.b64decode(encoded)
+    expected = (membership_id.encode(), tenant_id.encode(), b"better-auth")
+    if all(value in serialized for value in expected):
+        print(path)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+    then
+      return
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
 mkdir -p "$(dirname "$proof")"
 {
   printf '# s3-workbench proof\n\n'
   printf 'Source: `apps/conversation/scripts/prove-s3-workbench.sh`\n'
   printf 'Worktree: `%s`\n\n' "$repo"
 } > "$draft"
+
+missing_zoend_log="${work}/missing-zoend.log"
+set +e
+env -u ZOEN_ZOEND \
+  ZOEN_AUTH_BASE_URL="$base" \
+  ZOEN_MODEL="openai-compatible/hy3-free" \
+  sh "$repo/deploy/fly/zoen-start-eve" >"$missing_zoend_log" 2>&1
+missing_zoend_exit="$?"
+set -e
+missing_zoend_excerpt="$(tr '\n' ' ' < "$missing_zoend_log" | head -c 200)"
+record "Eve startup requires canonical ZOEN_ZOEND" \
+  "env -u ZOEN_ZOEND deploy/fly/zoen-start-eve" \
+  "n/a" "$missing_zoend_exit" "$missing_zoend_excerpt"
+if [[ "$missing_zoend_exit" -ne 1 ]] \
+  || ! grep -qx 'eve: ZOEN_ZOEND is required' "$missing_zoend_log"; then
+  fail "zoen-start-eve did not reject missing ZOEN_ZOEND"
+fi
 
 node "$conv/scripts/check-isolate-no-commit.mjs" || fail "isolate cannot commit lock"
 record "isolate cannot commit import-graph lock" \
@@ -172,10 +245,24 @@ if [[ -f .auth.pid ]]; then
   recorded="$(tr -d ' \n' < .auth.pid || true)"
   if [[ "$recorded" =~ ^[0-9]+$ ]] && kill -0 "$recorded" 2>/dev/null; then
     kill_tree "$recorded"
+    for _ in $(seq 1 50); do
+      if ! kill -0 "$recorded" 2>/dev/null; then
+        break
+      fi
+      sleep 0.1
+    done
   fi
   rm -f .auth.pid
 fi
-fuser -k 58704/tcp >/dev/null 2>&1 || true
+auth_port_clear=0
+for _ in $(seq 1 50); do
+  if ! curl -sf --connect-timeout 1 "$ok_url" >/dev/null 2>&1; then
+    auth_port_clear=1
+    break
+  fi
+  sleep 0.1
+done
+[[ "$auth_port_clear" -eq 1 ]] || fail "auth door port did not become available"
 npx tsx src/server.ts >.auth.log 2>&1 &
 printf '%s\n' "$!" > .auth.pid
 auth_started=1
@@ -233,7 +320,9 @@ when {
 open(path, "w", encoding="utf-8").write(json.dumps(manifest))
 PY
 
-fuser -k 58705/tcp >/dev/null 2>&1 || true
+if port_is_open "$zoend_port"; then
+  fail "zoend proof port ${zoend_port} is already occupied"
+fi
 docker rm -f "$zoend_pg_name" >/dev/null 2>&1 || true
 if ! docker run -d --name "$zoend_pg_name" \
   -e POSTGRES_DB=zoen \
@@ -246,6 +335,7 @@ fi
 pg_ready=0
 for _ in $(seq 1 120); do
   if docker exec "$zoend_pg_name" pg_isready -U postgres -d zoen >/dev/null 2>&1 \
+    && docker exec "$zoend_pg_name" psql -U postgres -d zoen -tAc 'SELECT 1' >/dev/null 2>&1 \
     && python3 - <<'PY'
 import socket, sys
 try:
@@ -261,9 +351,6 @@ PY
   sleep 0.5
 done
 [[ "$pg_ready" -eq 1 ]] || fail "zoend postgres not ready"
-sleep 1
-docker exec "$zoend_pg_name" psql -U postgres -d zoen -c 'SELECT 1' >/dev/null \
-  || fail "zoend postgres select 1 failed"
 
 zoend_bin="${repo}/target/debug/zoen"
 if [[ ! -x "$zoend_bin" ]]; then
@@ -277,29 +364,45 @@ fi
 [[ -x "$zoend_bin" ]] || fail "zoend binary missing"
 
 zoend_log="${work}/zoend.log"
-(
-  cd "$repo"
-  # shellcheck disable=SC1091
-  . "$HOME/.cargo/env"
-  export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55405/zoen'
-  export ZOEN_AUTH_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55404/zoen_auth'
-  export ZOEN_LISTEN_ADDR='127.0.0.1:58705'
-  export ZOEN_CEDAR_POLICY_MANIFEST="$policies"
-  export ZOEN_IDENTITY_ADMIN_TOKEN="$admin_token"
-  unset ZOEN_OIDC_ISSUER ZOEN_OIDC_AUDIENCE ZOEN_OIDC_DISCOVERY_URL || true
-  exec "$zoend_bin" serve
-) >"$zoend_log" 2>&1 &
-zoend_pid="$!"
-zoend_ready=0
-for _ in $(seq 1 120); do
-  if curl -sf --connect-timeout 1 "${zoend_base}/ready" >/dev/null 2>&1 \
-    || curl -sf --connect-timeout 1 "${zoend_base}/health" >/dev/null 2>&1; then
-    zoend_ready=1
-    break
+: >"$zoend_log"
+
+start_zoend() {
+  (
+    cd "$repo"
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+    export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55405/zoen'
+    export ZOEN_AUTH_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55404/zoen_auth'
+    export ZOEN_LISTEN_ADDR="127.0.0.1:${zoend_port}"
+    export ZOEN_CEDAR_POLICY_MANIFEST="$policies"
+    export ZOEN_IDENTITY_ADMIN_TOKEN="$admin_token"
+    unset ZOEN_OIDC_ISSUER ZOEN_OIDC_AUDIENCE ZOEN_OIDC_DISCOVERY_URL || true
+    exec "$zoend_bin" serve
+  ) >>"$zoend_log" 2>&1 &
+  zoend_pid="$!"
+  zoend_ready=0
+  for _ in $(seq 1 120); do
+    if curl -sf --connect-timeout 1 "${zoend_base}/ready" >/dev/null 2>&1; then
+      zoend_ready=1
+      break
+    fi
+    if ! kill -0 "$zoend_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.25
+  done
+  [[ "$zoend_ready" -eq 1 ]] || fail "zoend /ready did not answer"
+}
+
+stop_zoend() {
+  kill -INT "$zoend_pid" 2>/dev/null || true
+  if ! wait "$zoend_pid"; then
+    fail "zoend did not stop cleanly"
   fi
-  sleep 0.25
-done
-[[ "$zoend_ready" -eq 1 ]] || fail "zoend /ready did not answer"
+  zoend_pid=""
+}
+
+start_zoend
 
 owner_email="s3-owner-$(date +%s)@example.invalid"
 signup_json="$(python3 -c 'import json,sys; print(json.dumps({"email":sys.argv[1],"password":"Prove-s3-work-1","name":"s3 owner"}))' "$owner_email")"
@@ -493,7 +596,10 @@ drive_exit="$?"
 set -e
 cat "$drive_log" >> "$draft"
 record "membership workbench drive" "npx tsx scripts/prove-s3-workbench-drive.ts" "n/a" "$drive_exit" "$(tr '\n' ' ' < "$drive_log" | head -c 400)"
-[[ "$drive_exit" -eq 0 ]] || fail "workbench drive failed"
+if [[ "$drive_exit" -ne 0 ]]; then
+  cat "$drive_log" >&2
+  fail "workbench drive failed"
+fi
 
 propose="$(python3 -c 'import json,sys
 print(json.dumps({
@@ -553,7 +659,9 @@ eve_node="$(command -v node)"
 if [[ -x /tmp/node24/node-v24.20.0-linux-x64/bin/node ]]; then
   eve_node="/tmp/node24/node-v24.20.0-linux-x64/bin/node"
 fi
-fuser -k 58706/tcp >/dev/null 2>&1 || true
+if port_is_open 3000; then
+  fail "Eve proxy port 3000 is already occupied"
+fi
 build_log="${work}/eve-build.log"
 (
   cd "$conv"
@@ -567,13 +675,18 @@ build_log="${work}/eve-build.log"
 record "eve build workbench" "eve build" "apps/conversation" "pass" "$(tr '\n' ' ' < "$build_log" | head -c 400)"
 
 eve_log="${work}/eve.log"
+eve_disks_root="${work}/eve-disks"
 (
   cd "$conv"
   export PATH="$(dirname "$eve_node"):${PATH}"
   export ZOEN_MODEL="${ZOEN_MODEL:-openai-compatible/hy3-free}"
-  export ZOEN_AUTH_BASE_URL="$base"
-  export ZOEN_ZOEND_BASE_URL="$zoend_base"
-  exec "$eve_node" ./node_modules/eve/bin/eve.js start --host 127.0.0.1 --port 58706
+  unset OPENAI_API_KEY OPENAI_BASE_URL
+  export ZOEN_AUTH_BASE_URL="${base}///"
+  export ZOEN_ZOEND="${zoend_base}///"
+  export ZOEN_MEMBERSHIP_DISK_ROOT="$eve_disks_root"
+  export KAPSO_API_KEY="$kapso_api_key"
+  export KAPSO_WEBHOOK_SECRET="$kapso_webhook_secret"
+  exec "$eve_node" ./node_modules/eve/bin/eve.js start --host 127.0.0.1 --port 3000
 ) >"$eve_log" 2>&1 &
 eve_pid="$!"
 eve_ok=0
@@ -589,27 +702,171 @@ for _ in $(seq 1 120); do
 done
 eve_excerpt="$(tr '\n' ' ' < "$eve_log" | head -c 400)"
 if grep -qE "requires Node.js|failed to initialize sandbox template|Cannot find package" "$eve_log"; then
-  record "eve start workbench backend" "eve start --port 58706" "http://127.0.0.1:58706/eve/v1/health" "fail" "$eve_excerpt"
+  record "eve start workbench backend" "eve start --port 3000" "${zoend_base}/eve/v1/health" "fail" "$eve_excerpt"
   fail "eve start sandbox failed"
 fi
 if [[ "$eve_ok" -ne 1 ]]; then
-  record "eve start workbench backend" "eve start --port 58706" "http://127.0.0.1:58706/eve/v1/health" "fail" "$eve_excerpt"
+  record "eve start workbench backend" "eve start --port 3000" "${zoend_base}/eve/v1/health" "fail" "$eve_excerpt"
   fail "eve start did not initialize sandbox"
 fi
 health_code="000"
 for _ in $(seq 1 40); do
-  health_code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 1 --max-time 2 http://127.0.0.1:58706/eve/v1/health || true)"
+  health_code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 1 --max-time 2 "${zoend_base}/eve/v1/health" || true)"
   if [[ "$health_code" == "200" ]]; then
     break
   fi
   sleep 0.25
 done
-record "eve start workbench backend" "eve start --port 58706" "http://127.0.0.1:58706/eve/v1/health" "$health_code" "$eve_excerpt"
+record "public zoend reaches Eve health" "curl ${zoend_base}/eve/v1/health" "${zoend_base}/eve/v1/health" "$health_code" "$eve_excerpt"
 [[ "$health_code" == "200" ]] || fail "eve health ${health_code}"
+
+body="${work}/eve-session-without-tenant"
+missing_tenant_code="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -b "$owner_jar" \
+    -H 'content-type: application/json' \
+    -d '{"message":"Open an unscoped workbench."}' \
+    "${zoend_base}/eve/v1/session"
+)"
+record "Better Auth cannot open an unscoped Eve session" \
+  "POST ${zoend_base}/eve/v1/session with Better Auth cookie and no x-zoen-tenant" \
+  "${zoend_base}/eve/v1/session" "$missing_tenant_code" \
+  "missing Membership context rejected body=$(excerpt_file "$body")"
+[[ "$missing_tenant_code" == "401" ]] \
+  || fail "Eve accepted a Better Auth session without a tenant (${missing_tenant_code})"
+
+body="${work}/eve-session"
+session_body="$body"
+session_code="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -b "$owner_jar" \
+    -H 'content-type: application/json' \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    -d '{"message":"Open my membership workbench."}' \
+    "${zoend_base}/eve/v1/session"
+)"
+[[ "$session_code" == "202" ]] || fail "eve session ${session_code}"
+session_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["sessionId"])' "$session_body")"
+
+body="${work}/cross-membership-continuation"
+cross_continuation_code="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -b "$reception_jar" \
+    -H 'content-type: application/json' \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    -d '{"message":"Continue another Membership session."}' \
+    "${zoend_base}/eve/v1/session/${session_id}"
+)"
+record "another Membership cannot continue an Eve session" \
+  "POST ${zoend_base}/eve/v1/session/${session_id} as membership B" \
+  "${zoend_base}/eve/v1/session/${session_id}" "$cross_continuation_code" \
+  "owner=${owner_membership} caller=${reception_membership} body=$(excerpt_file "$body")"
+[[ "$cross_continuation_code" == "403" ]] \
+  || fail "Membership B continued Membership A session (${cross_continuation_code})"
+
+body="${work}/cross-membership-stream"
+set +e
+cross_stream_code="$(
+  curl -sS --max-time 2 -o "$body" -w '%{http_code}' \
+    -b "$reception_jar" \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    "${zoend_base}/eve/v1/session/${session_id}/stream"
+)"
+cross_stream_exit="$?"
+set -e
+record "another Membership cannot stream an Eve session" \
+  "GET ${zoend_base}/eve/v1/session/${session_id}/stream as membership B" \
+  "${zoend_base}/eve/v1/session/${session_id}/stream" "$cross_stream_code" \
+  "curl_exit=${cross_stream_exit} owner=${owner_membership} caller=${reception_membership} body=$(excerpt_file "$body")"
+[[ "$cross_stream_code" == "403" ]] \
+  || fail "Membership B streamed Membership A session (${cross_stream_code})"
+
+body="${work}/owner-stream"
+set +e
+owner_stream_code="$(
+  curl -sS --max-time 2 -o "$body" -w '%{http_code}' \
+    -b "$owner_jar" \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    "${zoend_base}/eve/v1/session/${session_id}/stream"
+)"
+owner_stream_exit="$?"
+set -e
+record "owning Membership can stream its Eve session" \
+  "GET ${zoend_base}/eve/v1/session/${session_id}/stream as membership A" \
+  "${zoend_base}/eve/v1/session/${session_id}/stream" "$owner_stream_code" \
+  "curl_exit=${owner_stream_exit} owner=${owner_membership} body=$(excerpt_file "$body")"
+[[ "$owner_stream_code" == "200" ]] \
+  || fail "Membership A could not stream its Eve session (${owner_stream_code})"
+grep -q 'Open my membership workbench.' "$body" \
+  || fail "Membership A stream omitted its original message"
+
+session_context_file="$(wait_session_context "$session_id" "$owner_membership" "$tenant_id")" \
+  || fail "Eve durable session omitted the resolved Membership context"
+record "Better Auth resolves Membership through canonical ZOEN_ZOEND" \
+  "POST ${zoend_base}/eve/v1/session with Better Auth cookie and x-zoen-tenant" \
+  "${zoend_base}/eve/v1/session" "$session_code" \
+  "membership=${owner_membership} context=$(basename "$session_context_file") workbench=live-driver-same-membership body=$(excerpt_file "$session_body")"
+
+stop_zoend
+body="${work}/eve-session-without-zoend"
+unavailable_session_code="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -b "$owner_jar" \
+    -H 'content-type: application/json' \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    -d '{"message":"Resolve my membership while Ontology is unavailable."}' \
+    "http://127.0.0.1:3000/eve/v1/session"
+)"
+record "Eve fails closed while zoend is unavailable" \
+  "POST direct Eve session while canonical ZOEN_ZOEND is down" \
+  "http://127.0.0.1:3000/eve/v1/session" "$unavailable_session_code" \
+  "membership resolution rejected body=$(excerpt_file "$body")"
+[[ "$unavailable_session_code" == "401" ]] \
+  || fail "Eve did not reject unresolved Membership while zoend was down"
+
+start_zoend
+recovered_ready_code="$(curl -sS -o /dev/null -w '%{http_code}' "${zoend_base}/ready")"
+record "zoend recovers while Eve stays live" \
+  "restart zoend; GET ${zoend_base}/ready" \
+  "${zoend_base}/ready" "$recovered_ready_code" "authority integrity ready"
+[[ "$recovered_ready_code" == "200" ]] || fail "recovered zoend not ready"
+
+body="${work}/eve-session-after-zoend-restart"
+recovered_session_code="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -b "$reception_jar" \
+    -H 'content-type: application/json' \
+    -H "x-zoen-tenant: ${tenant_id}" \
+    -d '{"message":"Open my membership workbench after recovery."}' \
+    "${zoend_base}/eve/v1/session"
+)"
+[[ "$recovered_session_code" == "202" ]] \
+  || fail "recovered Eve session ${recovered_session_code}"
+recovered_session_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["sessionId"])' "$body")"
+recovered_context_file="$(wait_session_context "$recovered_session_id" "$reception_membership" "$tenant_id")" \
+  || fail "recovered Eve session omitted the resolved Membership context"
+record "Eve resolves another Membership after zoend recovery" \
+  "POST ${zoend_base}/eve/v1/session after zoend restart" \
+  "${zoend_base}/eve/v1/session" "$recovered_session_code" \
+  "membership=${reception_membership} context=$(basename "$recovered_context_file") workbench=live-driver-same-membership body=$(excerpt_file "$body")"
+
+body="${work}/unsigned-kapso"
+kapso_code="$(
+  curl -sS -o "$body" -w '%{http_code}' \
+    -X POST \
+    -H 'content-type: application/json' \
+    -H 'x-webhook-event: whatsapp.message.received' \
+    --data-binary '{}' \
+    "${zoend_base}/eve/v1/kapso"
+)"
+record "public zoend reaches Eve-owned Kapso rejection" \
+  "POST unsigned ${zoend_base}/eve/v1/kapso" \
+  "${zoend_base}/eve/v1/kapso" "$kapso_code" "$(excerpt_file "$body")"
+[[ "$kapso_code" == "401" ]] || fail "unsigned Kapso ${kapso_code}"
 
 {
   printf '## Verdict\n\n'
-  printf 'pass. Membership A sandbox runs real zoen under isolate, read verb, isolate commit deny, zoend Cedar still decides, isolate network deny, membership B cannot read A VFS.\n'
+  printf 'pass. Eve authenticates through Better Auth, requires a resolved Membership, and enforces durable per-session ownership for continuation and streaming. Membership resolution uses canonical ZOEN_ZOEND, fails closed while zoend is unavailable, and recovers without restarting Eve. Health and unsigned Kapso reach Eve only through the public zoend proxy. The membership sandbox runs real zoen under isolate, Cedar still decides, the isolate cannot commit or use the network, and membership B cannot read membership A files.\n'
 } >> "$draft"
 cp "$draft" "$proof"
 printf 'wrote %s\n' "$proof"

@@ -50,16 +50,6 @@ rebuildable:
     - projection_watermarks
     - company_fragments
     - company_retrieval_traces
-    - interaction_records
-    - conversation_pending
-    - conversation_turns
-    - turn_attempts
-    - conversation_arms
-    - delivery_intents
-    - delivery_observations
-    - delivery_send_claims
-    - reply_ledger
-    - ingress_replay
   orchestration:
     - restate
   objectStorage:

@@ -3,12 +3,13 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use sha2::{Digest, Sha256};
 use zoen_adapters::PostgresIdentityStore;
 use zoen_core::{
     ChannelProvider, ExternalSubject, IdentityError, VerifiedSessionEvidence, ZoenAccountId,
 };
 
-use crate::{ingress_hmac::constant_time_eq, session::SessionExchange};
+use crate::session::SessionExchange;
 
 #[derive(Clone, Debug)]
 pub enum IdentityAdminActor {
@@ -39,6 +40,16 @@ fn machine_token_matches(admin_token: Option<&str>, authorization: Option<&str>)
         return false;
     };
     constant_time_eq(expected.as_bytes(), provided.as_bytes())
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    let left_hash = Sha256::digest(left);
+    let right_hash = Sha256::digest(right);
+    let mut diff = 0u8;
+    for (a, b) in left_hash.iter().zip(right_hash.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0 && left.len() == right.len()
 }
 
 pub fn require_machine(actor: &IdentityAdminActor) -> Option<Response> {

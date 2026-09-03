@@ -1,10 +1,12 @@
-import { type AuthFn, localDev, withAuthChallenges } from "eve/channels/auth";
+import { type AuthFn, withAuthChallenges } from "eve/channels/auth";
 import { eveChannel } from "eve/channels/eve";
+import type { SessionAuthContext } from "eve/context";
 
 import {
   hostCredentialFromRaw,
   putHostCredential,
 } from "../sandbox/credentials";
+import { type SessionOwner, withSessionOwnership } from "../session-ownership";
 
 const TRAILING_SLASHES = /\/+$/u;
 
@@ -50,8 +52,9 @@ function trimmedEnv(name: string): string | undefined {
   return nonEmptyString(value);
 }
 
-function stripTrailingSlashes(url: string): string {
-  return url.replace(TRAILING_SLASHES, "");
+function normalizedEnvUrl(name: string): string | undefined {
+  const value = trimmedEnv(name)?.replace(TRAILING_SLASHES, "");
+  return value === undefined ? undefined : nonEmptyString(value);
 }
 
 function sessionHeaders(request: Request): Headers | null {
@@ -106,23 +109,55 @@ function workbenchCredentialInput(input: {
   });
 }
 
-async function attachMembership(
-  request: Request,
-  attributes: Record<string, string>
-): Promise<void> {
+interface AuthenticatedMembership {
+  readonly auth: SessionAuthContext;
+  readonly owner: SessionOwner;
+}
+
+const AUTHENTICATED_MEMBERSHIPS = new WeakMap<
+  Request,
+  Promise<AuthenticatedMembership | undefined>
+>();
+
+async function authenticateMembership(
+  request: Request
+): Promise<AuthenticatedMembership | undefined> {
+  const base = normalizedEnvUrl("ZOEN_AUTH_BASE_URL");
+  if (base === undefined) {
+    return undefined;
+  }
+  const headers = sessionHeaders(request);
+  if (headers === null) {
+    return undefined;
+  }
+  const body = await fetchJson(`${base}/api/auth/get-session`, {
+    headers,
+    method: "GET",
+  });
+  const user = sessionUser(body);
+  const principalId = userId(user);
+  if (principalId === undefined) {
+    return undefined;
+  }
   const doorToken = opaqueDoorToken(request);
-  const tenantHint = request.headers.get("x-zoen-tenant")?.trim();
-  const zoend = trimmedEnv("ZOEN_ZOEND_BASE_URL");
-  if (
-    doorToken === undefined ||
-    tenantHint === undefined ||
-    zoend === undefined
-  ) {
-    return;
+  const tenantHint = nonEmptyString(
+    request.headers.get("x-zoen-tenant")?.trim()
+  );
+  if (doorToken === undefined || tenantHint === undefined) {
+    return undefined;
+  }
+  const zoend = normalizedEnvUrl("ZOEN_ZOEND");
+  if (zoend === undefined) {
+    return undefined;
   }
   const resolved = await resolveMembership(zoend, doorToken, tenantHint);
   if (resolved === undefined) {
-    return;
+    return undefined;
+  }
+  const attributes: Record<string, string> = {};
+  const email = userEmail(user);
+  if (email !== undefined) {
+    attributes.email = email;
   }
   attributes.membershipId = resolved.membershipId;
   attributes.tenantId = resolved.tenantId;
@@ -133,43 +168,38 @@ async function attachMembership(
       tenantId: resolved.tenantId,
     })
   );
+  return {
+    auth: {
+      attributes,
+      authenticator: "better-auth",
+      principalId,
+      principalType: "user",
+    },
+    owner: {
+      membershipId: resolved.membershipId,
+      principalId,
+      tenantId: resolved.tenantId,
+    },
+  };
+}
+
+function authenticatedMembership(
+  request: Request
+): Promise<AuthenticatedMembership | undefined> {
+  const cached = AUTHENTICATED_MEMBERSHIPS.get(request);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const authentication = authenticateMembership(request);
+  AUTHENTICATED_MEMBERSHIPS.set(request, authentication);
+  return authentication;
 }
 
 function betterAuthSession(): AuthFn<Request> {
   return withAuthChallenges(
     async (request) => {
-      const base = trimmedEnv("ZOEN_AUTH_BASE_URL");
-      if (base === undefined) {
-        return null;
-      }
-      const headers = sessionHeaders(request);
-      if (headers === null) {
-        return null;
-      }
-      const body = await fetchJson(
-        `${stripTrailingSlashes(base)}/api/auth/get-session`,
-        {
-          headers,
-          method: "GET",
-        }
-      );
-      const user = sessionUser(body);
-      const principalId = userId(user);
-      if (principalId === undefined) {
-        return null;
-      }
-      const attributes: Record<string, string> = {};
-      const email = userEmail(user);
-      if (email !== undefined) {
-        attributes.email = email;
-      }
-      await attachMembership(request, attributes);
-      return {
-        attributes,
-        authenticator: "better-auth",
-        principalId,
-        principalType: "user",
-      };
+      const membership = await authenticatedMembership(request);
+      return membership?.auth;
     },
     [{ scheme: "Bearer" }]
   );
@@ -204,7 +234,7 @@ async function resolveMembership(
   doorToken: string,
   tenantId: string
 ): Promise<{ membershipId: string; tenantId: string } | undefined> {
-  const url = `${stripTrailingSlashes(zoendBaseUrl)}/identity/admin/resolve-context?tenant=${encodeURIComponent(tenantId)}`;
+  const url = `${zoendBaseUrl}/identity/admin/resolve-context?tenant=${encodeURIComponent(tenantId)}`;
   const body = await fetchJson(url, {
     headers: { authorization: `Bearer ${doorToken}` },
   });
@@ -221,6 +251,9 @@ async function resolveMembership(
   };
 }
 
-export default eveChannel({
-  auth: [localDev(), betterAuthSession()],
+const channel = eveChannel({ auth: betterAuthSession() });
+
+export default withSessionOwnership(channel, async (request) => {
+  const membership = await authenticatedMembership(request);
+  return membership?.owner;
 });

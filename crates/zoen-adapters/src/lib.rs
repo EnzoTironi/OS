@@ -23,7 +23,6 @@ mod evidence_store;
 mod external_signal_store;
 mod history_store;
 mod identity_store;
-mod ingress_replay_store;
 mod integrity;
 mod migration_store;
 mod pack_registry_store;
@@ -54,7 +53,6 @@ pub use identity_store::{
     AccountSnapshot, CompleteOnboard, CreateInvite, MintedOnboardToken, OnboardTokenRow,
     PostgresIdentityStore, WorldInvite, dest_invitee_delegation,
 };
-pub use ingress_replay_store::{PostgresIngressReplayStore, ZOEND_INGRESS_REPLAY_NAMESPACE};
 pub use integrity::IntegrityError;
 pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
 pub use pack_store::{PostgresPackStore, admit_pack};

@@ -21,7 +21,6 @@
       "includes": [
         "apps/conversation/agent/tools/read_file.ts",
         "apps/conversation/agent/tools/share_this.ts",
-        "apps/conversation/agent/tools/who_can.ts",
         "apps/conversation/agent/tools/write_file.ts"
       ],
       "linter": {

@@ -41,13 +41,15 @@ const definitionId = process.env.S3_DEFINITION_ID?.trim() || "world.s2read";
 const definitionDigest = required("S3_DEFINITION_DIGEST");
 const validAt = required("S3_VALID_AT");
 const tenantId = required("S3_TENANT");
+const membershipA = required("S3_MEMBERSHIP_A");
+const membershipB = required("S3_MEMBERSHIP_B");
 
 const sandboxA = await openBoundSandbox({
   definitionDigest,
   definitionId,
   disksRoot,
   doorToken: required("S3_TOKEN_A"),
-  membershipId: required("S3_MEMBERSHIP_A"),
+  membershipId: membershipA,
   tenantId,
   validAt,
   zoendBaseUrl,
@@ -58,13 +60,22 @@ const sandboxB = await openBoundSandbox({
   definitionId,
   disksRoot,
   doorToken: required("S3_TOKEN_B"),
-  membershipId: required("S3_MEMBERSHIP_B"),
+  membershipId: membershipB,
   tenantId,
   validAt,
   zoendBaseUrl,
 });
 
 try {
+  if (sandboxA.membershipId !== membershipA) {
+    throw new Error("workbench A opened under the wrong Membership");
+  }
+  if (sandboxB.membershipId !== membershipB) {
+    throw new Error("workbench B opened under the wrong Membership");
+  }
+  printSection("0. exact Membership workbenches", "openBoundSandbox", {
+    extra: `membership A: ${membershipA}\nmembership B: ${membershipB}`,
+  });
   await sandboxA.writeTextFile("secret-a.txt", "membership-a-only\n");
   const planted = await sandboxA.run("ls /workspace/bin/zoen");
   printSection(
@@ -84,14 +95,12 @@ try {
     throw new Error("world query failed");
   }
 
-  const commit = await sandboxA.run(
-    "zoen action commit --proposal-id proposal.stamp-low"
-  );
-  printSection(
-    "2. isolate commit",
-    "zoen action commit --proposal-id proposal.stamp-low",
-    commit
-  );
+  const commitCommand =
+    "zoen action commit --proposal-id proposal.stamp-low " +
+    "--operation-id operation.stamp-low " +
+    "--preview-hash 0000000000000000000000000000000000000000000000000000000000000000";
+  const commit = await sandboxA.run(commitCommand);
+  printSection("2. isolate commit", commitCommand, commit);
   if (!commit.stderr.includes("isolate cannot commit")) {
     throw new Error("isolate commit did not deny");
   }
