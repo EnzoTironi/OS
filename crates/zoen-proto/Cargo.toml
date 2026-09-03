@@ -13,7 +13,7 @@ publish = false
 unsafe_code = "forbid"
 
 [dependencies]
-buffa = { version = "0.8.1", features = ["json"] }
+buffa = { version = "0.9.1", features = ["json"] }
 buffa-types = { version = "0.8.1", features = ["json"] }
 connectrpc = { version = "0.8.1", features = ["axum", "server"] }
 serde = { version = "1.0.229", features = ["derive"] }

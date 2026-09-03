@@ -31,7 +31,7 @@ path = "src/bin/zoen-projection.rs"
 [dependencies]
 axum = "0.8.9"
 base64 = "0.23.1"
-buffa = { version = "0.8.1", features = ["json"] }
+buffa = { version = "0.9.1", features = ["json"] }
 buffa-types = { version = "0.8.1", features = ["json"] }
 clap = { version = "4.5.45", features = ["derive"] }
 connectrpc = { version = "0.8.1", features = ["axum", "server"] }
