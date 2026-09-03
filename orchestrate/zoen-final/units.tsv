@@ -8,7 +8,7 @@ W1-01	Govern definition Publish with Cedar and persisted policy evidence	world-a
 W1-02	Package and supervise projection with a least-privilege database role	runtime-truth	1	M	done	W1-01	J8		codex/w1-02-supervised-projection	609	5bff33bfe9d8c1f623867eeff61b277b19c127f6
 W1-03	Package and register a production ZoenEffect handler	runtime-truth	1	L	active	W1-01	J6,J8		codex/w1-03-production-effect-handler	617	eb1444fb85f913a61b8569e116466dd4f96f8900
 W1-04	Use Eve's internal Ontology URL and delete legacy conversation paths	runtime-truth	1	M	active	W1-01,W1-03	J5,J8		codex/w1-04-eve-runtime-boundary	618	aa07dce89325c25b2c0fd35129f1ee8628e8ff29
-W1-05	Record two Telegram identities through the existing browser without copying secrets	integration	1	S	proof_pending	W1-01	J5		codex/w1-05-telegram-identities	621	c3e819c15e6aa4109a86a18d1b8e0915c208ceb9
+W1-05	Record two Telegram identities through the existing browser without copying secrets	integration	1	S	done	W1-01	J5		codex/w1-05-telegram-identities	621	c3e819c15e6aa4109a86a18d1b8e0915c208ceb9
 W1-06	Make readiness cover policy, release, projection, ZoenEffect, Eve, Auth, and storage	runtime-truth	1	L	queued	W1-02,W1-03,W1-04	J8				
 W1-07	Build and run the one-Fly image in CI and restore all live scenarios	integration	1	L	queued	W1-02,W1-03,W1-04,W1-06	J1,J8				
 W2-01	Define private WorldRelease content types and derive ReleaseDigest with domain-tagged RFC 8785 JCS	world-authority	2	M	active	W0-05,W1-01,W1-03,W1-04	J1		codex/w2-01-world-release-contract		f00efc7f245db80ff0d0d9051986d4d61e0e20e8

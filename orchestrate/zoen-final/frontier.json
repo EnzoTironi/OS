@@ -68,8 +68,8 @@
       "head": "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9",
       "merge": "edc5d1d172f12299a0920aabbcaca8c78c5d525b",
       "mergedAt": "2026-09-03T04:33:27Z",
-      "verification": "proof_pending",
-      "fact": "Implementation merged; the two-account Telegram ceremony has not been performed."
+      "verification": "live-ui-verified",
+      "fact": "Two authenticated Telegram sessions completed the live ingress, origin-bound reply, isolation, and idempotence ceremony with zero Memberships."
     },
     {
       "number": 619,
