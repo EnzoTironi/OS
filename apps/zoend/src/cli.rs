@@ -1215,14 +1215,16 @@ fn map_connect(status: &ConnectStatus) -> (FailCode, String) {
         .get("message")
         .or_else(|| status.json.get("error_description"))
         .and_then(Value::as_str)
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            if status.json.is_object() {
-                format!("request failed with HTTP {}", status.status)
-            } else {
-                status.text.clone()
-            }
-        });
+        .map_or_else(
+            || {
+                if status.json.is_object() {
+                    format!("request failed with HTTP {}", status.status)
+                } else {
+                    status.text.clone()
+                }
+            },
+            str::to_owned,
+        );
     if let Some(code) = body_code.and_then(FailCode::parse) {
         return (code, body_message);
     }
