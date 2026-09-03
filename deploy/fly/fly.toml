@@ -3,6 +3,8 @@
 
 app = "zoen"
 primary_region = "gru"
+kill_signal = "SIGTERM"
+kill_timeout = 45
 
 [build]
   dockerfile = "deploy/fly/Dockerfile"
@@ -55,7 +57,7 @@ primary_region = "gru"
   ZOEN_PROJECTION_INTERVAL_MS = "5000"
   RESTATE_ADMIN_URL = "http://127.0.0.1:9070"
   ZOEN_EFFECT_CONNECTOR_URL = "http://127.0.0.1:8081/v1/effects"
-  ZOEN_EFFECT_CONNECTOR_HEALTH_URL = "http://127.0.0.1:8081/health"
+  ZOEN_EFFECT_CONNECTOR_PROBE_URL = "http://127.0.0.1:8081/v1/effects/probe"
   ZOEN_CONNECTOR_CREDENTIAL_REFS = '{"tenant.a":"secret.provider.a"}'
   ZOEN_EFFECT_HANDLER_PORT = "9081"
   ZOEN_EFFECT_HANDLER_HEALTH_URL = "http://127.0.0.1:9081/health"

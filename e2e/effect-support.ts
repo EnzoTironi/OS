@@ -540,6 +540,10 @@ export async function startWorker(
 
 export async function startEffectRegistrar(
   identity: WorkloadIdentity,
+  options: {
+    callerToken?: string;
+    credentialRefs?: Readonly<Record<string, string>>;
+  } = {},
 ): Promise<ManagedProcess> {
   assert.equal(identity.workloadId, "workload.effect-worker");
   return startProcess({
@@ -556,8 +560,18 @@ export async function startEffectRegistrar(
     environment: {
       NODE_ENV: "test",
       RESTATE_ADMIN_URL: restateAdmin,
-      ZOEN_EFFECT_CONNECTOR_HEALTH_URL: new URL(
-        "/health",
+      ZOEN_CONNECTOR_CALLER_TOKEN:
+        options.callerToken ?? connectorCallerToken,
+      ZOEN_CONNECTOR_CREDENTIAL_REFS: JSON.stringify(
+        options.credentialRefs ?? {
+          [identity.tenantId]:
+            identity.tenantId === tenantA
+              ? "secret.provider.a"
+              : "secret.provider.b",
+        },
+      ),
+      ZOEN_EFFECT_CONNECTOR_PROBE_URL: new URL(
+        "/v1/effects/probe",
         connectorUrl,
       ).toString(),
       ZOEN_EFFECT_HANDLER_HEALTH_URL: `http://127.0.0.1:${workerPort}/health`,
@@ -594,6 +608,25 @@ export async function stopProcess(managed: ManagedProcess): Promise<void> {
       managed.child.signalCode === "SIGKILL",
     `${managed.name} failed during shutdown:\n${managed.output.join("")}`,
   );
+}
+
+export async function terminateProcess(managed: ManagedProcess): Promise<void> {
+  assert.equal(managed.child.exitCode, null);
+  assert.equal(managed.child.signalCode, null);
+  const exited = once(managed.child, "exit");
+  assert.equal(signalManagedProcess(managed, "SIGTERM"), true);
+  await Promise.race([exited, delay(5000)]);
+  if (managed.child.exitCode === null && managed.child.signalCode === null) {
+    signalManagedProcess(managed, "SIGKILL");
+    await exited;
+    assert.fail(`${managed.name} did not drain SIGTERM within 5 seconds`);
+  }
+  assert.equal(
+    managed.child.exitCode,
+    0,
+    `${managed.name} failed during SIGTERM drain:\n${managed.output.join("")}`,
+  );
+  assert.equal(managed.child.signalCode, null);
 }
 
 export async function crashProcess(managed: ManagedProcess): Promise<void> {
@@ -685,6 +718,14 @@ export async function registrarReady(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function registrarStatus(): Promise<unknown> {
+  const response = await fetch(`http://127.0.0.1:${registrarPort}/status`);
+  const body = await response.text();
+  assert.equal(response.ok, true, body);
+  const document: unknown = JSON.parse(body);
+  return document;
 }
 
 export async function lookupInvocation(
@@ -792,8 +833,9 @@ export async function startRestate(): Promise<void> {
   );
 }
 
-export async function restartRestate(): Promise<void> {
-  await compose("restart", "restate");
+export async function recreateRestateContainer(): Promise<void> {
+  await compose("rm", "--stop", "--force", "restate");
+  await compose("up", "--detach", "--wait", "restate");
   await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
   await waitForPort(
     e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),

@@ -56,6 +56,13 @@ struct StatusRequest {
     tenant_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReadinessRequest {
+    credential_ref: String,
+    tenant_id: String,
+}
+
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum ConnectorResponse {
@@ -160,6 +167,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     };
     let protected = Router::new()
         .route("/v1/effects", post(execute))
+        .route("/v1/effects/probe", post(probe_readiness))
         .route("/v1/effects/status", post(query_status))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -174,6 +182,23 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+async fn probe_readiness(
+    State(state): State<ConnectorState>,
+    Json(request): Json<ReadinessRequest>,
+) -> Result<StatusCode, HttpError> {
+    let binding = state
+        .credentials
+        .get(&request.credential_ref)
+        .ok_or_else(|| {
+            (
+                StatusCode::FAILED_DEPENDENCY,
+                "credential reference is unavailable".to_owned(),
+            )
+        })?;
+    require_tenant(binding, &request.tenant_id)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn require_secure_provider_url(provider: &Url) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -431,5 +456,19 @@ fn observed_at_micros() -> String {
 }
 
 async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        () = ctrl_c => {}
+        () = terminate => {}
+    }
 }

@@ -59,10 +59,12 @@ import {
   providerStats,
   registerWorker,
   registrarReady,
+  registrarStatus,
   repositoryRoot,
   requestWorkloadCredential,
   restateAdmin,
   restateIngress,
+  recreateRestateContainer,
   revokeWorkloadCredential,
   setProviderMode,
   startConnector,
@@ -78,6 +80,7 @@ import {
   suspendProcess,
   tenantA,
   tenantB,
+  terminateProcess,
   resumeProcess,
   waitFor,
   waitForCredentialReady,
@@ -101,6 +104,15 @@ const registrationStateSchema = z
     deploymentId: z.string().min(1),
     ready: z.literal(true),
     reason: z.literal("exact registration verified"),
+    updatedAt: z.string().min(1),
+  })
+  .strict();
+const registrationProbeStateSchema = z
+  .object({
+    artifact: z.string().min(1),
+    deploymentId: z.string().min(1).optional(),
+    ready: z.boolean(),
+    reason: z.string().min(1),
     updatedAt: z.string().min(1),
   })
   .strict();
@@ -130,6 +142,8 @@ const deploymentSchema = z
     uri: z.url(),
   })
   .passthrough();
+const buildAArtifact = "effect-runtime-build-a";
+const buildBArtifact = "effect-runtime-build-b";
 
 interface EffectIdentityRow {
   adapter_execution_id: string;
@@ -214,10 +228,34 @@ async function main(): Promise<void> {
     observe("zoendLiveIsComponentLocal", live.status === 200);
 
     processes.push(await startFaultProvider());
-    let connector = await startConnector();
+    let connector = await startConnector({ timeoutMs: 3000 });
     processes.push(connector);
-    await prepareWorkerArtifact();
-    processes.push(await startEffectRegistrar(workerIdentity));
+    await setProviderMode("hold_confirmed");
+    const drainIdempotencyKey = "idempotency.synthetic.sigterm-drain";
+    const drainingRequest = invokeConnector({
+      credentialRef: "secret.provider.a",
+      effectRequestId: "effect.synthetic.sigterm-drain",
+      idempotencyKey: drainIdempotencyKey,
+      tenantId: tenantA,
+    });
+    await waitForProviderOperation(drainIdempotencyKey);
+    const [drainedResponse] = await Promise.all([
+      drainingRequest,
+      terminateProcess(connector),
+    ]);
+    const drainedBody = await drainedResponse.text();
+    observe(
+      "connectorDrainsInflightDeliveryOnSupervisorSigterm",
+      drainedResponse.status === 200 &&
+        drainedBody.includes('"kind":"confirmed"') &&
+        (await providerOperation(drainIdempotencyKey))?.requests === 1,
+    );
+    await setProviderMode("confirmed");
+    connector = await startConnector();
+    processes.push(connector);
+    await prepareWorkerArtifact(buildAArtifact);
+    let registrar = await startEffectRegistrar(workerIdentity);
+    processes.push(registrar);
 
     const credentialsBefore = await credentialCount(admin);
     const unauthorized = await requestWorkloadCredential(
@@ -281,14 +319,52 @@ async function main(): Promise<void> {
     );
     await writeEffectWorkerApiKey(firstWorkerCredential);
     await waitForCredentialReady(workerIdentity, validator);
-    let worker = await startWorker(workerIdentity);
+    let worker = await startWorker(workerIdentity, {
+      artifactRevision: buildAArtifact,
+    });
     processes.push(worker);
-    const registration = await exactRegistration();
+    let registration = await exactRegistration();
     observe(
       "authorizedOperatorIssuesExactWorkerCredential",
       firstWorkerCredential.tenantId === tenantA &&
         firstWorkerCredential.principalId === workerIdentity.principalId &&
         registration.ready,
+    );
+
+    const initialDeploymentId = registration.deploymentId;
+    const readinessProviderStats = await providerStats();
+    await stopProcess(registrar);
+    registrar = await startEffectRegistrar(workerIdentity, {
+      callerToken: "wrong-connector-caller-token",
+    });
+    processes.push(registrar);
+    await waitForRegistrationReason("HTTP 401");
+    await expectRegistrationGateClosed("connector caller token mismatch");
+    await stopProcess(registrar);
+    registrar = await startEffectRegistrar(workerIdentity, {
+      credentialRefs: { [tenantA]: "secret.provider.missing" },
+    });
+    processes.push(registrar);
+    await waitForRegistrationReason("HTTP 424");
+    await expectRegistrationGateClosed("connector credential ref missing");
+    await stopProcess(registrar);
+    registrar = await startEffectRegistrar(workerIdentity, {
+      credentialRefs: { [tenantA]: "secret.provider.b" },
+    });
+    processes.push(registrar);
+    await waitForRegistrationReason("HTTP 403");
+    await expectRegistrationGateClosed("connector credential tenant mismatch");
+    await stopProcess(registrar);
+    registrar = await startEffectRegistrar(workerIdentity);
+    processes.push(registrar);
+    registration = await exactRegistration();
+    const readinessProviderStatsAfter = await providerStats();
+    observe(
+      "connectorReadinessValidatesCallerTenantAndCredentialWithoutDelivery",
+      registration.deploymentId === initialDeploymentId &&
+        readinessProviderStatsAfter.operations ===
+          readinessProviderStats.operations &&
+        readinessProviderStatsAfter.requests === readinessProviderStats.requests,
     );
 
     const crossTenantWorkerCredential = await issueWorkloadCredential(
@@ -478,7 +554,9 @@ async function main(): Promise<void> {
       (await dispatchAttemptCount(admin, retryable.effectRequestId)) === 1 &&
         (await providerOperation(retryable.idempotencyKey)) === undefined,
     );
-    worker = await startWorker(workerIdentity);
+    worker = await startWorker(workerIdentity, {
+      artifactRevision: buildAArtifact,
+    });
     processes.push(worker);
     await exactRegistration();
 
@@ -1463,19 +1541,69 @@ async function main(): Promise<void> {
         (await providerOperation(human.idempotencyKey)) === undefined,
     );
 
+    await stopProcess(registrar);
     await stopProcess(worker);
+    await recreateRestateContainer();
+    const persistedBuildA = await waitForRestateDeployment(
+      registration.deploymentId,
+    );
+    assertDeploymentArtifact(persistedBuildA, buildAArtifact);
     worker = await startWorker(workerIdentity, {
-      artifactRevision: "effect-runtime-incompatible",
+      artifactRevision: buildBArtifact,
     });
     processes.push(worker);
-    await waitFor(
-      async () => (!(await registrarReady()) ? true : undefined),
-      "registration rejection for incompatible handler artifact",
-    );
-    await expectRegistrationGateClosed("incompatible handler artifact");
+    registrar = await startEffectRegistrar(workerIdentity);
+    processes.push(registrar);
+    registration = await exactRegistration();
+    const persistedBuildB = await restateDeployment(registration.deploymentId);
+    assertDeploymentArtifact(persistedBuildB, buildBArtifact);
     observe(
-      "incompatibleHandlerArtifactFailsRegistrationReadiness",
-      (await registrarReady()) === false,
+      "persistedRestateDeploymentUpdatesBuildAToBOnTheSameVolume",
+      registration.deploymentId === initialDeploymentId &&
+        persistedBuildB.id === persistedBuildA.id &&
+        persistedBuildB.uri === persistedBuildA.uri,
+    );
+
+    const incompatibleUri = new URL(persistedBuildB.uri);
+    incompatibleUri.searchParams.set("deployment", "foreign");
+    const uriProviderStats = await providerStats();
+    await overwriteDeploymentMetadata({
+      deploymentId: registration.deploymentId,
+      metadata: persistedBuildB.metadata,
+      uri: incompatibleUri.href,
+    });
+    await waitForRegistrationReason("deployment URI does not match");
+    await expectRegistrationGateClosed("incompatible deployment URI");
+    const uriProviderStatsAfter = await providerStats();
+    observe(
+      "incompatibleDeploymentUriIsNeverForceReclaimed",
+      uriProviderStatsAfter.operations === uriProviderStats.operations &&
+        uriProviderStatsAfter.requests === uriProviderStats.requests,
+    );
+    await overwriteDeploymentMetadata({
+      deploymentId: registration.deploymentId,
+      metadata: persistedBuildB.metadata,
+      uri: persistedBuildB.uri,
+    });
+    registration = await exactRegistration();
+
+    const ownershipProviderStats = await providerStats();
+    await overwriteDeploymentMetadata({
+      deploymentId: registration.deploymentId,
+      metadata: {
+        "zoen.artifact": buildBArtifact,
+        "zoen.owner": "foreign",
+      },
+      uri: persistedBuildB.uri,
+    });
+    await waitForRegistrationReason("deployment owner metadata does not match");
+    await expectRegistrationGateClosed("foreign deployment ownership");
+    const ownershipProviderStatsAfter = await providerStats();
+    observe(
+      "incompatibleDeploymentOwnershipIsNeverForceReclaimed",
+      ownershipProviderStatsAfter.operations ===
+        ownershipProviderStats.operations &&
+        ownershipProviderStatsAfter.requests === ownershipProviderStats.requests,
     );
 
     const postgresVersion = (
@@ -1497,6 +1625,12 @@ async function main(): Promise<void> {
         reconciler: reconcilerCredential.credentialId,
         revokedWorker: firstWorkerCredential.credentialId,
         worker: finalWorkerCredential.credentialId,
+      },
+      deploymentEvolution: {
+        buildAArtifact,
+        buildBArtifact,
+        deploymentId: registration.deploymentId,
+        uri: persistedBuildB.uri,
       },
       finishedAt: new Date().toISOString(),
       invocationIdentity: identity,
@@ -1781,16 +1915,50 @@ async function expectRegistrationGateClosed(reason: string): Promise<void> {
   );
 }
 
+async function waitForRegistrationReason(reason: string): Promise<void> {
+  await waitFor(async () => {
+    const state = registrationProbeStateSchema.parse(await registrarStatus());
+    return !state.ready && state.reason.includes(reason) ? true : undefined;
+  }, `registration blocker ${reason}`);
+}
+
 async function exactRegistration(): Promise<
   z.infer<typeof registrationStateSchema>
 > {
   const status = registrationStateSchema.parse(JSON.parse(await registerWorker()));
+  const deployment = await restateDeployment(status.deploymentId);
+  assertDeploymentArtifact(deployment, status.artifact);
+  return status;
+}
+
+async function restateDeployment(
+  deploymentId: string,
+): Promise<z.infer<typeof deploymentSchema>> {
   const response = await fetch(
-    `${restateAdmin}/deployments/${encodeURIComponent(status.deploymentId)}`,
+    `${restateAdmin}/deployments/${encodeURIComponent(deploymentId)}`,
   );
   const responseBody = await response.text();
   assert.equal(response.ok, true, responseBody);
-  const deployment = deploymentSchema.parse(JSON.parse(responseBody) as unknown);
+  const document: unknown = JSON.parse(responseBody);
+  return deploymentSchema.parse(document);
+}
+
+function waitForRestateDeployment(
+  deploymentId: string,
+): Promise<z.infer<typeof deploymentSchema>> {
+  return waitFor(async () => {
+    try {
+      return await restateDeployment(deploymentId);
+    } catch {
+      return undefined;
+    }
+  }, `persisted Restate deployment ${deploymentId}`);
+}
+
+function assertDeploymentArtifact(
+  deployment: z.infer<typeof deploymentSchema>,
+  artifact: string,
+): void {
   const service = deployment.services[0];
   const handler = service?.handlers[0];
   assert.equal(deployment.services.length, 1);
@@ -1802,9 +1970,34 @@ async function exactRegistration(): Promise<
   assert.equal(handler?.public, true);
   for (const metadata of [deployment.metadata, service?.metadata, handler?.metadata]) {
     assert.equal(metadata?.["zoen.owner"], "ontology");
-    assert.equal(metadata?.["zoen.artifact"], status.artifact);
+    assert.equal(metadata?.["zoen.artifact"], artifact);
   }
-  return status;
+}
+
+async function overwriteDeploymentMetadata(input: {
+  deploymentId: string;
+  metadata: Readonly<Record<string, string>>;
+  uri: string;
+}): Promise<void> {
+  const response = await fetch(`${restateAdmin}/deployments`, {
+    body: JSON.stringify({
+      breaking: false,
+      dry_run: false,
+      force: true,
+      metadata: input.metadata,
+      uri: input.uri,
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const responseBody = await response.text();
+  assert.equal(response.ok, true, responseBody);
+  const document: unknown = JSON.parse(responseBody);
+  const registered = z
+    .object({ id: z.string().min(1) })
+    .passthrough()
+    .parse(document);
+  assert.equal(registered.id, input.deploymentId);
 }
 
 async function invokeEffect(
@@ -1827,22 +2020,36 @@ async function invokeEffect(
   return { body: await response.text(), status: response.status };
 }
 
-async function invokeConnectorWithCrossTenantRef(): Promise<Response> {
+function invokeConnector(input: {
+  credentialRef: string;
+  effectRequestId: string;
+  idempotencyKey: string;
+  tenantId: string;
+}): Promise<Response> {
   const payload = "{}";
   return fetch(connectorUrl, {
     body: JSON.stringify({
-      credentialRef: "secret.provider.b",
-      effectRequestId: "effect.synthetic.cross-reference",
-      idempotencyKey: "idempotency.synthetic.cross-reference",
+      credentialRef: input.credentialRef,
+      effectRequestId: input.effectRequestId,
+      idempotencyKey: input.idempotencyKey,
       payloadBase64: Buffer.from(payload).toString("base64"),
       requestDigest: sha256(payload),
-      tenantId: tenantA,
+      tenantId: input.tenantId,
     }),
     headers: {
       authorization: `Bearer ${connectorCallerToken}`,
       "content-type": "application/json",
     },
     method: "POST",
+  });
+}
+
+function invokeConnectorWithCrossTenantRef(): Promise<Response> {
+  return invokeConnector({
+    credentialRef: "secret.provider.b",
+    effectRequestId: "effect.synthetic.cross-reference",
+    idempotencyKey: "idempotency.synthetic.cross-reference",
+    tenantId: tenantA,
   });
 }
 
