@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Zoen — Arquitetura final, North + pesquisa</title>
+  <style>
+    :root {
+      --bg: #080a0b;
+      --panel: #101416;
+      --panel-2: #151b1e;
+      --panel-3: #0c1011;
+      --ink: #eff4f0;
+      --muted: #90a09a;
+      --line: #29332f;
+      --line-2: #3a4641;
+      --green: #8bf5b4;
+      --cyan: #74d8ed;
+      --violet: #b7a0ff;
+      --amber: #ffc56e;
+      --rose: #ff8999;
+      --approved: #8bf5b4;
+      --proposed: #74d8ed;
+      --physical: #81908a;
+      --radius: 18px;
+      --shadow: 0 24px 80px rgba(0,0,0,.34);
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 76% -8%, rgba(116,216,237,.10), transparent 30rem),
+        radial-gradient(circle at 18% 8%, rgba(139,245,180,.07), transparent 32rem),
+        var(--bg);
+      font-family: var(--sans);
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    button { font: inherit; }
+    code, .mono { font-family: var(--mono); }
+    .shell { display: grid; grid-template-columns: 248px minmax(0,1fr); min-height: 100vh; }
+    .rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 26px 20px;
+      border-right: 1px solid var(--line);
+      background: rgba(8,10,11,.9);
+      backdrop-filter: blur(18px);
+      z-index: 20;
+    }
+    .brand { display: flex; align-items: center; gap: 11px; margin-bottom: 30px; }
+    .brandmark {
+      width: 37px; height: 37px; display: grid; place-items: center;
+      border: 1px solid rgba(139,245,180,.48); border-radius: 11px;
+      background: linear-gradient(145deg, rgba(139,245,180,.13), transparent);
+      color: var(--green); font: 700 13px var(--mono);
+    }
+    .brand strong { display: block; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+    .brand small { display: block; color: var(--muted); font: 10px var(--mono); margin-top: 2px; }
+    nav { display: grid; gap: 3px; }
+    nav a {
+      color: var(--muted); text-decoration: none; padding: 8px 10px;
+      border-radius: 8px; border-left: 2px solid transparent; font-size: 12px;
+      transition: .18s ease;
+    }
+    nav a:hover, nav a.active {
+      color: var(--ink); background: rgba(255,255,255,.035); border-left-color: var(--green);
+    }
+    .rail-note {
+      margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line);
+      color: var(--muted); font: 10px/1.6 var(--mono);
+    }
+    main { min-width: 0; padding: 0 38px 90px; }
+    .wrap { width: min(1380px,100%); margin: 0 auto; }
+    section { padding: 76px 0 8px; scroll-margin-top: 25px; }
+    .hero { min-height: 92vh; display: grid; align-content: center; padding-top: 62px; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 9px; width: fit-content;
+      color: var(--green); font: 700 10px var(--mono); letter-spacing: .14em; text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 25px; height: 1px; background: currentColor; }
+    h1 {
+      margin: 20px 0 18px; max-width: 1080px;
+      font-size: clamp(48px,7vw,94px); line-height: .94; letter-spacing: -.062em; font-weight: 650;
+    }
+    h1 em { color: var(--green); font-style: normal; }
+    .lead {
+      max-width: 920px; color: #c8d2cd; font-size: clamp(18px,2vw,24px);
+      line-height: 1.48; letter-spacing: -.015em;
+    }
+    .hero-rule {
+      margin-top: 29px; padding: 18px 21px; max-width: 1080px;
+      border-left: 3px solid var(--green); background: rgba(139,245,180,.055);
+      color: #d9e4df; font-size: 15px;
+    }
+    .stats {
+      display: grid; grid-template-columns: repeat(5,1fr); gap: 1px;
+      background: var(--line); border: 1px solid var(--line); border-radius: var(--radius);
+      overflow: hidden; margin-top: 28px; max-width: 1080px;
+    }
+    .stat { background: rgba(16,20,22,.96); padding: 18px; }
+    .stat strong { display: block; color: var(--green); font: 650 30px/1 var(--mono); letter-spacing: -.06em; }
+    .stat span { color: var(--muted); font-size: 10px; }
+    .inputs { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-top: 18px; max-width: 1080px; }
+    .input-card {
+      padding: 17px; min-height: 128px; border: 1px solid var(--line); border-radius: 14px;
+      background: linear-gradient(145deg,rgba(255,255,255,.03),rgba(255,255,255,.01));
+    }
+    .input-card b { font: 700 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .input-card:nth-child(1) b { color: var(--cyan); }
+    .input-card:nth-child(2) b { color: var(--amber); }
+    .input-card:nth-child(3) b { color: var(--violet); }
+    .input-card:nth-child(4) b { color: var(--green); }
+    .input-card h3 { margin: 18px 0 4px; font-size: 16px; }
+    .input-card p { margin: 0; color: var(--muted); font-size: 11px; }
+    .section-head {
+      display: grid; grid-template-columns: minmax(0,1fr) minmax(260px,430px);
+      gap: 34px; align-items: end; margin-bottom: 27px;
+    }
+    .kicker { color: var(--green); font: 700 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+    h2 { margin: 8px 0 0; font-size: clamp(31px,4vw,57px); line-height: 1.02; letter-spacing: -.047em; font-weight: 620; }
+    .section-head p { margin: 0; color: var(--muted); font-size: 13px; }
+    .card { border: 1px solid var(--line); border-radius: var(--radius); background: rgba(16,20,22,.88); box-shadow: var(--shadow); }
+    .legend { display: flex; flex-wrap: wrap; gap: 15px; color: var(--muted); font-size: 10px; margin: 12px 0 17px; }
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .swatch { width: 18px; height: 10px; border-radius: 4px; border: 1px solid var(--approved); }
+    .swatch.proposed { border-style: dashed; border-color: var(--proposed); }
+    .swatch.physical { border-color: var(--physical); background: rgba(129,144,138,.09); }
+    .swatch.forbidden { border-color: var(--rose); background: linear-gradient(135deg,transparent 42%,var(--rose) 44%,var(--rose) 56%,transparent 58%); }
+    .modebar {
+      position: sticky; top: 10px; z-index: 12; display: flex; flex-wrap: wrap; gap: 7px;
+      padding: 10px; width: fit-content; max-width: 100%; margin-bottom: 14px;
+      border: 1px solid var(--line); border-radius: 999px; background: rgba(8,10,11,.9); backdrop-filter: blur(14px);
+    }
+    .modebar button {
+      border: 1px solid transparent; border-radius: 999px; padding: 8px 11px;
+      background: transparent; color: var(--muted); cursor: pointer;
+      font: 700 9px var(--mono); letter-spacing: .07em; text-transform: uppercase;
+    }
+    .modebar button:hover { color: var(--ink); }
+    .modebar button.active { color: #07100b; background: var(--green); }
+    .explorer { display: grid; grid-template-columns: minmax(0,1fr) 285px; gap: 14px; align-items: start; }
+    .board { padding: 18px; overflow: hidden; }
+    .zone {
+      padding: 14px; border: 1px solid var(--line); border-radius: 14px; margin-bottom: 10px;
+      background: rgba(255,255,255,.012);
+    }
+    .zone.fly { border-color: rgba(139,245,180,.29); background: linear-gradient(145deg,rgba(139,245,180,.025),transparent); }
+    .zone-title {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-bottom: 10px; color: var(--muted); font: 700 9px var(--mono);
+      letter-spacing: .13em; text-transform: uppercase;
+    }
+    .zone-title .boundary { color: var(--green); }
+    .nodes { display: grid; gap: 8px; }
+    .nodes.cols-2 { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .nodes.cols-3 { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    .nodes.cols-4 { grid-template-columns: repeat(4,minmax(0,1fr)); }
+    .node {
+      position: relative; min-height: 82px; padding: 13px; text-align: left;
+      border: 1px solid rgba(139,245,180,.31); border-radius: 11px; color: var(--ink);
+      background: #121819; cursor: pointer; transition: opacity .2s ease, transform .2s ease, border-color .2s ease;
+    }
+    .node:hover, .node:focus-visible { transform: translateY(-2px); border-color: var(--green); outline: none; }
+    .node.selected { box-shadow: 0 0 0 2px rgba(139,245,180,.15); border-color: var(--green); }
+    .node.proposed { border-style: dashed; border-color: rgba(116,216,237,.55); }
+    .node.physical { border-color: rgba(129,144,138,.42); background: #101415; }
+    .node.external { border-color: rgba(255,197,110,.35); background: rgba(255,197,110,.025); }
+    .node.dimmed { opacity: .16; }
+    .node strong { display: block; margin-bottom: 4px; font-size: 12px; line-height: 1.25; }
+    .node small { display: block; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+    .node .tag {
+      position: absolute; top: 8px; right: 8px; color: var(--cyan);
+      font: 700 7px var(--mono); letter-spacing: .09em; text-transform: uppercase;
+    }
+    .node .step {
+      display: none; position: absolute; left: 8px; top: 8px; width: 18px; height: 18px;
+      place-items: center; border-radius: 50%; color: #07100b; background: var(--green); font: 700 9px var(--mono);
+    }
+    body:not([data-mode="all"]) .node:not(.dimmed) .step { display: grid; }
+    body:not([data-mode="all"]) .node:not(.dimmed) strong { padding-top: 13px; }
+    .arrow {
+      height: 22px; display: grid; place-items: center; color: #52615a;
+      font: 18px var(--mono); transition: opacity .2s ease;
+    }
+    .arrow.dimmed { opacity: .12; }
+    .kernel {
+      margin: 10px 0; padding: 13px; border: 1px solid rgba(139,245,180,.48);
+      border-radius: 13px; background: rgba(139,245,180,.055);
+    }
+    .kernel-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+    .kernel-head strong { font-size: 13px; }
+    .kernel-head span { color: var(--green); font: 9px var(--mono); }
+    .verbs { display: grid; grid-template-columns: repeat(7,1fr); gap: 5px; }
+    .verb { padding: 8px 4px; border-radius: 8px; background: rgba(139,245,180,.07); color: #dff9e8; text-align: center; font: 9px var(--mono); }
+    .basis {
+      padding: 11px 13px; margin: 10px 0; overflow-wrap: anywhere;
+      border: 1px dashed rgba(183,160,255,.42); border-radius: 10px;
+      color: #d9d0ff; background: rgba(183,160,255,.04); font: 9.5px/1.6 var(--mono);
+    }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .plane { padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #0e1314; }
+    .plane h4 { margin: 0 0 7px; font-size: 12px; }
+    .plane p { margin: 0; color: var(--muted); font-size: 9.5px; }
+    .plane.sparse { border-color: rgba(139,245,180,.34); }
+    .plane.dense { border-style: dashed; border-color: rgba(116,216,237,.5); }
+    .plane .plane-label { display: block; margin-bottom: 13px; color: var(--muted); font: 8px var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+    .inspector {
+      position: sticky; top: 72px; padding: 18px; min-height: 455px;
+      border: 1px solid var(--line); border-radius: var(--radius); background: rgba(12,16,17,.95);
+    }
+    .inspector .eyebrow { font-size: 8px; }
+    .inspector h3 { margin: 15px 0 5px; font-size: 21px; letter-spacing: -.03em; }
+    .inspector .kind { color: var(--cyan); font: 9px var(--mono); text-transform: uppercase; }
+    .inspector dl { margin: 22px 0; display: grid; gap: 14px; }
+    .inspector dt { color: var(--muted); font: 700 8px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .inspector dd { margin: 3px 0 0; color: #c7d1cc; font-size: 11px; line-height: 1.55; }
+    .inspector .invariant { padding: 11px; border-radius: 9px; background: rgba(183,160,255,.055); color: #d7ceff; font: 8.5px/1.6 var(--mono); overflow-wrap: anywhere; }
+    .release-map {
+      display: grid; grid-template-columns: 1fr 230px 1fr; gap: 12px; align-items: stretch; padding: 22px;
+    }
+    .catalogs { display: grid; gap: 10px; }
+    .catalog { padding: 17px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.015); }
+    .catalog h3 { margin: 0 0 7px; font-size: 14px; }
+    .catalog p { margin: 0; color: var(--muted); font-size: 10.5px; }
+    .catalog code { color: var(--green); font-size: 9px; }
+    .release-core {
+      display: grid; place-items: center; text-align: center; padding: 22px;
+      border: 2px double rgba(139,245,180,.62); border-radius: 18px;
+      background: radial-gradient(circle,rgba(139,245,180,.11),rgba(139,245,180,.025));
+    }
+    .release-core strong { display: block; color: var(--green); font-size: 22px; letter-spacing: -.03em; }
+    .release-core span { color: var(--muted); font: 9px/1.65 var(--mono); }
+    .release-note {
+      grid-column: 1/-1; padding: 12px 15px; border-radius: 10px;
+      border: 1px dashed rgba(116,216,237,.38); color: #c4d7d7; font-size: 11px;
+    }
+    .equation {
+      margin-top: 13px; padding: 18px; border: 1px solid var(--line); border-radius: 14px;
+      background: #090c0d; color: var(--green); font: 12px/1.8 var(--mono); overflow-wrap: anywhere;
+    }
+    .equation b { color: var(--violet); }
+    .object-chain { display: grid; grid-template-columns: repeat(9,minmax(70px,1fr)); gap: 7px; align-items: center; padding: 20px; overflow-x: auto; }
+    .object {
+      min-width: 92px; min-height: 94px; padding: 13px; display: grid; align-content: end;
+      border: 1px dashed rgba(116,216,237,.5); border-radius: 12px; background: rgba(116,216,237,.035);
+    }
+    .object b { color: var(--cyan); font-size: 11px; }
+    .object span { color: var(--muted); font: 8.5px/1.5 var(--mono); margin-top: 6px; }
+    .chain-arrow { color: #54635d; text-align: center; font: 18px var(--mono); }
+    .grid-2 { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+    .pad { padding: 20px; }
+    .pad h3 { margin: 0 0 7px; font-size: 16px; }
+    .pad p { margin: 0; color: var(--muted); font-size: 11px; }
+    .pad ul { margin: 12px 0 0; padding-left: 18px; color: #c0cac5; font-size: 10.5px; }
+    .pad li + li { margin-top: 5px; }
+    .clock { min-height: 145px; padding: 17px; border: 1px dashed rgba(116,216,237,.38); border-radius: 13px; }
+    .clock span { color: var(--cyan); font: 9px var(--mono); }
+    .clock h3 { margin: 24px 0 5px; font-size: 14px; }
+    .clock p { color: var(--muted); margin: 0; font-size: 10px; }
+    .view-formula {
+      margin-top: 13px; padding: 22px; border: 1px dashed rgba(116,216,237,.46);
+      border-radius: var(--radius); background: linear-gradient(145deg,rgba(116,216,237,.055),transparent);
+    }
+    .view-formula code { color: var(--cyan); font-size: 11px; }
+    .view-formula p { margin: 11px 0 0; color: var(--muted); font-size: 11px; }
+    .stories { display: grid; gap: 11px; }
+    .story { padding: 20px; }
+    .story-head { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+    .story-head h3 { margin: 0; font-size: 17px; }
+    .story-head p { margin: 4px 0 0; color: var(--muted); font-size: 10.5px; }
+    .story-head .verbmark { color: var(--green); font: 9px var(--mono); text-transform: uppercase; }
+    .story-flow {
+      display: grid; grid-template-columns: repeat(var(--steps),minmax(100px,1fr)); gap: 18px;
+      margin-top: 17px; overflow-x: auto; padding-bottom: 3px;
+    }
+    .story-step { position: relative; min-width: 104px; }
+    .story-step:not(:last-child)::after {
+      content: "→"; position: absolute; top: 24px; right: -14px; color: #53615b; font: 17px var(--mono);
+    }
+    .story-step b {
+      display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px;
+      border: 1px solid rgba(139,245,180,.32); color: var(--green); font: 700 10px var(--mono);
+    }
+    .story-step strong { display: block; margin: 9px 0 3px; font-size: 10.5px; }
+    .story-step span { display: block; color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .commit-wall { border-left: 2px solid var(--amber); padding-left: 12px; }
+    .commit-wall::before { content: "COMMIT ≠ EXTERNAL SUCCESS"; display: block; color: var(--amber); font: 7px var(--mono); margin-bottom: 5px; }
+    .policy-ring { padding: 25px; text-align: center; }
+    .policy-equation { font: 600 clamp(17px,2.5vw,30px)/1.5 var(--mono); letter-spacing: -.035em; color: #d6ded9; }
+    .policy-equation .op { color: var(--violet); }
+    .policy-equation .result { color: var(--green); }
+    .policy-sub { margin: 15px auto 0; max-width: 850px; color: var(--muted); font-size: 11px; }
+    .redlines { margin-top: 12px; display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+    .redline {
+      min-height: 108px; padding: 15px; border: 1px solid rgba(255,137,153,.25);
+      border-radius: 12px; background: rgba(255,137,153,.025);
+    }
+    .redline b { color: var(--rose); font: 11px var(--mono); }
+    .redline p { margin: 12px 0 0; color: var(--muted); font-size: 9.5px; }
+    .runtime { padding: 22px; display: grid; grid-template-columns: minmax(0,1.4fr) minmax(280px,.6fr); gap: 13px; }
+    .flybox { padding: 17px; border: 1px solid rgba(139,245,180,.36); border-radius: 14px; }
+    .flybox > strong { color: var(--green); font: 10px var(--mono); letter-spacing: .12em; }
+    .services { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 15px; }
+    .service { min-height: 100px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: #111617; }
+    .service b { font-size: 11px; }
+    .service p { margin: 8px 0 0; color: var(--muted); font-size: 9px; }
+    .stores { display: grid; gap: 8px; }
+    .store { padding: 15px; border: 1px solid rgba(129,144,138,.4); border-radius: 12px; background: #101415; }
+    .store b { font-size: 11px; }
+    .store p { color: var(--muted); margin: 6px 0 0; font-size: 9px; }
+    .store.warn { border-color: rgba(255,197,110,.35); }
+    .store.warn b { color: var(--amber); }
+    .journey-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 18px; padding: 22px; overflow-x: auto; }
+    .journey-step { position: relative; min-width: 150px; }
+    .journey-step:not(:last-child)::after { content: "→"; position: absolute; right: -15px; top: 33px; color: #53615b; font: 19px var(--mono); }
+    .journey-step .n { color: rgba(139,245,180,.32); font: 700 40px/1 var(--mono); }
+    .journey-step h3 { margin: 12px 0 6px; font-size: 13px; }
+    .journey-step p { margin: 0; color: var(--muted); font-size: 9.5px; }
+    .proof {
+      margin-top: 12px; padding-top: 9px; border-top: 1px solid var(--line);
+      color: var(--green); font: 8px/1.45 var(--mono);
+    }
+    .decision-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .decision { padding: 21px; min-height: 280px; }
+    .decision.approved { border-color: rgba(139,245,180,.35); }
+    .decision.proposed { border-style: dashed; border-color: rgba(116,216,237,.44); }
+    .decision.later { border-color: rgba(129,144,138,.38); }
+    .decision .status { font: 700 8px var(--mono); letter-spacing: .11em; text-transform: uppercase; }
+    .decision.approved .status { color: var(--green); }
+    .decision.proposed .status { color: var(--cyan); }
+    .decision.later .status { color: var(--muted); }
+    .decision h3 { margin: 26px 0 10px; font-size: 18px; }
+    .decision ul { margin: 0; padding-left: 17px; color: #bac5c0; font-size: 10.5px; }
+    .decision li + li { margin-top: 7px; }
+    .footer {
+      margin-top: 72px; padding: 25px 0; border-top: 1px solid var(--line);
+      display: flex; justify-content: space-between; gap: 20px; color: var(--muted); font: 9.5px var(--mono);
+    }
+    .footer a { color: var(--green); text-decoration: none; }
+    @media (max-width: 1120px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail {
+        height: auto; padding: 11px 17px; border-right: 0; border-bottom: 1px solid var(--line);
+        display: flex; gap: 18px; align-items: center; overflow-x: auto;
+      }
+      .brand { margin: 0; flex: 0 0 auto; } .brand small, .rail-note { display: none; }
+      nav { display: flex; min-width: max-content; }
+      nav a { border-left: 0; border-bottom: 2px solid transparent; }
+      nav a.active { border-left-color: transparent; border-bottom-color: var(--green); }
+      main { padding-inline: 23px; }
+      .hero { min-height: auto; padding-top: 80px; }
+      .explorer { grid-template-columns: 1fr; }
+      .inspector { position: static; min-height: 0; }
+      .release-map { grid-template-columns: 1fr 190px 1fr; }
+    }
+    @media (max-width: 760px) {
+      main { padding-inline: 14px; }
+      section { padding-top: 58px; }
+      h1 { font-size: 48px; }
+      .section-head { grid-template-columns: 1fr; gap: 12px; }
+      .stats, .inputs, .grid-2, .grid-3, .grid-4, .decision-grid, .redlines { grid-template-columns: 1fr; }
+      .stats { gap: 1px; }
+      .nodes.cols-3, .nodes.cols-4 { grid-template-columns: 1fr 1fr; }
+      .verbs { grid-template-columns: repeat(2,1fr); }
+      .split { grid-template-columns: 1fr; }
+      .release-map { grid-template-columns: 1fr; }
+      .release-core { min-height: 190px; order: -1; }
+      .object-chain { grid-template-columns: 1fr; }
+      .chain-arrow { transform: rotate(90deg); }
+      .services { grid-template-columns: 1fr 1fr; }
+      .runtime { grid-template-columns: 1fr; }
+      .modebar { position: static; border-radius: 15px; }
+      .footer { flex-direction: column; }
+    }
+    @media (max-width: 480px) {
+      .nodes.cols-2, .nodes.cols-3, .nodes.cols-4, .services { grid-template-columns: 1fr; }
+      .stat { padding: 14px; }
+      .board { padding: 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      * { transition: none !important; }
+    }
+    @media print {
+      .rail, .modebar { display: none; }
+      .shell { display: block; }
+      main { padding: 0; }
+      body { background: white; color: black; }
+      .card, .zone, .node, .inspector { box-shadow: none; break-inside: avoid; }
+      .node.dimmed { opacity: 1; }
+    }
+  </style>
+</head>
+<body data-mode="all">
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brandmark">Z∴</div>
+        <div><strong>Final Architecture</strong><small>North + research synthesis</small></div>
+      </div>
+      <nav aria-label="Navegação">
+        <a class="active" href="#thesis">01 · Tese</a>
+        <a href="#system">02 · Sistema</a>
+        <a href="#release">03 · WorldRelease</a>
+        <a href="#meaning">04 · Mundo semântico</a>
+        <a href="#flows">05 · Fluxos</a>
+        <a href="#security">06 · Segurança</a>
+        <a href="#runtime">07 · Runtime</a>
+        <a href="#journey">08 · Jornada IBM</a>
+        <a href="#decisions">09 · Decisões</a>
+      </nav>
+      <div class="rail-note">
+        Arquitetura alvo imaginada.<br />
+        Spine sólido = North aprovado.<br />
+        Contorno pontilhado = extensão proposta.
+      </div>
+    </aside>
+    <main>
+      <div class="wrap">
+        <section class="hero" id="thesis">
+          <span class="eyebrow">Zoen · arquitetura final imaginada · 02 set 2026</span>
+          <h1>Um mundo publicado governa <em>dados, decisões e efeitos.</em></h1>
+          <p class="lead">Better Auth estabelece identidade. Eve sustenta a relação. Ontology dá o mesmo significado governado a pessoas, agentes, CLI, Connect e MCP — inclusive quando o dado vem de dezenas de providers.</p>
+          <div class="hero-rule"><strong>Finance não vira um quarto produto.</strong> Vira o primeiro pack que prova que o kernel genérico consegue resolver identidade, preservar evidência rival, consultar séries densas, aplicar entitlement e executar Actions explicáveis.</div>
+          <div class="stats" aria-label="Invariantes da arquitetura">
+            <div class="stat"><strong>3</strong><span>produtos</span></div>
+            <div class="stat"><strong>7</strong><span>verbos públicos</span></div>
+            <div class="stat"><strong>4</strong><span>catálogos por release</span></div>
+            <div class="stat"><strong>2</strong><span>planos de evidência</span></div>
+            <div class="stat"><strong>1</strong><span>WorldRelease ativo</span></div>
+          </div>
+          <div class="inputs">
+            <article class="input-card"><b>OpenBB</b><h3>Gramática de integração</h3><p>Providers, modelos comuns, geração de superfícies e progressive disclosure.</p></article>
+            <article class="input-card"><b>Bloomberg</b><h3>Identidade e entitlement</h3><p>Security master, contratos de campos, direitos e distribuição governada.</p></article>
+            <article class="input-card"><b>Palantir</b><h3>Mundo operacional</h3><p>Objetos, links, interfaces, ObjectSets, Actions e segurança por instância.</p></article>
+            <article class="input-card"><b>Zoen</b><h3>Autoridade causal</h3><p>Release publicada, Evidence, policy, state basis, receipts e efeitos reconciliados.</p></article>
+          </div>
+        </section>
+        <section id="system">
+          <div class="section-head">
+            <div><span class="kicker">02 / sistema inteiro</span><h2>O kernel não conhece canal, provider ou storage.</h2></div>
+            <p>Escolha um fluxo para iluminar o caminho. Clique em qualquer bloco para ver o que ele possui — e o que está proibido de possuir.</p>
+          </div>
+          <div class="legend">
+            <span><i class="swatch"></i>North aprovado</span>
+            <span><i class="swatch proposed"></i>extensão derivada da pesquisa</span>
+            <span><i class="swatch physical"></i>implementação física</span>
+          </div>
+          <div class="modebar" role="toolbar" aria-label="Iluminar fluxo">
+            <button class="active" data-mode="all" aria-pressed="true">Visão geral</button>
+            <button data-mode="admit" aria-pressed="false">Admitir pessoa</button>
+            <button data-mode="ingest" aria-pressed="false">Ingerir evidência</button>
+            <button data-mode="read" aria-pressed="false">Ler o mundo</button>
+            <button data-mode="change" aria-pressed="false">Mudar o mundo</button>
+            <button data-mode="effect" aria-pressed="false">Executar efeito</button>
+            <button data-mode="explain" aria-pressed="false">Explicar</button>
+          </div>
+          <div class="explorer">
+            <div class="card board">
+              <div class="zone">
+                <div class="zone-title"><span>fora · callers e canais</span><span>eventos verificados</span></div>
+                <div class="nodes cols-4">
+                  <button class="node external" data-node="person" data-flows="admit read change explain" data-order-admit="1" data-order-read="1" data-order-change="1" data-order-explain="1"><span class="step"></span><strong>Pessoa / agente</strong><small>web, dispositivo, software autorizado</small></button>
+                  <button class="node external" data-node="channels" data-flows="admit read change explain" data-order-admit="1" data-order-read="1" data-order-change="1" data-order-explain="1"><span class="step"></span><strong>Kapso / Telegram</strong><small>assinatura do canal verificada por Eve</small></button>
+                  <button class="node external proposed" data-node="providers" data-flows="ingest explain" data-order-ingest="1" data-order-explain="2"><span class="step"></span><span class="tag">proposto</span><strong>Providers / fontes</strong><small>market data, SEC, FIGI, sistemas locais</small></button>
+                  <button class="node external" data-node="destinations" data-flows="effect explain" data-order-effect="6" data-order-explain="8"><span class="step"></span><strong>Destinos externos</strong><small>mensagem, broker, máquina, prontuário</small></button>
+                </div>
+              </div>
+              <div class="arrow" data-flows="admit ingest read change effect explain">↓</div>
+              <div class="zone fly">
+                <div class="zone-title"><span class="boundary">uma aplicação Fly · três produtos</span><span>sem quarto produto</span></div>
+                <div class="nodes cols-3">
+                  <button class="node" data-node="better" data-flows="admit" data-order-admit="2"><span class="step"></span><strong>Better Auth</strong><small>sign-in, device flow, recovery, link confirmation</small></button>
+                  <button class="node" data-node="eve" data-flows="admit read change explain" data-order-admit="2" data-order-read="2" data-order-change="2" data-order-explain="2"><span class="step"></span><strong>Eve</strong><small>relação, conversa, canais e membership workbench</small></button>
+                  <button class="node" data-node="surfaces" data-flows="read change explain" data-order-read="2" data-order-change="2" data-order-explain="2"><span class="step"></span><strong>Ontology surfaces</strong><small>CLI · Connect API · MCP gerado</small></button>
+                </div>
+                <div class="basis">web session → Better Auth · evento Kapso/Telegram assinado → Eve · ambos convergem no SessionBroker</div>
+                <div class="arrow" data-flows="admit read change explain">↓</div>
+                <div class="nodes cols-2">
+                  <button class="node" data-node="session" data-flows="admit read change explain" data-order-admit="3" data-order-read="3" data-order-change="3" data-order-explain="3"><span class="step"></span><strong>SessionBroker / PersonHost</strong><small>Account + ChannelBinding + Membership ativa</small></button>
+                  <button class="node" data-node="capability" data-flows="admit read change explain" data-order-admit="4" data-order-read="4" data-order-change="4" data-order-explain="4"><span class="step"></span><strong>TurnCapability</strong><small>contexto selado; nenhuma autoridade reconstruída depois</small></button>
+                </div>
+                <div class="kernel" data-node="kernel">
+                  <div class="kernel-head"><strong>WorldKernel</strong><span>um contrato · todas as superfícies</span></div>
+                  <div class="verbs">
+                    <span class="verb">Discover</span><span class="verb">Query</span><span class="verb">Propose</span><span class="verb">Decide</span><span class="verb">Commit</span><span class="verb">Explain</span><span class="verb">Execute</span>
+                  </div>
+                </div>
+                <div class="basis">TrustedExecutionContext = principal × world × membership × release × operation × purpose/source</div>
+                <div class="nodes cols-4">
+                  <button class="node" data-node="release-node" data-flows="admit ingest read change effect explain" data-order-admit="5" data-order-ingest="2" data-order-read="5" data-order-change="4" data-order-effect="1" data-order-explain="5"><span class="step"></span><strong>WorldRelease</strong><small>uma unidade imutável de significado; quatro digests</small></button>
+                  <button class="node proposed" data-node="sourcecap" data-flows="ingest explain" data-order-ingest="3" data-order-explain="5"><span class="step"></span><span class="tag">proposto</span><strong>SourceCapability</strong><small>fonte + shape + mapper + tempo + rights ref</small></button>
+                  <button class="node" data-node="policygate" data-flows="ingest read change explain" data-order-ingest="3" data-order-read="6" data-order-change="5" data-order-explain="5"><span class="step"></span><strong>Policy gate</strong><small>autoriza antes de descobrir, planejar e paginar</small></button>
+                  <button class="node proposed" data-node="entitlements" data-flows="ingest read change explain" data-order-ingest="3" data-order-read="6" data-order-change="5" data-order-explain="5"><span class="step"></span><span class="tag">proposto</span><strong>Data entitlements</strong><small>source + field + series + purpose + usage right</small></button>
+                </div>
+                <div class="arrow" data-flows="ingest read change explain">↓</div>
+                <div class="nodes cols-3">
+                  <button class="node physical" data-node="raw" data-flows="ingest explain" data-order-ingest="4" data-order-explain="6"><span class="step"></span><strong>Raw CAS</strong><small>bytes, request, headers e digest imutáveis</small></button>
+                  <button class="node proposed" data-node="mapper" data-flows="ingest explain" data-order-ingest="5" data-order-explain="6"><span class="step"></span><span class="tag">proposto</span><strong>Normalize + resolve</strong><small>Wasm mapper → candidatos, nunca verdade silenciosa</small></button>
+                  <button class="node proposed" data-node="knowledge" data-flows="read change explain" data-order-read="7" data-order-change="6" data-order-explain="6"><span class="step"></span><span class="tag">proposto</span><strong>KnowledgeBasis</strong><small>policy sobre um cut; preserva rivais e produz receipt</small></button>
+                </div>
+                <div class="split" style="margin-top:8px">
+                  <button class="node plane sparse" data-node="ledger" data-flows="ingest read change effect explain" data-order-ingest="6" data-order-read="8" data-order-change="7" data-order-effect="2" data-order-explain="7"><span class="step"></span><span class="plane-label">plano semântico · esparso</span><strong>Authority ledger</strong><small>claims, evidence, decisões, commits, receipts e outbox</small></button>
+                  <button class="node plane dense proposed" data-node="observations" data-flows="ingest read explain" data-order-ingest="6" data-order-read="8" data-order-explain="7"><span class="step"></span><span class="tag">proposto</span><span class="plane-label">plano observacional · denso</span><strong>ObservationSeries</strong><small>DatasetVersion + manifests + segmentos imutáveis + range query</small></button>
+                </div>
+                <div class="arrow" data-flows="read change explain">↓</div>
+                <div class="nodes cols-2">
+                  <button class="node proposed" data-node="objectset" data-flows="read change explain" data-order-read="9" data-order-change="8" data-order-explain="8"><span class="step"></span><span class="tag">proposto</span><strong>ObjectSet&lt;T&gt;</strong><small>plano lazy: filter · traverse · union · aggregate</small></button>
+                  <button class="node proposed" data-node="objectview" data-flows="read change explain" data-order-read="10" data-order-change="9" data-order-explain="9"><span class="step"></span><span class="tag">proposto</span><strong>ObjectView&lt;T&gt;</strong><small>selected + rivals + lineage + series refs + Actions</small></button>
+                </div>
+                <div class="arrow" data-flows="change effect explain">↓</div>
+                <div class="nodes cols-4">
+                  <button class="node" data-node="proposal" data-flows="change explain" data-order-change="10" data-order-explain="10"><span class="step"></span><strong>Proposal + preview</strong><small>state basis e impacto pinados</small></button>
+                  <button class="node" data-node="decision" data-flows="change explain" data-order-change="11" data-order-explain="10"><span class="step"></span><strong>Decide + Commit</strong><small>uma transação de autoridade</small></button>
+                  <button class="node physical" data-node="restate" data-flows="effect explain" data-order-effect="4" data-order-explain="11"><span class="step"></span><strong>Restate ZoenEffect</strong><small>attempt, unknown outcome e reconcile</small></button>
+                  <button class="node" data-node="receipt" data-flows="change effect explain" data-order-change="12" data-order-effect="5" data-order-explain="12"><span class="step"></span><strong>Receipt / Explain</strong><small>release + cut + policy + evidence + efeitos</small></button>
+                </div>
+              </div>
+            </div>
+            <aside class="inspector" aria-live="polite">
+              <span class="eyebrow">componente selecionado</span>
+              <h3 id="inspect-title">WorldRelease</h3>
+              <span class="kind" id="inspect-kind">North aprovado</span>
+              <dl>
+                <div><dt>Possui</dt><dd id="inspect-owns">Coerência imutável do significado publicado.</dd></div>
+                <div><dt>Não pode possuir</dt><dd id="inspect-not">Dados correntes, memberships, grants, secrets ou observações.</dd></div>
+                <div><dt>Pinado por / emite</dt><dd id="inspect-emits">Quatro catalog digests; referenciado por cada cursor, receipt e explicação.</dd></div>
+              </dl>
+              <div class="invariant" id="inspect-invariant">result = WorldRelease × authority/data cut × caller context</div>
+            </aside>
+          </div>
+        </section>
+        <section id="release">
+          <div class="section-head">
+            <div><span class="kicker">03 / release é arquitetura</span><h2>Quatro catálogos. Nunca um quinto.</h2></div>
+            <p>A release congela significado executável, não o estado do mundo. Novos preços, membros ou grants não exigem uma nova release.</p>
+          </div>
+          <div class="card release-map">
+            <div class="catalogs">
+              <article class="catalog"><code>ontology_digest</code><h3>OntologyCatalog</h3><p>types, properties, interfaces, typed links, Actions, functions, fields, series definitions e SourceDefinitions.</p></article>
+              <article class="catalog"><code>policy_digest</code><h3>PolicyCatalog</h3><p>Cedar, source admission, resolution, quality, purpose, budgets e entitlement definitions.</p></article>
+            </div>
+            <div class="release-core"><div><strong>WorldRelease</strong><span>world_id<br />parent_digest<br />published_at<br />O · P · E · C</span></div></div>
+            <div class="catalogs">
+              <article class="catalog"><code>executor_digest</code><h3>ExecutorCatalog</h3><p>provider, broker, messaging e machine capability contracts; secret slots, nunca secrets.</p></article>
+              <article class="catalog"><code>component_digest</code><h3>ComponentCatalog</h3><p>normalizers, mappings, calendars, adjustments, computations e Wasm digests.</p></article>
+            </div>
+            <div class="release-note"><strong>ProviderCapability é um contrato composto:</strong> shape e source no OntologyCatalog · acesso/resolução/rights no PolicyCatalog · chamada no ExecutorCatalog · código e mapper no ComponentCatalog.</div>
+          </div>
+          <div class="equation">result / cursor / proposal / receipt = <b>WorldRelease</b> × authority_data_cut × caller_context</div>
+        </section>
+        <section id="meaning">
+          <div class="section-head">
+            <div><span class="kicker">04 / mundo semântico</span><h2>Ticker é evidência. Objeto é identidade governada.</h2></div>
+            <p>A identidade de acesso de uma pessoa e a identidade de um instrumento financeiro são problemas diferentes.</p>
+          </div>
+          <div class="card object-chain" aria-label="Cadeia de identidade financeira">
+            <div class="object"><b>LegalEntity</b><span>IBM Corp · LEI · CIK</span></div><div class="chain-arrow">→</div>
+            <div class="object"><b>Instrument</b><span>equity / debt / derivative</span></div><div class="chain-arrow">→</div>
+            <div class="object"><b>ShareClass</b><span>global class identity</span></div><div class="chain-arrow">→</div>
+            <div class="object"><b>Listing</b><span>venue + currency + interval</span></div><div class="chain-arrow">→</div>
+            <div class="object"><b>Venue</b><span>MIC · calendar · timezone</span></div>
+          </div>
+          <div class="grid-3" style="margin-top:13px">
+            <article class="card pad"><h3>ObjectKey&lt;T&gt;</h3><p>Chave estável e tipada. Type membership é explícita; não é inferida porque apareceu numa relation.</p><ul><li>provider ID nunca é chave canônica</li><li>aliases carregam fonte e validade</li><li>links validam os dois endpoints</li></ul></article>
+            <article class="card pad"><h3>Evidence graph</h3><p>Cada alegação mantém supporting, rival, provenance, raw digest e dependencies.</p><ul><li>não sobrescreve restatement</li><li>não perde discordância</li><li>não promove “latest” a verdade</li></ul></article>
+            <article class="card pad"><h3>Accepted view</h3><p>Uma derivação reproduzível para uma finalidade, release e cut — nunca uma verdade mutável paralela.</p><ul><li>ResolutionPolicy publicada</li><li>KnowledgeBasis pinado</li><li>receipt explica a seleção</li></ul></article>
+          </div>
+          <h3 style="margin:28px 0 12px">O pack financeiro torna quatro relógios explícitos</h3>
+          <div class="grid-4">
+            <article class="clock"><span>01 · identity</span><h3>Valid time</h3><p>Quando ticker, listing, alias ou relação eram válidos.</p></article>
+            <article class="clock"><span>02 · economics</span><h3>Observation time</h3><p>Instant ou período econômico ao qual o valor se refere.</p></article>
+            <article class="clock"><span>03 · event</span><h3>Lifecycle time</h3><p>Announcement, ex, record, pay e effective time.</p></article>
+            <article class="clock"><span>04 · knowledge</span><h3>Knowledge cut</h3><p>O que o World podia saber, com quais artifacts, naquele corte.</p></article>
+          </div>
+          <div class="view-formula"><code>ObjectView&lt;T&gt; = selected properties + rivals + typed links + lineage + series refs + allowed Actions</code><p>O ObjectView carrega a base epistemológica da resposta. O ObjectSet é somente o plano lazy e autorizado que produz essas views.</p></div>
+        </section>
+        <section id="flows">
+          <div class="section-head">
+            <div><span class="kicker">05 / quatro histórias de runtime</span><h2>Adquirir não é aceitar. Commitar não é executar.</h2></div>
+            <p>As separações impedem que conveniência de provider, cache ou conector vire autoridade acidental.</p>
+          </div>
+          <div class="stories">
+            <article class="card story">
+              <div class="story-head"><div><h3>Ingerir evidência</h3><p>Todo byte externo entra como aquisição atribuída e reproduzível.</p></div><span class="verbmark">Discover · Query</span></div>
+              <div class="story-flow" style="--steps:7">
+                <div class="story-step"><b>01</b><strong>SourceCapability</strong><span>fonte, shape, purpose, rights</span></div>
+                <div class="story-step"><b>02</b><strong>Fetch</strong><span>adapter específico fora do kernel</span></div>
+                <div class="story-step"><b>03</b><strong>Raw CAS</strong><span>bytes e contexto imutáveis</span></div>
+                <div class="story-step"><b>04</b><strong>Normalize</strong><span>mapper pinado pela release</span></div>
+                <div class="story-step"><b>05</b><strong>Resolve</strong><span>IDs viram candidatos</span></div>
+                <div class="story-step"><b>06</b><strong>Validate</strong><span>type, links, units, quality</span></div>
+                <div class="story-step"><b>07</b><strong>Append</strong><span>claim esparso ou segment denso</span></div>
+              </div>
+            </article>
+            <article class="card story">
+              <div class="story-head"><div><h3>Ler o mundo</h3><p>A policy restringe o plano antes da descoberta e da primeira página.</p></div><span class="verbmark">Discover · Query · Explain</span></div>
+              <div class="story-flow" style="--steps:7">
+                <div class="story-step"><b>01</b><strong>TurnCapability</strong><span>principal, world, membership</span></div>
+                <div class="story-step"><b>02</b><strong>Authorize plan</strong><span>shape + object + purpose</span></div>
+                <div class="story-step"><b>03</b><strong>Bind basis</strong><span>release, valid_at, cut</span></div>
+                <div class="story-step"><b>04</b><strong>ObjectSet</strong><span>filter e traverse lazy</span></div>
+                <div class="story-step"><b>05</b><strong>Query planes</strong><span>claims + series ranges</span></div>
+                <div class="story-step"><b>06</b><strong>ObjectView</strong><span>selected + rivals + lineage</span></div>
+                <div class="story-step"><b>07</b><strong>Seal cursor</strong><span>basis, sort e policy digest</span></div>
+              </div>
+            </article>
+            <article class="card story">
+              <div class="story-head"><div><h3>Mudar o mundo</h3><p>Uma Action nasce da mesma visão autorizada que será usada para decidir.</p></div><span class="verbmark">Propose · Decide · Commit</span></div>
+              <div class="story-flow" style="--steps:6">
+                <div class="story-step"><b>01</b><strong>State basis</strong><span>object views + dataset versions</span></div>
+                <div class="story-step"><b>02</b><strong>Propose</strong><span>inputs e invariantes tipados</span></div>
+                <div class="story-step"><b>03</b><strong>Preview</strong><span>impacto e stale-state check</span></div>
+                <div class="story-step"><b>04</b><strong>Decide</strong><span>o próprio principal aprova/rejeita</span></div>
+                <div class="story-step"><b>05</b><strong>Commit</strong><span>uma transação de autoridade</span></div>
+                <div class="story-step"><b>06</b><strong>Receipt</strong><span>policy evidence + causal basis</span></div>
+              </div>
+            </article>
+            <article class="card story">
+              <div class="story-head"><div><h3>Executar efeito externo</h3><p>O mundo interno já foi commitado; agora o externo pode falhar ou ficar desconhecido.</p></div><span class="verbmark">Execute · Explain</span></div>
+              <div class="story-flow" style="--steps:6">
+                <div class="story-step"><b>01</b><strong>Outbox</strong><span>intenção commitada</span></div>
+                <div class="story-step"><b>02</b><strong>Lease + claim</strong><span>idempotency key e version</span></div>
+                <div class="story-step"><b>03</b><strong>Restate</strong><span>durabilidade só de ZoenEffect</span></div>
+                <div class="story-step commit-wall"><b>04</b><strong>Connector</strong><span>chama destino externo</span></div>
+                <div class="story-step"><b>05</b><strong>Outcome</strong><span>sent · not sent · unknown</span></div>
+                <div class="story-step"><b>06</b><strong>Reconcile</strong><span>receipt sem reescrever intenção</span></div>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="security">
+          <div class="section-head">
+            <div><span class="kicker">06 / envelope de segurança</span><h2>Permissão é uma interseção, não um filtro tardio.</h2></div>
+            <p>Delivery entitlement e direito contratual de uso permanecem conceitos diferentes, mesmo quando avaliados pelo mesmo policy engine.</p>
+          </div>
+          <div class="card policy-ring">
+            <div class="policy-equation">Membership <span class="op">∩</span> object/property policy <span class="op">∩</span> source/field/series entitlement <span class="op">∩</span> purpose/usage right <span class="op">∩</span> release <span class="op">=</span> <span class="result">visible capability</span></div>
+            <p class="policy-sub">A mesma interseção limita nomes de tools, schemas, existência de objetos, páginas, valores, lineage, citations, exportação e Actions.</p>
+          </div>
+          <div class="redlines">
+            <article class="redline"><b>× query → policy</b><p>Nunca buscar e paginar antes de autorizar o plano.</p></article>
+            <article class="redline"><b>× credential → truth</b><p>Uma chave válida permite adquirir; não permite declarar realidade.</p></article>
+            <article class="redline"><b>× endpoint ontology</b><p>Rotas de provider não viram types, links ou Actions do domínio.</p></article>
+            <article class="redline"><b>× one cell = claim</b><p>OHLCV denso entra em segmentos; a decisão de ingestão recebe um receipt.</p></article>
+            <article class="redline"><b>× latest = accepted</b><p>Recência não resolve rival evidence nem restatement.</p></article>
+            <article class="redline"><b>× manual MCP</b><p>Tools são geradas da release e filtradas pela autoridade do caller.</p></article>
+            <article class="redline"><b>× projection = authority</b><p>Parquet e índices são descartáveis e reconstruíveis.</p></article>
+            <article class="redline"><b>× commit = success</b><p>Commit registra intenção autorizada; efeito externo exige reconcile.</p></article>
+          </div>
+        </section>
+        <section id="runtime">
+          <div class="section-head">
+            <div><span class="kicker">07 / implementação física</span><h2>Uma aplicação Fly. Sem Redis. Projeções não mandam.</h2></div>
+            <p>O desenho físico pode evoluir sem mudar os verbos ou permitir que callers escolham onde os dados vivem.</p>
+          </div>
+          <div class="card runtime">
+            <div class="flybox">
+              <strong>ZOEN · ONE FLY APP</strong>
+              <div class="services">
+                <article class="service"><b>Eve runtime</b><p>canais, conversa, workbench e rendering</p></article>
+                <article class="service"><b>SessionDoor</b><p>Better Auth + PersonHost + TurnCapability</p></article>
+                <article class="service"><b>zoend / WorldKernel</b><p>sete verbos e invariantes centrais</p></article>
+                <article class="service"><b>Release compiler</b><p>validate, preview, Decide, publish, activate</p></article>
+                <article class="service"><b>Query planner</b><p>policy pushdown, ObjectSet, DataFusion</p></article>
+                <article class="service"><b>Evidence admission</b><p>source-bound sparse/dense batches</p></article>
+                <article class="service"><b>Wasmtime</b><p>mappers e functions com budgets server-owned</p></article>
+                <article class="service"><b>Projection worker</b><p>incremental indexes, compaction e repair</p></article>
+                <article class="service"><b>Effect handler</b><p>outbox, Restate registrar e reconciliation</p></article>
+              </div>
+            </div>
+            <div class="stores">
+              <article class="store"><b>Postgres + RLS</b><p>authority ledger, memberships, claims, Actions, receipts, outbox e manifests</p></article>
+              <article class="store"><b>Immutable object storage</b><p>raw CAS, Parquet segments, artifacts e component blobs</p></article>
+              <article class="store"><b>DataFusion</b><p>range scans e joins sobre projections autorizadas</p></article>
+              <article class="store warn"><b>Restate — ZoenEffect only</b><p>nem conversa, nem ontology truth, nem scheduler semântico</p></article>
+            </div>
+          </div>
+        </section>
+        <section id="journey">
+          <div class="section-head">
+            <div><span class="kicker">08 / vertical de prova</span><h2>IBM atravessa a arquitetura inteira.</h2></div>
+            <p>Esta jornada FIN-01 provaria as extensões sem renumerar ou substituir as jornadas J1–J8 do North.</p>
+          </div>
+          <div class="card journey-grid">
+            <article class="journey-step"><span class="n">01</span><h3>Resolver a pergunta</h3><p>Eve recebe “qual IBM?” e prende pessoa, Membership, purpose e release.</p><div class="proof">PROVA · nenhuma autoridade pelo canal</div></article>
+            <article class="journey-step"><span class="n">02</span><h3>Preservar ambiguidade</h3><p>CIK, LEI, FIGIs, ticker e venue produzem candidatos e assignments temporais.</p><div class="proof">PROVA · ticker nunca é identidade</div></article>
+            <article class="journey-step"><span class="n">03</span><h3>Adquirir evidência</h3><p>Dois providers e um filing SEC entram via SourceCapability e Raw CAS.</p><div class="proof">PROVA · bytes + mapper + rights pinados</div></article>
+            <article class="journey-step"><span class="n">04</span><h3>Unir dois planos</h3><p>Restatement vira rival claim; OHLCV vira DatasetVersion com segmentos.</p><div class="proof">PROVA · sem overwrite e sem claim/célula</div></article>
+            <article class="journey-step"><span class="n">05</span><h3>Responder e agir</h3><p>ResolutionPolicy produz ObjectView; entitlement filtra; Action usa a mesma basis e explica o efeito.</p><div class="proof">PROVA · uma semântica em Eve/CLI/API/MCP</div></article>
+          </div>
+        </section>
+        <section id="decisions">
+          <div class="section-head">
+            <div><span class="kicker">09 / honestidade arquitetural</span><h2>Spine aprovado. Extensões explícitas. Física substituível.</h2></div>
+            <p>Esta é a arquitetura final imaginada, não uma alegação de que todos os blocos já existem no runtime.</p>
+          </div>
+          <div class="decision-grid">
+            <article class="card decision approved"><span class="status">North aprovado</span><h3>Não negociar</h3><ul><li>exatamente três produtos</li><li>um WorldKernel e sete verbos</li><li>WorldRelease com quatro catálogos</li><li>Eve possui conversa; Better Auth possui identity ceremony</li><li>Evidence, Action, Commit e Effect separados</li><li>Restate somente para ZoenEffect</li><li>CLI, Connect, MCP e Eve compartilham semântica</li></ul></article>
+            <article class="card decision proposed"><span class="status">Decisão proposta</span><h3>Adicionar ao North</h3><ul><li>ObjectKey e membership explícita</li><li>typed links e interfaces verificáveis</li><li>SourceCapability completo</li><li>KnowledgeBasis / accepted view</li><li>ObjectView e ObjectSet</li><li>entitlements por field/series/source/purpose</li><li>ObservationSeries e DatasetVersion</li><li>jornada financeira FIN-01</li></ul></article>
+            <article class="card decision later"><span class="status">Implementação evolutiva</span><h3>Não congelar cedo</h3><ul><li>layout exato de tables e partitions</li><li>estratégia de compaction</li><li>cache e materialized indexes</li><li>linguagem interna do query planner</li><li>número de processos no Fly</li><li>quais providers entram primeiro</li><li>UI terminal-like — não é produto</li></ul></article>
+          </div>
+        </section>
+        <footer class="footer">
+          <span>síntese visual · North aprovado + OpenBB/Bloomberg/Palantir research</span>
+          <span><a href="file:///Users/enzotironi/Code/OS/docs/product/zoen-final-architecture.md">North</a> · <a href="file:///Users/enzotironi/.codex/visualizations/2026/09/02/01a06286-2a2f-71a3-b736-aae8d914264e/openbb-ontology-deep-dive/report-source.md">deep research</a> · <a href="#thesis">↑ início</a></span>
+        </footer>
+      </div>
+    </main>
+  </div>
+  <script>
+    const nodeInfo = {
+      person: ['Pessoa / agente', 'externo', 'Expressa intenção por uma superfície autenticada.', 'Escolher tenant, storage, policy ou release por conta própria.', 'Request/event verificado; recebe apenas capacidades autorizadas.'],
+      channels: ['Kapso / Telegram', 'canal externo', 'Transporta eventos assinados para Eve.', 'Criar Membership, interpretar ontology ou reconstruir autoridade.', 'ChannelBinding e verificação do adapter.'],
+      providers: ['Providers / fontes', 'extensão proposta', 'Servir bytes e contratos próprios.', 'Virar verdade canônica ou contaminar o kernel com branches.', 'Raw acquisition atribuída a source e capability.'],
+      destinations: ['Destinos externos', 'efeito externo', 'Aceitar tentativas idempotentes quando possível.', 'Redefinir a intenção já commitada.', 'Outcome observado e reconciliation receipt.'],
+      better: ['Better Auth', 'North aprovado', 'Identity ceremony, device flow, recovery e link confirmation.', 'World authority, delivery de canal ou semântica de domínio.', 'Account autenticada; confirmação explícita de vínculos.'],
+      eve: ['Eve', 'North aprovado', 'Relação, conversa, canais e membership workbench.', 'Ontology truth ou durabilidade de conversa em Restate.', 'Intenção humana e apresentação legível dos sete verbos.'],
+      surfaces: ['Ontology surfaces', 'North aprovado', 'Apresentar o mesmo catálogo via CLI, Connect e MCP.', 'Manter catálogo manual paralelo ou furar policy.', 'Calls para o mesmo WorldKernel; tools filtradas por caller.'],
+      session: ['SessionBroker / PersonHost', 'North aprovado', 'Resolver Account, ChannelBinding, Membership e WorldRelease no ingresso.', 'Usar provider subject, env global ou fallback unbound como autoridade.', 'TurnCapability imutável.'],
+      capability: ['TurnCapability', 'North aprovado', 'Carregar a autoridade exata de um turno/request.', 'Ser ampliada silenciosamente no meio da execução.', 'TrustedExecutionContext para cada verbo.'],
+      kernel: ['WorldKernel', 'North aprovado', 'Sete verbos e invariantes de autoridade.', 'Conhecer branches por provider, canal ou storage.', 'Discover, Query, Propose, Decide, Commit, Explain, Execute.'],
+      'release-node': ['WorldRelease', 'North aprovado', 'Coerência imutável do significado publicado.', 'Dados correntes, memberships, grants, secrets ou observações.', 'Quatro catalog digests; pin de cursors, proposals e receipts.'],
+      sourcecap: ['SourceCapability', 'extensão proposta', 'Definir quem pode submeter qual source shape, mapper, tempo e purpose.', 'Transformar possession de credential em verdade.', 'Evidence admission ou rejeição reproduzível.'],
+      policygate: ['Policy gate', 'North aprovado', 'Membership, delegation, object/action policy e autorização pré-discovery.', 'Rodar depois da busca, paginação, lineage ou tool generation.', 'Plano autorizado e PolicyEvidence.'],
+      entitlements: ['Data entitlements', 'extensão proposta', 'Direitos por source, field, series, purpose, exportação e redistribuição.', 'Confundir entrega técnica com direito contratual de uso.', 'Visible capability e lineage permission-scoped.'],
+      raw: ['Raw CAS', 'implementação física', 'Preservar bytes, request metadata, headers e digest exatos.', 'Interpretar, resolver ou aceitar significado.', 'ArtifactRef imutável citado por Evidence.'],
+      mapper: ['Normalize + resolve', 'extensão proposta', 'Executar mapper versionado e produzir candidatos tipados.', 'Mutar accepted state diretamente ou esconder ambiguidade.', 'Candidate claims + identity candidates + validation report.'],
+      knowledge: ['KnowledgeBasis', 'extensão proposta', 'Aplicar ResolutionPolicy publicada a um authority/data cut.', 'Apagar rivals ou se confundir com Action Receipt.', 'Seleção reproduzível + resolution receipt.'],
+      ledger: ['Authority ledger', 'North aprovado', 'Claims esparsos, definitions, decisions, commits, receipts e outbox.', 'Guardar uma claim por célula OHLCV.', 'Authority cut e eventos para projections.'],
+      observations: ['ObservationSeries', 'extensão proposta', 'Segmentos imutáveis, manifests, DatasetVersions e range queries.', 'Ser autoridade só porque é recente ou eficiente.', 'SeriesRef com provenance, rights e dataset cut.'],
+      objectset: ['ObjectSet<T>', 'extensão proposta', 'Compor plano lazy tipado e permission-scoped.', 'Materializar antes da policy ou esconder custos ilimitados.', 'ObjectViews paginadas com cursor selado.'],
+      objectview: ['ObjectView<T>', 'extensão proposta', 'Selected values, rivals, links, lineage, series refs e allowed Actions.', 'Fingir que uma leitura derivada é verdade sem basis.', 'State basis para resposta, explicação e Action.'],
+      proposal: ['Proposal + preview', 'North aprovado', 'Capturar inputs, state basis, impacto e invariantes.', 'Executar efeito ou aprovar pelo usuário.', 'Preview e decisão pendente.'],
+      decision: ['Decide + Commit', 'North aprovado', 'Registrar decisão do principal e aplicar uma transação de autoridade.', 'Declarar que o sistema externo já executou.', 'CommitReceipt + outbox.'],
+      restate: ['Restate ZoenEffect', 'North aprovado', 'Tentativa durável e reconciliação de efeitos externos.', 'Possuir conversa, ontology truth ou decisão.', 'Attempt records e outcomes known/unknown.'],
+      receipt: ['Receipt / Explain', 'North aprovado', 'Amarrar release, caller, policy, cut, evidence, decisão e efeito.', 'Expor lineage proibida pelo entitlement.', 'Explicação causal permission-scoped.']
+    };
+    const defaultInvariant = 'result = WorldRelease × authority/data cut × caller context';
+    const readInvariant = 'read = release × valid_at × knowledge_cut × knowledge_basis × principal/purpose';
+    const nodes = [...document.querySelectorAll('.node')];
+    const modeButtons = [...document.querySelectorAll('[data-mode]')].filter(function(el) { return el.tagName === 'BUTTON'; });
+    function selectNode(node) {
+      nodes.forEach(function(n) { n.classList.toggle('selected', n === node); });
+      const info = nodeInfo[node.dataset.node];
+      if (!info) return;
+      document.getElementById('inspect-title').textContent = info[0];
+      document.getElementById('inspect-kind').textContent = info[1];
+      document.getElementById('inspect-owns').textContent = info[2];
+      document.getElementById('inspect-not').textContent = info[3];
+      document.getElementById('inspect-emits').textContent = info[4];
+      const mode = document.body.dataset.mode;
+      document.getElementById('inspect-invariant').textContent = (mode === 'read' || mode === 'explain') ? readInvariant : defaultInvariant;
+    }
+    nodes.forEach(function(node) {
+      node.addEventListener('click', function() { selectNode(node); });
+    });
+    function setMode(mode, clicked) {
+      document.body.dataset.mode = mode;
+      modeButtons.forEach(function(button) {
+        const active = button.dataset.mode === mode;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+      nodes.forEach(function(node) {
+        const flows = (node.dataset.flows || '').split(' ');
+        const active = mode === 'all' || flows.includes(mode);
+        node.classList.toggle('dimmed', !active);
+        const step = node.querySelector('.step');
+        if (step) {
+          const attr = 'order' + mode.charAt(0).toUpperCase() + mode.slice(1);
+          step.textContent = mode === 'all' ? '' : (node.dataset[attr] || '');
+        }
+      });
+      document.querySelectorAll('.arrow').forEach(function(arrow) {
+        const active = mode === 'all' || (arrow.dataset.flows || '').split(' ').includes(mode);
+        arrow.classList.toggle('dimmed', !active);
+      });
+      document.getElementById('inspect-invariant').textContent = (mode === 'read' || mode === 'explain') ? readInvariant : defaultInvariant;
+      if (clicked) {
+        const first = nodes.find(function(node) { return !node.classList.contains('dimmed'); });
+        if (first) selectNode(first);
+      }
+    }
+    modeButtons.forEach(function(button) {
+      button.addEventListener('click', function() { setMode(button.dataset.mode, true); });
+    });
+    const navLinks = [...document.querySelectorAll('nav a')];
+    const sections = navLinks.map(function(a) { return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+    const observer = new IntersectionObserver(function(entries) {
+      const visible = entries.filter(function(e) { return e.isIntersecting; }).sort(function(a,b) { return b.intersectionRatio - a.intersectionRatio; })[0];
+      if (!visible) return;
+      navLinks.forEach(function(a) { a.classList.toggle('active', a.getAttribute('href') === '#' + visible.target.id); });
+    }, { rootMargin: '-20% 0px -68% 0px', threshold: [0,.15,.4] });
+    sections.forEach(function(section) { observer.observe(section); });
+    const releaseNode = document.querySelector('[data-node="release-node"]');
+    if (releaseNode) selectNode(releaseNode);
+  </script>
+</body>
+</html>

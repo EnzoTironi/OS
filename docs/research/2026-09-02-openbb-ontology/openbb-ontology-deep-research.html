@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>OpenBB × Bloomberg × Palantir × Zoen — Deep Research</title>
+  <style>
+    :root {
+      --bg: #090b0c;
+      --panel: #101416;
+      --panel-2: #151b1e;
+      --ink: #eef2ed;
+      --muted: #91a09a;
+      --line: #27302d;
+      --green: #8bf5b4;
+      --cyan: #74d8ed;
+      --amber: #ffc56e;
+      --rose: #ff8a9a;
+      --violet: #b7a0ff;
+      --blue: #7aa7ff;
+      --radius: 18px;
+      --shadow: 0 22px 70px rgba(0,0,0,.32);
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 84% -8%, rgba(116,216,237,.10), transparent 25rem),
+        radial-gradient(circle at 44% 14%, rgba(139,245,180,.06), transparent 30rem),
+        var(--bg);
+      font-family: var(--sans);
+      line-height: 1.5;
+    }
+    a { color: inherit; }
+    button { font: inherit; }
+    code, pre, .mono { font-family: var(--mono); }
+    .shell { display: grid; grid-template-columns: 265px minmax(0,1fr); min-height: 100vh; }
+    .rail {
+      position: sticky; top: 0; height: 100vh; overflow: auto;
+      padding: 28px 22px; border-right: 1px solid var(--line);
+      background: rgba(9,11,12,.88); backdrop-filter: blur(18px); z-index: 5;
+    }
+    .brand { display: flex; gap: 11px; align-items: center; margin-bottom: 34px; }
+    .brandmark {
+      width: 35px; height: 35px; display: grid; place-items: center;
+      border: 1px solid rgba(139,245,180,.5); border-radius: 10px;
+      background: linear-gradient(145deg, rgba(139,245,180,.13), transparent);
+      color: var(--green); font: 700 13px var(--mono);
+    }
+    .brand strong { display: block; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    .brand small { color: var(--muted); font: 11px var(--mono); }
+    nav { display: grid; gap: 3px; }
+    nav a {
+      color: var(--muted); text-decoration: none; font-size: 13px;
+      padding: 8px 10px; border-radius: 8px; border-left: 2px solid transparent;
+      transition: .18s ease;
+    }
+    nav a:hover, nav a.active { color: var(--ink); background: rgba(255,255,255,.035); border-left-color: var(--green); }
+    .rail-foot { margin-top: 34px; padding-top: 18px; border-top: 1px solid var(--line); }
+    .rail-foot p { margin: 0 0 8px; color: var(--muted); font-size: 11px; }
+    .sha { color: var(--green); word-break: break-all; font: 10px/1.5 var(--mono); }
+    main { min-width: 0; padding: 0 42px 100px; }
+    .wrap { width: min(1280px, 100%); margin: 0 auto; }
+    section { scroll-margin-top: 24px; padding: 76px 0 8px; }
+    .hero { padding-top: 70px; min-height: 92vh; display: grid; align-content: center; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 9px; width: fit-content;
+      color: var(--green); font: 700 11px var(--mono); letter-spacing: .12em; text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 24px; height: 1px; background: currentColor; }
+    h1 { margin: 20px 0 18px; max-width: 1050px; font-size: clamp(46px, 7vw, 92px); line-height: .95; letter-spacing: -.06em; font-weight: 650; }
+    h1 em { color: var(--green); font-style: normal; }
+    .lead { max-width: 880px; color: #c4cfca; font-size: clamp(18px, 2vw, 25px); line-height: 1.48; letter-spacing: -.015em; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 28px 0 34px; }
+    .pill { padding: 7px 10px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); font: 11px var(--mono); background: rgba(255,255,255,.02); }
+    .pill.live { color: var(--green); border-color: rgba(139,245,180,.35); }
+    .thesis {
+      display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-top: 20px;
+    }
+    .layer {
+      min-height: 175px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: linear-gradient(150deg, rgba(255,255,255,.035), rgba(255,255,255,.01));
+      position: relative; overflow: hidden;
+    }
+    .layer::after { content: attr(data-n); position: absolute; right: 11px; top: -11px; color: rgba(255,255,255,.035); font: 700 76px var(--mono); }
+    .layer h3 { margin: 30px 0 6px; font-size: 18px; }
+    .layer p { margin: 0; color: var(--muted); font-size: 13px; }
+    .layer .role { font: 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .openbb .role { color: var(--cyan); } .bloomberg .role { color: var(--amber); }
+    .palantir .role { color: var(--violet); } .zoen .role { color: var(--green); }
+    .hero-note { margin-top: 16px; padding: 18px 21px; border-left: 3px solid var(--green); background: rgba(139,245,180,.055); color: #d9e4df; font-size: 15px; }
+    .section-head { display: grid; grid-template-columns: minmax(0,1fr) minmax(240px,430px); gap: 35px; align-items: end; margin-bottom: 30px; }
+    .kicker { color: var(--green); font: 700 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+    h2 { margin: 8px 0 0; font-size: clamp(30px, 4vw, 55px); line-height: 1.02; letter-spacing: -.045em; font-weight: 620; }
+    .section-head > p { margin: 0; color: var(--muted); font-size: 14px; }
+    h3 { letter-spacing: -.02em; }
+    .card { border: 1px solid var(--line); border-radius: var(--radius); background: rgba(16,20,22,.84); box-shadow: var(--shadow); }
+    .claim { position: relative; }
+    .claim::before {
+      content: attr(data-kind); position: absolute; top: 13px; right: 13px;
+      color: var(--muted); font: 700 9px var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    }
+    .claim[data-kind="fato"]::before { color: var(--cyan); }
+    .claim[data-kind="inferência"]::before { color: var(--amber); }
+    .claim[data-kind="recomendação"]::before { color: var(--green); }
+    .filterbar { display: flex; gap: 7px; flex-wrap: wrap; margin: 0 0 17px; }
+    .filterbar button {
+      color: var(--muted); border: 1px solid var(--line); border-radius: 99px; background: transparent;
+      padding: 7px 11px; cursor: pointer; font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em;
+    }
+    .filterbar button.active { background: var(--ink); color: #0a0c0d; border-color: var(--ink); }
+    body[data-filter="fato"] .claim:not([data-kind="fato"]),
+    body[data-filter="inferência"] .claim:not([data-kind="inferência"]),
+    body[data-filter="recomendação"] .claim:not([data-kind="recomendação"]) { opacity: .18; filter: grayscale(.8); }
+    .matrix { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 13px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font: 700 10px var(--mono); text-transform: uppercase; letter-spacing: .09em; }
+    td:first-child { color: #cfd7d3; font-weight: 600; }
+    tr:last-child td { border-bottom: 0; }
+    .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; transform: translateY(-1px); }
+    .strong .dot { background: var(--green); box-shadow: 0 0 0 4px rgba(139,245,180,.08); }
+    .partial .dot { background: var(--amber); }
+    .weak .dot { background: var(--rose); }
+    .unknown .dot { background: var(--muted); }
+    .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 13px; color: var(--muted); font-size: 11px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
+    .pad { padding: 22px; }
+    .repo { padding: 18px; min-height: 148px; }
+    .repo .repo-name { font: 700 13px var(--mono); color: var(--ink); word-break: break-word; }
+    .repo p { color: var(--muted); font-size: 12px; margin: 8px 0 15px; }
+    .repo .bottom { display: flex; justify-content: space-between; gap: 10px; align-items: end; }
+    .license { padding: 4px 7px; border-radius: 6px; background: rgba(116,216,237,.09); color: var(--cyan); font: 9px var(--mono); }
+    .license.agpl { color: var(--amber); background: rgba(255,197,110,.09); }
+    .commit { color: var(--muted); font: 9px var(--mono); }
+    .alert { padding: 22px; border: 1px solid rgba(255,197,110,.35); background: rgba(255,197,110,.055); border-radius: var(--radius); margin-top: 16px; }
+    .alert strong { color: var(--amber); }
+    .alert p { margin: 7px 0 0; color: #c8d0cc; font-size: 13px; }
+    .pipeline { display: grid; grid-template-columns: repeat(7,minmax(100px,1fr)); gap: 20px; padding: 24px; overflow-x: auto; }
+    .step { min-width: 105px; position: relative; }
+    .step:not(:last-child)::after { content: "→"; position: absolute; right: -16px; top: 28px; color: #52605a; }
+    .step b { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid rgba(116,216,237,.3); border-radius: 12px; color: var(--cyan); font: 700 11px var(--mono); }
+    .step h4 { margin: 12px 0 4px; font-size: 12px; }
+    .step p { margin: 0; font-size: 10px; color: var(--muted); line-height: 1.45; }
+    .statline { display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin: 14px 0; }
+    .stat { background: var(--panel); padding: 20px; }
+    .stat strong { display: block; color: var(--green); font: 650 31px var(--mono); letter-spacing: -.06em; }
+    .stat span { color: var(--muted); font-size: 11px; }
+    .chart-card { padding: 23px; }
+    .chart-card h3 { margin: 0 0 3px; font-size: 17px; }
+    .sub { color: var(--muted); font-size: 11px; margin: 0 0 20px; }
+    .bars { display: grid; gap: 11px; }
+    .bar-row { display: grid; grid-template-columns: minmax(82px,130px) minmax(160px,1fr) 54px; gap: 10px; align-items: center; }
+    .bar-row label { color: #b9c5bf; font: 10px var(--mono); }
+    .track { height: 9px; border-radius: 99px; background: #1f2724; overflow: hidden; }
+    .fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--cyan),var(--green)); }
+    .fill.amber { background: linear-gradient(90deg,var(--amber),#fff0b5); }
+    .bar-row output { color: var(--muted); text-align: right; font: 10px var(--mono); }
+    .micro { color: var(--muted); font-size: 10px; margin-top: 14px; }
+    .split-callout { display: grid; grid-template-columns: 1fr 1fr; gap: 0; overflow: hidden; }
+    .split-callout > div { padding: 25px; }
+    .split-callout > div:first-child { background: rgba(116,216,237,.055); border-right: 1px solid var(--line); }
+    .split-callout h3 { margin: 0 0 10px; }
+    .split-callout p, .split-callout li { color: #b6c1bc; font-size: 13px; }
+    .split-callout ul { padding-left: 18px; margin: 10px 0 0; }
+    .formula { padding: 18px; margin: 14px 0 0; overflow: auto; border-radius: 12px; border: 1px solid var(--line); background: #090c0d; color: var(--green); font: 12px/1.8 var(--mono); }
+    .ibm-query { padding: 20px; background: #0b0e0f; }
+    .ibm-query .query { color: var(--cyan); font: 11px/1.7 var(--mono); }
+    .big-number { display: flex; gap: 20px; align-items: baseline; margin: 14px 0 20px; }
+    .big-number strong { font: 680 72px/.9 var(--mono); letter-spacing: -.08em; color: var(--amber); }
+    .big-number span { color: var(--muted); font-size: 13px; max-width: 240px; }
+    .id-tree { display: grid; gap: 12px; }
+    .id-level { display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: stretch; }
+    .id-level .label { display: grid; place-items: center; text-align: center; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); font: 10px var(--mono); }
+    .nodes { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.015); }
+    .node { padding: 8px 10px; border-radius: 8px; background: #1a2220; color: #dce4e0; font: 10px var(--mono); }
+    .node.primary { color: var(--green); border: 1px solid rgba(139,245,180,.3); }
+    .semantic-key { margin: 18px 0 0; padding: 22px; border-radius: var(--radius); border: 1px solid rgba(255,197,110,.32); background: linear-gradient(140deg, rgba(255,197,110,.07), transparent); }
+    .semantic-key h3 { margin: 0 0 13px; font-size: 17px; }
+    .semantic-key code { color: var(--amber); font-size: 12px; overflow-wrap: anywhere; }
+    .fourfold { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; aspect-ratio: 1.35; max-width: 560px; margin: auto; }
+    .quadrant { border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; align-content: end; background: rgba(255,255,255,.02); }
+    .quadrant strong { font-size: 20px; }
+    .quadrant span { color: var(--muted); font-size: 11px; }
+    .quadrant:nth-child(1) strong { color: var(--cyan); }
+    .quadrant:nth-child(2) strong { color: var(--violet); }
+    .quadrant:nth-child(3) strong { color: var(--amber); }
+    .quadrant:nth-child(4) strong { color: var(--green); }
+    .series-boundary { padding: 25px; display: grid; gap: 18px; }
+    .series-flow { display: grid; grid-template-columns: 1fr 54px 1fr; gap: 12px; align-items: center; }
+    .series-box { padding: 19px; border: 1px solid var(--line); border-radius: 14px; min-height: 150px; }
+    .series-box h4 { margin: 0 0 7px; }
+    .series-box p { margin: 0; color: var(--muted); font-size: 12px; }
+    .series-arrow { text-align: center; color: var(--green); font: 26px var(--mono); }
+    .strength { padding: 19px; min-height: 150px; }
+    .strength .icon { color: var(--green); font: 20px var(--mono); }
+    .strength h3 { margin: 15px 0 5px; font-size: 15px; }
+    .strength p { margin: 0; color: var(--muted); font-size: 12px; }
+    .gap { padding: 20px; min-height: 178px; }
+    .gap .severity { font: 9px var(--mono); color: var(--rose); text-transform: uppercase; letter-spacing: .1em; }
+    .gap h3 { margin: 25px 0 7px; font-size: 16px; }
+    .gap p { margin: 0; color: var(--muted); font-size: 12px; }
+    .scale { padding: 28px; background: linear-gradient(145deg,rgba(255,138,154,.06),rgba(255,197,110,.03)); }
+    .equation { font: 600 clamp(21px,3vw,37px)/1.35 var(--mono); letter-spacing: -.05em; color: #f7dfbe; }
+    .equation b { color: var(--rose); }
+    .scale-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 22px; }
+    .scale-item { padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,.18); }
+    .scale-item strong { display: block; color: var(--amber); font: 17px var(--mono); }
+    .scale-item span { color: var(--muted); font-size: 11px; }
+    .architecture { padding: 25px; overflow: hidden; }
+    .arch-row { display: grid; grid-template-columns: 160px 1fr; gap: 13px; margin-bottom: 12px; }
+    .arch-label { display: flex; align-items: center; color: var(--muted); font: 700 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .arch-cells { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; }
+    .arch-cell { min-height: 79px; padding: 13px; border-radius: 11px; border: 1px solid var(--line); background: #131819; position: relative; }
+    .arch-cell h4 { margin: 0 0 5px; font-size: 12px; }
+    .arch-cell p { margin: 0; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+    .arch-cell.span-2 { grid-column: span 2; }
+    .arch-cell.span-3 { grid-column: span 3; }
+    .arch-cell.accent { border-color: rgba(139,245,180,.36); background: rgba(139,245,180,.05); }
+    .arch-cell.data { border-color: rgba(116,216,237,.28); }
+    .arch-cell.action { border-color: rgba(183,160,255,.3); }
+    .arch-cell.security { border-color: rgba(255,197,110,.3); }
+    .arch-spine { margin: 15px 0 12px 173px; padding: 11px 15px; border-radius: 10px; color: var(--green); background: rgba(139,245,180,.07); border: 1px dashed rgba(139,245,180,.3); font: 11px var(--mono); }
+    pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .contract { padding: 22px; background: #090d0e; overflow: auto; font: 11px/1.72 var(--mono); color: #b9c7c1; }
+    .contract .key { color: var(--cyan); } .contract .str { color: var(--green); } .contract .warn { color: var(--amber); }
+    .decision-table td:nth-child(2) { color: var(--green); }
+    .decision-table td:nth-child(3) { color: var(--amber); }
+    .decision-table td:nth-child(4) { color: #b7aeb1; }
+    .journeys { counter-reset: j; }
+    .journey { padding: 22px; position: relative; min-height: 205px; }
+    .journey::before { counter-increment: j; content: "0" counter(j); color: rgba(139,245,180,.22); position: absolute; top: 8px; right: 15px; font: 700 49px var(--mono); }
+    .journey h3 { margin: 26px 0 7px; max-width: 85%; }
+    .journey p { color: var(--muted); font-size: 12px; }
+    .proof { color: var(--green); font: 10px/1.5 var(--mono); }
+    details { border-top: 1px solid var(--line); }
+    details:last-child { border-bottom: 1px solid var(--line); }
+    summary { cursor: pointer; padding: 16px 4px; color: #d8e0dc; font-size: 13px; list-style: none; display: flex; justify-content: space-between; }
+    summary::after { content: "+"; color: var(--green); font: 18px var(--mono); }
+    details[open] summary::after { content: "−"; }
+    .source-list { display: grid; gap: 8px; padding: 0 4px 18px; }
+    .source-list a, .source-list .local { color: var(--muted); font: 10.5px/1.55 var(--mono); text-decoration: none; overflow-wrap: anywhere; }
+    .source-list a:hover { color: var(--cyan); }
+    .method { padding: 24px; }
+    .method ol { margin: 0; padding-left: 20px; color: #bac4bf; font-size: 13px; }
+    .method li + li { margin-top: 8px; }
+    .footer { margin-top: 70px; padding: 26px 0; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 20px; color: var(--muted); font: 10px var(--mono); }
+    .toplink { text-decoration: none; color: var(--green); }
+    @media (max-width: 1050px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail { position: sticky; height: auto; padding: 12px 18px; border-right: 0; border-bottom: 1px solid var(--line); display: flex; gap: 18px; align-items: center; overflow-x: auto; }
+      .brand { margin: 0; flex: 0 0 auto; } .brand small, .rail-foot { display: none; }
+      nav { display: flex; min-width: max-content; } nav a { border-left: 0; border-bottom: 2px solid transparent; }
+      nav a.active { border-left-color: transparent; border-bottom-color: var(--green); }
+      main { padding: 0 24px 70px; }
+      .hero { min-height: auto; padding-top: 78px; }
+      .thesis, .grid-4 { grid-template-columns: repeat(2,1fr); }
+      .arch-row { grid-template-columns: 1fr; } .arch-label { padding-top: 8px; } .arch-spine { margin-left: 0; }
+    }
+    @media (max-width: 720px) {
+      main { padding-inline: 15px; }
+      section { padding-top: 58px; }
+      h1 { font-size: 48px; }
+      .section-head { grid-template-columns: 1fr; gap: 12px; }
+      .thesis, .grid-2, .grid-3, .grid-4, .statline, .scale-grid { grid-template-columns: 1fr; }
+      .split-callout { grid-template-columns: 1fr; } .split-callout > div:first-child { border-right: 0; border-bottom: 1px solid var(--line); }
+      .pipeline { grid-template-columns: 1fr; } .step:not(:last-child)::after { content: "↓"; right: auto; left: 50px; top: auto; bottom: -21px; }
+      .bar-row { grid-template-columns: 82px 1fr 42px; }
+      .id-level { grid-template-columns: 1fr; } .id-level .label { min-height: 40px; }
+      .series-flow { grid-template-columns: 1fr; } .series-arrow { transform: rotate(90deg); }
+      .arch-cells { grid-template-columns: 1fr; } .arch-cell.span-2, .arch-cell.span-3 { grid-column: auto; }
+      .big-number { align-items: flex-start; flex-direction: column; } .big-number strong { font-size: 61px; }
+      .footer { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+  </style>
+</head>
+<body data-filter="all">
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brandmark">Z∴</div>
+        <div><strong>Deep Research</strong><small>source-pinned / 2026-09-02</small></div>
+      </div>
+      <nav aria-label="Navegação do relatório">
+        <a href="#thesis" class="active">01 · Tese</a>
+        <a href="#map">02 · Mapa comparativo</a>
+        <a href="#snapshots">03 · Repositórios</a>
+        <a href="#openbb">04 · OpenBB por dentro</a>
+        <a href="#identity">05 · Identidade / IBM</a>
+        <a href="#bloomberg">06 · Bloomberg</a>
+        <a href="#standards">07 · Padrões</a>
+        <a href="#palantir">08 · Palantir</a>
+        <a href="#zoen">09 · Audit Zoen</a>
+        <a href="#target">10 · Arquitetura alvo</a>
+        <a href="#journeys">11 · Jornadas</a>
+        <a href="#evidence">12 · Evidências</a>
+      </nav>
+      <div class="rail-foot">
+        <p>Zoen auditado em</p>
+        <div class="sha">e34445c511f24e879c3dfb93387861f7cdd9e98e</div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="wrap">
+        <section class="hero" id="thesis">
+          <div class="eyebrow">21 repos únicos clonados · specs + filings + APIs capturados</div>
+          <h1>OpenBB não é Bloomberg.<br>E nenhum dos dois é uma <em>Ontology.</em></h1>
+          <p class="lead">A oportunidade para o Zoen não é recriar um terminal. É juntar quatro competências que hoje vivem separadas: federação de dados, identidade financeira, mundo operacional e autoridade causal.</p>
+          <div class="meta-row">
+            <span class="pill live">pesquisa em 02 set 2026</span>
+            <span class="pill">fontes primárias</span>
+            <span class="pill">commits fixados</span>
+            <span class="pill">audit read-only do Zoen</span>
+            <span class="pill">fato ≠ inferência ≠ recomendação</span>
+          </div>
+          <div class="thesis" aria-label="As quatro camadas centrais">
+            <article class="layer openbb" data-n="1"><span class="role">Federação + experiência</span><h3>OpenBB</h3><p>Adapters, modelos comuns, Python/REST/MCP, widgets e contexto analítico para agentes.</p></article>
+            <article class="layer bloomberg" data-n="2"><span class="role">Dados + identidade</span><h3>Bloomberg</h3><p>Security master, catálogo de campos, conteúdo licenciado, entitlements e distribuição.</p></article>
+            <article class="layer palantir" data-n="3"><span class="role">Mundo operacional</span><h3>Palantir</h3><p>Objetos, links, lógica, Actions e segurança compondo decisões e write-back.</p></article>
+            <article class="layer zoen" data-n="4"><span class="role">Autoridade + causalidade</span><h3>Zoen</h3><p>Definições publicadas, evidência bitemporal, cuts, policy, commits e efeitos reconciliados.</p></article>
+          </div>
+          <div class="hero-note claim" data-kind="recomendação">O desenho vencedor é um <strong>Bloomberg-like data plane</strong> ligado a uma <strong>Palantir-like decision ontology</strong>, usando a disciplina de evidência/Action do Zoen e a ergonomia de extensões/superfícies do OpenBB.</div>
+        </section>
+
+        <section id="map">
+          <div class="section-head">
+            <div><span class="kicker">02 / mapa comparativo</span><h2>Mesma tela. Responsabilidades radicalmente diferentes.</h2></div>
+            <p>A matriz descreve evidência pública e o commit auditado — não marketing nem uma nota numérica arbitrária.</p>
+          </div>
+          <div class="filterbar" aria-label="Filtrar tipo de conclusão">
+            <button class="active" data-filter="all">Tudo</button>
+            <button data-filter="fato">Fatos</button>
+            <button data-filter="inferência">Inferências</button>
+            <button data-filter="recomendação">Recomendações</button>
+          </div>
+          <div class="card matrix claim" data-kind="inferência">
+            <table>
+              <thead><tr><th>Capacidade</th><th>OpenBB</th><th>Bloomberg</th><th>Palantir</th><th>Zoen atual</th></tr></thead>
+              <tbody>
+                <tr><td>Identidade</td><td class="weak"><span class="dot"></span>provider/symbol local</td><td class="strong"><span class="dot"></span>FIGI + unified model</td><td class="partial"><span class="dot"></span>primary keys / object links</td><td class="weak"><span class="dot"></span>EntityId nominal</td></tr>
+                <tr><td>Federação de fontes</td><td class="strong"><span class="dot"></span>plugin-first</td><td class="strong"><span class="dot"></span>produto gerenciado</td><td class="strong"><span class="dot"></span>multimodal data plane</td><td class="partial"><span class="dot"></span>source/CAS emergente</td></tr>
+                <tr><td>Contrato de campos</td><td class="partial"><span class="dot"></span>Pydantic + extras</td><td class="strong"><span class="dot"></span>catálogo + runtime schema</td><td class="strong"><span class="dot"></span>properties/interfaces</td><td class="partial"><span class="dot"></span>relations/exact values</td></tr>
+                <tr><td>Proveniência causal</td><td class="partial"><span class="dot"></span>provider/widget; SEC forte</td><td class="partial"><span class="dot"></span>source-file trace pública</td><td class="strong"><span class="dot"></span>governance/audit</td><td class="strong"><span class="dot"></span>supporting/rival/dependency</td></tr>
+                <tr><td>Tempo / versões</td><td class="partial"><span class="dot"></span>endpoint-dependent</td><td class="strong"><span class="dot"></span>PIT/history product</td><td class="strong"><span class="dot"></span>datasets/streams/time series</td><td class="strong"><span class="dot"></span>valid + knowledge time</td></tr>
+                <tr><td>Verbos governados</td><td class="weak"><span class="dot"></span>analytics/tools</td><td class="partial"><span class="dot"></span>workflows, internals opacos</td><td class="strong"><span class="dot"></span>Actions/functions</td><td class="strong"><span class="dot"></span>propose/approve/commit</td></tr>
+                <tr><td>Segurança de dados</td><td class="partial"><span class="dot"></span>credentials/provider terms</td><td class="strong"><span class="dot"></span>entitlements centrais</td><td class="strong"><span class="dot"></span>schema + instance + action</td><td class="partial"><span class="dot"></span>entity reads + Actions</td></tr>
+                <tr><td>Superfícies</td><td class="strong"><span class="dot"></span>Python/REST/MCP/widgets</td><td class="strong"><span class="dot"></span>Terminal/API/files/cloud</td><td class="strong"><span class="dot"></span>apps/SDK/workflows</td><td class="partial"><span class="dot"></span>CLI/API/Eve; inbound MCP ausente</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="legend"><span class="strong"><span class="dot"></span>forte na evidência observada</span><span class="partial"><span class="dot"></span>parcial / escopo específico</span><span class="weak"><span class="dot"></span>ausente ou insuficiente para este fim</span></div>
+        </section>
+
+        <section id="snapshots">
+          <div class="section-head">
+            <div><span class="kicker">03 / clone inventory</span><h2>O que foi realmente aberto e lido.</h2></div>
+            <p>O GitHub expunha 42 repositórios públicos na organização. Dezessete árvores OpenBB e quatro repositórios independentes de semântica financeira foram clonados e fixados.</p>
+          </div>
+          <div class="grid-3">
+            <article class="card repo"><div class="repo-name">OpenBB</div><p>ODP, providers, API, MCP e desktop.</p><div class="bottom"><span class="license agpl">AGPL-3.0</span><span class="commit">3e071fc</span></div></article>
+            <article class="card repo"><div class="repo-name">openbb-docs</div><p>Contratos públicos de ODP e Workspace.</p><div class="bottom"><span class="license">MIT</span><span class="commit">acd5b2b</span></div></article>
+            <article class="card repo"><div class="repo-name">backends-for-openbb</div><p>Integrações e backends de apps.</p><div class="bottom"><span class="license">MIT</span><span class="commit">a629370</span></div></article>
+            <article class="card repo"><div class="repo-name">design-system</div><p>Componentes da experiência, não o produto inteiro.</p><div class="bottom"><span class="license">MIT</span><span class="commit">8a35011</span></div></article>
+            <article class="card repo"><div class="repo-name">widgets-library</div><p>Assets/widgets; referências históricas ao Terminal Pro.</p><div class="bottom"><span class="license">MIT</span><span class="commit">31378c4</span></div></article>
+            <article class="card repo"><div class="repo-name">platform-pro-backend</div><p>Adaptador OpenAPI → widgets.json.</p><div class="bottom"><span class="license">MIT</span><span class="commit">2c7905c</span></div></article>
+            <article class="card repo"><div class="repo-name">openbb-ai</div><p>Protocolos/modelos de contexto e citação.</p><div class="bottom"><span class="license">MIT</span><span class="commit">9a2f099</span></div></article>
+            <article class="card repo"><div class="repo-name">agent-rita</div><p>Agente de referência e consumo de contexto.</p><div class="bottom"><span class="license">MIT</span><span class="commit">f673c1f</span></div></article>
+            <article class="card repo"><div class="repo-name">agents-for-openbb</div><p>Agentes e exemplos de integração.</p><div class="bottom"><span class="license">MIT</span><span class="commit">aa1073d</span></div></article>
+          </div>
+          <details style="margin-top:16px"><summary>Mais 8 repositórios OpenBB auxiliares, todos fixados por SHA</summary><div class="source-list">
+            <span class="local">openbb-docs-mcp · fa7b496 · MIT · docs retriever, não Workspace MCP</span>
+            <span class="local">openbb-cookiecutter · 538c478 · MIT · template de extension/provider</span>
+            <span class="local">openbb-snaptrade · 5edc96b · MIT · app/MCP autenticado</span>
+            <span class="local">openbb-brightquery · f5c9181 · MIT · app/backend example</span>
+            <span class="local">examples · 01ccc44 · MIT · notebooks/routines não contratuais</span>
+            <span class="local">awesome-openbb · 11d03e9 · MIT · ecosystem index</span>
+            <span class="local">experimental-openbb-platform-agent · 1cfee33 · sem root license · WIP antigo</span>
+            <span class="local">pywry · 82c85dd · MIT · optional chart dependency arquivada</span>
+          </div></details>
+          <h3 style="margin:28px 0 14px">Trilha independente de identidade, ontologia e contratos</h3>
+          <div class="grid-4">
+            <article class="card repo"><div class="repo-name">openfigi-api-examples</div><p>Exemplos operacionais do resolver OpenFIGI.</p><div class="bottom"><span class="license">pinned clone</span><span class="commit">f847dce</span></div></article>
+            <article class="card repo"><div class="repo-name">edmcouncil/fibo</div><p>Vocabulário financeiro OWL e status dos domínios.</p><div class="bottom"><span class="license">pinned clone</span><span class="commit">119fa8c</span></div></article>
+            <article class="card repo"><div class="repo-name">bloomberg/blpapi-http</div><p>FieldInfo, erros aninhados e contrato HTTP.</p><div class="bottom"><span class="license">official repo</span><span class="commit">dc49f3e</span></div></article>
+            <article class="card repo"><div class="repo-name">msitt/blpapi-python</div><p>Mirror técnico; nunca tratado como autoridade Bloomberg.</p><div class="bottom"><span class="license">3rd-party mirror</span><span class="commit">f4a164f</span></div></article>
+          </div>
+          <div class="alert claim" data-kind="fato"><strong>O anúncio é futuro; a licença do snapshot é presente.</strong><p>Em 25 ago 2026, OpenBB prometeu liberar Workspace, ODP, Copilot e Excel sob licença permissiva, mas disse que ordem e timing viriam depois. Em 02 set, seis nomes plausíveis — <span class="mono">workspace</span>, <span class="mono">workspace-mcp</span>, <span class="mono">openbb-workspace</span>, <span class="mono">openbb-copilot</span>, <span class="mono">openbb-excel</span> e <span class="mono">excel-addin</span> — retornavam 404 na API pública; o ODP auditado continuava AGPL. ODP MCP, Workspace MCP hospedado e Rita PoC são sistemas distintos.</p></div>
+          <p class="micro">Snapshot caveat: o tree <span class="mono">develop@3e071fc</span> declara package 4.7.3; a última release semântica observada era v4.7.0. Os counts abaixo descrevem o tree fixado, não qualquer instalação.</p>
+        </section>
+
+        <section id="openbb">
+          <div class="section-head">
+            <div><span class="kicker">04 / OpenBB por dentro</span><h2>Um compilador de integrações analíticas.</h2></div>
+            <p>A melhor leitura do ODP é: uma definição de provider se propaga até execução, OpenAPI, MCP e UI. O contrato é ótimo para conexão; a verdade continua fora dele.</p>
+          </div>
+          <div class="card pipeline claim" data-kind="fato">
+            <div class="step"><b>01</b><h4>Entry points</h4><p>core / provider / OBBject extensions</p></div>
+            <div class="step"><b>02</b><h4>Provider</h4><p>credentials + fetcher_dict</p></div>
+            <div class="step"><b>03</b><h4>Fetcher</h4><p>transform → extract → transform</p></div>
+            <div class="step"><b>04</b><h4>RegistryMap</h4><p>standard vs provider extras</p></div>
+            <div class="step"><b>05</b><h4>Router</h4><p>assinatura e schema dinâmicos</p></div>
+            <div class="step"><b>06</b><h4>One provider</h4><p>QueryExecutor resolve um fetcher</p></div>
+            <div class="step"><b>07</b><h4>Surfaces</h4><p>Python · REST · MCP · widget</p></div>
+          </div>
+          <div class="statline claim" data-kind="fato">
+            <div class="stat"><strong>32</strong><span>providers, excluindo tests</span></div>
+            <div class="stat"><strong>202</strong><span>capabilities/model names</span></div>
+            <div class="stat"><strong>350</strong><span>provider-capability bindings</span></div>
+            <div class="stat"><strong>66.3%</strong><span>capabilities com 1 provider</span></div>
+          </div>
+          <div class="card matrix claim" data-kind="fato" style="margin-bottom:14px">
+            <table><thead><tr><th>Install universe</th><th>Providers</th><th>Provider/model pairs</th><th>Unique models</th><th>Core entry points</th><th>Declared → eligible routes</th></tr></thead><tbody>
+              <tr><td>default install</td><td>17</td><td>266</td><td>180</td><td>15</td><td>210 → 193</td></tr>
+              <tr><td>all checked-in extras</td><td>32</td><td>350</td><td>202</td><td>19</td><td>278 → 277</td></tr>
+            </tbody></table>
+          </div>
+          <div class="statline claim" data-kind="fato">
+            <div class="stat"><strong>425</strong><span>widget defs antes de filtros/clones</span></div>
+            <div class="stat"><strong>216</strong><span>all-extras MCP command candidates</span></div>
+            <div class="stat"><strong>212/65</strong><span>GET / POST nas 277 rotas</span></div>
+            <div class="stat"><strong>0</strong><span>path/tool/widget ID collisions</span></div>
+          </div>
+          <div class="grid-2">
+            <article class="card chart-card claim" data-kind="fato">
+              <h3>Cauda de cobertura</h3><p class="sub">quantos capabilities possuem N providers · total 202</p>
+              <div class="bars">
+                <div class="bar-row"><label>1 provider</label><div class="track"><span class="fill" style="width:66.3%"></span></div><output>134</output></div>
+                <div class="bar-row"><label>2 providers</label><div class="track"><span class="fill" style="width:15.8%"></span></div><output>32</output></div>
+                <div class="bar-row"><label>3 providers</label><div class="track"><span class="fill" style="width:6.4%"></span></div><output>13</output></div>
+                <div class="bar-row"><label>4 providers</label><div class="track"><span class="fill" style="width:5.9%"></span></div><output>12</output></div>
+                <div class="bar-row"><label>5 providers</label><div class="track"><span class="fill" style="width:2.5%"></span></div><output>5</output></div>
+                <div class="bar-row"><label>6 providers</label><div class="track"><span class="fill" style="width:2%"></span></div><output>4</output></div>
+                <div class="bar-row"><label>8 providers</label><div class="track"><span class="fill" style="width:1%"></span></div><output>2</output></div>
+              </div>
+              <p class="micro">Auditoria estática de <span class="mono">fetcher_dict</span>; mede substituibilidade estrutural, não qualidade/availability do dado.</p>
+            </article>
+            <article class="card chart-card claim" data-kind="fato">
+              <h3>Vocabulário de identidade</h3><p class="sub">arquivos contendo o token / 180 standard models</p>
+              <div class="bars">
+                <div class="bar-row"><label>symbol</label><div class="track"><span class="fill amber" style="width:65%"></span></div><output>117</output></div>
+                <div class="bar-row"><label>currency</label><div class="track"><span class="fill amber" style="width:17.2%"></span></div><output>31</output></div>
+                <div class="bar-row"><label>CIK</label><div class="track"><span class="fill amber" style="width:6.7%"></span></div><output>12</output></div>
+                <div class="bar-row"><label>CUSIP</label><div class="track"><span class="fill amber" style="width:5%"></span></div><output>9</output></div>
+                <div class="bar-row"><label>ISIN</label><div class="track"><span class="fill amber" style="width:3.3%"></span></div><output>6</output></div>
+                <div class="bar-row"><label>FIGI</label><div class="track"><span class="fill amber" style="width:1.7%"></span></div><output>3</output></div>
+                <div class="bar-row"><label>MIC / timezone</label><div class="track"><span class="fill amber" style="width:0%"></span></div><output>0</output></div>
+              </div>
+              <p class="micro">Scan case-insensitive de tokens; não é uma nota de qualidade. Mostra quais conceitos não são invariantes universais do núcleo.</p>
+            </article>
+          </div>
+          <div class="card split-callout claim" data-kind="inferência" style="margin-top:14px">
+            <div><h3>O que “standard” realmente faz</h3><ul><li>alinha nomes e tipos compartilhados;</li><li>injeta parâmetros comuns + extras;</li><li>produz schemas transparentes;</li><li>faz novos providers caberem nas superfícies.</li></ul></div>
+            <div><h3>O que permanece implícito</h3><ul><li>identidade econômica e venue;</li><li>currency, timezone, calendar e adjustment;</li><li>vintage/as-of e autoridade do provider;</li><li>raw digest, licença, entitlement e reconciliação.</li></ul></div>
+          </div>
+          <div class="grid-3" style="margin-top:14px">
+            <article class="card pad claim" data-kind="fato"><h3>Fallback, não ranking</h3><p class="sub">Provider explícito vence; senão vale default/prioridade gerada e o primeiro cujas credentials existem. Uptime, custo, latency, freshness e quality não pontuam.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>OBBject é attribution</h3><p class="sub">Result, provider, warnings, chart e <span class="mono">extra</span>; invocation metadata e metadata do provider são opcionais. Não há raw digest/license/entitlement/lineage graph obrigatório.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Três MCPs, três boundaries</h3><p class="sub">ODP MCP deriva FastAPI; Workspace MCP é serviço hospedado documentado e sem source público; Rita é bridge PoC in-memory. Não transferir guarantees entre eles.</p></article>
+          </div>
+          <div class="grid-3" style="margin-top:14px">
+            <article class="card pad claim" data-kind="fato"><h3>MCP progressivo</h3><p class="sub">A extensão deriva tools do FastAPI, comprime schema, cria índice categórico e deixa tools desabilitadas para ativação por sessão. Excelente defesa do context window.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Workspace context</h3><p class="sub">Widgets e parâmetros sincronizados preservam a sessão analítica. Agent Rita transforma tabelas em SQLite e texto em prompt.</p></article>
+            <article class="card pad claim" data-kind="inferência"><h3>Citation ≠ lineage</h3><p class="sub">Widget + input args explica “de onde veio a análise”. Não reconstrói necessariamente cada linha/célula do raw payload ou uma decisão operacional.</p></article>
+          </div>
+          <div class="alert claim" data-kind="fato"><strong>Security boundary do código aberto.</strong><p>ODP core tem um global HTTP Basic e hook para auth extension; credentials são provider-scoped em settings locais/env. Workspace Enterprise anuncia RBAC/audit/export/retention, mas a implementação não estava pública: claims de produto não viraram guarantees auditáveis neste snapshot.</p></div>
+          <div class="alert claim" data-kind="fato"><strong>A ilha semanticamente mais forte está no provider SEC.</strong><p>Ali aparecem 1.190 tags/namespace → 250 line items, 15 anos de taxonomias, proveniência por valor/período, distinção direct/imputed/corrected/reconciled/reconstructed, identidades contábeis e corpus de 970 históricos. Semântica profunda nasceu de uma vertical com regras e validação — não do envelope genérico.</p></div>
+        </section>
+
+        <section id="identity">
+          <div class="section-head">
+            <div><span class="kicker">05 / o teste IBM</span><h2>Um ticker não identifica um instrumento.</h2></div>
+            <p>O exemplo foi consultado na API pública OpenFIGI. É um snapshot vivo, não uma tabela estática: a cardinalidade pode mudar.</p>
+          </div>
+          <div class="grid-2">
+            <article class="card ibm-query claim" data-kind="fato">
+              <div class="query">POST /v3/mapping<br>{ "idType": "TICKER", "idValue": "IBM" }</div>
+              <div class="big-number"><strong>86</strong><span>registros no snapshot amplo — não “um IBM”</span></div>
+              <div class="bars">
+                <div class="bar-row"><label>common stock</label><div class="track"><span class="fill" style="width:73.3%"></span></div><output>63</output></div>
+                <div class="bar-row"><label>depositary receipt</label><div class="track"><span class="fill" style="width:20.9%"></span></div><output>18</output></div>
+                <div class="bar-row"><label>money market</label><div class="track"><span class="fill" style="width:5.8%"></span></div><output>5</output></div>
+              </div>
+              <p class="micro">O próprio OpenFIGI chama <span class="mono">BASE_TICKER</span> de indistinto e recomenda contexto adicional.</p>
+            </article>
+            <article class="card pad claim" data-kind="fato">
+              <div class="id-tree">
+                <div class="id-level"><div class="label">Share class</div><div class="nodes"><span class="node primary">BBG001S5S399</span><span class="node">classe global</span></div></div>
+                <div class="id-level"><div class="label">Composite</div><div class="nodes"><span class="node primary">BBG000BLNNH6 · US</span><span class="node">outros mercados</span></div></div>
+                <div class="id-level"><div class="label">Venue level</div><div class="nodes"><span class="node">BBG000BLNNV0 · UA</span><span class="node">BBG000BLNQ16 · UN</span><span class="node">…</span></div></div>
+              </div>
+              <p class="micro">Venue FIGIs convergem num Composite; composites da mesma classe convergem no Share Class FIGI. Depositary receipts podem pertencer a outra classe.</p>
+            </article>
+          </div>
+          <div class="card split-callout" style="margin-top:14px">
+            <div class="claim" data-kind="fato"><h3>Com <span class="mono">micCode=XNYS</span></h3><p><span class="mono">BBG000BLNQ16 · IBM UN</span> → <span class="mono">BBG000BLNNH6 · IBM US</span> → <span class="mono">BBG001S5S399</span>.</p><p>O MIC foi filtro de entrada; a resposta emite exchange code <span class="mono">UN</span>, não <span class="mono">XNYS</span>. A requisição é parte da evidência.</p></div>
+            <div class="claim" data-kind="inferência"><h3>Issuer ≠ security</h3><p><span class="mono">CIK 0000051143</span> identifica a IBM filer, que reporta equity e várias notes listadas. Nem SEC nem OpenFIGI afirmam diretamente <span class="mono">CIK → BBG001S5S399</span>; esse link é uma assertion de integração com fonte e confiança próprias.</p></div>
+          </div>
+          <div class="formula claim" data-kind="recomendação">LegalEntity → IssuerRole → Instrument/EquityClass → ShareClassFIGI → CompositeFIGI → VenueInstrumentFIGI → Venue → ObservationAssertion</div>
+          <div class="semantic-key claim" data-kind="recomendação">
+            <h3>A chave de uma observação de preço precisa carregar o contexto, não apenas <span class="mono">symbol</span>.</h3>
+            <code>Listing × Provider × Field × Venue/MIC × Currency × ValidTime × ObservedAt × Calendar × AdjustmentPolicy × License/Entitlement</code>
+          </div>
+          <div class="grid-2" style="margin-top:14px">
+            <article class="card pad claim" data-kind="fato"><h3>OpenBB standard model</h3><p class="sub">Entrada: <span class="mono">symbol, start_date, end_date</span>. Saída: <span class="mono">date, OHLC, volume?, vwap?</span>. Sem ID estável, venue, moeda, timezone, calendar ou adjustment obrigatórios.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Provider semantics leak</h3><p class="sub">Intrinio aceita ticker/FIGI/ISIN/CUSIP/ID no mesmo campo e adiciona timezone/source. YFinance adiciona interval, extended hours, actions e adjustment, e chama o helper com <span class="mono">ignore_tz=True</span>.</p></article>
+          </div>
+          <h3 style="margin:30px 0 14px">Um fato financeiro precisa de quatro relógios</h3>
+          <div class="grid-4">
+            <article class="card pad claim" data-kind="recomendação"><span class="kicker">01 · identity</span><h3>Validade do listing/alias</h3><p class="sub">Quando ticker, venue e assignment eram válidos.</p></article>
+            <article class="card pad claim" data-kind="recomendação"><span class="kicker">02 · economics</span><h3>Período observado</h3><p class="sub">Instant ou duração ao qual preço/fundamental se refere.</p></article>
+            <article class="card pad claim" data-kind="recomendação"><span class="kicker">03 · event</span><h3>Efeito corporativo</h3><p class="sub">Announcement, ex, record, pay e effective time.</p></article>
+            <article class="card pad claim" data-kind="recomendação"><span class="kicker">04 · knowledge</span><h3>Publicação / ingestão</h3><p class="sub">Quando a assertion foi publicada, recebida e conhecida.</p></article>
+          </div>
+          <div class="card matrix claim" data-kind="fato" style="margin-top:14px">
+            <table><thead><tr><th>IBM Assets · economic instant 2014-12-31</th><th>Accession</th><th>Filed</th><th>Valor USD</th></tr></thead><tbody>
+              <tr><td>assertion anterior</td><td class="mono">0001047469-15-001106</td><td>2015-02-24</td><td class="mono">117,532,000,000</td></tr>
+              <tr><td>assertion revisada</td><td class="mono">0001047469-16-010329</td><td>2016-02-23</td><td class="mono">117,271,000,000</td></tr>
+            </tbody></table>
+          </div>
+          <p class="micro">Mesmo subject + concept + period + unit não identifica uma assertion única. A query precisa declarar accession/as-filed, as-known-at, latest ou a política SEC frame. Companyfacts ainda omite dimensões completas e colapsa a identidade da taxonomy vintage.</p>
+        </section>
+
+        <section id="bloomberg">
+          <div class="section-head">
+            <div><span class="kicker">06 / Bloomberg</span><h2>O terminal é a superfície. O moat é o sistema de dados.</h2></div>
+            <p>A documentação pública permite observar contratos e escala; não expõe toda a arquitetura interna do Terminal.</p>
+          </div>
+          <div class="statline claim" data-kind="fato">
+            <div class="stat"><strong>70M+</strong><span>instrumentos</span></div>
+            <div class="stat"><strong>40k+</strong><span>campos</span></div>
+            <div class="stat"><strong>8k+</strong><span>datasets</span></div>
+            <div class="stat"><strong>100B+</strong><span>data points / dia</span></div>
+          </div>
+          <div class="grid-3">
+            <article class="card pad claim" data-kind="fato"><h3>Security master</h3><p class="sub">FIGI é opaco, permanente e não reutilizado. O unified model público liga legal entities, securities, markets e prices.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Field contracts</h3><p class="sub">BLPAPI Services/Operations expõem schemas de request/response em runtime. Data License entrega conteúdo em arquivos, REST e cloud.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Entitlements</h3><p class="sub">Services têm autorização para operações restritas; DL+ governa acesso, seleção de campos e refresh.</p></article>
+          </div>
+          <div class="grid-2" style="margin-top:14px">
+            <article class="card pad claim" data-kind="fato"><h3>Uma historical request é uma política</h3><p class="sub">Date range, calendar, currency, non-trading fill, periodicity, max points, price/yield e corporate-action adjustment mudam a resposta. <span class="mono">adjustmentFollowDPDF=true</span> delega ajuste aos defaults do Terminal e ignora flags explícitas. <span class="mono">(security, field, date)</span> não é reproduzível.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Field ID + definition snapshot</h3><p class="sub"><span class="mono">FieldInfoRequest</span> pode devolver unique ID, mnemonic, datatype, documentation, category, overrides e field type. HTTP 200 ainda pode conter response/security/field errors aninhados: status de transporte não é status semântico.</p></article>
+          </div>
+          <div class="card split-callout claim" data-kind="inferência" style="margin-top:14px">
+            <div><h3>Aberto</h3><p>FIGI, metadata básica, regras de alocação e especificação OMG podem formar uma ponte de identidade comum.</p></div>
+            <div><h3>Licenciado</h3><p>Preços, referência, fundamentais, estimates e outros facts têm termos, entitlements e direitos de redistribuição próprios.</p></div>
+          </div>
+          <div class="grid-3" style="margin-top:14px">
+            <article class="card pad claim" data-kind="recomendação"><h3>HolderEconomicRight</h3><p class="sub">Direito econômico do detentor — sentido de “entitlement” no FIBO.</p></article>
+            <article class="card pad claim" data-kind="recomendação"><h3>DataAccessEntitlement</h3><p class="sub">Autorização de user + service + EIDs para receber o dado.</p></article>
+            <article class="card pad claim" data-kind="recomendação"><h3>ContractualUsageRight</h3><p class="sub">Storage, display, derived use, model use, export e redistribution. Não deriva de um EID bem-sucedido.</p></article>
+          </div>
+          <div class="card split-callout" style="margin-top:14px">
+            <div class="claim" data-kind="fato"><h3>FIBO ajuda a nomear</h3><p>Issuer como role, instrument, listing com tempos e currency, ticker reassociável no contexto de exchange, pricing source e observed time.</p></div>
+            <div class="claim" data-kind="inferência"><h3>FIBO não entrega a operação</h3><p>Não fornece instances autoritativas, alocação FIGI, alias history, facts licenciados ou query semantics. Market Data e corporate-actions detalhados ainda estavam provisional no snapshot 2026.</p></div>
+          </div>
+          <div class="alert claim" data-kind="inferência"><strong>Conclusão segura.</strong><p>Bloomberg resolve três problemas juntos: “o que é isto?”, “qual campo/fato foi pedido?” e “quem pode consumir/redistribuir?”. A evidência pública fala em rastrear dados a source files; ela não prova lineage universal por célula dentro do Terminal.</p></div>
+        </section>
+
+        <section id="standards">
+          <div class="section-head">
+            <div><span class="kicker">07 / padrões institucionais</span><h2>Convergência real, sem inventar consenso.</h2></div>
+            <p>Seis standards confirmam invariantes diferentes. Nenhum deles, sozinho ou em conjunto, prescreve toda a arquitetura proposta para o Zoen.</p>
+          </div>
+          <div class="card matrix claim" data-kind="fato">
+            <table><thead><tr><th>Standard</th><th>Contribuição verificável</th><th>Boundary para o Zoen</th></tr></thead><tbody>
+              <tr><td>BCBS 239</td><td>governance, dictionary, source, ownership, accuracy/integrity/completeness/timeliness, reconciliation, exceptions, as-of reconstruction</td><td>todo view publicado precisa de owner, source, quality controls e diferenças explicadas; vários modelos físicos podem coexistir</td></tr>
+              <tr><td>GLEIF / LEI</td><td>ID legal opaco; Level 1 “who is who”; Level 2 “who owns whom”; periods/status, originator, validation source, full + delta files</td><td>stable ID + assignments; effective/recorded dates, validation, exceptions e deltas são first-class</td></tr>
+              <tr><td>FIBO</td><td>vocabulary formal de roles, instruments, listings, schemes, pricing e rights; maturity versionada</td><td>usar conceitos/crosswalks, não fingir que vocabulary é instance master ou lineage runtime</td></tr>
+              <tr><td>ISO 20022</td><td>Data Dictionary + Business Process Catalogue geram message concepts; códigos externos têm issuer/scheme</td><td>namespace obrigatório para códigos; interchange contract ≠ system of record</td></tr>
+              <tr><td>FINOS CDM</td><td>eventos como transições composáveis before → after; workflow lineage; corrections/cancellations e vários timestamps</td><td>mudança de negócio explícita e reconstruível; não implica storage físico append-only</td></tr>
+              <tr><td>W3C PROV-O</td><td>Entity–Activity–Agent; used/generated/derived/attributed/revision/primary source/delegation</td><td>transformação cita input, activity/plan, agent e output; provenance informa trust, não escolhe truth</td></tr>
+            </tbody></table>
+          </div>
+          <div class="alert claim" data-kind="inferência"><strong>Formulação segura.</strong><p>Os padrões sustentam significado explícito, IDs governados, eventos/timestamps distinguíveis, proveniência, qualidade e evolução controlada. Internal master ID, bitemporalidade completa, append-only, resolution receipt, provider entitlements e uma superfície única CLI/API/MCP/Eve são decisões informadas do Zoen — não exigências desses standards.</p></div>
+          <div class="alert claim" data-kind="recomendação"><strong>“Single authoritative source” não precisa apagar rivais.</strong><p>Preserve assertions, publique uma ResolutionPolicy por finalidade e materialize um accepted view com receipt: selected claims, rivals, quality, rule revision e motivo. Isso atende melhor a auditabilidade sem fabricar consenso.</p></div>
+        </section>
+
+        <section id="palantir">
+          <div class="section-head">
+            <div><span class="kicker">08 / Palantir</span><h2>Ontology não é uma semantic layer fina.</h2></div>
+            <p>A definição oficial é operacional: representar decisões por meio da integração de data, logic, action e security.</p>
+          </div>
+          <div class="grid-2">
+            <div class="fourfold claim" data-kind="fato">
+              <div class="quadrant"><strong>Data</strong><span>objects · properties · links</span></div>
+              <div class="quadrant"><strong>Logic</strong><span>rules · models · functions · LLMs</span></div>
+              <div class="quadrant"><strong>Action</strong><span>transactions · orchestration · write-back</span></div>
+              <div class="quadrant"><strong>Security</strong><span>schema · object · property · action</span></div>
+            </div>
+            <article class="card series-boundary claim" data-kind="fato">
+              <h3 style="margin:0">A pista decisiva: time series</h3>
+              <div class="series-flow">
+                <div class="series-box"><h4>Ontology object</h4><p>metadata + typed time-series property + series ID</p></div>
+                <div class="series-arrow">⇄</div>
+                <div class="series-box"><h4>Time-series sync</h4><p>dataset/stream indexa os pares timestamp/value</p></div>
+              </div>
+              <p class="micro">Objetos dão contexto e governança; o data plane carrega a densidade. Apps resolvem ambos como uma visão única.</p>
+            </article>
+          </div>
+          <div class="grid-3" style="margin-top:14px">
+            <article class="card pad claim" data-kind="fato"><h3>Language</h3><p class="sub">Objetos, links, properties, interfaces, actions, automations e lógica.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Engine</h3><p class="sub">Materializações, SQL, subscriptions, streams, transactions e CDC.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Toolchain</h3><p class="sub">Ontology SDK e tooling para construir apps sem quebrar governance.</p></article>
+          </div>
+          <div class="grid-4" style="margin-top:14px">
+            <article class="card pad claim" data-kind="fato"><h3>ObjectSet</h3><p class="sub">Lazy single-type plans: filters, Search Around, union/intersection/subtraction, ordering, limit e aggregation.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Typed links</h3><p class="sub">Dois lados nomeados; FK, join table ou link object quando a relação carrega metadata.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>Multi-object Actions</h3><p class="sub">Uma transação pode modificar vários objects, properties e links sob snapshot consistente.</p></article>
+            <article class="card pad claim" data-kind="fato"><h3>OSDK + Ontology MCP</h3><p class="sub">Clients e tools nascem do subset selecionado e do permission scope da aplicação/user.</p></article>
+          </div>
+          <div class="alert claim" data-kind="fato"><strong>Segurança também é uma boundary física.</strong><p>Palantir separa permissões de schema resource e instance data, com controles por object/row, property/column e combinações. A própria documentação alerta que read-time control não protege automaticamente downstream exports.</p></div>
+          <div class="alert claim" data-kind="recomendação"><strong>Para o Zoen, a lição não é “copiar Foundry”.</strong><p>É manter a separação física entre objetos operacionais e datasets/streams, enquanto os une por significado, policy, lineage e Actions. Interfaces semânticas devem prometer propriedades, links e verbos — não só campos comuns.</p></div>
+        </section>
+
+        <section id="zoen">
+          <div class="section-head">
+            <div><span class="kicker">09 / Zoen audit</span><h2>O kernel está certo. Quatro boundaries são P0.</h2></div>
+            <p>Audit final em <span class="mono">e34445c</span>. Os P0 se agrupam em quatro boundaries: identity/integrity, series, source admission e accepted view/entitlement.</p>
+          </div>
+          <div class="grid-4">
+            <article class="card strength claim" data-kind="fato"><span class="icon">◎</span><h3>Meaning published</h3><p>canonical JSON + digest + revision + activation/evolution.</p></article>
+            <article class="card strength claim" data-kind="fato"><span class="icon">◫</span><h3>Bitemporal evidence</h3><p>valid time + observed at + server-stamped ingestion + knowledge cut.</p></article>
+            <article class="card strength claim" data-kind="fato"><span class="icon">⟲</span><h3>Causal lineage</h3><p>supporting, rival e computation dependencies nos resultados.</p></article>
+            <article class="card strength claim" data-kind="fato"><span class="icon">◇</span><h3>Governed mutation</h3><p>proposal, policy, approval, preview/state basis, commit.</p></article>
+            <article class="card strength claim" data-kind="fato"><span class="icon">⇢</span><h3>Effect boundary</h3><p>commit não é external effect; tentativa e reconciliação são duráveis.</p></article>
+            <article class="card strength claim" data-kind="fato"><span class="icon">#</span><h3>Idempotence</h3><p>operation ID + intent digest reproduzem o primeiro receipt.</p></article>
+            <article class="card strength claim" data-kind="fato"><span class="icon">⌁</span><h3>Projection cut</h3><p>Snapshot semantics + exact least-privilege projection role; authority write é rejeitado.</p></article>
+            <article class="card strength claim" data-kind="fato"><span class="icon">⊢</span><h3>Human + workload</h3><p>session door, tenant boundary, Cedar e delegation existem.</p></article>
+          </div>
+          <h3 style="margin:38px 0 14px">Gaps observáveis</h3>
+          <div class="grid-3">
+            <article class="card gap claim" data-kind="fato"><span class="severity">P0 · correctness</span><h3>Entity não prova Type</h3><p>ByType infere membership pela presença de qualquer claim em relation cujo source_type coincide.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P0 · correctness</span><h3>Link target não é verificado</h3><p><span class="mono">RelationTarget::Type(T)</span> checa apenas se o value é Entity — não se a entidade é T.</p></article>
+            <article class="card gap claim" data-kind="inferência"><span class="severity">P0 · belief</span><h3>Latest ≠ true</h3><p>Para cardinality one no state basis, o helper seleciona o maior supporting commit. Autoridade/qualidade não entram na decisão.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P0 · scale</span><h3>Sem series plane</h3><p>Cada scalar claim recebe commit/outbox; o projector v1 relê tudo e produz snapshot Parquet completo.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P0 · security</span><h3>Write provenance não está bound</h3><p>RecordEvidence autentica sessão/tenant, mas o caminho genérico não avalia Cedar nem liga a source declarada ao caller.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P0 · entitlement</span><h3>Read policy depois da query</h3><p>A query/paginação encontra candidates antes da policy por entity. Faltam field/source/purpose controls e paginação livre de side-channel.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P0 · identity</span><h3>Sem security master</h3><p>Não existem assignments de identificadores, candidates, context, merge/split ou supersession.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P1 · object view</span><h3>Attributes declarativos</h3><p>TypeDefinition não materializa ainda um objeto com required properties e typed links verificáveis.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P1 · object sets</span><h3>Sem query algebra</h3><p>Não há filtros, ordering, aggregation, reverse traversal, set algebra ou saved views pinados a revision/cut/policy.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P1 · action shape</span><h3>Um proposal, um resource</h3><p>Effects declarativos escrevem scalars no mesmo resource. Scenario já empacota proposals atomicamente, mas ainda não é um Action multi-subject first-class.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P1 · surfaces</span><h3>MCP inbound não existe</h3><p>O CLI registry é estático; a trilha MCP executável é hoje um source/client connector, não tools do Ontology.</p></article>
+            <article class="card gap claim" data-kind="fato"><span class="severity">P2 · source</span><h3>Vertical ainda demo</h3><p>O fluxo atual guarda CAS e signals, mas mapeia resources hard-coded via <span class="mono">source.mapQuantity</span>.</p></article>
+          </div>
+          <div class="card scale claim" data-kind="inferência" style="margin-top:16px">
+            <span class="kicker" style="color:var(--rose)">o scale trap</span>
+            <p class="equation">10.000 listings × 252 dias × 10 anos × 6 campos = <b>151.200.000 scalar claims</b></p>
+            <div class="scale-grid">
+              <div class="scale-item"><strong>≤ 1.000</strong><span>claims por request batch</span></div>
+              <div class="scale-item"><strong>1 : 1 : 1</strong><span>direct claim → authority commit → outbox event</span></div>
+              <div class="scale-item"><strong>full rebuild</strong><span>projection v1 relê claims até o cut</span></div>
+            </div>
+            <p class="micro">A matemática usa apenas OHLCV diário. Intraday, quotes, fundamentals e revisions multiplicam a ordem de grandeza. Nuance: effects de uma Action e de um Scenario compartilham o commit da operação; o problema 1:1 é do ingresso direto. A query atual é point-in-time e um instant só casa no timestamp exato; não existe contrato nativo de latest/range/downsample.</p>
+          </div>
+        </section>
+
+        <section id="target">
+          <div class="section-head">
+            <div><span class="kicker">10 / arquitetura alvo</span><h2>Um data plane financeiro governado pelo Zoen.</h2></div>
+            <p>O ledger permanece a autoridade. A densidade vive em partitions imutáveis. ObjectView faz a composição no cut, sob policy.</p>
+          </div>
+          <div class="card architecture claim" data-kind="recomendação">
+            <div class="arch-row"><div class="arch-label">Acquisition</div><div class="arch-cells">
+              <div class="arch-cell data"><h4>Provider adapter</h4><p>capability + credentials + rate/terms</p></div>
+              <div class="arch-cell data"><h4>Raw CAS</h4><p>request · bytes · headers · digest</p></div>
+              <div class="arch-cell data"><h4>Normalization</h4><p>typed schema + adapter digest</p></div>
+              <div class="arch-cell data"><h4>Validation</h4><p>identity/time/unit/invariants</p></div>
+              <div class="arch-cell data"><h4>Candidate</h4><p>nothing becomes truth silently</p></div>
+            </div></div>
+            <div class="arch-row"><div class="arch-label">Identity master</div><div class="arch-cells">
+              <div class="arch-cell"><h4>LegalEntity</h4><p>issuer role, LEI, CIK</p></div>
+              <div class="arch-cell"><h4>Instrument</h4><p>economic contract</p></div>
+              <div class="arch-cell"><h4>Issue / ShareClass</h4><p>global class context</p></div>
+              <div class="arch-cell"><h4>Listing</h4><p>venue instrument + currency</p></div>
+              <div class="arch-cell"><h4>ID Assignment</h4><p>scheme + context + validity + status</p></div>
+            </div></div>
+            <div class="arch-spine">WorldReleaseRef · canonical ontology + source/mapping + identity/resolution + quality/policy + computation/executor digests</div>
+            <div class="arch-row"><div class="arch-label">Evidence planes</div><div class="arch-cells">
+              <div class="arch-cell accent span-2"><h4>Semantic Claims</h4><p>sparse facts · decisions · conflicts · annotations · selected materializations</p></div>
+              <div class="arch-cell accent span-3"><h4>Observation Series / Dataset Versions</h4><p>immutable segments · one commit/sync slice · series IDs · coverage/revisions · incremental manifests · derivation lineage</p></div>
+            </div></div>
+            <div class="arch-row"><div class="arch-label">Operational view</div><div class="arch-cells">
+              <div class="arch-cell action span-3"><h4>ObjectView&lt;T&gt;</h4><p>verified type · typed links · selected belief + rivals · series refs · available actions</p></div>
+              <div class="arch-cell security span-2"><h4>Policy + entitlement</h4><p>pre-fetch + pre-discovery + compute + export · principal/purpose/field/source/terms</p></div>
+            </div></div>
+            <div class="arch-row"><div class="arch-label">Kinetics</div><div class="arch-cells">
+              <div class="arch-cell action span-2"><h4>Ontology edits</h4><p>resolve ID · select/supersede fact · link object</p></div>
+              <div class="arch-cell action span-2"><h4>External effects</h4><p>order · filing · ERP · message</p></div>
+              <div class="arch-cell action"><h4>Reconcile</h4><p>attempt ≠ confirmation</p></div>
+            </div></div>
+            <div class="arch-row" style="margin-bottom:0"><div class="arch-label">Surfaces</div><div class="arch-cells">
+              <div class="arch-cell"><h4>CLI</h4><p>deterministic JSON</p></div><div class="arch-cell"><h4>Connect API</h4><p>same contracts</p></div><div class="arch-cell"><h4>MCP</h4><p>progressive discovery</p></div><div class="arch-cell"><h4>Eve</h4><p>human explanation</p></div><div class="arch-cell"><h4>Views</h4><p>widgets are projection, not truth</p></div>
+            </div></div>
+          </div>
+
+          <div class="semantic-key claim" data-kind="recomendação"><h3>A unidade point-in-time completa</h3><code>result = WorldRelease × valid_at × knowledge_cut × knowledge_basis × principal/purpose</code><p class="micro">Query, cursor, projection, Proposal, Receipt e Effect material retêm essa basis; o accepted view nunca apaga rival evidence.</p></div>
+
+          <div class="grid-2" style="margin-top:14px">
+            <article class="card contract claim" data-kind="recomendação"><pre><span class="key">"capability"</span>: <span class="str">"market.price.historical"</span>
+<span class="key">"provider"</span>: { <span class="key">"id"</span>: <span class="str">"…"</span>, <span class="key">"adapterDigest"</span>: <span class="str">"sha256:…"</span> }
+<span class="key">"identity"</span>: {
+  <span class="key">"requires"</span>: [<span class="str">"Listing"</span>],
+  <span class="key">"acceptedSchemes"</span>: [<span class="str">"FIGI"</span>, <span class="str">"ISIN"</span>],
+  <span class="key">"ambiguity"</span>: <span class="warn">"return_candidates"</span>
+}
+<span class="key">"semantics"</span>: {
+  <span class="key">"currency"</span>: <span class="str">"required"</span>, <span class="key">"timezone"</span>: <span class="str">"required"</span>,
+  <span class="key">"calendar"</span>: <span class="str">"required"</span>, <span class="key">"adjustment"</span>: <span class="str">"required"</span>
+}
+<span class="key">"evidence"</span>: { <span class="key">"rawArtifact"</span>: <span class="str">"required"</span> }
+<span class="key">"entitlement"</span>: { <span class="key">"purpose"</span>: <span class="str">"required"</span> }</pre></article>
+            <article class="card pad claim" data-kind="recomendação"><h3 style="margin-top:0">A boundary física</h3><div class="series-flow"><div class="series-box"><h4>Claims</h4><p>baixo volume, alto significado: decisões, estados, conflitos, fatos materializados.</p></div><div class="series-arrow">+</div><div class="series-box"><h4>Series</h4><p>alto volume, append/versioned: OHLCV, quotes, curves, estimates histories.</p></div></div><p class="micro">Lineage aponta para ClaimId ou SegmentRangeRef. Um authority commit admite uma sync slice/segment package; manifests são incrementais e full rebuild vira repair.</p></article>
+          </div>
+
+          <div class="grid-2" style="margin-top:14px">
+            <article class="card contract claim" data-kind="recomendação"><pre><span class="key">resolve</span>(scheme, value, desired_identity_level,
+        venue_or_market_scope?, valid_at?,
+        include_inactive?, source)
+  → <span class="warn">0..n candidates + evidence</span>
+
+Nunca escolher o primeiro candidate silenciosamente.</pre></article>
+            <article class="card contract claim" data-kind="recomendação"><pre><span class="key">observe</span>(subject_at_explicit_identity_level,
+        field_definition_revision, economic_period,
+        as_known_at_or_accession, dimensions,
+        unit_or_currency, calendar, fill_policy,
+        corporate_action_policy, overrides,
+        source, entitlement_context)
+  → <span class="str">assertions + provenance</span></pre></article>
+          </div>
+          <div class="semantic-key claim" data-kind="recomendação"><h3>O read plane mínimo é série-nativo e cut-aware.</h3><code>latest · first · last · range · as_of · aggregate · downsample → authority cut + segment range + mapping revision + provider</code></div>
+
+          <h3 style="margin:38px 0 14px">Adotar, adaptar, recusar</h3>
+          <div class="card matrix decision-table claim" data-kind="recomendação">
+            <table><thead><tr><th>Origem</th><th>Adotar</th><th>Adaptar</th><th>Recusar</th></tr></thead><tbody>
+              <tr><td>OpenBB</td><td>registry; T/E/T; surfaces; progressive MCP; SEC methodology</td><td>standard models → semantic capability contracts</td><td>endpoint tree como ontology; extras como garantia</td></tr>
+              <tr><td>Bloomberg</td><td>opaque IDs; identity hierarchy; field catalog; entitlements</td><td>multi-scheme assignments + resolution evidence</td><td>ticker como ID; vendor ID como internal EntityId</td></tr>
+              <tr><td>Palantir</td><td>nouns + verbs + security; interfaces; series separation</td><td>menor subset coerente no canonical JSON do Zoen</td><td>clonar a breadth/UI antes do kernel vertical</td></tr>
+              <tr><td>Zoen atual</td><td>ledger, bitemporal, cuts, lineage, Actions, effect boundary</td><td>source-bound writes; property policy; ObjectView</td><td>um claim por célula; latest commit = verdade universal</td></tr>
+            </tbody></table>
+          </div>
+        </section>
+
+        <section id="journeys">
+          <div class="section-head">
+            <div><span class="kicker">11 / delivery</span><h2>Nove jornadas, na ordem que reduz risco.</h2></div>
+            <p>Cada etapa entrega um comportamento verificável de ponta a ponta. Marketplace e dashboard vêm depois do núcleo.</p>
+          </div>
+          <div class="grid-3 journeys">
+            <article class="card journey claim" data-kind="recomendação"><h3>IBM ambíguo → Listing resolvido</h3><p>OpenFIGI + raw digest + candidates + Action de resolução + histórico.</p><div class="proof">PROVA · zero collapse silencioso</div></article>
+            <article class="card journey claim" data-kind="recomendação"><h3>Um close, dois providers</h3><p>Venue/currency/calendar/adjustment iguais; rivals preservados; belief policy publicada.</p><div class="proof">PROVA · selected + rivals + replay</div></article>
+            <article class="card journey claim" data-kind="recomendação"><h3>Primeira ObservationSeries</h3><p>Um ano de OHLCV em partitions imutáveis; range query no DataFusion.</p><div class="proof">PROVA · sem commit por célula</div></article>
+            <article class="card journey claim" data-kind="recomendação"><h3>SEC fact com vintage</h3><p>CIK/accession/concept/context/unit/period e direct vs imputed.</p><div class="proof">PROVA · restatement não sobrescreve</div></article>
+            <article class="card journey claim" data-kind="recomendação"><h3>Entitlement em toda superfície</h3><p>Property/series/purpose policy aplicada a valores, lineage, citations e tools.</p><div class="proof">PROVA · nenhum side-channel</div></article>
+            <article class="card journey claim" data-kind="recomendação"><h3>Corporate action derivation</h3><p>Raw series preservada; split/dividend produz série derivada citando evento, fórmula e cut.</p><div class="proof">PROVA · adjusted nunca apaga raw</div></article>
+            <article class="card journey claim" data-kind="recomendação"><h3>Multi-leg rebalance</h3><p>Preview, stale-state rejection, reapproval, commit atômico, broker effect e reconcile unknown.</p><div class="proof">PROVA · decisão ≠ efeito externo</div></article>
+            <article class="card journey claim" data-kind="recomendação"><h3>Provider schema evolution</h3><p>Capability/mapping muda; impacta series, policies, Wasm e surfaces; migrate/activate/rollback.</p><div class="proof">PROVA · explicações antigas exatas</div></article>
+            <article class="card journey claim" data-kind="recomendação"><h3>Surface parity</h3><p>Mesmo ObjectSet e Action permission-scoped em CLI, Connect API, MCP e Eve.</p><div class="proof">PROVA · nenhum bypass por surface</div></article>
+          </div>
+          <div class="alert claim" data-kind="recomendação"><strong>Gate de licença antes de incorporar código.</strong><p>Estudar patterns do OpenBB é seguro para arquitetura; copiar/embutir a árvore AGPL num serviço MIT exige uma decisão clean-room/licensing com aconselhamento jurídico. Dados financeiros têm uma segunda camada de termos independente da licença do software.</p></div>
+        </section>
+
+        <section id="evidence">
+          <div class="section-head">
+            <div><span class="kicker">12 / evidence ledger</span><h2>Cada conclusão volta a uma fonte.</h2></div>
+            <p>Links externos apontam para commits ou páginas oficiais. Caminhos locais apontam para o snapshot Zoen auditado.</p>
+          </div>
+          <div class="card contract claim" data-kind="fato" style="margin-bottom:18px"><pre><span class="key">reproduction root</span>  /private/tmp/zoen-openbb-deep.0N6mfl
+<span class="key">OpenBB register</span>   openbb-lane/evidence-register.md
+<span class="key">re-run counts</span>      openbb-lane/audit_counts.py → audit-counts.json
+<span class="key">finance captures</span>  finance-lane/ · FIGI/BLPAPI/SEC/IBM/FIBO</pre></div>
+          <details open><summary>OpenBB — código e contratos</summary><div class="source-list">
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/app/extension_loader.py#L17-L203">Entry-point composition · extension_loader.py L17–203</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/pyproject.toml#L14-L70">Default installation dependency universe · pyproject.toml L14–70</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/provider/abstract/provider.py#L6-L54">Provider: name, credentials, fetcher_dict · provider.py L6–54</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/provider/abstract/fetcher.py#L36-L85">Fetcher transform / extract / transform · fetcher.py L36–85</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/provider/registry_map.py#L71-L181">RegistryMap standard vs extra · registry_map.py L71–181</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/app/query.py#L17-L80">Query single provider · query.py L17–80</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/provider/query_executor.py#L12-L97">QueryExecutor provider/fetcher resolution · query_executor.py L12–97</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/CONTRIBUTING.md#L119-L143">Standardization framework + caveats · CONTRIBUTING L119–143</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/provider/abstract/data.py#L26-L85">Data model extra=allow, strict=false · data.py L26–85</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/provider/standard_models/equity_historical.py#L17-L60">EquityHistorical standard model · equity_historical.py L17–60</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/providers/yfinance/openbb_yfinance/models/equity_historical.py#L23-L193">YFinance provider semantics · equity_historical.py L23–193</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/providers/intrinio/openbb_intrinio/models/equity_historical.py#L29-L74">Intrinio identifiers/time/source · equity_historical.py L29–74</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/app/model/obbject.py#L36-L70">OBBject result/provider/warnings/chart/extra envelope</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/extensions/platform_api/openbb_platform_api/utils/widgets.py#L223-L739">OpenAPI → provider-split widget definitions</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/providers/sec/openbb_sec/utils/STATEMENT_SCHEMA_README.md#L7-L105">SEC statement methodology and bounded guarantees</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/extensions/mcp_server/openbb_mcp_server/app/app.py#L345-L549">FastAPI → MCP + progressive activation</a>
+            <a href="https://github.com/OpenBB-finance/OpenBB/blob/3e071fcc2cd9f891cac6040ae60296dba76dab46/openbb_platform/core/openbb_core/api/auth/user.py#L12-L56">ODP built-in global Basic auth boundary</a>
+            <a href="https://github.com/OpenBB-finance/openbb-docs/blob/acd5b2bf2d8603f574bd6b2da2e15e1aae8b017d/content/workspace/developers/widget-parameters/parameter-grouping.md#L17-L59">Workspace parameter grouping</a>
+            <a href="https://github.com/OpenBB-finance/agent-rita/blob/f673c1fbeeeedfdbf4a253031d85eb8e96538924/src/agent/context.ts#L1-L128">Agent Rita context tables/text</a>
+            <a href="https://github.com/OpenBB-finance/agent-rita/blob/f673c1fbeeeedfdbf4a253031d85eb8e96538924/src/protocol/citations.ts#L10-L126">Agent Rita citation identity</a>
+            <a href="https://openbb.co/blog/openbb-belongs-to-everyone/">OpenBB belongs to everyone · 25 ago 2026</a>
+          </div></details>
+          <details><summary>Bloomberg / OpenFIGI — identidade, dados e contratos</summary><div class="source-list">
+            <a href="https://www.openfigi.com/about/overview">OpenFIGI overview · permanence, semantic opacity, context</a>
+            <a href="https://www.openfigi.com/api/documentation">OpenFIGI mapping API · context fields and identifier levels</a>
+            <a href="https://api.openfigi.com/schema">OpenFIGI machine-readable schema · no mapping asOf/validity/MIC output</a>
+            <a href="https://www.openfigi.com/docs/figi-allocation-rules.pdf">FIGI allocation rules · venue/composite/share-class</a>
+            <a href="https://www.omg.org/spec/FIGI/1.2">OMG FIGI 1.2 specification + OWL resources</a>
+            <a href="https://professional.bloomberg.com/products/data/data-license/">Bloomberg Data License · scale, catalog, delivery</a>
+            <a href="https://professional.bloomberg.com/products/data/data-license/dms/">Data License Plus · unified model, trace, control</a>
+            <a href="https://bloomberg.github.io/blpapi-docs/">BLPAPI docs · services, schemas, events/messages</a>
+            <a href="https://bloomberg.github.io/blpapi-docs/cpp/3.26.3/classBloombergLP_1_1blpapi_1_1Identity.html">BLPAPI Identity · service + EID authorization</a>
+            <a href="https://github.com/bloomberg/blpapi-http/blob/dc49f3ecdcb8b4807049129c998449c88bfcced2/doc/http-api-guide.md#L110-L269">Nested errors + FieldInfo response at pinned commit</a>
+            <a href="https://www.sec.gov/search-filings/edgar-application-programming-interfaces">SEC EDGAR APIs · Companyfacts/frame semantics</a>
+            <a href="https://www.sec.gov/Archives/edgar/data/51143/000005114326000010/ibm-20251231.htm">IBM 2025 10-K · issuer, listings and filing fact evidence</a>
+            <a href="https://github.com/edmcouncil/fibo/blob/119fa8c091aa4beece7d22aefa6fe138021a4355/SEC/Securities/SecuritiesIdentification.rdf#L395-L417">FIBO · ticker is temporal and exchange-contextual</a>
+          </div></details>
+          <details><summary>Padrões institucionais — qualidade, identidade, mensagens, eventos e proveniência</summary><div class="source-list">
+            <a href="https://www.bis.org/committees/bcbs/basel-framework/standard/srp/36/inforce/2019-12-15/published/2019-12-15">BCBS 239 / SRP36 consolidated principles</a>
+            <a href="https://www.bis.org/publications/implementation-principles-effective-risk-data-aggregation-and-risk-reporting-bcbs-239-principles">BCBS 2026 implementation update · lineage and continuing gaps</a>
+            <a href="https://www.gleif.org/en/lei-data/access-and-use-lei-data">GLEIF · Level 1/2, schemas, full/delta access</a>
+            <a href="https://www.gleif.org/en/lei-data/access-and-use-lei-data/level-2-data-relationship-record-rr-cdf-2-1-format">GLEIF RR-CDF · relationship periods, originator and validation</a>
+            <a href="https://www.gleif.org/en/lei-data/gleif-data-quality-management/data-quality-checks">GLEIF measurable data-quality checks</a>
+            <a href="https://www.iso20022.org/iso20022-repository/business-model">ISO 20022 Business Model · dictionary → message concepts</a>
+            <a href="https://cdm.finos.org/docs/event-model/">FINOS CDM event model · before/after + workflow lineage</a>
+            <a href="https://www.w3.org/TR/prov-o/">W3C PROV-O · Entity/Activity/Agent and qualified provenance</a>
+            <a href="https://www.w3.org/TR/prov-constraints/">W3C PROV constraints and ordering</a>
+          </div></details>
+          <details><summary>Palantir — ontology, interfaces, security e time series</summary><div class="source-list">
+            <a href="https://www.palantir.com/docs/foundry/architecture-center/ontology-system">The Ontology system · data/logic/action/security</a>
+            <a href="https://www.palantir.com/docs/foundry/ontology/overview">Ontology overview · objects/properties/links/actions</a>
+            <a href="https://www.palantir.com/docs/foundry/interfaces/interface-overview">Interfaces · shared shape and capabilities</a>
+            <a href="https://www.palantir.com/docs/foundry/object-permissioning/overview">Object permissioning · resource vs instance</a>
+            <a href="https://www.palantir.com/docs/foundry/object-permissioning/object-security-policies/">Object/property security policies</a>
+            <a href="https://www.palantir.com/docs/foundry/object-link-types/link-types-overview/">Typed links and named sides</a>
+            <a href="https://www.palantir.com/docs/foundry/functions/api-object-sets/">Object Set lazy query algebra</a>
+            <a href="https://www.palantir.com/docs/foundry/action-types/overview/">Multi-object Actions</a>
+            <a href="https://www.palantir.com/docs/foundry/time-series/time-series-overview">Time series · object metadata + sync/dataset/stream</a>
+            <a href="https://www.palantir.com/docs/foundry/ontology-sdk/overview/">OSDK generated permission-scoped clients</a>
+            <a href="https://www.palantir.com/docs/foundry/ontology-mcp/overview/">Ontology MCP generated tools</a>
+            <a href="https://www.palantir.com/docs/foundry/object-edits/overview">Object edits and action-backed changes</a>
+          </div></details>
+          <details><summary>Zoen — paths auditados</summary><div class="source-list">
+            <a href="file:///Users/enzotironi/Code/OS/README.md" class="local">README.md:6 · product invariant</a>
+            <a href="file:///Users/enzotironi/Code/OS/proto/zoen/world/v1/world.proto" class="local">world.proto:7 · evidence/query wire contract</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-engine/src/admission.rs" class="local">admission.rs:86 · relation/value validation</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-engine/src/action/state_basis.rs" class="local">state_basis.rs:145 · rivals and latest supporting commit</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-query/src/lib.rs" class="local">zoen-query/lib.rs:916 · type membership inference</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-adapters/src/evidence_store.rs" class="local">evidence_store.rs:31/246 · batch and one commit/outbox per claim</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-adapters/src/action_store/commit.rs" class="local">action_store/commit.rs:161 · Action effects share one commit</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-adapters/src/scenario_store.rs" class="local">scenario_store.rs:297 · Scenario package shares one commit</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-query/src/projection.rs" class="local">projection.rs:69 · full v1 Parquet rebuild</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-adapters/src/authority_store.rs" class="local">authority_store.rs:128 · exact projection-role capability boundary</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-adapters/migrations/0027_projection_role_boundary.sql" class="local">migration 0027 · projection role grants</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-adapters/src/claim_store.rs" class="local">claim_store.rs:90 · exact instant matching</a>
+            <a href="file:///Users/enzotironi/Code/OS/crates/zoen-engine/src/read.rs" class="local">read.rs:130 · per-entity read policy</a>
+            <a href="file:///Users/enzotironi/Code/OS/apps/zoend/src/world_service.rs" class="local">world_service.rs:61 · trusted session/tenant boundary</a>
+            <a href="file:///Users/enzotironi/Code/OS/apps/zoend/src/cli.rs" class="local">cli.rs:120/2116/2301 · static registry, outbound MCP connector, source demo</a>
+          </div></details>
+
+          <div class="grid-2" style="margin-top:28px">
+            <article class="card method claim" data-kind="fato"><h3 style="margin-top:0">Método</h3><ol><li>Inventário público via GitHub API.</li><li>Clones rasos fixados por SHA.</li><li>Rastreamento de um capability do registry ao output.</li><li>Scan estático reprodutível de coverage/vocabulário.</li><li>Teste vivo de ambiguidade na OpenFIGI API.</li><li>Triangulação com docs oficiais Bloomberg/Palantir.</li><li>Audit local do runtime, schema e projections do Zoen.</li></ol></article>
+            <article class="card method claim" data-kind="inferência"><h3 style="margin-top:0">Limites</h3><ol><li>Terminal e Foundry são proprietários; não inferimos internos invisíveis.</li><li>Counts de código não medem data quality ou coverage comercial.</li><li>O estado OpenBB muda após o anúncio de 25 ago; re-auditar antes de reutilizar.</li><li>Licença de software e entitlement de dados são problemas separados.</li><li>Isto é arquitetura/produto, não aconselhamento jurídico.</li></ol></article>
+          </div>
+        </section>
+
+        <footer class="footer"><span>OpenBB × Bloomberg × Palantir × Zoen · clone-backed research</span><a href="#thesis" class="toplink">↑ voltar ao início</a></footer>
+      </div>
+    </main>
+  </div>
+  <script>
+    const links = [...document.querySelectorAll('nav a')];
+    const sections = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting).sort((a,b) => b.intersectionRatio-a.intersectionRatio)[0];
+      if (!visible) return;
+      links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === `#${visible.target.id}`));
+    }, { rootMargin: '-20% 0px -68% 0px', threshold: [0,.15,.4] });
+    sections.forEach(s => observer.observe(s));
+    document.querySelectorAll('[data-filter]').forEach(button => {
+      if (button.tagName !== 'BUTTON') return;
+      button.addEventListener('click', () => {
+        document.body.dataset.filter = button.dataset.filter;
+        document.querySelectorAll('.filterbar button').forEach(b => b.classList.toggle('active', b === button));
+      });
+    });
+  </script>
+</body>
+</html>
