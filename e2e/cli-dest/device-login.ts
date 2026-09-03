@@ -59,7 +59,7 @@ const applicationDatabaseUrl = e2ePostgresUrl(
   "zoen_app",
   postgresPortFallback,
 );
-const password = "E2e-device-login-1";
+const accountCredential = `E2e-${randomUUID()}-Aa1!`;
 
 const deviceRecordSchema = z.object({
   clientId: z.string().nullable(),
@@ -430,21 +430,17 @@ export async function runDeviceLoginJourney(
         approvedReview.userId === signedUp.userId,
     );
 
-    await delayUntil(activeCli.startedAt + 115_500);
-    const beforeSlowDown = await deviceRecord(
-      authDatabase,
-      approvedLink.userCode,
-    );
+    const legacyClientDeadline = new Date(activeCli.startedAt + 121_000);
+    await delayUntil(legacyClientDeadline.getTime());
     const lastPoll = await waitForNextPoll(
       authDatabase,
       approvedRecord.deviceCode,
-      beforeSlowDown.lastPolledAt,
+      legacyClientDeadline,
       15_000,
     );
     evidence.record(
       "device_cli_honors_server_expires_in_beyond_120_seconds",
-      Date.now() - activeCli.startedAt > 121_000 &&
-        !processExited(activeCli.child) &&
+      !processExited(activeCli.child) &&
         lastPoll.getTime() > activeCli.startedAt + 121_000,
     );
 
@@ -701,7 +697,7 @@ async function waitForAuthDoorCleanup(
 
 function authDoorProcessIds(): number[] {
   const result = spawnSync(
-    "ps",
+    "/bin/ps",
     ["-ax", "-o", "pid=", "-o", "command="],
     { encoding: "utf8" },
   );
@@ -829,7 +825,11 @@ function cliDiagnostic(result: CliResult): z.infer<typeof cliDiagnosticSchema> {
 async function signUpThroughZoend(): Promise<SignedUpAccount> {
   const email = `device-${randomUUID()}@e2e.invalid`;
   const response = await fetch(`${zoendBaseUrl}/api/auth/sign-up/email`, {
-    body: JSON.stringify({ email, name: "Device login", password }),
+    body: JSON.stringify({
+      email,
+      name: "Device login",
+      password: accountCredential,
+    }),
     headers: jsonHeaders(),
     method: "POST",
   });
@@ -905,7 +905,7 @@ async function openAndSignInDeviceReview(
       }
       email.value = ${JSON.stringify(email)};
       email.dispatchEvent(new Event("input", { bubbles: true }));
-      password.value = ${JSON.stringify(password)};
+      password.value = ${JSON.stringify(accountCredential)};
       password.dispatchEvent(new Event("input", { bubbles: true }));
       submit.click();
       return true;
