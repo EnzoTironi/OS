@@ -145,7 +145,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           cache: npm
-          node-version: "22"
+          node-version: ${{ matrix.scenario == 'effect-runtime' && '24' || '22' }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.98.0"

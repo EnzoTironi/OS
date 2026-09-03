@@ -289,9 +289,10 @@ async function fetchReady(): Promise<{ body: string; status: number }> {
 async function startEve(): Promise<ManagedProcess> {
   const conversationRoot = path.join(repositoryRoot, "apps", "conversation");
   const eveBin = path.join(conversationRoot, "node_modules", "eve", "bin", "eve.js");
+  const npmBin = path.join(path.dirname(process.execPath), "npm");
   if (!existsSync(eveBin)) {
     execFileSync(
-      "npm",
+      npmBin,
       ["ci", "--ignore-scripts", "--prefix", conversationRoot],
       {
         cwd: repositoryRoot,
@@ -299,6 +300,8 @@ async function startEve(): Promise<ManagedProcess> {
       },
     );
   }
+  const eveNode = eveNodeExecutable();
+  const evePath = `${path.dirname(eveNode)}${path.delimiter}${process.env.PATH ?? ""}`;
   const eveOutput = path.join(
     conversationRoot,
     ".output",
@@ -316,10 +319,11 @@ async function startEve(): Promise<ManagedProcess> {
     ]) {
       delete buildEnv[name];
     }
-    execFileSync(process.execPath, [eveBin, "build"], {
+    execFileSync(eveNode, [eveBin, "build"], {
       cwd: conversationRoot,
       env: {
         ...buildEnv,
+        PATH: evePath,
         ZOEN_MODEL: process.env.ZOEN_MODEL ?? "openai-compatible/hy3-free",
       },
       stdio: "inherit",
@@ -329,12 +333,13 @@ async function startEve(): Promise<ManagedProcess> {
   const stderr: string[] = [];
   const evePort = new URL(eveOrigin).port;
   const child: ChildProcessWithoutNullStreams = spawn(
-    process.execPath,
+    eveNode,
     [eveBin, "start", "--host", "127.0.0.1", "--port", evePort],
     {
       cwd: conversationRoot,
       env: {
         ...process.env,
+        PATH: evePath,
         ZOEN_AUTH_BASE_URL: AUTH_DOOR_ORIGIN,
         ZOEN_MODEL: process.env.ZOEN_MODEL ?? "openai-compatible/hy3-free",
         ZOEN_ZOEND: zoenBaseUrl,
@@ -371,4 +376,40 @@ async function startEve(): Promise<ManagedProcess> {
     2400,
   );
   return managed;
+}
+
+const eveNodeMajor = 24;
+
+function eveNodeExecutable(): string {
+  const candidates = [
+    process.env.ZOEN_EVE_NODE,
+    process.execPath,
+    "/usr/local/node24/bin/node",
+    "/tmp/node24/node-v24.20.0-linux-x64/bin/node",
+  ].filter((value): value is string => value !== undefined && value !== "");
+  for (const candidate of candidates) {
+    if (nodeMajor(candidate) >= eveNodeMajor) {
+      return candidate;
+    }
+  }
+  throw new Error(
+    `Eve requires Node.js >= ${eveNodeMajor} (runner is ${process.version}). Set ZOEN_EVE_NODE to a Node ${eveNodeMajor}+ binary.`,
+  );
+}
+
+function nodeMajor(executable: string): number {
+  if (executable === process.execPath) {
+    return Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
+  }
+  if (!existsSync(executable)) {
+    return 0;
+  }
+  try {
+    const version = execFileSync(executable, ["-p", "process.versions.node"], {
+      encoding: "utf8",
+    }).trim();
+    return Number.parseInt(version.split(".")[0] ?? "0", 10);
+  } catch {
+    return 0;
+  }
 }
