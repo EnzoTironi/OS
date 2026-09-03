@@ -825,7 +825,13 @@ async function assertInvalidClientRejected(evidence: Evidence): Promise<void> {
     headers: jsonHeaders(),
     method: "POST",
   });
-  const body = errorBodySchema.parse(await readJson(response));
+  const bodyValue = await readJson(response);
+  const parsedBody = errorBodySchema.safeParse(bodyValue);
+  assert.ok(
+    parsedBody.success,
+    `invalid client response: ${JSON.stringify(bodyValue)}`,
+  );
+  const body = parsedBody.data;
   evidence.record(
     "device_invalid_client_is_rejected",
     response.status === 400 && body.error === "invalid_client",
@@ -1363,6 +1369,11 @@ async function waitForText(
 }
 
 async function startServer(zoenPath: string): Promise<ServerProcess> {
+  assert.equal(
+    await portOpen(zoendPort),
+    false,
+    `zoend port ${zoendPort} is already occupied`,
+  );
   const output: string[] = [];
   const processGroup = process.platform !== "win32";
   const child = spawn(zoenPath, ["serve"], {
