@@ -167,6 +167,15 @@ export interface WorkloadIdentity {
   workloadId: "workload.effect-reconciler" | "workload.effect-worker";
 }
 
+interface WorkloadCredentialOptions {
+  delegation?: readonly {
+    actions: readonly string[];
+    id: string;
+    resources: readonly string[];
+  }[];
+  expiresAtMicros?: number;
+}
+
 export interface ManagedProcess {
   child: ChildProcessWithoutNullStreams;
   name: string;
@@ -284,8 +293,13 @@ export async function startConnector(options?: {
 export async function issueWorkloadCredential(
   operatorToken: string,
   identity: WorkloadIdentity,
+  options: WorkloadCredentialOptions = {},
 ): Promise<IssuedWorkloadCredential> {
-  const response = await requestWorkloadCredential(operatorToken, identity);
+  const response = await requestWorkloadCredential(
+    operatorToken,
+    identity,
+    options,
+  );
   const text = await response.text();
   assert.equal(
     response.ok,
@@ -298,12 +312,13 @@ export async function issueWorkloadCredential(
 export function requestWorkloadCredential(
   operatorToken: string,
   identity: WorkloadIdentity,
+  options: WorkloadCredentialOptions = {},
 ): Promise<Response> {
   return fetch(`${zoenBaseUrl}/workload/admin/credentials`, {
     body: JSON.stringify({
       actorId: identity.actorId,
       allowedIngress: [],
-      delegation: [
+      delegation: options.delegation ?? [
         {
           actions: [
             identity.workloadId === "workload.effect-worker"
@@ -314,7 +329,8 @@ export function requestWorkloadCredential(
           resources: ["zoen.effect.requests"],
         },
       ],
-      expiresAtMicros: 4_102_444_800_000_000,
+      expiresAtMicros:
+        options.expiresAtMicros ?? 4_102_444_800_000_000,
       principalId: identity.principalId,
       rateBudget: {
         maxAcceptsPerMinute: 120,

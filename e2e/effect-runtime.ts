@@ -533,6 +533,98 @@ async function main(): Promise<void> {
 
     const statusEvidence = await waitForConnectorStatus(unknown.idempotencyKey);
     const evidence = evidenceInput(statusEvidence, "effect-runtime-unknown");
+    const wrongScopeReconciliationCountsBefore = await evidenceCounts(
+      admin,
+      unknown.effectRequestId,
+    );
+    const wrongScopeReconciliationVersionBefore =
+      await latestKnowledgeCommitSequence(
+        admin,
+        tenantA,
+        unknown.effectRequestId,
+      );
+    const wrongActionReconcilerCredential = await issueWorkloadCredential(
+      adminAToken,
+      reconcilerIdentity,
+      {
+        delegation: [
+          {
+            actions: ["zoen.effect.execute"],
+            id: "delegation.effect-reconciler.wrong-action",
+            resources: ["zoen.effect.requests"],
+          },
+        ],
+      },
+    );
+    const wrongResourceReconcilerCredential = await issueWorkloadCredential(
+      adminAToken,
+      reconcilerIdentity,
+      {
+        delegation: [
+          {
+            actions: ["zoen.effect.reconcile"],
+            id: "delegation.effect-reconciler.wrong-resource",
+            resources: ["zoen.effect.other-requests"],
+          },
+        ],
+      },
+    );
+    const wrongActionReconciler = effectClient(
+      await exchangeWorkloadCredential(
+        wrongActionReconcilerCredential,
+        reconcilerIdentity,
+      ),
+      tenantA,
+    );
+    const wrongResourceReconciler = effectClient(
+      await exchangeWorkloadCredential(
+        wrongResourceReconcilerCredential,
+        reconcilerIdentity,
+      ),
+      tenantA,
+    );
+    const wrongActionReconcileDenied = await expectConnectCode(
+      () =>
+        wrongActionReconciler.reconcile({
+          effectRequestId: unknown.effectRequestId,
+          evidence,
+        }),
+      Code.PermissionDenied,
+    );
+    const wrongResourceReconcileDenied = await expectConnectCode(
+      () =>
+        wrongResourceReconciler.reconcile({
+          effectRequestId: unknown.effectRequestId,
+          evidence,
+        }),
+      Code.PermissionDenied,
+    );
+    const wrongScopeReconciliationCounts = await evidenceCounts(
+      admin,
+      unknown.effectRequestId,
+    );
+    const wrongScopeReconciliationVersion =
+      await latestKnowledgeCommitSequence(
+        admin,
+        tenantA,
+        unknown.effectRequestId,
+      );
+    const wrongScopeReconciliationSnapshot = await effectA.getEffect({
+      effectRequestId: unknown.effectRequestId,
+    });
+    observe(
+      "reconciliationRequiresCanonicalActionAndResourceGrantsBeforeMutation",
+      wrongActionReconcileDenied === Code.PermissionDenied &&
+        wrongResourceReconcileDenied === Code.PermissionDenied &&
+        wrongScopeReconciliationCounts.evidence ===
+          wrongScopeReconciliationCountsBefore.evidence &&
+        wrongScopeReconciliationCounts.reconciliations ===
+          wrongScopeReconciliationCountsBefore.reconciliations &&
+        wrongScopeReconciliationVersion ===
+          wrongScopeReconciliationVersionBefore &&
+        wrongScopeReconciliationSnapshot.snapshot?.request?.state ===
+          EffectKnowledgeState.UNKNOWN,
+    );
     const workerDenied = await expectConnectCode(
       () =>
         workerEffect.reconcile({
@@ -878,6 +970,163 @@ async function main(): Promise<void> {
       tenantA,
       forbiddenClaim.effectRequestId,
     );
+    const authorizationAttemptCountsBefore = await attemptCounts(
+      admin,
+      forbiddenClaim.effectRequestId,
+    );
+    const authorizationProviderRequestsBefore = (await providerStats()).requests;
+    const credentialsBeforeEmptyDelegation = await credentialCount(admin);
+    const emptyDelegationResponse = await requestWorkloadCredential(
+      adminAToken,
+      workerIdentity,
+      { delegation: [] },
+    );
+    await emptyDelegationResponse.text();
+    observe(
+      "emptyDelegationCannotCreateEffectWorkerCredential",
+      emptyDelegationResponse.status === 400 &&
+        (await credentialCount(admin)) === credentialsBeforeEmptyDelegation &&
+        (await claimCount(admin, forbiddenClaim.effectRequestId)) === 0,
+    );
+    const expiringWorkerCredential = await issueWorkloadCredential(
+      adminAToken,
+      workerIdentity,
+      { expiresAtMicros: (await databaseNowMicros(admin)) + 10_000_000 },
+    );
+    const expiringWorkerToken = await exchangeWorkloadCredential(
+      expiringWorkerCredential,
+      workerIdentity,
+    );
+    await waitFor(
+      () => credentialExpired(admin, expiringWorkerCredential.credentialId),
+      "effect worker credential expiry",
+      400,
+    );
+    const expiredWorkerDenied = await expectConnectCode(
+      () =>
+        effectClient(expiringWorkerToken, tenantA).claimAttempt({
+          adapterExecutionId: "adapter.expired-credential",
+          effectRequestId: forbiddenClaim.effectRequestId,
+          expectedKnowledgeCommitSequence: BigInt(forbiddenClaimVersion),
+        }),
+      Code.Unauthenticated,
+    );
+    observe(
+      "expiredEffectWorkerCredentialFailsBeforeClaim",
+      expiredWorkerDenied === Code.Unauthenticated &&
+        (await claimCount(admin, forbiddenClaim.effectRequestId)) === 0,
+    );
+    const revokedWorkerCredential = await issueWorkloadCredential(
+      adminAToken,
+      workerIdentity,
+    );
+    const revokedWorkerToken = await exchangeWorkloadCredential(
+      revokedWorkerCredential,
+      workerIdentity,
+    );
+    await revokeWorkloadCredential(
+      adminAToken,
+      revokedWorkerCredential.credentialId,
+      tenantA,
+    );
+    const revokedWorkerDenied = await expectConnectCode(
+      () =>
+        effectClient(revokedWorkerToken, tenantA).claimAttempt({
+          adapterExecutionId: "adapter.revoked-credential",
+          effectRequestId: forbiddenClaim.effectRequestId,
+          expectedKnowledgeCommitSequence: BigInt(forbiddenClaimVersion),
+        }),
+      Code.Unauthenticated,
+    );
+    observe(
+      "revokedEffectWorkerCredentialFailsBeforeClaim",
+      revokedWorkerDenied === Code.Unauthenticated &&
+        (await claimCount(admin, forbiddenClaim.effectRequestId)) === 0,
+    );
+    const wrongActionWorkerCredential = await issueWorkloadCredential(
+      adminAToken,
+      workerIdentity,
+      {
+        delegation: [
+          {
+            actions: ["zoen.effect.reconcile"],
+            id: "delegation.effect-worker.wrong-action",
+            resources: ["zoen.effect.requests"],
+          },
+        ],
+      },
+    );
+    const wrongResourceWorkerCredential = await issueWorkloadCredential(
+      adminAToken,
+      workerIdentity,
+      {
+        delegation: [
+          {
+            actions: ["zoen.effect.execute"],
+            id: "delegation.effect-worker.wrong-resource",
+            resources: ["zoen.effect.other-requests"],
+          },
+        ],
+      },
+    );
+    const wrongActionWorker = effectClient(
+      await exchangeWorkloadCredential(
+        wrongActionWorkerCredential,
+        workerIdentity,
+      ),
+      tenantA,
+    );
+    const wrongResourceWorker = effectClient(
+      await exchangeWorkloadCredential(
+        wrongResourceWorkerCredential,
+        workerIdentity,
+      ),
+      tenantA,
+    );
+    const wrongActionClaimDenied = await expectConnectCode(
+      () =>
+        wrongActionWorker.claimAttempt({
+          adapterExecutionId: "adapter.wrong-action",
+          effectRequestId: forbiddenClaim.effectRequestId,
+          expectedKnowledgeCommitSequence: BigInt(forbiddenClaimVersion),
+        }),
+      Code.PermissionDenied,
+    );
+    const wrongResourceClaimDenied = await expectConnectCode(
+      () =>
+        wrongResourceWorker.claimAttempt({
+          adapterExecutionId: "adapter.wrong-resource",
+          effectRequestId: forbiddenClaim.effectRequestId,
+          expectedKnowledgeCommitSequence: BigInt(forbiddenClaimVersion),
+        }),
+      Code.PermissionDenied,
+    );
+    const authorizationAttemptCounts = await attemptCounts(
+      admin,
+      forbiddenClaim.effectRequestId,
+    );
+    const authorizationVersion = await latestKnowledgeCommitSequence(
+      admin,
+      tenantA,
+      forbiddenClaim.effectRequestId,
+    );
+    observe(
+      "effectExecutionRequiresCanonicalActionAndResourceGrantsBeforeClaim",
+      wrongActionClaimDenied === Code.PermissionDenied &&
+        wrongResourceClaimDenied === Code.PermissionDenied &&
+        authorizationAttemptCounts.claims ===
+          authorizationAttemptCountsBefore.claims &&
+        authorizationAttemptCounts.dispatches ===
+          authorizationAttemptCountsBefore.dispatches &&
+        authorizationAttemptCounts.effectAttempts ===
+          authorizationAttemptCountsBefore.effectAttempts &&
+        authorizationAttemptCounts.schedulerAttempts ===
+          authorizationAttemptCountsBefore.schedulerAttempts &&
+        authorizationVersion === forbiddenClaimVersion &&
+        (await providerStats()).requests ===
+          authorizationProviderRequestsBefore &&
+        (await providerOperation(forbiddenClaim.idempotencyKey)) === undefined,
+    );
     await crashProcess(zoend);
     await waitFor(
       async () => (!(await registrarReady()) ? true : undefined),
@@ -1180,6 +1429,30 @@ async function credentialIdentityCount(
     ],
   );
   return Number(result.rows[0]?.count);
+}
+
+async function credentialExpired(
+  admin: ReturnType<typeof adminClient>,
+  credentialId: string,
+): Promise<true | undefined> {
+  const result = await admin.query<{ expired: boolean }>(
+    `SELECT expires_at <= clock_timestamp() AS expired
+     FROM workload_credentials
+     WHERE credential_id = $1`,
+    [credentialId],
+  );
+  return result.rows[0]?.expired ? true : undefined;
+}
+
+async function databaseNowMicros(
+  admin: ReturnType<typeof adminClient>,
+): Promise<number> {
+  const result = await admin.query<{ now_micros: string }>(
+    `SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint::text AS now_micros`,
+  );
+  const nowMicros = result.rows[0]?.now_micros;
+  assert.ok(nowMicros, "database clock query must return a timestamp");
+  return Number(nowMicros);
 }
 
 async function totalDispatchAttemptCount(

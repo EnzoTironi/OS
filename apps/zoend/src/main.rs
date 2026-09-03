@@ -209,7 +209,7 @@ fn build_engines(boot: &BootRuntime) -> Result<OntologyServices, Box<dyn Error +
             boot.store.clone(),
             effect_worker_workload,
             effect_reconciler_workload,
-        )
+        )?
         .with_allowed_executor_workloads(human_executor_workloads),
         boot.sessions.clone(),
     );
