@@ -735,6 +735,7 @@ async function main(): Promise<void> {
     processes.push(connector);
     await stopProcess(worker);
     worker = await startWorker(workerIdentity, {
+      artifactRevision: buildAArtifact,
       connectorUrl: connectorFaultBoundaryUrl,
     });
     processes.push(worker);
@@ -787,6 +788,7 @@ async function main(): Promise<void> {
     await setProviderMode("confirmed");
     await startRestate();
     worker = await startWorker(workerIdentity, {
+      artifactRevision: buildAArtifact,
       connectorUrl: connectorFaultBoundaryUrl,
     });
     processes.push(worker);
@@ -829,7 +831,9 @@ async function main(): Promise<void> {
     );
     await stopProcess(dispatcher);
     await stopProcess(worker);
-    worker = await startWorker(workerIdentity);
+    worker = await startWorker(workerIdentity, {
+      artifactRevision: buildAArtifact,
+    });
     processes.push(worker);
     await exactRegistration();
 
