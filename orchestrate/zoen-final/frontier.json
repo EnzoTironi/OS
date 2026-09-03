@@ -2,16 +2,10 @@
   "schemaVersion": 1,
   "repository": "EnzoTironi/OS",
   "main": {
-    "sha": "4e33c57151ec8e3e28ee4c43a894da63173febc0",
-    "observedAt": "2026-09-03T17:02:36Z"
+    "sha": "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3",
+    "observedAt": "2026-09-03T19:30:00Z"
   },
   "activeCandidates": [
-    {
-      "unit": "W1-04",
-      "branch": "codex/w1-04-eve-runtime-boundary",
-      "head": "aa07dce89325c25b2c0fd35129f1ee8628e8ff29",
-      "pr": 618
-    },
     {
       "unit": "W2-01",
       "branch": "codex/w2-01-world-release-contract",
@@ -32,7 +26,7 @@
       "fact": "Concurrent journey isolation infrastructure; separate from the canonical 52-unit product program."
     }
   ],
-  "landingOrder": ["W1-04", "W2-01"],
+  "landingOrder": ["W1-06", "W2-01"],
   "mergedPullRequests": [
     {
       "number": 602,
@@ -89,6 +83,15 @@
       "merge": "be24e0956e0bfb681634c796b5410afc5eef2e38",
       "mergedAt": "2026-09-03T06:42:21Z",
       "fact": "Repairs device-login consent, persistence, origin isolation, and recovery without completing queued W3-04 or changing the W1-02 ledger verdict."
+    },
+    {
+      "number": 618,
+      "unit": "W1-04",
+      "head": "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3",
+      "merge": "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3",
+      "mergedAt": "2026-09-03T11:30:11Z",
+      "verification": "journey-verified",
+      "fact": "Eve Conversation runtime boundary product landed earlier via #618 (b1a9ab0717d2a1a7a070861ea0139ee0d98ae0b6 \u2192 c9779377e2144d17846dbabb09974a3947049005); exact-head journey proof on main@4dc06a4 with messaging-boundary 27/27, s3-workbench, and effect-runtime 44/44."
     },
     {
       "number": 625,

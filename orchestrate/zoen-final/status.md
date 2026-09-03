@@ -3,8 +3,8 @@
 Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 - Repository: `EnzoTironi/OS`
-- Base: `main@4e33c57151ec8e3e28ee4c43a894da63173febc0`
-- Units: 52 total, 9 done, 2 active, 0 proof pending, 41 queued
+- Base: `main@4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3`
+- Units: 52 total, 10 done, 1 active, 0 proof pending, 41 queued
 - Canonical journeys: 8, J1 through J8
 - Journey proof dimensions: actors, path, negative, replay, isolation, and recovery
 - Final gates: 9, FIN-01 through FIN-09
@@ -17,7 +17,6 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 | Unit | Status | Branch | Head or source | Pull request |
 | --- | --- | --- | --- | --- |
-| W1-04 | active | codex/w1-04-eve-runtime-boundary | aa07dce89325c25b2c0fd35129f1ee8628e8ff29 | #618 |
 | W2-01 | active | codex/w2-01-world-release-contract | f00efc7f245db80ff0d0d9051986d4d61e0e20e8 | not open |
 
 ## Merged pull requests
@@ -31,9 +30,10 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | #619 | journey infrastructure | 3c0d26f1c0778c58ef32b5450258941bbb4d6191 | daba8615f5ed39c1d84f4cd64ac8d830999e16b6 | 2026-09-03T05:04:58Z | not applicable |
 | #620 | W0-05 | 1cb0609561fcf00f9c5412a2dfb4cb28235c5c11 | d8843d7effe2822dc69568319a3e01c177648b89 | 2026-09-03T06:17:12Z | journey-verified |
 | #622 | Better Auth device-flow repair | 4c45b95482e5b49a06b5cd05755495b6ff6aed9b | be24e0956e0bfb681634c796b5410afc5eef2e38 | 2026-09-03T06:42:21Z | not applicable |
+| #618 | W1-04 | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | 2026-09-03T11:30:11Z | journey-verified |
 | #625 | W1-03 | 6683cdcf47af02464a01aa021b34977f450da5d2 | 4e33c57151ec8e3e28ee4c43a894da63173febc0 | 2026-09-03T17:02:36Z | journey-verified |
 
-PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03 and produced the recorded current main. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
+PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03. PR 618 completed W1-04 with journey proof on main@4dc06a4, which is the recorded current main. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 

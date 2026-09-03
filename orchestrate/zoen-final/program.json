@@ -3,7 +3,7 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "4e33c57151ec8e3e28ee4c43a894da63173febc0"
+    "sha": "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
   "verbs": [
@@ -339,13 +339,13 @@
       "track": "runtime-truth",
       "wave": 1,
       "size": "M",
-      "status": "active",
+      "status": "done",
       "dependencies": ["W1-01", "W1-03"],
       "journeys": ["J5", "J8"],
       "branch": "codex/w1-04-eve-runtime-boundary",
       "pr": 618,
-      "headSha": "aa07dce89325c25b2c0fd35129f1ee8628e8ff29",
-      "acceptance": "Preserve the /live endpoint and workload credential governance while deleting Ontology Conversation and whoCan paths."
+      "headSha": "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3",
+      "mergeSha": "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3"
     },
     {
       "id": "W1-05",
