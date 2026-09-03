@@ -143,15 +143,61 @@ jobs:
         with:
           toolchain: "1.98.0"
       - run: npm ci
+      - run: npm ci --prefix apps/auth
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries
       - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection
       - run: ./e2e/run.sh run ${{ matrix.scenario }}
 
+  e2e-concurrent:
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
+      - run: npm ci
+      - run: npm ci --prefix apps/auth
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-binaries
+      - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection
+      - name: Run isolated journeys concurrently
+        run: |
+          set +e
+          for attempt in 1 2; do
+            ./e2e/run.sh run durable-commit &
+            durable_pid=$!
+            ./e2e/run.sh run governed-action &
+            governed_pid=$!
+            wait "$durable_pid"
+            durable_status=$?
+            wait "$governed_pid"
+            governed_status=$?
+            if (( durable_status != 0 || governed_status != 0 )); then
+              echo "attempt ${attempt}: durable=${durable_status} governed=${governed_status}" >&2
+              exit 1
+            fi
+          done
+          set -e
+          for project in zoen-durable-commit zoen-governed-action; do
+            test -z "$(docker ps -aq --filter "label=com.docker.compose.project=${project}")"
+            test -z "$(docker network ls -q --filter "label=com.docker.compose.project=${project}")"
+            test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=${project}")"
+          done
+          test ! -e e2e/durable-commit/.generated
+          test ! -e e2e/governed-action/.generated
+          for port in 55440 58101 59205 55434 58083 59209; do
+            ! fuser "${port}/tcp" >/dev/null 2>&1
+          done
+
   required:
     if: always()
-    needs: [check, clippy, build, e2e]
+    needs: [check, clippy, build, e2e, e2e-concurrent]
     runs-on: ubuntu-latest
     steps:
       - name: Require every gate
@@ -160,3 +206,4 @@ jobs:
           test "${{ needs.clippy.result }}" = "success"
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.e2e.result }}" = "success"
+          test "${{ needs.e2e-concurrent.result }}" = "success"

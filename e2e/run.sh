@@ -80,6 +80,9 @@ load_scenario_env() {
   # shellcheck disable=SC1090
   source "$env_file"
   set +a
+  if [[ -n "${ZOEN_E2E_AUTH_PORT:-}" ]]; then
+    export ZOEN_AUTH_BASE_URL="http://127.0.0.1:${ZOEN_E2E_AUTH_PORT}"
+  fi
 }
 
 resolve_scenario() {
@@ -199,9 +202,14 @@ run_native_build() {
   fi
 }
 
+install_auth_dependencies() {
+  npm ci --prefix apps/auth
+}
+
 run_build() {
   npm run buf:generate
   npm run build
+  install_auth_dependencies
   run_native_build
 }
 
@@ -293,6 +301,7 @@ run_e2e() {
   require_fiscal_live_environment
   rm -rf "${ZOEN_E2E_ARTIFACTS_DIR}"
   run_check
+  install_auth_dependencies
   run_native_build "$scenario"
   run_scenario
 }
@@ -300,6 +309,7 @@ run_e2e() {
 run_verify() {
   rm -rf artifacts
   run_check
+  install_auth_dependencies
   run_native_build all
   local row
   local name

@@ -171,7 +171,7 @@ async fn boot_runtime() -> Result<BootRuntime, Box<dyn Error + Send + Sync>> {
 fn build_application(boot: BootRuntime) -> Result<Application, Box<dyn Error + Send + Sync>> {
     let listen_address = boot.listen_address;
     let services = build_engines(&boot)?;
-    let router = build_routers(boot, services);
+    let router = build_routers(boot, services)?;
     Ok(Application {
         listen_address,
         router,
@@ -238,7 +238,10 @@ fn build_engines(boot: &BootRuntime) -> Result<OntologyServices, Box<dyn Error +
     })
 }
 
-fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
+fn build_routers(
+    boot: BootRuntime,
+    services: OntologyServices,
+) -> Result<HttpRouter, Box<dyn Error + Send + Sync>> {
     let identity_admin_token = env::var("ZOEN_IDENTITY_ADMIN_TOKEN")
         .ok()
         .map(|value| value.trim().to_owned())
@@ -289,10 +292,10 @@ fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
             require_reference: boot.require_reference,
             store: boot.store,
         });
-    HttpRouter::new()
+    Ok(HttpRouter::new()
         .route("/metrics", get(metrics))
         .merge(ready_routes)
-        .merge(door_proxy::router())
+        .merge(door_proxy::router()?)
         .merge(eve_proxy::router())
         .merge(identity_routes)
         .merge(conversation_routes)
@@ -301,7 +304,7 @@ fn build_routers(boot: BootRuntime, services: OntologyServices) -> HttpRouter {
         .merge(workload_routes)
         .merge(pack_routes)
         .merge(pack_registry_routes)
-        .merge(rpc)
+        .merge(rpc))
 }
 
 fn required_database_url() -> Result<String, Box<dyn Error + Send + Sync>> {
