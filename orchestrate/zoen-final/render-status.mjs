@@ -5,6 +5,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseAndValidateImplementationLedger } from "./ledger-validation.mjs";
+
 const directory = dirname(fileURLToPath(import.meta.url));
 const write = process.argv.includes("--write");
 
@@ -51,11 +53,6 @@ const allowedInitialPullRequestClassifications = new Set([
 const initialPullRequestDispositionsDigest =
   "sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38";
 const expectedDependencyCount = 112;
-const allowedLedgerVerdicts = new Set(["journey-verified", "live-ui-verified"]);
-const ledgerEvidencePath = /^orchestrate\/zoen-final\/reports\/[a-z0-9-]+\.md$/;
-const ledgerSha = /^[0-9a-f]{40}$/;
-const positivePullRequest = /^[1-9][0-9]*$/;
-const utcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 const fail = (message) => {
   throw new Error(message);
@@ -302,187 +299,10 @@ for (const id of unitIds) {
   visit(id);
 }
 
-const ledgerLines = ledgerText.replace(/\n$/, "").split("\n");
-const ledgerHeader =
-  "unit_id\tpr\thead_sha\tmerge_sha\tverdict\tevidence\tverifier\tverified_at\tmerged_at";
-if (ledgerLines[0] !== ledgerHeader) {
-  fail("ledger.tsv header does not match ledger-schema.md");
-}
-const ledgerRows = ledgerLines.slice(1).map((line, index) => {
-  const fields = line.split("\t");
-  if (fields.length !== 9) {
-    fail(`ledger row ${index + 2} has ${fields.length} fields`);
-  }
-  return {
-    evidence: fields[5],
-    headSha: fields[2],
-    mergedAt: fields[8],
-    mergeSha: fields[3],
-    pr: fields[1],
-    unitId: fields[0],
-    verdict: fields[4],
-    verifiedAt: fields[7],
-    verifier: fields[6],
-  };
-});
-const validateImplementationLedger = (units, rows) => {
-  const unitMap = new Map(units.map((unit) => [unit.id, unit]));
-  for (const row of rows) {
-    const unit = unitMap.get(row.unitId);
-    if (!unit) {
-      fail(`ledger names unknown unit ${row.unitId}`);
-    }
-    const doneImplementation = unit.status === "done" && unit.wave > 0;
-    const completeMergeFacts =
-      ledgerSha.test(unit.mergeSha) &&
-      ledgerSha.test(row.mergeSha) &&
-      utcTimestamp.test(row.mergedAt);
-    const pendingMergeFacts =
-      !doneImplementation &&
-      unit.mergeSha === undefined &&
-      row.mergeSha === "" &&
-      row.mergedAt === "";
-    if (
-      !Number.isSafeInteger(unit.pr) ||
-      unit.pr <= 0 ||
-      !positivePullRequest.test(row.pr) ||
-      !ledgerSha.test(unit.headSha) ||
-      !ledgerSha.test(row.headSha) ||
-      !(completeMergeFacts || pendingMergeFacts)
-    ) {
-      fail(
-        `${row.unitId} ledger identity requires a valid positive pull request and exact lowercase SHAs`
-      );
-    }
-    if (
-      String(unit.pr) !== row.pr ||
-      unit.headSha !== row.headSha ||
-      (completeMergeFacts && unit.mergeSha !== row.mergeSha) ||
-      !allowedLedgerVerdicts.has(row.verdict) ||
-      !ledgerEvidencePath.test(row.evidence) ||
-      row.verifier.length === 0 ||
-      !utcTimestamp.test(row.verifiedAt)
-    ) {
-      fail(
-        `${row.unitId} ledger verdict does not match its exact implementation`
-      );
-    }
-  }
-  for (const unit of units.filter(
-    ({ status: unitStatus, wave }) => unitStatus === "done" && wave > 0
-  )) {
-    if (
-      !Number.isSafeInteger(unit.pr) ||
-      unit.pr <= 0 ||
-      !ledgerSha.test(unit.headSha) ||
-      !ledgerSha.test(unit.mergeSha)
-    ) {
-      fail(
-        `${unit.id} ledger identity requires a valid positive pull request and exact lowercase SHAs`
-      );
-    }
-    if (rows.filter(({ unitId }) => unitId === unit.id).length !== 1) {
-      fail(
-        `${unit.id} done implementation must have exactly one immutable ledger verdict`
-      );
-    }
-  }
-};
-const ledgerFixtureUnit = {
-  headSha: "a".repeat(40),
-  id: "W9-99",
-  mergeSha: "b".repeat(40),
-  pr: 999,
-  status: "done",
-  wave: 9,
-};
-const ledgerFixtureRow = {
-  evidence: "orchestrate/zoen-final/reports/w9-99-validation.md",
-  headSha: ledgerFixtureUnit.headSha,
-  mergedAt: "2026-09-03T00:01:00Z",
-  mergeSha: ledgerFixtureUnit.mergeSha,
-  pr: String(ledgerFixtureUnit.pr),
-  unitId: ledgerFixtureUnit.id,
-  verdict: "journey-verified",
-  verifiedAt: "2026-09-03T00:00:00Z",
-  verifier: "independent-verifier",
-};
-const invalidLedgerFixtures = [
-  [
-    "blank W2-02 implementation ledger self-check",
-    {
-      headSha: undefined,
-      id: "W2-02",
-      mergeSha: undefined,
-      pr: undefined,
-      wave: 2,
-    },
-    {
-      evidence: "orchestrate/zoen-final/reports/w1-01-validation.md",
-      headSha: "",
-      mergeSha: "",
-      pr: "",
-      unitId: "W2-02",
-    },
-  ],
-  ["zero pull request ledger self-check", { pr: 0 }, { pr: "0" }],
-  ["negative pull request ledger self-check", { pr: -1 }, { pr: "-1" }],
-  [
-    "uppercase head SHA ledger self-check",
-    { headSha: "A".repeat(40) },
-    { headSha: "A".repeat(40) },
-  ],
-  [
-    "short head SHA ledger self-check",
-    { headSha: "a".repeat(39) },
-    { headSha: "a".repeat(39) },
-  ],
-  [
-    "uppercase merge SHA ledger self-check",
-    { mergeSha: "B".repeat(40) },
-    { mergeSha: "B".repeat(40) },
-  ],
-  [
-    "short merge SHA ledger self-check",
-    { mergeSha: "b".repeat(39) },
-    { mergeSha: "b".repeat(39) },
-  ],
-];
-for (const [label, unitOverride, rowOverride] of invalidLedgerFixtures) {
-  expectFailure(
-    () =>
-      validateImplementationLedger(
-        [{ ...ledgerFixtureUnit, ...unitOverride }],
-        [{ ...ledgerFixtureRow, ...rowOverride }]
-      ),
-    "valid positive pull request and exact lowercase SHAs",
-    label
-  );
-}
-expectFailure(
-  () => validateImplementationLedger([ledgerFixtureUnit], []),
-  "exactly one immutable ledger verdict",
-  "missing implementation ledger self-check"
+const ledgerRows = parseAndValidateImplementationLedger(
+  program.units,
+  ledgerText
 );
-expectFailure(
-  () =>
-    validateImplementationLedger(
-      [ledgerFixtureUnit],
-      [ledgerFixtureRow, ledgerFixtureRow]
-    ),
-  "exactly one immutable ledger verdict",
-  "duplicate implementation ledger self-check"
-);
-expectFailure(
-  () =>
-    validateImplementationLedger(
-      [ledgerFixtureUnit],
-      [{ ...ledgerFixtureRow, headSha: "c".repeat(40) }]
-    ),
-  "does not match its exact implementation",
-  "mismatched implementation ledger self-check"
-);
-validateImplementationLedger(program.units, ledgerRows);
 await Promise.all(
   ledgerRows.map(async (row) => {
     const evidence = await readFile(
