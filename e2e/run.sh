@@ -411,16 +411,18 @@ scenario_is_clean() {
   if [[ -n "$generated_directory" && -e "$generated_directory" ]]; then
     return 1
   fi
-  for port in "${scenario_ports[@]}"; do
-    if port_in_use "$port"; then
-      return 1
-    else
-      port_status=$?
-      if ((port_status != 42)); then
+  if ((${#scenario_ports[@]} > 0)); then
+    for port in "${scenario_ports[@]}"; do
+      if port_in_use "$port"; then
         return 1
+      else
+        port_status=$?
+        if ((port_status != 42)); then
+          return 1
+        fi
       fi
-    fi
-  done
+    done
+  fi
   return 0
 }
 
