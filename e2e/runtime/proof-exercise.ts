@@ -350,6 +350,7 @@ export async function exerciseRuntime(): Promise<ProofEvidence> {
   const alternateWorktreeRun = startJourney({
     barrier: alternateBarrier,
     cwd: proofState.alternateWorktree,
+    preparedInputSource: repositoryRoot,
     runId: crossRunId,
     scenario: "definition-publication",
     suiteId: crossSuite,

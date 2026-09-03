@@ -37,6 +37,7 @@ import type { RuntimeProofBarrierStage } from "./runtime-contracts.js";
 export function startJourney(input: {
   readonly barrier?: string;
   readonly cwd?: string;
+  readonly preparedInputSource?: string;
   readonly releaseBarrier?: string;
   readonly runId: string;
   readonly runtimeBarrier?: {
@@ -79,6 +80,9 @@ export function startJourney(input: {
       ...(input.startupBarrier === undefined
         ? {}
         : { ZOEN_E2E_JOURNEY_STARTUP_BARRIER_DIR: input.startupBarrier }),
+      ...(input.preparedInputSource === undefined
+        ? {}
+        : { ZOEN_E2E_PREPARED_INPUT_SOURCE: input.preparedInputSource }),
       ...(input.tempRoot === undefined ? {} : { TMPDIR: input.tempRoot }),
       ZOEN_E2E_BUILD_MANIFEST: buildManifest,
       ZOEN_E2E_CONTEXT_POINTER: pointer,

@@ -58,10 +58,18 @@ reader_shim() {
 
 verify_prepared_artifacts() {
   local manifest="${ZOEN_E2E_BUILD_MANIFEST:-.cache/e2e/prepared.json}"
+  local verifier_arguments=(
+    verify
+    --repository "$PWD"
+    --manifest "$manifest"
+  )
+  if [[ -n "${ZOEN_E2E_PREPARED_INPUT_SOURCE:-}" ]]; then
+    verifier_arguments+=(
+      --prepared-input-source "$ZOEN_E2E_PREPARED_INPUT_SOURCE"
+    )
+  fi
   verified_build_identity="$(
-    node e2e/prepared-artifacts.mjs verify \
-      --repository "$PWD" \
-      --manifest "$manifest"
+    node e2e/prepared-artifacts.mjs "${verifier_arguments[@]}"
   )"
   if [[ ! "$verified_build_identity" =~ ^[0-9a-f]{64}$ ]]; then
     echo "prepared artifact verifier returned an invalid build identity" >&2

@@ -9,6 +9,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readlink,
   readdir,
   realpath,
   rm,
@@ -27,6 +28,13 @@ const launchablePaths = [
   "target/debug/zoen-http-connector",
   "target/debug/zoen-projection",
 ];
+const preparedInputRoots = [
+  "dist",
+  "node_modules",
+  "target",
+  "apps/auth/dist",
+  "apps/auth/node_modules",
+];
 const digestPattern = /^[0-9a-f]{64}$/;
 const sourceShaPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
@@ -44,7 +52,16 @@ async function main(mode) {
   } else if (mode === "verify") {
     const repository = await exactRepository(flag("--repository"));
     const manifestPath = path.resolve(flag("--manifest"));
-    const manifest = await verifyPreparedArtifacts(repository, manifestPath);
+    const preparedInputSourceValue = optionalFlag("--prepared-input-source");
+    const preparedInputSource =
+      preparedInputSourceValue === undefined
+        ? undefined
+        : await exactRepository(preparedInputSourceValue);
+    const manifest = await verifyPreparedArtifacts(
+      repository,
+      manifestPath,
+      preparedInputSource,
+    );
     process.stdout.write(`${manifest.buildIdentity}\n`);
   } else if (mode === "proof-mutation") {
     await proveArtifactMutation();
@@ -72,11 +89,20 @@ export async function preparedArtifactSnapshot(repository, sourceSha) {
   };
 }
 
-export async function verifyPreparedArtifacts(repository, manifestPath) {
+export async function verifyPreparedArtifacts(
+  repository,
+  manifestPath,
+  preparedInputSource,
+) {
   const manifest = parsePreparedBuild(
     JSON.parse(await readFile(manifestPath, "utf8")),
   );
-  assertCleanExactSource(repository, manifest.sourceSha);
+  await assertCleanExactSource(
+    repository,
+    manifest.sourceSha,
+    manifestPath,
+    preparedInputSource,
+  );
   const current = await preparedArtifactSnapshot(repository, manifest.sourceSha);
   if (
     manifest.buildIdentity !== current.buildIdentity ||
@@ -277,7 +303,12 @@ function sourceShaValue(value) {
   return value;
 }
 
-function assertCleanExactSource(repository, expectedSourceSha) {
+async function assertCleanExactSource(
+  repository,
+  expectedSourceSha,
+  manifestPath,
+  preparedInputSource,
+) {
   const head = git(repository, ["rev-parse", "HEAD"]);
   if (head !== expectedSourceSha) {
     throw new Error(
@@ -289,8 +320,64 @@ function assertCleanExactSource(repository, expectedSourceSha) {
     "--porcelain=v1",
     "--untracked-files=all",
   ]);
-  if (dirty !== "") {
-    throw new Error(`prepared artifact verification requires a clean worktree:\n${dirty}`);
+  if (preparedInputSource === undefined) {
+    assertOnlyPreparedLinksAreDirty(dirty, []);
+    return;
+  }
+  if (preparedInputSource === repository) {
+    throw new Error("prepared input source must be a different worktree");
+  }
+  await assertCleanExactSource(
+    preparedInputSource,
+    expectedSourceSha,
+    manifestPath,
+    undefined,
+  );
+  const expectedManifest = await realpath(
+    path.join(preparedInputSource, ".cache", "e2e", "prepared.json"),
+  );
+  const actualManifest = await realpath(manifestPath);
+  if (actualManifest !== expectedManifest) {
+    throw new Error(
+      "linked prepared inputs require the source worktree's exact manifest",
+    );
+  }
+  await assertExactPreparedLinks(repository, preparedInputSource);
+  assertOnlyPreparedLinksAreDirty(dirty, preparedInputRoots);
+}
+
+function assertOnlyPreparedLinksAreDirty(dirty, allowedRoots) {
+  const allowed = new Set(allowedRoots.map((root) => `?? ${root}`));
+  const unexpected = dirty
+    .split("\n")
+    .filter((line) => line !== "" && !allowed.has(line));
+  if (unexpected.length > 0 || (allowedRoots.length === 0 && dirty !== "")) {
+    throw new Error(
+      `prepared artifact verification requires a clean worktree:\n${dirty}`,
+    );
+  }
+}
+
+async function assertExactPreparedLinks(repository, preparedInputSource) {
+  for (const relative of preparedInputRoots) {
+    const linkedPath = path.join(repository, ...relative.split("/"));
+    const metadata = await lstat(linkedPath);
+    if (!metadata.isSymbolicLink()) {
+      throw new Error(`prepared input ${relative} must be a symbolic link`);
+    }
+    const actualTarget = path.resolve(
+      path.dirname(linkedPath),
+      await readlink(linkedPath),
+    );
+    const expectedTarget = path.join(
+      preparedInputSource,
+      ...relative.split("/"),
+    );
+    if (actualTarget !== expectedTarget) {
+      throw new Error(
+        `prepared input ${relative} does not target its declared source worktree`,
+      );
+    }
   }
 }
 
@@ -314,6 +401,18 @@ function flag(name) {
   const value = index < 0 ? undefined : process.argv[index + 1];
   if (value === undefined || value === "") {
     throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
+function optionalFlag(name) {
+  const index = process.argv.indexOf(name);
+  if (index < 0) {
+    return undefined;
+  }
+  const value = process.argv[index + 1];
+  if (value === undefined || value === "") {
+    throw new Error(`${name} requires a value`);
   }
   return value;
 }
