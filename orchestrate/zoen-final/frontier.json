@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "repository": "EnzoTironi/OS",
+  "main": {
+    "sha": "304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b",
+    "observedAt": "2026-09-02T20:09:17Z"
+  },
+  "activeRatification": {
+    "unit": "W0-05",
+    "branch": "codex/zoen-governed-north-ratification",
+    "pr": null
+  },
+  "activeCandidates": [
+    {
+      "unit": "W1-03",
+      "branch": "codex/w1-03-production-effect-handler",
+      "head": "904562917f994096aab46e6e7dbb04f08ca55919",
+      "pr": 617
+    },
+    {
+      "unit": "W1-04",
+      "branch": "codex/w1-04-eve-runtime-boundary",
+      "head": "c149f62b1e45714c1357bf18a61eea025734beef",
+      "pr": 618
+    },
+    {
+      "unit": "W2-01",
+      "branch": "codex/w2-01-world-release-contract",
+      "sourceHead": "f00efc7f245db80ff0d0d9051986d4d61e0e20e8",
+      "pr": null,
+      "fact": "A separate Codex task owns the corrective derivative."
+    }
+  ],
+  "landingOrder": ["W1-03", "W1-04", "W2-01"],
+  "mergedPullRequests": [
+    {
+      "number": 602,
+      "unit": "W1-01",
+      "head": "6e6eddf3fa326cc1d30182ac5a53a6031d4c6409",
+      "merge": "f121cef13e5bb9f8d702eaf15ec87607ae64d7d4",
+      "mergedAt": "2026-09-02T10:48:53Z"
+    },
+    {
+      "number": 609,
+      "unit": "W1-02",
+      "head": "5bff33bfe9d8c1f623867eeff61b277b19c127f6",
+      "merge": "cf504cbf68a6956b199b9c8c8a5c2417b322586a",
+      "mergedAt": "2026-09-02T14:52:39Z"
+    },
+    {
+      "number": 611,
+      "unit": null,
+      "head": "d84f8cf7f9910bdec9b16e92127da33c00121d78",
+      "merge": "304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b",
+      "mergedAt": "2026-09-02T20:09:17Z",
+      "fact": "Rust 1.98 and Kache are active on main"
+    }
+  ],
+  "dispositions": [
+    {
+      "number": 603,
+      "state": "open",
+      "disposition": "never-merge",
+      "reason": "Historical transport record. W0-05 replaces it with repository-owned canonical documents."
+    },
+    {
+      "number": 616,
+      "state": "closed",
+      "disposition": "retired",
+      "reason": "The journey-runtime experiment is not a canonical unit and must not be revived."
+    }
+  ],
+  "workspaceCleanup": {
+    "removed": "Seven clean obsolete worktrees and one clean old Grok worktree",
+    "preserved": [
+      "Detached 39e9 with one unreferenced W2 commit",
+      "Dirty Grok detached worktree",
+      "Dirty W1-01 worktree",
+      "Dirty toctou-alt worktree"
+    ]
+  }
+}

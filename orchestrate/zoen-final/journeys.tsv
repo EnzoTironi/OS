@@ -1,0 +1,9 @@
+id	name	proof
+J1	Governed release	A builder publishes one coherent four-catalog candidate and a World owner atomically activates it under policy.
+J2	Governed knowledge	Eve proposes and commits attributed knowledge, then returns a durable receipt and explanation.
+J3	Shared authority	One family member proposes, another decides, and Commit materializes the authorized state atomically.
+J4	Governed clinic query	A clinic human and workload see only authorized objects through sealed cursors and server-owned budgets.
+J5	Bound conversation	Web, Kapso, and two Telegram identities resolve the correct Account, Membership, World, release, and return channel.
+J6	Durable automation	Two generic executor calls survive restart and each reaches its verified origin once through ZoenEffect.
+J7	Agent parity	Eve, CLI, Connect, and MCP use the same catalog, policy result, proposal, receipt, and explanation.
+J8	Production recovery	The one-Fly image boots from empty development state, reports exact dependencies, restarts, and recovers.

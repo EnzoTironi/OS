@@ -1,0 +1,3 @@
+unit_id	pr	head_sha	merge_sha	verdict	evidence	verifier	verified_at	merged_at
+W1-01	602	6e6eddf3fa326cc1d30182ac5a53a6031d4c6409	f121cef13e5bb9f8d702eaf15ec87607ae64d7d4	live-ui-verified	orchestrate/zoen-final/reports/w1-01-validation.md	pr602-final-verifier	2026-09-02T10:46:18Z	2026-09-02T10:48:53Z
+W1-02	609	5bff33bfe9d8c1f623867eeff61b277b19c127f6	cf504cbf68a6956b199b9c8c8a5c2417b322586a	journey-verified	orchestrate/zoen-final/reports/w1-02-validation.md	w1-02-exact-standards-review	2026-09-02T14:40:16Z	2026-09-02T14:52:39Z

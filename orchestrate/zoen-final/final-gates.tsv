@@ -1,0 +1,10 @@
+id	name	proof
+FIN-01	Ambiguous identity	IBM resolves to typed, contextual candidates without selecting the first ticker match.
+FIN-02	Competing provider evidence	An IBM KnowledgeBasisDefinition produces a durable ResolutionDecision while preserving visible rivals.
+FIN-03	Dense observation series	A year of IBM OHLCV becomes immutable segments and one accepted DatasetVersion boundary.
+FIN-04	SEC restatement	Two knowledge cuts return the IBM filing value known at each cut without deleting the original filing.
+FIN-05	Data entitlement	Every interface hides unauthorized IBM fields, series, counts, lineage, citations, and derived output before scanning.
+FIN-06	Derived adjusted series	An adjusted IBM series cites raw segments, event evidence, component digest, parameters, calendar, policy, and knowledge cut.
+FIN-07	Governed portfolio change	An IBM portfolio rebalance separates the authority Commit from the broker effect and reconciles an ambiguous result.
+FIN-08	Provider schema evolution	An IBM provider shape change activates one coherent four-catalog release and leaves the prior release queryable.
+FIN-09	Interface parity	Eve, CLI, Connect, and MCP resolve the same IBM type, Action, policy result, operation basis, and CommitReceipt.
