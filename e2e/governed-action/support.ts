@@ -72,6 +72,7 @@ import {
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
+  e2eRunnerIsolatedProcessGroup,
   e2eWhatsAppDoorE164,
 } from "../host-env.js";
 
@@ -87,8 +88,7 @@ export {
 
 export const repositoryRoot = process.cwd();
 const DETACH_CHILDREN =
-  process.platform !== "win32" &&
-  process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP !== "1";
+  process.platform !== "win32" && !e2eRunnerIsolatedProcessGroup;
 export const scenarioDirectory = path.join(
   repositoryRoot,
   "e2e",

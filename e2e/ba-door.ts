@@ -11,7 +11,11 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
-import { e2eHttpUrl, e2ePort } from "./host-env.js";
+import {
+  e2eHttpUrl,
+  e2ePort,
+  e2eRunnerIsolatedProcessGroup,
+} from "./host-env.js";
 
 const authDoorPort = e2ePort("ZOEN_E2E_AUTH_PORT", 58_704);
 export const AUTH_DOOR_ORIGIN = e2eHttpUrl(
@@ -24,8 +28,7 @@ const AUTH_KILL_TIMEOUT_MS = 3_000;
 const FIXED_CHILD_PATH =
   "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const DETACH_CHILDREN =
-  process.platform !== "win32" &&
-  process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP !== "1";
+  process.platform !== "win32" && !e2eRunnerIsolatedProcessGroup;
 const DOOR_PASSWORD = "E2e-session-door-1";
 const INVITE_EXPIRES_AT_MICROS = 4_102_444_800_000_000;
 

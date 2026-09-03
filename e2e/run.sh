@@ -475,6 +475,17 @@ cleanup_scenario() {
   fi
   if ((cleanup_verified == 0)); then
     echo "${scenario} cleanup did not converge" >&2
+    if [[ -n "$generated_directory" && -e "$generated_directory" ]]; then
+      echo "generated directory remains: ${generated_directory}" >&2
+    fi
+    if ((${#scenario_ports[@]} > 0)); then
+      local leftover_port
+      for leftover_port in "${scenario_ports[@]}"; do
+        if port_in_use "$leftover_port"; then
+          echo "port ${leftover_port} is still in use" >&2
+        fi
+      done
+    fi
     return 1
   fi
   return 0
