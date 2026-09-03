@@ -30,7 +30,7 @@ One active `WorldRelease` governs each World. Its content binds exactly four cat
 
 ## Program order
 
-W0-05 ratifies the governed-data contract. Land the active implementation work in this order: W1-03, W1-04, then W2-01. W1-04 preserves `/live` and workload credential governance while it deletes Ontology Conversation and `whoCan`. W2-01 then applies the private release contract across the combined runtime. Later units add typed identity, evidence selection, dense observation data, entitlements, the finance pack, and FIN-01 through FIN-09.
+W0-05 ratifies the governed-data contract. W1-03 is done through PR #625. The remaining landing order is W1-04, then W2-01. W1-04 preserves `/live` and workload credential governance while it deletes Ontology Conversation and `whoCan`. W2-01 then applies the private release contract across the combined runtime. Later units add typed identity, evidence selection, dense observation data, entitlements, the finance pack, and FIN-01 through FIN-09.
 
 Do not accept semantic auto-merges in `workload_credential_store`, `identity_store`, the core library, or the Action engine. Review the combined invariants even when Git reports no text conflict.
 

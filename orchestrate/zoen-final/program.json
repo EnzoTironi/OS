@@ -3,7 +3,7 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "be24e0956e0bfb681634c796b5410afc5eef2e38"
+    "sha": "4e33c57151ec8e3e28ee4c43a894da63173febc0"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
   "verbs": [
@@ -291,7 +291,6 @@
       "headSha": "1cb0609561fcf00f9c5412a2dfb4cb28235c5c11",
       "mergeSha": "d8843d7effe2822dc69568319a3e01c177648b89"
     },
-
     {
       "id": "W1-01",
       "title": "Govern definition Publish with Cedar and persisted policy evidence",
@@ -326,12 +325,13 @@
       "track": "runtime-truth",
       "wave": 1,
       "size": "L",
-      "status": "active",
+      "status": "done",
       "dependencies": ["W1-01"],
       "journeys": ["J6", "J8"],
-      "branch": "codex/w1-03-production-effect-handler",
-      "pr": 617,
-      "headSha": "eb1444fb85f913a61b8569e116466dd4f96f8900"
+      "branch": "codex/w1-03-rust-recovery",
+      "pr": 625,
+      "headSha": "6683cdcf47af02464a01aa021b34977f450da5d2",
+      "mergeSha": "4e33c57151ec8e3e28ee4c43a894da63173febc0"
     },
     {
       "id": "W1-04",
@@ -381,7 +381,6 @@
       "dependencies": ["W1-02", "W1-03", "W1-04", "W1-06"],
       "journeys": ["J1", "J8"]
     },
-
     {
       "id": "W2-01",
       "title": "Define private WorldRelease content types and derive ReleaseDigest with domain-tagged RFC 8785 JCS",
@@ -479,7 +478,6 @@
       "journeys": ["J4"],
       "finalGates": ["FIN-01", "FIN-04"]
     },
-
     {
       "id": "W3-01",
       "title": "Align Account, ExternalSubject, ChannelBinding, Membership, and World storage",
@@ -540,7 +538,6 @@
       "dependencies": ["W2-05", "W3-03", "W3-05"],
       "journeys": ["J2", "J5"]
     },
-
     {
       "id": "W4-01",
       "title": "Bind evidence admission to a published source capability and claim shape",
@@ -624,7 +621,6 @@
       "journeys": ["J4"],
       "finalGates": ["FIN-05", "FIN-06"]
     },
-
     {
       "id": "W5-01",
       "title": "Finish Eve's Membership workbench for knowledge, evidence, approvals, receipts, channels, and roles",
@@ -675,7 +671,6 @@
       "dependencies": ["W5-01", "W5-02", "W5-03", "W5-04"],
       "journeys": ["J5"]
     },
-
     {
       "id": "W6-01",
       "title": "Add generic AutomationDefinition and content-addressed ExecutorCall",
@@ -716,7 +711,6 @@
       "dependencies": ["W5-05", "W6-03"],
       "journeys": ["J6"]
     },
-
     {
       "id": "W7-01",
       "title": "Generate coherent CLI and Connect contracts from the governed catalog",
@@ -768,7 +762,6 @@
         "FIN-09"
       ]
     },
-
     {
       "id": "W8-01",
       "title": "Prove restart, rebuild, least privilege, observability, and dependency failure behavior",

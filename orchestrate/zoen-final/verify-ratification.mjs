@@ -337,8 +337,12 @@ assert(
   frontier.main.sha === program.base.sha,
   "frontier and program main SHAs differ"
 );
+const effectRuntimeUnit = program.units.find(({ id }) => id === "W1-03");
 const worldIdentityUnit = program.units.find(({ id }) => id === "W1-05");
 const ratificationUnit = program.units.find(({ id }) => id === "W0-05");
+const effectRuntimeMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 625
+);
 const worldIdentityMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 621
 );
@@ -352,7 +356,7 @@ const deviceFlowRepairMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 622
 );
 assert(
-  program.base.sha === "be24e0956e0bfb681634c796b5410afc5eef2e38" &&
+  program.base.sha === "4e33c57151ec8e3e28ee4c43a894da63173febc0" &&
     worldIdentityUnit?.status === "done" &&
     worldIdentityMerge?.unit === "W1-05" &&
     worldIdentityMerge.head === "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9" &&
@@ -388,15 +392,42 @@ assert(
   deviceFlowRepairMerge?.unit === null &&
     deviceFlowRepairMerge.scope === "Better Auth device-flow repair" &&
     deviceFlowRepairMerge.head === "4c45b95482e5b49a06b5cd05755495b6ff6aed9b" &&
-    deviceFlowRepairMerge.merge === program.base.sha &&
+    deviceFlowRepairMerge.merge ===
+      "be24e0956e0bfb681634c796b5410afc5eef2e38" &&
     deviceFlowRepairMerge.mergedAt === "2026-09-03T06:42:21Z" &&
     deviceFlowRepairMerge.fact.includes("without completing queued W3-04") &&
     deviceFlowRepairMerge.fact.includes("W1-02 ledger verdict"),
-  "PR #622 must explain the current main without changing a unit verdict"
+  "PR #622 must remain recorded as the device-flow repair without changing a unit verdict"
+);
+assert(
+  effectRuntimeUnit?.status === "done" &&
+    effectRuntimeUnit.pr === 625 &&
+    effectRuntimeUnit.headSha === "6683cdcf47af02464a01aa021b34977f450da5d2" &&
+    effectRuntimeUnit.mergeSha === program.base.sha &&
+    effectRuntimeMerge?.unit === "W1-03" &&
+    effectRuntimeMerge.head === effectRuntimeUnit.headSha &&
+    effectRuntimeMerge.merge === effectRuntimeUnit.mergeSha &&
+    effectRuntimeMerge.mergedAt === "2026-09-03T17:02:36Z" &&
+    effectRuntimeMerge.verification === "journey-verified" &&
+    effectRuntimeMerge.fact.includes("44/44 effect-runtime proof") &&
+    !frontier.activeCandidates.some(({ unit }) => unit === "W1-03"),
+  "PR #625 must close W1-03 with its journey-verified merge"
 );
 const ledgerRows = parseAndValidateImplementationLedger(
   program.units,
   ledgerText
+);
+const effectRuntimeLedger = ledgerRows.find(({ unitId }) => unitId === "W1-03");
+assert(
+  effectRuntimeLedger?.pr === "625" &&
+    effectRuntimeLedger.headSha === effectRuntimeUnit.headSha &&
+    effectRuntimeLedger.mergeSha === effectRuntimeUnit.mergeSha &&
+    effectRuntimeLedger.verdict === "journey-verified" &&
+    effectRuntimeLedger.evidence ===
+      "orchestrate/zoen-final/reports/w1-03-validation.md" &&
+    effectRuntimeLedger.verifiedAt === "2026-09-03T16:00:00Z" &&
+    effectRuntimeLedger.mergedAt === "2026-09-03T17:02:36Z",
+  "W1-03 must retain its exact journey-verified ledger verdict"
 );
 const worldIdentityLedger = ledgerRows.find(({ unitId }) => unitId === "W1-05");
 assert(
@@ -423,7 +454,7 @@ await Promise.all(
   })
 );
 assert(
-  frontier.landingOrder.join("|") === "W1-03|W1-04|W2-01",
+  frontier.landingOrder.join("|") === "W1-04|W2-01",
   "landing order changed"
 );
 const allowedInitialPullRequestClassifications = new Set([
@@ -1005,6 +1036,7 @@ const markdownFiles = [
   "orchestrate/zoen-final/briefs/w2-01-world-release-contract.md",
   "orchestrate/zoen-final/reports/w1-01-validation.md",
   "orchestrate/zoen-final/reports/w1-02-validation.md",
+  "orchestrate/zoen-final/reports/w1-03-validation.md",
   "orchestrate/zoen-final/reports/w1-05-validation.md",
 ];
 const markdownLinkTargets = (markdown) => {

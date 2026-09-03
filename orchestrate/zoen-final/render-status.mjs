@@ -456,7 +456,7 @@ ${currentUnits.map((unit) => `| ${unit.id} | ${unit.status} | ${escapeCell(unit.
 | --- | --- | --- | --- | --- | --- |
 ${merged.map((item) => `| #${item.number} | ${item.unit ?? item.scope ?? "toolchain"} | ${item.head} | ${item.merge} | ${item.mergedAt} | ${ledgerRows.find(({ unitId }) => unitId === item.unit)?.verdict ?? item.verification ?? "not applicable"} |`).join("\n")}
 
-PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 produced the recorded current main through a Better Auth device-flow repair without changing the W1-02 verdict. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
+PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03 and produced the recorded current main. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 
