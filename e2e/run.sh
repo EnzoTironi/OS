@@ -203,7 +203,7 @@ run_native_build() {
 }
 
 install_auth_dependencies() {
-  npm ci --prefix apps/auth
+  npm ci --ignore-scripts --prefix apps/auth
 }
 
 run_build() {

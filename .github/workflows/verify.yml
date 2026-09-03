@@ -142,8 +142,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.98.0"
-      - run: npm ci
-      - run: npm ci --prefix apps/auth
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix apps/auth
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries
@@ -160,8 +160,8 @@ jobs:
         with:
           cache: npm
           node-version: "22"
-      - run: npm ci
-      - run: npm ci --prefix apps/auth
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix apps/auth
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries
