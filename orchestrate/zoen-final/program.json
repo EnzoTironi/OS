@@ -23,7 +23,7 @@
     "agent-surfaces",
     "integration"
   ],
-  "states": ["queued", "active", "done"],
+  "states": ["queued", "active", "proof_pending", "done"],
   "journeys": [
     {
       "id": "J1",
@@ -37,6 +37,7 @@
       "bootstrapCeremony": {
         "decision": "RAT-04",
         "scope": "first release for one World",
+        "ownerAuthentication": "Better Auth",
         "transactionalArtifacts": [
           "World",
           "owner Membership",
@@ -50,9 +51,16 @@
           "Membership",
           "completed bootstrap record"
         ],
+        "completedBootstrapRecordBindings": [
+          "owner",
+          "World",
+          "release digest",
+          "policy evidence used by the ceremony"
+        ],
         "capabilityAfterCommit": "removed",
         "superuser": "forbidden",
-        "laterBypass": "forbidden"
+        "laterBypass": "forbidden",
+        "laterPublicationAndActivationPath": "seven-verb governed path"
       }
     },
     {
@@ -71,7 +79,7 @@
       "actors": "Family member A proposing and family member B deciding",
       "path": "The decision uses B's principal; Commit creates one receipt, and the invite and Membership materialize atomically.",
       "negativeProof": "Self-approval outside policy, revoked Membership, and failed Commit create no partial Membership.",
-      "replayProof": "Repeated Decide or Commit returns the original receipt and creates no second invite or Membership.",
+      "replayProof": "Repeated Decide returns the original decision and deduplication result; repeated Commit returns the original CommitReceipt. Neither replay creates a second invite or Membership.",
       "isolationProof": "A principal from another World or family cannot decide the proposal or read the invite.",
       "recoveryProof": "A crash before Commit leaves no partial Membership; retry commits every artifact once, and a post-commit retry returns the original receipt."
     },
@@ -343,7 +351,7 @@
       "track": "integration",
       "wave": 1,
       "size": "S",
-      "status": "done",
+      "status": "proof_pending",
       "dependencies": ["W1-01"],
       "journeys": ["J5"],
       "branch": "codex/w1-05-telegram-identities",

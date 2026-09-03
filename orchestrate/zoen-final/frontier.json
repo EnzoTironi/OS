@@ -72,7 +72,9 @@
       "unit": "W1-05",
       "head": "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9",
       "merge": "edc5d1d172f12299a0920aabbcaca8c78c5d525b",
-      "mergedAt": "2026-09-03T04:33:27Z"
+      "mergedAt": "2026-09-03T04:33:27Z",
+      "verification": "proof_pending",
+      "fact": "Implementation merged; the two-account Telegram ceremony has not been performed."
     }
   ],
   "initialPullRequestDispositionsDigest": "sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38",

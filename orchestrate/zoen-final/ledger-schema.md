@@ -15,3 +15,5 @@
 | `merged_at` | The UTC merge time. Leave this field empty before merge. |
 
 The ledger does not infer a verdict from a green check. The evidence document states the positive, denial, recovery, and exact-head proof that supports its verdict.
+
+Every implementation unit after wave 0 needs exactly one ledger row that matches its pull request, head SHA, merge SHA, verdict, and evidence before its status can become `done`. A merged implementation without that row remains `proof_pending`; merge metadata alone is not verification.

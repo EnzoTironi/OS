@@ -4,7 +4,7 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 - Repository: `EnzoTironi/OS`
 - Base: `main@edc5d1d172f12299a0920aabbcaca8c78c5d525b`
-- Units: 52 total, 7 done, 4 active, 41 queued
+- Units: 52 total, 6 done, 4 active, 1 proof pending, 41 queued
 - Canonical journeys: 8, J1 through J8
 - Journey proof dimensions: actors, path, negative, replay, isolation, and recovery
 - Final gates: 9, FIN-01 through FIN-09
@@ -13,25 +13,26 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 - WorldRelease catalogs: ontology, policy, executors, components
 - Initial PR disposition digest: `sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38`
 
-## Active units
+## Active and proof-pending units
 
-| Unit | Branch | Head or source | Pull request |
-| --- | --- | --- | --- |
-| W0-05 | codex/zoen-governed-north-ratification | not recorded | #620 |
-| W1-03 | codex/w1-03-production-effect-handler | 904562917f994096aab46e6e7dbb04f08ca55919 | #617 |
-| W1-04 | codex/w1-04-eve-runtime-boundary | aa07dce89325c25b2c0fd35129f1ee8628e8ff29 | #618 |
-| W2-01 | codex/w2-01-world-release-contract | f00efc7f245db80ff0d0d9051986d4d61e0e20e8 | not open |
+| Unit | Status | Branch | Head or source | Pull request |
+| --- | --- | --- | --- | --- |
+| W0-05 | active | codex/zoen-governed-north-ratification | not recorded | #620 |
+| W1-03 | active | codex/w1-03-production-effect-handler | 904562917f994096aab46e6e7dbb04f08ca55919 | #617 |
+| W1-04 | active | codex/w1-04-eve-runtime-boundary | aa07dce89325c25b2c0fd35129f1ee8628e8ff29 | #618 |
+| W1-05 | proof_pending | codex/w1-05-telegram-identities | c3e819c15e6aa4109a86a18d1b8e0915c208ceb9 | #621 |
+| W2-01 | active | codex/w2-01-world-release-contract | f00efc7f245db80ff0d0d9051986d4d61e0e20e8 | not open |
 
 ## Merged pull requests
 
-| Pull request | Unit | Head | Merge | Merged at |
-| --- | --- | --- | --- | --- |
-| #602 | W1-01 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | f121cef13e5bb9f8d702eaf15ec87607ae64d7d4 | 2026-09-02T10:48:53Z |
-| #609 | W1-02 | 5bff33bfe9d8c1f623867eeff61b277b19c127f6 | cf504cbf68a6956b199b9c8c8a5c2417b322586a | 2026-09-02T14:52:39Z |
-| #611 | toolchain | d84f8cf7f9910bdec9b16e92127da33c00121d78 | 304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b | 2026-09-02T20:09:17Z |
-| #621 | W1-05 | c3e819c15e6aa4109a86a18d1b8e0915c208ceb9 | edc5d1d172f12299a0920aabbcaca8c78c5d525b | 2026-09-03T04:33:27Z |
+| Pull request | Unit | Head | Merge | Merged at | Verification |
+| --- | --- | --- | --- | --- | --- |
+| #602 | W1-01 | 6e6eddf3fa326cc1d30182ac5a53a6031d4c6409 | f121cef13e5bb9f8d702eaf15ec87607ae64d7d4 | 2026-09-02T10:48:53Z | live-ui-verified |
+| #609 | W1-02 | 5bff33bfe9d8c1f623867eeff61b277b19c127f6 | cf504cbf68a6956b199b9c8c8a5c2417b322586a | 2026-09-02T14:52:39Z | journey-verified |
+| #611 | toolchain | d84f8cf7f9910bdec9b16e92127da33c00121d78 | 304f2da17f9e8dcc8779101f03bb5b9fc08eaf6b | 2026-09-02T20:09:17Z | not applicable |
+| #621 | W1-05 | c3e819c15e6aa4109a86a18d1b8e0915c208ceb9 | edc5d1d172f12299a0920aabbcaca8c78c5d525b | 2026-09-03T04:33:27Z | proof_pending |
 
-PR 611 activated Rust 1.98 with Kache. PR 621 produced the recorded current `main` commit and completed W1-05.
+PR 611 activated Rust 1.98 with Kache. PR 621 implemented W1-05, but its two-account Telegram ceremony proof remains pending.
 
 ## Immutable journey-infrastructure audit evidence
 

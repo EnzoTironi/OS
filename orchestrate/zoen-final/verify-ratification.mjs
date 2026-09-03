@@ -19,6 +19,8 @@ import { fileURLToPath } from "node:url";
 const programDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(programDirectory, "../..");
 const externalLink = /^(?:https?:|mailto:)/;
+const ledgerEvidencePath = /^orchestrate\/zoen-final\/reports\/[a-z0-9-]+\.md$/;
+const utcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const read = (path) => readFile(resolve(root, path), "utf8");
 const fail = (message) => {
   throw new Error(message);
@@ -165,6 +167,7 @@ const visual = await read(
 );
 const preferences = await read("orchestrate/zoen-final/preferences.md");
 const workflow = await read(".github/workflows/verify.yml");
+const ledgerText = await read("orchestrate/zoen-final/ledger.tsv");
 const agents = await read("AGENTS.md");
 
 assert(program.units.length === 52, "program.json must contain 52 units");
@@ -202,18 +205,54 @@ const journeysById = new Map(
   program.journeys.map((journey) => [journey.id, journey])
 );
 const bootstrapCeremony = journeysById.get("J1")?.bootstrapCeremony;
-assert(
-  bootstrapCeremony?.decision === "RAT-04" &&
-    bootstrapCeremony.scope === "first release for one World" &&
-    bootstrapCeremony.transactionalArtifacts?.join("|") ===
-      "World|owner Membership|candidate release|publication record|active-release pointer" &&
-    bootstrapCeremony.refusesWhenAnyExists?.join("|") ===
-      "release|active-release pointer|Membership|completed bootstrap record" &&
-    bootstrapCeremony.capabilityAfterCommit === "removed" &&
-    bootstrapCeremony.superuser === "forbidden" &&
-    bootstrapCeremony.laterBypass === "forbidden",
-  "J1 must encode every RAT-04 bootstrap constraint"
+const validateBootstrapCeremony = (ceremony) => {
+  assert(
+    ceremony?.decision === "RAT-04" &&
+      ceremony.scope === "first release for one World" &&
+      ceremony.ownerAuthentication === "Better Auth" &&
+      ceremony.transactionalArtifacts?.join("|") ===
+        "World|owner Membership|candidate release|publication record|active-release pointer" &&
+      ceremony.refusesWhenAnyExists?.join("|") ===
+        "release|active-release pointer|Membership|completed bootstrap record" &&
+      ceremony.completedBootstrapRecordBindings?.join("|") ===
+        "owner|World|release digest|policy evidence used by the ceremony" &&
+      ceremony.capabilityAfterCommit === "removed" &&
+      ceremony.superuser === "forbidden" &&
+      ceremony.laterBypass === "forbidden" &&
+      ceremony.laterPublicationAndActivationPath === "seven-verb governed path",
+    "J1 must encode every RAT-04 bootstrap constraint"
+  );
+};
+for (const field of [
+  "ownerAuthentication",
+  "completedBootstrapRecordBindings",
+  "laterPublicationAndActivationPath",
+]) {
+  expectFailure(
+    () =>
+      validateBootstrapCeremony({ ...bootstrapCeremony, [field]: undefined }),
+    "every RAT-04 bootstrap constraint",
+    `missing ${field} bootstrap self-check`
+  );
+}
+validateBootstrapCeremony(bootstrapCeremony);
+const expectedSharedAuthorityReplay =
+  "Repeated Decide returns the original decision and deduplication result; repeated Commit returns the original CommitReceipt. Neither replay creates a second invite or Membership.";
+const validateSharedAuthorityReplay = (replayProof) => {
+  assert(
+    replayProof === expectedSharedAuthorityReplay,
+    "J3 must keep Decide replay separate from CommitReceipt replay"
+  );
+};
+expectFailure(
+  () =>
+    validateSharedAuthorityReplay(
+      "Repeated Decide or Commit returns the original receipt and creates no second invite or Membership."
+    ),
+  "Decide replay separate from CommitReceipt replay",
+  "J3 Decide receipt self-check"
 );
+validateSharedAuthorityReplay(journeysById.get("J3")?.replayProof);
 const channelIdentityProof = journeysById.get("J5")?.channelIdentityProof;
 const channelParticipants = channelIdentityProof?.participants ?? [];
 const channelProofFields = [
@@ -301,11 +340,125 @@ const worldIdentityMerge = frontier.mergedPullRequests.find(
 );
 assert(
   program.base.sha === "edc5d1d172f12299a0920aabbcaca8c78c5d525b" &&
-    worldIdentityUnit?.status === "done" &&
+    worldIdentityUnit?.status === "proof_pending" &&
     worldIdentityMerge?.unit === "W1-05" &&
     worldIdentityMerge.head === "c3e819c15e6aa4109a86a18d1b8e0915c208ceb9" &&
-    worldIdentityMerge.merge === program.base.sha,
-  "current main must record the verified PR #621 W1-05 merge"
+    worldIdentityMerge.merge === program.base.sha &&
+    worldIdentityMerge.verification === "proof_pending",
+  "current main must record PR #621 as merged with W1-05 proof pending"
+);
+const ledgerLines = ledgerText.replace(/\n$/, "").split("\n");
+assert(
+  ledgerLines[0] ===
+    "unit_id\tpr\thead_sha\tmerge_sha\tverdict\tevidence\tverifier\tverified_at\tmerged_at",
+  "ledger.tsv header does not match ledger-schema.md"
+);
+const ledgerRows = ledgerLines.slice(1).map((line, index) => {
+  const fields = line.split("\t");
+  assert(
+    fields.length === 9,
+    `ledger row ${index + 2} has the wrong field count`
+  );
+  return {
+    evidence: fields[5],
+    headSha: fields[2],
+    mergedAt: fields[8],
+    mergeSha: fields[3],
+    pr: fields[1],
+    unitId: fields[0],
+    verdict: fields[4],
+    verifiedAt: fields[7],
+    verifier: fields[6],
+  };
+});
+const allowedLedgerVerdicts = new Set(["journey-verified", "live-ui-verified"]);
+const validateImplementationLedger = (units, rows) => {
+  const unitsById = new Map(units.map((unit) => [unit.id, unit]));
+  for (const row of rows) {
+    const unit = unitsById.get(row.unitId);
+    assert(unit, `ledger names unknown unit ${row.unitId}`);
+    assert(
+      String(unit.pr ?? "") === row.pr &&
+        (unit.headSha ?? "") === row.headSha &&
+        (unit.mergeSha ?? "") === row.mergeSha &&
+        allowedLedgerVerdicts.has(row.verdict) &&
+        ledgerEvidencePath.test(row.evidence) &&
+        row.verifier.length > 0 &&
+        utcTimestamp.test(row.verifiedAt) &&
+        utcTimestamp.test(row.mergedAt),
+      `${row.unitId} ledger verdict does not match its exact implementation`
+    );
+  }
+  for (const unit of units.filter(
+    ({ status, wave }) => status === "done" && wave > 0
+  )) {
+    assert(
+      rows.filter(({ unitId }) => unitId === unit.id).length === 1,
+      `${unit.id} done implementation must have exactly one immutable ledger verdict`
+    );
+  }
+};
+const ledgerFixtureUnit = {
+  headSha: "a".repeat(40),
+  id: "W9-99",
+  mergeSha: "b".repeat(40),
+  pr: 999,
+  status: "done",
+  wave: 9,
+};
+const ledgerFixtureRow = {
+  evidence: "orchestrate/zoen-final/reports/w9-99-validation.md",
+  headSha: ledgerFixtureUnit.headSha,
+  mergedAt: "2026-09-03T00:01:00Z",
+  mergeSha: ledgerFixtureUnit.mergeSha,
+  pr: String(ledgerFixtureUnit.pr),
+  unitId: ledgerFixtureUnit.id,
+  verdict: "journey-verified",
+  verifiedAt: "2026-09-03T00:00:00Z",
+  verifier: "independent-verifier",
+};
+expectFailure(
+  () => validateImplementationLedger([ledgerFixtureUnit], []),
+  "exactly one immutable ledger verdict",
+  "missing implementation ledger self-check"
+);
+expectFailure(
+  () =>
+    validateImplementationLedger(
+      [ledgerFixtureUnit],
+      [ledgerFixtureRow, ledgerFixtureRow]
+    ),
+  "exactly one immutable ledger verdict",
+  "duplicate implementation ledger self-check"
+);
+expectFailure(
+  () =>
+    validateImplementationLedger(
+      [ledgerFixtureUnit],
+      [{ ...ledgerFixtureRow, headSha: "c".repeat(40) }]
+    ),
+  "does not match its exact implementation",
+  "mismatched implementation ledger self-check"
+);
+validateImplementationLedger(program.units, ledgerRows);
+assert(
+  !ledgerRows.some(({ unitId }) => unitId === "W1-05"),
+  "W1-05 must not claim a ledger verdict before its two-account ceremony"
+);
+await Promise.all(
+  ledgerRows.map(async (row) => {
+    const evidencePath = await resolveContainedPath(
+      root,
+      ".",
+      row.evidence,
+      `${row.unitId} ledger evidence`
+    );
+    const evidence = await readFile(evidencePath, "utf8");
+    assert(
+      evidence.includes(row.headSha),
+      `${row.unitId} ledger evidence does not name its exact head SHA`
+    );
+  })
 );
 assert(
   frontier.landingOrder.join("|") === "W1-03|W1-04|W2-01",
@@ -517,10 +670,13 @@ assert(
 );
 const bootstrapRequirements = [
   "The first release for a World MUST use a one-time owner ceremony",
+  "Authenticate the owner through Better Auth.",
   "Create the initial World, owner Membership, candidate release, publication record, and active-release pointer in one transaction.",
   "Refuse to run if the World has any release, active-release pointer, Membership, or completed bootstrap record.",
+  "Bind the completed bootstrap record to the owner, the World, the release digest, and the policy evidence used by the ceremony.",
   "Remove the bootstrap capability when the transaction commits.",
   "The ceremony MUST NOT create a superuser, a reusable bypass, or a policy-free path for a later release.",
+  "Every later publication and activation MUST use the seven-verb governed path.",
 ];
 assert(
   bootstrapRequirements.every((requirement) => spec.includes(requirement)),
@@ -591,8 +747,12 @@ assert(
 );
 const requiredWorkingAgreements = [
   "private Cargo `target`",
-  "Workers never merge or deploy.",
-  "only the exact head SHA verified in the ledger",
+  "These prohibitions apply to every worker on all 52 units.",
+  "Workers never merge, deploy, force-push, rewrite published history, or perform destructive Git or data operations.",
+  "only after Enzo explicitly authorizes the exact operation",
+  "only for the exact head SHA verified in the ledger",
+  "Force-push remains forbidden to every role.",
+  "Workers on all 52 units do not use Herdr, Cursor SDK, Portless, PR Cockpit, or Graphite.",
   "Resolve every actionable human and automated review comment before merge.",
   "Every unit reports its branch, head SHA, exact commands, verdict, deviations, and follow-up risks.",
 ];
