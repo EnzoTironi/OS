@@ -1,21 +1,19 @@
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const artifactFilename = "effect-handler-artifact.json";
-const outputDirectory = fileURLToPath(
-  new URL("../../../dist/apps/zoend/effect-handler/", import.meta.url)
-);
 const revisionPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const [, , revision] = process.argv;
+const [, , revision, outputDirectory] = process.argv;
 
 if (
-  process.argv.length !== 3 ||
+  process.argv.length !== 4 ||
   revision === undefined ||
-  !revisionPattern.test(revision)
+  !revisionPattern.test(revision) ||
+  outputDirectory === undefined ||
+  !path.isAbsolute(outputDirectory)
 ) {
   process.stderr.write(
-    "usage: write-build-artifact.mjs <immutable-revision>\n"
+    "usage: write-build-artifact.mjs <immutable-revision> <compiled-handler-directory>\n"
   );
   process.exitCode = 2;
 } else {

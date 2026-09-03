@@ -5,7 +5,7 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { once } from "node:events";
-import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import { createClient, type Client, type Interceptor } from "@connectrpc/connect";
@@ -99,12 +99,24 @@ const composeFile = path.join(composeDirectory, "compose.yaml");
 const composeProject = `zoen-${path.basename(composeDirectory)}`;
 const targetDirectory = path.join(repositoryRoot, "target", "debug");
 const distDirectory = path.join(repositoryRoot, "dist");
+const scenarioDistDirectory = path.join(
+  generatedDirectoryPath,
+  "ontology-runtime",
+  "dist",
+);
 const effectArtifactDirectory = path.join(
-  distDirectory,
+  scenarioDistDirectory,
   "apps",
   "zoend",
   "effect-handler",
 );
+const effectRegistrarDirectory = path.join(
+  scenarioDistDirectory,
+  "apps",
+  "zoend",
+  "effect-registrar",
+);
+let stageEffectRuntimePromise: Promise<void> | undefined;
 export const effectWorkerApiKeyFile = path.join(
   generatedDirectoryPath,
   "effect-worker.api-key",
@@ -488,6 +500,7 @@ export async function waitForCredentialReady(
 export async function prepareWorkerArtifact(
   revision = "effect-runtime-fixture",
 ): Promise<void> {
+  await stageEffectRuntime();
   await runProcess(
     process.execPath,
     [
@@ -499,6 +512,7 @@ export async function prepareWorkerArtifact(
         "write-build-artifact.mjs",
       ),
       revision,
+      effectArtifactDirectory,
     ],
   );
 }
@@ -546,17 +560,10 @@ export async function startEffectRegistrar(
   } = {},
 ): Promise<ManagedProcess> {
   assert.equal(identity.workloadId, "workload.effect-worker");
+  await stageEffectRuntime();
   return startProcess({
     command: process.execPath,
-    arguments: [
-      path.join(
-        distDirectory,
-        "apps",
-        "zoend",
-        "effect-registrar",
-        "main.js",
-      ),
-    ],
+    arguments: [path.join(effectRegistrarDirectory, "main.js")],
     environment: {
       NODE_ENV: "test",
       RESTATE_ADMIN_URL: restateAdmin,
@@ -590,6 +597,15 @@ export async function startEffectRegistrar(
     name: "effect registration reconciler",
     port: registrarPort,
   });
+}
+
+function stageEffectRuntime(): Promise<void> {
+  stageEffectRuntimePromise ??= cp(distDirectory, scenarioDistDirectory, {
+    errorOnExist: true,
+    force: false,
+    recursive: true,
+  });
+  return stageEffectRuntimePromise;
 }
 
 export async function stopProcess(managed: ManagedProcess): Promise<void> {

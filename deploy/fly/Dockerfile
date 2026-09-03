@@ -44,7 +44,8 @@ RUN npm ci \
     && /app/node_modules/.bin/tsc -p deploy/fly/tsconfig.ontology-runtime.json --pretty false \
     && test -n "${ZOEN_BUILD_REVISION}" \
     && node /app/apps/zoend/effect-handler/write-build-artifact.mjs \
-      "${ZOEN_BUILD_REVISION}"
+      "${ZOEN_BUILD_REVISION}" \
+      /app/dist/apps/zoend/effect-handler
 
 FROM node:24.20.0-bookworm-slim AS conversation
 WORKDIR /conversation
