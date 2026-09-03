@@ -4,9 +4,9 @@ use std::{
     fs,
     io::{self, Read, Write},
     net::IpAddr,
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use base64::Engine;
@@ -18,13 +18,14 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const DEVICE_WAIT_SECS: u64 = 120;
 const AUTH_CLIENT_ID: &str = "zoen";
+const DEVICE_POLL_FAILURE_LIMIT: u8 = 3;
+const DEVICE_SLOW_DOWN_SECS: u64 = 5;
 const ROOT_AFTER_HELP: &str = "\
 No args is help. Start the daemon with zoen serve.
 
 Environment:
-  ZOEN_BEARER             Better Auth session cookie (session_token)
+  ZOEN_BEARER             Better Auth session override (login is stored in ~/.zoen)
   ZOEN_PASSWORD           email login password (prefer over --password)
   ZOEN_TENANT             tenant id
   ZOEN_ZOEND              zoend origin
@@ -263,10 +264,9 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
         required_flags: &["--device|--email"],
         examples: &[
             "zoen auth login --device",
-            "zoen auth login --device --wait",
             "zoen auth login --email you@example.com --password-stdin",
         ],
-        stdout_json: r#"{"format":"json","device":{"deviceCode":"...","userCode":"...","verificationUri":"..."},"email":{"session":"..."}}"#,
+        stdout_json: r#"{"format":"json","fields":["loggedIn"]}"#,
     },
 ];
 
@@ -622,7 +622,7 @@ pub enum HistoryCommand {
 pub enum AuthCommand {
     /// Sign in at Better Auth
     #[command(
-        after_help = "Password resolution: --password, else ZOEN_PASSWORD, else stdin with --password-stdin.\nPrefer ZOEN_PASSWORD or --password-stdin so the secret is not on argv.\n\nExamples:\n  zoen auth login --device\n  zoen auth login --device --wait\n  zoen auth login --email you@example.com --password-stdin\n  ZOEN_PASSWORD=... zoen auth login --email you@example.com"
+        after_help = "Password resolution: --password, else ZOEN_PASSWORD, else stdin with --password-stdin.\nPrefer ZOEN_PASSWORD or --password-stdin so the secret is not on argv. A successful login is stored in ~/.zoen/credentials.json.\n\nExamples:\n  zoen auth login --device\n  zoen auth login --email you@example.com --password-stdin\n  ZOEN_PASSWORD=... zoen auth login --email you@example.com"
     )]
     Login {
         #[arg(long)]
@@ -633,8 +633,6 @@ pub enum AuthCommand {
         password_stdin: bool,
         #[arg(long)]
         device: bool,
-        #[arg(long)]
-        wait: bool,
     },
 }
 
@@ -651,6 +649,13 @@ struct RuntimeEnv {
     actor_id: String,
     workload_id: String,
     isolate: bool,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UserCredential {
+    zoend: String,
+    session_token: String,
 }
 
 struct CommandResult {
@@ -755,9 +760,8 @@ async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Sen
                     password,
                     password_stdin,
                     device,
-                    wait,
                 },
-        } => run_auth_login(email, password, password_stdin, device, wait).await,
+        } => run_auth_login(email, password, password_stdin, device).await,
         Command::World { command } => run_world(&parse_env()?, command).await,
         Command::Definition { command } => run_definition(&parse_env()?, command).await,
         Command::Source { command } => run_source(&parse_env()?, command).await,
@@ -947,9 +951,10 @@ async fn run_history(
 }
 
 fn parse_env() -> Result<RuntimeEnv, Box<dyn Error + Send + Sync>> {
+    let zoend = required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned();
     Ok(RuntimeEnv {
         actor_id: env_or("ZOEN_ACTOR", "actor.personal"),
-        bearer: required_env("ZOEN_BEARER")?,
+        bearer: resolve_bearer(&zoend)?,
         definition_digest: env_or("ZOEN_DEFINITION_DIGEST", ""),
         definition_id: env_or("ZOEN_DEFINITION_ID", ""),
         definition_revision: env_or("ZOEN_DEFINITION_REVISION", ""),
@@ -959,8 +964,37 @@ fn parse_env() -> Result<RuntimeEnv, Box<dyn Error + Send + Sync>> {
         tenant: required_env("ZOEN_TENANT")?,
         valid_at: required_env("ZOEN_VALID_AT")?,
         workload_id: env_or("ZOEN_WORKLOAD", "workload.personal"),
-        zoend: required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned(),
+        zoend,
     })
+}
+
+fn resolve_bearer(zoend: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+    if let Ok(value) = env::var("ZOEN_BEARER") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_owned());
+        }
+    }
+    let path = credential_store_path()?;
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(missing_login_message().into());
+        }
+        Err(error) => {
+            return Err(format!("could not read {}: {error}", path.display()).into());
+        }
+    };
+    let credential: UserCredential = serde_json::from_str(&raw)
+        .map_err(|_| format!("{} is not a valid Zoen credential store", path.display()))?;
+    if credential.zoend != zoend || credential.session_token.trim().is_empty() {
+        return Err(missing_login_message().into());
+    }
+    Ok(credential.session_token)
+}
+
+fn missing_login_message() -> &'static str {
+    "authentication is required for ZOEN_ZOEND and ZOEN_BEARER is empty\n  zoen auth login --device\n  zoen auth login --email you@example.com --password-stdin"
 }
 
 fn env_or(name: &str, fallback: &str) -> String {
@@ -983,9 +1017,6 @@ fn required_env(name: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
 
 fn required_env_message(name: &str) -> String {
     match name {
-        "ZOEN_BEARER" => format!(
-            "{name} is required\n  zoen auth login --device\n  zoen auth login --email you@example.com --password-stdin"
-        ),
         "ZOEN_ZOEND" => format!("{name} is required\n  export ZOEN_ZOEND=http://127.0.0.1:58080"),
         "ZOEN_TENANT" => format!("{name} is required\n  export ZOEN_TENANT=tenant.a"),
         "ZOEN_VALID_AT" => {
@@ -1114,9 +1145,9 @@ impl FailCode {
 
     fn parse(raw: &str) -> Option<Self> {
         match raw {
-            "permission_denied" => Some(Self::PermissionDenied),
-            "unauthenticated" => Some(Self::Unauthenticated),
-            "timed_out" => Some(Self::TimedOut),
+            "permission_denied" | "access_denied" => Some(Self::PermissionDenied),
+            "unauthenticated" | "invalid_grant" => Some(Self::Unauthenticated),
+            "timed_out" | "expired_token" => Some(Self::TimedOut),
             "not_connected" => Some(Self::NotConnected),
             "isolate_denied" => Some(Self::IsolateDenied),
             "missing_env" => Some(Self::MissingEnv),
@@ -1174,24 +1205,38 @@ fn command_error(text: &str) -> CommandResult {
 }
 
 fn map_connect(status: &ConnectStatus) -> (FailCode, String) {
-    let body_code = status.json.get("code").and_then(Value::as_str);
+    let body_code = status
+        .json
+        .get("code")
+        .or_else(|| status.json.get("error"))
+        .and_then(Value::as_str);
     let body_message = status
         .json
         .get("message")
+        .or_else(|| status.json.get("error_description"))
         .and_then(Value::as_str)
-        .unwrap_or(status.text.as_str());
+        .map_or_else(
+            || {
+                if status.json.is_object() {
+                    format!("request failed with HTTP {}", status.status)
+                } else {
+                    status.text.clone()
+                }
+            },
+            str::to_owned,
+        );
     if let Some(code) = body_code.and_then(FailCode::parse) {
-        return (code, body_message.to_owned());
+        return (code, body_message);
     }
     match status.status {
-        401 => (FailCode::Unauthenticated, body_message.to_owned()),
-        403 => (FailCode::PermissionDenied, body_message.to_owned()),
-        408 | 504 => (FailCode::TimedOut, body_message.to_owned()),
-        status if (500..600).contains(&status) => (FailCode::NotConnected, body_message.to_owned()),
+        401 => (FailCode::Unauthenticated, body_message),
+        403 => (FailCode::PermissionDenied, body_message),
+        408 | 504 => (FailCode::TimedOut, body_message),
+        status if (500..600).contains(&status) => (FailCode::NotConnected, body_message),
         _ => {
             let message = match body_code {
                 Some(code) => format!("{code}: {body_message}"),
-                None => body_message.to_owned(),
+                None => body_message,
             };
             (FailCode::Usage, message)
         }
@@ -2779,14 +2824,7 @@ async fn run_auth_login(
     password: Option<String>,
     password_stdin: bool,
     device: bool,
-    wait: bool,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    if wait && !device {
-        return Ok(fail(
-            2,
-            "zoen auth login --wait needs --device\n  zoen auth login --device --wait",
-        ));
-    }
     if device {
         if email.is_some() || password.is_some() || password_stdin {
             return Ok(fail(
@@ -2795,7 +2833,7 @@ async fn run_auth_login(
             ));
         }
         let zoend = required_env("ZOEN_ZOEND")?.trim_end_matches('/').to_owned();
-        return login_device(&zoend, wait).await;
+        return login_device(&zoend).await;
     }
     let password = match resolve_login_password(password, password_stdin) {
         Ok(password) => password,
@@ -2908,23 +2946,21 @@ async fn login_email(
     if !(200..300).contains(&status) {
         return Ok(fail_http_body(status, &text));
     }
-    if session_token_from_headers(&headers)
+    let session_token = session_token_from_headers(&headers)
         .or_else(|| session_token_from_body(&text))
-        .is_none()
-    {
+        .filter(|token| !token.is_empty());
+    let Some(session_token) = session_token else {
         return Ok(fail_coded(
             1,
             FailCode::Unauthenticated,
             "sign-in missing session_token",
         ));
-    }
+    };
+    store_credential(zoend, &session_token)?;
     Ok(ok(&json!({ "loggedIn": true })))
 }
 
-async fn login_device(
-    zoend: &str,
-    wait: bool,
-) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+async fn login_device(zoend: &str) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
     let started = Instant::now();
     let response = match http_client()?
         .post(format!("{zoend}/api/auth/device/code"))
@@ -2943,76 +2979,50 @@ async fn login_device(
     if !(200..300).contains(&status) {
         return Ok(fail_http_body(status, &text));
     }
-    let doc: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    let doc: Value = serde_json::from_str(&text)?;
     let device_code = doc
         .get("device_code")
         .and_then(Value::as_str)
         .ok_or("device/code missing device_code")?
         .to_owned();
-    let user_code = doc
-        .get("user_code")
+    let verification_uri_complete = doc
+        .get("verification_uri_complete")
         .and_then(Value::as_str)
-        .ok_or("device/code missing user_code")?
-        .to_owned();
-    let verification_uri = doc
-        .get("verification_uri")
-        .and_then(Value::as_str)
-        .unwrap_or("/device");
-    let verification_uri = rewrite_loopback_uri(verification_uri, zoend);
-    let open_line = format!("Open {verification_uri} and enter {user_code}\n");
-    if !wait {
-        return Ok(CommandResult {
-            exit_code: 0,
-            stdout: format!(
-                "{}\n",
-                json!({
-                    "deviceCode": device_code,
-                    "userCode": user_code,
-                    "verificationUri": verification_uri,
-                })
-            ),
-            stderr: open_line,
-        });
-    }
+        .ok_or("device/code missing verification_uri_complete")?;
+    let verification_uri_complete = rewrite_loopback_uri(verification_uri_complete, zoend);
+    let open_line = format!("Open {verification_uri_complete}\n");
     io::stderr().write_all(open_line.as_bytes())?;
-    let interval = doc.get("interval").and_then(Value::as_u64).unwrap_or(5);
+    let interval = doc
+        .get("interval")
+        .and_then(Value::as_u64)
+        .ok_or("device/code missing interval")?;
     let expires_in = doc
         .get("expires_in")
         .and_then(Value::as_u64)
-        .unwrap_or(1800);
-    poll_device_token(
-        zoend,
-        &device_code,
-        &user_code,
-        &verification_uri,
-        interval,
-        expires_in.clamp(1, DEVICE_WAIT_SECS),
-    )
-    .await
+        .ok_or("device/code missing expires_in")?;
+    poll_device_token(zoend, &device_code, interval, expires_in).await
 }
 
 async fn poll_device_token(
     zoend: &str,
     device_code: &str,
-    user_code: &str,
-    verification_uri: &str,
     interval: u64,
-    wait_secs: u64,
+    expires_in: u64,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    let deadline = Instant::now() + Duration::from_secs(wait_secs);
-    let sleep_for = Duration::from_secs(interval.max(1));
+    let Some(deadline) = Instant::now().checked_add(Duration::from_secs(expires_in)) else {
+        return Err("device authorization expiry exceeds the supported clock range".into());
+    };
+    let mut sleep_for = Duration::from_secs(interval);
+    let mut consecutive_failures = 0_u8;
     loop {
-        if Instant::now() >= deadline {
-            return Ok(fail_coded(
-                1,
-                FailCode::TimedOut,
-                &format!(
-                    "device authorization timed out. Open {verification_uri} and enter {user_code}"
-                ),
-            ));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(device_poll_deadline(zoend, consecutive_failures));
         }
-        tokio::time::sleep(sleep_for).await;
-        let started = Instant::now();
+        tokio::time::sleep(sleep_for.min(remaining)).await;
+        if Instant::now() >= deadline {
+            return Ok(device_poll_deadline(zoend, consecutive_failures));
+        }
         let response = match http_client()?
             .post(format!("{zoend}/api/auth/device/token"))
             .header(CONTENT_TYPE, "application/json")
@@ -3026,41 +3036,91 @@ async fn poll_device_token(
             .await
         {
             Ok(response) => response,
-            Err(error) if error.is_timeout() => return Err(timed_out_talking_to(zoend, started)),
+            Err(error) if error.is_timeout() || error.is_connect() => {
+                if note_device_poll_failure(&mut consecutive_failures) {
+                    return Ok(device_authorization_unavailable(zoend));
+                }
+                continue;
+            }
             Err(error) => return Err(error.into()),
         };
         let status = response.status().as_u16();
+        if (500..600).contains(&status) {
+            if note_device_poll_failure(&mut consecutive_failures) {
+                return Ok(device_authorization_unavailable(zoend));
+            }
+            continue;
+        }
         let headers = response.headers().clone();
-        let text = response.text().await?;
+        let text = match response.text().await {
+            Ok(text) => text,
+            Err(error) if error.is_timeout() || error.is_connect() => {
+                if note_device_poll_failure(&mut consecutive_failures) {
+                    return Ok(device_authorization_unavailable(zoend));
+                }
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        consecutive_failures = 0;
         if status == 200 {
-            let has_session = session_token_from_headers(&headers)
+            let session_token = session_token_from_headers(&headers)
                 .or_else(|| session_token_from_body(&text))
-                .or_else(|| {
-                    serde_json::from_str::<Value>(&text).ok().and_then(|doc| {
-                        doc.get("access_token")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    })
-                })
-                .is_some();
-            if !has_session {
+                .filter(|token| !token.is_empty());
+            let Some(session_token) = session_token else {
                 return Ok(fail_coded(
                     1,
                     FailCode::Unauthenticated,
                     "device/token missing session",
                 ));
-            }
+            };
+            store_credential(zoend, &session_token)?;
             return Ok(ok(&json!({ "loggedIn": true })));
         }
         let error = serde_json::from_str::<Value>(&text)
             .ok()
             .and_then(|doc| doc.get("error").and_then(Value::as_str).map(str::to_owned))
             .unwrap_or_default();
-        if error == "authorization_pending" || error == "slow_down" {
+        if error == "authorization_pending" {
+            continue;
+        }
+        if error == "slow_down" {
+            sleep_for = sleep_for
+                .checked_add(Duration::from_secs(DEVICE_SLOW_DOWN_SECS))
+                .ok_or("device polling interval exceeds the supported clock range")?;
             continue;
         }
         return Ok(fail_http_body(status, &text));
     }
+}
+
+fn note_device_poll_failure(consecutive_failures: &mut u8) -> bool {
+    *consecutive_failures = consecutive_failures.saturating_add(1);
+    *consecutive_failures >= DEVICE_POLL_FAILURE_LIMIT
+}
+
+fn device_poll_deadline(zoend: &str, consecutive_failures: u8) -> CommandResult {
+    if consecutive_failures == 0 {
+        device_authorization_timed_out()
+    } else {
+        device_authorization_unavailable(zoend)
+    }
+}
+
+fn device_authorization_unavailable(zoend: &str) -> CommandResult {
+    fail_coded(
+        1,
+        FailCode::NotConnected,
+        &format!("device authorization service at {zoend} is unavailable"),
+    )
+}
+
+fn device_authorization_timed_out() -> CommandResult {
+    fail_coded(
+        1,
+        FailCode::TimedOut,
+        "device authorization expired before approval",
+    )
 }
 
 fn session_token_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -3091,6 +3151,56 @@ fn session_token_from_body(text: &str) -> Option<String> {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         })
+        .or_else(|| {
+            doc.get("access_token")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+}
+
+fn credential_store_path() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    let home = env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .ok_or("HOME is required to store a Zoen login")?;
+    Ok(PathBuf::from(home).join(".zoen").join("credentials.json"))
+}
+
+fn store_credential(zoend: &str, session_token: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let path = credential_store_path()?;
+    let directory = path
+        .parent()
+        .ok_or("Zoen credential store has no parent directory")?;
+    fs::create_dir_all(directory)?;
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let temporary = directory.join(format!(
+        ".credentials.json.{}.{}.tmp",
+        std::process::id(),
+        stamp
+    ));
+    let credential = UserCredential {
+        zoend: zoend.to_owned(),
+        session_token: session_token.to_owned(),
+    };
+    let mut bytes = serde_json::to_vec(&credential)?;
+    bytes.push(b'\n');
+    let result = (|| -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&temporary)?;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary, &path)?;
+        fs::File::open(directory)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn cookie_value(raw: &str) -> String {

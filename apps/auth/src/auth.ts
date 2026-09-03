@@ -36,7 +36,14 @@ export function createAuth(door: DoorConfig) {
           },
         }
       : {}),
-    plugins: [deviceAuthorization({ verificationUri: "/device" })],
+    plugins: [
+      deviceAuthorization({
+        expiresIn: `${door.deviceExpiresInSeconds}s`,
+        interval: `${door.devicePollIntervalSeconds}s`,
+        validateClient: (clientId) => clientId === "zoen",
+        verificationUri: "/device",
+      }),
+    ],
   });
 }
 

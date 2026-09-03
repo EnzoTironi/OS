@@ -69,7 +69,7 @@ const server = createServer((req, res) => {
   }
 
   if (pathname === "/device") {
-    sendHtml(res, devicePage());
+    sendHtml(res, devicePage(config.google));
     return;
   }
 

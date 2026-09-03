@@ -5,7 +5,6 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import path from "node:path";
@@ -19,6 +18,9 @@ export const AUTH_DOOR_ORIGIN = e2eHttpUrl(
   "ZOEN_E2E_AUTH_PORT",
   58_704,
 );
+const AUTH_READY_TIMEOUT_MS = 20_000;
+const AUTH_STOP_TIMEOUT_MS = 10_000;
+const AUTH_KILL_TIMEOUT_MS = 3_000;
 const DOOR_PASSWORD = "E2e-session-door-1";
 const INVITE_EXPIRES_AT_MICROS = 4_102_444_800_000_000;
 
@@ -73,6 +75,18 @@ export type AuthDoor = {
   authDatabaseUrl: string;
   child: ChildProcessWithoutNullStreams;
   output: string[];
+};
+
+type StartAuthDoorOptions = {
+  device?: {
+    expiresInSeconds: number;
+    pollIntervalSeconds: number;
+  };
+  google?: {
+    clientId: string;
+    clientSecret: string;
+  };
+  readinessTimeoutMs?: number;
 };
 
 const jsonObject = z.record(z.string(), z.unknown());
@@ -161,7 +175,10 @@ export function corruptSessionToken(token: string): string {
   return `x${token}`;
 }
 
-export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> {
+export async function startAuthDoor(
+  authDatabaseUrl: string,
+  options: StartAuthDoorOptions = {},
+): Promise<AuthDoor> {
   const authRoot = path.join(process.cwd(), "apps", "auth");
   if (!existsSync(path.join(authRoot, "node_modules", "better-auth"))) {
     throw new Error(
@@ -173,7 +190,7 @@ export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> 
   }
   await ensureAuthDatabase(authDatabaseUrl);
   const secret = randomBytes(32).toString("base64");
-  const env = doorEnv(authDatabaseUrl, secret);
+  const env = doorEnv(authDatabaseUrl, secret, options);
   execFileSync(
     process.execPath,
     [
@@ -188,7 +205,7 @@ export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> 
   const output: string[] = [];
   const child = spawn(
     process.execPath,
-    [path.join(authRoot, "node_modules", "tsx", "dist", "cli.mjs"), "src/server.ts"],
+    ["--import", "tsx", path.join(authRoot, "src", "server.ts")],
     {
       cwd: authRoot,
       env,
@@ -198,16 +215,29 @@ export async function startAuthDoor(authDatabaseUrl: string): Promise<AuthDoor> 
   child.stdin.end();
   child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
   child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  await waitForAuth(child, output);
-  return { authDatabaseUrl, child, output };
+  child.on("error", (error) => output.push(`${error.message}\n`));
+  try {
+    await waitForAuth(
+      child,
+      output,
+      options.readinessTimeoutMs ?? AUTH_READY_TIMEOUT_MS,
+    );
+    return { authDatabaseUrl, child, output };
+  } catch (error) {
+    try {
+      await stopAuthChild(child);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "auth door startup and cleanup failed",
+      );
+    }
+    throw error;
+  }
 }
 
 export async function stopAuthDoor(door: AuthDoor): Promise<void> {
-  if (door.child.exitCode !== null) {
-    return;
-  }
-  door.child.kill("SIGINT");
-  await once(door.child, "exit");
+  await stopAuthChild(door.child);
 }
 
 export async function signUpSession(
@@ -600,32 +630,107 @@ async function connectPostgres(connectionString: string): Promise<PostgresClient
 function doorEnv(
   authDatabaseUrl: string,
   secret: string,
+  options: StartAuthDoorOptions,
 ): NodeJS.ProcessEnv {
   return {
     ...process.env,
     BETTER_AUTH_SECRET: secret,
     BETTER_AUTH_URL: AUTH_DOOR_ORIGIN,
     DATABASE_URL: authDatabaseUrl,
-    GOOGLE_CLIENT_ID: "",
-    GOOGLE_CLIENT_SECRET: "",
+    GOOGLE_CLIENT_ID: options.google?.clientId ?? "",
+    GOOGLE_CLIENT_SECRET: options.google?.clientSecret ?? "",
     ZOEN_AUTH_BASE_URL: AUTH_DOOR_ORIGIN,
+    ...(options.device === undefined
+      ? {}
+      : {
+          ZOEN_DEVICE_EXPIRES_IN_SECONDS: String(
+            options.device.expiresInSeconds,
+          ),
+          ZOEN_DEVICE_POLL_INTERVAL_SECONDS: String(
+            options.device.pollIntervalSeconds,
+          ),
+        }),
   };
 }
 
 async function waitForAuth(
   child: ChildProcessWithoutNullStreams,
   output: readonly string[],
+  timeoutMs: number,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (child.exitCode !== null) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (processExited(child)) {
       throw new Error(`auth door exited:\n${output.join("")}`);
     }
-    if (output.join("").includes(`${AUTH_DOOR_ORIGIN}\n`)) {
+    if (
+      output.join("").includes(`${AUTH_DOOR_ORIGIN}\n`) &&
+      (await portOpen(authDoorPort))
+    ) {
       return;
     }
-    await delay(250);
+    await delay(50);
   }
   throw new Error(`auth door did not become ready:\n${output.join("")}`);
+}
+
+async function stopAuthChild(
+  child: ChildProcessWithoutNullStreams,
+): Promise<void> {
+  if (processExited(child)) {
+    return;
+  }
+  child.kill("SIGINT");
+  try {
+    await waitForChildExit(child, AUTH_STOP_TIMEOUT_MS);
+  } catch (error) {
+    if (!processExited(child)) {
+      child.kill("SIGKILL");
+    }
+    await waitForChildExit(child, AUTH_KILL_TIMEOUT_MS);
+    throw error;
+  }
+}
+
+function waitForChildExit(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<void> {
+  if (processExited(child)) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.clearTimeout(timer);
+      child.off("close", onClose);
+      child.off("error", onError);
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(error);
+      }
+    };
+    const onClose = () => finish();
+    const onError = () => finish();
+    const timer = globalThis.setTimeout(
+      () => finish(new Error(`auth door did not exit within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    child.once("close", onClose);
+    child.once("error", onError);
+    if (processExited(child)) {
+      finish();
+    }
+  });
+}
+
+function processExited(child: ChildProcessWithoutNullStreams): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
 }
 
 function portOpen(port: number): Promise<boolean> {
