@@ -86,6 +86,10 @@ Inbound dest is the official Chat SDK Kapso channel at `/eve/v1/kapso`. Flatten 
 
 Inbound dest is Eve's first-class Telegram channel at `/eve/v1/telegram` (`eve/channels/telegram`). Same reply law as WhatsApp. Secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, optional `TELEGRAM_BOT_USERNAME`. Register the webhook yourself with `setWebhook` (eve does not). Prefer Telegram for headless loop proofs: forge an Update with the secret header, then observe `sendMessage`.
 
+After Eve accepts a Telegram turn, it records `message.from.id` as a provisional external subject through zoend's loopback machine boundary. Recording proves only the channel subject: Better Auth linking and Membership admission remain separate ceremonies.
+
+The local messaging journey proves recorder and database idempotence. Provider acceptance remains a two-account ceremony through `/eve/v1/telegram`, using only owned Telegram accounts and without reading browser sessions, QR data, or webhook credentials.
+
 ## Deploy
 
 Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS is `zoen.tironi.xyz` on zoend `:58701`.
