@@ -142,16 +142,231 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.98.0"
-      - run: npm ci
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix apps/auth
       - uses: actions/download-artifact@v4
         with:
           name: e2e-binaries
       - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection
       - run: ./e2e/run.sh run ${{ matrix.scenario }}
 
+  e2e-concurrent:
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix apps/auth
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-binaries
+      - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-http-connector target/debug/zoen-projection
+      - name: Run isolated journeys concurrently
+        run: |
+          port_in_use() {
+            node -e '
+              const { createConnection } = require("node:net");
+              const socket = createConnection({ host: "127.0.0.1", port: Number(process.argv[1]) });
+              const finish = (status) => {
+                socket.destroy();
+                process.exit(status);
+              };
+              socket.once("connect", () => finish(0));
+              socket.once("error", (error) => finish(error.code === "ECONNREFUSED" ? 42 : 2));
+              socket.setTimeout(500, () => finish(2));
+            ' "$1"
+          }
+          assert_scenario_clean() {
+            local project="$1"
+            local generated_directory="$2"
+            local port_status
+            local resource_ids
+            shift 2
+            if ! resource_ids="$(docker ps -aq --filter "label=com.docker.compose.project=${project}")"; then
+              echo "failed to inspect ${project} containers" >&2
+              return 1
+            fi
+            if [[ -n "$resource_ids" ]]; then
+              echo "${project} containers remain: ${resource_ids}" >&2
+              return 1
+            fi
+            if ! resource_ids="$(docker network ls -q --filter "label=com.docker.compose.project=${project}")"; then
+              echo "failed to inspect ${project} networks" >&2
+              return 1
+            fi
+            if [[ -n "$resource_ids" ]]; then
+              echo "${project} networks remain: ${resource_ids}" >&2
+              return 1
+            fi
+            if ! resource_ids="$(docker volume ls -q --filter "label=com.docker.compose.project=${project}")"; then
+              echo "failed to inspect ${project} volumes" >&2
+              return 1
+            fi
+            if [[ -n "$resource_ids" ]]; then
+              echo "${project} volumes remain: ${resource_ids}" >&2
+              return 1
+            fi
+            if [[ -e "$generated_directory" ]]; then
+              echo "generated directory remains: ${generated_directory}" >&2
+              return 1
+            fi
+            for port in "$@"; do
+              if port_in_use "$port"; then
+                echo "port ${port} is still in use" >&2
+                return 1
+              else
+                port_status=$?
+                if (( port_status != 42 )); then
+                  echo "failed to inspect port ${port}" >&2
+                  return 1
+                fi
+              fi
+            done
+          }
+
+          ./e2e/run.sh run durable-commit &
+          durable_wrapper_pid=$!
+          ./e2e/run.sh run governed-action &
+          governed_wrapper_pid=$!
+          durable_runner_pid=""
+          governed_runner_pid=""
+          for _ in {1..1800}; do
+            durable_runner_pid="$(pgrep -P "$durable_wrapper_pid" -f 'node dist/e2e/durable-commit.js' | head -n 1 || true)"
+            governed_runner_pid="$(pgrep -P "$governed_wrapper_pid" -f 'node dist/e2e/governed-action.js' | head -n 1 || true)"
+            if [[ -n "$durable_runner_pid" && -n "$governed_runner_pid" ]] \
+              && port_in_use 58101 && port_in_use 59205 \
+              && port_in_use 58083 && port_in_use 59209; then
+              break
+            fi
+            sleep 0.1
+          done
+          test -n "$durable_runner_pid"
+          test -n "$governed_runner_pid"
+          port_in_use 55440
+          port_in_use 58101
+          port_in_use 59205
+          port_in_use 55434
+          port_in_use 58083
+          port_in_use 59209
+
+          kill -TERM "$governed_runner_pid"
+          set +e
+          wait "$governed_wrapper_pid"
+          governed_status=$?
+          set -e
+          test "$governed_status" -eq 143
+          if kill -0 -- "-${governed_runner_pid}" 2>/dev/null; then
+            echo "governed-action process group survived TERM" >&2
+            exit 1
+          fi
+          assert_scenario_clean zoen-governed-action e2e/governed-action/.generated 55434 58083 59209
+          kill -0 "$durable_runner_pid"
+          port_in_use 55440
+          port_in_use 58101
+          port_in_use 59205
+
+          kill -INT "$durable_runner_pid"
+          set +e
+          wait "$durable_wrapper_pid"
+          durable_status=$?
+          set -e
+          test "$durable_status" -eq 130
+          if kill -0 -- "-${durable_runner_pid}" 2>/dev/null; then
+            echo "durable-commit process group survived INT" >&2
+            exit 1
+          fi
+          assert_scenario_clean zoen-durable-commit e2e/durable-commit/.generated 55440 58101 59205
+
+          ./e2e/run.sh run governed-action &
+          governed_wrapper_pid=$!
+          governed_runner_pid=""
+          for _ in {1..1800}; do
+            governed_runner_pid="$(pgrep -P "$governed_wrapper_pid" -f 'node dist/e2e/governed-action.js' | head -n 1 || true)"
+            if [[ -n "$governed_runner_pid" ]] \
+              && port_in_use 55434 && port_in_use 58083 && port_in_use 59209; then
+              break
+            fi
+            sleep 0.1
+          done
+          test -n "$governed_runner_pid"
+          kill -TERM "$governed_wrapper_pid"
+          second_term_sent=0
+          for _ in {1..500}; do
+            if kill -0 "$governed_wrapper_pid" 2>/dev/null \
+              && ! kill -0 -- "-${governed_runner_pid}" 2>/dev/null \
+              && [[ -n "$(docker ps -q --filter 'label=com.docker.compose.project=zoen-governed-action')" ]]; then
+              if kill -TERM "$governed_wrapper_pid"; then
+                second_term_sent=1
+              fi
+              break
+            fi
+            sleep 0.01
+          done
+          test "$second_term_sent" -eq 1
+          set +e
+          wait "$governed_wrapper_pid"
+          governed_status=$?
+          set -e
+          test "$governed_status" -eq 143
+          if kill -0 -- "-${governed_runner_pid}" 2>/dev/null; then
+            echo "governed-action process group survived wrapper TERM" >&2
+            exit 1
+          fi
+          assert_scenario_clean zoen-governed-action e2e/governed-action/.generated 55434 58083 59209
+
+          node -e '
+            const { createServer } = require("node:net");
+            const server = createServer();
+            process.once("SIGTERM", () => server.close());
+            server.listen(59205, "127.0.0.1");
+          ' &
+          occupied_port_pid=$!
+          for _ in {1..100}; do
+            port_in_use 59205 && break
+            sleep 0.1
+          done
+          port_in_use 59205
+          if assert_scenario_clean zoen-durable-commit e2e/durable-commit/.generated 55440 58101 59205 55434 58083 59209; then
+            echo "cleanup assertion missed occupied middle port 59205" >&2
+            kill -TERM "$occupied_port_pid"
+            wait "$occupied_port_pid"
+            exit 1
+          fi
+          kill -TERM "$occupied_port_pid"
+          wait "$occupied_port_pid"
+          assert_scenario_clean zoen-durable-commit e2e/durable-commit/.generated 55440 58101 59205 55434 58083 59209
+
+          set +e
+          for attempt in 1 2; do
+            ./e2e/run.sh run durable-commit &
+            durable_pid=$!
+            ./e2e/run.sh run governed-action &
+            governed_pid=$!
+            wait "$durable_pid"
+            durable_status=$?
+            wait "$governed_pid"
+            governed_status=$?
+            set -e
+            if (( durable_status != 0 || governed_status != 0 )); then
+              echo "attempt ${attempt}: durable=${durable_status} governed=${governed_status}" >&2
+              exit 1
+            fi
+            assert_scenario_clean zoen-durable-commit e2e/durable-commit/.generated 55440 58101 59205
+            assert_scenario_clean zoen-governed-action e2e/governed-action/.generated 55434 58083 59209
+            set +e
+          done
+          set -e
+          assert_scenario_clean zoen-durable-commit e2e/durable-commit/.generated 55440 58101 59205
+          assert_scenario_clean zoen-governed-action e2e/governed-action/.generated 55434 58083 59209
+
   required:
     if: always()
-    needs: [check, clippy, build, e2e]
+    needs: [check, clippy, build, e2e, e2e-concurrent]
     runs-on: ubuntu-latest
     steps:
       - name: Require every gate
@@ -160,3 +375,4 @@ jobs:
           test "${{ needs.clippy.result }}" = "success"
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.e2e.result }}" = "success"
+          test "${{ needs.e2e-concurrent.result }}" = "success"

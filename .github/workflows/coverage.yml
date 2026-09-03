@@ -34,6 +34,7 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix apps/auth
       - run: npm run build
       - name: Generate lcov
         run: |

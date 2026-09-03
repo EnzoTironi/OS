@@ -8,6 +8,12 @@ import {
   sourceCommitKeys,
 } from "./scenario-evidence.js";
 
+if (process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP === "1") {
+  delete process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP;
+  process.once("SIGINT", () => process.exit(130));
+  process.once("SIGTERM", () => process.exit(143));
+}
+
 /**
  * Host TCP port for an e2e scenario.
  *

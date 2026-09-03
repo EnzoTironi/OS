@@ -100,7 +100,9 @@ async function seedBoundAccount(): Promise<{
   telegramBindingId: string;
   linqBindingId: string;
 }> {
-  const boundToken = (await signUpSession("bound-bait")).token;
+  const boundToken = (
+    await signUpSession({ id: "bound-bait", zoendBaseUrl: baseUrl })
+  ).token;
   identityAdminBearer = boundToken;
   const bootstrap = await admin(
     "POST",
