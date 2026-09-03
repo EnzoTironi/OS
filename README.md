@@ -88,6 +88,8 @@ Inbound dest is Eve's first-class Telegram channel at `/eve/v1/telegram` (`eve/c
 
 After Eve accepts a Telegram turn, it records `message.from.id` as a provisional external subject through zoend's loopback machine boundary. Recording proves only the channel subject: Better Auth linking and Membership admission remain separate ceremonies.
 
+The local messaging journey proves recorder and database idempotence. Provider acceptance remains a two-account ceremony through `/eve/v1/telegram`, using only owned Telegram accounts and without reading browser sessions, QR data, or webhook credentials.
+
 ## Deploy
 
 Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS is `zoen.tironi.xyz` on zoend `:58701`.
