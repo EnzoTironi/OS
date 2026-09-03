@@ -16,4 +16,4 @@
 
 The ledger does not infer a verdict from a green check. The evidence document states the positive, denial, recovery, and exact-head proof that supports its verdict.
 
-Every implementation unit after wave 0 needs exactly one ledger row that matches its positive pull request number, head SHA, merge SHA, verdict, and evidence before its status can become `done`. Both SHAs are required for a `done` unit. A merged implementation without that row remains `proof_pending`; merge metadata alone is not verification.
+Every `done` unit after wave 0 needs exactly one ledger row that matches its positive pull request number, head SHA, merge SHA, verdict, and evidence. The same rule applies to a `done` wave 0 unit that has a pull request. Both SHAs are required. A merged implementation without that row remains `proof_pending`; merge metadata alone is not verification. Wave 0 records without a pull request remain exempt.

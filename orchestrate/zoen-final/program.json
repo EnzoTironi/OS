@@ -3,7 +3,7 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "daba8615f5ed39c1d84f4cd64ac8d830999e16b6"
+    "sha": "be24e0956e0bfb681634c796b5410afc5eef2e38"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
   "verbs": [
@@ -272,7 +272,7 @@
       "track": "integration",
       "wave": 0,
       "size": "M",
-      "status": "active",
+      "status": "done",
       "dependencies": ["W0-04"],
       "journeys": [],
       "finalGates": [
@@ -287,7 +287,9 @@
         "FIN-09"
       ],
       "branch": "codex/zoen-governed-north-ratification",
-      "pr": 620
+      "pr": 620,
+      "headSha": "1cb0609561fcf00f9c5412a2dfb4cb28235c5c11",
+      "mergeSha": "d8843d7effe2822dc69568319a3e01c177648b89"
     },
 
     {
@@ -329,7 +331,7 @@
       "journeys": ["J6", "J8"],
       "branch": "codex/w1-03-production-effect-handler",
       "pr": 617,
-      "headSha": "904562917f994096aab46e6e7dbb04f08ca55919"
+      "headSha": "eb1444fb85f913a61b8569e116466dd4f96f8900"
     },
     {
       "id": "W1-04",

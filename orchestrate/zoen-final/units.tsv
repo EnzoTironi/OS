@@ -3,10 +3,10 @@ W0-01	Map runtime, image, CI, projection, effects, and PR state	runtime-truth	0	
 W0-02	Map kernel, authority, policy, query, evidence, effects, and compute	world-authority	0	M	done						
 W0-03	Map Better Auth, Eve, identity, workbench, Kapso, and Telegram	identity-eve	0	M	done						
 W0-04	Synthesize product boundaries, journeys, units, and the pilot	integration	0	M	done	W0-01,W0-02,W0-03					
-W0-05	Ratify the governed-data extension and its research record	integration	0	M	active	W0-04		FIN-01,FIN-02,FIN-03,FIN-04,FIN-05,FIN-06,FIN-07,FIN-08,FIN-09	codex/zoen-governed-north-ratification	620	
+W0-05	Ratify the governed-data extension and its research record	integration	0	M	done	W0-04		FIN-01,FIN-02,FIN-03,FIN-04,FIN-05,FIN-06,FIN-07,FIN-08,FIN-09	codex/zoen-governed-north-ratification	620	1cb0609561fcf00f9c5412a2dfb4cb28235c5c11
 W1-01	Govern definition Publish with Cedar and persisted policy evidence	world-authority	1	L	done	W0-04	J1		codex/w1-01-governed-publish	602	6e6eddf3fa326cc1d30182ac5a53a6031d4c6409
 W1-02	Package and supervise projection with a least-privilege database role	runtime-truth	1	M	done	W1-01	J8		codex/w1-02-supervised-projection	609	5bff33bfe9d8c1f623867eeff61b277b19c127f6
-W1-03	Package and register a production ZoenEffect handler	runtime-truth	1	L	active	W1-01	J6,J8		codex/w1-03-production-effect-handler	617	904562917f994096aab46e6e7dbb04f08ca55919
+W1-03	Package and register a production ZoenEffect handler	runtime-truth	1	L	active	W1-01	J6,J8		codex/w1-03-production-effect-handler	617	eb1444fb85f913a61b8569e116466dd4f96f8900
 W1-04	Use Eve's internal Ontology URL and delete legacy conversation paths	runtime-truth	1	M	active	W1-01,W1-03	J5,J8		codex/w1-04-eve-runtime-boundary	618	aa07dce89325c25b2c0fd35129f1ee8628e8ff29
 W1-05	Record two Telegram identities through the existing browser without copying secrets	integration	1	S	proof_pending	W1-01	J5		codex/w1-05-telegram-identities	621	c3e819c15e6aa4109a86a18d1b8e0915c208ceb9
 W1-06	Make readiness cover policy, release, projection, ZoenEffect, Eve, Auth, and storage	runtime-truth	1	L	queued	W1-02,W1-03,W1-04	J8				
