@@ -177,13 +177,14 @@ jobs:
                 process.exit(status);
               };
               socket.once("connect", () => finish(0));
-              socket.once("error", () => finish(1));
-              socket.setTimeout(500, () => finish(1));
+              socket.once("error", (error) => finish(error.code === "ECONNREFUSED" ? 42 : 2));
+              socket.setTimeout(500, () => finish(2));
             ' "$1"
           }
           assert_scenario_clean() {
             local project="$1"
             local generated_directory="$2"
+            local port_status
             local resource_ids
             shift 2
             if ! resource_ids="$(docker ps -aq --filter "label=com.docker.compose.project=${project}")"; then
@@ -218,6 +219,12 @@ jobs:
               if port_in_use "$port"; then
                 echo "port ${port} is still in use" >&2
                 return 1
+              else
+                port_status=$?
+                if (( port_status != 42 )); then
+                  echo "failed to inspect port ${port}" >&2
+                  return 1
+                fi
               fi
             done
           }
@@ -274,6 +281,43 @@ jobs:
             exit 1
           fi
           assert_scenario_clean zoen-durable-commit e2e/durable-commit/.generated 55440 58101 59205
+
+          ./e2e/run.sh run governed-action &
+          governed_wrapper_pid=$!
+          governed_runner_pid=""
+          for _ in {1..1800}; do
+            governed_runner_pid="$(pgrep -P "$governed_wrapper_pid" -f 'node dist/e2e/governed-action.js' | head -n 1 || true)"
+            if [[ -n "$governed_runner_pid" ]] \
+              && port_in_use 55434 && port_in_use 58083 && port_in_use 59209; then
+              break
+            fi
+            sleep 0.1
+          done
+          test -n "$governed_runner_pid"
+          kill -TERM "$governed_wrapper_pid"
+          second_term_sent=0
+          for _ in {1..500}; do
+            if kill -0 "$governed_wrapper_pid" 2>/dev/null \
+              && ! kill -0 -- "-${governed_runner_pid}" 2>/dev/null \
+              && [[ -n "$(docker ps -q --filter 'label=com.docker.compose.project=zoen-governed-action')" ]]; then
+              if kill -TERM "$governed_wrapper_pid"; then
+                second_term_sent=1
+              fi
+              break
+            fi
+            sleep 0.01
+          done
+          test "$second_term_sent" -eq 1
+          set +e
+          wait "$governed_wrapper_pid"
+          governed_status=$?
+          set -e
+          test "$governed_status" -eq 143
+          if kill -0 -- "-${governed_runner_pid}" 2>/dev/null; then
+            echo "governed-action process group survived wrapper TERM" >&2
+            exit 1
+          fi
+          assert_scenario_clean zoen-governed-action e2e/governed-action/.generated 55434 58083 59209
 
           node -e '
             const { createServer } = require("node:net");

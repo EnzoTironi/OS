@@ -43,6 +43,8 @@ prepare=""
 runner_pid=""
 runner_process_group=""
 pending_signal_status=""
+scenario_ports=()
+cleanup_in_progress=0
 
 usage() {
   local row
@@ -69,9 +71,11 @@ no_compose_scenario() {
 
 load_scenario_env() {
   local env_file="e2e/${scenario}/.env"
+  local key
   export ZOEN_E2E_ARTIFACTS_DIR="artifacts/${scenario}"
   export ZOEN_E2E_GENERATED_DIR="e2e/${scenario}/.generated"
   generated_directory="${ZOEN_E2E_GENERATED_DIR}"
+  scenario_ports=()
   if no_compose_scenario; then
     return
   fi
@@ -83,6 +87,11 @@ load_scenario_env() {
   # shellcheck disable=SC1090
   source "$env_file"
   set +a
+  while IFS='=' read -r key _; do
+    if [[ "$key" == ZOEN_E2E_*_PORT ]]; then
+      scenario_ports+=("${!key}")
+    fi
+  done < "$env_file"
   if [[ -n "${ZOEN_E2E_AUTH_PORT:-}" ]]; then
     export ZOEN_AUTH_BASE_URL="http://127.0.0.1:${ZOEN_E2E_AUTH_PORT}"
   fi
@@ -264,12 +273,21 @@ require_fiscal_live_environment() {
   done
 }
 
+record_signal() {
+  if [[ -z "$pending_signal_status" ]]; then
+    pending_signal_status="$1"
+  fi
+  if ((cleanup_in_progress == 0)) && [[ -n "$runner_process_group" ]]; then
+    kill -TERM -- "-${runner_process_group}" 2>/dev/null || true
+  fi
+}
+
 stop_runner_process_group() {
   local process_group="${runner_process_group:-}"
   local process_id="${runner_pid:-}"
   local attempt
   if [[ -z "$process_group" ]]; then
-    return
+    return 0
   fi
   kill -TERM -- "-${process_group}" 2>/dev/null || true
   for ((attempt = 0; attempt < 50; attempt += 1)); do
@@ -279,7 +297,7 @@ stop_runner_process_group() {
       fi
       runner_pid=""
       runner_process_group=""
-      return
+      return 0
     fi
     sleep 0.1
   done
@@ -287,26 +305,29 @@ stop_runner_process_group() {
   if [[ -n "$process_id" ]]; then
     wait "$process_id" 2>/dev/null || true
   fi
-  runner_pid=""
-  runner_process_group=""
+  for ((attempt = 0; attempt < 50; attempt += 1)); do
+    if ! kill -0 -- "-${process_group}" 2>/dev/null; then
+      runner_pid=""
+      runner_process_group=""
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "journey process group ${process_group} survived cleanup" >&2
+  return 1
 }
 
 run_journey() {
   local observed_process_group
   local runner_status
-  pending_signal_status=""
-  trap 'pending_signal_status=130' INT
-  trap 'pending_signal_status=143' TERM
+  if [[ -n "$pending_signal_status" ]]; then
+    return "$pending_signal_status"
+  fi
   set -m
   ZOEN_E2E_RUNNER_PROCESS_GROUP=1 node "$runner" &
   runner_pid=$!
   runner_process_group="$runner_pid"
   set +m
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  if [[ -n "$pending_signal_status" ]]; then
-    exit "$pending_signal_status"
-  fi
   observed_process_group="$(
     ps -o pgid= -p "$runner_pid" 2>/dev/null | tr -d '[:space:]' || true
   )"
@@ -316,7 +337,10 @@ run_journey() {
     else
       runner_status=$?
     fi
-    stop_runner_process_group
+    if [[ -n "$pending_signal_status" ]]; then
+      runner_status="$pending_signal_status"
+    fi
+    stop_runner_process_group || return 1
     return "$runner_status"
   fi
   if [[ "$observed_process_group" != "$runner_process_group" ]]; then
@@ -327,51 +351,235 @@ run_journey() {
     echo "failed to isolate journey process group" >&2
     return 1
   fi
+  if [[ -n "$pending_signal_status" ]]; then
+    runner_status="$pending_signal_status"
+    stop_runner_process_group || return 1
+    return "$runner_status"
+  fi
   if wait "$runner_pid"; then
     runner_status=0
   else
     runner_status=$?
   fi
-  stop_runner_process_group
+  if [[ -n "$pending_signal_status" ]]; then
+    runner_status="$pending_signal_status"
+  fi
+  stop_runner_process_group || return 1
   return "$runner_status"
 }
 
+port_in_use() {
+  node -e '
+    const { createConnection } = require("node:net");
+    const port = Number(process.argv[1]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      process.exit(2);
+    }
+    const socket = createConnection({ host: "127.0.0.1", port });
+    const finish = (status) => {
+      socket.destroy();
+      process.exit(status);
+    };
+    socket.once("connect", () => finish(0));
+    socket.once("error", (error) => finish(error.code === "ECONNREFUSED" ? 42 : 2));
+    socket.setTimeout(500, () => finish(2));
+  ' "$1"
+}
+
+scenario_is_clean() {
+  local port
+  local port_status
+  local resource_ids
+  if [[ -n "$runner_process_group" ]] \
+    && kill -0 -- "-${runner_process_group}" 2>/dev/null; then
+    return 1
+  fi
+  if ! no_compose_scenario; then
+    if ! resource_ids="$(docker ps -aq --filter "label=com.docker.compose.project=${project}")" \
+      || [[ -n "$resource_ids" ]]; then
+      return 1
+    fi
+    if ! resource_ids="$(docker network ls -q --filter "label=com.docker.compose.project=${project}")" \
+      || [[ -n "$resource_ids" ]]; then
+      return 1
+    fi
+    if ! resource_ids="$(docker volume ls -q --filter "label=com.docker.compose.project=${project}")" \
+      || [[ -n "$resource_ids" ]]; then
+      return 1
+    fi
+  fi
+  if [[ -n "$generated_directory" && -e "$generated_directory" ]]; then
+    return 1
+  fi
+  for port in "${scenario_ports[@]}"; do
+    if port_in_use "$port"; then
+      return 1
+    else
+      port_status=$?
+      if ((port_status != 42)); then
+        return 1
+      fi
+    fi
+  done
+  return 0
+}
+
 cleanup_scenario() {
-  stop_runner_process_group
-  if no_compose_scenario; then
-    return
+  local attempt
+  local cleanup_verified=0
+  local generated_cleanup_status=0
+  local project_cleanup_status=0
+  local runner_cleanup_status=0
+  if ((cleanup_in_progress != 0)); then
+    echo "${scenario} cleanup re-entry blocked" >&2
+    return 1
   fi
-  docker compose --project-name "$project" --file "$compose_file" down --volumes --remove-orphans
-  if [[ -n "$generated_directory" ]]; then
-    rm -rf "$generated_directory"
+  cleanup_in_progress=1
+  if ! stop_runner_process_group; then
+    runner_cleanup_status=1
   fi
+  if ! no_compose_scenario; then
+    project_cleanup_status=1
+  fi
+  for ((attempt = 0; attempt < 50; attempt += 1)); do
+    if ! no_compose_scenario && ((attempt % 10 == 0)); then
+      if docker compose --project-name "$project" --file "$compose_file" \
+        down --timeout 5 --volumes --remove-orphans; then
+        project_cleanup_status=0
+      else
+        project_cleanup_status=1
+      fi
+    fi
+    if [[ -n "$generated_directory" ]]; then
+      if rm -rf "$generated_directory"; then
+        generated_cleanup_status=0
+      else
+        generated_cleanup_status=1
+      fi
+    fi
+    if ((runner_cleanup_status == 0 && project_cleanup_status == 0 \
+      && generated_cleanup_status == 0)) && scenario_is_clean; then
+      cleanup_verified=1
+      break
+    fi
+    sleep 0.1
+  done
+  cleanup_in_progress=0
+  if ((runner_cleanup_status != 0 || project_cleanup_status != 0 \
+    || generated_cleanup_status != 0)); then
+    echo "${scenario} cleanup command failed" >&2
+    return 1
+  fi
+  if ((cleanup_verified == 0)); then
+    echo "${scenario} cleanup did not converge" >&2
+    return 1
+  fi
+  return 0
+}
+
+cleanup_on_exit() {
+  local original_status=$?
+  local cleanup_status
+  trap - EXIT
+  if cleanup_scenario; then
+    cleanup_status=0
+  else
+    cleanup_status=$?
+  fi
+  trap - INT TERM
+  if ((cleanup_status != 0)); then
+    exit 1
+  fi
+  if [[ -n "$pending_signal_status" ]]; then
+    exit "$pending_signal_status"
+  fi
+  exit "$original_status"
+}
+
+finish_scenario() {
+  local runner_status="$1"
+  local cleanup_status
+  trap - EXIT
+  if cleanup_scenario; then
+    cleanup_status=0
+  else
+    cleanup_status=$?
+  fi
+  trap - INT TERM
+  if [[ -n "$pending_signal_status" ]]; then
+    runner_status="$pending_signal_status"
+  fi
+  if ((cleanup_status != 0)); then
+    return 1
+  fi
+  return "$runner_status"
 }
 
 run_scenario() {
+  local cleanup_status
+  local runner_status
+  pending_signal_status=""
+  cleanup_in_progress=0
   require_fiscal_live_environment
   if ! no_compose_scenario && ! command -v docker >/dev/null 2>&1; then
     echo "e2e-run requires docker; check/build do not" >&2
     exit 1
   fi
   require_built
-  trap cleanup_scenario EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  cleanup_scenario
+  trap cleanup_on_exit EXIT
+  trap 'record_signal 130' INT
+  trap 'record_signal 143' TERM
+  if cleanup_scenario; then
+    cleanup_status=0
+  else
+    cleanup_status=$?
+  fi
+  if ((cleanup_status != 0)); then
+    trap - EXIT INT TERM
+    return 1
+  fi
+  if [[ -n "$pending_signal_status" ]]; then
+    if finish_scenario "$pending_signal_status"; then
+      return 0
+    else
+      return $?
+    fi
+  fi
   mkdir -p "${ZOEN_E2E_ARTIFACTS_DIR}"
   if no_compose_scenario; then
-    run_journey
-    trap - EXIT INT TERM
-    return
+    if run_journey; then
+      runner_status=0
+    else
+      runner_status=$?
+    fi
+    if finish_scenario "$runner_status"; then
+      return 0
+    else
+      return $?
+    fi
   fi
   mkdir -p "$generated_directory"
   if [[ -n "$prepare" ]]; then
     node "$prepare"
   fi
+  if [[ -n "$pending_signal_status" ]]; then
+    if finish_scenario "$pending_signal_status"; then
+      return 0
+    else
+      return $?
+    fi
+  fi
   docker compose --project-name "$project" --file "$compose_file" up --detach --wait
-  run_journey
-  cleanup_scenario
-  trap - EXIT INT TERM
+  if run_journey; then
+    runner_status=0
+  else
+    runner_status=$?
+  fi
+  if finish_scenario "$runner_status"; then
+    return 0
+  else
+    return $?
+  fi
 }
 
 run_e2e() {
